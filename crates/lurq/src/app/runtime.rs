@@ -5762,6 +5762,10 @@ impl Tree {
       NodeKind::Slider { state } => match (logical, command) {
         ("ArrowRight" | "ArrowUp", _) | (_, "ArrowRight" | "ArrowUp") => state.nudge(1),
         ("ArrowLeft" | "ArrowDown", _) | (_, "ArrowLeft" | "ArrowDown") => state.nudge(-1),
+        ("PageUp", _) | (_, "PageUp") => state.page(1),
+        ("PageDown", _) | (_, "PageDown") => state.page(-1),
+        ("Home", _) | (_, "Home") => state.to_end(false),
+        ("End", _) | (_, "End") => state.to_end(true),
         _ => return false,
       },
       _ => return false,
@@ -11692,7 +11696,12 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
           data.append(name, "on");
         }
       }
-      NodeKind::Slider { state } => data.append(name, state.value_string()),
+      // A range slider submits its low value and its high one, in that order, under its name.
+      NodeKind::Slider { state } => {
+        for value in state.value_strings() {
+          data.append(name, value);
+        }
+      }
       NodeKind::Select { state } => {
         for label in state.selected_labels() {
           data.append(name, label.to_string());

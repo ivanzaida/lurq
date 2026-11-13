@@ -3,7 +3,9 @@
 `ui::Slider::orientation` (board: `Slider/Vertical`, `xGvSx`, in "Slider variants" of `Slider & Progress`) and
 `ui::RangeSlider` (board: `Range Slider`, `fujuW`, in "Small" of `Specialized Inputs`), with what the engine's
 slider needed for them. Both are built; the forms batch had left them open because the engine's slider was
-horizontal and of one value.
+horizontal and of one value. A second round closed what the first listed as not done: Home, End, Page Up and
+Page Down on every slider, a range slider in a form, and two numbers for a range in the MCP server's
+`lurq_set_value`.
 
 ## Changed outside the component's own files
 
@@ -38,10 +40,32 @@ take a `NodeKind::Slider` already, and they keep working with a range unchanged.
     high one going back.
   - The arrow keys are as they were (right and up raise, left and down lower), so a vertical slider needed nothing;
     of a range they move the active thumb.
+  - Page Up and Page Down move the focused thumb a tenth of the range in whole steps, at least one
+    (`SliderState::page`); Home and End take it to the least and the greatest value (`SliderState::to_end`). A
+    range's thumb stops at the other's value, as it does for the arrows.
+  - A range slider in a form submits two entries under its name, the low value then the high one
+    (`SliderState::value_strings`); a slider of one value submits one, as before.
   - `SliderHandle::values()` is new; `value()` is a range's low value; `set_from_ratio` now does what a press does
     (of a range, the nearer thumb moves; a slider of one value is set as before).
+- `components/form/`: a range is a field of its own kind.
+  - `value.rs`: `FormValue::Range(f64, f64)`, `as_range()`, from `(f64, f64)` and `(i32, i32)`;
+    `FormValues::get_range`.
+  - `handle.rs`: `FormHandle::range(name) -> Signal<(f64, f64)>`, `range_field`, `range_control`. A submit reads the
+    two entries under the name into the field; a reset, a field's reset, dirtiness and the touched state of a submit
+    take ranges as they take numbers.
+  - `options.rs`: `FormOptions::validate_range(name, Fn(Option<(f64, f64)>, &FormValues))`.
+  - `validators.rs`: `validators::range_span(min, max, span, message)`: both values between `min` and `max`, and at
+    least `span` apart.
+  - `compound/form_range_slider_input.rs`: `FormRangeSliderInput` and `FormRangeSliderInputProps`, the counterpart
+    of `FormSliderInput`: the field's label, hint and error around the engine's range slider bound to a range
+    control, validated when it loses the focus. Exported from `lurq::components` beside `FormSliderInput`.
+- `app/ctx.rs`: `ctx.range_control(name)`, beside `number_control`.
+- `mcp/tools/set_value.rs`, `mcp/registry.rs`: `lurq_set_value` on a range slider takes `[low, high]` and sets
+  both, snapped and put in order; one number still moves the nearer thumb. A slider of one value refuses an array.
+  The tool's description and its `value` schema say so.
 - `ui/mod.rs`: the exports of `RangeSlider` and `SliderOrientation`.
-- `tests/input/mod.rs`: `slider::range` and `slider::vertical`, with their files beside the other slider tests.
+- `tests/input/mod.rs`: `slider::range`, `slider::vertical`, `slider::keys` and `forms::range_slider`, with their
+  files beside the other slider and form tests. `mcp/tools/tests.rs` has a test of `lurq_set_value` on a range.
 
 ### For `docs/src/content/docs/styling-events.md`
 
@@ -65,14 +89,55 @@ Slider::new(level)
   .thumb(|style| style.size(14.0, 14.0).background("#f8fafc"));
 ```
 
-`Slider::new_range(Signal<(i32, i32)>)` and `Slider::new_range_f32(Signal<(f32, f32)>)` put two thumbs on one track, bound to a low value and a high one, with the fill between them. A press on the track moves the nearer thumb there (of two at one place, the one on the side of the press), a drag moves the thumb it began on to its end, and neither thumb passes the other: the low one stops at the high one's value. Each thumb is a stop of Tab, the low one first going forward and the high one first going back, and the arrow keys move the focused thumb, which alone takes the `thumb_focused` style. Both thumbs take the same `thumb` style. A range slider can be vertical too.
+`Slider::new_range(Signal<(i32, i32)>)` and `Slider::new_range_f32(Signal<(f32, f32)>)` put two thumbs on one track, bound to a low value and a high one, with the fill between them. A press on the track moves the nearer thumb there (of two at one place, the one on the side of the press), a drag moves the thumb it began on to its end, and neither thumb passes the other: the low one stops at the high one's value. Each thumb is a stop of Tab, the low one first going forward and the high one first going back, and the keys move the focused thumb, which alone takes the `thumb_focused` style. Both thumbs take the same `thumb` style. A range slider can be vertical too.
 
 ```rust
 let price = lurq::core::Signal::new((20, 80));
 lurq::components::Slider::new_range(price).range(0, 100).step(5);
 ```
 
-In a form a range slider's value is `low,high`. `SliderHandle::values()` reads both values, `value()` the low one, and `set_from_ratio` moves the thumb nearer the ratio, as a press does.
+#### Slider Keys
+
+| Key | |
+| --- | --- |
+| Right, Up | One step toward the greatest value |
+| Left, Down | One step toward the least |
+| Page Up, Page Down | A tenth of the range, in whole steps and at least one step, as a browser's range input pages |
+| Home, End | To the least value, to the greatest |
+
+The keys are the same for a vertical slider, and for the focused thumb of a range slider, which stops at the other thumb's value. A disabled slider is not a stop of Tab and takes no key.
+
+In a form a range slider submits two entries under its name, its low value and then its high one. `SliderHandle::values()` reads both values, `value()` the low one, and `set_from_ratio` moves the thumb nearer the ratio, as a press does.
+
+### For `docs/src/content/docs/forms.md`
+
+Under "Field Signals", after the paragraph on `FormSliderInput`:
+
+A range slider's field is a pair: `form.range(name)` returns `Signal<(f64, f64)>`, the low value first, and `FormRangeSliderInput` bridges it to the engine's range slider as `FormSliderInput` does a number. The form submits the two values under the field's name, validates the field when the slider loses the focus, and a reset puts both thumbs back at the default.
+
+```rust
+use lurq::components::{FormOptions, FormRangeSliderInput, FormRangeSliderInputProps, validators};
+
+let form = ctx.form(
+  FormOptions::new()
+    .field("price", (20, 80))
+    .validate_range("price", validators::range_span(0.0, 100.0, 10.0, "At least 10 apart")),
+);
+
+ctx.mount::<FormRangeSliderInput>(
+  FormRangeSliderInputProps::new(form.range_control("price")).label("Price").range(0, 100),
+)
+```
+
+In "Built-in validators", a row: `validators::range_span(min, max, span, message)`, with `validate_range`: both values between `min` and `max`, and at least `span` apart.
+
+In "Form Context Controls", a row: `ctx.range_control(name)`, "Resolve a range field control from the nearest form."
+
+In "FormValues", a row `get_range(name)` returning `Option<(f64, f64)>`; and `FormValue` has a `Range(f64, f64)` variant too, from `(f64, f64)` and `(i32, i32)`.
+
+### For `docs/src/content/docs/mcp.md`
+
+The row of `lurq_set_value`: "Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. A range slider takes `[low, high]` and sets both; one number moves its nearer thumb."
 
 ## For `docs/src/content/docs/design-system.md`
 
@@ -109,8 +174,9 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 | `label(&str)` | What the slider is called, to what reads the tree. The slider shows no text: the field it is in does |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the slider's node |
 
-- It is the engine's [`Slider`](../styling-events/#slider-styling) dressed by the recipe: a drag of the thumb, a press on the track and the arrow keys set the signal, snapped to the step and kept in the range. Tab reaches it wherever it is (`tab_index(0)`), and the focus ring is the thumb's. A vertical slider is dragged along its height, and the up and down arrows move it.
-- A range slider is the engine's slider with two thumbs. A press on the track moves the nearer thumb, a drag the thumb it began on, and neither passes the other. Each thumb is a stop of Tab, the low one first; the arrow keys move the one focused, and the ring is around it.
+- It is the engine's [`Slider`](../styling-events/#slider-styling) dressed by the recipe: a drag of the thumb, a press on the track and the keys set the signal, snapped to the step and kept in the range. Tab reaches it wherever it is (`tab_index(0)`), and the focus ring is the thumb's. A vertical slider is dragged along its height, and the up and down arrows move it.
+- The keys: the arrows a step (right and up toward the greatest value), Page Up and Page Down a tenth of the range in whole steps and at least one, Home and End to the least and the greatest. The [engine's slider keys](../styling-events/#slider-keys) are the same for a vertical slider and for each thumb of a range slider.
+- A range slider is the engine's slider with two thumbs. A press on the track moves the nearer thumb, a drag the thumb it began on, and neither passes the other, by the pointer or the keys. Each thumb is a stop of Tab, the low one first; the keys move the one focused, and the ring is around it. In a form it is `FormRangeSliderInput` (see [Forms](../forms/)).
 - Parts: `SliderPart::Root` (the slider's node: its size, its cursor, its opacity), `Track`, `Range` (the track from its start to the thumb, or between a range slider's thumbs), `Thumb` (both of a range slider's). States: `SliderState::Disabled`, `Vertical`, `Range`. A range slider is drawn by the slider's recipe and renderer in the state `Range`, so a theme that restyles the slider restyles it too, and `rules.state(SliderState::Range, ..)` styles it alone.
 - In the design the slider is 240 by 16; the track is 4 high and round, in `Secondary`; the range is `Primary`; the thumb is 16, round, in `Background` with an edge of 1.5 in `Primary` inside it. The vertical one is 16 by 140, its track 4 wide and as high as it. A disabled slider is dimmed. `style(SliderPart::Root, |s| s.width(Length::Fill))` makes it as wide as what holds it.
 - The engine paints the track, the range and the thumb, not nodes: of their style it takes the width and the height in pixels, the fill, the corners, the border and the outline (`focus_ring()` too), at rest, under the pointer (`hovered`), and for the thumb focused from the keyboard (`focus_visible`). An opacity, a shadow or a transition of one of those three parts is not painted. On a vertical slider a part's width is its thickness.
@@ -119,7 +185,7 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 
 ## For `CHANGELOG.md`
 
-- `ui::Slider::orientation` and `length`, and `ui::RangeSlider`: the board's vertical slider and range slider. The engine's `Slider` has `orientation(SliderOrientation)` (`vertical()`), laid out, painted and dragged along its height with the least value at the bottom, and `Slider::new_range` / `new_range_f32`: two thumbs on one track bound to a `Signal<(i32, i32)>` or `Signal<(f32, f32)>`, the fill between them, a press moving the nearer thumb, the thumbs not crossing, each a stop of Tab. `SliderHandle::values()` reads both; `set_from_ratio` moves the nearer thumb of a range.
+- `ui::Slider::orientation` and `length`, and `ui::RangeSlider`: the board's vertical slider and range slider. The engine's `Slider` has `orientation(SliderOrientation)` (`vertical()`), laid out, painted and dragged along its height with the least value at the bottom, and `Slider::new_range` / `new_range_f32`: two thumbs on one track bound to a `Signal<(i32, i32)>` or `Signal<(f32, f32)>`, the fill between them, a press moving the nearer thumb, the thumbs not crossing, each a stop of Tab. Every slider takes Home and End (to its ends) and Page Up and Page Down (a tenth of the range). In a form a range slider is `FormRangeSliderInput`, a `FormHandle::range` field submitted as two values, with `validate_range` and `validators::range_span`; `lurq_set_value` sets both values from `[low, high]`. `SliderHandle::values()` reads both; `set_from_ratio` moves the nearer thumb of a range.
 
 ## Decided
 
@@ -142,16 +208,23 @@ RangeSlider::new(price.clone()).step(5).label("Price");
   which `style(Root, ..)` would set with an orientation in mind.
 - `SliderOrientation` is the engine's type, re-exported by `lurq::ui`.
 - The gallery's playground has an `orientation` select; the page has a "Vertical" section (three channels, the
-  last with `length(100.0)`) and a "Range slider" section (a price in steps of 5, opening hours to 24, a disabled
-  one).
+  last with `length(100.0)`), a "Range slider" section (a price in steps of 5, opening hours to 24, a disabled
+  one), and a "Keyboard" section of what each key does.
+- A page (Page Up, Page Down) is a tenth of the range rounded to whole steps, and at least one step; not ten
+  steps. The engine's slider always has a step (1, or a hundredth), so "where there is no step" never happens, and
+  ten steps would cross a slider of 0 to 10 in one press and hardly move one of 0 to 1000. A tenth of the range is
+  what a browser's range input pages by, and ten presses always cross the track.
+- Home and End are absolute and Page Up and Page Down relative, as the arrows are; none of them wraps, and a
+  range's thumb stops at the other.
+- A range in a form is a field kind of its own (`FormValue::Range`, `FormHandle::range`) rather than two number
+  fields: one name, one value to validate and to reset, as the slider has one binding. It is submitted as two
+  entries under the name, the form data's way of holding several values for one name (a select of many does the
+  same), and read back into the field as a pair. A range slider in a form with no `range` field for its name
+  submits its entries as the form keeps any other unregistered field: as text, the last one kept.
+- `lurq_set_value` keeps one number for the nearer thumb, and takes `[low, high]` for both; a pair is snapped and
+  ordered, as the form's values are. An array for a slider of one value is an error, not its first number.
 
 ## Not done
-
-- Nothing of the two is left. Not on the board and not built: Home and End to the ends, Page Up and Page Down by
-  a larger step (neither has the slider of one value), and a form compound for a range slider
-  (`FormSliderInput` is of one value).
-- The MCP server's `lurq_set_value` on a range slider sets the thumb nearer the number given; it takes one number,
-  not two.
 
 ## Differs from the board
 

@@ -297,8 +297,11 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
     RegisteredTool {
       name: "lurq_set_value".into(),
       description: "Set a form control's value directly (no keystroke simulation): TextInput \
-                    (string), Checkbox (boolean), Slider (number), Select (option label or index). \
-                    Masked input replies contain the mask and masked=true, never the underlying value."
+                    (string), Checkbox (boolean), Slider (number), range Slider (two numbers \
+                    [low, high] set both values; one number moves the thumb nearer it), Select (option \
+                    label or index). Slider values are snapped to the slider's range and step, and a \
+                    range's two are put in order. Masked input replies contain the mask and masked=true, \
+                    never the underlying value."
         .into(),
       scope: Scope::Interact,
       read_only: false,
@@ -306,7 +309,7 @@ pub(crate) fn builtin_tools(router: bool) -> Vec<RegisteredTool> {
         "type": "object",
         "properties": {
           "ref": { "type": "string", "description": "Form element handle from lurq_read_tree" },
-          "value": { "description": "New value: string, boolean, or number depending on the control" }
+          "value": { "description": "New value: string, boolean, number, or [low, high] for a range slider, depending on the control" }
         },
         "required": ["ref", "value"]
       })),

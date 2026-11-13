@@ -66,9 +66,9 @@ pub(crate) use form::FormContext;
 pub use form::{
   Control, ControlOptions, ControlState, ErrorVisibility, Form, FormCheckboxInput, FormCheckboxInputProps,
   FormControlField, FormData, FormErrors, FormField, FormFieldProps, FormHandle, FormOptions, FormPrimaryButton,
-  FormPrimaryButtonProps, FormProps, FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput,
-  FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue, FormValues, ResolvedControl, ValidationResult,
-  validators,
+  FormPrimaryButtonProps, FormProps, FormRangeSliderInput, FormRangeSliderInputProps, FormSecondaryButton,
+  FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue,
+  FormValues, ResolvedControl, ValidationResult, validators,
 };
 #[cfg(all(feature = "raster", feature = "wgpu"))]
 pub use gpu_viewport::GpuViewport;

@@ -1673,6 +1673,12 @@ impl Ctx {
     self.current_form().bool_control(name).resolve()
   }
 
+  /// The control of a range slider's field, its low value and its high one, in the nearest form.
+  #[cfg(feature = "form")]
+  pub fn range_control(&mut self, name: impl Into<Arc<str>>) -> crate::components::ResolvedControl<(f64, f64)> {
+    self.current_form().range_control(name).resolve()
+  }
+
   #[cfg(feature = "form")]
   fn current_form(&mut self) -> crate::components::FormHandle {
     self

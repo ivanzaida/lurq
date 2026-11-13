@@ -83,8 +83,10 @@ enum Bound {
 /// ```
 ///
 /// The slider is bound to the app's signal: a drag, a press on the track
-/// and the arrow keys set it, snapped to the step and kept between the
-/// least and the greatest value. It is the engine's
+/// and the keys set it, snapped to the step and kept between the least and
+/// the greatest value. The arrow keys move it a step (right and up toward the
+/// greatest), Page Up and Page Down a tenth of the range in whole steps and at
+/// least one, and Home and End to the least and the greatest. It is the engine's
 /// [`Slider`](crate::components::Slider) dressed by the theme's recipe.
 pub struct Slider {
   value: Bound,
@@ -490,7 +492,8 @@ impl Themed for Slider {
 /// Bound to the app's signal of the two values, the low one first. A press on
 /// the track moves the nearer thumb there, a drag moves the thumb it began on,
 /// and neither thumb passes the other. Each thumb is a stop of Tab, the low
-/// one first, and the arrow keys move the one focused. It is drawn by the
+/// one first, and the keys move the one focused as they move a [`Slider`]:
+/// Home and End take it no further than the other thumb. It is drawn by the
 /// [`Slider`]'s recipe and renderer, in the state
 /// [`SliderState::Range`]: a theme that restyles the slider restyles it too.
 pub struct RangeSlider(Slider);

@@ -1,5 +1,6 @@
 //! The page of the slider: its playground, the slider bound to a signal, its
-//! states, one with marks under it, the vertical one and the range slider.
+//! states, one with marks under it, the vertical one, the range slider and
+//! what the keys do.
 
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, keys, props_table, quiet},
   playground::{Playground, Spec, divider, field, flag, prop},
 };
 
@@ -35,6 +36,30 @@ fn items() -> Row {
 const MINS: [(&str, i32); 3] = [("0", 0), ("10", 10), ("-50", -50)];
 const MAXES: [(&str, i32); 3] = [("100", 100), ("50", 50), ("10", 10)];
 const STEPS: [(&str, i32); 4] = [("1", 1), ("5", 5), ("10", 10), ("25", 25)];
+/// What each key does to a focused slider, and to the focused thumb of a range slider.
+const KEYS: [(&str, &str); 8] = [
+  ("Right  Up", "One step toward the greatest value, across or up."),
+  ("Left  Down", "One step toward the least."),
+  (
+    "Page Up",
+    "A tenth of the range toward the greatest, in whole steps and at least one: as a browser's range input pages.",
+  ),
+  ("Page Down", "A tenth of the range toward the least."),
+  ("Home", "To the least value; a range's high thumb stops at the low one."),
+  (
+    "End",
+    "To the greatest value; a range's low thumb stops at the high one.",
+  ),
+  (
+    "Tab",
+    "To the next stop. A range slider is two: its low thumb, then its high one.",
+  ),
+  (
+    "Shift Tab",
+    "Back: a range slider's high thumb first, then its low one.",
+  ),
+];
+
 /// The ways the playground's track can run.
 const ORIENTATIONS: [(&str, SliderOrientation); 2] = [
   ("Horizontal", SliderOrientation::Horizontal),
@@ -234,6 +259,23 @@ impl Component for SliderPage {
         Slider::new(Signal::new(40)).label("Disabled").disabled(true),
         "disabled",
       ));
+    // What the keys do, a row each: the key as it is on a keyboard, and what it does.
+    let keyboard = KEYS
+      .into_iter()
+      .fold(Column::new().width(FILL).spacing(10.0), |list, (key, does)| {
+        let chord = key
+          .split("  ")
+          .fold(Row::new().width(140.0).spacing(6.0), |chord, key| {
+            chord.child(keys(key))
+          });
+        list.child(
+          Row::new()
+            .width(FILL)
+            .align_items(Alignment::Center)
+            .child(chord)
+            .child(quiet(does, 13.0)),
+        )
+      });
     // The board's slider with marks: the slider as wide as what holds it, the marks under it from end to end.
     let marks = ["0", "25", "50", "75", "100"]
       .into_iter()
@@ -346,7 +388,7 @@ impl Component for SliderPage {
         Section::new(
           "Playground",
           "Every prop of Slider is a control on the right. The slider on the stage is live: drag its thumb, press \
-           the track, or Tab to it and use the arrow keys.",
+           the track, or Tab to it and use the arrow keys, Page Up and Page Down, Home and End.",
           playground,
         ),
         Section::new(
@@ -467,6 +509,12 @@ impl Component for SliderPage {
               "RangeSlider::new(range.clone()).label(\"Disabled\").disabled(true)",
             ],
           ),
+        ),
+        Section::new(
+          "Keyboard",
+          "What the keys do to the slider Tab is on: the same across and up, and for each thumb of a range slider, \
+           which never passes the other. A disabled slider is not a stop and takes no key.",
+          keyboard,
         ),
         Section::new(
           "Props",
