@@ -881,6 +881,12 @@ pub struct Tree {
   modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
   /// The modals that take the focus among the layers the last pass built.
   built_focus_modals: Vec<NodeId>,
+  /// The overlays that take the focus among the layers the last pass built: these are in `built_focus_modals`
+  /// too, and take the focus at the first focusable element of their own layer.
+  built_focus_overlays: Vec<NodeId>,
+  /// The arrow keys moved the focus in a group that follows the pointer, and took the hover away with it: the
+  /// hover stays away, under a pointer that holds still, until the pointer moves.
+  hover_held_by_keys: bool,
   /// The closed layers the overlay host still draws, while their exit
   /// animations play: see [`leaving_layers`].
   leaving_layers: Vec<leaving_layers::LeavingLayer>,
@@ -1283,6 +1289,8 @@ impl Tree {
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
       built_focus_modals: Vec::new(),
+      built_focus_overlays: Vec::new(),
+      hover_held_by_keys: false,
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
       leaving_children: Vec::new(),
@@ -4069,10 +4077,11 @@ impl Tree {
       target_id: NodeId::UNASSIGNED,
       text_input_focused: self.text_input_focused(),
       composing: self.is_composing(),
+      focus_within: false,
       control,
     };
     if let Some(root) = &self.root {
-      fire_keyboard_recursive(root, &mut evt);
+      fire_keyboard_recursive(root, &mut evt, self.focused_path.as_deref());
     }
     // An Enter the input method passes on during a composition reaches
     // handlers marked `composing`, but no default acts on it (form submit,
@@ -4155,13 +4164,14 @@ impl Tree {
       target_id: NodeId::UNASSIGNED,
       text_input_focused: self.text_input_focused(),
       composing,
+      focus_within: false,
       control: EventControl::new(),
     };
     let root = match &self.root {
       Some(r) => r,
       None => return,
     };
-    fire_keyboard_up_recursive(root, &mut evt);
+    fire_keyboard_up_recursive(root, &mut evt, self.focused_path.as_deref());
     self.apply_reactive_updates_after_event();
   }
 
@@ -4255,6 +4265,12 @@ impl Tree {
       self.scroll_focused_into_view();
       if group.activate {
         self.activate_focused_button(modifiers);
+      }
+      // In a group the focus follows the pointer in, what the keys moved to is the one item that is lit: the
+      // element under a pointer that holds still is not hovered until the pointer moves.
+      if group.follow_pointer {
+        self.clear_hover_path();
+        self.hover_held_by_keys = true;
       }
     }
     true
@@ -5376,6 +5392,12 @@ impl Tree {
     let current_ids: Vec<NodeId> = hover_hits.iter().map(|(n, _)| n.node_id()).collect();
 
     let moved = hover::move_hover(root, &self.hover_path, hover_hits);
+    // A move onto an element of a focus group that follows the pointer takes the focus there.
+    let pointer_focus = if matches!(evt.kind, MouseEventKind::Move) {
+      hover::pointer_focus(root, &self.hover_path, self.focused_path.as_deref(), hover_hits)
+    } else {
+      None
+    };
     if self.draws_hover(moved) {
       self.cached_render_list = None;
       self.needs_redraw = true;
@@ -5438,6 +5460,7 @@ impl Tree {
     {
       self.focus_node(target);
     }
+    self.follow_pointer_focus(pointer_focus);
   }
 
   fn current_slider_state(&self, node_id: NodeId) -> Option<SliderState> {
@@ -7146,6 +7169,7 @@ impl Tree {
       self.overlay_focus_entry = None;
       self.overlay_layer_origins.clear();
       self.built_focus_modals.clear();
+      self.built_focus_overlays.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
       return None;
@@ -7231,7 +7255,9 @@ impl Tree {
       overlay_index += 1;
     }
 
+    self.built_focus_overlays = std::mem::take(&mut layers.focus_overlays);
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
+    self.built_focus_modals.extend(self.built_focus_overlays.iter().copied());
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
@@ -7969,6 +7995,11 @@ fn build_overlays_from_layout_index(
         let dismiss_on_outside_click = spec.dismiss_on_outside_click;
         let outside_press = spec.outside_press;
         let dismiss_on_escape = spec.dismiss_on_escape;
+        if spec.takes_focus
+          && let Some(origin) = origin
+        {
+          layers.focus_overlays.push(origin);
+        }
         let (mut overlay, bounds, placing) = build_overlay_node(
           spec,
           anchor,
@@ -12108,8 +12139,19 @@ fn point_in_element_rect(x: f32, y: f32, rect: ElementRect) -> bool {
   x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 }
 
-fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
+/// The rest of the path to the focused node from the child at `index` of a
+/// node on it: `None` where the child is not on the way to the focus.
+fn focus_path_through(focus_path: Option<&[usize]>, index: usize) -> Option<&[usize]> {
+  let (first, rest) = focus_path?.split_first()?;
+  (*first == index).then_some(rest)
+}
+
+/// Calls the `on_key_down` handlers of `node` and of everything in it.
+/// `focus_path` is the path from `node` to the focused node, while `node` is
+/// on the way to it.
+fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent, focus_path: Option<&[usize]>) -> bool {
   evt.target_id = node.node_id();
+  evt.focus_within = focus_path.is_some();
   for handler in &node.events.on_key_down {
     handler.call(evt);
     if evt.immediate_propagation_stopped() {
@@ -12119,16 +12161,17 @@ fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   if evt.propagation_stopped() {
     return true;
   }
-  for child in node.children() {
-    if fire_keyboard_recursive(child, evt) {
+  for (index, child) in node.children().iter().enumerate() {
+    if fire_keyboard_recursive(child, evt, focus_path_through(focus_path, index)) {
       return true;
     }
   }
   false
 }
 
-fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
+fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent, focus_path: Option<&[usize]>) -> bool {
   evt.target_id = node.node_id();
+  evt.focus_within = focus_path.is_some();
   for handler in &node.events.on_key_up {
     handler.call(evt);
     if evt.immediate_propagation_stopped() {
@@ -12138,8 +12181,8 @@ fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent) -> bool {
   if evt.propagation_stopped() {
     return true;
   }
-  for child in node.children() {
-    if fire_keyboard_up_recursive(child, evt) {
+  for (index, child) in node.children().iter().enumerate() {
+    if fire_keyboard_up_recursive(child, evt, focus_path_through(focus_path, index)) {
       return true;
     }
   }

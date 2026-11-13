@@ -9,7 +9,7 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
-  ui::{Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Interaction, Menu, MenuItem, icons},
+  ui::{Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Menu, MenuItem, icons},
 };
 
 use crate::{
@@ -54,12 +54,16 @@ pub struct MenuPage {
   shortcut: Signal<String>,
   icon: Signal<bool>,
   checked: Signal<bool>,
+  radio: Signal<bool>,
+  submenu: Signal<bool>,
   destructive: Signal<bool>,
   disabled: Signal<bool>,
   inline: Signal<bool>,
   placement: Signal<usize>,
   play_anchor: ElementRef,
   play_open: Signal<bool>,
+  play_sub_anchor: ElementRef,
+  play_sub_open: Signal<bool>,
   // The dropdown under a button.
   account_anchor: ElementRef,
   account_open: Signal<bool>,
@@ -68,6 +72,9 @@ pub struct MenuPage {
   grid: Signal<bool>,
   snap: Signal<bool>,
   zoom_chosen: Signal<String>,
+  zoom: Signal<usize>,
+  export_anchor: ElementRef,
+  export_open: Signal<bool>,
   // The split button.
   merge_anchor: ElementRef,
   merge_open: Signal<bool>,
@@ -85,27 +92,41 @@ impl MenuPage {
       self.destructive.get(),
       self.disabled.get(),
     );
+    let (radio, submenu) = (self.radio.get(), self.submenu.get());
     let (inline, placement) = (self.inline.get(), self.placement.get().min(PLACEMENTS.len() - 1));
+    let record = self.playground.recorder();
+    let told = |name: &str| {
+      let (record, name) = (record.clone(), name.to_owned());
+      move || record(format!("on_select({name:?})"))
+    };
+    // The formats a submenu of the shaped item offers, each telling `told` when it is chosen.
+    let formats = |anchor: ElementRef, open: Signal<bool>, told: &dyn Fn(&str) -> Box<dyn Fn() + Send + Sync>| {
+      ["PNG", "SVG", "PDF"]
+        .into_iter()
+        .fold(Menu::new(anchor, open), |menu, format| {
+          menu.item(MenuItem::new(format).on_select(told(format)))
+        })
+    };
     let shaped = {
       let (label, shortcut) = (label.clone(), shortcut.clone());
-      move || {
-        let mut shaped = MenuItem::new(&label)
-          .checked(checked)
-          .destructive(destructive)
-          .disabled(disabled);
+      move |formats: Option<Menu>| {
+        let mut shaped = MenuItem::new(&label).destructive(destructive).disabled(disabled);
+        shaped = if radio {
+          shaped.radio(checked)
+        } else {
+          shaped.checked(checked)
+        };
         if icon {
           shaped = shaped.icon(icons::PENCIL);
         }
         if !shortcut.is_empty() {
           shaped = shaped.shortcut(&shortcut);
         }
-        shaped
+        match formats {
+          Some(formats) => shaped.submenu(formats),
+          None => shaped,
+        }
       }
-    };
-    let record = self.playground.recorder();
-    let told = |name: &str| {
-      let (record, name) = (record.clone(), name.to_owned());
-      move || record(format!("on_select({name:?})"))
     };
     let menu = move |anchor: ElementRef, open: Signal<bool>, shaped: MenuItem, undo: MenuItem, delete: MenuItem| {
       Menu::new(anchor, open)
@@ -122,7 +143,15 @@ impl MenuPage {
     let shown = menu(
       self.play_anchor.clone(),
       self.play_open.clone(),
-      shaped().force(self.playground.forced()).on_select(told(&label)),
+      shaped(submenu.then(|| {
+        formats(
+          self.play_sub_anchor.clone(),
+          self.play_sub_open.clone(),
+          &|format: &str| -> Box<dyn Fn() + Send + Sync> { Box::new(told(format)) },
+        )
+      }))
+      .force(self.playground.forced())
+      .on_select(told(&label)),
       undo().on_select(told("Undo")),
       delete().on_select(told("Delete")),
     );
@@ -145,7 +174,9 @@ impl MenuPage {
     let make = {
       let shaped = shaped.clone();
       move || -> Element {
-        menu(ElementRef::new(), Signal::new(true), shaped(), undo(), delete())
+        let quiet = |_: &str| -> Box<dyn Fn() + Send + Sync> { Box::new(|| {}) };
+        let sub = submenu.then(|| formats(ElementRef::new(), Signal::new(false), &quiet));
+        menu(ElementRef::new(), Signal::new(true), shaped(sub), undo(), delete())
           .inline(true)
           .into()
       }
@@ -158,8 +189,11 @@ impl MenuPage {
     if !shortcut.is_empty() {
       item_code.push(format!("            .shortcut({shortcut:?})"));
     }
+    if radio {
+      item_code.push(format!("            .radio({checked})"));
+    }
     for (on, call) in [
-      (checked, ".checked(true)"),
+      (checked && !radio, ".checked(true)"),
       (destructive, ".destructive(true)"),
       (disabled, ".disabled(true)"),
     ] {
@@ -167,7 +201,14 @@ impl MenuPage {
         item_code.push(format!("            {call}"));
       }
     }
-    item_code.push("            .on_select(|| rename()),".to_owned());
+    if submenu {
+      item_code.push("            .submenu(".to_owned());
+      item_code.push("                Menu::new(formats_anchor, formats_open)".to_owned());
+      item_code.push("                    .items([\"PNG\", \"SVG\", \"PDF\"].map(MenuItem::new)),".to_owned());
+      item_code.push("            ),".to_owned());
+    } else {
+      item_code.push("            .on_select(|| rename()),".to_owned());
+    }
     let mut code = vec!["// open: Signal<bool>, set by a press of the button the menu hangs from".to_owned()];
     code.push("Menu::new(anchor, open)".to_owned());
     if placement != 0 {
@@ -193,7 +234,10 @@ impl MenuPage {
       parts.push("shortcut");
     }
     if checked {
-      parts.push("check 16");
+      parts.push(if radio { "dot 16" } else { "check 16" });
+    }
+    if submenu {
+      parts.push("chevron 16");
     }
     let tree = vec![
       format!("panel        {}", self.playground.measured()),
@@ -214,6 +258,8 @@ impl MenuPage {
     let flags = [
       self.icon.clone(),
       self.checked.clone(),
+      self.radio.clone(),
+      self.submenu.clone(),
       self.destructive.clone(),
       self.disabled.clone(),
     ];
@@ -249,6 +295,8 @@ impl MenuPage {
           divider(),
           flag("icon", &self.icon),
           flag("checked", &self.checked),
+          flag("radio", &self.radio),
+          flag("submenu", &self.submenu),
           flag("destructive", &self.destructive),
           flag("disabled", &self.disabled),
           flag("inline", &self.inline),
@@ -259,6 +307,8 @@ impl MenuPage {
           placement != 0,
           !icon,
           checked,
+          radio,
+          submenu,
           destructive,
           disabled,
           !inline,
@@ -306,18 +356,25 @@ impl Component for MenuPage {
       shortcut: ctx.signal("F2".to_owned()),
       icon: ctx.signal(true),
       checked: ctx.signal(false),
+      radio: ctx.signal(false),
+      submenu: ctx.signal(false),
       destructive: ctx.signal(false),
       disabled: ctx.signal(false),
       inline: ctx.signal(true),
       placement: ctx.signal(0),
       play_anchor: ElementRef::new(),
       play_open: ctx.signal(false),
+      play_sub_anchor: ElementRef::new(),
+      play_sub_open: ctx.signal(false),
       account_anchor: ElementRef::new(),
       account_open: ctx.signal(false),
       account_chosen: ctx.signal(String::new()),
       grid: ctx.signal(true),
       snap: ctx.signal(false),
       zoom_chosen: ctx.signal(String::new()),
+      zoom: ctx.signal(1),
+      export_anchor: ElementRef::new(),
+      export_open: ctx.signal(false),
       merge_anchor: ElementRef::new(),
       merge_open: ctx.signal(false),
       strategy: ctx.signal(0),
@@ -373,7 +430,7 @@ impl Component for MenuPage {
       &chosen(&self.account_chosen),
     ));
 
-    // The board's menu, drawn in place: checked, disabled, grouped, and one under the pointer.
+    // The board's menu, drawn in place: checked, disabled, grouped, radios, and a submenu.
     let (grid, snap) = (self.grid.clone(), self.snap.clone());
     let (show_grid, snap_on) = (grid.get(), snap.get());
     let zoom = |name: &str| Self::says(&self.zoom_chosen, name);
@@ -394,11 +451,18 @@ impl Component for MenuPage {
       )
       .separator()
       .label("Zoom")
-      .item(MenuItem::new("Fit to window").on_select(zoom("Fit to window")))
+      .items(["Fit to window", "100%"].into_iter().enumerate().map(|(index, name)| {
+        let pick = self.zoom.clone();
+        MenuItem::new(name)
+          .radio(self.zoom.get() == index)
+          .on_select(move || pick.set(index))
+      }))
+      .separator()
       .item(
-        MenuItem::new("100%")
-          .force(Some(Interaction::Hovered))
-          .on_select(zoom("100%")),
+        MenuItem::new("Export as").submenu(
+          Menu::new(self.export_anchor.clone(), self.export_open.clone())
+            .items(["PNG", "SVG", "PDF"].map(|format| MenuItem::new(format).on_select(zoom(format)))),
+        ),
       );
     let states = items().child(item(board, &chosen(&self.zoom_chosen)));
 
@@ -490,6 +554,19 @@ impl Component for MenuPage {
         "Whether what it turns on is on: a check at its end.",
       ),
       (
+        "radio",
+        "bool",
+        "",
+        "One of several of which one is chosen: a dot at the end of the chosen one.",
+      ),
+      (
+        "submenu",
+        "Menu",
+        "",
+        "A menu the item opens beside it, under the pointer or on a press, with a chevron at its end. Choosing in \
+         it closes both.",
+      ),
+      (
         "destructive",
         "bool",
         "false",
@@ -499,7 +576,7 @@ impl Component for MenuPage {
         "disabled",
         "bool",
         "false",
-        "Dimmed; it cannot be chosen and Tab passes it by.",
+        "Dimmed; it cannot be chosen and the arrows pass it by.",
       ),
       (
         "on_select",
@@ -531,7 +608,8 @@ impl Component for MenuPage {
         Section::new(
           "Dropdown",
           "The page holds whether the menu is open, in a signal the button turns. Choosing an item closes it, and so \
-           do a press outside and Escape. While it is open Tab reaches its items, and Enter or Space chooses one.",
+           do a press outside and Escape. While it is open Tab stops in it once, Up and Down move between its items, \
+           Home and End go to the ends, and Enter or Space chooses one.",
           self.frame.demo(
             0,
             dropdown,
@@ -560,10 +638,11 @@ impl Component for MenuPage {
           ),
         ),
         Section::new(
-          "Checked, disabled and grouped",
-          "The board's menu, drawn in place. A checked item has a check at its end; the page turns it. A disabled \
-           one is dimmed, a separator ends a group, and a label says what the next one is about. The last item is \
-           drawn as it is under the pointer.",
+          "Checked, radio, disabled, submenu",
+          "The board's menu, drawn in place. A checked item has a check at its end and the page turns it; of the \
+           radios one is chosen, with a dot. A disabled one is dimmed and the arrows pass it by, a separator ends a \
+           group, and a label says what the next one is about. Export as opens its formats beside it, under the \
+           pointer or on a press, and stays highlighted while they are open.",
           self.frame.demo(
             1,
             states,
@@ -577,8 +656,18 @@ impl Component for MenuPage {
               "    .item(MenuItem::new(\"Snap to guides\").checked(snap.get()).on_select(..))",
               "    .separator()",
               "    .label(\"Zoom\")",
-              "    .item(MenuItem::new(\"Fit to window\"))",
-              "    .item(MenuItem::new(\"100%\").force(Some(Interaction::Hovered)))",
+              "    .item(MenuItem::new(\"Fit to window\").radio(zoom.get() == 0).on_select(..))",
+              "    .item(MenuItem::new(\"100%\").radio(zoom.get() == 1).on_select(..))",
+              "    .separator()",
+              "    .item(",
+              "        MenuItem::new(\"Export as\").submenu(",
+              "            // export: ElementRef, exporting: Signal<bool>",
+              "            Menu::new(export, exporting)",
+              "                .item(MenuItem::new(\"PNG\").on_select(..))",
+              "                .item(MenuItem::new(\"SVG\").on_select(..))",
+              "                .item(MenuItem::new(\"PDF\").on_select(..)),",
+              "        ),",
+              "    )",
             ],
           ),
         ),

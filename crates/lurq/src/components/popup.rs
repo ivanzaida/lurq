@@ -76,6 +76,13 @@ impl Popup {
     self
   }
 
+  /// Whether the focus goes into the popup as it opens and back to what had
+  /// it as it closes: see [`Overlay::takes_focus`]. Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.overlay = self.overlay.takes_focus(takes);
+    self
+  }
+
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.overlay = self.overlay.dismiss_on_escape(dismiss);
     self

@@ -41,6 +41,7 @@ pub struct FocusGroup {
   pub(crate) wrap: bool,
   pub(crate) activate: bool,
   pub(crate) one_stop: bool,
+  pub(crate) follow_pointer: bool,
 }
 
 impl FocusGroup {
@@ -50,6 +51,7 @@ impl FocusGroup {
       wrap: true,
       activate: false,
       one_stop: false,
+      follow_pointer: false,
     }
   }
 
@@ -78,6 +80,16 @@ impl FocusGroup {
   /// press it: the choice follows the focus, as in a radio group.
   pub fn activate(mut self, activate: bool) -> Self {
     self.activate = activate;
+    self
+  }
+
+  /// Whether the focus follows the pointer within the group: while the
+  /// focus is on one of its elements, the pointer coming onto another moves
+  /// the focus there, as it is in a menu, so that what the keyboard and what
+  /// the pointer are on are one. The focus shows no ring for it. The pointer
+  /// never takes the focus into the group from outside it.
+  pub fn follow_pointer(mut self, follow: bool) -> Self {
+    self.follow_pointer = follow;
     self
   }
 

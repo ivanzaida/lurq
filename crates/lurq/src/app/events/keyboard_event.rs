@@ -31,6 +31,11 @@ pub struct KeyboardEvent {
   /// set on the event a committed composition passes to `on_input` handlers
   /// (`TextInputEvent::keyboard`), whose `key` is the committed text.
   pub composing: bool,
+  /// Whether the keyboard's focus is on the node whose handler is being
+  /// called, or on a node inside it. A key event reaches every node's
+  /// `on_key_down`, focused or not: a handler that acts only for what has the
+  /// focus (an item of a menu opening its submenu on Right) checks this.
+  pub focus_within: bool,
   pub(crate) control: EventControl,
 }
 
@@ -54,6 +59,7 @@ impl KeyboardEvent {
       target_id,
       text_input_focused: false,
       composing: false,
+      focus_within: false,
       control: EventControl::new(),
     }
   }

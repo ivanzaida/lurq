@@ -10,17 +10,23 @@ use super::{
 };
 use crate::{
   app::{
-    ctx::{OpenState, Placement},
+    ctx::{OpenState, OutsidePress, Placement},
+    events::KeyboardEvent,
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{self, Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, border::Border},
+  node::{CursorIcon, Element, FocusGroup, border::Border},
 };
 
 /// How far the panel stands from its anchor, in the direction it opens.
 const ANCHOR_GAP: f32 = 4.0;
+
+/// Whether a key was pressed with no modifier held but Shift.
+fn plain(event: &KeyboardEvent) -> bool {
+  !event.ctrl && !event.alt && !event.meta
+}
 
 /// The parts of a menu a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -40,6 +46,17 @@ names!(MenuPart {
   Separator => "separator",
   SeparatorLine => "separator_line",
   Label => "label",
+});
+
+/// The states of a menu a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MenuState {
+  /// It is the submenu of an item of another menu, and opens beside it.
+  Submenu,
+}
+
+names!(MenuState {
+  Submenu => "submenu",
 });
 
 /// What builds a menu's nodes: a theme's in place of the default one.
@@ -65,11 +82,15 @@ pub enum MenuEntry {
 ///   ui::{Menu, MenuItem, icons},
 /// };
 ///
-/// # fn build(anchor: ElementRef, open: Signal<bool>) {
+/// # fn build(anchor: ElementRef, open: Signal<bool>, export: ElementRef, exporting: Signal<bool>) {
 /// let menu = Menu::new(anchor, open)
 ///   .label("File")
 ///   .item(MenuItem::new("Rename").icon(icons::PENCIL).shortcut("F2").on_select(|| println!("rename")))
 ///   .item(MenuItem::new("Duplicate").icon(icons::COPY).shortcut("Ctrl+D"))
+///   .item(
+///     MenuItem::new("Export as")
+///       .submenu(Menu::new(export, exporting).item(MenuItem::new("PNG")).item(MenuItem::new("SVG"))),
+///   )
 ///   .separator()
 ///   .item(MenuItem::new("Delete").icon(icons::TRASH).destructive(true));
 /// # }
@@ -81,12 +102,17 @@ pub enum MenuEntry {
 /// handler and closes the menu; a press outside it and Escape close it too.
 /// The menu is declared where its anchor is, open or not, so that lurq knows
 /// the anchor is its trigger.
+///
+/// Up and Down move the focus between the items, Home and End go to the first
+/// and the last, and a disabled item is passed by; Tab stops in the menu once.
 pub struct Menu {
   anchor: ElementRef,
   open: OpenState,
   entries: Vec<MenuEntry>,
-  placement: Placement,
+  placement: Option<Placement>,
   inline: bool,
+  submenu: bool,
+  closes_too: Vec<Signal<bool>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -98,13 +124,18 @@ impl Menu {
   /// `Signal<bool>`, which choosing an item, a press outside and Escape set
   /// to `false`. A `bool` holds it open or closed whatever is done to it: for
   /// a gallery or a test.
+  ///
+  /// The menu of an item's [`submenu`](MenuItem::submenu) hangs from that
+  /// item: `anchor` is given to the item, which opens the submenu.
   pub fn new(anchor: impl Into<ElementRef>, open: impl Into<OpenState>) -> Self {
     Self {
       anchor: anchor.into(),
       open: open.into(),
       entries: Vec::new(),
-      placement: Placement::BottomStart,
+      placement: None,
       inline: false,
+      submenu: false,
+      closes_too: Vec::new(),
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -136,9 +167,10 @@ impl Menu {
     self
   }
 
-  /// Where the panel opens beside its anchor: under it from its start, by default.
+  /// Where the panel opens beside its anchor: under it from its start, by
+  /// default, and a submenu beside its item from its top.
   pub fn placement(mut self, placement: Placement) -> Self {
-    self.placement = placement;
+    self.placement = Some(placement);
     self
   }
 
@@ -184,6 +216,14 @@ impl Menu {
     self
   }
 
+  /// Makes this menu the submenu of an item of a menu that `closes` is the
+  /// open signals of: choosing one of its items closes those too.
+  pub(crate) fn nested(mut self, closes: Vec<Signal<bool>>) -> Self {
+    self.submenu = true;
+    self.closes_too = closes;
+    self
+  }
+
   /// Builds the menu in `theme`. Converting a menu into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
@@ -193,14 +233,32 @@ impl Menu {
       density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
+    }
+    .state(MenuState::Submenu, self.submenu);
+    let default = if self.submenu {
+      Placement::RightStart
+    } else {
+      Placement::BottomStart
     };
+    // The open signals of the submenus of its items, which the pointer on another item closes.
+    let submenus = self
+      .entries
+      .iter()
+      .filter_map(|entry| match entry {
+        MenuEntry::Item(item) => item.submenu.as_ref()?.open.signal(),
+        _ => None,
+      })
+      .collect();
     let view = MenuView {
       entries: self.entries,
-      placement: self.placement,
+      submenus,
+      placement: self.placement.unwrap_or(default),
       inline: self.inline,
+      submenu: self.submenu,
       recipe: theme.resolve::<Menu>(&case, Some(&self.rules)),
       anchor: self.anchor,
       open: self.open,
+      closes_too: self.closes_too,
       id: self.id,
       key: self.key,
     };
@@ -224,10 +282,14 @@ pub struct MenuView {
   pub entries: Vec<MenuEntry>,
   pub placement: Placement,
   pub inline: bool,
+  /// Whether it is the submenu of an item of another menu.
+  pub submenu: bool,
   /// The style of each part of this menu.
   pub recipe: ResolvedRecipe,
   anchor: ElementRef,
   open: OpenState,
+  closes_too: Vec<Signal<bool>>,
+  submenus: Vec<Signal<bool>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -252,12 +314,26 @@ impl MenuView {
     self.open.signal()
   }
 
+  /// The signals choosing an item of this menu sets to `false`: its own, and
+  /// those of the menus it is a submenu of.
+  fn closes(&self) -> Vec<Signal<bool>> {
+    self
+      .open
+      .signal()
+      .into_iter()
+      .chain(self.closes_too.iter().cloned())
+      .collect()
+  }
+
   /// The panel in the style of its part, with nothing in it yet. It is a menu
-  /// to what reads the tree.
+  /// to what reads the tree, and a group the arrow keys move the focus in:
+  /// Up and Down between its items, Home and End to the first and the last.
+  /// Tab stops in it once.
   pub fn panel(&self) -> Column {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(MenuPart::Panel))
+      .focus_group(FocusGroup::vertical().one_stop(true).follow_pointer(true))
       .describe("a11y_role", "menu");
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
@@ -265,15 +341,31 @@ impl MenuView {
     if let Some(key) = &self.key {
       panel = panel.key(key.clone());
     }
+    // Left closes a submenu while the focus is in it; the focus goes back to the item it hangs from.
+    if self.submenu
+      && let Some(open) = self.open.signal()
+    {
+      panel = panel.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && plain(&event) && event.key == "ArrowLeft" {
+          event.prevent_default();
+          open.set(false);
+        }
+      });
+    }
     panel
   }
 
   /// The line between two groups of items, with its room.
+  ///
+  /// The line has no width of its own: it is stretched to the room's, which
+  /// the panel stretches to its own. A line that grew into the room there is
+  /// would make the menu as wide as the window.
   pub fn separator(&self) -> Element {
-    Row::new()
+    Column::new()
+      .align_items(Alignment::Stretch)
       .part(&self.part(MenuPart::Separator))
       .describe("a11y_role", "separator")
-      .child(Row::new().flex(1.0).part(&self.part(MenuPart::SeparatorLine)))
+      .child(Row::new().part(&self.part(MenuPart::SeparatorLine)))
       .into()
   }
 
@@ -283,9 +375,43 @@ impl MenuView {
     Row::new().part(&part).child(part.text(label).nowrap()).into()
   }
 
-  /// An item as this menu draws it, in its theme: choosing it closes the menu.
+  /// An item as this menu draws it, in its theme: choosing it closes the
+  /// menu, and the pointer on it closes the submenu of any other item.
   pub fn item(&self, item: MenuItem) -> Element {
-    item.closing(self.open.signal()).build(self.theme())
+    item.in_menu(self.closes(), self.submenus.clone()).build(self.theme())
+  }
+
+  /// How far the panel stands from its anchor: along the axis it opens on, and
+  /// for a submenu back by the panel's padding, so that its first item is
+  /// level with the item it hangs from.
+  fn offset(&self) -> (f32, f32) {
+    let beside = matches!(
+      self.placement,
+      Placement::LeftStart
+        | Placement::Left
+        | Placement::LeftEnd
+        | Placement::RightStart
+        | Placement::Right
+        | Placement::RightEnd
+    );
+    let (mut x, mut y) = if beside { (ANCHOR_GAP, 0.0) } else { (0.0, ANCHOR_GAP) };
+    if self.submenu {
+      let (theme, panel) = (self.theme(), self.part(MenuPart::Panel).rest());
+      let padding = |padding: Option<crate::node::SpacingValue>| {
+        padding
+          .map(|padding| padding.resolve(&theme.spacing(), 0.0))
+          .unwrap_or(0.0)
+      };
+      if beside {
+        // Out of the panel the item is in, then the gap; up by the padding over the first item.
+        x += padding(panel.padding_x);
+        y -= padding(panel.padding_y);
+      } else {
+        y += padding(panel.padding_y);
+        x -= padding(panel.padding_x);
+      }
+    }
+    (x, y)
   }
 
   /// How the default renderer builds a menu: the panel with what it holds,
@@ -302,20 +428,21 @@ impl MenuView {
     if self.inline {
       return panel.into();
     }
-    let (x, y) = match self.placement {
-      Placement::LeftStart
-      | Placement::Left
-      | Placement::LeftEnd
-      | Placement::RightStart
-      | Placement::Right
-      | Placement::RightEnd => (ANCHOR_GAP, 0.0),
-      _ => (0.0, ANCHOR_GAP),
-    };
-    Popup::new(self.anchor, panel)
+    let (x, y) = self.offset();
+    // The focus goes to the first item that takes it as the menu opens, and back to what had it as it closes.
+    let mut popup = Popup::new(self.anchor, panel)
       .open(self.open)
       .placement(self.placement)
       .offset(x, y)
-      .into()
+      .takes_focus(true);
+    if self.submenu {
+      // A press on the menu it hangs from closes the submenu and still reaches the item pressed there; the item
+      // it hangs from opens it, and is no trigger of another dropdown.
+      popup = popup
+        .outside_press(OutsidePress::PassThrough)
+        .switch_on_anchor_press(false);
+    }
+    popup.into()
   }
 }
 
@@ -325,9 +452,10 @@ impl Themed for Menu {
 
   /// The design's menu (`pencil/lurq-design-system.pen`, Menu): a panel of the
   /// popover's color at least 230 wide, padded 4, with the large radius, an
-  /// edge of 1 in the border's color and the medium shadow. A separator is a
-  /// line of 1 in the border's color with 4 above and below; the label of a
-  /// group is 11/600 in the muted foreground, 8 in from the side.
+  /// edge of 1 in the border's color and the medium shadow. A submenu is at
+  /// least 160 wide. A separator is a line of 1 in the border's color with 4
+  /// above and below; the label of a group is 11/600 in the muted foreground,
+  /// 8 in from the side.
   fn recipe() -> Recipe {
     use MenuPart::{Label, Panel, Separator, SeparatorLine};
     use PaletteColor::{MutedForeground, Popover, PopoverForeground};
@@ -342,6 +470,7 @@ impl Themed for Menu {
           .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
           .shadow(ShadowStyle::Md)
       })
+      .state(MenuState::Submenu, Panel, |s| s.min_width(160.0))
       .base(Separator, |s| s.padding_y(4.0))
       .base(SeparatorLine, |s| s.height(1.0).background(PaletteColor::Border))
       .base(Label, |s| {
@@ -367,8 +496,10 @@ pub enum MenuItemPart {
   Label,
   /// The keys that do the same, at the end: "Ctrl+Z".
   Shortcut,
-  /// The check at the end of an item that is checked.
+  /// The mark at the end of an item that is on: a check, or a dot for one of several.
   Check,
+  /// The chevron at the end of an item that opens a submenu.
+  Chevron,
 }
 
 names!(MenuItemPart {
@@ -377,24 +508,31 @@ names!(MenuItemPart {
   Label => "label",
   Shortcut => "shortcut",
   Check => "check",
+  Chevron => "chevron",
 });
 
 /// The states of a menu item a recipe styles, besides what the pointer and
 /// the keyboard do to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MenuItemState {
-  /// What it turns on is on: it has a check at its end.
+  /// What it turns on is on, or it is the one chosen of several: it has a mark at its end.
   Checked,
+  /// It is one of several of which one is chosen: its mark is a dot.
+  Radio,
   /// It removes, or cannot be undone: it is in the destructive color.
   Destructive,
   /// It cannot be chosen.
   Disabled,
+  /// Its submenu is open.
+  Expanded,
 }
 
 names!(MenuItemState {
   Checked => "checked",
+  Radio => "radio",
   Destructive => "destructive",
   Disabled => "disabled",
+  Expanded => "expanded",
 });
 
 /// What builds a menu item's nodes: a theme's in place of the default one.
@@ -407,25 +545,28 @@ pub type MenuItemRenderer = Arc<dyn Fn(MenuItemView) -> Element + Send + Sync>;
 ///
 /// let undo = MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z").on_select(|| println!("undo"));
 /// let grid = MenuItem::new("Show grid").checked(true);
+/// let actual = MenuItem::new("100%").radio(true);
 /// let redo = MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true);
 /// let delete = MenuItem::new("Delete").icon(icons::TRASH).destructive(true);
 /// ```
 ///
-/// It is chosen by a click, and by Enter or Space while it is focused; Tab
-/// reaches it while its menu is open. Under the pointer or focused from the
-/// keyboard it is highlighted.
+/// It is chosen by a click, and by Enter or Space while it is focused. Under
+/// the pointer or focused from the keyboard it is highlighted.
 pub struct MenuItem {
   label: Arc<str>,
   icon: Option<Name>,
   shortcut: Option<Arc<str>>,
   checked: Option<bool>,
+  radio: bool,
   destructive: bool,
   disabled: bool,
+  submenu: Option<Menu>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
-  closes: Option<Signal<bool>>,
+  closes: Vec<Signal<bool>>,
+  submenus: Vec<Signal<bool>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -438,13 +579,16 @@ impl MenuItem {
       icon: None,
       shortcut: None,
       checked: None,
+      radio: false,
       destructive: false,
       disabled: false,
+      submenu: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
       on_select: Vec::new(),
-      closes: None,
+      closes: Vec::new(),
+      submenus: Vec::new(),
       id: None,
       key: None,
     }
@@ -467,6 +611,17 @@ impl MenuItem {
   /// this is one that is checked or not, to what reads the tree.
   pub fn checked(mut self, checked: bool) -> Self {
     self.checked = Some(checked);
+    self.radio = false;
+    self
+  }
+
+  /// Whether the item is the one chosen of several that follow one another,
+  /// as a zoom of 50%, 100% or 200%: a dot at its end. An item given this is
+  /// a radio, chosen or not, to what reads the tree. The app says which is
+  /// chosen, and is told by [`on_select`](Self::on_select).
+  pub fn radio(mut self, chosen: bool) -> Self {
+    self.checked = Some(chosen);
+    self.radio = true;
     self
   }
 
@@ -476,9 +631,20 @@ impl MenuItem {
     self
   }
 
-  /// Whether the item cannot be chosen: it is dimmed, and Tab passes it by.
+  /// Whether the item cannot be chosen: it is dimmed, and the arrow keys pass it by.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// A menu the item opens beside it, with a chevron at its end: "Export as",
+  /// and the formats beside it. The submenu hangs from this item, by the
+  /// anchor it was made with; a press of the item and the pointer on it open
+  /// it, and the pointer on another item of the menu closes it. Choosing an
+  /// item of the submenu closes both menus. The item opens its submenu and is
+  /// not chosen itself: it has no [`on_select`](Self::on_select).
+  pub fn submenu(mut self, menu: Menu) -> Self {
+    self.submenu = Some(menu);
     self
   }
 
@@ -528,15 +694,19 @@ impl MenuItem {
     self
   }
 
-  /// The signal set to `false` once the item is chosen: its menu's.
-  pub(crate) fn closing(mut self, open: Option<Signal<bool>>) -> Self {
-    self.closes = open;
+  /// What the menu the item is in gives it: the signals choosing it sets to
+  /// `false`, and the open signals of the submenus of the menu's items, which
+  /// the pointer on it closes but for its own.
+  pub(crate) fn in_menu(mut self, closes: Vec<Signal<bool>>, submenus: Vec<Signal<bool>>) -> Self {
+    self.closes = closes;
+    self.submenus = submenus;
     self
   }
 
   /// Builds the item in `theme`. Converting an item into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    let expanded = self.submenu.as_ref().is_some_and(|menu| menu.open.is_open());
     let case = Case {
       variant: None,
       size: None,
@@ -545,19 +715,25 @@ impl MenuItem {
       states: self.states.clone(),
     }
     .state(MenuItemState::Checked, self.checked == Some(true))
+    .state(MenuItemState::Radio, self.radio)
     .state(MenuItemState::Destructive, self.destructive)
-    .state(MenuItemState::Disabled, self.disabled);
+    .state(MenuItemState::Disabled, self.disabled)
+    .state(MenuItemState::Expanded, expanded);
     let view = MenuItemView {
       label: self.label,
       icon: self.icon,
       shortcut: self.shortcut,
       checked: self.checked,
+      radio: self.radio,
       destructive: self.destructive,
       disabled: self.disabled,
+      expanded,
       recipe: theme.resolve::<MenuItem>(&case, Some(&self.rules)),
+      submenu: self.submenu,
       forced: self.forced,
       on_select: self.on_select,
       closes: self.closes,
+      submenus: self.submenus,
       id: self.id,
       key: self.key,
     };
@@ -582,15 +758,21 @@ pub struct MenuItemView {
   pub icon: Option<Name>,
   /// The keys written at its end, if it has them.
   pub shortcut: Option<Arc<str>>,
-  /// Whether it is checked, for an item that is checked or not.
+  /// Whether it is on (checked, or the chosen radio), for an item that is on or off.
   pub checked: Option<bool>,
+  /// Whether it is one of several of which one is chosen.
+  pub radio: bool,
   pub destructive: bool,
   pub disabled: bool,
+  /// Whether its submenu is open.
+  pub expanded: bool,
   /// The style of each part of this item.
   pub recipe: ResolvedRecipe,
+  submenu: Option<Menu>,
   forced: Option<Interaction>,
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
-  closes: Option<Signal<bool>>,
+  closes: Vec<Signal<bool>>,
+  submenus: Vec<Signal<bool>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -605,29 +787,70 @@ impl MenuItemView {
     self.recipe.theme()
   }
 
-  /// What choosing the item does: its handlers are called, then its menu closes.
-  fn choose(&self) -> Option<impl Fn() + Send + Sync + Clone + 'static> {
+  /// Whether the item opens a submenu.
+  pub fn has_submenu(&self) -> bool {
+    self.submenu.is_some()
+  }
+
+  /// The open signal of the item's submenu, if it has one and the app gave it a signal.
+  fn own_submenu(&self) -> Option<Signal<bool>> {
+    self.submenu.as_ref()?.open.signal()
+  }
+
+  /// Closes the submenus of the other items of the menu, and opens this item's own.
+  fn reach(&self) -> impl Fn() + Send + Sync + Clone + 'static {
+    let own = self.own_submenu();
+    let others: Vec<Signal<bool>> = self
+      .submenus
+      .iter()
+      .filter(|signal| own.as_ref().is_none_or(|own| own.id() != signal.id()))
+      .cloned()
+      .collect();
+    move || {
+      for other in &others {
+        if other.get_untracked() {
+          other.set(false);
+        }
+      }
+      if let Some(own) = &own
+        && !own.get_untracked()
+      {
+        own.set(true);
+      }
+    }
+  }
+
+  /// What choosing the item does: its handlers are called, then its menu
+  /// closes. An item with a submenu opens it instead.
+  fn choose(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+    if self.disabled {
+      return None;
+    }
+    if self.submenu.is_some() {
+      return Some(Arc::new(self.reach()));
+    }
     let (handlers, closes) = (self.on_select.clone(), self.closes.clone());
-    (!self.disabled && (!handlers.is_empty() || closes.is_some())).then(|| {
-      move || {
+    (!handlers.is_empty() || !closes.is_empty()).then(|| {
+      Arc::new(move || {
         for handler in &handlers {
           handler();
         }
-        if let Some(open) = &closes {
+        for open in &closes {
           open.set(false);
         }
-      }
+      }) as Arc<dyn Fn() + Send + Sync>
     })
   }
 
   /// The item's behavior with the style of its root: the element that is
   /// pressed, focused and disabled, with nothing in it yet. It is a menu item
-  /// to what reads the tree, called by its label.
+  /// to what reads the tree, called by its label. An item with a submenu is
+  /// the submenu's anchor.
   pub fn root(&self) -> components::Button {
-    let role = if self.checked.is_some() {
-      "menuitemcheckbox"
-    } else {
-      "menuitem"
+    let role = match self.checked {
+      Some(_) if self.radio => "menuitemradio",
+      Some(_) => "menuitemcheckbox",
+      None => "menuitem",
     };
     let mut root = pressable(&self.part(MenuItemPart::Root), self.disabled)
       .justify(Justify::Start)
@@ -636,8 +859,28 @@ impl MenuItemView {
     if let Some(checked) = self.checked {
       root = root.describe("a11y_checked", if checked { "true" } else { "false" });
     }
+    if let Some(submenu) = &self.submenu {
+      root = root
+        .ref_element(submenu.anchor.clone())
+        .describe("a11y_haspopup", "menu")
+        .describe("a11y_expanded", if self.expanded { "true" } else { "false" });
+    }
     if let Some(choose) = self.choose() {
       root = root.on_click(move |_| choose());
+    }
+    if !self.disabled && (self.submenu.is_some() || !self.submenus.is_empty()) {
+      root = root.on_mouse_enter(self.reach());
+    }
+    // Right opens the submenu while the item has the focus, which goes to the submenu's first item.
+    if !self.disabled
+      && let Some(open) = self.own_submenu()
+    {
+      root = root.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && plain(&event) && event.key == "ArrowRight" {
+          event.prevent_default();
+          open.set(true);
+        }
+      });
     }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
@@ -653,15 +896,10 @@ impl MenuItemView {
     self.icon.map(|name| glyph(&self.part(MenuItemPart::Icon), name, false))
   }
 
-  /// The item's text, taking the room the item has to spare, so that what
-  /// follows it stands at the end.
+  /// The item's text.
   pub fn label(&self) -> Element {
     let part = self.part(MenuItemPart::Label);
-    Row::new()
-      .flex(1.0)
-      .part(&part)
-      .child(part.text(&self.label).nowrap())
-      .into()
+    Row::new().part(&part).child(part.text(&self.label).nowrap()).into()
   }
 
   /// The keys written at the end, if the item has them.
@@ -671,26 +909,66 @@ impl MenuItemView {
     Some(Row::new().part(&part).child(part.text(shortcut).nowrap()).into())
   }
 
-  /// The check at the end, while the item is checked.
+  /// The mark at the end while the item is on: a check, or a dot for the chosen radio.
   pub fn check(&self) -> Option<Element> {
-    (self.checked == Some(true)).then(|| glyph(&self.part(MenuItemPart::Check), Name::new(icons::CHECK), false))
+    let name = if self.radio { icons::DOT_CIRCLE } else { icons::CHECK };
+    (self.checked == Some(true)).then(|| glyph(&self.part(MenuItemPart::Check), Name::new(name), false))
   }
 
-  /// How the default renderer builds an item: the root, with its icon, its
-  /// label, its shortcut and its check.
-  pub fn render(self) -> Element {
-    let mut root = self.root();
+  /// The chevron at the end of an item that opens a submenu.
+  pub fn chevron(&self) -> Option<Element> {
+    self.submenu.is_some().then(|| {
+      glyph(
+        &self.part(MenuItemPart::Chevron),
+        Name::new(icons::CHEVRON_RIGHT),
+        false,
+      )
+    })
+  }
+
+  /// The item's submenu, hung from the item, in the item's theme: choosing one
+  /// of its items closes it and the menus the item is in.
+  pub fn submenu(&mut self) -> Option<Element> {
+    let menu = self.submenu.take()?;
+    Some(menu.nested(self.closes.clone()).build(self.theme()))
+  }
+
+  /// How the default renderer builds an item: the root, with its icon and
+  /// its label at its start and its shortcut, its mark and its chevron at its
+  /// end; and after it, its submenu, which takes no room.
+  ///
+  /// The two ends are kept apart by the item's width, which the panel gives
+  /// it, and not by a part that grows: an item is as wide as what it holds,
+  /// and the panel as its widest item or its least width, never as the window.
+  pub fn render(mut self) -> Element {
+    // The ends hold their parts as far apart as the item holds the ends.
+    let gap = self.part(MenuItemPart::Root).rest().gap.unwrap_or_default();
+    let mut start = Row::new().spacing(gap.clone()).align_items(Alignment::Center);
     if let Some(icon) = self.icon() {
-      root = root.child(icon);
+      start = start.child(icon);
     }
-    root = root.child(self.label());
-    if let Some(shortcut) = self.shortcut() {
-      root = root.child(shortcut);
+    start = start.child(self.label());
+    let mut root = self.root().justify(Justify::SpaceBetween).child(start);
+    let end: Vec<Element> = [self.shortcut(), self.check(), self.chevron()]
+      .into_iter()
+      .flatten()
+      .collect();
+    if !end.is_empty() {
+      root = root.child(
+        Row::new()
+          .spacing(gap)
+          .align_items(Alignment::Center)
+          .with_children(end),
+      );
     }
-    if let Some(check) = self.check() {
-      root = root.child(check);
+    match self.submenu() {
+      Some(submenu) => Column::new()
+        .align_items(Alignment::Stretch)
+        .child(root)
+        .child(submenu)
+        .into(),
+      None => root.into(),
     }
-    root.into()
   }
 }
 
@@ -701,12 +979,13 @@ impl Themed for MenuItem {
   /// The design's menu item (`pencil/lurq-design-system.pen`, Menu Item): 32
   /// tall, padded 8, with the small radius and 8 between what it holds; its
   /// label in the body's type, an icon of 16 in the muted foreground before
-  /// it, and at its end the shortcut in the mono type at 11, muted, and the
-  /// check. Under the pointer or focused from the keyboard it is filled with
-  /// the highlight. A destructive item is in the destructive color, icon and
-  /// all; a disabled one is dimmed.
+  /// it, and at its end the shortcut in the mono type at 11, muted, the check
+  /// (or the dot of a radio) and the chevron of a submenu, muted. Under the
+  /// pointer, focused from the keyboard or with its submenu open it is filled
+  /// with the highlight. A destructive item is in the destructive color, icon
+  /// and all; a disabled one is dimmed.
   fn recipe() -> Recipe {
-    use MenuItemPart::{Check, Icon, Label, Root, Shortcut};
+    use MenuItemPart::{Check, Chevron, Icon, Label, Root, Shortcut};
     use PaletteColor::*;
     Recipe::new()
       .base(Root, |s| {
@@ -726,8 +1005,10 @@ impl Themed for MenuItem {
           .foreground(MutedForeground)
       })
       .base(Check, |s| s.square(IconSize::Md))
+      .base(Chevron, |s| s.square(IconSize::Md).foreground(MutedForeground))
       .hovered(Root, |s| s.background(Highlight))
       .focus_visible(Root, |s| s.background(Highlight))
+      .state(MenuItemState::Expanded, Root, |s| s.background(Highlight))
       .state(MenuItemState::Destructive, Root, |s| s.foreground(Destructive))
       .state(MenuItemState::Destructive, Icon, |s| s.foreground(Destructive))
       .state(MenuItemState::Disabled, Root, |s| {

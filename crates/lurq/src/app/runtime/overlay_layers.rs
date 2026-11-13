@@ -42,6 +42,8 @@ pub(super) struct OverlayLayers {
   pub(super) focus_movers: Vec<OwnedElementRef>,
   /// The nodes that declare the modals built that take the focus (`Modal::takes_focus`).
   pub(super) focus_modals: Vec<NodeId>,
+  /// The nodes that declare the overlays built that take the focus (`Overlay::takes_focus`).
+  pub(super) focus_overlays: Vec<NodeId>,
 }
 
 impl OverlayLayers {
@@ -175,7 +177,7 @@ fn takes_focus(node: &Node) -> bool {
   node.is_focusable() && !node.is_focus_disabled()
 }
 
-fn first_focusable(node: &Node) -> Option<NodeId> {
+pub(super) fn first_focusable(node: &Node) -> Option<NodeId> {
   if takes_focus(node) {
     return Some(node.node_id());
   }
