@@ -2450,7 +2450,7 @@ impl LayoutEngine {
           // unrelated invalidation. Only absolutely-positioned children have
           // a self-declared offset to check against.
           if let Position::Absolute { x, y, .. } = child.position() {
-            let expected = Self::apply_relative_position(child, Offset::new(x, y));
+            let expected = Self::apply_relative_position(child, Offset::new(x, y), child_layout.result.size);
             if (child_layout.offset.x - expected.x).abs() > 0.01 || (child_layout.offset.y - expected.y).abs() > 0.01 {
               return false;
             }
@@ -3627,7 +3627,7 @@ impl LayoutEngine {
       } else {
         Offset::new(main_cursor, cross_offset)
       };
-      layout.offset = Self::apply_relative_position(child, offset);
+      layout.offset = Self::apply_relative_position(child, offset, layout.result.size);
 
       positioned_layout_children += 1;
       main_cursor += child_main
@@ -3734,7 +3734,7 @@ impl LayoutEngine {
         } else {
           Offset::new(main_cursor, cross_offset)
         };
-        layout.offset = Self::apply_relative_position(&children[line_start + j], offset);
+        layout.offset = Self::apply_relative_position(&children[line_start + j], offset, layout.result.size);
         main_cursor += child_main + if j < (n as usize - 1) { gap } else { 0.0 };
       }
 
@@ -3813,13 +3813,17 @@ impl LayoutEngine {
 
     for (layout, child) in child_layouts.iter_mut().zip(children.iter()) {
       layout.offset = match child.position() {
-        Position::Absolute { x, y, .. } => Self::apply_relative_position(child, Offset::new(x, y)),
+        Position::Absolute { x, y, .. } => Self::apply_relative_position(child, Offset::new(x, y), layout.result.size),
         _ => {
           let child_align = child
             .align_self()
             .map(|align| align.to_stack_alignment())
             .unwrap_or(align);
-          Self::apply_relative_position(child, child_align.resolve_offset(size, layout.result.size))
+          Self::apply_relative_position(
+            child,
+            child_align.resolve_offset(size, layout.result.size),
+            layout.result.size,
+          )
         }
       };
     }
@@ -3835,9 +3839,11 @@ impl LayoutEngine {
     }
   }
 
-  fn apply_relative_position(node: &Node, offset: Offset) -> Offset {
+  /// Where a child of `size` is, laid out at `offset`: moved by its own offset and by the shares of its size
+  /// it asks for.
+  fn apply_relative_position(node: &Node, offset: Offset, size: Size) -> Offset {
     node
-      .offset_position()
+      .offset_for_size(size)
       .map(|relative| Offset::new(offset.x + relative.x, offset.y + relative.y))
       .unwrap_or(offset)
   }

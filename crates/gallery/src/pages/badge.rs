@@ -132,13 +132,7 @@ impl BadgePage {
           badge = badge.shape(BadgeShape::Square);
         }
         let shown: Element = if on {
-          // Room for what reaches past the corner: the stage clips what it holds.
-          Row::new()
-            .padding_top(6.0)
-            .padding_right(6.0)
-            .overflow_visible()
-            .child(badge.on(bell("Notifications")))
-            .into()
+          badge.on(bell("Notifications")).into()
         } else {
           badge.into()
         };

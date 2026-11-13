@@ -524,6 +524,7 @@ pub(crate) trait NodeUpdate {
   fn padding_custom(&mut self, padding: Padding);
   fn frame(&mut self, frame: FrameConstraints);
   fn offset(&mut self, x: f32, y: f32);
+  fn offset_by_size(&mut self, x: f32, y: f32);
   fn relative(&mut self, x: f32, y: f32);
   fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
   fn absolute_position(&mut self, x: f32, y: f32);
@@ -958,6 +959,8 @@ pub(crate) struct Node {
   pub(crate) padding: Padding,
   pub(crate) position: Position,
   pub(crate) offset: Option<Offset>,
+  /// How far the node is moved by shares of its own width and height, on top of `offset`.
+  pub(crate) offset_by_size: Option<(f32, f32)>,
   pub(crate) align_self: Option<Alignment>,
   pub(crate) flex: Option<FlexParams>,
   pub(crate) shrink_rule: ShrinkRule,
@@ -1230,6 +1233,11 @@ impl NodeUpdate for Node {
 
   fn offset(&mut self, x: f32, y: f32) {
     self.offset = Some(Offset::new(x, y));
+    self.layout_cache.invalidate();
+  }
+
+  fn offset_by_size(&mut self, x: f32, y: f32) {
+    self.offset_by_size = Some((x, y));
     self.layout_cache.invalidate();
   }
 
@@ -2341,6 +2349,7 @@ impl Node {
       padding: Padding::default(),
       position: Position::Static,
       offset: None,
+      offset_by_size: None,
       align_self: None,
       flex: None,
       shrink_rule: ShrinkRule::default(),
@@ -2981,6 +2990,14 @@ impl Node {
 
   pub fn offset(mut self, x: f32, y: f32) -> Self {
     self.offset = Some(Offset::new(x, y));
+    self.layout_cache.invalidate();
+    self
+  }
+
+  /// Moves the node by shares of its own width and height, once it is laid out, on top of
+  /// [`offset`](Self::offset): `offset_by_size(-0.5, -0.5)` puts its middle where its top left corner was.
+  pub fn offset_by_size(mut self, x: f32, y: f32) -> Self {
+    self.offset_by_size = Some((x, y));
     self.layout_cache.invalidate();
     self
   }
@@ -5222,6 +5239,19 @@ impl Node {
 
   /// The node's relative offset as drawn: the offset it was built with, with a running transition or animation of
   /// either axis applied.
+  /// How far a node of `size` is moved from where its parent laid it out: its `offset`, and the shares of
+  /// its own size it is moved by.
+  pub(crate) fn offset_for_size(&self, size: crate::layout::Size) -> Option<Offset> {
+    let offset = self.offset_position();
+    match self.offset_by_size {
+      Some((x, y)) => {
+        let offset = offset.unwrap_or_default();
+        Some(Offset::new(offset.x + x * size.width, offset.y + y * size.height))
+      }
+      None => offset,
+    }
+  }
+
   pub(crate) fn offset_position(&self) -> Option<Offset> {
     let mut offset = self.offset;
     if let Some(x) = self.animation_override_float(crate::animation::AnimatableProperty::OffsetX) {
@@ -5472,6 +5502,7 @@ impl Node {
       && self.padding == old.padding
       && self.position == old.position
       && self.offset == old.offset
+      && self.offset_by_size == old.offset_by_size
       && self.align_self == old.align_self
       && self.flex == old.flex
       && self.shrink_rule == old.shrink_rule
@@ -5804,6 +5835,7 @@ impl Node {
       padding: self.padding,
       position: self.position,
       offset: self.offset,
+      offset_by_size: self.offset_by_size,
       align_self: self.align_self,
       flex: self.flex,
       shrink_rule: self.shrink_rule,

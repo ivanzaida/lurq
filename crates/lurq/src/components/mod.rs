@@ -345,6 +345,14 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Moves the element by shares of its own width and height, once it is laid out, on top of
+      /// `offset`: `.offset_by_size(-0.5, -0.5)` puts its middle where its top left corner was, whatever
+      /// its size turns out to be. The room it takes in its parent stays where it was.
+      pub fn offset_by_size(mut self, x: f32, y: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::offset_by_size(node, x, y));
+        self
+      }
+
       pub fn relative(mut self, x: f32, y: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::relative(node, x, y));
         self

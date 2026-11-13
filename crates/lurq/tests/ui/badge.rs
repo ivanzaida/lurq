@@ -296,6 +296,7 @@ fn a_badge_on_an_element_sits_on_its_top_end_corner_with_a_ring_of_the_backgroun
         .on(square("inbox"))
         .into(),
       Badge::count(0).id("none").on(square("quiet")).into(),
+      Badge::count(1200).max(999).id("wide").on(square("mail")).into(),
     ])
   });
   // The board's Indicator: a dot of 12 at 27, -3 on a box of 36, its round end centred 3 in from the corner.
@@ -319,12 +320,21 @@ fn a_badge_on_an_element_sits_on_its_top_end_corner_with_a_ring_of_the_backgroun
     "a ring of the background around it"
   );
 
-  // A count of 18: its round end centred on the same point, so 6 past the corner each way.
+  // A count of 18: its middle on the same point, 3 in from the corner, however wide its number makes it, so
+  // it reaches as far to either side of the point and 6 over the top.
   let (x, y, width, _) = stage.bounds("inbox");
   let (cx, cy, cw, _) = stage.bounds("count");
-  assert!((cx + cw - (x + width) - 6.0).abs() < 0.01, "6 past the end");
+  assert!(
+    (cx + cw / 2.0 - (x + width - 3.0)).abs() < 0.01,
+    "its middle 3 in from the end: {}",
+    cx + cw / 2.0 - (x + width)
+  );
   assert!((cy - y + 6.0).abs() < 0.01, "6 over the top");
   assert!(stage.paints("3"));
+  let (wx, _, ww, _) = stage.bounds("wide");
+  let (x, _, width, _) = stage.bounds("mail");
+  assert!(ww > 18.0, "wider than it is high: {ww}");
+  assert!((wx + ww / 2.0 - (x + width - 3.0)).abs() < 0.01, "a wider one too");
 
   // A count that is not drawn leaves the element alone.
   assert!(stage.tree.get_element_by_id_mut("none").is_none());

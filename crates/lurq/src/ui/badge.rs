@@ -84,7 +84,7 @@ pub enum BadgePart {
   Dot,
   /// What holds the element a badge is on, and the badge at its corner.
   Anchor,
-  /// A square at the top end corner of the element a badge is on, which is not drawn: the round end of the
+  /// A square at the top end corner of the element a badge is on, which is not drawn: the middle of the
   /// badge is centred on its centre. Its width is all a renderer reads of it.
   Corner,
 }
@@ -423,35 +423,36 @@ impl BadgeView {
     root.child(Row::new().part(&part).child(part.text(&self.text).nowrap()))
   }
 
-  /// How far the badge is moved from the top end corner of the element it is on, right and down, so that the
-  /// round end of the badge is centred on the centre of the [`Corner`](BadgePart::Corner): half the badge's
-  /// height less half the corner's side. `None` where the recipe gives the badge or the corner no height or width
-  /// in pixels.
-  pub fn corner_offset(&self) -> Option<(f32, f32)> {
-    let theme = self.theme();
-    let px = |length: Option<Length>| match length?.resolve(theme)? {
-      Dimension::Px(px) => Some(px),
+  /// How far in from the top end corner of the element the middle of the badge is, along each side: half the
+  /// side of the [`Corner`](BadgePart::Corner). `None` where the recipe gives the corner no width in pixels.
+  pub fn corner_inset(&self) -> Option<f32> {
+    match self.part(BadgePart::Corner).rest().width?.resolve(self.theme())? {
+      Dimension::Px(px) => Some(px / 2.0),
       _ => None,
-    };
-    let height = px(self.part(BadgePart::Root).rest().height)?;
-    let corner = px(self.part(BadgePart::Corner).rest().width)?;
-    let shift = (height - corner) / 2.0;
-    Some((shift, -shift))
+    }
   }
 
-  /// `element` with `badge` on its top end corner, moved by [`corner_offset`](Self::corner_offset). The anchor
-  /// does not clip, so the badge is drawn where it reaches past the element.
+  /// `element` with `badge` on its top end corner: the middle of the badge is on the point
+  /// [`corner_inset`](Self::corner_inset) in from the corner, whatever the badge's width, so a dot and a digit
+  /// sit on the corner as the design draws them and a wider badge reaches as far to either side of it. Neither
+  /// the anchor nor what places the badge clips, so the badge is drawn where it reaches past the element.
   pub fn place(&self, element: Element, badge: Row) -> Element {
-    let badge = match self.corner_offset() {
-      Some((x, y)) => badge.offset(x, y),
-      None => badge,
-    };
+    let inset = self.corner_inset().unwrap_or(0.0);
+    // A row at the point, which lays the badge out as wide as it is, and the badge moved back by half of its
+    // own size: its middle is on the point whatever its width. The row has a size, since what has none paints
+    // nothing of what is in it.
+    const BOX: f32 = 2.0;
+    let at = Row::new()
+      .size(BOX, BOX)
+      .overflow_visible()
+      .offset(BOX - inset, inset)
+      .child(badge.offset_by_size(-0.5, -0.5));
     Stack::new()
       .stack_align(StackAlignment::TopEnd)
       .part(&self.part(BadgePart::Anchor))
       .overflow_visible()
       .child(element)
-      .child(badge)
+      .child(at)
       .into()
   }
 

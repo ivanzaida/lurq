@@ -255,8 +255,11 @@ impl Playground {
 
   /// The stage: the component on the canvas, with its measured size and the count of what it did under it.
   fn stage(&self, spec: &mut Spec) -> Column {
+    // What is on the stage is measured by this row, which cuts nothing off: a shadow, a ring or a badge on a
+    // corner reaches past the component's box, and the stage has the room for it.
     let mut held = Row::new()
       .ref_element(self.anchor.clone())
+      .overflow_visible()
       .child(std::mem::take(&mut spec.shown));
     if spec.fill {
       held = held.width(FILL);

@@ -54,6 +54,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     padding: Padding::default(),
     position: Position::Static,
     offset: None,
+    offset_by_size: None,
     align_self: None,
     flex: None,
     shrink_rule: crate::layout::layout_kind::ShrinkRule::default(),
