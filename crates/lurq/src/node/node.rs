@@ -5100,6 +5100,12 @@ impl Node {
         (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Float(v)) => {
           result.height = Some(Dimension::Px(*v));
         }
+        (crate::animation::AnimatableProperty::Width, crate::animation::AnimatableValue::Percent(share)) => {
+          result.width = Some(Dimension::Pct(*share));
+        }
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Percent(share)) => {
+          result.height = Some(Dimension::Pct(*share));
+        }
         // Part of the height is the content's: the node is laid out as high as its content and then given the
         // mix (`Self::fit_height`).
         (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Fit { .. }) => {

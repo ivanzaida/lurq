@@ -17,6 +17,7 @@ mod menu;
 mod overview;
 mod pagination;
 mod popover;
+mod progress;
 mod radio;
 mod select;
 mod slider;
@@ -286,6 +287,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/progress",
+    name: "Progress",
+    icon: None,
+    about: "progress bar ring indeterminate loading upload value max percent label top bar meter variant size",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<progress::ProgressPage>(()),
   },
 ];
 
