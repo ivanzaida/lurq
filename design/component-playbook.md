@@ -44,9 +44,12 @@ other sessions build its siblings. Read this first, then the reference implement
    board has it in: a `Playground` first (every prop a control), then sections with `self.frame.demo(n,
    stage, call, code)` whose `code` is the Rust that builds exactly what the stage shows, then
    `props_table(&rows, &[required], self.frame.room())`.
-5. `design/handoff/<name>.md`, a new file: the section for `docs/src/content/docs/design-system.md` (in
-   the form of its `## Switch` section), one line for `CHANGELOG.md`, and a short "decided / not done /
-   differs from the board" list. Whoever integrates the batch puts these in place.
+5. `design/handoff/<name>.md`, a new file with exactly these headings in this order, which a script reads:
+   `## For `docs/src/content/docs/design-system.md`` (under it the section as it is to stand in the docs,
+   starting at its own `## Name` heading, in the form of the `## Switch` section; no fence around the whole
+   of it), `## For `CHANGELOG.md`` (one line starting with `- `), `## Decided`, `## Not done`,
+   `## Differs from the board`. A change outside your own files is named under a first heading
+   `## Changed outside the component's own files`. Whoever integrates the batch puts these in place.
 
 ## Rules
 
@@ -64,6 +67,26 @@ other sessions build its siblings. Read this first, then the reference implement
   your component cannot be built without the fix.
 - Code, comments, the handoff file and the commit message are in English. Comments say what the code cannot
   say for itself, in the plain manner of the files around them.
+
+## A component that must keep something
+
+A builder has no `Ctx`. What is open, what is chosen, what is typed is the app's: a `Signal` or an
+`ElementRef` the builder is given (`Popup::new(anchor, content).open(signal)` is the engine's own example).
+Where that is not enough, a timer of its own, a list it keeps, a host that shows what is sent to it from
+anywhere, the component is a mounted `Component` (`crates/lurq/src/app/component.rs`, `ctx.mount::<C>(props)`)
+with the recipe and the parts of any other; say in the handoff why a builder would not do.
+
+## What the first batch taught
+
+- The engine lays the style of the pointer over the style of the focus (`Node::state_style`: focused, then
+  focus-visible, then hovered, then pressed). A focus drawn by a property the hover sets too is lost under
+  the pointer: draw the focus as an outline (`focus_ring()`, or `Outline::new(2.0, color).offset(-2.0)` for
+  a ring inside a box), not as a border.
+- A text input is focus-visible however it was focused; a button only from the keyboard.
+- In a test, compare a position that is a sum of fractions with a tolerance, and find the text of a
+  multiline input by its start: it is not painted a quad for each line of the value.
+- In `pages/mod.rs` add your `mod` line and your `Page { .. }` entry each on lines of their own, the entry
+  after the last one of your group: every session of the batch adds one there.
 
 ## What the engine does that surprises
 
