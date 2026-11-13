@@ -205,7 +205,7 @@ fn pill_radius_clip_keeps_a_usable_interior_for_children() {
     .expect("the label text quad should be emitted");
 
   assert!(text_clip.active, "the pill must clip its children");
-  let radius = text_clip.border_radius.expect("the pill clip should stay rounded");
+  let radius = text_clip.rounded[0].expect("the pill clip should stay rounded").radius;
   let max_radius = (text_clip.width.min(text_clip.height)) / 2.0 + 0.001;
   assert!(
     radius.top_left <= max_radius && radius.bottom_right <= max_radius,

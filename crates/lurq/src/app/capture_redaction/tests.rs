@@ -43,14 +43,7 @@ fn a_run_is_covered_with_its_edges_shadow_and_transform() {
 
 #[test]
 fn a_run_is_limited_to_its_clip() {
-  let clip = ClipRect {
-    x: 0.0,
-    y: 0.0,
-    width: 15.0,
-    height: 100.0,
-    active: true,
-    border_radius: None,
-  };
+  let clip = ClipRect::rect(0.0, 0.0, 15.0, 100.0);
   let mut clipped = glyph(10.0, 20.0, 8.0, 12.0);
   clipped.clip = clip;
   assert_eq!(RedactedArea::of_glyph_run(&[clipped.clone()]), area(8, 18, 15, 34));

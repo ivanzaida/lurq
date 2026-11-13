@@ -41,6 +41,13 @@ Common visual modifiers:
 | `.clip()` | Clip descendants to this element. |
 | `.overflow_visible()` | Allow descendants to paint outside this element. |
 
+An element clips its descendants by default; one with corner radii clips them to its rounded box, inside its border,
+and a press past a rounded corner does not reach what the corner cuts off. Clips nest as `overflow: hidden` with
+`border-radius` does in CSS: content is cut by every clip it is under, so a rail along the bottom of a rounded panel, a
+picture across its top or a scrolling list down to its bottom corners keeps the panel's round corners even though it
+clips itself, and a child with corners of its own at the panel's corner is cut by both. Two rounded clips that cut the
+same content are followed exactly; where three would, the outermost is left out.
+
 Translucent colors (`"#000000a6"`, `.opacity(...)`, anti-aliased edges, text, images) blend on the sRGB-encoded
 channels, as CSS and design tools do: a `#000000a6` scrim over `#eeeeee` shows `#535353`. Both native backends render
 through a non-sRGB target to get this; the devtools screenshot renderer blends the same way.

@@ -4,7 +4,9 @@ cbuffer Globals : register(b0)
   float4 clip_rect;
   float4 clip_radii_h;
   float4 clip_radii_v;
-  float4 clip_active;
+  float4 clip_active;      // x: cut by the innermost rounded clip; y: by the one outside it too
+  float4 outer_clip_rect;  // the rounded clip outside the innermost one: x, y, w, h
+  float4 outer_clip_radii; // and its radii: tl, tr, br, bl
 };
 
 // Gradient stop storage. Layout per gradient (each element is a float4):
@@ -201,18 +203,30 @@ float subsample_aa_width(float dist)
   return 0.5 * aa_width(dist);
 }
 
+// How much of the pixel at `frag_pos` (window pixels) the rounded clip at
+// `rect` with these radii covers.
+float rounded_clip_coverage(float2 frag_pos, float4 rect, float4 radii_h, float4 radii_v)
+{
+  float2 half_size = rect.zw * 0.5;
+  float2 local = frag_pos - (rect.xy + half_size);
+  float dist = sd_rounded_box(local, half_size, pick_radius(local, radii_h, radii_v));
+  return saturate(0.5 - dist / aa_width(dist));
+}
+
+// How much of the pixel the rounded clips the draw is under cover: under
+// two, both cut it.
 float rounded_clip_alpha(float2 frag_pos)
 {
-  if (clip_active.x <= 0.5)
+  float alpha = 1.0;
+  if (clip_active.x > 0.5)
   {
-    return 1.0;
+    alpha = rounded_clip_coverage(frag_pos, clip_rect, clip_radii_h, clip_radii_v);
   }
-
-  float2 half_size = clip_rect.zw * 0.5;
-  float2 centre = clip_rect.xy + half_size;
-  float2 local = frag_pos - centre;
-  float dist = sd_rounded_box(local, half_size, pick_radius(local, clip_radii_h, clip_radii_v));
-  return saturate(0.5 - dist / aa_width(dist));
+  if (clip_active.y > 0.5)
+  {
+    alpha *= rounded_clip_coverage(frag_pos, outer_clip_rect, outer_clip_radii, outer_clip_radii);
+  }
+  return alpha;
 }
 
 float rounded_fill_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v)

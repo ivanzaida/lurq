@@ -5431,14 +5431,7 @@ mod tests {
     let mut engine = GlyphEngine::new();
     let text = "First line\nMixed office cafe\u{301} مرحبا 😀\n".repeat(32);
     let style = TextStyle::default();
-    let clip = ClipRect {
-      x: 0.0,
-      y: 0.0,
-      width: 200.0,
-      height: 75.0,
-      active: true,
-      border_radius: None,
-    };
+    let clip = ClipRect::rect(0.0, 0.0, 200.0, 75.0);
     for origin_y in [0.0, -120.5, -480.0] {
       engine.clear_text_caches();
       engine.measure_text(&text, &style, 200.0);
@@ -5770,14 +5763,7 @@ mod tests {
     let clips = [
       ClipRect::default(),
       // Cuts the text's lower lines and its right edge.
-      ClipRect {
-        x: 3.0,
-        y: 5.0,
-        width: 120.0,
-        height: 30.0,
-        active: true,
-        border_radius: None,
-      },
+      ClipRect::rect(3.0, 5.0, 120.0, 30.0),
     ];
     let aligns = [
       VerticalAlign::Top,
@@ -5852,14 +5838,7 @@ mod tests {
     let max_width = 96.0;
 
     let full = engine.rasterize_text(text, &style, max_width, 0.0, 0.0);
-    let clip = ClipRect {
-      x: 0.0,
-      y: 0.0,
-      width: max_width,
-      height: 36.0,
-      active: true,
-      border_radius: None,
-    };
+    let clip = ClipRect::rect(0.0, 0.0, max_width, 36.0);
     let mut clipped = Vec::new();
     engine.rasterize_text_with_wrap_clipped_into(text, &style, max_width, true, 0.0, 0.0, clip, &mut clipped);
 

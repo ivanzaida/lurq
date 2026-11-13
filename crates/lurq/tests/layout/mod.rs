@@ -40,6 +40,7 @@ mod grid;
 mod letter_spacing;
 mod max_lines;
 mod nested;
+mod nested_rounded_clip;
 mod node_ids;
 mod offscreen_clipping;
 mod offset;

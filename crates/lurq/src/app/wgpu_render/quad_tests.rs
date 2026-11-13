@@ -113,13 +113,7 @@ fn render(clear: Color, quads: &[QuadInstance]) -> Vec<u8> {
   });
 
   let (width, height) = (WIDTH as f32, HEIGHT as f32);
-  let globals = Globals {
-    viewport: [width, height, 0.0, 0.0],
-    clip_rect: [0.0, 0.0, width, height],
-    clip_radii_h: [0.0; 4],
-    clip_radii_v: [0.0; 4],
-    clip_active: [0.0; 4],
-  };
+  let globals = Globals::unclipped(width, height);
   let buffer = |contents: &[u8], usage| {
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: None,

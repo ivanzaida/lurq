@@ -252,7 +252,7 @@ impl Tree {
       let mut targets = Vec::new();
       if let (Some(root), Some(layout)) = (&self.root, &self.last_layout) {
         let mut hits = Vec::new();
-        hit_test_tree(root, layout, 0.0, 0.0, lx, ly, &mut hits);
+        hit_test_tree(root, layout, 0.0, 0.0, lx, ly, &self.layout_engine.radii(), &mut hits);
         // A touch on a disabled element is still a touch on the elements it is in: a pan over it moves them.
         super::take_disabled_hit(&mut hits);
         targets.extend(hits.iter().map(|(node, _)| node.node_id()));
@@ -776,7 +776,7 @@ impl Tree {
     let mut taken = false;
     if let (Some(root), Some(layout)) = (&self.root, &self.last_layout) {
       let mut hits = Vec::new();
-      hit_test_tree(root, layout, 0.0, 0.0, lx, ly, &mut hits);
+      hit_test_tree(root, layout, 0.0, 0.0, lx, ly, &self.layout_engine.radii(), &mut hits);
       // A finger resting on a disabled element presses nothing.
       if super::take_disabled_hit(&mut hits).is_some() {
         hits.clear();
@@ -936,7 +936,16 @@ impl Tree {
     let scale = self.scale_factor();
     let (root, layout) = (self.root.as_ref()?, self.last_layout.as_ref()?);
     let mut hits = Vec::new();
-    hit_test_tree(root, layout, 0.0, 0.0, x / scale, y / scale, &mut hits);
+    hit_test_tree(
+      root,
+      layout,
+      0.0,
+      0.0,
+      x / scale,
+      y / scale,
+      &self.layout_engine.radii(),
+      &mut hits,
+    );
     if super::take_disabled_hit(&mut hits).is_some() {
       return None;
     }

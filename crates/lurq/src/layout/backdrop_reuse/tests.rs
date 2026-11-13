@@ -191,14 +191,7 @@ fn a_draw_behind_the_glass_that_changes_changes_the_input() {
     }),
     ("transform", |rect| rect.transform = [0.0, 1.0, -1.0, 0.0]),
     ("clip", |rect| {
-      rect.clip = ClipRect {
-        x: 0.0,
-        y: 0.0,
-        width: 130.0,
-        height: 300.0,
-        active: true,
-        border_radius: None,
-      };
+      rect.clip = ClipRect::rect(0.0, 0.0, 130.0, 300.0);
     }),
     ("gradient", |rect| {
       rect.gradient = Some(RenderGradient {
@@ -284,14 +277,7 @@ fn a_draw_beside_the_glass_or_after_it_leaves_the_input_as_it_was() {
 
   // Cut by its clip to pixels far from the glass.
   let mut clipped = rect(1, [0.0, 0.0, 400.0, 300.0]);
-  clipped.clip = ClipRect {
-    x: 300.0,
-    y: 0.0,
-    width: 100.0,
-    height: 50.0,
-    active: true,
-    border_radius: None,
-  };
+  clipped.clip = ClipRect::rect(300.0, 0.0, 100.0, 50.0);
   let with_clipped = list(
     vec![rect(0, [0.0, 0.0, 400.0, 300.0]), clipped, {
       let mut under = under();
@@ -355,14 +341,7 @@ fn glyphs_behind_the_glass_are_the_atlas_at_their_place() {
   let clipped = |x: f32| {
     let mut list = text(x, 1);
     for glyph in &mut list.glyphs {
-      glyph.clip = ClipRect {
-        x: 0.0,
-        y: 0.0,
-        width: 60.0,
-        height: 300.0,
-        active: true,
-        border_radius: None,
-      };
+      glyph.clip = ClipRect::rect(0.0, 0.0, 60.0, 300.0);
     }
     list
   };

@@ -222,7 +222,7 @@ impl Tree {
       return false;
     };
     // A finger on a disabled element scrolls what it would scroll were the element enabled.
-    let mut hits = super::scroll_hits(root, layout, lx, ly);
+    let mut hits = super::scroll_hits(root, layout, lx, ly, &self.layout_engine.radii());
     trim_hits_to_scrollbar(&mut hits, lx, ly);
     // A bar that is always there is dragged at once. A scroll indicator, which comes and goes, is content to
     // a finger that moves, and is dragged by one that rested on it first, as the platform's.
@@ -260,7 +260,7 @@ impl Tree {
       return false;
     };
     let mut hits = Vec::new();
-    hit_test_tree(root, layout, 0.0, 0.0, lx, ly, &mut hits);
+    hit_test_tree(root, layout, 0.0, 0.0, lx, ly, &self.layout_engine.radii(), &mut hits);
     hits.iter().any(|(node, _)| {
       node.scroll_container().is_some_and(|(state, _)| {
         state.keyboard_dismissal() == crate::layout::layout_kind::KeyboardDismissal::Interactive
@@ -290,7 +290,7 @@ impl Tree {
     let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
       return;
     };
-    let hits = super::scroll_hits(root, layout, lx, ly);
+    let hits = super::scroll_hits(root, layout, lx, ly, &self.layout_engine.radii());
 
     let vertical = delta_y.abs() >= delta_x.abs();
     // The way the offset goes: a finger moving up or left brings later content.
@@ -608,7 +608,16 @@ impl Tree {
       return false;
     };
     let mut hits = Vec::new();
-    hit_test_tree(root, layout, 0.0, 0.0, size.width / 2.0, size.height / 2.0, &mut hits);
+    hit_test_tree(
+      root,
+      layout,
+      0.0,
+      0.0,
+      size.width / 2.0,
+      size.height / 2.0,
+      &self.layout_engine.radii(),
+      &mut hits,
+    );
     let page = hits.iter().rposition(|(node, _)| {
       node.scroll_container().is_some_and(|(state, direction)| {
         !matches!(direction, ScrollDirection::Horizontal) && state.scroll_y() > 0.0 && state.scrolls_to_top()
