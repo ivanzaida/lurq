@@ -34,6 +34,7 @@ mod segmented;
 mod select;
 mod shared;
 mod slider;
+mod steps;
 mod switch;
 mod text_box;
 mod textarea;
@@ -73,6 +74,9 @@ pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlStat
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use shared::{Choice, FADE_IN, FADE_OUT};
 pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
+pub use steps::{
+  CurrentStep, Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView,
+};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use text_box::{Judgment, TextBoxSize, TextBoxState};
 pub use textarea::{

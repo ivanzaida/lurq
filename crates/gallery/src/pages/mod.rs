@@ -17,6 +17,7 @@ mod popover;
 mod radio;
 mod select;
 mod slider;
+mod steps;
 mod switch;
 mod textarea;
 mod toast;
@@ -241,6 +242,14 @@ pub const PAGES: &[Page] = &[
     about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
+  },
+  Page {
+    path: "/steps",
+    name: "Steps",
+    icon: None,
+    about: "steps stepper wizard progress stage current done to come error vertical horizontal",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<steps::StepsPage>(()),
   },
 ];
 

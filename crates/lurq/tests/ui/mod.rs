@@ -12,6 +12,7 @@ mod input;
 mod popover;
 mod menu;
 mod stage;
+mod steps;
 mod switch;
 mod textarea;
 mod theming;
