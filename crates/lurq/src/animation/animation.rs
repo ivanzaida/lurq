@@ -265,6 +265,18 @@ fn spin() -> Keyframes {
     })
 }
 
+/// The opacity going from `from` to `to`: [`FADE_IN`](crate::ui::FADE_IN), [`FADE_OUT`](crate::ui::FADE_OUT).
+fn fade(id: KeyframesId, from: f32, to: f32) -> Keyframes {
+  use super::interpolate::{AnimatableProperty, AnimatableValue};
+  Keyframes::new(id)
+    .frame(0.0, |frame| {
+      frame.set(AnimatableProperty::Opacity, AnimatableValue::Float(from));
+    })
+    .frame(1.0, |frame| {
+      frame.set(AnimatableProperty::Opacity, AnimatableValue::Float(to));
+    })
+}
+
 pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
@@ -291,8 +303,10 @@ impl AnimationEngine {
       in_phase: HashSet::new(),
       has_active: false,
     };
-    // What lurq's own components play: a full turn, for a spinner.
+    // What lurq's own components play: a full turn, for a spinner; a fade in and out, for a panel over the window.
     engine.register_keyframes_in_phase(spin());
+    engine.register_keyframes(fade(crate::ui::FADE_IN, 0.0, 1.0));
+    engine.register_keyframes(fade(crate::ui::FADE_OUT, 1.0, 0.0));
     engine
   }
 

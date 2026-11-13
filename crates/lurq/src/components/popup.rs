@@ -90,6 +90,14 @@ impl Popup {
     self.overlay = self.overlay.switch_on_anchor_press(switch);
     self
   }
+
+  /// Whether the keyboard focus goes into the popup when it opens, to the
+  /// first element in it that takes the focus, and back to its anchor when it
+  /// closes with the focus inside it. Defaults to `false`.
+  pub fn move_focus(mut self, move_focus: bool) -> Self {
+    self.overlay = self.overlay.move_focus(move_focus);
+    self
+  }
 }
 
 impl From<Popup> for Element {

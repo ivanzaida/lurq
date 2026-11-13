@@ -8,13 +8,21 @@ use super::{
   recipe::{Name, ResolvedPart},
 };
 use crate::{
-  animation::Transition,
+  animation::{KeyframesId, Transition},
   app::theme::{IconSize, MotionDuration},
   components::{self, Row},
   core::{Signal, SignalValue},
   layout::layout_kind::Justify,
   node::Element,
 };
+
+/// The keyframes of a fade in, from nothing to whole, which every window
+/// has: what a panel over the window plays as it opens.
+pub const FADE_IN: KeyframesId = KeyframesId::new(0xFF01);
+
+/// The keyframes of a fade out, from whole to nothing, which every window
+/// has: what a panel over the window plays as it closes.
+pub const FADE_OUT: KeyframesId = KeyframesId::new(0xFF02);
 
 /// A style whose fill, ink, shadow and outline change over the theme's fast
 /// duration: what a part that answers the pointer starts from.

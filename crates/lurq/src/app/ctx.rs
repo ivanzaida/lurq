@@ -202,6 +202,7 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_outside_click: bool,
   pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
+  pub(crate) move_focus: bool,
 }
 
 #[derive(Clone)]
@@ -297,6 +298,7 @@ impl OverlaySpec {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      move_focus: self.move_focus,
     }
   }
 }
@@ -395,6 +397,7 @@ pub struct Overlay {
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
   switch_on_anchor_press: bool,
+  move_focus: bool,
 }
 
 impl Overlay {
@@ -413,6 +416,7 @@ impl Overlay {
       outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
       switch_on_anchor_press: true,
+      move_focus: false,
     }
   }
 
@@ -487,6 +491,15 @@ impl Overlay {
     self
   }
 
+  /// Whether the keyboard focus goes into the overlay when it opens, to the
+  /// first element in it that takes the focus, and back to its anchor when it
+  /// closes with the focus inside it: a popover's or a menu's. An app's focus
+  /// request in the same pass wins. Defaults to `false`.
+  pub fn move_focus(mut self, move_focus: bool) -> Self {
+    self.move_focus = move_focus;
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -507,6 +520,7 @@ impl Overlay {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      move_focus: self.move_focus,
     })
   }
 }

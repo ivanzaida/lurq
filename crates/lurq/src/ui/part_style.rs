@@ -10,7 +10,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-  animation::{Easing, Transition},
+  animation::{Animation, Easing, KeyframesId, Transition},
   app::theme::{ControlSize, Density, IconSize, MotionDuration, MotionEasing, OpacityLevel, Theme, TypographyStyle},
   layout::text_style::{FontStyle, FontWeight, TextStyle},
   node::{
@@ -231,6 +231,40 @@ impl PartTransition {
   }
 }
 
+/// A keyframe animation of a part, with its duration and easing as the
+/// theme's roles or as set values: what the part plays as it appears
+/// ([`PartStyle::enter`]) or as it leaves ([`PartStyle::exit`]).
+#[derive(Clone, Debug)]
+pub struct PartAnimation {
+  /// The keyframes, which the window has: lurq's own (`ui::FADE_IN`) or the app's.
+  pub keyframes: KeyframesId,
+  pub duration: TransitionDuration,
+  pub easing: TransitionEasing,
+}
+
+impl PartAnimation {
+  /// `keyframes` played once over the theme's `duration`, moving by its `easing`.
+  pub fn new(keyframes: KeyframesId, duration: MotionDuration, easing: MotionEasing) -> Self {
+    Self {
+      keyframes,
+      duration: TransitionDuration::Role(duration),
+      easing: TransitionEasing::Role(easing),
+    }
+  }
+
+  fn resolve(&self, theme: &Theme) -> Animation {
+    let duration = match self.duration {
+      TransitionDuration::Role(role) => theme.durations().try_get(role).unwrap_or_default(),
+      TransitionDuration::Set(duration) => duration,
+    };
+    let easing = match self.easing {
+      TransitionEasing::Role(role) => theme.easings().try_get(role).unwrap_or(Easing::Linear),
+      TransitionEasing::Set(easing) => easing,
+    };
+    Animation::new(self.keyframes).duration(duration).easing(easing)
+  }
+}
+
 /// The style of one part of a component, every field optional.
 ///
 /// Colors, radii, spacings and shadows are roles of the theme or concrete
@@ -264,6 +298,11 @@ pub struct PartStyle {
   pub text: TextPatch,
   /// The transitions of the part. A patch that sets them replaces the list.
   pub transitions: Option<Vec<PartTransition>>,
+  /// What the part plays as it appears: a panel over the window fading in.
+  pub enter: Option<PartAnimation>,
+  /// What the part plays as it leaves, kept until it ends where what holds it keeps leaving parts: an
+  /// overlay's layer, or a child of an element with `presence()` that has an id or a key.
+  pub exit: Option<PartAnimation>,
   pub cursor: Option<CursorIcon>,
 }
 
@@ -406,6 +445,18 @@ impl PartStyle {
     self
   }
 
+  /// What the part plays as it appears.
+  pub fn enter(mut self, animation: PartAnimation) -> Self {
+    self.enter = Some(animation);
+    self
+  }
+
+  /// What the part plays as it leaves.
+  pub fn exit(mut self, animation: PartAnimation) -> Self {
+    self.exit = Some(animation);
+    self
+  }
+
   pub fn cursor(mut self, cursor: CursorIcon) -> Self {
     self.cursor = Some(cursor);
     self
@@ -430,6 +481,8 @@ impl PartStyle {
       && self.height.is_none()
       && self.min_width.is_none()
       && self.transitions.is_none()
+      && self.enter.is_none()
+      && self.exit.is_none()
       && self.cursor.is_none()
       && self.text.is_empty()
   }
@@ -457,6 +510,8 @@ impl PartStyle {
       height,
       min_width,
       transitions,
+      enter,
+      exit,
       cursor
     );
     self.text.merge(&over.text);
@@ -514,6 +569,12 @@ impl PartStyle {
     }
     for transition in self.transitions.iter().flatten() {
       NodeUpdate::transition(node, transition.resolve(theme));
+    }
+    if let Some(animation) = &self.enter {
+      NodeUpdate::animation(node, animation.resolve(theme));
+    }
+    if let Some(animation) = &self.exit {
+      NodeUpdate::exit_animation(node, animation.resolve(theme));
     }
     if let Some(cursor) = self.cursor {
       NodeUpdate::cursor(node, cursor);

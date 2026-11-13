@@ -1,19 +1,23 @@
 //! A popover: its panel beside its anchor, its header and its body, where it
-//! is on each side, what closes it, and a theme's other panel.
+//! is on each side, what closes it, its trigger, where the focus goes, its
+//! fade, and a theme's other panel.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use lurq::{
   app::{
     App,
-    theme::{PaletteColor, ShadowStyle, Theme, ThemePalette},
+    theme::{MotionDuration, MotionEasing, PaletteColor, ShadowStyle, Theme, ThemePalette},
     window::Appearance,
   },
   components::{Column, Placement, Rect, Row},
   core::{ElementRef, Signal},
   layout::quad::{Quad, QuadContent},
   node::{BoxShadowValue, SpacingValue, color::Color},
-  ui::{Case, Popover, PopoverPart, PopoverRenderer, PopoverView},
+  ui::{
+    Button, Case, FADE_IN, FADE_OUT, Popover, PopoverPart, PopoverRenderer, PopoverView, TransitionDuration,
+    TransitionEasing,
+  },
 };
 
 use super::stage::Stage;
@@ -41,6 +45,8 @@ fn page(
           .child(Rect::new(width, 32.0).id("anchor").ref_element(anchor.clone()))
           .child(popover(anchor.clone(), open.clone())),
       )
+      // Clear of the panel under the anchor.
+      .child(Rect::new(1.0, 190.0))
       .child(Rect::new(40.0, 20.0).id("outside"))
       .into()
   }
@@ -144,7 +150,9 @@ fn a_popover_is_shown_while_its_signal_says_so() {
   open.set(true);
   stage.pass();
   assert!(stage.paints("Dimensions"));
+  // It fades out, and then it is gone.
   open.set(false);
+  stage.pass();
   stage.pass();
   assert!(!stage.paints("Dimensions"));
 }
@@ -159,6 +167,7 @@ fn escape_or_a_press_outside_closes_it_and_a_press_inside_does_not() {
   assert!(open.get(), "a press of the anchor is not outside it");
   stage.key("Escape");
   assert!(!open.get(), "Escape closes it");
+  stage.pass();
   assert!(!stage.paints("Dimensions"));
 
   open.set(true);
@@ -244,4 +253,120 @@ fn a_theme_gives_the_popover_another_panel_and_it_is_still_beside_its_anchor() {
   assert_eq!(stage.bounds("panel").1, 56.0);
   stage.key("Escape");
   assert!(!open.get(), "and it still closes");
+}
+
+/// A page with two popovers, each opened by its own button, and something outside both. The first holds a
+/// button to press.
+fn two_with_triggers(first: &Signal<bool>, second: &Signal<bool>) -> Stage {
+  let (first, second) = (first.clone(), second.clone());
+  Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .spacing(8.0)
+      .child(
+        Row::new()
+          .spacing(120.0)
+          .child(
+            Popover::new(ElementRef::new(), first.clone())
+              .id("first-panel")
+              .trigger(Button::new("First").id("first"))
+              .title("First")
+              .child(Button::new("Apply").id("apply")),
+          )
+          .child(
+            Popover::new(ElementRef::new(), second.clone())
+              .id("second-panel")
+              .trigger(Button::new("Second").id("second"))
+              .title("Second"),
+          ),
+      )
+      // Clear of either panel.
+      .child(Rect::new(1.0, 170.0))
+      .child(Rect::new(40.0, 20.0).id("outside"))
+      .into()
+  })
+}
+
+#[test]
+fn its_trigger_opens_and_closes_it_and_is_its_anchor() {
+  let (first, second) = (Signal::new(false), Signal::new(false));
+  let mut stage = two_with_triggers(&first, &second);
+  stage.click("first");
+  assert!(first.get(), "a press of the trigger opens it");
+  let (tx, ty, _, theight) = stage.bounds("first");
+  let (px, py, ..) = stage.bounds("first-panel");
+  assert_eq!((px, py), (tx, ty + theight + 4.0), "under its trigger");
+  stage.click("first");
+  assert!(!first.get(), "and closes it");
+
+  // One press of the other trigger closes the open popover and opens the other.
+  stage.click("first");
+  stage.click("second");
+  assert_eq!((first.get(), second.get()), (false, true));
+}
+
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+#[test]
+fn the_focus_goes_into_it_as_it_opens_and_back_to_its_trigger_as_it_closes() {
+  let (first, second) = (Signal::new(false), Signal::new(false));
+  let mut stage = two_with_triggers(&first, &second);
+  stage.click("first");
+  stage.pass();
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("apply"),
+    "the first thing in it that takes the focus"
+  );
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("first"), "back to the trigger");
+
+  // From the keyboard: Enter on the trigger opens it, and a press outside closes it.
+  stage.key("Enter");
+  stage.pass();
+  assert!(first.get());
+  assert_eq!(focused(&stage).as_deref(), Some("apply"));
+  stage.click("outside");
+  stage.pass();
+  assert!(!first.get());
+  assert_eq!(focused(&stage).as_deref(), Some("first"));
+
+  // With nothing in it that takes the focus, the focus stays on the trigger.
+  stage.click("second");
+  stage.pass();
+  assert!(second.get());
+  assert_eq!(focused(&stage).as_deref(), Some("second"));
+}
+
+#[test]
+fn it_fades_in_over_the_base_duration_and_out_over_the_fast_one() {
+  let theme = Theme::new();
+  let root = theme
+    .resolve::<Popover>(&Case::new(), None)
+    .part(PopoverPart::Root)
+    .rest();
+  let enter = root.enter.expect("an animation as it opens");
+  assert_eq!(enter.keyframes, FADE_IN);
+  assert_eq!(enter.duration, TransitionDuration::Role(MotionDuration::Base));
+  assert_eq!(enter.easing, TransitionEasing::Role(MotionEasing::Enter));
+  let exit = root.exit.expect("an animation as it closes");
+  assert_eq!(exit.keyframes, FADE_OUT);
+  assert_eq!(exit.duration, TransitionDuration::Role(MotionDuration::Fast));
+  assert_eq!(exit.easing, TransitionEasing::Role(MotionEasing::Exit));
+
+  // As it closes it is still drawn while it fades, and then it is gone.
+  let open = Signal::new(true);
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, dimensions));
+  open.set(false);
+  stage.pass_after(Duration::ZERO);
+  assert!(stage.paints("Dimensions"), "fading out");
+  stage.pass();
+  assert!(!stage.paints("Dimensions"));
 }
