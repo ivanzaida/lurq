@@ -134,6 +134,12 @@ starting under the window's own title bar.
   room it has, with a width that fills (`Column::new().width(fill).child(text.width(fill))`).
 - **The handoff's section for the docs is plain markdown**, with no fence around the whole of it, of backticks or
   of tildes: a `~~~` left after a section turned the rest of the docs page into one code block, and no test saw it.
+- **A transition runs from the value the element had while it had the transition.** An element drawn first with
+  no transition and then with one and another value is at the other value at once: the toast's timer never ran. What
+  is to move has its transition from its first render, of no duration where it must stand still.
+- **A part that clips inside a rounded part is cut to a plain rectangle**: the clip of the inner one replaces the
+  round corners of the outer where they meet. What lies along the edge of a rounded panel (a rail at its bottom, a
+  picture at its top) is `overflow_visible()` and is cut by the panel alone.
 - **A scrolling part does not grow**: `flex_full(0.0, 1.0, None)`, so that it gives way when there is too little
   room and is as high as its content when there is enough. One that grows makes its panel as high as the window.
 

@@ -535,14 +535,23 @@ impl ToastView {
     let mut remaining = Row::new().part(&self.part(ToastPart::Remaining));
     remaining = match (self.timer_width(), self.left) {
       (Some(full), TimeLeft::All) => remaining.width(Dimension::Px(full)),
-      (Some(full), TimeLeft::Part(part)) => remaining.width(Dimension::Px(full * part.clamp(0.0, 1.0))),
+      // Standing still it is where it is at once. It has a transition all the same: one runs from the width
+      // the element had with a transition, so what is left can only run out from a width that had one.
+      (Some(full), TimeLeft::Part(part)) => remaining
+        .width(Dimension::Px(full * part.clamp(0.0, 1.0)))
+        .transition(Transition::width().duration(Duration::ZERO).linear()),
       // It runs out from where it is to nothing, a transition from one width to the other.
       (Some(_), TimeLeft::RunningOut(left)) => remaining
         .width(Dimension::Px(0.0))
         .transition(Transition::width().duration(left).linear()),
       (None, _) => remaining.width(Dimension::Pct(100.0)),
     };
-    Row::new().part(&self.part(ToastPart::Timer)).child(remaining)
+    // The rail cuts nothing off itself: it and what is left are cut by the panel, to its round corners. A
+    // clip of the rail's own inside the panel's would be a plain rectangle at the panel's corners.
+    Row::new()
+      .overflow_visible()
+      .part(&self.part(ToastPart::Timer))
+      .child(remaining)
   }
 
   /// How the default renderer builds a toast: its icon, its text, its action

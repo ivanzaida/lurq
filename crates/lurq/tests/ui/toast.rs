@@ -403,6 +403,29 @@ fn a_toast_comes_in_and_leaves_by_animations_that_reduced_motion_goes_without() 
 }
 
 #[test]
+fn the_timer_runs_out_as_the_time_of_the_toast_does() {
+  let toasts = Toasts::new();
+  let mut stage = window(&toasts, ToastPosition::BottomRight);
+  toasts.show(Toast::new("Moved").timer(true).duration(Duration::from_secs(10)));
+  stage.pass();
+  let left = |stage: &Stage| {
+    bars(stage, light(PaletteColor::Primary), 2.0)
+      .first()
+      .map_or(0.0, |bar| bar.2)
+  };
+  assert_eq!(left(&stage), 360.0, "all of it, drawn first where it is");
+  // Rendered again it runs out, a tenth of it with each second of the stage's clock: some is gone after the
+  // pass, which is two seconds of it, and half after five.
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_millis(1));
+  stage.pass();
+  let early = left(&stage);
+  assert!(early > 280.0 && early < 360.0, "{early}");
+  stage.pass_after(Duration::from_secs(3));
+  let half = left(&stage);
+  assert!((half - 180.0).abs() < 12.0, "{half}");
+}
+
+#[test]
 fn the_timer_stands_still_with_what_is_left_while_the_pointer_is_on_it() {
   let toasts = Toasts::new();
   let mut stage = window(&toasts, ToastPosition::BottomRight);
