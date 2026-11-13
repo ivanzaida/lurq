@@ -31,6 +31,7 @@ mod segmented;
 mod shared;
 mod slider;
 mod switch;
+mod text_box;
 mod textarea;
 pub(crate) mod theme;
 mod toggle;
@@ -43,7 +44,7 @@ pub use button::{
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
 pub use checkbox::{Checkbox, CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView};
 pub use fab::{Fab, FabPart, FabState};
-pub use field::{Field, FieldPart, FieldRenderer, FieldState, FieldView};
+pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
@@ -56,8 +57,10 @@ pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlStat
 pub use shared::Choice;
 pub use slider::{Slider, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
+pub use text_box::{Judgment, TextBoxSize, TextBoxState};
 pub use textarea::{
-  TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaState, TextareaView,
+  TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
+  TextareaView,
 };
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};

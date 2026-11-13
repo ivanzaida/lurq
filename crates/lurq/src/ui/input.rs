@@ -3,25 +3,23 @@
 use std::sync::Arc;
 
 use super::{
+  field::{FieldControl, InField},
   icon::Icon,
   names,
-  part_style::{Length, PartStyle, PartTransition},
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::fading,
+  part_style::{Length, PartStyle},
+  recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  text_box::{self, BoxStates, EditHandler, Judgment, TextBoxSize},
   theme::{Themed, current_theme},
 };
 use crate::{
-  animation::Transition,
   app::{
     events::TextInputEvent,
-    theme::{
-      BorderSize, ControlSize, IconSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle,
-    },
+    theme::{ControlSize, IconSize, PaletteColor, Theme, TypographyStyle},
   },
   components::{self, Row, Stack},
   core::Signal,
   layout::{Alignment, StackAlignment, text_style::TextStyle},
-  node::{CursorIcon, Element, Outline, TextColor, border::Border, dimension::Dimension},
+  node::{Element, dimension::Dimension},
 };
 
 /// The parts of an input a recipe styles.
@@ -44,23 +42,8 @@ names!(InputPart {
   Icon => "icon",
 });
 
-/// The sizes of an input: the heights of the theme's controls.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum InputSize {
-  /// 32 high, its text 13.
-  Sm,
-  /// 36 high, its text 14.
-  #[default]
-  Md,
-  /// 40 high, its text 15.
-  Lg,
-}
-
-names!(InputSize {
-  Sm => "sm",
-  Md => "md",
-  Lg => "lg",
-});
+/// The sizes of an input: the heights of the theme's controls, and the type of each. A textarea has the same.
+pub type InputSize = TextBoxSize;
 
 /// The states of an input a recipe styles, besides what the pointer and the
 /// keyboard do to it.
@@ -95,8 +78,6 @@ names!(InputState {
 /// What builds an input's nodes: a theme's in place of the default one.
 pub type InputRenderer = Arc<dyn Fn(InputView) -> Element + Send + Sync>;
 
-type InputHandler = Arc<dyn Fn(&TextInputEvent) + Send + Sync>;
-
 /// An input: one line of text that a person types. A name, an email
 /// address, a search.
 ///
@@ -119,17 +100,12 @@ pub struct Input {
   value: Signal<String>,
   placeholder: Option<Arc<str>>,
   icon: Option<Name>,
-  size: Name,
-  invalid: bool,
-  warning: bool,
-  valid: bool,
-  read_only: bool,
-  disabled: bool,
+  boxed: BoxStates,
   full_width: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
-  on_input: Vec<InputHandler>,
+  on_input: Vec<EditHandler>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -142,12 +118,7 @@ impl Input {
       value,
       placeholder: None,
       icon: None,
-      size: InputSize::default().into(),
-      invalid: false,
-      warning: false,
-      valid: false,
-      read_only: false,
-      disabled: false,
+      boxed: BoxStates::default(),
       full_width: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -173,37 +144,44 @@ impl Input {
 
   /// An [`InputSize`], or a size the theme's recipe names.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
-    self.size = size.into();
+    self.boxed.size = size.into();
     self
   }
 
   /// Whether what the input holds is wrong. Of invalid, warning and valid, the first that is set is the one shown.
   pub fn invalid(mut self, invalid: bool) -> Self {
-    self.invalid = invalid;
+    self.boxed.invalid = invalid;
     self
   }
 
   /// Whether what the input holds is allowed with a caveat.
   pub fn warning(mut self, warning: bool) -> Self {
-    self.warning = warning;
+    self.boxed.warning = warning;
     self
   }
 
   /// Whether what the input holds was checked and is right.
   pub fn valid(mut self, valid: bool) -> Self {
-    self.valid = valid;
+    self.boxed.valid = valid;
     self
   }
 
   /// Whether the input can be read, selected and copied, and not changed. It is still a stop of Tab.
   pub fn read_only(mut self, read_only: bool) -> Self {
-    self.read_only = read_only;
+    self.boxed.read_only = read_only;
     self
   }
 
   /// Whether the input takes no input.
   pub fn disabled(mut self, disabled: bool) -> Self {
-    self.disabled = disabled;
+    self.boxed.disabled = disabled;
+    self
+  }
+
+  /// What the input is called, to what reads the tree. It draws nothing: the label a person reads is the field's,
+  /// above it, which gives the input this name unless it has its own.
+  pub fn label(mut self, label: &str) -> Self {
+    self.boxed.label = Some(Arc::from(label));
     self
   }
 
@@ -271,33 +249,22 @@ impl Input {
   /// Builds the input in `theme`. Converting an input into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    // One judgment is shown: what is wrong over what is doubtful over what is right.
-    let invalid = self.invalid;
-    let warning = self.warning && !invalid;
-    let valid = self.valid && !invalid && !warning;
-    let case = Case {
-      variant: None,
-      size: Some(self.size),
-      density: None,
-      breakpoint: super::current_breakpoint(),
-      states: self.states.clone(),
-    }
-    .state(InputState::Invalid, invalid)
-    .state(InputState::Warning, warning)
-    .state(InputState::Valid, valid)
-    .state(InputState::ReadOnly, self.read_only)
-    .state(InputState::Disabled, self.disabled)
-    .state(InputState::FullWidth, self.full_width)
-    .state(InputState::WithIcon, self.icon.is_some());
+    let case = self
+      .boxed
+      .case(self.states.clone())
+      .state(InputState::FullWidth, self.full_width)
+      .state(InputState::WithIcon, self.icon.is_some());
     let view = InputView {
       value: self.value,
       placeholder: self.placeholder,
       icon: self.icon,
-      invalid,
-      read_only: self.read_only,
-      disabled: self.disabled,
+      label: self.boxed.label.clone(),
+      invalid: self.boxed.judgment() == Some(Judgment::Invalid),
+      read_only: self.boxed.read_only,
+      disabled: self.boxed.disabled,
       recipe: theme.resolve::<Input>(&case, Some(&self.rules)),
       forced: self.forced,
+      boxed: self.boxed,
       on_input: self.on_input,
       name: self.name,
       id: self.id,
@@ -307,6 +274,15 @@ impl Input {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
+  }
+}
+
+impl FieldControl for Input {
+  /// Called by the field's label unless it has a name of its own, judged as the field is unless the app judged the
+  /// input itself, and disabled where the field is.
+  fn in_field(mut self, field: &InField) -> Element {
+    self.boxed.in_field(field);
+    self.into()
   }
 }
 
@@ -323,6 +299,8 @@ pub struct InputView {
   pub value: Signal<String>,
   pub placeholder: Option<Arc<str>>,
   pub icon: Option<Name>,
+  /// What it is called to what reads the tree: its own label, or its field's.
+  pub label: Option<Arc<str>>,
   /// Whether what it holds is wrong, as the input shows it.
   pub invalid: bool,
   pub read_only: bool,
@@ -330,7 +308,8 @@ pub struct InputView {
   /// The style of each part of this input.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
-  on_input: Vec<InputHandler>,
+  boxed: BoxStates,
+  on_input: Vec<EditHandler>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   name: Option<Arc<str>>,
@@ -348,29 +327,15 @@ impl InputView {
     self.recipe.theme()
   }
 
-  /// The text of the part as a text input paints it: the part's type, in the
-  /// color of its foreground. A text input does not take the foreground of
-  /// its node, so the color is named.
-  fn ink(&self, style: &PartStyle) -> TextStyle {
-    let theme = self.theme();
-    let mut text = style.text.resolve(theme);
-    match &style.foreground {
-      Some(TextColor::Color(color)) => text.color = *color,
-      Some(TextColor::Palette(role)) => text.color = theme.palette_color(role.clone()),
-      None => {}
-    }
-    text
-  }
-
   /// The type of the value: the control's.
   pub fn value_style(&self) -> TextStyle {
-    self.ink(&self.part(InputPart::Control).rest())
+    text_box::ink(self.theme(), &self.part(InputPart::Control).rest())
   }
 
   /// The type of the placeholder: the control's, with what the placeholder's part lays over it.
   pub fn placeholder_style(&self) -> TextStyle {
     let control = self.part(InputPart::Control).rest();
-    self.ink(&control.merged(&self.part(InputPart::Placeholder).rest()))
+    text_box::ink(self.theme(), &control.merged(&self.part(InputPart::Placeholder).rest()))
   }
 
   /// How far the text starts from the start of the box: the control's own
@@ -411,33 +376,17 @@ impl InputView {
   /// input bound to the value, which is typed in, focused and disabled. A
   /// read-only one refuses every edit.
   pub fn control(&self) -> components::TextInput {
-    let mut control = components::TextInput::new(self.value.clone())
+    let control = components::TextInput::new(self.value.clone())
       .single_line()
       .text_style(self.value_style())
       .placeholder_style(self.placeholder_style())
-      // A text input is a stop of Tab only in a form or with an index of its own; a control of the design system is
-      // one wherever it is.
-      .tab_index(0)
-      .disabled(self.disabled)
-      .part(&self.part(InputPart::Control))
-      .describe("a11y_role", "textbox");
+      .part(&self.part(InputPart::Control));
+    let mut control = text_box::text_box(control, &self.boxed, self.on_input.clone());
     if let Some(placeholder) = &self.placeholder {
       control = control.placeholder(placeholder);
     }
     if let Some(start) = self.text_start().filter(|_| self.icon.is_some()) {
       control = control.padding_left(start);
-    }
-    let (handlers, read_only) = (self.on_input.clone(), self.read_only);
-    if read_only || !handlers.is_empty() {
-      control = control.on_input(move |event: TextInputEvent| {
-        if read_only {
-          event.prevent_default();
-          return;
-        }
-        for handler in &handlers {
-          handler(&event);
-        }
-      });
     }
     #[cfg(feature = "form")]
     if let Some(name) = &self.name {
@@ -506,58 +455,19 @@ impl Themed for Input {
   /// text. Small is 32 with text of 13, large 40 with text of 15.
   fn recipe() -> Recipe {
     use InputPart::{Control, Icon, Placeholder, Root};
-    use PaletteColor::{Background, Destructive, Foreground, Muted, MutedForeground, Ring, Success};
-    let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
-    // The focus is a line of 2 inside the box, over its edge: an outline, so that the edge under the
-    // pointer, which the engine lays over what the focus sets, does not take it away.
-    let ring = |color: PaletteColor| Outline::new(2.0, color).offset(-2.0);
+    use PaletteColor::{Foreground, MutedForeground, Success};
     let recipe = Recipe::new()
       .base(Root, |s| s.width(260.0).gap(8.0))
       .base(Control, |s| {
-        fading(
-          s.width(Length::Fill)
-            .height(ControlSize::Md)
-            .padding_x(12.0)
-            .radius(RadiusSize::Md)
-            .background(Background)
-            .border(edge(PaletteColor::Input))
-            .foreground(Foreground)
-            .typography(TypographyStyle::Body)
-            .cursor(CursorIcon::Text),
-        )
-        .transition(PartTransition::new(Transition::border_color(), MotionDuration::Fast))
+        text_box::box_style(s)
+          .height(ControlSize::Md)
+          .foreground(Foreground)
+          .typography(TypographyStyle::Body)
       })
-      .base(Placeholder, |s| s.foreground(MutedForeground))
       .base(Icon, |s| s.square(IconSize::Md).foreground(MutedForeground))
-      .hovered(Control, |s| s.border(edge(Ring)))
-      .focus_visible(Control, |s| s.outline(ring(Ring)))
-      .size(InputSize::Sm, Control, |s| s.height(ControlSize::Sm).font_size(13.0))
-      .size(InputSize::Lg, Control, |s| s.height(ControlSize::Lg).font_size(15.0))
       .state(InputState::FullWidth, Root, |s| s.width(Length::Fill))
-      .state(InputState::ReadOnly, Control, |s| {
-        s.background(Muted).border(edge(PaletteColor::Border))
-      })
-      .state(InputState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
-      .state(InputState::Disabled, Control, |s| {
-        s.background(Muted).cursor(CursorIcon::Default)
-      })
       .state(InputState::Valid, Icon, |s| s.foreground(Success));
-    // A judgment keeps its color under the pointer and in the focus, where the focus is thicker.
-    [
-      (InputState::Invalid, Destructive),
-      (InputState::Warning, PaletteColor::Warning),
-      (InputState::Valid, Success),
-    ]
-    .into_iter()
-    .fold(recipe, |recipe, (state, color)| {
-      recipe
-        .state(state, Control, |s| s.border(edge(color.clone())))
-        .when(Selector::new().state(state).hovered(), Control, |s| {
-          s.border(edge(color.clone()))
-        })
-        .when(Selector::new().state(state).focus_visible(), Control, |s| {
-          s.outline(ring(color))
-        })
-    })
+    let recipe = text_box::box_sizes(recipe, Control, true);
+    text_box::box_rules(recipe, Root, Control, Placeholder)
   }
 }

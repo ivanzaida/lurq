@@ -5132,6 +5132,17 @@ impl Tree {
         pending_focus = Some(target);
         builtin_needs_redraw = true;
       }
+      // A click of a label focuses what it names (`focuses`), unless something under the pointer takes the focus
+      // itself: a request, as `Ctx::focus` makes, which is applied once the click is handled.
+      if is_left_click
+        && let Some(target) = hits
+          .iter()
+          .take_while(|(node, _)| !node.is_focusable())
+          .find_map(|(node, _)| node.events.focuses.as_ref())
+        && let Some(ctx) = &self.root_ctx
+      {
+        ctx.focus(target);
+      }
       if hits.is_empty()
         && is_left_click
         && let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly)
