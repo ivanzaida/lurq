@@ -20,10 +20,10 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, border::Border},
-  ui::{Button, ButtonSize, ButtonVariant, Interaction, Switch, Toggle, icons},
+  ui::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Interaction, Switch, Toggle, icons},
 };
 
-use crate::kit::{FILL, badge, code_block, icon, line, mono, name, quiet, segmented, select, text, tool};
+use crate::kit::{FILL, code_block, icon, line, mono, name, quiet, segmented, select, text, tool};
 
 /// The least width of the card with the panel beside the stage: the panel, and a stage whose bar holds the
 /// switch of states and its tools.
@@ -117,7 +117,8 @@ pub struct Spec {
   pub forceable: bool,
   /// What is said after the measured size: "radius 6".
   pub facts: String,
-  /// What the component does that is counted: "on_click".
+  /// What the component does that is counted: "on_click". Empty for a component that is read and not operated:
+  /// nothing is counted.
   pub event: &'static str,
   /// The Rust that builds the component, a call to a line.
   pub code: Vec<String>,
@@ -283,13 +284,16 @@ impl Playground {
           .justify(Justify::SpaceBetween)
           .foreground(PaletteColor::MutedForeground)
           .child(mono(&measured, 12.0))
-          .child(
+          .child(if spec.event.is_empty() {
+            // A component that is read and not operated has nothing to count.
+            Row::new()
+          } else {
             Row::new()
               .spacing(6.0)
               .align_items(Alignment::Center)
               .child(icon(icons::HAND_POINTER, 14.0))
-              .child(mono(&format!("{} × {}", spec.event, self.count.get()), 12.0)),
-          ),
+              .child(mono(&format!("{} × {}", spec.event, self.count.get()), 12.0))
+          }),
       )
   }
 
@@ -320,9 +324,9 @@ impl Playground {
       }
       if index == 1 && self.count.get() > 0 {
         entry = entry.child(
-          badge(&self.count.get().to_string())
-            .height(18.0)
-            .padding_horizontal(6.0),
+          Badge::count(self.count.get() as usize)
+            .variant(BadgeVariant::Secondary)
+            .label("events"),
         );
       }
       tabs = tabs.child(entry);

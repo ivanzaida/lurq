@@ -5,6 +5,7 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
+mod badge;
 mod breadcrumb;
 mod button;
 mod checkbox;
@@ -286,6 +287,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/badge",
+    name: "Badge",
+    icon: None,
+    about: "badge status label count counter dot indicator unread notification variant success warning info destructive outline",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<badge::BadgePage>(()),
   },
 ];
 

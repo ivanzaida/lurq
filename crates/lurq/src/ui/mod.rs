@@ -16,6 +16,7 @@
 //! what renders it renders again when the theme changes.
 
 mod accordion;
+mod badge;
 mod breadcrumb;
 mod button;
 mod button_group;
@@ -50,6 +51,7 @@ mod toggle_group;
 mod tooltip;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
+pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
