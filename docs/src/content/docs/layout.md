@@ -41,6 +41,7 @@ Common modifiers:
 | `.border_inside(width, color)`                                          | Draw an inside border from a concrete width or `BorderSize`            |
 | `.offset(x, y)`                                                         | Shift visually without changing parent layout                          |
 | `.relative(x, y)`                                                       | Alias for `.offset(x, y)`                                              |
+| `.offset_by_size(x, y)`                                                 | Shift by shares of the element's own width and height, once it is laid out, on top of `.offset`: `(-0.5, -0.5)` puts its middle where its top left corner was |
 | `.absolute(x, y, width, height)`                                        | Absolute stack positioning with forced size                            |
 | `.absolute_position(x, y)`                                              | Absolute stack positioning with measured size                          |
 | `.transform(Transform2D)`                                               | Apply a visual 2D transform around the element center                  |

@@ -308,8 +308,11 @@ The supported properties are:
 - `BorderRadiusTopLeft`, `BorderRadiusTopRight`, `BorderRadiusBottomRight`, `BorderRadiusBottomLeft`
 - `OffsetX`, `OffsetY`
 - `Width`, `Height`
+- `BorderDash`
 - `Opacity`
 - `Transform`
+
+A width or a height in percent is animated as a share of the parent's (`AnimatableValue::Percent`): a transition or a keyframe moves it from one share to another, and between a share and pixels it changes at once. The dash and the gap of a border are one value (`Transition::border_dash()`), so one dash that makes part of an outline stays one dash on its way: the arc of a ring.
 
 A height the content decides is one too: a transition of `Height` between a height in pixels and none runs to, and from, the height of the content, which the layout reads as it goes; a panel opens from `height(0.0)` to no height and closes back.
 

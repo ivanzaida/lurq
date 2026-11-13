@@ -143,6 +143,23 @@ starting under the window's own title bar.
 - **A scrolling part does not grow**: `flex_full(0.0, 1.0, None)`, so that it gives way when there is too little
   room and is as high as its content when there is enough. One that grows makes its panel as high as the window.
 
+## What the fourth batch taught
+
+- **A stack and a column give a child no more than their own width**; only a row lays a child out as wide as it
+  is, from its start. What is centred on a point whatever its size is in a row at the point and moved back by
+  half of itself: `.offset_by_size(-0.5, -0.5)`. What has no size paints nothing of what is in it.
+- **A test reads what moves where its move has it.** Keyframes registered in phase run on the process's clock, so a
+  turning glyph is at another angle in every run of the suite: assert what holds at any moment (its distance from
+  the middle it turns about), or a difference between two moments, never one pose.
+- **A playground offers a control only for what it changes**: a prop that one form of the component has is there
+  while that form is chosen. A component that is read and not operated gives `event: ""`, and the stage says so.
+- **The stage of a playground cuts nothing off**, and a page's own wrappers must not either where a shadow, a ring
+  or a badge reaches past the component: `overflow_visible()` on what holds it.
+- **What a batch may use now**: `BackgroundColor::CurrentForeground`; a width in percent run by a keyframe or a
+  transition; `Transition::border_dash()`; `PartStyle::corners`; `.stops_inside(true)`; `ui::Badge`, `ui::Tag`,
+  `ui::Chip`, `ui::Avatar`, `ui::Card`, `ui::Separator`, `ui::Progress`, `ui::Spinner`, `ui::Skeleton` in what your
+  component is made of, and in the gallery's pages in place of anything drawn by hand.
+
 ## What the engine does that surprises
 
 - A container clips what is in it (`Overflow::Hidden` is the default): a shadow or a ring outside a part

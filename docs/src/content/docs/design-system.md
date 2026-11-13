@@ -1364,7 +1364,7 @@ Badge::count(3)
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the badge's own, not the element's it is on |
 
 - A badge is read and not operated: it takes no press, no focus and no stop of Tab, and has nothing to force.
-- On an element (`on`), the badge and the element are one element as large as the element; the round end of the badge is centred 3 in from the element's top end corner, so a dot of 12 is at 27, -3 on a box of 36 (the design's Indicator) and a count of 18 reaches 6 past the corner each way. It has a ring of 2 in `Background` that parts it from what it is on. It reaches past the element, so what holds them gives it room or does not clip (`overflow_visible()`). A count that is not drawn leaves the element alone.
+- On an element (`on`), the badge and the element are one element as large as the element; the middle of the badge is on the point 3 in from the element's top end corner, whatever the badge's width, so a dot of 12 is at 27, -3 on a box of 36 (the design's Indicator), a count of one digit reaches 6 past the corner each way, and a wider one as far to either side of the point. It has a ring of 2 in `Background` that parts it from what it is on. It reaches past the element, so what holds them gives it room or does not clip (`overflow_visible()`). A count that is not drawn leaves the element alone.
 - Parts: `BadgePart::Root` (the badge: its fill, edge and height; a dot alone is its root), `Label`, `Icon`, `Dot` (the dot before the text), `Anchor` (what holds the element and the badge on it) and `Corner` (a square at the element's top end corner whose centre the badge's round end is centred on: its width is all that is read of it). States: `BadgeState::Dot`, `DotOnly`, `Count`, `OnCorner`, `Square`. The variant and the size are the recipe's.
 - In the design a badge is 22 high and round, padded 8, its text 12/500 (the caption's type at medium), an icon of 12 and 4 before the text; small is 18, padded 6, at 11 with an icon of 10; large is 26, padded 10, at 13 with an icon of 14. With a dot it is in `Background` with a 1 px edge of `Border` and its text in `Foreground`, the dot 7, 6 before the text, the badge padded 8 before and 10 after. A count is at 600 and at least as wide as it is high. A dot alone is 8 (6 small, 10 large), and 12 on a corner (10 small, 14 large).
 - To what reads the tree (`lurq_snapshot` of the MCP server) a badge is a `status` called by its text; a count is called by its number with what it counts ("120 unread messages"), the whole number however it is shown.
@@ -1399,6 +1399,7 @@ Tag::new("React").pill(true).on_remove(move || remove("React"));
 
 - A tag does not keep whether it is there: the app holds its list, and `on_remove` tells it which one a person took away. A tag with no handler is read only: it has no button and is no stop of Tab.
 - The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
+- Tags an app lays in a row with a focus group (`Row::new().focus_group(FocusGroup::horizontal())`) keep the focus when one is taken away: it goes to the next tag's button, or to the last, so Backspace takes them one after another. Outside a group the focus leaves with the button.
 - Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Removable` (it has the button), `Pill`, `Disabled`.
 - In the design a tag is 24 high, padded 8, with the corners of `RadiusSize::Sm`, in `Secondary` with a line of `Border` inside it, its text 12 and medium in `SecondaryForeground`. A removable one is padded 4 at its end, where a button of 16 (corners of 3) holds a cross of 11 in `MutedForeground`, 4 after the text; under the pointer the button is filled `StateHover` and its cross is `Foreground`. `Info`, `Success`, `Warning` and `Destructive` are in the muted fill of their color, line and fill alike, with the text in the color. A pill is round, has no line, is padded 10 and 6, and its cross is 12.
 - Several tags side by side are an app's row: `Row::new().spacing(6.0).wrap()`, 6 apart as the board lays them out.
@@ -1664,6 +1665,52 @@ Skeleton::status(
 - Parts: `SkeletonPart::Root` (the box of a shape, or the column of a paragraph's lines), `Bone` (a shape), `Sheen` (the fill of its middle; it is as wide as the bone). The shapes are the variants of `SkeletonShape`: `Line`, `Circle`, `Block`, `Paragraph`.
 - In the design every shape is in `Muted`; a line is 12 high and `radius-sm`, a circle `radius-full`, a block 200 by 112 and `radius-lg`; a paragraph's lines are 10 apart, its last two 92 and 60 hundredths of its width. The sheen runs from the shape's fill to `SecondaryHover` and back.
 - The board's media row and card are built from these and are no components of their own: the gallery's Skeleton page has both, with their code.
+
+## Progress
+
+How far a piece of work is: a file uploading, items being copied. A bar along a rail, the thin bar across the top of a window, or a ring with the value in its middle.
+
+```rust
+use lurq::ui::{Progress, ProgressSize, ProgressVariant, RingProgress};
+
+// A fraction of one.
+Progress::new(0.62).label("Uploading theme.json").show_value(true).size(ProgressSize::Md);
+
+// 42 of 128 items, said as the app says it.
+Progress::new(42).max(128).show_value(true).format(|done, all| format!("{done} of {all}"));
+
+// Work whose end is not known.
+Progress::indeterminate().label("Connecting");
+
+// The thin bar across the top of a page, first in the page's column.
+Progress::new(loaded.get()).top_bar(true);
+
+// The same value around a circle, with it in the middle.
+RingProgress::new(0.7).variant(ProgressVariant::Success);
+```
+
+| Builder | |
+| --- | --- |
+| `Progress::new(value)` | How far the work is: a fraction of one, or of `max`. Kept between nothing and `max` |
+| `Progress::indeterminate()` | Work whose end is not known: a segment crosses the rail again and again |
+| `value(n)`, `max(m)` | How far the work is, and the whole of it (1 when not given). A `max` of nothing or less: nothing is done |
+| `variant(ProgressVariant)` | The color of what is filled: `Default` (primary), `Success`, `Warning`, `Destructive` |
+| `size(ProgressSize)` | The rail's height: `Sm` 4, `Md` 6, `Lg` 8 (the default). A ring of 40, 56 or 72 |
+| `label(&str)` | What the work is, over the start of the rail, and what the progress is called |
+| `show_value(bool)` | The value over the end of the rail, as a percentage or as `format` says it. None while it is not known. A ring shows it unless told not to |
+| `format(Fn(f32, f32) -> String)` | Says the value, given the value and `max`: "42 of 128" |
+| `top_bar(bool)` | The thin bar across the top of a window or a surface: 3 high, no rail, as wide as what holds it |
+| `width(impl Into<Length>)` | How wide the progress is: 240 when not given |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root |
+
+- A progress is read, not operated: it takes no focus and no press. What is filled is a share of the rail, and moves to a new value over the theme's slow duration; while motion is reduced it is there at once.
+- Work that is not known runs a segment of 90 of 240 across the rail, growing out of its start and leaving at its end, once in `ui::PROGRESS_PERIOD` (1.6 s), in phase with every other such bar. While motion is reduced the segment stands still 70 of 240 from the start of the rail, where no value would be, as the board draws it.
+- Parts: `ProgressPart::Root` (the header over the rail), `Header` (the label and the value), `Label`, `Value`, `Track` (the rail), `Fill` (what is filled; the moving segment). States: `ProgressState::Indeterminate`, `TopBar`.
+- In the design the rail is 240 by 8, round, in `Secondary`, filled in `Primary`, or `Success`, `Warning`, `Destructive`. Under a label and in a dialog it is 6, in a row of a list 4. The label is 8 over the rail in the label's type (13, medium) and `Foreground`; the value is at the end in the mono type of 11, `MutedForeground`. The top bar is 3 high with no rail, its fill square where it starts and round 2 where it ends.
+- A ring (`RingProgress`) is 72 across, the ring a tenth of that wide, in `Secondary`, with what is done over it in the variant's color from the top and clockwise, and the value in the middle in the label's type of 13 at a weight of 600 (12 and 11 in the rings of 56 and 40). Nothing is painted in its middle, so it sits on any surface. It takes `value`, `max`, `variant`, `size`, `label` (its name to tooling: the board draws no text beside it), `show_value`, `format`, `state`, `style`, `rules`, `id` and `key`. It always knows the value: what does not is a spinner's.
+- The ring is two round boxes one over the other: the track, whose inside border is the ring, and the fill, whose inside border, as wide and in the arc's color, is one dash as long as the arc with a gap of the rest of the circle. A border's dashes start at the top of a circle and run clockwise, and their period is fitted to the outline, so a dash and a gap that make the circle are one dash of it. The arc moves round to a new value, and fades in from nothing, over the theme's slow duration (`Transition::border_dash()`, `border_color()`); while motion is reduced it is there at once. Parts: `RingProgressPart::Root`, `Track` (its border is the ring: its width and the color of what is not done), `Fill` (its border's color is the arc's), `Middle` (holds the value, paints nothing), `Value`.
+- To what reads the tree (`lurq_snapshot` of the MCP server) a progress and a ring are a `progressbar` called by their label, with `a11y_valuenow`, `a11y_valuemin` (0), `a11y_valuemax` and `a11y_valuetext` (the value as it is said); one that does not know how far the work is has no value.
+- A renderer that draws another progress has `view.fraction()`, `view.value()`, `view.max()`, `view.value_text()`, `view.root()` (the root with its name to tooling), `view.header()` and `view.track()` (the rail with what is filled, or with the moving segment). A meter is the same parts restyled: `Progress::new(96).max(128).label("Disk space").show_value(true).variant(ProgressVariant::Warning).format(..)` with a radius of 2 on the `Track` and the `Fill`; a meter of cells is a renderer that draws a row of them from `view.fraction()`. A ring's renderer has `view.fraction()`, `view.value_text()`, `view.side()`, `view.thickness()`, `view.root()`, `view.track()`, `view.arc()` (the fill with its dash) and `view.middle()`. A gauge is such a renderer: half a ring, its arc's box turned a quarter back so that the dash starts at 9 o'clock, in a box that clips the lower half.
 
 ## Tab And The Design System's Controls
 
