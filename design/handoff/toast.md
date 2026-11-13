@@ -13,7 +13,7 @@
   on with what it had left. The tooltip's branch makes the same change; the hunks are the same.
 - `crates/lurq/src/animation/animation.rs`: `AnimationEngine::new` registers the toast's four keyframes after the
   spinner's turn (`for keyframes in crate::ui::toast_keyframes() { engine.register_keyframes(keyframes) }`), so that
-  every app has them, as it has the spinner's. Their ids are `0xFF01` to `0xFF04`, after `SPIN`'s `0xFF00`.
+  every app has them, as it has the spinner's. Their ids are `0xFF11` to `0xFF14`: `SPIN` is `0xFF00`, `FADE_IN` and `FADE_OUT` are `0xFF01` and `0xFF02`.
 - `crates/lurq/src/ui/mod.rs` has, besides the `mod` and `pub use` lines, `pub(crate) use toast::keyframes as
   toast_keyframes;` for that.
 
