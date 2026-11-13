@@ -8,6 +8,7 @@
 mod doc;
 mod kit;
 mod pages;
+mod playground;
 mod shell;
 
 use lurq::{

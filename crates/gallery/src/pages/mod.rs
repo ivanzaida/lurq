@@ -6,6 +6,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod button;
 mod family;
+mod family_play;
 mod icons;
 mod overview;
 mod tokens;

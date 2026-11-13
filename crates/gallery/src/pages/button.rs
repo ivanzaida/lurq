@@ -7,21 +7,19 @@ use lurq::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{BorderSize, Breakpoint, PaletteColor, RadiusSize, TypographyStyle},
+    theme::{PaletteColor, RadiusSize, TypographyStyle},
   },
-  components::{Column, Rect, Row, TextInput},
-  core::{ElementRef, Signal},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, RadiusValue, border::Border},
+  components::{Column, Rect, Row},
+  core::Signal,
+  layout::{Alignment, layout_kind::Justify},
+  node::{Element, RadiusValue},
   ui::{Button, ButtonPart, ButtonShape, ButtonSize, ButtonState, ButtonVariant, Case, Fab, Interaction, icons},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{
-    FILL, badge, card_footer, code_block, icon, line, mono, name, props_table, quiet, segmented, segmented_fill,
-    select, styled, switch, text, tool,
-  },
+  kit::{FILL, card_footer, line, name, props_table, quiet, segmented, segmented_fill, styled},
+  playground::{Playground, Spec, divider, field, flag, prop},
 };
 
 /// A variant: what it is, what the code calls it, and what it is for.
@@ -132,13 +130,6 @@ const ICONS: [(&str, Option<&str>, &str); 6] = [
 /// The icon the playground starts with: a plus.
 const PLUS: usize = 1;
 
-const FORCED: [(&str, Option<Interaction>); 4] = [
-  ("Default", None),
-  ("Hover", Some(Interaction::Hovered)),
-  ("Pressed", Some(Interaction::Pressed)),
-  ("Focus", Some(Interaction::FocusVisible)),
-];
-
 const LABEL: &str = "Save changes";
 
 /// What the playground's button is: every prop of it.
@@ -233,98 +224,6 @@ impl Props {
   }
 }
 
-/// What the stage of the playground is given: the button's props, how it is
-/// forced, and what the page keeps of it.
-#[derive(Clone, lurq::DevtoolsInspectable)]
-struct StageProps {
-  props: Props,
-  forced: usize,
-  measured: String,
-  clicks: u32,
-  #[devtools_ignore]
-  press: Arc<dyn Fn() + Send + Sync>,
-  #[devtools_ignore]
-  anchor: ElementRef,
-}
-
-impl PartialEq for StageProps {
-  fn eq(&self, other: &Self) -> bool {
-    self.props == other.props
-      && self.forced == other.forced
-      && self.measured == other.measured
-      && self.clicks == other.clicks
-      && Arc::ptr_eq(&self.press, &other.press)
-  }
-}
-
-/// The stage of the playground: the button on the canvas, with its measured
-/// size and how often it was pressed under it.
-struct Stage;
-
-impl Component for Stage {
-  type Props = StageProps;
-
-  fn create(_ctx: &mut Ctx) -> Self {
-    Self
-  }
-
-  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let given = ctx.props::<StageProps>().clone();
-    let theme = ctx.theme().clone();
-    let press = given.press.clone();
-    let button = given
-      .props
-      .button()
-      .force(FORCED[given.forced].1)
-      .on_click(move |_| press());
-    let mut held = Row::new().ref_element(given.anchor.clone()).child(button);
-    if given.props.full_width {
-      held = held.width(FILL);
-    }
-    let radius = match theme
-      .resolve::<Button>(&given.props.case(), None)
-      .part(ButtonPart::Root)
-      .rest()
-      .radius
-    {
-      Some(RadiusValue::Theme(RadiusSize::Full)) => "full".to_owned(),
-      Some(RadiusValue::Theme(size)) => theme.radius_value(size).to_string(),
-      Some(RadiusValue::Px(radius)) => radius.to_string(),
-      None => "0".to_owned(),
-    };
-    Column::new()
-      .size(FILL, FILL)
-      .background(PaletteColor::Canvas)
-      .foreground(PaletteColor::Foreground)
-      .child(
-        Row::new()
-          .width(FILL)
-          .flex(1.0)
-          .padding_horizontal(32.0)
-          .align_items(Alignment::Center)
-          .justify(Justify::Center)
-          .child(held),
-      )
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(36.0)
-          .padding_horizontal(16.0)
-          .align_items(Alignment::Center)
-          .justify(Justify::SpaceBetween)
-          .foreground(PaletteColor::MutedForeground)
-          .child(mono(&format!("{} · radius {radius}", given.measured), 12.0))
-          .child(
-            Row::new()
-              .spacing(6.0)
-              .align_items(Alignment::Center)
-              .child(icon("hand-pointer", 14.0))
-              .child(mono(&format!("on_click × {}", given.clicks), 12.0)),
-          ),
-      )
-  }
-}
-
 pub struct ButtonPage {
   frame: Frame,
   variant: Signal<usize>,
@@ -336,19 +235,8 @@ pub struct ButtonPage {
   loading: Signal<bool>,
   disabled: Signal<bool>,
   full_width: Signal<bool>,
-  forced: Signal<usize>,
-  clicks: Signal<u32>,
-  /// What the button did, the latest first, a line each.
-  events: Signal<String>,
-  tab: Signal<usize>,
-  /// What holds the playground's button, measured.
-  anchor: ElementRef,
-  measured: Signal<String>,
+  playground: Playground,
   matrix_size: Signal<usize>,
-  variant_anchor: ElementRef,
-  variant_open: Signal<bool>,
-  icon_anchor: ElementRef,
-  icon_open: Signal<bool>,
 }
 
 impl ButtonPage {
@@ -393,127 +281,13 @@ impl ButtonPage {
     }
   }
 
-  /// The bar over the stage: the state the button is drawn in.
-  fn toolbar(&self) -> Row {
-    let forced = self.forced.clone();
-    Row::new()
-      .width(FILL)
-      .height(52.0)
-      .padding_left(16.0)
-      .padding_right(12.0)
-      .align_items(Alignment::Center)
-      .justify(Justify::SpaceBetween)
-      .border_bottom(line())
-      .child(
-        Row::new()
-          .spacing(10.0)
-          .align_items(Alignment::Center)
-          .child(quiet("state", 12.0))
-          .child(segmented(&FORCED, &FORCED[self.forced.get()].1, move |interaction| {
-            forced.set(FORCED.iter().position(|(_, held)| *held == interaction).unwrap_or(0))
-          })),
-      )
-  }
-
-  /// The stage, with what a press of its button does.
-  fn stage(&self, ctx: &mut Ctx, props: &Props) -> Element {
-    let (clicks, events) = (self.clicks.clone(), self.events.clone());
-    let press: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-      clicks.update(|count| *count += 1);
-      let count = clicks.get();
-      events.update(|log| {
-        let earlier: Vec<&str> = log.lines().take(5).collect();
-        *log = std::iter::once(format!("on_click  #{count}").as_str())
-          .chain(earlier)
-          .collect::<Vec<_>>()
-          .join("\n");
-      });
-    });
-    let given = StageProps {
-      props: props.clone(),
-      forced: self.forced.get(),
-      measured: self.measured.get(),
-      clicks: self.clicks.get(),
-      press,
-      anchor: self.anchor.clone(),
-    };
-    ctx.mount::<Stage>(given)
-  }
-
-  /// The tabs under the stage, and what the chosen one shows.
-  fn output(&self, props: &Props) -> Column {
-    let code = props.code();
-    let events = self.events.get();
-    let tree = self.tree(props);
-    let shown = self.tab.get();
-    let mut tabs = Row::new().height(FILL).spacing(20.0);
-    for (index, title) in ["Code", "Events", "Layout tree"].into_iter().enumerate() {
-      let on = index == shown;
-      let tab = self.tab.clone();
-      let mut entry = Row::new()
-        .height(FILL)
-        .spacing(6.0)
-        .align_items(Alignment::Center)
-        .cursor(lurq::node::CursorIcon::Pointer)
-        .foreground(if on {
-          PaletteColor::Foreground
-        } else {
-          PaletteColor::MutedForeground
-        })
-        .on_click(move |_| tab.set(index))
-        .child(text(title, 13.0, FontWeight::Medium));
-      if on {
-        entry = entry.border_bottom(Border::inside(2.0, PaletteColor::Primary));
-      } else {
-        entry = entry.hovered(|style| style.foreground(PaletteColor::Foreground));
-      }
-      if index == 1 && self.clicks.get() > 0 {
-        entry = entry.child(
-          badge(&self.clicks.get().to_string())
-            .height(18.0)
-            .padding_horizontal(6.0),
-        );
-      }
-      tabs = tabs.child(entry);
-    }
-    let copied = match shown {
-      0 => code.join("\n"),
-      1 => events.clone(),
-      _ => tree.join("\n"),
-    };
-    let body: Element = match shown {
-      0 => code_block(&code).into(),
-      1 if events.is_empty() => plain_lines(&["No event yet: press the button on the stage.".to_owned()]).into(),
-      1 => plain_lines(&events.lines().map(str::to_owned).collect::<Vec<_>>()).into(),
-      _ => plain_lines(&tree).into(),
-    };
-    Column::new()
-      .width(FILL)
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(40.0)
-          .padding_left(16.0)
-          .padding_right(8.0)
-          .align_items(Alignment::Center)
-          .justify(Justify::SpaceBetween)
-          .border_top(line())
-          .border_bottom(line())
-          .child(tabs)
-          .child(tool("Copy", icons::COPY, move || {
-            lurq::clipboard::copy_to_clipboard(&copied);
-          })),
-      )
-      .child(Column::new().width(FILL).min_height(150.0).child(body))
-  }
-
   /// The parts the button is built of, as the recipe has them for these props.
   fn tree(&self, props: &Props) -> Vec<String> {
     let size = &SIZES[props.size];
     let padding = if props.icon_only { 0.0 } else { size.padding };
     let mut lines = vec![format!(
       "root      {}   padding 0 {padding}   gap 8",
-      self.measured.get()
+      self.playground.measured()
     )];
     let glyph = if props.loading {
       Some("spinner")
@@ -534,39 +308,27 @@ impl ButtonPage {
     lines
   }
 
-  /// The panel beside the stage: a control for each prop.
-  fn panel(&self, props: &Props) -> Column {
-    let prop = |label: &str, kind: &str, control: Element| {
-      Column::new()
-        .width(FILL)
-        .spacing(6.0)
-        .child(
-          Row::new()
-            .width(FILL)
-            .align_items(Alignment::Center)
-            .justify(Justify::SpaceBetween)
-            .child(name(label, 12.0))
-            .child(quiet(kind, 11.0)),
-        )
-        .child(control)
+  /// The playground: the button these props make, and a control for each of them.
+  fn playground(&self, ctx: &mut Ctx) -> Element {
+    let props = self.props();
+    let theme = ctx.theme().clone();
+    let record = self.playground.recorder();
+    let shown = props
+      .button()
+      .force(self.playground.forced())
+      .on_click(move |_| record("on_click".to_owned()))
+      .into();
+    let radius = match theme
+      .resolve::<Button>(&props.case(), None)
+      .part(ButtonPart::Root)
+      .rest()
+      .radius
+    {
+      Some(RadiusValue::Theme(RadiusSize::Full)) => "full".to_owned(),
+      Some(RadiusValue::Theme(size)) => theme.radius_value(size).to_string(),
+      Some(RadiusValue::Px(radius)) => radius.to_string(),
+      None => "0".to_owned(),
     };
-    let flag = |label: &str, value: &Signal<bool>| {
-      let set = value.clone();
-      Row::new()
-        .width(FILL)
-        .height(24.0)
-        .align_items(Alignment::Center)
-        .justify(Justify::SpaceBetween)
-        .child(
-          Row::new()
-            .spacing(8.0)
-            .align_items(Alignment::Center)
-            .child(name(label, 12.0))
-            .child(quiet("bool", 11.0)),
-        )
-        .child(switch(value.get(), move |on| set.set(on)))
-    };
-
     let variants: Vec<(&str, usize)> = VARIANTS
       .iter()
       .enumerate()
@@ -582,132 +344,61 @@ impl ButtonPage {
       .enumerate()
       .map(|(index, size)| (size.name, index))
       .collect();
-    let theme = lurq::ui::current_theme();
-    let body = theme.typography_style(TypographyStyle::Body);
     let (variant, size, pill, glyph) = (
       self.variant.clone(),
       self.size.clone(),
       self.pill.clone(),
       self.icon.clone(),
     );
-    let changed = props.changed();
-    Column::new()
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(52.0)
-          .padding_left(16.0)
-          .padding_right(8.0)
-          .align_items(Alignment::Center)
-          .justify(Justify::SpaceBetween)
-          .border_bottom(line())
-          .child(
-            Row::new()
-              .spacing(8.0)
-              .align_items(Alignment::Center)
-              .child(text("Props", 14.0, FontWeight::SemiBold))
-              .child(quiet(&format!("{changed} changed"), 11.0)),
-          )
-          .child(tool("Reset", icons::REFRESH, self.reset())),
-      )
-      .child(
-        Column::new()
-          .width(FILL)
-          .padding(16.0)
-          .spacing(16.0)
-          .child(prop(
-            "variant",
-            "ButtonVariant",
-            select(
-              &self.variant_anchor,
-              &self.variant_open,
-              &variants,
-              &props.variant,
-              move |index| variant.set(index),
-            )
-            .width(FILL)
-            .into(),
-          ))
-          .child(prop(
-            "size",
-            "ButtonSize",
-            segmented_fill(&sizes, &props.size, move |index| size.set(index)).into(),
-          ))
-          .child(prop(
-            "shape",
-            "ButtonShape",
-            segmented_fill(&[("default", false), ("pill", true)], &props.pill, move |on| {
-              pill.set(on)
-            })
-            .into(),
-          ))
-          .child(prop(
-            "label",
-            "&str",
-            Row::new()
-              .width(FILL)
-              .height(36.0)
-              .padding_horizontal(12.0)
-              .align_items(Alignment::Center)
-              .rounded(RadiusSize::Md)
-              .background(PaletteColor::Background)
-              .border(Border::inside(BorderSize::Sm, PaletteColor::Input))
-              .child(
-                TextInput::styled(self.label.clone(), body)
-                  .flex(1.0)
-                  .height(FILL)
-                  .tab_index(0),
-              )
-              .into(),
-          ))
-          .child(prop(
-            "icon",
-            "impl Into<Name>",
-            select(&self.icon_anchor, &self.icon_open, &glyphs, &props.icon, move |index| {
-              glyph.set(index)
-            })
-            .width(FILL)
-            .into(),
-          ))
-          .child(Rect::new(FILL, 1.0).background(PaletteColor::Border))
-          .child(flag("icon_only", &self.icon_only))
-          .child(flag("loading", &self.loading))
-          .child(flag("disabled", &self.disabled))
-          .child(flag("full_width", &self.full_width)),
-      )
-  }
-
-  fn playground(&self, ctx: &mut Ctx) -> Element {
-    let props = self.props();
-    let wide = ctx.breakpoint() >= Some(Breakpoint::Lg);
-    let preview = Column::new()
-      .child(self.toolbar())
-      .child(Column::new().width(FILL).height(418.0).child(self.stage(ctx, &props)))
-      .child(self.output(&props));
-    let panel = self.panel(&props);
-    let card = Column::new()
-      .width(FILL)
-      .clip()
-      .rounded(RadiusSize::Lg)
-      .background(PaletteColor::Card)
-      .foreground(PaletteColor::CardForeground)
-      .border(line());
-    if wide {
-      card
-        .child(
-          Row::new()
-            .width(FILL)
-            .align_items(Alignment::Stretch)
-            .child(preview.flex(1.0))
-            .child(panel.width(320.0).border_left(line())),
-        )
-        .into()
-    } else {
-      card
-        .child(preview.width(FILL))
-        .child(panel.width(FILL).border_top(line()))
-        .into()
-    }
+    let controls = vec![
+      prop(
+        "variant",
+        "ButtonVariant",
+        self
+          .playground
+          .select(0, &variants, &props.variant, move |index| variant.set(index)),
+      ),
+      prop(
+        "size",
+        "ButtonSize",
+        segmented_fill(&sizes, &props.size, move |index| size.set(index)),
+      ),
+      prop(
+        "shape",
+        "ButtonShape",
+        segmented_fill(&[("default", false), ("pill", true)], &props.pill, move |on| {
+          pill.set(on)
+        }),
+      ),
+      prop("label", "&str", field(&self.label)),
+      prop(
+        "icon",
+        "impl Into<Name>",
+        self
+          .playground
+          .select(1, &glyphs, &props.icon, move |index| glyph.set(index)),
+      ),
+      divider(),
+      flag("icon_only", &self.icon_only),
+      flag("loading", &self.loading),
+      flag("disabled", &self.disabled),
+      flag("full_width", &self.full_width),
+    ];
+    self.playground.card(
+      ctx,
+      Spec {
+        shown,
+        fill: props.full_width,
+        forceable: true,
+        facts: format!("radius {radius}"),
+        event: "on_click",
+        code: props.code(),
+        tree: self.tree(&props),
+        controls,
+        changed: props.changed(),
+        reset: Arc::new(self.reset()),
+      },
+    )
   }
 
   fn variants(&self) -> Element {
@@ -1015,20 +706,6 @@ impl ButtonPage {
   }
 }
 
-/// Lines of plain text in the family of code: a log, a tree.
-fn plain_lines(lines: &[String]) -> Column {
-  let mut block = Column::new()
-    .width(FILL)
-    .padding_horizontal(16.0)
-    .padding_top(16.0)
-    .padding_bottom(18.0)
-    .spacing(4.0);
-  for line in lines {
-    block = block.child(mono(line, 13.0).height(20.0));
-  }
-  block
-}
-
 /// A demo card: the live buttons on the canvas, and under them the call that makes one.
 fn demo(stage: impl Into<Element>, call: &str) -> Element {
   Column::new()
@@ -1058,29 +735,12 @@ impl Component for ButtonPage {
       loading: ctx.signal(false),
       disabled: ctx.signal(false),
       full_width: ctx.signal(false),
-      forced: ctx.signal(0),
-      clicks: ctx.signal(0),
-      events: ctx.signal(String::new()),
-      tab: ctx.signal(0),
-      anchor: ElementRef::new(),
-      measured: ctx.signal("0 × 0 px".to_owned()),
+      playground: Playground::new(ctx, 2),
       matrix_size: ctx.signal(MD),
-      variant_anchor: ElementRef::new(),
-      variant_open: ctx.signal(false),
-      icon_anchor: ElementRef::new(),
-      icon_open: ctx.signal(false),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    // The button says how large it is whenever that changes.
-    let measured = self.measured.clone();
-    self.anchor.observe_rect(move |rect| {
-      let size = format!("{} × {} px", rect.width.round(), rect.height.round());
-      if measured.get() != size {
-        measured.set(size);
-      }
-    });
     let sections = vec![
       Section::new(
         "Playground",

@@ -14,6 +14,7 @@ use lurq::{
   },
 };
 
+use super::family_play::{ButtonGroupPlay, LinkPlay, SegmentedPlay, ToggleGroupPlay, TogglePlay};
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, demo_card, props_table, quiet, text},
@@ -37,17 +38,14 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
 
 /// What is on a stage, side by side, standing on one line; what does not fit goes on to the next.
 fn items() -> Row {
-  Row::new()
-    .width(FILL)
-    .spacing(28.0)
-    .wrap()
-    .align_items(Alignment::End)
+  Row::new().width(FILL).spacing(28.0).wrap().align_items(Alignment::End)
 }
 
 // --- Toggle ---------------------------------------------------------------
 
 pub struct TogglePage {
   frame: Frame,
+  play: TogglePlay,
   bold: Signal<bool>,
   italic: Signal<bool>,
   pinned: Signal<bool>,
@@ -59,6 +57,7 @@ impl Component for TogglePage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
+      play: TogglePlay::new(ctx),
       bold: ctx.signal(true),
       italic: ctx.signal(false),
       pinned: ctx.signal(false),
@@ -131,6 +130,7 @@ impl Component for TogglePage {
       ("size", "ButtonSize", "Md", "As high as a button of that size."),
       ("disabled", "bool", "false", "Half the opacity; it takes no input."),
     ];
+    let playground = self.play.card(ctx);
     self.frame.page(
       ctx,
       Header {
@@ -144,6 +144,12 @@ impl Component for TogglePage {
         source: file!(),
       },
       vec![
+        Section::new(
+          "Playground",
+          "Every prop of Toggle is a control on the right. The toggle on the stage is live: a press turns it on, and the \
+           switch beside it follows.",
+          playground,
+        ),
         Section::new(
           "Toggle",
           "Press one: it is on until it is pressed again. The page holds whether each is on, in a signal.",
@@ -173,6 +179,7 @@ impl Component for TogglePage {
 
 pub struct ButtonGroupPage {
   frame: Frame,
+  play: ButtonGroupPlay,
   zoom: Signal<u32>,
 }
 
@@ -182,6 +189,7 @@ impl Component for ButtonGroupPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
+      play: ButtonGroupPlay::new(ctx),
       zoom: ctx.signal(100),
     }
   }
@@ -244,6 +252,7 @@ impl Component for ButtonGroupPage {
       ),
       ("size", "ButtonSize", "Md", "The size of every button in the group."),
     ];
+    let playground = self.play.card(ctx);
     self.frame.page(
       ctx,
       Header {
@@ -257,6 +266,12 @@ impl Component for ButtonGroupPage {
         source: file!(),
       },
       vec![
+        Section::new(
+          "Playground",
+          "The group on the stage follows the controls on the right, and each of its buttons is pressed on its own: \
+           the Events tab says which.",
+          playground,
+        ),
         Section::new(
           "Outline",
           "One line around the buttons and one between them. The group gives its buttons their size and squares \
@@ -284,6 +299,7 @@ impl Component for ButtonGroupPage {
 
 pub struct ToggleGroupPage {
   frame: Frame,
+  play: ToggleGroupPlay,
   align: Signal<usize>,
   marks: Signal<Vec<usize>>,
 }
@@ -294,6 +310,7 @@ impl Component for ToggleGroupPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
+      play: ToggleGroupPlay::new(ctx),
       align: ctx.signal(0),
       marks: ctx.signal(vec![0]),
     }
@@ -365,6 +382,7 @@ impl Component for ToggleGroupPage {
       ("size", "ButtonSize", "Md", "The size of every toggle in the group."),
       ("disabled", "bool", "false", "The whole group takes no input."),
     ];
+    let playground = self.play.card(ctx);
     self.frame.page(
       ctx,
       Header {
@@ -378,6 +396,11 @@ impl Component for ToggleGroupPage {
         source: file!(),
       },
       vec![
+        Section::new(
+          "Playground",
+          "Bound to one value or to a list of them: the control on the right says which, and the stage says what is on.",
+          playground,
+        ),
         Section::new(
           "One of them",
           "Bound to a signal of one value: the toggle with that value is on.",
@@ -406,6 +429,7 @@ impl Component for ToggleGroupPage {
 
 pub struct SegmentedControlPage {
   frame: Frame,
+  play: SegmentedPlay,
   period: Signal<usize>,
   view: Signal<usize>,
 }
@@ -416,6 +440,7 @@ impl Component for SegmentedControlPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
+      play: SegmentedPlay::new(ctx),
       period: ctx.signal(1),
       view: ctx.signal(0),
     }
@@ -505,6 +530,7 @@ impl Component for SegmentedControlPage {
       ),
       ("disabled", "bool", "false", "Half the opacity; no segment is pressed."),
     ];
+    let playground = self.play.card(ctx);
     self.frame.page(
       ctx,
       Header {
@@ -518,6 +544,11 @@ impl Component for SegmentedControlPage {
         source: file!(),
       },
       vec![
+        Section::new(
+          "Playground",
+          "The control on the stage follows the controls on the right, and says which of its segments is chosen.",
+          playground,
+        ),
         Section::new(
           "Segmented control",
           "Exactly one segment is chosen. Each is a button: Tab reaches it, and a click, Enter or Space chooses it.",
@@ -543,6 +574,7 @@ impl Component for SegmentedControlPage {
 
 pub struct LinkPage {
   frame: Frame,
+  play: LinkPlay,
   presses: Signal<u32>,
 }
 
@@ -552,6 +584,7 @@ impl Component for LinkPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
+      play: LinkPlay::new(ctx),
       presses: ctx.signal(0),
     }
   }
@@ -614,6 +647,7 @@ impl Component for LinkPage {
       ),
       ("disabled", "bool", "false", "Half the opacity; it takes no input."),
     ];
+    let playground = self.play.card(ctx);
     self.frame.page(
       ctx,
       Header {
@@ -627,6 +661,12 @@ impl Component for LinkPage {
         source: file!(),
       },
       vec![
+        Section::new(
+          "Playground",
+          "Every prop of Link is a control on the right. The state switch draws it under the pointer and focused with \
+           nothing pointing at it.",
+          playground,
+        ),
         Section::new(
           "Link",
           "Pressed by a click, and by Enter or Space while it is focused.",
