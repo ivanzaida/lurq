@@ -249,7 +249,7 @@ impl AvatarPage {
         fill: false,
         forceable: false,
         facts: facts.join(" · "),
-        event: "events",
+        event: "",
         code,
         tree,
         controls: vec![

@@ -1323,6 +1323,348 @@ Steps::new(&at, [
 - To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is in error); the current step has `a11y_current` `step`.
 - A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.body(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
 
+## Badge
+
+A short label of a state or a count, read and not operated: beta, passing, 3 unread.
+
+```rust
+use lurq::ui::{Badge, BadgeShape, BadgeSize, BadgeVariant, Button, icons};
+
+Badge::new("Beta");
+Badge::new("Passing").variant(BadgeVariant::Success).icon(icons::CHECK);
+Badge::new("Online").variant(BadgeVariant::Success).dot(true);
+Badge::new("v0.60").variant(BadgeVariant::Secondary).shape(BadgeShape::Square);
+
+// A dot alone: what it says is what it is called, not drawn.
+Badge::new("Unread").variant(BadgeVariant::Info).dot_only(true);
+
+// A count: "99+" past 99, nothing at all at 0.
+Badge::count(unread).label("unread messages");
+
+// On the top end corner of what it is about.
+Badge::count(3)
+  .label("notifications")
+  .on(Button::new("Notifications").icon(icons::BELL).icon_only(true));
+```
+
+| Builder | |
+| --- | --- |
+| `Badge::new(label)` | A badge that says `label` |
+| `Badge::count(n)` | A count: `n` in a small round badge, `BadgeVariant::Destructive` and `BadgeSize::Sm` unless told |
+| `variant(BadgeVariant)` | `Default` (the primary color), `Secondary`, `Outline` (an edge and no fill), and the statuses `Success`, `Warning`, `Info`, `Destructive` (the status's muted fill and its strong text). A count in `Destructive` is solid |
+| `size(BadgeSize)` | `Sm` (18 high, at 11), `Md` (22, at 12, the default), `Lg` (26, at 13) |
+| `shape(BadgeShape)` | `Pill` (the default) or `Square`, with the theme's small radius |
+| `icon(name)` | An icon of the theme's set before the text |
+| `dot(bool)` | A dot in the variant's color before the text; the badge then has an edge and no fill, as the design's "Online" |
+| `dot_only(bool)` | A dot alone in the variant's color. Its text is not drawn and is still what it is called |
+| `max(usize)` | The most a count shows: past it the maximum and a plus. 99 unless told |
+| `show_zero(bool)` | Whether a count of 0 is drawn. It is nothing unless told |
+| `label(&str)` | On a count, what it counts, which tooling is told with the number |
+| `on(element)` | Puts the badge on the top end corner of `element` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the badge's own, not the element's it is on |
+
+- A badge is read and not operated: it takes no press, no focus and no stop of Tab, and has nothing to force.
+- On an element (`on`), the badge and the element are one element as large as the element; the round end of the badge is centred 3 in from the element's top end corner, so a dot of 12 is at 27, -3 on a box of 36 (the design's Indicator) and a count of 18 reaches 6 past the corner each way. It has a ring of 2 in `Background` that parts it from what it is on. It reaches past the element, so what holds them gives it room or does not clip (`overflow_visible()`). A count that is not drawn leaves the element alone.
+- Parts: `BadgePart::Root` (the badge: its fill, edge and height; a dot alone is its root), `Label`, `Icon`, `Dot` (the dot before the text), `Anchor` (what holds the element and the badge on it) and `Corner` (a square at the element's top end corner whose centre the badge's round end is centred on: its width is all that is read of it). States: `BadgeState::Dot`, `DotOnly`, `Count`, `OnCorner`, `Square`. The variant and the size are the recipe's.
+- In the design a badge is 22 high and round, padded 8, its text 12/500 (the caption's type at medium), an icon of 12 and 4 before the text; small is 18, padded 6, at 11 with an icon of 10; large is 26, padded 10, at 13 with an icon of 14. With a dot it is in `Background` with a 1 px edge of `Border` and its text in `Foreground`, the dot 7, 6 before the text, the badge padded 8 before and 10 after. A count is at 600 and at least as wide as it is high. A dot alone is 8 (6 small, 10 large), and 12 on a corner (10 small, 14 large).
+- To what reads the tree (`lurq_snapshot` of the MCP server) a badge is a `status` called by its text; a count is called by its number with what it counts ("120 unread messages"), the whole number however it is shown.
+- A renderer that draws another badge has `view.root()` (the root with its style and its name to tooling), `view.badge()` (the default badge), `view.text` (what is drawn: "99+"), `view.name()`, `view.shown` (false for a count of 0 not drawn), and `view.place(element, badge)` with `view.corner_offset()` to put it on `view.on`.
+
+## Tag
+
+A label on a thing, a keyword or a category, that the app may let a person take away.
+
+```rust
+use lurq::ui::{Tag, TagSize, TagVariant, icons};
+
+Tag::new("design");
+Tag::new("in review").variant(TagVariant::Info).icon(icons::CIRCLE);
+
+// With the button that takes it away: the app holds the list.
+Tag::new("rust").on_remove(move || topics.update(|all| all.retain(|t| t != "rust")));
+
+// Round, with no line: the token of a box that holds several values.
+Tag::new("React").pill(true).on_remove(move || remove("React"));
+```
+
+| Builder | |
+| --- | --- |
+| `variant(TagVariant)` | `Neutral` (the default), `Info`, `Success`, `Warning`, `Destructive`, or a variant the theme's recipe names |
+| `size(TagSize)` | `Sm` (20 high), `Md` (24, the default), `Lg` (28) |
+| `icon(name)` | An icon before the text, by its name in the theme's set |
+| `on_remove(handler)` | Gives the tag its remove button, and is called on a press of it |
+| `pill(bool)` | Round at both ends, with no line around it |
+| `disabled(bool)` | Dimmed; its remove button is not pressed and Tab passes it by |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; `force` draws the remove button |
+
+- A tag does not keep whether it is there: the app holds its list, and `on_remove` tells it which one a person took away. A tag with no handler is read only: it has no button and is no stop of Tab.
+- The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
+- Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Removable` (it has the button), `Pill`, `Disabled`.
+- In the design a tag is 24 high, padded 8, with the corners of `RadiusSize::Sm`, in `Secondary` with a line of `Border` inside it, its text 12 and medium in `SecondaryForeground`. A removable one is padded 4 at its end, where a button of 16 (corners of 3) holds a cross of 11 in `MutedForeground`, 4 after the text; under the pointer the button is filled `StateHover` and its cross is `Foreground`. `Info`, `Success`, `Warning` and `Destructive` are in the muted fill of their color, line and fill alike, with the text in the color. A pill is round, has no line, is padded 10 and 6, and its cross is 12.
+- Several tags side by side are an app's row: `Row::new().spacing(6.0).wrap()`, 6 apart as the board lays them out.
+- A renderer that draws another tag starts from `view.remove()`, the button with its behavior and its cross, `None` for a tag with no handler.
+
+## Chip
+
+A tag that is pressed: a filter or a choice that is on or off. Open issues only, a language among others.
+
+```rust
+use lurq::ui::{Chip, ChipGroup, Choice};
+
+Chip::new("Rust").selected(rust.get()).on_change(move |on| rust.set(on));
+// Bound to the app's signal: a press turns it.
+Chip::new("Open").bind(open);
+
+// Any number chosen: the signal's values. One chosen: `ChipGroup::new(kind, [..])`.
+ChipGroup::multiple(languages, [
+  Choice::new("rust", "Rust"),
+  Choice::new("swift", "Swift"),
+  Choice::new("cobol", "Cobol").disabled(true),
+]);
+```
+
+| Builder | |
+| --- | --- |
+| `selected(bool)` | Whether it is chosen. The chip does not keep it: the app says so |
+| `on_change(handler)` | Called on a press with what the chip is to be: chosen if it was not |
+| `bind(Signal<bool>)` | Chosen while the signal is true, which a press turns |
+| `icon(name)` | An icon before the text while it is not chosen; a chosen chip has the check there |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+| `ChipGroup` | |
+| --- | --- |
+| `ChipGroup::new(signal, choices)` | Exactly one chosen: the signal's value. A press of another sets it |
+| `ChipGroup::multiple(signal, choices)` | Any number chosen: the signal's values. A press adds a value or takes it out |
+| `ChipGroup::controlled(selected, choices, press)` | The app holds what is chosen, and `press` is told each value pressed |
+| `disabled(bool)`, `style(part, ..)`, `id`, `key` | `ChipGroupPart::Item` lays rules over each chip's root |
+
+- Tab reaches a chip, Space and Enter turn it, and the focus ring is the chip's. A group is one stop of Tab: the arrow keys move between its chips and Space or Enter turns the one the focus is on. A choice is a [`Choice`](#toggle-group), as a toggle group's: its icon is the chip's.
+- To what reads the tree a chip is a `button` called by its text, with `a11y_pressed` saying whether it is chosen; `lurq_inspect` reports it as `state.pressed`.
+- Parts: `ChipPart::Root` (what is pressed), `Icon`, `Label`; `ChipGroupPart::Root`, `Item`. States: `ChipState::Selected`, `Leading` (it has an icon before its text: the check or its own), `Disabled`.
+- In the design a chip is 28 high and round, padded 12, its text 13 and medium. One not chosen is in `Background` with a line of `Input` and its text in `Foreground`, `Highlight` under the pointer; a chosen one is in `Primary`, line and fill, its text in `PrimaryForeground`, with a check of 14 before it, 6 from it and padded 8 at its start, and in `PrimaryHover` under the pointer. A disabled chip is dimmed. The chips of a group are 6 apart and go on to the next line where the row has no room.
+- A renderer that draws another chip starts from `view.root()`, the behavior with the root's style; `view.leading()` is the icon the default renderer puts before the text.
+
+## Avatar
+
+Who a person is, at a glance: the initials of the name on a fill, a picture in their place, whether the person is there.
+
+```rust
+use lurq::{components::Image, ui::{Avatar, AvatarPresence, AvatarShape, AvatarSize, icons}};
+
+Avatar::new("Ivan Zaida");
+Avatar::new("Ivan Zaida").image(Image::from_file("ivan.png")).presence(AvatarPresence::Online);
+Avatar::new("Ivy Chen").size(AvatarSize::Xl);
+
+// What is not a person: an icon in place of the initials, in a square.
+Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
+```
+
+| Builder | |
+| --- | --- |
+| `new(&str)` | Who it is. The initials are the first letters of the first word and the last: "Ivan Zaida" is "IZ", "Ivan" is "I". A name with no letters shows the icon of a person |
+| `image(Image)` | A picture in place of the initials, which fills the face, cropped to it (`cover`) and clipped to its shape: the engine's image element as the app builds it, from pixels (`Image::new`) or from a file or bytes it decodes (`Image::from_file`, `Image::from_bytes`, feature `image`), with a cache key and a size to decode to where it wants them. Feature `raster` |
+| `icon(name)` | An icon of the theme's set in place of the initials, for what is not a person: a bot, a team |
+| `size(AvatarSize)` | `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, or a size the theme's recipe names |
+| `shape(AvatarShape)` | `Circle` (the default), or `Square` with the corners of a control |
+| `presence(AvatarPresence)` | The dot at the bottom end of the face: `Online`, `Away`, `Busy`, `Offline`; `None` for none |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the root's |
+
+- While a picture decodes and when it fails (a broken file, a format the decoder does not read), the avatar shows its initials or its icon: they are the image's placeholder and its error view. A picture with clear pixels shows the face's fill through them.
+- An avatar is read, not operated: it takes no press and is no stop of Tab. To what reads the tree (`lurq_snapshot` of the MCP server) it is an `img` called by its name, with its presence after it: "Ivan Zaida, away".
+- Parts: `AvatarPart::Root` (the face and the dot, as large as the face), `Face` (the shape: side, corners, fill, the ring of a group; it clips what it holds), `Initials`, `Icon` (its width is the icon's side), `Image`, `Presence` (the dot). States: `AvatarState::Square`, and the avatar's `AvatarPresence` under its own name (`.state(AvatarPresence::Away, AvatarPart::Presence, ..)`). Sizes: `AvatarSize`.
+- In the design an avatar is a circle of 32 in `Muted`, its initials 12 and medium in `Foreground`; at 20, 24, 40 and 56 they are 9, 10, 14 and 18. A square one has the corners of `RadiusSize::Md`. The icon is half the side, in `MutedForeground`. The dot is 10 on a face of 32 (6, 8, 12 and 14 on the others), at the face's bottom end corner, round, ringed 2 outside it in `Background`: `Success` online, `Warning` away, `Destructive` busy, `MutedForeground` offline.
+- The ring of the dot stands outside the avatar's box, as the rings of a group do: what holds an avatar at its edge clips them, as a container clips what is in it, unless it leaves 2 of room or is `overflow_visible()`.
+- A person with a name and a line under it (the board's Persona) is an avatar beside two texts, built where it is used: `Row::new().spacing(10.0).child(Avatar::new(name).presence(..)).child(Column::new().spacing(1.0).child(name).child(line))`, the name 14 and medium, the line 12 in `MutedForeground`.
+- A renderer that draws another avatar has `view.face()` (the shape in its style, clipped), `view.fallback()` (the initials or the icon), `view.presence_dot()` and `view.label()`; `view.image` is the picture the app gave, to put in the face.
+
+## Avatar group
+
+Avatars laid over one another: who is in a document, who reviews a change.
+
+```rust
+use lurq::{
+  app::theme::PaletteColor,
+  node::border::Border,
+  ui::{Avatar, AvatarGroup, AvatarGroupPart, AvatarSize},
+};
+
+let people = ["Ivan Zaida", "Anna K.", "Mark R.", "Ivy Chen", "Ivo Kovac", "Lena Quinn"];
+// Three, and "+3" for the three it leaves out.
+AvatarGroup::new(people.map(Avatar::new)).max(3).label("Reviewers");
+
+// On a card, the ring is the card's color.
+AvatarGroup::new(people.map(Avatar::new))
+  .size(AvatarSize::Sm)
+  .style(AvatarGroupPart::Item, |s| s.border(Border::outside(2.0, PaletteColor::Card)));
+```
+
+| Builder | |
+| --- | --- |
+| `new(avatars)` | The avatars, in order: each lies over the end of the one before it |
+| `max(usize)` | The most avatars it shows; after them a last one says how many it leaves out, "+3" |
+| `size(AvatarSize)` | The size of every avatar in it |
+| `label(&str)` | What it is called to what reads the tree. Without one, the names it shows and how many more |
+| `style(part, ..)`, `id`, `key` | As a [button](#button) has them |
+
+- The group gives its avatars its size and what its recipe says of an item; each keeps everything else it was given: its picture, its icon, its presence.
+- To what reads the tree it is a `group` called by its label; the count is an `img` called "3 more".
+- Parts: `AvatarGroupPart::Root` (the row: how far each avatar lies over the one before, as a gap below nothing), `Item` (laid over each avatar's `Face`: its ring), `More` (laid over the count's `Face`, after `Item`). Sizes: `AvatarSize`.
+- In the design avatars of 32 lie 8 over one another, each ringed 2 outside its face in `Background`, the color of the surface behind them; the count is in `Secondary`, its text as the initials. Smaller and larger avatars lie a quarter of their side over each other.
+- A renderer that draws another group has `view.avatars` (ready, with the group's size and rules), `view.hidden` and `view.more()`, the count as an avatar.
+
+## Card
+
+A surface that holds one thing: a group of settings, a summary of a project, a form of a few fields.
+
+```rust
+use lurq::ui::{Button, ButtonVariant, Card, CardSize, CardVariant};
+
+Card::new()
+  .title("Appearance")
+  .description("How lurq looks on this device.")
+  .child(accent_field)
+  .child(dark_mode_row)
+  .footer(Button::new("Cancel").variant(ButtonVariant::Outline))
+  .footer(Button::new("Save"));
+
+// Pressed as a whole: one stop of Tab.
+Card::new()
+  .variant(CardVariant::Elevated)
+  .size(CardSize::Sm)
+  .title("lurq")
+  .description("A Rust UI toolkit with GPU-backed rendering.")
+  .on_click(move |_| open_project());
+```
+
+| Builder | |
+| --- | --- |
+| `title(&str)` | What the card is about, 16/600. It is what the card is called, and wraps in the width the card has |
+| `description(&str)` | More of it, under the title, 14 in the muted color |
+| `action(element)` | At the end of the header, beside the title: a button, a menu, a badge |
+| `child(element)`, `children(..)` | The content, under the header |
+| `footer(element)` | Added to a row at the end of the card, under a line: its least action first and its main one last |
+| `variant(..)` | `CardVariant::Outline` (the default), `Elevated`, `Filled`, or a variant the theme's recipe names |
+| `size(..)` | `CardSize::Md` (the default) or `Sm`, or a size the theme's recipe names |
+| `width(..)` | A width of its own. Without one the card is as wide as the room it is given |
+| `on_click(handler)` | Makes the card pressed as a whole, from the pointer and the keyboard |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the surface |
+
+- Every part is optional: a card with children alone is a padded surface. The header is there where the card has a title, a description or an action; the footer where it has something in it, set off by a line only where there is a body over it.
+- A card is as wide as the room it is given, as a block is. Cards side by side in a row are each given a share of it: a `Column::new().flex(1.0)` around each, or a grid. The title and the description wrap in the room the action leaves them.
+- A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its content is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
+- Parts: `CardPart::Root` (the surface; what is pressed), `Body` (the header over the content, padded), `Header` (the heading and the action), `Heading` (the title over the description), `Title`, `Description`, `Action`, `Content`, `Footer`. States: `CardState::Pressable`, `Disabled`, `Footed` (it has a footer under a body; the line over the footer is the body's `underline`).
+- In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its body is padded 24 with 24 between the header and the content; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the content is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
+- The settings card and the stat card of the design are cards with their parts styled: `style(CardPart::Body, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what they hold as the content.
+- To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its title, and a pressed card a `button`.
+- A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.body()`, `view.header()`, `view.heading()`, `view.action()`, `view.content()` and `view.footer()` are the default ones.
+
+## Separator
+
+A line between things: sections of a page, groups of a toolbar, the two ways to sign in.
+
+```rust
+use lurq::ui::Separator;
+
+Column::new()
+  .child(github_button)
+  .child(Separator::horizontal().label("or"))
+  .child(email_button);
+
+// Down a row that centers what is in it: a length of its own.
+Row::new()
+  .align_items(Alignment::Center)
+  .child(undo)
+  .child(Separator::vertical().length(20.0))
+  .child(bold);
+```
+
+| Builder | |
+| --- | --- |
+| `Separator::horizontal()`, `vertical()`, `new(orientation)` | A line across a column, or down a row |
+| `label(&str)` | A word in the middle, with the line on either side of it |
+| `length(f32)` | How long it is: its width across a column, its height down a row |
+| `decorative(bool)` | Whether tooling passes it by. On by default |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- A separator across a column is as wide as the room it is given. One down a row is as high as the row where the row stretches its children (`align_items(Alignment::Stretch)`); in a row that does not, it is given a `length`. An inset is the root's padding: `style(SeparatorPart::Root, |s| s.padding_x(16.0))`.
+- Parts: `SeparatorPart::Root` (the line, or the lines and the label), `Line`, `Label`. Its orientation is the variant of its recipe: `SeparatorOrientation::Horizontal`, `Vertical`.
+- In the design the line is 1 in `Border`. A label is in the caption's type in `MutedForeground`, 8 from the line on either side.
+- A separator is decoration to what reads the tree. One given `decorative(false)` is a `separator` with `a11y_orientation`, called by its label where it has one: for one between parts a person moves between.
+- Tabs, the dialog and the menu draw lines of their own from their recipes.
+
+## Spinner
+
+Something is being done, and how far it is is not known: a ring that turns, three dots or five bars.
+
+```rust
+use lurq::ui::{LoadingOverlay, Spinner, SpinnerKind, SpinnerSize};
+
+Spinner::new();
+Spinner::new().size(SpinnerSize::Lg).kind(SpinnerKind::Dots);
+// Beside the text that says what is being done.
+Spinner::new().label("Loading results…");
+
+// A veil with a spinner over a part of the page while it loads.
+LoadingOverlay::new(loading.get(), panel);
+```
+
+| Builder | |
+| --- | --- |
+| `kind(SpinnerKind)` | `Ring` (the default), `Dots` or `Bars` |
+| `size(name)` | `SpinnerSize::Sm` (16, the default), `Md` (24), `Lg` (32); the dots and the bars grow by a half and by twice |
+| `variant(name)` | `SpinnerVariant::Current` (the color of the text around it, dots and bars too), `Muted`, `Primary` |
+| `label(&str)` | What is being done, drawn 8 beside it, and what it is called |
+| `label_hidden(bool)` | The label is its name and is not drawn |
+| `decorative(bool)` | No status of its own, where what it is in says what is under way: a button that loads |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- To what reads the tree a spinner is a `status`, called by its label, or "Loading" when it has none.
+- The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. A spinner moves whether or not motion is reduced: one that stood still would say nothing.
+- A spinner is drawn in the color of the text around it, so a spinner in a button is the color of its label: the ring as text is, and the dots and the bars by the fill `BackgroundColor::CurrentForeground`. Where nothing around it names a color, that is `Foreground`. A variant gives it a color of its own.
+- Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
+- In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.
+- `LoadingOverlay::new(loading, content)` lays a veil over `content` while `loading` is true: the background's color at 85 hundredths, with a spinner in its middle (`.spinner(Spinner)` gives one of the app's). Meanwhile no press reaches the content and Tab passes it by. The veil fades in with `ui::FADE_IN` and out with `ui::FADE_OUT` over the theme's base duration. The overlay is as large as its content; its root clips the veil, so a rule that rounds `LoadingOverlayPart::Root` rounds the veil with a rounded content. Parts: `Root`, `Content`, `Veil`, and `Scrim`, whose background and opacity are the veil's fill. State: `LoadingOverlayState::Loading`.
+- A renderer that draws another spinner starts from `view.indicator()` and `view.label()`; `view.name()` is what it is called.
+
+## Skeleton
+
+A placeholder in the shape of what is loading.
+
+```rust
+use lurq::{components::{Column, Row}, ui::{Skeleton, SkeletonAnimation}};
+
+Skeleton::line();
+Skeleton::circle(40.0);
+Skeleton::block(200.0, 112.0);
+Skeleton::paragraph(4).animation(SkeletonAnimation::Shimmer);
+
+// A row of a list, in one status for tooling.
+Skeleton::status(
+  "Loading people",
+  Row::new()
+    .spacing(12.0)
+    .child(Skeleton::circle(40.0))
+    .child(Column::new().flex(1.0).spacing(8.0).child(Skeleton::line()).child(Skeleton::line().width(140.0))),
+);
+```
+
+| Builder | |
+| --- | --- |
+| `Skeleton::line()` | A line of text: as wide as the room it has, 12 high |
+| `Skeleton::circle(size)` | A face, an icon: round, `size` across |
+| `Skeleton::block(width, height)` | An image, a chart, a card. `Length::Fill` is all the room it has |
+| `Skeleton::paragraph(lines)` | Lines 10 apart; the one before the last a little shorter, the last shorter still |
+| `width(length)`, `height(length)` | The app's size over the shape's. For a paragraph, the width of all of it and the height of each line |
+| `animation(SkeletonAnimation)` | `Pulse` (the default), `Shimmer` or `None` |
+| `Skeleton::status(label, content)` | A `status` called `label` around a group of skeletons |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- A skeleton is nothing to tooling that reads the tree: nothing of it is described, so it is left out as any box with no text, id or handler is. What is loading is said once, by `Skeleton::status` around a group of them.
+- A skeleton pulses with `ui::SKELETON_PULSE`, from whole to half and back in `SKELETON_PULSE_PERIOD`; one that shimmers has a sheen as wide as itself cross it in `SKELETON_SHIMMER_PERIOD`, from wholly before its start to wholly past its end, whatever its width: in a row three times the skeleton's width centred on it, the room before the sheen grows from nothing to two thirds of the row (`ui::SKELETON_SHIMMER`, a width in percent). Both play on the animation clock, so every skeleton on screen pulses as one, and the sheen crosses all of them at once. Where motion is reduced a skeleton stands still.
+- Parts: `SkeletonPart::Root` (the box of a shape, or the column of a paragraph's lines), `Bone` (a shape), `Sheen` (the fill of its middle; it is as wide as the bone). The shapes are the variants of `SkeletonShape`: `Line`, `Circle`, `Block`, `Paragraph`.
+- In the design every shape is in `Muted`; a line is 12 high and `radius-sm`, a circle `radius-full`, a block 200 by 112 and `radius-lg`; a paragraph's lines are 10 apart, its last two 92 and 60 hundredths of its width. The sheen runs from the shape's fill to `SecondaryHover` and back.
+- The board's media row and card are built from these and are no components of their own: the gallery's Skeleton page has both, with their code.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.

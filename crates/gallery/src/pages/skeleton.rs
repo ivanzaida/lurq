@@ -124,28 +124,32 @@ impl SkeletonPage {
     let (_, call) = Self::skeleton(form, lines, animation);
     let (to_form, to_lines, to_animation) = (self.form.clone(), self.lines.clone(), self.animation.clone());
     let counts: Vec<(&str, usize)> = vec![("2", 2), ("3", 3), ("4", 4), ("5", 5)];
-    let controls = vec![
-      prop(
-        "form",
-        "line · circle · block · paragraph",
-        segmented_fill(&indexed(&FORMS), &form, move |chosen| to_form.set(chosen)),
-      ),
-      prop(
+    let paragraph = FORMS[form] == "paragraph";
+    let mut controls = vec![prop(
+      "form",
+      "the constructor",
+      self
+        .playground
+        .select(0, &indexed(&FORMS), &form, move |chosen| to_form.set(chosen)),
+    )];
+    // How many lines is a paragraph's alone: the other forms have no such prop, and no control for it.
+    if paragraph {
+      controls.push(prop(
         "lines",
         "usize",
         segmented_fill(&counts, &lines, move |chosen| to_lines.set(chosen)),
+      ));
+    }
+    controls.push(prop(
+      "animation",
+      "SkeletonAnimation",
+      segmented_fill(
+        &indexed(&ANIMATIONS.map(|(name, _)| name)),
+        &self.animation.get(),
+        move |chosen| to_animation.set(chosen),
       ),
-      prop(
-        "animation",
-        "SkeletonAnimation",
-        segmented_fill(
-          &indexed(&ANIMATIONS.map(|(name, _)| name)),
-          &self.animation.get(),
-          move |chosen| to_animation.set(chosen),
-        ),
-      ),
-    ];
-    let bones = if FORMS[form] == "paragraph" { lines } else { 1 };
+    ));
+    let bones = if paragraph { lines } else { 1 };
     let tree = vec![
       format!("root      {}   nothing to tooling", self.playground.measured()),
       format!(
@@ -174,11 +178,11 @@ impl SkeletonPage {
         fill: false,
         forceable: false,
         facts: format!("{:?}", animation).to_lowercase(),
-        event: "nothing",
+        event: "",
         code: vec![call],
         tree,
         controls,
-        changed: [form != 0, lines != 4, self.animation.get() != 0]
+        changed: [form != 0, paragraph && lines != 4, self.animation.get() != 0]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -194,7 +198,7 @@ impl Component for SkeletonPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 0),
+      playground: Playground::new(ctx, 1),
       form: ctx.signal(0),
       lines: ctx.signal(4),
       animation: ctx.signal(0),
@@ -285,7 +289,7 @@ impl Component for SkeletonPage {
       vec![
         Section::new(
           "Playground",
-          "The form, the number of lines of a paragraph, and how it moves while it waits.",
+          "The form, how it moves while it waits, and for a paragraph the number of its lines.",
           playground,
         ),
         Section::new(

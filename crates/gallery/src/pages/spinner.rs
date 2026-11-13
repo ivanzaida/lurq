@@ -267,7 +267,7 @@ impl SpinnerPage {
         } else {
           "turning".to_owned()
         },
-        event: "nothing",
+        event: "",
         code: props.code(),
         tree: props.tree(self.playground.measured()),
         controls,

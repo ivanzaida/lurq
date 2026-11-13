@@ -213,8 +213,13 @@ impl Playground {
           })),
       );
     } else {
+      // What is read and not operated, a component with no event, answers nothing: the stage says what it is.
       bar = bar.child(quiet(
-        "live: what is on the stage answers the pointer and the keyboard",
+        if spec.event.is_empty() {
+          "as the props make it: this component is read, not pressed"
+        } else {
+          "live: what is on the stage answers the pointer and the keyboard"
+        },
         12.0,
       ));
     }

@@ -194,7 +194,7 @@ impl ProgressPage {
         } else {
           format!("value {value}%")
         },
-        event: "events",
+        event: "",
         code,
         tree,
         controls: vec![
