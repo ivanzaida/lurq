@@ -3,6 +3,7 @@
 mod button;
 mod family;
 mod icon;
+mod slider;
 mod stage;
 mod switch;
 mod theming;

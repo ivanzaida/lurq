@@ -25,6 +25,7 @@ mod part_style;
 mod recipe;
 mod segmented;
 mod shared;
+mod slider;
 mod switch;
 pub(crate) mod theme;
 mod toggle;
@@ -44,6 +45,7 @@ pub use part_style::{
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use shared::Choice;
+pub use slider::{Slider, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};

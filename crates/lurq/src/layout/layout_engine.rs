@@ -1983,6 +1983,30 @@ impl LayoutEngine {
           .as_ref()
           .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
           .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
+        // A part's ring, kept with the outlines: over the slider and what is painted after it.
+        let ring = |style: &SliderPartStyle, rect: SliderPartRect, radius: Option<BorderRadius>| {
+          let Some(outline) = style
+            .outline
+            .as_ref()
+            .and_then(|outline| outline.resolve(&self.palette.borrow(), &self.border_sizes.borrow()))
+          else {
+            return;
+          };
+          let (x, y) = if transform.is_identity() {
+            (rect.x.round(), rect.y.round())
+          } else {
+            (rect.x, rect.y)
+          };
+          self.push_ring(
+            outline,
+            (x, y, rect.width, rect.height),
+            radius,
+            opacity,
+            transform,
+            clip,
+          );
+        };
+        ring(&track_style, track_rect, track_radius);
         push_slider_part_quads(
           quads,
           track_rect,
@@ -2014,6 +2038,7 @@ impl LayoutEngine {
             .border
             .as_ref()
             .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()));
+          ring(&fill_style, fill_rect, fill_radius);
           push_slider_part_quads(
             quads,
             fill_rect,
@@ -2026,6 +2051,11 @@ impl LayoutEngine {
             clip,
           );
         }
+        let thumb_radius = thumb_style
+          .border_radius
+          .map(|radius| radius.resolve(&self.radii.borrow()))
+          .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5));
+        ring(&thumb_style, thumb_rect, Some(thumb_radius));
         push_slider_part_quads(
           quads,
           thumb_rect,
@@ -2033,12 +2063,7 @@ impl LayoutEngine {
           thumb_style
             .color
             .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), CONTROL_FILL)),
-          Some(
-            thumb_style
-              .border_radius
-              .map(|radius| radius.resolve(&self.radii.borrow()))
-              .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5)),
-          ),
+          Some(thumb_radius),
           thumb_style
             .border
             .as_ref()
