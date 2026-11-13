@@ -94,6 +94,34 @@ with the recipe and the parts of any other; say in the handoff why a builder wou
 - In `pages/mod.rs` add your `mod` line and your `Page { .. }` entry each on lines of their own, the entry
   after the last one of your group: every session of the batch adds one there.
 
+## What the second batch taught
+
+- **A layer is painted only inside the root's box.** The headless stage lays a scene out with loose constraints,
+  so its root is as small as its content, and a popup, a modal, the list of a select, a tooltip or a toast that
+  falls outside it is not painted and not found. A test's scene with a layer has a root that takes a size of its
+  own (`Column::new().size(400.0, 300.0)`), as a window gives its root the whole window. Most of the failures of
+  the batch were this.
+- **Two sessions built the same change of the engine** under two names, and it had to be made one afterwards. Your
+  brief says which session owns which kind of engine change. What you need of another's kind you write under
+  `## Not done` with the smallest change that would give it; you do not build it.
+- **Built-in keyframes have identifiers of their own**: `0xFF00` to `0xFF02` are the spin and the two fades
+  (`ui::SPIN`, `ui::FADE_IN`, `ui::FADE_OUT`), `0xFF11` to `0xFF14` the toast's. Take the next free ones after the
+  last registered in `AnimationEngine::new` (`crates/lurq/src/animation/animation.rs`) and name them in the
+  handoff: two with one identifier overwrite each other silently.
+- **A panel in a layer is as wide as its content or as the recipe says, never as the layer offers**: a part with a
+  growing child fills the window. Give the panel a width or a `max_width`, and test its width.
+- **When the merge reports your tests failing you run them yourself**, your own file only
+  (`cargo test -p lurq --features form,router --test ui_tests <name>`), and fix the component where it is the
+  component: a test is rewritten to assert what a person would see, not loosened until it passes.
+
+What the engine and `lurq::ui` have since, for you to use and not build again: `FocusGroup` with `typeahead`,
+`follow_pointer` and `.focus_label(..)`; `Overlay::takes_focus` and `Modal::takes_focus`; `.focuses(&ElementRef)`
+(a press of one element focuses another); `ElementRef::focus_visible_within()`; a disabled element hearing the
+pointer come and go; `PartStyle` with a padding for each side, `max_width`, `enter` and `exit`; `FieldControl`
+(a control a `Field` names, judges and disables: implement it for a control a form holds); `ui/text_box.rs` (what
+a box that is typed in or chosen from has); `ui::Menu`, `ui::Popover`, `ui::Tooltip` for what your component
+opens.
+
 ## What the engine does that surprises
 
 - A container clips what is in it (`Overflow::Hidden` is the default): a shadow or a ring outside a part
