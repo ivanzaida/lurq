@@ -17,6 +17,7 @@
 
 mod button;
 mod button_group;
+mod checkbox;
 mod fab;
 mod icon;
 pub mod icons;
@@ -35,6 +36,7 @@ pub use button::{
   ButtonView,
 };
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use checkbox::{Checkbox, CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView};
 pub use fab::{Fab, FabPart, FabState};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};

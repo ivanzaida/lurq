@@ -5,6 +5,7 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod button;
+mod checkbox;
 mod family;
 mod family_play;
 mod icons;
@@ -134,6 +135,14 @@ pub const PAGES: &[Page] = &[
     about: "button group split joined separator",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::ButtonGroupPage>(()),
+  },
+  Page {
+    path: "/checkbox",
+    name: "Checkbox",
+    icon: None,
+    about: "checkbox check box tick indeterminate select all form option",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<checkbox::CheckboxPage>(()),
   },
   Page {
     path: "/switch",
