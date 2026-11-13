@@ -30,6 +30,8 @@ type StopKey = (u8, i32, usize);
 struct Stop {
   target: FocusTarget,
   key: StopKey,
+  /// Where Tab enters the one-stop focus group the stop is in.
+  entry: bool,
 }
 
 struct Walk {
@@ -187,6 +189,7 @@ fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>
         event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
       },
       key: stop_key(tab_index, order),
+      entry: node.is_focus_entry(),
     });
     // A button's content is part of the button, not separate stops.
     if node.button_kind_value().is_some() {
@@ -194,9 +197,65 @@ fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>
     }
   }
 
+  let first_inside = walk.stops.len();
   for child in node.children() {
     collect_stops(child, dropped, focus_event_id, in_form, walk);
   }
+  // A group that is one stop keeps one of the stops in it: the focused one, so that Tab from inside leaves
+  // the group; or the one marked as its entry; or its first.
+  if node.focus_group_value().is_some_and(|group| group.one_stop) && walk.stops.len() > first_inside + 1 {
+    let inside = &walk.stops[first_inside..];
+    let kept = inside
+      .iter()
+      .position(|stop| walk.focused == Some(stop.target.input_id))
+      .or_else(|| inside.iter().position(|stop| stop.entry))
+      .unwrap_or(0);
+    let stop = walk.stops.swap_remove(first_inside + kept);
+    walk.stops.truncate(first_inside);
+    walk.stops.push(stop);
+  }
+}
+
+/// What the arrow keys move between in the focus group `group`: every stop of Tab inside it, in the order
+/// of the tree, whether or not Tab stops in the group once.
+pub(super) fn group_stops(group: &Node, dropped: &[NodeId]) -> Vec<FocusTarget> {
+  fn collect(
+    node: &Node,
+    dropped: &[NodeId],
+    focus_event_id: Option<NodeId>,
+    in_form: bool,
+    stops: &mut Vec<FocusTarget>,
+  ) {
+    if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
+      return;
+    }
+    let focus_event_id = if !node.events.on_focus.is_empty() || !node.events.on_blur.is_empty() {
+      Some(node.node_id())
+    } else {
+      focus_event_id
+    };
+    let in_form = in_form || is_form(node);
+    if node
+      .tab_index_value()
+      .or(in_form.then_some(0))
+      .is_some_and(|index| index >= 0)
+      && node.is_focusable()
+    {
+      stops.push(FocusTarget {
+        input_id: node.node_id(),
+        event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
+      });
+      if node.button_kind_value().is_some() {
+        return;
+      }
+    }
+    for child in node.children() {
+      collect(child, dropped, focus_event_id, in_form, stops);
+    }
+  }
+  let mut stops = Vec::new();
+  collect(group, dropped, None, false, &mut stops);
+  stops
 }
 
 fn stop_key(tab_index: i32, order: usize) -> StopKey {
