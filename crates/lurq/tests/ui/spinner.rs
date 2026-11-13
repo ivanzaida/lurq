@@ -355,8 +355,11 @@ fn a_veil_lies_over_the_content_with_a_spinner_in_its_middle() {
   let shown = f32::from(color_of(&scrim).a()) / 255.0 * scrim.opacity;
   assert!((shown - 0.85).abs() < 0.01, "the design's 85 hundredths: {shown}");
   let ring = stage.text_quad(&glyph(icons::SPINNER)).unwrap();
-  assert!((ring.x + ring.width / 2.0 - (x + width / 2.0)).abs() < 0.5);
-  assert!((ring.y + ring.height / 2.0 - (y + height / 2.0)).abs() < 0.5);
+  // The ring turns about its middle, which is the veil's: its quad's corner is where the turn has it, as far
+  // from that middle as the corner of a square of 16 is, wherever in its turn the spinner is.
+  let (from_x, from_y) = (ring.x - (x + width / 2.0), ring.y - (y + height / 2.0));
+  let far = (from_x * from_x + from_y * from_y).sqrt();
+  assert!((far - 128.0_f32.sqrt()).abs() < 0.5, "{from_x} {from_y}");
   assert!(stage.paints("Recent activity"), "the content is under it");
 }
 
