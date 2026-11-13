@@ -40,6 +40,8 @@ pub enum AnimatableProperty {
   Outline,
   /// The node's box shadows (`Node::box_shadow`).
   BoxShadow,
+  /// The dashes of the node's border (`Border::dash`): the length of a dash and of the gap after it, as one value.
+  BorderDash,
 }
 
 macro_rules! property_accessors {
@@ -78,6 +80,11 @@ pub enum AnimatableValue {
   /// A width or a height of a share of the parent's, in percent: what `Dimension::Pct` is to a transition or a
   /// keyframe. It moves to another share, as a bar filled to a value does; to and from pixels it changes at once.
   Percent(f32),
+  /// The length of a border's dash and of the gap after it, in logical pixels: both 0 for a solid line.
+  Dash {
+    dash: f32,
+    gap: f32,
+  },
 }
 
 /// The box shadows of a node as one animated value: at most
@@ -195,6 +202,12 @@ impl AnimatableValue {
       (AnimatableValue::Outline(a), AnimatableValue::Outline(b)) => AnimatableValue::Outline(lerp_outline(*a, *b, t)),
       (AnimatableValue::Shadows(a), AnimatableValue::Shadows(b)) => AnimatableValue::Shadows(a.lerp(b, t)),
       (AnimatableValue::Percent(a), AnimatableValue::Percent(b)) => AnimatableValue::Percent(a + (b - a) * t),
+      (AnimatableValue::Dash { dash: a, gap: a_gap }, AnimatableValue::Dash { dash: b, gap: b_gap }) => {
+        AnimatableValue::Dash {
+          dash: a + (b - a) * t,
+          gap: a_gap + (b_gap - a_gap) * t,
+        }
+      }
       (
         AnimatableValue::Float(_) | AnimatableValue::Fit { .. },
         AnimatableValue::Float(_) | AnimatableValue::Fit { .. },
@@ -324,6 +337,21 @@ pub(crate) fn read_target(
       .and_then(|b| b.color())
       .and_then(|color| color.resolve(&theme.palette))
       .map(AnimatableValue::Color),
+    // The dashes of the first side that has a border: a border dashed on every side is dashed alike.
+    AnimatableProperty::BorderDash => style
+      .border
+      .or_else(|| node.border.as_deref().cloned())
+      .and_then(|borders| borders.top.or(borders.right).or(borders.bottom).or(borders.left))
+      .map(|border| {
+        let [dash, gap] = match border.dash {
+          // As given, a gap of nothing too: a dash as long as the outline is a solid line that moves to a shorter
+          // dash as one dash, where its resolved lengths (none, for a solid line) would cut it into many.
+          Some(crate::node::border::BorderDash::Lengths { dash, gap }) => [dash, gap],
+          Some(dash) => dash.resolve(border.width.resolve(&theme.border_sizes)),
+          None => [0.0; 2],
+        };
+        AnimatableValue::Dash { dash, gap }
+      }),
     AnimatableProperty::BorderWidthTop => style
       .border
       .or_else(|| node.border.as_deref().cloned())
@@ -480,6 +508,20 @@ mod tests {
     assert_eq!(a.lerp(&b, 0.5), AnimatableValue::Percent(40.0));
     // A share and pixels are not mixed: the value changes at once, halfway.
     assert_eq!(a.lerp(&AnimatableValue::Float(10.0), 0.3), a);
+  }
+
+  #[test]
+  fn lerp_dash() {
+    let a = AnimatableValue::Dash { dash: 10.0, gap: 90.0 };
+    let b = AnimatableValue::Dash { dash: 70.0, gap: 30.0 };
+    assert_eq!(a.lerp(&b, 0.5), AnimatableValue::Dash { dash: 40.0, gap: 60.0 });
+    assert_eq!(a.lerp(&b, 0.0), a);
+    assert_eq!(a.lerp(&b, 1.0), b);
+    // The sum stays: a dash cut to fit an outline stays one dash of it on the way.
+    let AnimatableValue::Dash { dash, gap } = a.lerp(&b, 0.3) else {
+      panic!("a dash")
+    };
+    assert!((dash + gap - 100.0).abs() < 1e-4);
   }
 
   #[test]

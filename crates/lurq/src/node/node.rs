@@ -4867,6 +4867,20 @@ impl Node {
               border.width = BorderSizeValue::Px(*v);
             }
           }
+          (crate::animation::AnimatableProperty::BorderDash, crate::animation::AnimatableValue::Dash { dash, gap }) => {
+            let lengths = crate::node::border::BorderDash::Lengths { dash: *dash, gap: *gap };
+            for border in [
+              &mut borders.top,
+              &mut borders.right,
+              &mut borders.bottom,
+              &mut borders.left,
+            ]
+            .into_iter()
+            .flatten()
+            {
+              border.dash = Some(lengths);
+            }
+          }
           _ => {}
         }
       }

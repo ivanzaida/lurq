@@ -98,6 +98,7 @@ property_accessors!(Transition {
   Foreground => foreground,
   Outline => outline,
   BoxShadow => box_shadow,
+  BorderDash => border_dash,
 });
 
 const ALL_PROPERTIES: &[AnimatableProperty] = &[
@@ -122,6 +123,7 @@ const ALL_PROPERTIES: &[AnimatableProperty] = &[
   AnimatableProperty::Foreground,
   AnimatableProperty::Outline,
   AnimatableProperty::BoxShadow,
+  AnimatableProperty::BorderDash,
 ];
 
 /// Whether animating `prop` moves an element or changes its size on screen.
@@ -133,6 +135,8 @@ fn moves(prop: AnimatableProperty) -> bool {
       | AnimatableProperty::Width
       | AnimatableProperty::Height
       | AnimatableProperty::Transform
+      // A dash running along an outline moves: a ring's arc going round.
+      | AnimatableProperty::BorderDash
   )
 }
 
