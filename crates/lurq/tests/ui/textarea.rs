@@ -353,9 +353,10 @@ fn a_read_only_textarea_is_focused_and_refuses_a_typed_character() {
 
 #[test]
 fn the_sizes_have_the_type_of_an_inputs_and_rows_of_that_type() {
+  // One under another: the stage is 400 wide, and a third textarea of 260 beside two others is outside it, and not
+  // painted. Three rows of each size, padded, are 285 high of its 300.
   let mut stage = Stage::new(|_| {
-    Row::new()
-      .spacing(8.0)
+    Column::new()
       .child(column(
         Textarea::new(Signal::new(String::new()))
           .size(TextareaSize::Sm)
@@ -387,16 +388,18 @@ fn the_sizes_have_the_type_of_an_inputs_and_rows_of_that_type() {
 
 #[test]
 fn a_warning_and_a_valid_textarea_have_their_edges_under_the_pointer_too() {
-  let mut stage = Stage::new(|_| {
-    Row::new()
-      .spacing(8.0)
-      .child(column(
+  // One under another, a row each: the stage is 400 wide, and a third textarea of 260 beside two others is outside
+  // it, and not painted.
+  let one_row = |textarea: Textarea| column(textarea.rows(1, 1));
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .child(one_row(
         Textarea::new(Signal::new(String::new())).warning(true).id("warning"),
       ))
-      .child(column(
+      .child(one_row(
         Textarea::new(Signal::new(String::new())).valid(true).id("valid"),
       ))
-      .child(column(
+      .child(one_row(
         Textarea::new(Signal::new(String::new()))
           .invalid(true)
           .warning(true)
