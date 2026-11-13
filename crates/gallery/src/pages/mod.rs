@@ -6,6 +6,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
 mod badge;
+mod avatar;
 mod breadcrumb;
 mod button;
 mod checkbox;
@@ -304,6 +305,14 @@ pub const PAGES: &[Page] = &[
     about: "tag chip pill label keyword category remove filter choice selected chip group",
     group: Group::Data,
     mount: |ctx| ctx.mount::<tag::TagPage>(()),
+  },
+  Page {
+    path: "/avatar",
+    name: "Avatar",
+    icon: None,
+    about: "avatar initials picture image photo profile person user presence online away busy offline group stack overlap more count",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<avatar::AvatarPage>(()),
   },
 ];
 

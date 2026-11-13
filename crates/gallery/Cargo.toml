@@ -12,4 +12,4 @@ mcp = ["lurq/mcp"]
 devtools = ["lurq/devtools"]
 
 [dependencies]
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard"] }
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard", "image"] }

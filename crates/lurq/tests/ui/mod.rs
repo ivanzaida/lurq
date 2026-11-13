@@ -2,6 +2,7 @@
 
 mod accordion;
 mod badge;
+mod avatar;
 mod breadcrumb;
 mod button;
 mod checkbox;
