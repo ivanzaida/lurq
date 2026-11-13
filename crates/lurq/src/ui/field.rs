@@ -3,17 +3,98 @@
 use std::sync::Arc;
 
 use super::{
+  Button, ButtonGroup, Checkbox, Fab, Link, Radio, RadioGroup, SegmentedControl, Slider, Switch, Toggle, ToggleGroup,
   names,
   part_style::{Length, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  text_box::Judgment,
   theme::{Themed, current_theme},
 };
 use crate::{
   app::theme::{ControlSize, PaletteColor, Theme, TypographyStyle},
-  components::{Column, Row},
+  components::{Column, Row, Stack},
+  core::ElementRef,
   layout::{Alignment, text_style::FontWeight},
   node::Element,
 };
+
+/// What a field tells the control it holds.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct InField {
+  /// What the field is called: the control's name to what reads the tree, unless it has its own.
+  pub label: Arc<str>,
+  /// What the field says of what the control holds, where it says anything.
+  pub judgment: Option<Judgment>,
+  /// Whether the field takes no input.
+  pub disabled: bool,
+}
+
+/// A control a [`Field`] holds, which the field finishes: it gives it its label as its name, its judgment and its
+/// being disabled.
+///
+/// ```
+/// use lurq::{node::Element, ui::{FieldControl, InField, Input}};
+///
+/// // A control of an app's own that a field names.
+/// struct Code(Input);
+///
+/// impl FieldControl for Code {
+///   fn in_field(self, field: &InField) -> Element {
+///     self.0.icon(lurq::ui::icons::SEARCH).in_field(field)
+///   }
+/// }
+/// ```
+///
+/// An [`Input`](super::Input) and a [`Textarea`](super::Textarea) take all three, each only where the app did not
+/// say it of the control itself. Any [`Element`] is a control that takes none of them: an element built already
+/// cannot be told anything. The other components of the design system are such controls until they take what a
+/// field tells them.
+pub trait FieldControl {
+  /// The control as the field holds it.
+  fn in_field(self, field: &InField) -> Element;
+}
+
+impl FieldControl for Element {
+  fn in_field(self, _field: &InField) -> Element {
+    self
+  }
+}
+
+/// The controls a field holds as they are: they take nothing of what a field tells them yet. A component that comes
+/// to take it implements [`FieldControl`] itself, and leaves this list.
+macro_rules! as_they_are {
+  ($($control:ty),* $(,)?) => {
+    $(
+      impl FieldControl for $control {
+        fn in_field(self, _field: &InField) -> Element {
+          self.into()
+        }
+      }
+    )*
+  };
+}
+
+as_they_are!(
+  Button,
+  ButtonGroup,
+  Checkbox,
+  Fab,
+  Link,
+  Radio,
+  RadioGroup,
+  SegmentedControl,
+  Slider,
+  Switch,
+  Toggle,
+  ToggleGroup,
+  Row,
+  Column,
+  Stack,
+);
+
+/// What a field holds until it is built: the control, to be finished with what the field says.
+type Unfinished = Box<dyn FnOnce(&InField) -> Element>;
 
 /// The parts of a field a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -54,6 +135,8 @@ pub enum FieldState {
   Horizontal,
   /// It is as wide as what holds it.
   FullWidth,
+  /// It takes no input: its control is disabled.
+  Disabled,
 }
 
 names!(FieldState {
@@ -62,6 +145,7 @@ names!(FieldState {
   Valid => "valid",
   Horizontal => "horizontal",
   FullWidth => "full_width",
+  Disabled => "disabled",
 });
 
 /// What builds a field's nodes: a theme's in place of the default one.
@@ -77,22 +161,25 @@ pub type FieldRenderer = Arc<dyn Fn(FieldView) -> Element + Send + Sync>;
 /// let field = Field::new("Display name", Input::new(name.clone()).full_width(true))
 ///   .description("Shown in the title bar.")
 ///   .required(true);
-/// let email = Field::new("Email", Input::new(Signal::new("ivan@".to_owned())).invalid(true).full_width(true))
+/// // The input is invalid because the field is: its edge is destructive.
+/// let email = Field::new("Email", Input::new(Signal::new("ivan@".to_owned())).full_width(true))
 ///   .error("Enter a full email address.");
 /// ```
 ///
-/// Its control is any element: an [`Input`](super::Input), a select, a
-/// switch. The field does not reach into it: a control whose content is
-/// wrong is told so itself (`Input::invalid`), and the field says why
-/// ([`Field::error`]).
+/// Its control is a [`FieldControl`]: an [`Input`](super::Input), a
+/// [`Textarea`](super::Textarea), a switch, any element. The field finishes
+/// it: an input in it is called by the field's label and is invalid while
+/// the field has an error, unless the app said otherwise of the input
+/// itself. A press of the label focuses the control.
 pub struct Field {
   label: Arc<str>,
-  control: Element,
+  control: Unfinished,
   description: Option<Arc<str>>,
   error: Option<Arc<str>>,
   invalid: bool,
   warning: bool,
   valid: bool,
+  disabled: bool,
   required: bool,
   optional: Option<Arc<str>>,
   horizontal: bool,
@@ -104,16 +191,18 @@ pub struct Field {
 }
 
 impl Field {
-  /// A field called `label` that holds `control`.
-  pub fn new(label: &str, control: impl Into<Element>) -> Self {
+  /// A field called `label` that holds `control`, which the field finishes: see [`FieldControl`]. An element of
+  /// the engine's goes in with `.into()`.
+  pub fn new(label: &str, control: impl FieldControl + 'static) -> Self {
     Self {
       label: Arc::from(label),
-      control: control.into(),
+      control: Box::new(move |field: &InField| control.in_field(field)),
       description: None,
       error: None,
       invalid: false,
       warning: false,
       valid: false,
+      disabled: false,
       required: false,
       optional: None,
       horizontal: false,
@@ -152,6 +241,12 @@ impl Field {
   /// Whether what the control holds was checked and is right, as the description says.
   pub fn valid(mut self, valid: bool) -> Self {
     self.valid = valid;
+    self
+  }
+
+  /// Whether the field takes no input: its control is disabled, and a press of its label focuses nothing.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
     self
   }
 
@@ -237,10 +332,19 @@ impl Field {
     .state(FieldState::Warning, warning)
     .state(FieldState::Valid, valid)
     .state(FieldState::Horizontal, self.horizontal)
-    .state(FieldState::FullWidth, self.full_width);
+    .state(FieldState::FullWidth, self.full_width)
+    .state(FieldState::Disabled, self.disabled);
+    let judgment = Judgment::of(invalid, warning, valid);
+    let control = (self.control)(&InField {
+      label: self.label.clone(),
+      judgment,
+      disabled: self.disabled,
+    });
     let view = FieldView {
       label: self.label,
-      control: self.control,
+      control,
+      focus: ElementRef::new(),
+      disabled: self.disabled,
       description: self.error.or(self.description),
       required: self.required,
       optional: self.optional.filter(|_| !self.required),
@@ -265,8 +369,13 @@ impl From<Field> for Element {
 /// A field as a renderer sees it: what it was given and the style of its parts.
 pub struct FieldView {
   pub label: Arc<str>,
-  /// What the field holds.
+  /// What the field holds, finished by the field.
   pub control: Element,
+  /// What is put on the node that holds the control, and what a press of the label focuses: the first node under
+  /// it that takes the focus. A renderer that holds the control another way puts it on what holds it.
+  pub focus: ElementRef,
+  /// Whether the field takes no input: its label focuses nothing.
+  pub disabled: bool,
   /// What is under the control: the error where there is one, else the description.
   pub description: Option<Arc<str>>,
   pub required: bool,
@@ -295,13 +404,17 @@ impl FieldView {
     Row::new().part(&part).child(part.text(content))
   }
 
-  /// The label, with the mark of a field that has to be filled in or may be left empty.
+  /// The label, with the mark of a field that has to be filled in or may be left empty. A press of it focuses the
+  /// control, unless the field is disabled.
   pub fn label(&self) -> Row {
     let part = self.part(FieldPart::Label);
     let mut label = Row::new()
       .align_items(Alignment::Center)
       .part(&part)
       .child(part.text(&self.label).nowrap());
+    if !self.disabled {
+      label = label.focuses(&self.focus);
+    }
     if self.required {
       label = label.child(self.text(FieldPart::Required, "*"));
     } else if let Some(optional) = &self.optional {
@@ -323,8 +436,13 @@ impl FieldView {
     let description = self.description();
     let root_part = self.part(FieldPart::Root);
     let body_part = self.part(FieldPart::Body);
-    // The control keeps its own width: a row the width of the field holds it.
-    let control = Row::new().child(self.control);
+    // The control keeps its own width: a row the width of the field holds it. The row carries a ref made anew in
+    // each build, and a key, so that the new ref does not make it another node to the engine and its control
+    // keeps the focus and what is typed in it.
+    let control = Row::new()
+      .key("control")
+      .ref_element(self.focus.clone())
+      .child(self.control);
     let (id, key) = (self.id, self.key);
     macro_rules! named {
       ($node:expr) => {{

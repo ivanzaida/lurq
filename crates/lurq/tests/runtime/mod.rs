@@ -51,6 +51,7 @@ mod history_swipe;
 mod middle_autoscroll;
 mod modal_resize;
 mod mouse_leave;
+mod nested_wheel_scroll;
 mod outside_press;
 mod overlay;
 mod pass_report;

@@ -81,9 +81,11 @@ mod slider {
   mod clamps_min_max;
   mod drag_updates_value;
   mod keyboard_update;
+  mod range;
   mod renders_thumb;
   mod suppresses_parent_click;
   mod updates_from_click;
+  mod vertical;
 }
 
 mod pointer {

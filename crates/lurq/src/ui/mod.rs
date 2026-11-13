@@ -18,24 +18,29 @@
 mod button;
 mod button_group;
 mod checkbox;
+mod dialog;
 mod fab;
 mod field;
 mod icon;
 pub mod icons;
 mod input;
 mod link;
+mod menu;
 mod part_style;
 mod popover;
 mod radio;
 mod recipe;
 mod segmented;
+mod select;
 mod shared;
 mod slider;
 mod switch;
+mod text_box;
 mod textarea;
 pub(crate) mod theme;
 mod toggle;
 mod toggle_group;
+mod tooltip;
 
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
@@ -46,11 +51,16 @@ pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
   CheckboxView,
 };
+pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
-pub use field::{Field, FieldPart, FieldRenderer, FieldState, FieldView};
+pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
+pub use menu::{
+  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
+  MenuView,
+};
 pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
   TransitionEasing,
@@ -59,15 +69,21 @@ pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
+pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use shared::{Choice, FADE_IN, FADE_OUT};
-pub use slider::{Slider, SliderPart, SliderRenderer, SliderState, SliderView};
+pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
+pub use text_box::{Judgment, TextBoxSize, TextBoxState};
 pub use textarea::{
-  TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaState, TextareaView,
+  TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
+  TextareaView,
 };
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
 pub use toggle_group::{ToggleGroup, ToggleGroupPart};
+pub use tooltip::{
+  TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
 /// [`Name`], so that a variant, a size, a state or a part of a component is

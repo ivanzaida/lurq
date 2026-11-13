@@ -295,6 +295,7 @@ pub struct PartStyle {
   pub width: Option<Length>,
   pub height: Option<Length>,
   pub min_width: Option<Length>,
+  pub max_width: Option<Length>,
   pub text: TextPatch,
   /// The transitions of the part. A patch that sets them replaces the list.
   pub transitions: Option<Vec<PartTransition>>,
@@ -396,6 +397,11 @@ impl PartStyle {
     self
   }
 
+  pub fn max_width(mut self, width: impl Into<Length>) -> Self {
+    self.max_width = Some(width.into());
+    self
+  }
+
   /// A width and a height that are the same: an icon, a square button.
   pub fn square(self, side: impl Into<Length>) -> Self {
     let side = side.into();
@@ -480,6 +486,7 @@ impl PartStyle {
       && self.width.is_none()
       && self.height.is_none()
       && self.min_width.is_none()
+      && self.max_width.is_none()
       && self.transitions.is_none()
       && self.enter.is_none()
       && self.exit.is_none()
@@ -509,6 +516,7 @@ impl PartStyle {
       width,
       height,
       min_width,
+      max_width,
       transitions,
       enter,
       exit,
@@ -566,6 +574,9 @@ impl PartStyle {
     }
     if let Some(width) = self.min_width.and_then(|width| width.resolve(theme)) {
       NodeUpdate::min_width(node, width);
+    }
+    if let Some(width) = self.max_width.and_then(|width| width.resolve(theme)) {
+      NodeUpdate::max_width(node, width);
     }
     for transition in self.transitions.iter().flatten() {
       NodeUpdate::transition(node, transition.resolve(theme));

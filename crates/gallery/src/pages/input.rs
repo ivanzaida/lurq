@@ -1,6 +1,7 @@
 //! The page of the input and the field: the input's playground, an input
 //! bound to a signal, its states and sizes, and the field that holds a control
-//! with its label and its description.
+//! with its label and its description, names and judges it, and focuses it
+//! from its label.
 
 use std::sync::Arc;
 
@@ -61,6 +62,7 @@ pub struct InputPage {
   playground: Playground,
   value: Signal<String>,
   placeholder: Signal<String>,
+  label: Signal<String>,
   icon: Signal<usize>,
   size: Signal<usize>,
   invalid: Signal<bool>,
@@ -71,12 +73,14 @@ pub struct InputPage {
   full_width: Signal<bool>,
   name: Signal<String>,
   email: Signal<String>,
+  workspace: Signal<String>,
 }
 
 impl InputPage {
   /// The playground: the input as the panel's props make it, bound to the page's signal.
   fn play(&self, ctx: &mut Ctx) -> Element {
     let placeholder = self.placeholder.get();
+    let name = self.label.get();
     let (label, glyph, glyph_code) = ICONS[self.icon.get().min(ICONS.len() - 1)];
     let (size, size_name, size_code, height) = SIZES[self.size.get().min(SIZES.len() - 1)];
     let flags = [
@@ -89,7 +93,7 @@ impl InputPage {
     ];
     let on = |name: &str| flags.iter().any(|(flag, set)| *flag == name && *set);
     let make = {
-      let (placeholder, value) = (placeholder.clone(), self.value.clone());
+      let (placeholder, value, name) = (placeholder.clone(), self.value.clone(), name.clone());
       let set: Vec<bool> = flags.iter().map(|(_, set)| *set).collect();
       move || {
         let mut input = Input::new(value.clone())
@@ -104,6 +108,9 @@ impl InputPage {
         if let Some(glyph) = glyph {
           input = input.icon(glyph);
         }
+        if !name.is_empty() {
+          input = input.label(&name);
+        }
         input
       }
     };
@@ -117,6 +124,9 @@ impl InputPage {
       "Input::new(value.clone())".to_owned(),
       format!("    .placeholder({placeholder:?})"),
     ];
+    if !name.is_empty() {
+      code.push(format!("    .label({name:?})"));
+    }
     if glyph.is_some() {
       code.push(format!("    .icon({glyph_code})"));
     }
@@ -150,9 +160,10 @@ impl InputPage {
     let sizes: Vec<(&str, usize)> = SIZES.iter().enumerate().map(|(index, size)| (size.1, index)).collect();
     let (to_icon, to_size) = (self.icon.clone(), self.size.clone());
     let reset = {
-      let (value, placeholder, icon, size) = (
+      let (value, placeholder, label, icon, size) = (
         self.value.clone(),
         self.placeholder.clone(),
+        self.label.clone(),
         self.icon.clone(),
         self.size.clone(),
       );
@@ -167,6 +178,7 @@ impl InputPage {
       move || {
         value.set(String::new());
         placeholder.set("Placeholder".to_owned());
+        label.set(String::new());
         icon.set(0);
         size.set(1);
         for flag in &flags {
@@ -178,6 +190,7 @@ impl InputPage {
       + usize::from(glyph.is_some())
       + usize::from(size != InputSize::Md)
       + usize::from(!empty)
+      + usize::from(!name.is_empty())
       + usize::from(placeholder != "Placeholder");
     self.playground.card(
       ctx,
@@ -194,6 +207,7 @@ impl InputPage {
         controls: vec![
           prop("value", "Signal<String>", field(&self.value)),
           prop("placeholder", "&str", field(&self.placeholder)),
+          prop("label", "&str", field(&self.label)),
           prop(
             "icon",
             "impl Into<Name>",
@@ -230,6 +244,7 @@ impl Component for InputPage {
       playground: Playground::new(ctx, 1),
       value: ctx.signal(String::new()),
       placeholder: ctx.signal("Placeholder".to_owned()),
+      label: ctx.signal(String::new()),
       icon: ctx.signal(0),
       size: ctx.signal(1),
       invalid: ctx.signal(false),
@@ -240,6 +255,7 @@ impl Component for InputPage {
       full_width: ctx.signal(false),
       name: ctx.signal(String::new()),
       email: ctx.signal("ivan@".to_owned()),
+      workspace: ctx.signal(String::new()),
     }
   }
 
@@ -287,10 +303,8 @@ impl Component for InputPage {
         .required(true),
       )
       .child({
-        let field = Field::new(
-          "Email",
-          Input::new(self.email.clone()).invalid(!email_ok).full_width(true),
-        );
+        // The field's error makes the input invalid: the input is not told.
+        let field = Field::new("Email", Input::new(self.email.clone()).full_width(true));
         if email_ok {
           field.description("Where receipts go.")
         } else {
@@ -303,14 +317,31 @@ impl Component for InputPage {
         Field::new("Project name", showing("lurq design system").full_width(true)).description("18 / 40 characters"),
       )
       .child(
-        Field::new("Port", showing("80").warning(true).full_width(true))
+        Field::new("Port", showing("80").full_width(true))
           .description("Ports below 1024 need admin rights.")
           .warning(true),
       )
       .child(
-        Field::new("Username", showing("ivanzaida").valid(true).full_width(true))
+        Field::new("Username", showing("ivanzaida").full_width(true))
           .description("This name is available.")
           .valid(true),
+      )
+      .child(
+        Field::new("Invite code", showing("LURQ-2026").valid(true).full_width(true))
+          .error("This code was used a moment ago."),
+      );
+    let focusing = items()
+      .child(
+        Field::new(
+          "Workspace",
+          Input::new(self.workspace.clone()).placeholder("acme").full_width(true),
+        )
+        .description("Press the label: the caret goes into the input."),
+      )
+      .child(
+        Field::new("Region", showing("eu-central").full_width(true))
+          .description("A disabled field's label focuses nothing.")
+          .disabled(true),
       );
     let beside = Column::new()
       .spacing(16.0)
@@ -329,6 +360,12 @@ impl Component for InputPage {
         "&str",
         "",
         "What it says while it is empty, in the muted foreground.",
+      ),
+      (
+        "label",
+        "&str",
+        "",
+        "What it is called, to what reads the tree. It draws nothing; a field gives it its own label.",
       ),
       (
         "icon",
@@ -390,9 +427,10 @@ impl Component for InputPage {
       ("label", "&str", "", "What the control is called, above it."),
       (
         "control",
-        "impl Into<Element>",
+        "impl FieldControl",
         "",
-        "Any element: an input, a select, a switch.",
+        "An input, a textarea, a switch, any element. An input or a textarea is called by the label and judged as \
+         the field is, unless it says so itself; a press of the label focuses the control.",
       ),
       ("description", "&str", "", "What the control is for, under it."),
       (
@@ -405,7 +443,13 @@ impl Component for InputPage {
         "invalid / warning / valid",
         "bool",
         "false",
-        "The color of the description.",
+        "The color of the description, and the judgment of an input or a textarea in it.",
+      ),
+      (
+        "disabled",
+        "bool",
+        "false",
+        "Its control takes no input, and its label focuses nothing.",
       ),
       (
         "required",
@@ -507,8 +551,8 @@ impl Component for InputPage {
         Section::new(
           "Field",
           "A control with its label above and its description under it, 6 apart. An error takes the place of the \
-           description; the email here is checked as it is typed. A required field has a mark, an optional one says \
-           so.",
+           description and makes the input invalid; the email here is checked as it is typed. A required field has \
+           a mark, an optional one says so.",
           self.frame.demo(
             3,
             fields,
@@ -520,7 +564,8 @@ impl Component for InputPage {
               "    .required(true)",
               "",
               "let ok = email.get().contains('@') && !email.get().ends_with('@');",
-              "let field = Field::new(\"Email\", Input::new(email.clone()).invalid(!ok).full_width(true));",
+              "// The field's error makes the input invalid: the input is not told.",
+              "let field = Field::new(\"Email\", Input::new(email.clone()).full_width(true));",
               "if ok {",
               "    field.description(\"Where receipts go.\")",
               "} else {",
@@ -533,8 +578,8 @@ impl Component for InputPage {
         ),
         Section::new(
           "Field: what the control holds",
-          "The description in the color of a judgment. The field does not reach into its control: the input says its \
-           own state.",
+          "The description in the color of a judgment, which the field gives the input in it too. An input the app \
+           judged itself keeps its own judgment.",
           self.frame.demo(
             4,
             judged,
@@ -543,13 +588,36 @@ impl Component for InputPage {
               "Field::new(\"Project name\", Input::new(name).full_width(true))",
               "    .description(\"18 / 40 characters\")",
               "",
-              "Field::new(\"Port\", Input::new(port).warning(true).full_width(true))",
+              "Field::new(\"Port\", Input::new(port).full_width(true))",
               "    .description(\"Ports below 1024 need admin rights.\")",
               "    .warning(true)",
               "",
-              "Field::new(\"Username\", Input::new(user).valid(true).full_width(true))",
+              "Field::new(\"Username\", Input::new(user).full_width(true))",
               "    .description(\"This name is available.\")",
               "    .valid(true)",
+              "",
+              "// The input says its own judgment, and keeps it.",
+              "Field::new(\"Invite code\", Input::new(code).valid(true).full_width(true))",
+              "    .error(\"This code was used a moment ago.\")",
+            ],
+          ),
+        ),
+        Section::new(
+          "Field: the label focuses the control",
+          "A press of the label focuses the control, and the field gives the control its label as its name to what \
+           reads the tree. A disabled field's control takes no input, and its label focuses nothing.",
+          self.frame.demo(
+            6,
+            focusing,
+            ".disabled(true)",
+            &[
+              "// workspace: Signal<String>",
+              "Field::new(\"Workspace\", Input::new(workspace.clone()).placeholder(\"acme\").full_width(true))",
+              "    .description(\"Press the label: the caret goes into the input.\")",
+              "",
+              "Field::new(\"Region\", Input::new(region).full_width(true))",
+              "    .description(\"A disabled field's label focuses nothing.\")",
+              "    .disabled(true)",
             ],
           ),
         ),

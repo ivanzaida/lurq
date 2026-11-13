@@ -12,6 +12,16 @@ use crate::node::{
   radius_value::RadiusValue,
 };
 
+/// Which way a slider's track runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SliderOrientation {
+  /// Along the width, the least value at the left.
+  #[default]
+  Horizontal,
+  /// Along the height, the least value at the bottom.
+  Vertical,
+}
+
 #[derive(Clone, Default)]
 pub struct SliderPartStyle {
   pub(crate) width: Option<f32>,

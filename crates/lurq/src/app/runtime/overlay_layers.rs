@@ -40,6 +40,8 @@ pub(super) struct OverlayLayers {
   hidden_anchors: Vec<OwnedElementRef>,
   /// The anchors of the open overlays that move the focus (`Overlay::move_focus`), drawn or hidden.
   pub(super) focus_movers: Vec<OwnedElementRef>,
+  /// The nodes that declare the modals built that take the focus (`Modal::takes_focus`).
+  pub(super) focus_modals: Vec<NodeId>,
 }
 
 impl OverlayLayers {

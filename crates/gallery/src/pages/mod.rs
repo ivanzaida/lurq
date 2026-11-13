@@ -6,17 +6,21 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod button;
 mod checkbox;
+mod dialog;
 mod family;
 mod family_play;
 mod icons;
 mod input;
+mod menu;
 mod overview;
 mod popover;
 mod radio;
+mod select;
 mod slider;
 mod switch;
 mod textarea;
 mod tokens;
+mod tooltip;
 
 /// A group of the side bar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -196,6 +200,38 @@ pub const PAGES: &[Page] = &[
     about: "popover panel overlay popup anchor placement dismiss escape outside title description",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<popover::PopoverPage>(()),
+  },
+  Page {
+    path: "/menu",
+    name: "Menu",
+    icon: None,
+    about: "menu dropdown item command shortcut separator label group checked destructive disabled popup anchor split",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<menu::MenuPage>(()),
+  },
+  Page {
+    path: "/dialog",
+    name: "Dialog",
+    icon: None,
+    about: "dialog modal veil scrim overlay confirm title description footer close escape scroll",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<dialog::DialogPage>(()),
+  },
+  Page {
+    path: "/select",
+    name: "Select",
+    icon: None,
+    about: "select dropdown choose option list menu placeholder chevron value time zone",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/tooltip",
+    name: "Tooltip",
+    icon: None,
+    about: "tooltip hint hover focus delay shortcut arrow side placement overlay label describe",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<tooltip::TooltipPage>(()),
   },
 ];
 

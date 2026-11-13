@@ -1,5 +1,5 @@
 //! The page of the slider: its playground, the slider bound to a signal, its
-//! states, and one with marks under it.
+//! states, one with marks under it, the vertical one and the range slider.
 
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Interaction, Length, Slider, SliderPart},
+  ui::{Interaction, Length, RangeSlider, Slider, SliderOrientation, SliderPart},
 };
 
 use crate::{
@@ -35,6 +35,11 @@ fn items() -> Row {
 const MINS: [(&str, i32); 3] = [("0", 0), ("10", 10), ("-50", -50)];
 const MAXES: [(&str, i32); 3] = [("100", 100), ("50", 50), ("10", 10)];
 const STEPS: [(&str, i32); 4] = [("1", 1), ("5", 5), ("10", 10), ("25", 25)];
+/// The ways the playground's track can run.
+const ORIENTATIONS: [(&str, SliderOrientation); 2] = [
+  ("Horizontal", SliderOrientation::Horizontal),
+  ("Vertical", SliderOrientation::Vertical),
+];
 
 pub struct SliderPage {
   frame: Frame,
@@ -44,10 +49,14 @@ pub struct SliderPage {
   min: Signal<i32>,
   max: Signal<i32>,
   step: Signal<i32>,
+  orientation: Signal<SliderOrientation>,
   disabled: Signal<bool>,
   volume: Signal<i32>,
   opacity: Signal<f32>,
   marked: Signal<i32>,
+  levels: [Signal<i32>; 3],
+  price: Signal<(i32, i32)>,
+  hours: Signal<(i32, i32)>,
 }
 
 impl SliderPage {
@@ -55,6 +64,8 @@ impl SliderPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (value, label) = (self.value.get(), self.label.get());
     let (min, max, step, disabled) = (self.min.get(), self.max.get(), self.step.get(), self.disabled.get());
+    let orientation = self.orientation.get();
+    let vertical = orientation == SliderOrientation::Vertical;
     let plain = {
       let (bound, label) = (self.value.clone(), label.clone());
       move || {
@@ -62,6 +73,7 @@ impl SliderPage {
           .min(min)
           .max(max)
           .step(step)
+          .orientation(orientation)
           .label(&label)
           .disabled(disabled)
       }
@@ -81,6 +93,9 @@ impl SliderPage {
     if step != 1 {
       code.push(format!("    .step({step})"));
     }
+    if vertical {
+      code.push("    .orientation(SliderOrientation::Vertical)".to_owned());
+    }
     code.push(format!("    .label({label:?})"));
     if disabled {
       code.push("    .disabled(true)".to_owned());
@@ -88,21 +103,28 @@ impl SliderPage {
 
     let span = (max - min).max(1) as f32;
     let share = ((value - min) as f32 / span * 100.0).clamp(0.0, 100.0).round();
+    let track = if vertical { "4 × 140 px" } else { "240 × 4 px" };
     let tree = vec![
       format!("root       {}", self.playground.measured()),
-      "├─ track   240 × 4 px     secondary".to_owned(),
+      format!("├─ track   {track}     secondary"),
       format!("├─ range   {share}% of the track   primary"),
       format!("└─ thumb   16 × 16 px     at {value}"),
     ];
 
     let (to_value, to_label) = (self.value.clone(), self.label.clone());
-    let (to_min, to_max, to_step, to_disabled) = (
+    let (to_min, to_max, to_step, to_orientation, to_disabled) = (
       self.min.clone(),
       self.max.clone(),
       self.step.clone(),
+      self.orientation.clone(),
       self.disabled.clone(),
     );
-    let (set_min, set_max, set_step) = (self.min.clone(), self.max.clone(), self.step.clone());
+    let (set_min, set_max, set_step, set_orientation) = (
+      self.min.clone(),
+      self.max.clone(),
+      self.step.clone(),
+      self.orientation.clone(),
+    );
     self.playground.card(
       ctx,
       Spec {
@@ -132,10 +154,19 @@ impl SliderPage {
             "impl Into<f64>",
             self.playground.select(2, &STEPS, &step, move |step| set_step.set(step)),
           ),
+          prop(
+            "orientation",
+            "SliderOrientation",
+            self
+              .playground
+              .select(3, &ORIENTATIONS, &orientation, move |orientation| {
+                set_orientation.set(orientation)
+              }),
+          ),
           divider(),
           flag("disabled", &self.disabled),
         ],
-        changed: [min != 0, max != 100, step != 1, disabled]
+        changed: [min != 0, max != 100, step != 1, vertical, disabled]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -145,6 +176,7 @@ impl SliderPage {
           to_min.set(0);
           to_max.set(100);
           to_step.set(1);
+          to_orientation.set(SliderOrientation::Horizontal);
           to_disabled.set(false);
         }),
       },
@@ -156,7 +188,7 @@ impl Component for SliderPage {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
-    let playground = Playground::new(ctx, 3);
+    let playground = Playground::new(ctx, 4);
     let value = ctx.signal(40);
     let record = playground.recorder();
     ctx.watch(&value, move |value| record(format!("value = {value}")));
@@ -168,10 +200,14 @@ impl Component for SliderPage {
       min: ctx.signal(0),
       max: ctx.signal(100),
       step: ctx.signal(1),
+      orientation: ctx.signal(SliderOrientation::Horizontal),
       disabled: ctx.signal(false),
       volume: ctx.signal(40),
       opacity: ctx.signal(0.5),
       marked: ctx.signal(50),
+      levels: [ctx.signal(70), ctx.signal(45), ctx.signal(20)],
+      price: ctx.signal((20, 80)),
+      hours: ctx.signal((9, 18)),
     }
   }
 
@@ -217,13 +253,42 @@ impl Component for SliderPage {
         .child(marks),
       &format!("the signal has: {}", self.marked.get()),
     ));
+    // The board's vertical slider, three of them side by side as a mixer's channels; the last one shorter.
+    let channels = ["Bass", "Mid", "Treble"]
+      .into_iter()
+      .zip(&self.levels)
+      .fold(Row::new().spacing(24.0), |row, (name, level)| {
+        let slider = Slider::new(level.clone())
+          .orientation(SliderOrientation::Vertical)
+          .label(name);
+        let slider = if name == "Treble" { slider.length(100.0) } else { slider };
+        row.child(item(slider, &format!("{name} {}", level.get())))
+      })
+      .align_items(Alignment::End);
+    let upright = items().child(channels);
+    let (low, high) = self.price.get();
+    let (open, close) = self.hours.get();
+    let ranges = items()
+      .child(item(
+        RangeSlider::new(self.price.clone()).step(5).label("Price"),
+        &format!("the signal has: ({low}, {high})"),
+      ))
+      .child(item(
+        RangeSlider::new(self.hours.clone()).max(24).label("Opening hours"),
+        &format!("open {open}:00 to {close}:00"),
+      ))
+      .child(item(
+        RangeSlider::new(Signal::new((20, 60))).label("Disabled").disabled(true),
+        "disabled",
+      ));
     let rows = [
       (
         "value",
         "Signal<i32> / Signal<f32>",
         "",
         "What the slider is bound to: Slider::new for whole numbers, Slider::new_f32 for fractions. A drag, a press \
-         on the track and the arrow keys set it.",
+         on the track and the arrow keys set it. A RangeSlider is bound to a Signal<(i32, i32)> or a \
+         Signal<(f32, f32)>, its low value and its high one.",
       ),
       ("min", "impl Into<f64>", "0", "The least value: the start of the track."),
       (
@@ -231,6 +296,19 @@ impl Component for SliderPage {
         "impl Into<f64>",
         "100, or 1",
         "The greatest value: the end of the track. 100 for whole numbers, 1 for fractions.",
+      ),
+      (
+        "orientation",
+        "SliderOrientation",
+        "Horizontal",
+        "Which way the track runs. Vertical is 16 wide and 140 high, the least value at the bottom; the up and down \
+         arrows move it.",
+      ),
+      (
+        "length",
+        "f32",
+        "240, or 140",
+        "How long the slider is along its track: its width across, its height up.",
       ),
       (
         "step",
@@ -341,8 +419,58 @@ impl Component for SliderPage {
           ),
         ),
         Section::new(
+          "Vertical",
+          "A slider whose track runs up, its least value at the bottom: a level, a mixer's channel. Its length is \
+           its height, here 100 for the last.",
+          self.frame.demo(
+            3,
+            upright,
+            ".orientation(SliderOrientation::Vertical)",
+            &[
+              "// bass, mid, treble: Signal<i32>",
+              "Row::new()",
+              "    .spacing(24.0)",
+              "    .align_items(Alignment::End)",
+              "    .child(",
+              "        Slider::new(bass.clone())",
+              "            .orientation(SliderOrientation::Vertical)",
+              "            .label(\"Bass\"),",
+              "    )",
+              "    .child(",
+              "        Slider::new(mid.clone())",
+              "            .orientation(SliderOrientation::Vertical)",
+              "            .label(\"Mid\"),",
+              "    )",
+              "    .child(",
+              "        Slider::new(treble.clone())",
+              "            .orientation(SliderOrientation::Vertical)",
+              "            .length(100.0)",
+              "            .label(\"Treble\"),",
+              "    )",
+            ],
+          ),
+        ),
+        Section::new(
+          "Range slider",
+          "Two values on one track, the range between them filled. A press on the track moves the nearer thumb, a \
+           drag the thumb it began on, and neither passes the other. Each thumb is a stop of Tab, the low one first.",
+          self.frame.demo(
+            4,
+            ranges,
+            "RangeSlider::new(price.clone())",
+            &[
+              "// price, hours: Signal<(i32, i32)>",
+              "RangeSlider::new(price.clone()).step(5).label(\"Price\")",
+              "",
+              "RangeSlider::new(hours.clone()).max(24).label(\"Opening hours\")",
+              "",
+              "RangeSlider::new(range.clone()).label(\"Disabled\").disabled(true)",
+            ],
+          ),
+        ),
+        Section::new(
           "Props",
-          "What a slider is given.",
+          "What a slider is given; a range slider is given the same, bound to two values.",
           props_table(&rows, &["value"], self.frame.room()),
         ),
       ],

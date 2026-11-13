@@ -31,7 +31,7 @@ mod slider;
 mod text_input;
 
 pub(crate) use checkbox::CheckboxState;
-pub(crate) use slider::{SliderPartRect, SliderState};
+pub(crate) use slider::{SliderAxis, SliderPartRect, SliderState, SliderThumb};
 pub(crate) use text_input::{TextInputState, WeakTextInputState};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

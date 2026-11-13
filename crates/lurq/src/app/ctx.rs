@@ -259,6 +259,8 @@ pub(crate) struct ModalSpec {
   pub(crate) open_signal: Option<Signal<bool>>,
   pub(crate) dismiss_on_escape: bool,
   pub(crate) layer: ModalLayer,
+  /// Whether the focus goes into the modal as it opens and back to what had it as it closes.
+  pub(crate) takes_focus: bool,
 }
 
 impl ModalSpec {
@@ -274,6 +276,7 @@ impl ModalSpec {
       open_signal: self.open_signal.clone(),
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
+      takes_focus: self.takes_focus,
     }
   }
 }
@@ -310,6 +313,7 @@ pub struct Modal {
   dismiss_on_escape: bool,
   layer: ModalLayer,
   dismiss: Option<Signal<bool>>,
+  takes_focus: bool,
 }
 
 impl Modal {
@@ -321,6 +325,7 @@ impl Modal {
       dismiss_on_escape: true,
       layer: ModalLayer::Dialog,
       dismiss: None,
+      takes_focus: false,
     }
   }
 
@@ -341,6 +346,14 @@ impl Modal {
 
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether the focus goes into the modal as it opens, to its first stop of Tab, and back to what had it when
+  /// it closes, as a browser's `<dialog>` opened with `showModal()` does. A focus that has gone somewhere else
+  /// by then stays there. Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
     self
   }
 
@@ -368,6 +381,7 @@ impl Modal {
       open_signal: self.dismiss.or_else(|| self.open.signal()),
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
+      takes_focus: self.takes_focus,
     })
   }
 }
@@ -593,7 +607,6 @@ impl Timeout {
 
   /// The delay of the next start or restart; a running timeout keeps its
   /// fire time.
-  #[cfg(feature = "markdown")]
   pub(crate) fn set_duration(&self, duration: Duration) {
     self.timer.inner.lock().duration = duration;
   }
