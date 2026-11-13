@@ -480,13 +480,13 @@ impl PartStyle {
       NodeUpdate::opacity(node, opacity);
     }
     if let Some(padding) = &self.padding_x {
-      NodeUpdate::padding_horizontal(node, padding.clone());
+      NodeUpdate::padding_horizontal(node, *padding);
     }
     if let Some(padding) = &self.padding_y {
-      NodeUpdate::padding_vertical(node, padding.clone());
+      NodeUpdate::padding_vertical(node, *padding);
     }
     if let Some(gap) = &self.gap {
-      NodeUpdate::spacing(node, gap.clone());
+      NodeUpdate::spacing(node, *gap);
     }
     if let Some(width) = self.width.and_then(|width| width.resolve(theme)) {
       NodeUpdate::width(node, width);
