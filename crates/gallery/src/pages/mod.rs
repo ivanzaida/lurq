@@ -19,6 +19,7 @@ mod select;
 mod slider;
 mod switch;
 mod textarea;
+mod toast;
 mod tokens;
 mod tooltip;
 
@@ -232,6 +233,14 @@ pub const PAGES: &[Page] = &[
     about: "tooltip hint hover focus delay shortcut arrow side placement overlay label describe",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<tooltip::TooltipPage>(()),
+  },
+  Page {
+    path: "/toast",
+    name: "Toast",
+    icon: None,
+    about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<toast::ToastPage>(()),
   },
 ];
 

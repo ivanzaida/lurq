@@ -16,3 +16,4 @@ mod switch;
 mod textarea;
 mod theming;
 mod tooltip;
+mod toast;

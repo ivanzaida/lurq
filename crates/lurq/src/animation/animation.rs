@@ -307,6 +307,10 @@ impl AnimationEngine {
     engine.register_keyframes_in_phase(spin());
     engine.register_keyframes(fade(crate::ui::FADE_IN, 0.0, 1.0));
     engine.register_keyframes(fade(crate::ui::FADE_OUT, 1.0, 0.0));
+    // A toast coming in and leaving.
+    for keyframes in crate::ui::toast_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
     engine
   }
 
