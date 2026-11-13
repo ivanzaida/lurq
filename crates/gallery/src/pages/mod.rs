@@ -23,7 +23,9 @@ mod popover;
 mod radio;
 mod select;
 mod separator;
+mod skeleton;
 mod slider;
+mod spinner;
 mod steps;
 mod switch;
 mod tabs;
@@ -331,6 +333,22 @@ pub const PAGES: &[Page] = &[
     about: "separator divider line rule horizontal vertical label or toolbar section",
     group: Group::Data,
     mount: |ctx| ctx.mount::<separator::SeparatorPage>(()),
+  },
+  Page {
+    path: "/spinner",
+    name: "Spinner",
+    icon: None,
+    about: "spinner loader loading busy wait ring dots bars indeterminate status overlay veil inline",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<spinner::SpinnerPage>(()),
+  },
+  Page {
+    path: "/skeleton",
+    name: "Skeleton",
+    icon: None,
+    about: "skeleton placeholder loading line circle block paragraph pulse shimmer media row card",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<skeleton::SkeletonPage>(()),
   },
 ];
 

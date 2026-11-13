@@ -42,7 +42,9 @@ mod segmented;
 mod select;
 mod separator;
 mod shared;
+mod skeleton;
 mod slider;
+mod spinner;
 mod steps;
 mod switch;
 mod tabs;
@@ -99,7 +101,18 @@ pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlStat
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT};
+pub(crate) use skeleton::keyframes as skeleton_keyframes;
+pub use skeleton::{
+  SKELETON_PULSE, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER, SKELETON_SHIMMER_PERIOD, SKELETON_SHIMMER_TRAVEL, Skeleton,
+  SkeletonAnimation, SkeletonPart, SkeletonRenderer, SkeletonShape, SkeletonView,
+};
 pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
+pub(crate) use spinner::keyframes as spinner_keyframes;
+pub use spinner::{
+  LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
+  SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
+  SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
+};
 pub use steps::{
   CurrentStep, Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView,
 };

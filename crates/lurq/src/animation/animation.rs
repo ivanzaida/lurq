@@ -311,6 +311,13 @@ impl AnimationEngine {
     for keyframes in crate::ui::toast_keyframes() {
       engine.register_keyframes(keyframes);
     }
+    // A spinner's dots and bars, and a skeleton's pulse and sheen: in phase, so that all of them move as one.
+    for keyframes in crate::ui::spinner_keyframes()
+      .into_iter()
+      .chain(crate::ui::skeleton_keyframes())
+    {
+      engine.register_keyframes_in_phase(keyframes);
+    }
     engine
   }
 
