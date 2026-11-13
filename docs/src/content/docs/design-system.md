@@ -1,6 +1,6 @@
 ---
 title: Design System
-description: The components of lurq::ui and what a theme styles them with. Recipes, part styles, rules by variant, size, density, breakpoint and state, renderers, a bare theme, a theme for a subtree, Icon and Button.
+description: The components of lurq::ui and what a theme styles them with. Recipes, part styles, rules by variant, size, density, breakpoint and state, renderers, a bare theme, a theme for a subtree, Icon, Button, Toggle, the groups, SegmentedControl, Link and Fab.
 ---
 
 # Design System
@@ -111,6 +111,7 @@ The design's recipe for `Button` has no rule for a density: a button has its siz
 | --- | --- |
 | `background(color)`, `foreground(color)` | The fill, and the color of the text and icons in the part and under it |
 | `border(border)`, `radius(radius)` | A border on every side; the corners |
+| `underline(border)` | A line along the bottom of the part only: what a link has under the pointer |
 | `shadow(shadow)`, `veil(color)` | Shadows; a color laid over the fill and under the content (`StateHover`, `StatePressed`) |
 | `outline(outline)`, `focus_ring()` | An outline; the theme's focus ring as the outline |
 | `opacity(value)` | A number, or a level of the theme's (`OpacityLevel::Disabled`) |
@@ -296,6 +297,7 @@ Button::new("Saving…").loading(saving.get());
 | `icon(name)`, `trailing_icon(name)` | An [icon](#icon) before and after the label, by its name in the theme's set. It is drawn in the color of the label, at the size the button's size has for it |
 | `icon_only(bool)` | The icon alone: a square as wide as it is high, a circle with `ButtonShape::Pill`. The label is not drawn |
 | `loading(bool)` | A spinner turns in the place of the icon, or before the label, and a click, Enter and Space do nothing until it is over |
+| `description(text)` | A second line under the label that says more of what the button does. The button is as high as the two lines, with an icon of 20 beside them |
 | `leading(element)`, `trailing(element)` | Any element before and after the label, where an icon by name is not enough |
 | `disabled(bool)` | It takes no input: no press, hover or focus, and Tab passes it by. It is dimmed to the theme's `OpacityLevel::Disabled` |
 | `full_width(bool)` | As wide as what it is in |
@@ -319,13 +321,165 @@ Button::new("Saving…").loading(saving.get());
 | `ButtonPart::Label` | Its text: 13/500 in the design |
 | `ButtonPart::Icon` | An icon given by name: its side (`square(..)`), and a color of its own if the part names one |
 | `ButtonPart::Spinner` | What turns while the button is loading |
+| `ButtonPart::Description` | The line under the label: 12, at the theme's muted opacity, so that it is quieter than the label on any fill |
 | `ButtonPart::Leading`, `ButtonPart::Trailing` | The elements put before and after the label |
 
-States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly` and `Pill`, and hovered, pressed and focus-visible.
+States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly`, `Pill` and `Compound` (it has a description), and hovered, pressed and focus-visible.
 
 - In the design a button under the pointer has its variant's hover fill (`PrimaryHover`, `SecondaryHover`, `DestructiveHover`, and `Highlight` for an outline or a ghost button), a button held down has the `StatePressed` veil over that, and one focused from the keyboard has the theme's focus ring.
 - A loading button shows three quarters of itself. It stays where the focus is and is not pressed: a form it submits is not submitted again. Its label is the app's to change.
 - A theme's renderer for `ButtonPart::Label`, `ButtonPart::Icon` or `ButtonPart::Spinner` builds that part in place of the default one: dots that pulse where the design turns a ring.
+- A button that is an icon alone is still called by its label: tooling that reads the tree (DevTools, the MCP tools) names it so.
+- The design's close button, menu button and compound button are this button: `Button::new("Close").variant(ButtonVariant::Ghost).size(ButtonSize::Xs).icon(icons::CLOSE).icon_only(true)`, `Button::new("Export").variant(ButtonVariant::Outline).trailing_icon(icons::CHEVRON_DOWN)`, and a button with a `description`.
+
+## Toggle
+
+A button that stays on until it is pressed again: bold in an editor, a filter that holds.
+
+```rust
+use lurq::ui::{Toggle, icons};
+
+Toggle::new("Bold")
+  .icon(icons::BOLD)
+  .on(bold.get())
+  .on_change(move |on| bold.set(on));
+```
+
+| Builder | |
+| --- | --- |
+| `on(bool)` | Whether it is on. The toggle does not keep it: the app says so |
+| `on_change(handler)` | Called on a press with what the toggle is to be: on if it was off |
+| `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square |
+| `size(size)` | A `ButtonSize`: a toggle is as high as a button of that size |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+Parts: `TogglePart::Root`, `Label`, `Icon`. States: `ToggleState::On`, `Disabled`, `IconOnly`. In the design a toggle has no fill until the pointer is on it or it is on, and then the `Highlight` fill; it is padded 10.
+
+## Button Group
+
+Buttons that belong together, joined into one shape.
+
+```rust
+use lurq::ui::{Button, ButtonGroup, ButtonGroupVariant, icons};
+
+ButtonGroup::new()
+  .child(Button::new("Years"))
+  .child(Button::new("Months"))
+  .child(Button::new("Days"));
+
+// An action and the choice of how to do it: a split button.
+ButtonGroup::new()
+  .variant(ButtonGroupVariant::Primary)
+  .child(Button::new("Merge").on_click(|_| merge()))
+  .child(Button::new("How to merge").icon(icons::CHEVRON_DOWN).icon_only(true).on_click(|_| choose()));
+```
+
+| Builder | |
+| --- | --- |
+| `child(button)`, `children(buttons)` | The buttons, in order |
+| `variant(variant)` | `Outline` (the default): one line around the group and a line between its buttons, which have no fill. `Primary`, `Secondary`, `Destructive`: buttons in that fill, a pixel apart |
+| `size(size)` | The `ButtonSize` of every button in it |
+| `style(part, ..)`, `id`, `key` | One instance over the theme; its id and key |
+
+- The group gives its buttons their variant and their size and squares their corners: the corners of the group are the round ones. A button keeps the rest of what it was given: its icon, what a press does, whether it is disabled.
+- Parts: `ButtonGroupPart::Root`, the group; `Item`, what the group says of each button, laid over the theme's recipe for a button's root (padded 14 in the design); `Separator`, the line between two.
+- The second button of a split button opens what the app shows: a menu of the design system is not built yet.
+
+## Toggle Group
+
+Toggles that are one choice: one of them is on, or any number are.
+
+```rust
+use lurq::ui::{Choice, ToggleGroup, icons};
+
+// One of them is on: the one with the signal's value.
+ToggleGroup::new(align.clone(), [(Align::Left, "Left"), (Align::Center, "Center"), (Align::Right, "Right")]);
+
+// Any number are: those with the values the signal has.
+ToggleGroup::multiple(marks.clone(), [
+  Choice::new(Mark::Bold, "Bold").icon(icons::BOLD).icon_only(true),
+  Choice::new(Mark::Italic, "Italic").icon(icons::ITALIC).icon_only(true),
+]);
+```
+
+| Constructor | |
+| --- | --- |
+| `ToggleGroup::new(signal, choices)` | Exactly one is on: a press of another sets the signal |
+| `ToggleGroup::multiple(signal, choices)` | A `Signal<Vec<T>>`: a press adds a value, or takes it out |
+| `ToggleGroup::controlled(on, choices, press)` | The app holds the state: the toggles of `on` are on, and `press` is told the value of each one pressed |
+
+A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. `size(size)` and `disabled(bool)` are for the whole group. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`.
+
+## Segmented Control
+
+One of a few choices that are all in view, side by side on a track.
+
+```rust
+use lurq::ui::SegmentedControl;
+
+SegmentedControl::new(period.clone(), [(Period::Day, "Day"), (Period::Week, "Week"), (Period::Month, "Month")]);
+
+// The app holds what is chosen.
+SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (Some(Light), "Light")], |look| {
+  theme.set_preferred_appearance(look)
+});
+```
+
+| Builder | |
+| --- | --- |
+| `SegmentedControl::new(signal, choices)` | The chosen segment is the one with the signal's value; a press of another sets it |
+| `SegmentedControl::controlled(value, choices, choose)` | The app holds the value and is told of a press |
+| `size(size)` | A `ButtonSize`: the track is as high as a button of that size |
+| `full_width(bool)` | As wide as what it is in, its segments sharing the width |
+| `disabled(bool)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
+
+- Each segment is a button: Tab reaches it, and a click, Enter or Space chooses it.
+- Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`.
+
+## Link
+
+Text that goes somewhere when it is pressed. It has no box, so it sits in a line of text or beside one.
+
+```rust
+use lurq::ui::Link;
+
+Link::new("Read the docs").external().on_click(move |_| navigator.push("/docs"));
+```
+
+| Builder | |
+| --- | --- |
+| `on_click(handler)` | A click, and Enter and Space while it is focused. Where the link goes is what its press does |
+| `icon(name)`, `external()` | An icon after the text; `external()` is the arrow of a link that leaves the app |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
+
+Parts: `LinkPart::Root`, `Label` (14/500), `Icon` (14, four after the text). Under the pointer the root has an `underline`.
+
+## Fab
+
+A floating action button: the one thing a view is for, raised over it.
+
+```rust
+use lurq::ui::{Fab, icons};
+
+Fab::new("Compose", icons::COMPOSE).on_click(|_| compose());
+Fab::new("Compose", icons::COMPOSE).extended(true); // with its label
+```
+
+- It is a [button](#button) that is an icon alone, round, 48 across, with an icon of 20 and the theme's large shadow, and takes what a button takes: `variant`, `on_click`, `disabled`, `loading`.
+- Parts: `FabPart::Root`, `Icon`, `Label`, each laid over the theme's recipe for the same part of a button. State: `FabState::Extended`.
+- Where it floats is the app's to say: it is an element, put in a corner of a `Stack`. A container clips what is in it, so give its shadow room, or let the container show what is outside it (`.overflow_visible()`).
+
+## A Component That Holds Another
+
+A group does not draw its buttons: it holds them, and says what they are in its place. Its recipe has a part for that (`ButtonGroupPart::Item`), and `ResolvedRecipe::rules_for(part, inner)` turns what the recipe has for it, at rest and in each interaction, into rules for a part of the inner component, which the group lays over the theme's recipe for that component (`Button::rules`):
+
+```rust
+let recipe = theme.resolve::<ButtonGroup>(&case, None);
+let item = recipe.rules_for(ButtonGroupPart::Item, ButtonPart::Root);
+let button = button.rules(&item); // over the theme's recipe for a button, under the button's own style
+```
+
+So a theme restyles a button in a group by patching the group's recipe, and a button elsewhere is as it was.
 
 ## A Component Of Your Own
 

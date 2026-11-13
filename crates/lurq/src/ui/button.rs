@@ -87,6 +87,8 @@ pub enum ButtonPart {
   Icon,
   /// What turns while the button is loading, in the place of its icon.
   Spinner,
+  /// A second line under the label, which says more of what the button does.
+  Description,
   /// An element put before the text.
   Leading,
   /// An element put after the text.
@@ -98,6 +100,7 @@ names!(ButtonPart {
   Label => "label",
   Icon => "icon",
   Spinner => "spinner",
+  Description => "description",
   Leading => "leading",
   Trailing => "trailing",
 });
@@ -116,6 +119,8 @@ pub enum ButtonState {
   IconOnly,
   /// Its corners are rounded all the way ([`ButtonShape::Pill`]).
   Pill,
+  /// It has a description under its label, and is as high as the two lines are.
+  Compound,
 }
 
 names!(ButtonState {
@@ -124,6 +129,7 @@ names!(ButtonState {
   Loading => "loading",
   IconOnly => "icon_only",
   Pill => "pill",
+  Compound => "compound",
 });
 
 /// How much of a button shows while it is loading, in the design's recipe.
@@ -168,6 +174,7 @@ pub type ButtonPartRenderer = Arc<dyn Fn(&ButtonView) -> Element + Send + Sync>;
 /// ```
 pub struct Button {
   label: Arc<str>,
+  description: Option<Arc<str>>,
   variant: Name,
   size: Name,
   shape: ButtonShape,
@@ -193,6 +200,7 @@ impl Button {
   pub fn new(label: &str) -> Self {
     Self {
       label: Arc::from(label),
+      description: None,
       variant: ButtonVariant::default().into(),
       size: ButtonSize::default().into(),
       shape: ButtonShape::default(),
@@ -224,6 +232,14 @@ impl Button {
   /// A [`ButtonSize`], or a size the theme's recipe names.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = size.into();
+    self
+  }
+
+  /// A second line under the label that says more of what the button does:
+  /// "Schedule", and under it "Pick a date and time". The button is then as
+  /// high as the two lines, with a larger icon beside them.
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = Some(Arc::from(description));
     self
   }
 
@@ -355,10 +371,12 @@ impl Button {
     .state(ButtonState::FullWidth, self.full_width)
     .state(ButtonState::Loading, self.loading)
     .state(ButtonState::IconOnly, self.icon_only)
-    .state(ButtonState::Pill, self.shape == ButtonShape::Pill);
+    .state(ButtonState::Pill, self.shape == ButtonShape::Pill)
+    .state(ButtonState::Compound, self.description.is_some());
     let recipe = theme.resolve::<Button>(&case, Some(&self.rules));
     let view = ButtonView {
       label: self.label,
+      description: self.description,
       variant: self.variant,
       size: self.size,
       shape: self.shape,
@@ -395,6 +413,8 @@ impl From<Button> for Element {
 /// parts, and its behavior ready to be dressed.
 pub struct ButtonView {
   pub label: Arc<str>,
+  /// The line under the label, if the button has one.
+  pub description: Option<Arc<str>>,
   pub variant: Name,
   pub size: Name,
   pub shape: ButtonShape,
@@ -450,6 +470,10 @@ impl ButtonView {
         root = root.on_click(handler.clone());
       }
     }
+    // A button that is an icon alone draws no label, and is still called by it.
+    if self.icon_only {
+      root = root.describe("a11y_name", self.label.clone());
+    }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -457,6 +481,13 @@ impl ButtonView {
       root = root.key(key.clone());
     }
     root
+  }
+
+  /// The line under the label, in the typography of the description, if the button has one.
+  pub fn description(&self) -> Option<Element> {
+    let description = self.description.as_ref()?;
+    let part = self.part(ButtonPart::Description);
+    Some(part.text(description).nowrap().part(&part).into())
   }
 
   /// The button's text, in the typography of its label. A theme's renderer
@@ -523,7 +554,16 @@ impl ButtonView {
     if let Some(leading) = self.leading.take() {
       root = root.child(Row::new().part(&self.part(ButtonPart::Leading)).child(leading));
     }
-    root = root.child(self.label());
+    root = match self.description() {
+      // The label with its description under it, both at the start of their column.
+      Some(description) => root.child(
+        crate::components::Column::new()
+          .spacing(2.0)
+          .child(self.label())
+          .child(description),
+      ),
+      None => root.child(self.label()),
+    };
     if let Some(trailing) = self.trailing.take() {
       root = root.child(Row::new().part(&self.part(ButtonPart::Trailing)).child(trailing));
     }
@@ -544,7 +584,7 @@ impl Themed for Button {
   /// sizes, from 28 to 44, each with its padding, and the smallest and the
   /// largest with a label and an icon of their own size.
   fn recipe() -> Recipe {
-    use ButtonPart::{Icon, Label, Root, Spinner};
+    use ButtonPart::{Description, Icon, Label, Root, Spinner};
     use PaletteColor::*;
     let paint = |style: super::PartStyle| {
       [
@@ -598,6 +638,16 @@ impl Themed for Button {
       .state(ButtonState::Loading, Root, |s| s.opacity(LOADING_OPACITY))
       .state(ButtonState::FullWidth, Root, |s| s.width(Length::Fill))
       .state(ButtonState::Pill, Root, |s| s.radius(RadiusSize::Full))
+      // Two lines: as high as they are, with 10 above and below, and a larger icon 12 before them.
+      .base(Description, |s| {
+        s.typography(TypographyStyle::Caption).opacity(OpacityLevel::Muted)
+      })
+      .state(ButtonState::Compound, Root, |s| {
+        s.height(Length::Auto).padding_x(16.0).padding_y(10.0).gap(12.0)
+      })
+      .state(ButtonState::Compound, Label, |s| s.font_size(14.0))
+      .state(ButtonState::Compound, Icon, |s| s.square(IconSize::Lg))
+      .state(ButtonState::Compound, Spinner, |s| s.square(IconSize::Lg))
       // An icon alone: no padding, and as wide as the button of its size is high.
       .state(ButtonState::IconOnly, Root, |s| s.padding_x(0.0).width(ControlSize::Md));
     // The icon of a size, and the width of a button of that size that is an icon alone.

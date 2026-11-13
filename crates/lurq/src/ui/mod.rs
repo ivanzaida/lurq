@@ -16,22 +16,36 @@
 //! what renders it renders again when the theme changes.
 
 mod button;
+mod button_group;
+mod fab;
 mod icon;
 pub mod icons;
+mod link;
 mod part_style;
 mod recipe;
+mod segmented;
+mod shared;
 pub(crate) mod theme;
+mod toggle;
+mod toggle_group;
 
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
   ButtonView,
 };
+pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use fab::{Fab, FabPart, FabState};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
+pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
 };
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
+pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
+pub use shared::Choice;
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
+pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
+pub use toggle_group::{ToggleGroup, ToggleGroupPart};
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
 /// [`Name`], so that a variant, a size, a state or a part of a component is

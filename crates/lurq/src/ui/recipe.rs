@@ -421,6 +421,21 @@ impl ResolvedRecipe {
   fn styles(&self, part: Name) -> &PartStyles {
     self.styles.parts.get(&part).unwrap_or(&self.styles.nothing)
   }
+
+  /// Rules that give the part `inner` of another component what this recipe
+  /// has for `part`, at rest and in each interaction: how a component that
+  /// holds another hands it its place. A group's recipe has a part for its
+  /// items, and gives each button in it these rules over the theme's for a
+  /// button (`Button::rules`).
+  pub fn rules_for(&self, part: impl Into<Name>, inner: impl Into<Name>) -> Recipe {
+    let styles = self.styles(part.into()).clone();
+    let inner = inner.into();
+    Recipe::new()
+      .base(inner, |_| styles.rest.clone())
+      .hovered(inner, |_| styles.hovered.clone())
+      .pressed(inner, |_| styles.pressed.clone())
+      .focus_visible(inner, |_| styles.focus_visible.clone())
+  }
 }
 
 /// The style of one part of a component as it is being built.

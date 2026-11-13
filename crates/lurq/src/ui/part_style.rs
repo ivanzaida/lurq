@@ -243,6 +243,8 @@ pub struct PartStyle {
   pub foreground: Option<TextColor>,
   /// A border on every side.
   pub border: Option<Border>,
+  /// A line along the bottom of the part: what a link has under the pointer.
+  pub underline: Option<Border>,
   pub radius: Option<RadiusValue>,
   pub shadow: Option<BoxShadowValue>,
   /// A color laid over the part's background and under its content: the
@@ -283,6 +285,13 @@ impl PartStyle {
   /// A border on every side.
   pub fn border(mut self, border: Border) -> Self {
     self.border = Some(border);
+    self
+  }
+
+  /// A line along the bottom of the part, in place of a border on every
+  /// side: the underline of a link.
+  pub fn underline(mut self, line: Border) -> Self {
+    self.underline = Some(line);
     self
   }
 
@@ -407,6 +416,7 @@ impl PartStyle {
     self.background.is_none()
       && self.foreground.is_none()
       && self.border.is_none()
+      && self.underline.is_none()
       && self.radius.is_none()
       && self.shadow.is_none()
       && self.veil.is_none()
@@ -433,6 +443,7 @@ impl PartStyle {
       background,
       foreground,
       border,
+      underline,
       radius,
       shadow,
       veil,
@@ -467,6 +478,9 @@ impl PartStyle {
     }
     if let Some(border) = &self.border {
       NodeUpdate::border(node, border.clone());
+    }
+    if let Some(line) = &self.underline {
+      NodeUpdate::border_bottom(node, line.clone());
     }
     if let Some(radius) = self.radius {
       NodeUpdate::rounded(node, radius);
@@ -554,6 +568,10 @@ impl PartStyle {
     }
     if let Some(border) = &self.border {
       style = style.border(border.clone());
+      any = true;
+    }
+    if let Some(line) = &self.underline {
+      style = style.border_bottom(line.clone());
       any = true;
     }
     if let Some(radius) = self.radius {

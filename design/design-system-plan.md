@@ -468,6 +468,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Recipes for what lurq draws itself: scroll bars, selection, the caret (D12) | not started |
 | `Icon`, and the theme's table of icons | built: `ui::Icon`, `ui::icons`, `ThemeIcons`, the font loaded in every app |
 | Step 2: `Button` | built to the board's Buttons section (14.6), with its tests and its page of the docs. `Switch`, `Tabs`, `MessageBox` are not |
+| The button family | built: `Toggle`, `ButtonGroup`, `ToggleGroup`, `SegmentedControl`, `Link`, `Fab`, and a button with a description (14.7) |
 | The gallery | its shell is built, with a title bar of its own, and Overview, Tokens and Icons (15.5) |
 
 ### 14.2 What was decided while building
@@ -500,7 +501,6 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 - **The rest of step 2**: `Switch` (an anatomy a renderer replaces), `Tabs` (several parts and a selected state) and `MessageBox` (a composite with two buttons in places), each with its page in the gallery. Then the iOS-looking skin and the made-up brand of section 7, on public API alone. The recipe, slot and renderer API is frozen only after that.
 - **Presentation options**, with the first component that has one.
 - **What lurq draws itself** on recipes: scroll bars, selection, the caret (D12), and the test that fails on a literal color, size or duration in `lurq::ui`.
-- **The rest of the board's Buttons section**: `Link`, `Toggle Group`, `Segmented Control`, `Button Group`, `Split Button`, `Compound Button` and `FAB` are components of their own, each with its page after it is built.
 
 ### 14.5 The theme machinery as built
 
@@ -529,6 +529,30 @@ Said on 2026-11-13: a component is built first, to what the board draws of it, a
 - **An icon alone, a pill, loading** are states of the recipe (`IconOnly`, `Pill`, `Loading`), so a theme styles them as any other. An icon alone has no padding and the width of its height; a pill has the full radius, and an icon alone in it is a circle. A loading button shows the spinner where its icon was, or before its label, at three quarters of its opacity (the board's value; the opacity scale has no step for it), and is not pressed: its handlers are not attached and it does not submit its form.
 - **Pressed is the veil.** The board's pressed row draws the hover fill; the recipe lays `StatePressed` over it, as decided in 14.5, so that a press shows on a button the pointer is already on.
 - **The gallery's own icon, icon button and page actions are `Icon` and `Button` now.**
+
+### 14.7 The button family
+
+The board has eleven things that are pressed. Said on 2026-11-13: group them by what they are before building them. They are six components.
+
+| On the board | What it is |
+| --- | --- |
+| Button, icon button, round | `Button` |
+| Close Button, Menu Button | `Button`, as it is: a ghost icon alone at `Xs`; an outline with a trailing chevron |
+| Compound Button | `Button` with `description(..)`: a part `Description`, a state `Compound` |
+| FAB | `Fab`: a thin component over `Button`, whose recipe is laid over a button's |
+| Link | `Link`: text with no box, and what a press does is where it goes |
+| Toggle | `Toggle`: a button's behavior and a state `On` |
+| Button Group, Split Button | `ButtonGroup`: outline, or filled and a pixel apart; a split button is a filled group of two |
+| Toggle Group | `ToggleGroup`: a group's shell around toggles, and which of them are on |
+| Segmented Control | `SegmentedControl`: one chosen, with a shell of its own |
+
+- **One scale of sizes.** All of them take `ButtonSize`; a group gives its size to what it holds.
+- **A component that holds another hands it rules** (`ResolvedRecipe::rules_for`): the group's recipe has a part `Item`, and what it says there is laid over the theme's recipe for a button's or a toggle's root. This is the slot of 4.3, used for the first time. `Fab` does the same with three parts.
+- **One model of choice** for `ToggleGroup` and `SegmentedControl`: a `Signal<T>` (one), a `Signal<Vec<T>>` (any number), or held by the app. The components are not generic: a constructor takes the binding and the choices and keeps what each choice is and what a press of it does.
+- **A part style has an underline**: a line along the bottom of a part, which a link has under the pointer. A border was every side.
+- **A container clips what is in it** (the engine's default), so a `Fab`'s shadow needs room in what it is put in.
+
+Not done: the arrow keys do not move a choice within a `SegmentedControl` or a `ToggleGroup` (Tab reaches each segment; a key press reaches every node, focused or not, and a component cannot tell that the focus is in it). A split button's second half opens nothing by itself: the menu is not built. The pages of the gallery for these six.
 
 ## 15. The gallery
 
