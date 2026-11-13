@@ -661,3 +661,16 @@ impl Themed for Select {
       )
   }
 }
+
+impl super::FieldControl for Select {
+  /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled where
+  /// the field is.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    self.into()
+  }
+}
