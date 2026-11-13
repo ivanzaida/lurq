@@ -467,7 +467,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Behavior as public pieces (D10) | started: a view hands a renderer the wired root (`ButtonView::root`); nothing of it is promised yet |
 | Recipes for what lurq draws itself: scroll bars, selection, the caret (D12) | not started |
 | `Icon`, and the theme's table of icons | built: `ui::Icon`, `ui::icons`, `ThemeIcons`, the font loaded in every app |
-| Step 2: `Button` | built to the board's Buttons section (14.6), with its tests and its page of the docs. `Switch` is built (14.8), and the forms batch: `Input`, `Field`, `Textarea`, `Checkbox`, `Radio`, `RadioGroup`, `Slider` (14.9), and the overlays batch: `Tooltip`, `Popover`, `Menu`, `Dialog`, `Toast`, `Select` (14.11). `Tabs`, `MessageBox` are not |
+| Step 2: `Button` | built to the board's Buttons section (14.6), with its tests and its page of the docs. `Switch` is built (14.8), and the forms batch: `Input`, `Field`, `Textarea`, `Checkbox`, `Radio`, `RadioGroup`, `Slider` (14.9), and the overlays batch: `Tooltip`, `Popover`, `Menu`, `Dialog`, `Toast`, `Select` (14.11), and the navigation batch: `Tabs`, `Accordion`, `Collapsible`, `Breadcrumb`, `Pagination`, `Steps` (14.12). `MessageBox` is not |
 | The button family | built: `Toggle`, `ButtonGroup`, `ToggleGroup`, `SegmentedControl`, `Link`, `Fab`, and a button with a description (14.7) |
 | The gallery | its shell is built, with a title bar of its own, and Overview, Tokens and Icons (15.5) |
 
@@ -611,6 +611,20 @@ Six sessions: `Tooltip`, `Popover`, `Menu` with `MenuItem`, `Dialog`, `Toast` wi
 
 Decided against the board, and kept: a disabled menu item is dimmed by the theme's 0.5 as every disabled control is (the board's 0.45); a toast's description is the sans family (the board's Rich toast shows a file name in mono); the scroll bar of a scrolling dialog is the engine's, until scroll bars are on recipes (14.4).
 
+### 14.12 The navigation batch, and what was said of the overlays after their merge
+
+Five sessions: `Tabs` with `Tab`, `Accordion` with `Collapsible`, `Breadcrumb`, `Pagination`, `Steps`. Each brief named the one session that owns each kind of engine change (focus groups and the Tab order: Tabs; a part that opens with its height: Accordion), and no two built the same thing. All 285 ui tests passed at the first run after the merge.
+
+- **What the engine got for it**: a transition of `Height` between a height in pixels and the content's (`AnimatableValue::Fit`), for a panel that opens and closes; `PartStyle::start_line`; `state.selected` in `lurq_inspect`.
+- **Closed at the merge, not listed**: the arrow keys of an accordion stopped at the controls inside an open item, and now pass them by (`FocusGroup::none()` around the content, which takes what is in it out of the group around it); the focus was lost when Enter on next took a pagination to its last page and disabled the button, and now goes to the button before it in the group; the overflowing tabs drew no line under the selected tab, which the bar's own line was painted over, and the bar's box is now under what it holds.
+- **Decided against the board, and kept**: an accordion's open item has the `chevron-up` glyph and no turning of the down one; a pagination's default is one sibling on each side (`1 2 3 4 5 … 12`), the board's row is `siblings(0)`; previous is disabled on the first page; steps are padded 4 for their ring, so a row is 4 longer at each end than the board's.
+
+Said of the toasts and the dialog on 2026-11-14, and fixed on this branch:
+
+- **Toasts behind the front one appeared oddly under the pointer and jumped when it left**: laid out one over another they were a column, and stacked a stack, two layouts with nothing between them. They are one pile now, each toast in its place by its id, those behind moved out by an offset with a transition and fading as they go back, so no shadow is left to vanish.
+- **A toast's text did not fit beside an action**: a row lays a text out as wide as it is. The title and the description are in a column of the room they have, and wrap.
+- **A toast at the top and a dialog were under the gallery's own title bar**, and a scrollable dialog with little in it was as high as the window. A modal over the whole window starts under the title bar a `WindowChrome` draws (the window holds the bar's height, `WindowHandle::title_bar_inset`), and a scrolling body no longer grows.
+
 ## 15. The gallery
 
 Asked for on 2026-11-13: `pencil/lurq-design-system-demo.pen` is the demo app, in place of the one there is. It is built from the moment work on components starts, a page at a time, so that each component can be looked at as it lands.
@@ -671,6 +685,7 @@ The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, the
 
 - **The Button page**: the playground (a state forced with nothing pointing at the button, its measured size and its radius, a count of its presses, the Rust that builds it, the log of its events and the parts it is built of, each copied to the clipboard, and a control for every prop with the count of those changed and a reset), then Variants, Sizes, the matrix of every variant in every state at a size, Icons & shapes, and the table of props. The copy button of a demo card's footer copies its call.
 - **The playground is one module** (`playground.rs`): a page says what is on the stage, the Rust that builds it, the parts it is built of and the controls of its panel, and the rest is the same on every page: the switch of forced states, the measured size, the count and the log of what the component did, the tabs, Copy, the count of changed props and Reset. Said on 2026-11-13: a page of a component has a playground; the five pages below were first built without one.
+- **The pages of the navigation batch** (group Navigation): Tabs, Accordion (with Collapsible), Breadcrumb, Pagination, Steps, each with its playground, built by the session that built the component.
 - **The pages of the overlays batch**: Select (Inputs); Popover, Menu, Dialog, Tooltip, Toast (Surfaces & overlays), each with its playground, built by the session that built the component. The split button of the Menu page opens a menu.
 - **The pages of the forms batch** (group Inputs): Input (with Field), Textarea, Checkbox, Radio, Slider, each with its playground and its sections with their code, built by the session that built the component.
 - **The Switch page** (group Inputs): the playground, the switch bound to a signal, its states, and the track alone in a row of settings. The switches of every playground's panel are `ui::Switch` now; the gallery's own is gone.

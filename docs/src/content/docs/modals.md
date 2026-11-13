@@ -63,7 +63,7 @@ Modal::new(content).open(open.clone()).target(panel_ref);
 ```
 
 - `Parent` covers the declaring parent bounds and is the default target.
-- `Root` covers the viewport.
+- `Root` covers the viewport. In a window that draws its own title bar it covers what is under the bar: a `WindowChrome` says how high its bar is, and the modal starts there, so that a dialog is centred in what is seen and nothing of it is under the bar. An overlay of the chrome itself (`WindowChrome::overlay`) has all of the window. An app that draws a title bar another way says its height with `ctx.window().set_title_bar_inset(height)`.
 - `ElementRef` covers that element's bounds.
 
 ## Behavior

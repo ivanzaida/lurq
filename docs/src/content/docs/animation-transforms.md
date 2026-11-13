@@ -311,6 +311,8 @@ The supported properties are:
 - `Opacity`
 - `Transform`
 
+A height the content decides is one too: a transition of `Height` between a height in pixels and none runs to, and from, the height of the content, which the layout reads as it goes; a panel opens from `height(0.0)` to no height and closes back.
+
 `Width`, `Height`, `OffsetX`, and `OffsetY` can invalidate layout while they animate. `Opacity` and `Transform` are paint-only in normal use. While an element's opacity is below 1, a subtree that paints more than one primitive is drawn into an offscreen layer every frame (see [Opacity](../styling-events/#opacity)); fading a large panel costs one layer of its size.
 
 ## Transforms

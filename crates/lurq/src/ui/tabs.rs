@@ -16,7 +16,7 @@ use crate::{
     ctx::Placement,
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
-  components::{self, Column, Row, ScrollHorizontal},
+  components::{self, Column, Row, ScrollHorizontal, Stack},
   core::{ElementRef, Signal, SignalValue},
   layout::{
     Alignment,
@@ -651,11 +651,11 @@ impl TabsView {
         .describe("a11y_role", "tablist")
         .describe("a11y_name", name)
         .describe("a11y_orientation", orientation);
-      // A ring outside a tab is drawn past the list, except in a list that scrolls: its tabs have theirs inside.
+      // A ring outside a tab is drawn past the list, and the line under the selected tab over the list's own.
+      // In a list that scrolls the room it scrolls in cuts both off, and its tabs have their rings inside.
+      list = list.overflow_visible();
       if self.overflows() {
         list = list.ref_element(self.list_ref.clone());
-      } else {
-        list = list.overflow_visible();
       }
       for child in children {
         list = list.child(child);
@@ -786,15 +786,23 @@ impl TabsView {
       .scrollbar(ScrollBarStyle::hidden())
       .flex(1.0);
     let (more, menu) = self.more(overflow);
+    // The bar's own box, with its line, is under what the bar holds, which is as high as all of it: the line
+    // under the selected tab is drawn over the bar's, as the board draws it, and not above it.
+    let fill = Dimension::Pct(100.0);
     Some(
-      Row::new()
-        .part(&self.part(TabsPart::Bar))
-        .align_items(Alignment::Stretch)
-        .child(self.scroll_button(overflow, true))
-        .child(scroll)
-        .child(self.scroll_button(overflow, false))
-        .child(more)
-        .child(menu)
+      Stack::new()
+        .overflow_visible()
+        .child(Row::new().part(&self.part(TabsPart::Bar)))
+        .child(
+          Row::new()
+            .size(fill, fill)
+            .align_items(Alignment::Stretch)
+            .child(self.scroll_button(overflow, true))
+            .child(scroll)
+            .child(self.scroll_button(overflow, false))
+            .child(more)
+            .child(menu),
+        )
         .into(),
     )
   }

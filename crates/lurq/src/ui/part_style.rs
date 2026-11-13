@@ -302,6 +302,7 @@ pub struct PartStyle {
   pub width: Option<Length>,
   pub height: Option<Length>,
   pub min_width: Option<Length>,
+  pub min_height: Option<Length>,
   pub max_width: Option<Length>,
   pub text: TextPatch,
   /// The transitions of the part. A patch that sets them replaces the list.
@@ -447,6 +448,12 @@ impl PartStyle {
     self
   }
 
+  /// The least the part is high: it is higher for what is in it.
+  pub fn min_height(mut self, height: impl Into<Length>) -> Self {
+    self.min_height = Some(height.into());
+    self
+  }
+
   pub fn max_width(mut self, width: impl Into<Length>) -> Self {
     self.max_width = Some(width.into());
     self
@@ -541,6 +548,7 @@ impl PartStyle {
       && self.width.is_none()
       && self.height.is_none()
       && self.min_width.is_none()
+      && self.min_height.is_none()
       && self.max_width.is_none()
       && self.transitions.is_none()
       && self.enter.is_none()
@@ -576,6 +584,7 @@ impl PartStyle {
       width,
       height,
       min_width,
+      min_height,
       max_width,
       transitions,
       enter,
@@ -650,6 +659,9 @@ impl PartStyle {
     }
     if let Some(width) = self.min_width.and_then(|width| width.resolve(theme)) {
       NodeUpdate::min_width(node, width);
+    }
+    if let Some(height) = self.min_height.and_then(|height| height.resolve(theme)) {
+      NodeUpdate::min_height(node, height);
     }
     if let Some(width) = self.max_width.and_then(|width| width.resolve(theme)) {
       NodeUpdate::max_width(node, width);

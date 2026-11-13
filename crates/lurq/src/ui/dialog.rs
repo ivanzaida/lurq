@@ -599,8 +599,9 @@ impl Themed for Dialog {
       // The header, the body and the footer are padded each by itself, and the lines between them run from
       // edge to edge.
       .state(Scrollable, Panel, |s| s.padding_x(0.0).padding_y(0.0).gap(0.0))
-      // The close button stands 12 from the edge and the title 20, as the body's text does.
-      .state(Scrollable, Header, |s| s.height(56.0).padding_x(12.0).padding_y(0.0))
+      // The close button stands 12 from the edge and the title 20, as the body's text does. A header of 56 for a
+      // title, and higher for a title with a description under it.
+      .state(Scrollable, Header, |s| s.min_height(56.0).padding_x(12.0).padding_y(12.0))
       .state(Scrollable, Heading, |s| s.padding_x(8.0))
       .state(Scrollable, Body, |s| s.padding_x(20.0).padding_y(16.0))
       .state(Scrollable, Footer, |s| s.height(60.0).padding_x(20.0).padding_y(0.0))

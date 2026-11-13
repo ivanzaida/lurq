@@ -120,7 +120,22 @@ What the engine and `lurq::ui` have since, for you to use and not build again: `
 pointer come and go; `PartStyle` with a padding for each side, `max_width`, `enter` and `exit`; `FieldControl`
 (a control a `Field` names, judges and disables: implement it for a control a form holds); `ui/text_box.rs` (what
 a box that is typed in or chosen from has); `ui::Menu`, `ui::Popover`, `ui::Tooltip` for what your component
-opens.
+opens; `FocusGroup::none()` around what a group holds beside what its keys move between; a transition of `Height`
+between a number and none, for what opens with the height of its content (`ui::Collapsible` is one); the focus
+staying in a group when the element it is on is disabled; `PartStyle::start_line`; a modal over the whole window
+starting under the window's own title bar.
+
+## What the third batch taught
+
+- **A line of one part under a line of another**: a part's `underline` is drawn inside its box, over what the part
+  holds where the part clips. A line a child must draw over (the selected tab's over the bar's) is on a box that is
+  under the children, a first child of a `Stack`, and not on the box that holds them.
+- **A text beside something else in a row is as wide as it is** and is cut, not wrapped: put it in a column of the
+  room it has, with a width that fills (`Column::new().width(fill).child(text.width(fill))`).
+- **The handoff's section for the docs is plain markdown**, with no fence around the whole of it, of backticks or
+  of tildes: a `~~~` left after a section turned the rest of the docs page into one code block, and no test saw it.
+- **A scrolling part does not grow**: `flex_full(0.0, 1.0, None)`, so that it gives way when there is too little
+  room and is as high as its content when there is enough. One that grows makes its panel as high as the window.
 
 ## What the engine does that surprises
 
