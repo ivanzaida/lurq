@@ -16,6 +16,7 @@
 //! what renders it renders again when the theme changes.
 
 mod accordion;
+mod breadcrumb;
 mod button;
 mod button_group;
 mod checkbox;
@@ -47,6 +48,10 @@ mod toggle_group;
 mod tooltip;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
+pub use breadcrumb::{
+  Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
+  BreadcrumbStep, BreadcrumbView,
+};
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
   ButtonView,

@@ -5,6 +5,7 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
+mod breadcrumb;
 mod button;
 mod checkbox;
 mod dialog;
@@ -259,6 +260,14 @@ pub const PAGES: &[Page] = &[
     about: "accordion collapsible disclosure expand collapse section faq question answer panel chevron details",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<accordion::AccordionPage>(()),
+  },
+  Page {
+    path: "/breadcrumb",
+    name: "Breadcrumb",
+    icon: None,
+    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<breadcrumb::BreadcrumbPage>(()),
   },
 ];
 
