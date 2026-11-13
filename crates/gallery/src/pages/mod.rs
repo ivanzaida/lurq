@@ -10,6 +10,7 @@ mod family;
 mod family_play;
 mod icons;
 mod input;
+mod menu;
 mod overview;
 mod radio;
 mod slider;
@@ -187,6 +188,14 @@ pub const PAGES: &[Page] = &[
     about: "slider range value min max step track thumb volume drag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<slider::SliderPage>(()),
+  },
+  Page {
+    path: "/menu",
+    name: "Menu",
+    icon: None,
+    about: "menu dropdown item command shortcut separator label group checked destructive disabled popup anchor split",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<menu::MenuPage>(()),
   },
 ];
 

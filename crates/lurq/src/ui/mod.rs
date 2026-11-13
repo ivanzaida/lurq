@@ -24,6 +24,7 @@ mod icon;
 pub mod icons;
 mod input;
 mod link;
+mod menu;
 mod part_style;
 mod radio;
 mod recipe;
@@ -47,6 +48,10 @@ pub use field::{Field, FieldPart, FieldRenderer, FieldState, FieldView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
+pub use menu::{
+  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
+  MenuView,
+};
 pub use part_style::{
   FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
 };

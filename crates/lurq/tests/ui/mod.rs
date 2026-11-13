@@ -7,6 +7,7 @@ mod icon;
 mod radio;
 mod slider;
 mod input;
+mod menu;
 mod stage;
 mod switch;
 mod textarea;
