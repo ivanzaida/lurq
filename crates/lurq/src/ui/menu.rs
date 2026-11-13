@@ -11,6 +11,7 @@ use super::{
 use crate::{
   app::{
     ctx::{OpenState, OutsidePress, Placement},
+    events::KeyboardEvent,
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{self, Column, Popup, Row},
@@ -21,6 +22,11 @@ use crate::{
 
 /// How far the panel stands from its anchor, in the direction it opens.
 const ANCHOR_GAP: f32 = 4.0;
+
+/// Whether a key was pressed with no modifier held but Shift.
+fn plain(event: &KeyboardEvent) -> bool {
+  !event.ctrl && !event.alt && !event.meta
+}
 
 /// The parts of a menu a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -234,8 +240,18 @@ impl Menu {
     } else {
       Placement::BottomStart
     };
+    // The open signals of the submenus of its items, which the pointer on another item closes.
+    let submenus = self
+      .entries
+      .iter()
+      .filter_map(|entry| match entry {
+        MenuEntry::Item(item) => item.submenu.as_ref()?.open.signal(),
+        _ => None,
+      })
+      .collect();
     let view = MenuView {
       entries: self.entries,
+      submenus,
       placement: self.placement.unwrap_or(default),
       inline: self.inline,
       submenu: self.submenu,
@@ -273,6 +289,7 @@ pub struct MenuView {
   anchor: ElementRef,
   open: OpenState,
   closes_too: Vec<Signal<bool>>,
+  submenus: Vec<Signal<bool>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -308,18 +325,6 @@ impl MenuView {
       .collect()
   }
 
-  /// The open signals of the submenus of this menu's items.
-  fn submenus(&self) -> Vec<Signal<bool>> {
-    self
-      .entries
-      .iter()
-      .filter_map(|entry| match entry {
-        MenuEntry::Item(item) => item.submenu.as_ref()?.open.signal(),
-        _ => None,
-      })
-      .collect()
-  }
-
   /// The panel in the style of its part, with nothing in it yet. It is a menu
   /// to what reads the tree, and a group the arrow keys move the focus in:
   /// Up and Down between its items, Home and End to the first and the last.
@@ -328,7 +333,7 @@ impl MenuView {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(MenuPart::Panel))
-      .focus_group(FocusGroup::vertical().one_stop(true))
+      .focus_group(FocusGroup::vertical().one_stop(true).follow_pointer(true))
       .describe("a11y_role", "menu");
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
@@ -336,15 +341,31 @@ impl MenuView {
     if let Some(key) = &self.key {
       panel = panel.key(key.clone());
     }
+    // Left closes a submenu while the focus is in it; the focus goes back to the item it hangs from.
+    if self.submenu
+      && let Some(open) = self.open.signal()
+    {
+      panel = panel.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && plain(&event) && event.key == "ArrowLeft" {
+          event.prevent_default();
+          open.set(false);
+        }
+      });
+    }
     panel
   }
 
   /// The line between two groups of items, with its room.
+  ///
+  /// The line has no width of its own: it is stretched to the room's, which
+  /// the panel stretches to its own. A line that grew into the room there is
+  /// would make the menu as wide as the window.
   pub fn separator(&self) -> Element {
-    Row::new()
+    Column::new()
+      .align_items(Alignment::Stretch)
       .part(&self.part(MenuPart::Separator))
       .describe("a11y_role", "separator")
-      .child(Row::new().flex(1.0).part(&self.part(MenuPart::SeparatorLine)))
+      .child(Row::new().part(&self.part(MenuPart::SeparatorLine)))
       .into()
   }
 
@@ -357,7 +378,7 @@ impl MenuView {
   /// An item as this menu draws it, in its theme: choosing it closes the
   /// menu, and the pointer on it closes the submenu of any other item.
   pub fn item(&self, item: MenuItem) -> Element {
-    item.in_menu(self.closes(), self.submenus()).build(self.theme())
+    item.in_menu(self.closes(), self.submenus.clone()).build(self.theme())
   }
 
   /// How far the panel stands from its anchor: along the axis it opens on, and
@@ -408,10 +429,12 @@ impl MenuView {
       return panel.into();
     }
     let (x, y) = self.offset();
+    // The focus goes to the first item that takes it as the menu opens, and back to what had it as it closes.
     let mut popup = Popup::new(self.anchor, panel)
       .open(self.open)
       .placement(self.placement)
-      .offset(x, y);
+      .offset(x, y)
+      .takes_focus(true);
     if self.submenu {
       // A press on the menu it hangs from closes the submenu and still reaches the item pressed there; the item
       // it hangs from opens it, and is no trigger of another dropdown.
@@ -848,6 +871,17 @@ impl MenuItemView {
     if !self.disabled && (self.submenu.is_some() || !self.submenus.is_empty()) {
       root = root.on_mouse_enter(self.reach());
     }
+    // Right opens the submenu while the item has the focus, which goes to the submenu's first item.
+    if !self.disabled
+      && let Some(open) = self.own_submenu()
+    {
+      root = root.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && plain(&event) && event.key == "ArrowRight" {
+          event.prevent_default();
+          open.set(true);
+        }
+      });
+    }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -862,15 +896,10 @@ impl MenuItemView {
     self.icon.map(|name| glyph(&self.part(MenuItemPart::Icon), name, false))
   }
 
-  /// The item's text, taking the room the item has to spare, so that what
-  /// follows it stands at the end.
+  /// The item's text.
   pub fn label(&self) -> Element {
     let part = self.part(MenuItemPart::Label);
-    Row::new()
-      .flex(1.0)
-      .part(&part)
-      .child(part.text(&self.label).nowrap())
-      .into()
+    Row::new().part(&part).child(part.text(&self.label).nowrap()).into()
   }
 
   /// The keys written at the end, if the item has them.
@@ -904,23 +933,33 @@ impl MenuItemView {
     Some(menu.nested(self.closes.clone()).build(self.theme()))
   }
 
-  /// How the default renderer builds an item: the root, with its icon, its
-  /// label, its shortcut, its mark and its chevron; and after it, its
-  /// submenu, which takes no room.
+  /// How the default renderer builds an item: the root, with its icon and
+  /// its label at its start and its shortcut, its mark and its chevron at its
+  /// end; and after it, its submenu, which takes no room.
+  ///
+  /// The two ends are kept apart by the item's width, which the panel gives
+  /// it, and not by a part that grows: an item is as wide as what it holds,
+  /// and the panel as its widest item or its least width, never as the window.
   pub fn render(mut self) -> Element {
-    let mut root = self.root();
+    // The ends hold their parts as far apart as the item holds the ends.
+    let gap = self.part(MenuItemPart::Root).rest().gap.unwrap_or_default();
+    let mut start = Row::new().spacing(gap.clone()).align_items(Alignment::Center);
     if let Some(icon) = self.icon() {
-      root = root.child(icon);
+      start = start.child(icon);
     }
-    root = root.child(self.label());
-    if let Some(shortcut) = self.shortcut() {
-      root = root.child(shortcut);
-    }
-    if let Some(check) = self.check() {
-      root = root.child(check);
-    }
-    if let Some(chevron) = self.chevron() {
-      root = root.child(chevron);
+    start = start.child(self.label());
+    let mut root = self.root().justify(Justify::SpaceBetween).child(start);
+    let end: Vec<Element> = [self.shortcut(), self.check(), self.chevron()]
+      .into_iter()
+      .flatten()
+      .collect();
+    if !end.is_empty() {
+      root = root.child(
+        Row::new()
+          .spacing(gap)
+          .align_items(Alignment::Center)
+          .with_children(end),
+      );
     }
     match self.submenu() {
       Some(submenu) => Column::new()

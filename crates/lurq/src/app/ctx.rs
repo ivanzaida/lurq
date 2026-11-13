@@ -202,6 +202,8 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_outside_click: bool,
   pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
+  /// Whether the focus goes into the overlay as it opens and back to what had it as it closes.
+  pub(crate) takes_focus: bool,
 }
 
 #[derive(Clone)]
@@ -300,6 +302,7 @@ impl OverlaySpec {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      takes_focus: self.takes_focus,
     }
   }
 }
@@ -409,6 +412,7 @@ pub struct Overlay {
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
   switch_on_anchor_press: bool,
+  takes_focus: bool,
 }
 
 impl Overlay {
@@ -427,6 +431,7 @@ impl Overlay {
       outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
       switch_on_anchor_press: true,
+      takes_focus: false,
     }
   }
 
@@ -501,6 +506,17 @@ impl Overlay {
     self
   }
 
+  /// Whether the focus goes into the overlay as it opens, to the first
+  /// element in it that takes the focus, and back to what had it when it
+  /// closes, as [`Modal::takes_focus`] does for a modal: a menu opened from
+  /// its button. A focus that has gone somewhere else by then stays there.
+  /// The ring shows as the input that opened it would show it: after a key,
+  /// not after a press of the pointer. Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -521,6 +537,7 @@ impl Overlay {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      takes_focus: self.takes_focus,
     })
   }
 }

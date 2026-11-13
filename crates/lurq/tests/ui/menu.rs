@@ -9,13 +9,13 @@ use lurq::{
     events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
-  components::{Column, Rect},
+  components::{Column, Rect, Row},
   core::{ElementRef, Signal},
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    Case, Interaction, Menu, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, Opacity,
-    icons,
+    Button, Case, Interaction, Menu, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart,
+    Opacity, icons,
   },
 };
 
@@ -72,7 +72,8 @@ fn an_open_menu_is_a_panel_under_its_anchor_with_the_items_the_board_draws() {
         .item(MenuItem::new("Snap to guides").checked(false).id("snap")),
     )
   });
-  // Under the anchor from its start, 4 below it, at least 230 wide.
+  // Under the anchor from its start, 4 below it, and 230 wide: the board's width, which its items are narrower
+  // than. The page and the window are 400 wide; a menu is never as wide as the room it is given.
   let (ax, ay, _, ah) = stage.bounds("anchor");
   let (x, y, width, _) = stage.bounds("menu");
   assert_eq!((x, y), (ax, ay + ah + 4.0));
@@ -427,4 +428,199 @@ fn a_theme_gives_the_item_another_anatomy_and_it_still_closes_the_menu() {
   stage.click("save");
   assert_eq!(*chosen.lock().unwrap(), ["save"]);
   assert!(!open.get());
+}
+
+/// A page with a button that opens and closes `open`, and the menu of Cut, Copy and Paste hung from it.
+fn with_button(
+  open: Signal<bool>,
+  tell: impl Fn(&'static str) -> Box<dyn Fn() + Send + Sync> + Send + Sync + 'static,
+) -> Stage {
+  let anchor = ElementRef::new();
+  Stage::new(move |_| {
+    let toggle = open.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new().ref_element(anchor.clone()).child(
+          Button::new("Edit")
+            .id("button")
+            .on_click(move |_| toggle.update(|open| *open = !*open)),
+        ),
+      )
+      .child(
+        Menu::new(anchor.clone(), open.clone())
+          .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
+          .item(MenuItem::new("Copy").id("copy").on_select(tell("copy")))
+          .item(MenuItem::new("Paste").id("paste").on_select(tell("paste"))),
+      )
+      .into()
+  })
+}
+
+#[test]
+fn opened_from_the_keyboard_the_menu_has_its_first_item_focused_and_gives_the_focus_back() {
+  let (chosen, tell) = log();
+  let open = Signal::new(false);
+  let mut stage = with_button(open.clone(), tell);
+  let highlighted = |stage: &mut Stage| {
+    ["cut", "copy", "paste"]
+      .into_iter()
+      .filter(|id| stage.fill_color(id) == Some(light(PaletteColor::Highlight)))
+      .collect::<Vec<_>>()
+  };
+  // Tab reaches the button and Enter opens the menu: its first item has the focus, and shows it.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(open.get());
+  assert_eq!(highlighted(&mut stage), ["cut"]);
+  stage.key("ArrowDown");
+  assert_eq!(highlighted(&mut stage), ["copy"]);
+  // Escape closes it, and the focus is back on the button: Enter opens the menu again, at its first item.
+  stage.key("Escape");
+  assert!(!open.get());
+  stage.key("Enter");
+  assert!(open.get(), "the button had the focus back");
+  assert_eq!(highlighted(&mut stage), ["cut"]);
+  // Choosing an item gives the focus back too.
+  stage.key("ArrowDown");
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["paste"]);
+  assert!(!open.get());
+  stage.key("Enter");
+  assert!(open.get(), "the button had the focus back");
+}
+
+#[test]
+fn opened_by_the_pointer_the_menu_shows_no_focus_until_a_key() {
+  let (_, tell) = log();
+  let open = Signal::new(false);
+  let mut stage = with_button(open.clone(), tell);
+  stage.click("button");
+  assert!(open.get());
+  for id in ["cut", "copy", "paste"] {
+    assert_eq!(stage.fill_color(id), None, "{id}");
+  }
+  // The focus is on the first item all the same: Down goes on from it.
+  stage.key("ArrowDown");
+  assert_eq!(stage.fill_color("copy"), Some(light(PaletteColor::Highlight)));
+}
+
+#[test]
+fn right_opens_a_submenu_at_its_first_item_and_left_or_escape_go_back() {
+  let (chosen, tell) = log();
+  let (open, exporting) = (Signal::new(true), Signal::new(false));
+  let (anchor, export) = (ElementRef::new(), ElementRef::new());
+  let (held, sub) = (open.clone(), exporting.clone());
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(anchor.clone(), held.clone())
+        .style(MenuPart::Panel, |s| s.min_width(160.0))
+        .item(MenuItem::new("Undo").id("undo"))
+        .item(
+          MenuItem::new("Export as").id("export").submenu(
+            Menu::new(export.clone(), sub.clone())
+              .item(MenuItem::new("PNG").id("png").on_select(tell("png")))
+              .item(MenuItem::new("SVG").id("svg")),
+          ),
+        ),
+    )
+  });
+  let lit = |stage: &mut Stage, id: &str| stage.fill_color(id) == Some(light(PaletteColor::Highlight));
+  stage.key("Tab");
+  stage.key("ArrowDown");
+  assert!(lit(&mut stage, "export"));
+  // Right on an item with a submenu opens it, with the focus on its first item.
+  stage.key("ArrowRight");
+  assert!(exporting.get());
+  assert!(lit(&mut stage, "png"));
+  // Down moves within the submenu, not the menu.
+  stage.key("ArrowDown");
+  assert!(lit(&mut stage, "svg"));
+  // Left closes it, and the focus is back on its item, whose submenu is closed.
+  stage.key("ArrowLeft");
+  assert!(!exporting.get() && open.get());
+  stage.key("ArrowUp");
+  assert!(lit(&mut stage, "undo"), "the focus was on Export as");
+  // Right on an item without a submenu does nothing.
+  stage.key("ArrowRight");
+  assert!(!exporting.get());
+  // Escape in the submenu closes it alone.
+  stage.key("ArrowDown");
+  stage.key("ArrowRight");
+  assert!(exporting.get());
+  stage.key("Escape");
+  assert!(!exporting.get() && open.get());
+  // Enter in the submenu chooses, and closes both.
+  stage.key("ArrowRight");
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["png"]);
+  assert!(!exporting.get() && !open.get());
+}
+
+#[test]
+fn the_focus_follows_the_pointer_so_one_item_is_highlighted() {
+  let (_, tell) = log();
+  let open = Signal::new(false);
+  let mut stage = with_button(open.clone(), tell);
+  let highlighted = |stage: &mut Stage| {
+    ["cut", "copy", "paste"]
+      .into_iter()
+      .filter(|id| stage.fill_color(id) == Some(light(PaletteColor::Highlight)))
+      .collect::<Vec<_>>()
+  };
+  // Opened from the keyboard, at its first item.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(highlighted(&mut stage), ["cut"]);
+  // The pointer onto the last item takes the focus there: one item is highlighted, not two.
+  stage.hover("paste");
+  assert_eq!(highlighted(&mut stage), ["paste"]);
+  // The keyboard goes on from where the pointer is, and what it moves to is the one item lit: the item
+  // under a pointer that holds still is not.
+  stage.key("ArrowUp");
+  assert_eq!(highlighted(&mut stage), ["copy"]);
+  // The pointer moving again takes the focus back to what it is on.
+  stage.hover("paste");
+  assert_eq!(highlighted(&mut stage), ["paste"]);
+}
+
+#[test]
+fn a_menu_is_as_wide_as_its_widest_item_and_never_as_its_window() {
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(anchor.clone(), true)
+        .id("menu")
+        .item(MenuItem::new("Undo").id("undo"))
+        .item(
+          MenuItem::new("Show the hidden files")
+            .shortcut("Ctrl+Shift+H")
+            .id("hidden"),
+        ),
+    )
+  });
+  // The window (and the page) is 400 wide: the menu is narrower, as wide as its widest item and its padding.
+  let (_, _, width, _) = stage.bounds("menu");
+  assert!(width > 230.0 && width < 300.0, "{width}");
+  let (x, _, item, _) = stage.bounds("hidden");
+  assert_eq!(item, width - 8.0);
+  // Its widest item holds its label and its shortcut 8 apart, 8 from its edges.
+  let (label, keys) = (
+    stage.text_quad("Show the hidden files").unwrap(),
+    stage.text_quad("Ctrl+Shift+H").unwrap(),
+  );
+  assert!((label.x - (x + 8.0)).abs() < 0.5);
+  assert!(
+    (keys.x - (label.x + label.width) - 8.0).abs() < 0.5,
+    "{} {}",
+    label.x + label.width,
+    keys.x
+  );
+  assert!((x + item - 8.0 - (keys.x + keys.width)).abs() < 0.5);
+  // Every item is as wide as the widest.
+  assert_eq!(stage.bounds("undo").2, item);
 }

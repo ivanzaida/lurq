@@ -1,12 +1,14 @@
 //! The focus of a modal that takes it (`Modal::takes_focus`), as a browser's
 //! `<dialog>` opened with `showModal()` has it: as the modal opens, the focus
 //! goes to its first stop of Tab, and as it closes, back to what had it before.
+//! An overlay that takes it (`Overlay::takes_focus`, a menu) does the same, the
+//! focus going to the first element of its own layer that takes it.
 //!
 //! A modal is told from another between passes by the node that declares it.
 //! The focus goes back only when it was lost with the modal: one the app or a
 //! press has put somewhere else that is still there stays there.
 
-use super::{FocusTarget, Tree, find_path_by_id, tab_navigation};
+use super::{FocusTarget, Tree, find_path_by_id, overlay_layers::first_focusable, tab_navigation};
 
 impl Tree {
   /// Gives the focus back from the modals that closed since the last pass,
@@ -36,18 +38,37 @@ impl Tree {
         .zip(self.focused_event_node)
         .map(|(input_id, event_id)| FocusTarget { input_id, event_id });
       self.modal_focus.push((origin, had));
-      // The first stop of the topmost modal, which is the one that has just opened.
-      let first =
+      let first = if self.built_focus_overlays.contains(&origin) {
+        // An overlay does not trap Tab: the first element of its own layer that takes the focus.
+        self.first_in_overlay(origin)
+      } else {
+        // The first stop of the topmost modal, which is the one that has just opened.
         self.root.as_ref().and_then(
           |root| match tab_navigation::tab_move(root, &self.dropped_nodes, None, false) {
             tab_navigation::TabMove::Focus(target) => Some(target),
             _ => None,
           },
-        );
+        )
+      };
       if let Some(target) = first {
         self.focus_node(target);
       }
     }
+  }
+
+  /// The first element that takes the focus in the layer of the overlay that `origin` declares. The overlay
+  /// host holds the page first and then a child for each layer, in the order of the layers.
+  fn first_in_overlay(&self, origin: crate::core::NodeId) -> Option<FocusTarget> {
+    let layer = self
+      .overlay_layer_origins
+      .iter()
+      .position(|held| *held == Some(origin))?;
+    let root = self.root.as_ref()?;
+    let target = first_focusable(root.children().get(layer + 1)?)?;
+    Some(FocusTarget {
+      input_id: target,
+      event_id: target,
+    })
   }
 
   /// Whether the focused node is still in the tree.

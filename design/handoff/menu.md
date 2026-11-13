@@ -5,6 +5,37 @@ Components / light (`Ovt1D`): the board's "Menu · checked, radio, disabled, sub
 radio items, the disabled one and the submenu, and its "Dropdown menu" example (`RxliJ`) for the icons, the group
 label and the destructive item.
 
+## Changed outside the component's own files
+
+Four small changes to the engine, each what a menu needs of it, each tested by `crates/lurq/tests/ui/menu.rs`
+(only `ui_tests menu` was run: the engine's own suites were not):
+
+- **`Overlay::takes_focus(bool)` and `Popup::takes_focus(bool)`** (`app/ctx.rs`, `components/popup.rs`), off by
+  default: as the overlay opens the focus goes to the first element of its own layer that takes it, and as it closes
+  back to what had it, unless it has gone somewhere still in the tree. It is `Modal::takes_focus` (the dialog's, in
+  `app/runtime/modal_focus.rs`) for an overlay: the overlays that take the focus are kept with the modals
+  (`built_focus_overlays` beside `built_focus_modals` in `runtime.rs`, `focus_overlays` in `OverlayLayers`), and an
+  overlay's first element is looked up in its own layer (`Tree::first_in_overlay`, with `first_focusable` of
+  `overlay_layers.rs` made `pub(super)`), since an overlay does not trap Tab as a modal does. The ring shows as the
+  input that opened it shows it: after a key, not after a press of the pointer.
+- **`KeyboardEvent::focus_within`** (`app/events/keyboard_event.rs`, `runtime.rs`): a key event reaches every
+  node's `on_key_down`; this says whether the keyboard's focus is on the node whose handler is called or inside it.
+  `fire_keyboard_recursive` and `fire_keyboard_up_recursive` take the path to the focused node and set it. The item
+  of a submenu opens it on Right, and the submenu's panel closes it on Left, only while the focus is on them.
+- **`FocusGroup::follow_pointer(bool)`** (`node/focus_group.rs`, `runtime/hover.rs`, `runtime.rs`), off by
+  default: while the focus is in such a group, the pointer coming onto one of its elements moves the focus there (in
+  the pointer's modality, so with no ring of its own), so that what the pointer and the keyboard are on are one. It
+  never takes the focus into the group from outside, and only an element the pointer has just come onto takes it
+  (`hover::pointer_focus`), from a pointer move (`dispatch_mouse`) or a relayout under a still pointer
+  (`refresh_hover_at_pointer`).
+- With it: **an arrow key that moves the focus in a group that follows the pointer takes the hover away** until the
+  pointer moves (`Tree::hover_held_by_keys`, set in `focus_group_key`, cleared by `track_pointer`, read by
+  `refresh_hover_at_pointer`), so that the item the keys moved to is the only one lit, as in a native menu.
+
+`docs/src/content/docs/focus-navigation.md` could say, in Focus Groups: `follow_pointer(bool)` | the pointer coming
+onto an element of the group moves the focus there, while the focus is in the group; and the Popups section of
+`modals.md`: `takes_focus(true)` moves the focus into a popup as it opens and back as it closes.
+
 ## For `docs/src/content/docs/design-system.md`
 
 ## Menu
@@ -60,17 +91,18 @@ Menu::new(anchor, open)
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the item |
 
 - The menu does not keep whether it is open: the app does, in the signal it gives it, and the anchor's own handler opens it. Choosing an item calls the item's handler and sets the signal to `false`; a press outside the panel and Escape do too (the engine's `Popup`). Declare the menu always, open or not, beside its anchor: lurq then knows the anchor is its trigger.
-- The keyboard: Tab stops in an open menu once (the panel is a [focus group](../focus-navigation/#focus-groups), one stop), Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Enter or Space chooses the focused item; the arrows only move the focus. An open popup comes after the page in the order of Tab.
+- The keyboard: a menu opened from the keyboard (Enter or Space on its button) has its first item focused and lit; opened by the pointer it has the focus there too, unlit. Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Enter or Space chooses the focused item; the arrows only move the focus. Escape, or choosing, closes it and gives the focus back to its button. Tab stops in an open menu once (the panel is a [focus group](../focus-navigation/#focus-groups) of one stop).
+- The pointer and the keyboard are on one item: the pointer coming onto an item moves the focus there, and an arrow key moves the light off the item under a pointer that holds still.
 - Under the pointer or focused from the keyboard an item is highlighted: filled with `Highlight`, the board's `accent`. An item whose submenu is open stays highlighted.
-- A submenu opens beside its item, its first item level with it, under the pointer or on a press of the item (Enter or Space from the keyboard); the pointer on another item of the menu closes it. Choosing in it closes it and every menu it hangs from. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
+- A submenu opens beside its item, its first item level with it, under the pointer, on a press of the item, or on Right, Enter or Space while the item is focused, with the focus on its first item; the pointer on another item of the menu closes it, and so do Left and Escape while the focus is in it, giving the focus back to its item. Choosing in it closes it and every menu it hangs from. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
 - Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Label`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (checked, or the chosen radio), `Radio`, `Destructive`, `Disabled`, `Expanded` (its submenu is open).
-- In the design the panel is at least 230 wide (a submenu 160), in `Popover` with `PopoverForeground`, padded 4, with the large radius, an edge of 1 in `Border` and the medium shadow. An item is 32 tall, padded 8, with the small radius and 8 between what it holds: an icon of 16 in `MutedForeground`, the label in the body's type, and at the end the shortcut in the mono type at 11 in `MutedForeground`, the check or the dot of 16, and the chevron of 16 in `MutedForeground`. A separator is a line of 1 in `Border` with 4 above and below; a group's label is 11/600 in `MutedForeground`, 8 in from the side. A destructive item is in `Destructive`, its icon too; a disabled one is dimmed.
+- A menu is as wide as its widest item, and at least as wide as the design says; never as wide as the window. In the design the panel is at least 230 wide (a submenu 160), in `Popover` with `PopoverForeground`, padded 4, with the large radius, an edge of 1 in `Border` and the medium shadow. An item is 32 tall, padded 8, with the small radius and 8 between what it holds: an icon of 16 in `MutedForeground`, the label in the body's type, and at the end the shortcut in the mono type at 11 in `MutedForeground`, the check or the dot of 16, and the chevron of 16 in `MutedForeground`. A separator is a line of 1 in `Border` with 4 above and below; a group's label is 11/600 in `MutedForeground`, 8 in from the side. A destructive item is in `Destructive`, its icon too; a disabled one is dimmed.
 - To what reads the tree the panel is a `menu`; an item a `menuitem`, a `menuitemcheckbox` or a `menuitemradio` (these two with `a11y_checked`) called by its label; an item with a submenu has `a11y_haspopup` `menu` and `a11y_expanded`; a separator is a `separator`.
 - A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.label(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()`, `view.label()`, `view.shortcut()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
 
 ## For `CHANGELOG.md`
 
-- `ui::Menu` and `ui::MenuItem`: a list of commands in a panel over the window, opened from an anchor, with icons, shortcuts, separators, group labels, checked, radio, destructive and disabled items and submenus; the arrow keys move between its items, and choosing one, a press outside and Escape close it (`Menu::new(anchor, open)`, `MenuItem::on_select`, `MenuItem::submenu`).
+- `ui::Menu` and `ui::MenuItem`: a list of commands in a panel over the window, opened from an anchor, with icons, shortcuts, separators, group labels, checked, radio, destructive and disabled items and submenus; it takes the focus as it opens and gives it back as it closes, the arrow keys move between its items and Right and Left into and out of a submenu, and choosing one, a press outside and Escape close it (`Menu::new(anchor, open)`, `MenuItem::on_select`, `MenuItem::submenu`). For it the engine has `Popup::takes_focus`, `FocusGroup::follow_pointer` and `KeyboardEvent::focus_within`.
 
 ## Decided
 
@@ -81,9 +113,17 @@ Menu::new(anchor, open)
   Escape and on a press outside, consumes that press, follows its anchor and is painted in the theme of the subtree
   it was declared in. The menu adds what choosing an item does, the gap of 4 from the anchor (along the placement's
   axis), the keyboard (a `FocusGroup`) and its anatomy. A builder is enough: what is open is the app's signal.
-- **The panel is a vertical focus group of one stop.** Tab reaches the menu once, at its first item, and leaves it
-  from inside, as a menu does; the arrows move between the items. `activate` is off: the choice does not follow the
-  focus, Enter or Space presses the focused item as any button.
+- **The panel is a vertical focus group of one stop that follows the pointer**, and the popup takes the focus. Tab
+  reaches the menu once and leaves it from inside, as a menu does; the arrows move between the items. `activate` is
+  off: the choice does not follow the focus, Enter or Space presses the focused item as any button. A menu opened by
+  the pointer has the focus on its first item, unlit, so a first Down goes to the second, where a native menu's first
+  Down goes to the first. The highlight stays the pointer's hover and the keyboard's `focus_visible`, so an inline
+  menu, whose focus is outside it, is still lit under the pointer.
+- **No part grows to fill its row.** An item holds its icon and label at its start and its shortcut, mark and chevron
+  at its end, in two rows the item's width keeps apart (`Justify::SpaceBetween`), and a separator's line has no
+  width of its own, stretched by its room: the panel stretches them to its width, which is its widest item's or its
+  least width. A child with `flex(1.0)` grows into all the room its row is offered, which in an overlay is the
+  window's: the first build had the label and the separator's line grow, and its menus were as wide as the window.
 - **A radio item is the app's choice, as a checked one is**: `radio(chosen)` draws the board's `dot-circle` at the
   end of the chosen one and nothing at the others (the board reserves no room for the mark), and `on_select` tells
   the app. No group of radio items keeps a `Signal` (`Chosen::one`): the app's handler sets it, as for `checked`.
@@ -112,37 +152,12 @@ Menu::new(anchor, open)
 
 ## Not done
 
-- **The first item is not focused when the menu opens, and the focus does not go back to the anchor when it
-  closes.** Opened from the keyboard (Enter on its button), a menu shows no highlighted item until Tab reaches it,
-  and once an item is chosen with Enter the focus is nowhere, so the next Tab starts from the top of the window.
-  A builder cannot ask for focus: only `Ctx::focus(&ElementRef)` can, and an event handler has no `Ctx`. The
-  smallest change is in the engine's overlays, with no new API for the menu but one flag:
-  `Overlay::focus_on_open(bool)` (and `Popup::focus_on_open`), which, when the overlay's layer is shown and was not
-  in the last layout, focuses the stop of Tab inside it that a one-stop focus group enters at (the
-  `.focus_entry(true)` one, or the first), in the current input modality, so that it is highlighted after a key and
-  not after a press of the pointer. Its other half is to give the focus back to the anchor when a layer that held
-  it closes: `Tree::return_focus_to_anchor` (`app/runtime/overlay_layers.rs`) does that already for a layer that
-  is hidden because its anchor is out of view (`focused_overlay_hidden`); it should run as well for a layer that
-  is gone because its overlay closed. With the flag the menu sets it on its popup, and on its submenus, in one
-  line each. A popover or a dialog opened from the keyboard is likely to want the same.
-- **Right and Left do not open and close a submenu, and typing a letter does not go to the item it starts.** A
-  key event reaches every node, focused or not, so the item with a submenu cannot tell that Right was pressed
-  while it was the one focused (`KeyboardEvent::target_id` is the focused node, but a builder does not know its
-  item's node id across renders); and going to an item by its letter needs a focus request. The smallest change:
-  `on_focused_key_down`, a key handler that runs only while the node or one inside it is focused (the web's
-  `keydown` bubbling from its target); with it the item opens its submenu on Right and the submenu's panel closes it
-  on Left. Opening a submenu from the keyboard works today with Enter or Space on its item; its items are then
-  reached by Tab, as the submenu's layer comes after the menu's, until `focus_on_open` puts the focus in it.
-- Hover does not move the focus: an item focused from the keyboard and another under the pointer are both
-  highlighted at once, where a native menu has one. Moving the focus on hover needs a focus request too (the same
-  `Ctx::focus`), or an engine rule that a focus group's stop takes the focus when the pointer enters it.
-- Tests are written (`crates/lurq/tests/ui/menu.rs`) and compile; per the playbook they were not run. The ones that
-  depend most on the engine: the widths (an item as wide as a panel whose width is a least width, through
-  `align_items(Stretch)`), the submenu's place (4 beside the menu, its first item level with its item), the pointer
-  entering an item opening and closing submenus, and a submenu's items not being stops of the menu's focus group (a
-  submenu is declared inside the menu's panel; if the engine counts the stops of a layer declared inside a group as
-  the group's, Down from "Export as" reaches "PNG" while it is open, which is no harm, and the test of the arrows
-  has no submenu).
+- **Typing a letter does not go to the item it starts.** The engine has no text to match a stop of a focus group
+  against: an item's `a11y_name` is kept on its node only with the `devtools` or `mcp` feature
+  (`NodeUpdate::describe`), and its text is a label beside an icon that is a glyph of text too. The smallest change:
+  `FocusGroup::typeahead(bool)` in `focus_group_key`, matching a single printable key, from the stop after the
+  focused one and round, against a label the node keeps in every build (`describe("a11y_name", ..)` stored always,
+  or a `focus_label` of its own). The menu turns it on in one line.
 
 ## Differs from the board
 
