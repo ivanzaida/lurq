@@ -821,10 +821,10 @@ impl Default for Toasts {
 /// A toast coming in from under where it stands, and from over it; leaving
 /// downward, and upward. The animation engine registers these with the
 /// spinner's turn, so that every app has them.
-const ENTER_FROM_BELOW: KeyframesId = KeyframesId::new(0xFF01);
-const ENTER_FROM_ABOVE: KeyframesId = KeyframesId::new(0xFF02);
-const LEAVE_DOWNWARD: KeyframesId = KeyframesId::new(0xFF03);
-const LEAVE_UPWARD: KeyframesId = KeyframesId::new(0xFF04);
+const ENTER_FROM_BELOW: KeyframesId = KeyframesId::new(0xFF11);
+const ENTER_FROM_ABOVE: KeyframesId = KeyframesId::new(0xFF12);
+const LEAVE_DOWNWARD: KeyframesId = KeyframesId::new(0xFF13);
+const LEAVE_UPWARD: KeyframesId = KeyframesId::new(0xFF14);
 
 /// How far a toast moves as it comes in and as it leaves: the distance of the toasts from the window's edge.
 const TRAVEL: f32 = 16.0;

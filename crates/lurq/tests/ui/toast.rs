@@ -51,8 +51,14 @@ fn bars(stage: &Stage, color: Color, height: f32) -> Vec<(f32, f32, f32)> {
 /// A window of 400 by 300 that renders what `host` shows at `position`, and nothing else.
 fn window(toasts: &Toasts, position: ToastPosition) -> Stage {
   let host = toasts.clone();
-  let mut stage = Stage::new(move |ctx| Column::new().child(host.host_at(ctx, position)).into());
-  // The layer of the toasts covers the window, which is as large as the stage.
+  // The page takes the whole window: a layer is painted where the page's root is, and it is as large as the
+  // window.
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(host.host_at(ctx, position))
+      .into()
+  });
   stage.tree.resize(400, 300);
   stage.pass();
   stage
@@ -214,8 +220,26 @@ fn with_an_action_it_is_lower_and_centered_on_it_with_its_timer_under_it() {
   });
   let (x, y, width, height) = stage.bounds("toast");
   let (_, undo_y, _, undo_height) = stage.bounds("undo");
-  // 14 above and under what is in it; the action, the tallest, is 14 from the top.
-  assert!((undo_y - y - 14.0).abs() < 0.5, "{}", undo_y - y);
+  // 14 above and under what is in it: the title and the description, which are taller than the button, start 14
+  // from the top and end 14 over the timer.
+  let title = stage.text_quad("File moved to trash").unwrap();
+  let description = stage.text_quad("theme-dark.json").unwrap();
+  let (top, bottom) = (title.y - y, y + height - 2.0 - (description.y + description.height));
+  assert!(top >= 14.0 - 0.5 && top <= 16.0, "the text 14 from the top: {top}");
+  assert!(bottom >= 12.0 && bottom <= 14.5, "the text 14 over the timer: {bottom}");
+  // The title 2 over the description.
+  assert!((description.y - (title.y + title.height) - 2.0).abs() < 2.0);
+  // The action is centered on what is in it, between the top and the timer.
+  let middle = y + (height - 2.0) / 2.0;
+  assert!(
+    (undo_y + undo_height / 2.0 - middle).abs() < 0.5,
+    "centered: {} and {middle}",
+    undo_y + undo_height / 2.0
+  );
+  assert!(
+    undo_y - y > 14.0,
+    "lower than the padding: the text is taller than the button"
+  );
   // The timer is a rail of 2 along the bottom edge, all of it left while nothing counts it down.
   let rail = bars(&stage, light(PaletteColor::Secondary), 2.0);
   assert_eq!(rail.len(), 1);
@@ -361,7 +385,9 @@ fn a_toast_comes_in_and_leaves_by_animations_that_reduced_motion_goes_without() 
   let app = App::new();
   app.theme().set_reduced_motion(Some(true));
   let host = toasts.clone();
-  let mut stage = Stage::in_app(app, move |ctx| Column::new().child(host.host(ctx)).into());
+  let mut stage = Stage::in_app(app, move |ctx| {
+    Column::new().size(400.0, 300.0).child(host.host(ctx)).into()
+  });
   stage.tree.resize(400, 300);
   let id = toasts.show(Toast::new("At once"));
   stage.pass();
