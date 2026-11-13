@@ -579,7 +579,6 @@ impl Timeout {
 
   /// The delay of the next start or restart; a running timeout keeps its
   /// fire time.
-  #[cfg(feature = "markdown")]
   pub(crate) fn set_duration(&self, duration: Duration) {
     self.timer.inner.lock().duration = duration;
   }
