@@ -11,6 +11,7 @@ mod family_play;
 mod icons;
 mod input;
 mod overview;
+mod popover;
 mod radio;
 mod slider;
 mod switch;
@@ -187,6 +188,14 @@ pub const PAGES: &[Page] = &[
     about: "slider range value min max step track thumb volume drag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<slider::SliderPage>(()),
+  },
+  Page {
+    path: "/popover",
+    name: "Popover",
+    icon: None,
+    about: "popover panel overlay popup anchor placement dismiss escape outside title description",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<popover::PopoverPage>(()),
   },
 ];
 
