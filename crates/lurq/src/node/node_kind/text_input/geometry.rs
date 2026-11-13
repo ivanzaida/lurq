@@ -170,6 +170,12 @@ impl TextInputState {
     self.inner.lock().scroll_y()
   }
 
+  /// How tall the text with its padding is, as layout last recorded it: what
+  /// the input's vertical scroll ranges over.
+  pub(crate) fn scroll_content_height(&self) -> f32 {
+    self.inner.lock().scroll.content_height()
+  }
+
   /// The scroll a multiline input shows its text with, for the wheel and the
   /// scrollbar; a single-line input scrolls only with its caret.
   pub(crate) fn scroll_state(&self) -> Option<ScrollState> {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Fixes:
+
+- Text cut by a clip is drawn up to the clip and no further. A text's clip is let out by a physical pixel for its glyphs' rounding, and the scissor rounds it out by one more; on a side where the clip cuts the text, that drew the next rows of the cut line past the cut. The line a multiline `TextInput` had scrolled under its top or bottom edge was drawn over the input's border, at a scale of 1.5 up to the box's outer edge, on the frames where the page around had scrolled it to some fractions of a pixel and not on others. The same reached the long line of a single-line input (into its padding) and a text taller than a parent that clips it. A text inside its clip keeps the pixel of slop.
+
 ## 0.61.1 — 2026-11-13
 
 Behaviour changes:

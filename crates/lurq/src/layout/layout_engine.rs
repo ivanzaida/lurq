@@ -1656,8 +1656,14 @@ impl LayoutEngine {
             ) {
               // The text is drawn down to the bottom of the box that shows
               // it: a multiline input's bottom padding scrolls with its text.
+              // Its box runs on to the end of the text, past the box that
+              // shows it when lines are scrolled under its bottom edge: what
+              // paints the text then tells a line the edge cuts from one
+              // that only rounds past its box.
               let viewport = self.text_input_viewport(node, state, result, (abs_x, abs_y), padding);
               let text_top = abs_y + padding.top - scroll_y;
+              let text_bottom =
+                (text_top - padding.top + state.scroll_content_height()).max(viewport.y + viewport.height);
               (
                 abs_x + padding.left - scroll_x,
                 text_top
@@ -1667,7 +1673,7 @@ impl LayoutEngine {
                     0.0
                   },
                 content_width + scroll_x,
-                (viewport.y + viewport.height - text_top).max(0.0),
+                (text_bottom - text_top).max(0.0),
                 intersect_clip(clip, viewport.transformed(transform)),
               )
             } else {
