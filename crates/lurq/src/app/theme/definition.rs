@@ -59,6 +59,9 @@ pub struct ThemeDefinition {
   pub opacities: ThemeOpacities,
   pub blurs: ThemeBlurs,
   pub focus_ring: ThemeFocusRing,
+  /// What the theme says about components: recipes in place of the design's,
+  /// rules laid over them, renderers.
+  pub ui: crate::ui::UiDefinition,
   #[cfg(feature = "markdown")]
   pub markdown: ThemeMarkdown,
   #[cfg(feature = "markdown")]
@@ -90,6 +93,7 @@ impl ThemeDefinition {
       opacities: ThemeOpacities::default(),
       blurs: ThemeBlurs::default(),
       focus_ring: ThemeFocusRing::default(),
+      ui: crate::ui::UiDefinition::new(),
       #[cfg(feature = "markdown")]
       markdown: ThemeMarkdown::default(),
       #[cfg(feature = "markdown")]
@@ -108,6 +112,17 @@ impl ThemeDefinition {
       typography: ThemeTypography::legacy(),
       radii: ThemeRadii::legacy(),
       shadows: ThemeShadows::legacy(),
+      ..Self::neutral()
+    }
+  }
+
+  /// The design's tokens with no styling for components: every scale and both
+  /// palettes of [`Self::neutral`], and no recipe, so every part of every
+  /// component comes out unstyled and every component still works. The base
+  /// for a look that shares nothing with the design's.
+  pub fn bare() -> Self {
+    Self {
+      ui: crate::ui::UiDefinition::bare(),
       ..Self::neutral()
     }
   }
@@ -152,6 +167,7 @@ impl ThemeInner {
     self.opacities = definition.opacities;
     self.blurs = definition.blurs;
     self.focus_ring = definition.focus_ring;
+    self.ui = definition.ui;
     #[cfg(feature = "markdown")]
     {
       self.markdown = definition.markdown;
@@ -188,6 +204,7 @@ impl ThemeInner {
       opacities: self.opacities.clone(),
       blurs: self.blurs.clone(),
       focus_ring: self.focus_ring.clone(),
+      ui: self.ui.clone(),
       #[cfg(feature = "markdown")]
       markdown: self.markdown.clone(),
       #[cfg(feature = "markdown")]

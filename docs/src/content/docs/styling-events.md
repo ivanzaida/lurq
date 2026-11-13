@@ -66,7 +66,8 @@ Row::new()
 ```
 
 - The color is a concrete color or a `PaletteColor`, which follows the theme.
-- A text's own color wins: `Text::color(...)`, and the color of the style given to `Text::styled(...)`.
+- A text's own color wins: `Text::color(...)`, and the color of the style given to `Text::styled(...)`. A style
+  that keeps the default text color names none: its text takes the foreground like a text with no style.
 - A text with a typography variant and no color of its own takes the foreground in place of the variant's color.
 - With no foreground above it a text keeps its typography style's color, and where that is the default text color,
   the theme's foreground: see [The theme's foreground](#the-themes-foreground).
@@ -78,8 +79,9 @@ Row::new()
 
 ### The theme's foreground
 
-`PaletteColor::Foreground` is the color of text that names none. It is black by default, the color of
-`TextStyle::default()`, so a theme that never sets it draws text as it always did.
+`PaletteColor::Foreground` is the color of text that names none: the design's near-black in the light palette and
+its near-white in the dark one. In the [legacy theme](../theme/#themes-as-one-value) it is black, the color of
+`TextStyle::default()`, which text had before the role.
 
 ```rust
 // Light text for a dark theme: every text that names no color follows.

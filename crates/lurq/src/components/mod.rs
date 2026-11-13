@@ -164,6 +164,13 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Gives the element the style of a part of a themed component: what a
+      /// renderer of `lurq::ui` builds a component's nodes with.
+      pub fn part(mut self, part: &$crate::ui::ResolvedPart) -> Self {
+        self.update_node(|node| part.apply(node));
+        self
+      }
+
       /// Attach a semantic annotation surfaced to tooling — the devtools
       /// tree and the MCP `lurq_read_tree` — so agents can find and target
       /// this element, e.g. `.describe("role", "save-button")`. A no-op

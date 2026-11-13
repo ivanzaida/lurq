@@ -282,3 +282,26 @@ fn a_text_input_is_drawn_in_the_themes_foreground() {
 
   assert_eq!(color_of(&tree, "typed"), BLUE);
 }
+
+#[test]
+fn a_style_that_keeps_the_default_color_names_none_and_takes_the_foreground_above() {
+  use lurq::layout::text_style::TextStyle;
+  let mut app = App::new();
+  let plain = TextStyle {
+    font_size: 20.0,
+    ..TextStyle::default()
+  };
+  let colored = TextStyle {
+    color: GREEN,
+    ..TextStyle::default()
+  };
+  let tree = painted(
+    &mut app,
+    Column::new()
+      .foreground(RED)
+      .child(Text::styled("plain", plain))
+      .child(Text::styled("colored", colored)),
+  );
+  assert_eq!(color_of(&tree, "plain"), RED, "a style with a size and no color");
+  assert_eq!(color_of(&tree, "colored"), GREEN, "a style with a color keeps it");
+}

@@ -60,6 +60,8 @@ pub use typography::{ThemeFonts, ThemeTypography, TypographyStyle};
 pub struct Theme {
   inner: Arc<RwLock<ThemeInner>>,
   version_signal: Signal<u64>,
+  /// The component styles resolved at the theme's version: see `ui::theme`.
+  resolved: Arc<std::sync::Mutex<crate::ui::theme::ResolvedCache>>,
 }
 
 struct ThemeInner {
@@ -79,6 +81,8 @@ struct ThemeInner {
   opacities: ThemeOpacities,
   blurs: ThemeBlurs,
   focus_ring: ThemeFocusRing,
+  /// What the theme says about components: recipes and renderers.
+  ui: crate::ui::UiDefinition,
   /// The styles as they are used: `set_typography`'s, at `text_scale`.
   typography: ThemeTypography,
   base_typography: ThemeTypography,
@@ -166,6 +170,7 @@ impl Theme {
         opacities: definition.opacities,
         blurs: definition.blurs,
         focus_ring: definition.focus_ring,
+        ui: definition.ui,
         typography: definition.typography.clone(),
         base_typography: definition.typography,
         text_scale: 1.0,
@@ -186,7 +191,27 @@ impl Theme {
         version: 0,
       })),
       version_signal: Signal::new(0),
+      resolved: Arc::default(),
     }
+  }
+
+  /// A theme with no styling for components: [`ThemeDefinition::bare`].
+  pub fn bare() -> Self {
+    Self::from_definition(ThemeDefinition::bare())
+  }
+
+  /// Reads what the theme says about components.
+  pub(crate) fn with_ui<R>(&self, read: impl FnOnce(&crate::ui::UiDefinition) -> R) -> R {
+    read(&self.inner.read().unwrap().ui)
+  }
+
+  /// Changes what the theme says about components: components that read the theme render again.
+  pub(crate) fn update_ui(&self, update: impl FnOnce(&mut crate::ui::UiDefinition)) {
+    self.mutate_inner(|inner| update(&mut inner.ui));
+  }
+
+  pub(crate) fn resolved_cache(&self) -> &std::sync::Mutex<crate::ui::theme::ResolvedCache> {
+    &self.resolved
   }
 
   /// Gives the theme the look of `definition`, all of it at once: components that read the theme render

@@ -1989,6 +1989,17 @@ impl Ctx {
 
   // --- Theme ---
 
+  /// Runs `build` with `theme` as the theme of everything it builds and
+  /// mounts: a dark side bar in a light window, a dense inspector. The
+  /// components mounted in it keep the theme when they render again on
+  /// their own.
+  pub fn in_theme<R>(&mut self, theme: &Theme, build: impl FnOnce(&mut Ctx) -> R) -> R {
+    let outer = self.theme.replace(theme.clone());
+    let built = crate::ui::in_theme(theme, || build(self));
+    self.theme = outer;
+    built
+  }
+
   pub fn theme(&self) -> &Theme {
     let theme = self.theme.as_ref().expect("theme not set");
     theme.track_access();
@@ -2747,6 +2758,10 @@ impl Ctx {
     }
     tracking::start_tracking();
     self.rendering = true;
+    // What the render builds is in the component's theme (`ui::current_theme`).
+    if let Some(theme) = &self.theme {
+      crate::ui::theme::enter_theme(theme.clone(), self.breakpoint.clone());
+    }
   }
 
   fn set_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
@@ -2807,6 +2822,9 @@ impl Ctx {
     self.drop_unreached_future_slots();
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
+    if self.rendering && self.theme.is_some() {
+      crate::ui::theme::leave_theme();
+    }
     self.rendering = false;
     if let Some(previous) = self.previous_render_contexts.take()
       && self.context_map.has_same_entries(&previous)
