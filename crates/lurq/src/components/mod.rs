@@ -1159,6 +1159,14 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether Tab also stops at what takes the focus inside this element where it is a button, after the
+      /// button itself: a card pressed as a whole with buttons of its own in it. Off, a button's content is
+      /// part of the button.
+      pub fn stops_inside(mut self, stops: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::stops_inside(node, stops));
+        self
+      }
+
       /// What typing a letter in a [`FocusGroup`]($crate::node::FocusGroup)
       /// with typeahead matches the element by: a menu item's label, where
       /// its text is not only that.

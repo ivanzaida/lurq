@@ -492,6 +492,8 @@ impl CardView {
     let mut root = pressable(&self.part(CardPart::Root), self.disabled)
       .justify(Justify::Start)
       .align_items(Alignment::Stretch)
+      // The controls in its action and its footer are stops of Tab of their own, after the card.
+      .stops_inside(true)
       .describe("a11y_role", "button");
     if let Some(title) = &self.title {
       root = root.describe("a11y_name", title.clone());
