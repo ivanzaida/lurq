@@ -53,7 +53,9 @@ Agreed on 2026-11-12. The phases below build on them.
 | D11 | Open sets | Sizes and component states are keyed by name, as variants are, so an app adds its own. A renderer that replaces a component's may declare parts of its own, and a recipe addresses them by name | The fixed sets are lurq's defaults, not a limit. Settles open question 3. |
 | D12 | Nothing hard-coded | Everything lurq draws takes its colors, sizes and durations from the theme, what an app never builds itself included: scroll bars, the select menu, text selection, the caret, tooltips, window chrome, enter and exit animations. A test fails on a literal color, size or duration in `lurq::ui` | "Everything" has to hold for what an app cannot reach any other way. |
 
-D8–D12 were agreed on 2026-11-13: a developer must be able to change everything themselves.
+| D13 | Breakpoints | A rule of a recipe may be for a breakpoint: it holds in a window that wide or wider, as `Responsive` values resolve. A component takes the breakpoint of the window it is built in and is built again when the width crosses one. A component that changes form with the width (a dialog that is a sheet on a phone, a side bar that folds) says so through its presentation, which may depend on the breakpoint too | The plan named breakpoints only as something lurq had. The design has sheets for a phone and a tablet, and a theme has to be able to say what a component is at each width. |
+
+D8–D12 were agreed on 2026-11-13: a developer must be able to change everything themselves. D13 was added the same day, when breakpoints turned out to be missing from the plan.
 
 **Icon notes (D5).**
 
@@ -88,13 +90,14 @@ A component is a set of named **parts** — a button has `root`, `label`, `icon`
 - **Base**: applies always.
 - **Variant**: `Primary`, `Secondary`, `Outline`, `Ghost`, `Destructive`… Variants are keyed by name, so an app can add its own.
 - **Size**: `Sm`, `Md`, `Lg`, or a density. Sizes are keyed by name too, so an app can add its own (D11).
+- **Breakpoint**: a rule for a window at a breakpoint or wider (D13): a part that is one size on a phone and another on a desktop.
 - **State**: `hovered`, `pressed`, `focus_visible`, `disabled`, and component states such as `checked`, `selected`, `invalid`, `loading`, `open`. A state can also be one an app names: an instance turns it on with `.state(name, on)`, and a recipe styles it like any other (D11).
 
 All of them use one shared type, a **part style**: an all-optional patch of background, foreground, border, radius, shadow, outline, opacity, padding, gap, height, width, typography and transition. Values are token roles or concrete values. Because every component uses the same patch type, learning to theme one component is learning to theme all of them.
 
 Typography in a part style is the whole text style, each field optional: font family, size, weight, style, line height, letter spacing and font features. A typography role sets all of them at once; any single field can then be overridden. So a font can differ per component, per variant, per size, per state and per part — a primary button in one family and an outline button in another is two lines in the theme.
 
-Resolution order, later wins: base → variant → size → state → the enclosing component's patch (4.3) → the instance's own override.
+Resolution order, later wins: base → variant → size → breakpoint, a wider one over a narrower → state → the enclosing component's patch (4.3) → the instance's own override.
 
 ```rust
 // Illustrative — the exact API is settled in step 2 of section 7.
@@ -437,7 +440,7 @@ Steps on a Mac:
 
 ## 14. Phase 1: status and handover
 
-For whoever continues. The tokens half of Phase 1 is built on `feat/design-system`; the theme machinery is not started.
+For whoever continues. The tokens half of Phase 1 is built on `feat/design-system`, and so is the core of the theme machinery with the first component on it (14.5).
 
 ### 14.1 Where each item stands
 
@@ -453,7 +456,17 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Pencil: `accent` renamed `highlight` (D3) | not done (14.3) |
 | Design parity test | built: `design/tokens/variables.tsv` and `tests/theme/parity` |
 | Theme definitions, `Theme::apply`, derived definitions | built for tokens: `ThemeDefinition` |
-| Recipes, renderers, presentation, scoped themes, `Theme::bare()` | not started |
+| Part style and recipes, with the resolved styles kept per theme version | built: `ui::PartStyle`, `ui::Recipe` (14.5) |
+| Renderers, for a component and for one part | built: `Theme::set_renderer`, `set_part_renderer` |
+| `Theme::bare()`, a recipe replaced whole (D8) | built |
+| Sizes, variants and states by name (D11) | built: they are names everywhere |
+| Rules by breakpoint (D13) | built: `Recipe::at`, `Selector::breakpoint` |
+| Scoped themes | built: `Ctx::in_theme` |
+| Presentation options | not started: no component has one yet |
+| Behavior as public pieces (D10) | started: a view hands a renderer the wired root (`ButtonView::root`); nothing of it is promised yet |
+| Recipes for what lurq draws itself: scroll bars, selection, the caret (D12) | not started |
+| Step 2: `Button` | built, with its tests and its page of the docs. `Switch`, `Tabs`, `MessageBox` are not |
+| The gallery | its shell is built, with Overview and Tokens (15.5) |
 
 ### 14.2 What was decided while building
 
@@ -479,9 +492,26 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 - **`variables.tsv` is written by hand** from `GetVariables()`. `scripts/build-icon-font.py` already talks to Pencil; a script that exports the variables the same way would keep the file from going stale.
 - **macOS and iOS.** Nothing here has code of its own per platform, but the default theme now follows the appearance each shell reports: look at a window in the system's light and dark look on a Mac, and at `crates/mobile_demo`, whose dark palette is now built on the design's dark one.
 
-### 14.4 Next: the theme machinery
+### 14.4 Next
 
-Section 6, "Theme machinery", with D8 to D12: the part-style patch type and recipe storage with resolved recipes cached per theme version; renderer registration, per part too; presentation options; `Theme::bare()`; sizes and states by name; public scoped themes; recipes for what lurq draws itself (scroll bars, selection, the caret). Then step 2 of section 7 proves it on four components before anything else is built on it.
+- **The rest of step 2**: `Switch` (an anatomy a renderer replaces), `Tabs` (several parts and a selected state) and `MessageBox` (a composite with two buttons in places), each with its page in the gallery. Then the iOS-looking skin and the made-up brand of section 7, on public API alone. The recipe, slot and renderer API is frozen only after that.
+- **Presentation options**, with the first component that has one.
+- **What lurq draws itself** on recipes: scroll bars, selection, the caret (D12), and the test that fails on a literal color, size or duration in `lurq::ui`.
+- **`Icon`** and the hinted font loaded by default: `Button` takes any element before and after its label until then, and has no loading state because there is no spinner yet.
+
+### 14.5 The theme machinery as built
+
+- **A component is a builder, and takes the theme of what renders it.** `ui::Button::new("Save")` goes where an element goes, with no context passed to it. A render pushes its theme and the breakpoint of its window (`ui::theme`, a stack per thread), and a component built during it reads them: `ui::current_theme()`, `ui::current_breakpoint()`. Reading subscribes what is rendering, so a change of the theme or of the breakpoint builds the component again. Outside a render there is no theme, and a component built there is in a neutral one that follows nothing. This settles question 5: builders.
+- **A recipe is a list of rules** (question 2: data, with a builder to write it). A rule is a case and the style of a part in it; a case is any of a variant, a size, a breakpoint, states of the component and one interaction. The rules that hold are sorted by how specific their case is and merged field by field. A compound case, "a primary button under the pointer", is one rule.
+- **Names, not enums.** A variant, a size, a state and a part are interned names (`ui::Name`, the theme's `RoleName`). A component's own are enums that read as names, so an app's `"brand"` variant or `"pinned"` state needs nothing declared (D11).
+- **Interactions become state styles.** The rules for hovered, pressed and focus-visible are resolved apart from the style at rest and given to the node as its state styles, so nothing renders under the pointer. They carry only what is painted. Disabled, checked, loading and the like are states of the component, resolved when it is built.
+- **A veil is an inset shadow.** `PartStyle::veil(color)` lays a color over a fill, under the content: the theme's `StatePressed` darkens any button. It is painted as an inset shadow with a spread larger than any box.
+- **Forcing a state** is the component's doing, not the node's: `Button::force(Some(Interaction::Hovered))` merges the hover rules into the style at rest. The gallery's state matrix and the tests use it, and the engine did not change for it.
+- **The theme keeps what it resolved**, by component and case, until its version changes. An instance with rules of its own is resolved on its own.
+- **A definition says of a component**: a recipe in place of the design's, rules over it, a renderer, renderers for parts. A bare definition is one in which a component that has no recipe set gets none, instead of the design's.
+- **A slot is rules handed to an inner component** (`Button::rules(&recipe)`): the composite's recipe for its place, laid over the theme's for the component and under the instance's own. No composite exists yet to use it.
+- **A text from a style that keeps the default color takes the foreground above it.** It took the theme's foreground whatever was above. A part's label is such a text, and has to take the color of its root.
+- **Not yet in a part style:** margins, a size per axis for icons, an overlay other than a veil, text decoration. They are added when a component needs them.
 
 ## 15. The gallery
 
@@ -527,4 +557,13 @@ Said on 2026-11-13: the board shows the shape of the app, and was drawn without 
 
 ### 15.4 Order
 
-The gallery starts with step 2 of section 7, as a new crate beside `crates/demo`: the shell (title bar, header with the appearance switch, sidebar, page frame), then the Button page as the reference, then a page with each component of step 2 and of Phase 2. The Tokens and Icons pages under Getting started can come first: the theme's tables and the icon font are there, and the Theme page of `crates/demo` already draws every role from the theme.
+The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, then a page with each component as it lands. The Tokens and Icons pages under Getting started need no component.
+
+### 15.5 What is built
+
+- **The shell**: the header (brand and version, a search over the pages, the appearance: System, Light, Dark), the side bar (the pages in the design system's groups with a count for each; a group with no page is not shown), and the page beside it. The title bar is the system's.
+- **The frame of a page** (`doc.rs`): its header (the way to it, name, description, import, status), its sections 48 apart, and the list of them on the right from the large breakpoint up, sticky, which scrolls to the section that is clicked. The main column is padded 32, 48 or 64 by the breakpoint.
+- **Pages**: Overview, and Tokens, which draws the palette, the type scale, radii, elevations and every scale from the theme as it is.
+- **Its own parts** (`kit.rs`): the segmented control, badges, cards, the stage and footer of a demo card. Each goes when the design system has the component.
+
+Not built: the playground, the state matrix and the props table, which come with the Button page; the density switch, which has nothing to switch yet; the list of sections following the scroll, where it marks the section last clicked; `Ctrl K`; a title bar of its own.

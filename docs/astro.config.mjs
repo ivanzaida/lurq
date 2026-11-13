@@ -18,6 +18,7 @@ export default defineConfig({
                         'reactivity',
                         'layout',
                         'theme',
+                        'design-system',
                         'animation-transforms',
                         'styling-events',
                         'blur',
