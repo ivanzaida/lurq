@@ -16,7 +16,10 @@ use lurq::{
   },
   components::{Column, Row},
   core::Signal,
-  layout::quad::{Quad, QuadContent},
+  layout::{
+    Alignment,
+    quad::{Quad, QuadContent},
+  },
   node::{Element, color::Color},
   ui::{Button, ButtonVariant, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipView},
 };
@@ -186,6 +189,35 @@ fn a_disabled_element_that_fills_its_row_still_fills_it() {
   assert_eq!(disabled.bounds("copy").2, 200.0, "as wide disabled as not");
   disabled.hover("copy");
   assert!(disabled.paints("Nothing to copy"));
+}
+
+#[test]
+fn a_disabled_element_stretched_by_what_it_is_in_keeps_its_width_and_shows_its_tooltip() {
+  let scene = |disabled: bool| {
+    move |ctx: &mut Ctx| -> Element {
+      Column::new()
+        .size(400.0, 300.0)
+        .padding(100.0)
+        .align_items(Alignment::Stretch)
+        .child(
+          Tooltip::new("Nothing to copy")
+            .delay(Duration::ZERO)
+            .mount(ctx, copy().disabled(disabled)),
+        )
+        .into()
+    }
+  };
+  let (mut enabled, mut disabled) = (Stage::new(scene(false)), Stage::new(scene(true)));
+  assert_eq!(enabled.bounds("copy").2, 200.0, "stretched across the column");
+  assert_eq!(disabled.bounds("copy").2, 200.0, "as stretched disabled as not");
+  disabled.hover("copy");
+  assert!(disabled.paints("Nothing to copy"));
+  let (shown, (x, _, width, _)) = (bubble(&disabled, "Nothing to copy").unwrap(), disabled.bounds("copy"));
+  assert!(
+    close(shown.x + shown.width / 2.0, x + width / 2.0),
+    "centered on the whole of it: {:?}",
+    at(&shown)
+  );
 }
 
 /// A row with the button in it, a component of its own that renders again by itself when `again` changes.

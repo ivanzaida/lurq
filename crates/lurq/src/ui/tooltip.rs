@@ -758,12 +758,8 @@ impl Component for TooltipHost {
       return child;
     }
     self.delay.set_duration(tooltip.delay);
-    // A disabled element is not hovered, the elements it is in are: it is put in a row the pointer reaches.
-    let child = if child.node.is_disabled() {
-      hoverable(child)
-    } else {
-      holds_children(child)
-    };
+    // A disabled element is not hovered, but it hears the pointer come and go: its tooltip is on it as on any.
+    let child = holds_children(child);
     // An element that has an anchor of its own keeps it, and the tooltip is anchored to it.
     let anchor = child.node.element_ref.clone().unwrap_or_else(|| self.anchor.clone());
 
@@ -938,19 +934,6 @@ impl Component for TooltipHost {
     };
     child.decorate_root(describe)
   }
-}
-
-/// A disabled `element` in a row of its own, which the pointer hovers: a disabled element is not hovered, the
-/// elements it is in are. The row is as large as the element would be where it was: it takes the element's
-/// width and height where they are shares of the room (`Fill`), and the element's flex.
-fn hoverable(element: Element) -> Element {
-  let (frame, flex) = (element.node.frame, element.node.flex);
-  let share = |length: Option<Dimension>| length.filter(|length| matches!(length, Dimension::Pct(_)));
-  let mut row: Element = Row::new().child(element).into();
-  row.node.frame.width = share(frame.width);
-  row.node.frame.height = share(frame.height);
-  row.node.flex = flex;
-  row
 }
 
 /// `element`, in a row of its own where its root lays out no children (a

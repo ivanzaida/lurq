@@ -93,8 +93,8 @@ mod leaving_layers;
 mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
-mod outside_press;
 mod modal_focus;
+mod outside_press;
 mod overlay_layers;
 mod paste;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
@@ -754,6 +754,8 @@ pub struct Tree {
   /// there after a layout moves content.
   pointer: Option<hover::PointerAt>,
   hover_path: Vec<NodeId>,
+  /// The disabled element the pointer is on: not hovered, but it heard the pointer come (`hover::enter_disabled`).
+  disabled_hover: Option<NodeId>,
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
   /// The middle-button autoscroll under way (`middle_button_autoscroll`).
@@ -1196,6 +1198,7 @@ impl Tree {
       window: crate::app::window::Window::new(),
       pointer: None,
       hover_path: Vec::new(),
+      disabled_hover: None,
       active_path: Vec::new(),
       dragging_scroll: None,
       autoscroll: None,
@@ -5391,7 +5394,10 @@ impl Tree {
     let hover_hits = hovered_hits.as_ref().unwrap_or(&hits);
     let current_ids: Vec<NodeId> = hover_hits.iter().map(|(n, _)| n.node_id()).collect();
 
-    let moved = hover::move_hover(root, &self.hover_path, hover_hits);
+    let mut moved = hover::leave_disabled(root, self.disabled_hover, disabled_hit);
+    moved |= hover::move_hover(root, &self.hover_path, hover_hits);
+    moved |= hover::enter_disabled(self.disabled_hover, disabled_hit);
+    self.disabled_hover = disabled_hit.map(Node::node_id);
     // A move onto an element of a focus group that follows the pointer takes the focus there.
     let pointer_focus = if matches!(evt.kind, MouseEventKind::Move) {
       hover::pointer_focus(root, &self.hover_path, self.focused_path.as_deref(), hover_hits)
@@ -7257,7 +7263,9 @@ impl Tree {
 
     self.built_focus_overlays = std::mem::take(&mut layers.focus_overlays);
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
-    self.built_focus_modals.extend(self.built_focus_overlays.iter().copied());
+    self
+      .built_focus_modals
+      .extend(self.built_focus_overlays.iter().copied());
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
@@ -7544,11 +7552,18 @@ impl Tree {
   fn clear_hover_path(&mut self) -> bool {
     let hover_path = std::mem::take(&mut self.hover_path);
     self.cursor = CursorIcon::Default;
+    let mut moved = match (self.root.as_ref(), self.disabled_hover.take()) {
+      (Some(root), Some(disabled)) => hover::leave_disabled(root, Some(disabled), None),
+      _ => hover::HoverMove::default(),
+    };
     if hover_path.is_empty() {
+      if self.draws_hover(moved) {
+        self.cached_render_list = None;
+        self.needs_redraw = true;
+      }
       return false;
     }
 
-    let mut moved = hover::HoverMove::default();
     if let Some(root) = self.root.as_ref() {
       for node_id in hover_path {
         if let Some(node) = find_node_by_id(root, node_id) {

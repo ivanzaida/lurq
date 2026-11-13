@@ -48,6 +48,23 @@ pub(super) struct HoverMove {
   pub(super) shows: bool,
 }
 
+impl std::ops::BitOr for HoverMove {
+  type Output = Self;
+
+  fn bitor(self, other: Self) -> Self {
+    Self {
+      changed: self.changed || other.changed,
+      shows: self.shows || other.shows,
+    }
+  }
+}
+
+impl std::ops::BitOrAssign for HoverMove {
+  fn bitor_assign(&mut self, other: Self) {
+    *self = *self | other;
+  }
+}
+
 impl Tree {
   /// Remembers where the pointer is, in physical pixels, for
   /// [`Self::refresh_hover_at_pointer`]. Called by the public pointer entry
@@ -83,7 +100,13 @@ impl Tree {
     let disabled = take_disabled_hit(&mut hits);
     trim_hits_to_scrollbar(&mut hits, lx, ly);
 
-    let moved = with_input_source(source, || move_hover(root, &self.hover_path, &hits));
+    let before = self.disabled_hover;
+    let moved = with_input_source(source, || {
+      leave_disabled(root, before, disabled)
+        | move_hover(root, &self.hover_path, &hits)
+        | enter_disabled(before, disabled)
+    });
+    self.disabled_hover = disabled.map(Node::node_id);
     let scrollable_in_disabled = if disabled.is_some() {
       super::scroll_containers_in_disabled(root, result, lx, ly, &hits)
     } else {
@@ -198,6 +221,39 @@ pub(super) fn move_hover(root: &Node, hover_path: &[NodeId], hits: &[(&Node, Hit
     moved.shows |= set_hover(node, true, &node.events.on_mouse_enter);
   }
   moved
+}
+
+/// The pointer left `before`, the disabled element it was on, for `now` (another disabled element, or none): runs
+/// `before`'s `on_mouse_leave`. A disabled element hears the pointer come and go and nothing else of it: it is not
+/// hovered, sets no cursor and takes no press. Called before the hover moves, as a leave comes before an enter.
+pub(super) fn leave_disabled(root: &Node, before: Option<NodeId>, now: Option<&Node>) -> HoverMove {
+  let Some(before) = before.filter(|before| Some(*before) != now.map(Node::node_id)) else {
+    return HoverMove::default();
+  };
+  let Some(node) = find_node_by_id(root, before) else {
+    return HoverMove::default();
+  };
+  run(&node.events.on_mouse_leave)
+}
+
+/// The pointer came onto `now`, a disabled element, from `before`: runs `now`'s `on_mouse_enter`, after the hover
+/// moved. See [`leave_disabled`].
+pub(super) fn enter_disabled(before: Option<NodeId>, now: Option<&Node>) -> HoverMove {
+  match now {
+    Some(node) if Some(node.node_id()) != before => run(&node.events.on_mouse_enter),
+    _ => HoverMove::default(),
+  }
+}
+
+/// Runs `handlers` of a move that changes no hover: a frame for them where any ran.
+fn run(handlers: &[VoidEventHandler]) -> HoverMove {
+  for handler in handlers {
+    handler.call();
+  }
+  HoverMove {
+    changed: false,
+    shows: !handlers.is_empty(),
+  }
 }
 
 /// Takes the hover from `node` and runs its `on_mouse_leave`. Returns whether
