@@ -5,8 +5,8 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
-mod badge;
 mod avatar;
+mod badge;
 mod breadcrumb;
 mod button;
 mod card;

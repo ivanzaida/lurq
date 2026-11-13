@@ -15,14 +15,14 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BoxShadowValue, Element},
   ui::{
-    Button, ButtonSize, ButtonVariant, Card, CardPart, CardSize, CardVariant, Field, Input, Interaction, Select,
-    SelectSize, Switch, icons,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardPart, CardSize, CardVariant, Field, Input,
+    Interaction, Select, SelectSize, Switch, icons,
   },
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, icon, mono, props_table, quiet, segmented_fill, status_badge, text},
+  kit::{FILL, icon, mono, props_table, quiet, segmented_fill, text},
   playground::{Playground, Spec, divider, field, flag, prop},
 };
 
@@ -358,7 +358,7 @@ impl CardPage {
         Row::new()
           .spacing(8.0)
           .align_items(Alignment::Center)
-          .child(status_badge("+12.5%"))
+          .child(Badge::new("+12.5%").variant(BadgeVariant::Success))
           .child(mono("vs 0.59", 11.0).color(PaletteColor::MutedForeground)),
       )
   }
