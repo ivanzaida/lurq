@@ -11,6 +11,9 @@ mod family_play;
 mod icons;
 mod overview;
 mod radio;
+  },
+  Page {
+mod slider;
 mod switch;
 mod tokens;
 
@@ -160,6 +163,14 @@ pub const PAGES: &[Page] = &[
     about: "switch on off setting track thumb toggle dark mode",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<switch::SwitchPage>(()),
+  },
+  Page {
+    path: "/slider",
+    name: "Slider",
+    icon: None,
+    about: "slider range value min max step track thumb volume drag",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<slider::SliderPage>(()),
   },
 ];
 

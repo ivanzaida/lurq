@@ -5,6 +5,7 @@ mod checkbox;
 mod family;
 mod icon;
 mod radio;
+mod slider;
 mod stage;
 mod switch;
 mod theming;

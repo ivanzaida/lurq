@@ -8,6 +8,7 @@ use crate::node::{
   border::{Border, BorderRadius, Borders, ThemedBorderRadius},
   border_size_value::BorderSizeValue,
   color::Color,
+  outline::Outline,
   radius_value::RadiusValue,
 };
 
@@ -18,6 +19,8 @@ pub struct SliderPartStyle {
   pub(crate) color: Option<Color>,
   pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) border: Option<Borders>,
+  /// A ring around the part, past its edge: a thumb's focus ring.
+  pub(crate) outline: Option<Outline>,
   #[cfg(feature = "raster")]
   pub(crate) background_image: Option<crate::images::ImageData>,
   #[cfg(all(feature = "image", feature = "resources"))]
@@ -92,6 +95,13 @@ impl SliderPartStyle {
     self
   }
 
+  /// A ring around the part, painted over the slider: the line, its color
+  /// and its distance from the part's edge, as a node's outline has them.
+  pub fn outline(mut self, outline: Outline) -> Self {
+    self.outline = Some(outline);
+    self
+  }
+
   #[cfg(feature = "raster")]
   pub fn background_image(mut self, data: impl Into<crate::images::ImageKind>) -> Self {
     match data.into() {
@@ -140,6 +150,9 @@ impl SliderPartStyle {
     }
     if other.border.is_some() {
       self.border = other.border.clone();
+    }
+    if other.outline.is_some() {
+      self.outline = other.outline.clone();
     }
     #[cfg(feature = "raster")]
     {
