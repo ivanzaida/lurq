@@ -15,6 +15,7 @@ mod menu;
 mod overview;
 mod popover;
 mod radio;
+mod select;
 mod slider;
 mod switch;
 mod textarea;
@@ -214,6 +215,14 @@ pub const PAGES: &[Page] = &[
     about: "dialog modal veil scrim overlay confirm title description footer close escape scroll",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<dialog::DialogPage>(()),
+  },
+  Page {
+    path: "/select",
+    name: "Select",
+    icon: None,
+    about: "select dropdown choose option list menu placeholder chevron value time zone",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<select::SelectPage>(()),
   },
 ];
 
