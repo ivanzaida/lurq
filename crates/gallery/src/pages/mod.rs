@@ -4,6 +4,7 @@
 
 use lurq::{app::ctx::Ctx, node::Element};
 
+mod breadcrumb;
 mod button;
 mod checkbox;
 mod dialog;
@@ -241,6 +242,14 @@ pub const PAGES: &[Page] = &[
     about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
+  },
+  Page {
+    path: "/breadcrumb",
+    name: "Breadcrumb",
+    icon: None,
+    about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<breadcrumb::BreadcrumbPage>(()),
   },
 ];
 

@@ -1,5 +1,6 @@
 //! The design system's components and what a theme styles them with.
 
+mod breadcrumb;
 mod button;
 mod checkbox;
 mod dialog;

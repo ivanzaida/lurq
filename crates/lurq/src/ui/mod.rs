@@ -15,6 +15,7 @@
 //! around it ([`current_theme`]), so it needs no context passed to it, and
 //! what renders it renders again when the theme changes.
 
+mod breadcrumb;
 mod button;
 mod button_group;
 mod checkbox;
@@ -43,6 +44,10 @@ mod toggle;
 mod toggle_group;
 mod tooltip;
 
+pub use breadcrumb::{
+  Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
+  BreadcrumbStep, BreadcrumbView,
+};
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
   ButtonView,
