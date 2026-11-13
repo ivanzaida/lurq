@@ -2,6 +2,7 @@
 
 mod button;
 mod checkbox;
+mod dialog;
 mod family;
 mod icon;
 mod radio;

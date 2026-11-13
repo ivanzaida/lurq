@@ -18,6 +18,7 @@
 mod button;
 mod button_group;
 mod checkbox;
+mod dialog;
 mod fab;
 mod field;
 mod icon;
@@ -47,6 +48,7 @@ pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
   CheckboxView,
 };
+pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldPart, FieldRenderer, FieldState, FieldView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};

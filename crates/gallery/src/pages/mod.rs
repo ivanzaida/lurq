@@ -6,6 +6,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod button;
 mod checkbox;
+mod dialog;
 mod family;
 mod family_play;
 mod icons;
@@ -205,6 +206,14 @@ pub const PAGES: &[Page] = &[
     about: "menu dropdown item command shortcut separator label group checked destructive disabled popup anchor split",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<menu::MenuPage>(()),
+  },
+  Page {
+    path: "/dialog",
+    name: "Dialog",
+    icon: None,
+    about: "dialog modal veil scrim overlay confirm title description footer close escape scroll",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<dialog::DialogPage>(()),
   },
 ];
 
