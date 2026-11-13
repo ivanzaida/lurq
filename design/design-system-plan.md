@@ -515,12 +515,15 @@ The sidebar's groups, 43 pages: Getting started (Overview, Tokens, Icons); Actio
 - **Measured size and layout tree** come from what DevTools and `ElementRef::bounds` already read.
 - **Density** is a switch in the header: the theme has the scale (`Density`), and nothing applies it to components yet. It belongs with recipes.
 
-### 15.3 Where the board and the plan differ
+### 15.3 The board is an example
 
-- **Button has five sizes**, Xs 28, Sm 32, Md 36, Lg 40 and Xl 44, and the board says its height follows the control scale. The design's variables, and `ControlSize`, have three: 32, 36, 40. Either the scale gains `Xs` and `Xl` on both boards, or a button's sizes are its own (D11 lets a recipe name sizes).
-- **The board fills the current sidebar row with `$accent`**, the hover fill that D3 renames `highlight`. Both boards still have the old name.
-- **The board says `v0.61.0` and "since 0.61".** The components ship after 0.61: the gallery shows the crate's version and each component's own.
-- **The demo's engine pages** (layout, scroll, text, canvas, borders, grid, sticky, presence) have no place in the board's sidebar. They are how the engine is tried by hand, so `crates/demo` stays until the gallery has a place for them or they are dropped on purpose.
+Said on 2026-11-13: the board shows the shape of the app, and was drawn without regard to the real state of lurq. It is the reference for the layout: the zones, their order and sizes, what a page has. It is not the reference for what a component is. Where its content differs from the design system's board (`pencil/lurq-design-system.pen`), the theme and the code, those hold and the gallery shows them:
+
+- **Sizes, variants and props** of a component are the design system's and the code's. The board's Button has five sizes, Xs 28 to Xl 44; the control scale has three, and the gallery's Button page shows the sizes Button has.
+- **Names of tokens** are the theme's. The board fills the current sidebar row with `$accent`; the gallery uses `Highlight`.
+- **Versions.** The board says `v0.61.0` and "since 0.61"; the gallery shows the crate's version and each component's own.
+- **The list of pages** is what exists. A page appears in the sidebar when its component does; the board's 43 names are the order to keep, not a promise.
+- **The demo's engine pages** (layout, scroll, text, canvas, borders, grid, sticky, presence) have no place in the board's sidebar. `crates/demo` stays for trying the engine by hand until the gallery has a place for them or they are dropped on purpose.
 
 ### 15.4 Order
 
