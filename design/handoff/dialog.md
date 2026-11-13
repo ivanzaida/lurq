@@ -83,6 +83,8 @@ Dialog::new(terms_open.clone())
 - The close button is a `ui::Button` (ghost, `ButtonSize::Sm`, `icons::CLOSE`, icon alone) over which the dialog's `Close` part is laid with `rules_for(Close, ButtonPart::Root)`: 28 square, `radius-md`, its icon the `Sm` button's 16. It is called "Close".
 - Without a size the panel is 420, the board's dialog; the sizes are the widths the board's card names (sm 360, md 480, lg 640, full).
 - No animation in or out: the board draws none, and the engine has no keyframes for one that a builder could name (`Presence` needs keyframes registered on the `Tree`, as `SPIN` is in `AnimationEngine::new`).
+- The footer is not a `FocusGroup`: its buttons are separate answers, not one choice or one bar, and Tab stops at each as a browser's dialog does.
+- The tests give the stage's window the size of the page (`stage.tree.resize(400, 300)`): a dialog covers the window, and the headless stage's window is otherwise larger than the 400 by 300 it lays the page out in.
 - `inline(true)` draws the panel alone where the dialog is declared, for the gallery's drawing of the board's two dialogs and for tests.
 - The body has 10 between its children in both forms; the board shows 10 only in the scrollable one.
 
