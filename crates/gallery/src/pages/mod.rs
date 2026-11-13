@@ -10,6 +10,7 @@ mod family;
 mod family_play;
 mod icons;
 mod overview;
+mod radio;
 mod switch;
 mod tokens;
 
@@ -143,6 +144,14 @@ pub const PAGES: &[Page] = &[
     about: "checkbox check box tick indeterminate select all form option",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<checkbox::CheckboxPage>(()),
+  },
+  Page {
+    path: "/radio",
+    name: "Radio",
+    icon: None,
+    about: "radio group choice option chosen one of exclusive",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<radio::RadioPage>(()),
   },
   Page {
     path: "/switch",

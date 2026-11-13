@@ -4,6 +4,7 @@ mod button;
 mod checkbox;
 mod family;
 mod icon;
+mod radio;
 mod stage;
 mod switch;
 mod theming;
