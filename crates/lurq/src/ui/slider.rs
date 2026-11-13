@@ -562,3 +562,22 @@ impl From<RangeSlider> for Element {
     slider.build(&current_theme())
   }
 }
+
+impl super::FieldControl for Slider {
+  /// Called by the field's label unless it has a name of its own, and disabled where the field is. A slider has no
+  /// judgment.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.disabled |= field.disabled;
+    self.into()
+  }
+}
+
+impl super::FieldControl for RangeSlider {
+  /// As a [`Slider`] takes it.
+  fn in_field(self, field: &super::InField) -> Element {
+    self.0.in_field(field)
+  }
+}

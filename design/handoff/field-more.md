@@ -9,6 +9,14 @@
   makes the request `Ctx::focus` makes. The request is applied when the click is handled
   (`apply_reactive_updates_after_event` → `apply_focus_request_inner`), by the lookup that was there: the first
   focusable node under the element the ref is on, and nothing where that node or a node around it is disabled.
+- `FieldControl` in the files of the other controls a form holds, each at the end: `select.rs` (its impl, brought
+  in line with `Input`'s), `checkbox.rs` (`Checkbox`, `CheckboxGroup`), `radio.rs` (`Radio`, `RadioGroup`),
+  `switch.rs`, `slider.rs` (`Slider`, `RangeSlider`), `segmented.rs`, `toggle_group.rs`. `CheckboxGroup` and
+  `RadioGroup` have a `label(&str)`, their name on the node that is the `group` or `radiogroup`.
+- `crates/lurq/src/mcp/tools/semantics.rs`: `semantic_description`, the `a11y_description` (or `aria-description`)
+  of a node. `crates/lurq/src/mcp/tools/inspect.rs`: `lurq_inspect` reports it as `description`, and reports
+  `a11y_checked` as `state.checked` (`true`, `false`, or `"mixed"`) for a control drawn of plain nodes, as it did
+  for the engine's checkbox only. `crates/lurq/tests/mcp_field_tests.rs` is new.
 - `crates/lurq/src/ui/text_box.rs` is new: what a box that is typed in or chosen from has, for `Input`, `Textarea`
   and, when it is built, `Select`. `ui/mod.rs` exports `FieldControl`, `InField`, `Judgment`, `TextBoxSize`,
   `TextBoxState` and `TextareaSize` (two lines changed besides the added ones: the `field` and `textarea` uses).
@@ -94,7 +102,18 @@ Field::new("Notifications", Switch::new("Pause notifications")).horizontal(true)
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
 
-- A field's control is a `FieldControl`: what the field tells it (`InField`: the label, the judgment, whether it is disabled) it takes or leaves. An `Input` and a `Textarea` take all three, each only where the app did not say it of the control itself: an input with a label of its own keeps it, and one the app judged keeps that judgment whatever the field says. Any `Element`, and the other components of the design system for now, take none: a switch in a disabled field is disabled by the app. A control of an app's own implements `FieldControl` and passes what it is told to the control in it.
+- A field's control is a `FieldControl`: what the field tells it (`InField`: the label, the judgment, whether it is disabled, the description) it takes as far as it has the prop, and only where the app did not say it of the control itself: an input with a label of its own keeps it, and one the app judged keeps that judgment whatever the field says. A control of an app's own implements `FieldControl` and passes what it is told to the control in it. Any `Element` takes none of it.
+
+| Control | Takes from a field |
+| --- | --- |
+| `Input`, `Textarea`, `Select` | Its name (the field's label), its judgment (invalid, warning, valid), disabled |
+| `Checkbox`, `Radio` | Its name where its own label is hidden (the label a person reads is then the field's), invalid, disabled |
+| `Switch` | Its name where its own label is hidden, disabled |
+| `CheckboxGroup`, `RadioGroup` | Its name (`label`, on the group), invalid on every box or radio, disabled |
+| `Slider`, `RangeSlider` | Its name, disabled |
+| `SegmentedControl`, `ToggleGroup` | Disabled; each segment or toggle keeps its own name |
+
+- The field's description, or its error while it has one, is the control's description to what reads the tree (`a11y_description`), whatever the control: the field puts it on each outermost node in the control that says what it is (`a11y_role`) or takes the focus, so a radio group is described and not each radio in it. `lurq_inspect` reports it as `description`.
 - A press of the label focuses the control: the first node under what holds it that takes the focus (`.focuses(&ElementRef)` on the label, the ref on the row that holds the control). A control that is disabled is not focused, and a disabled field's label focuses nothing. A renderer that holds the control another way puts `view.focus` on what holds it.
 - An input that is to fill the field says so (`Input::full_width`).
 - Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
@@ -153,7 +172,7 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
 
 ## For `CHANGELOG.md`
 
-- A field finishes its control: an `Input` or a `Textarea` in it is called by its label and judged as it is, and a press of the label focuses the control (`FieldControl`, and `.focuses(&ElementRef)` on any element); `Field::disabled`; `Textarea` has `read_only`, the sizes Sm, Md, Lg (`TextareaSize`) and `warning` and `valid`; `Input::label`. `Field::new` takes a `FieldControl`: an engine node goes in with `.into()`.
+- A field finishes its control: an `Input` or a `Textarea` in it is called by its label and judged as it is, and a press of the label focuses the control (`FieldControl`, and `.focuses(&ElementRef)` on any element); `Field::disabled`; `Textarea` has `read_only`, the sizes Sm, Md, Lg (`TextareaSize`) and `warning` and `valid`; `Input::label`. Every control of the design system a form holds takes from a field what it has a prop for, and a field's description or error is its control's description to what reads the tree (`lurq_inspect` reports it, and `state.checked` of a design system's checkbox, radio or switch). `CheckboxGroup::label`, `RadioGroup::label`. `Field::new` takes a `FieldControl`: an engine node goes in with `.into()`.
 
 ## Decided
 
@@ -161,10 +180,23 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
   until its own judgment is known, and gives it an `InField`: its label, its judgment, whether it is disabled.
   Rust has no specialization, so the trait cannot be implemented for everything that converts into an `Element` and,
   apart from that, for `Input`: it is implemented for `Element`, for `Input` and `Textarea`, and, as they are, for
-  every other component of the design system and for `Row`, `Column` and `Stack` (`as_they_are!` in `field.rs`). An
-  engine node of another kind goes in with `.into()`: that is the one break of `Field::new`'s signature, which took
-  `impl Into<Element>`. A component that comes to take what a field says (Select, Checkbox, RadioGroup) implements
-  the trait in its own file and is taken off the list in `field.rs`, the one line that must change there.
+  each control of the design system a form holds, each in its own file; what a field cannot tell anything (`Button`,
+  `ButtonGroup`, `Fab`, `Link`, `Toggle`, `Row`, `Column`, `Stack`) is in `as_they_are!` in `field.rs`. An engine
+  node of another kind goes in with `.into()`: that is the one break of `Field::new`'s signature, which took
+  `impl Into<Element>`.
+- **A control whose own label is shown keeps it as its name** (a checkbox, a radio, a switch): the text beside it is
+  what a person reads as its name. Where it is hidden, the label a person reads is the field's, and the field's is
+  its name, though the app gave the control one: a name that holds the visible label is what WCAG asks.
+- **A checkbox's or a radio's judgment is a bool**, so a field's invalid is or'ed with it: "the app judged it valid"
+  cannot be said of it.
+- **The description is given by the field, not by each control**: a walk over the built control (only where there
+  is tooling to keep it, as every `a11y_` attribute) puts it on the outermost nodes that say what they are or take the
+  focus, or on the root where none does. It is laid on with `decorate_root`, so a control that is a component keeps
+  it when it renders again by itself. `InField::description` carries it too, for a control of an app's own.
+- **A tap focuses through `.focuses` as a click does.** A tap is a press and a release of the pointer
+  (`touch_tap`), so its click goes through the same dispatch. A finger in a text input keeps it the focus when it
+  taps elsewhere, unless what it taps takes the focus; a tapped label's request is applied all the same, so the
+  focus moves to the label's control. `a_tap_of_the_label_focuses_the_input_even_from_another_text_input` shows it.
 - **The app's word on the control wins.** An input the app judged keeps its judgment in a field with another; an
   input with a `label` keeps its name; a field's `disabled` is or'ed with the input's.
 - **The label focuses through the engine, not through the field's `Ctx`.** A builder has none. A node says "a click
@@ -194,20 +226,14 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
   stays a stop of Tab, selectable and copyable. A textarea's `on_change` is not called for a refused edit.
 - **The textarea's placeholder takes the text's type**, with what its own part lays over it, as the input's does: its
   rules no longer repeat the body's type and the line of 1.5.
-- **The name is tested through the view.** `describe("a11y_name", ..)` records nothing unless `devtools` or `mcp` is
-  on, and the ui tests are compiled with neither; `InputView::label` and `TextareaView::label` say the name, and the
-  tests read them from a theme's renderer.
+- **The `a11y_` attributes are tested through the MCP server.** `describe` records nothing unless `devtools` or `mcp`
+  is on, and the ui tests are compiled with neither: `mcp_field_tests.rs` reads, through `lurq_inspect` as an agent
+  does, the name, role, description, value and invalid of an input in a field, the name, checked state and
+  description of a checkbox, the name and description of a radio group and the names and checked states of its
+  radios, and the name and checked state of a switch whose label is hidden. The ui tests read the name through
+  `InputView::label` and `TextareaView::label`.
 
 ## Not done
-
-- **Select, Checkbox, RadioGroup do not take what a field says yet**: they are in `as_they_are!` until they implement
-  `FieldControl`. A field's `disabled` does not reach them, and a press of the label focuses them without naming them.
-- **A field's description is not the control's description** to what reads the tree (`aria-describedby`): no
-  attribute for it was named, and the error is not read with the control.
-- **`.focuses` acts on a left click in the pointer's dispatch only.** Whether a tap reaches it depends on the touch
-  path making a click of it, which was not checked. Nothing focuses the control from a label by the keyboard, as in
-  a browser.
-- **No test reads the `a11y_*` attributes themselves**, for the reason under Decided.
 
 ## Differs from the board
 

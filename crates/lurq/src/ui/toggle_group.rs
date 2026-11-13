@@ -221,3 +221,11 @@ impl Themed for ToggleGroup {
       .base(Separator, |s| s.width(1.0).background(Input))
   }
 }
+
+impl super::FieldControl for ToggleGroup {
+  /// Disabled where the field is. Each toggle is called by its own label, and the group has no judgment.
+  fn in_field(mut self, field: &super::InField) -> Element {
+    self.disabled |= field.disabled;
+    self.into()
+  }
+}
