@@ -21,7 +21,7 @@ Column::new()
   .child(Text::new("Settings").variant(TypographyStyle::Title))
   .child(
     Rect::new(120.0, 36.0)
-      .background(PaletteColor::Accent)
+      .background(PaletteColor::Primary)
       .border_inside(BorderSize::Sm, PaletteColor::Border)
       .rounded(RadiusSize::Md),
   )
@@ -33,14 +33,14 @@ Column::new()
 
 ```rust
 let theme = app.theme();
-theme.set_palette_color(PaletteColor::Accent, lurq::node::color::Color::from_hex("#2563eb"));
+theme.set_palette_color(PaletteColor::Primary, lurq::node::color::Color::from_hex("#2563eb"));
 tree.mount_root::<Root>(&mut app, ());
 ```
 
 Inside components:
 
 ```rust
-let accent = ctx.theme().palette_color(PaletteColor::Accent);
+let accent = ctx.theme().palette_color(PaletteColor::Primary);
 let gap = ctx.theme().spacing_value(SpacingSize::Sm);
 ```
 
@@ -74,8 +74,8 @@ Use `theme.lens(getter, setter)` when UI code needs a focused mutable handle for
 use lurq::{app::theme::PaletteColor, node::color::Color};
 
 let brand = ctx.theme().lens(
-  |theme| theme.palette_color(PaletteColor::Accent),
-  |theme, color| theme.set_palette_color(PaletteColor::Accent, color),
+  |theme| theme.palette_color(PaletteColor::Primary),
+  |theme, color| theme.set_palette_color(PaletteColor::Primary, color),
 );
 
 brand.set(Color::from_hex("#2563eb"));
@@ -83,46 +83,76 @@ brand.set(Color::from_hex("#2563eb"));
 
 ## Palette
 
-Palette roles are named by `PaletteColor` and stored as public fields on `ThemePalette`.
+Palette roles are named by `PaletteColor` and stored as public fields on `ThemePalette`. The roles and their colors
+are the design's (`pencil/lurq-design-system.pen`), in a light set and a dark one. A surface comes with the color of
+what is drawn on it (`Card` and `CardForeground`), and a fill a control takes comes with its color under the pointer
+(`Primary` and `PrimaryHover`).
 
 ```rust
-use lurq::{app::theme::PaletteColor, node::color::Color};
+use lurq::{app::theme::{PaletteColor, ThemePalette}, node::color::Color};
 
-app.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
+// One role, in the palette the theme is in now.
+app.theme().set_palette_color(PaletteColor::Primary, Color::from_hex("#7c3aed"));
 
-let mut palette = lurq::app::theme::ThemePalette::default();
-palette.surface_base = Color::from_hex("#ffffff");
-palette.border_focus = Color::from_hex("#2563eb");
-app.theme().set_palette(palette);
+// A palette for each appearance: the theme takes the one for the appearance it is in.
+let mut light = ThemePalette::light();
+light.primary = Color::from_hex("#7c3aed");
+let mut dark = ThemePalette::dark();
+dark.primary = Color::from_hex("#a78bfa");
+app.theme().set_palettes(light, dark);
 ```
 
-Available roles:
+`ThemePalette::light()` and `ThemePalette::dark()` are the design's two palettes, and a theme has both unless it is
+given others: it is in the dark one when the system is dark (see [The System's Settings](#the-systems-settings)).
+`ThemePalette::default()` is the light one. `set_palette(palette)` sets the palette the theme is in now, and
+`set_palettes(light, dark)` both.
 
-| `PaletteColor` | `ThemePalette` field | Default |
-| --- | --- | --- |
-| `Accent` | `accent` | `#2563eb` |
-| `AccentHover` | `accent_hover` | `#1d4ed8` |
-| `AccentMuted` | `accent_muted` | `#dbeafe` |
-| `SurfaceBase` | `surface_base` | `#ffffff` |
-| `SurfacePanel` | `surface_panel` | `#f8fafc` |
-| `SurfaceRaised` | `surface_raised` | `#ffffff` |
-| `SurfaceInput` | `surface_input` | `#ffffff` |
-| `Border` | `border` | `#e2e8f0` |
-| `BorderStrong` | `border_strong` | `#94a3b8` |
-| `BorderFocus` | `border_focus` | `#2563eb` |
-| `TextPrimary` | `text_primary` | `#0f172a` |
-| `TextSecondary` | `text_secondary` | `#334155` |
-| `TextMuted` | `text_muted` | `#64748b` |
-| `TextInverse` | `text_inverse` | `#ffffff` |
-| `Foreground` | `foreground` | `#000000`: the color of text that names none, see [Foreground](../styling-events/#the-themes-foreground) |
-| `Success` | `success` | `#16a34a` |
-| `SuccessMuted` | `success_muted` | `#dcfce7` |
-| `Warning` | `warning` | `#d97706` |
-| `WarningMuted` | `warning_muted` | `#fef3c7` |
-| `Danger` | `danger` | `#dc2626` |
-| `DangerMuted` | `danger_muted` | `#fee2e2` |
-| `Info` | `info` | `#0284c7` |
-| `InfoMuted` | `info_muted` | `#e0f2fe` |
+| `PaletteColor` | `ThemePalette` field | Light | Dark | For |
+| --- | --- | --- | --- | --- |
+| `Background` | `background` | `#ffffff` | `#09090b` | The window behind everything |
+| `Foreground` | `foreground` | `#09090b` | `#fafafa` | Text and icons on the background, and the color of text that names none (see [Foreground](../styling-events/#the-themes-foreground)) |
+| `Card` | `card` | `#ffffff` | `#18181b` | A surface raised off the background: a card, a panel |
+| `CardForeground` | `card_foreground` | `#09090b` | `#fafafa` | Text on a card |
+| `Popover` | `popover` | `#ffffff` | `#18181b` | A surface that floats over the page: a menu, a popover, a dialog |
+| `PopoverForeground` | `popover_foreground` | `#09090b` | `#fafafa` | Text on a popover |
+| `Primary` | `primary` | `#18181b` | `#e4e4e7` | The main action: a primary button, a checked box, a selected tab |
+| `PrimaryForeground` | `primary_foreground` | `#fafafa` | `#18181b` | Text on the primary fill |
+| `PrimaryHover` | `primary_hover` | `#3f3f46` | `#fafafa` | The primary fill under the pointer |
+| `Secondary` | `secondary` | `#e4e4e9` | `#27272a` | A quieter fill, for an action that is not the main one |
+| `SecondaryForeground` | `secondary_foreground` | `#18181b` | `#fafafa` | Text on the secondary fill |
+| `SecondaryHover` | `secondary_hover` | `#d4d4db` | `#3f3f46` | The secondary fill under the pointer |
+| `Muted` | `muted` | `#e4e4e9` | `#27272a` | A fill that recedes: a track, a skeleton, a disabled field |
+| `MutedForeground` | `muted_foreground` | `#5c5c66` | `#a1a1aa` | Text that says less: a description, a placeholder, a caption |
+| `Highlight` | `highlight` | `#e4e4e9` | `#27272a` | The fill of the item the pointer or the keyboard is on: a menu item, a list row |
+| `HighlightForeground` | `highlight_foreground` | `#18181b` | `#fafafa` | Text on the highlight |
+| `Destructive` | `destructive` | `#dc2626` | `#ef4444` | An action that removes or cannot be undone, and an error |
+| `DestructiveForeground` | `destructive_foreground` | `#fafafa` | `#fafafa` | Text on the destructive fill |
+| `DestructiveHover` | `destructive_hover` | `#b91c1c` | `#dc2626` | The destructive fill under the pointer |
+| `DestructiveMuted` | `destructive_muted` | `#fee2e2` | `#3b1212` | The tinted background of an error message |
+| `Success` | `success` | `#16a34a` | `#22c55e` | Something went well |
+| `SuccessMuted` | `success_muted` | `#dcfce7` | `#0f2e1b` | The tinted background of a success message |
+| `Warning` | `warning` | `#b45309` | `#f59e0b` | Something needs attention |
+| `WarningMuted` | `warning_muted` | `#fef3c7` | `#33240a` | The tinted background of a warning |
+| `Info` | `info` | `#2563eb` | `#60a5fa` | Something to know |
+| `InfoMuted` | `info_muted` | `#dbeafe` | `#132544` | The tinted background of a note |
+| `Border` | `border` | `#cdcdd3` | `#27272a` | A line between things: a separator, the edge of a card |
+| `Input` | `input` | `#9a9aa5` | `#3f3f46` | The edge of a control that takes input: a field, a checkbox |
+| `Ring` | `ring` | `#71717a` | `#71717a` | The focus ring |
+| `StateHover` | `state_hover` | `#0000000a` | `#ffffff0f` | A veil over whatever is under the pointer, on any fill |
+| `StatePressed` | `state_pressed` | `#00000014` | `#ffffff1f` | A veil over whatever is pressed, on any fill |
+| `Canvas` | `canvas` | `#f0f0f3` | `#09090b` | The area behind panels and cards: a workspace, a side bar |
+| `Scrim` | `scrim` | `#00000066` | `#00000099` | The veil a dialog draws over the page |
+| `Selection` | `selection` | `#bfdbfe` | `#1e3a8a` | Selected text |
+| `Chart1` | `chart_1` | `#2563eb` | `#3b82f6` | The first series of a chart |
+| `Chart2` | `chart_2` | `#0d9488` | `#2dd4bf` | The second series |
+| `Chart3` | `chart_3` | `#d97706` | `#f59e0b` | The third series |
+| `Chart4` | `chart_4` | `#7c3aed` | `#a78bfa` | The fourth series |
+| `Chart5` | `chart_5` | `#db2777` | `#f472b6` | The fifth series |
+| `GlassThin` | `glass_thin` | `#ffffff59` | `#18181b59` | The tint of thin glass, over a backdrop blur |
+| `GlassRegular` | `glass_regular` | `#ffffff99` | `#18181b99` | The tint of regular glass |
+| `GlassThick` | `glass_thick` | `#ffffffcc` | `#18181bcc` | The tint of thick glass |
+
+The last two digits of an eight-digit color are its opacity: a veil and a glass tint are mostly clear.
 
 `PaletteColor::Extra(name)` names an application-defined color stored in `ThemePalette::extra`, a `HashMap<Arc<str>, Color>`. Build one with `PaletteColor::extra("brand")`; a `&str` or `Arc<str>` converts into it, so the theme setters accept names directly:
 
@@ -138,9 +168,44 @@ Palette roles can be passed anywhere a background or text color accepts a theme 
 ```rust
 use lurq::{app::theme::PaletteColor, components::{Rect, Text}};
 
-Rect::new(80.0, 32.0).background(PaletteColor::Accent);
-Text::new("Muted").color(PaletteColor::TextMuted);
+Rect::new(80.0, 32.0).background(PaletteColor::Primary);
+Text::new("Muted").color(PaletteColor::MutedForeground);
 ```
+
+A window whose root paints no background is cleared to `Background`, so an app that sets no colors at all is dark
+when the theme is, under text that takes the dark `Foreground`.
+
+### Deprecated Roles
+
+The roles of lurq 0.60 are deprecated, each in favor of one of the design's. They still compile, with a warning that
+names the replacement; the [migration guide](../migration-v0-61/) has what to change.
+
+| Deprecated | Use | In `ThemePalette::legacy()` |
+| --- | --- | --- |
+| `Accent` | `Primary` | `#2563eb` |
+| `AccentHover` | `PrimaryHover` | `#1d4ed8` |
+| `AccentMuted` | `Highlight` | `#dbeafe` |
+| `SurfaceBase` | `Background` | `#ffffff` |
+| `SurfacePanel` | `Canvas` | `#f8fafc` |
+| `SurfaceRaised` | `Card` | `#ffffff` |
+| `SurfaceInput` | `Background` | `#ffffff` |
+| `BorderStrong` | `Input` | `#94a3b8` |
+| `BorderFocus` | `Ring` | `#2563eb` |
+| `TextPrimary` | `Foreground` | `#0f172a` |
+| `TextSecondary` | `MutedForeground` | `#334155` |
+| `TextMuted` | `MutedForeground` | `#64748b` |
+| `TextInverse` | `PrimaryForeground` | `#ffffff` |
+| `Danger` | `Destructive` | `#dc2626` |
+| `DangerMuted` | `DestructiveMuted` | `#fee2e2` |
+
+- A deprecated role still has a color of its own. In the design's palettes it is the color of its replacement.
+- Setting a role also sets the deprecated roles it replaces, so what still reads them follows: `Select`, the form
+  controls, and a checkbox or a slider with no style of its own read the deprecated roles until they are rebuilt on
+  the new ones.
+- Setting a deprecated role sets only that role.
+- `ThemePalette::legacy()` is the palette of 0.60, color for color. The roles 0.60 did not have take the 0.60 color
+  nearest to what they are for (`primary` is the accent, `canvas` the panel surface), text that names no color is
+  black, and there is no dark set.
 
 ## Typography
 
@@ -371,7 +436,7 @@ app.theme().set_border_size_value(BorderSize::Md, 2.0);
 
 Rect::new(100.0, 40.0)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
-  .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::BorderFocus));
+  .focused(|style| style.border_inside(BorderSize::Md, PaletteColor::Ring));
 ```
 
 ## Shadow
@@ -399,7 +464,7 @@ app.theme().set_shadow_style(ShadowStyle::Md, vec![
 ]);
 
 Rect::new(240.0, 120.0)
-  .background(PaletteColor::SurfaceRaised)
+  .background(PaletteColor::Card)
   .rounded(RadiusSize::Lg)
   .box_shadow(ShadowStyle::Md)
   .hovered(|style| style.box_shadow(ShadowStyle::Lg));
@@ -535,6 +600,8 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 
 ## Form Theme
 
+The form theme names the palette roles of lurq 0.60, which are [deprecated](#deprecated-roles) and still work: each follows the role that replaces it, so a theme set through the new roles reaches the form controls. The tables below show the roles as the form theme has them. The form controls move to the new roles when they are rebuilt with the design system's components.
+
 Form theme roles require the `form` feature:
 
 ```toml
@@ -558,7 +625,7 @@ use lurq::app::theme::{FormTextRole, PaletteColor, TypographyStyle};
 
 FormTextRole {
   typography: TypographyStyle::Caption,
-  color: PaletteColor::TextMuted,
+  color: PaletteColor::MutedForeground,
 };
 ```
 
@@ -642,13 +709,13 @@ let mut form = app.theme().form().clone();
 
 form.field.label = FormTextRole {
   typography: TypographyStyle::Label,
-  color: PaletteColor::TextSecondary,
+  color: PaletteColor::MutedForeground,
 };
 
 form.input.radius = RadiusSize::Lg;
 form.input.border_focus = PaletteColor::Info;
 form.button.primary.background = PaletteColor::Success;
-form.button.primary.background_hover = PaletteColor::AccentHover;
+form.button.primary.background_hover = PaletteColor::PrimaryHover;
 
 app.theme().set_form(form);
 ```

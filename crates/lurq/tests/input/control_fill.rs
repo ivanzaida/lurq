@@ -18,8 +18,8 @@ const BORDER: &str = "#334155";
 fn fills(root: impl Into<Element>) -> Vec<Color> {
   let mut app = App::new();
   let theme = app.theme();
-  theme.set_palette_color(PaletteColor::SurfaceInput, Color::from_hex(SURFACE));
-  theme.set_palette_color(PaletteColor::Accent, Color::from_hex(ACCENT));
+  theme.set_palette_color(PaletteColor::Background, Color::from_hex(SURFACE));
+  theme.set_palette_color(PaletteColor::Primary, Color::from_hex(ACCENT));
   theme.set_palette_color(PaletteColor::Border, Color::from_hex(BORDER));
   let mut tree = Tree::new();
   tree.set_root(root.into());

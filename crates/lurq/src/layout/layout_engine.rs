@@ -73,6 +73,13 @@ use flex_shrink::{FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_li
 pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
+/// What a checked box and a slider fill with when nothing styles them, and what an unchecked box does. The
+/// roles are those of lurq 0.60, which an app may still set: each follows the role that replaces it
+/// (`app/theme/palette.rs`).
+#[allow(deprecated)]
+const CONTROL_FILL: PaletteColor = PaletteColor::Accent;
+#[allow(deprecated)]
+const CONTROL_BLANK: PaletteColor = PaletteColor::SurfaceInput;
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
 const DEFAULT_SLIDER_WIDTH: f32 = 120.0;
@@ -1884,12 +1891,12 @@ impl LayoutEngine {
         let color = if checked {
           style
             .color
-            .unwrap_or_else(|| self.default_control_fill(state.part_styled(true), PaletteColor::Accent))
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(true), CONTROL_FILL))
         } else {
           style
             .color
             .or_else(|| node.resolved_color(&self.palette.borrow()))
-            .unwrap_or_else(|| self.default_control_fill(state.part_styled(false), PaletteColor::SurfaceInput))
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(false), CONTROL_BLANK))
         };
         push_checkbox_quads(
           quads,
@@ -1986,7 +1993,7 @@ impl LayoutEngine {
           &thumb_style,
           thumb_style
             .color
-            .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), PaletteColor::Accent)),
+            .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), CONTROL_FILL)),
           Some(
             thumb_style
               .border_radius
@@ -4668,7 +4675,7 @@ mod tests {
     let node: Node = Element::from(
       Row::new()
         .spacing(SpacingSize::Md)
-        .child(Rect::new(10.0, 10.0).background(PaletteColor::Accent))
+        .child(Rect::new(10.0, 10.0).background(PaletteColor::Primary))
         .child(Text::new("label")),
     )
     .into_node();
@@ -4680,7 +4687,7 @@ mod tests {
       let theme = Theme::new();
       theme.set_spacing_value(SpacingSize::Md, spacing);
       theme.set_default_text_style(style(font_size));
-      theme.set_palette_color(PaletteColor::Accent, Color::from_hex(accent));
+      theme.set_palette_color(PaletteColor::Primary, Color::from_hex(accent));
       theme
     };
     // A pass as the runtime runs it: a changed theme forces a relayout.
@@ -4707,7 +4714,7 @@ mod tests {
 
     theme.set_spacing_value(SpacingSize::Md, 9.0);
     theme.set_default_text_style(style(30.0));
-    theme.set_palette_color(PaletteColor::Accent, Color::from_hex("#445566"));
+    theme.set_palette_color(PaletteColor::Primary, Color::from_hex("#445566"));
     let (gap, height, accent, font_size) = pass(&mut glyph_engine, &theme, true);
     assert_eq!(gap, 19.0, "the new spacing lays out");
     assert!(height > small_height, "the new typography lays out");

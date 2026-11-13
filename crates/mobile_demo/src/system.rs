@@ -24,7 +24,7 @@ pub(crate) fn system(ctx: &mut Ctx) -> Element {
     .padding(14.0)
     .spacing(6.0)
     .rounded(10.0)
-    .background(PaletteColor::SurfaceBase)
+    .background(PaletteColor::Background)
     .border_inside(1.0, PaletteColor::Border);
   for (name, style) in [
     ("Heading", TypographyStyle::Heading),
@@ -39,7 +39,7 @@ pub(crate) fn system(ctx: &mut Ctx) -> Element {
     themed = themed.child(
       Text::new(name)
         .variant(style)
-        .color(PaletteColor::TextPrimary)
+        .color(PaletteColor::Foreground)
         .width(FILL),
     );
   }

@@ -16,7 +16,8 @@ use crate::support::TestSurface;
 const RED: Color = Color::new(200, 30, 30, 255);
 const BLUE: Color = Color::new(30, 60, 200, 255);
 const GREEN: Color = Color::new(20, 160, 80, 255);
-const BLACK: Color = Color::new(0, 0, 0, 255);
+/// The theme's foreground: what text that names no color is drawn in.
+const INK: Color = Color::new(9, 9, 11, 255);
 
 fn painted(app: &mut App, root: impl Into<Element>) -> Tree {
   let mut tree = Tree::new();
@@ -70,9 +71,9 @@ fn a_foreground_ends_with_the_element_that_set_it() {
       .child(Text::new("after")),
   );
 
-  assert_eq!(color_of(&tree, "before"), BLACK);
+  assert_eq!(color_of(&tree, "before"), INK);
   assert_eq!(color_of(&tree, "inside"), RED);
-  assert_eq!(color_of(&tree, "after"), BLACK);
+  assert_eq!(color_of(&tree, "after"), INK);
 }
 
 #[test]
@@ -92,7 +93,7 @@ fn text_with_no_foreground_above_keeps_its_typography_color() {
       .child(Text::new("caption").variant(TypographyStyle::Caption)),
   );
 
-  assert_eq!(color_of(&tree, "body"), BLACK);
+  assert_eq!(color_of(&tree, "body"), INK);
   assert_eq!(color_of(&tree, "caption"), GREEN);
 }
 
@@ -146,14 +147,16 @@ fn a_text_can_set_its_own_foreground() {
 #[test]
 fn a_palette_role_as_foreground_follows_the_theme() {
   let mut app = App::new();
-  app.theme().set_palette_color(PaletteColor::Accent, RED);
+  app.theme().set_palette_color(PaletteColor::Primary, RED);
   let mut tree = painted(
     &mut app,
-    Column::new().foreground(PaletteColor::Accent).child(Text::new("label")),
+    Column::new()
+      .foreground(PaletteColor::Primary)
+      .child(Text::new("label")),
   );
   assert_eq!(color_of(&tree, "label"), RED);
 
-  app.theme().set_palette_color(PaletteColor::Accent, BLUE);
+  app.theme().set_palette_color(PaletteColor::Primary, BLUE);
   tree.pass(&mut app, &TestSurface);
 
   assert_eq!(color_of(&tree, "label"), BLUE);
@@ -203,7 +206,7 @@ fn the_content_of_a_popup_starts_from_no_foreground() {
   tree.pass(&mut app, &TestSurface);
 
   assert_eq!(color_of(&tree, "anchor"), RED);
-  assert_eq!(color_of(&tree, "in popup"), BLACK);
+  assert_eq!(color_of(&tree, "in popup"), INK);
 }
 
 #[test]
@@ -249,8 +252,8 @@ fn the_themes_foreground_is_a_role_like_any_other() {
   let mut app = App::new();
   assert_eq!(
     app.theme().palette_color(PaletteColor::Foreground),
-    BLACK,
-    "the color text had before the role"
+    INK,
+    "the foreground of the design"
   );
   let mut tree = painted(
     &mut app,
@@ -258,7 +261,7 @@ fn the_themes_foreground_is_a_role_like_any_other() {
       .child(Text::new("body"))
       .child(Text::new("role").color(PaletteColor::Foreground)),
   );
-  assert_eq!(color_of(&tree, "body"), BLACK);
+  assert_eq!(color_of(&tree, "body"), INK);
 
   app.theme().set_palette_color(PaletteColor::Foreground, GREEN);
   tree.request_redraw();

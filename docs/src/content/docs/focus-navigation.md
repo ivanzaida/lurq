@@ -107,12 +107,12 @@ use lurq::{
 Button::new("Save")
   .tab_index(0)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
-  .focus_visible(|style| style.border_inside(BorderSize::Sm, PaletteColor::BorderFocus));
+  .focus_visible(|style| style.border_inside(BorderSize::Sm, PaletteColor::Ring));
 ```
 
 A [disabled](../styling-events/#disabled) element and everything in it take no focus: Tab passes them by and focus requests on them are ignored.
 
-Use `.focused(...)` / `.focused_style(...)` for a style on any focus, and `.focus_visible(...)` / `.focus_visible_style(...)` for a focus ring. A ring that sits outside the control and moves nothing is an [outline](../styling-events/#outline): `.focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::BorderFocus).offset(2.0)))`.
+Use `.focused(...)` / `.focused_style(...)` for a style on any focus, and `.focus_visible(...)` / `.focus_visible_style(...)` for a focus ring. A ring that sits outside the control and moves nothing is an [outline](../styling-events/#outline): `.focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::Ring).offset(2.0)))`.
 
 Controls whose visuals are drawn from part styles have part-level focus styles, layered like their hovered styles. They show while the control is focus-visible, like the native focus ring of a browser's checkbox, range input and select: a click or a drag does not show them, Tab or a key press does. They change paint only; a width or height in them is ignored so focus never moves layout:
 
@@ -125,7 +125,7 @@ Controls whose visuals are drawn from part styles have part-level focus styles, 
 
 For a checkbox, slider or select that should mark every focus, put a `.focused(...)` style on the control itself.
 
-The compound form controls take their focus border from the form theme: `form.input.border_focus`, `form.checkbox.border_focus`, `form.slider.thumb_border_focus`, and `border_focus` on both `form.button` roles, all `PaletteColor::BorderFocus` by default. The buttons, the checkbox and the slider draw it while focus-visible; the text input draws it for any focus. See [Form Theme](../theme/#form-theme).
+The compound form controls take their focus border from the form theme: `form.input.border_focus`, `form.checkbox.border_focus`, `form.slider.thumb_border_focus`, and `border_focus` on both `form.button` roles, all `PaletteColor::Ring` by default. The buttons, the checkbox and the slider draw it while focus-visible; the text input draws it for any focus. See [Form Theme](../theme/#form-theme).
 
 ## Testing Focus
 

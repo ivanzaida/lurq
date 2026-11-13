@@ -159,23 +159,25 @@ const VIDEO_TIMELINE_SAMPLE_INTERVAL_MS: u64 = 1_000;
 const SLOW_FRAME_PASS_TIMELINE_THRESHOLD: Duration = Duration::from_millis(16);
 const PASS_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
-const DEFAULT_CLEAR_COLOR: Color = Color::new(255, 255, 255, 255);
 
 /// The frame clear colour: the app root's background, with palette roles
 /// resolved through the theme. The synthetic overlay host that wraps the root
-/// while modals or overlays are mounted is skipped. Only a root without a
-/// resolvable background falls back to white. Root rect edges are anti-aliased
-/// against this colour, so clearing a dark app to white could show a light seam
-/// at the window edge.
+/// while modals or overlays are mounted is skipped. A root without a
+/// resolvable background is cleared to the theme's `Background`: white in the
+/// light palette, so an app that paints no background of its own is dark when
+/// the theme is, under text that takes the theme's foreground. Root rect edges
+/// are anti-aliased against this colour, so clearing a dark app to white could
+/// show a light seam at the window edge.
 fn root_clear_color(root: Option<&Node>, app: &App) -> Color {
   let base = match root {
     Some(host) if host.has_synthetic_role(SyntheticNodeRole::OverlayHost) => host.children.first(),
     root => root,
   };
+  let palette = app.theme().palette();
   base
     .and_then(Node::background_color)
-    .and_then(|color| color.resolve(&app.theme().palette()))
-    .unwrap_or(DEFAULT_CLEAR_COLOR)
+    .and_then(|color| color.resolve(&palette))
+    .unwrap_or(palette.background)
 }
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 #[cfg(feature = "devtools")]

@@ -277,7 +277,7 @@ use lurq::{
   node::color::Color,
 };
 
-ctx.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
+ctx.theme().set_palette_color(PaletteColor::Primary, Color::from_hex("#2563eb"));
 ctx.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 
 ctx.theme().set_typography_style(TypographyStyle::Body, TextStyle {
@@ -294,7 +294,7 @@ font_size: 13.0,
 );
 ```
 
-Use strict theme keys with APIs such as `.background(PaletteColor::Accent)`,
+Use strict theme keys with APIs such as `.background(PaletteColor::Primary)`,
 `Text::new("Label").variant(TypographyStyle::Label)`, `.rounded(RadiusSize::Md)`, `.spacing(SpacingSize::Sm)`, and
 `.padding(SpacingSize::Md)`. The lookup methods `palette_color`, `typography_style`, `radius_value`, and `spacing_value`
 are also available when component code needs the concrete value.
@@ -305,8 +305,8 @@ one theme value:
 
 ```rust
 let brand = ctx.theme().lens(
-| theme| theme.palette_color(PaletteColor::Accent),
-move | theme, color| theme.set_palette_color(PaletteColor::Accent, color),
+| theme| theme.palette_color(PaletteColor::Primary),
+move | theme, color| theme.set_palette_color(PaletteColor::Primary, color),
 );
 
 brand.set(Color::from_hex("#2563eb"));

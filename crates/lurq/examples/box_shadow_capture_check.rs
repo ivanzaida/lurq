@@ -81,7 +81,7 @@ fn main() {
   fn scene() -> Element {
     let card = |shadow: ShadowStyle| {
       Rect::new(80.0, 56.0)
-        .background(PaletteColor::SurfaceRaised)
+        .background(PaletteColor::Card)
         .rounded(10.0)
         .box_shadow(shadow)
     };
@@ -116,7 +116,7 @@ fn main() {
               // A hard, spread, offset shadow at half opacity.
               .child(
                 Rect::new(64.0, 56.0)
-                  .background(PaletteColor::Accent)
+                  .background(PaletteColor::Primary)
                   .opacity(0.5)
                   .box_shadow(BoxShadow::new(6.0, 6.0, 0.0, "#1f2937").spread(2.0)),
               ),

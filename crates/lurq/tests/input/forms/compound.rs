@@ -220,7 +220,8 @@ fn builtin_form_text_input_focus_style_renders_on_input_frame() {
 
   pointer_click(&mut tree, x, y, MouseButton::Left);
   let focused = render_pass(&mut tree);
-  let focused_border = Color::from_hex("#2563eb");
+  // The ring of the design, which the form theme's focus border follows.
+  let focused_border = Color::from_hex("#71717a");
   let focused_borders = focused
     .rects
     .iter()
@@ -338,7 +339,7 @@ fn focus_app() -> App {
   let app = App::new();
   app
     .theme()
-    .set_palette_color(PaletteColor::BorderFocus, Color::from_hex(FOCUS_BORDER));
+    .set_palette_color(PaletteColor::Ring, Color::from_hex(FOCUS_BORDER));
   app
 }
 

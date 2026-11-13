@@ -62,7 +62,7 @@ Row::new()
   .foreground("#fafafa")
   .child(Text::new("Inbox"))
   .child(Text::new("Unread"))
-  .child(Text::new("12").color(PaletteColor::TextMuted))
+  .child(Text::new("12").color(PaletteColor::MutedForeground))
 ```
 
 - The color is a concrete color or a `PaletteColor`, which follows the theme.
@@ -228,7 +228,7 @@ Gradient::linear(90.0, ["#f00", "#0f0", "#00f"]);
 // Explicit positions and a palette color (lurq::app::theme::PaletteColor).
 Gradient::linear(90.0, [
   GradientStop::at("#000", 0.0),
-  GradientStop::at(PaletteColor::Accent, 0.4),
+  GradientStop::at(PaletteColor::Primary, 0.4),
   GradientStop::at("#fff", 1.0),
 ]);
 ```
@@ -314,7 +314,7 @@ use lurq::{
 
 Button::new("Save")
   .rounded(6.0)
-  .focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::BorderFocus).offset(2.0)))
+  .focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::Ring).offset(2.0)))
 ```
 
 - The width is logical pixels or a `BorderSize` role; the color is a concrete color or a `PaletteColor`.
@@ -979,7 +979,7 @@ SelectOption::new(Connection::Claude, "Claude Code")
 ```rust
 SelectOption::new(Connection::Codex, "Codex").leading_with(|state| {
   // The label's colour in this state, when the style sets one.
-  let color = state.text_color.clone().unwrap_or(PaletteColor::TextPrimary.into());
+  let color = state.text_color.clone().unwrap_or(PaletteColor::Foreground.into());
   mark(CODEX_MARK, color)
 })
 ```
@@ -1010,16 +1010,16 @@ use lurq::{
 
 // "icon" is an app typography role that selects the icon font at 14 px.
 let icon = |glyph: &str| SelectIcon::glyph(glyph, TypographyStyle::extra("icon"));
-let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::BorderFocus).spread(1.0).inset();
+let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::Ring).spread(1.0).inset();
 
 SelectStyle::new()
-  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::BorderFocus))
+  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::Ring))
   .chevron(icon("\u{e06d}"))
   .chevron_open(icon("\u{e070}"))
-  .chevron_color(PaletteColor::TextMuted)
+  .chevron_color(PaletteColor::MutedForeground)
   .menu(
     SelectPartStyle::new()
-      .background(PaletteColor::SurfaceRaised)
+      .background(PaletteColor::Card)
       .border_inside(1.0, PaletteColor::Border)
       .rounded(11.0)
       .padding(Padding::all(4.0))
@@ -1033,16 +1033,16 @@ SelectStyle::new()
       .rounded(7.0)
       .typography(TypographyStyle::Body),
   )
-  .option_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_hovered(SelectPartStyle::new().background(PaletteColor::Canvas))
   .option_selected(SelectPartStyle::new())
-  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::Canvas))
   .option_highlighted(SelectPartStyle::new().box_shadow(ring))
-  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::TextMuted))
+  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::MutedForeground))
   .single_checkmark(true)
   .checkmark(icon("\u{e06c}"))
   .checkmark_size(14.0)
   .checkmark_position(SelectCheckmarkPosition::Trailing)
-  .checkmark_color(PaletteColor::Accent)
+  .checkmark_color(PaletteColor::Primary)
 ```
 
 - An option row merges `option`, then `option_selected`, the pointer hover (`option_hovered`), the keyboard highlight, `option_selected_hovered`, the highlighted-and-selected part, and `option_disabled` last. Without `option_highlighted`, the keyboard highlight looks like the hover (`option_hovered`, `option_selected_hovered`). With it, the highlight has its own look, such as an inset ring from an inset `box_shadow`, which composes with the hover fill; `option_selected_highlighted` then styles a highlighted selected option. The pointer hover changes a row's fill, border and shadow.

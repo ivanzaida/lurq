@@ -109,7 +109,7 @@ impl Default for Theme {
   fn default() -> Self {
     Self {
       inner: Arc::new(RwLock::new(ThemeInner {
-        palette: ThemePalette::default(),
+        palette: ThemePalette::light(),
         border_sizes: ThemeBorderSizes::default(),
         spacing: ThemeSpacing::default(),
         radii: ThemeRadii::default(),
@@ -121,7 +121,7 @@ impl Default for Theme {
         base_typography: ThemeTypography::default(),
         text_scale: 1.0,
         bold_text: false,
-        palettes: None,
+        palettes: Some((ThemePalette::light(), ThemePalette::dark())),
         appearance: crate::app::window::Appearance::Light,
         follows_system: true,
         #[cfg(feature = "markdown")]

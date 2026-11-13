@@ -137,7 +137,7 @@ impl StyleDemo {
               .foreground("#f8fafc")
               .child(Text::new("Inbox"))
               .child(Text::new("Unread"))
-              .child(Text::new("12").color(PaletteColor::Accent)),
+              .child(Text::new("12").color(PaletteColor::Primary)),
           )
           .child(
             Row::new()

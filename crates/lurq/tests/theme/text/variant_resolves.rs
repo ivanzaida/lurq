@@ -69,10 +69,10 @@ fn text_color_accepts_palette_color() {
   let mut app = App::new();
   app
     .theme()
-    .set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
+    .set_palette_color(PaletteColor::Primary, Color::from_hex("#123456"));
 
   let mut tree = Tree::new();
-  tree.set_root(Text::new("Label").color(PaletteColor::Accent));
+  tree.set_root(Text::new("Label").color(PaletteColor::Primary));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(200.0, 80.0))));
   tree.pass(&mut app, &TestSurface);
 
@@ -115,7 +115,7 @@ fn text_color_and_variant_compose_in_either_order() {
   let mut app = App::new();
   app
     .theme()
-    .set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
+    .set_palette_color(PaletteColor::Primary, Color::from_hex("#123456"));
   app.theme().set_typography_style(
     TypographyStyle::Label,
     TextStyle {
@@ -128,7 +128,7 @@ fn text_color_and_variant_compose_in_either_order() {
   let mut tree = Tree::new();
   tree.set_root(
     Text::new("Label")
-      .color(PaletteColor::Accent)
+      .color(PaletteColor::Primary)
       .variant(TypographyStyle::Label),
   );
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(200.0, 80.0))));

@@ -70,18 +70,18 @@ fn bold_text_is_the_themes_to_tell_and_leaves_the_styles_as_set() {
 fn a_theme_with_a_palette_for_each_appearance_is_in_the_systems() {
   let theme = Theme::new();
   let (mut light, mut dark) = (ThemePalette::default(), ThemePalette::default());
-  light.set(PaletteColor::SurfaceBase, Color::from_hex("#ffffff"));
-  dark.set(PaletteColor::SurfaceBase, Color::from_hex("#000000"));
+  light.set(PaletteColor::Background, Color::from_hex("#ffffff"));
+  dark.set(PaletteColor::Background, Color::from_hex("#000000"));
   theme.set_palettes(light, dark);
   assert_eq!(
-    theme.palette_color(PaletteColor::SurfaceBase),
+    theme.palette_color(PaletteColor::Background),
     Color::from_hex("#ffffff")
   );
 
   theme.apply_system(&asked(|system| system.appearance = Appearance::Dark));
   assert_eq!(theme.appearance(), Appearance::Dark);
   assert_eq!(
-    theme.palette_color(PaletteColor::SurfaceBase),
+    theme.palette_color(PaletteColor::Background),
     Color::from_hex("#000000")
   );
 }

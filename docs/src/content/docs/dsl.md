@@ -299,12 +299,12 @@ use lurq::{
   node::color::Color,
 };
 
-app.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
+app.theme().set_palette_color(PaletteColor::Primary, Color::from_hex("#2563eb"));
 
 app.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 
 lurq::components::Rect::new(120.0, 40.0)
-  .background(PaletteColor::Accent)
+  .background(PaletteColor::Primary)
   .padding(SpacingSize::Sm)
   .border_inside(BorderSize::Sm, PaletteColor::Border)
   .rounded(RadiusSize::Md);

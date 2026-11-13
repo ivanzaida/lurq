@@ -486,7 +486,7 @@ fn trigger_fills(theme: impl FnOnce(&App), style: SelectStyle) -> Vec<Color> {
 fn default_trigger_fill_follows_the_theme_input_surface() {
   let surface = Color::from_hex("#1e293b");
   let fills = trigger_fills(
-    |app| app.theme().set_palette_color(PaletteColor::SurfaceInput, surface),
+    |app| app.theme().set_palette_color(PaletteColor::Background, surface),
     SelectStyle::new(),
   );
   assert_eq!(fills, [surface]);
@@ -539,8 +539,8 @@ fn explicit_trigger_background_is_painted_in_every_state() {
   );
   assert_eq!(fills, [fill]);
   let themed = trigger_fills(
-    |app| app.theme().set_palette_color(PaletteColor::SurfaceRaised, fill),
-    SelectStyle::unstyled().trigger(SelectPartStyle::new().background(PaletteColor::SurfaceRaised)),
+    |app| app.theme().set_palette_color(PaletteColor::Card, fill),
+    SelectStyle::unstyled().trigger(SelectPartStyle::new().background(PaletteColor::Card)),
   );
   assert_eq!(themed, [fill]);
 }
@@ -710,7 +710,7 @@ fn adornment_builder_follows_the_row_and_field_state() {
       .disabled(true),
   ];
   let style = SelectStyle::new()
-    .trigger(SelectPartStyle::new().text_color(PaletteColor::TextMuted))
+    .trigger(SelectPartStyle::new().text_color(PaletteColor::MutedForeground))
     .option_selected(SelectPartStyle::new().text_color(selected));
   let mut fixture = Fixture::build("md", options, style, false);
   let latest = |name: &str| {
@@ -724,7 +724,7 @@ fn adornment_builder_follows_the_row_and_field_state() {
 
   let field = latest("md").expect("the field builds the selected option's element");
   assert!(field.in_field && field.selected && !field.highlighted && !field.disabled);
-  assert_eq!(field.text_color, Some(PaletteColor::TextMuted.into()));
+  assert_eq!(field.text_color, Some(PaletteColor::MutedForeground.into()));
   assert!(latest("sm").is_none(), "a closed select builds no other element");
 
   seen.lock().unwrap().clear();

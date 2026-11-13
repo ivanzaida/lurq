@@ -76,6 +76,9 @@ impl ThemeTextMarks {
 }
 
 impl Default for ThemeTextMarks {
+  // The roles of lurq 0.60, which an app may still set: each follows the role that replaces it
+  // (`palette.rs`).
+  #[allow(deprecated)]
   fn default() -> Self {
     Self {
       bold: TextMarkStyle {

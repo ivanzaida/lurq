@@ -4,6 +4,7 @@ mod lens {
 
 mod palette {
   mod background_palette_resolves;
+  mod design_default;
 }
 
 mod subscription {

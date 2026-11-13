@@ -203,11 +203,11 @@ fn box_shadow_roles_resolve_through_the_theme() {
   let mut app = App::new();
   app.theme().set_shadow_style(
     ShadowStyle::extra("card"),
-    vec![BoxShadow::new(0.0, 3.0, 8.0, PaletteColor::Accent)],
+    vec![BoxShadow::new(0.0, 3.0, 8.0, PaletteColor::Primary)],
   );
   app
     .theme()
-    .set_palette_color(PaletteColor::Accent, Color::new(10, 20, 30, 255));
+    .set_palette_color(PaletteColor::Primary, Color::new(10, 20, 30, 255));
   let mut tree = Tree::new();
   tree.set_root(
     Column::new()

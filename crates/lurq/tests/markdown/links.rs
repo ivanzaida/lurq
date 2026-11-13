@@ -384,7 +384,8 @@ fn markdown_hover_state_recolors_words_trailing_runs_and_fills() {
   let spans = rich_text_quads(&hovered_quads)[0];
   assert_eq!(span(spans, "PR 42").style.color, Color::from_hex("#0000ee"));
   assert_eq!(span(spans, "\u{a0}github.com").style.color, Color::from_hex("#333333"));
-  assert_eq!(span(spans, "Open ").style.color, Color::from_hex("#000000"));
+  // Text that names no color: the theme's foreground.
+  assert_eq!(span(spans, "Open ").style.color, Color::from_hex("#09090b"));
   let fills = rects_of(&hovered_quads, Color::from_hex("#eeeeee"));
   assert_eq!(fills.len(), 1);
   let fill = fills[0];

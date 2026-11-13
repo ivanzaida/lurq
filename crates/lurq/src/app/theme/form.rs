@@ -1,3 +1,7 @@
+// `FormTheme` names the palette roles of lurq 0.60, which an app may still set: each follows the role that
+// replaces it (`palette.rs`). The form controls move to recipes with the components (D7).
+#![allow(deprecated)]
+
 use super::{BorderSize, PaletteColor, RadiusSize, SpacingSize, ThemePalette, ThemeTypography, TypographyStyle};
 use crate::{
   layout::text_style::TextStyle,

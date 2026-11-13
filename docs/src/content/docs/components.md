@@ -265,7 +265,7 @@ let controls = WindowControls::new()
   .content(WindowControlKind::Maximize, icon(ICON_MAXIMIZE))
   .content(WindowControlKind::Restore, icon(ICON_RESTORE))
   .content(WindowControlKind::Close, icon(ICON_CLOSE))
-  .foreground(PaletteColor::TextSecondary)
+  .foreground(PaletteColor::MutedForeground)
   .hover_background(PaletteColor::extra("chrome_hover"))
   .active_background(PaletteColor::extra("chrome_active"));
 ```
