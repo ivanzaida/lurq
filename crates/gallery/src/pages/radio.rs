@@ -39,10 +39,12 @@ pub struct RadioPage {
   frame: Frame,
   playground: Playground,
   chosen: Signal<usize>,
+  horizontal: Signal<bool>,
   invalid: Signal<bool>,
   disabled: Signal<bool>,
   last_disabled: Signal<bool>,
   density: Signal<usize>,
+  period: Signal<usize>,
   plan: Signal<&'static str>,
   /// The answer of a question that has none until it is given.
   answer: Signal<Option<bool>>,
@@ -53,6 +55,7 @@ impl RadioPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let chosen = self.chosen.get().min(DENSITIES.len() - 1);
     let (invalid, disabled, last_disabled) = (self.invalid.get(), self.disabled.get(), self.last_disabled.get());
+    let horizontal = self.horizontal.get();
     let choices = move || {
       DENSITIES
         .iter()
@@ -61,6 +64,7 @@ impl RadioPage {
     };
     let plain = move |choose: Box<dyn Fn(usize) + Send + Sync>| {
       RadioGroup::controlled(Some(chosen), choices(), choose)
+        .horizontal(horizontal)
         .invalid(invalid)
         .disabled(disabled)
     };
@@ -79,6 +83,9 @@ impl RadioPage {
       });
     }
     code.push("])".to_owned());
+    if horizontal {
+      code.push("    .horizontal(true)".to_owned());
+    }
     if invalid {
       code.push("    .invalid(true)".to_owned());
     }
@@ -86,7 +93,15 @@ impl RadioPage {
       code.push("    .disabled(true)".to_owned());
     }
 
-    let mut tree = vec![format!("root        {}   12 apart", self.playground.measured())];
+    let mut tree = vec![format!(
+      "root        {}   {}",
+      self.playground.measured(),
+      if horizontal {
+        "side by side, 24 apart"
+      } else {
+        "12 apart"
+      }
+    )];
     for (index, label) in DENSITIES.iter().enumerate() {
       let last = index + 1 == DENSITIES.len();
       let (branch, under) = if last { ("└─", " ") } else { ("├─", "│") };
@@ -103,7 +118,12 @@ impl RadioPage {
 
     let (to_chosen, flags) = (
       self.chosen.clone(),
-      [self.invalid.clone(), self.disabled.clone(), self.last_disabled.clone()],
+      [
+        self.horizontal.clone(),
+        self.invalid.clone(),
+        self.disabled.clone(),
+        self.last_disabled.clone(),
+      ],
     );
     self.playground.card(
       ctx,
@@ -118,12 +138,13 @@ impl RadioPage {
         code,
         tree,
         controls: vec![
+          flag("horizontal", &self.horizontal),
           flag("invalid", &self.invalid),
           flag("disabled", &self.disabled),
           divider(),
           flag("Spacious disabled", &self.last_disabled),
         ],
-        changed: [chosen != 0, invalid, disabled, last_disabled]
+        changed: [chosen != 0, horizontal, invalid, disabled, last_disabled]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -146,10 +167,12 @@ impl Component for RadioPage {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 0),
       chosen: ctx.signal(0),
+      horizontal: ctx.signal(false),
       invalid: ctx.signal(false),
       disabled: ctx.signal(false),
       last_disabled: ctx.signal(false),
       density: ctx.signal(1),
+      period: ctx.signal(1),
       plan: ctx.signal("team"),
       answer: ctx.signal(None),
     }
@@ -187,6 +210,10 @@ impl Component for RadioPage {
       ),
       &format!("the signal has: {:?}", self.plan.get()),
     ));
+    let row = items().child(item(
+      RadioGroup::new(self.period.clone(), [(0usize, "Day"), (1, "Week"), (2, "Month")]).horizontal(true),
+      &format!("the signal has: {}", self.period.get()),
+    ));
     let answer = self.answer.get();
     let set = self.answer.clone();
     let question = items().child(item(
@@ -216,6 +243,12 @@ impl Component for RadioPage {
         "Option<T>, impl Fn(T)",
         "",
         "In place of a signal: the app holds the choice, none while it is None, and is told each value pressed.",
+      ),
+      (
+        "horizontal",
+        "bool",
+        "false",
+        "The radios side by side, 24 apart, going on to the next line where there is no room.",
       ),
       (
         "invalid",
@@ -285,8 +318,8 @@ impl Component for RadioPage {
         ),
         Section::new(
           "Radio group",
-          "The page holds the choice in a signal. Tab reaches each radio in turn, and Space or Enter chooses the one \
-           it is on.",
+          "The page holds the choice in a signal. Tab stops in the group once, at the chosen radio; the arrow keys \
+           move the focus to the next radio and choose it, and Home and End go to the first and the last.",
           self.frame.demo(
             0,
             bound,
@@ -319,6 +352,20 @@ impl Component for RadioPage {
               "Radio::new(\"Invalid\").invalid(true)",
               "Radio::new(\"Disabled\").disabled(true)",
               "Radio::new(\"Disabled, chosen\").chosen(true).disabled(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "In a row",
+          "A few short choices side by side. The arrow keys move the choice as they do in a column: left and up go \
+           back, right and down go on.",
+          self.frame.demo(
+            4,
+            row,
+            ".horizontal(true)",
+            &[
+              "// period: Signal<usize>",
+              "RadioGroup::new(period, [(0, \"Day\"), (1, \"Week\"), (2, \"Month\")]).horizontal(true)",
             ],
           ),
         ),

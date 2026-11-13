@@ -1133,6 +1133,22 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Makes the element a group the arrow keys move the focus within,
+      /// while the focus is on something in it: see
+      /// [`FocusGroup`]($crate::node::FocusGroup).
+      pub fn focus_group(mut self, group: $crate::node::FocusGroup) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_group(node, group));
+        self
+      }
+
+      /// Marks the element as where Tab enters the one-stop
+      /// [`FocusGroup`]($crate::node::FocusGroup) it is in: the chosen radio,
+      /// the chosen segment. Without one Tab enters at the first.
+      pub fn focus_entry(mut self, entry: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_entry(node, entry));
+        self
+      }
+
       #[cfg(feature = "form")]
       pub fn name(mut self, name: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::name(node, name));

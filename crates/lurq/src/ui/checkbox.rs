@@ -5,12 +5,13 @@ use std::sync::Arc;
 use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, pressable},
+  shared::{Choice, Chosen, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
-  components::{self, Row},
+  components::{self, Column, Row},
+  core::{Signal, SignalValue},
   layout::Alignment,
   node::{CursorIcon, Element, border::Border},
 };
@@ -384,5 +385,216 @@ impl Themed for Checkbox {
       .when(Selector::new().state(Indeterminate).state(Disabled), square, |s| {
         s.background(Primary)
       })
+  }
+}
+
+/// The parts of a group of checkboxes a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CheckboxGroupPart {
+  /// The group: the checkboxes one under the other, or side by side.
+  Root,
+  /// What the group says of each checkbox in it: laid over the theme's recipe for a checkbox's root.
+  Item,
+}
+
+names!(CheckboxGroupPart {
+  Root => "root",
+  Item => "item",
+});
+
+/// The states of a group of checkboxes a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CheckboxGroupState {
+  /// Its checkboxes stand side by side.
+  Horizontal,
+}
+
+names!(CheckboxGroupState {
+  Horizontal => "horizontal",
+});
+
+/// One checkbox of a group, with what a press of it does.
+struct GroupItem {
+  label: Arc<str>,
+  disabled: bool,
+  checked: bool,
+  pick: Arc<dyn Fn() + Send + Sync>,
+}
+
+/// Checkboxes over one list: those whose values the app holds are checked,
+/// and a press of one adds its value or takes it out.
+///
+/// ```
+/// use lurq::{core::Signal, ui::{CheckboxGroup, Choice}};
+///
+/// # fn groups(days: Signal<Vec<u8>>) {
+/// let days = CheckboxGroup::new(days, [(1, "Monday"), (2, "Tuesday"), (3, "Wednesday")]);
+/// // A choice that cannot be made is drawn, dimmed, and takes nothing.
+/// let scopes = CheckboxGroup::controlled(["read"], [
+///   Choice::new("read", "Read"),
+///   Choice::new("write", "Write"),
+///   Choice::new("admin", "Admin").disabled(true),
+/// ], |scope| println!("{scope} was pressed"));
+/// # }
+/// ```
+///
+/// Each checkbox is its own stop of Tab, and Space or Enter presses the one
+/// the focus is on. A choice's icon is not drawn.
+pub struct CheckboxGroup {
+  items: Vec<GroupItem>,
+  horizontal: bool,
+  invalid: bool,
+  disabled: bool,
+  rules: Recipe,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl CheckboxGroup {
+  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
+    chosen: Chosen<T>,
+    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
+  ) -> Self {
+    let items = choices
+      .into_iter()
+      .map(Into::into)
+      .map(|choice: Choice<T>| GroupItem {
+        checked: chosen.has(&choice.value),
+        pick: Arc::new(chosen.picker(choice.value)),
+        label: choice.label,
+        disabled: choice.disabled,
+      })
+      .collect();
+    Self {
+      items,
+      horizontal: false,
+      invalid: false,
+      disabled: false,
+      rules: Recipe::new(),
+      id: None,
+      key: None,
+    }
+  }
+
+  /// A group of which the checkboxes whose values the signal has are
+  /// checked. A press adds a value to the signal, or takes it out.
+  pub fn new<T>(values: Signal<Vec<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
+  where
+    T: Clone + PartialEq + Send + Sync + 'static,
+    Vec<T>: SignalValue,
+  {
+    Self::of(Chosen::many(values), choices)
+  }
+
+  /// A group whose state the app holds: the checkboxes of `checked` are
+  /// checked, and `press` is told the value of each one pressed.
+  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
+    checked: impl IntoIterator<Item = T>,
+    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
+    press: impl Fn(T) + Send + Sync + 'static,
+  ) -> Self {
+    Self::of(Chosen::held(checked.into_iter().collect(), press), choices)
+  }
+
+  /// Whether the checkboxes stand side by side, going on to the next line
+  /// where there is no room, in place of one under the other.
+  pub fn horizontal(mut self, horizontal: bool) -> Self {
+    self.horizontal = horizontal;
+    self
+  }
+
+  /// Whether what is checked is not accepted: every box's edge says so.
+  pub fn invalid(mut self, invalid: bool) -> Self {
+    self.invalid = invalid;
+    self
+  }
+
+  /// Whether the whole group takes no input.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
+  /// Styles one part of this group over what the theme gives it.
+  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
+    self.rules = self.rules.base(part, style);
+    self
+  }
+
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
+  }
+
+  /// Builds the group in `theme`. Converting a group into an element does
+  /// this in the theme of what is being rendered.
+  pub fn build(self, theme: &Theme) -> Element {
+    let case = Case::new()
+      .breakpoint(super::current_breakpoint())
+      .state(CheckboxGroupState::Horizontal, self.horizontal);
+    let recipe = theme.resolve::<CheckboxGroup>(&case, Some(&self.rules));
+    let item = recipe.rules_for(CheckboxGroupPart::Item, CheckboxPart::Root);
+    let boxes: Vec<Element> = self
+      .items
+      .into_iter()
+      .map(|choice| {
+        let pick = choice.pick;
+        Checkbox::new(&choice.label)
+          .checked(choice.checked)
+          .invalid(self.invalid)
+          .disabled(self.disabled || choice.disabled)
+          .rules(&item)
+          .on_change(move |_| pick())
+          .build(theme)
+      })
+      .collect();
+    let root = recipe.part(CheckboxGroupPart::Root);
+    let (id, key) = (self.id, self.key);
+    macro_rules! group {
+      ($holder:expr) => {{
+        let mut holder = $holder.part(&root).describe("a11y_role", "group");
+        for checkbox in boxes {
+          holder = holder.child(checkbox);
+        }
+        if let Some(id) = id {
+          holder = holder.id(id);
+        }
+        if let Some(key) = key {
+          holder = holder.key(key);
+        }
+        holder.into()
+      }};
+    }
+    if self.horizontal {
+      group!(Row::new().wrap().align_items(Alignment::Center))
+    } else {
+      group!(Column::new())
+    }
+  }
+}
+
+impl From<CheckboxGroup> for Element {
+  fn from(group: CheckboxGroup) -> Self {
+    group.build(&current_theme())
+  }
+}
+
+impl Themed for CheckboxGroup {
+  const NAME: &'static str = "checkbox_group";
+  type Renderer = Arc<dyn Fn(CheckboxGroup) -> Element + Send + Sync>;
+
+  /// The design's checkboxes (`pencil/lurq-design-system.pen`, Toggles): one
+  /// under the other, 12 apart, as its radios are.
+  fn recipe() -> Recipe {
+    Recipe::new().base(CheckboxGroupPart::Root, |s| s.gap(12.0)).state(
+      CheckboxGroupState::Horizontal,
+      CheckboxGroupPart::Root,
+      |s| s.gap(24.0),
+    )
   }
 }

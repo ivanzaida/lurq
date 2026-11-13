@@ -251,3 +251,54 @@ fn a_theme_restyles_it_and_gives_it_another_anatomy() {
   stage.key("!");
   assert_eq!(value.get(), "lurq!", "it still types");
 }
+
+#[test]
+fn its_text_stays_inside_its_box_while_the_page_scrolls() {
+  use lurq::components::{Rect, ScrollVertical};
+  let lines = (1..=30).map(|n| format!("line {n}")).collect::<Vec<_>>().join(
+    "
+",
+  );
+  let mut stage = Stage::new(move |_| {
+    ScrollVertical::new(
+      Column::new()
+        .padding(40.0)
+        .spacing(20.0)
+        .child(Rect::new(100.0, 60.0))
+        .child(Textarea::new(Signal::new(lines.clone())).rows(2, 4).id("note"))
+        .child(Rect::new(100.0, 900.0)),
+    )
+    .size(300.0, 280.0)
+    .into()
+  });
+  for (step, delta) in [0.0, -37.3, -12.6, -41.9, 20.2].into_iter().enumerate() {
+    if delta != 0.0 {
+      stage
+        .tree
+        .scroll(10.0, 10.0, 0.0, delta, lurq::app::events::ScrollPhase::Scroll);
+      stage.pass();
+    }
+    let (_, y, _, height) = stage.bounds("note");
+    let mut seen = false;
+    for quad in stage.quads() {
+      let lurq::layout::quad::QuadContent::Text { text, .. } = &quad.content else {
+        continue;
+      };
+      if !text.starts_with("line") {
+        continue;
+      }
+      seen = true;
+      let clip = quad.clip;
+      assert!(clip.active, "the text is clipped");
+      assert!(
+        clip.y >= y - 0.01 && clip.y + clip.height <= y + height + 0.01,
+        "step {step}: the text shows only inside the box: clip {}..{} in box {}..{}",
+        clip.y,
+        clip.y + clip.height,
+        y,
+        y + height
+      );
+    }
+    assert!(seen, "step {step}: the text is painted");
+  }
+}
