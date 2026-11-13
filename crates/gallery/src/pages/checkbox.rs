@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Checkbox, Interaction},
+  ui::{Checkbox, CheckboxGroup, Choice, Interaction},
 };
 
 use crate::{
@@ -51,6 +51,7 @@ pub struct CheckboxPage {
   sync: Signal<bool>,
   reports: Signal<bool>,
   files: [Signal<bool>; 3],
+  days: Signal<Vec<&'static str>>,
 }
 
 impl CheckboxPage {
@@ -228,6 +229,7 @@ impl Component for CheckboxPage {
       sync: ctx.signal(true),
       reports: ctx.signal(false),
       files: [ctx.signal(true), ctx.signal(false), ctx.signal(false)],
+      days: ctx.signal(vec!["tue"]),
     }
   }
 
@@ -313,6 +315,23 @@ impl Component for CheckboxPage {
     ];
     let playground = self.play(ctx);
     let select_all = self.select_all();
+    let picked = self.days.get();
+    let group = items()
+      .child(item(
+        CheckboxGroup::new(
+          self.days.clone(),
+          [
+            Choice::new("mon", "Monday"),
+            Choice::new("tue", "Tuesday"),
+            Choice::new("wed", "Wednesday").disabled(true),
+          ],
+        ),
+        &format!("the signal has: {picked:?}"),
+      ))
+      .child(item(
+        CheckboxGroup::new(self.days.clone(), [("mon", "Mon"), ("tue", "Tue"), ("wed", "Wed")]).horizontal(true),
+        "horizontal(true)",
+      ));
     self.frame.page(
       ctx,
       Header {
@@ -402,6 +421,27 @@ impl Component for CheckboxPage {
               "Checkbox::new(\"blur.rs\")",
               "    .checked(file.get())",
               "    .on_change(move |checked| set.set(checked))",
+            ],
+          ),
+        ),
+        Section::new(
+          "A group over a list",
+          "CheckboxGroup is bound to a signal of a list: the boxes whose values it has are checked, and a press adds \
+           a value or takes it out. Each box is its own stop of Tab.",
+          self.frame.demo(
+            3,
+            group,
+            "CheckboxGroup::new(days, [(\"mon\", \"Monday\"), ..])",
+            &[
+              "// days: Signal<Vec<&'static str>>",
+              "CheckboxGroup::new(days.clone(), [",
+              "    Choice::new(\"mon\", \"Monday\"),",
+              "    Choice::new(\"tue\", \"Tuesday\"),",
+              "    Choice::new(\"wed\", \"Wednesday\").disabled(true),",
+              "])",
+              "",
+              "// Side by side.",
+              "CheckboxGroup::new(days, [(\"mon\", \"Mon\"), (\"tue\", \"Tue\"), (\"wed\", \"Wed\")]).horizontal(true)",
             ],
           ),
         ),

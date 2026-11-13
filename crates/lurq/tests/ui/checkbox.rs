@@ -268,3 +268,42 @@ fn a_theme_gives_the_checkbox_another_anatomy_and_it_still_checks() {
   stage.click("box");
   assert_eq!(*asked.lock().unwrap(), [true]);
 }
+
+#[test]
+fn a_group_of_checkboxes_is_bound_to_a_list() {
+  use lurq::{
+    core::Signal,
+    ui::{CheckboxGroup, Choice},
+  };
+  let days = Signal::new(vec![2u8]);
+  let read = days.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(CheckboxGroup::new(
+        read.clone(),
+        [
+          Choice::new(1u8, "Monday"),
+          Choice::new(2, "Tuesday"),
+          Choice::new(3, "Wednesday").disabled(true),
+        ],
+      ))
+      .into()
+  });
+  // One under the other, 12 apart, as radios are.
+  let (monday, tuesday) = (stage.text_quad("Monday").unwrap(), stage.text_quad("Tuesday").unwrap());
+  assert_eq!(monday.x, tuesday.x);
+  assert!((tuesday.y - monday.y - (monday.height.max(16.0) + 12.0)).abs() < 0.01);
+
+  // Each box is a stop of Tab: Space checks the first, and the second, checked, is unchecked by its own.
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(days.get(), [2, 1]);
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(days.get(), [1]);
+  // The disabled one is passed by: the focus is back on the first.
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(days.get(), Vec::<u8>::new());
+}

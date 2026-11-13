@@ -552,7 +552,7 @@ The board has eleven things that are pressed. Said on 2026-11-13: group them by 
 - **A part style has an underline**: a line along the bottom of a part, which a link has under the pointer. A border was every side.
 - **A container clips what is in it** (the engine's default), so a `Fab`'s shadow needs room in what it is put in.
 
-Not done: the arrow keys do not move a choice within a `SegmentedControl` or a `ToggleGroup` (Tab reaches each segment since 14.8; a key press reaches every node, focused or not, and a component cannot tell that the focus is in it). A split button's second half opens nothing by itself: the menu is not built.
+The arrow keys move within the groups since 14.10. A split button's second half opens nothing by itself until the menu of the overlays batch is merged.
 
 ### 14.8 Switch
 
@@ -584,7 +584,19 @@ The first batch, the board's Inputs and Toggles:
 - **The engine's slider paints a ring**: `SliderPartStyle::outline`, so that the thumb's focused style is the theme's focus ring. Its tests, the outline tests and the tests of disabled input were run for it.
 - **The focus of a text field is inside its box**; of a checkbox, a radio, a switch and a slider's thumb it is the theme's ring outside. The board draws both.
 
-Not done, from the handoffs: a field's label does not focus its control or name it, and does not hand it its state (a builder has no `Ctx`); `Textarea` has no read only and no sizes; no group of checkboxes; a radio group is a column only and has no arrow keys; no vertical slider (the engine's is horizontal), no range slider; what `Input` and `Textarea` have in common is written twice. `Checkbox Card`, `Radio Card`, `Password Input`, `Search Field`, `Number Input`, `Input Group` are other components of the board, not built.
+What the handoffs listed as not done is closed in 14.10, not kept as a list. `Checkbox Card`, `Radio Card`, `Password Input`, `Search Field`, `Number Input`, `Input Group` are other components of the board, for a batch of their own.
+
+### 14.10 What a batch leaves open is closed when it is merged
+
+Said on 2026-11-13, of the list of what the forms batch had not done: that is a bad way to work; when a batch is merged everything open in it is closed. A handoff's "not done" is a list of work for the merge, not a record. What needs the engine gets the engine changed, here or in a session of its own; a defect of the engine that the batch only uncovered goes to a session on master.
+
+Closed for the forms batch:
+
+- **Arrow keys within a group** (the engine): `FocusGroup`, a node attribute. With the focus on a stop of Tab inside the element, an arrow key of the group's axis moves the focus to the next stop inside it (`Tree::focus_group_key`, beside Tab in the key handling), Home and End to the first and the last; `activate` presses what the focus moved to; `one_stop` makes Tab keep one stop of the group (`collect_stops`): the focused one, so that Tab from inside leaves, else the one marked `focus_entry`, else the first. This was the thing 14.7 could not do: a key reaches every node, and now the runtime, which knows where the focus is, acts for the group. `RadioGroup` and `SegmentedControl` are one stop whose choice follows the focus, `ToggleGroup` one stop whose arrows only move, `ButtonGroup` moves with the arrows and keeps every button a stop.
+- **`RadioGroup::horizontal`** and **`CheckboxGroup`** (bound to a `Signal<Vec<T>>` or held by the app).
+- **A field that names, judges and focuses its control; `Textarea` with read only, sizes and the judgments; what `Input` and `Textarea` share written once**: built by a session of its own and merged after this.
+- **The vertical slider and the range slider**, which the engine's slider could not do: built by a session of its own, in the engine and in `ui`, and merged after this.
+- **The text of a multiline input drawn outside its box after the page scrolls**, reported on the Textarea page: a defect of the engine's drawing after a scroll (the quads' clips are right), given to a session on master.
 
 ## 15. The gallery
 

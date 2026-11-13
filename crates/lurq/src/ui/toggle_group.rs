@@ -15,7 +15,7 @@ use crate::{
   components::Row,
   core::{Signal, SignalValue},
   layout::Alignment,
-  node::{Element, border::Border},
+  node::{Element, FocusGroup, border::Border},
 };
 
 /// The parts of a group of toggles a recipe styles.
@@ -162,7 +162,10 @@ impl ToggleGroup {
     let item = recipe.rules_for(ToggleGroupPart::Item, TogglePart::Root);
     let separator = recipe.part(ToggleGroupPart::Separator);
     let separated = separator.rest().width.is_some();
+    // A toolbar of toggles: Tab stops in it once, the arrow keys move between them, and Space turns the
+    // one the focus is on.
     let mut root = Row::new().part(&recipe.part(ToggleGroupPart::Root))
+      .focus_group(FocusGroup::horizontal().one_stop(true))
       // The line between two of them is as high as they are.
       .align_items(Alignment::Stretch)
       .clip();

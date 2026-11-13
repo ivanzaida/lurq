@@ -522,7 +522,7 @@ impl Component for ToggleGroupPage {
         ),
         Section::new(
           "Any number",
-          "Bound to a signal of a list: a press adds a value, and a press of a toggle that is on takes it out.",
+          "Bound to a signal of a list: a press adds a value, and a press of a toggle that is on takes it out. Tab            stops in the group once; the arrow keys move between its toggles, and Space turns the one the focus is on.",
           self.frame.demo(
             1,
             many,
@@ -688,7 +688,8 @@ impl Component for SegmentedControlPage {
         ),
         Section::new(
           "Segmented control",
-          "Exactly one segment is chosen. Each is a button: Tab reaches it, and a click, Enter or Space chooses it.",
+          "Exactly one segment is chosen. Tab stops in the control once, at the chosen segment; the arrow keys move \
+           the focus to the next segment and choose it, and a click chooses one.",
           self.frame.demo(
             0,
             live,
