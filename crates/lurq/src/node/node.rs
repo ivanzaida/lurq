@@ -871,6 +871,9 @@ pub struct EventHandlers {
   pub on_swipe: Vec<Callback<SwipeEvent>>,
   pub on_pan: Vec<Callback<PanEvent>>,
   pub on_edge_pan: Vec<Callback<EdgePanEvent>>,
+  /// What a click of the node focuses: the first node that takes the focus under the element the ref is on, as
+  /// [`Ctx::focus`](crate::app::ctx::Ctx::focus) finds it. What a label does for its control.
+  pub focuses: Option<CoreElementRef>,
 }
 
 /// The styles few nodes set, behind one guard: a guard holds a watch handle

@@ -3,18 +3,21 @@
 use std::sync::Arc;
 
 use super::{
+  field::{FieldControl, InField},
   names,
-  part_style::Length,
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::fading,
+  recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  text_box::{self, BoxStates, EditHandler, Judgment, TextBoxSize},
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+  app::{
+    events::TextInputEvent,
+    theme::{PaletteColor, Theme, TypographyStyle},
+  },
   components::TextInput,
   core::Signal,
   layout::text_style::TextStyle,
-  node::{CursorIcon, Element, Outline, TextColor, border},
+  node::Element,
 };
 
 /// The rows a textarea shows while it holds less, unless it is told otherwise.
@@ -39,18 +42,30 @@ names!(TextareaPart {
   Placeholder => "placeholder",
 });
 
+/// The sizes of a textarea: the type of an input's sizes, 13, 14 and 15. It is as high as its rows of that type.
+pub type TextareaSize = TextBoxSize;
+
 /// The states of a textarea a recipe styles, besides what the pointer and the
 /// keyboard do to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextareaState {
-  /// What it holds is not accepted: the form says why somewhere else.
+  /// What it holds is wrong: its edge is in the destructive color.
   Invalid,
+  /// What it holds is allowed, with a caveat: its edge is in the warning color.
+  Warning,
+  /// What it holds was checked and is right: its edge is in the success color.
+  Valid,
+  /// It can be read, selected and copied, and not changed.
+  ReadOnly,
   /// It takes no input.
   Disabled,
 }
 
 names!(TextareaState {
   Invalid => "invalid",
+  Warning => "warning",
+  Valid => "valid",
+  ReadOnly => "read_only",
   Disabled => "disabled",
 });
 
@@ -61,26 +76,27 @@ pub type TextareaRenderer = Arc<dyn Fn(TextareaView) -> Element + Send + Sync>;
 /// what happened.
 ///
 /// ```
-/// use lurq::{core::Signal, ui::Textarea};
+/// use lurq::{core::Signal, ui::{Textarea, TextareaSize}};
 ///
 /// let bio = Signal::new(String::new());
 /// let field = Textarea::new(bio.clone()).placeholder("Tell us what happened").rows(3, 8);
 /// // Not accepted: the form says why under it.
-/// let wrong = Textarea::new(bio).invalid(true);
+/// let wrong = Textarea::new(bio.clone()).invalid(true);
+/// let terms = Textarea::new(Signal::new("By using lurq you agree...".to_owned())).read_only(true);
+/// let compact = Textarea::new(bio).size(TextareaSize::Sm);
 /// ```
 ///
 /// The textarea writes what is typed into its signal, and shows what the app
 /// writes there. It is as high as its text, from the rows it shows at least
 /// to the rows it shows at most ([`Textarea::rows`]); past that its text
-/// scrolls inside it, with a scroll bar of its own.
+/// scrolls inside it, with a scroll bar of its own. Its edge says its state,
+/// as an input's does.
 pub struct Textarea {
   value: Signal<String>,
   placeholder: Option<Arc<str>>,
-  label: Option<Arc<str>>,
   min_rows: usize,
   max_rows: usize,
-  invalid: bool,
-  disabled: bool,
+  boxed: BoxStates,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -95,11 +111,9 @@ impl Textarea {
     Self {
       value,
       placeholder: None,
-      label: None,
       min_rows: TEXTAREA_MIN_ROWS,
       max_rows: TEXTAREA_MAX_ROWS,
-      invalid: false,
-      disabled: false,
+      boxed: BoxStates::default(),
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -116,9 +130,10 @@ impl Textarea {
   }
 
   /// What it is called, to what reads the tree. It draws nothing: the label
-  /// a person reads is the field's, above it.
+  /// a person reads is the field's, above it, which gives the textarea this
+  /// name unless it has its own.
   pub fn label(mut self, label: &str) -> Self {
-    self.label = Some(Arc::from(label));
+    self.boxed.label = Some(Arc::from(label));
     self
   }
 
@@ -130,15 +145,39 @@ impl Textarea {
     self
   }
 
-  /// Whether what it holds is not accepted.
+  /// A [`TextareaSize`], or a size the theme's recipe names: the type of its text, and so the height of its rows.
+  pub fn size(mut self, size: impl Into<Name>) -> Self {
+    self.boxed.size = size.into();
+    self
+  }
+
+  /// Whether what it holds is wrong. Of invalid, warning and valid, the first that is set is the one shown.
   pub fn invalid(mut self, invalid: bool) -> Self {
-    self.invalid = invalid;
+    self.boxed.invalid = invalid;
+    self
+  }
+
+  /// Whether what it holds is allowed with a caveat.
+  pub fn warning(mut self, warning: bool) -> Self {
+    self.boxed.warning = warning;
+    self
+  }
+
+  /// Whether what it holds was checked and is right.
+  pub fn valid(mut self, valid: bool) -> Self {
+    self.boxed.valid = valid;
+    self
+  }
+
+  /// Whether it can be read, selected and copied, and not changed. It is still a stop of Tab.
+  pub fn read_only(mut self, read_only: bool) -> Self {
+    self.boxed.read_only = read_only;
     self
   }
 
   /// Whether it takes no input.
   pub fn disabled(mut self, disabled: bool) -> Self {
-    self.disabled = disabled;
+    self.boxed.disabled = disabled;
     self
   }
 
@@ -153,7 +192,7 @@ impl Textarea {
   }
 
   /// Called on every edit, with the text the textarea holds once it applies.
-  /// The signal is written either way.
+  /// The signal is written either way. A read-only textarea makes no edit.
   pub fn on_change(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
@@ -193,25 +232,19 @@ impl Textarea {
   /// Builds the textarea in `theme`. Converting a textarea into an element
   /// does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case {
-      variant: None,
-      size: None,
-      density: None,
-      breakpoint: super::current_breakpoint(),
-      states: self.states.clone(),
-    }
-    .state(TextareaState::Invalid, self.invalid)
-    .state(TextareaState::Disabled, self.disabled);
+    let case = self.boxed.case(self.states.clone());
     let view = TextareaView {
       value: self.value,
       placeholder: self.placeholder,
-      label: self.label,
+      label: self.boxed.label.clone(),
       min_rows: self.min_rows,
       max_rows: self.max_rows,
-      invalid: self.invalid,
-      disabled: self.disabled,
+      invalid: self.boxed.judgment() == Some(Judgment::Invalid),
+      read_only: self.boxed.read_only,
+      disabled: self.boxed.disabled,
       recipe: theme.resolve::<Textarea>(&case, Some(&self.rules)),
       forced: self.forced,
+      boxed: self.boxed,
       on_change: self.on_change,
       id: self.id,
       key: self.key,
@@ -229,19 +262,32 @@ impl From<Textarea> for Element {
   }
 }
 
+impl FieldControl for Textarea {
+  /// Called by the field's label unless it has a name of its own, judged as the field is unless the app judged the
+  /// textarea itself, and disabled where the field is.
+  fn in_field(mut self, field: &InField) -> Element {
+    self.boxed.in_field(field);
+    self.into()
+  }
+}
+
 /// A textarea as a renderer sees it: what it was given, the style of its
 /// parts, and its behavior ready to be dressed.
 pub struct TextareaView {
   pub value: Signal<String>,
   pub placeholder: Option<Arc<str>>,
+  /// What it is called to what reads the tree: its own label, or its field's.
   pub label: Option<Arc<str>>,
   pub min_rows: usize,
   pub max_rows: usize,
+  /// Whether what it holds is wrong, as the textarea shows it.
   pub invalid: bool,
+  pub read_only: bool,
   pub disabled: bool,
   /// The style of each part of this textarea.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
+  boxed: BoxStates,
   on_change: Vec<Arc<dyn Fn(&str) + Send + Sync>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -262,47 +308,38 @@ impl TextareaView {
   /// foreground of what it is in, so the color is resolved here; a part with
   /// no foreground keeps the default color, which the theme's `Foreground` is.
   pub fn text_style(&self, part: impl Into<Name>) -> TextStyle {
-    let part = self.part(part);
-    let rest = part.rest();
-    let mut style = rest.text.resolve(self.theme());
-    match rest.foreground {
-      Some(TextColor::Color(color)) => style.color = color,
-      Some(TextColor::Palette(role)) => style.color = self.theme().palette().resolve(role),
-      None => {}
-    }
-    style
+    text_box::ink(self.theme(), &self.part(part).rest())
+  }
+
+  /// The type of the placeholder: the text's, with what the placeholder's part lays over it.
+  pub fn placeholder_style(&self) -> TextStyle {
+    let text = self.part(TextareaPart::Text).rest();
+    text_box::ink(self.theme(), &text.merged(&self.part(TextareaPart::Placeholder).rest()))
   }
 
   /// The textarea's behavior with the style of its box and its text: the
   /// engine's multiline text input, bound to the signal, as many rows high as
   /// the view says, a stop of Tab. It is a `textbox` to what reads the tree,
-  /// called by its label, and says whether it is invalid.
+  /// called by its label, and says whether it is invalid. A read-only one
+  /// refuses every edit.
   pub fn input(&self) -> TextInput {
-    let mut input = TextInput::styled(self.value.clone(), self.text_style(TextareaPart::Text))
-      .placeholder_style(self.text_style(TextareaPart::Placeholder))
+    let input = TextInput::styled(self.value.clone(), self.text_style(TextareaPart::Text))
+      .placeholder_style(self.placeholder_style())
       .multiline()
       .rows(self.min_rows, self.max_rows)
-      // A text input is a stop of Tab only in a form or with an index of its own; a control of the design
-      // system is one wherever it is.
-      .tab_index(0)
-      .disabled(self.disabled)
       .part(&self.part(TextareaPart::Root))
-      .describe("a11y_role", "textbox")
-      .describe("a11y_multiline", "true")
-      .describe("a11y_invalid", if self.invalid { "true" } else { "false" });
+      .describe("a11y_multiline", "true");
+    let handlers: Vec<EditHandler> = self
+      .on_change
+      .iter()
+      .map(|handler| {
+        let handler = handler.clone();
+        Arc::new(move |event: &TextInputEvent| handler(&event.new_value)) as EditHandler
+      })
+      .collect();
+    let mut input = text_box::text_box(input, &self.boxed, handlers);
     if let Some(placeholder) = &self.placeholder {
       input = input.placeholder(placeholder);
-    }
-    if let Some(label) = &self.label {
-      input = input.describe("a11y_name", label.clone());
-    }
-    if !self.on_change.is_empty() {
-      let handlers = self.on_change.clone();
-      input = input.on_input(move |event: crate::app::events::TextInputEvent| {
-        for handler in &handlers {
-          handler(&event.new_value);
-        }
-      });
     }
     if let Some(id) = &self.id {
       input = input.id(id.clone());
@@ -327,53 +364,22 @@ impl Themed for Textarea {
   /// states the board draws for an input): a box as wide as its room, in the
   /// background's color with an edge of 1 in the input's color, the medium
   /// radius, padded 12 across and 8 down; its text in the body's type (14)
-  /// with a line of 1.5,
-  /// in the foreground, and its placeholder in the muted foreground. Under the
-  /// pointer the edge is the ring's color; focused, a ring of 2 is drawn
-  /// inside the box. Invalid, the edge and the ring are the destructive color.
-  /// Disabled, it is at half its opacity on the muted fill.
+  /// with a line of 1.5, in the foreground, and its placeholder in the muted
+  /// foreground. Under the pointer the edge is the ring's color; focused, a
+  /// ring of 2 is drawn inside the box. Invalid, warning and valid, the edge
+  /// and the ring are the destructive, warning and success colors. Read only,
+  /// it is on the muted fill in the color of a border. Disabled, it is at half
+  /// its opacity on the muted fill. Small, its text is 13; large, 15.
   fn recipe() -> Recipe {
-    use PaletteColor::*;
     use TextareaPart::{Placeholder, Root, Text};
-    use TextareaState::{Disabled, Invalid};
-    let edge = |color: PaletteColor| border::Border::inside(BorderSize::Sm, color);
-    // The board draws the ring of the focus as a line of 2 inside the box, over its edge.
-    let ring = |color: PaletteColor| Outline::new(2.0, color).offset(-2.0);
-    Recipe::new()
-      .base(Root, |s| {
-        fading(
-          s.width(Length::Fill)
-            .padding_x(12.0)
-            .padding_y(8.0)
-            .radius(RadiusSize::Md)
-            .background(Background)
-            .border(edge(Input))
-            .cursor(CursorIcon::Text),
-        )
-      })
+    let recipe = Recipe::new()
+      .base(Root, |s| text_box::box_style(s).padding_y(8.0))
       .base(Text, |s| {
         s.typography(TypographyStyle::Body)
           .line_height(1.5)
-          .foreground(Foreground)
-      })
-      .base(Placeholder, |s| {
-        s.typography(TypographyStyle::Body)
-          .line_height(1.5)
-          .foreground(MutedForeground)
-      })
-      .hovered(Root, |s| s.border(edge(Ring)))
-      .focus_visible(Root, |s| s.outline(ring(Ring)))
-      .state(Invalid, Root, |s| s.border(edge(Destructive)))
-      .when(Selector::new().state(Invalid).hovered(), Root, |s| {
-        s.border(edge(Destructive))
-      })
-      .when(Selector::new().state(Invalid).focus_visible(), Root, |s| {
-        s.outline(ring(Destructive))
-      })
-      .state(Disabled, Root, |s| {
-        s.background(Muted)
-          .opacity(OpacityLevel::Disabled)
-          .cursor(CursorIcon::Default)
-      })
+          .foreground(PaletteColor::Foreground)
+      });
+    let recipe = text_box::box_sizes(recipe, Text, false);
+    text_box::box_rules(recipe, Root, Root, Placeholder)
   }
 }

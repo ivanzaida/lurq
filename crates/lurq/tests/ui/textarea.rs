@@ -6,12 +6,16 @@ use std::sync::{Arc, Mutex};
 use lurq::{
   app::{
     App,
+    events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
   components::{Column, Row},
   core::Signal,
   node::color::Color,
-  ui::{Case, Interaction, Opacity, Textarea, TextareaPart, TextareaRenderer, TextareaState, TextareaView},
+  ui::{
+    Case, Field, Interaction, Opacity, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
+    TextareaView,
+  },
 };
 
 use super::stage::Stage;
@@ -301,4 +305,155 @@ fn its_text_stays_inside_its_box_while_the_page_scrolls() {
     }
     assert!(seen, "step {step}: the text is painted");
   }
+}
+/// Presses the text `content` where it is painted: a label, which has no id of its own.
+fn press_text(stage: &mut Stage, content: &str) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} should be painted"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+}
+
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+#[test]
+fn a_read_only_textarea_is_focused_and_refuses_a_typed_character() {
+  let value = Signal::new("By using lurq you agree.".to_owned());
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (bound, heard) = (value.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    column(
+      Textarea::new(bound.clone())
+        .read_only(true)
+        .on_change(move |text| heard.lock().unwrap().push(text.to_owned()))
+        .id("terms"),
+    )
+    .into()
+  });
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("terms"), "still a stop of Tab");
+  stage.key("x");
+  stage.key("Enter");
+  assert_eq!(value.get(), "By using lurq you agree.");
+  assert!(told.lock().unwrap().is_empty(), "no edit was made to tell of");
+  // The board's read-only input: the muted fill in the color of a border.
+  assert_eq!(stage.fill_color("terms"), Some(light(PaletteColor::Muted)));
+  assert_eq!(edge(&mut stage, "terms"), Some(light(PaletteColor::Border)));
+}
+
+#[test]
+fn the_sizes_have_the_type_of_an_inputs_and_rows_of_that_type() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .spacing(8.0)
+      .child(column(
+        Textarea::new(Signal::new(String::new()))
+          .size(TextareaSize::Sm)
+          .placeholder("small")
+          .id("sm"),
+      ))
+      .child(column(
+        Textarea::new(Signal::new(String::new())).placeholder("medium").id("md"),
+      ))
+      .child(column(
+        Textarea::new(Signal::new(String::new()))
+          .size(TextareaSize::Lg)
+          .placeholder("large")
+          .id("lg"),
+      ))
+      .into()
+  });
+  for (id, placeholder, font_size) in [("sm", "small", 13.0), ("md", "medium", 14.0), ("lg", "large", 15.0)] {
+    assert_eq!(
+      stage.text(placeholder),
+      (light(PaletteColor::MutedForeground), font_size),
+      "{id}"
+    );
+    let height = stage.bounds(id).3;
+    let rows = 3.0 * font_size * 1.5 + 2.0 * PADDING_Y;
+    assert!((height - rows).abs() < 0.5, "{id}: {height} for {rows}");
+  }
+}
+
+#[test]
+fn a_warning_and_a_valid_textarea_have_their_edges_under_the_pointer_too() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .spacing(8.0)
+      .child(column(
+        Textarea::new(Signal::new(String::new())).warning(true).id("warning"),
+      ))
+      .child(column(
+        Textarea::new(Signal::new(String::new())).valid(true).id("valid"),
+      ))
+      .child(column(
+        Textarea::new(Signal::new(String::new()))
+          .invalid(true)
+          .warning(true)
+          .id("both"),
+      ))
+      .into()
+  });
+  assert_eq!(edge(&mut stage, "warning"), Some(light(PaletteColor::Warning)));
+  assert_eq!(edge(&mut stage, "valid"), Some(light(PaletteColor::Success)));
+  assert_eq!(
+    edge(&mut stage, "both"),
+    Some(light(PaletteColor::Destructive)),
+    "what is wrong over what is doubtful"
+  );
+  stage.hover("valid");
+  assert_eq!(edge(&mut stage, "valid"), Some(light(PaletteColor::Success)));
+}
+
+#[test]
+fn a_field_judges_its_textarea_and_its_label_focuses_it() {
+  let value = Signal::new(String::new());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .width(260.0)
+      .padding(8.0)
+      .child(Field::new("Bio", Textarea::new(bound.clone()).id("bio")).error("Say something about yourself."))
+      .into()
+  });
+  assert_eq!(edge(&mut stage, "bio"), Some(light(PaletteColor::Destructive)));
+  press_text(&mut stage, "Bio");
+  assert_eq!(focused(&stage).as_deref(), Some("bio"));
+  stage.key("H");
+  stage.key("i");
+  assert_eq!(value.get(), "Hi");
+}
+
+#[test]
+fn a_field_calls_its_textarea_by_its_label() {
+  let app = App::new();
+  let names = Arc::new(Mutex::new(Vec::new()));
+  let heard = names.clone();
+  let renderer: TextareaRenderer = Arc::new(move |view: TextareaView| {
+    heard.lock().unwrap().push(view.label.as_deref().map(str::to_owned));
+    view.render()
+  });
+  app.theme().set_renderer::<Textarea>(renderer);
+  let _stage = Stage::in_app(app, |_| {
+    Column::new()
+      .width(260.0)
+      .child(Field::new("Bio", Textarea::new(Signal::new(String::new()))))
+      .child(Field::new(
+        "Notes",
+        Textarea::new(Signal::new(String::new())).label("Private notes"),
+      ))
+      .into()
+  });
+  let names = names.lock().unwrap();
+  assert_eq!(names[..2], [Some("Bio".to_owned()), Some("Private notes".to_owned())]);
 }
