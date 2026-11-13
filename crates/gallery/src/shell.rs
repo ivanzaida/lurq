@@ -148,7 +148,10 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
         .align_items(Alignment::Stretch)
         .child(sidebar(ctx, current, &state.search.get()))
         .child(
+          // Each page has a scroll of its own: a page opened from another starts at its top, wherever the
+          // one before it was scrolled to.
           ScrollVertical::new(Outlet::mount(ctx))
+            .key(current)
             .flex(1.0)
             .border_left(Border::inside(BorderSize::Sm, PaletteColor::Border)),
         ),
