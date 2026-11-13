@@ -199,11 +199,13 @@ impl WindowChrome {
 
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let metrics = self.metrics();
+    let window = ctx.window();
+    // What is laid over the whole window keeps clear of the title bar by this.
+    window.set_title_bar_inset(if metrics.enabled { metrics.height } else { 0.0 });
     if !metrics.enabled {
       return self.content;
     }
 
-    let window = ctx.window();
     if window.is_decorated {
       window.set_decorations(false);
     }

@@ -11,7 +11,7 @@ use lurq::{
     App,
     theme::{PaletteColor, ThemePalette},
   },
-  components::{Column, Row},
+  components::{ChromeTitleBar, Column, Row, WindowChrome, WindowChromeMode},
   layout::quad::QuadContent,
   node::color::Color,
   ui::{
@@ -357,6 +357,12 @@ fn several_are_stacked_and_laid_out_one_over_another_while_the_pointer_is_on_the
   // The pointer gone: stacked again, and the time of the three shown runs on, those behind too.
   stage.tree.mouse_move(1.0, 1.0);
   stage.pass();
+  // They are drawn while they move back behind the front one, and not once they are there.
+  assert!(stage.paints("Third"));
+  let (third, fourth) = (stage.text_quad("Third").unwrap(), stage.text_quad("Fourth").unwrap());
+  assert!((third.y - fourth.y).abs() < 0.01, "back where the front one stands");
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_millis(500));
+  stage.pass();
   assert!(!stage.paints("Third"));
   stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(4));
   stage.pass();
@@ -415,6 +421,35 @@ fn the_timer_stands_still_with_what_is_left_while_the_pointer_is_on_it() {
   stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(120));
   stage.pass();
   assert_eq!(toasts.len(), 1);
+}
+
+#[test]
+fn toasts_at_the_top_of_a_window_with_its_own_title_bar_stand_under_it() {
+  let at = |chrome: bool| {
+    let toasts = Toasts::new();
+    let host = toasts.clone();
+    let mut stage = Stage::new(move |ctx| {
+      let page = Column::new()
+        .size(400.0, 300.0)
+        .child(host.host_at(ctx, ToastPosition::TopLeft));
+      if chrome {
+        WindowChrome::new()
+          .mode(WindowChromeMode::AlwaysCustom)
+          .title_bar(ChromeTitleBar::new().height(44.0))
+          .content(page)
+          .mount(ctx)
+      } else {
+        page.into()
+      }
+    });
+    stage.tree.resize(400, 300);
+    stage.pass();
+    toasts.show(Toast::new("Up here"));
+    stage.pass();
+    stage.text_quad("Up here").unwrap().y
+  };
+  let (plain, under) = (at(false), at(true));
+  assert!((under - plain - 44.0).abs() < 0.5, "{plain} {under}");
 }
 
 #[test]
@@ -519,8 +554,11 @@ fn a_toast_that_comes_while_another_is_shown_comes_in_over_it_and_moves_nothing(
     under.y
   );
 
-  // In, it stands where the first stood, the first is an edge behind it, and nothing else is drawn of it.
+  // In, it stands where the first stood. The first fades under it, its shadow with it, and is then an edge
+  // behind it, with nothing else drawn of it.
   stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(1));
+  stage.pass_after(Duration::from_secs(1));
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(2));
   stage.pass_after(Duration::from_secs(1));
   stage.pass();
   assert!(!stage.paints("First"));
@@ -555,4 +593,55 @@ fn the_front_toast_of_a_pile_closed_shows_the_next_in_its_place() {
   // Alone it has no edge behind it: an edge's peek nearer the window's edge than the front of two stood.
   assert!((first.y - front.y).abs() <= 8.01);
   assert!(bars(&stage, light(PaletteColor::Popover), 24.0).is_empty());
+}
+
+#[test]
+fn a_description_too_long_for_its_line_goes_on_to_the_next() {
+  use lurq::{components::Column, ui::Button};
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(
+        Toast::new("Settings saved")
+          .description("Your theme applies to every open window.")
+          .action(Button::new("Undo").id("undo"))
+          .id("toast"),
+      )
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("toast");
+  let (undo, ..) = stage.bounds("undo");
+  // Beside an action there is no room for it in one line: it is in two, each ending before the action, and
+  // nothing of it is cut.
+  let lines: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. }
+        if "Your theme applies to every open window.".contains(text.trim()) && !text.trim().is_empty())
+    })
+    .collect();
+  assert!(!lines.is_empty(), "the description is painted");
+  let painted: String = lines
+    .iter()
+    .map(|quad| match &quad.content {
+      lurq::layout::quad::QuadContent::Text { text, .. } => text.trim().to_owned(),
+      _ => String::new(),
+    })
+    .collect::<Vec<_>>()
+    .join(" ");
+  assert_eq!(painted, "Your theme applies to every open window.", "all of it");
+  for line in &lines {
+    assert!(
+      line.x >= x && line.x + line.width <= undo + 0.01,
+      "a line ends before the action"
+    );
+    assert!(
+      !line.clip.active || line.clip.x + line.clip.width >= line.x + line.width - 0.01,
+      "and is not cut"
+    );
+  }
+  assert!(lines.len() >= 2 || lines[0].height > 30.0, "on two lines");
+  assert_eq!(width, 360.0);
 }

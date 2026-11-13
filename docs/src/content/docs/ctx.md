@@ -402,6 +402,12 @@ WindowChrome::new()
   .mount(ctx)
 ```
 
+The chrome's content is laid out under its title bar. A layer over the whole window is not: a
+`Modal::target(ModalTarget::Root)` starts at the window's top, under the bar. `ctx.title_bar_inset()` is the
+height of the bar a `WindowChrome` draws, `0.0` with no chrome or with one that is off, for what such a layer
+puts at the top; the design system's toasts keep clear of it by themselves. An app that draws a title bar
+another way says its height with `ctx.window().set_title_bar_inset(height)`.
+
 `window.start_drag()`, `window.start_resize(direction)`, and `window.stop_drag()` remain available as low-level escape
 hatches for custom shells or highly specialized chrome. If you use them directly, start native drag or resize from the
 left mouse-button press handler and stop propagation so underlying widgets do not also handle the same press:
