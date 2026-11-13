@@ -293,6 +293,10 @@ impl AnimationEngine {
     };
     // What lurq's own components play: a full turn, for a spinner.
     engine.register_keyframes_in_phase(spin());
+    // A toast coming in and leaving.
+    for keyframes in crate::ui::toast_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
     engine
   }
 

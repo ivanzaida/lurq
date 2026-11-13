@@ -6,7 +6,7 @@ use std::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicU64, Ordering},
   },
-  time::Duration,
+  time::{Duration, Instant},
 };
 
 use super::{
@@ -19,16 +19,19 @@ use super::{
   theme::{Themed, current_breakpoint, current_theme},
 };
 use crate::{
-  animation::Transition,
+  animation::{AnimatableProperty, Animation, Easing, Keyframes, KeyframesId, Transition},
   app::{
     component::{Component, DevtoolsInspectable},
     ctx::{Ctx, Modal, Root as Window, Timeout},
-    theme::{BorderSize, IconSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
+    events::{SwipeDirection, SwipeEvent},
+    theme::{
+      BorderSize, IconSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle,
+    },
   },
   components::{self, Column, Row, Stack},
   core::Signal,
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, HitTestBehavior, border::Border, dimension::Dimension},
+  node::{CursorIcon, Element, HitTestBehavior, border::Border, dimension::Dimension, padding::Padding},
 };
 
 /// How long a toast is shown when it says nothing else.
@@ -211,6 +214,17 @@ impl From<ToastAction> for Element {
   }
 }
 
+/// How much of its time a toast has left, as its timer shows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TimeLeft {
+  /// All of it: nothing counts it down.
+  All,
+  /// A part of it, from 0 to 1, standing still.
+  Part(f32),
+  /// What is left runs out over this.
+  RunningOut(Duration),
+}
+
 /// What builds a toast's nodes: a theme's in place of the default one.
 pub type ToastRenderer = Arc<dyn Fn(ToastView) -> Element + Send + Sync>;
 
@@ -251,8 +265,8 @@ pub struct Toast {
   rules: Recipe,
   forced: Option<Interaction>,
   on_close: Vec<Arc<dyn Fn() + Send + Sync>>,
-  /// While what shows it counts its time down: how long it has left. The timer then runs out over that.
-  countdown: Option<Duration>,
+  /// How much of its time it has left, as what shows it counts it: what its timer shows.
+  left: TimeLeft,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -275,7 +289,7 @@ impl Toast {
       rules: Recipe::new(),
       forced: None,
       on_close: Vec::new(),
-      countdown: None,
+      left: TimeLeft::All,
       id: None,
       key: None,
     }
@@ -414,7 +428,7 @@ impl Toast {
       recipe: theme.resolve::<Toast>(&case, Some(&self.rules)),
       forced: self.forced,
       on_close: self.on_close,
-      countdown: self.countdown,
+      left: self.left,
       id: self.id,
       key: self.key,
     };
@@ -446,7 +460,7 @@ pub struct ToastView {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   on_close: Vec<Arc<dyn Fn() + Send + Sync>>,
-  countdown: Option<Duration>,
+  left: TimeLeft,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -516,15 +530,17 @@ impl ToastView {
   }
 
   /// The timer: its rail, and on it what is left. While the toast's time is
-  /// counted down, what is left runs out over it; otherwise all of it is left.
+  /// counted down, what is left runs out; while it stands still, it stays
+  /// where it is; a toast nothing counts down has all of it.
   pub fn timer(&self) -> Row {
     let mut remaining = Row::new().part(&self.part(ToastPart::Remaining));
-    remaining = match (self.timer_width(), self.countdown) {
-      // It runs out from all of it to nothing, a transition from one width to the other.
-      (Some(_), Some(left)) => remaining
+    remaining = match (self.timer_width(), self.left) {
+      (Some(full), TimeLeft::All) => remaining.width(Dimension::Px(full)),
+      (Some(full), TimeLeft::Part(part)) => remaining.width(Dimension::Px(full * part.clamp(0.0, 1.0))),
+      // It runs out from where it is to nothing, a transition from one width to the other.
+      (Some(_), TimeLeft::RunningOut(left)) => remaining
         .width(Dimension::Px(0.0))
         .transition(Transition::width().duration(left).linear()),
-      (Some(full), None) => remaining.width(Dimension::Px(full)),
       (None, _) => remaining.width(Dimension::Pct(100.0)),
     };
     Row::new().part(&self.part(ToastPart::Timer)).child(remaining)
@@ -707,7 +723,7 @@ impl DevtoolsInspectable for Shown {}
 /// A toast leaves after its duration, on a press of its close control or of
 /// its action, and by [`Toasts::dismiss`]. While the pointer is on the toasts
 /// their time stands still, and they are laid out one over another; when it
-/// leaves, each has its whole duration again.
+/// leaves, their time runs on from where it stood.
 #[derive(Clone)]
 pub struct Toasts {
   shown: Signal<Vec<Shown>>,
@@ -802,6 +818,39 @@ impl Default for Toasts {
   }
 }
 
+/// A toast coming in from under where it stands, and from over it; leaving
+/// downward, and upward. The animation engine registers these with the
+/// spinner's turn, so that every app has them.
+const ENTER_FROM_BELOW: KeyframesId = KeyframesId::new(0xFF01);
+const ENTER_FROM_ABOVE: KeyframesId = KeyframesId::new(0xFF02);
+const LEAVE_DOWNWARD: KeyframesId = KeyframesId::new(0xFF03);
+const LEAVE_UPWARD: KeyframesId = KeyframesId::new(0xFF04);
+
+/// How far a toast moves as it comes in and as it leaves: the distance of the toasts from the window's edge.
+const TRAVEL: f32 = 16.0;
+
+/// The keyframes of a toast coming in and leaving: it fades in as it moves
+/// to its place from the window's edge, and out as it moves back to it.
+pub(crate) fn keyframes() -> [Keyframes; 4] {
+  let slide = |id: KeyframesId, from: (f32, f32), to: (f32, f32)| {
+    Keyframes::new(id)
+      .frame(0.0, |frame| {
+        frame.set(AnimatableProperty::OffsetY, from.0);
+        frame.set(AnimatableProperty::Opacity, from.1);
+      })
+      .frame(1.0, |frame| {
+        frame.set(AnimatableProperty::OffsetY, to.0);
+        frame.set(AnimatableProperty::Opacity, to.1);
+      })
+  };
+  [
+    slide(ENTER_FROM_BELOW, (TRAVEL, 0.0), (0.0, 1.0)),
+    slide(ENTER_FROM_ABOVE, (-TRAVEL, 0.0), (0.0, 1.0)),
+    slide(LEAVE_DOWNWARD, (0.0, 1.0), (TRAVEL, 0.0)),
+    slide(LEAVE_UPWARD, (0.0, 1.0), (-TRAVEL, 0.0)),
+  ]
+}
+
 #[derive(Clone)]
 struct ToastHostProps {
   toasts: Toasts,
@@ -830,7 +879,7 @@ impl Component for ToastHost {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let ToastHostProps { toasts, position } = ctx.props::<ToastHostProps>().clone();
-    // The newest first: those in front, and how long each lasts.
+    // The newest first: those shown, and how long each lasts.
     let front: Vec<(ToastId, Option<Duration>)> = toasts.shown.with(|shown| {
       shown
         .iter()
@@ -840,17 +889,26 @@ impl Component for ToastHost {
         .collect()
     });
     if front.is_empty() {
+      // Closed, the layer stays while the last toast leaves.
       return Element::from(Modal::new(Element::new()).open_when(false));
     }
     let paused = toasts.paused.get();
-    let recipe = ctx.theme().clone().resolve::<Toast>(
+    let theme = ctx.theme().clone();
+    let recipe = theme.resolve::<Toast>(
       &Case {
         breakpoint: current_breakpoint(),
         ..Case::default()
       },
       None,
     );
-    let mount = |ctx: &mut Ctx, (id, duration): (ToastId, Option<Duration>)| {
+    let bottom = position.at_bottom();
+    // A toast taken away leaves toward the window's edge: a keyframe animation, which reduced motion goes without.
+    let leave = (!theme.reduced_motion()).then(|| {
+      Animation::new(if bottom { LEAVE_DOWNWARD } else { LEAVE_UPWARD })
+        .duration(theme.duration_value(MotionDuration::Base))
+        .easing(theme.easings().try_get(MotionEasing::Exit).unwrap_or(Easing::Linear))
+    });
+    let mount = |ctx: &mut Ctx, (id, duration): (ToastId, Option<Duration>), shown: bool| {
       ctx.mount_keyed::<ToastItem>(
         &id.0.to_string(),
         ToastItemProps {
@@ -858,54 +916,61 @@ impl Component for ToastHost {
           id,
           paused,
           duration,
+          shown,
+          bottom,
         },
       )
     };
-
-    let bottom = position.at_bottom();
-    let toasts_on = {
-      let (enter, leave) = (toasts.paused.clone(), toasts.paused.clone());
-      move |element: Element| {
-        Row::new()
-          .overflow_visible()
-          .on_mouse_enter(move || enter.set(true))
-          .on_mouse_leave(move || leave.set(false))
-          .child(element)
+    // A toast in its place, by its id: the list keeps it there while it leaves.
+    let place = |toast: Element, id: ToastId| {
+      let place = Row::new().overflow_visible().key(id.0.to_string());
+      match &leave {
+        Some(leave) => place.exit_animation(leave.clone()),
+        None => place,
       }
+      .child(toast)
     };
-    let shown: Element = if paused || front.len() == 1 {
+
+    // One list in either form, so that a toast that goes from it leaves by its animation: one taken away, and
+    // those behind the front one when the toasts are stacked again.
+    let mut list = Column::new()
+      .overflow_visible()
+      .presence()
+      .align_items(position.across())
+      .part(&recipe.part(ToastPart::List));
+    // The toasts behind the front one, while they are stacked: mounted, so that their time runs, and drawing
+    // nothing.
+    let mut waiting = Row::new().size(Dimension::Px(0.0), Dimension::Px(0.0));
+    if paused || front.len() == 1 {
       // One over another, the newest nearest the window's edge.
-      let mut list = Column::new()
-        .overflow_visible()
-        .align_items(position.across())
-        .part(&recipe.part(ToastPart::List));
       let order: Vec<_> = if bottom {
         front.into_iter().rev().collect()
       } else {
         front
       };
       for toast in order {
-        list = list.child(mount(ctx, toast));
+        let item = mount(ctx, toast, true);
+        list = list.child(place(item, toast.0));
       }
-      list.into()
     } else {
       // Stacked: the newest in front, and an edge of each of the others behind it, on the side away from the
-      // window's edge. The others wait: only the front one's time runs.
+      // window's edge.
       let near = recipe.part(ToastPart::BehindNear);
       let peek = match near.rest().height.and_then(|height| height.resolve(recipe.theme())) {
         Some(Dimension::Px(px)) => px,
         _ => 0.0,
       };
-      // An edge is drawn taller than it shows, its far side under the toast in front of it.
-      let edge = |part: ToastPart, before: f32| {
-        let edge = Row::new().part(&recipe.part(part)).height(Dimension::Px(peek * 3.0));
+      let room = |before: f32| {
         let room = Row::new().overflow_visible();
-        let room = if bottom {
+        if bottom {
           room.padding_top(before)
         } else {
           room.padding_bottom(before)
-        };
-        room.child(edge)
+        }
+      };
+      // An edge is drawn taller than it shows, its far side under the toast in front of it.
+      let edge = |part: ToastPart, before: f32| {
+        room(before).child(Row::new().part(&recipe.part(part)).height(Dimension::Px(peek * 3.0)))
       };
       let behind = front.len() - 1;
       let mut stack = Stack::new().overflow_visible().stack_align(if bottom {
@@ -917,23 +982,45 @@ impl Component for ToastHost {
         stack = stack.child(edge(ToastPart::BehindFar, 0.0));
       }
       stack = stack.child(edge(ToastPart::BehindNear, peek * (behind - 1) as f32));
-      let room = Row::new().overflow_visible();
-      let room = if bottom {
-        room.padding_top(peek * behind as f32)
-      } else {
-        room.padding_bottom(peek * behind as f32)
-      };
-      stack.child(room.child(mount(ctx, front[0]))).into()
-    };
+      let item = mount(ctx, front[0], true);
+      stack = stack.child(room(peek * behind as f32).child(item));
+      list = list.child(place(stack.into(), front[0].0));
+      for toast in &front[1..] {
+        waiting = waiting.child(mount(ctx, *toast, false));
+      }
+    }
 
+    // With the pointer on them their time stands still, and they are laid out one over another.
+    let (enter, leave) = (toasts.paused.clone(), toasts.paused.clone());
+    let shown = Row::new()
+      .overflow_visible()
+      .on_mouse_enter(move || enter.set(true))
+      .on_mouse_leave(move || leave.set(false))
+      .child(list);
+    // Clear of what the window's edges hold: a phone's notch, its home indicator, its keyboard.
+    let safe = ctx.safe_area();
     let viewport = Column::new()
       .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
       .hit_test(HitTestBehavior::ContentOnly)
       .overflow_visible()
-      .justify(if bottom { Justify::End } else { Justify::Start })
-      .align_items(position.across())
-      .part(&recipe.part(ToastPart::Viewport))
-      .child(toasts_on(shown));
+      .padding(
+        Padding::new()
+          .top(safe.top)
+          .right(safe.right)
+          .bottom(safe.bottom + safe.keyboard)
+          .left(safe.left),
+      )
+      .child(
+        Column::new()
+          .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+          .hit_test(HitTestBehavior::ContentOnly)
+          .overflow_visible()
+          .justify(if bottom { Justify::End } else { Justify::Start })
+          .align_items(position.across())
+          .part(&recipe.part(ToastPart::Viewport))
+          .child(shown)
+          .child(waiting),
+      );
     // A layer like the window chrome's: over the page and its dialogs, taking a press only on what is in it,
     // and holding Tab to none of it, as a dialog's layer does.
     Element::from(
@@ -954,6 +1041,10 @@ struct ToastItemProps {
   paused: bool,
   /// How long it lasts: `None` while it stays until it is closed.
   duration: Option<Duration>,
+  /// Whether it is drawn: one behind the front one, while they are stacked, is not, and its time runs.
+  shown: bool,
+  /// Whether the toasts are at the bottom of the window: a toast comes in from under its place.
+  bottom: bool,
 }
 
 impl PartialEq for ToastItemProps {
@@ -961,18 +1052,35 @@ impl PartialEq for ToastItemProps {
     self.id == other.id
       && self.paused == other.paused
       && self.duration == other.duration
+      && self.shown == other.shown
+      && self.bottom == other.bottom
       && self.toasts.same(&other.toasts)
   }
 }
 
 impl DevtoolsInspectable for ToastItemProps {}
 
+/// What a toast's timer has counted.
+struct Clock {
+  /// How long it had left when its time last stood still.
+  left: Duration,
+  /// Since when its time runs: `None` while it stands still.
+  since: Option<Instant>,
+  /// Whether it was drawn by the last render: its timer runs out from the next one on.
+  drawn: bool,
+  /// When it was first drawn: it comes in from then on.
+  entered: Option<Instant>,
+}
+
 /// One toast a host shows, with its timer: it takes the toast away when the
-/// toast's time is up.
+/// toast's time is up, and keeps what is left of it while its time stands still.
 struct ToastItem {
   timeout: Option<Timeout>,
-  /// Whether it was drawn once: its timer runs out from all of it from the next drawing on.
-  mounted: Signal<bool>,
+  clock: Mutex<Clock>,
+  /// Renders it once more right after it is first drawn: a transition runs from one width to another, so the
+  /// timer is drawn where it is first and runs out from there.
+  again: Timeout,
+  renders: Signal<u64>,
 }
 
 impl Component for ToastItem {
@@ -984,25 +1092,48 @@ impl Component for ToastItem {
       let (toasts, id) = (props.toasts.clone(), props.id);
       ctx.create_timeout(duration, move || toasts.dismiss(id))
     });
+    let renders = ctx.signal(0_u64);
+    let again = ctx.create_timeout(Duration::ZERO, {
+      let renders = renders.clone();
+      move || renders.update(|count| *count += 1)
+    });
     Self {
       timeout,
-      mounted: ctx.signal(false),
+      clock: Mutex::new(Clock {
+        left: props.duration.unwrap_or_default(),
+        since: None,
+        drawn: false,
+        entered: None,
+      }),
+      again,
+      renders,
     }
   }
 
-  fn on_mounted(&self) {
-    self.mounted.set(true);
-  }
-
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let _ = self.renders.get();
     let props = ctx.props::<ToastItemProps>().clone();
-    // Paused, the time stands still; let go, the toast has its whole duration again.
+    let now = Instant::now();
+    let mut clock = self.clock.lock().unwrap_or_else(PoisonError::into_inner);
+    // Under the pointer its time stands still with what is left of it; let go, it runs on from there.
     if let Some(timeout) = &self.timeout {
-      if props.paused {
-        timeout.cancel();
-      } else {
-        timeout.start();
+      match (props.paused, clock.since) {
+        (true, Some(since)) => {
+          clock.left = clock.left.saturating_sub(now.saturating_duration_since(since));
+          clock.since = None;
+          timeout.cancel();
+        }
+        (false, None) => {
+          clock.since = Some(now);
+          timeout.set_duration(clock.left);
+          timeout.start();
+        }
+        _ => {}
       }
+    }
+    if !props.shown {
+      clock.drawn = false;
+      return Element::new();
     }
     let toast = props
       .toasts
@@ -1011,12 +1142,58 @@ impl Component for ToastItem {
     let Some(mut toast) = toast else {
       return Element::new();
     };
+
+    let left = match clock.since {
+      Some(since) => clock.left.saturating_sub(now.saturating_duration_since(since)),
+      None => clock.left,
+    };
+    toast.left = match props.duration {
+      None => TimeLeft::All,
+      Some(_) if clock.drawn && clock.since.is_some() => TimeLeft::RunningOut(left),
+      Some(duration) => TimeLeft::Part(left.as_secs_f32() / duration.as_secs_f32().max(f32::EPSILON)),
+    };
+    if !clock.drawn {
+      clock.drawn = true;
+      self.again.restart();
+    }
+    // It comes in from the window's edge once, when it is first drawn: a keyframe animation, which reduced motion
+    // goes without.
+    let theme = ctx.theme().clone();
+    let entered = *clock.entered.get_or_insert(now);
+    let coming = theme.duration_value(MotionDuration::Slow);
+    drop(clock);
+
     let dismiss = {
       let (toasts, id) = (props.toasts.clone(), props.id);
       move || toasts.dismiss(id)
     };
     toast.action = toast.action.map(|action| action.also(dismiss.clone()));
-    toast.countdown = props.duration.filter(|_| !props.paused && self.mounted.get());
-    Element::from(toast.on_close(dismiss))
+    // A finger throws it off: to a side, or toward the window's edge.
+    let thrown = {
+      let (dismiss, bottom) = (dismiss.clone(), props.bottom);
+      move |swipe: SwipeEvent| {
+        let away = match swipe.direction {
+          SwipeDirection::Left | SwipeDirection::Right => true,
+          SwipeDirection::Down => bottom,
+          SwipeDirection::Up => !bottom,
+        };
+        if away {
+          dismiss();
+        }
+      }
+    };
+    let mut item = Row::new().overflow_visible().on_swipe(thrown);
+    if !theme.reduced_motion() && now.saturating_duration_since(entered) < coming {
+      item = item.animation(
+        Animation::new(if props.bottom {
+          ENTER_FROM_BELOW
+        } else {
+          ENTER_FROM_ABOVE
+        })
+        .duration(coming)
+        .easing(theme.easings().try_get(MotionEasing::Enter).unwrap_or(Easing::Linear)),
+      );
+    }
+    Element::from(item.child(toast.on_close(dismiss)))
   }
 }

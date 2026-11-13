@@ -330,14 +330,65 @@ fn several_are_stacked_and_laid_out_one_over_another_while_the_pointer_is_on_the
   stage.pass();
   assert_eq!(toasts.len(), 4, "none left while the pointer is on them");
 
-  // The pointer gone: stacked again, and the front one's time runs.
+  // The pointer gone: stacked again, and the time of the three shown runs on, those behind too.
   stage.tree.mouse_move(1.0, 1.0);
   stage.pass();
   assert!(!stage.paints("Third"));
   stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(4));
   stage.pass();
-  assert!(!stage.paints("Fourth"));
-  assert!(stage.paints("Third"), "the next comes to the front");
+  assert_eq!(toasts.len(), 1, "the three shown have left");
+  assert!(stage.paints("First"), "the one that waited comes to the front");
+}
+
+#[test]
+fn a_toast_comes_in_and_leaves_by_animations_that_reduced_motion_goes_without() {
+  let toasts = Toasts::new();
+  let mut stage = window(&toasts, ToastPosition::BottomRight);
+  let id = toasts.show(Toast::new("Settings saved"));
+  stage.pass();
+  let resting = stage.text_quad("Settings saved").unwrap().y;
+  // Taken away, it is painted on its way down until its animation ends.
+  toasts.dismiss(id);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(80));
+  let leaving = stage
+    .text_quad("Settings saved")
+    .expect("still painted while it leaves");
+  assert!(leaving.y > resting, "on its way down: {} after {resting}", leaving.y);
+  stage.pass();
+  assert!(!stage.paints("Settings saved"));
+
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(true));
+  let host = toasts.clone();
+  let mut stage = Stage::in_app(app, move |ctx| Column::new().child(host.host(ctx)).into());
+  stage.tree.resize(400, 300);
+  let id = toasts.show(Toast::new("At once"));
+  stage.pass();
+  toasts.dismiss(id);
+  stage.pass_after(Duration::ZERO);
+  assert!(!stage.paints("At once"));
+}
+
+#[test]
+fn the_timer_stands_still_with_what_is_left_while_the_pointer_is_on_it() {
+  let toasts = Toasts::new();
+  let mut stage = window(&toasts, ToastPosition::BottomRight);
+  toasts.show(Toast::new("Moved").timer(true).duration(Duration::from_secs(60)));
+  stage.pass();
+  let full = bars(&stage, light(PaletteColor::Primary), 2.0)[0].2;
+  assert_eq!(full, 360.0, "all of it, drawn first where it is");
+  // Rendered again, it runs out; under the pointer it stands where it is, all but nothing gone of a minute.
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_millis(1));
+  stage.pass();
+  let title = stage.text_quad("Moved").unwrap();
+  stage.tree.mouse_move(title.x + 2.0, title.y + 2.0);
+  stage.pass();
+  let held = bars(&stage, light(PaletteColor::Primary), 2.0)[0].2;
+  assert!(held > 300.0 && held <= 360.0, "{held}");
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(120));
+  stage.pass();
+  assert_eq!(toasts.len(), 1);
 }
 
 #[test]
