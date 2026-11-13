@@ -10,11 +10,11 @@ color	popover	#FFFFFF	#18181B
 color	popover-foreground	#09090B	#FAFAFA
 color	primary	#18181B	#E4E4E7
 color	primary-foreground	#FAFAFA	#18181B
-color	secondary	#E4E4E9	#27272A
+color	secondary	#D9D9E0	#27272A
 color	secondary-foreground	#18181B	#FAFAFA
-color	muted	#E4E4E9	#27272A
-color	muted-foreground	#5C5C66	#A1A1AA
-color	accent	#E4E4E9	#27272A
+color	muted	#D9D9E0	#27272A
+color	muted-foreground	#52525B	#A1A1AA
+color	accent	#D9D9E0	#27272A
 color	accent-foreground	#18181B	#FAFAFA
 color	destructive	#DC2626	#EF4444
 color	destructive-foreground	#FAFAFA	#FAFAFA
@@ -25,7 +25,7 @@ color	warning	#B45309	#F59E0B
 color	warning-muted	#FEF3C7	#33240A
 color	info	#2563EB	#60A5FA
 color	info-muted	#DBEAFE	#132544
-color	border	#CDCDD3	#27272A
+color	border	#BDBDC7	#27272A
 color	input	#9A9AA5	#3F3F46
 color	ring	#71717A	#71717A
 number	radius-sm	4
@@ -45,7 +45,7 @@ number	control-lg	40
 string	font-sans	Inter
 string	font-mono	JetBrains Mono
 color	primary-hover	#3F3F46	#FAFAFA
-color	secondary-hover	#D4D4DB	#3F3F46
+color	secondary-hover	#C8C8D1	#3F3F46
 color	destructive-hover	#B91C1C	#DC2626
 color	chart-1	#2563EB	#3B82F6
 color	chart-2	#0D9488	#2DD4BF
@@ -92,5 +92,5 @@ color	selection	#BFDBFE	#1E3A8A
 string	ease-standard	cubic-bezier(0.2, 0, 0, 1)
 string	ease-enter	cubic-bezier(0, 0, 0, 1)
 string	ease-exit	cubic-bezier(0.3, 0, 1, 1)
-color	canvas	#F0F0F3	#09090B
+color	canvas	#E6E6EB	#09090B
 color	sheet	#E3E8F0	#0B0D12
