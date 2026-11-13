@@ -2771,6 +2771,13 @@ impl LayoutEngine {
         child_overrides,
       )
     };
+    // On its way between a height in pixels and its content's, the node was laid out as high as its content and is
+    // cut to the mix of the two: what is in it stays where it was laid out, and the rest is clipped.
+    if let Some((px, content)) = node.fit_height() {
+      result.size.height = (px + content * result.size.height)
+        .max(constraints.min_height)
+        .min(constraints.max_height);
+    }
     self.lay_out_text_selection(glyph_engine, node, &mut result);
     self.lay_out_text_decorations(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]

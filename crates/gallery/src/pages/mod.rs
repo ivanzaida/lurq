@@ -4,6 +4,7 @@
 
 use lurq::{app::ctx::Ctx, node::Element};
 
+mod accordion;
 mod button;
 mod checkbox;
 mod dialog;
@@ -241,6 +242,14 @@ pub const PAGES: &[Page] = &[
     about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
+  },
+  Page {
+    path: "/accordion",
+    name: "Accordion",
+    icon: None,
+    about: "accordion collapsible disclosure expand collapse section faq question answer panel chevron details",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<accordion::AccordionPage>(()),
   },
 ];
 
