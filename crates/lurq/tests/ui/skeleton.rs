@@ -153,20 +153,32 @@ fn a_sheen_crosses_a_skeleton_that_shimmers() {
       .child(Skeleton::line().animation(SkeletonAnimation::Shimmer).id("line"))
       .into()
   });
+  let (x, ..) = stage.bounds("line");
+  // The sheen as it is painted, if it is over the line: the quad's position is where it was moved to.
   let sheen = |stage: &Stage| {
     stage
       .quads()
       .into_iter()
       .find(|quad| matches!(&quad.content, QuadContent::Rect { gradient: Some(_), .. }))
-      .expect("a sheen, from the muted fill to a lighter one and back")
   };
-  assert_eq!(sheen(&stage).width, 200.0, "the design's shimmer");
+  let first = sheen(&stage).expect("a sheen, from the muted fill to a lighter one and back");
+  assert_eq!(first.width, 200.0, "the design's shimmer");
+  // Over a period it goes from before the line's start to past its end, clipped to the line.
   let mut places = Vec::new();
-  for step in 0..4 {
-    stage.pass_after(SKELETON_SHIMMER_PERIOD / 4 * step);
-    places.push(sheen(&stage).transform.tx);
+  for step in 0..16 {
+    stage.pass_after(SKELETON_SHIMMER_PERIOD / 16 * step);
+    if let Some(quad) = sheen(&stage) {
+      let at = quad.x - x;
+      assert!((-200.5..=1200.5).contains(&at), "{at}");
+      assert_eq!(quad.clip.width, 300.0, "clipped to the line");
+      places.push(at);
+    }
   }
-  assert!(places.windows(2).any(|pair| pair[0] != pair[1]), "it moves: {places:?}");
+  assert!(
+    places.iter().any(|at| *at < 0.0),
+    "it comes in from before the start: {places:?}"
+  );
+  assert!(places.iter().any(|at| *at > 0.0), "and goes on: {places:?}");
   assert!(
     bones(&stage).iter().all(|bone| bone.opacity == 1.0),
     "and does not pulse"

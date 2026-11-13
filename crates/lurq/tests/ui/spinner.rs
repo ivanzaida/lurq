@@ -17,8 +17,11 @@ use lurq::{
   },
   components::{Column, Row, Text},
   core::Signal,
-  layout::quad::{Quad, QuadContent},
-  node::color::Color,
+  layout::{
+    Alignment,
+    quad::{Quad, QuadContent},
+  },
+  node::{color::Color, dimension::Dimension},
   ui::{
     Button, Case, FADE_IN, FADE_OUT, LoadingOverlay, LoadingOverlayPart, LoadingOverlayState, SPIN_PERIOD,
     SPINNER_BARS_PERIOD, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerSize, SpinnerVariant, icons,
@@ -190,35 +193,45 @@ fn bars_are_five_of_3_at_the_designs_heights() {
   });
   let (x, y, width, height) = stage.bounds("bars");
   assert_eq!((width, height), (27.0, 20.0));
-  let mut bars: Vec<_> = stage
-    .quads()
-    .into_iter()
-    .filter(|quad| {
-      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Foreground))
-        && (quad.width - 3.0).abs() < 0.01
-    })
-    .collect();
-  bars.sort_by(|a, b| a.x.total_cmp(&b.x));
-  let heights: Vec<f32> = bars.iter().map(|bar| bar.height.round()).collect();
-  assert_eq!(heights, [8.0, 18.0, 12.0, 20.0, 10.0]);
-  for (index, bar) in bars.iter().enumerate() {
-    assert!((bar.x - (x + 6.0 * index as f32)).abs() < 0.01, "3 apart");
-    assert!(
-      (bar.y + bar.height / 2.0 - (y + 10.0)).abs() < 0.01,
-      "on the middle of the row"
-    );
-  }
+  // A bar as it is painted: its box, and how high it is seen, scaled about its middle while it moves. The
+  // quad's position is that of its corner once scaled, and its transform is the scale alone.
+  let bars = |stage: &Stage| {
+    let mut bars: Vec<(Quad, f32)> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Foreground))
+          && (quad.width - 3.0).abs() < 0.01
+      })
+      .map(|quad| {
+        let seen = quad.height * quad.transform.d;
+        (quad, seen)
+      })
+      .collect();
+    bars.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+    bars
+  };
+  let heights: Vec<f32> = bars(&stage).iter().map(|(bar, _)| bar.height.round()).collect();
+  assert_eq!(heights, [8.0, 18.0, 12.0, 20.0, 10.0], "at rest");
 
-  // They shrink and grow back.
-  let mut scaled = false;
+  // They shrink and grow back about the middle of the row, each a little after the one before it.
+  let mut shrunk = false;
   for step in 0..8 {
     stage.pass_after(SPINNER_BARS_PERIOD / 8 * step);
-    scaled |= stage
-      .quads()
-      .iter()
-      .any(|quad| (quad.width - 3.0).abs() < 0.01 && !quad.transform.is_identity());
+    let painted = bars(&stage);
+    assert_eq!(painted.len(), 5);
+    for (index, (bar, seen)) in painted.iter().enumerate() {
+      assert!((bar.x - (x + 6.0 * index as f32)).abs() < 0.01, "3 apart");
+      assert!(
+        (bar.y + seen / 2.0 - (y + 10.0)).abs() < 0.01,
+        "on the middle of the row: {} + {seen} / 2",
+        bar.y
+      );
+      assert!(*seen <= bar.height + 0.01 && *seen >= bar.height * 0.39);
+      shrunk |= *seen < bar.height * 0.9;
+    }
   }
-  assert!(scaled);
+  assert!(shrunk);
 }
 
 #[test]
@@ -260,6 +273,13 @@ fn a_theme_rule_changes_every_spinner_and_the_buttons_too() {
   assert_eq!(button.width, 16.0, "at the side the button gives it");
 }
 
+/// Whether a quad is filled with the background's color, wholly or in part: the veil's scrim.
+fn is_scrim(quad: &Quad) -> bool {
+  let background = light(PaletteColor::Background);
+  matches!(&quad.content, QuadContent::Rect { color, .. }
+    if color.a() > 0 && color.with_alpha(255) == background.with_alpha(255) && color.a() < 255)
+}
+
 /// A card of 220 by 120 with a button in it, under a veil while `loading` is true; the button counts its presses.
 fn panel(loading: &Signal<bool>, presses: &Arc<AtomicUsize>) -> Stage {
   let (loading, presses) = (loading.clone(), presses.clone());
@@ -293,16 +313,52 @@ fn a_veil_lies_over_the_content_with_a_spinner_in_its_middle() {
   let scrim = stage
     .quads()
     .into_iter()
-    .find(|quad| {
-      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Background))
-        && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
-    })
+    .find(|quad| is_scrim(quad) && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height))
     .expect("a scrim over all of the content");
-  assert!((scrim.opacity - 0.85).abs() < 0.01, "the design's 85 hundredths");
+  let shown = f32::from(color_of(&scrim).a()) / 255.0 * scrim.opacity;
+  assert!((shown - 0.85).abs() < 0.01, "the design's 85 hundredths: {shown}");
   let ring = stage.text_quad(&glyph(icons::SPINNER)).unwrap();
   assert!((ring.x + ring.width / 2.0 - (x + width / 2.0)).abs() < 0.5);
   assert!((ring.y + ring.height / 2.0 - (y + height / 2.0)).abs() < 0.5);
   assert!(stage.paints("Recent activity"), "the content is under it");
+}
+
+#[test]
+fn the_veil_covers_its_content_whatever_room_the_overlay_has() {
+  // A card in a column that stretches what it holds: the veil covers the card and not the room beside it.
+  // Content that fills the column makes the overlay, and the veil, as wide as the column.
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .spacing(16.0)
+      .align_items(Alignment::Stretch)
+      .child(LoadingOverlay::new(true, Column::new().size(220.0, 60.0).id("card")))
+      .child(LoadingOverlay::new(
+        true,
+        Column::new().width(Dimension::Pct(100.0)).height(60.0).id("wide"),
+      ))
+      .into()
+  });
+  let scrims: Vec<Quad> = stage.quads().into_iter().filter(|quad| is_scrim(quad)).collect();
+  for id in ["card", "wide"] {
+    let (x, y, width, height) = stage.bounds(id);
+    assert!(
+      scrims
+        .iter()
+        .any(|quad| (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)),
+      "#{id}: a scrim over exactly the content, {x},{y} {width}×{height}"
+    );
+  }
+  assert_eq!(stage.bounds("card").2, 220.0);
+  assert_eq!(stage.bounds("wide").2, 300.0);
+  let card_top = stage.bounds("card").1;
+  assert!(
+    scrims
+      .iter()
+      .filter(|quad| quad.y == card_top)
+      .all(|quad| quad.width == 220.0),
+    "nothing beside the card is veiled"
+  );
 }
 
 #[test]

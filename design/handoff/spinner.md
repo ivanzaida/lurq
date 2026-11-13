@@ -63,7 +63,7 @@ LoadingOverlay::new(loading.get(), panel);
 - The ring is drawn in the color of the text around it, so a spinner in a button is the color of its label. The dots and the bars are fills, which take no color from the text: they are in `Foreground` unless a variant says otherwise.
 - Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
 - In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.
-- `LoadingOverlay::new(loading, content)` lays a veil over `content` while `loading` is true: the background's color at 85 hundredths, with a spinner in its middle (`.spinner(Spinner)` gives one of the app's). Meanwhile no press reaches the content and Tab passes it by. The veil fades in with `ui::FADE_IN` and out with `ui::FADE_OUT` over the theme's base duration. The overlay is as large as its content; its root clips the veil, so a rule that rounds `LoadingOverlayPart::Root` rounds the veil with a rounded content. Parts: `Root`, `Content`, `Veil`, `Scrim`. State: `LoadingOverlayState::Loading`.
+- `LoadingOverlay::new(loading, content)` lays a veil over `content` while `loading` is true: the background's color at 85 hundredths, with a spinner in its middle (`.spinner(Spinner)` gives one of the app's). Meanwhile no press reaches the content and Tab passes it by. The veil fades in with `ui::FADE_IN` and out with `ui::FADE_OUT` over the theme's base duration. The overlay is as large as its content; its root clips the veil, so a rule that rounds `LoadingOverlayPart::Root` rounds the veil with a rounded content. Parts: `Root`, `Content`, `Veil`, and `Scrim`, whose background and opacity are the veil's fill. State: `LoadingOverlayState::Loading`.
 - A renderer that draws another spinner starts from `view.indicator()` and `view.label()`; `view.name()` is what it is called.
 
 ## Skeleton
@@ -128,13 +128,20 @@ Skeleton::status(
   skeletons that appear at different moments move together, and a page of skeletons pulses as one.
 - **Spinners move where motion is reduced**, as the button's always did; skeletons stand still (`theme.reduced_motion()`
   at build, which every theme change renders again).
-- **The overlay is a grid of one cell** with the content and the veil both in it, stretched to it: the only box in the
-  engine that is as large as the largest of what it holds and gives the others that size, so the veil covers content of
-  any size. A `Stack` sizes a child of `Pct(100)` by what its parent offers, not by its own size. The root has
-  `presence()`, so the veil (keyed `veil`) stays while it fades out. The veil is a cell of the scrim (the fill at 0.85,
-  which a fade of the whole veil from 0 to 1 does not undo) and of the spinner in its middle. The content is held in a
-  column that is `disabled` while loading, which takes the pointer and Tab from all of it; it is not dimmed by that, the
-  veil does.
+- **The overlay is a grid of one cell** (an `Auto` column and row) with the content and the veil both in it, stretched
+  to it: the only box in the engine that is as large as the largest of what it holds and gives the others that size, so
+  the veil covers content of any size. A `Stack` sizes a child of `Pct(100)` by what its parent offers, not by its own
+  size. **The cell is as large as the content**, whatever room the overlay is offered: an overlay around a card covers
+  the card and nothing beside it, and content that fills a column makes the cell, and the veil, as wide as the column.
+  A parent that stretches the overlay (a column with `align_items(Stretch)`) stretches the root's box, not the cell, so
+  the veil still covers the content alone. The root has `presence()`, so the veil (keyed `veil`) stays while it fades
+  out.
+- **The veil is one node**: the spinner in its middle, filled with the scrim's color at the scrim's opacity
+  (`LoadingOverlayPart::Scrim`'s `Background` at 0.85, made one color by the renderer). It is not a scrim node with an
+  opacity of its own, because a box of `Pct(100)` or a grid of `Fr` inside the veil is as wide as the room the root
+  offers when the root measures its cell, which made the overlay fill its row; nor an opacity of the veil, which its
+  fade from 0 to 1 would undo when it ends. The content is held in a column that is `disabled` while loading, which
+  takes the pointer and Tab from all of it; it is not dimmed by that, the veil does.
 - **The skeleton's sizes**: the app's `width` and `height` are a layer over the shape's in the recipe and under the
   app's `style`, so `Skeleton::block(Length::Fill, 132.0)` fills, and `style("bone", ..)` still wins. The board's card
   draws its button as a line 88 by 32 with `radius-md`; the gallery's card builds it as a block with that radius.
