@@ -289,7 +289,7 @@ Not planned as components: the Examples page (whole windows and screens) stays a
 
 ## 8. Verification
 
-- **Gallery.** A `gallery` binary in `crates/demo` with one page per component group, mirroring the Pencil sheets, with a switch for light, dark and system, and a switch between theme definitions. It is the place to compare against the design and the first consumer of every API.
+- **Gallery.** The app drawn in `pencil/lurq-design-system-demo.pen` (section 15): a page per component, with a playground, a section per prop axis, a matrix of states and a table of props, and switches for the appearance and the density that reach every demo on the page. It takes the place of `crates/demo`. It is the place to compare against the design and the first consumer of every API, and it is built with the components: each component lands with its page.
 - **Screenshot tests.** The `screenshot` feature renders each gallery page in both schemes; images are compared against stored references so a token or recipe change that shifts a component shows up in review.
 - **Behavior tests.** Per component under `crates/lurq/tests/ui/`: states, keyboard, disabled, and focus order. They run against the behavior half, so they hold under any renderer.
 - **Theme tests.** A second, deliberately different theme definition runs through the gallery in CI. A component that ignores its recipe — a hard-coded color, a fixed size — shows up as unchanged.
@@ -344,7 +344,7 @@ Phase 0 and the tokens half of Phase 1 can be reviewed and released on their own
 6. Settled on 2026-11-13: the default theme is the design's from the release that brings its tokens, before the components. `ThemeDefinition::legacy()` keeps the look of 0.61, and the migration guide (`docs/…/migration-v0-62.md`) says what changes.
 7. Settled: the glyphs reach the screen as a hinted icon font, built by `scripts/build-icon-font.py` from `design/icons/svg` (icon notes, D5). Vector paths would have needed the `svg` or `canvas` machinery, or a new path primitive.
 8. Does DevTools move to the new glyphs at once, so `lucide.ttf` can be removed, or keep Lucide with a notice file for now?
-9. Is a `gallery` binary acceptable in `crates/demo`, or should it be its own crate?
+9. Settled on 2026-11-13: the gallery is an app of its own, drawn in `pencil/lurq-design-system-demo.pen`, and takes the place of the demo (section 15).
 10. Which platforms must screenshot tests run on in CI?
 
 ## 13. Phase 0: status and handover
@@ -482,3 +482,46 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 ### 14.4 Next: the theme machinery
 
 Section 6, "Theme machinery", with D8 to D12: the part-style patch type and recipe storage with resolved recipes cached per theme version; renderer registration, per part too; presentation options; `Theme::bare()`; sizes and states by name; public scoped themes; recipes for what lurq draws itself (scroll bars, selection, the caret). Then step 2 of section 7 proves it on four components before anything else is built on it.
+
+## 15. The gallery
+
+Asked for on 2026-11-13: `pencil/lurq-design-system-demo.pen` is the demo app, in place of the one there is. It is built from the moment work on components starts, a page at a time, so that each component can be looked at as it lands.
+
+### 15.1 What the board draws
+
+The board has the app's own parts (`Library`), one page built in full in both appearances (`Gallery / Button · light` and `· dark`), and a wireframe of the page with notes (`Wireframe / Component page · guide`). Button is the reference: every other page keeps its zones, order and sizes and swaps the content.
+
+| Zone | Size | What it holds |
+| --- | --- | --- |
+| Title bar | 36 | The app's own window chrome: its name on the left, the window controls on the right |
+| App header | 56 | Brand and version; search across components and props (`Ctrl K`); the appearance (System, Light, Dark) and the density, which apply to every demo on the page; settings |
+| Sidebar | 248 | Components in the design system's groups, each with a count; rows of 32; the current page filled with the highlight |
+| Page header | | Breadcrumb; the name at 32/600; a paragraph up to 620 wide; the import path, a status badge and the version it is there since; links to the source and to Pencil |
+| Playground | card of 660 | Always first. The live component on `Canvas` with a switch that forces a state (default, hover, pressed, focus), its measured size and radius, and a counter of events. Under it tabs: the code that builds it, the events, the layout tree. On the right, 320 wide, a control per prop and a reset |
+| Example sections | | One per prop axis (Variants, Sizes, Icons and shapes): a heading at 20/600, a line of guidance, a card with the stage on `Canvas` padded 32 and a footer with the builder call and Show code |
+| State matrix | | Rows are variants, columns are states: default, hover, pressed, focus-visible, disabled, loading. A component drops the columns it has not |
+| Props table | | Prop, type, default, description, in the order of the playground's panel; a required prop has a badge |
+| On this page | 216 | An entry per section, sub-entries indented 24, the current one marked with a 2 px edge in `Primary` |
+
+A prop's control follows its type: an enum of up to five is a segmented control and a longer one a select; `&str` is an input; `bool` a switch; `Option<T>` a select with None; a number a slider or a number input. Spacing: the main column is padded 32, 48 or 64; sections are 48 apart; a heading is 16 above its card; a card has `radius-lg` and a 1 px border; toolbars are 52 tall and footers 40.
+
+The sidebar's groups, 43 pages: Getting started (Overview, Tokens, Icons); Actions (Button, Link, Toggle, Toggle Group, Segmented Control, Button Group, Split Button, FAB); Inputs (Input, Textarea, Select, Combobox, Checkbox, Radio, Switch, Slider, Date Picker); Navigation (Tabs, Breadcrumb, Pagination, Menu, Tree View, Steps); Surfaces and overlays (Card, Dialog, Drawer, Popover, Tooltip, Toast); Data (Table, Data Grid, List, Badge, Avatar, Chart); Desktop (Window Chrome, Toolbar, Command Bar, Property Grid, Settings Card).
+
+### 15.2 What it asks of lurq
+
+- **A state forced without the pointer.** The playground's switch and the state matrix show hover, pressed and focus-visible on a component nobody is pointing at. Nodes have no way to hold a state style on: an engine item of its own, which the recipes need as well to be tested.
+- **The gallery is made of what it shows.** Its header, sidebar, playground panel and tables are a segmented control, a select, an input, switches, badges, a breadcrumb, tabs and a table. The shell starts on primitives and on the first components, and each part moves to its component when that lands.
+- **A code view.** The Rust that builds the preview, colored, following the props, with Copy. Markdown already colors code; whether the gallery uses it or a view of its own is to settle with the first page.
+- **Measured size and layout tree** come from what DevTools and `ElementRef::bounds` already read.
+- **Density** is a switch in the header: the theme has the scale (`Density`), and nothing applies it to components yet. It belongs with recipes.
+
+### 15.3 Where the board and the plan differ
+
+- **Button has five sizes**, Xs 28, Sm 32, Md 36, Lg 40 and Xl 44, and the board says its height follows the control scale. The design's variables, and `ControlSize`, have three: 32, 36, 40. Either the scale gains `Xs` and `Xl` on both boards, or a button's sizes are its own (D11 lets a recipe name sizes).
+- **The board fills the current sidebar row with `$accent`**, the hover fill that D3 renames `highlight`. Both boards still have the old name.
+- **The board says `v0.61.0` and "since 0.61".** The components ship after 0.61: the gallery shows the crate's version and each component's own.
+- **The demo's engine pages** (layout, scroll, text, canvas, borders, grid, sticky, presence) have no place in the board's sidebar. They are how the engine is tried by hand, so `crates/demo` stays until the gallery has a place for them or they are dropped on purpose.
+
+### 15.4 Order
+
+The gallery starts with step 2 of section 7, as a new crate beside `crates/demo`: the shell (title bar, header with the appearance switch, sidebar, page frame), then the Button page as the reference, then a page with each component of step 2 and of Phase 2. The Tokens and Icons pages under Getting started can come first: the theme's tables and the icon font are there, and the Theme page of `crates/demo` already draws every role from the theme.
