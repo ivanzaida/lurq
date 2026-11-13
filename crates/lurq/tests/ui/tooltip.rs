@@ -96,13 +96,81 @@ fn a_tooltip_shows_above_what_it_describes_while_the_pointer_rests_on_it() {
   assert!(close(shown.height - words.height, 12.0), "6 above and below its text");
 }
 
+/// Lets the timers of the tooltips run `later` from now, and paints.
+fn after(stage: &mut Stage, later: Duration) {
+  stage.tree.tick_timers_at(Instant::now() + later);
+  stage.pass();
+}
+
 #[test]
-fn the_tooltip_goes_when_the_pointer_leaves() {
+fn the_tooltip_goes_a_moment_after_the_pointer_leaves() {
   let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO));
   stage.hover("copy");
   assert!(stage.paints(WORDS));
   stage.tree.mouse_move(390.0, 290.0);
   stage.pass();
+  assert!(stage.paints(WORDS), "time to move onto it");
+  after(&mut stage, Duration::from_millis(200));
+  assert!(!stage.paints(WORDS));
+}
+
+#[test]
+fn the_pointer_can_be_moved_onto_the_tooltip_and_it_stays() {
+  let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO).side(TooltipSide::Bottom));
+  stage.hover("copy");
+  let shown = bubble(&stage, WORDS).unwrap();
+  stage
+    .tree
+    .mouse_move(shown.x + shown.width / 2.0, shown.y + shown.height / 2.0);
+  stage.pass();
+  after(&mut stage, Duration::from_millis(200));
+  assert!(stage.paints(WORDS), "the pointer is on it");
+
+  stage.tree.mouse_move(390.0, 290.0);
+  stage.pass();
+  after(&mut stage, Duration::from_millis(200));
+  assert!(!stage.paints(WORDS), "the pointer left it");
+}
+
+#[test]
+fn a_disabled_element_shows_its_tooltip() {
+  let mut stage = stage(|| Tooltip::new("Nothing to copy").delay(Duration::ZERO));
+  let mut disabled = Stage::new(|ctx| {
+    Column::new()
+      .padding(100.0)
+      .child(
+        Tooltip::new("Nothing to copy")
+          .delay(Duration::ZERO)
+          .mount(ctx, copy().disabled(true)),
+      )
+      .into()
+  });
+  stage.hover("copy");
+  disabled.hover("copy");
+  assert!(disabled.paints("Nothing to copy"));
+  // As high above it as above one that is not disabled.
+  let (moved, enabled) = (
+    bubble(&disabled, "Nothing to copy").unwrap(),
+    bubble(&stage, "Nothing to copy").unwrap(),
+  );
+  assert!(close(moved.y, enabled.y), "{:?} and {:?}", at(&moved), at(&enabled));
+}
+
+#[test]
+fn the_focus_of_the_first_thing_in_the_element_that_takes_it_shows_it() {
+  let mut stage = Stage::new(|ctx| {
+    let field = Row::new()
+      .spacing(8.0)
+      .child(copy())
+      .child(Button::new("Paste").id("paste"));
+    Column::new()
+      .padding(100.0)
+      .child(Tooltip::new(WORDS).mount(ctx, field))
+      .into()
+  });
+  stage.key("Tab");
+  assert!(stage.paints(WORDS), "the button in the row has the focus");
+  stage.key("Escape");
   assert!(!stage.paints(WORDS));
 }
 
@@ -209,6 +277,35 @@ fn where_there_is_no_room_above_it_is_below() {
   assert!(shown.y >= y + height, "below the button: {:?}", at(&shown));
 }
 
+/// The arrow: a square of 12 / √2 in the box's color.
+fn tip(stage: &Stage) -> Option<Quad> {
+  let side = 12.0 / std::f32::consts::SQRT_2;
+  stage.quads().into_iter().find(|quad| {
+    rect_color(quad) == Some(light(PaletteColor::Primary)) && close(quad.width, side) && close(quad.height, side)
+  })
+}
+
+#[test]
+fn where_the_window_pushes_the_box_along_the_arrow_still_points_at_the_element() {
+  let mut stage = stage_at(|| {
+    Tooltip::new("Copy the link to this page")
+      .delay(Duration::ZERO)
+      .side(TooltipSide::Bottom)
+      .arrow(true)
+  });
+  stage.hover("copy");
+  stage.pass();
+  let shown = bubble(&stage, "Copy the link to this page").unwrap();
+  let (x, _, width, _) = stage.bounds("copy");
+  assert!(shown.x >= -0.01, "kept in the window: {:?}", at(&shown));
+  let arrow = tip(&stage).expect("an arrow");
+  assert!(
+    (arrow.x + arrow.width / 2.0 - (x + width / 2.0)).abs() < 1.0,
+    "at the middle of the button, not of the box: {:?}",
+    at(&arrow)
+  );
+}
+
 #[test]
 fn an_arrow_stands_between_the_box_and_what_it_describes() {
   let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO).arrow(true));
@@ -259,6 +356,24 @@ fn a_long_text_wraps_in_a_box_no_wider_than_200() {
     })
     .expect("the long tooltip shows");
   assert!(shown.width <= 200.0 + 0.01, "no wider than 200: {:?}", at(&shown));
+  // A text that wraps has 8 above it, as the board draws it.
+  stage.pass();
+  let start = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if long.starts_with(text.as_str())))
+    .unwrap();
+  let shown = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| rect_color(quad) == Some(light(PaletteColor::Primary)))
+    .find(|quad| quad.x <= start.x && quad.y <= start.y && quad.y + quad.height > start.y)
+    .unwrap();
+  assert!(
+    (start.y - shown.y - 8.0).abs() < 1.0,
+    "8 above the text: {}",
+    start.y - shown.y
+  );
 }
 
 #[test]
