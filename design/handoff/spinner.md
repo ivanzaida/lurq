@@ -18,7 +18,7 @@ the media row and the card composed of the pieces), and lines in the three `mod.
 - **Keyframes** (`crates/lurq/src/animation/animation.rs`, `AnimationEngine::new`): one loop registers four keyframes in
   phase, after the toast's: `ui::SPINNER_DOTS` `0xFF31` (opacity 1 → 0.3 → 1), `ui::SPINNER_BARS` `0xFF32` (a scale of
   the height 1 → 0.4 → 1 about the middle), `ui::SKELETON_PULSE` `0xFF33` (opacity 1 → 0.5 → 1) and
-  `ui::SKELETON_SHIMMER` `0xFF34` (a translation from −200 to 1200 along x). `0xFF35` to `0xFF38` are left free. The
+  `ui::SKELETON_SHIMMER` `0xFF34` (a width in percent, `AnimatableValue::Percent`, from 0 to two thirds: the room before the sheen in a row three times the skeleton's width). `0xFF35` to `0xFF38` are left free. The
   keyframes are built by `ui::spinner_keyframes()` and `ui::skeleton_keyframes()` (`pub(crate)`, as the toast's are).
   Nothing else of the animation engine changed.
 - **The button's spinner is a `ui::Spinner`** (`crates/lurq/src/ui/button.rs`, `ButtonView::spinner`): the same glyph
@@ -100,8 +100,8 @@ Skeleton::status(
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - A skeleton is nothing to tooling that reads the tree: nothing of it is described, so it is left out as any box with no text, id or handler is. What is loading is said once, by `Skeleton::status` around a group of them.
-- A skeleton pulses with `ui::SKELETON_PULSE`, from whole to half and back in `SKELETON_PULSE_PERIOD`; one that shimmers has a sheen 200 wide cross it with `ui::SKELETON_SHIMMER` in `SKELETON_SHIMMER_PERIOD`, from before its start to `SKELETON_SHIMMER_TRAVEL` (1200) past it. Both play on the animation clock, so every skeleton on screen pulses as one, and the sheen crosses all of them at once. Where motion is reduced a skeleton stands still.
-- Parts: `SkeletonPart::Root` (the box of a shape, or the column of a paragraph's lines), `Bone` (a shape), `Sheen` (its width, and the fill of its middle). The shapes are the variants of `SkeletonShape`: `Line`, `Circle`, `Block`, `Paragraph`.
+- A skeleton pulses with `ui::SKELETON_PULSE`, from whole to half and back in `SKELETON_PULSE_PERIOD`; one that shimmers has a sheen as wide as itself cross it in `SKELETON_SHIMMER_PERIOD`, from wholly before its start to wholly past its end, whatever its width: in a row three times the skeleton's width centred on it, the room before the sheen grows from nothing to two thirds of the row (`ui::SKELETON_SHIMMER`, a width in percent). Both play on the animation clock, so every skeleton on screen pulses as one, and the sheen crosses all of them at once. Where motion is reduced a skeleton stands still.
+- Parts: `SkeletonPart::Root` (the box of a shape, or the column of a paragraph's lines), `Bone` (a shape), `Sheen` (the fill of its middle; it is as wide as the bone). The shapes are the variants of `SkeletonShape`: `Line`, `Circle`, `Block`, `Paragraph`.
 - In the design every shape is in `Muted`; a line is 12 high and `radius-sm`, a circle `radius-full`, a block 200 by 112 and `radius-lg`; a paragraph's lines are 10 apart, its last two 92 and 60 hundredths of its width. The sheen runs from the shape's fill to `SecondaryHover` and back.
 - The board's media row and card are built from these and are no components of their own: the gallery's Skeleton page has both, with their code.
 
@@ -148,16 +148,16 @@ Skeleton::status(
 - **The sheen's gradient** is built by the renderer from the fills the recipe gives `Bone` and `Sheen`
   (`Muted` → `SecondaryHover` → `Muted`, the board's): `PartStyle` has no gradient, and no color is named in the
   renderer.
+- **The sheen's crossing** is a width in percent and no translation: inside the bone, which clips, a `Stack` centred
+  on the bone lays out a row of 300% of its width, so from one width before the bone to one past it; in the row a room
+  whose width `SKELETON_SHIMMER` runs from 0 to 66.67% (`AnimatableValue::Percent`, the Progress session's), then the
+  sheen at 33.33%, as wide as the bone. Every bone is crossed in `SKELETON_SHIMMER_PERIOD`, wide or narrow.
 - **Nothing to tooling.** A skeleton is described with nothing: `lurq_read_tree` drops a node with no id, class, text,
   attribute or handler, which is what hides it. Marking it (with a role of `presentation`, say) would have made it show.
 
 ## Not done
 
-- **The sheen crosses a skeleton by pixels, not by its width**: it travels from −200 to 1200 in every skeleton, so one
-  narrower than that waits while it crosses the rest, and one wider than 1200 is not crossed to its end. The board's
-  shimmer is a sheen as wide as the line. The smallest change: a translation of a keyframe in shares of the node's own
-  width (a `Decomposed` translation in percent, or an `AnimatableProperty` for it), which the Progress session owns for
-  the indeterminate bar; `SKELETON_SHIMMER` then goes from −100% to 100% and the sheen is as wide as the bone.
+Nothing.
 
 ## Differs from the board
 

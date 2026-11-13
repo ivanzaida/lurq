@@ -9,10 +9,11 @@ use super::{
   theme::{Themed, current_theme},
 };
 use crate::{
-  animation::{AnimatableProperty, Animation, Easing, Keyframes, KeyframesId},
+  animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, KeyframesId},
   app::theme::{PaletteColor, RadiusSize, Theme},
-  components::{Column, Row},
-  node::{BackgroundColor, Element, Gradient, GradientStop, dimension::Dimension, transform::Decomposed},
+  components::{Column, Row, Stack},
+  layout::StackAlignment,
+  node::{BackgroundColor, Element, Gradient, GradientStop, dimension::Dimension},
 };
 
 /// The keyframes of a skeleton that pulses, which every window has: whole,
@@ -20,22 +21,20 @@ use crate::{
 pub const SKELETON_PULSE: KeyframesId = KeyframesId::new(0xFF33);
 
 /// The keyframes of the sheen of a skeleton that shimmers, which every window
-/// has: from before the skeleton's start to [`SKELETON_SHIMMER_TRAVEL`] past it.
+/// has: the width of what is before the sheen in a row three times the
+/// skeleton's width, from nothing to two thirds of it. The sheen, a third of
+/// the row and as wide as the skeleton, goes from wholly before the
+/// skeleton's start to wholly past its end.
 pub const SKELETON_SHIMMER: KeyframesId = KeyframesId::new(0xFF34);
 
 /// How long a skeleton takes to pulse once.
 pub const SKELETON_PULSE_PERIOD: Duration = Duration::from_millis(2000);
 
-/// How long the sheen of a skeleton takes to cross it once.
+/// How long the sheen of a skeleton takes to cross it once, whatever its width.
 pub const SKELETON_SHIMMER_PERIOD: Duration = Duration::from_millis(2000);
 
-/// How far past the start of a skeleton the sheen goes, in logical pixels: a skeleton wider than this sees
-/// it cross only so far. The sheen moves by pixels, not by a share of the skeleton's width, so that every
-/// skeleton on screen, whatever its width, shimmers at one speed and in phase.
-pub const SKELETON_SHIMMER_TRAVEL: f32 = 1200.0;
-
-/// How wide the sheen is where the recipe does not say: the design's shimmer, a line of 200.
-const SHEEN: f32 = 200.0;
+/// How wide the row the sheen crosses in is, in shares of the skeleton: from one width before it to one past it.
+const SWEEP: f32 = 300.0;
 
 /// How long the lines of a paragraph are before its last: all of the width, and the one before the last a
 /// little less; the last is shorter still. The design's 300, 300, 276 and 180.
@@ -57,16 +56,10 @@ pub(crate) fn keyframes() -> [Keyframes; 2] {
     });
   let shimmer = Keyframes::new(SKELETON_SHIMMER)
     .frame(0.0, |frame| {
-      frame.set(
-        AnimatableProperty::Transform,
-        Decomposed::IDENTITY.with_translate(-SHEEN, 0.0),
-      );
+      frame.set(AnimatableProperty::Width, AnimatableValue::Percent(0.0));
     })
     .frame(1.0, |frame| {
-      frame.set(
-        AnimatableProperty::Transform,
-        Decomposed::IDENTITY.with_translate(SKELETON_SHIMMER_TRAVEL, 0.0),
-      );
+      frame.set(AnimatableProperty::Width, AnimatableValue::Percent(200.0 / 3.0));
     });
   [pulse, shimmer]
 }
@@ -341,21 +334,15 @@ impl SkeletonView {
     self.recipe.theme()
   }
 
-  /// What crosses a shape that shimmers: a band of the sheen's width whose fill runs from the shape's to the
-  /// sheen's and back, as the design draws it, moved from before the shape's start to past its end.
+  /// What crosses a shape that shimmers: a band whose fill runs from the shape's to the sheen's and back, as
+  /// the design draws it, a third of the row it crosses in (see [`Self::sweep`]): as wide as the shape.
   pub fn sheen(&self) -> Row {
     let (bone, part) = (self.part(SkeletonPart::Bone), self.part(SkeletonPart::Sheen));
     let (edge, middle) = (bone.rest().background, part.rest().background);
     let mut sheen = Row::new()
-      .width(SHEEN)
+      .width(Dimension::Pct(100.0 * 100.0 / SWEEP))
       .height(Dimension::Pct(100.0))
-      .part(&part)
-      .animation(
-        Animation::new(SKELETON_SHIMMER)
-          .duration(SKELETON_SHIMMER_PERIOD)
-          .easing(Easing::Linear)
-          .infinite(),
-      );
+      .part(&part);
     if let (Some(edge), Some(middle)) = (edge, middle) {
       let stop = |color: &BackgroundColor, at: f32| GradientStop::at(color.clone(), at);
       sheen = sheen.background_gradient(Gradient::linear(
@@ -364,6 +351,28 @@ impl SkeletonView {
       ));
     }
     sheen
+  }
+
+  /// What a shape that shimmers holds: a row three times its width, centred on it, so from one width before
+  /// its start to one past its end; in the row, before the sheen, a room whose width runs from nothing to two
+  /// thirds of the row ([`SKELETON_SHIMMER`]). The sheen goes from wholly before the shape to wholly past it in
+  /// the same time whatever the shape's width, and the shape clips it.
+  pub fn sweep(&self) -> Stack {
+    let full = Dimension::Pct(100.0);
+    let room = Row::new().width(Dimension::Pct(0.0)).height(full).animation(
+      Animation::new(SKELETON_SHIMMER)
+        .duration(SKELETON_SHIMMER_PERIOD)
+        .easing(Easing::Linear)
+        .infinite(),
+    );
+    // A stack lays a child wider than itself with its middle on its own: the row starts a width before it.
+    Stack::new().stack_align(StackAlignment::Center).size(full, full).child(
+      Row::new()
+        .width(Dimension::Pct(SWEEP))
+        .height(full)
+        .child(room)
+        .child(self.sheen()),
+    )
   }
 
   /// One shape, in the style of its part, moving as the skeleton does.
@@ -377,7 +386,7 @@ impl SkeletonView {
           .infinite(),
       ),
       // The bone clips the sheen to its corners.
-      SkeletonAnimation::Shimmer => bone.child(self.sheen()),
+      SkeletonAnimation::Shimmer => bone.child(self.sweep()),
       SkeletonAnimation::None => bone,
     }
   }
