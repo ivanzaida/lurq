@@ -45,6 +45,36 @@ Row::new()
   .child(Button::new("Open").tab_index(0).on_click(|_| open_file()));
 ```
 
+## Focus Groups
+
+`.focus_group(FocusGroup::..)` on an element makes what is in it a group the arrow keys move the focus within, while the focus is on one of them: the buttons of a toolbar, the choices of a radio group, the items of a menu.
+
+```rust
+use lurq::{
+  components::{Button, Row},
+  node::FocusGroup,
+};
+
+// Tab reaches the toolbar once; Left and Right move within it.
+Row::new()
+  .focus_group(FocusGroup::horizontal().one_stop(true))
+  .child(Button::new("Cut").tab_index(0))
+  .child(Button::new("Copy").tab_index(0))
+  .child(Button::new("Paste").tab_index(0));
+```
+
+| `FocusGroup` | |
+| --- | --- |
+| `horizontal()`, `vertical()`, `both()` | Which arrows move the focus: Left and Right, Up and Down, or all four (Left and Up go back, Right and Down go on) |
+| `wrap(bool)` | Whether the focus goes from the last to the first and back. It does unless told otherwise |
+| `activate(bool)` | What the focus is moved to is pressed as well, as Space would press it: the choice follows the focus, as in a radio group |
+| `one_stop(bool)` | Tab stops in the group once, on the element marked `.focus_entry(true)` (the chosen one) or the first, and from inside the group Tab leaves it |
+
+- The keys move between what Tab would stop at inside the element (a `tab_index` of `0` or more, or a control of a form), in the order of the tree; a disabled or dropped one is passed by. Home and End go to the first and the last.
+- A key that is the group's is taken even where it moves nothing, at an end of a group that does not wrap. A handler that prevents the key's default keeps the group from acting on it.
+- A text input, a slider and a select keep the arrow keys for themselves while they are focused. With Ctrl, Alt or the system key held an arrow is not the group's.
+- The innermost group around the focused element that takes the key acts: a vertical menu inside a horizontal bar takes Up and Down, the bar Left and Right.
+
 ## Tab Scope
 
 Tab and Shift+Tab move through one scope and wrap around at its ends:

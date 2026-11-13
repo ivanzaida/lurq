@@ -12,7 +12,7 @@ use crate::{
   app::theme::{BorderSize, PaletteColor, RadiusSize, Theme},
   components::Row,
   layout::Alignment,
-  node::{Element, border::Border},
+  node::{Element, FocusGroup, border::Border},
 };
 
 /// How a group of buttons is drawn.
@@ -157,7 +157,9 @@ impl ButtonGroup {
     let separator = recipe.part(ButtonGroupPart::Separator);
     let separated = separator.rest().width.is_some();
     // The group is clipped to its corners: the buttons at its ends are round where it is.
+    // Each button is its own stop of Tab, as each is its own action; the arrow keys move between them too.
     let mut root = Row::new().part(&recipe.part(ButtonGroupPart::Root))
+      .focus_group(FocusGroup::horizontal())
       // The line between two of them is as high as they are.
       .align_items(Alignment::Stretch)
       .clip();

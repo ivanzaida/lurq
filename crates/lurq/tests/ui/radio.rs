@@ -245,11 +245,18 @@ fn a_group_is_its_radios_one_under_the_other_and_chooses_by_its_signal() {
   let (comfortable, compact) = (mark_of(&stage, "Comfortable"), mark_of(&stage, "Compact"));
   assert!((compact.y - comfortable.y - (first.height.max(16.0) + 12.0)).abs() < 0.01);
 
-  // From the keyboard, with nothing focused yet: Tab reaches each radio in turn, and Space chooses the one it
-  // is on.
+  // From the keyboard, with nothing focused yet: Tab comes into the group at the chosen radio, and an arrow
+  // key moves the focus to the next and chooses it. From the last it goes to the first.
   stage.key("Tab");
-  stage.key("Tab");
-  stage.key(" ");
+  stage.key("ArrowDown");
+  assert_eq!(chosen.get(), 1);
+  stage.key("ArrowRight");
+  stage.key("ArrowDown");
+  assert_eq!(chosen.get(), 0, "past the last is the first");
+  stage.key("ArrowUp");
+  assert_eq!(chosen.get(), 2);
+  stage.key("Home");
+  stage.key("ArrowDown");
   assert_eq!(chosen.get(), 1);
 
   // A press of another sets the signal, and the group is drawn again.
@@ -350,4 +357,64 @@ fn a_group_styled_by_the_app_has_other_room_between_its_radios() {
   let (yes, no) = (mark_of(&stage, "Yes"), mark_of(&stage, "No"));
   let row = stage.text_quad("Yes").unwrap().height.max(16.0);
   assert_eq!(no.y - yes.y, row + 20.0);
+}
+
+#[test]
+fn tab_stops_once_in_a_group_at_the_chosen_radio() {
+  let chosen = Signal::new(1u8);
+  let read = chosen.clone();
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let told = pressed.clone();
+  let mut stage = Stage::new(move |_| {
+    let (before, after) = (told.clone(), told.clone());
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(Radio::new("Before").on_choose(move || before.lock().unwrap().push("before")))
+      .child(RadioGroup::new(
+        read.clone(),
+        [
+          Choice::new(0u8, "Comfortable"),
+          Choice::new(1, "Compact"),
+          Choice::new(2, "Spacious").disabled(true),
+          Choice::new(3, "Roomy"),
+        ],
+      ))
+      .child(Radio::new("After").on_choose(move || after.lock().unwrap().push("after")))
+      .into()
+  });
+  // The first Tab is on the radio before the group, the second in the group, the third after it.
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(*pressed.lock().unwrap(), ["after"]);
+  assert_eq!(chosen.get(), 1, "passing through the group chose nothing");
+
+  // Back in the group the focus is on the chosen radio: the next arrow passes the disabled one by.
+  stage
+    .tree
+    .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage.pass();
+  stage.key("ArrowDown");
+  assert_eq!(chosen.get(), 3);
+}
+
+#[test]
+fn a_group_in_a_row_has_its_radios_side_by_side() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .padding(8.0)
+      .child(RadioGroup::controlled(Some(0u8), [(0u8, "Day"), (1, "Week"), (2, "Month")], |_| {}).horizontal(true))
+      .into()
+  });
+  let (day, week, month) = (
+    mark_of(&stage, "Day"),
+    mark_of(&stage, "Week"),
+    mark_of(&stage, "Month"),
+  );
+  assert_eq!((day.y, week.y), (week.y, month.y), "on one line");
+  // 24 from the end of one label to the mark of the next.
+  let label = stage.text_quad("Day").unwrap();
+  assert!((week.x - (label.x + label.width) - 24.0).abs() < 0.01);
 }

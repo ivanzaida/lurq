@@ -15,7 +15,7 @@ use crate::{
   components::{self, Column, Row},
   core::{Signal, SignalValue},
   layout::Alignment,
-  node::{CursorIcon, Element, border::Border},
+  node::{CursorIcon, Element, FocusGroup, border::Border},
 };
 
 /// The parts of a radio a recipe styles.
@@ -261,7 +261,9 @@ impl RadioView {
       .align_items(Alignment::Center)
       .describe("a11y_role", "radio")
       .describe("a11y_name", self.label.clone())
-      .describe("a11y_checked", if self.chosen { "true" } else { "false" });
+      .describe("a11y_checked", if self.chosen { "true" } else { "false" })
+      // In a group, which Tab stops at once, the chosen radio is where Tab enters.
+      .focus_entry(self.chosen);
     if let Some(press) = self.press() {
       mark = mark.on_click(move |_| press());
     }
@@ -358,6 +360,17 @@ names!(RadioGroupPart {
   Item => "item",
 });
 
+/// The states of a group of radios a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RadioGroupState {
+  /// Its radios stand side by side.
+  Horizontal,
+}
+
+names!(RadioGroupState {
+  Horizontal => "horizontal",
+});
+
 /// One radio of a group, with what a press of it does.
 struct Item {
   label: Arc<str>,
@@ -384,8 +397,13 @@ struct Item {
 /// ```
 ///
 /// A choice's icon is not drawn: a radio is its mark and its label.
+///
+/// The group is one stop of Tab, at the chosen radio or the first; the arrow
+/// keys move the focus to the next radio and choose it, Home and End the
+/// first and the last, and a disabled one is passed by.
 pub struct RadioGroup {
   items: Vec<Item>,
+  horizontal: bool,
   invalid: bool,
   disabled: bool,
   rules: Recipe,
@@ -410,6 +428,7 @@ impl RadioGroup {
       .collect();
     Self {
       items,
+      horizontal: false,
       invalid: false,
       disabled: false,
       rules: Recipe::new(),
@@ -436,6 +455,13 @@ impl RadioGroup {
     choose: impl Fn(T) + Send + Sync + 'static,
   ) -> Self {
     Self::of(Chosen::held(chosen.into_iter().collect(), choose), choices)
+  }
+
+  /// Whether the radios stand side by side, going on to the next line where
+  /// there is no room, in place of one under the other.
+  pub fn horizontal(mut self, horizontal: bool) -> Self {
+    self.horizontal = horizontal;
+    self
   }
 
   /// Whether the choice was made wrongly, or not at all: every radio's edge says so.
@@ -469,29 +495,52 @@ impl RadioGroup {
   /// Builds the group in `theme`. Converting a group into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new().breakpoint(super::current_breakpoint());
+    let case = Case::new()
+      .breakpoint(super::current_breakpoint())
+      .state(RadioGroupState::Horizontal, self.horizontal);
     let recipe = theme.resolve::<RadioGroup>(&case, Some(&self.rules));
     let item = recipe.rules_for(RadioGroupPart::Item, RadioPart::Root);
-    let mut root = Column::new()
-      .part(&recipe.part(RadioGroupPart::Root))
-      .describe("a11y_role", "radiogroup");
-    for choice in self.items {
-      let pick = choice.pick;
-      let radio = Radio::new(&choice.label)
-        .chosen(choice.chosen)
-        .invalid(self.invalid)
-        .disabled(self.disabled || choice.disabled)
-        .rules(&item)
-        .on_choose(move || pick());
-      root = root.child(radio.build(theme));
+    let radios: Vec<Element> = self
+      .items
+      .into_iter()
+      .map(|choice| {
+        let pick = choice.pick;
+        Radio::new(&choice.label)
+          .chosen(choice.chosen)
+          .invalid(self.invalid)
+          .disabled(self.disabled || choice.disabled)
+          .rules(&item)
+          .on_choose(move || pick())
+          .build(theme)
+      })
+      .collect();
+    // One choice: Tab stops in it once, and an arrow key moves the focus and the choice with it.
+    let keys = FocusGroup::both().activate(true).one_stop(true);
+    let root = recipe.part(RadioGroupPart::Root);
+    let (id, key) = (self.id, self.key);
+    macro_rules! group {
+      ($holder:expr) => {{
+        let mut holder = $holder
+          .part(&root)
+          .focus_group(keys)
+          .describe("a11y_role", "radiogroup");
+        for radio in radios {
+          holder = holder.child(radio);
+        }
+        if let Some(id) = id {
+          holder = holder.id(id);
+        }
+        if let Some(key) = key {
+          holder = holder.key(key);
+        }
+        holder.into()
+      }};
     }
-    if let Some(id) = self.id {
-      root = root.id(id);
+    if self.horizontal {
+      group!(Row::new().wrap().align_items(Alignment::Center))
+    } else {
+      group!(Column::new())
     }
-    if let Some(key) = self.key {
-      root = root.key(key);
-    }
-    root.into()
   }
 }
 
@@ -508,6 +557,9 @@ impl Themed for RadioGroup {
   /// The design's radios (`pencil/lurq-design-system.pen`, Toggles): one
   /// under the other, 12 apart.
   fn recipe() -> Recipe {
-    Recipe::new().base(RadioGroupPart::Root, |s| s.gap(12.0))
+    Recipe::new()
+      .base(RadioGroupPart::Root, |s| s.gap(12.0))
+      // Side by side they are further apart than one under the other, so that a label is read with its own mark.
+      .state(RadioGroupState::Horizontal, RadioGroupPart::Root, |s| s.gap(24.0))
   }
 }
