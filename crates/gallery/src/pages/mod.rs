@@ -18,6 +18,7 @@ mod radio;
 mod select;
 mod slider;
 mod switch;
+mod tabs;
 mod textarea;
 mod toast;
 mod tokens;
@@ -241,6 +242,14 @@ pub const PAGES: &[Page] = &[
     about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
+  },
+  Page {
+    path: "/tabs",
+    name: "Tabs",
+    icon: None,
+    about: "tabs tab list panel section view switch line pill vertical count overflow scroll more menu",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<tabs::TabsPage>(()),
   },
 ];
 

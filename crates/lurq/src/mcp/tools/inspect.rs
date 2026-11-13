@@ -103,6 +103,14 @@ pub(super) fn semantic_state(node: &Node) -> serde_json::Value {
     };
     state.insert("checked".into(), checked);
   }
+  // A tab of the design system says whether it is the selected one.
+  if let Some((_, selected)) = node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| key.as_ref() == "a11y_selected")
+  {
+    state.insert("selected".into(), serde_json::json!(selected.as_ref() == "true"));
+  }
   match node.node_kind() {
     NodeKind::TextInput { state: input, .. } if input.is_masked() => {
       state.insert("value".into(), serde_json::json!(input.caret_source_text()));
