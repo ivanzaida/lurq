@@ -20,6 +20,7 @@ mod popover;
 mod radio;
 mod select;
 mod slider;
+mod steps;
 mod switch;
 mod tabs;
 mod textarea;
@@ -277,6 +278,14 @@ pub const PAGES: &[Page] = &[
     about: "pagination pages page next previous ellipsis compact rows per page table footer results",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<pagination::PaginationPage>(()),
+  },
+  Page {
+    path: "/steps",
+    name: "Steps",
+    icon: None,
+    about: "steps stepper wizard progress stage current done to come error vertical horizontal",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<steps::StepsPage>(()),
   },
 ];
 

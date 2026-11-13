@@ -15,6 +15,7 @@ mod popover;
 mod menu;
 mod pagination;
 mod stage;
+mod steps;
 mod switch;
 mod tabs;
 mod textarea;
