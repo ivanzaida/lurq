@@ -54,13 +54,16 @@ use crate::{
     text_style::{FontWeight, TextStyle},
   },
   node::{
-    Element, ElementRef, EventHandler, HitTestBehavior, Node, NodeUpdate, SyntheticNodeRole, TextTransformMode,
-    VoidEventHandler,
+    Element, ElementRef, EventHandler, HitTestBehavior, Node, NodeUpdate, SliderOrientation, SyntheticNodeRole,
+    TextTransformMode, VoidEventHandler,
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     color::Color,
     cursor::CursorIcon,
     dimension::Dimension,
-    node_kind::{CheckboxState, NodeKind, SelectState, SliderState, TextInputOverflow, TextInputState, TextState},
+    node_kind::{
+      CheckboxState, NodeKind, SelectState, SliderAxis, SliderState, SliderThumb, TextInputOverflow, TextInputState,
+      TextState,
+    },
     transform::Transform2D,
   },
 };
@@ -91,6 +94,7 @@ mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
 mod outside_press;
+mod modal_focus;
 mod overlay_layers;
 mod paste;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
@@ -861,6 +865,11 @@ pub struct Tree {
   /// order, where it has an id: what tells a layer from another between
   /// passes. `None` for a layer that is leaving.
   overlay_layer_origins: Vec<Option<NodeId>>,
+  /// The open modals that take the focus, by the node that declares each, the first opened first, with what
+  /// had the focus before each opened: see [`modal_focus`].
+  modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
+  /// The modals that take the focus among the layers the last pass built.
+  built_focus_modals: Vec<NodeId>,
   /// The closed layers the overlay host still draws, while their exit
   /// animations play: see [`leaving_layers`].
   leaving_layers: Vec<leaving_layers::LeavingLayer>,
@@ -1259,6 +1268,8 @@ impl Tree {
       overlay_dismiss_entries: Vec::new(),
       overlay_layer_anchors: Vec::new(),
       overlay_layer_origins: Vec::new(),
+      modal_focus: Vec::new(),
+      built_focus_modals: Vec::new(),
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
       leaving_children: Vec::new(),
@@ -4238,12 +4249,21 @@ impl Tree {
 
   fn focus_tab(&mut self, reverse: bool) -> bool {
     self.set_input_modality(focus_visible::InputModality::Keyboard);
+    // A range's thumbs are a stop of Tab each: Tab goes from its low thumb to its high one before it leaves.
+    if let Some(state) = self.focused_node.and_then(|id| self.current_slider_state(id))
+      && state.tab_within(reverse)
+    {
+      return true;
+    }
     let Some(root) = &self.root else {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
     match tab_navigation::tab_move(root, &self.dropped_nodes, focused, reverse) {
       tab_navigation::TabMove::Focus(target) => {
+        if let Some(state) = self.current_slider_state(target.input_id) {
+          state.enter_by_tab(reverse);
+        }
         self.focus_node(target);
         self.scroll_focused_into_view();
         true
@@ -4680,7 +4700,7 @@ impl Tree {
     if let Some(mut drag) = self.dragging_slider.clone() {
       if let Some(state) = self.current_slider_state(drag.target_id) {
         drag.state = state;
-      } else if let Some(rebound) = self.current_slider_drag_by_binding(drag.binding_id) {
+      } else if let Some(rebound) = self.current_slider_drag_by_binding(drag.binding_id, drag.thumb) {
         drag = rebound;
       } else {
         self.dragging_slider = None;
@@ -4691,13 +4711,13 @@ impl Tree {
       self.dragging_slider = Some(drag.clone());
       match evt.kind {
         MouseEventKind::Move => {
-          drag.update(lx);
+          drag.update(lx, ly);
           self.needs_redraw = true;
           self.apply_reactive_updates_after_event();
           return;
         }
         MouseEventKind::Up => {
-          drag.update(lx);
+          drag.update(lx, ly);
           drag.finish();
           self.dragging_slider = None;
           self.clear_active_path();
@@ -5096,7 +5116,7 @@ impl Tree {
             .find(|(node, _)| matches!(node.node_kind(), NodeKind::Slider { .. }))
           && let NodeKind::Slider { state } = node.node_kind()
         {
-          let (track_rect, thumb_rect) = state.part_rects(
+          let parts = state.part_rects(
             rect.x,
             rect.y,
             rect.width,
@@ -5104,28 +5124,24 @@ impl Tree {
             true,
             DEFAULT_SLIDER_THUMB_MIN_SIZE,
           );
-          let travel_width = track_rect.width - thumb_rect.width;
-          let (drag_x, drag_width) = if travel_width > 0.0 {
-            (track_rect.x + thumb_rect.width * 0.5, travel_width)
-          } else {
-            (track_rect.x, track_rect.width)
-          };
+          let mut axis = parts.axis();
+          // Of a range, the thumb nearer the press is the one dragged, to the end of the drag.
+          let thumb = state.nearer_thumb(axis.ratio(lx, ly));
+          state.set_active_thumb(thumb);
           // A mouse's press brings the thumb under the pointer. A finger's does not, as a slider of the platform's:
           // the thumb goes with the finger from where it is, wherever on the slider the finger landed.
-          let drag_x = if self.touch_pointer.down {
-            drag_x + lx - (thumb_rect.x + thumb_rect.width * 0.5)
-          } else {
-            drag_x
-          };
+          if self.touch_pointer.down {
+            axis.hold_from(lx, ly, parts.thumb(thumb));
+          }
           let drag = SliderDrag {
             target_id: node.node_id(),
             binding_id: state.value_id(),
             state: state.clone(),
-            x: drag_x,
-            width: drag_width,
+            thumb,
+            axis,
             on_finish: node.events.on_blur.clone(),
           };
-          drag.update(lx);
+          drag.update(lx, ly);
           pending_slider_drag = Some(drag);
           pending_focus = Some(FocusTarget {
             input_id: node.node_id(),
@@ -5193,16 +5209,27 @@ impl Tree {
         }
         builtin_needs_redraw = true;
       }
-      if let Some(target) = dispatch_builtin_pointer(&hits, lx, is_left_click) {
+      if let Some(target) = dispatch_builtin_pointer(&hits, lx, ly, is_left_click) {
         pending_focus = Some(target);
         builtin_needs_redraw = true;
       }
+      // A click of a label focuses what it names (`focuses`), unless something under the pointer takes the focus
+      // itself: a request, as `Ctx::focus` makes, which is applied once the click is handled.
+      if is_left_click
+        && let Some(target) = hits
+          .iter()
+          .take_while(|(node, _)| !node.is_focusable())
+          .find_map(|(node, _)| node.events.focuses.as_ref())
+        && let Some(ctx) = &self.root_ctx
+      {
+        ctx.focus(target);
+      }
       if hits.is_empty()
         && is_left_click
-        && let Some((node, rect)) = find_slider_by_y_recursive(root, result, 0.0, 0.0, ly)
+        && let Some((node, rect)) = find_slider_in_lane_recursive(root, result, 0.0, 0.0, lx, ly)
         && let NodeKind::Slider { state } = node.node_kind()
       {
-        let (track_rect, thumb_rect) = state.part_rects(
+        let parts = state.part_rects(
           rect.x,
           rect.y,
           rect.width,
@@ -5210,9 +5237,7 @@ impl Tree {
           node.is_style_hovered(),
           DEFAULT_SLIDER_THUMB_MIN_SIZE,
         );
-        let ratio = state.pointer_ratio(lx, track_rect, thumb_rect);
-        state.set_from_ratio(ratio);
-        state.clear_drag_ratio();
+        state.press_at_ratio(parts.axis().ratio(lx, ly));
         pending_focus = Some(FocusTarget {
           input_id: node.node_id(),
           event_id: node.node_id(),
@@ -5489,14 +5514,16 @@ impl Tree {
     rebound
   }
 
-  fn current_slider_drag_by_binding(&self, binding_id: usize) -> Option<SliderDrag> {
+  /// The slider a drag holds, found again by the value it is bound to after the node it began on was replaced;
+  /// the drag keeps the thumb it holds.
+  fn current_slider_drag_by_binding(&self, binding_id: usize, thumb: SliderThumb) -> Option<SliderDrag> {
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
     let (node, rect) = find_slider_by_binding_recursive(root, result, 0.0, 0.0, binding_id)?;
     let NodeKind::Slider { state } = node.node_kind() else {
       return None;
     };
-    let (track_rect, thumb_rect) = state.part_rects(
+    let parts = state.part_rects(
       rect.x,
       rect.y,
       rect.width,
@@ -5504,18 +5531,12 @@ impl Tree {
       true,
       DEFAULT_SLIDER_THUMB_MIN_SIZE,
     );
-    let travel_width = track_rect.width - thumb_rect.width;
-    let (drag_x, drag_width) = if travel_width > 0.0 {
-      (track_rect.x + thumb_rect.width * 0.5, travel_width)
-    } else {
-      (track_rect.x, track_rect.width)
-    };
     Some(SliderDrag {
       target_id: node.node_id(),
       binding_id: state.value_id(),
       state: state.clone(),
-      x: drag_x,
-      width: drag_width,
+      thumb,
+      axis: parts.axis(),
       on_finish: node.events.on_blur.clone(),
     })
   }
@@ -5943,8 +5964,16 @@ impl Tree {
       return false;
     }
 
-    // Auto-scroll from the innermost scroll container outward, preserving
-    // any delta an edge-clamped child could not consume.
+    // Auto-scroll from the innermost scroll container outward. A container already at its end on an axis
+    // moves nothing and leaves that axis of the event whole to the container around it.
+    //
+    // A wheel or a trackpad moves one container on each axis: the innermost that moves takes that axis of
+    // the event whole, and what it could not take, reaching its end, is dropped. So a list scrolled to its
+    // end inside a page does not take the page along in the same event; the page moves with the next one.
+    //
+    // A finger's scroll has its own targets, the gesture's taker and what is inside it
+    // (`touch_scroll_begin`), and what one of them could not take goes on to the next.
+    let one_container_per_axis = !self.touch_scroll_latched;
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
     let mut pending_scroll_reach = Vec::new();
@@ -5977,11 +6006,21 @@ impl Tree {
           previous_max_scroll_y,
         ));
         if dx != 0.0 {
-          horizontal_taken |= overflow_dx != dx;
-          remaining_dx = overflow_dx;
+          let moved = overflow_dx != dx;
+          horizontal_taken |= moved;
+          remaining_dx = if one_container_per_axis && moved {
+            0.0
+          } else {
+            overflow_dx
+          };
         }
         if dy != 0.0 {
-          remaining_dy = overflow_dy;
+          let moved = overflow_dy != dy;
+          remaining_dy = if one_container_per_axis && moved {
+            0.0
+          } else {
+            overflow_dy
+          };
         }
         if remaining_dx == 0.0 && remaining_dy == 0.0 {
           break;
@@ -6932,6 +6971,7 @@ impl Tree {
       if let Some(anchor) = focus_return {
         self.return_focus_to_anchor(&anchor);
       }
+      self.sync_modal_focus();
       self.apply_focus_request_inner(true);
       self.tick_overlay_subtrees(now);
       if let Some(root) = self.root.as_ref()
@@ -7083,6 +7123,7 @@ impl Tree {
       self.overlay_dismiss_entries.clear();
       self.overlay_layer_anchors.clear();
       self.overlay_layer_origins.clear();
+      self.built_focus_modals.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
       return None;
@@ -7168,6 +7209,7 @@ impl Tree {
       overlay_index += 1;
     }
 
+    self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let focus_return = self.focused_overlay_hidden(old_parts.old_host.is_some(), &layers);
@@ -7943,6 +7985,11 @@ fn build_overlays_from_layout_index(
         };
         let dismiss_signal = spec.open_signal.clone();
         let dismiss_on_escape = spec.dismiss_on_escape;
+        if spec.takes_focus
+          && let Some(origin) = origin
+        {
+          layers.focus_modals.push(origin);
+        }
         let mut modal = build_modal_node(spec, target);
         set_overlay_reuse_key(&mut modal, reuse_key.as_deref());
         if let Some(open) = dismiss_signal
@@ -8377,20 +8424,18 @@ struct SliderDrag {
   target_id: NodeId,
   binding_id: usize,
   state: SliderState,
-  x: f32,
-  width: f32,
+  /// The thumb the drag began on: of a range, the one it moves however near the other it goes.
+  thumb: SliderThumb,
+  axis: SliderAxis,
   on_finish: Vec<VoidEventHandler>,
 }
 
 impl SliderDrag {
-  fn update(&self, x: f32) -> bool {
-    let ratio = if self.width > 0.0 {
-      (x - self.x) / self.width
-    } else {
-      0.0
-    };
+  fn update(&self, x: f32, y: f32) -> bool {
+    let ratio = self.axis.ratio(x, y);
+    self.state.set_active_thumb(self.thumb);
     self.state.set_drag_ratio(ratio);
-    self.state.set_from_ratio(ratio)
+    self.state.set_from_ratio_of(self.thumb, ratio)
   }
 
   fn finish(&self) {
@@ -9340,20 +9385,29 @@ impl SliderHandle<'_> {
     }
   }
 
+  /// The value; of a range, its low value.
   pub fn value(&self) -> f32 {
     self.state().map(SliderState::value_f32).unwrap_or_default()
   }
 
+  /// The low value and the high one; of a slider of one value, that value
+  /// twice.
+  pub fn values(&self) -> (f32, f32) {
+    self.state().map(SliderState::values_f32).unwrap_or_default()
+  }
+
   /// Sets the value from a 0..=1 ratio along the track, snapping to the
-  /// slider's step.
+  /// slider's step, as a press there does: of a range, the nearer thumb
+  /// moves.
   pub fn set_from_ratio(&mut self, ratio: f32) {
     if let Some(state) = self.state() {
-      state.set_from_ratio(ratio);
+      state.press_at_ratio(ratio);
     }
     self.inner.invalidate_render();
   }
 
-  /// Steps the value by `delta` slider steps (keyboard-arrow semantics).
+  /// Steps the value by `delta` slider steps (keyboard-arrow semantics); of
+  /// a range, the value of the thumb last pressed or reached by Tab.
   pub fn nudge(&mut self, delta: i32) {
     if let Some(state) = self.state() {
       state.nudge(delta);
@@ -11559,6 +11613,7 @@ fn press_blurs_focus(hits: &[(&Node, crate::app::hit_test::HitRect)]) -> bool {
 fn dispatch_builtin_pointer(
   hits: &[(&Node, crate::app::hit_test::HitRect)],
   x: f32,
+  y: f32,
   click: bool,
 ) -> Option<FocusTarget> {
   if !click {
@@ -11588,7 +11643,7 @@ fn dispatch_builtin_pointer(
         });
       }
       NodeKind::Slider { state } => {
-        let (track_rect, thumb_rect) = state.part_rects(
+        let parts = state.part_rects(
           rect.x,
           rect.y,
           rect.width,
@@ -11596,9 +11651,7 @@ fn dispatch_builtin_pointer(
           node.is_style_hovered(),
           DEFAULT_SLIDER_THUMB_MIN_SIZE,
         );
-        let ratio = state.pointer_ratio(x, track_rect, thumb_rect);
-        state.set_from_ratio(ratio);
-        state.clear_drag_ratio();
+        state.press_at_ratio(parts.axis().ratio(x, y));
         return Some(FocusTarget {
           input_id: node.node_id(),
           event_id: event_id.unwrap_or_else(|| node.node_id()),
@@ -11906,19 +11959,23 @@ fn is_selectable_text_node(node: &Node) -> bool {
   selectable_text_state_and_value(node).is_some()
 }
 
-fn find_slider_by_y_recursive<'a>(
+/// The slider in whose lane `(x, y)` is: a horizontal one whose rows it is in, a vertical one whose columns. A
+/// press there and on nothing else is a press on the slider.
+fn find_slider_in_lane_recursive<'a>(
   node: &'a Node,
   layout: &'a LayoutResult,
   abs_x: f32,
   abs_y: f32,
+  x: f32,
   y: f32,
 ) -> Option<(&'a Node, ElementRect)> {
   for (child_layout, child_node) in layout.children.iter().zip(node.children()) {
-    if let Some(found) = find_slider_by_y_recursive(
+    if let Some(found) = find_slider_in_lane_recursive(
       child_node,
       &child_layout.result,
       abs_x + child_layout.offset.x,
       abs_y + child_layout.offset.y,
+      x,
       y,
     ) {
       return Some(found);
@@ -11934,13 +11991,17 @@ fn find_slider_by_y_recursive<'a>(
     height: layout.size.height,
   };
 
-  // A disabled slider is not under the pointer for a press, and is not found by its row either.
-  if matches!(node.node_kind(), NodeKind::Slider { .. })
+  // A disabled slider is not under the pointer for a press, and is not found by its lane either.
+  if let NodeKind::Slider { state } = node.node_kind()
     && !node.is_disabled()
-    && y >= rect.y
-    && y <= rect.y + rect.height
   {
-    return Some((node, rect));
+    let in_lane = match state.orientation() {
+      SliderOrientation::Horizontal => y >= rect.y && y <= rect.y + rect.height,
+      SliderOrientation::Vertical => x >= rect.x && x <= rect.x + rect.width,
+    };
+    if in_lane {
+      return Some((node, rect));
+    }
   }
 
   None

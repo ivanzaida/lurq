@@ -58,6 +58,12 @@ Fixed:
 
 - A disabled `Slider` took a press that landed on its row: with nothing under the pointer the slider was looked up by its row alone, disabled or not.
 
+## 0.61.1 — 2026-11-13
+
+Behaviour changes:
+
+- A wheel or a trackpad scrolls one scroll container on each axis: the innermost under the pointer that can still move the way the event goes takes that axis of the event whole. What it cannot take, reaching its end within the event, is dropped; it was handed to the container around it, so one notch of the wheel over a small list at the top of a page moved the list to its end and the page by the rest. A container already at its end takes nothing, as before, and the event goes to the container around it. The two axes are decided separately: a strip that scrolls sideways inside a page that scrolls down still takes the sideways part of a slanted event while the page takes the vertical. A finger's scroll is unchanged. See [layout](docs/src/content/docs/layout.md#scroll-containers-inside-one-another).
+
 ## 0.61.0 — 2026-11-13
 
 Added:

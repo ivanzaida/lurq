@@ -11,6 +11,7 @@ use std::sync::{
 use lurq::{
   app::{
     App,
+    ctx::Ctx,
     events::MouseButton,
     theme::{PaletteColor, ThemePalette},
   },
@@ -31,6 +32,20 @@ fn light(role: PaletteColor) -> Color {
 /// dialog has room, with `content` in it.
 fn window(content: impl Into<Element>) -> Element {
   Column::new().size(400.0, 300.0).child(content).into()
+}
+
+/// A stage whose window is 400 by 300, the size of the page it lays out. A
+/// dialog covers the window, and the stage's window is otherwise larger than
+/// its page.
+fn stage(scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Stage {
+  stage_in(App::new(), scene)
+}
+
+fn stage_in(app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Stage {
+  let mut stage = Stage::in_app(app, scene);
+  stage.tree.resize(400, 300);
+  stage.pass();
+  stage
 }
 
 /// A press of the left button at a point of the window.
@@ -91,7 +106,7 @@ fn separators(stage: &Stage) -> Vec<Quad> {
 #[test]
 fn an_open_dialog_is_its_panel_over_a_veil_as_the_board_draws_it() {
   let open = Signal::new(true);
-  let mut stage = Stage::new(move |_| window(delete_workspace(open.clone())));
+  let mut stage = stage(move |_| window(delete_workspace(open.clone())));
 
   assert_eq!(
     veils(&stage, light(PaletteColor::Scrim)).len(),
@@ -145,7 +160,7 @@ fn an_open_dialog_is_its_panel_over_a_veil_as_the_board_draws_it() {
 #[test]
 fn a_closed_dialog_paints_nothing() {
   let open = Signal::new(false);
-  let stage = Stage::new(move |_| window(delete_workspace(open.clone())));
+  let stage = stage(move |_| window(delete_workspace(open.clone())));
   assert!(!stage.paints("Delete workspace?"));
   assert!(veils(&stage, light(PaletteColor::Scrim)).is_empty());
 }
@@ -160,7 +175,7 @@ fn the_sizes_and_a_width_of_its_own() {
     (|| Dialog::new(Signal::new(true)).size(DialogSize::Lg), 368.0),
   ];
   for (make, expected) in sizes {
-    let mut stage = Stage::new(move |_| window(make().id("dialog").title("Rename")));
+    let mut stage = stage(move |_| window(make().id("dialog").title("Rename")));
     assert_eq!(stage.bounds("dialog").2, expected);
   }
 }
@@ -169,7 +184,7 @@ fn the_sizes_and_a_width_of_its_own() {
 fn a_press_on_the_veil_closes_it_and_a_press_on_the_panel_does_not() {
   let open = Signal::new(true);
   let held = open.clone();
-  let mut stage = Stage::new(move |_| window(delete_workspace(held.clone())));
+  let mut stage = stage(move |_| window(delete_workspace(held.clone())));
   stage.click("dialog");
   assert!(open.get(), "a press on the panel goes no further");
   press_at(&mut stage, 5.0, 5.0);
@@ -181,7 +196,7 @@ fn a_press_on_the_veil_closes_it_and_a_press_on_the_panel_does_not() {
 fn a_dialog_that_has_to_be_answered_stays_on_a_press_of_the_veil_and_escape_closes_it() {
   let open = Signal::new(true);
   let held = open.clone();
-  let mut stage = Stage::new(move |_| window(delete_workspace(held.clone()).dismiss_on_veil(false)));
+  let mut stage = stage(move |_| window(delete_workspace(held.clone()).dismiss_on_veil(false)));
   press_at(&mut stage, 5.0, 5.0);
   assert!(open.get());
   stage.key("Escape");
@@ -195,7 +210,7 @@ fn nothing_under_the_veil_takes_the_pointer_or_the_keyboard() {
   let (behind, press_behind) = counter();
   let (cancel, press_cancel) = counter();
   let (delete, press_delete) = counter();
-  let mut stage = Stage::new(move |_| {
+  let mut stage = stage(move |_| {
     let (press_behind, press_cancel, press_delete) = (press_behind.clone(), press_cancel.clone(), press_delete.clone());
     Column::new()
       .size(400.0, 300.0)
@@ -209,17 +224,18 @@ fn nothing_under_the_veil_takes_the_pointer_or_the_keyboard() {
       )
       .into()
   });
-  stage.click("behind");
-  assert_eq!(behind.load(Ordering::SeqCst), 0, "the veil takes the press");
-
-  // Tab goes round the dialog's two buttons and never reaches the one behind it: the third Tab is on the
-  // first button again, and Enter presses it.
-  for _ in 0..3 {
+  // The focus went to the dialog's first button as it opened. Tab goes round its two buttons and never
+  // reaches the one behind it: the second Tab is on the first button again, and Enter presses it.
+  for _ in 0..2 {
     stage.key("Tab");
   }
   stage.key("Enter");
   assert_eq!(behind.load(Ordering::SeqCst), 0);
   assert_eq!((cancel.load(Ordering::SeqCst), delete.load(Ordering::SeqCst)), (1, 0));
+
+  // A press where the button behind it is lands on the veil.
+  stage.click("behind");
+  assert_eq!(behind.load(Ordering::SeqCst), 0, "the veil takes the press");
   assert!(open.get());
 }
 
@@ -227,7 +243,7 @@ fn nothing_under_the_veil_takes_the_pointer_or_the_keyboard() {
 fn the_close_button_closes_it() {
   let open = Signal::new(true);
   let held = open.clone();
-  let mut stage = Stage::new(move |_| window(delete_workspace(held.clone()).close_button(true)));
+  let mut stage = stage(move |_| window(delete_workspace(held.clone()).close_button(true)));
   // A button of 28 at the end of the header, 24 from the panel's top and its end.
   let (x, y, width, _) = stage.bounds("dialog");
   press_at(&mut stage, x + width - 24.0 - 14.0, y + 24.0 + 14.0);
@@ -251,7 +267,7 @@ fn terms(open: Signal<bool>) -> Dialog {
 fn the_body_of_a_scrollable_dialog_scrolls_between_a_header_and_a_footer_that_stay() {
   let open = Signal::new(true);
   let held = open.clone();
-  let mut stage = Stage::new(move |_| window(terms(held.clone()).style(DialogPart::Panel, |s| s.height(250.0))));
+  let mut stage = stage(move |_| window(terms(held.clone()).style(DialogPart::Panel, |s| s.height(250.0))));
   let (x, y, width, height) = stage.bounds("dialog");
   assert_eq!((width, height), (360.0, 250.0));
 
@@ -279,15 +295,54 @@ fn the_body_of_a_scrollable_dialog_scrolls_between_a_header_and_a_footer_that_st
 }
 
 #[test]
-fn a_scrollable_dialog_is_never_higher_than_the_window() {
-  let open = Signal::new(true);
-  let mut stage = Stage::new(move |_| window(terms(open.clone())));
-  let (_, y, _, height) = stage.bounds("dialog");
-  // The window less the veil's margin of 16 above and below.
-  assert!(height <= 268.5, "{height}");
-  assert!(y >= 15.5, "{y}");
-  let (_, accept_y, _, accept_height) = stage.bounds("accept");
-  assert!(accept_y + accept_height <= y + height, "the footer stays in the panel");
+fn a_dialog_is_never_higher_than_the_window_and_its_body_scrolls() {
+  for scrollable in [true, false] {
+    let open = Signal::new(true);
+    let mut stage = stage(move |_| window(terms(open.clone()).scrollable(scrollable)));
+    let (_, y, _, height) = stage.bounds("dialog");
+    // The window less the veil's margin of 16 above and below.
+    assert!(height <= 268.5, "scrollable {scrollable}: {height}");
+    assert!(y >= 15.5, "scrollable {scrollable}: {y}");
+    let (_, accept_y, _, accept_height) = stage.bounds("accept");
+    assert!(
+      accept_y + accept_height <= y + height,
+      "scrollable {scrollable}: the footer stays in the panel"
+    );
+  }
+}
+
+#[test]
+fn the_focus_goes_into_the_dialog_as_it_opens_and_back_to_its_opener_as_it_closes() {
+  let open = Signal::new(false);
+  let held = open.clone();
+  let (cancel, press_cancel) = counter();
+  let mut stage = stage(move |_| {
+    let (show, close, press_cancel) = (held.clone(), held.clone(), press_cancel.clone());
+    Column::new()
+      .size(400.0, 300.0)
+      .child(Button::new("Delete workspace…").on_click(move |_| show.set(true)))
+      .child(
+        Dialog::new(held.clone())
+          .title("Delete workspace?")
+          .footer(Button::new("Cancel").on_click(move |_| {
+            press_cancel();
+            close.set(false);
+          }))
+          .footer(Button::new("Delete")),
+      )
+      .into()
+  });
+  // Tab reaches the button that opens the dialog, and Enter opens it.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(open.get());
+  // The focus is on the dialog's first button: Enter presses it, and it closes the dialog.
+  stage.key("Enter");
+  assert_eq!(cancel.load(Ordering::SeqCst), 1);
+  assert!(!open.get());
+  // The focus is back on the button that opened it: Enter opens it again.
+  stage.key("Enter");
+  assert!(open.get());
 }
 
 #[test]
@@ -298,7 +353,7 @@ fn a_theme_restyles_the_panel_and_gives_the_dialog_another_anatomy() {
     .patch_recipe::<Dialog>(|rules| rules.base(DialogPart::Panel, |s| s.background(PaletteColor::Muted)));
   let open = Signal::new(true);
   let held = open.clone();
-  let mut stage = Stage::in_app(app, move |_| window(delete_workspace(held.clone())));
+  let mut stage = stage_in(app, move |_| window(delete_workspace(held.clone())));
   assert_eq!(stage.fill_color("dialog"), Some(light(PaletteColor::Muted)));
 
   // A dialog that is its title alone, in its panel, over the veil: other nodes, the same behavior.
@@ -311,7 +366,7 @@ fn a_theme_restyles_the_panel_and_gives_the_dialog_another_anatomy() {
   });
   app.theme().set_renderer::<Dialog>(renderer);
   let held = open.clone();
-  let mut stage = Stage::in_app(app, move |_| window(delete_workspace(held.clone())));
+  let mut stage = stage_in(app, move |_| window(delete_workspace(held.clone())));
   assert!(stage.paints("Delete workspace? (themed)"));
   assert!(!stage.paints("Cancel"));
   assert_eq!(
@@ -325,7 +380,7 @@ fn a_theme_restyles_the_panel_and_gives_the_dialog_another_anatomy() {
 
 #[test]
 fn an_inline_dialog_is_its_panel_where_it_is_declared() {
-  let stage = Stage::new(|_| window(delete_workspace(Signal::new(false)).inline(true)));
+  let stage = stage(|_| window(delete_workspace(Signal::new(false)).inline(true)));
   assert!(stage.paints("Delete workspace?"));
   assert!(veils(&stage, light(PaletteColor::Scrim)).is_empty());
 }

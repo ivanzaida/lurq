@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use lurq::{
   app::{
     App,
+    events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
   components::{Column, Row},
@@ -476,4 +477,161 @@ fn a_field_holds_any_control() {
   assert!(stage.paints("Notifications"));
   stage.click("pause");
   assert_eq!(*asked.lock().unwrap(), [true]);
+}
+
+/// Presses the text `content` where it is painted: a label, which has no id of its own.
+fn press_text(stage: &mut Stage, content: &str) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} should be painted"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+}
+
+#[test]
+fn a_field_judges_its_input_without_the_app_telling_the_input() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(16.0)
+      .child(
+        Field::new("Email", Input::new(Signal::new("ivan@".to_owned())).id("email"))
+          .error("Enter a full email address."),
+      )
+      .child(Field::new("Port", Input::new(Signal::new("80".to_owned())).id("port")).warning(true))
+      .child(Field::new("Username", Input::new(Signal::new("ivanzaida".to_owned())).id("user")).valid(true))
+      .child(Field::new("Plain", Input::new(Signal::new(String::new())).id("plain")))
+      .into()
+  });
+  assert_eq!(edge(&mut stage, "email"), (1.0, light(PaletteColor::Destructive)));
+  assert_eq!(edge(&mut stage, "port"), (1.0, light(PaletteColor::Warning)));
+  assert_eq!(edge(&mut stage, "user"), (1.0, light(PaletteColor::Success)));
+  assert_eq!(edge(&mut stage, "plain"), (1.0, light(PaletteColor::Input)));
+  stage.click("email");
+  assert!(
+    ring_inside(&mut stage, "email", light(PaletteColor::Destructive)),
+    "its focus is in the field's judgment too"
+  );
+}
+
+#[test]
+fn an_input_the_app_judged_itself_keeps_its_judgment_in_a_field() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Field::new(
+          "Username",
+          Input::new(Signal::new("ivanzaida".to_owned())).valid(true).id("user"),
+        )
+        .error("Taken a moment ago."),
+      )
+      .into()
+  });
+  assert_eq!(edge(&mut stage, "user"), (1.0, light(PaletteColor::Success)));
+  assert_eq!(stage.text("Taken a moment ago.").0, light(PaletteColor::Destructive));
+}
+
+#[test]
+fn a_field_calls_its_input_by_its_label_unless_it_has_a_name() {
+  let app = App::new();
+  let names = Arc::new(Mutex::new(Vec::new()));
+  let heard = names.clone();
+  let renderer: InputRenderer = Arc::new(move |view: InputView| {
+    heard.lock().unwrap().push(view.label.as_deref().map(str::to_owned));
+    view.render()
+  });
+  app.theme().set_renderer::<Input>(renderer);
+  let _stage = Stage::in_app(app, |_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(16.0)
+      .child(Field::new("Display name", Input::new(Signal::new(String::new()))))
+      .child(Field::new(
+        "Search",
+        Input::new(Signal::new(String::new())).label("Search components"),
+      ))
+      .child(Input::new(Signal::new(String::new())))
+      .into()
+  });
+  let names = names.lock().unwrap();
+  assert_eq!(
+    names[..3],
+    [
+      Some("Display name".to_owned()),
+      Some("Search components".to_owned()),
+      None
+    ]
+  );
+}
+
+#[test]
+fn a_press_of_the_label_focuses_the_input_which_then_takes_what_is_typed() {
+  let value = Signal::new(String::new());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    // The field is built again with every edit: its error follows the value.
+    let short = bound.get().chars().count() < 3;
+    let mut field = Field::new("Display name", Input::new(bound.clone()).id("name"));
+    if short {
+      field = field.error("At least three letters.");
+    }
+    Column::new().padding(8.0).child(field).into()
+  });
+  assert_eq!(focused(&stage), None);
+  press_text(&mut stage, "Display name");
+  assert_eq!(focused(&stage).as_deref(), Some("name"));
+  type_in(&mut stage, "Iv");
+  assert_eq!(value.get(), "Iv");
+  assert_eq!(edge(&mut stage, "name").1, light(PaletteColor::Destructive));
+  stage.tree.text_input_replace(2..2, "an");
+  stage.pass();
+  assert_eq!(
+    value.get(),
+    "Ivan",
+    "the input kept the focus while the field was built again"
+  );
+  assert_eq!(focused(&stage).as_deref(), Some("name"));
+  assert!(!stage.paints("At least three letters."));
+}
+
+#[test]
+fn a_label_of_a_disabled_field_focuses_nothing() {
+  let value = Signal::new(String::new());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(16.0)
+      .child(Field::new("Display name", Input::new(bound.clone()).id("name")).disabled(true))
+      .child(Field::new(
+        "Bio",
+        Input::new(Signal::new(String::new())).disabled(true).id("bio"),
+      ))
+      .into()
+  });
+  press_text(&mut stage, "Display name");
+  assert_eq!(focused(&stage), None, "the field's own control is disabled by it");
+  press_text(&mut stage, "Bio");
+  assert_eq!(
+    focused(&stage),
+    None,
+    "a control the app disabled is not focused either"
+  );
+  assert_eq!(stage.fill_color("name"), Some(light(PaletteColor::Muted)));
+}
+
+#[test]
+fn a_press_of_the_label_reaches_any_focusable_control() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(Field::new("Notifications", Switch::new("Pause notifications").id("pause")).horizontal(true))
+      .into()
+  });
+  press_text(&mut stage, "Notifications");
+  assert_eq!(focused(&stage).as_deref(), Some("pause"));
 }
