@@ -12,6 +12,7 @@ use crate::{
 mod border;
 mod breakpoints;
 mod caret;
+mod definition;
 #[cfg(feature = "form")]
 mod form;
 #[cfg(feature = "markdown")]
@@ -24,11 +25,13 @@ mod shadow;
 mod spacing;
 #[cfg(feature = "markdown")]
 mod text_marks;
+mod tokens;
 mod typography;
 
 pub use border::{BorderSize, ThemeBorderSizes};
 pub use breakpoints::{Breakpoint, ThemeBreakpoints};
 pub use caret::{CaretMode, ThemeCaret};
+pub use definition::ThemeDefinition;
 #[cfg(feature = "form")]
 pub use form::{
   FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
@@ -47,6 +50,10 @@ pub use shadow::{ShadowStyle, ThemeShadows};
 pub use spacing::{SpacingSize, ThemeSpacing};
 #[cfg(feature = "markdown")]
 pub use text_marks::{TextMarkStyle, ThemeTextMarks};
+pub use tokens::{
+  BlurSize, ControlSize, Density, IconSize, MotionDuration, MotionEasing, OpacityLevel, ThemeBlurs, ThemeControlSizes,
+  ThemeDensities, ThemeDurations, ThemeEasings, ThemeFocusRing, ThemeIconSizes, ThemeOpacities,
+};
 pub use typography::{ThemeFonts, ThemeTypography, TypographyStyle};
 
 #[derive(Clone)]
@@ -64,6 +71,14 @@ struct ThemeInner {
   breakpoints: ThemeBreakpoints,
   caret: ThemeCaret,
   scrollbar: ScrollBarStyle,
+  control_sizes: ThemeControlSizes,
+  icon_sizes: ThemeIconSizes,
+  densities: ThemeDensities,
+  durations: ThemeDurations,
+  easings: ThemeEasings,
+  opacities: ThemeOpacities,
+  blurs: ThemeBlurs,
+  focus_ring: ThemeFocusRing,
   /// The styles as they are used: `set_typography`'s, at `text_scale`.
   typography: ThemeTypography,
   base_typography: ThemeTypography,
@@ -73,6 +88,10 @@ struct ThemeInner {
   palettes: Option<(ThemePalette, ThemePalette)>,
   appearance: crate::app::window::Appearance,
   follows_system: bool,
+  /// The appearance the app chose, whatever the system's is; `None` takes the system's.
+  preferred_appearance: Option<crate::app::window::Appearance>,
+  /// The system's appearance, as last told.
+  system_appearance: crate::app::window::Appearance,
   #[cfg(feature = "markdown")]
   text_marks: Arc<ThemeTextMarks>,
   #[cfg(feature = "markdown")]
@@ -105,31 +124,63 @@ impl<T> Deref for ThemeRef<'_, T> {
   }
 }
 
+/// The design system's theme: [`ThemeDefinition::neutral`].
 impl Default for Theme {
   fn default() -> Self {
+    Self::from_definition(ThemeDefinition::neutral())
+  }
+}
+
+impl Theme {
+  /// The design system's theme, light and dark, following the system: [`ThemeDefinition::neutral`].
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// The theme of lurq 0.60: [`ThemeDefinition::legacy`]. It has one palette, so it is light whatever the
+  /// system is in.
+  pub fn legacy() -> Self {
+    Self::from_definition(ThemeDefinition::legacy())
+  }
+
+  /// A theme with the look of `definition`, following the system.
+  pub fn from_definition(definition: ThemeDefinition) -> Self {
+    let appearance = crate::app::window::Appearance::Light;
+    let palette = definition.palette(appearance).clone();
+    let palettes = definition.dark.clone().map(|dark| (definition.light.clone(), dark));
     Self {
       inner: Arc::new(RwLock::new(ThemeInner {
-        palette: ThemePalette::light(),
-        border_sizes: ThemeBorderSizes::default(),
-        spacing: ThemeSpacing::default(),
-        radii: ThemeRadii::default(),
-        shadows: Arc::new(ThemeShadows::default()),
-        breakpoints: ThemeBreakpoints::default(),
-        caret: ThemeCaret::default(),
-        scrollbar: ScrollBarStyle::default(),
-        typography: ThemeTypography::default(),
-        base_typography: ThemeTypography::default(),
+        palette,
+        border_sizes: definition.border_sizes,
+        spacing: definition.spacing,
+        radii: definition.radii,
+        shadows: Arc::new(definition.shadows),
+        breakpoints: definition.breakpoints,
+        caret: definition.caret,
+        scrollbar: definition.scrollbar,
+        control_sizes: definition.control_sizes,
+        icon_sizes: definition.icon_sizes,
+        densities: definition.densities,
+        durations: definition.durations,
+        easings: definition.easings,
+        opacities: definition.opacities,
+        blurs: definition.blurs,
+        focus_ring: definition.focus_ring,
+        typography: definition.typography.clone(),
+        base_typography: definition.typography,
         text_scale: 1.0,
         bold_text: false,
-        palettes: Some((ThemePalette::light(), ThemePalette::dark())),
-        appearance: crate::app::window::Appearance::Light,
+        palettes,
+        appearance,
         follows_system: true,
+        preferred_appearance: None,
+        system_appearance: appearance,
         #[cfg(feature = "markdown")]
-        text_marks: Arc::new(ThemeTextMarks::default()),
+        text_marks: Arc::new(definition.text_marks),
         #[cfg(feature = "markdown")]
-        markdown: ThemeMarkdown::default(),
+        markdown: definition.markdown,
         #[cfg(feature = "form")]
-        form: FormTheme::default(),
+        form: definition.form,
         reduced_motion: None,
         system_reduced_motion: false,
         version: 0,
@@ -137,11 +188,25 @@ impl Default for Theme {
       version_signal: Signal::new(0),
     }
   }
-}
 
-impl Theme {
-  pub fn new() -> Self {
-    Self::default()
+  /// Gives the theme the look of `definition`, all of it at once: components that read the theme render
+  /// once. What a person or the system set stays: the appearance the theme is in, the text scale, bold text
+  /// and reduced motion.
+  ///
+  /// ```
+  /// use lurq::app::theme::{Theme, ThemeDefinition};
+  ///
+  /// let theme = Theme::new();
+  /// // An app written for lurq 0.60 that wants the look it had.
+  /// theme.apply(ThemeDefinition::legacy());
+  /// ```
+  pub fn apply(&self, definition: ThemeDefinition) {
+    self.mutate_inner(|inner| inner.apply(definition));
+  }
+
+  /// The look of the theme as it is now, as one value: to keep, to compare, or to change and apply again.
+  pub fn definition(&self) -> ThemeDefinition {
+    self.inner.read().unwrap().definition()
   }
 
   pub fn lens<T: Clone + Send + Sync + 'static>(
@@ -163,12 +228,55 @@ impl Theme {
     }
   }
 
+  /// Sets the palette of the appearance the theme is in now. A theme with a palette for each appearance
+  /// keeps the other one as it is: [`Theme::set_palettes`] sets both.
   pub fn set_palette(&self, palette: ThemePalette) {
-    self.mutate_inner(|inner| inner.palette = palette);
+    self.mutate_inner(|inner| {
+      if let Some((light, dark)) = &mut inner.palettes {
+        match inner.appearance {
+          crate::app::window::Appearance::Light => *light = palette.clone(),
+          crate::app::window::Appearance::Dark => *dark = palette.clone(),
+        }
+      }
+      inner.palette = palette;
+    });
   }
 
+  /// Sets the color of one role, in every appearance: a brand color set once is the brand color in the
+  /// light look and in the dark one. [`Theme::set_palette_color_for`] sets it in one.
   pub fn set_palette_color(&self, palette_color: impl Into<PaletteColor>, color: Color) {
-    self.mutate_inner(|inner| inner.palette.set(palette_color, color));
+    let role = palette_color.into();
+    self.mutate_inner(|inner| {
+      if let Some((light, dark)) = &mut inner.palettes {
+        light.set(&role, color);
+        dark.set(&role, color);
+      }
+      inner.palette.set(role, color);
+    });
+  }
+
+  /// Sets the color of one role in the palette of one appearance. On a theme with one palette it sets that
+  /// palette's, whatever `appearance` is.
+  pub fn set_palette_color_for(
+    &self,
+    appearance: crate::app::window::Appearance,
+    palette_color: impl Into<PaletteColor>,
+    color: Color,
+  ) {
+    let role = palette_color.into();
+    self.mutate_inner(|inner| {
+      let Some((light, dark)) = &mut inner.palettes else {
+        inner.palette.set(role, color);
+        return;
+      };
+      match appearance {
+        crate::app::window::Appearance::Light => light.set(&role, color),
+        crate::app::window::Appearance::Dark => dark.set(&role, color),
+      }
+      if inner.appearance == appearance {
+        inner.palette.set(role, color);
+      }
+    });
   }
 
   pub fn palette_color(&self, palette_color: impl Into<PaletteColor>) -> Color {
@@ -307,6 +415,158 @@ impl Theme {
     self.mutate_inner(|inner| inner.scrollbar = scrollbar);
   }
 
+  pub fn control_sizes(&self) -> ThemeRef<'_, ThemeControlSizes> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.control_sizes,
+    }
+  }
+
+  pub fn set_control_sizes(&self, control_sizes: ThemeControlSizes) {
+    self.mutate_inner(|inner| inner.control_sizes = control_sizes);
+  }
+
+  /// The height of a control of a size, in logical pixels. Panics when an `Extra` name is not in the table.
+  pub fn control_size_value(&self, role: impl Into<ControlSize>) -> f32 {
+    self.inner.read().unwrap().control_sizes.get(role)
+  }
+
+  pub fn set_control_size_value(&self, role: impl Into<ControlSize>, value: f32) {
+    self.mutate_inner(|inner| inner.control_sizes.set(role, value));
+  }
+
+  pub fn icon_sizes(&self) -> ThemeRef<'_, ThemeIconSizes> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.icon_sizes,
+    }
+  }
+
+  pub fn set_icon_sizes(&self, icon_sizes: ThemeIconSizes) {
+    self.mutate_inner(|inner| inner.icon_sizes = icon_sizes);
+  }
+
+  /// The side of an icon of a size, in logical pixels. Panics when an `Extra` name is not in the table.
+  pub fn icon_size_value(&self, role: impl Into<IconSize>) -> f32 {
+    self.inner.read().unwrap().icon_sizes.get(role)
+  }
+
+  pub fn set_icon_size_value(&self, role: impl Into<IconSize>, value: f32) {
+    self.mutate_inner(|inner| inner.icon_sizes.set(role, value));
+  }
+
+  pub fn densities(&self) -> ThemeRef<'_, ThemeDensities> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.densities,
+    }
+  }
+
+  pub fn set_densities(&self, densities: ThemeDensities) {
+    self.mutate_inner(|inner| inner.densities = densities);
+  }
+
+  /// The height of a row at a density, in logical pixels. Panics when an `Extra` name is not in the table.
+  pub fn density_value(&self, role: impl Into<Density>) -> f32 {
+    self.inner.read().unwrap().densities.get(role)
+  }
+
+  pub fn set_density_value(&self, role: impl Into<Density>, value: f32) {
+    self.mutate_inner(|inner| inner.densities.set(role, value));
+  }
+
+  pub fn durations(&self) -> ThemeRef<'_, ThemeDurations> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.durations,
+    }
+  }
+
+  pub fn set_durations(&self, durations: ThemeDurations) {
+    self.mutate_inner(|inner| inner.durations = durations);
+  }
+
+  /// How long a duration is. Panics when an `Extra` name is not in the table.
+  pub fn duration_value(&self, role: impl Into<MotionDuration>) -> std::time::Duration {
+    self.inner.read().unwrap().durations.get(role)
+  }
+
+  pub fn set_duration_value(&self, role: impl Into<MotionDuration>, value: std::time::Duration) {
+    self.mutate_inner(|inner| inner.durations.set(role, value));
+  }
+
+  pub fn easings(&self) -> ThemeRef<'_, ThemeEasings> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.easings,
+    }
+  }
+
+  pub fn set_easings(&self, easings: ThemeEasings) {
+    self.mutate_inner(|inner| inner.easings = easings);
+  }
+
+  /// The curve of an easing. Panics when an `Extra` name is not in the table.
+  pub fn easing_value(&self, role: impl Into<MotionEasing>) -> crate::animation::Easing {
+    self.inner.read().unwrap().easings.get(role)
+  }
+
+  pub fn set_easing_value(&self, role: impl Into<MotionEasing>, value: crate::animation::Easing) {
+    self.mutate_inner(|inner| inner.easings.set(role, value));
+  }
+
+  pub fn opacities(&self) -> ThemeRef<'_, ThemeOpacities> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.opacities,
+    }
+  }
+
+  pub fn set_opacities(&self, opacities: ThemeOpacities) {
+    self.mutate_inner(|inner| inner.opacities = opacities);
+  }
+
+  /// The opacity of a level, from 0 to 1. Panics when an `Extra` name is not in the table.
+  pub fn opacity_value(&self, role: impl Into<OpacityLevel>) -> f32 {
+    self.inner.read().unwrap().opacities.get(role)
+  }
+
+  pub fn set_opacity_value(&self, role: impl Into<OpacityLevel>, value: f32) {
+    self.mutate_inner(|inner| inner.opacities.set(role, value));
+  }
+
+  pub fn blurs(&self) -> ThemeRef<'_, ThemeBlurs> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.blurs,
+    }
+  }
+
+  pub fn set_blurs(&self, blurs: ThemeBlurs) {
+    self.mutate_inner(|inner| inner.blurs = blurs);
+  }
+
+  /// The radius of a blur, in logical pixels. Panics when an `Extra` name is not in the table.
+  pub fn blur_value(&self, role: impl Into<BlurSize>) -> f32 {
+    self.inner.read().unwrap().blurs.get(role)
+  }
+
+  pub fn set_blur_value(&self, role: impl Into<BlurSize>, value: f32) {
+    self.mutate_inner(|inner| inner.blurs.set(role, value));
+  }
+
+  /// The ring around the control the keyboard is on.
+  pub fn focus_ring(&self) -> ThemeRef<'_, ThemeFocusRing> {
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.focus_ring,
+    }
+  }
+
+  pub fn set_focus_ring(&self, focus_ring: ThemeFocusRing) {
+    self.mutate_inner(|inner| inner.focus_ring = focus_ring);
+  }
+
   pub fn typography(&self) -> ThemeRef<'_, ThemeTypography> {
     ThemeRef {
       inner: self.inner.read().unwrap(),
@@ -407,12 +667,35 @@ impl Theme {
     self.inner.write().unwrap().follows_system = follows;
   }
 
+  /// The appearance the app chose with [`Theme::set_preferred_appearance`], or `None` where it takes the
+  /// system's.
+  pub fn preferred_appearance(&self) -> Option<crate::app::window::Appearance> {
+    self.inner.read().unwrap().preferred_appearance
+  }
+
+  /// Chooses light or dark for the app whatever the system is in: the setting an app gives a person as
+  /// "Light, Dark, System". `None`, the default, is "System". Unlike [`Theme::set_follows_system`]`(false)`,
+  /// the theme goes on taking the system's text size and bold text.
+  pub fn set_preferred_appearance(&self, appearance: Option<crate::app::window::Appearance>) {
+    let system = {
+      let mut inner = self.inner.write().unwrap();
+      inner.preferred_appearance = appearance;
+      inner.system_appearance
+    };
+    match appearance {
+      Some(appearance) => self.set_appearance(appearance),
+      None if self.follows_system() => self.set_appearance(system),
+      None => {}
+    }
+  }
+
   /// Takes the system's settings, if the theme follows them. A shell calls it when they change.
   pub fn apply_system(&self, system: &crate::app::window::SystemSettings) {
+    self.inner.write().unwrap().system_appearance = system.appearance;
     if !self.follows_system() {
       return;
     }
-    self.set_appearance(system.appearance);
+    self.set_appearance(self.preferred_appearance().unwrap_or(system.appearance));
     self.set_text_scale(system.text_scale);
     self.set_bold_text(system.bold_text);
   }

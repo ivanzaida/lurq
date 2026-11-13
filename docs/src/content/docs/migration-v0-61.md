@@ -14,25 +14,38 @@ lurq 0.61 makes the design system's theme the default. An app written for 0.60 s
 | Palette | 23 roles on a blue accent | The design's 42 roles on a neutral primary |
 | Dark look | None: one palette | A dark palette, taken when the system is dark |
 | Text that names no color | Black | `Foreground`: near-black in the light palette, near-white in the dark one |
+| Radii | `Sm` 3, `Md` 5, `Lg` 6 | `Sm` 4, `Md` 6, `Lg` 8, and `Xl` 12, `Full` |
 | A window whose root paints no background | Cleared to white | Cleared to `Background`: white in the light palette, near-black in the dark one |
 
 The one that can make an app unreadable is the dark look. On a system in its dark look, text that names no color is drawn near-white. An app that paints light backgrounds of its own under such text has near-white text on them.
 
 ## Keep The 0.60 Look
 
-Two lines, before the root is mounted:
+One line, before the root is mounted:
 
 ```rust
-use lurq::app::theme::ThemePalette;
+use lurq::app::theme::ThemeDefinition;
 
-app.theme().set_follows_system(false);
-app.theme().set_palette(ThemePalette::legacy());
+app.theme().apply(ThemeDefinition::legacy());
 ```
 
-- `set_follows_system(false)` keeps the theme out of the system's dark look. It also stops the theme taking the system's text size and bold text, which only a phone reports.
-- `ThemePalette::legacy()` is the palette of 0.60 color for color, with text that names no color in black.
+`ThemeDefinition::legacy()` is the theme of 0.60: its palette color for color, with text that names no color in black, and its radii. It has one palette, so the app is light whatever the system is in. The theme goes on taking the system's text size and bold text, which only a phone reports.
 
-An app that wants the new colors and only its own light backgrounds kept readable needs the first line alone.
+An app that wants the new look and only its own light backgrounds kept readable stays in the light palette instead:
+
+```rust
+use lurq::app::window::Appearance;
+
+app.theme().set_preferred_appearance(Some(Appearance::Light));
+```
+
+A change of a single value goes on a definition before it is applied, or on the theme after:
+
+```rust
+let mut theme = ThemeDefinition::legacy();
+theme.light.primary = brand;
+app.theme().apply(theme);
+```
 
 ## Follow The System Properly
 
@@ -88,6 +101,10 @@ What to know while both sets exist:
 - **A deprecated role still has a color of its own.** In the design's palettes it is the color of its replacement. In `ThemePalette::legacy()` it is the color it had in 0.60.
 - **Setting a role sets the deprecated roles it replaces.** `Select`, the form controls, and a checkbox or a slider with no style of its own still read the deprecated roles, and follow a theme set through the new ones this way.
 - **Setting a deprecated role sets only that role.** An app that sets `Accent` and uses a role's replacement elsewhere sets `Primary`.
+
+## A Color Set Once
+
+`theme.set_palette_color(role, color)` now sets the role in the light palette and in the dark one: a brand color set once is the brand color in both looks. `theme.set_palette_color_for(appearance, role, color)` sets it in one. `theme.set_palette(palette)` sets the palette of the appearance the theme is in and leaves the other as it is; `theme.set_palettes(light, dark)` sets both.
 
 ## A Palette Written Out Field By Field
 

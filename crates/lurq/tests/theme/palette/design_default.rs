@@ -73,3 +73,42 @@ fn a_roots_own_background_is_what_its_window_is_cleared_to() {
   tree.set_root(Column::new().background(own).child(Rect::new(10.0, 10.0)));
   assert_eq!(render_pass_with_app(&mut tree, &mut app).clear_color, own);
 }
+
+#[test]
+fn an_app_that_prefers_an_appearance_is_in_it_whatever_the_system_is() {
+  let theme = Theme::new();
+  theme.set_preferred_appearance(Some(Appearance::Dark));
+  assert_eq!(*theme.palette(), ThemePalette::dark(), "at once");
+  theme.apply_system(&SystemSettings::default());
+  assert_eq!(*theme.palette(), ThemePalette::dark(), "under a light system");
+
+  theme.set_preferred_appearance(Some(Appearance::Light));
+  theme.apply_system(&dark_system());
+  assert_eq!(*theme.palette(), ThemePalette::light(), "and light under a dark one");
+}
+
+#[test]
+fn an_app_that_stops_preferring_one_is_back_in_the_systems() {
+  let theme = Theme::new();
+  theme.apply_system(&dark_system());
+  theme.set_preferred_appearance(Some(Appearance::Light));
+  assert_eq!(theme.appearance(), Appearance::Light);
+  theme.set_preferred_appearance(None);
+  assert_eq!(
+    theme.appearance(),
+    Appearance::Dark,
+    "the system's, as it was last told"
+  );
+}
+
+#[test]
+fn a_preferred_appearance_leaves_the_systems_text_size_to_the_theme() {
+  let theme = Theme::new();
+  theme.set_preferred_appearance(Some(Appearance::Dark));
+  theme.apply_system(&SystemSettings {
+    text_scale: 1.5,
+    ..SystemSettings::default()
+  });
+  assert_eq!(theme.text_scale(), 1.5);
+  assert_eq!(theme.appearance(), Appearance::Dark);
+}

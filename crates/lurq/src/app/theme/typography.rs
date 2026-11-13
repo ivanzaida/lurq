@@ -251,3 +251,10 @@ impl Default for ThemeFonts {
     ThemeTypography::default().into()
   }
 }
+
+impl ThemeTypography {
+  /// The typography of lurq 0.60.
+  pub fn legacy() -> Self {
+    Self::default()
+  }
+}

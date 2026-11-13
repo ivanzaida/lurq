@@ -175,12 +175,12 @@ fn set_spacing_replaces_named_spacing() {
 #[test]
 fn default_theme_has_radii() {
   let t = Theme::new();
-  assert_eq!(t.radius_value(RadiusSize::Sm), 3.0);
-  assert_eq!(t.radius_value(RadiusSize::Md), 5.0);
-  assert_eq!(t.radius_value(RadiusSize::Lg), 6.0);
-  assert_eq!(t.radii().sm, 3.0);
-  assert_eq!(t.radii().md, 5.0);
-  assert_eq!(t.radii().lg, 6.0);
+  assert_eq!(t.radius_value(RadiusSize::Sm), 4.0);
+  assert_eq!(t.radius_value(RadiusSize::Md), 6.0);
+  assert_eq!(t.radius_value(RadiusSize::Lg), 8.0);
+  assert_eq!(t.radii().sm, 4.0);
+  assert_eq!(t.radii().md, 6.0);
+  assert_eq!(t.radii().lg, 8.0);
 }
 
 #[test]
