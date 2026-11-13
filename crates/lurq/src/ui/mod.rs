@@ -26,6 +26,7 @@ pub mod icons;
 mod input;
 mod link;
 mod menu;
+mod pagination;
 mod part_style;
 mod popover;
 mod radio;
@@ -62,6 +63,7 @@ pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
+pub use pagination::{PageItem, Pagination, PaginationPart, PaginationRenderer, PaginationState, PaginationView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
   TransitionEasing,

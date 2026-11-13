@@ -13,6 +13,7 @@ mod icons;
 mod input;
 mod menu;
 mod overview;
+mod pagination;
 mod popover;
 mod radio;
 mod select;
@@ -241,6 +242,14 @@ pub const PAGES: &[Page] = &[
     about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
+  },
+  Page {
+    path: "/pagination",
+    name: "Pagination",
+    icon: None,
+    about: "pagination pages page next previous ellipsis compact rows per page table footer results",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<pagination::PaginationPage>(()),
   },
 ];
 
