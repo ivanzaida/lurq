@@ -52,7 +52,7 @@ LoadingOverlay::new(loading.get(), panel);
 | --- | --- |
 | `kind(SpinnerKind)` | `Ring` (the default), `Dots` or `Bars` |
 | `size(name)` | `SpinnerSize::Sm` (16, the default), `Md` (24), `Lg` (32); the dots and the bars grow by a half and by twice |
-| `variant(name)` | `SpinnerVariant::Current` (the color of the text around it), `Muted`, `Primary` |
+| `variant(name)` | `SpinnerVariant::Current` (the color of the text around it, dots and bars too), `Muted`, `Primary` |
 | `label(&str)` | What is being done, drawn 8 beside it, and what it is called |
 | `label_hidden(bool)` | The label is its name and is not drawn |
 | `decorative(bool)` | No status of its own, where what it is in says what is under way: a button that loads |
@@ -60,7 +60,7 @@ LoadingOverlay::new(loading.get(), panel);
 
 - To what reads the tree a spinner is a `status`, called by its label, or "Loading" when it has none.
 - The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. A spinner moves whether or not motion is reduced: one that stood still would say nothing.
-- The ring is drawn in the color of the text around it, so a spinner in a button is the color of its label. The dots and the bars are fills, which take no color from the text: they are in `Foreground` unless a variant says otherwise.
+- A spinner is drawn in the color of the text around it, so a spinner in a button is the color of its label: the ring as text is, and the dots and the bars by the fill `BackgroundColor::CurrentForeground`. Where nothing around it names a color, that is `Foreground`. A variant gives it a color of its own.
 - Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
 - In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.
 - `LoadingOverlay::new(loading, content)` lays a veil over `content` while `loading` is true: the background's color at 85 hundredths, with a spinner in its middle (`.spinner(Spinner)` gives one of the app's). Meanwhile no press reaches the content and Tab passes it by. The veil fades in with `ui::FADE_IN` and out with `ui::FADE_OUT` over the theme's base duration. The overlay is as large as its content; its root clips the veil, so a rule that rounds `LoadingOverlayPart::Root` rounds the veil with a rounded content. Parts: `Root`, `Content`, `Veil`, and `Scrim`, whose background and opacity are the veil's fill. State: `LoadingOverlayState::Loading`.
@@ -153,11 +153,6 @@ Skeleton::status(
 
 ## Not done
 
-- **The dots and the bars do not take the color of the text around them**, as the ring does: they are fills, and a fill
-  names its color. The default variant paints them in `Foreground`, the board's. The smallest change: a
-  `BackgroundColor` that is the foreground the node inherits (`BackgroundColor::CurrentForeground`, resolved where the
-  quad is painted, as text resolves its inherited color); the recipe's `Dot` and `Bar` then take it in the `Current`
-  variant. Paint is no session's in this batch.
 - **The sheen crosses a skeleton by pixels, not by its width**: it travels from −200 to 1200 in every skeleton, so one
   narrower than that waits while it crosses the rest, and one wider than 1200 is not crossed to its end. The board's
   shimmer is a sheen as wide as the line. The smallest change: a translation of a keyframe in shares of the node's own

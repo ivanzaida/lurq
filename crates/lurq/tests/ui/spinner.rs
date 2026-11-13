@@ -145,6 +145,43 @@ fn the_label_is_8_beside_the_ring_and_only_when_it_is_drawn() {
 }
 
 #[test]
+fn dots_and_bars_take_the_color_of_the_text_around_them() {
+  // In a primary button the label is in the primary foreground, and so are the spinner's dots and bars; in a
+  // row of the destructive color, the destructive color; with nothing around them, the foreground.
+  let stage = Stage::new(|_| {
+    Column::new()
+      .spacing(12.0)
+      .child(Button::new("Loading").leading(Spinner::new().kind(SpinnerKind::Dots).decorative(true)))
+      .child(
+        Row::new()
+          .foreground(PaletteColor::Destructive)
+          .child(Spinner::new().kind(SpinnerKind::Bars)),
+      )
+      .child(Spinner::new().kind(SpinnerKind::Dots).size(SpinnerSize::Md))
+      .into()
+  });
+  let in_button = rects(&stage, 8.0, 8.0);
+  assert_eq!(in_button.len(), 3);
+  assert!(
+    in_button
+      .iter()
+      .all(|dot| color_of(dot) == light(PaletteColor::PrimaryForeground)),
+    "the button's label's color"
+  );
+  assert_eq!(stage.text("Loading").0, light(PaletteColor::PrimaryForeground));
+  let bars: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Rect { .. }) && (quad.width - 3.0).abs() < 0.01)
+    .collect();
+  assert_eq!(bars.len(), 5);
+  assert!(bars.iter().all(|bar| color_of(bar) == light(PaletteColor::Destructive)));
+  let alone = rects(&stage, 12.0, 12.0);
+  assert_eq!(alone.len(), 3);
+  assert!(alone.iter().all(|dot| color_of(dot) == light(PaletteColor::Foreground)));
+}
+
+#[test]
 fn dots_are_three_of_8_six_apart_that_fade_in_turn() {
   let mut stage = Stage::new(|_| {
     Column::new()

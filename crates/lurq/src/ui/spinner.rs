@@ -88,8 +88,8 @@ pub enum SpinnerKind {
 /// The color of a spinner.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SpinnerVariant {
-  /// The color of the text around it: the ring is drawn in it, and the dots and the bars, which are fills and
-  /// not text, in the foreground.
+  /// The color of the text around it: the ring, the dots and the bars are drawn in it, so a spinner in a
+  /// button is the color of the button's label.
   #[default]
   Current,
   /// The muted foreground: a spinner that says less than the text beside it.
@@ -176,8 +176,9 @@ const LOADING: &str = "Loading";
 /// ```
 ///
 /// It is a status to tooling that reads the tree, called by its label, or
-/// "Loading" when it has none. The ring is drawn in the color of the text
-/// around it, so a spinner in a button is the color of the button's label.
+/// "Loading" when it has none. It is drawn in the color of the text around
+/// it, the ring, the dots and the bars alike, so a spinner in a button is the
+/// color of the button's label.
 /// Spinners move whether or not motion is reduced: one that stood still would
 /// say nothing.
 #[derive(Clone)]
@@ -452,13 +453,14 @@ impl Themed for Spinner {
   type Renderer = SpinnerRenderer;
 
   /// The design's spinner (`pencil/lurq-design-system.pen`, Spinner,
-  /// Loader/Dots, Loader/Bars, Loader/Inline): a ring of 16, 24 or 32 in the
-  /// color of the text around it; three dots of 8, 6 apart, in a row 16
-  /// high; five bars 3 wide and round, 3 apart, in a row 20 high; and a label
+  /// Loader/Dots, Loader/Bars, Loader/Inline): a ring of 16, 24 or 32;
+  /// three dots of 8, 6 apart, in a row 16 high; five bars 3 wide and round,
+  /// 3 apart, in a row 20 high; all in the color of the text around them,
+  /// the foreground where nothing names one; and a label
   /// 8 beside it, 13 in the muted foreground. The dots and the bars grow with
   /// the ring's sizes, by a half and by twice.
   fn recipe() -> Recipe {
-    use PaletteColor::{Foreground, MutedForeground, Primary};
+    use PaletteColor::{MutedForeground, Primary};
     use SpinnerPart::{Bar, Dot, Indicator, Label, Root};
     let recipe = Recipe::new()
       .base(Root, |s| s.gap(8.0))
@@ -468,8 +470,16 @@ impl Themed for Spinner {
           .font_size(13.0)
           .foreground(MutedForeground)
       })
-      .base(Dot, |s| s.square(8.0).radius(RadiusSize::Full).background(Foreground))
-      .base(Bar, |s| s.width(3.0).radius(RadiusSize::Full).background(Foreground))
+      .base(Dot, |s| {
+        s.square(8.0)
+          .radius(RadiusSize::Full)
+          .background(BackgroundColor::CurrentForeground)
+      })
+      .base(Bar, |s| {
+        s.width(3.0)
+          .radius(RadiusSize::Full)
+          .background(BackgroundColor::CurrentForeground)
+      })
       .size(SpinnerSize::Md, Indicator, |s| s.square(IconSize::Xl))
       .size(SpinnerSize::Lg, Indicator, |s| s.square(32.0))
       .state(SpinnerState::Dots, Indicator, |s| {
