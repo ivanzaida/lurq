@@ -17,6 +17,7 @@ lurq 0.62 makes the design system's theme the default. An app written for 0.61 s
 | Body text | 16 | 14 |
 | Headings | Bold | Semibold, with tighter letter spacing |
 | Code (`TypographyStyle::Mono`) | 16 | 13 |
+| Shadows (`ShadowStyle::Md`, `Lg`) | Tight, with a negative spread | Softer and a little larger |
 | Radii | `Sm` 3, `Md` 5, `Lg` 6 | `Sm` 4, `Md` 6, `Lg` 8, and `Xl` 12, `Full` |
 | A window whose root paints no background | Cleared to white | Cleared to `Background`: white in the light palette, near-black in the dark one |
 
@@ -32,7 +33,7 @@ use lurq::app::theme::ThemeDefinition;
 app.theme().apply(ThemeDefinition::legacy());
 ```
 
-`ThemeDefinition::legacy()` is the theme of 0.61: its palette color for color, with text that names no color in black, its typography (body text of 16) and its radii. It has one palette, so the app is light whatever the system is in. The theme goes on taking the system's text size and bold text, which only a phone reports.
+`ThemeDefinition::legacy()` is the theme of 0.61: its palette color for color, with text that names no color in black, its typography (body text of 16), its radii and its shadows. It has one palette, so the app is light whatever the system is in. The theme goes on taking the system's text size and bold text, which only a phone reports.
 
 An app that wants the new look and only its own light backgrounds kept readable stays in the light palette instead:
 

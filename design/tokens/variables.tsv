@@ -1,0 +1,96 @@
+# The variables of pencil/lurq-design-system.pen, as the theme's tests read them (crates/lurq/tests/theme/parity).
+# One variable a line, tab-separated: its type, its name, its value; a color has its light value and its dark one.
+# Read from the board on 2026-11-13 with Pencil's `GetVariables()`. When a variable changes on the board, change it
+# here and in the neutral theme together: the test fails while they differ.
+color	background	#FFFFFF	#09090B
+color	foreground	#09090B	#FAFAFA
+color	card	#FFFFFF	#18181B
+color	card-foreground	#09090B	#FAFAFA
+color	popover	#FFFFFF	#18181B
+color	popover-foreground	#09090B	#FAFAFA
+color	primary	#18181B	#E4E4E7
+color	primary-foreground	#FAFAFA	#18181B
+color	secondary	#E4E4E9	#27272A
+color	secondary-foreground	#18181B	#FAFAFA
+color	muted	#E4E4E9	#27272A
+color	muted-foreground	#5C5C66	#A1A1AA
+color	accent	#E4E4E9	#27272A
+color	accent-foreground	#18181B	#FAFAFA
+color	destructive	#DC2626	#EF4444
+color	destructive-foreground	#FAFAFA	#FAFAFA
+color	destructive-muted	#FEE2E2	#3B1212
+color	success	#16A34A	#22C55E
+color	success-muted	#DCFCE7	#0F2E1B
+color	warning	#B45309	#F59E0B
+color	warning-muted	#FEF3C7	#33240A
+color	info	#2563EB	#60A5FA
+color	info-muted	#DBEAFE	#132544
+color	border	#CDCDD3	#27272A
+color	input	#9A9AA5	#3F3F46
+color	ring	#71717A	#71717A
+number	radius-sm	4
+number	radius-md	6
+number	radius-lg	8
+number	radius-xl	12
+number	radius-full	999
+number	spacing-xs	4
+number	spacing-sm	8
+number	spacing-md	12
+number	spacing-lg	16
+number	spacing-xl	24
+number	spacing-2xl	32
+number	control-sm	32
+number	control-md	36
+number	control-lg	40
+string	font-sans	Inter
+string	font-mono	JetBrains Mono
+color	primary-hover	#3F3F46	#FAFAFA
+color	secondary-hover	#D4D4DB	#3F3F46
+color	destructive-hover	#B91C1C	#DC2626
+color	chart-1	#2563EB	#3B82F6
+color	chart-2	#0D9488	#2DD4BF
+color	chart-3	#D97706	#F59E0B
+color	chart-4	#7C3AED	#A78BFA
+color	chart-5	#DB2777	#F472B6
+number	duration-fast	100
+number	duration-base	160
+number	duration-slow	240
+number	duration-slower	400
+number	z-sticky	10
+number	z-dropdown	1000
+number	z-popover	1100
+number	z-overlay	1200
+number	z-modal	1300
+number	z-toast	1400
+number	z-tooltip	1500
+number	opacity-disabled	0.5
+number	opacity-muted	0.7
+number	focus-ring-width	2
+number	focus-ring-offset	2
+number	border-sm	1
+number	border-md	2
+number	border-lg	3
+number	icon-xs	12
+number	icon-sm	14
+number	icon-md	16
+number	icon-lg	20
+number	icon-xl	24
+number	blur-thin	8
+number	blur-regular	20
+number	blur-thick	40
+number	density-compact	28
+number	density-default	36
+number	density-comfortable	44
+number	density-touch	48
+color	glass-thin	#FFFFFF59	#18181B59
+color	glass-regular	#FFFFFF99	#18181B99
+color	glass-thick	#FFFFFFCC	#18181BCC
+color	scrim	#00000066	#00000099
+color	state-hover	#0000000A	#FFFFFF0F
+color	state-pressed	#00000014	#FFFFFF1F
+color	selection	#BFDBFE	#1E3A8A
+string	ease-standard	cubic-bezier(0.2, 0, 0, 1)
+string	ease-enter	cubic-bezier(0, 0, 0, 1)
+string	ease-exit	cubic-bezier(0.3, 0, 1, 1)
+color	canvas	#F0F0F3	#09090B
+color	sheet	#E3E8F0	#0B0D12

@@ -100,13 +100,14 @@ impl ThemeDefinition {
   }
 
   /// The theme of lurq 0.61: its palette color for color, with no dark one,
-  /// and its radii. An app written for 0.61 that applies it looks as it did.
+  /// its typography, radii and shadows. An app written for 0.61 that applies it looks as it did.
   pub fn legacy() -> Self {
     Self {
       light: ThemePalette::legacy(),
       dark: None,
       typography: ThemeTypography::legacy(),
       radii: ThemeRadii::legacy(),
+      shadows: ThemeShadows::legacy(),
       ..Self::neutral()
     }
   }

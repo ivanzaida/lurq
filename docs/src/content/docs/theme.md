@@ -521,8 +521,10 @@ Shadow (elevation) roles are named by `ShadowStyle` and stored as public fields 
 | `ShadowStyle` | `ThemeShadows` field | Default (`offset_x offset_y blur spread color`) |
 | --- | --- | --- |
 | `Sm` | `sm` | `0 1 2 0 #0000000d` |
-| `Md` | `md` | `0 4 6 -1 #0000001a`, `0 2 4 -2 #0000001a` |
-| `Lg` | `lg` | `0 10 15 -3 #0000001a`, `0 4 6 -4 #0000001a` |
+| `Md` | `md` | `0 4 8 0 #0000001a`, `0 1 2 0 #0000000f` |
+| `Lg` | `lg` | `0 12 24 0 #00000024`, `0 3 6 0 #00000014` |
+
+These are the design's elevations. `ThemeShadows::legacy()` has those of lurq 0.61.
 
 Use shadow roles anywhere a box shadow is accepted, including hover, active, and focus styles:
 

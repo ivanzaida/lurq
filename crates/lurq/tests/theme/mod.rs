@@ -6,6 +6,10 @@ mod lens {
   mod read_set_update;
 }
 
+mod parity {
+  mod design_variables;
+}
+
 mod palette {
   mod background_palette_resolves;
   mod design_default;

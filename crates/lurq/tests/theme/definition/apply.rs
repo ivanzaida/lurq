@@ -261,3 +261,15 @@ fn a_style_in_a_font_of_its_own_keeps_it_when_the_interfaces_font_changes() {
   );
   assert_eq!(&*theme.typography_style(TypographyStyle::Title).font_family, "Inter");
 }
+
+#[test]
+fn the_legacy_theme_has_the_elevations_of_0_61() {
+  use lurq::app::theme::{ShadowStyle, ThemeShadows};
+  assert_eq!(Theme::legacy().shadow_style(ShadowStyle::Md), ThemeShadows::legacy().md);
+  assert_ne!(Theme::new().shadow_style(ShadowStyle::Md), ThemeShadows::legacy().md);
+  assert_eq!(
+    Theme::new().shadow_style(ShadowStyle::Sm),
+    ThemeShadows::legacy().sm,
+    "the smallest is the same"
+  );
+}
