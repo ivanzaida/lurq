@@ -118,6 +118,7 @@ mod touch_pointer;
 mod touch_pointer_tests;
 #[cfg(test)]
 mod touch_tests;
+mod typeahead;
 
 use overlay_layers::{HiddenDismiss, OverlayLayers};
 use selected_text_lines::{SelectedTextFragment, join_selected_text};
@@ -887,6 +888,8 @@ pub struct Tree {
   /// The arrow keys moved the focus in a group that follows the pointer, and took the hover away with it: the
   /// hover stays away, under a pointer that holds still, until the pointer moves.
   hover_held_by_keys: bool,
+  /// What has been typed into the typeahead of a focus group, and when: see [`typeahead`].
+  typeahead: Option<typeahead::Typeahead>,
   /// The closed layers the overlay host still draws, while their exit
   /// animations play: see [`leaving_layers`].
   leaving_layers: Vec<leaving_layers::LeavingLayer>,
@@ -1291,6 +1294,7 @@ impl Tree {
       modal_focus: Vec::new(),
       built_focus_modals: Vec::new(),
       hover_held_by_keys: false,
+      typeahead: None,
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
       leaving_children: Vec::new(),
@@ -4101,7 +4105,11 @@ impl Tree {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
         self.focus_tab(shift)
-      } else if !ctrl && !alt && !meta && self.focus_group_key(&key, click_modifiers) {
+      } else if !ctrl
+        && !alt
+        && !meta
+        && (self.focus_group_key(&key, click_modifiers) || self.focus_group_typeahead(&key))
+      {
         true
       } else if matches!(
         (key.as_str(), code.as_str()),

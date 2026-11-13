@@ -669,3 +669,60 @@ fn the_focus_goes_back_to_what_opened_the_menu_and_not_the_first_button_of_its_a
   assert!(open.get(), "back on the button that opened it");
   assert_eq!(*merged.lock().unwrap(), 0);
 }
+
+/// Types `keys` one after another with no time between them: a word typed at speed. The stage's passes move its
+/// clock on by seconds, so each `Stage::key` is a word of its own; these keys are pressed at a time later than any
+/// pass of a test reaches, so that the word does not go on from the last of those.
+fn type_quickly(stage: &mut Stage, keys: &[&str]) {
+  let now = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+  for key in keys {
+    stage.tree.set_animation_clock(Some(now));
+    stage
+      .tree
+      .key_down(key.to_string(), key.to_string(), false, false, false);
+    stage.tree.key_up(key.to_string(), key.to_string(), false, false, false);
+  }
+  stage.pass();
+}
+
+#[test]
+fn typing_a_letter_goes_to_the_item_whose_label_starts_with_it() {
+  let (chosen, tell) = log();
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(anchor.clone(), true)
+        .item(MenuItem::new("Undo").shortcut("Ctrl+Z").id("undo"))
+        .item(MenuItem::new("Redo").disabled(true).id("redo"))
+        .separator()
+        .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
+        .item(MenuItem::new("Copy").id("copy").on_select(tell("copy")))
+        .item(MenuItem::new("Paste").icon(icons::PASTE).id("paste")),
+    )
+  });
+  let lit = |stage: &mut Stage| {
+    ["undo", "redo", "cut", "copy", "paste"]
+      .into_iter()
+      .filter(|id| stage.fill_color(id) == Some(light(PaletteColor::Highlight)))
+      .collect::<Vec<_>>()
+  };
+  // A letter goes to the item whose label starts with it, lit as the keyboard lights it; an icon is no letter.
+  stage.key("p");
+  assert_eq!(lit(&mut stage), ["paste"]);
+  // From the one after the focused, round the menu, past the disabled one.
+  stage.key("r");
+  assert_eq!(lit(&mut stage), ["paste"], "Redo is disabled");
+  stage.key("c");
+  assert_eq!(lit(&mut stage), ["cut"]);
+  // The label, not the shortcut: Undo's text has Ctrl+Z in it.
+  stage.key("u");
+  assert_eq!(lit(&mut stage), ["undo"]);
+  stage.key("z");
+  assert_eq!(lit(&mut stage), ["undo"]);
+  // Letters typed at speed are one prefix: "c", "o" goes past Cut to Copy, and Enter chooses it.
+  type_quickly(&mut stage, &["c", "o"]);
+  assert_eq!(lit(&mut stage), ["copy"]);
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["copy"]);
+}

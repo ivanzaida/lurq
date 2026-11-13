@@ -679,6 +679,7 @@ pub(crate) trait NodeUpdate {
   fn tab_index(&mut self, tab_index: i32);
   fn focus_group(&mut self, group: crate::node::FocusGroup);
   fn focus_entry(&mut self, entry: bool);
+  fn focus_label(&mut self, label: Arc<str>);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>);
@@ -995,6 +996,9 @@ pub(crate) struct Node {
   pub(crate) focus_group: Option<crate::node::FocusGroup>,
   /// Where Tab enters the one-stop focus group this node is in.
   pub(crate) focus_entry: bool,
+  /// What typing in a focus group with typeahead matches this node by. An `Arc<String>` and not an `Arc<str>`:
+  /// it is one pointer, and few nodes have one.
+  pub(crate) focus_label: Option<Arc<String>>,
   pub(crate) button_kind: Option<ButtonKind>,
   #[cfg(feature = "form")]
   pub(crate) form_name: Option<Arc<str>>,
@@ -2035,6 +2039,10 @@ impl NodeUpdate for Node {
     self.focus_entry = entry;
   }
 
+  fn focus_label(&mut self, label: Arc<str>) {
+    self.focus_label = Some(Arc::new(label.to_string()));
+  }
+
   fn button_kind(&mut self, kind: ButtonKind) {
     self.button_kind = Some(kind);
   }
@@ -2385,6 +2393,7 @@ impl Node {
       tab_index: None,
       focus_group: None,
       focus_entry: false,
+      focus_label: None,
       button_kind: None,
       #[cfg(feature = "form")]
       form_name: None,
@@ -3987,6 +3996,11 @@ impl Node {
 
   pub(crate) fn is_focus_entry(&self) -> bool {
     self.focus_entry
+  }
+
+  /// What typing in a focus group with typeahead matches this node by, if it has its own.
+  pub(crate) fn focus_label(&self) -> Option<&str> {
+    self.focus_label.as_deref().map(String::as_str)
   }
 
   pub(crate) fn button_kind_value(&self) -> Option<ButtonKind> {
@@ -5768,6 +5782,7 @@ impl Node {
       tab_index: self.tab_index,
       focus_group: self.focus_group,
       focus_entry: self.focus_entry,
+      focus_label: self.focus_label.clone(),
       button_kind: self.button_kind,
       #[cfg(feature = "form")]
       form_name: self.form_name.clone(),
