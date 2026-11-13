@@ -4068,6 +4068,8 @@ impl Tree {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
         self.focus_tab(shift)
+      } else if !ctrl && !alt && !meta && self.focus_group_key(&key, click_modifiers) {
+        true
       } else if matches!(
         (key.as_str(), code.as_str()),
         ("Enter" | " ", _) | (_, "Enter" | "Space")
@@ -4171,6 +4173,69 @@ impl Tree {
 
   /// Tab / Shift+Tab: moves focus to the next stop in the current Tab scope
   /// (see [`tab_navigation`]) and scrolls it into view.
+  /// An arrow key, Home or End while the focus is on something in a focus group
+  /// ([`crate::node::FocusGroup`]): the focus moves to the next thing in the group, and that is pressed if
+  /// the group's choice follows its focus. `false` when the key is not the group's, the focus is in no
+  /// group, or it is on a control that takes the arrow keys itself.
+  fn focus_group_key(&mut self, key: &str, modifiers: MouseModifiers) -> bool {
+    let (Some(focused), Some(path)) = (self.focused_node, self.focused_path.clone()) else {
+      return false;
+    };
+    let Some(root) = &self.root else {
+      return false;
+    };
+    // The innermost group around the focused node that takes this key.
+    let mut found = None;
+    let mut node = root;
+    for &index in &path {
+      if let Some((group, step)) = node
+        .focus_group_value()
+        .and_then(|group| Some((group, group.step(key)?)))
+      {
+        found = Some((node, group, step));
+      }
+      let Some(child) = node.children().get(index) else {
+        return false;
+      };
+      node = child;
+    }
+    // A text input moves its caret with these keys, a slider its value, a select its choice.
+    if matches!(
+      node.node_kind(),
+      NodeKind::TextInput { .. } | NodeKind::Slider { .. } | NodeKind::Select { .. }
+    ) {
+      return false;
+    }
+    let Some((group_node, group, step)) = found else {
+      return false;
+    };
+    let stops = tab_navigation::group_stops(group_node, &self.dropped_nodes);
+    let Some(current) = stops.iter().position(|stop| stop.input_id == focused) else {
+      return false;
+    };
+    let last = stops.len() - 1;
+    let next = match step {
+      crate::node::FocusStep::First => 0,
+      crate::node::FocusStep::Last => last,
+      crate::node::FocusStep::Back if current > 0 => current - 1,
+      crate::node::FocusStep::Back if group.wrap => last,
+      crate::node::FocusStep::On if current < last => current + 1,
+      crate::node::FocusStep::On if group.wrap => 0,
+      _ => current,
+    };
+    // The key is the group's even where it moves nothing: at an end of a group that does not wrap.
+    if next != current {
+      let target = stops[next];
+      self.set_input_modality(focus_visible::InputModality::Keyboard);
+      self.focus_node(target);
+      self.scroll_focused_into_view();
+      if group.activate {
+        self.activate_focused_button(modifiers);
+      }
+    }
+    true
+  }
+
   fn focus_tab(&mut self, reverse: bool) -> bool {
     self.set_input_modality(focus_visible::InputModality::Keyboard);
     let Some(root) = &self.root else {

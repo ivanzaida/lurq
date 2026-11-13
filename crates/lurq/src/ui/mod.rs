@@ -41,7 +41,10 @@ pub use button::{
   ButtonView,
 };
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
-pub use checkbox::{Checkbox, CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView};
+pub use checkbox::{
+  Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
+  CheckboxView,
+};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldPart, FieldRenderer, FieldState, FieldView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
@@ -50,7 +53,7 @@ pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
 };
-pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioPart, RadioRenderer, RadioState, RadioView};
+pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use shared::Choice;
