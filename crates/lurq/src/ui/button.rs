@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{
   icon::Icon,
-  icons, names,
+  names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::pressable,
@@ -503,7 +503,7 @@ impl ButtonView {
 
   /// An icon of the theme's set as this button draws one: in the style of
   /// `part`, at the side the recipe gives that part for the button's size.
-  fn glyph(&self, part: ButtonPart, name: Name, spin: bool) -> Element {
+  fn glyph(&self, part: ButtonPart, name: Name) -> Element {
     if let Some(renderer) = self.theme().part_renderer::<Button, ButtonPartRenderer>(part) {
       return renderer(self);
     }
@@ -511,25 +511,39 @@ impl ButtonView {
     let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
     Row::new()
       .part(&part)
-      .child(Icon::new(name).size(side).spin(spin).build(self.theme()))
+      .child(Icon::new(name).size(side).build(self.theme()))
       .into()
   }
 
   /// The button's icon before its label, if it has one. A theme's renderer
   /// for [`ButtonPart::Icon`] builds it in place of the default one.
   pub fn icon(&self) -> Option<Element> {
-    self.icon.map(|name| self.glyph(ButtonPart::Icon, name, false))
+    self.icon.map(|name| self.glyph(ButtonPart::Icon, name))
   }
 
   /// The button's icon after its label, if it has one.
   pub fn trailing_icon(&self) -> Option<Element> {
-    self.trailing_icon.map(|name| self.glyph(ButtonPart::Icon, name, false))
+    self.trailing_icon.map(|name| self.glyph(ButtonPart::Icon, name))
   }
 
-  /// What turns while the button is loading. A theme's renderer for
-  /// [`ButtonPart::Spinner`] builds it in place of the default one.
+  /// What turns while the button is loading: a [`Spinner`](super::Spinner)
+  /// at the side the recipe gives [`ButtonPart::Spinner`], in the color of the
+  /// label, and no status of its own, since the label says what is under way.
+  /// A theme's renderer for [`ButtonPart::Spinner`] builds it in place of the
+  /// default one.
   pub fn spinner(&self) -> Element {
-    self.glyph(ButtonPart::Spinner, Name::new(icons::SPINNER), true)
+    if let Some(renderer) = self
+      .theme()
+      .part_renderer::<Button, ButtonPartRenderer>(ButtonPart::Spinner)
+    {
+      return renderer(self);
+    }
+    let part = self.part(ButtonPart::Spinner);
+    let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
+    let spinner = super::Spinner::new()
+      .decorative(true)
+      .style(super::SpinnerPart::Indicator, |s| s.square(side));
+    Row::new().part(&part).child(spinner.build(self.theme())).into()
   }
 
   /// How the default renderer builds a button: the root, with what is before

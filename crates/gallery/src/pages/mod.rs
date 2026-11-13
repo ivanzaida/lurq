@@ -19,7 +19,9 @@ mod pagination;
 mod popover;
 mod radio;
 mod select;
+mod skeleton;
 mod slider;
+mod spinner;
 mod steps;
 mod switch;
 mod tabs;
@@ -286,6 +288,22 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/spinner",
+    name: "Spinner",
+    icon: None,
+    about: "spinner loader loading busy wait ring dots bars indeterminate status overlay veil inline",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<spinner::SpinnerPage>(()),
+  },
+  Page {
+    path: "/skeleton",
+    name: "Skeleton",
+    icon: None,
+    about: "skeleton placeholder loading line circle block paragraph pulse shimmer media row card",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<skeleton::SkeletonPage>(()),
   },
 ];
 
