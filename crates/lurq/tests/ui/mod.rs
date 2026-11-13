@@ -15,3 +15,4 @@ mod stage;
 mod switch;
 mod textarea;
 mod theming;
+mod tooltip;

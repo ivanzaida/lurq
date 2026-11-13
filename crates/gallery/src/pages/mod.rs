@@ -20,6 +20,7 @@ mod slider;
 mod switch;
 mod textarea;
 mod tokens;
+mod tooltip;
 
 /// A group of the side bar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -223,6 +224,14 @@ pub const PAGES: &[Page] = &[
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/tooltip",
+    name: "Tooltip",
+    icon: None,
+    about: "tooltip hint hover focus delay shortcut arrow side placement overlay label describe",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<tooltip::TooltipPage>(()),
   },
 ];
 
