@@ -5,12 +5,16 @@
 use std::sync::Arc;
 
 use lurq::{
-  app::{component::Component, ctx::Ctx},
+  app::{
+    component::Component,
+    ctx::Ctx,
+    theme::{IconSize, PaletteColor},
+  },
   components::{Column, Row, SelectOption},
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Field, Input, Interaction, Select, SelectPart, SelectSize, SelectState},
+  ui::{Field, Icon, Input, Interaction, Select, SelectPart, SelectSize, SelectState, icons},
 };
 
 use crate::{
@@ -77,6 +81,7 @@ pub struct SelectPage {
   platform: Signal<String>,
   name: Signal<String>,
   channel: Signal<String>,
+  status: Signal<String>,
 }
 
 impl SelectPage {
@@ -230,6 +235,7 @@ impl Component for SelectPage {
       platform: ctx.signal("windows".to_owned()),
       name: ctx.signal("Ivan Zaida".to_owned()),
       channel: ctx.signal("stable".to_owned()),
+      status: ctx.signal("progress".to_owned()),
     }
   }
 
@@ -281,6 +287,32 @@ impl Component for SelectPage {
       )
       .style(SelectPart::Trigger, |s| s.width(280.0)),
       &says(&self.platform),
+    ));
+    // An option with an element before its label and one after it. The icon is built for the state it is drawn
+    // in, so it has the color of the label on every row and on the closed field; the dot keeps its own.
+    let status = |value: &str, label: &str, icon: &'static str, color: PaletteColor| {
+      SelectOption::new(value.to_owned(), label)
+        .leading_with(move |state| {
+          let mark = Icon::new(icon).size(IconSize::Sm);
+          match &state.text_color {
+            Some(color) => mark.color(color.clone()),
+            None => mark,
+          }
+        })
+        .trailing(Row::new().size(8.0, 8.0).rounded(4.0).background(color))
+    };
+    let statuses = items().child(item(
+      Select::new(
+        self.status.clone(),
+        [
+          status("backlog", "Backlog", icons::CIRCLE, PaletteColor::MutedForeground),
+          status("progress", "In progress", icons::TIMER, PaletteColor::Warning),
+          status("done", "Done", icons::CHECK_CIRCLE, PaletteColor::Success),
+          status("cancelled", "Cancelled", icons::BAN, PaletteColor::Destructive).disabled(true),
+        ],
+      )
+      .style(SelectPart::Trigger, |s| s.width(240.0)),
+      &says(&self.status),
     ));
     let form = Column::new()
       .width(420.0)
@@ -465,7 +497,7 @@ impl Component for SelectPage {
         ),
         Section::new(
           "Groups",
-          "An option can start a group: a line above it, past the first, and the group's label over it. A hint is a            short note at the end of an option.",
+          "An option can start a group: a line above it, past the first, and the group's label over it. A hint is a short note at the end of an option.",
           self.frame.demo(
             5,
             platforms,
@@ -482,6 +514,39 @@ impl Component for SelectPage {
               "        .disabled(true),",
               "])",
               ".style(SelectPart::Trigger, |s| s.width(280.0))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Leading and trailing elements",
+          "An option can have an element before its label and one after it: an icon, a mark, a dot of a status. The \
+           closed select shows those of the chosen option. One built for its state takes the color of the label on \
+           each row.",
+          self.frame.demo(
+            6,
+            statuses,
+            "SelectOption::new(value, \"Done\").leading(icon).trailing(dot)",
+            &[
+              "// status: Signal<String>",
+              "let option = |value: &str, label: &str, icon: &'static str, color: PaletteColor| {",
+              "    SelectOption::new(value.to_owned(), label)",
+              "        // Built for the row or the field it is drawn in: it takes the label's color there.",
+              "        .leading_with(move |state| {",
+              "            let mark = Icon::new(icon).size(IconSize::Sm);",
+              "            match &state.text_color {",
+              "                Some(color) => mark.color(color.clone()),",
+              "                None => mark,",
+              "            }",
+              "        })",
+              "        // The same element in every state.",
+              "        .trailing(Row::new().size(8.0, 8.0).rounded(4.0).background(color))",
+              "};",
+              "Select::new(status.clone(), [",
+              "    option(\"backlog\", \"Backlog\", icons::CIRCLE, PaletteColor::MutedForeground),",
+              "    option(\"progress\", \"In progress\", icons::TIMER, PaletteColor::Warning),",
+              "    option(\"done\", \"Done\", icons::CHECK_CIRCLE, PaletteColor::Success),",
+              "    option(\"cancelled\", \"Cancelled\", icons::BAN, PaletteColor::Destructive).disabled(true),",
+              "])",
             ],
           ),
         ),
