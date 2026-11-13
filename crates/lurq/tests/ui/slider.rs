@@ -1,5 +1,6 @@
 //! A slider: its track, its range and its thumb at the value, what a press,
-//! a drag and the arrow keys set, its states, and a theme's other look.
+//! a drag and the arrow keys set, its states, and a theme's other look; the
+//! vertical one, and the range slider with its two thumbs.
 
 use std::sync::Arc;
 
@@ -13,7 +14,10 @@ use lurq::{
   core::Signal,
   layout::quad::{Quad, QuadContent},
   node::color::Color,
-  ui::{Case, Interaction, Opacity, Slider, SliderPart, SliderRenderer, SliderState, SliderView},
+  ui::{
+    Case, Interaction, Opacity, RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState,
+    SliderView,
+  },
 };
 
 use super::stage::Stage;
@@ -248,4 +252,231 @@ fn a_theme_restyles_the_slider_and_gives_it_another_look_that_still_slides() {
   stage.click("slider");
   assert_eq!(volume.get(), 50);
   assert!(stage.paints("50"));
+}
+
+/// The filled rectangles the slider with `id` paints in its box, of a width.
+fn columns(stage: &mut Stage, id: &str, width: f32) -> Vec<Quad> {
+  let (x, y, slider_width, height) = stage.bounds(id);
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if color.a() > 0)
+        && quad.width == width
+        && quad.x >= x - 0.51
+        && quad.y >= y - 0.51
+        && quad.x + quad.width <= x + slider_width + 0.51
+        && quad.y + quad.height <= y + height + 0.51
+    })
+    .collect()
+}
+
+/// Where the centers of the rings of the focus are, from the left of the slider with `id`.
+fn rings(stage: &mut Stage, id: &str) -> Vec<f32> {
+  let (x, ..) = stage.bounds(id);
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Ring)))
+    .map(|ring| ring.x + ring.width / 2.0 - x)
+    .collect()
+}
+
+#[test]
+fn a_vertical_slider_runs_up_from_its_least_value() {
+  let level = Signal::new(40);
+  let read = level.clone();
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(
+        Slider::new(read.clone())
+          .orientation(SliderOrientation::Vertical)
+          .label("Level")
+          .id("slider"),
+      )
+      .into()
+  });
+  let (x, y, width, height) = stage.bounds("slider");
+  assert_eq!((width, height), (16.0, 140.0));
+
+  // The track runs up the middle of the slider, 4 wide; the range fills it from the thumb to the bottom.
+  let rails = columns(&mut stage, "slider", 4.0);
+  let track = rails
+    .iter()
+    .find(|quad| quad.height == 140.0)
+    .expect("a track up the slider");
+  assert_eq!((track.x, track.y), (x + 6.0, y));
+  assert_eq!(color_of(track), light(PaletteColor::Secondary));
+  let range = rails
+    .iter()
+    .find(|quad| color_of(quad) == light(PaletteColor::Primary))
+    .expect("a range");
+
+  // At 40 the thumb is 40 hundredths of the way up the 124 it can go.
+  let thumb = thumb(&mut stage, "slider");
+  assert_eq!(thumb.x, x);
+  assert!(
+    (thumb.y - (y + 124.0 - 0.4 * 124.0)).abs() <= 0.51,
+    "thumb at {}",
+    thumb.y - y
+  );
+  assert!((range.y - (thumb.y + 8.0)).abs() <= 0.51);
+  assert!((range.y + range.height - (y + 140.0)).abs() <= 0.51);
+
+  // A press at the top is the greatest value; up and down move it as right and left do one across.
+  stage.tree.mouse_down(x + 8.0, y + 2.0, MouseButton::Left);
+  stage.tree.mouse_up(x + 8.0, y + 2.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(level.get(), 100);
+  stage.key("ArrowDown");
+  stage.key("ArrowDown");
+  assert_eq!(level.get(), 98);
+  stage.key("ArrowUp");
+  assert_eq!(level.get(), 99);
+}
+
+#[test]
+fn the_length_is_along_the_track() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(Slider::new(Signal::new(0)).length(300.0).id("across"))
+      .child(
+        Slider::new(Signal::new(0))
+          .orientation(SliderOrientation::Vertical)
+          .length(200.0)
+          .id("up"),
+      )
+      .into()
+  });
+  let (_, _, width, height) = stage.bounds("across");
+  assert_eq!((width, height), (300.0, 16.0));
+  let (_, _, width, height) = stage.bounds("up");
+  assert_eq!((width, height), (16.0, 200.0));
+}
+
+#[test]
+fn a_range_slider_fills_between_its_two_thumbs() {
+  let price = Signal::new((20, 80));
+  let read = price.clone();
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(RangeSlider::new(read.clone()).label("Price").id("slider"))
+      .into()
+  });
+  let (x, y, width, height) = stage.bounds("slider");
+  assert_eq!((width, height), (240.0, 16.0));
+
+  let thumbs: Vec<Quad> = parts(&mut stage, "slider", 16.0)
+    .into_iter()
+    .filter(|quad| quad.width == 16.0)
+    .collect();
+  assert_eq!(thumbs.len(), 2);
+  assert!((thumbs[0].x - x - 0.2 * 224.0).abs() <= 0.51);
+  assert!((thumbs[1].x - x - 0.8 * 224.0).abs() <= 0.51);
+  assert_eq!(color_of(&thumbs[1]), light(PaletteColor::Background));
+
+  let rails = parts(&mut stage, "slider", 4.0);
+  assert!(
+    rails
+      .iter()
+      .any(|quad| quad.width == 240.0 && color_of(quad) == light(PaletteColor::Secondary))
+  );
+  let range = rails
+    .iter()
+    .find(|quad| color_of(quad) == light(PaletteColor::Primary))
+    .expect("a range between the thumbs");
+  assert!((range.x - (thumbs[0].x + 8.0)).abs() <= 0.51);
+  assert!((range.x + range.width - (thumbs[1].x + 8.0)).abs() <= 0.51);
+
+  // A press near the high thumb moves it, and a drag of the low one past it stops where the high one is.
+  let along = |value: f32| x + 8.0 + 224.0 * value;
+  stage.tree.mouse_down(along(0.9), y + 8.0, MouseButton::Left);
+  stage.tree.mouse_up(along(0.9), y + 8.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(price.get(), (20, 90));
+  stage.tree.mouse_down(along(0.2), y + 8.0, MouseButton::Left);
+  stage.tree.mouse_move(along(1.0), y + 8.0);
+  stage.tree.mouse_up(along(1.0), y + 8.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(price.get(), (90, 90));
+}
+
+#[test]
+fn tab_reaches_each_thumb_of_a_range_slider_and_the_ring_is_on_the_focused_one() {
+  let price = Signal::new((20, 80));
+  let read = price.clone();
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(RangeSlider::new(read.clone()).step(5).id("slider"))
+      .into()
+  });
+
+  stage.key("Tab");
+  let ringed = rings(&mut stage, "slider");
+  assert_eq!(ringed.len(), 1, "one ring");
+  assert!((ringed[0] - (8.0 + 0.2 * 224.0)).abs() <= 0.51, "on the low thumb");
+  stage.key("ArrowRight");
+  assert_eq!(price.get(), (25, 80));
+
+  stage.key("Tab");
+  let ringed = rings(&mut stage, "slider");
+  assert_eq!(ringed.len(), 1);
+  assert!((ringed[0] - (8.0 + 0.8 * 224.0)).abs() <= 0.51, "on the high thumb");
+  stage.key("ArrowLeft");
+  assert_eq!(price.get(), (25, 75));
+
+  // Shift+Tab goes back to the low one.
+  stage
+    .tree
+    .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage.pass();
+  stage.key("ArrowLeft");
+  assert_eq!(price.get(), (20, 75));
+}
+
+#[test]
+fn a_disabled_range_slider_takes_nothing() {
+  let price = Signal::new((20, 80));
+  let read = price.clone();
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(RangeSlider::new(read.clone()).disabled(true).id("slider"))
+      .into()
+  });
+  stage.click("slider");
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(price.get(), (20, 80));
+  assert!(!stage.has_ring(light(PaletteColor::Ring)));
+}
+
+#[test]
+fn a_theme_styles_the_range_slider_by_its_state() {
+  let app = App::new();
+  app.theme().patch_recipe::<Slider>(|rules| {
+    rules.state(SliderState::Range, SliderPart::Range, |s| {
+      s.background(PaletteColor::Destructive)
+    })
+  });
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(Slider::new(Signal::new(40)).id("one"))
+      .child(RangeSlider::new(Signal::new((20, 60))).id("two"))
+      .into()
+  });
+  let destructive = |stage: &mut Stage, id: &str| {
+    parts(stage, id, 4.0)
+      .iter()
+      .any(|quad| color_of(quad) == light(PaletteColor::Destructive))
+  };
+  assert!(!destructive(&mut stage, "one"));
+  assert!(destructive(&mut stage, "two"));
 }

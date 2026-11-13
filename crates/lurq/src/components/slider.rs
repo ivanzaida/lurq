@@ -1,4 +1,8 @@
-use crate::{core::Signal, impl_into_node, node::SliderPartStyle};
+use crate::{
+  core::Signal,
+  impl_into_node,
+  node::{SliderOrientation, SliderPartStyle},
+};
 
 impl_into_node!(Slider);
 
@@ -9,6 +13,32 @@ impl Slider {
 
   pub fn new_f32(value: Signal<f32>) -> Self {
     Self::from_node(crate::node::Node::slider_f32(value))
+  }
+
+  /// A slider of two thumbs on one track, bound to a low value and a high
+  /// one: the track between them is filled, a press on the track moves the
+  /// nearer thumb, and neither passes the other. Each thumb is a stop of Tab,
+  /// the low one first, and the arrow keys move the one focused.
+  pub fn new_range(values: Signal<(i32, i32)>) -> Self {
+    Self::from_node(crate::node::Node::range_slider(values))
+  }
+
+  /// [`Slider::new_range`] of fractions.
+  pub fn new_range_f32(values: Signal<(f32, f32)>) -> Self {
+    Self::from_node(crate::node::Node::range_slider_f32(values))
+  }
+
+  /// Which way the track runs. A vertical slider has its least value at the
+  /// bottom and is dragged along its height; its track, fill and thumb are
+  /// laid out along the height, so a track style's `width` is its thickness.
+  pub fn orientation(mut self, orientation: SliderOrientation) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::slider_orientation(node, orientation));
+    self
+  }
+
+  /// [`Slider::orientation`] vertical.
+  pub fn vertical(self) -> Self {
+    self.orientation(SliderOrientation::Vertical)
   }
 
   pub fn range(mut self, min: i32, max: i32) -> Self {

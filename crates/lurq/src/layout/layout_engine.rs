@@ -34,7 +34,7 @@ use crate::{
     node::{Node, SyntheticNodeRole},
     node_kind::{NodeKind, SelectState, SliderPartRect, TextInputOverflow, TextInputState, TextOverflow},
     padding::Padding,
-    slider_style::SliderPartStyle,
+    slider_style::{SliderOrientation, SliderPartStyle},
     transform::Transform2D,
   },
 };
@@ -1961,8 +1961,9 @@ impl LayoutEngine {
         let hovered = node.is_style_hovered() || state.is_hovered() || state.is_dragging();
         let track_style = state.track_style(hovered);
         let fill_style = state.fill_style(hovered);
-        let thumb_style = state.thumb_style(hovered, node.is_style_focus_visible());
-        let (track_rect, thumb_rect) = state.part_rects(
+        let focus_visible = node.is_style_focus_visible();
+        let active_thumb = state.active_thumb();
+        let parts = state.part_rects(
           abs_x,
           abs_y,
           result.size.width,
@@ -1970,6 +1971,7 @@ impl LayoutEngine {
           hovered,
           DEFAULT_SLIDER_THUMB_MIN_SIZE,
         );
+        let track_rect = parts.track;
         let track_color = track_style
           .color
           .or_else(|| node.resolved_color(&self.palette.borrow()))
@@ -2019,16 +2021,12 @@ impl LayoutEngine {
           clip,
         );
         if let Some(fill_style) = fill_style {
-          let fill_height = fill_style.height.unwrap_or(track_rect.height).max(0.0);
-          let fill_center_y = track_rect.y + track_rect.height * 0.5;
-          let fill_rect = SliderPartRect {
-            x: track_rect.x,
-            y: fill_center_y - fill_height * 0.5,
-            width: ((thumb_rect.x + thumb_rect.width * 0.5) - track_rect.x)
-              .max(0.0)
-              .min(track_rect.width),
-            height: fill_height,
+          // The fill's thickness is across the track: its height on a horizontal slider, its width on a vertical one.
+          let thickness = match state.orientation() {
+            SliderOrientation::Horizontal => fill_style.height,
+            SliderOrientation::Vertical => fill_style.width,
           };
+          let fill_rect = parts.fill(thickness);
           let fill_color = fill_style.color.unwrap_or(track_color);
           let fill_radius = fill_style
             .border_radius
@@ -2051,27 +2049,31 @@ impl LayoutEngine {
             clip,
           );
         }
-        let thumb_radius = thumb_style
-          .border_radius
-          .map(|radius| radius.resolve(&self.radii.borrow()))
-          .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5));
-        ring(&thumb_style, thumb_rect, Some(thumb_radius));
-        push_slider_part_quads(
-          quads,
-          thumb_rect,
-          &thumb_style,
-          thumb_style
-            .color
-            .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), CONTROL_FILL)),
-          Some(thumb_radius),
-          thumb_style
-            .border
-            .as_ref()
-            .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow())),
-          opacity,
-          transform,
-          clip,
-        );
+        // Each thumb, the low one first; of a range only the active one shows the focus.
+        for (thumb, thumb_rect) in parts.thumbs() {
+          let thumb_style = state.thumb_style(hovered, focus_visible && thumb == active_thumb);
+          let thumb_radius = thumb_style
+            .border_radius
+            .map(|radius| radius.resolve(&self.radii.borrow()))
+            .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5));
+          ring(&thumb_style, thumb_rect, Some(thumb_radius));
+          push_slider_part_quads(
+            quads,
+            thumb_rect,
+            &thumb_style,
+            thumb_style
+              .color
+              .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), CONTROL_FILL)),
+            Some(thumb_radius),
+            thumb_style
+              .border
+              .as_ref()
+              .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow())),
+            opacity,
+            transform,
+            clip,
+          );
+        }
       }
       NodeKind::Select { state } => {
         self.push_select_trigger_quads(node, state, result, (abs_x, abs_y), opacity, transform, clip, quads);
