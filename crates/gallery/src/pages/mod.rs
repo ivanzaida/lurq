@@ -10,6 +10,7 @@ mod family_play;
 mod icons;
 mod overview;
 mod switch;
+mod textarea;
 mod tokens;
 
 /// A group of the side bar.
@@ -134,6 +135,14 @@ pub const PAGES: &[Page] = &[
     about: "button group split joined separator",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::ButtonGroupPage>(()),
+  },
+  Page {
+    path: "/textarea",
+    name: "Textarea",
+    icon: None,
+    about: "textarea multiline text rows placeholder invalid disabled scroll bio note",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<textarea::TextareaPage>(()),
   },
   Page {
     path: "/switch",

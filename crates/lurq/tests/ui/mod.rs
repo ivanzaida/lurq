@@ -5,4 +5,5 @@ mod family;
 mod icon;
 mod stage;
 mod switch;
+mod textarea;
 mod theming;
