@@ -10,7 +10,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Field, Input, Interaction, Select, SelectSize, SelectState},
+  ui::{Field, Input, Interaction, Select, SelectPart, SelectSize, SelectState},
 };
 
 use crate::{
@@ -68,10 +68,13 @@ pub struct SelectPage {
   placeholder: Signal<String>,
   size: Signal<usize>,
   invalid: Signal<bool>,
+  warning: Signal<bool>,
+  valid: Signal<bool>,
   disabled: Signal<bool>,
   full_width: Signal<bool>,
   theme: Signal<String>,
   zone: Signal<String>,
+  platform: Signal<String>,
   name: Signal<String>,
   channel: Signal<String>,
 }
@@ -83,6 +86,8 @@ impl SelectPage {
     let (size, size_name, size_code, height) = SIZES[self.size.get().min(SIZES.len() - 1)];
     let flags = [
       ("invalid", self.invalid.get()),
+      ("warning", self.warning.get()),
+      ("valid", self.valid.get()),
       ("disabled", self.disabled.get()),
       ("full_width", self.full_width.get()),
     ];
@@ -95,8 +100,10 @@ impl SelectPage {
           .placeholder(&placeholder)
           .size(size)
           .invalid(set[0])
-          .disabled(set[1])
-          .full_width(set[2])
+          .warning(set[1])
+          .valid(set[2])
+          .disabled(set[3])
+          .full_width(set[4])
       }
     };
     let shown = make().force(self.playground.forced());
@@ -136,7 +143,13 @@ impl SelectPage {
     let (to_size, to_value) = (self.size.clone(), self.value.clone());
     let reset = {
       let (value, placeholder, size) = (self.value.clone(), self.placeholder.clone(), self.size.clone());
-      let flags = [self.invalid.clone(), self.disabled.clone(), self.full_width.clone()];
+      let flags = [
+        self.invalid.clone(),
+        self.warning.clone(),
+        self.valid.clone(),
+        self.disabled.clone(),
+        self.full_width.clone(),
+      ];
       move || {
         value.set(String::new());
         placeholder.set("Select theme".to_owned());
@@ -181,6 +194,8 @@ impl SelectPage {
           ),
           divider(),
           flag("invalid", &self.invalid),
+          flag("warning", &self.warning),
+          flag("valid", &self.valid),
           flag("disabled", &self.disabled),
           flag("full_width", &self.full_width),
         ],
@@ -206,10 +221,13 @@ impl Component for SelectPage {
       placeholder: ctx.signal("Select theme".to_owned()),
       size: ctx.signal(1),
       invalid: ctx.signal(false),
+      warning: ctx.signal(false),
+      valid: ctx.signal(false),
       disabled: ctx.signal(false),
       full_width: ctx.signal(false),
       theme: ctx.signal("system".to_owned()),
       zone: ctx.signal(String::new()),
+      platform: ctx.signal("windows".to_owned()),
       name: ctx.signal("Ivan Zaida".to_owned()),
       channel: ctx.signal("stable".to_owned()),
     }
@@ -225,6 +243,8 @@ impl Component for SelectPage {
       .child(item(showing("light").force(Some(Interaction::FocusVisible)), "focus"))
       .child(item(showing("light").state(SelectState::Open, true), "open"))
       .child(item(showing("").placeholder("Select theme").invalid(true), "invalid"))
+      .child(item(showing("dark").warning(true), "warning"))
+      .child(item(showing("light").valid(true), "valid"))
       .child(item(showing("").placeholder("Select theme").disabled(true), "disabled"));
     let mut sizes = items();
     for (size, name, _, height) in SIZES {
@@ -245,6 +265,22 @@ impl Component for SelectPage {
       .placeholder("Select a time zone")
       .invalid(self.zone.get().is_empty()),
       &says(&self.zone),
+    ));
+    let platforms = items().child(item(
+      Select::new(
+        self.platform.clone(),
+        [
+          SelectOption::new("windows".to_owned(), "Windows").group("Desktop"),
+          SelectOption::new("macos".to_owned(), "macOS"),
+          SelectOption::new("linux".to_owned(), "Linux"),
+          SelectOption::new("ios".to_owned(), "iOS").group("Mobile").hint("beta"),
+          SelectOption::new("android".to_owned(), "Android")
+            .hint("soon")
+            .disabled(true),
+        ],
+      )
+      .style(SelectPart::Trigger, |s| s.width(280.0)),
+      &says(&self.platform),
     ));
     let form = Column::new()
       .width(420.0)
@@ -277,7 +313,7 @@ impl Component for SelectPage {
         "options",
         "impl IntoIterator<Item = impl Into<SelectOption<T>>>",
         "",
-        "(value, label) pairs, or SelectOptions with a detail, an element beside the label, or disabled.",
+        "(value, label) pairs, or SelectOptions with a detail, a hint, an element beside the label, a group they          start, or disabled.",
       ),
       (
         "placeholder",
@@ -308,6 +344,12 @@ impl Component for SelectPage {
         "bool",
         "false",
         "As wide as what holds it, in place of 260.",
+      ),
+      (
+        "warning / valid",
+        "bool",
+        "false",
+        "Its edge is in the warning or the success color. Invalid is shown over them, warning over valid.",
       ),
       (
         "label",
@@ -363,7 +405,7 @@ impl Component for SelectPage {
         Section::new(
           "States",
           "The edge says the state, as an input's does: the ring's color under the pointer, a line of 2 inside it \
-           in the focus and while the list is open, the destructive color while it is invalid.",
+           in the focus and while the list is open; the destructive, warning and success colors for what is chosen.",
           self.frame.demo(
             1,
             states,
@@ -378,6 +420,8 @@ impl Component for SelectPage {
               "Select::new(theme, themes).state(SelectState::Open, true)",
               "",
               "Select::new(theme, themes).placeholder(\"Select theme\").invalid(true)",
+              "Select::new(theme, themes).warning(true)",
+              "Select::new(theme, themes).valid(true)",
               "Select::new(theme, themes).placeholder(\"Select theme\").disabled(true)",
             ],
           ),
@@ -416,6 +460,28 @@ impl Component for SelectPage {
               "])",
               ".placeholder(\"Select a time zone\")",
               ".invalid(zone.get().is_empty())",
+            ],
+          ),
+        ),
+        Section::new(
+          "Groups",
+          "An option can start a group: a line above it, past the first, and the group's label over it. A hint is a            short note at the end of an option.",
+          self.frame.demo(
+            5,
+            platforms,
+            "SelectOption::new(value, \"Windows\").group(\"Desktop\")",
+            &[
+              "// platform: Signal<String>",
+              "Select::new(platform.clone(), [",
+              "    SelectOption::new(\"windows\".to_owned(), \"Windows\").group(\"Desktop\"),",
+              "    SelectOption::new(\"macos\".to_owned(), \"macOS\"),",
+              "    SelectOption::new(\"linux\".to_owned(), \"Linux\"),",
+              "    SelectOption::new(\"ios\".to_owned(), \"iOS\").group(\"Mobile\").hint(\"beta\"),",
+              "    SelectOption::new(\"android\".to_owned(), \"Android\")",
+              "        .hint(\"soon\")",
+              "        .disabled(true),",
+              "])",
+              ".style(SelectPart::Trigger, |s| s.width(280.0))",
             ],
           ),
         ),

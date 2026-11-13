@@ -341,6 +341,100 @@ fn an_invalid_select_keeps_the_destructive_color_in_its_edge_and_its_ring() {
 }
 
 #[test]
+fn warning_and_valid_are_an_inputs_judgments_and_invalid_is_shown_over_them() {
+  for (judge, color) in [
+    (
+      (|select: Select| select.warning(true)) as fn(Select) -> Select,
+      PaletteColor::Warning,
+    ),
+    (|select: Select| select.valid(true), PaletteColor::Success),
+    (
+      |select: Select| select.valid(true).warning(true).invalid(true),
+      PaletteColor::Destructive,
+    ),
+  ] {
+    let value = Signal::new("light".to_owned());
+    let mut stage = page(&value, judge);
+    assert_eq!(edge(&mut stage, "select"), (1.0, light(color.clone())), "{color:?}");
+    let forced = Signal::new("light".to_owned());
+    let mut focused = page(&forced, move |select| {
+      judge(select).force(Some(Interaction::FocusVisible))
+    });
+    assert!(ring_inside(&mut focused, "select", light(color.clone())), "{color:?}");
+  }
+}
+
+#[test]
+fn groups_have_a_label_and_a_line_between_them_and_an_option_has_a_hint_at_its_end() {
+  let value = Signal::new("windows".to_owned());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Select::new(
+          bound.clone(),
+          [
+            SelectOption::new("windows".to_owned(), "Windows").group("Desktop"),
+            SelectOption::new("linux".to_owned(), "Linux"),
+            SelectOption::new("ios".to_owned(), "iOS").group("Mobile").hint("beta"),
+            SelectOption::new("android".to_owned(), "Android")
+              .hint("soon")
+              .disabled(true),
+          ],
+        )
+        .id("select"),
+      )
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("select");
+  stage.click("select");
+  // A group's label is 11, semibold, in the muted foreground, over its items.
+  assert_eq!(stage.text("Desktop"), (light(PaletteColor::MutedForeground), 11.0));
+  assert_eq!(stage.text("Mobile"), (light(PaletteColor::MutedForeground), 11.0));
+  let (desktop, windows, linux, mobile, ios) = (
+    middle_of(&stage, "Desktop"),
+    middle_of(&stage, "Windows"),
+    middle_of(&stage, "Linux"),
+    middle_of(&stage, "Mobile"),
+    middle_of(&stage, "iOS"),
+  );
+  assert!(
+    desktop.1 < windows.1 && linux.1 < mobile.1 && mobile.1 < ios.1,
+    "in order"
+  );
+  // The labels start where the items' text does.
+  let (label, item) = (stage.text_quad("Mobile").unwrap(), stage.text_quad("iOS").unwrap());
+  assert!((label.x - item.x).abs() < 1.0, "lined up: {} {}", label.x, item.x);
+  // A line of 1 in the border's color is between the groups, across the panel inside its padding.
+  assert!(
+    filled(&stage, light(PaletteColor::Border)).iter().any(|quad| {
+      quad.height == 1.0 && (quad.width - (width - 8.0)).abs() < 0.5 && quad.y > linux.1 && quad.y < mobile.1
+    }),
+    "a line between the groups"
+  );
+  // The hint is 11 in the mono type, muted, at the end of its item.
+  assert_eq!(stage.text("beta"), (light(PaletteColor::MutedForeground), 11.0));
+  assert_eq!(stage.font_of("beta"), stage.app.theme().mono_family().to_string());
+  let hint = stage.text_quad("beta").unwrap();
+  assert!((hint.y + hint.height / 2.0 - ios.1).abs() < 2.0, "on its item's row");
+  assert!(hint.x > item.x + item.width, "after the label");
+  // Only the chosen item keeps room for the check: the hint of another is at the row's end, 4 and 8 in.
+  assert!(
+    (hint.x + hint.width - (x + width - 12.0)).abs() < 1.0,
+    "at the row's end: {}",
+    x + width - hint.x - hint.width
+  );
+  // The keys pass the labels and the line: from Linux, down is iOS.
+  press_at(&mut stage, linux);
+  assert_eq!(value.get(), "linux");
+  stage.key("ArrowDown");
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(value.get(), "ios");
+}
+
+#[test]
 fn the_open_state_draws_the_ring_with_the_list_closed() {
   let value = Signal::new("light".to_owned());
   let mut stage = page(&value, |select| select.state(SelectState::Open, true));

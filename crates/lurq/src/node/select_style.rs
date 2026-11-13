@@ -208,6 +208,7 @@ pub struct SelectStyle {
   pub(crate) trigger_focused: Option<SelectPartStyle>,
   pub(crate) trigger_open: Option<SelectPartStyle>,
   pub(crate) placeholder_text: Option<TextStyle>,
+  pub(crate) trigger_gap: SpacingValue,
   pub(crate) menu: SelectPartStyle,
   pub(crate) menu_scrollbar: Option<ScrollBarStyle>,
   pub(crate) option: SelectPartStyle,
@@ -218,6 +219,9 @@ pub struct SelectStyle {
   pub(crate) option_selected_highlighted: Option<SelectPartStyle>,
   pub(crate) option_disabled: Option<SelectPartStyle>,
   pub(crate) option_detail: SelectPartStyle,
+  pub(crate) option_hint: SelectPartStyle,
+  pub(crate) group_label: SelectPartStyle,
+  pub(crate) separator: SelectPartStyle,
   pub(crate) option_adornment_gap: SpacingValue,
   pub(crate) chevron: SelectIcon,
   pub(crate) chevron_open: Option<SelectIcon>,
@@ -273,6 +277,16 @@ impl Default for SelectStyle {
       option_detail: SelectPartStyle::new()
         .typography(TypographyStyle::Caption)
         .text_color(PaletteColor::TextMuted),
+      option_hint: SelectPartStyle::new()
+        .typography(TypographyStyle::Caption)
+        .text_color(PaletteColor::TextMuted),
+      group_label: SelectPartStyle::new()
+        .typography(TypographyStyle::Caption)
+        .text_color(PaletteColor::TextMuted)
+        .padding(Padding::symmetric(10.0, 6.0)),
+      separator: SelectPartStyle::new()
+        .background(PaletteColor::Border)
+        .padding(Padding::symmetric(0.0, 4.0)),
       ..Self::unstyled()
     }
   }
@@ -293,6 +307,7 @@ impl SelectStyle {
       trigger_focused: None,
       trigger_open: None,
       placeholder_text: None,
+      trigger_gap: SpacingValue::from(8.0),
       menu: SelectPartStyle::default(),
       menu_scrollbar: None,
       option: SelectPartStyle::default(),
@@ -303,6 +318,9 @@ impl SelectStyle {
       option_selected_highlighted: None,
       option_disabled: None,
       option_detail: SelectPartStyle::default(),
+      option_hint: SelectPartStyle::default(),
+      group_label: SelectPartStyle::default(),
+      separator: SelectPartStyle::default(),
       option_adornment_gap: SpacingValue::from(8.0),
       chevron: SelectIcon::default_chevron(),
       chevron_open: None,
@@ -351,6 +369,13 @@ impl SelectStyle {
 
   pub fn placeholder_text(mut self, style: TextStyle) -> Self {
     self.placeholder_text = Some(style);
+    self
+  }
+
+  /// Space between the default trigger's label and its chevron; a number or
+  /// a spacing role. Defaults to 8.
+  pub fn trigger_gap(mut self, gap: impl Into<SpacingValue>) -> Self {
+    self.trigger_gap = gap.into();
     self
   }
 
@@ -416,6 +441,28 @@ impl SelectStyle {
   /// its text fields apply.
   pub fn option_detail(mut self, style: SelectPartStyle) -> Self {
     self.option_detail = style;
+    self
+  }
+
+  /// Text style of an option's hint (see `SelectOption::hint`); only its
+  /// text fields apply.
+  pub fn option_hint(mut self, style: SelectPartStyle) -> Self {
+    self.option_hint = style;
+    self
+  }
+
+  /// The row of a group's label (see `SelectOption::group`): its padding,
+  /// fill, text style and colour.
+  pub fn group_label(mut self, style: SelectPartStyle) -> Self {
+    self.group_label = style;
+    self
+  }
+
+  /// The line between groups (see `SelectOption::group`): its `background`
+  /// is the line's colour, its `min_height` the line's thickness (1 when
+  /// unset) and its `padding` the room around the line.
+  pub fn separator(mut self, style: SelectPartStyle) -> Self {
+    self.separator = style;
     self
   }
 
