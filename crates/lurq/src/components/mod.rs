@@ -1159,6 +1159,15 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// What typing a letter in a [`FocusGroup`]($crate::node::FocusGroup)
+      /// with typeahead matches the element by: a menu item's label, where
+      /// its text is not only that.
+      pub fn focus_label(mut self, label: impl Into<std::sync::Arc<str>>) -> Self {
+        let label = label.into();
+        self.update_node(|node| $crate::node::NodeUpdate::focus_label(node, label));
+        self
+      }
+
       #[cfg(feature = "form")]
       pub fn name(mut self, name: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::name(node, name));

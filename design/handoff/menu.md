@@ -7,17 +7,19 @@ label and the destructive item.
 
 ## Changed outside the component's own files
 
-Four small changes to the engine, each what a menu needs of it, each tested by `crates/lurq/tests/ui/menu.rs`
-(only `ui_tests menu` was run: the engine's own suites were not):
+Changes to the engine, each what a menu needs of it, each tested by `crates/lurq/tests/ui/menu.rs` (run with
+`ui_tests menu`, `popover`, `dialog`, `tooltip` and `input_tests`):
 
-- **`Overlay::takes_focus(bool)` and `Popup::takes_focus(bool)`** (`app/ctx.rs`, `components/popup.rs`), off by
-  default: as the overlay opens the focus goes to the first element of its own layer that takes it, and as it closes
-  back to what had it, unless it has gone somewhere still in the tree. It is `Modal::takes_focus` (the dialog's, in
-  `app/runtime/modal_focus.rs`) for an overlay: the overlays that take the focus are kept with the modals
-  (`built_focus_overlays` beside `built_focus_modals` in `runtime.rs`, `focus_overlays` in `OverlayLayers`), and an
-  overlay's first element is looked up in its own layer (`Tree::first_in_overlay`, with `first_focusable` of
-  `overlay_layers.rs` made `pub(super)`), since an overlay does not trap Tab as a modal does. The ring shows as the
-  input that opened it shows it: after a key, not after a press of the pointer.
+- **`Overlay::takes_focus(bool)` and `Popup::takes_focus(bool)`**, off by default, shared with `ui::Popover`,
+  which built the mechanism (see `design/handoff/popover.md`, where it was `move_focus`; the two were made one and
+  the name kept is the one beside `Modal::takes_focus`). As the overlay opens the focus goes to the first element
+  in it that takes the focus; Tab goes through its elements right after its anchor's; as it closes with the focus
+  inside, the focus goes back. From the menu it took where the focus goes back to: to what had the focus when the
+  overlay opened (`Tree::overlay_focus_returns`, kept by anchor in `Tree::note_focus_returns`, read by
+  `return_focus_to_anchor` in `app/runtime/overlay_layers.rs`), where that is still in the tree, and only else to
+  the anchor. A split button's anchor is the whole group: its focus goes back to the chevron that opened the menu,
+  not the group's first button. An app's focus request in the same pass wins, and the ring shows after a key and
+  not after a press of the pointer, as before.
 - **`KeyboardEvent::focus_within`** (`app/events/keyboard_event.rs`, `runtime.rs`): a key event reaches every
   node's `on_key_down`; this says whether the keyboard's focus is on the node whose handler is called or inside it.
   `fire_keyboard_recursive` and `fire_keyboard_up_recursive` take the path to the focused node and set it. The item
@@ -31,10 +33,33 @@ Four small changes to the engine, each what a menu needs of it, each tested by `
 - With it: **an arrow key that moves the focus in a group that follows the pointer takes the hover away** until the
   pointer moves (`Tree::hover_held_by_keys`, set in `focus_group_key`, cleared by `track_pointer`, read by
   `refresh_hover_at_pointer`), so that the item the keys moved to is the only one lit, as in a native menu.
+- **`FocusGroup::typeahead(bool)` and `.focus_label(..)`** (`node/focus_group.rs`, `node/node.rs`, `node/dsl.rs`,
+  `components/mod.rs`, the new `app/runtime/typeahead.rs`, its call beside `focus_group_key` in `runtime.rs`),
+  off by default: a single printable key that is not a space, with no Ctrl, Alt or system key, moves the focus to the
+  stop of the group whose label starts with it, looked for round the group. Letters typed within a second of one
+  another (`TYPEAHEAD_WINDOW`, 1000 ms, on the runtime's clock, so a test sets it with `set_animation_clock`) are
+  one prefix, looked for from the focused stop on, so the one it is on stays while it still matches; one letter, or
+  one letter typed again and again, is looked for from the stop after it, so the same letter goes round the stops
+  that start with it; a pause starts a new prefix; a key nothing matches is still the group's and moves nothing. A
+  stop's label is its `focus_label`, a node attribute kept in every build (`Node::focus_label`, an
+  `Option<Arc<String>>`, one pointer, since few nodes have one), or, for a button with exactly one text in it, that
+  text; a stop with neither is not reached by typing. A text input, a slider or a select that has the focus keeps
+  its keys, as for the arrows; Space still presses. Tested in `crates/lurq/tests/input/tab_order/typeahead.rs`.
+  The menu turns it on and gives each item its label (`MenuItem::root`), so a shortcut or an icon in the item is
+  not matched.
 
-`docs/src/content/docs/focus-navigation.md` could say, in Focus Groups: `follow_pointer(bool)` | the pointer coming
-onto an element of the group moves the focus there, while the focus is in the group; and the Popups section of
-`modals.md`: `takes_focus(true)` moves the focus into a popup as it opens and back as it closes.
+For `docs/src/content/docs/focus-navigation.md`, in Focus Groups, a row of the `FocusGroup` table and a bullet:
+
+~~~markdown
+| `follow_pointer(bool)` | While the focus is in the group, the pointer coming onto one of its elements moves the focus there, with no ring, and an arrow key takes the hover off the element under a pointer that holds still: what the pointer and the keyboard are on is one, as in a menu |
+| `typeahead(bool)` | Typing a letter moves the focus to the element whose label starts with it. Letters typed within a second of one another are one prefix, the same letter again goes on to the next element that starts with it, and a pause starts again |
+
+- An element's label for typeahead is what `.focus_label(..)` gives it, or, for a button with one text in it, that text. A menu item's label is its label alone, not its shortcut. A text input, a slider and a select in the group keep the letters, and Space still presses what has the focus.
+~~~
+
+And in the Popups section of `modals.md`: `takes_focus(true)` moves the focus into a popup as it opens, to the
+first element in it that takes it, puts its elements in the order of Tab right after its anchor, and gives the focus
+back as it closes, to what had it when it opened.
 
 ## For `docs/src/content/docs/design-system.md`
 
@@ -91,7 +116,7 @@ Menu::new(anchor, open)
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the item |
 
 - The menu does not keep whether it is open: the app does, in the signal it gives it, and the anchor's own handler opens it. Choosing an item calls the item's handler and sets the signal to `false`; a press outside the panel and Escape do too (the engine's `Popup`). Declare the menu always, open or not, beside its anchor: lurq then knows the anchor is its trigger.
-- The keyboard: a menu opened from the keyboard (Enter or Space on its button) has its first item focused and lit; opened by the pointer it has the focus there too, unlit. Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Enter or Space chooses the focused item; the arrows only move the focus. Escape, or choosing, closes it and gives the focus back to its button. Tab stops in an open menu once (the panel is a [focus group](../focus-navigation/#focus-groups) of one stop).
+- The keyboard: a menu opened from the keyboard (Enter or Space on its button) has its first item focused and lit; opened by the pointer it has the focus there too, unlit. Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Typing a letter goes to the item whose label starts with it, letters typed quickly to the one a word starts, the same letter again to the next. Enter or Space chooses the focused item; the arrows only move the focus. Escape, or choosing, closes it and gives the focus back to its button. Tab stops in an open menu once (the panel is a [focus group](../focus-navigation/#focus-groups) of one stop).
 - The pointer and the keyboard are on one item: the pointer coming onto an item moves the focus there, and an arrow key moves the light off the item under a pointer that holds still.
 - Under the pointer or focused from the keyboard an item is highlighted: filled with `Highlight`, the board's `accent`. An item whose submenu is open stays highlighted.
 - A submenu opens beside its item, its first item level with it, under the pointer, on a press of the item, or on Right, Enter or Space while the item is focused, with the focus on its first item; the pointer on another item of the menu closes it, and so do Left and Escape while the focus is in it, giving the focus back to its item. Choosing in it closes it and every menu it hangs from. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
@@ -102,7 +127,7 @@ Menu::new(anchor, open)
 
 ## For `CHANGELOG.md`
 
-- `ui::Menu` and `ui::MenuItem`: a list of commands in a panel over the window, opened from an anchor, with icons, shortcuts, separators, group labels, checked, radio, destructive and disabled items and submenus; it takes the focus as it opens and gives it back as it closes, the arrow keys move between its items and Right and Left into and out of a submenu, and choosing one, a press outside and Escape close it (`Menu::new(anchor, open)`, `MenuItem::on_select`, `MenuItem::submenu`). For it the engine has `Popup::takes_focus`, `FocusGroup::follow_pointer` and `KeyboardEvent::focus_within`.
+- `ui::Menu` and `ui::MenuItem`: a list of commands in a panel over the window, opened from an anchor, with icons, shortcuts, separators, group labels, checked, radio, destructive and disabled items and submenus; it takes the focus as it opens and gives it back as it closes, the arrow keys and typing a letter move between its items and Right and Left into and out of a submenu, and choosing one, a press outside and Escape close it (`Menu::new(anchor, open)`, `MenuItem::on_select`, `MenuItem::submenu`). For it the engine has `Popup::takes_focus`, `FocusGroup::follow_pointer`, `FocusGroup::typeahead` with `.focus_label(..)`, and `KeyboardEvent::focus_within`.
 
 ## Decided
 
@@ -151,13 +176,6 @@ Menu::new(anchor, open)
   (`Placement::BottomEnd`): a button inside a group cannot be wrapped.
 
 ## Not done
-
-- **Typing a letter does not go to the item it starts.** The engine has no text to match a stop of a focus group
-  against: an item's `a11y_name` is kept on its node only with the `devtools` or `mcp` feature
-  (`NodeUpdate::describe`), and its text is a label beside an icon that is a glyph of text too. The smallest change:
-  `FocusGroup::typeahead(bool)` in `focus_group_key`, matching a single printable key, from the stop after the
-  focused one and round, against a label the node keeps in every build (`describe("a11y_name", ..)` stored always,
-  or a `focus_label` of its own). The menu turns it on in one line.
 
 ## Differs from the board
 

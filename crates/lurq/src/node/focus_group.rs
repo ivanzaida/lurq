@@ -42,6 +42,7 @@ pub struct FocusGroup {
   pub(crate) activate: bool,
   pub(crate) one_stop: bool,
   pub(crate) follow_pointer: bool,
+  pub(crate) typeahead: bool,
 }
 
 impl FocusGroup {
@@ -52,6 +53,7 @@ impl FocusGroup {
       activate: false,
       one_stop: false,
       follow_pointer: false,
+      typeahead: false,
     }
   }
 
@@ -90,6 +92,18 @@ impl FocusGroup {
   /// never takes the focus into the group from outside it.
   pub fn follow_pointer(mut self, follow: bool) -> Self {
     self.follow_pointer = follow;
+    self
+  }
+
+  /// Whether typing a letter moves the focus to the element whose label
+  /// starts with it, as in a menu or a list: letters typed within a second of
+  /// one another are one prefix, the same letter again goes on to the next
+  /// element that starts with it, and a pause starts again. An element's
+  /// label is its `focus_label`, or, for a button with one text in it, that
+  /// text. A text input in the group keeps its letters, and Space still
+  /// presses what has the focus.
+  pub fn typeahead(mut self, typeahead: bool) -> Self {
+    self.typeahead = typeahead;
     self
   }
 

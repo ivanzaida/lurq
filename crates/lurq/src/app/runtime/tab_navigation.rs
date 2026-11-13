@@ -8,7 +8,7 @@
 //!
 //! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop.
 //!
-//! The stops of an overlay that moves the focus (`Overlay::move_focus`: a popover, a menu) come right after its
+//! The stops of an overlay that takes the focus (`Overlay::takes_focus`: a popover, a menu) come right after its
 //! anchor's, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last
 //! stop goes on to what follows the trigger. Where the anchor is in a focus group Tab stops in once, they come
 //! after the group.

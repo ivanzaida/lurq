@@ -9,7 +9,7 @@ use lurq::{
     events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
-  components::{Column, Rect, Row},
+  components::{Column, Placement, Rect, Row},
   core::{ElementRef, Signal},
   layout::quad::QuadContent,
   node::{Element, color::Color},
@@ -623,4 +623,106 @@ fn a_menu_is_as_wide_as_its_widest_item_and_never_as_its_window() {
   assert!((x + item - 8.0 - (keys.x + keys.width)).abs() < 0.5);
   // Every item is as wide as the widest.
   assert_eq!(stage.bounds("undo").2, item);
+}
+
+#[test]
+fn the_focus_goes_back_to_what_opened_the_menu_and_not_the_first_button_of_its_anchor() {
+  let (chosen, tell) = log();
+  let merged = Arc::new(Mutex::new(0));
+  let open = Signal::new(false);
+  let (anchor, held, presses) = (ElementRef::new(), open.clone(), merged.clone());
+  // A split button: the anchor is the group, and its second button opens the menu.
+  let mut stage = Stage::new(move |_| {
+    let (toggle, presses) = (held.clone(), presses.clone());
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new()
+          .ref_element(anchor.clone())
+          .child(Button::new("Merge").on_click(move |_| *presses.lock().unwrap() += 1))
+          .child(
+            Button::new("How to merge")
+              .icon_only(true)
+              .on_click(move |_| toggle.update(|open| *open = !*open)),
+          ),
+      )
+      .child(
+        Menu::new(anchor.clone(), held.clone())
+          .placement(Placement::BottomEnd)
+          .item(MenuItem::new("Squash and merge").on_select(tell("squash"))),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(open.get());
+  stage.key("Escape");
+  assert!(!open.get());
+  // The focus is back on the button that opened the menu: Enter opens it again, and Merge was not pressed.
+  stage.key("Enter");
+  assert!(open.get());
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["squash"]);
+  stage.key("Enter");
+  assert!(open.get(), "back on the button that opened it");
+  assert_eq!(*merged.lock().unwrap(), 0);
+}
+
+/// Types `keys` one after another with no time between them: a word typed at speed. The stage's passes move its
+/// clock on by seconds, so each `Stage::key` is a word of its own; these keys are pressed at a time later than any
+/// pass of a test reaches, so that the word does not go on from the last of those.
+fn type_quickly(stage: &mut Stage, keys: &[&str]) {
+  let now = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+  for key in keys {
+    stage.tree.set_animation_clock(Some(now));
+    stage
+      .tree
+      .key_down(key.to_string(), key.to_string(), false, false, false);
+    stage.tree.key_up(key.to_string(), key.to_string(), false, false, false);
+  }
+  stage.pass();
+}
+
+#[test]
+fn typing_a_letter_goes_to_the_item_whose_label_starts_with_it() {
+  let (chosen, tell) = log();
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(anchor.clone(), true)
+        .item(MenuItem::new("Undo").shortcut("Ctrl+Z").id("undo"))
+        .item(MenuItem::new("Redo").disabled(true).id("redo"))
+        .separator()
+        .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
+        .item(MenuItem::new("Copy").id("copy").on_select(tell("copy")))
+        .item(MenuItem::new("Paste").icon(icons::PASTE).id("paste")),
+    )
+  });
+  let lit = |stage: &mut Stage| {
+    ["undo", "redo", "cut", "copy", "paste"]
+      .into_iter()
+      .filter(|id| stage.fill_color(id) == Some(light(PaletteColor::Highlight)))
+      .collect::<Vec<_>>()
+  };
+  // A letter goes to the item whose label starts with it, lit as the keyboard lights it; an icon is no letter.
+  stage.key("p");
+  assert_eq!(lit(&mut stage), ["paste"]);
+  // From the one after the focused, round the menu, past the disabled one.
+  stage.key("r");
+  assert_eq!(lit(&mut stage), ["paste"], "Redo is disabled");
+  stage.key("c");
+  assert_eq!(lit(&mut stage), ["cut"]);
+  // The label, not the shortcut: Undo's text has Ctrl+Z in it.
+  stage.key("u");
+  assert_eq!(lit(&mut stage), ["undo"]);
+  stage.key("z");
+  assert_eq!(lit(&mut stage), ["undo"]);
+  // Letters typed at speed are one prefix: "c", "o" goes past Cut to Copy, and Enter chooses it.
+  type_quickly(&mut stage, &["c", "o"]);
+  assert_eq!(lit(&mut stage), ["copy"]);
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["copy"]);
 }

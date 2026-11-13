@@ -202,8 +202,7 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_outside_click: bool,
   pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
-  pub(crate) move_focus: bool,
-  /// Whether the focus goes into the overlay as it opens and back to what had it as it closes.
+  /// Whether the focus goes into the overlay as it opens and back as it closes: see [`Overlay::takes_focus`].
   pub(crate) takes_focus: bool,
 }
 
@@ -303,7 +302,6 @@ impl OverlaySpec {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
-      move_focus: self.move_focus,
       takes_focus: self.takes_focus,
     }
   }
@@ -414,7 +412,6 @@ pub struct Overlay {
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
   switch_on_anchor_press: bool,
-  move_focus: bool,
   takes_focus: bool,
 }
 
@@ -434,7 +431,6 @@ impl Overlay {
       outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
       switch_on_anchor_press: true,
-      move_focus: false,
       takes_focus: false,
     }
   }
@@ -510,21 +506,20 @@ impl Overlay {
     self
   }
 
-  /// Whether the keyboard focus goes into the overlay when it opens, to the
-  /// first element in it that takes the focus, and back to its anchor when it
-  /// closes with the focus inside it: a popover's or a menu's. An app's focus
-  /// request in the same pass wins. Defaults to `false`.
-  pub fn move_focus(mut self, move_focus: bool) -> Self {
-    self.move_focus = move_focus;
-    self
-  }
-
-  /// Whether the focus goes into the overlay as it opens, to the first
-  /// element in it that takes the focus, and back to what had it when it
-  /// closes, as [`Modal::takes_focus`] does for a modal: a menu opened from
-  /// its button. A focus that has gone somewhere else by then stays there.
-  /// The ring shows as the input that opened it would show it: after a key,
-  /// not after a press of the pointer. Off by default.
+  /// Whether the keyboard focus goes into the overlay as it opens and back as
+  /// it closes, as [`Modal::takes_focus`] does for a modal: a popover's, a
+  /// menu's.
+  ///
+  /// - As it opens, the focus goes to the first element in it that takes the focus. An app's focus request in the same
+  ///   pass wins. The ring shows as the input that opened it shows it: after a key, not after a press of the pointer.
+  /// - As it closes with the focus inside it, the focus goes back to what had it when it opened (the button that opened
+  ///   a menu, the item of a submenu), or, where that is gone or nothing had it, to its anchor. A focus that has gone
+  ///   somewhere else stays there.
+  /// - Tab goes through its elements right after its anchor's, as a web popover's come after its invoker's.
+  /// - An overlay that is hidden because its anchor is out of view is still open: it does not take the focus again when
+  ///   the anchor comes back.
+  ///
+  /// Off by default.
   pub fn takes_focus(mut self, takes: bool) -> Self {
     self.takes_focus = takes;
     self
@@ -550,7 +545,6 @@ impl Overlay {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
-      move_focus: self.move_focus,
       takes_focus: self.takes_focus,
     })
   }

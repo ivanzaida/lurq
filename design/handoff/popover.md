@@ -1,18 +1,20 @@
 ## Changed outside the component's own files
 
 - **The engine: focus into an overlay and back** (`app/ctx.rs`, `components/popup.rs`, `app/runtime.rs`,
-  `app/runtime/overlay_layers.rs`). `Overlay::move_focus(bool)` and `Popup::move_focus(bool)`, `false` by
-  default: when such an overlay opens, the focus goes to the first element in it that takes the focus; when it
-  closes with the focus inside it, the focus goes back to its anchor. The return is the runtime's own
-  `return_focus_to_anchor`, which an overlay hidden with its anchor already used. The runtime keeps the anchors
-  of the open overlays that move the focus (`Tree::overlay_focus_movers`, from
+  `app/runtime/overlay_layers.rs`). `Overlay::takes_focus(bool)` and `Popup::takes_focus(bool)`, `false` by
+  default (this was `move_focus`; it is one with the menu's, under the name beside `Modal::takes_focus`): when
+  such an overlay opens, the focus goes to the first element in it that takes the focus; when it closes with the
+  focus inside it, the focus goes back to what had it when it opened, where that is still in the tree, else to its
+  anchor (the menu's part of it: `Tree::overlay_focus_returns`, `Tree::note_focus_returns`). The return is the
+  runtime's own `return_focus_to_anchor`, which an overlay hidden with its anchor already used. The runtime keeps the anchors
+  of the open overlays that take the focus (`Tree::overlay_focus_movers`, from
   `OverlayLayers::focus_movers`, which `build_overlays_from_layout_index` fills, hidden or drawn): one that is
   new this pass gets the focus (`Tree::opened_overlay_focus`, applied after `return_focus_to_anchor`, before
   an app's focus request, which wins); one that is gone while the focus was in its layer gives it back
   (`Tree::focused_overlay_closed`, beside `focused_overlay_hidden`). A layer that leaves with an exit animation
   already loses the focus (`release_input_in_leaving_layers`), so the return works with a fade. `Modal` is not
   covered: the dialog's `Modal::takes_focus` (merged beside it) does that for a modal.
-- **The engine: Tab through an overlay that moves the focus** (`app/runtime/tab_navigation.rs`,
+- **The engine: Tab through an overlay that takes the focus** (`app/runtime/tab_navigation.rs`,
   `Tree::focus_moving_layers` in `app/runtime/overlay_layers.rs`, its two callers). The stops of such an
   overlay's layer come right after its anchor's, as a web popover's come after its invoker's: Tab from the
   trigger goes into the popover, Tab from its last stop goes on to what follows the trigger, and Shift+Tab
@@ -66,7 +68,7 @@ Popover::new(anchor.clone(), open.clone())
 
 - It is the engine's `Popup` with the panel dressed by the recipe: it is placed against its anchor in every frame, goes to the other side where there is no room and is kept in the window, and closes on Escape and on a press outside it, which sets the signal to `false`. Declare it always and drive it with the signal: lurq only knows the anchor of a popup it can see.
 - With a trigger, the trigger's own node is the anchor: a press of it, or Enter and Space on it, opens and closes the popover, and while another popup or select is open one press of it closes that one and opens this one. It tells what reads the tree `a11y_haspopup` and `a11y_expanded`. Without a trigger the app opens it, and the anchor is any element of its own (`ref_element`); a press of the anchor is not a press outside it.
-- As it opens the focus goes to the first thing in it that takes the focus (`Popup::move_focus`), and as it closes with the focus inside, back to the trigger. Its stops of Tab come right after the trigger's: Tab from its last one goes on to what follows the trigger. It does not keep Tab in it: it is not modal.
+- As it opens the focus goes to the first thing in it that takes the focus (`Popup::takes_focus`), and as it closes with the focus inside, back to what had it when it opened: the trigger. Its stops of Tab come right after the trigger's: Tab from its last one goes on to what follows the trigger. It does not keep Tab in it: it is not modal.
 - The anchor is kept from one render to the next (a field of the component, `ctx.element_ref()`): one made anew in each render is not the one the focus goes back to.
 - It fades in over the theme's `Base` duration in the `Enter` curve, and out over `Fast` in the `Exit` curve (`PartStyle::enter`, `PartStyle::exit` on the root, `FADE_IN` and `FADE_OUT`). A fade is not movement, so reduced motion leaves it.
 - A theme given to a subtree reaches a popover declared in it.
@@ -77,11 +79,11 @@ Popover::new(anchor.clone(), open.clone())
 
 ## For `CHANGELOG.md`
 
-- `ui::Popover`: a panel beside the button that opens it, over the window, with a title, a description and anything in it, which takes the focus as it opens, gives it back as it closes, is in the order of Tab right after its trigger, and fades in and out; `Popup::move_focus` and `Overlay::move_focus`; `PartStyle::enter` and `PartStyle::exit` with `ui::FADE_IN` and `ui::FADE_OUT`.
+- `ui::Popover`: a panel beside the button that opens it, over the window, with a title, a description and anything in it, which takes the focus as it opens, gives it back as it closes, is in the order of Tab right after its trigger, and fades in and out; `Popup::takes_focus` and `Overlay::takes_focus`; `PartStyle::enter` and `PartStyle::exit` with `ui::FADE_IN` and `ui::FADE_OUT`.
 
 ## Decided
 
-- The popover is a builder over `components::Popup`, not a component of its own: what is open is the app's `Signal<bool>`, and the popup already places, flips, clamps and dismisses. What a builder cannot do without a `Ctx`, move the focus, the engine now does for an overlay that asks (`move_focus`).
+- The popover is a builder over `components::Popup`, not a component of its own: what is open is the app's `Signal<bool>`, and the popup already places, flips, clamps and dismisses. What a builder cannot do without a `Ctx`, move the focus, the engine now does for an overlay that asks (`takes_focus`).
 - `trigger` takes any element and puts the anchor, a press that turns the signal, and `a11y_haspopup` / `a11y_expanded` on its own root node, so a `ui::Button` is the anchor itself and the engine's switching of dropdowns works for it. `Button` is not changed.
 - The renderer of a theme builds the panel only (`PopoverRenderer` takes a `PopoverView` and returns the panel); `Popover::build` wraps whatever it returns in the `Popup` with the trigger, so a theme's other anatomy cannot lose the placement, the dismissal or the focus.
 - The offset from the anchor is not on the board (the panel is drawn alone). It is the theme's `SpacingSize::Xs`, 4, as the gallery's own popups have it, and is applied away from the anchor on whichever side it is placed: `(0, offset)` over or under it, `(offset, 0)` beside it. A recipe has no field for it, so it is a builder prop and not a part style.

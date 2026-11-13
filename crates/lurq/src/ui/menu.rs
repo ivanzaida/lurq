@@ -104,7 +104,8 @@ pub enum MenuEntry {
 /// the anchor is its trigger.
 ///
 /// Up and Down move the focus between the items, Home and End go to the first
-/// and the last, and a disabled item is passed by; Tab stops in the menu once.
+/// and the last, and a disabled item is passed by; typing a letter goes to the
+/// item whose label starts with it. Tab stops in the menu once.
 pub struct Menu {
   anchor: ElementRef,
   open: OpenState,
@@ -327,13 +328,18 @@ impl MenuView {
 
   /// The panel in the style of its part, with nothing in it yet. It is a menu
   /// to what reads the tree, and a group the arrow keys move the focus in:
-  /// Up and Down between its items, Home and End to the first and the last.
-  /// Tab stops in it once.
+  /// Up and Down between its items, Home and End to the first and the last,
+  /// a letter to the item whose label starts with it. Tab stops in it once.
   pub fn panel(&self) -> Column {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(MenuPart::Panel))
-      .focus_group(FocusGroup::vertical().one_stop(true).follow_pointer(true))
+      .focus_group(
+        FocusGroup::vertical()
+          .one_stop(true)
+          .follow_pointer(true)
+          .typeahead(true),
+      )
       .describe("a11y_role", "menu");
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
@@ -855,7 +861,9 @@ impl MenuItemView {
     let mut root = pressable(&self.part(MenuItemPart::Root), self.disabled)
       .justify(Justify::Start)
       .describe("a11y_role", role)
-      .describe("a11y_name", self.label.clone());
+      .describe("a11y_name", self.label.clone())
+      // Typing in the menu matches the label: an item's text is its shortcut too.
+      .focus_label(self.label.clone());
     if let Some(checked) = self.checked {
       root = root.describe("a11y_checked", if checked { "true" } else { "false" });
     }
