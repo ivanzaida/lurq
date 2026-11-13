@@ -151,7 +151,7 @@ impl SkeletonPage {
       format!(
         "└─ bone × {bones}   muted{}",
         if animation == SkeletonAnimation::Shimmer {
-          ", a sheen of 200 crossing it"
+          ", a sheen as wide as it crossing it"
         } else {
           ""
         }

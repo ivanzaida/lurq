@@ -8,7 +8,10 @@ use lurq::{
     theme::{PaletteColor, ThemePalette},
   },
   components::{Column, Row},
-  layout::quad::{Quad, QuadContent},
+  layout::{
+    Constraints, Size,
+    quad::{Quad, QuadContent},
+  },
   node::color::Color,
   ui::{
     Length, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation, SkeletonPart, SkeletonShape,
@@ -146,43 +149,74 @@ fn a_skeleton_pulses_and_stands_still_where_motion_is_reduced() {
 }
 
 #[test]
-fn a_sheen_crosses_a_skeleton_that_shimmers() {
+fn a_sheen_as_wide_as_the_skeleton_crosses_it_in_one_time_whatever_its_width() {
   let mut stage = Stage::new(|_| {
     Column::new()
-      .width(300.0)
-      .child(Skeleton::line().animation(SkeletonAnimation::Shimmer).id("line"))
+      .spacing(16.0)
+      .child(
+        Skeleton::block(120.0, 12.0)
+          .animation(SkeletonAnimation::Shimmer)
+          .id("narrow"),
+      )
+      .child(
+        Skeleton::block(600.0, 12.0)
+          .animation(SkeletonAnimation::Shimmer)
+          .id("wide"),
+      )
       .into()
   });
-  let (x, ..) = stage.bounds("line");
-  // The sheen as it is painted, if it is over the line: the quad's position is where it was moved to.
-  let sheen = |stage: &Stage| {
+  // A window wide enough for the wide one, so that its sheen is seen to its end.
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 300.0))));
+  stage.pass();
+  let narrow = stage.bounds("narrow");
+  let wide = stage.bounds("wide");
+  // The sheen painted over the skeleton at `bounds`, where it is: from the skeleton's start, and how wide.
+  let sheen = |stage: &Stage, (x, y, ..): (f32, f32, f32, f32)| {
     stage
       .quads()
       .into_iter()
-      .find(|quad| matches!(&quad.content, QuadContent::Rect { gradient: Some(_), .. }))
+      .find(|quad| matches!(&quad.content, QuadContent::Rect { gradient: Some(_), .. }) && (quad.y - y).abs() < 0.01)
+      .map(|quad| {
+        assert_eq!(quad.clip.x, x, "clipped to the skeleton");
+        (quad.x - x, quad.width)
+      })
   };
-  let first = sheen(&stage).expect("a sheen, from the muted fill to a lighter one and back");
-  assert_eq!(first.width, 200.0, "the design's shimmer");
-  // Over a period it goes from before the line's start to past its end, clipped to the line.
-  let mut places = Vec::new();
-  for step in 0..16 {
-    stage.pass_after(SKELETON_SHIMMER_PERIOD / 16 * step);
-    if let Some(quad) = sheen(&stage) {
-      let at = quad.x - x;
-      assert!((-200.5..=1200.5).contains(&at), "{at}");
-      assert_eq!(quad.clip.width, 300.0, "clipped to the line");
-      places.push(at);
+  // Where in its period the sheen is now: it goes from one width before the start, -width, to the start of
+  // the skeleton halfway, and to its end, +width, at the end. At the very end of a period it is wholly outside
+  // and not painted, so it is read a quarter of a period on where it is not seen.
+  let period = SKELETON_SHIMMER_PERIOD.as_secs_f32();
+  let (offset, at, width) = (0..4)
+    .find_map(|quarter| {
+      let offset = quarter as f32 * period / 4.0;
+      stage.pass_after(std::time::Duration::from_secs_f32(offset));
+      sheen(&stage, narrow).map(|(at, width)| (offset, at, width))
+    })
+    .expect("a sheen, from the muted fill to a lighter one and back");
+  assert!((width - 120.0).abs() < 0.01, "as wide as the skeleton: {width}");
+  let phase = (at + 120.0) / 240.0 - offset / period;
+  let next = (1.0 - phase.rem_euclid(1.0)) * period;
+  for (share, place) in [(0.05, -0.9), (0.5, 0.0), (0.95, 0.9)] {
+    stage.pass_after(std::time::Duration::from_secs_f32(next + share * period));
+    for (bounds, side) in [(narrow, 120.0), (wide, 600.0)] {
+      let (at, width) = sheen(&stage, bounds).unwrap_or_else(|| panic!("the sheen over {bounds:?} at {share}"));
+      assert!((width - side).abs() < 0.01, "as wide as the skeleton: {width}");
+      assert!(
+        (at - place * side).abs() < side * 0.02,
+        "at {share} of the period, the {side} one's sheen is at {at}, where {} was looked for",
+        place * side
+      );
     }
   }
   assert!(
-    places.iter().any(|at| *at < 0.0),
-    "it comes in from before the start: {places:?}"
-  );
-  assert!(places.iter().any(|at| *at > 0.0), "and goes on: {places:?}");
-  assert!(
     bones(&stage).iter().all(|bone| bone.opacity == 1.0),
-    "and does not pulse"
+    "and it does not pulse"
   );
+  // Where motion is reduced it stands still: no sheen.
+  stage.app.theme().set_reduced_motion(Some(true));
+  stage.pass();
+  assert!(sheen(&stage, narrow).is_none());
 }
 
 #[test]

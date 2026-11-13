@@ -110,8 +110,8 @@ pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRen
 pub use shared::{Choice, FADE_IN, FADE_OUT};
 pub(crate) use skeleton::keyframes as skeleton_keyframes;
 pub use skeleton::{
-  SKELETON_PULSE, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER, SKELETON_SHIMMER_PERIOD, SKELETON_SHIMMER_TRAVEL, Skeleton,
-  SkeletonAnimation, SkeletonPart, SkeletonRenderer, SkeletonShape, SkeletonView,
+  SKELETON_PULSE, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation,
+  SkeletonPart, SkeletonRenderer, SkeletonShape, SkeletonView,
 };
 pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
 pub(crate) use spinner::keyframes as spinner_keyframes;
