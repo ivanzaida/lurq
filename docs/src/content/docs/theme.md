@@ -772,7 +772,7 @@ The form theme names the palette roles of lurq 0.60, which are [deprecated](#dep
 Form theme roles require the `form` feature:
 
 ```toml
-lurq = { version = "0.60.0", features = ["form"] }
+lurq = { version = "0.61.0", features = ["form"] }
 ```
 
 `FormTheme` groups compound form styling into semantic roles:
@@ -904,7 +904,7 @@ Prefer concrete values for isolated drawings, debug visuals, or one-off componen
 
 ## The System's Settings
 
-Added after **lurq 0.60.0**. What a person set for the whole system is in the window's info, and a render that
+Added in **lurq 0.61.0**. What a person set for the whole system is in the window's info, and a render that
 reads it runs again when it changes:
 
 ```rust
