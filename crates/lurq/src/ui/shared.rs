@@ -36,6 +36,9 @@ pub(crate) fn fading(style: PartStyle) -> PartStyle {
 pub(crate) fn pressable(part: &ResolvedPart, disabled: bool) -> components::Button {
   components::Button::empty()
     .justify(Justify::Center)
+    // A plain button is a stop of Tab only in a form or with an index of its own. A control of the design
+    // system is one wherever it is, in the order of the tree.
+    .tab_index(0)
     .disabled(disabled)
     .part(part)
 }

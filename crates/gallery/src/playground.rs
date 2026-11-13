@@ -20,10 +20,10 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, border::Border},
-  ui::{Button, ButtonSize, ButtonVariant, Interaction, Toggle, icons},
+  ui::{Button, ButtonSize, ButtonVariant, Interaction, Switch, Toggle, icons},
 };
 
-use crate::kit::{FILL, badge, code_block, icon, line, mono, name, quiet, segmented, select, switch, text, tool};
+use crate::kit::{FILL, badge, code_block, icon, line, mono, name, quiet, segmented, select, text, tool};
 
 /// The least width of the card with the panel beside the stage: the panel, and a stage whose bar holds the
 /// switch of states and its tools.
@@ -503,7 +503,12 @@ pub fn flag(label: &str, value: &Signal<bool>) -> Element {
         .child(name(label, 12.0))
         .child(quiet("bool", 11.0)),
     )
-    .child(switch(value.get(), move |on| set.set(on)))
+    .child(
+      Switch::new(label)
+        .label_hidden(true)
+        .on(value.get())
+        .on_change(move |on| set.set(on)),
+    )
     .into()
 }
 

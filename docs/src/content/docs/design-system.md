@@ -475,6 +475,39 @@ Fab::new("Compose", icons::COMPOSE).extended(true); // with its label
 - Parts: `FabPart::Root`, `Icon`, `Label`, each laid over the theme's recipe for the same part of a button. State: `FabState::Extended`.
 - Where it floats is the app's to say: it is an element, put in a corner of a `Stack`. A container clips what is in it, so give its shadow room, or let the container show what is outside it (`.overflow_visible()`).
 
+## Switch
+
+A setting that is on or off and takes effect at once: dark mode, sync in the background.
+
+```rust
+use lurq::ui::Switch;
+
+Switch::new("Dark mode")
+  .on(dark.get())
+  .on_change(move |on| dark.set(on));
+
+// The track alone, in a row of settings that has the text already.
+Switch::new("Sync in background").label_hidden(true).on(sync.get());
+```
+
+| Builder | |
+| --- | --- |
+| `on(bool)` | Whether it is on. The switch does not keep it: the app says so |
+| `on_change(handler)` | Called on a press with what the switch is to be: on if it was off |
+| `label_hidden(bool)` | The track alone. The label is still what the switch is called |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the track |
+
+- A press of the track or of the label asks for the other state. Tab reaches the track, Space and Enter press it, and the focus ring is the track's.
+- Parts: `SwitchPart::Root` (the track and the label, side by side), `Track` (what is pressed), `Thumb`, `Label`. States: `SwitchState::On`, `Disabled`.
+- In the design the track is 36 by 20 and round, in the `Input` color and in `Primary` while it is on; the thumb is 16, in `Background`, 2 from the edge; the label is 8 beside the track in the body's type. A disabled switch is dimmed with its label.
+- The thumb slides: the default renderer moves it by an offset, how far is `SwitchView::travel()` (the track's width less its padding and the thumb), and the recipe gives the thumb a transition of `Transition::offset_x()` over the theme's fast duration. A theme with reduced motion moves it at once.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the track is a `switch` called by its label, with `a11y_checked` saying whether it is on.
+- A renderer that draws another switch starts from `view.track()`, the behavior with the track's style, and puts in it what it likes; `view.thumb()` is the default thumb.
+
+## Tab And The Design System's Controls
+
+A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a segment, a link, the track of a switch, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
+
 ## A Component That Holds Another
 
 A group does not draw its buttons: it holds them, and says what they are in its place. Its recipe has a part for that (`ButtonGroupPart::Item`), and `ResolvedRecipe::rules_for(part, inner)` turns what the recipe has for it, at rest and in each interaction, into rules for a part of the inner component, which the group lays over the theme's recipe for that component (`Button::rules`):

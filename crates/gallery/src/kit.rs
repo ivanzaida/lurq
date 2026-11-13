@@ -357,29 +357,6 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
     .into()
 }
 
-/// On or off: a thumb that is at one end of its track or at the other.
-///
-/// The design system's `Switch` takes its place.
-pub fn switch(on: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Row {
-  let ring = lurq::ui::current_theme().focus_ring().outline();
-  Row::new()
-    .size(36.0, 20.0)
-    .padding(2.0)
-    .align_items(Alignment::Center)
-    .justify(if on { Justify::End } else { Justify::Start })
-    .rounded(RadiusSize::Full)
-    .background(if on { PaletteColor::Primary } else { PaletteColor::Input })
-    .cursor(CursorIcon::Pointer)
-    .focus_visible(|style| style.outline(ring))
-    .tab_index(0)
-    .on_click(move |_| toggle(!on))
-    .child(
-      Rect::new(16.0, 16.0)
-        .rounded(RadiusSize::Full)
-        .background(PaletteColor::Background),
-    )
-}
-
 /// A small button with no fill, for the edge of a card: Copy, Reset.
 pub fn tool(label: &str, glyph: &str, press: impl Fn() + Send + Sync + 'static) -> Button {
   Button::new(label)

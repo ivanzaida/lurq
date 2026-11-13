@@ -1,7 +1,7 @@
 //! `ui::Button`: what it looks like in the design's theme, and what presses it.
 
 use std::sync::{
-  Arc,
+  Arc, Mutex,
   atomic::{AtomicUsize, Ordering},
 };
 
@@ -352,12 +352,23 @@ fn a_disabled_button_is_dimmed_and_takes_nothing() {
 
 #[test]
 fn a_button_focused_from_the_keyboard_has_the_themes_ring() {
-  let mut stage = Stage::new(|_| {
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let told = pressed.clone();
+  let mut stage = Stage::new(move |_| {
+    let (one, two) = (told.clone(), told.clone());
     Row::new()
       .padding(20.0)
       .spacing(8.0)
-      .child(Button::new("One").id("one"))
-      .child(Button::new("Two").id("two"))
+      .child(
+        Button::new("One")
+          .id("one")
+          .on_click(move |_| one.lock().unwrap().push("one")),
+      )
+      .child(
+        Button::new("Two")
+          .id("two")
+          .on_click(move |_| two.lock().unwrap().push("two")),
+      )
       .into()
   });
   let ring = light(PaletteColor::Ring);
@@ -365,6 +376,37 @@ fn a_button_focused_from_the_keyboard_has_the_themes_ring() {
   assert!(!stage.has_ring(ring), "a click focuses without a ring");
   stage.key("Tab");
   assert!(stage.has_ring(ring), "Tab moves the focus and shows it");
+  // The focus is on the next button, not left on the one that was clicked: Space presses that one.
+  stage.key(" ");
+  assert_eq!(*pressed.lock().unwrap(), ["one", "two"]);
+}
+
+#[test]
+fn tab_reaches_a_button_that_nothing_was_focused_before() {
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let told = pressed.clone();
+  let mut stage = Stage::new(move |_| {
+    let (one, two, three) = (told.clone(), told.clone(), told.clone());
+    Row::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(Button::new("One").on_click(move |_| one.lock().unwrap().push("one")))
+      .child(
+        Button::new("Two")
+          .disabled(true)
+          .on_click(move |_| two.lock().unwrap().push("two")),
+      )
+      .child(Button::new("Three").on_click(move |_| three.lock().unwrap().push("three")))
+      .into()
+  });
+  // A button of the design system is a stop of Tab wherever it is, with no form around it and no index
+  // given to it; a disabled one is passed by.
+  stage.key("Tab");
+  assert!(stage.has_ring(light(PaletteColor::Ring)));
+  stage.key("Enter");
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(*pressed.lock().unwrap(), ["one", "three"]);
 }
 
 #[test]

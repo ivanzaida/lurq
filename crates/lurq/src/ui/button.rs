@@ -7,6 +7,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  shared::pressable,
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -16,7 +17,6 @@ use crate::{
     TypographyStyle,
   },
   components::{self, Row},
-  layout::layout_kind::Justify,
   node::{Element, EventHandler, IntoMouseEventHandler},
   ui::PartTransition,
 };
@@ -456,10 +456,7 @@ impl ButtonView {
   /// pressed, focused and disabled, with nothing in it yet. A renderer puts
   /// the button's content in it.
   pub fn root(&self) -> components::Button {
-    let mut root = components::Button::empty()
-      .justify(Justify::Center)
-      .disabled(self.disabled)
-      .part(&self.part(ButtonPart::Root));
+    let mut root = pressable(&self.part(ButtonPart::Root), self.disabled);
     // A button that is loading is not pressed again: it is there, and focused if it was, and does nothing.
     #[cfg(feature = "form")]
     if self.submit && !self.loading {
