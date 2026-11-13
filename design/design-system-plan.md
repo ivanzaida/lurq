@@ -12,6 +12,7 @@ Ship the design system with lurq, driven entirely by the theme:
 
 - **The Pencil design is the default.** Every lurq app has components that match the Pencil file in light and dark, with no feature to enable and no palette or state styling of its own.
 - **The theme controls every component.** An app adjusts the global theme — tokens, per-component styling, and where needed a component's whole look — and every instance follows. Per-instance overrides exist but are the exception.
+- **Everything can be overridden.** A developer can change all of it themselves: start from a theme with no styling at all, replace any recipe whole, replace how any part is built, add sizes and states of their own, and build a component of their own on the behavior lurq's components use (D8–D12). Nothing lurq draws is out of the theme's reach.
 - **A theme can go as far as a native look.** A developer targeting iOS can make the same components look like the platform's own: different sizes and shapes, and different anatomy where the platform's control is built differently.
 
 Non-goals for this plan:
@@ -46,6 +47,13 @@ Agreed on 2026-11-12. The phases below build on them.
 | D5 | Icons | lurq draws its own glyphs for the icons its components need, and does not depend on Lucide. An `Icon` component takes a name; the theme maps names to glyphs, so an app or a theme can plug in any set | No third-party asset to license or track. A native iOS theme maps the same names to SF Symbols. See the icon notes below. |
 | D6 | How components are themed | Every component is described by a **recipe in the theme**: styles for each of its parts, per variant, size and state. A theme may also replace a component's **renderer**. See section 4 | This is the requirement in section 1. It replaces one-off structs like `FormTheme` with one model every component shares. |
 | D7 | The `form` controls | `FormTextInput`, `FormCheckboxInput`, `FormSliderInput` and the two buttons are rebuilt on the new components; `FormTheme` is deprecated in favor of recipes | One implementation of a button, and one way to theme it. |
+| D8 | Starting from nothing | `Theme::bare()` is a definition with no styling: the token tables and the default renderers, and no recipe, so every part comes out unstyled and works. A recipe can be replaced whole as well as patched | A developer who wants a look of their own should not have to overrule the default one value at a time. |
+| D9 | Renderers per part | A theme may replace the renderer of one part of a component, as well as the renderer of the whole component | Changing a switch's thumb should not mean writing the switch again. |
+| D10 | Behavior | A theme cannot replace it. It is public instead: the state, keyboard handling, focus and semantics of each component are building blocks an app builds a component of its own on | A theme that replaced behavior could break focus or the keyboard in ways that are hard to find. An app that needs other behavior writes a component, from the pieces lurq's own are made of. |
+| D11 | Open sets | Sizes and component states are keyed by name, as variants are, so an app adds its own. A renderer that replaces a component's may declare parts of its own, and a recipe addresses them by name | The fixed sets are lurq's defaults, not a limit. Settles open question 3. |
+| D12 | Nothing hard-coded | Everything lurq draws takes its colors, sizes and durations from the theme, what an app never builds itself included: scroll bars, the select menu, text selection, the caret, tooltips, window chrome, enter and exit animations. A test fails on a literal color, size or duration in `lurq::ui` | "Everything" has to hold for what an app cannot reach any other way. |
+
+D8–D12 were agreed on 2026-11-13: a developer must be able to change everything themselves.
 
 **Icon notes (D5).**
 
@@ -79,8 +87,8 @@ A component is a set of named **parts** — a button has `root`, `label`, `icon`
 
 - **Base**: applies always.
 - **Variant**: `Primary`, `Secondary`, `Outline`, `Ghost`, `Destructive`… Variants are keyed by name, so an app can add its own.
-- **Size**: `Sm`, `Md`, `Lg`, or a density.
-- **State**: `hovered`, `pressed`, `focus_visible`, `disabled`, and component states such as `checked`, `selected`, `invalid`, `loading`, `open`.
+- **Size**: `Sm`, `Md`, `Lg`, or a density. Sizes are keyed by name too, so an app can add its own (D11).
+- **State**: `hovered`, `pressed`, `focus_visible`, `disabled`, and component states such as `checked`, `selected`, `invalid`, `loading`, `open`. A state can also be one an app names: an instance turns it on with `.state(name, on)`, and a recipe styles it like any other (D11).
 
 All of them use one shared type, a **part style**: an all-optional patch of background, foreground, border, radius, shadow, outline, opacity, padding, gap, height, width, typography and transition. Values are token roles or concrete values. Because every component uses the same patch type, learning to theme one component is learning to theme all of them.
 
@@ -101,6 +109,8 @@ ui.button().size(ControlSize::Md).part(ButtonPart::Root, |s| s.height(44.0));
 // An app-defined variant.
 ui.button().variant("brand").part(ButtonPart::Root, |s| s.background("brand").foreground("on-brand"));
 ```
+
+A recipe is patched, as above, or replaced whole: `ui.button().replace(recipe)` drops everything the definition under it said about the component, so a look can be written from nothing for one component without starting the whole theme from `Theme::bare()` (D8).
 
 Pointer and focus states in a recipe compile to node state styles (section 5, E2–E4), so a hover never re-renders the component. Component states are resolved when the component renders, which already happens when they change.
 
@@ -131,7 +141,7 @@ A recipe can restyle a control but cannot change what it is made of. An iOS swit
 
 So each component is split in two:
 
-- **Behavior** — state, keyboard handling, focus, semantics, events. Owned by lurq, not replaceable.
+- **Behavior** — state, keyboard handling, focus, semantics, events. Owned by lurq: a theme cannot replace it (D10).
 - **Renderer** — a function from the component's resolved state and recipe to a node tree. The default renderer draws the Pencil design. A theme may register another.
 
 ```rust
@@ -143,6 +153,10 @@ ui.switch().renderer(|switch, recipe, ctx| {
 
 A replaced renderer still gets the recipe, so tokens and recipes keep working inside a native skin.
 
+- **One part at a time (D9).** A theme may replace the renderer of a single part: `ui.switch().part_renderer(SwitchPart::Thumb, |thumb, style, ctx| ...)`. The rest of the component is still drawn by the renderer it had.
+- **Parts of its own (D11).** A renderer that replaces a component's may build parts the default one does not have. It declares them by name, and a recipe styles them by that name. The parts lurq names are the ones every renderer of the component is expected to have, so a recipe written for one renderer still applies under another.
+- **Behavior is public (D10).** What a renderer is handed, the component's state, its keyboard handling, its focus and its semantics, is public API under `lurq::ui`: an app that needs a control lurq does not have, or one that behaves differently, builds it from the same pieces and gives it a recipe and slots like any component of lurq's.
+
 ### 4.5 Presentation
 
 Some differences are behavioral conventions rather than looks: whether a select opens a menu or a bottom sheet, the order of confirm and cancel in a dialog, whether a tooltip exists on touch. The theme carries these as per-component **presentation** options with platform-appropriate defaults, for example `SelectPresentation::{Menu, Sheet}`.
@@ -150,6 +164,7 @@ Some differences are behavioral conventions rather than looks: whether a select 
 ### 4.6 Whole themes, platforms and scopes
 
 - **Theme definitions.** A definition bundles tokens for light and dark, recipes, renderers and presentation. `Theme::apply(definition)` installs one atomically. `Theme::neutral()` — the Pencil design — is the default.
+- **A bare theme (D8).** `Theme::bare()` has the token tables and the default renderers and no recipe: a button is its label, a switch is a track and a thumb with no fill. Every component still works. It is the base for a look that shares nothing with the default.
 - **Derived themes.** A definition can extend another and override part of it, so an app's theme is "neutral, plus these changes" rather than a copy.
 - **Per platform.** An app picks a definition per target, for example the neutral theme on desktop and a native-looking one on iOS. lurq does not switch looks by platform on its own.
 - **Scoped themes.** A public way to override the theme for a subtree — a dark sidebar in a light window, or a compact-density inspector. Today `Ctx::with_theme` is crate-private.
@@ -157,6 +172,10 @@ Some differences are behavioral conventions rather than looks: whether a select 
 ### 4.7 What this replaces
 
 `FormTheme`, `SelectStyle`'s themed defaults, and the hard-coded `new()`/`dark()` pairs on `Sheet`, `TabBar`, `NavigationBar` and the window controls all become recipes. `ThemeMarkdown` moves from concrete colors to roles.
+
+### 4.8 Nothing drawn outside the theme
+
+D12. What lurq draws without an app building it is themed like a component: scroll bars, the menu of a select, text selection and the caret, tooltips, window chrome, and the animations layers and list items enter and leave with. Each has a recipe or tokens, and where its anatomy can differ, a renderer. In `lurq::ui` no color, size or duration is written as a literal: each comes from a token or a recipe, and a test (section 8) fails on one that does not. Primitives outside `lurq::ui` (`Rect`, `Text`, `Row`) take what they are given and have no look to override.
 
 ## 5. Phase 0 — Style engine
 
@@ -221,6 +240,10 @@ Deprecated roles and their replacements, for the migration guide (D2): `Accent` 
 - Renderer registration and presentation options.
 - Theme definitions, `Theme::apply`, derived definitions.
 - Public scoped themes.
+- `Theme::bare()`, and replacing a recipe whole (D8).
+- Renderers per part, and parts a renderer declares (D9, D11).
+- Sizes and states by name (D11).
+- Recipes and tokens for what lurq draws itself: scroll bars, text selection, the caret (D12). The select menu, tooltips and window chrome follow with their components in phases 2, 3 and 6.
 
 ## 7. Phases 2–7 — Components
 
@@ -232,6 +255,9 @@ Every component ships with the same six things: behavior separate from its defau
 2. Write an iOS-looking skin for them in `crates/mobile_demo` using only public theme API: tokens, recipes, and a renderer for `Switch`.
 3. Restyle them for a made-up brand using tokens and recipes alone.
 4. From the theme alone, give the message box's two buttons different fonts, and give primary and outline buttons different fonts everywhere else.
+
+5. Build the four from `Theme::bare()` to a look that shares nothing with the default, with public API alone (D8).
+6. Replace only the thumb of the switch (D9), give the button a size and a state of the app's own (D11), and write a control lurq does not have on the public behavior pieces, themed by a recipe (D10).
 
 If any of these needs something the theme cannot express, fix the model here. The recipe, slot and renderer API is frozen only after this step. Nothing else in phases 2–7 starts before it.
 
@@ -267,6 +293,7 @@ Not planned as components: the Examples page (whole windows and screens) stays a
 - **Screenshot tests.** The `screenshot` feature renders each gallery page in both schemes; images are compared against stored references so a token or recipe change that shifts a component shows up in review.
 - **Behavior tests.** Per component under `crates/lurq/tests/ui/`: states, keyboard, disabled, and focus order. They run against the behavior half, so they hold under any renderer.
 - **Theme tests.** A second, deliberately different theme definition runs through the gallery in CI. A component that ignores its recipe — a hard-coded color, a fixed size — shows up as unchanged.
+- **Nothing hard-coded (D12).** A test reads the sources of `lurq::ui` and fails on a literal color, size or duration outside the neutral theme's definition. The gallery also runs on `Theme::bare()`: every component has to work with no recipe at all.
 - **Design parity.** Token values are exported from the Pencil file's variables and checked against the neutral theme's defaults in a test, so the two cannot drift.
 
 ## 9. Accessibility hook
@@ -296,6 +323,7 @@ Phase 0 and the tokens half of Phase 1 can be reviewed and released on their own
 
 - **The theming API is the hardest part to change later.** Every component and every app theme depends on it. Step 2 exists to find its flaws on four components instead of thirty.
 - **Recipe surface area.** A patch type with fifteen optional fields, times parts, variants, sizes, states and nested slots, is a lot to document and keep stable. Keeping one shared patch type, and adding fields only when a component needs them, holds it down.
+- **Public behavior is API too (D10).** The pieces a component is built on become something apps depend on, and are frozen with the recipe API after step 2. What is not ready to be promised stays crate-private until it is.
 - **No feature flag.** Every app compiles every component. Unused ones do not reach the binary, but build time grows with the set. If it becomes a problem, the large groups (data grid, charts, dock layout) can move behind features later without changing the rest.
 - **The icon font's hints are our own.** The 152 glyphs are in the repository as sources and as a font, and E9 draws them hinted. The hints are written by `scripts/build-icon-font.py`, not by a tool with a history, so every glyph added should be looked at on a comparison sheet at 12 to 24 px. A few glyphs still need redrawing. Nothing draws the font yet outside `examples/icon_hinting.rs`: DevTools is still on Lucide (question 8) and `Icon` is Phase 2.
 - **Renderers and behavior drifting apart.** A custom renderer that forgets to wire a part breaks hit-testing or focus. The behavior half must own events and semantics, and hand the renderer parts that already carry them.
@@ -310,7 +338,7 @@ Phase 0 and the tokens half of Phase 1 can be reviewed and released on their own
 
 1. How long deprecated palette roles stay before removal: one release, or until 1.0?
 2. Recipes as builder calls on the theme (as sketched in section 4) or as plain data structs an app constructs and installs? Data is easier to derive and diff; builders read better. Step 2 should try both.
-3. How much may a renderer change: only the node tree, or also which parts exist? Fixed parts keep recipes portable across renderers; free parts allow more native fidelity.
+3. Settled (D11): a renderer builds the parts lurq names for the component and may declare parts of its own, which recipes address by name.
 4. Does lurq ship a native-looking iOS theme itself, after the proof in step 2, or leave it to apps and the community?
 5. Should the new components be configured through builders like the existing `components`, or through props structs like the `form` compound controls?
 6. Does the default theme change in the same release that adds the components, or one release later?
