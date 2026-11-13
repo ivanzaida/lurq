@@ -28,6 +28,7 @@ mod part_style;
 mod radio;
 mod recipe;
 mod segmented;
+mod select;
 mod shared;
 mod slider;
 mod switch;
@@ -53,6 +54,7 @@ pub use part_style::{
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
+pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use shared::Choice;
 pub use slider::{Slider, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};

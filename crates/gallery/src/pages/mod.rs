@@ -12,6 +12,7 @@ mod icons;
 mod input;
 mod overview;
 mod radio;
+mod select;
 mod slider;
 mod switch;
 mod textarea;
@@ -187,6 +188,14 @@ pub const PAGES: &[Page] = &[
     about: "slider range value min max step track thumb volume drag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<slider::SliderPage>(()),
+  },
+  Page {
+    path: "/select",
+    name: "Select",
+    icon: None,
+    about: "select dropdown choose option list menu placeholder chevron value time zone",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<select::SelectPage>(()),
   },
 ];
 
