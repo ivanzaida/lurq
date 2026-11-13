@@ -325,18 +325,25 @@ impl SliderState {
     self.inner.lock().unwrap().orientation = orientation;
   }
 
+  /// The value as text, as tooling reads it; a range's two joined by a comma.
   #[cfg(any(feature = "form", feature = "mcp"))]
   pub(crate) fn value_string(&self) -> String {
+    self.value_strings().join(",")
+  }
+
+  /// The values as a form submits them under the slider's name: one, or a range's low and high.
+  #[cfg(any(feature = "form", feature = "mcp"))]
+  pub(crate) fn value_strings(&self) -> Vec<String> {
     match &self.value {
-      SliderValue::Int(value) => value.get_untracked().to_string(),
-      SliderValue::Float(value) => value.get_untracked().to_string(),
+      SliderValue::Int(value) => vec![value.get_untracked().to_string()],
+      SliderValue::Float(value) => vec![value.get_untracked().to_string()],
       SliderValue::IntRange(value) => {
         let (low, high) = value.get_untracked();
-        format!("{low},{high}")
+        vec![low.to_string(), high.to_string()]
       }
       SliderValue::FloatRange(value) => {
         let (low, high) = value.get_untracked();
-        format!("{low},{high}")
+        vec![low.to_string(), high.to_string()]
       }
     }
   }
@@ -422,6 +429,22 @@ impl SliderState {
     drop(inner);
     let thumb = self.nearer_thumb(ratio);
     self.set_value_of(thumb, value)
+  }
+
+  /// Sets both values of a range from outside the pointer/keyboard path, each snapped to the range and step and
+  /// the two put in order. Returns `false` for a slider of one value, which has no second value to take.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn set_values_external(&self, low: f32, high: f32) -> bool {
+    if !self.is_range() {
+      return false;
+    }
+    let mut inner = self.inner.lock().unwrap();
+    inner.drag_ratio = None;
+    let low = snap_slider_value(low, inner.min, inner.max, inner.step);
+    let high = snap_slider_value(high, inner.min, inner.max, inner.step);
+    drop(inner);
+    self.value.set(low, high);
+    true
   }
 
   pub(crate) fn set_from_ratio_of(&self, thumb: SliderThumb, ratio: f32) -> bool {
@@ -516,6 +539,27 @@ impl SliderState {
     let next = snap_slider_value(current + delta as f32 * inner.step, inner.min, inner.max, inner.step);
     drop(inner);
     self.set_value_of(thumb, next);
+  }
+
+  /// Page Up and Page Down: the active thumb moves by `delta` pages, a page being a tenth of the range in whole
+  /// steps and at least one step. A browser's range input pages by a tenth of its range too; ten steps would cross
+  /// a short range in one press and hardly move a long one.
+  pub(crate) fn page(&self, delta: i32) {
+    let inner = self.inner.lock().unwrap();
+    let steps = ((inner.max - inner.min) / 10.0 / inner.step).round().max(1.0) as i32;
+    drop(inner);
+    self.nudge(delta.saturating_mul(steps));
+  }
+
+  /// Home and End: the active thumb goes to the least value or to the greatest; a range's thumb stops at the
+  /// other's value.
+  pub(crate) fn to_end(&self, greatest: bool) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.drag_ratio = None;
+    let thumb = inner.active;
+    let value = if greatest { inner.max } else { inner.min };
+    drop(inner);
+    self.set_value_of(thumb, value);
   }
 
   pub(crate) fn set_track_style(&self, style: SliderPartStyle) {

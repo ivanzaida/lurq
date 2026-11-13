@@ -480,3 +480,49 @@ fn a_theme_styles_the_range_slider_by_its_state() {
   assert!(!destructive(&mut stage, "one"));
   assert!(destructive(&mut stage, "two"));
 }
+
+#[test]
+fn page_keys_home_and_end_move_a_slider_and_each_thumb_of_a_range() {
+  let level = Signal::new(40);
+  let price = Signal::new((20, 80));
+  let (read_level, read_price) = (level.clone(), price.clone());
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .spacing(16.0)
+      .child(
+        Slider::new(read_level.clone())
+          .orientation(SliderOrientation::Vertical)
+          .id("level"),
+      )
+      .child(RangeSlider::new(read_price.clone()).step(5).id("price"))
+      .into()
+  });
+
+  // The vertical slider: a page is a tenth of 0 to 100.
+  stage.key("Tab");
+  stage.key("PageUp");
+  assert_eq!(level.get(), 50);
+  stage.key("PageDown");
+  stage.key("PageDown");
+  assert_eq!(level.get(), 30);
+  stage.key("End");
+  assert_eq!(level.get(), 100);
+  stage.key("Home");
+  assert_eq!(level.get(), 0);
+
+  // The range slider in steps of 5: a page is two steps; Home and End stop at the other thumb.
+  stage.key("Tab");
+  stage.key("PageUp");
+  assert_eq!(price.get(), (30, 80));
+  stage.key("End");
+  assert_eq!(price.get(), (80, 80));
+  stage.key("Home");
+  assert_eq!(price.get(), (0, 80));
+  stage.key("Tab");
+  stage.key("Home");
+  assert_eq!(price.get(), (0, 0));
+  stage.key("End");
+  assert_eq!(price.get(), (0, 100));
+  assert_eq!(level.get(), 0, "the keys move only what Tab is on");
+}

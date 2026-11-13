@@ -93,8 +93,8 @@ mod leaving_layers;
 mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
-mod outside_press;
 mod modal_focus;
+mod outside_press;
 mod overlay_layers;
 mod paste;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
@@ -5748,6 +5748,10 @@ impl Tree {
       NodeKind::Slider { state } => match (logical, command) {
         ("ArrowRight" | "ArrowUp", _) | (_, "ArrowRight" | "ArrowUp") => state.nudge(1),
         ("ArrowLeft" | "ArrowDown", _) | (_, "ArrowLeft" | "ArrowDown") => state.nudge(-1),
+        ("PageUp", _) | (_, "PageUp") => state.page(1),
+        ("PageDown", _) | (_, "PageDown") => state.page(-1),
+        ("Home", _) | (_, "Home") => state.to_end(false),
+        ("End", _) | (_, "End") => state.to_end(true),
         _ => return false,
       },
       _ => return false,
@@ -7257,7 +7261,9 @@ impl Tree {
 
     self.built_focus_overlays = std::mem::take(&mut layers.focus_overlays);
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
-    self.built_focus_modals.extend(self.built_focus_overlays.iter().copied());
+    self
+      .built_focus_modals
+      .extend(self.built_focus_overlays.iter().copied());
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
@@ -11676,7 +11682,12 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
           data.append(name, "on");
         }
       }
-      NodeKind::Slider { state } => data.append(name, state.value_string()),
+      // A range slider submits its low value and its high one, in that order, under its name.
+      NodeKind::Slider { state } => {
+        for value in state.value_strings() {
+          data.append(name, value);
+        }
+      }
       NodeKind::Select { state } => {
         for label in state.selected_labels() {
           data.append(name, label.to_string());
