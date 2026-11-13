@@ -15,9 +15,11 @@
 //! around it ([`current_theme`]), so it needs no context passed to it, and
 //! what renders it renders again when the theme changes.
 
+mod accordion;
 mod button;
 mod button_group;
 mod checkbox;
+mod collapsible;
 mod dialog;
 mod fab;
 mod field;
@@ -44,6 +46,7 @@ mod toggle;
 mod toggle_group;
 mod tooltip;
 
+pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
   ButtonView,
@@ -53,6 +56,7 @@ pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
   CheckboxView,
 };
+pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};

@@ -4,6 +4,7 @@
 
 use lurq::{app::ctx::Ctx, node::Element};
 
+mod accordion;
 mod button;
 mod checkbox;
 mod dialog;
@@ -250,6 +251,14 @@ pub const PAGES: &[Page] = &[
     about: "tabs tab list panel section view switch line pill vertical count overflow scroll more menu",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<tabs::TabsPage>(()),
+  },
+  Page {
+    path: "/accordion",
+    name: "Accordion",
+    icon: None,
+    about: "accordion collapsible disclosure expand collapse section faq question answer panel chevron details",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<accordion::AccordionPage>(()),
   },
 ];
 

@@ -5093,19 +5093,36 @@ impl Node {
       .layout_frame(&self.style_state)
       .map_or(base, |frame| merge_frame(base, frame));
     for (prop, val) in self.animation_overrides.iter() {
-      if let crate::animation::AnimatableValue::Float(v) = val {
-        match prop {
-          crate::animation::AnimatableProperty::Width => {
-            result.width = Some(Dimension::Px(*v));
-          }
-          crate::animation::AnimatableProperty::Height => {
-            result.height = Some(Dimension::Px(*v));
-          }
-          _ => {}
+      match (prop, val) {
+        (crate::animation::AnimatableProperty::Width, crate::animation::AnimatableValue::Float(v)) => {
+          result.width = Some(Dimension::Px(*v));
         }
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Float(v)) => {
+          result.height = Some(Dimension::Px(*v));
+        }
+        // Part of the height is the content's: the node is laid out as high as its content and then given the
+        // mix (`Self::fit_height`).
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Fit { .. }) => {
+          result.height = None;
+        }
+        _ => {}
       }
     }
     result
+  }
+
+  /// The height a transition between a height in pixels and the content's gives the node this tick, as its
+  /// pixels and its share of the content's height: see [`crate::animation::AnimatableValue::Fit`].
+  pub(crate) fn fit_height(&self) -> Option<(f32, f32)> {
+    self
+      .animation_overrides
+      .iter()
+      .find_map(|(prop, val)| match (prop, val) {
+        (crate::animation::AnimatableProperty::Height, crate::animation::AnimatableValue::Fit { px, content }) => {
+          Some((*px, *content))
+        }
+        _ => None,
+      })
   }
 
   pub(crate) fn state_frame(&self) -> Option<FrameConstraints> {
