@@ -486,3 +486,73 @@ fn a_theme_restyles_a_part_or_gives_the_toast_another_anatomy() {
   let icon = theme.resolve::<Toast>(&case, None).part(ToastPart::Icon).rest();
   assert!(icon.foreground.is_some());
 }
+
+#[test]
+fn a_toast_that_comes_while_another_is_shown_comes_in_over_it_and_moves_nothing() {
+  let toasts = Toasts::new();
+  let mut stage = window(&toasts, ToastPosition::BottomRight);
+  toasts.show(Toast::new("First").duration(Duration::from_secs(30)));
+  stage.pass();
+  stage.pass_after(Duration::from_secs(2));
+  let first = stage.text_quad("First").unwrap();
+
+  // The second comes in over the first: the first is still drawn, where the one in front stands (an edge's
+  // peek lower than it stood alone, for the edge now behind), and not a toast's height away, where a list
+  // would have put it while it left.
+  toasts.show(Toast::new("Second").duration(Duration::from_secs(30)));
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(30));
+  let under = stage
+    .text_quad("First")
+    .expect("the first is still drawn under the second");
+  assert_eq!(under.x, first.x);
+  assert!(
+    (under.y - first.y).abs() <= 8.01,
+    "the first moved by {}",
+    under.y - first.y
+  );
+  let second = stage.text_quad("Second").unwrap();
+  assert!(
+    second.y >= under.y - 0.01,
+    "the second comes in from under its place: {} {}",
+    second.y,
+    under.y
+  );
+
+  // In, it stands where the first stood, the first is an edge behind it, and nothing else is drawn of it.
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(1));
+  stage.pass_after(Duration::from_secs(1));
+  stage.pass();
+  assert!(!stage.paints("First"));
+  let second = stage.text_quad("Second").unwrap();
+  assert!((second.y - under.y).abs() < 0.01);
+  assert_eq!(
+    bars(&stage, light(PaletteColor::Popover), 24.0).len(),
+    1,
+    "one edge behind"
+  );
+}
+
+#[test]
+fn the_front_toast_of_a_pile_closed_shows_the_next_in_its_place() {
+  let toasts = Toasts::new();
+  let mut stage = window(&toasts, ToastPosition::BottomRight);
+  toasts.show(Toast::new("First").duration(Duration::from_secs(30)));
+  let second = toasts.show(Toast::new("Second").duration(Duration::from_secs(30)));
+  stage.pass();
+  stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(1));
+  stage.pass_after(Duration::from_secs(2));
+  let front = stage.text_quad("Second").unwrap();
+  assert!(!stage.paints("First"));
+
+  toasts.dismiss(second);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_secs(2));
+  stage.pass();
+  assert!(!stage.paints("Second"));
+  let first = stage.text_quad("First").expect("the next is in front");
+  assert_eq!(first.x, front.x);
+  // Alone it has no edge behind it: an edge's peek nearer the window's edge than the front of two stood.
+  assert!((first.y - front.y).abs() <= 8.01);
+  assert!(bars(&stage, light(PaletteColor::Popover), 24.0).is_empty());
+}

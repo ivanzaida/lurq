@@ -868,16 +868,46 @@ impl DevtoolsInspectable for ToastHostProps {}
 /// What draws the toasts of a [`Toasts`] in a corner of the window, in a
 /// layer over everything that takes no press beside them and keeps no Tab
 /// from the page. A component, since each toast keeps a timer of its own.
-struct ToastHost;
+struct ToastHost {
+  /// The toast in front, and the one it came in over, if that is still shown under it.
+  front: Arc<Mutex<Front>>,
+  /// Runs out when the toast in front has come in: the one under it is not drawn from then on.
+  covered: Timeout,
+  renders: Signal<u64>,
+}
+
+/// What the host remembers of its pile from one render to the next.
+#[derive(Default)]
+struct Front {
+  /// The toast in front at the last render.
+  id: Option<ToastId>,
+  /// The toast the one in front came in over: it stays drawn under it until that one is in, so that a new
+  /// toast slides over the one that was there, which does not move or leave.
+  over: Option<ToastId>,
+}
 
 impl Component for ToastHost {
   type Props = ToastHostProps;
 
-  fn create(_ctx: &mut Ctx) -> Self {
-    Self
+  fn create(ctx: &mut Ctx) -> Self {
+    let renders = ctx.signal(0_u64);
+    let front = Arc::new(Mutex::new(Front::default()));
+    let covered = ctx.create_timeout(Duration::ZERO, {
+      let (renders, front) = (renders.clone(), front.clone());
+      move || {
+        front.lock().unwrap_or_else(PoisonError::into_inner).over = None;
+        renders.update(|count| *count += 1)
+      }
+    });
+    Self {
+      front,
+      covered,
+      renders,
+    }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let _ = self.renders.get();
     let ToastHostProps { toasts, position } = ctx.props::<ToastHostProps>().clone();
     // The newest first: those shown, and how long each lasts.
     let front: Vec<(ToastId, Option<Duration>)> = toasts.shown.with(|shown| {
@@ -890,10 +920,31 @@ impl Component for ToastHost {
     });
     if front.is_empty() {
       // Closed, the layer stays while the last toast leaves.
+      *self.front.lock().unwrap_or_else(PoisonError::into_inner) = Front::default();
       return Element::from(Modal::new(Element::new()).open_when(false));
     }
     let paused = toasts.paused.get();
     let theme = ctx.theme().clone();
+    // A toast that comes in front of one still shown comes in over it: the one under it stays drawn where it
+    // is until the new one is in, and is then one of the edges behind.
+    let coming = theme.duration_value(MotionDuration::Slow);
+    let under = {
+      let mut held = self.front.lock().unwrap_or_else(PoisonError::into_inner);
+      if held.id != Some(front[0].0) {
+        // With motion reduced the new one is there at once, and nothing is under it.
+        held.over = held
+          .id
+          .filter(|was| !theme.reduced_motion() && front.iter().any(|(id, _)| id == was));
+        held.id = Some(front[0].0);
+        if held.over.is_some() {
+          self.covered.set_duration(coming);
+          self.covered.restart();
+        }
+      }
+      held
+        .over
+        .and_then(|was| front.iter().copied().find(|(id, _)| *id == was))
+    };
     let recipe = theme.resolve::<Toast>(
       &Case {
         breakpoint: current_breakpoint(),
@@ -921,12 +972,13 @@ impl Component for ToastHost {
         },
       )
     };
-    // A toast in its place, by its id: the list keeps it there while it leaves.
-    let place = |toast: Element, id: ToastId| {
+    // A toast in its place, by its id: what holds it keeps it there while it leaves. One that is only covered
+    // by a newer one does not leave: it is gone when the newer one is in over it.
+    let place = |toast: Element, id: ToastId, leaves: bool| {
       let place = Row::new().overflow_visible().key(id.0.to_string());
       match &leave {
-        Some(leave) => place.exit_animation(leave.clone()),
-        None => place,
+        Some(leave) if leaves => place.exit_animation(leave.clone()),
+        _ => place,
       }
       .child(toast)
     };
@@ -941,7 +993,7 @@ impl Component for ToastHost {
     // The toasts behind the front one, while they are stacked: mounted, so that their time runs, and drawing
     // nothing.
     let mut waiting = Row::new().size(Dimension::Px(0.0), Dimension::Px(0.0));
-    if paused || front.len() == 1 {
+    if paused {
       // One over another, the newest nearest the window's edge.
       let order: Vec<_> = if bottom {
         front.into_iter().rev().collect()
@@ -950,11 +1002,12 @@ impl Component for ToastHost {
       };
       for toast in order {
         let item = mount(ctx, toast, true);
-        list = list.child(place(item, toast.0));
+        list = list.child(place(item, toast.0, true));
       }
     } else {
-      // Stacked: the newest in front, and an edge of each of the others behind it, on the side away from the
-      // window's edge.
+      // A pile: the newest in front, and an edge of each of the others behind it, on the side away from the
+      // window's edge. The pile is one thing in the list whatever is in it, and what is in it is laid one over
+      // another, so that a toast that comes or leaves moves nothing else.
       let near = recipe.part(ToastPart::BehindNear);
       let peek = match near.rest().height.and_then(|height| height.resolve(recipe.theme())) {
         Some(Dimension::Px(px)) => px,
@@ -973,20 +1026,33 @@ impl Component for ToastHost {
         room(before).child(Row::new().part(&recipe.part(part)).height(Dimension::Px(peek * 3.0)))
       };
       let behind = front.len() - 1;
-      let mut stack = Stack::new().overflow_visible().stack_align(if bottom {
-        StackAlignment::TopCenter
-      } else {
-        StackAlignment::BottomCenter
-      });
+      let mut pile = Stack::new()
+        .overflow_visible()
+        .presence()
+        .key("pile")
+        .stack_align(if bottom {
+          StackAlignment::TopCenter
+        } else {
+          StackAlignment::BottomCenter
+        });
       if behind >= 2 {
-        stack = stack.child(edge(ToastPart::BehindFar, 0.0));
+        pile = pile.child(edge(ToastPart::BehindFar, 0.0));
       }
-      stack = stack.child(edge(ToastPart::BehindNear, peek * (behind - 1) as f32));
+      if behind >= 1 {
+        pile = pile.child(edge(ToastPart::BehindNear, peek * (behind - 1) as f32));
+      }
+      // The one the front toast is coming in over, drawn under it where the front one will stand.
+      if let Some(under) = under {
+        let item = mount(ctx, under, true);
+        pile = pile.child(place(room(peek * behind as f32).child(item).into(), under.0, false));
+      }
       let item = mount(ctx, front[0], true);
-      stack = stack.child(room(peek * behind as f32).child(item));
-      list = list.child(place(stack.into(), front[0].0));
+      pile = pile.child(place(room(peek * behind as f32).child(item).into(), front[0].0, true));
+      list = list.child(pile);
       for toast in &front[1..] {
-        waiting = waiting.child(mount(ctx, *toast, false));
+        if under.is_none_or(|(id, _)| id != toast.0) {
+          waiting = waiting.child(mount(ctx, *toast, false));
+        }
       }
     }
 
