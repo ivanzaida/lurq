@@ -15,7 +15,7 @@ use lurq::{
     ctx::Ctx,
     theme::{Breakpoint, PaletteColor, RadiusSize, TypographyStyle},
   },
-  components::{Column, Row, Text},
+  components::{Column, Row, ScrollHorizontal, Text},
   core::{ElementRef, Signal},
   layout::{
     Alignment,
@@ -26,7 +26,7 @@ use lurq::{
   ui::{Button, ButtonSize, ButtonVariant},
 };
 
-use crate::kit::{FILL, icon, mono, overline, status_badge, styled, text};
+use crate::kit::{FILL, code_block, icon, icon_tool, line, mono, overline, status_badge, styled, text, tool};
 
 /// How wide the list of sections is.
 const ON_THIS_PAGE: f32 = 216.0;
@@ -88,6 +88,10 @@ pub struct Frame {
   tops: Arc<Mutex<Vec<f32>>>,
   /// Until when the section that was clicked stays the marked one, wherever the page scrolls to.
   held: Arc<Mutex<Option<Instant>>>,
+  /// The demo cards of the page whose code is shown: a bit for each, by its number.
+  shown_code: Signal<u32>,
+  /// How wide a section of the page is, measured: the room a card has.
+  room: Signal<f32>,
 }
 
 impl Frame {
@@ -100,7 +104,79 @@ impl Frame {
       current: ctx.signal(0),
       tops: Arc::default(),
       held: Arc::default(),
+      shown_code: ctx.signal(0),
+      room: ctx.signal(0.0),
     }
+  }
+
+  /// How wide a section of the page is: the room a card of it has. Nothing until the page was laid out
+  /// once. What cannot be narrower than some width asks, and scrolls sideways where there is less
+  /// (`kit::fit`).
+  pub fn room(&self) -> f32 {
+    self.room.get()
+  }
+
+  /// A demo card: what is shown, live, and under it the call that makes one of it. "Show code" opens the
+  /// Rust that builds what the stage shows, and Copy puts it on the clipboard. `number` tells the cards of a
+  /// page apart: each keeps whether its code is shown.
+  pub fn demo(&self, number: u32, shown: impl Into<Element>, call: &str, code: &[&str]) -> Element {
+    let bit = 1u32 << number;
+    let open = self.shown_code.get() & bit != 0;
+    let toggle = self.shown_code.clone();
+    let copied = code.join("\n");
+    let mut card = Column::new()
+      .width(FILL)
+      .clip()
+      .rounded(RadiusSize::Lg)
+      .background(PaletteColor::Card)
+      .foreground(PaletteColor::CardForeground)
+      .border(line())
+      .child(Column::new().width(FILL).padding(32.0).child(shown));
+    if open {
+      let lines: Vec<String> = code.iter().map(|line| (*line).to_owned()).collect();
+      card = card.child(
+        Column::new()
+          .width(FILL)
+          .border_top(line())
+          .background(PaletteColor::Canvas)
+          .child(
+            ScrollHorizontal::new(code_block(&lines))
+              .key(format!("demo-code-{number}"))
+              .width(FILL),
+          ),
+      );
+    }
+    card
+      .child(
+        Row::new()
+          .width(FILL)
+          .height(40.0)
+          .padding_left(16.0)
+          .padding_right(8.0)
+          .align_items(Alignment::Center)
+          .justify(Justify::SpaceBetween)
+          .border_top(line())
+          .spacing(12.0)
+          // In a narrow card the call is cut where the tools begin: they are not pushed out of it.
+          .child(
+            Row::new()
+              .flex(1.0)
+              .clip()
+              .child(mono(call, 12.0).nowrap().color(PaletteColor::MutedForeground)),
+          )
+          .child(
+            Row::new()
+              .spacing(2.0)
+              .align_items(Alignment::Center)
+              .child(tool(if open { "Hide code" } else { "Show code" }, "code", move || {
+                toggle.update(|shown| *shown ^= bit)
+              }))
+              .child(icon_tool("Copy", "copy", move || {
+                lurq::clipboard::copy_to_clipboard(&copied);
+              })),
+          ),
+      )
+      .into()
   }
 
   /// The page: its header, its sections, and the list of them on the right
@@ -119,7 +195,12 @@ impl Frame {
     // reading line. A section says where it is whenever that changes, which scrolling does.
     for (index, anchor) in anchors.iter().enumerate().take(sections.len()) {
       let (tops, held, current) = (self.tops.clone(), self.held.clone(), self.current.clone());
+      let room = self.room.clone();
       anchor.observe_rect(move |rect| {
+        // Every section is as wide as the first.
+        if index == 0 && (room.get() - rect.width).abs() >= 0.5 {
+          room.set(rect.width);
+        }
         let mut tops = tops.lock().unwrap();
         if tops.len() <= index {
           tops.resize(index + 1, f32::MAX);
@@ -142,6 +223,9 @@ impl Frame {
       ctx.scroll_into_view(anchor);
     }
 
+    // A wide window with a narrow column for the page has no room for the actions beside the title.
+    let room = self.room.get();
+    let roomy = room <= 0.0 || room >= ROOMY;
     let titles: Vec<&'static str> = sections.iter().map(|section| section.title).collect();
     let mut main = Column::new()
       .flex(1.0)
@@ -149,7 +233,7 @@ impl Frame {
       .padding_horizontal(beside)
       .padding_bottom(64.0)
       .spacing(48.0)
-      .child(page_header(header, wide).max_width(CONTENT));
+      .child(page_header(header, wide && roomy).max_width(CONTENT));
     for (index, section) in sections.into_iter().enumerate() {
       main = main.child(
         Column::new()
@@ -289,6 +373,9 @@ fn page_actions(source: &'static str) -> Row {
   }
   actions
 }
+
+/// The least width of the page's column with the actions of its header beside the title.
+const ROOMY: f32 = 760.0;
 
 fn page_header(header: Header, wide: bool) -> Column {
   let mut way = Row::new().spacing(8.0).align_items(Alignment::Center);

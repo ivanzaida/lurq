@@ -1989,15 +1989,21 @@ impl Ctx {
 
   // --- Theme ---
 
-  /// Runs `build` with `theme` as the theme of everything it builds and
-  /// mounts: a dark side bar in a light window, a dense inspector. The
-  /// components mounted in it keep the theme when they render again on
-  /// their own.
-  pub fn in_theme<R>(&mut self, theme: &Theme, build: impl FnOnce(&mut Ctx) -> R) -> R {
+  /// Builds an element in `theme`: a dark side bar in a light window, a
+  /// dense inspector. The theme is that of everything `build` builds and
+  /// mounts, down to the paint: components take their recipes and their
+  /// sizes from it, and the element is laid out and painted with its
+  /// palette, its radii, its type and its shadows. The components mounted in
+  /// it keep the theme when they render again on their own, and what
+  /// rendered it renders again when the theme changes.
+  pub fn in_theme<E: Into<Element>>(&mut self, theme: &Theme, build: impl FnOnce(&mut Ctx) -> E) -> Element {
+    theme.track_access();
     let outer = self.theme.replace(theme.clone());
-    let built = crate::ui::in_theme(theme, || build(self));
+    // A builder becomes an element here, in the theme: a component that is returned unbuilt is built in it.
+    let mut element: Element = crate::ui::in_theme(theme, || build(self).into());
     self.theme = outer;
-    built
+    element.node.set_theme_scope(theme);
+    element
   }
 
   pub fn theme(&self) -> &Theme {

@@ -303,8 +303,7 @@ fn a_subtree_is_in_a_theme_of_its_own() {
   let dense = Theme::new();
   dense.patch_recipe::<Button>(|rules| rules.base(ButtonPart::Root, |s| s.height(24.0)));
   let mut stage = Stage::new(move |ctx| {
-    let inspector = ctx.in_theme(&dense, |_| Button::new("Dense").id("dense").into());
-    let inspector: Element = inspector;
+    let inspector = ctx.in_theme(&dense, |_| Button::new("Dense").id("dense"));
     Column::new()
       .spacing(8.0)
       .child(Button::new("Plain").id("plain"))
@@ -422,4 +421,273 @@ fn a_change_of_theme_is_there_at_once_and_a_change_of_state_still_fades() {
     dark(PaletteColor::PrimaryHover),
     "and is not at its hover fill yet"
   );
+}
+
+/// A theme in the dark appearance, with corners of its own, for a part of a light window.
+fn dark_panel() -> Theme {
+  use lurq::app::window::Appearance;
+  let theme = Theme::new();
+  theme.set_preferred_appearance(Some(Appearance::Dark));
+  theme.set_radius_value(RadiusSize::Md, 10.0);
+  theme
+}
+
+#[test]
+fn a_theme_for_a_subtree_reaches_the_paint() {
+  use lurq::app::{theme::TypographyStyle, window::Appearance};
+  let dark = |role: PaletteColor| ThemePalette::dark().get(role);
+  let app = App::new();
+  app.theme().set_preferred_appearance(Some(Appearance::Light));
+  let panel = dark_panel();
+  let mut title = panel.typography_style(TypographyStyle::Title);
+  title.font_size = 30.0;
+  panel.set_typography_style(TypographyStyle::Title, title);
+  let scoped = panel.clone();
+  let mut stage = Stage::in_app(app, move |ctx| {
+    let side = ctx.in_theme(&scoped, |_| {
+      Column::new()
+        .id("side")
+        .padding(12.0)
+        .spacing(8.0)
+        .background(PaletteColor::Background)
+        .foreground(PaletteColor::Foreground)
+        .child(Text::new("In the panel").variant(TypographyStyle::Title))
+        .child(
+          Rect::new(40.0, 20.0)
+            .id("swatch")
+            .background(PaletteColor::Muted)
+            .rounded(RadiusSize::Md),
+        )
+        .child(Button::new("Save").id("inside"))
+    });
+    Column::new()
+      .spacing(8.0)
+      .child(Text::new("Before").variant(TypographyStyle::Title))
+      .child(side)
+      .child(
+        Rect::new(40.0, 20.0)
+          .id("outside")
+          .background(PaletteColor::Muted)
+          .rounded(RadiusSize::Md),
+      )
+      .child(Button::new("Send").id("after"))
+      .into()
+  });
+  // What is in the panel is painted with the panel's palette, and laid out with its type and its corners.
+  assert_eq!(stage.fill_color("side"), Some(dark(PaletteColor::Background)));
+  assert_eq!(stage.text("In the panel"), (dark(PaletteColor::Foreground), 30.0));
+  assert_eq!(stage.fill_color("swatch"), Some(dark(PaletteColor::Muted)));
+  assert_eq!(top_left_radius(&mut stage, "swatch"), 10.0);
+  assert_eq!(
+    stage.fill_color("inside"),
+    Some(dark(PaletteColor::Primary)),
+    "a component in it"
+  );
+  assert_eq!(stage.text("Save").0, dark(PaletteColor::PrimaryForeground));
+  assert_eq!(top_left_radius(&mut stage, "inside"), 10.0);
+  // What is before it and after it is in the window's theme.
+  assert_eq!(stage.text("Before"), (light(PaletteColor::Foreground), 20.0));
+  assert_eq!(stage.fill_color("outside"), Some(light(PaletteColor::Muted)));
+  assert_eq!(top_left_radius(&mut stage, "outside"), 6.0);
+  assert_eq!(stage.fill_color("after"), Some(light(PaletteColor::Primary)));
+
+  // The panel's theme changes while the app runs: the panel follows, and nothing else does.
+  let red = Color::new(200, 30, 30, 255);
+  panel.set_palette_color(PaletteColor::Muted, red);
+  panel.set_radius_value(RadiusSize::Md, 2.0);
+  stage.pass();
+  assert_eq!(stage.fill_color("swatch"), Some(red));
+  assert_eq!(top_left_radius(&mut stage, "swatch"), 2.0);
+  assert_eq!(top_left_radius(&mut stage, "inside"), 2.0);
+  assert_eq!(stage.fill_color("outside"), Some(light(PaletteColor::Muted)));
+  assert_eq!(top_left_radius(&mut stage, "outside"), 6.0);
+}
+
+#[test]
+fn an_element_is_given_a_theme_and_what_is_in_it_is_painted_with_it() {
+  use lurq::app::window::Appearance;
+  let dark = |role: PaletteColor| ThemePalette::dark().get(role);
+  let app = App::new();
+  app.theme().set_preferred_appearance(Some(Appearance::Light));
+  let panel = dark_panel();
+  let mut stage = Stage::in_app(app, move |_| {
+    Column::new()
+      .child(
+        Row::new()
+          .theme(&panel)
+          .child(Rect::new(40.0, 20.0).id("in").background(PaletteColor::Card)),
+      )
+      .child(Rect::new(40.0, 20.0).id("out").background(PaletteColor::Card))
+      .into()
+  });
+  assert_eq!(stage.fill_color("in"), Some(dark(PaletteColor::Card)));
+  assert_eq!(stage.fill_color("out"), Some(light(PaletteColor::Card)));
+}
+
+#[test]
+fn a_transition_in_a_subtree_runs_between_the_colors_of_its_theme() {
+  use std::time::Duration;
+
+  use lurq::app::window::Appearance;
+  let dark = |role: PaletteColor| ThemePalette::dark().get(role);
+  let app = App::new();
+  app.theme().set_preferred_appearance(Some(Appearance::Light));
+  let panel = dark_panel();
+  let mut stage = Stage::in_app(app, move |ctx| {
+    let inside = ctx.in_theme(&panel, |_| {
+      Row::new().padding(20.0).child(Button::new("Save").id("save"))
+    });
+    Column::new().child(inside).into()
+  });
+  assert_eq!(stage.fill_color("save"), Some(dark(PaletteColor::Primary)));
+  let (x, y) = stage.center("save");
+  stage.tree.mouse_move(x, y);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  let on_the_way = stage.fill_color("save").unwrap();
+  assert_ne!(on_the_way, dark(PaletteColor::Primary));
+  assert_ne!(on_the_way, dark(PaletteColor::PrimaryHover));
+  stage.pass();
+  assert_eq!(
+    stage.fill_color("save"),
+    Some(dark(PaletteColor::PrimaryHover)),
+    "the hover fill of the panel's theme, not of the window's"
+  );
+}
+
+#[test]
+fn a_popup_opened_in_a_subtree_is_painted_with_the_theme_of_the_subtree() {
+  use lurq::{app::window::Appearance, components::Popup, core::ElementRef};
+  let dark = |role: PaletteColor| ThemePalette::dark().get(role);
+  let app = App::new();
+  app.theme().set_preferred_appearance(Some(Appearance::Light));
+  let panel = dark_panel();
+  let scoped = panel.clone();
+  let anchor = ElementRef::new();
+  let mut stage = Stage::in_app(app, move |ctx| {
+    let anchor = anchor.clone();
+    let inside = ctx.in_theme(&panel, |_| {
+      Column::new()
+        .child(Rect::new(150.0, 30.0).ref_element(anchor.clone()))
+        .child(
+          Popup::new(
+            anchor.clone(),
+            Rect::new(120.0, 40.0).id("menu").background(PaletteColor::Card),
+          )
+          .open_when(true),
+        )
+    });
+    // The page has room under the anchor for what the popup shows.
+    Column::new().size(300.0, 200.0).child(inside).into()
+  });
+  stage.pass();
+  // What the popup shows is drawn over the tree, outside the element that carries the theme, and is
+  // painted with that theme all the same.
+  assert_eq!(stage.fill_color("menu"), Some(dark(PaletteColor::Card)));
+
+  let red = Color::new(200, 30, 30, 255);
+  scoped.set_palette_color(PaletteColor::Card, red);
+  stage.pass();
+  assert_eq!(stage.fill_color("menu"), Some(red), "and follows it");
+}
+
+#[test]
+fn a_subtree_with_a_theme_is_laid_out_in_whatever_holds_it() {
+  use lurq::{
+    app::window::Appearance,
+    components::{ScrollVertical, Stack},
+  };
+  let dark = |role: PaletteColor| ThemePalette::dark().get(role);
+  let app = App::new();
+  app.theme().set_preferred_appearance(Some(Appearance::Light));
+  let panel = dark_panel();
+  let mut stage = Stage::in_app(app, move |ctx| {
+    let mut swatch = |id: &str| {
+      ctx.in_theme(&panel, |_| {
+        Row::new()
+          .padding(4.0)
+          .child(Rect::new(20.0, 10.0).id(id).background(PaletteColor::Card))
+      })
+    };
+    // A box with a size and padding of its own, a line that wraps, a stack and a scroll: each reads the
+    // window's theme for itself and lets go of it before what is in it is laid out.
+    Column::new()
+      .size(300.0, 200.0)
+      .padding(8.0)
+      .spacing(4.0)
+      .child(Column::new().width(100.0).padding(6.0).child(swatch("boxed")))
+      .child(Row::new().width(100.0).spacing(4.0).wrap().child(swatch("wrapped")))
+      .child(Stack::new().child(swatch("stacked")))
+      .child(ScrollVertical::new(swatch("scrolled")).height(30.0))
+      .child(Rect::new(20.0, 10.0).id("outside").background(PaletteColor::Card))
+      .into()
+  });
+  for id in ["boxed", "wrapped", "stacked", "scrolled"] {
+    assert_eq!(stage.fill_color(id), Some(dark(PaletteColor::Card)), "{id}");
+  }
+  assert_eq!(stage.fill_color("outside"), Some(light(PaletteColor::Card)));
+}
+
+#[test]
+fn a_modal_declared_in_a_subtree_is_painted_with_the_theme_of_the_subtree() {
+  use lurq::{
+    app::window::Appearance,
+    components::{Modal, Root},
+  };
+  let dark = |role: PaletteColor| ThemePalette::dark().get(role);
+  let app = App::new();
+  app.theme().set_preferred_appearance(Some(Appearance::Light));
+  let panel = dark_panel();
+  let mut stage = Stage::in_app(app, move |ctx| {
+    let inside = ctx.in_theme(&panel, |_| {
+      Column::new().child(Modal::new(Rect::new(120.0, 40.0).id("dialog").background(PaletteColor::Card)).target(Root))
+    });
+    Column::new().size(300.0, 200.0).child(inside).into()
+  });
+  stage.pass();
+  assert_eq!(stage.fill_color("dialog"), Some(dark(PaletteColor::Card)));
+}
+
+/// The color of an option in the open menu of a select: in a window of the dark appearance, or in a
+/// subtree of the dark appearance in a light window.
+fn option_color(scoped: bool) -> Color {
+  use lurq::{
+    app::{events::MouseButton, window::Appearance},
+    components::Select,
+    core::Signal,
+  };
+  let app = App::new();
+  app
+    .theme()
+    .set_preferred_appearance(Some(if scoped { Appearance::Light } else { Appearance::Dark }));
+  let panel = dark_panel();
+  let value = Signal::new("md".to_owned());
+  let mut stage = Stage::in_app(app, move |ctx| {
+    let select = || {
+      Select::new(value.clone())
+        .options(vec![
+          ("md".to_owned(), "Medium".to_owned()),
+          ("lg".to_owned(), "Large".to_owned()),
+        ])
+        .width(200.0)
+        .height(40.0)
+    };
+    let held: Element = if scoped {
+      ctx.in_theme(&panel, |_| select())
+    } else {
+      select().into()
+    };
+    Column::new().size(300.0, 200.0).child(held).into()
+  });
+  // The select is the first thing of the page: 200 by 40 at its corner.
+  crate::support::pointer_click(&mut stage.tree, 100.0, 20.0, MouseButton::Left);
+  stage.pass();
+  stage.text("Large").0
+}
+
+#[test]
+fn the_menu_of_a_select_in_a_subtree_is_painted_with_the_theme_of_the_subtree() {
+  let in_a_dark_window = option_color(false);
+  assert_eq!(option_color(true), in_a_dark_window);
+  assert_ne!(in_a_dark_window, light(PaletteColor::Foreground));
 }

@@ -177,6 +177,9 @@ pub struct TransitionEngine {
   /// Whether the colors, widths or shadows of the theme are other ones than in the frame before. What a node
   /// heads to then changed because the theme did, not because the node did: see [`Self::process_node`].
   theme_changed: bool,
+  /// The themes that elements of the tree carry, each with the values last read from it: a subtree is read
+  /// against its own theme, and a change of that theme is a change of theme for the subtree.
+  scopes: Vec<(Theme, TargetTheme)>,
   /// Whether motion is reduced (`Theme::reduced_motion`): what moves or resizes an element then ends at once.
   reduced_motion: bool,
 }
@@ -198,6 +201,7 @@ impl TransitionEngine {
       theme: TargetTheme::default(),
       theme_seen: None,
       theme_changed: false,
+      scopes: Vec::new(),
       reduced_motion: false,
     }
   }
@@ -286,6 +290,11 @@ impl TransitionEngine {
     }
     #[cfg(test)]
     crate::core::layout_dirty::visit();
+    let scope = node
+      .theme_scope
+      .as_deref()
+      .cloned()
+      .map(|theme| self.enter_scope(&theme));
     let node_id = node.node_id();
     let mut needs_layout = false;
     if node_id.is_assigned() && !node.transitions.is_empty() {
@@ -302,8 +311,40 @@ impl TransitionEngine {
     if needs_layout {
       node.layout_cache.invalidate();
     }
+    if let Some((theme, changed)) = scope {
+      self.theme = theme;
+      self.theme_changed = changed;
+    }
 
     needs_layout
+  }
+
+  /// Enters the subtree of an element that carries `theme`: what its nodes head to is read against that
+  /// theme, and a change of its colors, widths or shadows since the last frame is a change of theme for
+  /// them. Returns the theme and the flag to restore after the subtree.
+  fn enter_scope(&mut self, theme: &Theme) -> (TargetTheme, bool) {
+    let taken = TargetTheme {
+      palette: theme.palette().clone(),
+      border_sizes: theme.border_sizes().clone(),
+      shadows: theme.shared_shadows(),
+    };
+    let same = |a: &TargetTheme, b: &TargetTheme| {
+      a.palette == b.palette && a.border_sizes == b.border_sizes && a.shadows == b.shadows
+    };
+    let changed = match self.scopes.iter_mut().find(|(seen, _)| seen.same_theme(theme)) {
+      Some((_, values)) => {
+        let changed = !same(values, &taken);
+        *values = taken.clone();
+        changed
+      }
+      None => {
+        self.scopes.push((theme.clone(), taken.clone()));
+        false
+      }
+    };
+    let outer = (std::mem::replace(&mut self.theme, taken), self.theme_changed);
+    self.theme_changed = changed;
+    outer
   }
 
   fn process_node(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {

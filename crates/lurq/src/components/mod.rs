@@ -1149,6 +1149,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Lays the element and what is in it out, and paints them, with
+      /// `theme` in place of the window's: its palette, its radii, its type,
+      /// its shadows. A dark panel in a light window. Components built
+      /// inside take their recipes from the theme they are built in: see
+      /// [`Ctx::in_theme`]($crate::app::ctx::Ctx::in_theme), which does both.
+      pub fn theme(mut self, theme: &$crate::app::theme::Theme) -> Self {
+        self.update_node(|node| node.set_theme_scope(theme));
+        self
+      }
+
       pub fn intrinsic(mut self, width: f32, height: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::intrinsic(node, width, height));
         self

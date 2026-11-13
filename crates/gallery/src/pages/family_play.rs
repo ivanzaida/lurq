@@ -85,19 +85,24 @@ impl TogglePlay {
     let (label, icon, size) = (self.label.get(), self.icon.get(), self.size.get());
     let (on, icon_only, disabled) = (self.on.get(), self.icon_only.get(), self.disabled.get());
     let (record, set) = (self.playground.recorder(), self.on.clone());
-    let mut toggle = Toggle::new(&label)
-      .size(SIZES[size].0)
-      .on(on)
-      .icon_only(icon_only)
-      .disabled(disabled)
-      .force(self.playground.forced())
-      .on_change(move |next| {
-        set.set(next);
-        record(format!("on_change({next})"));
-      });
-    if let Some(name) = TOGGLE_ICONS[icon].1 {
-      toggle = toggle.icon(name);
-    }
+    let plain = {
+      let label = label.clone();
+      move || {
+        let toggle = Toggle::new(&label)
+          .size(SIZES[size].0)
+          .on(on)
+          .icon_only(icon_only)
+          .disabled(disabled);
+        match TOGGLE_ICONS[icon].1 {
+          Some(name) => toggle.icon(name),
+          None => toggle,
+        }
+      }
+    };
+    let toggle = plain().force(self.playground.forced()).on_change(move |next| {
+      set.set(next);
+      record(format!("on_change({next})"));
+    });
 
     let mut code = vec![format!("Toggle::new({label:?})")];
     if TOGGLE_ICONS[icon].1.is_some() {
@@ -136,6 +141,8 @@ impl TogglePlay {
     self.playground.card(
       ctx,
       Spec {
+        title: "Toggle",
+        make: Arc::new(move || plain().into()),
         shown: toggle.into(),
         fill: false,
         forceable: true,
@@ -198,13 +205,19 @@ impl LinkPlay {
   pub fn card(&self, ctx: &mut Ctx) -> Element {
     let (label, icon, disabled) = (self.label.get(), self.icon.get(), self.disabled.get());
     let record = self.playground.recorder();
-    let mut link = Link::new(&label)
-      .disabled(disabled)
+    let plain = {
+      let label = label.clone();
+      move || {
+        let link = Link::new(&label).disabled(disabled);
+        match LINK_ICONS[icon].1 {
+          Some(name) => link.icon(name),
+          None => link,
+        }
+      }
+    };
+    let link = plain()
       .force(self.playground.forced())
       .on_click(move |_| record("on_click".to_owned()));
-    if let Some(name) = LINK_ICONS[icon].1 {
-      link = link.icon(name);
-    }
     let mut code = vec![format!("Link::new({label:?})")];
     if LINK_ICONS[icon].1.is_some() {
       code.push(LINK_ICONS[icon].2.to_owned());
@@ -237,6 +250,8 @@ impl LinkPlay {
     self.playground.card(
       ctx,
       Spec {
+        title: "Link",
+        make: Arc::new(move || plain().into()),
         shown: link.into(),
         fill: false,
         forceable: true,
@@ -357,6 +372,22 @@ impl SegmentedPlay {
     self.playground.card(
       ctx,
       Spec {
+        title: "Segmented Control",
+        make: Arc::new(move || {
+          let choices = VIEWS.iter().enumerate().map(|(index, (label, glyph, _))| {
+            let choice = Choice::new(index, label);
+            if with_icons {
+              choice.icon(*glyph).icon_only(icon_only)
+            } else {
+              choice
+            }
+          });
+          SegmentedControl::controlled(chosen, choices, |_: usize| {})
+            .size(SIZES[size].0)
+            .full_width(full_width)
+            .disabled(disabled)
+            .into()
+        }),
         shown: control.into(),
         fill: full_width,
         forceable: true,
@@ -474,6 +505,16 @@ impl ButtonGroupPlay {
     self.playground.card(
       ctx,
       Spec {
+        title: "Button Group",
+        make: Arc::new(move || {
+          let mut group = ButtonGroup::new()
+            .variant(GROUP_VARIANTS[variant].0)
+            .size(SIZES[size].0);
+          for unit in UNITS.into_iter().take(buttons) {
+            group = group.child(Button::new(unit).disabled(disabled));
+          }
+          group.into()
+        }),
         shown: group.into(),
         fill: false,
         forceable: false,
@@ -622,6 +663,20 @@ impl ToggleGroupPlay {
     self.playground.card(
       ctx,
       Spec {
+        title: "Toggle Group",
+        make: {
+          let on = on.clone();
+          Arc::new(move || {
+            let choices = MARKS
+              .iter()
+              .enumerate()
+              .map(|(index, (label, glyph, _))| Choice::new(index, label).icon(*glyph).icon_only(icon_only));
+            ToggleGroup::controlled(on.clone(), choices, |_: usize| {})
+              .size(SIZES[size].0)
+              .disabled(disabled)
+              .into()
+          })
+        },
         shown: group.into(),
         fill: false,
         forceable: false,

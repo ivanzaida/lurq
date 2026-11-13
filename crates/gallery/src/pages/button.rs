@@ -18,7 +18,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, card_footer, line, name, props_table, quiet, segmented, segmented_fill, styled},
+  kit::{FILL, fit, line, name, props_table, quiet, segmented, segmented_fill, styled},
   playground::{Playground, Spec, divider, field, flag, prop},
 };
 
@@ -387,7 +387,12 @@ impl ButtonPage {
     self.playground.card(
       ctx,
       Spec {
+        title: "Button",
         shown,
+        make: {
+          let props = props.clone();
+          Arc::new(move || props.button().into())
+        },
         fill: props.full_width,
         forceable: true,
         facts: format!("radius {radius}"),
@@ -421,11 +426,25 @@ impl ButtonPage {
           ),
       );
     }
-    demo(stage, ".variant(ButtonVariant::Primary)")
+    // Five columns, each as wide as its button at least: in a narrower card they scroll sideways. The
+    // stage of a card is 32 from its edges.
+    let stage = fit("variants", self.frame.room() - 64.0, 720.0, stage);
+    self.frame.demo(
+      0,
+      stage,
+      ".variant(ButtonVariant::Primary)",
+      &[
+        "Button::new(\"Primary\")",
+        "Button::new(\"Secondary\").variant(ButtonVariant::Secondary)",
+        "Button::new(\"Outline\").variant(ButtonVariant::Outline)",
+        "Button::new(\"Ghost\").variant(ButtonVariant::Ghost)",
+        "Button::new(\"Destructive\").variant(ButtonVariant::Destructive)",
+      ],
+    )
   }
 
   fn sizes(&self) -> Element {
-    let mut stage = Row::new().spacing(32.0).align_items(Alignment::End);
+    let mut stage = Row::new().width(FILL).spacing(32.0).wrap().align_items(Alignment::End);
     for size in &SIZES {
       stage = stage.child(
         Column::new()
@@ -434,7 +453,18 @@ impl ButtonPage {
           .child(quiet(&format!("{} · {} px", size.name, size.height), 12.0)),
       );
     }
-    demo(stage, ".size(ButtonSize::Md)")
+    self.frame.demo(
+      1,
+      stage,
+      ".size(ButtonSize::Md)",
+      &[
+        "Button::new(\"Size Xs\").size(ButtonSize::Xs)",
+        "Button::new(\"Size Sm\").size(ButtonSize::Sm)",
+        "Button::new(\"Size Md\")",
+        "Button::new(\"Size Lg\").size(ButtonSize::Lg)",
+        "Button::new(\"Size Xl\").size(ButtonSize::Xl)",
+      ],
+    )
   }
 
   /// Every variant in every state, at the size picked above it. The columns
@@ -507,7 +537,9 @@ impl ButtonPage {
           )
           .child(quiet("5 variants × 6 states", 12.0)),
       )
-      .child(matrix)
+      // Six columns of buttons of this size need this much: in a narrower card the matrix scrolls sideways,
+      // and no button is squeezed.
+      .child(fit("states", self.frame.room(), MATRIX_WIDTH[picked.min(4)], matrix))
       .into()
   }
 
@@ -525,7 +557,8 @@ impl ButtonPage {
         .child(Row::new().width(120.0).child(name(label, 12.0)))
         .child(items.flex(1.0))
     };
-    let items = || Row::new().spacing(28.0).align_items(Alignment::End);
+    // What does not fit beside the others goes on to the next line.
+    let items = || Row::new().spacing(28.0).wrap().align_items(Alignment::End);
     let outline = |label: &str| Button::new(label).variant(ButtonVariant::Outline);
 
     let with_icon = items()
@@ -584,7 +617,41 @@ impl ButtonPage {
           .child(Row::new().width(120.0).child(name("full width", 12.0)))
           .child(full),
       );
-    demo(stage, ".icon(icons::PLUS).icon_only(true).shape(ButtonShape::Pill)")
+    self.frame.demo(
+      2,
+      stage,
+      ".icon(icons::PLUS).icon_only(true).shape(ButtonShape::Pill)",
+      &[
+        "// With an icon.",
+        "Button::new(\"New window\").variant(ButtonVariant::Outline).icon(icons::PLUS)",
+        "Button::new(\"Next\").trailing_icon(icons::ARROW_RIGHT)",
+        "Button::new(\"Download\")",
+        "    .variant(ButtonVariant::Outline)",
+        "    .icon(icons::DOWNLOAD)",
+        "    .shape(ButtonShape::Pill)",
+        "Button::new(\"Delete\").variant(ButtonVariant::Destructive).icon(icons::TRASH)",
+        "",
+        "// An icon alone, at each size: a square, still called by its label.",
+        "for size in [ButtonSize::Xs, ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg, ButtonSize::Xl] {",
+        "    row = row.child(",
+        "        Button::new(\"Settings\")",
+        "            .variant(ButtonVariant::Outline)",
+        "            .size(size)",
+        "            .icon(icons::SETTINGS)",
+        "            .icon_only(true),",
+        "    );",
+        "}",
+        "// In a pill it is a circle.",
+        "Button::new(\"Add\")",
+        "    .variant(ButtonVariant::Secondary)",
+        "    .icon(icons::PLUS)",
+        "    .icon_only(true)",
+        "    .shape(ButtonShape::Pill)",
+        "Button::new(\"More\").variant(ButtonVariant::Ghost).icon(icons::MORE_HORIZONTAL).icon_only(true)",
+        "",
+        "Button::new(\"Continue\").full_width(true)",
+      ],
+    )
   }
 
   /// A button with a second line, and the button that floats over a view.
@@ -623,7 +690,23 @@ impl ButtonPage {
         raised(Fab::new("Compose", icons::COMPOSE).extended(true)),
         "extended(true)",
       ));
-    demo(stage, "Button::new(\"Schedule\").description(\"Pick a date and time\")")
+    self.frame.demo(
+      3,
+      stage,
+      "Button::new(\"Schedule\").description(\"Pick a date and time\")",
+      &[
+        "Button::new(\"Schedule\")",
+        "    .variant(ButtonVariant::Outline)",
+        "    .icon(icons::CALENDAR_PLUS)",
+        "    .description(\"Pick a date and time\")",
+        "Button::new(\"Deploy\").icon(icons::SEND).description(\"To production, at once\")",
+        "",
+        "// A floating button is raised, and a container clips what is in it:",
+        "// what holds one shows what is outside it, for the shadow.",
+        "Row::new().overflow_visible().child(Fab::new(\"Compose\", icons::PLUS))",
+        "Row::new().overflow_visible().child(Fab::new(\"Compose\", icons::COMPOSE).extended(true))",
+      ],
+    )
   }
 
   fn table(&self) -> Element {
@@ -702,23 +785,13 @@ impl ButtonPage {
         "One instance over the theme; the rules of the place it is in; a state drawn with nothing pointing at it.",
       ),
     ];
-    props_table(&rows, &["label"])
+    props_table(&rows, &["label"], self.frame.room())
   }
 }
 
-/// A demo card: the live buttons on the canvas, and under them the call that makes one.
-fn demo(stage: impl Into<Element>, call: &str) -> Element {
-  Column::new()
-    .width(FILL)
-    .clip()
-    .rounded(RadiusSize::Lg)
-    .background(PaletteColor::Card)
-    .foreground(PaletteColor::CardForeground)
-    .border(line())
-    .child(Column::new().width(FILL).padding(32.0).child(stage))
-    .child(card_footer(call))
-    .into()
-}
+/// How wide the matrix of states has to be for six columns of buttons of each size: the widest button of
+/// the size, the destructive one while it loads, fits its column.
+const MATRIX_WIDTH: [f32; 5] = [800.0, 840.0, 878.0, 990.0, 1080.0];
 
 impl Component for ButtonPage {
   type Props = ();

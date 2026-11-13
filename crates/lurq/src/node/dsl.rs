@@ -43,6 +43,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     component_contexts_debug: Vec::new(),
     #[cfg(any(feature = "devtools", feature = "mcp"))]
     debug_attrs: Vec::new(),
+    theme_scope: None,
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,

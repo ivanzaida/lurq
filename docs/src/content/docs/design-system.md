@@ -221,11 +221,17 @@ Button::new("Confirm").rules(&confirm);
 
 // A subtree in a theme of its own: a dense inspector in a window that is not.
 let inspector = ctx.in_theme(&dense, |ctx| inspector_panel(ctx));
+
+// An element and what is in it painted with another theme: a dark side bar in a light window.
+Column::new().theme(&dark).background(PaletteColor::Background).child(nav);
 ```
 
 - The order, later over earlier: the theme's recipe, the rules of the place (`.rules(...)`), the instance's own (`.style(...)`).
-- `ctx.in_theme(&theme, |ctx| ...)` is the theme of everything the closure builds and mounts. Components mounted in it keep the theme when they render again on their own.
-- A theme for a subtree changes what a component takes from the theme as it is built: its recipe and its renderers, the sizes, type, opacity and motion its parts resolve, its density and its icons. The roles its nodes are painted with, a color of the palette, a radius, a shadow, a spacing role, are still read from the window's theme: a subtree in a dark theme inside a light window is not dark yet.
+- `ctx.in_theme(&theme, |ctx| ...)` is the theme of everything the closure builds and mounts, and returns it as an `Element`. Components mounted in it keep the theme when they render again on their own.
+- The theme reaches the whole of the subtree. A component built in it takes its recipe and its renderers, the sizes, type, opacity and motion of its parts, its density and its icons from that theme; and the roles left on the nodes, a color of the palette, a radius, a border width, a shadow, a spacing role, a typography style, the scroll bar and the caret, are laid out and painted with that theme's values. A subtree in a dark theme inside a light window is dark.
+- `.theme(&theme)` on any element does the second half alone: the element and what is in it are laid out and painted with the values of that theme. What was built outside `in_theme` keeps the recipes it was built with, so this is for plain elements, and `in_theme` is for components.
+- A change of the subtree's theme while the app runs lays the window out again, as a change of the window's theme does, and is there at once: a transition in the subtree runs between the colors of its theme, and not from the window's to its.
+- What is declared in the subtree and drawn over the window, the content of a `Popup`, a `Modal`, the menu of a `Select`, is laid out and painted with the subtree's theme too.
 - `ui::current_theme()` is the theme of what is being built. Outside a render there is none, and it is a neutral one that follows nothing: build components where they are rendered.
 
 ## Icon

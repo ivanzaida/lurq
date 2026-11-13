@@ -17,7 +17,7 @@ use lurq::{
 use super::family_play::{ButtonGroupPlay, LinkPlay, SegmentedPlay, ToggleGroupPlay, TogglePlay};
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, demo_card, props_table, quiet, text},
+  kit::{FILL, props_table, quiet, text},
 };
 
 const SIZES: [(ButtonSize, &str); 5] = [
@@ -153,23 +153,69 @@ impl Component for TogglePage {
         Section::new(
           "Toggle",
           "Press one: it is on until it is pressed again. The page holds whether each is on, in a signal.",
-          demo_card(
+          self.frame.demo(
+            0,
             live,
             "Toggle::new(\"Bold\").icon(icons::BOLD).on(bold.get()).on_change(..)",
+            &[
+              "// bold, italic, pinned: Signal<bool>",
+              "let set = bold.clone();",
+              "Toggle::new(\"Bold\")",
+              "    .icon(icons::BOLD)",
+              "    .on(bold.get())",
+              "    .on_change(move |on| set.set(on))",
+              "",
+              "let set = italic.clone();",
+              "Toggle::new(\"Italic\")",
+              "    .icon(icons::ITALIC)",
+              "    .on(italic.get())",
+              "    .on_change(move |on| set.set(on))",
+              "",
+              "// An icon alone: its label is what it is called.",
+              "let set = pinned.clone();",
+              "Toggle::new(\"Pin\")",
+              "    .icon(icons::PIN)",
+              "    .icon_only(true)",
+              "    .on(pinned.get())",
+              "    .on_change(move |on| set.set(on))",
+            ],
           ),
         ),
         Section::new(
           "Sizes",
           "A toggle is as high as a button of the same size.",
-          demo_card(sizes, ".size(ButtonSize::Md)"),
+          self.frame.demo(
+            1,
+            sizes,
+            ".size(ButtonSize::Md)",
+            &[
+              "for size in [ButtonSize::Xs, ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg, ButtonSize::Xl] {",
+              "    row = row.child(Toggle::new(\"Bold\").icon(icons::BOLD).size(size).on(true));",
+              "}",
+            ],
+          ),
         ),
         Section::new(
           "States",
           "Off it has no fill until the pointer is on it. On it has the fill of what is picked out, a step darker \
            under the pointer.",
-          demo_card(states, ".on(true)"),
+          self.frame.demo(
+            2,
+            states,
+            ".on(true)",
+            &[
+              "Toggle::new(\"Bold\")",
+              "Toggle::new(\"Bold\").on(true)",
+              "Toggle::new(\"Bold\").on(true).disabled(true)",
+              "",
+              "// Drawn in a state with nothing pointing at it: for a gallery, a test.",
+              "Toggle::new(\"Bold\").force(Some(Interaction::Hovered))",
+              "Toggle::new(\"Bold\").on(true).force(Some(Interaction::Hovered))",
+              "Toggle::new(\"Bold\").force(Some(Interaction::FocusVisible))",
+            ],
+          ),
         ),
-        Section::new("Props", "What a toggle is given.", props_table(&rows, &["label"])),
+        Section::new("Props", "What a toggle is given.", props_table(&rows, &["label"], self.frame.room())),
       ],
     )
   }
@@ -276,20 +322,80 @@ impl Component for ButtonGroupPage {
           "Outline",
           "One line around the buttons and one between them. The group gives its buttons their size and squares \
            their corners; each keeps what a press of it does.",
-          demo_card(outline, "ButtonGroup::new().child(Button::new(\"Years\")).child(..)"),
+          self.frame.demo(
+            0,
+            outline,
+            "ButtonGroup::new().child(Button::new(\"Years\")).child(..)",
+            &[
+              "ButtonGroup::new()",
+              "    .child(Button::new(\"Years\"))",
+              "    .child(Button::new(\"Months\"))",
+              "    .child(Button::new(\"Days\"))",
+              "",
+              "// Each button keeps what a press of it does. zoom: Signal<u32>",
+              "let (out, back, closer) = (zoom.clone(), zoom.clone(), zoom.clone());",
+              "ButtonGroup::new()",
+              "    .child(",
+              "        Button::new(\"Zoom out\")",
+              "            .icon(icons::ZOOM_OUT)",
+              "            .icon_only(true)",
+              "            .on_click(move |_| out.update(|zoom| *zoom = zoom.saturating_sub(10).max(10))),",
+              "    )",
+              "    .child(Button::new(&format!(\"{}%\", zoom.get())).on_click(move |_| back.set(100)))",
+              "    .child(",
+              "        Button::new(\"Zoom in\")",
+              "            .icon(icons::ZOOM_IN)",
+              "            .icon_only(true)",
+              "            .on_click(move |_| closer.update(|zoom| *zoom = (*zoom + 10).min(400))),",
+              "    )",
+            ],
+          ),
         ),
         Section::new(
           "Split button",
           "A filled group of two: the action, and beside it what opens the choice of how to do it. What it opens \
            is the app's: the design system has no menu yet.",
-          demo_card(filled, ".variant(ButtonGroupVariant::Primary)"),
+          self.frame.demo(
+            1,
+            filled,
+            ".variant(ButtonGroupVariant::Primary)",
+            &[
+              "let split = |variant: ButtonGroupVariant, label: &str| {",
+              "    ButtonGroup::new()",
+              "        .variant(variant)",
+              "        .child(Button::new(label))",
+              "        .child(Button::new(\"How\").icon(icons::CHEVRON_DOWN).icon_only(true))",
+              "};",
+              "split(ButtonGroupVariant::Primary, \"Merge\")",
+              "split(ButtonGroupVariant::Secondary, \"Export\")",
+              "split(ButtonGroupVariant::Destructive, \"Delete\")",
+            ],
+          ),
         ),
         Section::new(
           "Sizes",
           "The group gives its size to every button in it.",
-          demo_card(sizes, ".size(ButtonSize::Md)"),
+          self.frame.demo(
+            2,
+            sizes,
+            ".size(ButtonSize::Md)",
+            &[
+              "for size in [ButtonSize::Xs, ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg, ButtonSize::Xl] {",
+              "    row = row.child(",
+              "        ButtonGroup::new()",
+              "            .size(size)",
+              "            .child(Button::new(\"Day\"))",
+              "            .child(Button::new(\"Week\")),",
+              "    );",
+              "}",
+            ],
+          ),
         ),
-        Section::new("Props", "What a group is given.", props_table(&rows, &[])),
+        Section::new(
+          "Props",
+          "What a group is given.",
+          props_table(&rows, &[], self.frame.room()),
+        ),
       ],
     )
   }
@@ -404,22 +510,53 @@ impl Component for ToggleGroupPage {
         Section::new(
           "One of them",
           "Bound to a signal of one value: the toggle with that value is on.",
-          demo_card(one, "ToggleGroup::new(align, [(Align::Left, \"Left\"), ..])"),
+          self.frame.demo(
+            0,
+            one,
+            "ToggleGroup::new(align, [(Align::Left, \"Left\"), ..])",
+            &[
+              "// align: Signal<usize>",
+              "ToggleGroup::new(align.clone(), [(0usize, \"Left\"), (1, \"Center\"), (2, \"Right\")])",
+            ],
+          ),
         ),
         Section::new(
           "Any number",
           "Bound to a signal of a list: a press adds a value, and a press of a toggle that is on takes it out.",
-          demo_card(
+          self.frame.demo(
+            1,
             many,
             "ToggleGroup::multiple(marks, [Choice::new(..).icon(..).icon_only(true), ..])",
+            &[
+              "// marks: Signal<Vec<usize>>",
+              "ToggleGroup::multiple(marks.clone(), [",
+              "    Choice::new(0usize, \"Bold\").icon(icons::BOLD).icon_only(true),",
+              "    Choice::new(1, \"Italic\").icon(icons::ITALIC).icon_only(true),",
+              "    Choice::new(2, \"Underline\").icon(icons::UNDERLINE).icon_only(true),",
+              "])",
+            ],
           ),
         ),
         Section::new(
           "Sizes",
           "The group gives its size to every toggle in it. These are all bound to the signal above.",
-          demo_card(sizes, ".size(ButtonSize::Md)"),
+          self.frame.demo(
+            2,
+            sizes,
+            ".size(ButtonSize::Md)",
+            &[
+              "let choices = || [",
+              "    Choice::new(0usize, \"Bold\").icon(icons::BOLD).icon_only(true),",
+              "    Choice::new(1, \"Italic\").icon(icons::ITALIC).icon_only(true),",
+              "    Choice::new(2, \"Underline\").icon(icons::UNDERLINE).icon_only(true),",
+              "];",
+              "for size in [ButtonSize::Xs, ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg, ButtonSize::Xl] {",
+              "    row = row.child(ToggleGroup::multiple(marks.clone(), choices()).size(size));",
+              "}",
+            ],
+          ),
         ),
-        Section::new("Props", "What a group of toggles is given.", props_table(&rows, &[])),
+        Section::new("Props", "What a group of toggles is given.", props_table(&rows, &[], self.frame.room())),
       ],
     )
   }
@@ -552,19 +689,64 @@ impl Component for SegmentedControlPage {
         Section::new(
           "Segmented control",
           "Exactly one segment is chosen. Each is a button: Tab reaches it, and a click, Enter or Space chooses it.",
-          demo_card(live, "SegmentedControl::new(period, [(Period::Day, \"Day\"), ..])"),
+          self.frame.demo(
+            0,
+            live,
+            "SegmentedControl::new(period, [(Period::Day, \"Day\"), ..])",
+            &[
+              "// period, view: Signal<usize>",
+              "SegmentedControl::new(period.clone(), [(0usize, \"Day\"), (1, \"Week\"), (2, \"Month\")])",
+              "",
+              "// With icons.",
+              "SegmentedControl::new(view.clone(), [",
+              "    Choice::new(0usize, \"List\").icon(icons::LIST),",
+              "    Choice::new(1, \"Table\").icon(icons::TABLE),",
+              "    Choice::new(2, \"Board\").icon(icons::DASHBOARD),",
+              "])",
+              "",
+              "// Icons alone: each segment is still called by its label.",
+              "SegmentedControl::new(view.clone(), [",
+              "    Choice::new(0usize, \"List\").icon(icons::LIST).icon_only(true),",
+              "    Choice::new(1, \"Table\").icon(icons::TABLE).icon_only(true),",
+              "    Choice::new(2, \"Board\").icon(icons::DASHBOARD).icon_only(true),",
+              "])",
+            ],
+          ),
         ),
         Section::new(
           "Sizes",
           "The track is as high as a button of the same size. These are bound to the signal above.",
-          demo_card(sizes, ".size(ButtonSize::Md)"),
+          self.frame.demo(
+            1,
+            sizes,
+            ".size(ButtonSize::Md)",
+            &[
+              "let periods = [(0usize, \"Day\"), (1, \"Week\"), (2, \"Month\")];",
+              "for size in [ButtonSize::Xs, ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg, ButtonSize::Xl] {",
+              "    row = row.child(SegmentedControl::new(period.clone(), periods).size(size));",
+              "}",
+            ],
+          ),
         ),
         Section::new(
           "Width and state",
           "Its own width is that of its segments, unless it fills what it is in.",
-          demo_card(wide, ".full_width(true)"),
+          self.frame.demo(
+            2,
+            wide,
+            ".full_width(true)",
+            &[
+              "let periods = [(0usize, \"Day\"), (1, \"Week\"), (2, \"Month\")];",
+              "SegmentedControl::new(period.clone(), periods).full_width(true)",
+              "SegmentedControl::new(period.clone(), periods).disabled(true)",
+            ],
+          ),
         ),
-        Section::new("Props", "What a segmented control is given.", props_table(&rows, &[])),
+        Section::new(
+          "Props",
+          "What a segmented control is given.",
+          props_table(&rows, &[], self.frame.room()),
+        ),
       ],
     )
   }
@@ -670,19 +852,62 @@ impl Component for LinkPage {
         Section::new(
           "Link",
           "Pressed by a click, and by Enter or Space while it is focused.",
-          demo_card(live, "Link::new(\"Read the docs\").external().on_click(..)"),
+          self.frame.demo(
+            0,
+            live,
+            "Link::new(\"Read the docs\").external().on_click(..)",
+            &[
+              "// presses: Signal<u32>",
+              "let count = presses.clone();",
+              "Link::new(\"Read the docs\")",
+              "    .external()",
+              "    .on_click(move |_| count.update(|presses| *presses += 1))",
+              "",
+              "Link::new(\"Privacy policy\")",
+              "Link::new(\"Next page\").icon(icons::ARROW_RIGHT)",
+            ],
+          ),
         ),
         Section::new(
           "States",
           "A line under it while the pointer is on it, and the theme's ring when it is focused from the keyboard.",
-          demo_card(states, "Link::new(\"Read the docs\")"),
+          self.frame.demo(
+            1,
+            states,
+            "Link::new(\"Read the docs\")",
+            &[
+              "Link::new(\"Read the docs\")",
+              "Link::new(\"Read the docs\").disabled(true)",
+              "",
+              "// Drawn in a state with nothing pointing at it: for a gallery, a test.",
+              "Link::new(\"Read the docs\").force(Some(Interaction::Hovered))",
+              "Link::new(\"Read the docs\").force(Some(Interaction::FocusVisible))",
+            ],
+          ),
         ),
         Section::new(
           "In a line",
           "Beside text of its size it stands on the same line.",
-          demo_card(sentence, "Row::new().child(text).child(Link::new(\"terms of use\"))"),
+          self.frame.demo(
+            2,
+            sentence,
+            "Row::new().child(text).child(Link::new(\"terms of use\"))",
+            &[
+              "Row::new()",
+              "    .spacing(4.0)",
+              "    .align_items(Alignment::Center)",
+              "    .child(Text::new(\"By going on you agree to the\"))",
+              "    .child(Link::new(\"terms of use\"))",
+              "    .child(Text::new(\"and the\"))",
+              "    .child(Link::new(\"privacy policy\").external())",
+            ],
+          ),
         ),
-        Section::new("Props", "What a link is given.", props_table(&rows, &["label"])),
+        Section::new(
+          "Props",
+          "What a link is given.",
+          props_table(&rows, &["label"], self.frame.room()),
+        ),
       ],
     )
   }

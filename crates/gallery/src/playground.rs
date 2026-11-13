@@ -11,17 +11,23 @@ use std::sync::Arc;
 
 use lurq::{
   app::{
+    component::Component,
     ctx::Ctx,
-    theme::{BorderSize, Breakpoint, PaletteColor, RadiusSize, TypographyStyle},
+    theme::{BorderSize, Breakpoint, PaletteColor, RadiusSize, Theme, TypographyStyle},
+    window::Appearance,
   },
-  components::{Column, Rect, Row, TextInput},
+  components::{Column, Rect, Row, ScrollBoth, TextInput},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, border::Border},
-  ui::{Interaction, icons},
+  ui::{Button, ButtonSize, ButtonVariant, Interaction, Toggle, icons},
 };
 
 use crate::kit::{FILL, badge, code_block, icon, line, mono, name, quiet, segmented, select, switch, text, tool};
+
+/// The least width of the card with the panel beside the stage: the panel, and a stage whose bar holds the
+/// switch of states and its tools.
+const BESIDE: f32 = 780.0;
 
 /// The states a component is drawn in with nothing pointing at it.
 const FORCED: [(&str, Option<Interaction>); 4] = [
@@ -32,7 +38,9 @@ const FORCED: [(&str, Option<Interaction>); 4] = [
 ];
 
 /// How many of the latest things a component did are kept.
-const KEPT: usize = 6;
+const KEPT: usize = 50;
+/// How high what a tab shows is: five lines of code, as the design draws it.
+const OUTPUT: f32 = 150.0;
 
 /// What a page keeps between renders for its playground.
 pub struct Playground {
@@ -46,12 +54,63 @@ pub struct Playground {
   measured: Signal<String>,
   /// The selects of the panel: what each hangs its list from, and whether it is open.
   selects: Vec<(ElementRef, Signal<bool>)>,
+  /// The card, and how wide it is, measured: the panel stands beside the stage where there is room for both.
+  card: ElementRef,
+  room: Signal<f32>,
+  /// Whether the stage is in the appearance the page is not in.
+  other: Signal<bool>,
+  /// The theme of the stage while it is: the design's, in the other appearance.
+  opposite: Theme,
+}
+
+/// What builds the component of a playground again, as its props were: for a window of its own.
+pub type Make = Arc<dyn Fn() -> Element + Send + Sync>;
+
+/// The props of the window a playground opens: what builds what it shows.
+#[derive(Clone, lurq::DevtoolsInspectable)]
+struct DetachedProps {
+  #[devtools_ignore]
+  make: Make,
+}
+
+impl PartialEq for DetachedProps {
+  fn eq(&self, other: &Self) -> bool {
+    Arc::ptr_eq(&self.make, &other.make)
+  }
+}
+
+/// A window with the component of a playground alone on the canvas, to see it at any size of window.
+struct Detached;
+
+impl Component for Detached {
+  type Props = DetachedProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let make = ctx.props::<DetachedProps>().make.clone();
+    Column::new()
+      .size(FILL, FILL)
+      .padding(32.0)
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .background(PaletteColor::Canvas)
+      .foreground(PaletteColor::Foreground)
+      .child(make())
+  }
 }
 
 /// What a page says of its playground when it renders.
 pub struct Spec {
+  /// What the component is called: the title of the window it is opened in.
+  pub title: &'static str,
   /// The component, as its props make it.
   pub shown: Element,
+  /// What builds the component again as its props are now, with nothing listening to it: what a window of
+  /// its own shows.
+  pub make: Make,
   /// Whether the component is as wide as the stage has room for.
   pub fill: bool,
   /// Whether the component can be drawn in a state with nothing pointing at it: the switch over the stage.
@@ -83,6 +142,10 @@ impl Playground {
       anchor: ElementRef::new(),
       measured: ctx.signal("0 × 0 px".to_owned()),
       selects: (0..selects).map(|_| (ElementRef::new(), ctx.signal(false))).collect(),
+      card: ElementRef::new(),
+      room: ctx.signal(0.0),
+      other: ctx.signal(false),
+      opposite: Theme::new(),
     }
   }
 
@@ -125,14 +188,17 @@ impl Playground {
     select(anchor, open, options, chosen, choose).width(FILL).into()
   }
 
-  /// The bar over the stage: the state the component is drawn in.
-  fn toolbar(&self, forceable: bool) -> Row {
+  /// The bar over the stage: the state the component is drawn in, the appearance of the stage, and the
+  /// component in a window of its own.
+  fn toolbar(&self, ctx: &mut Ctx, spec: &Spec) -> Row {
+    let forceable = spec.forceable;
     let mut bar = Row::new()
       .width(FILL)
       .height(52.0)
       .padding_left(16.0)
       .padding_right(12.0)
       .align_items(Alignment::Center)
+      .justify(Justify::SpaceBetween)
       .border_bottom(line());
     if forceable {
       let forced = self.forced.clone();
@@ -151,7 +217,34 @@ impl Playground {
         12.0,
       ));
     }
-    bar
+    let other = self.other.clone();
+    let (opener, make, title) = (ctx.window_opener(), spec.make.clone(), spec.title);
+    bar.child(
+      Row::new()
+        .spacing(4.0)
+        .align_items(Alignment::Center)
+        .child(
+          Toggle::new("Show the stage in the other appearance")
+            .size(ButtonSize::Sm)
+            .icon(icons::MOON)
+            .icon_only(true)
+            .on(self.other.get())
+            .on_change(move |on| other.set(on)),
+        )
+        .child(
+          Button::new("Open in a window of its own")
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Sm)
+            .icon(icons::EXTERNAL_LINK)
+            .icon_only(true)
+            .on_click(move |_| {
+              let make = make.clone();
+              opener.open(format!("{title} · lurq gallery"), 520, 360, move |app, tree| {
+                tree.mount_root::<Detached>(app, DetachedProps { make });
+              });
+            }),
+        ),
+    )
   }
 
   /// The stage: the component on the canvas, with its measured size and the count of what it did under it.
@@ -262,7 +355,9 @@ impl Playground {
             lurq::clipboard::copy_to_clipboard(&copied);
           })),
       )
-      .child(Column::new().width(FILL).min_height(150.0).child(body))
+      // As high as the design draws it, whatever it shows: a longer log or a longer builder scrolls in it,
+      // and the card keeps its height.
+      .child(ScrollBoth::new(body).key(format!("output-{shown}")).width(FILL).height(OUTPUT))
   }
 
   /// The panel beside the stage: how many props were changed, Reset, and the controls.
@@ -304,11 +399,36 @@ impl Playground {
         measured.set(size);
       }
     });
-    let wide = ctx.breakpoint() >= Some(Breakpoint::Lg);
-    let preview = Column::new()
-      .child(self.toolbar(spec.forceable))
-      .child(self.stage(&mut spec))
-      .child(self.output(&spec));
+    let room = self.room.clone();
+    self.card.observe_rect(move |rect| {
+      if (room.get() - rect.width).abs() >= 0.5 {
+        room.set(rect.width);
+      }
+    });
+    // The window says whether the panel is beside the stage until the card was laid out once; from then
+    // on the card's own width does: a wide window with a narrow column for the page is not room for both.
+    let room = self.room.get();
+    let wide = if room > 0.0 {
+      room >= BESIDE
+    } else {
+      ctx.breakpoint() >= Some(Breakpoint::Lg)
+    };
+    let toolbar = self.toolbar(ctx, &spec);
+    let stage = self.stage(&mut spec);
+    // The stage in the appearance the page is not in: a theme of its own, for it and what is on it.
+    let stage: Element = if self.other.get() {
+      self
+        .opposite
+        .set_preferred_appearance(Some(match ctx.theme().appearance() {
+          Appearance::Dark => Appearance::Light,
+          _ => Appearance::Dark,
+        }));
+      let opposite = self.opposite.clone();
+      ctx.in_theme(&opposite, |_| stage)
+    } else {
+      stage.into()
+    };
+    let preview = Column::new().child(toolbar).child(stage).child(self.output(&spec));
     let panel = self.panel(&mut spec);
     let card = Column::new()
       .width(FILL)
@@ -316,7 +436,8 @@ impl Playground {
       .rounded(RadiusSize::Lg)
       .background(PaletteColor::Card)
       .foreground(PaletteColor::CardForeground)
-      .border(line());
+      .border(line())
+      .ref_element(self.card.clone());
     if wide {
       card
         .child(

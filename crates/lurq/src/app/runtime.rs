@@ -2544,7 +2544,7 @@ impl Tree {
     reasons.merge(self.collect_pass_reasons(theme_version, caret_mode));
     let needs_redraw = self.needs_redraw();
     let has_active_tick_sources = self.has_active_tick_sources();
-    let theme_changed = self.last_theme_version != theme_version;
+    let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
     let required = needs_redraw || has_active_tick_sources || theme_changed;
     let mut report = PassReport {
       required,
@@ -4366,7 +4366,7 @@ impl Tree {
       pending_click: self.click_tracker.has_pending(),
       input_interaction: self.has_active_input_interaction(),
       text_input_caret: self.has_focused_blinking_text_input(caret_mode),
-      theme_changed: self.last_theme_version != theme_version,
+      theme_changed: self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed(),
       component_dirty: root_ctx.is_some_and(|ctx| ctx.any_dirty() || ctx.has_element_request()),
       element_ref_dirty: root.is_some_and(has_dirty_element_ref_recursive),
       layout_dirty: root.is_some_and(has_pending_layout_dirty_recursive),
@@ -6737,7 +6737,7 @@ impl Tree {
         .as_ref()
         .map(|ctx| ctx.theme().version())
         .unwrap_or_else(|| app.theme().version());
-      let theme_changed = self.last_theme_version != theme_version;
+      let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
       let has_active_overlays = root.has_synthetic_role(SyntheticNodeRole::OverlayHost) && root.children.len() > 1;
       root.prepare_layout_tracking();
       let has_dirty_element_ref = has_dirty_element_ref_recursive(root);
@@ -6766,6 +6766,7 @@ impl Tree {
         && !self.leaving_layer_due(now)
       {
         self.last_theme_version = theme_version;
+        self.layout_engine.settle_theme_scopes();
         #[cfg(feature = "canvas")]
         if let Some(layout) = self.last_layout.as_ref()
           && root.prepare_layout_tracking().canvas
@@ -6823,7 +6824,14 @@ impl Tree {
       app.shared.glyph_engine.lock().set_bold_text(bold_text);
       #[cfg(feature = "canvas")]
       let canvas_font = crate::canvas::CanvasFont::from_style(theme.typography().default_style());
-      let theme_changed = self.last_theme_version != theme_version;
+      // The theme of the window, or the theme some element of the tree carries, is another one: every
+      // node is laid out again.
+      let theme_changed = self.last_theme_version != theme_version || self.layout_engine.theme_scopes_changed();
+      if theme_changed {
+        // Every node is laid out again, and an element that carries a theme says so as it is: a theme
+        // no element carries any more is not watched.
+        self.layout_engine.forget_theme_scopes();
+      }
       let (mut layout, base_overlay_index) = crate::app::profiler::producer::layout_compute(
         #[cfg(feature = "perf_profile")]
         &mut self.profiling,
@@ -7741,6 +7749,7 @@ fn build_overlays_from_layout_index(
         state,
         bounds,
         visible,
+        theme,
       } => {
         // A select scrolled out of view does not draw its menu over what
         // covers it; the menu comes back with the select.
@@ -7769,6 +7778,10 @@ fn build_overlays_from_layout_index(
           )
         };
         let mut menu = select_menu::build_select_menu(&state, bounds, viewport, &mut measure);
+        // The menu of a select in a subtree with a theme of its own is laid out and painted with it.
+        if let Some(theme) = theme.as_deref() {
+          menu.set_theme_scope(theme);
+        }
         set_overlay_reuse_key(&mut menu, reuse_key.as_deref());
         overlays.push(menu);
         layers.anchors.push(None);

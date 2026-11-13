@@ -942,6 +942,9 @@ pub(crate) struct Node {
   pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
+  /// The theme the element and what is in it are laid out and painted with, in place of the window's
+  /// (`Ctx::in_theme`). Boxed: almost no node has one.
+  pub(crate) theme_scope: Option<Box<crate::app::theme::Theme>>,
   pub(crate) layout_kind: LayoutKind,
   pub(crate) frame: FrameConstraints,
   pub(crate) padding: Padding,
@@ -2331,6 +2334,7 @@ impl Node {
       component_contexts_debug: Vec::new(),
       #[cfg(any(feature = "devtools", feature = "mcp"))]
       debug_attrs: Vec::new(),
+      theme_scope: None,
       text_content: Guard::new(None),
       text_wrap: DEFAULT_TEXT_WRAP,
       text_overflow: TextOverflow::default(),
@@ -4231,6 +4235,11 @@ impl Node {
     self
   }
 
+  /// Lays the element and what is in it out, and paints them, with `theme` in place of the window's.
+  pub(crate) fn set_theme_scope(&mut self, theme: &crate::app::theme::Theme) {
+    self.theme_scope = Some(Box::new(theme.clone()));
+  }
+
   pub fn overflow_visible(mut self) -> Self {
     self.set_overflow_through_logical(Overflow::Visible);
     self
@@ -5634,6 +5643,7 @@ impl Node {
       component_contexts_debug: self.component_contexts_debug.clone(),
       #[cfg(any(feature = "devtools", feature = "mcp"))]
       debug_attrs: self.debug_attrs.clone(),
+      theme_scope: self.theme_scope.clone(),
       layout_kind: self.layout_kind.clone(),
       frame: self.frame,
       padding: self.padding,

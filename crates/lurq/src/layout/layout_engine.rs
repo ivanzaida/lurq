@@ -68,6 +68,7 @@ mod text_decorations;
 mod text_highlights;
 mod text_input_quads;
 mod text_layout_output;
+mod theme_scope;
 
 use flex_shrink::{FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_line};
 pub(crate) use text_layout_output::TextLayoutOutput;
@@ -185,6 +186,9 @@ pub(crate) enum OverlayLayoutRecord {
     /// Whether the select shows through its ancestors' clips; see
     /// [`ElementLayoutRecord::visible`].
     visible: bool,
+    /// The theme of the subtree the select is in, if that has one of its
+    /// own: its menu is laid out and painted with it.
+    theme: Option<Box<Theme>>,
   },
   Overlay {
     reuse_key: Option<Arc<str>>,
@@ -224,12 +228,14 @@ impl Clone for OverlayLayoutRecord {
         state,
         bounds,
         visible,
+        theme,
       } => Self::SelectMenu {
         reuse_key: reuse_key.clone(),
         origin: *origin,
         state: state.clone(),
         bounds: *bounds,
         visible: *visible,
+        theme: theme.clone(),
       },
       Self::Overlay {
         reuse_key,
@@ -291,6 +297,9 @@ pub(crate) struct LayoutEngine {
   /// The theme the values below were copied from, and its version then
   /// (`set_theme`). `None` until a theme is set: the values are the defaults.
   theme_seen: RefCell<Option<(Theme, u64)>>,
+  /// The themes that elements of the tree carry (`Node::theme_scope`), each with the version it was last
+  /// laid out at: see `theme_scope`.
+  theme_scopes: RefCell<Vec<(Theme, u64)>>,
   palette: RefCell<ThemePalette>,
   border_sizes: RefCell<ThemeBorderSizes>,
   spacing: RefCell<ThemeSpacing>,
@@ -598,6 +607,7 @@ impl LayoutEngine {
       scrollbar_frame_at: Cell::new(std::time::Instant::now()),
       scrollbar_change_at: Cell::new(None),
       theme_seen: RefCell::new(None),
+      theme_scopes: RefCell::new(Vec::new()),
       palette: RefCell::new(ThemePalette::default()),
       border_sizes: RefCell::new(ThemeBorderSizes::default()),
       spacing: RefCell::new(ThemeSpacing::default()),
@@ -728,7 +738,7 @@ impl LayoutEngine {
 
   fn collect_overlay_index(node: &Node, layout: &LayoutResult) -> OverlayLayoutIndex {
     let mut index = OverlayLayoutIndex::default();
-    Self::collect_overlay_index_recursive(node, layout, 0.0, 0.0, 0.0, 0.0, ClipRect::default(), &mut index);
+    Self::collect_overlay_index_recursive(node, layout, 0.0, 0.0, 0.0, 0.0, ClipRect::default(), None, &mut index);
     index
   }
 
@@ -740,6 +750,7 @@ impl LayoutEngine {
     parent_x: f32,
     parent_y: f32,
     clip: ClipRect,
+    scope: Option<&Theme>,
     index: &mut OverlayLayoutIndex,
   ) {
     let rect = ElementRect {
@@ -751,13 +762,17 @@ impl LayoutEngine {
       height: layout.size.height,
     };
     let visible = !clip.active || rect_intersects_clip(rect.x, rect.y, rect.width, rect.height, clip);
+    // A layer is drawn over the tree, outside the element it is declared
+    // in: it is given the theme of the subtree it is declared in, to be laid
+    // out and painted with as what is around its declaration is.
+    let scope = node.theme_scope.as_deref().or(scope);
 
-    Self::index_node_layout(node, rect, visible, index);
+    Self::index_node_layout(node, rect, visible, scope, index);
     let child_clip = intersect_clip(clip, children_clip(node, rect));
 
     for (child_layout, child) in layout.children.iter().zip(node.children()) {
       if child.modal_declaration().is_some() {
-        Self::index_child_modal(child, rect, index);
+        Self::index_child_modal(child, rect, child.theme_scope.as_deref().or(scope), index);
       }
 
       Self::collect_overlay_index_recursive(
@@ -768,6 +783,7 @@ impl LayoutEngine {
         abs_x,
         abs_y,
         child_clip,
+        scope,
         index,
       );
     }
@@ -779,7 +795,13 @@ impl LayoutEngine {
   /// carry whole nodes, are not held in every level's frame in an unoptimized
   /// build (lurq#25).
   #[inline(never)]
-  fn index_node_layout(node: &Node, rect: ElementRect, visible: bool, index: &mut OverlayLayoutIndex) {
+  fn index_node_layout(
+    node: &Node,
+    rect: ElementRect,
+    visible: bool,
+    scope: Option<&Theme>,
+    index: &mut OverlayLayoutIndex,
+  ) {
     index.dropdown_anchors.extend(node.dropdown_anchor().cloned());
     if let Some(element_ref) = node.element_ref.as_ref() {
       index.elements.push(ElementLayoutRecord {
@@ -801,31 +823,46 @@ impl LayoutEngine {
         state: state.clone(),
         bounds: rect,
         visible,
+        theme: scope.map(|theme| Box::new(theme.clone())),
       });
     }
 
     if let Some(spec) = node.overlay_declaration() {
+      let mut spec = spec.clone_for_reuse();
+      Self::scope_layer(&mut spec.node, scope);
       index.overlays.push(OverlayLayoutRecord::Overlay {
         reuse_key: spec
           .node
           .component_key()
           .map(|key| Arc::<str>::from(format!("overlay:{key}"))),
         origin: assigned_id(node),
-        spec: spec.clone_for_reuse(),
+        spec,
       });
     }
   }
 
+  /// Gives what a layer shows the theme of the subtree the layer is declared
+  /// in, unless it carries one of its own.
+  fn scope_layer(content: &mut Node, scope: Option<&Theme>) {
+    if content.theme_scope.is_none()
+      && let Some(theme) = scope
+    {
+      content.set_theme_scope(theme);
+    }
+  }
+
   #[inline(never)]
-  fn index_child_modal(child: &Node, parent: ElementRect, index: &mut OverlayLayoutIndex) {
+  fn index_child_modal(child: &Node, parent: ElementRect, scope: Option<&Theme>, index: &mut OverlayLayoutIndex) {
     if let Some(spec) = child.modal_declaration() {
+      let mut spec = spec.clone_for_reuse();
+      Self::scope_layer(&mut spec.node, scope);
       index.overlays.push(OverlayLayoutRecord::Modal {
         reuse_key: spec
           .node
           .component_key()
           .map(|key| Arc::<str>::from(format!("modal:{key}"))),
         origin: assigned_id(child),
-        spec: spec.clone_for_reuse(),
+        spec,
         parent,
       });
     }
@@ -1139,6 +1176,7 @@ impl LayoutEngine {
     } else {
       (clip, cull_clip)
     };
+    let theme_scope = self.enter_theme_scope(node);
     let foreground_scope = self.enter_foreground_scope(node);
     let frame = self.push_node_quads(
       node,
@@ -1230,6 +1268,7 @@ impl LayoutEngine {
 
     self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
     self.leave_foreground_scope(foreground_scope);
+    self.leave_theme_scope(theme_scope);
     let opacity = node.effective_opacity();
     if opacity < DEFAULT_QUAD_OPACITY || blur > 0.0 {
       // A layer holds the outlines of what is in it, and its own.
@@ -2134,6 +2173,35 @@ impl LayoutEngine {
   }
 
   fn layout_node(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> Arc<LayoutResult> {
+    if node.theme_scope.is_some() {
+      return self.layout_node_in_theme(glyph_engine, node, constraints);
+    }
+    self.layout_node_in_scope(glyph_engine, node, constraints)
+  }
+
+  /// [`Self::layout_node`] for an element that carries a theme: it and what
+  /// is in it are laid out with that theme's values. Out of line, so the
+  /// recursion of every other node keeps its frame.
+  #[inline(never)]
+  fn layout_node_in_theme(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+  ) -> Arc<LayoutResult> {
+    let scope = self.enter_theme_scope(node);
+    let result = self.layout_node_in_scope(glyph_engine, node, constraints);
+    self.leave_theme_scope(scope);
+    result
+  }
+
+  #[inline(always)]
+  fn layout_node_in_scope(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+  ) -> Arc<LayoutResult> {
     #[cfg(feature = "perf_profile")]
     if self.trace.is_on() {
       return self.layout_node_traced(glyph_engine, node, constraints);
@@ -3776,11 +3844,17 @@ impl LayoutEngine {
     let outer_constraints = self.frame_constraints_for_node(node, constraints, frame);
     let parent_w = outer_constraints.max_width;
     let parent_h = outer_constraints.max_height;
-    let spacing = self.spacing.borrow();
-    let left = padding.get_left().resolve(&spacing, parent_w);
-    let right = padding.get_right().resolve(&spacing, parent_w) + self.text_input_scrollbar_lane(node);
-    let top = padding.get_top().resolve(&spacing, parent_h);
-    let bottom = padding.get_bottom().resolve(&spacing, parent_h);
+    // The theme's spacing is read here and let go: what is in the box may carry a theme of its own, whose
+    // values take the place of these while it is laid out (`theme_scope.rs`).
+    let (left, right, top, bottom) = {
+      let spacing = self.spacing.borrow();
+      (
+        padding.get_left().resolve(&spacing, parent_w),
+        padding.get_right().resolve(&spacing, parent_w) + self.text_input_scrollbar_lane(node),
+        padding.get_top().resolve(&spacing, parent_h),
+        padding.get_bottom().resolve(&spacing, parent_h),
+      )
+    };
     let h_pad = left + right;
     let v_pad = top + bottom;
 

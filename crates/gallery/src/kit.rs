@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use lurq::{
   app::theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, TypographyStyle},
-  components::{Column, Popup, Rect, Row, Text},
+  components::{Column, Popup, Rect, Row, ScrollHorizontal, Text},
   core::{ElementRef, Signal},
   layout::{
     Alignment,
@@ -258,27 +258,39 @@ pub fn name(content: &str, size: f32) -> Text {
 
 /// The table of what a component is given: a prop, its type, what it is unless said, and what it does.
 /// The props of `required` are marked so.
-pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str]) -> Element {
-  let head = |title: &str| text(title, 12.0, FontWeight::Medium).color(PaletteColor::MutedForeground);
-  let mut table = Column::new()
+/// The least width of a table of props: its three fixed columns, and a description wide enough to read.
+const PROPS_WIDTH: f32 = 780.0;
+
+/// What needs `least` of width to be read, where there is `room` of it: as wide as what it is in, and in
+/// less room than it needs as wide as that, scrolling sideways. An axis that scrolls has no width to fill,
+/// so what is in it is given one. No room measured yet is room enough.
+pub fn fit(key: &str, room: f32, least: f32, content: impl Into<Element>) -> Element {
+  if room <= 0.0 || room >= least {
+    return content.into();
+  }
+  // The bar of the scroll is drawn over the end of what scrolls: it has a strip of its own under it.
+  ScrollHorizontal::new(Column::new().width(least).padding_bottom(12.0).child(content))
+    .key(key)
     .width(FILL)
-    .clip()
-    .rounded(RadiusSize::Lg)
-    .background(PaletteColor::Card)
-    .foreground(PaletteColor::CardForeground)
-    .border(line())
-    .child(
-      Row::new()
-        .width(FILL)
-        .height(40.0)
-        .padding_horizontal(16.0)
-        .align_items(Alignment::Center)
-        .background(PaletteColor::Muted)
-        .child(Row::new().width(150.0).child(head("Prop")))
-        .child(Row::new().width(180.0).child(head("Type")))
-        .child(Row::new().width(110.0).child(head("Default")))
-        .child(Row::new().flex(1.0).child(head("Description"))),
-    );
+    .into()
+}
+
+/// The props of a component, a row for each. `room` is the width there is for the table:
+/// `Frame::room`.
+pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f32) -> Element {
+  let head = |title: &str| text(title, 12.0, FontWeight::Medium).color(PaletteColor::MutedForeground);
+  let mut table = Column::new().width(FILL).child(
+    Row::new()
+      .width(FILL)
+      .height(40.0)
+      .padding_horizontal(16.0)
+      .align_items(Alignment::Center)
+      .background(PaletteColor::Muted)
+      .child(Row::new().width(150.0).child(head("Prop")))
+      .child(Row::new().width(180.0).child(head("Type")))
+      .child(Row::new().width(110.0).child(head("Default")))
+      .child(Row::new().flex(1.0).child(head("Description"))),
+  );
   for (prop, kind, default, about) in rows {
     let mut named = Row::new()
       .width(150.0)
@@ -332,7 +344,17 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str]) -> Elem
         ),
     );
   }
-  table.into()
+  Column::new()
+    .width(FILL)
+    .clip()
+    .rounded(RadiusSize::Lg)
+    .background(PaletteColor::Card)
+    .foreground(PaletteColor::CardForeground)
+    .border(line())
+    // The columns keep the width they need: in a narrower card the table scrolls sideways, and a
+    // description is never a few words wide.
+    .child(fit("props", room, PROPS_WIDTH, table))
+    .into()
 }
 
 /// On or off: a thumb that is at one end of its track or at the other.
