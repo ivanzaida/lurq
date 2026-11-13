@@ -429,7 +429,7 @@ fn engine_part(style: &PartStyle, theme: &Theme) -> SliderPartStyle {
     part = part.background(color);
   }
   if let Some(radius) = style.radius {
-    part = part.rounded(radius);
+    part.border_radius = Some(radius);
   }
   if let Some(border) = &style.border {
     part = part.border(border.clone());

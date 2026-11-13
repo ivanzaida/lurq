@@ -587,7 +587,7 @@ fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
     part = part.border_custom(Borders::all(border.clone()));
   }
   if let Some(radius) = style.radius {
-    part = part.rounded(radius);
+    part.border_radius = Some(radius);
   }
   if let Some(shadow) = &style.shadow {
     part = part.box_shadow(shadow.clone());

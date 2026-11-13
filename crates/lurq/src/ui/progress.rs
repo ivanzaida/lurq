@@ -594,7 +594,8 @@ impl Themed for Progress {
       .state(ProgressState::TopBar, Track, |s| {
         s.height(3.0).radius(0.0).background(Color::new(0, 0, 0, 0))
       })
-      .state(ProgressState::TopBar, Fill, |s| s.radius(2.0))
+      // Square where it starts, at the window's edge, and round where it ends.
+      .state(ProgressState::TopBar, Fill, |s| s.corners(0.0, 2.0, 2.0, 0.0))
   }
 }
 

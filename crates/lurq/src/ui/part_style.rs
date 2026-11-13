@@ -15,7 +15,9 @@ use crate::{
   layout::text_style::{FontStyle, FontWeight, TextStyle},
   node::{
     BackgroundColor, BoxShadow, BoxShadowValue, CursorIcon, Node, NodeUpdate, Outline, SpacingValue, Style, TextColor,
-    border::Border, dimension::Dimension, radius_value::RadiusValue,
+    border::{Border, ThemedBorderRadius},
+    dimension::Dimension,
+    radius_value::RadiusValue,
   },
 };
 
@@ -281,7 +283,7 @@ pub struct PartStyle {
   pub underline: Option<Border>,
   /// A line along the start side of the part: what marks the chosen tab of a list that runs down.
   pub start_line: Option<Border>,
-  pub radius: Option<RadiusValue>,
+  pub radius: Option<ThemedBorderRadius>,
   pub shadow: Option<BoxShadowValue>,
   /// A color laid over the part's background and under its content: the
   /// theme's `StateHover` and `StatePressed` darken or lighten any fill.
@@ -351,7 +353,20 @@ impl PartStyle {
   }
 
   pub fn radius(mut self, radius: impl Into<RadiusValue>) -> Self {
-    self.radius = Some(radius.into());
+    self.radius = Some(ThemedBorderRadius::all(radius));
+    self
+  }
+
+  /// A radius for each corner, from the top left clockwise: a part that is round at one end and square at the
+  /// other, as the fill of a bar that starts at the window's edge is.
+  pub fn corners(
+    mut self,
+    top_left: impl Into<RadiusValue>,
+    top_right: impl Into<RadiusValue>,
+    bottom_right: impl Into<RadiusValue>,
+    bottom_left: impl Into<RadiusValue>,
+  ) -> Self {
+    self.radius = Some(ThemedBorderRadius::new(top_left, top_right, bottom_right, bottom_left));
     self
   }
 
@@ -618,7 +633,10 @@ impl PartStyle {
       NodeUpdate::border_left(node, line.clone());
     }
     if let Some(radius) = self.radius {
-      NodeUpdate::rounded(node, radius);
+      NodeUpdate::corner_radius_top_left(node, radius.top_left);
+      NodeUpdate::corner_radius_top_right(node, radius.top_right);
+      NodeUpdate::corner_radius_bottom_right(node, radius.bottom_right);
+      NodeUpdate::corner_radius_bottom_left(node, radius.bottom_left);
     }
     if let Some(shadow) = self.resolved_shadow(theme) {
       NodeUpdate::box_shadow(node, shadow);
@@ -739,7 +757,7 @@ impl PartStyle {
       any = true;
     }
     if let Some(radius) = self.radius {
-      style = style.rounded(radius);
+      style.border_radius = Some(radius);
       any = true;
     }
     if let Some(shadow) = self.resolved_shadow(theme) {
@@ -788,7 +806,10 @@ mod tests {
       merged.background,
       Some(BackgroundColor::Palette(PaletteColor::PrimaryHover))
     );
-    assert_eq!(merged.radius, Some(RadiusSize::Md.into()));
+    assert_eq!(
+      merged.radius,
+      Some(crate::node::border::ThemedBorderRadius::all(RadiusSize::Md))
+    );
     assert_eq!(merged.height, Some(Length::Control(ControlSize::Md)));
   }
 

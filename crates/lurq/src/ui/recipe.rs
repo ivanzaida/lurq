@@ -546,7 +546,11 @@ mod tests {
       Some(Length::Control(ControlSize::Lg)),
       "the size over the base"
     );
-    assert_eq!(root.radius, Some(RadiusSize::Md.into()), "what nothing replaced");
+    assert_eq!(
+      root.radius,
+      Some(crate::node::border::ThemedBorderRadius::all(RadiusSize::Md)),
+      "what nothing replaced"
+    );
     assert_eq!(root.opacity, None, "a state it is not in");
   }
 
@@ -581,7 +585,10 @@ mod tests {
     let resolved = recipe().resolve(&Case::new().variant("primary"), &theme);
     let hovered = resolved.part("root").forced(Some(Interaction::Hovered)).rest();
     assert_eq!(hovered.background, background(PaletteColor::PrimaryHover));
-    assert_eq!(hovered.radius, Some(RadiusSize::Md.into()));
+    assert_eq!(
+      hovered.radius,
+      Some(crate::node::border::ThemedBorderRadius::all(RadiusSize::Md))
+    );
   }
 
   #[test]
@@ -682,6 +689,9 @@ mod tests {
     let resolved = recipe.resolve(&Case::new().variant("brand").state("pinned", true), &theme);
     let root = resolved.part("root").rest();
     assert_eq!(root.background, background(PaletteColor::extra("brand")));
-    assert_eq!(root.radius, Some(RadiusSize::Full.into()));
+    assert_eq!(
+      root.radius,
+      Some(crate::node::border::ThemedBorderRadius::all(RadiusSize::Full))
+    );
   }
 }
