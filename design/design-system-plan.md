@@ -1,6 +1,6 @@
 # Design system implementation plan
 
-Status: proposal for review. Nothing in this document is implemented.
+Status: Phase 0 is built and released in lurq 0.61.0 (section 13). The tokens half of Phase 1 is built on `feat/design-system` (section 14). The rest is a plan.
 
 Date: 2026-11-12. Repository baseline: lurq 0.60.0 plus Unreleased (`master` at `8770b598`).
 
@@ -341,7 +341,7 @@ Phase 0 and the tokens half of Phase 1 can be reviewed and released on their own
 3. Settled (D11): a renderer builds the parts lurq names for the component and may declare parts of its own, which recipes address by name.
 4. Does lurq ship a native-looking iOS theme itself, after the proof in step 2, or leave it to apps and the community?
 5. Should the new components be configured through builders like the existing `components`, or through props structs like the `form` compound controls?
-6. Does the default theme change in the same release that adds the components, or one release later?
+6. Settled on 2026-11-13: the default theme is the design's from the release that brings its tokens, before the components. `ThemeDefinition::legacy()` keeps the look of 0.61, and the migration guide (`docs/…/migration-v0-62.md`) says what changes.
 7. Settled: the glyphs reach the screen as a hinted icon font, built by `scripts/build-icon-font.py` from `design/icons/svg` (icon notes, D5). Vector paths would have needed the `svg` or `canvas` machinery, or a new path primitive.
 8. Does DevTools move to the new glyphs at once, so `lucide.ttf` can be removed, or keep Lucide with a notice file for now?
 9. Is a `gallery` binary acceptable in `crates/demo`, or should it be its own crate?
@@ -434,3 +434,51 @@ Steps on a Mac:
 - **`Icon`** is Phase 2: a name, the theme's table from names to a font and a character, the hinted font loaded by default.
 - **The Pencil file** has the DevTools card on its Icons pages (152 glyphs, `10e83706`). `bolt` and `external-link` there, and from the first set `settings`, `airplane`, `quote`, `strikethrough`, `bug`, the three hands, `megaphone`, `replace` and `replace-all`, are the glyphs to redraw. `pencil/lurq-devtools.pen` came from another session and was committed as it stood.
 - **Not built, and not asked for:** grid lines and areas by name, `minmax` tracks, dense packing and per-child alignment in a grid; dotted borders; a reduce-motion reader on Linux.
+
+## 14. Phase 1: status and handover
+
+For whoever continues. The tokens half of Phase 1 is built on `feat/design-system`; the theme machinery is not started.
+
+### 14.1 Where each item stands
+
+| Item of section 6 | Status |
+| --- | --- |
+| Palette roles, light and dark | built: 42 roles, `ThemePalette::light()` and `dark()` |
+| Deprecated roles and the migration guide | built: 15 roles deprecated, `docs/…/migration-v0-62.md` |
+| Schemes | built, on what the iOS work had added (14.2) |
+| The default theme is the design's | built: `Theme::new()` is `ThemeDefinition::neutral()` |
+| `Theme::legacy()` | built: `ThemeDefinition::legacy()`, the theme of 0.61 |
+| Token tables | built: control size, icon size, density, duration, easing, opacity, blur, focus ring; radii `Xl` and `Full`; the design's shadows |
+| Typography | built: the design's type scale and the theme's two families. Line heights and the Markdown heading scale are not (14.3) |
+| Pencil: `accent` renamed `highlight` (D3) | not done (14.3) |
+| Design parity test | built: `design/tokens/variables.tsv` and `tests/theme/parity` |
+| Theme definitions, `Theme::apply`, derived definitions | built for tokens: `ThemeDefinition` |
+| Recipes, renderers, presentation, scoped themes, `Theme::bare()` | not started |
+
+### 14.2 What was decided while building
+
+- **The design is the default now** (question 6). An app that never set a theme changes colors, radii and text size on upgrade, and is dark on a system in its dark look. `app.theme().apply(ThemeDefinition::legacy())` is the one line that keeps the look of 0.61.
+- **A deprecated role keeps a color of its own.** The plan had deprecated roles resolve to their replacements. Two pairs of roles became one (`TextSecondary` and `TextMuted`, `SurfaceBase` and `SurfaceInput`) and `TextPrimary` was not the color of unnamed text, so one color per replacement could not hold the 0.61 look. Each deprecated role has its own field; in the design's palettes it has the color of its replacement, and in `ThemePalette::legacy()` the color it had.
+- **Setting a role sets the deprecated roles it replaces.** `Select`, `FormTheme`, text marks and an unstyled checkbox or slider still read the deprecated roles, so that the legacy theme looks exactly as 0.61 did and an app that still sets `Accent` still colors them. A theme set through the new roles reaches them through this. They move to the new roles when they are rebuilt on recipes (D7), and the propagation goes when the deprecated roles do.
+- **Schemes are what the iOS work built**, not the plan's names. There is `Appearance { Light, Dark }`, `Theme::set_palettes`, `follows_system` and `apply_system`; the plan's `Appearance::System` is `Theme::set_preferred_appearance(None)`, added here, which chooses the appearance and leaves the system's text size to the theme. No `ColorScheme` type was added.
+- **A color set once holds in both appearances.** `set_palette_color` writes the light palette and the dark one, and `set_palette` writes the palette of the appearance the theme is in. Before, on a theme with two palettes, either was lost at the next change of appearance.
+- **A window with no background is cleared to `Background`**, so an app that sets no colors is dark when the theme is.
+- **`ThemeDefinition` is `#[non_exhaustive]` plain data** with public fields: an app's theme is `neutral()` or `legacy()` with fields changed, and recipes and renderers become fields of it in the machinery half. `Theme::apply` leaves what a person or the system set.
+- **The token tables are read with getters**, `theme.duration_value(MotionDuration::Fast)`, and are not yet accepted by the node API as radii and spacings are: a transition still takes a `Duration`. Recipes resolve them when a component renders.
+- **`ThemeFocusRing::outline()`** gives the ring as an `Outline` for `focus_visible`.
+- **Fonts.** `ThemeTypography` has `sans` and `mono_family`; `set_sans` rewrites every style that was in the old family. The design is drawn in Inter and JetBrains Mono, and the theme names neither: the defaults are the system's font and the generic `monospace` (D4).
+- **Not the theme's:** the board's `sheet` color is the backdrop of its own sheets, and its `z-*` ladder has nothing to map to, since lurq has no z-index. The parity test names both.
+- **The demo keeps the legacy theme**, which its pages are styled for. Its Theme page applies either definition and draws every role and scale from the theme as it is.
+
+### 14.3 Left to do in the tokens half
+
+- **The Pencil file still calls the hover fill `accent`** (77 fills and 4 uses of `accent-foreground`). The parity test maps the two names to `Highlight`. The rename is a change to the board, which was open from another checkout while this was built.
+- **Line heights.** The design names none, except 1.5 for a paragraph. Every typography style keeps lurq's 1.2.
+- **Description and caption are not muted by their style.** A `TextStyle` holds a concrete color, not a palette role, so a typography style cannot follow the appearance. They name no color, and what uses them gives `MutedForeground`. A part style in the machinery half carries the foreground apart from the type.
+- **The Markdown heading scale** and `ThemeMarkdown` on roles: with Markdown on roles in Phase 5, or sooner if the machinery needs it.
+- **`variables.tsv` is written by hand** from `GetVariables()`. `scripts/build-icon-font.py` already talks to Pencil; a script that exports the variables the same way would keep the file from going stale.
+- **macOS and iOS.** Nothing here has code of its own per platform, but the default theme now follows the appearance each shell reports: look at a window in the system's light and dark look on a Mac, and at `crates/mobile_demo`, whose dark palette is now built on the design's dark one.
+
+### 14.4 Next: the theme machinery
+
+Section 6, "Theme machinery", with D8 to D12: the part-style patch type and recipe storage with resolved recipes cached per theme version; renderer registration, per part too; presentation options; `Theme::bare()`; sizes and states by name; public scoped themes; recipes for what lurq draws itself (scroll bars, selection, the caret). Then step 2 of section 7 proves it on four components before anything else is built on it.
