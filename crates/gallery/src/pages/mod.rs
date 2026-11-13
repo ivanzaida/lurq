@@ -8,6 +8,7 @@ mod button;
 mod family;
 mod family_play;
 mod icons;
+mod input;
 mod overview;
 mod switch;
 mod tokens;
@@ -134,6 +135,14 @@ pub const PAGES: &[Page] = &[
     about: "button group split joined separator",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::ButtonGroupPage>(()),
+  },
+  Page {
+    path: "/input",
+    name: "Input",
+    icon: None,
+    about: "input field text entry label description error hint required optional placeholder icon invalid read only form",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<input::InputPage>(()),
   },
   Page {
     path: "/switch",
