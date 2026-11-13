@@ -9,17 +9,18 @@ use lurq::{
     ctx::Ctx,
     theme::{BorderSize, Breakpoint, PaletteColor, RadiusSize, TypographyStyle},
   },
-  components::{Column, Rect, Row, Text, TextInput},
+  components::{Column, Rect, Row, TextInput},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, RadiusValue, border::Border},
-  ui::{Button, ButtonPart, ButtonShape, ButtonSize, ButtonState, ButtonVariant, Case, Interaction, icons},
+  ui::{Button, ButtonPart, ButtonShape, ButtonSize, ButtonState, ButtonVariant, Case, Fab, Interaction, icons},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
   kit::{
-    FILL, badge, card_footer, code_block, icon, mono, segmented, segmented_fill, select, styled, switch, text, tool,
+    FILL, badge, card_footer, code_block, icon, line, mono, name, props_table, quiet, segmented, segmented_fill,
+    select, styled, switch, text, tool,
   },
 };
 
@@ -348,25 +349,6 @@ pub struct ButtonPage {
   variant_open: Signal<bool>,
   icon_anchor: ElementRef,
   icon_open: Signal<bool>,
-}
-
-/// A line under a row or beside a column.
-fn line() -> Border {
-  Border::inside(BorderSize::Sm, PaletteColor::Border)
-}
-
-/// A label in the family of code, quiet: the name of a control, a caption.
-fn quiet(content: &str, size: f32) -> Text {
-  mono(content, size).color(PaletteColor::MutedForeground)
-}
-
-/// A name as the code has it, in the weight of a name.
-fn name(content: &str, size: f32) -> Text {
-  let theme = lurq::ui::current_theme();
-  let mut style = theme.typography_style(TypographyStyle::Mono);
-  style.font_size = theme.scaled(size);
-  style.weight = FontWeight::Medium;
-  Text::styled(content, style)
 }
 
 impl ButtonPage {
@@ -914,8 +896,47 @@ impl ButtonPage {
     demo(stage, ".icon(icons::PLUS).icon_only(true).shape(ButtonShape::Pill)")
   }
 
+  /// A button with a second line, and the button that floats over a view.
+  fn more(&self) -> Element {
+    // A floating button is raised, and a container clips what is in it: what holds one here shows what
+    // is outside it, so that its shadow has the room of the stage.
+    let captioned = |shown: Element, caption: &str| {
+      Column::new()
+        .spacing(9.0)
+        .overflow_visible()
+        .child(shown)
+        .child(quiet(caption, 12.0))
+    };
+    let raised = |fab: Fab| Element::from(Row::new().overflow_visible().child(fab));
+    let stage = Row::new()
+      .spacing(28.0)
+      .overflow_visible()
+      .align_items(Alignment::End)
+      .child(captioned(
+        Button::new("Schedule")
+          .variant(ButtonVariant::Outline)
+          .icon(icons::CALENDAR_PLUS)
+          .description("Pick a date and time")
+          .into(),
+        "description(..)",
+      ))
+      .child(captioned(
+        Button::new("Deploy")
+          .icon(icons::SEND)
+          .description("To production, at once")
+          .into(),
+        "on a filled button",
+      ))
+      .child(captioned(raised(Fab::new("Compose", icons::PLUS)), "Fab::new(..)"))
+      .child(captioned(
+        raised(Fab::new("Compose", icons::COMPOSE).extended(true)),
+        "extended(true)",
+      ));
+    demo(stage, "Button::new(\"Schedule\").description(\"Pick a date and time\")")
+  }
+
   fn table(&self) -> Element {
-    let rows: [(&str, &str, &str, &str); 12] = [
+    let rows: [(&str, &str, &str, &str); 13] = [
       (
         "label",
         "&str",
@@ -959,6 +980,12 @@ impl ButtonPage {
         "The icon alone: a square as wide as the button is high.",
       ),
       (
+        "description",
+        "&str",
+        "none",
+        "A second line under the label: the button is as high as the two lines.",
+      ),
+      (
         "loading",
         "bool",
         "false",
@@ -984,80 +1011,7 @@ impl ButtonPage {
         "One instance over the theme; the rules of the place it is in; a state drawn with nothing pointing at it.",
       ),
     ];
-    let head = |title: &str| text(title, 12.0, FontWeight::Medium).color(PaletteColor::MutedForeground);
-    let mut table = Column::new()
-      .width(FILL)
-      .clip()
-      .rounded(RadiusSize::Lg)
-      .background(PaletteColor::Card)
-      .foreground(PaletteColor::CardForeground)
-      .border(line())
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(40.0)
-          .padding_horizontal(16.0)
-          .align_items(Alignment::Center)
-          .background(PaletteColor::Muted)
-          .child(Row::new().width(150.0).child(head("Prop")))
-          .child(Row::new().width(180.0).child(head("Type")))
-          .child(Row::new().width(110.0).child(head("Default")))
-          .child(Row::new().flex(1.0).child(head("Description"))),
-      );
-    for (prop, kind, default, about) in rows {
-      let mut named = Row::new()
-        .width(150.0)
-        .spacing(8.0)
-        .align_items(Alignment::Center)
-        .child(name(prop, 13.0));
-      if prop == "label" {
-        named = named.child(
-          Row::new()
-            .height(18.0)
-            .padding_horizontal(6.0)
-            .align_items(Alignment::Center)
-            .rounded(RadiusSize::Full)
-            .background(PaletteColor::WarningMuted)
-            .foreground(PaletteColor::Warning)
-            .child(text("required", 11.0, FontWeight::Medium)),
-        );
-      }
-      let mut typed = Row::new().width(180.0);
-      if !kind.is_empty() {
-        typed = typed.child(
-          Row::new()
-            .padding_horizontal(5.0)
-            .padding_vertical(1.0)
-            .rounded(RadiusSize::Sm)
-            .background(PaletteColor::Muted)
-            .child(mono(kind, 12.0)),
-        );
-      }
-      table = table.child(
-        Row::new()
-          .width(FILL)
-          .padding_horizontal(16.0)
-          .padding_vertical(12.0)
-          .align_items(Alignment::Center)
-          .border_top(line())
-          .child(named)
-          .child(typed)
-          .child(Row::new().width(110.0).child(if default.is_empty() {
-            quiet("—", 13.0)
-          } else {
-            mono(default, 13.0)
-          }))
-          .child(
-            styled(about, TypographyStyle::Body, |style| {
-              style.font_size = 13.0;
-              style.line_height = 1.5;
-            })
-            .color(PaletteColor::MutedForeground)
-            .flex(1.0),
-          ),
-      );
-    }
-    table.into()
+    props_table(&rows, &["label"])
   }
 }
 
@@ -1156,6 +1110,13 @@ impl Component for ButtonPage {
         "An icon is 8 before the label, in its color. A button that is an icon alone is a square at every size, and \
          any button can be a pill or fill what it is in.",
         self.icons_and_shapes(),
+      ),
+      Section::new(
+        "Two lines, and floating",
+        "A description under the label makes the button as high as the two lines, with a larger icon beside \
+         them. A floating action button is a button that is an icon alone, round, larger than a control and \
+         raised: the one thing a view is for.",
+        self.more(),
       ),
       Section::new(
         "Props",

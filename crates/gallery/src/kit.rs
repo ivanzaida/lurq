@@ -16,7 +16,7 @@ use lurq::{
     text_style::{FontWeight, TextStyle},
   },
   node::{CursorIcon, Element, border::Border, dimension::Dimension},
-  ui::{Button, ButtonSize, ButtonVariant, Icon},
+  ui::{Button, ButtonSize, ButtonVariant, FontFamily, Icon, SegmentedControl, SegmentedControlPart},
 };
 
 pub const FILL: Dimension = Dimension::Pct(100.0);
@@ -212,45 +212,16 @@ pub fn status_badge(content: &str) -> Row {
 }
 
 /// One of a few choices in a row, of which one is chosen: the appearance.
-///
-/// The design system's `SegmentedControl` takes its place.
 pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
   options: &[(&str, T)],
   chosen: &T,
   choose: impl Fn(T) + Send + Sync + 'static,
-) -> Row {
-  let choose = Arc::new(choose);
-  let mut control = Row::new()
-    .align_items(Alignment::Center)
-    .height(36.0)
-    .padding(3.0)
-    .spacing(2.0)
-    .rounded(RadiusSize::Md)
-    .background(PaletteColor::Muted);
-  for (name, value) in options {
-    let on = value == chosen;
-    let (choose, value) = (choose.clone(), value.clone());
-    let mut segment = Row::new()
-      .align_items(Alignment::Center)
-      .height(30.0)
-      .padding_horizontal(14.0)
-      .rounded(RadiusSize::Sm)
-      .cursor(CursorIcon::Pointer)
-      .foreground(if on {
-        PaletteColor::Foreground
-      } else {
-        PaletteColor::MutedForeground
-      })
-      .on_click(move |_| choose(value.clone()))
-      .child(text(name, 13.0, FontWeight::Medium));
-    if on {
-      segment = segment.background(PaletteColor::Background).box_shadow(ShadowStyle::Sm);
-    } else {
-      segment = segment.hovered(|style| style.foreground(PaletteColor::Foreground));
-    }
-    control = control.child(segment);
-  }
-  control
+) -> SegmentedControl {
+  SegmentedControl::controlled(
+    chosen.clone(),
+    options.iter().map(|(label, value)| (value.clone(), *label)),
+    choose,
+  )
 }
 
 /// A few choices that share the width they are given, named as the code names them: a size, a shape.
@@ -258,44 +229,110 @@ pub fn segmented_fill<T: Clone + PartialEq + Send + Sync + 'static>(
   options: &[(&str, T)],
   chosen: &T,
   choose: impl Fn(T) + Send + Sync + 'static,
-) -> Row {
-  let choose = Arc::new(choose);
-  let mut control = Row::new()
+) -> SegmentedControl {
+  segmented(options, chosen, choose)
+    .full_width(true)
+    .style(SegmentedControlPart::Label, |s| {
+      s.font_family(FontFamily::Mono).font_size(12.0)
+    })
+}
+
+/// A line under a row or beside a column.
+pub fn line() -> Border {
+  Border::inside(BorderSize::Sm, PaletteColor::Border)
+}
+
+/// A label in the family of code, quiet: the name of a control, a caption.
+pub fn quiet(content: &str, size: f32) -> Text {
+  mono(content, size).color(PaletteColor::MutedForeground)
+}
+
+/// A name as the code has it, in the weight of a name.
+pub fn name(content: &str, size: f32) -> Text {
+  let theme = lurq::ui::current_theme();
+  let mut style = theme.typography_style(TypographyStyle::Mono);
+  style.font_size = theme.scaled(size);
+  style.weight = FontWeight::Medium;
+  Text::styled(content, style)
+}
+
+/// The table of what a component is given: a prop, its type, what it is unless said, and what it does.
+/// The props of `required` are marked so.
+pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str]) -> Element {
+  let head = |title: &str| text(title, 12.0, FontWeight::Medium).color(PaletteColor::MutedForeground);
+  let mut table = Column::new()
     .width(FILL)
-    .align_items(Alignment::Center)
-    .height(36.0)
-    .padding(3.0)
-    .spacing(2.0)
-    .rounded(RadiusSize::Md)
-    .background(PaletteColor::Muted);
-  for (name, value) in options {
-    let on = value == chosen;
-    let (choose, value) = (choose.clone(), value.clone());
-    let mut label = lurq::ui::current_theme().typography_style(TypographyStyle::Mono);
-    label.font_size = lurq::ui::current_theme().scaled(12.0);
-    label.weight = FontWeight::Medium;
-    let mut segment = Row::new()
-      .flex(1.0)
+    .clip()
+    .rounded(RadiusSize::Lg)
+    .background(PaletteColor::Card)
+    .foreground(PaletteColor::CardForeground)
+    .border(line())
+    .child(
+      Row::new()
+        .width(FILL)
+        .height(40.0)
+        .padding_horizontal(16.0)
+        .align_items(Alignment::Center)
+        .background(PaletteColor::Muted)
+        .child(Row::new().width(150.0).child(head("Prop")))
+        .child(Row::new().width(180.0).child(head("Type")))
+        .child(Row::new().width(110.0).child(head("Default")))
+        .child(Row::new().flex(1.0).child(head("Description"))),
+    );
+  for (prop, kind, default, about) in rows {
+    let mut named = Row::new()
+      .width(150.0)
+      .spacing(8.0)
       .align_items(Alignment::Center)
-      .justify(Justify::Center)
-      .height(30.0)
-      .rounded(RadiusSize::Sm)
-      .cursor(CursorIcon::Pointer)
-      .foreground(if on {
-        PaletteColor::Foreground
-      } else {
-        PaletteColor::MutedForeground
-      })
-      .on_click(move |_| choose(value.clone()))
-      .child(Text::styled(name, label));
-    if on {
-      segment = segment.background(PaletteColor::Background).box_shadow(ShadowStyle::Sm);
-    } else {
-      segment = segment.hovered(|style| style.foreground(PaletteColor::Foreground));
+      .child(name(prop, 13.0));
+    if required.contains(prop) {
+      named = named.child(
+        Row::new()
+          .height(18.0)
+          .padding_horizontal(6.0)
+          .align_items(Alignment::Center)
+          .rounded(RadiusSize::Full)
+          .background(PaletteColor::WarningMuted)
+          .foreground(PaletteColor::Warning)
+          .child(text("required", 11.0, FontWeight::Medium)),
+      );
     }
-    control = control.child(segment);
+    let mut typed = Row::new().width(180.0);
+    if !kind.is_empty() {
+      typed = typed.child(
+        Row::new()
+          .padding_horizontal(5.0)
+          .padding_vertical(1.0)
+          .rounded(RadiusSize::Sm)
+          .background(PaletteColor::Muted)
+          .child(mono(kind, 12.0)),
+      );
+    }
+    table = table.child(
+      Row::new()
+        .width(FILL)
+        .padding_horizontal(16.0)
+        .padding_vertical(12.0)
+        .align_items(Alignment::Center)
+        .border_top(line())
+        .child(named)
+        .child(typed)
+        .child(Row::new().width(110.0).child(if default.is_empty() {
+          quiet("—", 13.0)
+        } else {
+          mono(default, 13.0)
+        }))
+        .child(
+          styled(about, TypographyStyle::Body, |style| {
+            style.font_size = 13.0;
+            style.line_height = 1.5;
+          })
+          .color(PaletteColor::MutedForeground)
+          .flex(1.0),
+        ),
+    );
   }
-  control
+  table.into()
 }
 
 /// On or off: a thumb that is at one end of its track or at the other.

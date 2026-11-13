@@ -20,7 +20,7 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
-  ui::{Button, ButtonVariant, icons},
+  ui::{Button, ButtonVariant, SegmentedControl, icons},
 };
 
 use crate::{
@@ -211,7 +211,7 @@ fn search_field(theme: &Theme, state: &Shell, roomy: bool) -> Row {
 
 /// What the gear opens: what a theme can be told that is not a color.
 fn settings(theme: &Theme, state: &Shell) -> Column {
-  let setting = |name: &str, about: &str, control: Row| {
+  let setting = |name: &str, about: &str, control: SegmentedControl| {
     Column::new()
       .width(FILL)
       .spacing(8.0)
@@ -297,7 +297,7 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
   }
   brand = brand.child(badge(&format!("v{}", lurq::VERSION)));
 
-  let labeled = |label: &str, control: Row| {
+  let labeled = |label: &str, control: Element| {
     let mut row = Row::new().spacing(12.0).align_items(Alignment::Center);
     if roomy {
       row = row.child(mono(label, 12.0).color(PaletteColor::MutedForeground));
@@ -337,8 +337,8 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
   let controls = Row::new()
     .spacing(12.0)
     .align_items(Alignment::Center)
-    .child(labeled("theme", appearance))
-    .child(labeled("density", density))
+    .child(labeled("theme", appearance.into()))
+    .child(labeled("density", density.into()))
     .child(gear)
     .child(
       Popup::new(state.settings_anchor.clone(), settings(&theme, state))

@@ -552,7 +552,7 @@ The board has eleven things that are pressed. Said on 2026-11-13: group them by 
 - **A part style has an underline**: a line along the bottom of a part, which a link has under the pointer. A border was every side.
 - **A container clips what is in it** (the engine's default), so a `Fab`'s shadow needs room in what it is put in.
 
-Not done: the arrow keys do not move a choice within a `SegmentedControl` or a `ToggleGroup` (Tab reaches each segment; a key press reaches every node, focused or not, and a component cannot tell that the focus is in it). A split button's second half opens nothing by itself: the menu is not built. The pages of the gallery for these six.
+Not done: the arrow keys do not move a choice within a `SegmentedControl` or a `ToggleGroup` (Tab reaches each segment; a key press reaches every node, focused or not, and a component cannot tell that the focus is in it). A split button's second half opens nothing by itself: the menu is not built.
 
 ## 15. The gallery
 
@@ -613,5 +613,6 @@ The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, the
 - `--size 800x600` opens the window at a size, to see a breakpoint.
 
 - **The Button page**: the playground (a state forced with nothing pointing at the button, its measured size and its radius, a count of its presses, the Rust that builds it, the log of its events and the parts it is built of, each copied to the clipboard, and a control for every prop with the count of those changed and a reset), then Variants, Sizes, the matrix of every variant in every state at a size, Icons & shapes, and the table of props. The copy button of a demo card's footer copies its call.
+- **The pages of the button family**: Link, Toggle, Toggle Group, Segmented Control and Button Group, each with what it is bound to a signal of the page, its sizes, its states and the table of what it is given; a split button is a section of Button Group, and a button with a description and a floating action button are a section of Button. The gallery's own segmented control is `SegmentedControl` now: the appearance in the header, the settings, the switches of the playground.
 
 Not built: the stage in the other appearance beside the page's, which waits for a theme for a subtree that reaches the paint (14.4); the stage in a window of its own, for which a component has no way to open one; "Show code" on a demo card. The side bar does not fold in a narrow window: it waits for the component that does.

@@ -5,6 +5,7 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod button;
+mod family;
 mod icons;
 mod overview;
 mod tokens;
@@ -91,6 +92,46 @@ pub const PAGES: &[Page] = &[
     about: "variant size shape icon icon_only loading disabled full_width on_click pill primary secondary outline ghost destructive",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<button::ButtonPage>(()),
+  },
+  Page {
+    path: "/link",
+    name: "Link",
+    icon: None,
+    about: "link text underline external navigate",
+    group: Group::Actions,
+    mount: |ctx| ctx.mount::<family::LinkPage>(()),
+  },
+  Page {
+    path: "/toggle",
+    name: "Toggle",
+    icon: None,
+    about: "toggle on off pressed state bold",
+    group: Group::Actions,
+    mount: |ctx| ctx.mount::<family::TogglePage>(()),
+  },
+  Page {
+    path: "/toggle-group",
+    name: "Toggle Group",
+    icon: None,
+    about: "toggle group single multiple choice alignment",
+    group: Group::Actions,
+    mount: |ctx| ctx.mount::<family::ToggleGroupPage>(()),
+  },
+  Page {
+    path: "/segmented-control",
+    name: "Segmented Control",
+    icon: None,
+    about: "segmented control segment track choice tabs",
+    group: Group::Actions,
+    mount: |ctx| ctx.mount::<family::SegmentedControlPage>(()),
+  },
+  Page {
+    path: "/button-group",
+    name: "Button Group",
+    icon: None,
+    about: "button group split joined separator",
+    group: Group::Actions,
+    mount: |ctx| ctx.mount::<family::ButtonGroupPage>(()),
   },
 ];
 
