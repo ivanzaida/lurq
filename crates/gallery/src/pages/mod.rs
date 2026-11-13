@@ -6,6 +6,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 
 mod button;
 mod checkbox;
+mod dialog;
 mod family;
 mod family_play;
 mod icons;
@@ -187,6 +188,14 @@ pub const PAGES: &[Page] = &[
     about: "slider range value min max step track thumb volume drag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<slider::SliderPage>(()),
+  },
+  Page {
+    path: "/dialog",
+    name: "Dialog",
+    icon: None,
+    about: "dialog modal veil scrim overlay confirm title description footer close escape scroll",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<dialog::DialogPage>(()),
   },
 ];
 
