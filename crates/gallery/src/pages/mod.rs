@@ -9,6 +9,7 @@ mod family;
 mod family_play;
 mod icons;
 mod overview;
+mod radio;
 mod switch;
 mod tokens;
 
@@ -134,6 +135,14 @@ pub const PAGES: &[Page] = &[
     about: "button group split joined separator",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::ButtonGroupPage>(()),
+  },
+  Page {
+    path: "/radio",
+    name: "Radio",
+    icon: None,
+    about: "radio group choice option chosen one of exclusive",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<radio::RadioPage>(()),
   },
   Page {
     path: "/switch",
