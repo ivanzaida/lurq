@@ -207,9 +207,9 @@ impl DialogPage {
       ),
     ];
     if scrollable {
-      tree.push("   ├─ body     scrolls".to_owned());
+      tree.push("   ├─ body     scrolls between the lines".to_owned());
     } else {
-      tree.push("   ├─ body".to_owned());
+      tree.push("   ├─ body     scrolls where the window is low".to_owned());
     }
     tree.push("   └─ footer   Cancel · Confirm".to_owned());
 
@@ -355,7 +355,7 @@ impl Component for DialogPage {
         "scrollable",
         "bool",
         "false",
-        "The body scrolls between a header and a footer that stay, each set off by a line.",
+        "A header of 56 and a footer of 60, each set off by a line, with the body between them. Any body scrolls where the window is too low.",
       ),
       (
         "close_button",
@@ -399,8 +399,9 @@ impl Component for DialogPage {
         ),
         Section::new(
           "Dialog",
-          "The page holds whether it is open, in a signal. While it is, nothing under the veil takes the pointer, \
-           and Tab goes round the dialog's buttons.",
+          "The page holds whether it is open, in a signal. As it opens the focus goes to its first button, and \
+           back to the button that opened it as it closes; while it is open nothing under the veil takes the \
+           pointer, and Tab goes round the dialog's buttons.",
           self.frame.demo(
             0,
             asks,

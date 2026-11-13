@@ -212,9 +212,9 @@ fn nothing_under_the_veil_takes_the_pointer_or_the_keyboard() {
   stage.click("behind");
   assert_eq!(behind.load(Ordering::SeqCst), 0, "the veil takes the press");
 
-  // Tab goes round the dialog's two buttons and never reaches the one behind it: the third Tab is on the
-  // first button again, and Enter presses it.
-  for _ in 0..3 {
+  // The focus went to the dialog's first button as it opened. Tab goes round its two buttons and never
+  // reaches the one behind it: the second Tab is on the first button again, and Enter presses it.
+  for _ in 0..2 {
     stage.key("Tab");
   }
   stage.key("Enter");
@@ -279,15 +279,54 @@ fn the_body_of_a_scrollable_dialog_scrolls_between_a_header_and_a_footer_that_st
 }
 
 #[test]
-fn a_scrollable_dialog_is_never_higher_than_the_window() {
-  let open = Signal::new(true);
-  let mut stage = Stage::new(move |_| window(terms(open.clone())));
-  let (_, y, _, height) = stage.bounds("dialog");
-  // The window less the veil's margin of 16 above and below.
-  assert!(height <= 268.5, "{height}");
-  assert!(y >= 15.5, "{y}");
-  let (_, accept_y, _, accept_height) = stage.bounds("accept");
-  assert!(accept_y + accept_height <= y + height, "the footer stays in the panel");
+fn a_dialog_is_never_higher_than_the_window_and_its_body_scrolls() {
+  for scrollable in [true, false] {
+    let open = Signal::new(true);
+    let mut stage = Stage::new(move |_| window(terms(open.clone()).scrollable(scrollable)));
+    let (_, y, _, height) = stage.bounds("dialog");
+    // The window less the veil's margin of 16 above and below.
+    assert!(height <= 268.5, "scrollable {scrollable}: {height}");
+    assert!(y >= 15.5, "scrollable {scrollable}: {y}");
+    let (_, accept_y, _, accept_height) = stage.bounds("accept");
+    assert!(
+      accept_y + accept_height <= y + height,
+      "scrollable {scrollable}: the footer stays in the panel"
+    );
+  }
+}
+
+#[test]
+fn the_focus_goes_into_the_dialog_as_it_opens_and_back_to_its_opener_as_it_closes() {
+  let open = Signal::new(false);
+  let held = open.clone();
+  let (cancel, press_cancel) = counter();
+  let mut stage = Stage::new(move |_| {
+    let (show, close, press_cancel) = (held.clone(), held.clone(), press_cancel.clone());
+    Column::new()
+      .size(400.0, 300.0)
+      .child(Button::new("Delete workspace…").on_click(move |_| show.set(true)))
+      .child(
+        Dialog::new(held.clone())
+          .title("Delete workspace?")
+          .footer(Button::new("Cancel").on_click(move |_| {
+            press_cancel();
+            close.set(false);
+          }))
+          .footer(Button::new("Delete")),
+      )
+      .into()
+  });
+  // Tab reaches the button that opens the dialog, and Enter opens it.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(open.get());
+  // The focus is on the dialog's first button: Enter presses it, and it closes the dialog.
+  stage.key("Enter");
+  assert_eq!(cancel.load(Ordering::SeqCst), 1);
+  assert!(!open.get());
+  // The focus is back on the button that opened it: Enter opens it again.
+  stage.key("Enter");
+  assert!(open.get());
 }
 
 #[test]

@@ -91,6 +91,7 @@ mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
 mod outside_press;
+mod modal_focus;
 mod overlay_layers;
 mod paste;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
@@ -861,6 +862,11 @@ pub struct Tree {
   /// order, where it has an id: what tells a layer from another between
   /// passes. `None` for a layer that is leaving.
   overlay_layer_origins: Vec<Option<NodeId>>,
+  /// The open modals that take the focus, by the node that declares each, the first opened first, with what
+  /// had the focus before each opened: see [`modal_focus`].
+  modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
+  /// The modals that take the focus among the layers the last pass built.
+  built_focus_modals: Vec<NodeId>,
   /// The closed layers the overlay host still draws, while their exit
   /// animations play: see [`leaving_layers`].
   leaving_layers: Vec<leaving_layers::LeavingLayer>,
@@ -1259,6 +1265,8 @@ impl Tree {
       overlay_dismiss_entries: Vec::new(),
       overlay_layer_anchors: Vec::new(),
       overlay_layer_origins: Vec::new(),
+      modal_focus: Vec::new(),
+      built_focus_modals: Vec::new(),
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
       leaving_children: Vec::new(),
@@ -6932,6 +6940,7 @@ impl Tree {
       if let Some(anchor) = focus_return {
         self.return_focus_to_anchor(&anchor);
       }
+      self.sync_modal_focus();
       self.apply_focus_request_inner(true);
       self.tick_overlay_subtrees(now);
       if let Some(root) = self.root.as_ref()
@@ -7083,6 +7092,7 @@ impl Tree {
       self.overlay_dismiss_entries.clear();
       self.overlay_layer_anchors.clear();
       self.overlay_layer_origins.clear();
+      self.built_focus_modals.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
       return None;
@@ -7168,6 +7178,7 @@ impl Tree {
       overlay_index += 1;
     }
 
+    self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let focus_return = self.focused_overlay_hidden(old_parts.old_host.is_some(), &layers);
@@ -7943,6 +7954,11 @@ fn build_overlays_from_layout_index(
         };
         let dismiss_signal = spec.open_signal.clone();
         let dismiss_on_escape = spec.dismiss_on_escape;
+        if spec.takes_focus
+          && let Some(origin) = origin
+        {
+          layers.focus_modals.push(origin);
+        }
         let mut modal = build_modal_node(spec, target);
         set_overlay_reuse_key(&mut modal, reuse_key.as_deref());
         if let Some(open) = dismiss_signal
