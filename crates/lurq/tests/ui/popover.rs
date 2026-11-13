@@ -256,9 +256,10 @@ fn a_theme_gives_the_popover_another_panel_and_it_is_still_beside_its_anchor() {
 }
 
 /// A page with two popovers, each opened by its own button, and something outside both. The first holds a
-/// button to press.
+/// button to press. The page keeps their anchors from one render to the next, as an app does.
 fn two_with_triggers(first: &Signal<bool>, second: &Signal<bool>) -> Stage {
   let (first, second) = (first.clone(), second.clone());
+  let (first_anchor, second_anchor) = (ElementRef::new(), ElementRef::new());
   Stage::new(move |_| {
     Column::new()
       .size(400.0, 300.0)
@@ -268,14 +269,14 @@ fn two_with_triggers(first: &Signal<bool>, second: &Signal<bool>) -> Stage {
         Row::new()
           .spacing(120.0)
           .child(
-            Popover::new(ElementRef::new(), first.clone())
+            Popover::new(first_anchor.clone(), first.clone())
               .id("first-panel")
               .trigger(Button::new("First").id("first"))
               .title("First")
               .child(Button::new("Apply").id("apply")),
           )
           .child(
-            Popover::new(ElementRef::new(), second.clone())
+            Popover::new(second_anchor.clone(), second.clone())
               .id("second-panel")
               .trigger(Button::new("Second").id("second"))
               .title("Second"),
@@ -369,4 +370,35 @@ fn it_fades_in_over_the_base_duration_and_out_over_the_fast_one() {
   assert!(stage.paints("Dimensions"), "fading out");
   stage.pass();
   assert!(!stage.paints("Dimensions"));
+}
+
+fn shift_tab(stage: &mut Stage) {
+  let tab = || "Tab".to_owned();
+  stage.tree.key_down(tab(), tab(), true, false, false);
+  stage.tree.key_up(tab(), tab(), true, false, false);
+  stage.pass();
+}
+
+#[test]
+fn tab_goes_through_an_open_popover_right_after_its_trigger() {
+  let (first, second) = (Signal::new(false), Signal::new(false));
+  let mut stage = two_with_triggers(&first, &second);
+  stage.click("first");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("apply"));
+  // From the last stop in the popover, Tab goes on to what follows its trigger, not to the page's first stop.
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("second"));
+  // And back: into the popover, then to its trigger.
+  shift_tab(&mut stage);
+  assert_eq!(focused(&stage).as_deref(), Some("apply"));
+  shift_tab(&mut stage);
+  assert_eq!(focused(&stage).as_deref(), Some("first"));
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("apply"),
+    "from the trigger into the popover"
+  );
+  assert!(first.get(), "moving through it leaves it open");
 }

@@ -101,6 +101,27 @@ impl Tree {
     (moved && !open).then(|| anchor.clone())
   }
 
+  /// The layers of the overlay host whose overlays move the focus, each with its anchor: what Tab walks right
+  /// after the anchor.
+  pub(super) fn focus_moving_layers(&self) -> Vec<(OwnedElementRef, &Node)> {
+    let Some(host) = self.root.as_ref() else {
+      return Vec::new();
+    };
+    self
+      .overlay_layer_anchors
+      .iter()
+      .enumerate()
+      .filter_map(|(index, anchor)| {
+        let anchor = anchor.as_ref()?;
+        self
+          .overlay_focus_movers
+          .iter()
+          .any(|mover| mover.same_handle(anchor))
+          .then(|| Some((anchor.clone(), host.children().get(index + 1)?)))?
+      })
+      .collect()
+  }
+
   /// The first element that takes the focus in the topmost layer of the overlay host whose overlay moves the
   /// focus and opened in this pass: where the focus goes. `layers` are the layers as the host stacks them.
   pub(super) fn opened_overlay_focus(&self, layers: &OverlayLayers) -> Option<NodeId> {

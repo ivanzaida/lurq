@@ -4267,7 +4267,8 @@ impl Tree {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
-    match tab_navigation::tab_move(root, &self.dropped_nodes, focused, reverse) {
+    let moved = self.focus_moving_layers();
+    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         if let Some(state) = self.current_slider_state(target.input_id) {
           state.enter_by_tab(reverse);

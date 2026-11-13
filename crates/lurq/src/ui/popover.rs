@@ -60,8 +60,11 @@ pub type PopoverRenderer = Arc<dyn Fn(PopoverView) -> Element + Send + Sync>;
 ///   ui::{Button, Field, Input, Popover},
 /// };
 ///
+/// // What the app keeps from one render to the next: the anchor, and whether it is open.
+/// let (anchor, open) = (ElementRef::new(), Signal::new(false));
+///
 /// // The button opens and closes it, and it is shown under the button.
-/// let popover = Popover::new(ElementRef::new(), Signal::new(false))
+/// let popover = Popover::new(anchor.clone(), open.clone())
 ///   .trigger(Button::new("Dimensions"))
 ///   .title("Dimensions")
 ///   .description("Set the size of the layer.")
@@ -79,7 +82,9 @@ pub type PopoverRenderer = Arc<dyn Fn(PopoverView) -> Element + Send + Sync>;
 /// press outside it or Escape closes it, which sets the signal to `false`.
 /// Its trigger ([`Popover::trigger`]) turns the signal; without one the app
 /// opens it, and the anchor is any element of its own. A press of the
-/// anchor is not a press outside it.
+/// anchor is not a press outside it. The anchor is kept from one render to
+/// the next (a field of the component, `ctx.element_ref()`): one made anew in
+/// each render is not the one the focus goes back to as it closes.
 ///
 /// As it opens the focus goes to the first thing in it that takes the focus,
 /// and as it closes with the focus inside, back to the anchor. Where there is

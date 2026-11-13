@@ -7,10 +7,15 @@
 //! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops.
 //!
 //! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop.
+//!
+//! The stops of an overlay that moves the focus (`Overlay::move_focus`: a popover, a menu) come right after its
+//! anchor's, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last
+//! stop goes on to what follows the trigger. Where the anchor is in a focus group Tab stops in once, they come
+//! after the group.
 
 use super::{FocusTarget, find_node_by_path};
 use crate::{
-  core::NodeId,
+  core::{ElementRef as OwnedElementRef, NodeId},
   layout::layout_result::LayoutResult,
   node::{Node, SyntheticNodeRole},
 };
@@ -34,16 +39,33 @@ struct Stop {
   entry: bool,
 }
 
-struct Walk {
+struct Walk<'a> {
   focused: Option<NodeId>,
   focused_order: Option<usize>,
   visited: usize,
   stops: Vec<Stop>,
+  /// The layers of the overlays that move the focus, each with its anchor: walked after the anchor, not where
+  /// the host has them.
+  moved: &'a [(OwnedElementRef, &'a Node)],
+  /// Which of `moved` were walked.
+  walked: Vec<NodeId>,
+  /// How many focus groups that are one stop the walk is in: a layer met in one waits for it to end.
+  in_one_stop: usize,
+  /// The layers met in a focus group that is one stop, walked when the group ends.
+  pending: Vec<&'a Node>,
 }
 
 /// `dropped` holds the nodes the last layout dropped from their Row/Column
-/// (see [`dropped_node_ids`]); nothing inside them is a stop.
-pub(super) fn tab_move(root: &Node, dropped: &[NodeId], focused: Option<(NodeId, &[usize])>, reverse: bool) -> TabMove {
+/// (see [`dropped_node_ids`]); nothing inside them is a stop. `moved` holds
+/// the layers of the overlays that move the focus, with their anchors
+/// ([`super::Tree::focus_moving_layers`]).
+pub(super) fn tab_move(
+  root: &Node,
+  dropped: &[NodeId],
+  moved: &[(OwnedElementRef, &Node)],
+  focused: Option<(NodeId, &[usize])>,
+  reverse: bool,
+) -> TabMove {
   let modal = top_modal_path(root);
   let focused = focused.filter(|(_, path)| modal.as_deref().is_none_or(|modal| path.starts_with(modal)));
 
@@ -51,7 +73,7 @@ pub(super) fn tab_move(root: &Node, dropped: &[NodeId], focused: Option<(NodeId,
     Some(path) => find_node_by_path(root, path),
     None => Some(root),
   };
-  match scope.and_then(|scope| next_stop(scope, dropped, focused.map(|(id, _)| id), reverse)) {
+  match scope.and_then(|scope| next_stop(scope, dropped, moved, focused.map(|(id, _)| id), reverse)) {
     Some(target) => TabMove::Focus(target),
     None if modal.is_some() => TabMove::Stay,
     None => TabMove::Unhandled,
@@ -126,14 +148,32 @@ pub(super) fn path_is_dropped(root: &Node, dropped: &[NodeId], path: &[usize]) -
   false
 }
 
-fn next_stop(scope: &Node, dropped: &[NodeId], focused: Option<NodeId>, reverse: bool) -> Option<FocusTarget> {
+fn next_stop<'a>(
+  scope: &'a Node,
+  dropped: &[NodeId],
+  moved: &'a [(OwnedElementRef, &'a Node)],
+  focused: Option<NodeId>,
+  reverse: bool,
+) -> Option<FocusTarget> {
   let mut walk = Walk {
     focused,
     focused_order: None,
     visited: 0,
     stops: Vec::new(),
+    moved,
+    walked: Vec::new(),
+    in_one_stop: 0,
+    pending: Vec::new(),
   };
   collect_stops(scope, dropped, None, false, &mut walk);
+  // A layer whose anchor the walk did not reach (in a disabled element) is where the host has it: after the
+  // page. Only a layer of this scope: a modal's holds none.
+  for (_, layer) in moved {
+    if !walk.walked.contains(&layer.node_id()) && scope.children().iter().any(|child| std::ptr::eq(child, *layer)) {
+      walk.walked.push(layer.node_id());
+      collect_node(layer, dropped, None, false, &mut walk);
+    }
+  }
   let stops = &mut walk.stops;
   if stops.is_empty() {
     return None;
@@ -161,7 +201,43 @@ fn next_stop(scope: &Node, dropped: &[NodeId], focused: Option<NodeId>, reverse:
   Some(stops[next].target)
 }
 
-fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>, in_form: bool, walk: &mut Walk) {
+fn collect_stops<'a>(
+  node: &'a Node,
+  dropped: &[NodeId],
+  focus_event_id: Option<NodeId>,
+  in_form: bool,
+  walk: &mut Walk<'a>,
+) {
+  // A layer that moves the focus is walked after its anchor.
+  if walk.moved.iter().any(|(_, layer)| std::ptr::eq(*layer, node)) {
+    return;
+  }
+  collect_node(node, dropped, focus_event_id, in_form, walk);
+  let Some(anchor) = &node.element_ref else {
+    return;
+  };
+  let moved = walk.moved;
+  for (_, layer) in moved.iter().filter(|(owner, _)| owner.same_handle(anchor)) {
+    if walk.walked.contains(&layer.node_id()) {
+      continue;
+    }
+    walk.walked.push(layer.node_id());
+    if walk.in_one_stop > 0 {
+      walk.pending.push(layer);
+    } else {
+      collect_node(layer, dropped, None, false, walk);
+    }
+  }
+}
+
+/// The stops in `node` and under it, where the walk is at it.
+fn collect_node<'a>(
+  node: &'a Node,
+  dropped: &[NodeId],
+  focus_event_id: Option<NodeId>,
+  in_form: bool,
+  walk: &mut Walk<'a>,
+) {
   // Nothing in a disabled element takes focus, so Tab passes all of it by.
   // Nor in a layer that is on its way out, which is only painted.
   if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
@@ -198,12 +274,19 @@ fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>
   }
 
   let first_inside = walk.stops.len();
+  let one_stop = node.focus_group_value().is_some_and(|group| group.one_stop);
+  if one_stop {
+    walk.in_one_stop += 1;
+  }
   for child in node.children() {
     collect_stops(child, dropped, focus_event_id, in_form, walk);
   }
+  if one_stop {
+    walk.in_one_stop -= 1;
+  }
   // A group that is one stop keeps one of the stops in it: the focused one, so that Tab from inside leaves
   // the group; or the one marked as its entry; or its first.
-  if node.focus_group_value().is_some_and(|group| group.one_stop) && walk.stops.len() > first_inside + 1 {
+  if one_stop && walk.stops.len() > first_inside + 1 {
     let inside = &walk.stops[first_inside..];
     let kept = inside
       .iter()
@@ -213,6 +296,12 @@ fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>
     let stop = walk.stops.swap_remove(first_inside + kept);
     walk.stops.truncate(first_inside);
     walk.stops.push(stop);
+  }
+  // The layers whose anchors are in the group come after it, once it is done.
+  if one_stop && walk.in_one_stop == 0 {
+    for layer in std::mem::take(&mut walk.pending) {
+      collect_node(layer, dropped, None, false, walk);
+    }
   }
 }
 

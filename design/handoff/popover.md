@@ -11,7 +11,17 @@
   an app's focus request, which wins); one that is gone while the focus was in its layer gives it back
   (`Tree::focused_overlay_closed`, beside `focused_overlay_hidden`). A layer that leaves with an exit animation
   already loses the focus (`release_input_in_leaving_layers`), so the return works with a fade. `Modal` is not
-  covered: a dialog would need the same flag on `ModalSpec` and the same two lines in its arm.
+  covered: the dialog's `Modal::takes_focus` (merged beside it) does that for a modal.
+- **The engine: Tab through an overlay that moves the focus** (`app/runtime/tab_navigation.rs`,
+  `Tree::focus_moving_layers` in `app/runtime/overlay_layers.rs`, its two callers). The stops of such an
+  overlay's layer come right after its anchor's, as a web popover's come after its invoker's: Tab from the
+  trigger goes into the popover, Tab from its last stop goes on to what follows the trigger, and Shift+Tab
+  comes back the same way. Where the anchor is in a focus group that Tab stops in once, the layer's stops come
+  after the group, so the group does not swallow them. A layer whose anchor the walk does not reach stays where
+  the host has it, after the page. `tab_move` takes the list of such layers; `sync_modal_focus` passes none.
+  For the integrator: `docs/src/content/docs/focus-navigation.md`, Tab Scope, says the window's scope has "open
+  popups and overlays after the page"; it wants "after the page, but those of an overlay that moves the focus
+  right after its anchor's stops".
 - **`PartStyle::enter` and `PartStyle::exit`** (`ui/part_style.rs`, `PartAnimation` exported from `ui`): a
   keyframe animation of a part as it appears and as it leaves, with its duration and easing as the theme's
   roles (`PartAnimation::new(keyframes, MotionDuration, MotionEasing)`), applied with `NodeUpdate::animation`
@@ -56,7 +66,8 @@ Popover::new(anchor.clone(), open.clone())
 
 - It is the engine's `Popup` with the panel dressed by the recipe: it is placed against its anchor in every frame, goes to the other side where there is no room and is kept in the window, and closes on Escape and on a press outside it, which sets the signal to `false`. Declare it always and drive it with the signal: lurq only knows the anchor of a popup it can see.
 - With a trigger, the trigger's own node is the anchor: a press of it, or Enter and Space on it, opens and closes the popover, and while another popup or select is open one press of it closes that one and opens this one. It tells what reads the tree `a11y_haspopup` and `a11y_expanded`. Without a trigger the app opens it, and the anchor is any element of its own (`ref_element`); a press of the anchor is not a press outside it.
-- As it opens the focus goes to the first thing in it that takes the focus (`Popup::move_focus`), and as it closes with the focus inside, back to the trigger. It does not keep Tab in it: it is not modal.
+- As it opens the focus goes to the first thing in it that takes the focus (`Popup::move_focus`), and as it closes with the focus inside, back to the trigger. Its stops of Tab come right after the trigger's: Tab from its last one goes on to what follows the trigger. It does not keep Tab in it: it is not modal.
+- The anchor is kept from one render to the next (a field of the component, `ctx.element_ref()`): one made anew in each render is not the one the focus goes back to.
 - It fades in over the theme's `Base` duration in the `Enter` curve, and out over `Fast` in the `Exit` curve (`PartStyle::enter`, `PartStyle::exit` on the root, `FADE_IN` and `FADE_OUT`). A fade is not movement, so reduced motion leaves it.
 - A theme given to a subtree reaches a popover declared in it.
 - Parts: `PopoverPart::Root` (the panel), `Header` (the title over the description), `Title`, `Description`, `Body` (what it holds). It has no states of its own.
@@ -66,7 +77,7 @@ Popover::new(anchor.clone(), open.clone())
 
 ## For `CHANGELOG.md`
 
-- `ui::Popover`: a panel beside the button that opens it, over the window, with a title, a description and anything in it, which takes the focus as it opens, gives it back as it closes, and fades in and out; `Popup::move_focus` and `Overlay::move_focus`; `PartStyle::enter` and `PartStyle::exit` with `ui::FADE_IN` and `ui::FADE_OUT`.
+- `ui::Popover`: a panel beside the button that opens it, over the window, with a title, a description and anything in it, which takes the focus as it opens, gives it back as it closes, is in the order of Tab right after its trigger, and fades in and out; `Popup::move_focus` and `Overlay::move_focus`; `PartStyle::enter` and `PartStyle::exit` with `ui::FADE_IN` and `ui::FADE_OUT`.
 
 ## Decided
 
@@ -83,7 +94,7 @@ Popover::new(anchor.clone(), open.clone())
 
 ## Not done
 
-- Tab from the last thing in an open popover goes to the first stop of the page, not to the stop after its trigger: the window's order of Tab puts every open overlay after the page (`docs/.../focus-navigation.md`, Tab Scope). Smallest change: in `app/runtime/tab_navigation.rs`, order the stops of an overlay layer whose overlay moves the focus right after the stops of its anchor, in the window scope.
+Nothing.
 
 ## Differs from the board
 
