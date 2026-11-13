@@ -20,6 +20,7 @@ mod menu;
 mod overview;
 mod pagination;
 mod popover;
+mod progress;
 mod radio;
 mod select;
 mod separator;
@@ -349,6 +350,14 @@ pub const PAGES: &[Page] = &[
     about: "skeleton placeholder loading line circle block paragraph pulse shimmer media row card",
     group: Group::Data,
     mount: |ctx| ctx.mount::<skeleton::SkeletonPage>(()),
+  },
+  Page {
+    path: "/progress",
+    name: "Progress",
+    icon: None,
+    about: "progress bar ring indeterminate loading upload value max percent label top bar meter variant size",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<progress::ProgressPage>(()),
   },
 ];
 

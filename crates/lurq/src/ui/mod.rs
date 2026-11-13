@@ -36,6 +36,7 @@ mod menu;
 mod pagination;
 mod part_style;
 mod popover;
+mod progress;
 mod radio;
 mod recipe;
 mod segmented;
@@ -95,6 +96,12 @@ pub use part_style::{
   TransitionEasing,
 };
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
+pub(crate) use progress::keyframes as progress_keyframes;
+pub use progress::{
+  PROGRESS_LEAD, PROGRESS_PERIOD, PROGRESS_SEGMENT, Progress, ProgressFormat, ProgressPart, ProgressRenderer,
+  ProgressSize, ProgressState, ProgressVariant, ProgressView, RingProgress, RingProgressPart, RingProgressRenderer,
+  RingProgressView,
+};
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};

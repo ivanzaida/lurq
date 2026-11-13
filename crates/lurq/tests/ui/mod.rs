@@ -14,6 +14,7 @@ mod input;
 mod menu;
 mod pagination;
 mod popover;
+mod progress;
 mod radio;
 mod select;
 mod separator;

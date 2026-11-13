@@ -316,6 +316,8 @@ impl AnimationEngine {
       .into_iter()
       .chain(crate::ui::skeleton_keyframes())
     {
+    // A progress that does not know how far it is: the room before its segment, and the segment.
+    for keyframes in crate::ui::progress_keyframes() {
       engine.register_keyframes_in_phase(keyframes);
     }
     engine

@@ -75,6 +75,9 @@ pub enum AnimatableValue {
     px: f32,
     content: f32,
   },
+  /// A width or a height of a share of the parent's, in percent: what `Dimension::Pct` is to a transition or a
+  /// keyframe. It moves to another share, as a bar filled to a value does; to and from pixels it changes at once.
+  Percent(f32),
 }
 
 /// The box shadows of a node as one animated value: at most
@@ -191,6 +194,7 @@ impl AnimatableValue {
       (AnimatableValue::Transform(a), AnimatableValue::Transform(b)) => AnimatableValue::Transform(a.lerp(b, t)),
       (AnimatableValue::Outline(a), AnimatableValue::Outline(b)) => AnimatableValue::Outline(lerp_outline(*a, *b, t)),
       (AnimatableValue::Shadows(a), AnimatableValue::Shadows(b)) => AnimatableValue::Shadows(a.lerp(b, t)),
+      (AnimatableValue::Percent(a), AnimatableValue::Percent(b)) => AnimatableValue::Percent(a + (b - a) * t),
       (
         AnimatableValue::Float(_) | AnimatableValue::Fit { .. },
         AnimatableValue::Float(_) | AnimatableValue::Fit { .. },
@@ -366,7 +370,7 @@ pub(crate) fn read_target(
       .map(AnimatableValue::Float),
     AnimatableProperty::OffsetX => read_offset_x(node).map(AnimatableValue::Float),
     AnimatableProperty::OffsetY => read_offset_y(node).map(AnimatableValue::Float),
-    AnimatableProperty::Width => read_target_frame_dim(node, &style, true).map(AnimatableValue::Float),
+    AnimatableProperty::Width => read_target_frame_dim(node, &style, true),
     // A height the content decides is one too, so that an element opens to it and closes from it.
     AnimatableProperty::Height => Some(read_target_height(node, &style)),
     AnimatableProperty::Opacity => Some(AnimatableValue::Float(style.opacity.unwrap_or(node.opacity))),
@@ -422,11 +426,17 @@ fn read_target_height(node: &crate::node::Node, style: &crate::node::style::Styl
   };
   match height {
     None | Some(crate::node::dimension::Dimension::Auto) => AnimatableValue::Fit { px: 0.0, content: 1.0 },
+    Some(crate::node::dimension::Dimension::Pct(share)) => AnimatableValue::Percent(share),
     Some(height) => AnimatableValue::Float(height.to_px()),
   }
 }
 
-fn read_target_frame_dim(node: &crate::node::Node, style: &crate::node::style::Style, is_width: bool) -> Option<f32> {
+/// The width (or height) `node` is heading to: in pixels, or a share of its parent's.
+fn read_target_frame_dim(
+  node: &crate::node::Node,
+  style: &crate::node::style::Style,
+  is_width: bool,
+) -> Option<AnimatableValue> {
   let base = node.frame;
   if base == crate::layout::layout_kind::FrameConstraints::default() && style.frame.is_none() {
     return None;
@@ -435,11 +445,11 @@ fn read_target_frame_dim(node: &crate::node::Node, style: &crate::node::style::S
     Some(overlay) => crate::node::node::merge_frame(base, overlay),
     None => base,
   };
-  if is_width {
-    effective.width.map(|d| d.to_px())
-  } else {
-    effective.height.map(|d| d.to_px())
-  }
+  let dimension = if is_width { effective.width } else { effective.height };
+  dimension.map(|dimension| match dimension {
+    crate::node::dimension::Dimension::Pct(share) => AnimatableValue::Percent(share),
+    dimension => AnimatableValue::Float(dimension.to_px()),
+  })
 }
 
 #[cfg(test)]
@@ -461,6 +471,15 @@ mod tests {
     let a = AnimatableValue::Float(0.0);
     let b = AnimatableValue::Float(100.0);
     assert_eq!(a.lerp(&b, 0.75), AnimatableValue::Float(75.0));
+  }
+
+  #[test]
+  fn lerp_percent() {
+    let a = AnimatableValue::Percent(20.0);
+    let b = AnimatableValue::Percent(60.0);
+    assert_eq!(a.lerp(&b, 0.5), AnimatableValue::Percent(40.0));
+    // A share and pixels are not mixed: the value changes at once, halfway.
+    assert_eq!(a.lerp(&AnimatableValue::Float(10.0), 0.3), a);
   }
 
   #[test]
