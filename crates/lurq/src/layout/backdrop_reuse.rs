@@ -561,7 +561,11 @@ impl Notes {
       radii,
       stroke,
       stroke_color,
-      stroke_style: StrokeStyle { dash, radii_at },
+      stroke_style: StrokeStyle {
+        dash,
+        radii_at,
+        side_colors,
+      },
       transform,
       transform_origin,
       clip,
@@ -576,6 +580,10 @@ impl Notes {
     self.color(*stroke_color);
     self.f32s(dash);
     self.f32(*radii_at);
+    self.flag(side_colors.is_some());
+    for color in side_colors.iter().flatten() {
+      self.color(*color);
+    }
     self.f32s(transform);
     self.f32s(transform_origin);
     self.clip(clip);

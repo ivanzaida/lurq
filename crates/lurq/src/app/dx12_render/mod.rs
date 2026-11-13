@@ -2421,7 +2421,7 @@ unsafe fn create_rgba_texture(device: &ID3D12Device, width: u32, height: u32) ->
 
 /// A rect's instances: its fill and, when it has one, its stroke; or its box
 /// shadow. Returned inline with a count so drawing a rect does not allocate.
-fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> ([QuadInstance; 2], usize) {
+fn rect_instances(rect: &RectCmd, gradient_offset: f32, side_colors_offset: f32) -> ([QuadInstance; 2], usize) {
   if let Some(shadow) = &rect.shadow {
     let instance = QuadInstance::box_shadow(rect, shadow);
     return ([instance, instance], 1);
@@ -2457,7 +2457,8 @@ fn rect_instances(rect: &RectCmd, gradient_offset: f32) -> ([QuadInstance; 2], u
       transform: rect.transform,
       xf_origin: rect.transform_origin,
       shadow_sigma: 0.0,
-      gradient_offset: -1.0,
+      // A stroke whose sides differ in color reads the four where a fill reads its gradient.
+      gradient_offset: side_colors_offset,
     };
     return ([fill, stroke], 2);
   }
@@ -3439,6 +3440,7 @@ impl Dx12State {
       Some(gradient) => crate::layout::render_list::encode_gradient(&mut gradient_data, gradient),
       None => -1.0,
     };
+    let side_colors_offset = crate::layout::render_list::encode_stroke_colors(&mut gradient_data, &rect.stroke_style);
     const NO_GRADIENT: [[f32; 4]; 1] = [[0.0; 4]];
     let gradient_upload = if gradient_data.is_empty() {
       self.upload_frame_pod_slice(&NO_GRADIENT, 16)?
@@ -3459,7 +3461,7 @@ impl Dx12State {
       .command_list
       .SetGraphicsRootShaderResourceView(1, gradient_upload.gpu_address);
 
-    let (instances, instance_count) = rect_instances(rect, gradient_offset);
+    let (instances, instance_count) = rect_instances(rect, gradient_offset, side_colors_offset);
     let instances = &instances[..instance_count];
     let instance_upload = self.upload_frame_pod_slice(instances, 16)?;
     let instance_view = instance_upload.vertex_view::<QuadInstance>();

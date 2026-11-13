@@ -66,6 +66,12 @@ VsOut vs_main(VsIn input)
     aa_outset += max(input.pattern.w, 0.0) + max(abs(input.pattern.y), abs(input.pattern.z))
       + SHADOW_EXTENT_SIGMAS * input.shadow_sigma;
   }
+  if (max_stroke > 0.0)
+  {
+    // Round a corner whose other side has none, a stroke outside the box or
+    // centred on its edge reaches past that side as past its own.
+    aa_outset += max(input.pattern.w, 0.0) * max_stroke;
+  }
   float2 local_px = input.corner * (input.size + float2(aa_outset * 2.0, aa_outset * 2.0))
     - float2(aa_outset, aa_outset);
   float2 centered = local_px - input.xf_origin;
@@ -386,43 +392,222 @@ float dash_coverage(float position, float total, float dash, float gap)
   return saturate(0.5 - d);
 }
 
+// How a stroke's opacity falls off along the arc of a rounded corner where
+// its side meets a side with none: `on` is 1 where the arc leaves the side
+// with the stroke and 0 where it reaches the other. The one place to tune how
+// a border on some sides of a rounded element dissolves at its ends.
+float corner_fade(float on)
+{
+  float t = saturate(on);
+  return t * t * (3.0 - 2.0 * t);
+}
+
+// How the colors of two sides that meet at a corner mix across it: `turn` is
+// 0 on the top or bottom side and 1 on the left or right one.
+float corner_color_mix(float turn)
+{
+  float t = saturate(turn);
+  return t * t * (3.0 - 2.0 * t);
+}
+
+// The sides that meet at the corner of `local`'s quadrant, as widths (`.x`
+// across: the left or right side, `.y` along: the top or bottom one).
+float2 quadrant_widths(float2 local, float4 widths)
+{
+  return float2(local.x < 0.0 ? widths.w : widths.y, local.y < 0.0 ? widths.x : widths.z);
+}
+
+// The widths the stroke has in a corner whose sides are `sides` wide (across,
+// along): theirs, but at a rounded corner where one side has none the other's
+// width goes on round the corner.
+float2 corner_widths(float2 sides, float2 radius)
+{
+  if (radius.x <= 0.0 || radius.y <= 0.0)
+  {
+    return sides;
+  }
+  float width = max(sides.x, sides.y);
+  return float2(sides.x <= 0.0 ? width : sides.x, sides.y <= 0.0 ? width : sides.y);
+}
+
+// The widths the ring has at `local`: the corner's widths in the arc of a
+// rounded corner, the sides' own anywhere else, so that past the arc of a
+// corner where the stroke ends the side with none has no ring at all and the
+// distance to the ring does not jump where the quadrants meet.
+float2 ring_widths(float2 local, float2 half_size, float2 radius, float2 sides, float radii_at)
+{
+  float2 corner = corner_widths(sides, radius);
+  if (all(corner == sides))
+  {
+    return sides;
+  }
+  float2 edge = half_size + radii_at * (corner - sides);
+  float2 centre = edge - (radius + radii_at * corner);
+  if (all(abs(local) > centre))
+  {
+    return corner;
+  }
+  return sides;
+}
+
+// A box given by how far each of its edges (top, right, bottom, left) is
+// inside the rect of half extent `half_size`: its centre (`.xy`) and half
+// extent (`.zw`).
+float4 inset_box(float2 half_size, float4 insets)
+{
+  float2 centre = float2(0.5 * (insets.w - insets.y), 0.5 * (insets.x - insets.z));
+  float2 half_extent = max(float2(
+    half_size.x - 0.5 * (insets.w + insets.y),
+    half_size.y - 0.5 * (insets.x + insets.z)
+  ), float2(0.0, 0.0));
+  return float4(centre, half_extent);
+}
+
 // The ring of a stroke: inside the outer edge and outside the hole. `stroke`
 // is the widths (top, right, bottom, left); `radii_at` says which edge of the
-// stroke the radii are the corners of (0 outer, 1 the hole's).
+// stroke the radii are the corners of (0 outer, 1 the hole's). Along the arc
+// of a rounded corner whose other side has no stroke the ring goes on at
+// the same width, and reaches past that side as far as the stroke reaches
+// past its own.
 float rounded_stroke_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v, float4 stroke, float radii_at)
 {
   float4 widths = max(stroke, float4(0.0, 0.0, 0.0, 0.0));
   float2 radius = pick_radius(local, radii_h, radii_v);
-  // The sides that meet at this quadrant's corner.
-  float across = local.x < 0.0 ? widths.w : widths.y;
-  float along = local.y < 0.0 ? widths.x : widths.z;
+  float2 sides = quadrant_widths(local, widths);
+  float2 corner = ring_widths(local, half_size, radius, sides, radii_at);
+
+  // How far the outer edge is past the rect on each side, and the hole's edge
+  // inside it.
+  float2 reach = radii_at * (corner - sides);
+  float4 outward = float4(0.0, 0.0, 0.0, 0.0);
+  float4 insets = float4(
+    stroke_inset(widths.x),
+    stroke_inset(widths.y),
+    stroke_inset(widths.z),
+    stroke_inset(widths.w)
+  );
+  if (local.x < 0.0)
+  {
+    outward.w = reach.x;
+    insets.w = stroke_inset(corner.x);
+  }
+  else
+  {
+    outward.y = reach.x;
+    insets.y = stroke_inset(corner.x);
+  }
+  if (local.y < 0.0)
+  {
+    outward.x = reach.y;
+    insets.x = stroke_inset(corner.y);
+  }
+  else
+  {
+    outward.z = reach.y;
+    insets.z = stroke_inset(corner.y);
+  }
 
   float2 outer_radius = float2(0.0, 0.0);
   float2 hole_radius = float2(0.0, 0.0);
   if (radius.x > 0.0)
   {
-    outer_radius.x = radius.x + radii_at * across;
-    hole_radius.x = max(outer_radius.x - stroke_inset(across), 0.0);
+    outer_radius.x = radius.x + radii_at * corner.x;
+    hole_radius.x = max(outer_radius.x - stroke_inset(corner.x), 0.0);
   }
   if (radius.y > 0.0)
   {
-    outer_radius.y = radius.y + radii_at * along;
-    hole_radius.y = max(outer_radius.y - stroke_inset(along), 0.0);
+    outer_radius.y = radius.y + radii_at * corner.y;
+    hole_radius.y = max(outer_radius.y - stroke_inset(corner.y), 0.0);
   }
-  float outer_dist = sd_rounded_box(local, half_size, outer_radius);
-
-  float top = stroke_inset(widths.x);
-  float right = stroke_inset(widths.y);
-  float bottom = stroke_inset(widths.z);
-  float left = stroke_inset(widths.w);
-  float2 hole_half = max(float2(
-    half_size.x - 0.5 * (left + right),
-    half_size.y - 0.5 * (top + bottom)
-  ), float2(0.0, 0.0));
-  float2 hole_center = float2(0.5 * (left - right), 0.5 * (top - bottom));
-  float hole_dist = sd_rounded_box(local - hole_center, hole_half, hole_radius);
+  float4 outer = inset_box(half_size, -outward);
+  float outer_dist = sd_rounded_box(local - outer.xy, outer.zw, outer_radius);
+  float4 hole = inset_box(half_size, insets - outward);
+  float hole_dist = sd_rounded_box(local - hole.xy, hole.zw, hole_radius);
   float dist = max(outer_dist, -hole_dist);
   return saturate(0.5 - dist / subsample_aa_width(dist));
+}
+
+// Where `local` is round the corner of its quadrant: 0 on the top or bottom
+// side, 1 on the left or right one, the angle in between along a rounded
+// corner's arc. In a square corner, and inside the arc's centre of a stroke
+// wider than its corner, the two sides meet on the line from the outer corner
+// to the hole's, a pixel wide.
+float corner_turn(float2 local, float2 half_size, float4 radii_h, float4 radii_v, float4 stroke, float radii_at)
+{
+  float4 widths = max(stroke, float4(0.0, 0.0, 0.0, 0.0));
+  float2 radius = pick_radius(local, radii_h, radii_v);
+  float2 sides = quadrant_widths(local, widths);
+  float2 corner = corner_widths(sides, radius);
+  // Mirrored into the bottom-right quadrant.
+  float2 p = abs(local);
+  float2 edge = half_size + radii_at * (corner - sides);
+  float2 outer_radius = float2(0.0, 0.0);
+  if (radius.x > 0.0 && radius.y > 0.0)
+  {
+    outer_radius = radius + radii_at * corner;
+  }
+  float2 d = p - (edge - outer_radius);
+  if (d.x > 0.0 && d.y > 0.0 && outer_radius.x > 0.0)
+  {
+    return atan2(d.x / outer_radius.x, d.y / outer_radius.y) * 0.63661977;
+  }
+  if (d.x <= 0.0 && d.y > 0.0)
+  {
+    return 0.0;
+  }
+  if (d.x > 0.0 && d.y <= 0.0)
+  {
+    return 1.0;
+  }
+  float2 to_edge = edge - p;
+  float span = max(length(corner), 1e-4);
+  return saturate(0.5 + (to_edge.y * corner.x - to_edge.x * corner.y) / span);
+}
+
+// How much of the stroke shows at `local` along a rounded corner where one of
+// the sides that meet has none: it fades out from the side with a stroke to
+// the other. In a quadrant whose sides both have none, only the band of a far
+// side wide enough to reach into it (more than half the rect) shows: not the
+// end of an arc that goes on past the middle of a side, as round a pill whose
+// stroke is outside it. 1 anywhere else.
+float corner_fade_at(float2 local, float2 half_size, float4 radii_h, float4 radii_v, float4 stroke, float radii_at)
+{
+  float4 widths = max(stroke, float4(0.0, 0.0, 0.0, 0.0));
+  float2 radius = pick_radius(local, radii_h, radii_v);
+  float2 sides = quadrant_widths(local, widths);
+  if (sides.x <= 0.0 && sides.y <= 0.0)
+  {
+    float2 far_widths = float2(local.x < 0.0 ? widths.y : widths.w, local.y < 0.0 ? widths.z : widths.x);
+    // How far the point is from the far edges, less a pixel for their ramps.
+    float2 from_far = half_size + abs(local) - float2(1.0, 1.0);
+    return any(from_far < far_widths) ? 1.0 : 0.0;
+  }
+  if (radius.x <= 0.0 || radius.y <= 0.0 || (sides.x > 0.0) == (sides.y > 0.0))
+  {
+    return 1.0;
+  }
+  float turn = corner_turn(local, half_size, radii_h, radii_v, stroke, radii_at);
+  return sides.y > 0.0 ? corner_fade(1.0 - turn) : corner_fade(turn);
+}
+
+// The stroke's color at `local` when its sides have colors of their own, four
+// at `offset` in `gradients` (top, right, bottom, left): a side's own along
+// it, mixed across a corner where two sides with a stroke meet.
+float4 stroke_side_color(int offset, float2 local, float2 half_size, float4 radii_h, float4 radii_v, float4 stroke, float radii_at)
+{
+  float2 sides = quadrant_widths(local, max(stroke, float4(0.0, 0.0, 0.0, 0.0)));
+  float4 across = gradients[offset + (local.x < 0.0 ? 3 : 1)];
+  float4 along = gradients[offset + (local.y < 0.0 ? 0 : 2)];
+  if (sides.y <= 0.0)
+  {
+    return across;
+  }
+  if (sides.x <= 0.0)
+  {
+    return along;
+  }
+  float turn = corner_turn(local, half_size, radii_h, radii_v, stroke, radii_at);
+  return lerp(along, across, corner_color_mix(turn));
 }
 
 float supersampled_fill_alpha(float2 local, float2 half_size, float4 radii_h, float4 radii_v)
@@ -542,19 +727,18 @@ float4 ps_main(VsOut input) : SV_TARGET
     discard;
   }
 
-  float4 base_color = input.color;
-  if (input.gradient_offset >= 0.0)
-  {
-    int off = (int)(input.gradient_offset + 0.5);
-    if ((int)gradients[off].x >= 1)
-    {
-      base_color = sample_gradient(off, input.local, input.half_size);
-    }
-  }
-
   float max_stroke = max(max(input.stroke.x, input.stroke.y), max(input.stroke.z, input.stroke.w));
+  float4 base_color = input.color;
   if (max_stroke <= 0.0)
   {
+    if (input.gradient_offset >= 0.0)
+    {
+      int off = (int)(input.gradient_offset + 0.5);
+      if ((int)gradients[off].x >= 1)
+      {
+        base_color = sample_gradient(off, input.local, input.half_size);
+      }
+    }
     if (input.pattern.x > 0.5)
     {
       float shadow_alpha = box_shadow_alpha(input.local, input.half_size, input.radii_h, input.radii_v, input.pattern, input.shadow_sigma);
@@ -569,11 +753,23 @@ float4 ps_main(VsOut input) : SV_TARGET
   }
 
   // A stroke's pattern holds its dash (y), its gap (z) and the edge its radii are at (w).
-  float alpha = supersampled_stroke_alpha(input.local, input.half_size, input.radii_h, input.radii_v, input.stroke, input.pattern.w);
+  float radii_at = input.pattern.w;
+  float alpha = supersampled_stroke_alpha(input.local, input.half_size, input.radii_h, input.radii_v, input.stroke, radii_at);
+  if (alpha > 0.0)
+  {
+    alpha *= corner_fade_at(input.local, input.half_size, input.radii_h, input.radii_v, input.stroke, radii_at);
+  }
   if (alpha > 0.0 && input.pattern.y > 0.0 && input.pattern.z > 0.0)
   {
     float2 place = outline_position(input.local, input.half_size, input.radii_h, input.stroke);
     alpha *= dash_coverage(place.x, place.y, input.pattern.y, input.pattern.z);
   }
-  return encode_srgb(float4(input.color.rgb, input.color.a * alpha * clip_alpha_value));
+  // A stroke whose sides differ in color has the four (top, right, bottom,
+  // left) in `gradients`, where a fill keeps its gradient.
+  if (alpha > 0.0 && input.gradient_offset >= 0.0)
+  {
+    int off = (int)(input.gradient_offset + 0.5);
+    base_color = stroke_side_color(off, input.local, input.half_size, input.radii_h, input.radii_v, input.stroke, radii_at);
+  }
+  return encode_srgb(float4(base_color.rgb, base_color.a * alpha * clip_alpha_value));
 }

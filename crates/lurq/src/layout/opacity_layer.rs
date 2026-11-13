@@ -881,9 +881,9 @@ pub(crate) type Extent = [f32; 4];
 const EMPTY_EXTENT: Extent = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
 
 /// The pixels a rect can paint: its box under its transform, as far as its
-/// anti-aliasing and its shadow reach, inside its clip.
+/// anti-aliasing, its shadow and its stroke reach, inside its clip.
 pub(crate) fn rect_extent(rect: &RectCmd) -> Extent {
-  let reach = AA_REACH + rect.shadow.map_or(0.0, |shadow| shadow.outset());
+  let reach = AA_REACH + rect.shadow.map_or(0.0, |shadow| shadow.outset()) + rect.stroke_style.outset(rect.stroke);
   let extent = transformed_extent(
     rect.x,
     rect.y,
