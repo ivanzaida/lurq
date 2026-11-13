@@ -14,7 +14,9 @@
 //! the box, in place of what was there (`BackdropRegion`).
 
 #[cfg(any(feature = "render", feature = "devtools"))]
-use crate::layout::opacity_layer::{LayerBlur, LayerBounds, LayerCmd, RoundedBox};
+use crate::layout::opacity_layer::{
+  LayerBlur, LayerBounds, LayerCmd, RoundedBox, RoundedClipBoxes, rounded_clip_boxes,
+};
 use crate::layout::quad::ClipRect;
 
 /// Blurs what the target holds inside a box before the draws of `order` and
@@ -80,13 +82,14 @@ pub(crate) struct BackdropRegion {
   /// The blur as a layer: `bounds` are the window pixels it changes, the
   /// [`LayerBlur`] rectangle the pixels copied out of the target (the
   /// bounds grown by the blur's reach, within the target) with the rounded
-  /// clip the node is under, if it has one, and `opacity` the command's.
+  /// clips the node is under, and `opacity` the command's.
   /// Its orders are unused.
   pub layer: LayerCmd,
   /// The node's box, which the blurred pixels are put back in.
   pub mask: RoundedBox,
-  /// The rounded clip the node is under, when its clip has rounded corners.
-  pub clip: Option<RoundedBox>,
+  /// The rounded clips the node is under, innermost first (see
+  /// [`rounded_clip_boxes`]).
+  pub clips: RoundedClipBoxes,
 }
 
 #[cfg(any(feature = "render", feature = "devtools"))]
@@ -108,7 +111,7 @@ impl BackdropRegion {
       cmd.transform_origin,
     )?;
     let mut shown = mask.extent();
-    let mut clip = None;
+    let mut clips = [None; crate::layout::quad::MAX_ROUNDED_CLIPS];
     if cmd.clip.active {
       shown = [
         shown[0].max(cmd.clip.x),
@@ -116,22 +119,7 @@ impl BackdropRegion {
         shown[2].min(cmd.clip.x + cmd.clip.width),
         shown[3].min(cmd.clip.y + cmd.clip.height),
       ];
-      clip = cmd.clip.border_radius.map(|radius| {
-        let limit = cmd.clip.width.min(cmd.clip.height) * 0.5;
-        RoundedBox::rect(
-          cmd.clip.x,
-          cmd.clip.y,
-          cmd.clip.width,
-          cmd.clip.height,
-          [
-            radius.top_left,
-            radius.top_right,
-            radius.bottom_right,
-            radius.bottom_left,
-          ]
-          .map(|radius| radius.clamp(0.0, limit.max(0.0))),
-        )
-      });
+      clips = rounded_clip_boxes(cmd.clip);
     }
     // The target's pixels inside the window: a layer may be painted for
     // pixels outside it, which are never shown.
@@ -175,11 +163,11 @@ impl BackdropRegion {
           y: copied_y0,
           width: (copied_x1 - copied_x0) as u32,
           height: (copied_y1 - copied_y0) as u32,
-          clip,
+          clips,
         }),
       },
       mask,
-      clip,
+      clips,
     })
   }
 }
@@ -187,6 +175,7 @@ impl BackdropRegion {
 #[cfg(all(test, any(feature = "render", feature = "devtools")))]
 mod tests {
   use super::*;
+  use crate::layout::quad::MAX_ROUNDED_CLIPS;
 
   fn cmd(x: f32, y: f32, width: f32, height: f32, sigma: f32) -> BackdropCmd {
     BackdropCmd {
@@ -225,37 +214,39 @@ mod tests {
       region.mask,
       RoundedBox::rect(40.5, 30.0, 50.0, 20.0, [1.0, 2.0, 3.0, 4.0])
     );
-    assert_eq!(region.clip, None);
+    assert_eq!(region.clips, [None; MAX_ROUNDED_CLIPS]);
   }
 
   #[test]
   fn a_clip_and_the_target_cut_what_is_blurred() {
     let mut clipped = cmd(40.0, 30.0, 50.0, 20.0, 4.0);
-    clipped.clip = ClipRect {
-      x: 60.0,
-      y: 0.0,
-      width: 100.0,
-      height: 100.0,
-      active: true,
-      border_radius: None,
-    };
+    clipped.clip = ClipRect::rect(60.0, 0.0, 100.0, 100.0);
     let region = BackdropRegion::new(&clipped, [0, 0], [200, 60]).unwrap();
     assert_eq!((region.layer.bounds.x, region.layer.bounds.width), (60, 30));
     // The mask is still the whole box: its corners stay where they are.
     assert_eq!(region.mask.extent()[0], 40.0);
-    assert_eq!(region.clip, None, "a clip without corners is in the bounds");
+    assert_eq!(
+      region.clips, [None; MAX_ROUNDED_CLIPS],
+      "a clip without corners is in the bounds"
+    );
 
     // A rounded clip rides along, for the pass that puts the blur back.
-    clipped.clip.border_radius = Some(crate::node::border::BorderRadius {
-      top_left: 6.0,
-      top_right: 0.0,
-      bottom_right: 80.0,
-      bottom_left: 0.0,
-    });
+    clipped.clip = ClipRect::rounded_rect(
+      60.0,
+      0.0,
+      100.0,
+      100.0,
+      Some(crate::node::border::BorderRadius {
+        top_left: 6.0,
+        top_right: 0.0,
+        bottom_right: 80.0,
+        bottom_left: 0.0,
+      }),
+    );
     let region = BackdropRegion::new(&clipped, [0, 0], [200, 60]).unwrap();
     let rounded = RoundedBox::rect(60.0, 0.0, 100.0, 100.0, [6.0, 0.0, 50.0, 0.0]);
-    assert_eq!(region.clip, Some(rounded));
-    assert_eq!(region.layer.blur.unwrap().clip, Some(rounded));
+    assert_eq!(region.clips, [Some(rounded), None]);
+    assert_eq!(region.layer.blur.unwrap().clips, [Some(rounded), None]);
 
     // A layer target that starts inside the box and outside the window.
     let region = BackdropRegion::new(&cmd(-20.0, 10.0, 100.0, 20.0, 4.0), [-30, 0], [70, 60]).unwrap();

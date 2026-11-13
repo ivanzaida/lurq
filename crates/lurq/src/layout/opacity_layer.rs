@@ -25,7 +25,7 @@ use std::ops::Range;
 
 use crate::layout::{
   backdrop::BackdropCmd,
-  quad::ClipRect,
+  quad::{ClipRect, MAX_ROUNDED_CLIPS},
   render_list::{GlyphCmd, RectCmd},
 };
 
@@ -68,13 +68,10 @@ pub(crate) struct OpacityGroup {
   pub opacity: f32,
   /// The node's blur radius in logical pixels; 0 without a blur.
   pub blur: f32,
-  /// With a blur: the clip the node itself is under, in logical pixels
-  /// (x, y, width, height). The blurred layer shows only inside it; its
+  /// With a blur: the clip the node itself is under, in logical pixels,
+  /// rounded clips included. The blurred layer shows only inside it; its
   /// content is clipped further out (see `LayoutEngine::collect_quads`).
-  pub clip: Option<[f32; 4]>,
-  /// The corner radii of `clip`, in logical pixels: top left, top right,
-  /// bottom right, bottom left.
-  pub clip_radii: [f32; 4],
+  pub clip: Option<ClipRect>,
 }
 
 /// An offscreen layer: the draws whose `order` lies in `start_order..end_order`
@@ -132,10 +129,39 @@ pub struct LayerBlur {
   pub y: i32,
   pub width: u32,
   pub height: u32,
-  /// The rounded clip the blurred layer is cut to as it is composited:
-  /// the clip its node is under, when that clip has rounded corners. A
-  /// clip without them is in [`LayerCmd::bounds`] already.
-  pub clip: Option<RoundedBox>,
+  /// The rounded clips the blurred layer is cut to as it is composited:
+  /// those of the clip its node is under (see [`rounded_clip_boxes`]). A
+  /// clip's rectangle is in [`LayerCmd::bounds`] already.
+  pub clips: RoundedClipBoxes,
+}
+
+/// The rounded clips of a [`ClipRect`] as boxes, innermost first.
+pub type RoundedClipBoxes = [Option<RoundedBox>; MAX_ROUNDED_CLIPS];
+
+/// The rounded clips of `clip` (in physical pixels of the window) as upright
+/// [`RoundedBox`]es, which is what the blur passes cut by.
+pub(crate) fn rounded_clip_boxes(clip: ClipRect) -> RoundedClipBoxes {
+  if !clip.active {
+    return [None; MAX_ROUNDED_CLIPS];
+  }
+  clip.rounded.map(|rounded| {
+    rounded.map(|rounded| {
+      let limit = (rounded.width.min(rounded.height) * 0.5).max(0.0);
+      RoundedBox::rect(
+        rounded.x,
+        rounded.y,
+        rounded.width,
+        rounded.height,
+        rounded.radius.to_array().map(|radius| radius.clamp(0.0, limit)),
+      )
+    })
+  })
+}
+
+/// How much of the pixel whose centre is (`x`, `y`) all of `clips` cover.
+#[cfg(feature = "devtools")]
+pub(crate) fn rounded_clips_coverage(clips: &RoundedClipBoxes, x: f32, y: f32) -> f32 {
+  clips.iter().flatten().map(|clip| clip.coverage(x, y)).product()
 }
 
 /// A box with rounded corners in the window, possibly turned or scaled: what
@@ -558,32 +584,19 @@ impl TargetSpace {
       return clip;
     };
     if !clip.active {
-      return ClipRect {
-        x: 0.0,
-        y: 0.0,
-        width,
-        height,
-        active: true,
-        border_radius: None,
-      };
+      return ClipRect::rect(0.0, 0.0, width, height);
     }
-    ClipRect {
-      x: clip.x - self.origin[0],
-      y: clip.y - self.origin[1],
-      ..clip
-    }
+    clip.translated(-self.origin[0], -self.origin[1])
   }
 
   /// Where `layer` sits in this target, as a clip in this target's pixels.
   pub(crate) fn layer_rect(&self, layer: LayerBounds) -> ClipRect {
-    ClipRect {
-      x: layer.x as f32 - self.origin[0],
-      y: layer.y as f32 - self.origin[1],
-      width: layer.width as f32,
-      height: layer.height as f32,
-      active: true,
-      border_radius: None,
-    }
+    ClipRect::rect(
+      layer.x as f32 - self.origin[0],
+      layer.y as f32 - self.origin[1],
+      layer.width as f32,
+      layer.height as f32,
+    )
   }
 }
 
@@ -651,11 +664,16 @@ pub(crate) struct LayerBlurPass {
   pub mask: [f32; 4],
   pub mask_inverse: [f32; 4],
   pub radii: [f32; 4],
-  /// For the last pass of a blur: the rounded clip its result is cut to, in
-  /// the same form. A box that covers everything without one.
+  /// For the last pass of a blur: the innermost rounded clip its result is
+  /// cut to, in the same form. A box that covers everything without one.
   pub clip: [f32; 4],
   pub clip_inverse: [f32; 4],
   pub clip_radii: [f32; 4],
+  /// And the rounded clip outside that one, as centre and half size, then
+  /// radii. Clips are upright boxes, so it has no matrix, and `mode.z` is
+  /// its scale too.
+  pub outer_clip: [f32; 4],
+  pub outer_clip_radii: [f32; 4],
 }
 
 #[cfg(feature = "render")]
@@ -713,11 +731,15 @@ impl LayerBlurPass {
     // The offset is in the parent's pixels: the border's texels are
     // `reduction` of them each.
     let border = (plan.border * plan.reduction) as f32;
-    let (clip, clip_inverse, clip_radii, clip_scale) = box_uniforms(layer.blur.and_then(|blur| blur.clip), parent);
+    let clips = layer.blur.map_or([None; MAX_ROUNDED_CLIPS], |blur| blur.clips);
+    let (clip, clip_inverse, clip_radii, clip_scale) = box_uniforms(clips[0], parent);
+    let (outer_clip, _, outer_clip_radii, _) = box_uniforms(clips[1], parent);
     Self {
       clip,
       clip_inverse,
       clip_radii,
+      outer_clip,
+      outer_clip_radii,
       rect: [rect.x, rect.y, rect.width, rect.height],
       target: [
         parent.width,
@@ -767,6 +789,8 @@ impl LayerBlurPass {
     clip: [0.0, 0.0, EVERYWHERE, EVERYWHERE],
     clip_inverse: [1.0, 0.0, 0.0, 1.0],
     clip_radii: [0.0; 4],
+    outer_clip: [0.0, 0.0, EVERYWHERE, EVERYWHERE],
+    outer_clip_radii: [0.0; 4],
   };
 }
 
@@ -1077,27 +1101,12 @@ fn blurred_bounds(
   }
   let reach = (sigma * 3.0).ceil();
   let mut shown = grown(extent, reach);
-  let mut clip = None;
-  if let Some([x, y, width, height]) = group.clip {
-    if group.clip_radii.iter().any(|radius| *radius > 0.0) {
-      let limit = width.min(height) * 0.5 * scale;
-      clip = Some(RoundedBox::rect(
-        x * scale,
-        y * scale,
-        width * scale,
-        height * scale,
-        group.clip_radii.map(|radius| (radius * scale).min(limit)),
-      ));
-    }
-    shown = intersection(
-      shown,
-      [
-        (x * scale).floor(),
-        (y * scale).floor(),
-        ((x + width) * scale).ceil(),
-        ((y + height) * scale).ceil(),
-      ],
-    );
+  let mut clips = [None; MAX_ROUNDED_CLIPS];
+  if let Some(clip) = group.clip {
+    let clip = clip.scaled(scale);
+    clips = rounded_clip_boxes(clip);
+    let (x, y, width, height) = (clip.x, clip.y, clip.width, clip.height);
+    shown = intersection(shown, [x.floor(), y.floor(), (x + width).ceil(), (y + height).ceil()]);
   }
   let bounds = pixel_bounds(shown, viewport);
   if bounds.is_empty() {
@@ -1128,7 +1137,7 @@ fn blurred_bounds(
       y: y0 as i32,
       width: (x1 - x0) as u32,
       height: (y1 - y0) as u32,
-      clip,
+      clips,
     }),
   )
 }
@@ -1222,7 +1231,7 @@ mod tests {
       y: 0,
       width: 201,
       height: 100,
-      clip: None,
+      clips: [None; MAX_ROUNDED_CLIPS],
     };
     let narrow = BlurPlan::new(&blur(4.0));
     assert_eq!(
@@ -1261,8 +1270,7 @@ mod tests {
       end: 1,
       opacity: 1.0,
       blur: 8.0,
-      clip: Some([10.0, 0.0, 50.0, 100.0]),
-      clip_radii: [0.0; 4],
+      clip: Some(ClipRect::rect(10.0, 0.0, 50.0, 100.0)),
     };
     // Content from x 20 to 200, in a 100 x 100 window at scale 2.
     let (bounds, blur) = blurred_bounds(&group, [20.0, 30.0, 200.0, 60.0], [100.0, 100.0], 2.0);
@@ -1286,16 +1294,56 @@ mod tests {
       (100 + 27, 60 + 27)
     );
 
-    assert_eq!(blur.clip, None, "a clip without corners is in the bounds");
+    assert_eq!(
+      blur.clips, [None; MAX_ROUNDED_CLIPS],
+      "a clip without corners is in the bounds"
+    );
     // A rounded clip rides along, in physical pixels.
     let rounded = OpacityGroup {
-      clip_radii: [4.0, 0.0, 0.0, 0.0],
+      clip: Some(ClipRect::rounded_rect(
+        10.0,
+        0.0,
+        50.0,
+        100.0,
+        Some(crate::node::border::BorderRadius::new(4.0, 0.0, 0.0, 0.0)),
+      )),
       ..group
     };
     let (_, blur) = blurred_bounds(&rounded, [20.0, 30.0, 200.0, 60.0], [100.0, 100.0], 2.0);
     assert_eq!(
-      blur.unwrap().clip,
-      Some(RoundedBox::rect(20.0, 0.0, 100.0, 200.0, [8.0, 0.0, 0.0, 0.0]))
+      blur.unwrap().clips,
+      [
+        Some(RoundedBox::rect(20.0, 0.0, 100.0, 200.0, [8.0, 0.0, 0.0, 0.0])),
+        None
+      ]
+    );
+    // Under two rounded clips, both ride along, the innermost first: a rail along the bottom of a rounded panel
+    // is cut by the panel's corners, which are not the rail's.
+    let panel = ClipRect::rounded_rect(
+      0.0,
+      0.0,
+      50.0,
+      100.0,
+      Some(crate::node::border::BorderRadius::all(10.0)),
+    );
+    let rail = ClipRect::rounded_rect(
+      0.0,
+      80.0,
+      50.0,
+      20.0,
+      Some(crate::node::border::BorderRadius::new(4.0, 4.0, 0.0, 0.0)),
+    );
+    let nested = OpacityGroup {
+      clip: Some(panel.intersect(rail)),
+      ..group
+    };
+    let (_, blur) = blurred_bounds(&nested, [0.0, 0.0, 100.0, 200.0], [100.0, 200.0], 2.0);
+    assert_eq!(
+      blur.unwrap().clips,
+      [
+        Some(RoundedBox::rect(0.0, 160.0, 100.0, 40.0, [8.0, 8.0, 0.0, 0.0])),
+        Some(RoundedBox::rect(0.0, 0.0, 100.0, 200.0, [20.0; 4])),
+      ]
     );
 
     let unblurred = OpacityGroup { blur: 0.0, ..group };
@@ -1423,14 +1471,7 @@ mod tests {
     let turned = transformed_extent(0.0, 0.0, 40.0, 10.0, [0.0, 1.0, -1.0, 0.0], [20.0, 5.0], 0.0);
     assert!((turned[0] - 15.0).abs() < 1e-4 && (turned[2] - 25.0).abs() < 1e-4);
     assert!((turned[1] + 15.0).abs() < 1e-4 && (turned[3] - 25.0).abs() < 1e-4);
-    let clip = ClipRect {
-      x: 12.0,
-      y: 0.0,
-      width: 8.0,
-      height: 200.0,
-      active: true,
-      border_radius: None,
-    };
+    let clip = ClipRect::rect(12.0, 0.0, 8.0, 200.0);
     assert_eq!(clipped(extent, clip), [12.0, 20.5, 20.0, 30.5]);
     assert_eq!(pixel_bounds([90.0, 90.0, 120.0, 95.0], [100.0, 100.0]).width, 10);
     assert!(pixel_bounds([120.0, 0.0, 130.0, 10.0], [100.0, 100.0]).is_empty());

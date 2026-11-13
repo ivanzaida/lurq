@@ -50,14 +50,7 @@ fn atlas() -> GlyphAtlas {
 }
 
 fn clip(x: f32, y: f32, width: f32, height: f32) -> ClipRect {
-  ClipRect {
-    x,
-    y,
-    width,
-    height,
-    active: true,
-    border_radius: None,
-  }
+  ClipRect::rect(x, y, width, height)
 }
 
 fn glyph(order: usize, x: f32, y: f32, color: Color, clip: ClipRect) -> GlyphCmd {
@@ -84,15 +77,7 @@ fn glyph(order: usize, x: f32, y: f32, color: Color, clip: ClipRect) -> GlyphCmd
 fn runs() -> Vec<(Vec<(f32, f32)>, Color, ClipRect)> {
   let row = |y: f32, xs: &[f32]| xs.iter().map(|x| (*x, y)).collect::<Vec<_>>();
   let labels = clip(2.0, 2.0, 44.0, 16.0);
-  let rounded = ClipRect {
-    border_radius: Some(BorderRadius {
-      top_left: 6.0,
-      top_right: 6.0,
-      bottom_right: 6.0,
-      bottom_left: 6.0,
-    }),
-    ..clip(2.0, 38.0, 44.0, 16.0)
-  };
+  let rounded = ClipRect::rounded_rect(2.0, 38.0, 44.0, 16.0, Some(BorderRadius::all(6.0)));
   vec![
     // Inside its clip.
     (row(4.0, &[4.0, 16.0, 28.0]), Color::from_hex("#ef4444"), labels),

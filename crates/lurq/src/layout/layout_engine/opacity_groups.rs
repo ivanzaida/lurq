@@ -31,14 +31,12 @@ pub(super) fn blur_content_clip(clip: ClipRect, radius: f32) -> ClipRect {
     return clip;
   }
   let reach = crate::layout::opacity_layer::blur_reach(radius);
-  ClipRect {
-    x: clip.x - reach,
-    y: clip.y - reach,
-    width: clip.width + 2.0 * reach,
-    height: clip.height + 2.0 * reach,
-    active: true,
-    border_radius: None,
-  }
+  ClipRect::rect(
+    clip.x - reach,
+    clip.y - reach,
+    clip.width + 2.0 * reach,
+    clip.height + 2.0 * reach,
+  )
 }
 
 impl LayoutEngine {
@@ -74,18 +72,7 @@ impl LayoutEngine {
       end,
       opacity,
       blur: blur.max(0.0),
-      clip: (blur > 0.0 && clip.active).then_some([clip.x, clip.y, clip.width, clip.height]),
-      clip_radii: clip
-        .border_radius
-        .map(|radius| {
-          [
-            radius.top_left,
-            radius.top_right,
-            radius.bottom_right,
-            radius.bottom_left,
-          ]
-        })
-        .unwrap_or([0.0; 4]),
+      clip: (blur > 0.0 && clip.active).then_some(clip),
     });
   }
 

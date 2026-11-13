@@ -2781,14 +2781,12 @@ impl Tree {
     let _quad_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _quad_phase = self.profiling.context.phase(crate::app::profiler::Phase::QuadResolve);
-    let viewport_clip = ClipRect {
-      x: 0.0,
-      y: 0.0,
-      width: self.viewport_physical.width / scale,
-      height: self.viewport_physical.height / scale,
-      active: true,
-      border_radius: None,
-    };
+    let viewport_clip = ClipRect::rect(
+      0.0,
+      0.0,
+      self.viewport_physical.width / scale,
+      self.viewport_physical.height / scale,
+    );
     let mut quads = std::mem::take(&mut self.quad_scratch);
     quads.clear();
     self.layout_engine.begin_scrollbar_frame(self.now());
@@ -2865,19 +2863,7 @@ impl Tree {
 
     for (order, quad) in quads.iter().enumerate() {
       let scaled_clip = if quad.clip.active {
-        ClipRect {
-          x: quad.clip.x * scale,
-          y: quad.clip.y * scale,
-          width: quad.clip.width * scale,
-          height: quad.clip.height * scale,
-          active: true,
-          border_radius: quad.clip.border_radius.map(|radius| crate::node::border::BorderRadius {
-            top_left: radius.top_left * scale,
-            top_right: radius.top_right * scale,
-            bottom_right: radius.bottom_right * scale,
-            bottom_left: radius.bottom_left * scale,
-          }),
-        }
+        quad.clip.scaled(scale)
       } else {
         ClipRect::default()
       };
@@ -4669,7 +4655,7 @@ impl Tree {
     };
 
     let mut hits = Vec::new();
-    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &self.layout_engine.radii(), &mut hits);
     if take_disabled_hit(&mut hits).is_some() {
       return Vec::new();
     }
@@ -4823,7 +4809,7 @@ impl Tree {
       match evt.kind {
         MouseEventKind::Move => {
           if let (Some(root), Some(result)) = (&self.root, &self.last_layout) {
-            drag.update_with_tree(root, result, lx, ly);
+            drag.update_with_tree(root, result, lx, ly, &self.layout_engine.radii());
           } else {
             drag.update(lx, ly);
           }
@@ -4832,7 +4818,7 @@ impl Tree {
         }
         MouseEventKind::Up => {
           if let (Some(root), Some(result)) = (&self.root, &self.last_layout) {
-            drag.update_with_tree(root, result, lx, ly);
+            drag.update_with_tree(root, result, lx, ly, &self.layout_engine.radii());
           } else {
             drag.update(lx, ly);
           }
@@ -4931,13 +4917,13 @@ impl Tree {
     };
 
     let mut hits = Vec::new();
-    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &self.layout_engine.radii(), &mut hits);
     // A press or click on a disabled element reaches nothing: not it, not what it covers and not the elements it is
     // in, as a click on a disabled control of the web. A move still reaches those elements, which stay hovered.
     let disabled_hit = take_disabled_hit(&mut hits);
     // Its scroll containers still scroll, so their scrollbars still take the pointer.
     let scrollable_in_disabled = if disabled_hit.is_some() {
-      scroll_containers_in_disabled(root, result, lx, ly, &hits)
+      scroll_containers_in_disabled(root, result, lx, ly, &self.layout_engine.radii(), &hits)
     } else {
       Vec::new()
     };
@@ -5147,7 +5133,8 @@ impl Tree {
 
         if pending_text_selection_drag.is_none()
           && !pointer_on_slider
-          && let Some((node, rect)) = selectable_text_drag_start_endpoint(root, result, lx, ly)
+          && let Some((node, rect)) =
+            selectable_text_drag_start_endpoint(root, result, lx, ly, &self.layout_engine.radii())
           && let Some((state, value)) = selectable_text_state_and_value(node)
         {
           let text_x = rect.local_x - rect.x;
@@ -5870,7 +5857,7 @@ impl Tree {
     let root = self.root.as_ref()?;
     let result = self.last_layout.as_ref()?;
     let mut hits = Vec::new();
-    hit_test_tree_all(root, result, 0.0, 0.0, x, y, &mut hits);
+    hit_test_tree_all(root, result, 0.0, 0.0, x, y, &self.layout_engine.radii(), &mut hits);
     hits
       .into_iter()
       .find(|(node, _)| !node.is_disabled() && !node.events.on_drop.is_empty())
@@ -6011,7 +5998,7 @@ impl Tree {
         Some((find_node_by_id(root, *target)?, rect))
       }));
     } else {
-      hits = scroll_hits(root, result, lx, ly);
+      hits = scroll_hits(root, result, lx, ly, &self.layout_engine.radii());
     }
     let scroll_delta_can_be_consumed =
       scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y, gesture_dy);
@@ -6308,14 +6295,12 @@ impl Tree {
       return Vec::new();
     };
     let scale = self.scale_factor();
-    let viewport = ClipRect {
-      x: 0.0,
-      y: 0.0,
-      width: self.viewport_physical.width / scale,
-      height: self.viewport_physical.height / scale,
-      active: true,
-      border_radius: None,
-    };
+    let viewport = ClipRect::rect(
+      0.0,
+      0.0,
+      self.viewport_physical.width / scale,
+      self.viewport_physical.height / scale,
+    );
     self.resolve_quads_with_viewport(result, viewport)
   }
 
@@ -6329,6 +6314,13 @@ impl Tree {
   #[doc(hidden)]
   pub fn last_layout(&self) -> Option<&LayoutResult> {
     self.last_layout.as_deref()
+  }
+
+  /// The theme's corner radii, as layout resolves the nodes' radii: what hit
+  /// testing cuts rounded clips with.
+  #[cfg(feature = "mcp")]
+  pub(crate) fn theme_radii(&self) -> std::cell::Ref<'_, crate::app::theme::ThemeRadii> {
+    self.layout_engine.radii()
   }
 
   /// Benchmarks only: runs the layout engine over the root under the
@@ -6573,7 +6565,16 @@ impl Tree {
     let result = self.last_layout.as_ref()?;
     let scale = self.scale_factor();
     let mut hits = Vec::new();
-    crate::app::hit_test::hit_test_tree_inspecting(root, result, 0.0, 0.0, x / scale, y / scale, &mut hits);
+    crate::app::hit_test::hit_test_tree_inspecting(
+      root,
+      result,
+      0.0,
+      0.0,
+      x / scale,
+      y / scale,
+      &self.layout_engine.radii(),
+      &mut hits,
+    );
     let node = hits.first()?.0;
     find_path_by_id(root, node.node_id())
   }
@@ -8702,7 +8703,14 @@ impl TextSelectionDrag {
     }
   }
 
-  fn update_with_tree(&self, root: &Node, layout: &LayoutResult, x: f32, y: f32) {
+  fn update_with_tree(
+    &self,
+    root: &Node,
+    layout: &LayoutResult,
+    x: f32,
+    y: f32,
+    radii: &crate::app::theme::ThemeRadii,
+  ) {
     match &self.kind {
       TextSelectionDragKind::Input { .. } => {
         let Some(state) = self.current_input_state(root) else {
@@ -8718,7 +8726,7 @@ impl TextSelectionDrag {
         preserve_existing,
         ..
       } if !preserve_existing => {
-        if let Some((node, rect)) = selectable_text_endpoint(root, layout, x, y)
+        if let Some((node, rect)) = selectable_text_endpoint(root, layout, x, y, radii)
           && let Some((state, value)) = selectable_text_state_and_value(node)
         {
           let caret = state.caret_index_at_point(&value, rect.local_x - rect.x, rect.local_y - rect.y);
@@ -10288,8 +10296,8 @@ fn save_devtools_screenshot(
           };
           if let Some(blur) = layers[layer].blur {
             blur_screenshot_layer(&mut layer_pixels, bounds.width, blur.sigma);
-            if let Some(clip) = blur.clip {
-              clip_screenshot_layer(&mut layer_pixels, bounds, &clip);
+            for clip in blur.clips.iter().flatten() {
+              clip_screenshot_layer(&mut layer_pixels, bounds, clip);
             }
           }
           composite_screenshot_layer(&mut target_pixels, &layer_pixels, bounds.width, layers[layer].opacity);
@@ -10785,8 +10793,17 @@ fn screenshot_clip_contains(clip: ClipRect, x: f32, y: f32) -> bool {
   if x < clip.x || y < clip.y || x >= clip.x + clip.width || y >= clip.y + clip.height {
     return false;
   }
-  let radii = clip.border_radius.map(|radius| radius.to_array()).unwrap_or([0.0; 4]);
-  screenshot_rounded_rect_contains(x, y, clip.x, clip.y, clip.width, clip.height, radii)
+  clip.rounded_clips().all(|rounded| {
+    screenshot_rounded_rect_contains(
+      x,
+      y,
+      rounded.x,
+      rounded.y,
+      rounded.width,
+      rounded.height,
+      rounded.radius.to_array(),
+    )
+  })
 }
 
 #[cfg(feature = "devtools")]
@@ -10934,7 +10951,7 @@ fn blur_screenshot_backdrop(
     for world_x in shown.x..shown.x + shown.width {
       let center = (world_x as f32 + 0.5, world_y as f32 + 0.5);
       let coverage = region.mask.coverage(center.0, center.1)
-        * region.clip.map_or(1.0, |clip| clip.coverage(center.0, center.1))
+        * crate::layout::opacity_layer::rounded_clips_coverage(&region.clips, center.0, center.1)
         * region.layer.opacity;
       if coverage <= 0.0 {
         continue;
@@ -11088,10 +11105,11 @@ fn scroll_containers_in_disabled<'a>(
   layout: &LayoutResult,
   x: f32,
   y: f32,
+  radii: &crate::app::theme::ThemeRadii,
   kept: &[(&'a Node, crate::app::hit_test::HitRect)],
 ) -> Vec<(&'a Node, crate::app::hit_test::HitRect)> {
   let mut all = Vec::new();
-  crate::app::hit_test::hit_test_tree_inspecting(root, layout, 0.0, 0.0, x, y, &mut all);
+  crate::app::hit_test::hit_test_tree_inspecting(root, layout, 0.0, 0.0, x, y, radii, &mut all);
   all.retain(|(node, _)| {
     node.scroll_container().is_some() && !kept.iter().any(|(kept, _)| kept.node_id() == node.node_id())
   });
@@ -11105,13 +11123,14 @@ fn scroll_hits<'a>(
   layout: &LayoutResult,
   x: f32,
   y: f32,
+  radii: &crate::app::theme::ThemeRadii,
 ) -> Vec<(&'a Node, crate::app::hit_test::HitRect)> {
   let mut hits = Vec::new();
-  hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
+  hit_test_tree(root, layout, 0.0, 0.0, x, y, radii, &mut hits);
   if take_disabled_hit(&mut hits).is_none() {
     return hits;
   }
-  let mut inside = scroll_containers_in_disabled(root, layout, x, y, &hits);
+  let mut inside = scroll_containers_in_disabled(root, layout, x, y, radii, &hits);
   inside.append(&mut hits);
   inside
 }
@@ -11956,9 +11975,10 @@ fn selectable_text_endpoint<'a>(
   layout: &'a LayoutResult,
   x: f32,
   y: f32,
+  radii: &crate::app::theme::ThemeRadii,
 ) -> Option<(&'a Node, HitRect)> {
   let mut hits = Vec::new();
-  hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
+  hit_test_tree(root, layout, 0.0, 0.0, x, y, radii, &mut hits);
   if let Some(hit) = hits.into_iter().find(|(node, _)| is_selectable_text_node(node)) {
     return Some(hit);
   }
@@ -11975,9 +11995,10 @@ fn selectable_text_drag_start_endpoint<'a>(
   layout: &'a LayoutResult,
   x: f32,
   y: f32,
+  radii: &crate::app::theme::ThemeRadii,
 ) -> Option<(&'a Node, HitRect)> {
   let mut hits = Vec::new();
-  hit_test_tree(root, layout, 0.0, 0.0, x, y, &mut hits);
+  hit_test_tree(root, layout, 0.0, 0.0, x, y, radii, &mut hits);
   if hits.iter().any(|(node, _)| scrollbar_hit_at(node, x, y).is_some()) {
     return None;
   }
@@ -12926,14 +12947,12 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
     return clip;
   }
 
-  ClipRect {
-    x: clip.x - RASTERIZATION_SLOP_PX,
-    y: clip.y - RASTERIZATION_SLOP_PX,
-    width: clip.width + RASTERIZATION_SLOP_PX * 2.0,
-    height: clip.height + RASTERIZATION_SLOP_PX * 2.0,
-    active: true,
-    border_radius: clip.border_radius,
-  }
+  clip.outset(
+    RASTERIZATION_SLOP_PX,
+    RASTERIZATION_SLOP_PX,
+    RASTERIZATION_SLOP_PX,
+    RASTERIZATION_SLOP_PX,
+  )
 }
 
 /// The clip the glyphs of one text are drawn under, given the clip of the
@@ -12972,18 +12991,12 @@ fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> C
     bottom = bottom.max(glyph.y + glyph.height - inset);
   }
   let slop = |cut: bool| if cut { 0.0 } else { RASTERIZATION_SLOP_PX };
-  let x = clip.x - slop(left < clip.x - RASTERIZATION_SLOP_PX);
-  let y = clip.y - slop(top < clip.y - RASTERIZATION_SLOP_PX);
-  let x2 = clip.x + clip.width + slop(right > clip.x + clip.width + RASTERIZATION_SLOP_PX);
-  let y2 = clip.y + clip.height + slop(bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX);
-  ClipRect {
-    x,
-    y,
-    width: x2 - x,
-    height: y2 - y,
-    active: true,
-    border_radius: clip.border_radius,
-  }
+  clip.outset(
+    slop(left < clip.x - RASTERIZATION_SLOP_PX),
+    slop(top < clip.y - RASTERIZATION_SLOP_PX),
+    slop(right > clip.x + clip.width + RASTERIZATION_SLOP_PX),
+    slop(bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX),
+  )
 }
 
 /// Draws the glyphs of one text under [`text_glyph_clip`].
@@ -13003,14 +13016,12 @@ fn expand_text_clip_for_culling(clip: ClipRect) -> ClipRect {
   }
 
   const TEXT_CULL_OVERSCAN_PX: f32 = 96.0;
-  ClipRect {
-    x: clip.x - TEXT_CULL_OVERSCAN_PX,
-    y: clip.y - TEXT_CULL_OVERSCAN_PX,
-    width: clip.width + TEXT_CULL_OVERSCAN_PX * 2.0,
-    height: clip.height + TEXT_CULL_OVERSCAN_PX * 2.0,
-    active: true,
-    border_radius: clip.border_radius,
-  }
+  clip.outset(
+    TEXT_CULL_OVERSCAN_PX,
+    TEXT_CULL_OVERSCAN_PX,
+    TEXT_CULL_OVERSCAN_PX,
+    TEXT_CULL_OVERSCAN_PX,
+  )
 }
 
 #[cfg(test)]
@@ -13025,14 +13036,7 @@ mod tests {
 
   #[test]
   fn text_clip_expands_by_one_physical_pixel_for_glyph_rasterization() {
-    let clip = ClipRect {
-      x: 10.0,
-      y: 20.0,
-      width: 30.0,
-      height: 40.0,
-      active: true,
-      border_radius: None,
-    };
+    let clip = ClipRect::rect(10.0, 20.0, 30.0, 40.0);
 
     let expanded = expand_text_clip_for_rasterization(clip);
 
@@ -13067,14 +13071,7 @@ mod tests {
   const INSIDE: [f32; 4] = [20.0, 30.0, 60.0, 50.0];
 
   fn clip_box() -> ClipRect {
-    ClipRect {
-      x: 10.0,
-      y: 20.0,
-      width: 100.0,
-      height: 40.0,
-      active: true,
-      border_radius: None,
-    }
+    ClipRect::rect(10.0, 20.0, 100.0, 40.0)
   }
 
   /// Left, top, right and bottom.
@@ -13140,14 +13137,7 @@ mod tests {
 
   #[test]
   fn text_cull_clip_expands_for_scroll_prewarm() {
-    let clip = ClipRect {
-      x: 10.0,
-      y: 20.0,
-      width: 30.0,
-      height: 40.0,
-      active: true,
-      border_radius: None,
-    };
+    let clip = ClipRect::rect(10.0, 20.0, 30.0, 40.0);
 
     let expanded = expand_text_clip_for_culling(clip);
 

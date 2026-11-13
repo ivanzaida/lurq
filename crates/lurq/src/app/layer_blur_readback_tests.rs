@@ -51,8 +51,7 @@ fn group(start: usize, end: usize, opacity: f32, blur: f32) -> OpacityGroup {
     end,
     opacity,
     blur,
-    clip: Some([0.0, 0.0, WIDTH as f32, HEIGHT as f32]),
-    clip_radii: [0.0; 4],
+    clip: Some(ClipRect::rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32)),
   }
 }
 
@@ -238,8 +237,13 @@ fn assert_layer_blur<E: RenderEngine>(new_engine: fn() -> E, backend: &str) {
   // included: the clip here lies inside the box, so without its corners
   // every pixel of it would be the box's colour.
   let mut clipped = group(0, 1, 1.0, 8.0);
-  clipped.clip = Some([64.0, 32.0, 32.0, 32.0]);
-  clipped.clip_radii = [12.0; 4];
+  clipped.clip = Some(ClipRect::rounded_rect(
+    64.0,
+    32.0,
+    32.0,
+    32.0,
+    Some(crate::node::border::BorderRadius::all(12.0)),
+  ));
   let frame = render(
     &mut new_engine(),
     &list(vec![rect(0, BOX, Color::new(FILL, FILL, FILL, 255))], &[clipped]),

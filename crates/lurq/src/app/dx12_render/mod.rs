@@ -2497,31 +2497,7 @@ impl OrderedDraw {
 
 /// Globals for a draw clipped by `clip`, already in `space`'s pixels.
 fn globals_for_clip(clip: ClipRect, space: &TargetSpace) -> Globals {
-  let radius = clip.border_radius.unwrap_or_default();
-  let radii = radius.to_array();
-  Globals {
-    viewport: space.viewport(),
-    clip_rect: if clip.active {
-      [clip.x, clip.y, clip.width, clip.height]
-    } else {
-      [0.0, 0.0, space.width, space.height]
-    },
-    clip_radii_h: radii,
-    clip_radii_v: radii,
-    clip_active: if rounded_clip_needs_shader(clip) {
-      [1.0, 0.0, 0.0, 0.0]
-    } else {
-      [0.0; 4]
-    },
-  }
-}
-
-fn rounded_clip_needs_shader(clip: ClipRect) -> bool {
-  let Some(radius) = clip.border_radius else {
-    return false;
-  };
-  clip.active
-    && (radius.top_left > 0.0 || radius.top_right > 0.0 || radius.bottom_right > 0.0 || radius.bottom_left > 0.0)
+  Globals::for_clip(space.viewport(), clip)
 }
 
 fn scissor_rect(clip: ClipRect, vw: f32, vh: f32) -> Option<RECT> {
@@ -5041,19 +5017,7 @@ mod tests {
 
   #[test]
   fn scissor_expands_fractional_clip_to_include_bottom_right_edge() {
-    let rect = scissor_rect(
-      ClipRect {
-        x: 10.6,
-        y: 20.2,
-        width: 30.1,
-        height: 40.6,
-        active: true,
-        border_radius: None,
-      },
-      100.0,
-      100.0,
-    )
-    .unwrap();
+    let rect = scissor_rect(ClipRect::rect(10.6, 20.2, 30.1, 40.6), 100.0, 100.0).unwrap();
 
     assert_eq!(rect.left, 10);
     assert_eq!(rect.top, 20);

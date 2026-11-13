@@ -71,7 +71,7 @@ fn assert_clip_matches_scaled_card(scale: f32) {
       "scale {scale}: text clip {actual:?} should cover the scaled card {expected:?}"
     );
   }
-  let radius = clip.border_radius.expect("the clip keeps the card's corners");
+  let radius = clip.rounded[0].expect("the clip keeps the card's corners").radius;
   assert!(
     (radius.top_left - CARD_RADIUS * scale).abs() < 0.01,
     "radius {radius:?}"
@@ -107,7 +107,7 @@ fn clip_inside_rotated_subtree_is_the_bounding_box_of_the_rotated_card() {
       "rotated text clip {actual:?} should be the card's bounding box {expected:?}"
     );
   }
-  assert!(clip.border_radius.is_none());
+  assert!(!clip.is_rounded());
 }
 
 /// Screen-space bounds of a glyph after its instance transform, as the glyph

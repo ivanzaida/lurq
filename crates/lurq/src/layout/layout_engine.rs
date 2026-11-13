@@ -648,6 +648,13 @@ impl LayoutEngine {
     self.paint_scale.set(scale);
   }
 
+  /// The theme's corner radii, which the nodes' radii resolve against: hit
+  /// testing cuts a clipping node's rounded corners with them, as painting
+  /// does.
+  pub(crate) fn radii(&self) -> std::cell::Ref<'_, ThemeRadii> {
+    self.radii.borrow()
+  }
+
   /// Takes the theme values layout and paint read until the next call. They
   /// are copied only when `theme` is another theme, or the same one at
   /// another version, than the last call's: a pass on an unchanged theme
@@ -1081,15 +1088,7 @@ impl LayoutEngine {
         if node.overflow == Overflow::Hidden && inherited_transform.is_axis_aligned() {
           let overflow_clip = intersect_clip(
             clip,
-            ClipRect {
-              x: abs_x,
-              y: abs_y,
-              width: result.size.width,
-              height: result.size.height,
-              active: true,
-              border_radius: None,
-            }
-            .transformed(inherited_transform),
+            ClipRect::rect(abs_x, abs_y, result.size.width, result.size.height).transformed(inherited_transform),
           );
           let child_cull_clip = if culling_enabled {
             intersect_clip(cull_clip, overflow_clip)
@@ -2089,16 +2088,15 @@ impl LayoutEngine {
 
     let (child_clip, child_cull_clip, child_culling_enabled) =
       if let LayoutKind::ScrollModifier { state, culling, .. } = node.layout_kind() {
-        let viewport = ClipRect {
-          x: abs_x,
-          y: abs_y,
-          width: state.viewport_width(),
-          height: state.viewport_height(),
-          active: true,
-          border_radius: node
+        let viewport = ClipRect::rounded_rect(
+          abs_x,
+          abs_y,
+          state.viewport_width(),
+          state.viewport_height(),
+          node
             .get_border_radius(&self.radii.borrow())
             .map(|radius| radius.clamped_to_rect(state.viewport_width(), state.viewport_height())),
-        };
+        );
         let child_clip = content_clip(clip, viewport, resolved_border, transform);
         let child_cull_clip = if *culling {
           content_clip(intersect_clip(cull_clip, clip), viewport, resolved_border, transform)
@@ -2107,16 +2105,15 @@ impl LayoutEngine {
         };
         (child_clip, child_cull_clip, *culling)
       } else if node.overflow == Overflow::Hidden && hidden_overflow_creates_clip(has_visual, transform) {
-        let bounds = ClipRect {
-          x: abs_x,
-          y: abs_y,
-          width: result.size.width,
-          height: result.size.height,
-          active: true,
-          border_radius: node
+        let bounds = ClipRect::rounded_rect(
+          abs_x,
+          abs_y,
+          result.size.width,
+          result.size.height,
+          node
             .get_border_radius(&self.radii.borrow())
             .map(|radius| radius.clamped_to_rect(result.size.width, result.size.height)),
-        };
+        );
         let child_clip = content_clip(clip, bounds, resolved_border, transform);
         let child_cull_clip = if culling_enabled {
           content_clip(intersect_clip(cull_clip, clip), bounds, resolved_border, transform)
@@ -2131,14 +2128,7 @@ impl LayoutEngine {
     let scroll_viewport = match node.layout_kind() {
       LayoutKind::ScrollModifier { state, .. } => Some(content_clip(
         self.scroll_clip.get(),
-        ClipRect {
-          x: abs_x,
-          y: abs_y,
-          width: state.viewport_width(),
-          height: state.viewport_height(),
-          active: true,
-          border_radius: None,
-        },
+        ClipRect::rect(abs_x, abs_y, state.viewport_width(), state.viewport_height()),
         resolved_border,
         transform,
       )),
@@ -4339,52 +4329,10 @@ fn scroll_direction_has_axis(direction: ScrollDirection, axis: ScrollAxis) -> bo
   )
 }
 
+/// The clip of content under `parent` and, inside it, `child`: see
+/// [`ClipRect::intersect`].
 fn intersect_clip(parent: ClipRect, child: ClipRect) -> ClipRect {
-  if !parent.active {
-    return child;
-  }
-  if !child.active {
-    return parent;
-  }
-
-  let x1 = parent.x.max(child.x);
-  let y1 = parent.y.max(child.y);
-  let x2 = (parent.x + parent.width).min(child.x + child.width);
-  let y2 = (parent.y + parent.height).min(child.y + child.height);
-
-  ClipRect {
-    x: x1,
-    y: y1,
-    width: (x2 - x1).max(0.0),
-    height: (y2 - y1).max(0.0),
-    active: true,
-    border_radius: intersected_clip_radius(parent, child, x1, y1, x2, y2),
-  }
-}
-
-fn intersected_clip_radius(
-  parent: ClipRect,
-  child: ClipRect,
-  x1: f32,
-  y1: f32,
-  x2: f32,
-  y2: f32,
-) -> Option<crate::node::border::BorderRadius> {
-  if same_clip_rect(parent, x1, y1, x2, y2) {
-    return parent.border_radius;
-  }
-  if same_clip_rect(child, x1, y1, x2, y2) {
-    return child.border_radius;
-  }
-  None
-}
-
-fn same_clip_rect(clip: ClipRect, x1: f32, y1: f32, x2: f32, y2: f32) -> bool {
-  const EPSILON: f32 = 0.001;
-  (clip.x - x1).abs() <= EPSILON
-    && (clip.y - y1).abs() <= EPSILON
-    && (clip.x + clip.width - x2).abs() <= EPSILON
-    && (clip.y + clip.height - y2).abs() <= EPSILON
+  parent.intersect(child)
 }
 
 /// What [`LayoutEngine::push_node_quads`] hands back to the recursion in
@@ -4402,6 +4350,9 @@ struct NodeQuadFrame {
   deferred_border: Option<ResolvedBorders>,
 }
 
+/// A node's own clip (its box, see [`content_clip`]) without the part of
+/// its border that is inside the box: its rectangle and its rounded corners
+/// inset by the border, as CSS clips content to the padding box.
 fn inset_clip_for_border(clip: ClipRect, border: Option<ResolvedBorders>) -> ClipRect {
   if !clip.active {
     return clip;
@@ -4418,15 +4369,35 @@ fn inset_clip_for_border(clip: ClipRect, border: Option<ResolvedBorders>) -> Cli
     return clip;
   }
 
+  let inset = |x: f32, y: f32, width: f32, height: f32| {
+    (
+      x + left,
+      y + top,
+      (width - left - right).max(0.0),
+      (height - top - bottom).max(0.0),
+    )
+  };
+  let (x, y, width, height) = inset(clip.x, clip.y, clip.width, clip.height);
   ClipRect {
-    x: clip.x + left,
-    y: clip.y + top,
-    width: (clip.width - left - right).max(0.0),
-    height: (clip.height - top - bottom).max(0.0),
+    x,
+    y,
+    width,
+    height,
     active: true,
-    border_radius: clip
-      .border_radius
-      .map(|radius| inset_border_radius(radius, left, top, right, bottom)),
+    rounded: clip.rounded.map(|rounded| {
+      rounded
+        .map(|rounded| {
+          let (x, y, width, height) = inset(rounded.x, rounded.y, rounded.width, rounded.height);
+          crate::layout::quad::RoundedClip {
+            x,
+            y,
+            width,
+            height,
+            radius: inset_border_radius(rounded.radius, left, top, right, bottom),
+          }
+        })
+        .filter(crate::layout::quad::RoundedClip::has_corners)
+    }),
   }
 }
 
@@ -4541,9 +4512,6 @@ fn content_clip(
   border: Option<ResolvedBorders>,
   transform: Transform2D,
 ) -> ClipRect {
-  if transform.is_identity() {
-    return inset_clip_for_border(intersect_clip(parent, bounds), border);
-  }
   intersect_clip(parent, inset_clip_for_border(bounds, border).transformed(transform))
 }
 
@@ -4573,14 +4541,7 @@ fn children_clip(node: &Node, rect: ElementRect) -> ClipRect {
     _ if node.overflow == Overflow::Hidden => (rect.width, rect.height),
     _ => return ClipRect::default(),
   };
-  ClipRect {
-    x: rect.x,
-    y: rect.y,
-    width,
-    height,
-    active: true,
-    border_radius: None,
-  }
+  ClipRect::rect(rect.x, rect.y, width, height)
 }
 
 fn rect_intersects_clip(x: f32, y: f32, width: f32, height: f32, clip: ClipRect) -> bool {
@@ -4856,14 +4817,7 @@ mod tests {
 
   #[test]
   fn clipped_subtree_culling_keeps_partially_visible_rects() {
-    let clip = ClipRect {
-      x: 0.0,
-      y: 0.0,
-      width: 100.0,
-      height: 100.0,
-      active: true,
-      border_radius: None,
-    };
+    let clip = ClipRect::rect(0.0, 0.0, 100.0, 100.0);
 
     assert!(rect_intersects_clip(90.0, 90.0, 20.0, 20.0, clip));
     assert!(!rect_intersects_clip(120.0, 0.0, 20.0, 20.0, clip));

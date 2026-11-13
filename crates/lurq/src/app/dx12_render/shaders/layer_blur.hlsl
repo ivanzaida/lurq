@@ -30,9 +30,11 @@ cbuffer BlurPass : register(b0)
   float4 mask;         // backdrop: the box to fill: centre in target pixels, half size
   float4 mask_inverse; // 2x2 from a target-pixel offset to the box's own axes
   float4 radii;        // the box's radii: tl, tr, br, bl
-  float4 cut;          // last pass: the rounded clip to cut to, in the same form
+  float4 cut;          // last pass: the innermost rounded clip to cut to, in the same form
   float4 cut_inverse;
   float4 cut_radii;
+  float4 outer_cut;       // and the one outside it: upright, so without a matrix, at the clip's scale
+  float4 outer_cut_radii;
 };
 
 Texture2D<float4> layer_texture : register(t0);
@@ -156,10 +158,12 @@ float box_coverage(float2 pixel, float4 rounded, float4 inverse, float4 corner_r
 }
 
 // How much of the last pass's result shows at `pixel`: its opacity, cut to
-// the rounded clip.
+// the rounded clips.
 float shown(float2 pixel)
 {
-  return kernel.w * box_coverage(pixel, cut, cut_inverse, cut_radii, mode.z);
+  float4 upright = float4(1.0, 0.0, 0.0, 1.0);
+  return kernel.w * box_coverage(pixel, cut, cut_inverse, cut_radii, mode.z)
+    * box_coverage(pixel, outer_cut, upright, outer_cut_radii, mode.z);
 }
 
 // How much of `pixel` the blurred backdrop replaces: the node's rounded box.

@@ -32,20 +32,13 @@ const IDENTITY: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
 /// Whether two clips cut the same pixels the same way.
 pub(crate) fn same_clip(a: ClipRect, b: ClipRect) -> bool {
-  a.active == b.active
-    && a.x == b.x
-    && a.y == b.y
-    && a.width == b.width
-    && a.height == b.height
-    && a.border_radius == b.border_radius
+  a == b
 }
 
 /// Whether `clip` has a rounded corner, which the shaders cut, not the
 /// scissor.
 fn rounded(clip: ClipRect) -> bool {
-  clip.border_radius.is_some_and(|radius| {
-    radius.top_left > 0.0 || radius.top_right > 0.0 || radius.bottom_right > 0.0 || radius.bottom_left > 0.0
-  })
+  clip.is_rounded()
 }
 
 /// Whether `glyph` is drawn texel for pixel: at whole pixels and at its atlas
@@ -242,14 +235,7 @@ mod tests {
   }
 
   fn clip(width: f32) -> ClipRect {
-    ClipRect {
-      x: 0.0,
-      y: 0.0,
-      width,
-      height: 100.0,
-      active: true,
-      border_radius: None,
-    }
+    ClipRect::rect(0.0, 0.0, width, 100.0)
   }
 
   /// Three texts of two glyphs each at x 10..18 and 20..28, the third under
@@ -316,13 +302,18 @@ mod tests {
     assert_eq!(runs(&glyphs)[2], (3, run(4, false)));
 
     // A rounded clip is cut by the shaders, wherever the glyphs are.
-    let mut rounded = clip(100.0);
-    rounded.border_radius = Some(BorderRadius {
-      top_left: 4.0,
-      top_right: 0.0,
-      bottom_right: 0.0,
-      bottom_left: 0.0,
-    });
+    let rounded = ClipRect::rounded_rect(
+      0.0,
+      0.0,
+      100.0,
+      100.0,
+      Some(BorderRadius {
+        top_left: 4.0,
+        top_right: 0.0,
+        bottom_right: 0.0,
+        bottom_left: 0.0,
+      }),
+    );
     let mut glyphs = self::glyphs();
     glyphs[0].clip = rounded;
     glyphs[1].clip = rounded;

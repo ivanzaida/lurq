@@ -58,6 +58,7 @@ mod pass_report;
 mod perf_overlay;
 #[cfg(feature = "image")]
 mod render_order;
+mod rounded_clip_hits;
 mod scroll_axis_dominance;
 mod scroll_handler_redraw;
 mod scroll_state;

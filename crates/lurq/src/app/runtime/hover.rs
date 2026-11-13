@@ -95,7 +95,7 @@ impl Tree {
       return false;
     };
     let mut hits = Vec::new();
-    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &mut hits);
+    hit_test_tree(root, result, 0.0, 0.0, lx, ly, &self.layout_engine.radii(), &mut hits);
     // A disabled element is not hovered; the elements it is in are.
     let disabled = take_disabled_hit(&mut hits);
     trim_hits_to_scrollbar(&mut hits, lx, ly);
@@ -108,7 +108,7 @@ impl Tree {
     });
     self.disabled_hover = disabled.map(Node::node_id);
     let scrollable_in_disabled = if disabled.is_some() {
-      super::scroll_containers_in_disabled(root, result, lx, ly, &hits)
+      super::scroll_containers_in_disabled(root, result, lx, ly, &self.layout_engine.radii(), &hits)
     } else {
       Vec::new()
     };

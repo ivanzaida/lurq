@@ -66,8 +66,17 @@ fn rounded_clip_propagates_radius_to_child_quads() {
   assert_eq!(quads.len(), 1);
   assert!(quads[0].clip.active);
   assert_eq!(
-    quads[0].clip.border_radius,
-    Some(lurq::node::border::BorderRadius::all(7.0))
+    quads[0].clip.rounded,
+    [
+      Some(lurq::layout::quad::RoundedClip {
+        x: 0.0,
+        y: 0.0,
+        width: 100.0,
+        height: 20.0,
+        radius: lurq::node::border::BorderRadius::all(7.0),
+      }),
+      None
+    ]
   );
 }
 

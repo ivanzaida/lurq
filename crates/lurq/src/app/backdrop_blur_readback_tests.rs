@@ -281,19 +281,13 @@ fn assert_backdrop_blur<E: RenderEngine>(new_engine: fn() -> E, backend: &str) {
 
   // A rounded clip the node is under cuts the blur, corners included.
   let mut clipped = backdrop(1, BOX, 4.0);
-  clipped.clip = ClipRect {
-    x: EDGE as f32 - 6.0,
-    y: 30.0,
-    width: 40.0,
-    height: 36.0,
-    active: true,
-    border_radius: Some(crate::node::border::BorderRadius {
-      top_left: 14.0,
-      top_right: 14.0,
-      bottom_right: 14.0,
-      bottom_left: 14.0,
-    }),
-  };
+  clipped.clip = ClipRect::rounded_rect(
+    EDGE as f32 - 6.0,
+    30.0,
+    40.0,
+    36.0,
+    Some(crate::node::border::BorderRadius::all(14.0)),
+  );
   let frame = render(&mut new_engine(), &split(clipped));
   for (x, y) in [
     (EDGE - 6, 30),
