@@ -14,7 +14,8 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    Case, Interaction, Menu, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, Opacity, icons,
+    Case, Interaction, Menu, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, Opacity,
+    icons,
   },
 };
 
@@ -197,7 +198,7 @@ fn escape_and_a_press_outside_close_the_menu() {
 }
 
 #[test]
-fn tab_reaches_the_items_and_enter_chooses_the_focused_one() {
+fn tab_reaches_the_menu_once_and_the_arrows_move_between_its_items() {
   let (chosen, tell) = log();
   let open = Signal::new(true);
   let (anchor, held) = (ElementRef::new(), open.clone());
@@ -207,19 +208,130 @@ fn tab_reaches_the_items_and_enter_chooses_the_focused_one() {
       Menu::new(anchor.clone(), held.clone())
         .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
         .item(MenuItem::new("Copy").disabled(true).id("copy").on_select(tell("copy")))
-        .item(MenuItem::new("Paste").id("paste").on_select(tell("paste"))),
+        .separator()
+        .item(MenuItem::new("Paste").id("paste").on_select(tell("paste")))
+        .item(MenuItem::new("Select all").id("all").on_select(tell("all"))),
     )
   });
-  assert_eq!(stage.fill_color("cut"), None, "at rest an item has no fill");
-  // Focused from the keyboard an item is highlighted: the board's accent.
+  let highlighted = |stage: &mut Stage| {
+    ["cut", "copy", "paste", "all"]
+      .into_iter()
+      .filter(|id| stage.fill_color(id) == Some(light(PaletteColor::Highlight)))
+      .collect::<Vec<_>>()
+  };
+  assert!(highlighted(&mut stage).is_empty(), "at rest an item has no fill");
+  // Tab reaches the menu at its first item, which the keyboard's focus highlights: the board's accent.
   stage.key("Tab");
-  assert_eq!(stage.fill_color("cut"), Some(light(PaletteColor::Highlight)));
-  // The disabled one is passed by.
-  stage.key("Tab");
-  assert_eq!(stage.fill_color("paste"), Some(light(PaletteColor::Highlight)));
+  assert_eq!(highlighted(&mut stage), ["cut"]);
+  // Down passes the disabled item and the separator by; Up goes back; End and Home go to the ends.
+  stage.key("ArrowDown");
+  assert_eq!(highlighted(&mut stage), ["paste"]);
+  stage.key("ArrowUp");
+  assert_eq!(highlighted(&mut stage), ["cut"]);
+  stage.key("End");
+  assert_eq!(highlighted(&mut stage), ["all"]);
+  stage.key("Home");
+  assert_eq!(highlighted(&mut stage), ["cut"]);
+  // From the last it goes round to the first.
+  stage.key("ArrowUp");
+  assert_eq!(highlighted(&mut stage), ["all"]);
+  // The arrows only move the focus: nothing is chosen until Enter.
+  assert!(chosen.lock().unwrap().is_empty());
+  stage.key("ArrowUp");
   stage.key("Enter");
   assert_eq!(*chosen.lock().unwrap(), ["paste"]);
   assert!(!open.get());
+}
+
+#[test]
+fn a_chosen_radio_item_has_a_dot_at_its_end() {
+  let (chosen, tell) = log();
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(anchor.clone(), true)
+        .label("Zoom")
+        .item(MenuItem::new("50%").radio(false).id("half").on_select(tell("50%")))
+        .item(MenuItem::new("100%").radio(true).id("actual"))
+        .item(MenuItem::new("Show grid").checked(true)),
+    )
+  });
+  let painted = |stage: &Stage, glyph: &str| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == glyph))
+      .count()
+  };
+  let (dot, check) = (glyph(icons::DOT_CIRCLE), glyph(icons::CHECK));
+  assert_eq!((painted(&stage, &dot), painted(&stage, &check)), (1, 1));
+  assert_eq!(stage.text(&dot), (light(PaletteColor::Foreground), 16.0));
+  // The dot is at the end of the chosen one, 8 from its edge.
+  let (x, y, width, height) = stage.bounds("actual");
+  let mark = stage.text_quad(&dot).unwrap();
+  assert!(mark.y >= y && mark.y + mark.height <= y + height);
+  assert!((x + width - 8.0 - (mark.x + mark.width)).abs() < 0.5);
+  // Choosing another tells the app, which says which is chosen.
+  stage.click("half");
+  assert_eq!(*chosen.lock().unwrap(), ["50%"]);
+}
+
+#[test]
+fn a_submenu_opens_beside_its_item_and_choosing_in_it_closes_both() {
+  let (chosen, tell) = log();
+  let (open, exporting) = (Signal::new(true), Signal::new(false));
+  let (anchor, export) = (ElementRef::new(), ElementRef::new());
+  let (held, sub) = (open.clone(), exporting.clone());
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(anchor.clone(), held.clone())
+        .style(MenuPart::Panel, |s| s.min_width(160.0))
+        .id("menu")
+        .item(MenuItem::new("Undo").id("undo"))
+        .item(
+          MenuItem::new("Export as").id("export").submenu(
+            Menu::new(export.clone(), sub.clone())
+              .id("formats")
+              .item(MenuItem::new("PNG").id("png").on_select(tell("png")))
+              .item(MenuItem::new("SVG")),
+          ),
+        ),
+    )
+  });
+  // Closed, the item has a chevron at its end, muted.
+  assert!(!stage.paints("PNG"));
+  assert_eq!(
+    stage.text(&glyph(icons::CHEVRON_RIGHT)),
+    (light(PaletteColor::MutedForeground), 16.0)
+  );
+
+  // A press of the item opens it, and the item stays highlighted while it is open.
+  stage.click("export");
+  assert!(exporting.get());
+  assert!(stage.paints("PNG"));
+  assert_eq!(stage.fill_color("export"), Some(light(PaletteColor::Highlight)));
+  // Beside the menu, 4 from it; its first item level with the item it hangs from.
+  let (mx, _, mw, _) = stage.bounds("menu");
+  let (sx, ..) = stage.bounds("formats");
+  assert_eq!(sx, mx + mw + 4.0);
+  let (_, ey, ..) = stage.bounds("export");
+  let (_, py, ..) = stage.bounds("png");
+  assert_eq!(py, ey);
+  let (.., sw, _) = stage.bounds("formats");
+  assert_eq!(sw, 160.0, "a submenu is at least 160 wide");
+
+  // The pointer on another item of the menu closes it; on the item again, opens it.
+  stage.hover("undo");
+  assert!(!exporting.get());
+  stage.hover("export");
+  assert!(exporting.get());
+
+  // Choosing in the submenu closes it and the menu.
+  stage.click("png");
+  assert_eq!(*chosen.lock().unwrap(), ["png"]);
+  assert!(!exporting.get() && !open.get());
 }
 
 #[test]

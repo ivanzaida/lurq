@@ -53,7 +53,7 @@ pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputVie
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
-  MenuView,
+  MenuState, MenuView,
 };
 pub use part_style::{
   FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
