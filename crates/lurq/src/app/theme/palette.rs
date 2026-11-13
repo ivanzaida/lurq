@@ -4,8 +4,8 @@
 //! come in pairs with the color of what is drawn on them (`Card` and
 //! `CardForeground`), and what a control fills with has a color for its hover.
 //!
-//! The roles of lurq 0.60 are deprecated. Each still has a color of its own,
-//! so a palette can hold the 0.60 look exactly ([`ThemePalette::legacy`]), and
+//! The roles of lurq 0.61 are deprecated. Each still has a color of its own,
+//! so a palette can hold the 0.61 look exactly ([`ThemePalette::legacy`]), and
 //! each is kept in step with the role that replaces it: setting the
 //! replacement sets it too. Setting a deprecated role sets only that role.
 
@@ -23,7 +23,7 @@ macro_rules! palette {
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub enum PaletteColor {
       $( $(#[$doc])* $role, )*
-      $( #[deprecated(since = "0.61.0", note = $note)] $old, )*
+      $( #[deprecated(since = "0.62.0", note = $note)] $old, )*
       /// An application-defined color stored in [`ThemePalette::extra`].
       Extra(Arc<str>),
     }
@@ -38,7 +38,7 @@ macro_rules! palette {
         }
       }
 
-      /// The role that replaces this one, for a role of lurq 0.60 that is
+      /// The role that replaces this one, for a role of lurq 0.61 that is
       /// deprecated; `None` for every other.
       pub fn replacement(&self) -> Option<PaletteColor> {
         match self {
@@ -51,7 +51,7 @@ macro_rules! palette {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct ThemePalette {
       $( $(#[$doc])* pub $field: Color, )*
-      $( #[deprecated(since = "0.61.0", note = $note)] pub $old_field: Color, )*
+      $( #[deprecated(since = "0.62.0", note = $note)] pub $old_field: Color, )*
       pub extra: HashMap<Arc<str>, Color>,
     }
 
@@ -348,11 +348,11 @@ impl ThemePalette {
     .with_deprecated_roles_in_step()
   }
 
-  /// The palette of lurq 0.60: every role it had, with the color it had.
+  /// The palette of lurq 0.61: every role it had, with the color it had.
   ///
-  /// The roles 0.60 did not have take the 0.60 color nearest to what they
+  /// The roles 0.61 did not have take the 0.61 color nearest to what they
   /// are for (`primary` is the accent, `canvas` the panel surface), or the
-  /// light design's where 0.60 had nothing like them (charts, glass, veils).
+  /// light design's where 0.61 had nothing like them (charts, glass, veils).
   /// Text that names no color is black, as it was.
   #[allow(deprecated)]
   pub fn legacy() -> Self {
@@ -464,7 +464,7 @@ mod tests {
   }
 
   #[test]
-  fn the_legacy_palette_has_the_colors_of_0_60() {
+  fn the_legacy_palette_has_the_colors_of_0_61() {
     let legacy = ThemePalette::legacy();
     let hex = Color::from_hex;
     assert_eq!(legacy.accent, hex("#2563eb"));
@@ -473,7 +473,7 @@ mod tests {
     assert_eq!(legacy.border, hex("#e2e8f0"));
     assert_eq!(legacy.info, hex("#0284c7"));
     assert_eq!(legacy.foreground, Color::new(0, 0, 0, 255));
-    // The roles 0.60 did not have take what it had nearest to them.
+    // The roles 0.61 did not have take what it had nearest to them.
     assert_eq!(legacy.primary, legacy.accent);
     assert_eq!(legacy.canvas, legacy.surface_panel);
     assert_eq!(legacy.ring, legacy.border_focus);

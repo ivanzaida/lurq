@@ -1,4 +1,4 @@
-//! A theme as one value: the design's, the one of lurq 0.60, and an app's own.
+//! A theme as one value: the design's, the one of lurq 0.61, and an app's own.
 
 use std::time::Duration;
 
@@ -83,7 +83,7 @@ fn a_scale_takes_a_value_for_a_role_and_for_a_role_an_app_names() {
 }
 
 #[test]
-fn the_legacy_theme_is_lurq_0_60() {
+fn the_legacy_theme_is_lurq_0_61() {
   let theme = Theme::legacy();
   assert_eq!(*theme.palette(), ThemePalette::legacy());
   assert_eq!(
@@ -195,4 +195,69 @@ fn a_definition_read_back_holds_what_was_set_on_the_theme() {
   assert_eq!(definition.radii.md, 10.0);
   assert_eq!(definition.light.primary, Color::from_hex("#7c3aed"));
   assert_eq!(definition.dark.unwrap().primary, Color::from_hex("#7c3aed"));
+}
+
+#[test]
+fn the_typography_is_the_designs_and_the_legacy_one_is_lurq_0_61() {
+  use lurq::layout::text_style::FontWeight;
+  let theme = Theme::new();
+  let sizes = [
+    TypographyStyle::Heading,
+    TypographyStyle::Title,
+    TypographyStyle::Body,
+    TypographyStyle::Description,
+    TypographyStyle::Label,
+    TypographyStyle::Button,
+    TypographyStyle::Caption,
+    TypographyStyle::Mono,
+  ]
+  .map(|style| theme.typography_style(style).font_size);
+  assert_eq!(sizes, [24.0, 20.0, 14.0, 14.0, 13.0, 13.0, 12.0, 13.0]);
+  let heading = theme.typography_style(TypographyStyle::Heading);
+  assert_eq!((heading.weight, heading.letter_spacing), (FontWeight::SemiBold, -0.5));
+
+  let legacy = Theme::legacy();
+  assert_eq!(legacy.typography_style(TypographyStyle::Body).font_size, 16.0);
+  assert_eq!(legacy.typography_style(TypographyStyle::Mono).font_size, 16.0);
+  assert_eq!(
+    legacy.typography_style(TypographyStyle::Heading).weight,
+    FontWeight::Bold
+  );
+}
+
+#[test]
+fn one_setting_changes_the_font_of_the_whole_interface() {
+  let theme = Theme::new();
+  let system = theme.sans_family();
+  theme.set_sans_family("Inter");
+  for style in [TypographyStyle::Body, TypographyStyle::Heading, TypographyStyle::Button] {
+    assert_eq!(&*theme.typography_style(style).font_family, "Inter");
+  }
+  assert_eq!(
+    &*theme.typography_style(TypographyStyle::Mono).font_family,
+    "monospace",
+    "code keeps its own"
+  );
+  assert_ne!(&*system, "Inter");
+
+  theme.set_mono_family("JetBrains Mono");
+  assert_eq!(
+    &*theme.typography_style(TypographyStyle::Mono).font_family,
+    "JetBrains Mono"
+  );
+  assert_eq!(&*theme.typography_style(TypographyStyle::Body).font_family, "Inter");
+}
+
+#[test]
+fn a_style_in_a_font_of_its_own_keeps_it_when_the_interfaces_font_changes() {
+  let theme = Theme::new();
+  let mut display = theme.typography_style(TypographyStyle::Heading);
+  display.font_family = "Georgia".into();
+  theme.set_typography_style(TypographyStyle::Heading, display);
+  theme.set_sans_family("Inter");
+  assert_eq!(
+    &*theme.typography_style(TypographyStyle::Heading).font_family,
+    "Georgia"
+  );
+  assert_eq!(&*theme.typography_style(TypographyStyle::Title).font_family, "Inter");
 }

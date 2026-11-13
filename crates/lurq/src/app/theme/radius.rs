@@ -102,7 +102,7 @@ impl ThemeRadii {
 }
 
 impl ThemeRadii {
-  /// The radii of lurq 0.60: 3, 5 and 6. It had no `xl` and no `full`, which are the design's here.
+  /// The radii of lurq 0.61: 3, 5 and 6. It had no `xl` and no `full`, which are the design's here.
   pub fn legacy() -> Self {
     Self {
       sm: 3.0,

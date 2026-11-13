@@ -213,7 +213,7 @@ fn set_radii_replaces_named_radii() {
 fn default_theme_has_fonts() {
   let t = Theme::new();
   let fonts = t.fonts();
-  assert_eq!(fonts.body.font_size, 16.0);
+  assert_eq!(fonts.body.font_size, 14.0);
   assert_eq!(fonts.heading.font_size, 24.0);
 }
 
@@ -229,8 +229,8 @@ fn set_fonts_updates() {
 #[test]
 fn default_theme_has_typography() {
   let t = Theme::new();
-  assert_eq!(t.default_text_style().font_size, 16.0);
-  assert_eq!(t.typography().body.font_size, 16.0);
+  assert_eq!(t.default_text_style().font_size, 14.0);
+  assert_eq!(t.typography().body.font_size, 14.0);
   assert_eq!(t.typography_style(TypographyStyle::Heading).font_size, 24.0);
 }
 

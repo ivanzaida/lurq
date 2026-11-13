@@ -137,7 +137,7 @@ impl Theme {
     Self::default()
   }
 
-  /// The theme of lurq 0.60: [`ThemeDefinition::legacy`]. It has one palette, so it is light whatever the
+  /// The theme of lurq 0.61: [`ThemeDefinition::legacy`]. It has one palette, so it is light whatever the
   /// system is in.
   pub fn legacy() -> Self {
     Self::from_definition(ThemeDefinition::legacy())
@@ -197,7 +197,7 @@ impl Theme {
   /// use lurq::app::theme::{Theme, ThemeDefinition};
   ///
   /// let theme = Theme::new();
-  /// // An app written for lurq 0.60 that wants the look it had.
+  /// // An app written for lurq 0.61 that wants the look it had.
   /// theme.apply(ThemeDefinition::legacy());
   /// ```
   pub fn apply(&self, definition: ThemeDefinition) {
@@ -698,6 +698,33 @@ impl Theme {
     self.set_appearance(self.preferred_appearance().unwrap_or(system.appearance));
     self.set_text_scale(system.text_scale);
     self.set_bold_text(system.bold_text);
+  }
+
+  /// The family of interface text: [`ThemeTypography::sans`].
+  pub fn sans_family(&self) -> Arc<str> {
+    self.inner.read().unwrap().base_typography.sans.clone()
+  }
+
+  /// Sets the font of the whole interface: every typography style in the family it was in is in `family`
+  /// now. A family name, an alias registered with `App::register_font`, or a CSS generic family.
+  pub fn set_sans_family(&self, family: impl Into<Arc<str>>) {
+    self.mutate_inner(|inner| {
+      inner.base_typography.set_sans(family);
+      inner.adjust_typography();
+    });
+  }
+
+  /// The family of code: [`ThemeTypography::mono_family`].
+  pub fn mono_family(&self) -> Arc<str> {
+    self.inner.read().unwrap().base_typography.mono_family.clone()
+  }
+
+  /// Sets the font of code: every typography style in the family it was in is in `family` now.
+  pub fn set_mono_family(&self, family: impl Into<Arc<str>>) {
+    self.mutate_inner(|inner| {
+      inner.base_typography.set_mono(family);
+      inner.adjust_typography();
+    });
   }
 
   pub fn default_text_style(&self) -> TextStyle {

@@ -74,7 +74,7 @@ pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
 /// What a checked box and a slider fill with when nothing styles them, and what an unchecked box does. The
-/// roles are those of lurq 0.60, which an app may still set: each follows the role that replaces it
+/// roles are those of lurq 0.61, which an app may still set: each follows the role that replaces it
 /// (`app/theme/palette.rs`).
 #[allow(deprecated)]
 const CONTROL_FILL: PaletteColor = PaletteColor::Accent;

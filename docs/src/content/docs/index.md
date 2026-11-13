@@ -12,7 +12,7 @@ The guides describe **0.61.0**. Migration guides and dated performance reports r
 The docs are organized around the questions that come up while building:
 
 - [Getting Started](./getting-started/) shows the feature flags, demo command, and the smallest app shape.
-- [Migration To v0.61](./migration-v0-61/) covers the design system's theme becoming the default: keeping the 0.60 look, following the system's dark look, and the renamed palette roles.
+- [Migration To v0.62](./migration-v0-62/) covers the design system's theme becoming the default: keeping the 0.61 look, following the system's dark look, and the renamed palette roles.
 - [Migration To v0.13](./migration-v0-13/) covers replacing legacy modal APIs, popup workarounds, and overlay host assertions.
 - [Mental Model](./mental-model/) explains how `App`, `Tree`, components, elements, layout, input, and render passes fit together.
 - [Components](./components/) covers props, mounting, keyed children, slots, and lifecycle.

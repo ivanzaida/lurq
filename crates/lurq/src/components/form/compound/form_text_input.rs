@@ -74,7 +74,7 @@ impl crate::app::component::Component for FormTextInput {
     let has_error = control.should_show_error();
     let disabled = control.is_disabled();
 
-    // A role of lurq 0.60, like the rest of `FormTheme`.
+    // A role of lurq 0.61, like the rest of `FormTheme`.
     #[allow(deprecated)]
     let background = if disabled {
       crate::app::theme::PaletteColor::SurfacePanel

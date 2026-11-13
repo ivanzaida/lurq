@@ -1,25 +1,28 @@
 ---
-title: Migration To v0.61
-description: The design system's theme becomes the default. What changes for an app written for lurq 0.60, how to keep the 0.60 look, and what to rename.
+title: Migration To v0.62
+description: The design system's theme becomes the default. What changes for an app written for lurq 0.61, how to keep the 0.61 look, and what to rename.
 ---
 
-# Migration To v0.61
+# Migration To v0.62
 
-lurq 0.61 makes the design system's theme the default. An app written for 0.60 still compiles. What changes is how it looks until it says what it wants, and a set of palette roles that are deprecated in favor of the design's.
+lurq 0.62 makes the design system's theme the default. An app written for 0.61 still compiles. What changes is how it looks until it says what it wants, and a set of palette roles that are deprecated in favor of the design's.
 
 ## What Changes Without A Line Of Code
 
-| | lurq 0.60 | lurq 0.61 |
+| | lurq 0.61 | lurq 0.62 |
 | --- | --- | --- |
 | Palette | 23 roles on a blue accent | The design's 42 roles on a neutral primary |
 | Dark look | None: one palette | A dark palette, taken when the system is dark |
 | Text that names no color | Black | `Foreground`: near-black in the light palette, near-white in the dark one |
+| Body text | 16 | 14 |
+| Headings | Bold | Semibold, with tighter letter spacing |
+| Code (`TypographyStyle::Mono`) | 16 | 13 |
 | Radii | `Sm` 3, `Md` 5, `Lg` 6 | `Sm` 4, `Md` 6, `Lg` 8, and `Xl` 12, `Full` |
 | A window whose root paints no background | Cleared to white | Cleared to `Background`: white in the light palette, near-black in the dark one |
 
 The one that can make an app unreadable is the dark look. On a system in its dark look, text that names no color is drawn near-white. An app that paints light backgrounds of its own under such text has near-white text on them.
 
-## Keep The 0.60 Look
+## Keep The 0.61 Look
 
 One line, before the root is mounted:
 
@@ -29,7 +32,7 @@ use lurq::app::theme::ThemeDefinition;
 app.theme().apply(ThemeDefinition::legacy());
 ```
 
-`ThemeDefinition::legacy()` is the theme of 0.60: its palette color for color, with text that names no color in black, and its radii. It has one palette, so the app is light whatever the system is in. The theme goes on taking the system's text size and bold text, which only a phone reports.
+`ThemeDefinition::legacy()` is the theme of 0.61: its palette color for color, with text that names no color in black, its typography (body text of 16) and its radii. It has one palette, so the app is light whatever the system is in. The theme goes on taking the system's text size and bold text, which only a phone reports.
 
 An app that wants the new look and only its own light backgrounds kept readable stays in the light palette instead:
 
@@ -57,9 +60,9 @@ The other way is to let the app be dark when the system is. Then every color the
 
 ## Renamed Palette Roles
 
-The roles of 0.60 are deprecated. They compile with a warning that names the replacement.
+The roles of 0.61 are deprecated. They compile with a warning that names the replacement.
 
-| 0.60 | 0.61 |
+| 0.61 | 0.62 |
 | --- | --- |
 | `Accent` | `Primary` |
 | `AccentHover` | `PrimaryHover` |
@@ -98,9 +101,23 @@ Text::new("Saved").color(PaletteColor::MutedForeground);
 What to know while both sets exist:
 
 - **Two roles became one.** `TextSecondary` and `TextMuted` are both `MutedForeground`, and `SurfaceBase` and `SurfaceInput` are both `Background`. An app that gave the two different colors keeps a name of its own for one of them: `PaletteColor::extra("text-secondary")`.
-- **A deprecated role still has a color of its own.** In the design's palettes it is the color of its replacement. In `ThemePalette::legacy()` it is the color it had in 0.60.
+- **A deprecated role still has a color of its own.** In the design's palettes it is the color of its replacement. In `ThemePalette::legacy()` it is the color it had in 0.61.
 - **Setting a role sets the deprecated roles it replaces.** `Select`, the form controls, and a checkbox or a slider with no style of its own still read the deprecated roles, and follow a theme set through the new ones this way.
 - **Setting a deprecated role sets only that role.** An app that sets `Accent` and uses a role's replacement elsewhere sets `Primary`.
+
+## Smaller Body Text
+
+`Text::new(...)` with no style is `TypographyStyle::Body`, which is 14 where it was 16: a layout that counted on the height of a line of text moves. An app that wants the new look at the old text size sets the one style:
+
+```rust
+use lurq::{app::theme::TypographyStyle, layout::text_style::TextStyle};
+
+let mut body = app.theme().typography_style(TypographyStyle::Body);
+body.font_size = 16.0;
+app.theme().set_typography_style(TypographyStyle::Body, body);
+```
+
+A `ThemeTypography` written out field by field must add `sans` and `mono_family`, the theme's two font families; build one from `ThemeTypography::default()` or `legacy()` instead.
 
 ## A Color Set Once
 

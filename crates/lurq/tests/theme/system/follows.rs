@@ -62,7 +62,7 @@ fn bold_text_is_the_themes_to_tell_and_leaves_the_styles_as_set() {
   assert_eq!(theme.typography_style(TypographyStyle::Body).weight.value(), 400);
   assert_eq!(
     theme.typography_style(TypographyStyle::Heading).weight.value(),
-    FontWeight::Bold.value()
+    FontWeight::SemiBold.value()
   );
 }
 

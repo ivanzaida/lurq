@@ -232,7 +232,7 @@ pub(crate) struct SelectOptionState {
 }
 
 impl Default for SelectStyle {
-  // The roles of lurq 0.60, which an app may still set: each follows the role that replaces it
+  // The roles of lurq 0.61, which an app may still set: each follows the role that replaces it
   // (`app/theme/palette.rs`). `Select` moves to a recipe with the components.
   #[allow(deprecated)]
   fn default() -> Self {

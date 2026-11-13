@@ -9,7 +9,7 @@ The runtime theme is a set of semantic roles. Palette colors, typography styles,
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
 
-The theme an app has when it sets none is the design system's (`pencil/lurq-design-system.pen`): a neutral palette in a light and a dark set, taken with the system's appearance, and the design's scales. An app written for lurq 0.60 that wants the look it had applies [the legacy theme](#themes-as-one-value); the [migration guide](../migration-v0-61/) has the rest.
+The theme an app has when it sets none is the design system's (`pencil/lurq-design-system.pen`): a neutral palette in a light and a dark set, taken with the system's appearance, and the design's scales. An app written for lurq 0.61 that wants the look it had applies [the legacy theme](#themes-as-one-value); the [migration guide](../migration-v0-62/) has the rest.
 
 ```rust
 use lurq::{
@@ -96,7 +96,7 @@ A `ThemeDefinition` is the look of an app as plain data: its palettes, its typog
 | | |
 | --- | --- |
 | `ThemeDefinition::neutral()` | The design system's theme, light and dark. `Theme::new()` has it. |
-| `ThemeDefinition::legacy()` | The theme of lurq 0.60: its palette color for color, with no dark one, and its radii. `Theme::legacy()` has it. |
+| `ThemeDefinition::legacy()` | The theme of lurq 0.61: its palette color for color, with no dark one, and its radii. `Theme::legacy()` has it. |
 
 An app's own theme is one of them with some fields changed:
 
@@ -118,7 +118,7 @@ app.theme().apply(brand);
 - `ThemeDefinition` cannot be written out field by field outside lurq: it gains fields as the design system grows. Start from `neutral()` or `legacy()`.
 - `Theme::from_definition(definition)` makes a theme with a definition's look.
 
-An app written for lurq 0.60 that wants the look it had:
+An app written for lurq 0.61 that wants the look it had:
 
 ```rust
 use lurq::app::theme::ThemeDefinition;
@@ -226,8 +226,8 @@ when the theme is, under text that takes the dark `Foreground`.
 
 ### Deprecated Roles
 
-The roles of lurq 0.60 are deprecated, each in favor of one of the design's. They still compile, with a warning that
-names the replacement; the [migration guide](../migration-v0-61/) has what to change.
+The roles of lurq 0.61 are deprecated, each in favor of one of the design's. They still compile, with a warning that
+names the replacement; the [migration guide](../migration-v0-62/) has what to change.
 
 | Deprecated | Use | In `ThemePalette::legacy()` |
 | --- | --- | --- |
@@ -252,7 +252,7 @@ names the replacement; the [migration guide](../migration-v0-61/) has what to ch
   controls, and a checkbox or a slider with no style of its own read the deprecated roles until they are rebuilt on
   the new ones.
 - Setting a deprecated role sets only that role.
-- `ThemePalette::legacy()` is the palette of 0.60, color for color. The roles 0.60 did not have take the 0.60 color
+- `ThemePalette::legacy()` is the palette of 0.61, color for color. The roles 0.61 did not have take the 0.61 color
   nearest to what they are for (`primary` is the accent, `canvas` the panel surface), text that names no color is
   black, and there is no dark set.
 
@@ -278,16 +278,38 @@ Available roles:
 
 | `TypographyStyle` | `ThemeTypography` field | Default |
 | --- | --- | --- |
-| `Heading` | `heading` | `24px`, bold |
-| `Title` | `title` | `20px`, bold |
-| `Body` | `body` | `TextStyle::default()` |
+| `Heading` | `heading` | `24px`, semibold, letter spacing `-0.5` |
+| `Title` | `title` | `20px`, semibold, letter spacing `-0.3` |
+| `Body` | `body` | `14px` |
 | `Description` | `description` | `14px` |
 | `Caption` | `caption` | `12px` |
 | `Label` | `label` | `13px`, medium |
 | `FieldLabel` | `field_label` | `13px`, medium |
 | `Button` | `button` | `13px`, medium |
 | `Link` | `link` | body defaults |
-| `Mono` | `mono` | body defaults with the generic `monospace` family |
+| `Mono` | `mono` | `13px`, in the family of code |
+
+The sizes and weights are the design's type scale. Every style has a line height of 1.2 and names no color, so its text takes the theme's `Foreground`; text that says less (a description, a caption) is given `PaletteColor::MutedForeground` where it is used. `ThemeTypography::legacy()` is the typography of lurq 0.61: body text of 16, bold headings, and code as large as body text.
+
+### The Theme's Two Families
+
+A theme has two font families, and every typography style is in one of them:
+
+| | `ThemeTypography` field | Default | Styles |
+| --- | --- | --- | --- |
+| Interface text | `sans` | The system's own font | Every style but `mono` |
+| Code | `mono_family` | The generic `monospace` | `mono` |
+
+lurq bundles no font. One setting changes the font of the whole interface:
+
+```rust
+app.theme().set_sans_family("Inter");
+app.theme().set_mono_family("JetBrains Mono");
+```
+
+- `set_sans_family(family)` puts every style that was in the interface family into `family`, an app's own [extra styles](#extra-roles) included. A style that was given a family of its own keeps it.
+- `family` is a family name, an alias registered with `App::register_font`, or a [generic family](#generic-families).
+- `theme.sans_family()` and `theme.mono_family()` read them; on a `ThemeTypography` or a `ThemeDefinition` the same is `typography.set_sans(...)` and `typography.set_mono(...)`.
 
 `TypographyStyle::Extra(name)` names an application-defined style stored in `ThemeTypography::extra`, a `HashMap<Arc<str>, TextStyle>`; see [Extra Roles](#extra-roles).
 
@@ -423,7 +445,7 @@ Radius roles are named by `RadiusSize` and stored as public fields on `ThemeRadi
 | `Xl` | `xl` | `12.0` |
 | `Full` | `full` | `999.0`: as round as the element allows, a pill or a circle |
 
-A radius is never larger than half the element's shorter side, so `Full` rounds any element as far as its box allows. `ThemeRadii::legacy()` has the radii of lurq 0.60: 3, 5 and 6.
+A radius is never larger than half the element's shorter side, so `Full` rounds any element as far as its box allows. `ThemeRadii::legacy()` has the radii of lurq 0.61: 3, 5 and 6.
 
 Use radius roles anywhere a corner radius accepts a `RadiusValue`:
 
@@ -767,7 +789,7 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 
 ## Form Theme
 
-The form theme names the palette roles of lurq 0.60, which are [deprecated](#deprecated-roles) and still work: each follows the role that replaces it, so a theme set through the new roles reaches the form controls. The tables below show the roles as the form theme has them. The form controls move to the new roles when they are rebuilt with the design system's components.
+The form theme names the palette roles of lurq 0.61, which are [deprecated](#deprecated-roles) and still work: each follows the role that replaces it, so a theme set through the new roles reaches the form controls. The tables below show the roles as the form theme has them. The form controls move to the new roles when they are rebuilt with the design system's components.
 
 Form theme roles require the `form` feature:
 
