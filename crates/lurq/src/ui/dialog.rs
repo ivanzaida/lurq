@@ -116,10 +116,11 @@ pub type DialogRenderer = Arc<dyn Fn(DialogView) -> Element + Send + Sync>;
 ///
 /// A dialog does not keep whether it is open: the app's signal does, and the
 /// dialog is shown while it holds `true`. Escape, a press on the veil and
-/// the close button set it to `false`. While it is open nothing under the
-/// veil takes the pointer, and Tab and Shift+Tab go round the dialog's own
-/// controls. It is declared where the app renders it, taking no room there,
-/// and covers the whole window.
+/// the close button set it to `false`. As it opens the focus goes to its
+/// first control, and as it closes back to what had it. While it is open
+/// nothing under the veil takes the pointer, and Tab and Shift+Tab go round
+/// the dialog's own controls. It is declared where the app renders it,
+/// taking no room there, and covers the whole window.
 pub struct Dialog {
   open: Signal<bool>,
   title: Option<Arc<str>>,
@@ -206,10 +207,11 @@ impl Dialog {
     self
   }
 
-  /// Whether the body scrolls between a header and a footer that stay, each
-  /// set off by a line: for terms, a long form, a list. The dialog is as
-  /// high as its content while that fits in the window, and the body gives
-  /// way when it does not.
+  /// Whether the dialog is laid out for a body that scrolls: a header and a
+  /// footer of their own heights, each set off by a line, with the body
+  /// between them. For terms, a long form, a list. Any dialog is as high as
+  /// its content while that fits in the window, and its body gives way and
+  /// scrolls when it does not.
   pub fn scrollable(mut self, scrollable: bool) -> Self {
     self.scrollable = scrollable;
     self
@@ -460,8 +462,9 @@ impl DialogView {
     )
   }
 
-  /// The body: a column with what the app put there, which scrolls in a
-  /// dialog that is scrollable. `None` for a dialog with nothing in it.
+  /// The body: a column with what the app put there, which scrolls when the
+  /// window is too low for all of the dialog. `None` for a dialog with
+  /// nothing in it.
   pub fn body(&mut self) -> Option<Element> {
     if self.body.is_empty() {
       return None;
@@ -470,16 +473,14 @@ impl DialogView {
       .width(Dimension::Pct(100.0))
       .part(&self.part(DialogPart::Body))
       .with_children(std::mem::take(&mut self.body));
-    Some(if self.scrollable {
-      // It takes the room the panel is given beyond the header and the footer, and gives way when its
-      // content needs more than the window has.
+    // It takes the room the panel is given beyond the header and the footer, and gives way and scrolls when its
+    // content needs more than the window has.
+    Some(
       ScrollVertical::new(body)
         .width(Dimension::Pct(100.0))
         .flex_full(1.0, 1.0, None)
-        .into()
-    } else {
-      body.into()
-    })
+        .into(),
+    )
   }
 
   /// The veil over the window with the panel in its middle. A press on it
@@ -503,12 +504,15 @@ impl DialogView {
   }
 
   /// The veil and the panel laid over the window while the dialog is open,
-  /// as the engine's [`Modal`]: Escape closes it and Tab stays inside it.
+  /// as the engine's [`Modal`]: Escape closes it, Tab stays inside it, and
+  /// the focus goes to its first control as it opens and back to what had it
+  /// as it closes.
   pub fn modal(&self, panel: impl Into<Element>) -> Element {
     Modal::new(self.veil(panel))
       .open(self.open.clone())
       .target(Root)
       .dismiss_on_escape(self.dismiss_on_escape)
+      .takes_focus(true)
       .into()
   }
 
@@ -547,7 +551,9 @@ impl Themed for Dialog {
   /// Dialog/Scrollable): a panel of 420 in the popover's color with an edge
   /// of the border's color, corners of `radius-xl`, the large shadow, padded
   /// 24 with 20 between its title, its body and its buttons, over a veil of
-  /// the scrim's color. Its title is 16/600 with the description 8 under it
+  /// the scrim's color. Of the 24 and the 20, 4 are the header's, the body's
+  /// and the footer's own: room for the ring of a focused control, which the
+  /// body would clip where it scrolls. Its title is 16/600 with the description 8 under it
   /// in 14 of the muted color; the buttons stand at the end, 8 apart. The
   /// one whose body scrolls has no padding of its own: a header of 56 and a
   /// footer of 60, each set off by a line, and the body padded 20 and 16
@@ -566,11 +572,11 @@ impl Themed for Dialog {
           .border(Edge::inside(BorderSize::Sm, PaletteColor::Border))
           .radius(RadiusSize::Xl)
           .shadow(ShadowStyle::Lg)
-          .padding_x(24.0)
-          .padding_y(24.0)
-          .gap(20.0)
+          .padding_x(20.0)
+          .padding_y(20.0)
+          .gap(12.0)
       })
-      .base(Header, |s| s.gap(8.0))
+      .base(Header, |s| s.gap(8.0).padding_x(4.0).padding_y(4.0))
       .base(Heading, |s| s.gap(8.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body)
@@ -582,8 +588,8 @@ impl Themed for Dialog {
           .line_height(1.5)
           .foreground(MutedForeground)
       })
-      .base(Body, |s| s.gap(10.0))
-      .base(Footer, |s| s.gap(8.0))
+      .base(Body, |s| s.gap(10.0).padding_x(4.0).padding_y(4.0))
+      .base(Footer, |s| s.gap(8.0).padding_x(4.0).padding_y(4.0))
       .base(Close, |s| s.square(28.0).radius(RadiusSize::Md))
       .base(Separator, |s| s.width(Length::Fill).height(1.0).background(PaletteColor::Border))
       .size(DialogSize::Sm, Panel, |s| s.width(360.0))
@@ -594,9 +600,9 @@ impl Themed for Dialog {
       // edge to edge.
       .state(Scrollable, Panel, |s| s.padding_x(0.0).padding_y(0.0).gap(0.0))
       // The close button stands 12 from the edge and the title 20, as the body's text does.
-      .state(Scrollable, Header, |s| s.height(56.0).padding_x(12.0))
+      .state(Scrollable, Header, |s| s.height(56.0).padding_x(12.0).padding_y(0.0))
       .state(Scrollable, Heading, |s| s.padding_x(8.0))
       .state(Scrollable, Body, |s| s.padding_x(20.0).padding_y(16.0))
-      .state(Scrollable, Footer, |s| s.height(60.0).padding_x(20.0))
+      .state(Scrollable, Footer, |s| s.height(60.0).padding_x(20.0).padding_y(0.0))
   }
 }

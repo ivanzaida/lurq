@@ -38,6 +38,8 @@ pub(super) struct OverlayLayers {
   pub(super) placings: Vec<Option<super::OverlayPlacing>>,
   /// The anchors of the overlays not drawn because their anchor is out of view.
   hidden_anchors: Vec<OwnedElementRef>,
+  /// The nodes that declare the modals built that take the focus (`Modal::takes_focus`).
+  pub(super) focus_modals: Vec<NodeId>,
 }
 
 impl OverlayLayers {
