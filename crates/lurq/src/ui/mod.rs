@@ -21,6 +21,7 @@ mod avatar;
 mod breadcrumb;
 mod button;
 mod button_group;
+mod card;
 mod checkbox;
 mod chip;
 mod collapsible;
@@ -39,6 +40,7 @@ mod radio;
 mod recipe;
 mod segmented;
 mod select;
+mod separator;
 mod shared;
 mod slider;
 mod steps;
@@ -68,6 +70,7 @@ pub use button::{
   ButtonView,
 };
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
   CheckboxView,
@@ -94,6 +97,7 @@ pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, R
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
+pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT};
 pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use steps::{

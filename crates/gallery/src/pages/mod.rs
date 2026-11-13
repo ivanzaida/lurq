@@ -9,6 +9,7 @@ mod badge;
 mod avatar;
 mod breadcrumb;
 mod button;
+mod card;
 mod checkbox;
 mod dialog;
 mod family;
@@ -21,6 +22,7 @@ mod pagination;
 mod popover;
 mod radio;
 mod select;
+mod separator;
 mod slider;
 mod steps;
 mod switch;
@@ -251,6 +253,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
   },
   Page {
+    path: "/card",
+    name: "Card",
+    icon: None,
+    about: "card surface panel tile header title description action content footer outline elevated filled pressed interactive settings stat",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<card::CardPage>(()),
+  },
+  Page {
     path: "/tabs",
     name: "Tabs",
     icon: None,
@@ -313,6 +323,14 @@ pub const PAGES: &[Page] = &[
     about: "avatar initials picture image photo profile person user presence online away busy offline group stack overlap more count",
     group: Group::Data,
     mount: |ctx| ctx.mount::<avatar::AvatarPage>(()),
+  },
+  Page {
+    path: "/separator",
+    name: "Separator",
+    icon: None,
+    about: "separator divider line rule horizontal vertical label or toolbar section",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<separator::SeparatorPage>(()),
   },
 ];
 
