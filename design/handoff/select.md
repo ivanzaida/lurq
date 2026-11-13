@@ -126,18 +126,23 @@ Select::new(platform.clone(), [
 - No read only: a select has none on the web or on the board; an app that shows a value it does not let be changed
   disables the select or shows the value as text.
 - The engine's select is a combobox to the MCP tree already; the recipe adds only `a11y_name` from `label`.
+- In a field it takes part as `ui::Input` does: `invalid(bool)`, `warning(bool)` and `valid(bool)` set its
+  judgment, and `label(&str)` its accessible name (`a11y_name`), the four props a `FieldControl` trait can set.
 
 ## Not done
 
 Nothing the board draws for a select, and nothing of what one does, is left out.
 
-Tests were written and not run (the batch is tested when merged). Most likely to need a look:
-`a_press_opens_the_list_under_it_and_a_press_of_an_item_chooses_it` (the exact place of the panel, of the items'
-text and of the check: the panel's edge and fill may be one quad or two, and the check's glyph is found by the
-theme's character for `check`), `groups_have_a_label_and_a_line_between_them_and_an_option_has_a_hint_at_its_end`
-(the place of the line and of the hint), and `the_keys_open_the_list_move_through_it_and_choose`. The engine's own
-select tests (`tests/input/select/`) cover the menu that the groups, the hint and the check's room changed; they
-draw no group or hint, so they should hold as they were.
+The select's ui tests (`cargo test -p lurq --features form,router --test ui_tests select`, 12) and the engine's
+select tests (`--test input_tests select`, 125) pass after the merge of the overlays batch. Four of the ui tests
+had failed at the merge, all for the tests' own two faults, not the component's:
+
+- Their scenes' roots were as small as the select: the headless stage lays a scene out with loose constraints, and
+  the open list, a layer drawn below the select, fell outside the root's box, where nothing is painted. A window
+  gives its root the whole window, so the tests now do (`window()`, a column of the stage's 400 by 300), as
+  `theming.rs` does for its select.
+- With the list painted, the label of the chosen option is painted twice, in the trigger and in the list, and the
+  tests measured the trigger's: they now read the list's, the one painted last.
 
 ## Differs from the board
 

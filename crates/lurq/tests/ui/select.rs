@@ -10,7 +10,7 @@ use lurq::{
     events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
-  components::{Column, Row, SelectOption},
+  components::{Column, SelectOption},
   core::Signal,
   layout::quad::{Quad, QuadContent},
   node::{SelectIcon, color::Color},
@@ -32,11 +32,18 @@ fn themes() -> Vec<(String, &'static str)> {
   ]
 }
 
+/// The page as a window holds it: as large as the stage's window. The stage lays its scene out with loose
+/// constraints, and the open list is a layer drawn below the select; a root as small as the select would leave the
+/// list outside its box, where nothing is painted.
+fn window() -> Column {
+  Column::new().size(400.0, 300.0)
+}
+
 /// A page with one select of the themes, bound to `value`, as `dress` makes it.
 fn page(value: &Signal<String>, dress: impl Fn(Select) -> Select + Send + Sync + 'static) -> Stage {
   let value = value.clone();
   Stage::new(move |_| {
-    Column::new()
+    window()
       .padding(8.0)
       .child(dress(Select::new(value.clone(), themes()).id("select")))
       .into()
@@ -82,10 +89,13 @@ fn filled(stage: &Stage, color: Color) -> Vec<Quad> {
     .collect()
 }
 
-/// The middle of the text `content` as painted.
+/// The middle of the text `content` as painted last: in the open list, which is a layer over the page, where the
+/// chosen option's label is also the trigger's.
 fn middle_of(stage: &Stage, content: &str) -> (f32, f32) {
   let quad = stage
-    .text_quad(content)
+    .quads()
+    .into_iter()
+    .rfind(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == content))
     .unwrap_or_else(|| panic!("no text {content:?} was painted"));
   (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0)
 }
@@ -113,7 +123,7 @@ fn check_glyph(stage: &Stage) -> String {
 fn a_select_is_a_box_like_an_input_with_its_placeholder_or_its_value() {
   let (empty, chosen) = (Signal::new(String::new()), Signal::new("light".to_owned()));
   let mut stage = Stage::new(move |_| {
-    Column::new()
+    window()
       .padding(8.0)
       .spacing(12.0)
       .child(
@@ -175,7 +185,7 @@ fn the_sizes_are_the_heights_of_the_controls_with_their_type() {
     Signal::new("dark".to_owned()),
   );
   let mut stage = Stage::new(move |_| {
-    Column::new()
+    window()
       .padding(8.0)
       .spacing(12.0)
       .child(Select::new(small.clone(), themes()).size(SelectSize::Sm).id("sm"))
@@ -291,7 +301,7 @@ fn a_value_no_option_has_shows_the_placeholder_and_a_disabled_option_is_dimmed_a
   let value = Signal::new(String::new());
   let bound = value.clone();
   let mut stage = Stage::new(move |_| {
-    Column::new()
+    window()
       .padding(8.0)
       .child(
         Select::new(
@@ -369,7 +379,7 @@ fn groups_have_a_label_and_a_line_between_them_and_an_option_has_a_hint_at_its_e
   let value = Signal::new("windows".to_owned());
   let bound = value.clone();
   let mut stage = Stage::new(move |_| {
-    Column::new()
+    window()
       .padding(8.0)
       .child(
         Select::new(
@@ -480,7 +490,7 @@ fn a_theme_restyles_the_items_and_another_renderer_still_chooses() {
   let value = Signal::new("system".to_owned());
   let bound = value.clone();
   let mut stage = Stage::in_app(app, move |_| {
-    Row::new()
+    window()
       .padding(8.0)
       .child(Select::new(bound.clone(), themes()).id("select"))
       .into()
