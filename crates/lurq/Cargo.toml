@@ -228,6 +228,10 @@ name = "text_input_scrollbar"
 required-features = ["winit", "wgpu", "screenshot"]
 
 [[example]]
+name = "scrolled_input_clip"
+required-features = ["winit", "wgpu", "screenshot"]
+
+[[example]]
 name = "icon_hinting"
 required-features = ["winit", "wgpu", "screenshot"]
 

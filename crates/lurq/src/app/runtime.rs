@@ -107,6 +107,8 @@ mod refresh_layout_tests;
 #[cfg(all(test, feature = "devtools"))]
 mod screenshot_blur_tests;
 mod scroll_into_view;
+#[cfg(all(test, feature = "screenshot"))]
+mod scrolled_text_clip_tests;
 mod select_menu;
 mod selected_text_lines;
 mod tab_navigation;
@@ -2880,6 +2882,8 @@ impl Tree {
       let scaled_y = quad.y * scale;
       let scaled_width = quad.width * scale;
       let scaled_height = quad.height * scale;
+      // Where a text was laid out, which tells what its clip cuts (`text_glyph_clip`).
+      let text_box = [scaled_x, scaled_y, scaled_x + scaled_width, scaled_y + scaled_height];
       let cull_clip = if matches!(
         &quad.content,
         QuadContent::Text { .. } | QuadContent::RichText { .. } | QuadContent::DecoratedInput { .. }
@@ -3057,6 +3061,7 @@ impl Tree {
               }
             }
           }
+          settle_text_glyph_clip(scaled_clip, text_box, &mut glyphs[glyph_start..]);
           if let Some(marker) = glyph_debug_marker
             .as_ref()
             .filter(|marker| text.contains(marker.as_str()))
@@ -3108,7 +3113,7 @@ impl Tree {
           }
         }
         QuadContent::DecoratedInput { layout } => {
-          let _range = input_token_paint::resolve_input_quad(
+          let range = input_token_paint::resolve_input_quad(
             &mut glyph_engine,
             layout,
             quad,
@@ -3117,10 +3122,11 @@ impl Tree {
             expand_text_clip_for_rasterization(scaled_clip),
             &mut glyphs,
           );
+          settle_text_glyph_clip(scaled_clip, text_box, &mut glyphs[range.start..range.end]);
           #[cfg(feature = "screenshot")]
           if sensitive_quads.binary_search(&order).is_ok() {
             capture_redactions.extend(crate::app::capture_redaction::RedactedArea::of_glyph_run(
-              &glyphs[_range],
+              &glyphs[range],
             ));
           }
         }
@@ -3219,6 +3225,7 @@ impl Tree {
               g.transform_origin = [glyph_origin[0] - g.x, glyph_origin[1] - g.y];
             }
           }
+          settle_text_glyph_clip(scaled_clip, text_box, &mut glyphs[glyph_start..]);
           if let Some(shadow) = spans.first().and_then(|span| span.style.shadow) {
             append_text_shadow_glyphs(&mut glyphs, glyph_start, &shadow, scale);
           }
@@ -12814,12 +12821,18 @@ fn append_text_shadow_glyphs(
   glyphs.splice(glyph_start..glyph_start, shadows);
 }
 
+/// How far a glyph's ink may reach past the box its text was laid out in, in
+/// physical pixels: glyphs are placed at whole pixels.
+const RASTERIZATION_SLOP_PX: f32 = 1.0;
+
+/// The clip a text's glyphs are culled by: its clip let out by
+/// `RASTERIZATION_SLOP_PX` on every side. What they are drawn under is
+/// [`text_glyph_clip`].
 fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
   if !clip.active {
     return clip;
   }
 
-  const RASTERIZATION_SLOP_PX: f32 = 1.0;
   ClipRect {
     x: clip.x - RASTERIZATION_SLOP_PX,
     y: clip.y - RASTERIZATION_SLOP_PX,
@@ -12827,6 +12840,67 @@ fn expand_text_clip_for_rasterization(clip: ClipRect) -> ClipRect {
     height: clip.height + RASTERIZATION_SLOP_PX * 2.0,
     active: true,
     border_radius: clip.border_radius,
+  }
+}
+
+/// The clip the glyphs of one text are drawn under, given the clip of the
+/// text and the box it was laid out in (left, top, right, bottom), both in
+/// physical pixels.
+///
+/// A text cut to its own box (a label in a row that clips) may have its ink
+/// reach a pixel past that box, from where its glyphs are placed: the clip is
+/// let out by `RASTERIZATION_SLOP_PX` so that pixel is not shaved off. Not on
+/// a side where the text goes on past the clip: the lines of a text input
+/// scrolled under its edge, a long line in a single-line input, a text taller
+/// than the parent that clips it. Its box, or its ink further than rounding
+/// puts it, then reaches past the clip, which cuts the text where it is: let
+/// out, it would draw the next pixel of what is cut, and the scissor's
+/// rounding one more, over what is beside it: the input's border, or the page
+/// past the box. Where that pixel falls follows the text's place, so a page
+/// scrolled by fractions of a pixel showed it on some frames and not others.
+///
+/// A glyph drawn through a transform is not its rect: a run with one keeps
+/// the clip let out on every side.
+fn text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &[GlyphCmd]) -> ClipRect {
+  if !clip.active {
+    return clip;
+  }
+  const IDENTITY: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+  // A glyph's rect holds the transparent texels the atlas keeps around it; its ink is inside them.
+  let inset = crate::app::glyph_engine::GLYPH_ATLAS_PADDING as f32;
+  let [mut left, mut top, mut right, mut bottom] = text_box;
+  for glyph in glyphs {
+    if glyph.transform != IDENTITY {
+      return expand_text_clip_for_rasterization(clip);
+    }
+    left = left.min(glyph.x + inset);
+    top = top.min(glyph.y + inset);
+    right = right.max(glyph.x + glyph.width - inset);
+    bottom = bottom.max(glyph.y + glyph.height - inset);
+  }
+  let slop = |cut: bool| if cut { 0.0 } else { RASTERIZATION_SLOP_PX };
+  let x = clip.x - slop(left < clip.x - RASTERIZATION_SLOP_PX);
+  let y = clip.y - slop(top < clip.y - RASTERIZATION_SLOP_PX);
+  let x2 = clip.x + clip.width + slop(right > clip.x + clip.width + RASTERIZATION_SLOP_PX);
+  let y2 = clip.y + clip.height + slop(bottom > clip.y + clip.height + RASTERIZATION_SLOP_PX);
+  ClipRect {
+    x,
+    y,
+    width: x2 - x,
+    height: y2 - y,
+    active: true,
+    border_radius: clip.border_radius,
+  }
+}
+
+/// Draws the glyphs of one text under [`text_glyph_clip`].
+fn settle_text_glyph_clip(clip: ClipRect, text_box: [f32; 4], glyphs: &mut [GlyphCmd]) {
+  if !clip.active || glyphs.is_empty() {
+    return;
+  }
+  let clip = text_glyph_clip(clip, text_box, glyphs);
+  for glyph in glyphs {
+    glyph.clip = clip;
   }
 }
 
@@ -12849,8 +12923,10 @@ fn expand_text_clip_for_culling(clip: ClipRect) -> ClipRect {
 #[cfg(test)]
 mod tests {
   use crate::{
-    app::runtime::{expand_text_clip_for_culling, expand_text_clip_for_rasterization, transformed_text_raster_scale},
-    layout::quad::ClipRect,
+    app::runtime::{
+      expand_text_clip_for_culling, expand_text_clip_for_rasterization, text_glyph_clip, transformed_text_raster_scale,
+    },
+    layout::{quad::ClipRect, render_list::GlyphCmd},
     node::transform::Transform2D,
   };
 
@@ -12872,6 +12948,92 @@ mod tests {
     assert_eq!(expanded.width, 32.0);
     assert_eq!(expanded.height, 42.0);
     assert!(expanded.active);
+  }
+
+  /// A 12 px glyph rect (two transparent texels around 8 px of ink) at `x`, `y`.
+  fn glyph(x: f32, y: f32) -> GlyphCmd {
+    GlyphCmd {
+      order: 0,
+      x,
+      y,
+      width: 12.0,
+      height: 12.0,
+      color: [1.0; 4],
+      atlas_min: [0.0; 2],
+      atlas_max: [12.0; 2],
+      transform: [1.0, 0.0, 0.0, 1.0],
+      transform_origin: [0.0; 2],
+      sharpness: 1.0,
+      color_glyph: false,
+      shadow_sigma: 0.0,
+      clip: ClipRect::default(),
+    }
+  }
+
+  /// A text's box well inside `clip_box`.
+  const INSIDE: [f32; 4] = [20.0, 30.0, 60.0, 50.0];
+
+  fn clip_box() -> ClipRect {
+    ClipRect {
+      x: 10.0,
+      y: 20.0,
+      width: 100.0,
+      height: 40.0,
+      active: true,
+      border_radius: None,
+    }
+  }
+
+  /// Left, top, right and bottom.
+  fn edges(clip: ClipRect) -> (f32, f32, f32, f32) {
+    (clip.x, clip.y, clip.x + clip.width, clip.y + clip.height)
+  }
+
+  #[test]
+  fn a_text_inside_its_clip_keeps_a_pixel_for_its_glyphs_rounding() {
+    // Its ink reaches a pixel past the top and the bottom: rounding, not text the clip cuts.
+    let glyphs = [glyph(12.0, 17.0), glyph(40.0, 47.0)];
+
+    assert_eq!(
+      edges(text_glyph_clip(clip_box(), INSIDE, &glyphs)),
+      edges(expand_text_clip_for_rasterization(clip_box()))
+    );
+  }
+
+  #[test]
+  fn a_text_the_clip_cuts_is_drawn_up_to_the_cut() {
+    // The first line is scrolled under the top edge, the last runs past the right one.
+    let glyphs = [glyph(12.0, 12.0), glyph(104.0, 40.0)];
+
+    let clip = text_glyph_clip(clip_box(), INSIDE, &glyphs);
+
+    assert_eq!(
+      (clip.y, clip.x + clip.width),
+      (20.0, 110.0),
+      "cut where the text goes on"
+    );
+    assert_eq!((clip.x, clip.y + clip.height), (9.0, 61.0), "let out where it does not");
+  }
+
+  #[test]
+  fn a_text_whose_box_goes_on_past_its_clip_is_cut_there() {
+    // A line whose ink rounds just past the bottom, of a text laid out further down: the clip cuts it.
+    let glyphs = [glyph(12.0, 49.0)];
+
+    let clip = text_glyph_clip(clip_box(), [10.0, 30.0, 60.0, 90.0], &glyphs);
+
+    assert_eq!(edges(clip), (9.0, 19.0, 111.0, 60.0));
+  }
+
+  #[test]
+  fn a_transformed_text_keeps_its_clip_let_out() {
+    let mut turned = glyph(12.0, 0.0);
+    turned.transform = [0.0, -1.0, 1.0, 0.0];
+
+    assert_eq!(
+      edges(text_glyph_clip(clip_box(), INSIDE, &[turned])),
+      edges(expand_text_clip_for_rasterization(clip_box()))
+    );
   }
 
   #[test]
