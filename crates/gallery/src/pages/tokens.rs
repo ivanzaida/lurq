@@ -309,6 +309,8 @@ impl Component for Tokens {
                       component that uses it follows.",
         import: Some("use lurq::app::theme::*;"),
         status: Some("Stable"),
+        since: Some("0.62"),
+        source: file!(),
       },
       sections,
     )

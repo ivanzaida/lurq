@@ -161,6 +161,8 @@ impl Component for Icons {
                       them: the title bar, the search, the side bar.",
         import: None,
         status: None,
+        since: Some("0.62"),
+        source: file!(),
       },
       sections,
     )

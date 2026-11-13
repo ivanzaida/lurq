@@ -28,6 +28,34 @@ pub fn styled(content: &str, role: TypographyStyle, change: impl FnOnce(&mut Tex
   Text::styled(content, style)
 }
 
+/// Interface text at a size of the design, in the theme's family and at its
+/// text scale. It names no color, so it takes the foreground of what it is in.
+pub fn text(content: &str, size: f32, weight: FontWeight) -> Text {
+  let theme = lurq::ui::current_theme();
+  let mut style = theme.typography_style(TypographyStyle::Body);
+  style.font_size = theme.scaled(size);
+  style.weight = weight;
+  Text::styled(content, style)
+}
+
+/// Text in the theme's family of code at a size of the design: a label of the
+/// interface, a count, a version.
+pub fn mono(content: &str, size: f32) -> Text {
+  let theme = lurq::ui::current_theme();
+  let mut style = theme.typography_style(TypographyStyle::Mono);
+  style.font_size = theme.scaled(size);
+  Text::styled(content, style)
+}
+
+/// A label in capitals over a list: a group of the side bar, the list of a page's sections.
+pub fn overline(content: &str) -> Text {
+  let theme = lurq::ui::current_theme();
+  let mut style = theme.typography_style(TypographyStyle::Mono);
+  style.font_size = theme.scaled(11.0);
+  style.letter_spacing = 1.0;
+  Text::styled(&content.to_uppercase(), style).color(PaletteColor::MutedForeground)
+}
+
 /// Text that says less: a caption, a hint.
 pub fn muted(content: &str, style: TypographyStyle) -> Text {
   Text::new(content).variant(style).color(PaletteColor::MutedForeground)
@@ -72,7 +100,7 @@ pub fn icon(name: &str, size: f32) -> Text {
   )
 }
 
-/// A button that is an icon: the settings.
+/// A button that is an icon, with no fill until the pointer is on it: the settings.
 pub fn icon_button(name: &str) -> Row {
   let ring = lurq::ui::current_theme().focus_ring().outline();
   Row::new()
@@ -81,7 +109,7 @@ pub fn icon_button(name: &str) -> Row {
     .justify(Justify::Center)
     .rounded(RadiusSize::Md)
     .cursor(CursorIcon::Pointer)
-    .foreground(PaletteColor::MutedForeground)
+    .foreground(PaletteColor::Foreground)
     .hovered(|style| {
       style
         .background(PaletteColor::Highlight)
@@ -89,7 +117,7 @@ pub fn icon_button(name: &str) -> Row {
     })
     .focus_visible(|style| style.outline(ring))
     .tab_index(0)
-    .child(icon(name, 18.0))
+    .child(icon(name, 16.0))
 }
 
 /// A key or a chord of keys, as it is on a keyboard: `Ctrl K`.
@@ -101,7 +129,7 @@ pub fn keys(chord: &str) -> Row {
     .rounded(RadiusSize::Sm)
     .background(PaletteColor::Muted)
     .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
-    .child(muted(chord, TypographyStyle::Caption))
+    .child(mono(chord, 11.0).color(PaletteColor::MutedForeground))
 }
 
 /// The panel of a popup: a menu, the settings.
@@ -115,10 +143,17 @@ pub fn popover() -> Column {
     .box_shadow(ShadowStyle::Md)
 }
 
+/// How high a row of the gallery's own lists is: the side bar, a menu. It is
+/// 32 at the default density, as the design draws it, and moves with the
+/// density by as much as a row of the theme does.
+pub fn row_height(theme: &lurq::app::theme::Theme) -> f32 {
+  use lurq::app::theme::Density;
+  32.0 + theme.density_value(theme.density()) - theme.density_value(Density::Default)
+}
+
 /// One choice of a few, shown closed with the list of them in a popup: the density.
 ///
-/// A row of the list is as high as a row is at the theme's density. The
-/// design system's `Select` takes its place.
+/// The design system's `Select` takes its place.
 pub fn select<T: Clone + PartialEq + Send + Sync + 'static>(
   anchor: &ElementRef,
   open: &Signal<bool>,
@@ -128,7 +163,7 @@ pub fn select<T: Clone + PartialEq + Send + Sync + 'static>(
 ) -> Row {
   let theme = lurq::ui::current_theme();
   let ring = theme.focus_ring().outline();
-  let row = theme.density_value(theme.density());
+  let row = row_height(&theme);
   let choose = Arc::new(choose);
   let shown = options
     .iter()
@@ -153,7 +188,7 @@ pub fn select<T: Clone + PartialEq + Send + Sync + 'static>(
       let open = open.clone();
       move |_| open.update(|open| *open = !*open)
     })
-    .child(Text::new(shown).variant(TypographyStyle::Body))
+    .child(text(shown, 14.0, FontWeight::Normal))
     .child(icon("chevron-down", 16.0).color(PaletteColor::MutedForeground));
   let mut list = popover().spacing(2.0);
   for (name, value) in options {
@@ -178,7 +213,7 @@ pub fn select<T: Clone + PartialEq + Send + Sync + 'static>(
           choose(value.clone());
           open.set(false);
         })
-        .child(Text::new(name).variant(TypographyStyle::Body))
+        .child(text(name, 14.0, FontWeight::Normal))
         .child(icon("check", 16.0).opacity(if on { 1.0 } else { 0.0 })),
     );
   }
@@ -196,8 +231,12 @@ pub fn code(content: &str) -> Text {
   Text::new(content).variant(TypographyStyle::Mono)
 }
 
-/// A small label in a tinted box: a version, a status.
+/// A small label in a tinted pill: a version.
 pub fn badge(content: &str) -> Row {
+  let theme = lurq::ui::current_theme();
+  let mut style = theme.typography_style(TypographyStyle::Mono);
+  style.font_size = theme.scaled(11.0);
+  style.weight = FontWeight::Medium;
   Row::new()
     .align_items(Alignment::Center)
     .height(22.0)
@@ -205,16 +244,19 @@ pub fn badge(content: &str) -> Row {
     .rounded(RadiusSize::Full)
     .background(PaletteColor::Secondary)
     .foreground(PaletteColor::SecondaryForeground)
-    .child(styled(content, TypographyStyle::Caption, |style| {
-      style.weight = FontWeight::Medium
-    }))
+    .child(Text::styled(content, style))
 }
 
 /// A badge for something that went well: "Stable".
 pub fn status_badge(content: &str) -> Row {
-  badge(content)
+  Row::new()
+    .align_items(Alignment::Center)
+    .height(22.0)
+    .padding_horizontal(8.0)
+    .rounded(RadiusSize::Full)
     .background(PaletteColor::SuccessMuted)
     .foreground(PaletteColor::Success)
+    .child(text(content, 12.0, FontWeight::Medium))
 }
 
 /// One of a few choices in a row, of which one is chosen: the appearance.
@@ -230,6 +272,7 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
     .align_items(Alignment::Center)
     .height(36.0)
     .padding(3.0)
+    .spacing(2.0)
     .rounded(RadiusSize::Md)
     .background(PaletteColor::Muted);
   for (name, value) in options {
@@ -238,7 +281,7 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
     let mut segment = Row::new()
       .align_items(Alignment::Center)
       .height(30.0)
-      .padding_horizontal(12.0)
+      .padding_horizontal(14.0)
       .rounded(RadiusSize::Sm)
       .cursor(CursorIcon::Pointer)
       .foreground(if on {
@@ -247,7 +290,7 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
         PaletteColor::MutedForeground
       })
       .on_click(move |_| choose(value.clone()))
-      .child(Text::new(name).variant(TypographyStyle::Label));
+      .child(text(name, 13.0, FontWeight::Medium));
     if on {
       segment = segment.background(PaletteColor::Background).box_shadow(ShadowStyle::Sm);
     } else {
@@ -283,13 +326,22 @@ pub fn card_footer(call: &str) -> Row {
   Row::new()
     .width(FILL)
     .height(40.0)
-    .padding_horizontal(16.0)
+    .padding_left(16.0)
+    .padding_right(8.0)
     .align_items(Alignment::Center)
     .border_top(Border::inside(BorderSize::Sm, PaletteColor::Border))
-    .child(muted(call, TypographyStyle::Mono))
+    .child(mono(call, 12.0).color(PaletteColor::MutedForeground))
 }
 
 /// A demo card: a stage and the call that builds what is on it.
 pub fn demo_card(content: impl Into<Element>, call: &str) -> Column {
-  card().child(stage(content)).child(card_footer(call))
+  Column::new()
+    .width(FILL)
+    .clip()
+    .rounded(RadiusSize::Lg)
+    .background(PaletteColor::Background)
+    .foreground(PaletteColor::Foreground)
+    .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
+    .child(stage(content))
+    .child(card_footer(call))
 }

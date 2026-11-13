@@ -78,7 +78,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/icons",
     name: "Icons",
-    icon: Some("sparkles"),
+    icon: Some("box"),
     about: "icon font glyph size",
     group: Group::GettingStarted,
     mount: |ctx| ctx.mount::<icons::Icons>(()),

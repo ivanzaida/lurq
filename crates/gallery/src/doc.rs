@@ -1,8 +1,11 @@
 //! The frame every page of the gallery is in: a header that says what the
 //! page is, its sections one under another, and on the right the list of
 //! them, which stays in view while the page scrolls.
+//!
+//! The sizes here are the design's (`pencil/lurq-design-system-demo.pen`).
 
 use std::{
+  path::{Path, PathBuf},
   sync::{Arc, Mutex},
   time::{Duration, Instant},
 };
@@ -10,25 +13,34 @@ use std::{
 use lurq::{
   app::{
     ctx::Ctx,
-    theme::{BorderSize, Breakpoint, PaletteColor, TypographyStyle},
+    theme::{Breakpoint, PaletteColor, RadiusSize, TypographyStyle},
   },
   components::{Column, Row, Text},
   core::{ElementRef, Signal},
-  layout::{Alignment, layout_kind::Sticky, text_style::FontWeight},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, Sticky},
+    text_style::FontWeight,
+  },
   node::{CursorIcon, Element, border::Border},
+  ui::{Button, ButtonSize, ButtonVariant},
 };
 
-use crate::kit::{FILL, badge, code, muted, status_badge, styled};
+use crate::kit::{FILL, icon, mono, overline, status_badge, styled, text};
 
 /// How wide the list of sections is.
 const ON_THIS_PAGE: f32 = 216.0;
+/// The widest the column of a page's content gets.
+const CONTENT: f32 = 880.0;
+/// The widest a page's name and description get, beside the page's actions.
+const TITLE_BLOCK: f32 = 620.0;
 /// How far down the window a section's top has to be for the section to be the one that is read: under the
 /// title bar and the header, a few lines into the page.
 const READING_LINE: f32 = 240.0;
 /// How long the list keeps the section that was clicked while the page scrolls to it.
 const HELD: Duration = Duration::from_millis(250);
-/// The widest the column of a page's content gets.
-const CONTENT: f32 = 880.0;
+/// The design system's board, from the root of the repository.
+const BOARD: &str = "pencil/lurq-design-system.pen";
 
 /// What a page says of itself above its sections.
 pub struct Header {
@@ -40,6 +52,10 @@ pub struct Header {
   pub import: Option<&'static str>,
   /// "Stable", "Preview".
   pub status: Option<&'static str>,
+  /// The version of lurq what the page shows is in since: "0.62".
+  pub since: Option<&'static str>,
+  /// The file the page is written in, from the root of the repository: `file!()`.
+  pub source: &'static str,
 }
 
 /// A section of a page: a heading, a line of guidance and what it shows.
@@ -90,13 +106,10 @@ impl Frame {
   /// The page: its header, its sections, and the list of them on the right
   /// where the window is wide enough for it.
   pub fn page(&self, ctx: &mut Ctx, header: Header, sections: Vec<Section>) -> Element {
-    // The padding of the main column grows with the window: 32, 48, 64.
-    let padding = match ctx.breakpoint() {
-      Some(Breakpoint::Xl) => 64.0,
-      Some(Breakpoint::Lg) => 48.0,
-      _ => 32.0,
-    };
-    let with_list = ctx.breakpoint() >= Some(Breakpoint::Lg) && sections.len() > 1;
+    // The design is drawn for a desktop: 48 beside the content. A narrower window gets 32.
+    let wide = ctx.breakpoint() >= Some(Breakpoint::Lg);
+    let beside = if wide { 48.0 } else { 32.0 };
+    let with_list = wide && sections.len() > 1;
 
     let mut anchors = self.anchors.lock().unwrap();
     while anchors.len() < sections.len() {
@@ -132,21 +145,24 @@ impl Frame {
     let titles: Vec<&'static str> = sections.iter().map(|section| section.title).collect();
     let mut main = Column::new()
       .flex(1.0)
-      .max_width(CONTENT + padding * 2.0)
-      .padding(padding)
+      .padding_top(32.0)
+      .padding_horizontal(beside)
+      .padding_bottom(64.0)
       .spacing(48.0)
-      .child(page_header(header));
+      .child(page_header(header, wide).max_width(CONTENT));
     for (index, section) in sections.into_iter().enumerate() {
       main = main.child(
         Column::new()
           .width(FILL)
+          .max_width(CONTENT)
           .spacing(16.0)
           .ref_element(anchors[index].clone())
           .child(
             Column::new()
+              .width(FILL)
               .spacing(6.0)
               .child(styled(section.title, TypographyStyle::Title, |_| {}))
-              .child(muted(section.guidance, TypographyStyle::Body).width(FILL)),
+              .child(prose(section.guidance, 14.0).width(FILL)),
           )
           .child(section.body),
       );
@@ -164,16 +180,20 @@ impl Frame {
   fn on_this_page(&self, titles: &[&'static str]) -> Column {
     let mut list = Column::new()
       .width(ON_THIS_PAGE)
-      .padding_top(40.0)
-      .padding_right(24.0)
+      .padding_top(36.0)
+      .padding_right(16.0)
+      .padding_bottom(32.0)
+      .padding_left(8.0)
+      .spacing(2.0)
       .sticky(Sticky::top(0.0))
       .child(
-        styled("ON THIS PAGE", TypographyStyle::Caption, |style| {
-          style.letter_spacing = 1.2;
-          style.weight = FontWeight::Medium;
-        })
-        .color(PaletteColor::MutedForeground)
-        .height(28.0),
+        Row::new()
+          .width(FILL)
+          .height(21.0)
+          .padding_left(12.0)
+          .padding_bottom(6.0)
+          .align_items(Alignment::Center)
+          .child(overline("On this page")),
       );
     let current = self.current.get();
     for (index, title) in titles.iter().enumerate() {
@@ -187,11 +207,12 @@ impl Frame {
           .padding_left(12.0)
           .align_items(Alignment::Center)
           .cursor(CursorIcon::Pointer)
-          // The section that is being read is marked with an edge in the primary color.
-          .border_left(Border::inside(
-            BorderSize::Md,
-            if on { PaletteColor::Primary } else { PaletteColor::Border },
-          ))
+          // The section that is being read is marked with a heavier edge in the primary color.
+          .border_left(if on {
+            Border::inside(2.0, PaletteColor::Primary)
+          } else {
+            Border::inside(1.0, PaletteColor::Border)
+          })
           .foreground(if on {
             PaletteColor::Foreground
           } else {
@@ -206,53 +227,132 @@ impl Frame {
             chosen.set(index);
             asked.update(|count| *count += 1);
           })
-          .child(Text::new(title).variant(TypographyStyle::Label)),
+          .child(text(
+            title,
+            13.0,
+            if on { FontWeight::Medium } else { FontWeight::Normal },
+          )),
       );
     }
     list
   }
 }
 
-fn page_header(header: Header) -> Column {
+/// A paragraph that explains: a description, a line of guidance. Its lines are set apart for reading.
+fn prose(content: &str, size: f32) -> Text {
+  let size = lurq::ui::current_theme().scaled(size);
+  styled(content, TypographyStyle::Body, |style| {
+    style.font_size = size;
+    style.line_height = 1.6;
+  })
+  .color(PaletteColor::MutedForeground)
+}
+
+/// The root of the repository the gallery was built from.
+fn repository() -> Option<PathBuf> {
+  Some(Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?.to_path_buf())
+}
+
+/// Opens a file in what the system opens it with: a source file in an editor, a board in Pencil.
+fn open(path: &Path) {
+  let program = if cfg!(target_os = "windows") {
+    "explorer"
+  } else if cfg!(target_os = "macos") {
+    "open"
+  } else {
+    "xdg-open"
+  };
+  let _ = std::process::Command::new(program).arg(path).spawn();
+}
+
+/// What a page offers beside its name: its source, and the design it is built from. Each is there when the
+/// gallery runs from the repository, where the file is.
+fn page_actions(source: &'static str) -> Row {
+  let mut actions = Row::new().spacing(8.0).align_items(Alignment::Center);
+  let Some(root) = repository() else {
+    return actions;
+  };
+  let action = |label: &str, glyph: &str, file: PathBuf| {
+    Button::new(label)
+      .variant(ButtonVariant::Outline)
+      .size(ButtonSize::Sm)
+      .leading(icon(glyph, 16.0))
+      .on_click(move |_| open(&file))
+  };
+  let file = root.join(source);
+  if file.is_file() {
+    actions = actions.child(action("View source", "code", file));
+  }
+  let board = BOARD.split('/').fold(root, |path, part| path.join(part));
+  if board.is_file() {
+    actions = actions.child(action("Open in Pencil", "external-link", board));
+  }
+  actions
+}
+
+fn page_header(header: Header, wide: bool) -> Column {
   let mut way = Row::new().spacing(8.0).align_items(Alignment::Center);
   let last = header.breadcrumb.len().saturating_sub(1);
   for (index, step) in header.breadcrumb.iter().enumerate() {
     if index > 0 {
-      way = way.child(muted("›", TypographyStyle::Body));
+      way = way.child(icon("chevron-right", 14.0).color(PaletteColor::MutedForeground));
     }
     way = way.child(if index == last {
-      Text::new(step).variant(TypographyStyle::Body)
+      text(step, 14.0, FontWeight::Medium)
     } else {
-      muted(step, TypographyStyle::Body)
+      text(step, 14.0, FontWeight::Normal).color(PaletteColor::MutedForeground)
     });
   }
+
+  let title_size = lurq::ui::current_theme().scaled(32.0);
+  let block = Column::new()
+    .spacing(10.0)
+    .child(styled(header.title, TypographyStyle::Heading, |style| {
+      style.font_size = title_size
+    }))
+    .child(prose(header.description, 15.0).width(FILL));
+  let actions = page_actions(header.source);
+  // The actions stand at the end of the row, on the last line of the description; where there is no room
+  // beside it, under it.
+  let title: Element = if wide {
+    Row::new()
+      .width(FILL)
+      .spacing(16.0)
+      .align_items(Alignment::End)
+      .justify(Justify::SpaceBetween)
+      .child(block.flex(1.0).max_width(TITLE_BLOCK))
+      .child(actions)
+      .into()
+  } else {
+    Column::new()
+      .width(FILL)
+      .spacing(16.0)
+      .child(block.width(FILL))
+      .child(actions)
+      .into()
+  };
+
   let mut facts = Row::new().spacing(10.0).align_items(Alignment::Center);
   if let Some(import) = header.import {
     facts = facts.child(
       Row::new()
-        .height(22.0)
-        .padding_horizontal(6.0)
+        .padding_horizontal(5.0)
+        .padding_vertical(1.0)
         .align_items(Alignment::Center)
-        .rounded(lurq::app::theme::RadiusSize::Sm)
+        .rounded(RadiusSize::Sm)
         .background(PaletteColor::Muted)
-        .child(code(import)),
+        .child(mono(import, 13.0)),
     );
   }
   if let Some(status) = header.status {
     facts = facts.child(status_badge(status));
   }
-  facts = facts.child(badge(&format!("lurq {}", lurq::VERSION)));
-  Column::new()
-    .width(FILL)
-    .spacing(14.0)
-    .child(way)
-    .child(styled(header.title, TypographyStyle::Heading, |style| {
-      style.font_size = 32.0
-    }))
-    .child(
-      muted(header.description, TypographyStyle::Body)
-        .width(FILL)
-        .max_width(620.0),
-    )
-    .child(facts)
+  if let Some(since) = header.since {
+    facts = facts.child(mono(&format!("since {since}"), 12.0).color(PaletteColor::MutedForeground));
+  }
+  let mut column = Column::new().width(FILL).spacing(16.0).child(way).child(title);
+  if header.import.is_some() || header.status.is_some() || header.since.is_some() {
+    column = column.child(facts);
+  }
+  column
 }

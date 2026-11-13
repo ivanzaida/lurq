@@ -14,7 +14,7 @@ use lurq::{
     window::Appearance,
   },
   components::{
-    ChromeTitleBar, Column, Link, Outlet, Popup, Row, ScrollVertical, Text, TextInput, WindowControlColors,
+    ChromeTitleBar, Column, Link, Outlet, Popup, Row, ScrollVertical, TextInput, WindowControlColors,
     WindowControlContent, WindowControlKind, WindowControls,
   },
   core::{ElementRef, Signal},
@@ -23,7 +23,7 @@ use lurq::{
 };
 
 use crate::{
-  kit::{FILL, badge, icon, icon_button, keys, muted, popover, segmented, select, styled},
+  kit::{FILL, badge, icon, icon_button, keys, mono, overline, popover, row_height, segmented, select, text},
   pages::{Group, PAGES, page_at},
 };
 
@@ -78,24 +78,22 @@ fn find_chord() -> &'static str {
 /// The title bar of the gallery's window, drawn by the gallery from the
 /// theme: the window has no frame of the system's.
 pub fn title_bar() -> ChromeTitleBar {
-  let glyph = |name: &'static str| WindowControlContent::element(move |_| icon(name, 16.0).into());
+  let glyph = |name: &'static str, size: f32| WindowControlContent::element(move |_| icon(name, size).into());
   let clear = BackgroundColor::Color(Color::new(0, 0, 0, 0));
   let controls = WindowControls::new()
     .button_size(46.0, TITLE_BAR)
-    .content(WindowControlKind::Minimize, glyph("minus"))
-    .content(WindowControlKind::Maximize, glyph("square"))
-    .content(WindowControlKind::Restore, glyph("duplicate"))
-    .content(WindowControlKind::Close, glyph("close"))
-    .foreground(PaletteColor::MutedForeground)
+    .content(WindowControlKind::Minimize, glyph("minus", 16.0))
+    // The square is drawn smaller than the others, so that it weighs as much as they do.
+    .content(WindowControlKind::Maximize, glyph("square", 12.0))
+    .content(WindowControlKind::Restore, glyph("duplicate", 14.0))
+    .content(WindowControlKind::Close, glyph("close", 16.0))
+    .foreground(PaletteColor::Foreground)
     .hover_background(PaletteColor::StateHover)
     .active_background(PaletteColor::StatePressed)
-    .hover_foreground(WindowControlKind::Minimize, PaletteColor::Foreground)
-    .hover_foreground(WindowControlKind::Maximize, PaletteColor::Foreground)
-    .hover_foreground(WindowControlKind::Restore, PaletteColor::Foreground)
     .control_colors(
       WindowControlKind::Close,
       WindowControlColors {
-        foreground: PaletteColor::MutedForeground.into(),
+        foreground: PaletteColor::Foreground.into(),
         background: clear,
         hover_background: PaletteColor::Destructive.into(),
         active_background: PaletteColor::DestructiveHover.into(),
@@ -111,9 +109,9 @@ pub fn title_bar() -> ChromeTitleBar {
         .padding_left(12.0)
         .spacing(8.0)
         .align_items(Alignment::Center)
-        .foreground(PaletteColor::MutedForeground)
+        .foreground(PaletteColor::Foreground)
         .child(icon("box", 16.0))
-        .child(Text::new("lurq gallery").variant(TypographyStyle::Label)),
+        .child(text("lurq gallery", 13.0, FontWeight::Medium)),
     )
     .controls(controls)
 }
@@ -146,7 +144,11 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
         .flex(1.0)
         .align_items(Alignment::Stretch)
         .child(sidebar(ctx, current, &state.search.get()))
-        .child(ScrollVertical::new(Outlet::mount(ctx)).flex(1.0)),
+        .child(
+          ScrollVertical::new(Outlet::mount(ctx))
+            .flex(1.0)
+            .border_left(Border::inside(BorderSize::Sm, PaletteColor::Border)),
+        ),
     )
     .into()
 }
@@ -162,9 +164,10 @@ fn search_field(theme: &Theme, state: &Shell, roomy: bool) -> Row {
   let (on, off) = (state.search_focused.clone(), state.search_focused.clone());
   let mut field = Row::new()
     .width(FILL)
-    .max_width(420.0)
+    .max_width(360.0)
     .height(36.0)
-    .padding_horizontal(12.0)
+    .padding_left(12.0)
+    .padding_right(8.0)
     .spacing(8.0)
     .align_items(Alignment::Center)
     .rounded(RadiusSize::Md)
@@ -180,7 +183,11 @@ fn search_field(theme: &Theme, state: &Shell, roomy: bool) -> Row {
     .child(icon("search", 16.0).color(PaletteColor::MutedForeground))
     .child(
       TextInput::styled(state.search.clone(), body)
-        .placeholder(if roomy { "Search pages…" } else { "Search…" })
+        .placeholder(if roomy {
+          "Search components and props…"
+        } else {
+          "Search…"
+        })
         .placeholder_style(hint)
         .flex(1.0)
         .height(FILL)
@@ -209,8 +216,12 @@ fn settings(theme: &Theme, state: &Shell) -> Column {
         Column::new()
           .width(FILL)
           .spacing(2.0)
-          .child(Text::new(name).variant(TypographyStyle::Label))
-          .child(muted(about, TypographyStyle::Caption).width(FILL)),
+          .child(text(name, 13.0, FontWeight::Medium))
+          .child(
+            text(about, 12.0, FontWeight::Normal)
+              .color(PaletteColor::MutedForeground)
+              .width(FILL),
+          ),
       )
       .child(control)
   };
@@ -277,18 +288,16 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
         .foreground(PaletteColor::PrimaryForeground)
         .child(icon("box", 16.0)),
     )
-    .child(styled("lurq", TypographyStyle::Body, |style| {
-      style.weight = FontWeight::SemiBold
-    }));
+    .child(text("lurq", 15.0, FontWeight::SemiBold));
   if roomy {
-    brand = brand.child(muted("Design System", TypographyStyle::Body));
+    brand = brand.child(text("Design System", 14.0, FontWeight::Normal).color(PaletteColor::MutedForeground));
   }
   brand = brand.child(badge(&format!("v{}", lurq::VERSION)));
 
   let labeled = |label: &str, control: Row| {
-    let mut row = Row::new().spacing(10.0).align_items(Alignment::Center);
+    let mut row = Row::new().spacing(12.0).align_items(Alignment::Center);
     if roomy {
-      row = row.child(muted(label, TypographyStyle::Mono));
+      row = row.child(mono(label, 12.0).color(PaletteColor::MutedForeground));
     }
     row.child(control)
   };
@@ -310,7 +319,7 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
       move |density| theme.set_density(density)
     },
   )
-  .width(148.0);
+  .width(150.0);
   let gear = icon_button("settings")
     .ref_element(state.settings_anchor.clone())
     .on_click({
@@ -318,7 +327,7 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
       move |_| open.update(|open| *open = !*open)
     });
   let controls = Row::new()
-    .spacing(16.0)
+    .spacing(12.0)
     .align_items(Alignment::Center)
     .child(labeled("theme", appearance))
     .child(labeled("density", density))
@@ -358,12 +367,16 @@ fn density_name(density: Density) -> &'static str {
 }
 
 /// The pages in the design system's groups, each group with how many it has.
-/// A row of it is as high as a row is at the theme's density.
+/// A row of it is 32 high at the default density, and follows the density.
 fn sidebar(ctx: &mut Ctx, current: &str, search: &str) -> ScrollVertical {
   let theme = ctx.theme().clone();
-  let row_height = theme.density_value(theme.density());
+  let row_height = row_height(&theme);
   let wanted = search.trim().to_lowercase();
-  let mut groups = Column::new().width(FILL).padding(16.0).spacing(20.0);
+  let mut groups = Column::new()
+    .width(FILL)
+    .padding_vertical(20.0)
+    .padding_horizontal(16.0)
+    .spacing(20.0);
   let mut found = 0;
   for group in Group::ALL {
     let pages: Vec<_> = PAGES
@@ -378,20 +391,14 @@ fn sidebar(ctx: &mut Ctx, current: &str, search: &str) -> ScrollVertical {
     let mut list = Column::new().width(FILL).spacing(2.0).child(
       Row::new()
         .width(FILL)
-        .height(28.0)
+        // A line of 15 and 6 under it, as the design has it, whatever the font's own line is.
+        .height(21.0)
         .padding_horizontal(8.0)
+        .padding_bottom(6.0)
         .align_items(Alignment::Center)
         .justify(Justify::SpaceBetween)
-        .foreground(PaletteColor::MutedForeground)
-        .child(styled(
-          &group.name().to_uppercase(),
-          TypographyStyle::Caption,
-          |style| {
-            style.letter_spacing = 1.2;
-            style.weight = FontWeight::Medium;
-          },
-        ))
-        .child(Text::new(&pages.len().to_string()).variant(TypographyStyle::Caption)),
+        .child(overline(group.name()))
+        .child(mono(&pages.len().to_string(), 11.0).color(PaletteColor::MutedForeground)),
     );
     for page in pages {
       let on = page.path == current;
@@ -399,18 +406,18 @@ fn sidebar(ctx: &mut Ctx, current: &str, search: &str) -> ScrollVertical {
         .width(FILL)
         .height(row_height)
         .padding_horizontal(8.0)
-        .spacing(10.0)
+        .spacing(8.0)
         .align_items(Alignment::Center)
         .rounded(RadiusSize::Md)
         .cursor(CursorIcon::Pointer);
       if let Some(name) = page.icon {
-        row = row.child(icon(name, 16.0));
+        row = row.child(icon(name, 16.0).color(PaletteColor::MutedForeground));
       }
-      row = row.child(styled(page.name, TypographyStyle::Body, |style| {
-        if on {
-          style.weight = FontWeight::Medium;
-        }
-      }));
+      row = row.child(text(
+        page.name,
+        14.0,
+        if on { FontWeight::Medium } else { FontWeight::Normal },
+      ));
       row = if on {
         row
           .background(PaletteColor::Highlight)
@@ -427,9 +434,11 @@ fn sidebar(ctx: &mut Ctx, current: &str, search: &str) -> ScrollVertical {
     groups = groups.child(list);
   }
   if found == 0 {
-    groups = groups.child(muted("No page for that.", TypographyStyle::Body).width(FILL));
+    groups = groups.child(
+      text("No page for that.", 14.0, FontWeight::Normal)
+        .color(PaletteColor::MutedForeground)
+        .width(FILL),
+    );
   }
-  ScrollVertical::new(groups)
-    .width(SIDEBAR)
-    .border_right(Border::inside(BorderSize::Sm, PaletteColor::Border))
+  ScrollVertical::new(groups).width(SIDEBAR)
 }

@@ -103,6 +103,8 @@ impl Component for Overview {
                       shows each one as it is in the code: what is on a page is what the crate does today.",
         import: Some("use lurq::ui::*;"),
         status: None,
+        since: None,
+        source: file!(),
       },
       vec![
         Section::new(
