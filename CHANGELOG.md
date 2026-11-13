@@ -57,6 +57,7 @@ Added:
 Fixed:
 
 - A disabled `Slider` took a press that landed on its row: with nothing under the pointer the slider was looked up by its row alone, disabled or not.
+
 ## 0.61.1 — 2026-11-13
 
 Behaviour changes:
