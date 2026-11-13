@@ -35,6 +35,7 @@ mod textarea;
 pub(crate) mod theme;
 mod toggle;
 mod toggle_group;
+mod tooltip;
 
 pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
@@ -62,6 +63,9 @@ pub use textarea::{
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
 pub use toggle_group::{ToggleGroup, ToggleGroupPart};
+pub use tooltip::{
+  TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
 /// [`Name`], so that a variant, a size, a state or a part of a component is

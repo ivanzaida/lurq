@@ -16,6 +16,7 @@ mod slider;
 mod switch;
 mod textarea;
 mod tokens;
+mod tooltip;
 
 /// A group of the side bar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -187,6 +188,14 @@ pub const PAGES: &[Page] = &[
     about: "slider range value min max step track thumb volume drag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<slider::SliderPage>(()),
+  },
+  Page {
+    path: "/tooltip",
+    name: "Tooltip",
+    icon: None,
+    about: "tooltip hint hover focus delay shortcut arrow side placement overlay label describe",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<tooltip::TooltipPage>(()),
   },
 ];
 
