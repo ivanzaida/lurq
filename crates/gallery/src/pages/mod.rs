@@ -15,6 +15,7 @@ mod radio;
   Page {
 mod slider;
 mod switch;
+mod textarea;
 mod tokens;
 
 /// A group of the side bar.
@@ -155,6 +156,14 @@ pub const PAGES: &[Page] = &[
     about: "radio group choice option chosen one of exclusive",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<radio::RadioPage>(()),
+  },
+  Page {
+    path: "/textarea",
+    name: "Textarea",
+    icon: None,
+    about: "textarea multiline text rows placeholder invalid disabled scroll bio note",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<textarea::TextareaPage>(()),
   },
   Page {
     path: "/switch",

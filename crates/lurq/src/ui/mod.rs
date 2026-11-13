@@ -29,6 +29,7 @@ mod segmented;
 mod shared;
 mod slider;
 mod switch;
+mod textarea;
 pub(crate) mod theme;
 mod toggle;
 mod toggle_group;
@@ -51,6 +52,9 @@ pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlStat
 pub use shared::Choice;
 pub use slider::{Slider, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
+pub use textarea::{
+  TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaState, TextareaView,
+};
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
 pub use toggle_group::{ToggleGroup, ToggleGroupPart};

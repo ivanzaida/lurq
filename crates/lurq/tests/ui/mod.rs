@@ -8,4 +8,5 @@ mod radio;
 mod slider;
 mod stage;
 mod switch;
+mod textarea;
 mod theming;
