@@ -21,6 +21,7 @@ mod breadcrumb;
 mod button;
 mod button_group;
 mod checkbox;
+mod chip;
 mod collapsible;
 mod dialog;
 mod fab;
@@ -42,6 +43,7 @@ mod slider;
 mod steps;
 mod switch;
 mod tabs;
+mod tag;
 mod text_box;
 mod textarea;
 pub(crate) mod theme;
@@ -65,6 +67,7 @@ pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
   CheckboxView,
 };
+pub use chip::{Chip, ChipGroup, ChipGroupPart, ChipPart, ChipRenderer, ChipState, ChipView};
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
@@ -95,6 +98,7 @@ pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use tabs::{
   Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
 };
+pub use tag::{Tag, TagPart, TagRenderer, TagSize, TagState, TagVariant, TagView};
 pub use text_box::{Judgment, TextBoxSize, TextBoxState};
 pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,

@@ -19,6 +19,7 @@ mod stage;
 mod steps;
 mod switch;
 mod tabs;
+mod tag;
 mod textarea;
 mod theming;
 mod toast;

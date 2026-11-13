@@ -111,6 +111,14 @@ pub(super) fn semantic_state(node: &Node) -> serde_json::Value {
   {
     state.insert("selected".into(), serde_json::json!(selected.as_ref() == "true"));
   }
+  // A chip of the design system, a button that stays pressed, says whether it is.
+  if let Some((_, pressed)) = node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| key.as_ref() == "a11y_pressed")
+  {
+    state.insert("pressed".into(), serde_json::json!(pressed.as_ref() == "true"));
+  }
   match node.node_kind() {
     NodeKind::TextInput { state: input, .. } if input.is_masked() => {
       state.insert("value".into(), serde_json::json!(input.caret_source_text()));

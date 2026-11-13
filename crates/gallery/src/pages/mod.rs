@@ -24,6 +24,7 @@ mod slider;
 mod steps;
 mod switch;
 mod tabs;
+mod tag;
 mod textarea;
 mod toast;
 mod tokens;
@@ -295,6 +296,14 @@ pub const PAGES: &[Page] = &[
     about: "badge status label count counter dot indicator unread notification variant success warning info destructive outline",
     group: Group::Data,
     mount: |ctx| ctx.mount::<badge::BadgePage>(()),
+  },
+  Page {
+    path: "/tag",
+    name: "Tag",
+    icon: None,
+    about: "tag chip pill label keyword category remove filter choice selected chip group",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<tag::TagPage>(()),
   },
 ];
 
