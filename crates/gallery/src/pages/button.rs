@@ -707,7 +707,8 @@ impl ButtonPage {
       .width(FILL)
       .clip()
       .rounded(RadiusSize::Lg)
-      .background(PaletteColor::Background)
+      .background(PaletteColor::Card)
+      .foreground(PaletteColor::CardForeground)
       .border(line());
     if wide {
       card
@@ -787,7 +788,6 @@ impl ButtonPage {
       .padding_top(8.0)
       .padding_horizontal(24.0)
       .padding_bottom(16.0)
-      .background(PaletteColor::Canvas)
       .child(header);
     for (variant, label, code, _) in VARIANTS {
       let button = || Button::new(label).variant(variant).size(SIZES[picked].size);
@@ -814,7 +814,8 @@ impl ButtonPage {
       .width(FILL)
       .clip()
       .rounded(RadiusSize::Lg)
-      .background(PaletteColor::Background)
+      .background(PaletteColor::Card)
+      .foreground(PaletteColor::CardForeground)
       .border(line())
       .child(
         Row::new()
@@ -988,7 +989,8 @@ impl ButtonPage {
       .width(FILL)
       .clip()
       .rounded(RadiusSize::Lg)
-      .background(PaletteColor::Background)
+      .background(PaletteColor::Card)
+      .foreground(PaletteColor::CardForeground)
       .border(line())
       .child(
         Row::new()
@@ -1079,16 +1081,10 @@ fn demo(stage: impl Into<Element>, call: &str) -> Element {
     .width(FILL)
     .clip()
     .rounded(RadiusSize::Lg)
-    .background(PaletteColor::Background)
-    .foreground(PaletteColor::Foreground)
+    .background(PaletteColor::Card)
+    .foreground(PaletteColor::CardForeground)
     .border(line())
-    .child(
-      Column::new()
-        .width(FILL)
-        .padding(32.0)
-        .background(PaletteColor::Canvas)
-        .child(stage),
-    )
+    .child(Column::new().width(FILL).padding(32.0).child(stage))
     .child(card_footer(call))
     .into()
 }

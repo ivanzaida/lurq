@@ -126,9 +126,11 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
     ctx.focus(&state.search_field);
   }
   let (find, asked) = (state.find.clone(), state.find_asked.clone());
+  // What is behind the cards and beside them is the theme's canvas: the page, the side bar. A card, the
+  // header and a control are surfaces on it, so each stands out from what it is on.
   Column::new()
     .size(FILL, FILL)
-    .background(PaletteColor::Background)
+    .background(PaletteColor::Canvas)
     .foreground(PaletteColor::Foreground)
     // Every key pressed in the window comes by here, whatever has the focus.
     .on_key_down(move |event: KeyboardEvent| {
@@ -350,6 +352,7 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
     .padding_horizontal(20.0)
     .spacing(16.0)
     .align_items(Alignment::Center)
+    .background(PaletteColor::Background)
     .border_bottom(Border::inside(BorderSize::Sm, PaletteColor::Border))
     .child(brand)
     .child(
@@ -424,10 +427,12 @@ fn sidebar(ctx: &mut Ctx, current: &str, search: &str) -> ScrollVertical {
         14.0,
         if on { FontWeight::Medium } else { FontWeight::Normal },
       ));
+      // The page that is open is a card on the canvas of the side bar.
       row = if on {
         row
-          .background(PaletteColor::Highlight)
-          .foreground(PaletteColor::HighlightForeground)
+          .background(PaletteColor::Card)
+          .foreground(PaletteColor::CardForeground)
+          .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
       } else {
         row.hovered(|style| {
           style

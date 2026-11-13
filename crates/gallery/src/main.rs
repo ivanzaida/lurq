@@ -69,7 +69,7 @@ impl Component for Gallery {
         size: 1.0,
         color: PaletteColor::Border.into(),
       })
-      .frame_background(PaletteColor::Background)
+      .frame_background(PaletteColor::Canvas)
       .title_bar(shell::title_bar())
       .content(pages)
       .mount(ctx)

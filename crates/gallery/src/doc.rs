@@ -340,7 +340,8 @@ fn page_header(header: Header, wide: bool) -> Column {
         .padding_vertical(1.0)
         .align_items(Alignment::Center)
         .rounded(RadiusSize::Sm)
-        .background(PaletteColor::Muted)
+        .background(PaletteColor::Card)
+        .border(Border::inside(1.0, PaletteColor::Border))
         .child(mono(import, 13.0)),
     );
   }

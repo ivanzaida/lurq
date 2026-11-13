@@ -420,14 +420,10 @@ pub fn card() -> Column {
     .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
 }
 
-/// The stage of a demo card: where the live components stand, on the canvas.
+/// The stage of a demo card: where the live components stand. It is the card's own surface: the page
+/// around the card is the canvas, and the card stands out from it whole.
 pub fn stage(content: impl Into<Element>) -> Column {
-  Column::new()
-    .width(FILL)
-    .padding(32.0)
-    .background(PaletteColor::Canvas)
-    .foreground(PaletteColor::Foreground)
-    .child(content)
+  Column::new().width(FILL).padding(32.0).child(content)
 }
 
 /// The footer of a demo card: the builder call that makes what the stage shows, and a button that copies it.
@@ -453,8 +449,8 @@ pub fn demo_card(content: impl Into<Element>, call: &str) -> Column {
     .width(FILL)
     .clip()
     .rounded(RadiusSize::Lg)
-    .background(PaletteColor::Background)
-    .foreground(PaletteColor::Foreground)
+    .background(PaletteColor::Card)
+    .foreground(PaletteColor::CardForeground)
     .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
     .child(stage(content))
     .child(card_footer(call))
