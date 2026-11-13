@@ -8,6 +8,7 @@ mod radio;
 mod slider;
 mod input;
 mod popover;
+mod menu;
 mod stage;
 mod switch;
 mod textarea;
