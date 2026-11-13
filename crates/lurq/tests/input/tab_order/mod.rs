@@ -1,6 +1,7 @@
 use lurq::app::{App, Tree};
 
 mod dropped;
+mod focus_group;
 mod focusable;
 #[cfg(feature = "form")]
 mod forms_in_scope;

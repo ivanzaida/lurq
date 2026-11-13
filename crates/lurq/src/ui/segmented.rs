@@ -16,7 +16,7 @@ use crate::{
   },
   components::Row,
   core::{Signal, SignalValue},
-  node::Element,
+  node::{Element, FocusGroup},
 };
 
 /// The parts of a segmented control a recipe styles.
@@ -200,13 +200,18 @@ impl SegmentedControl {
       )
     };
     let (plain, chosen) = (resolve(false), resolve(true));
-    let mut root = Row::new().part(&plain.part(SegmentedControlPart::Root));
+    // One choice: Tab stops in it once, at the chosen segment, and an arrow key moves the focus and the
+    // choice with it.
+    let mut root = Row::new()
+      .part(&plain.part(SegmentedControlPart::Root))
+      .focus_group(FocusGroup::horizontal().activate(true).one_stop(true));
     for segment in self.segments {
       let recipe = if segment.selected { &chosen } else { &plain };
       let part = |part: SegmentedControlPart| recipe.part(part).forced(self.forced);
       let pick = segment.pick;
-      let mut pressed =
-        pressable(&part(SegmentedControlPart::Segment), self.disabled || segment.disabled).on_click(move |_| pick());
+      let mut pressed = pressable(&part(SegmentedControlPart::Segment), self.disabled || segment.disabled)
+        .focus_entry(segment.selected)
+        .on_click(move |_| pick());
       if self.full_width {
         pressed = pressed.flex(1.0);
       }

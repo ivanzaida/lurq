@@ -677,6 +677,8 @@ pub(crate) trait NodeUpdate {
   fn interactive(&mut self, state: InteractionState);
   fn focusable(&mut self, focusable: bool);
   fn tab_index(&mut self, tab_index: i32);
+  fn focus_group(&mut self, group: crate::node::FocusGroup);
+  fn focus_entry(&mut self, entry: bool);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>);
@@ -985,6 +987,10 @@ pub(crate) struct Node {
   /// and `tab_index`; `Some` overrides both.
   pub(crate) focusable: Option<bool>,
   pub(crate) tab_index: Option<i32>,
+  /// The arrow keys move the focus between what is in this node; see [`crate::node::FocusGroup`].
+  pub(crate) focus_group: Option<crate::node::FocusGroup>,
+  /// Where Tab enters the one-stop focus group this node is in.
+  pub(crate) focus_entry: bool,
   pub(crate) button_kind: Option<ButtonKind>,
   #[cfg(feature = "form")]
   pub(crate) form_name: Option<Arc<str>>,
@@ -2017,6 +2023,14 @@ impl NodeUpdate for Node {
     self.tab_index = Some(tab_index);
   }
 
+  fn focus_group(&mut self, group: crate::node::FocusGroup) {
+    self.focus_group = Some(group);
+  }
+
+  fn focus_entry(&mut self, entry: bool) {
+    self.focus_entry = entry;
+  }
+
   fn button_kind(&mut self, kind: ButtonKind) {
     self.button_kind = Some(kind);
   }
@@ -2359,6 +2373,8 @@ impl Node {
       interaction: None,
       focusable: None,
       tab_index: None,
+      focus_group: None,
+      focus_entry: false,
       button_kind: None,
       #[cfg(feature = "form")]
       form_name: None,
@@ -3919,6 +3935,14 @@ impl Node {
 
   pub(crate) fn tab_index_value(&self) -> Option<i32> {
     self.tab_index
+  }
+
+  pub(crate) fn focus_group_value(&self) -> Option<crate::node::FocusGroup> {
+    self.focus_group
+  }
+
+  pub(crate) fn is_focus_entry(&self) -> bool {
+    self.focus_entry
   }
 
   pub(crate) fn button_kind_value(&self) -> Option<ButtonKind> {
@@ -5691,6 +5715,8 @@ impl Node {
       interaction: self.interaction.clone(),
       focusable: self.focusable,
       tab_index: self.tab_index,
+      focus_group: self.focus_group,
+      focus_entry: self.focus_entry,
       button_kind: self.button_kind,
       #[cfg(feature = "form")]
       form_name: self.form_name.clone(),

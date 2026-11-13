@@ -414,7 +414,7 @@ ToggleGroup::multiple(marks.clone(), [
 | `ToggleGroup::multiple(signal, choices)` | A `Signal<Vec<T>>`: a press adds a value, or takes it out |
 | `ToggleGroup::controlled(on, choices, press)` | The app holds the state: the toggles of `on` are on, and `press` is told the value of each one pressed |
 
-A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. `size(size)` and `disabled(bool)` are for the whole group. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`.
+A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. `size(size)` and `disabled(bool)` are for the whole group. Tab stops in the group once; Left and Right move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`.
 
 ## Segmented Control
 
@@ -439,7 +439,7 @@ SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (S
 | `full_width(bool)` | As wide as what it is in, its segments sharing the width |
 | `disabled(bool)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
 
-- Each segment is a button: Tab reaches it, and a click, Enter or Space chooses it.
+- The control is one choice: Tab stops in it once, at the chosen segment; Left and Right move the focus to the next segment and choose it, Home and End the first and the last, and a click chooses one.
 - Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`.
 
 ## Link
@@ -648,6 +648,7 @@ Checkbox::new("Select blur.rs").label_hidden(true).checked(row.get());
 - In the design the box is 16 with the small radius, on the `Background` with an inner edge of 1 in `Input`; checked or indeterminate it is filled and edged in `Primary`, with the theme's `check` or `minus` icon of 12 (`IconSize::Xs`) in `PrimaryForeground`. An invalid box is edged in `Destructive`, checked or not. A disabled checkbox is dimmed with its label, and its box is `Muted` while it is empty. The label is 8 beside the box in the body's type.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `checkbox` called by its label, with `a11y_checked` `true`, `false` or `mixed`.
 - A renderer that draws another checkbox starts from `view.control()`, the behavior with the box's style, and puts in it what it likes; `view.indicator()` is the default mark, `None` while the checkbox is empty.
+- `CheckboxGroup` is checkboxes over one list: `CheckboxGroup::new(signal, choices)` with a `Signal<Vec<T>>` checks the boxes whose values the signal has, and a press adds a value or takes it out; `CheckboxGroup::controlled(checked, choices, press)` leaves the list to the app. `horizontal(bool)`, `invalid(bool)` and `disabled(bool)` are for the whole group, and `Choice::disabled` takes one box out. Each box stays its own stop of Tab. Its parts are `CheckboxGroupPart::Root` (12 apart, or 24 side by side in the state `CheckboxGroupState::Horizontal`) and `Item`, laid over each checkbox's root.
 - `lurq::components::Checkbox` is the engine's node, which keeps its value in a `Signal` and draws its mark from an image; `lurq::ui::Checkbox` is the design system's and does not use it.
 ~~~
 
@@ -676,6 +677,7 @@ Radio::new("Compact").chosen(true).on_choose(|| println!("compact"));
 | --- | --- |
 | `new(signal, choices)` | The radio whose value the signal has is chosen, and a press of another sets the signal |
 | `controlled(Option<T>, choices, handler)` | The app holds the choice: none while it is `None`; the handler is told the value of each radio pressed that was not chosen |
+| `horizontal(bool)` | The radios side by side, going on to the next line where there is no room |
 | `invalid(bool)` | Every radio's edge in the destructive color: the choice was made wrongly, or not at all |
 | `disabled(bool)` | The whole group takes no input. `Choice::disabled` takes one choice out |
 | `style(part, ..)`, `id`, `key` | As a [toggle group](#toggle-group) has them |
@@ -689,11 +691,13 @@ Radio::new("Compact").chosen(true).on_choose(|| println!("compact"));
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the mark |
 
 - A press of the mark or of the label chooses the radio; a press of the one chosen does nothing, so a choice
-  once made is not taken back. Tab reaches each radio of a group in turn, Space and Enter press it, and the
-  focus ring is the mark's. Arrow keys do not move the choice within a group yet.
+  once made is not taken back. A group is one stop of Tab, at the chosen radio or the first; the arrow keys
+  move the focus to the next radio and choose it, Home and End the first and the last, and a disabled one is
+  passed by. A radio on its own is a stop of Tab that Space and Enter press. The focus ring is the mark's.
 - Parts: `RadioPart::Root` (the mark and the label, side by side), `Mark` (what is pressed), `Dot`, `Label`.
   States: `RadioState::Chosen`, `Invalid`, `Disabled`. A group's parts: `RadioGroupPart::Root` (the radios
-  one under the other) and `Item`, laid over the theme's recipe for each radio's root.
+  one under the other, 12 apart) and `Item`, laid over the theme's recipe for each radio's root; its state
+  `RadioGroupState::Horizontal` (side by side, 24 apart).
 - In the design the mark is 16 and round, in `Background` with an edge of 1 inside it in `Input`; chosen, the
   edge is `Primary` and a dot of 8 in `Primary` is in its middle. The edge of an invalid one is
   `Destructive`. The label is 8 beside the mark in the body's type, and a group's radios are 12 apart. A
@@ -737,7 +741,9 @@ Slider::new(size.clone()).min(10).max(50).step(5);
 
 ## Tab And The Design System's Controls
 
-A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a segment, a link, the track of a switch, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
+A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
+
+What is one choice or one bar is one stop, and the arrow keys move within it ([focus groups](../focus-navigation/#focus-groups)): a radio group and a segmented control, where the choice follows the focus, and a toggle group, where Space turns the toggle the focus is on. In a button group every button is its own stop, as each is its own action, and the arrows move between them as well.
 
 ## A Component That Holds Another
 

@@ -421,3 +421,58 @@ fn a_button_with_a_description_is_as_high_as_its_two_lines() {
   assert_eq!(label.y - y, 10.0, "10 above the two lines");
   assert_eq!(height, 10.0 + label.height + 2.0 + description.height + 10.0);
 }
+
+#[test]
+fn the_arrow_keys_move_the_choice_of_a_segmented_control() {
+  let period = Signal::new("week");
+  let chosen = period.clone();
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let told = pressed.clone();
+  let mut stage = Stage::new(move |_| {
+    let after = told.clone();
+    Column::new()
+      .spacing(8.0)
+      .child(SegmentedControl::new(
+        chosen.clone(),
+        [("day", "Day"), ("week", "Week"), ("month", "Month")],
+      ))
+      .child(Button::new("After").on_click(move |_| after.lock().unwrap().push("after")))
+      .into()
+  });
+  // Tab comes in at the chosen segment; the arrows move the focus and the choice with it.
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(period.get(), "month");
+  stage.key("ArrowRight");
+  assert_eq!(period.get(), "day", "past the last is the first");
+  stage.key("End");
+  assert_eq!(period.get(), "month");
+  stage.key("ArrowLeft");
+  assert_eq!(period.get(), "week");
+  // The control is one stop: the next Tab is on what is after it.
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(*pressed.lock().unwrap(), ["after"]);
+}
+
+#[test]
+fn the_arrow_keys_move_between_the_toggles_of_a_group_and_space_turns_one() {
+  let marks = Signal::new(vec!["bold"]);
+  let kept = marks.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .child(ToggleGroup::multiple(
+        kept.clone(),
+        [("bold", "Bold"), ("italic", "Italic"), ("underline", "Underline")],
+      ))
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(marks.get(), ["bold"], "moving the focus turns nothing");
+  stage.key(" ");
+  assert_eq!(marks.get(), ["bold", "italic"]);
+  stage.key("ArrowLeft");
+  stage.key(" ");
+  assert_eq!(marks.get(), ["italic"]);
+}
