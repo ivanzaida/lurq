@@ -306,16 +306,39 @@ fn collect_node<'a>(
 }
 
 /// What the arrow keys move between in the focus group `group`: every stop of Tab inside it, in the order
-/// of the tree, whether or not Tab stops in the group once.
+/// of the tree, whether or not Tab stops in the group once. What is in a group of no keys inside it
+/// (`FocusGroup::none`) is not among them.
 pub(super) fn group_stops(group: &Node, dropped: &[NodeId]) -> Vec<FocusTarget> {
+  group_stops_around(group, dropped, None).0
+}
+
+/// The stops of [`group_stops`], and how many of them are before the node `around` in the order of the
+/// tree, which may be disabled and so not a stop itself: `None` when it is not in the group.
+pub(super) fn group_stops_around(
+  group: &Node,
+  dropped: &[NodeId],
+  around: Option<NodeId>,
+) -> (Vec<FocusTarget>, Option<usize>) {
+  struct Walk {
+    stops: Vec<FocusTarget>,
+    around: Option<NodeId>,
+    before: Option<usize>,
+  }
   fn collect(
     node: &Node,
+    root: bool,
     dropped: &[NodeId],
     focus_event_id: Option<NodeId>,
     in_form: bool,
-    stops: &mut Vec<FocusTarget>,
+    walk: &mut Walk,
   ) {
+    if walk.around == Some(node.node_id()) {
+      walk.before = Some(walk.stops.len());
+    }
     if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
+      return;
+    }
+    if !root && node.focus_group_value().is_some_and(|group| group.is_none()) {
       return;
     }
     let focus_event_id = if !node.events.on_focus.is_empty() || !node.events.on_blur.is_empty() {
@@ -330,7 +353,7 @@ pub(super) fn group_stops(group: &Node, dropped: &[NodeId]) -> Vec<FocusTarget> 
       .is_some_and(|index| index >= 0)
       && node.is_focusable()
     {
-      stops.push(FocusTarget {
+      walk.stops.push(FocusTarget {
         input_id: node.node_id(),
         event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
       });
@@ -339,12 +362,16 @@ pub(super) fn group_stops(group: &Node, dropped: &[NodeId]) -> Vec<FocusTarget> 
       }
     }
     for child in node.children() {
-      collect(child, dropped, focus_event_id, in_form, stops);
+      collect(child, false, dropped, focus_event_id, in_form, walk);
     }
   }
-  let mut stops = Vec::new();
-  collect(group, dropped, None, false, &mut stops);
-  stops
+  let mut walk = Walk {
+    stops: Vec::new(),
+    around,
+    before: None,
+  };
+  collect(group, true, dropped, None, false, &mut walk);
+  (walk.stops, walk.before)
 }
 
 fn stop_key(tab_index: i32, order: usize) -> StopKey {

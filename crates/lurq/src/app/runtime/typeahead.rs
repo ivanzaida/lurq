@@ -50,8 +50,10 @@ impl Tree {
     let mut group = None;
     let mut node = root;
     for &index in &path {
-      if node.focus_group_value().is_some_and(|group| group.typeahead) {
-        group = Some(node);
+      match node.focus_group_value() {
+        Some(held) if held.is_none() => group = None,
+        Some(held) if held.typeahead => group = Some(node),
+        _ => {}
       }
       let Some(child) = node.children().get(index) else {
         return false;

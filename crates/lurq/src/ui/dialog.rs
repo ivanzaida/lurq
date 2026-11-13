@@ -473,12 +473,12 @@ impl DialogView {
       .width(Dimension::Pct(100.0))
       .part(&self.part(DialogPart::Body))
       .with_children(std::mem::take(&mut self.body));
-    // It takes the room the panel is given beyond the header and the footer, and gives way and scrolls when its
-    // content needs more than the window has.
+    // It is as high as what is in it, and gives way and scrolls when that needs more than the window has
+    // beyond the header and the footer. It does not grow: a panel with room to spare is not made higher by it.
     Some(
       ScrollVertical::new(body)
         .width(Dimension::Pct(100.0))
-        .flex_full(1.0, 1.0, None)
+        .flex_full(0.0, 1.0, None)
         .into(),
     )
   }

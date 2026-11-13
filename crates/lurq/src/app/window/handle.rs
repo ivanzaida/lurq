@@ -101,15 +101,17 @@ impl WindowHandle {
     self.set_title_bar_color(None);
   }
 
-  /// How much of the window's top the app draws its own title bar over: see
-  /// [`Ctx::title_bar_inset`](crate::app::ctx::Ctx::title_bar_inset).
+  /// How much of the window's top the app draws its own title bar over: the height of the title bar of a
+  /// [`WindowChrome`](crate::components::WindowChrome), and `0.0` with no chrome or one that is off. The
+  /// window's content is laid out under the bar, and so is a modal over the whole window
+  /// (`Modal::target(ModalTarget::Root)`): it covers the window from the bar down.
   pub fn title_bar_inset(&self) -> f32 {
     self.window.inner.read().unwrap().title_bar_inset
   }
 
-  /// Says how much of the window's top the app's own title bar is drawn over, so that what is laid over the
-  /// whole window keeps clear of it. A `WindowChrome` says it for its title bar; an app that draws a title
-  /// bar another way says it itself.
+  /// Says how much of the window's top the app's own title bar is drawn over, so that a modal over the whole
+  /// window starts under it. A `WindowChrome` says it for its title bar; an app that draws a title bar
+  /// another way says it itself.
   pub fn set_title_bar_inset(&self, inset: f32) {
     self.window.set_title_bar_inset(inset.max(0.0));
   }

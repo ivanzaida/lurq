@@ -1127,10 +1127,9 @@ impl Component for ToastHost {
       .on_mouse_enter(move || enter.set(true))
       .on_mouse_leave(move || leave.set(false))
       .child(pile);
-    // Clear of what the window's edges hold: a phone's notch, its home indicator, its keyboard, and the title
-    // bar a window's chrome draws over its top, which this layer is under.
-    let mut safe = ctx.safe_area();
-    safe.top += ctx.title_bar_inset();
+    // Clear of what the window's edges hold: a phone's notch, its home indicator, its keyboard. The layer is
+    // under the title bar a window's chrome draws already.
+    let safe = ctx.safe_area();
     let viewport = Column::new()
       .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
       .hit_test(HitTestBehavior::ContentOnly)

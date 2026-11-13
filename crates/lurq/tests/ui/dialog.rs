@@ -15,7 +15,7 @@ use lurq::{
     events::MouseButton,
     theme::{PaletteColor, ThemePalette},
   },
-  components::{Column, Text},
+  components::{ChromeTitleBar, Column, Text, WindowChrome, WindowChromeMode},
   core::Signal,
   layout::quad::{Quad, QuadContent},
   node::{Element, color::Color},
@@ -309,6 +309,51 @@ fn a_dialog_is_never_higher_than_the_window_and_its_body_scrolls() {
       "scrollable {scrollable}: the footer stays in the panel"
     );
   }
+}
+
+#[test]
+fn a_scrollable_dialog_with_little_in_it_is_as_high_as_what_is_in_it() {
+  let open = Signal::new(true);
+  let mut stage = stage(move |_| {
+    window(
+      Dialog::new(open.clone())
+        .size(DialogSize::Sm)
+        .scrollable(true)
+        .id("dialog")
+        .title("Terms of use")
+        .child(Text::new("One paragraph."))
+        .footer(Button::new("Accept").id("accept")),
+    )
+  });
+  let (_, y, _, height) = stage.bounds("dialog");
+  // A header of 56, a footer of 60, two lines, and a body of one line with 16 over and under it: not the
+  // whole of the room the window has, which is 268.
+  assert!(height < 180.0, "{height}");
+  // In the middle of the window.
+  assert!((y + height / 2.0 - 150.0).abs() < 0.6, "{y} {height}");
+  let (_, accept_y, _, accept_height) = stage.bounds("accept");
+  assert!((accept_y + accept_height / 2.0 - (y + height - 30.0)).abs() < 0.6);
+}
+
+#[test]
+fn a_dialog_in_a_window_with_its_own_title_bar_is_under_the_bar() {
+  let open = Signal::new(true);
+  let mut stage = stage(move |ctx| {
+    WindowChrome::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .title_bar(ChromeTitleBar::new().height(40.0))
+      .content(window(terms(open.clone())))
+      .mount(ctx)
+  });
+  // The dialog's layer starts under the bar once the chrome has said how high it is.
+  stage.pass();
+  let (_, y, _, height) = stage.bounds("dialog");
+  // Higher than the window has room for, it takes what is under the bar less the veil's 16 above and below,
+  // and none of it is under the bar.
+  assert!((y - 56.0).abs() < 0.6, "{y}");
+  assert!((height - 228.0).abs() < 0.6, "{height}");
+  let (_, accept_y, _, accept_height) = stage.bounds("accept");
+  assert!(accept_y + accept_height <= y + height);
 }
 
 #[test]

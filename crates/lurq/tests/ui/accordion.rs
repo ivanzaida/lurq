@@ -260,6 +260,29 @@ fn with_a_button(open: &Signal<Option<u8>>, pressed: &Arc<Mutex<u32>>) -> Stage 
 }
 
 #[test]
+fn the_arrows_move_between_the_headers_past_what_an_open_item_holds() {
+  let (open, pressed) = (Signal::new(Some(0)), Arc::new(Mutex::new(0)));
+  let mut stage = with_a_button(&open, &pressed);
+  // From the first header Down goes to the second, not to the button the open item holds: Space opens it.
+  stage.key("Tab");
+  stage.key("ArrowDown");
+  stage.key(" ");
+  assert_eq!(*pressed.lock().unwrap(), 0);
+  assert_eq!(open.get(), Some(1));
+
+  // On the button in the item the arrows are not the accordion's: the focus stays on it.
+  let (open, pressed) = (Signal::new(Some(0)), Arc::new(Mutex::new(0)));
+  let mut stage = with_a_button(&open, &pressed);
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("ArrowDown");
+  stage.key("ArrowUp");
+  stage.key("Enter");
+  assert_eq!(*pressed.lock().unwrap(), 1);
+  assert_eq!(open.get(), Some(0));
+}
+
+#[test]
 fn the_controls_in_a_closed_item_are_not_stops_of_tab() {
   // Open, the button in the item is the stop after its header.
   let (open, pressed) = (Signal::new(Some(0)), Arc::new(Mutex::new(0)));

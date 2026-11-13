@@ -228,6 +228,23 @@ fn tab_reaches_a_page_and_the_arrows_move_between_them() {
 }
 
 #[test]
+fn the_focus_stays_in_the_pagination_when_the_button_it_is_on_is_disabled() {
+  let page = Signal::new(2_usize);
+  let mut stage = stage_of(&page, 3);
+  // Tab reaches previous, and End the last stop, which is next.
+  stage.key("Tab");
+  stage.key("End");
+  stage.key("Enter");
+  assert_eq!(page.get(), 3);
+  // Next is disabled on the last page. The focus is on the page before it, the third: Left and Enter choose
+  // the second, where a focus that was lost would have had the keys do nothing.
+  stage.pass();
+  stage.key("ArrowLeft");
+  stage.key("Enter");
+  assert_eq!(page.get(), 2);
+}
+
+#[test]
 fn a_disabled_pagination_takes_nothing() {
   let page = Signal::new(5_usize);
   let read = page.clone();

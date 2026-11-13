@@ -2293,15 +2293,6 @@ impl Ctx {
     safe_area
   }
 
-  /// How much of the top of the window the app draws its own title bar over: the height of the title bar of
-  /// a [`WindowChrome`](crate::components::WindowChrome), and `0.0` with no chrome or one that is off. The
-  /// window's content is laid out under the bar already; what is laid over the whole window, a layer with
-  /// `Modal::target(Root)`, starts at the window's top, under the bar, and keeps clear of it by this much.
-  /// Reading it subscribes the component to the window, as [`window`](Self::window) does.
-  pub fn title_bar_inset(&self) -> f32 {
-    self.window().title_bar_inset()
-  }
-
   pub(crate) fn focus_request(&self) -> Option<ElementRef> {
     self.element_requests.lock().focus.clone()
   }

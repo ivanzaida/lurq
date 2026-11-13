@@ -4236,10 +4236,14 @@ impl Tree {
     let Some(root) = &self.root else {
       return false;
     };
-    // The innermost group around the focused node that takes this key.
+    // The innermost group around the focused node that takes this key. What is in a group of no keys is in
+    // no group around that one either.
     let mut found = None;
     let mut node = root;
     for &index in &path {
+      if node.focus_group_value().is_some_and(|group| group.is_none()) {
+        found = None;
+      }
       if let Some((group, step)) = node
         .focus_group_value()
         .and_then(|group| Some((group, group.step(key)?)))
@@ -4353,10 +4357,43 @@ impl Tree {
     let (Some(root), Some(path)) = (&self.root, &self.focused_path) else {
       return;
     };
-    // Nor does a disabled element keep the focus it had.
-    if tab_navigation::path_is_dropped(root, &self.dropped_nodes, path) || tab_navigation::path_is_disabled(root, path)
-    {
+    if tab_navigation::path_is_dropped(root, &self.dropped_nodes, path) {
       self.blur_focus();
+      return;
+    }
+    // Nor does a disabled element keep the focus it had. In a focus group the focus stays in the group: on
+    // the element before the one that was disabled, or the one after it. Next pressed onto the last page
+    // disables itself, and the keyboard is still in the pagination.
+    if !tab_navigation::path_is_disabled(root, path) {
+      return;
+    }
+    let mut group = None;
+    let mut node = root;
+    for &index in path {
+      match node.focus_group_value() {
+        Some(held) if held.is_none() => group = None,
+        Some(_) if !node.is_disabled() => group = Some(node),
+        _ => {}
+      }
+      let Some(child) = node.children().get(index) else {
+        break;
+      };
+      node = child;
+    }
+    let near = group.and_then(|group| {
+      let (stops, before) = tab_navigation::group_stops_around(group, &self.dropped_nodes, self.focused_node);
+      let before = before?;
+      before
+        .checked_sub(1)
+        .and_then(|index| stops.get(index))
+        .or_else(|| stops.get(before))
+        .copied()
+    });
+    match near {
+      Some(target) => self.focus_node(target),
+      None => {
+        self.blur_focus();
+      }
     }
   }
 
@@ -7201,10 +7238,14 @@ impl Tree {
     };
 
     let viewport = self.viewport_logical();
+    // A modal over the whole window is under the title bar the app draws, as the window's content is. What
+    // the chrome itself lays over the window, its title bar and its overlays, has all of the window.
+    let title_bar = self.window.handle().title_bar_inset().min(viewport.height);
     let mut layers = OverlayLayers::default();
     let mut overlays = build_overlays_from_layout_index(
       &base_overlay_index,
       viewport,
+      title_bar,
       glyph_engine,
       &self.layout_engine,
       constraints,
@@ -7251,6 +7292,11 @@ impl Tree {
         let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
           viewport,
+          if overlay.has_synthetic_role(SyntheticNodeRole::WindowChromeLayer) {
+            0.0
+          } else {
+            title_bar
+          },
           glyph_engine,
           &self.layout_engine,
           constraints,
@@ -7937,6 +7983,7 @@ fn preserve_overlay_reuse_at(overlay: &mut Node, old_parts: &mut OverlayHostReus
 fn build_overlays_from_layout_index(
   index: &OverlayLayoutIndex,
   viewport: Size,
+  title_bar: f32,
   glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
   layout_engine: &LayoutEngine,
   constraints: Constraints,
@@ -8081,7 +8128,7 @@ fn build_overlays_from_layout_index(
           ModalTarget::Element(target) => Some(target.clone()),
           _ => None,
         };
-        let target = match modal_target_rect_from_index(&spec, parent, viewport, index) {
+        let target = match modal_target_rect_from_index(&spec, parent, viewport, title_bar, index) {
           Some(target) if target.width > 0.0 && target.height > 0.0 => target,
           _ => continue,
         };
@@ -8136,17 +8183,20 @@ fn modal_target_rect_from_index(
   spec: &ModalSpec,
   parent: ElementRect,
   viewport: Size,
+  title_bar: f32,
   index: &OverlayLayoutIndex,
 ) -> Option<ElementRect> {
   match &spec.target {
     ModalTarget::Parent => Some(parent),
+    // The window under its title bar: a modal of the app is not laid out under the bar the chrome draws
+    // over it, where its top would not be seen.
     ModalTarget::Root => Some(ElementRect {
       x: 0.0,
-      y: 0.0,
+      y: title_bar,
       relative_x: 0.0,
-      relative_y: 0.0,
+      relative_y: title_bar,
       width: viewport.width,
-      height: viewport.height,
+      height: viewport.height - title_bar,
     }),
     ModalTarget::Element(target) => find_element_record(index, target).map(|record| record.rect),
   }

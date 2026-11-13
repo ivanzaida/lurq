@@ -17,7 +17,7 @@ use crate::{
   },
   components::{self, Column, Row},
   layout::{Alignment, layout_kind::Justify},
-  node::{CursorIcon, Element, color::Color},
+  node::{CursorIcon, Element, FocusGroup, color::Color},
 };
 
 /// The parts of a collapsible a recipe styles.
@@ -365,9 +365,11 @@ impl CollapsibleView {
         Body::Text(text) => part.text(&text).into(),
       };
       // Keyed, so that what the panel held is told apart from what it holds next, and kept as it leaves.
+      // What it holds is in no group of the arrow keys: an accordion's move between its headers, past it.
       panel = panel.child(
         Column::new()
           .key("content")
+          .focus_group(FocusGroup::none())
           .align_items(Alignment::Stretch)
           .part(&part)
           .child(content),

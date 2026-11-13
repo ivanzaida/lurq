@@ -10,6 +10,8 @@ pub enum FocusAxis {
   Vertical,
   /// All four: Left and Up go back, Right and Down go on.
   Both,
+  /// None: see [`FocusGroup::none`].
+  None,
 }
 
 /// What makes an element a group of focusable things the arrow keys move
@@ -72,6 +74,36 @@ impl FocusGroup {
     Self::new(FocusAxis::Both)
   }
 
+  /// No key moves the focus within it, and what is in it is out of the group around it: the arrow keys of
+  /// that group pass it by, and do nothing while the focus is in it. For what a group holds beside what its
+  /// keys move between: the content of an accordion's open item, between two of its headers.
+  ///
+  /// ```
+  /// use lurq::{
+  ///   components::{Button, Column},
+  ///   node::FocusGroup,
+  /// };
+  ///
+  /// // Up and Down move between the two headers, past the button of the open one.
+  /// let list = Column::new()
+  ///   .focus_group(FocusGroup::vertical())
+  ///   .child(Button::new("First").tab_index(0))
+  ///   .child(
+  ///     Column::new()
+  ///       .focus_group(FocusGroup::none())
+  ///       .child(Button::new("Read more").tab_index(0)),
+  ///   )
+  ///   .child(Button::new("Second").tab_index(0));
+  /// ```
+  pub fn none() -> Self {
+    Self::new(FocusAxis::None)
+  }
+
+  /// Whether it is [`none`](Self::none): what is in it is in no group.
+  pub(crate) fn is_none(&self) -> bool {
+    self.axis == FocusAxis::None
+  }
+
   /// Whether the focus goes from the last to the first and back. It does unless told otherwise.
   pub fn wrap(mut self, wrap: bool) -> Self {
     self.wrap = wrap;
@@ -132,6 +164,7 @@ impl FocusGroup {
       FocusAxis::Horizontal => (true, false),
       FocusAxis::Vertical => (false, true),
       FocusAxis::Both => (true, true),
+      FocusAxis::None => return None,
     };
     match key {
       "ArrowLeft" if horizontal => Some(FocusStep::Back),
