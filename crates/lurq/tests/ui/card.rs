@@ -288,25 +288,33 @@ fn a_pressed_card_is_one_stop_and_its_footer_keeps_its_own_presses() {
       )
       .into()
   });
-  stage.click("card");
-  assert_eq!(cards.load(Ordering::SeqCst), 1, "a press of the card");
-  stage.click("star");
-  assert_eq!(buttons.load(Ordering::SeqCst), 1);
-  assert_eq!(
-    cards.load(Ordering::SeqCst),
-    1,
-    "a press of the button is the button's alone"
-  );
-
-  // Tab reaches the card, which draws the ring, and Enter presses it; the next Tab reaches the button.
+  // From the keyboard: Tab reaches the card, which draws the ring, and Enter and Space press it. The next Tab
+  // reaches the button in its footer, a stop of its own, and Space presses the button alone.
   stage.key("Tab");
   assert!(stage.has_ring(light(PaletteColor::Ring)));
   stage.key("Enter");
+  assert_eq!(cards.load(Ordering::SeqCst), 1);
+  stage.key(" ");
   assert_eq!(cards.load(Ordering::SeqCst), 2);
   stage.key("Tab");
   stage.key(" ");
+  assert_eq!(buttons.load(Ordering::SeqCst), 1);
+  assert_eq!(
+    cards.load(Ordering::SeqCst),
+    2,
+    "the button's press is the button's alone"
+  );
+
+  // From the pointer: a press of the card is the card's, and a press of the button the button's alone.
+  stage.click("card");
+  assert_eq!(cards.load(Ordering::SeqCst), 3, "a press of the card");
+  stage.click("star");
   assert_eq!(buttons.load(Ordering::SeqCst), 2);
-  assert_eq!(cards.load(Ordering::SeqCst), 2);
+  assert_eq!(
+    cards.load(Ordering::SeqCst),
+    3,
+    "a press of the button is the button's alone"
+  );
 }
 
 #[test]

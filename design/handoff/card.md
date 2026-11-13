@@ -2,8 +2,23 @@
 
 `ui::Card` (`crates/lurq/src/ui/card.rs`) and `ui::Separator` (`crates/lurq/src/ui/separator.rs`), with their tests
 (`crates/lurq/tests/ui/card.rs`, `separator.rs`) and their gallery pages (`crates/gallery/src/pages/card.rs` in
-Surfaces & overlays, `separator.rs` in Data). Nothing outside these files changed but the lines added to the three
-`mod.rs` files: no shared code, no engine, no keyframes.
+Surfaces & overlays, `separator.rs` in Data). Besides the lines added to the three `mod.rs` files, one change of the
+engine, named below. No shared code of `lurq::ui`, no keyframes.
+
+## Changed outside the component's own files
+
+- **A button that keeps the stops of Tab inside it** (Tab order; found when the merged batch's test of a pressed card
+  failed): Tab never stopped inside a button (`tab_navigation.rs`: "a button's content is part of the button"), and a
+  pressed card is a button, so the buttons of its footer and its action were no stops of Tab at all and the second Tab
+  went back to the card. The engine now has an opt-in, off by default, so nothing else changes:
+  - `crates/lurq/src/node/node.rs`: a field `stops_inside: bool` beside `focus_entry`, `NodeUpdate::stops_inside`,
+    `Node::has_stops_inside()`, and the field in the node's two constructors; `crates/lurq/src/node/dsl.rs` likewise.
+  - `crates/lurq/src/components/mod.rs`: the builder `.stops_inside(bool)` on every element, after `focus_entry`.
+  - `crates/lurq/src/app/runtime/tab_navigation.rs`: `collect_node` and `group_stops_around` go on into a button whose
+    `has_stops_inside()` is true, after the button's own stop.
+  - `CardView::pressed_root` sets it. For the CHANGELOG, beside the line on focus groups: "`.stops_inside(true)` on a
+    button makes Tab stop at what takes the focus inside it too, after the button: a card pressed as a whole with
+    buttons of its own."
 
 ## For `docs/src/content/docs/design-system.md`
 
@@ -46,7 +61,7 @@ Card::new()
 
 - Every part is optional: a card with children alone is a padded surface. The header is there where the card has a title, a description or an action; the footer where it has something in it, set off by a line only where there is a body over it.
 - A card is as wide as the room it is given, as a block is. Cards side by side in a row are each given a share of it: a `Column::new().flex(1.0)` around each, or a grid. The title and the description wrap in the room the action leaves them.
-- A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. A press of a control in its action or its footer is that control's and not the card's; a control in its content is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
+- A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its content is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
 - Parts: `CardPart::Root` (the surface; what is pressed), `Body` (the header over the content, padded), `Header` (the heading and the action), `Heading` (the title over the description), `Title`, `Description`, `Action`, `Content`, `Footer`. States: `CardState::Pressable`, `Disabled`, `Footed` (it has a footer under a body; the line over the footer is the body's `underline`).
 - In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its body is padded 24 with 24 between the header and the content; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the content is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
 - The settings card and the stat card of the design are cards with their parts styled: `style(CardPart::Body, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what they hold as the content.
@@ -109,7 +124,8 @@ Row::new()
   `PartStyle` has a line along the bottom and along the start, none along the top, and the line is then where the
   board draws it without a change to shared code. A card with a footer and nothing over it has no line.
 - **A pressed card** is built on `shared::pressable`: its root is the engine's `Button` (a row) holding a column as wide
-  as it, with the body and the footer. Its hover is the board's "interactive · hover": an edge of `Ring` and the medium
+  as it, with the body and the footer. The button keeps the stops of Tab inside it (`.stops_inside(true)`), so the
+  controls of its action and its footer are reached by Tab after the card. Its hover is the board's "interactive · hover": an edge of `Ring` and the medium
   shadow. Held down it keeps the edge and sinks back to the small shadow. The focus ring is `focus_ring()` on the root,
   outside it; what holds a card gives it room or `overflow_visible()` for it and for the shadow.
 - **A press of the action or the footer is not the card's**: each is a row that stops the click from going on to the

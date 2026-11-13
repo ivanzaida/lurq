@@ -267,8 +267,8 @@ fn collect_node<'a>(
       key: stop_key(tab_index, order),
       entry: node.is_focus_entry(),
     });
-    // A button's content is part of the button, not separate stops.
-    if node.button_kind_value().is_some() {
+    // A button's content is part of the button, not separate stops, unless the button says otherwise.
+    if node.button_kind_value().is_some() && !node.has_stops_inside() {
       return;
     }
   }
@@ -357,7 +357,7 @@ pub(super) fn group_stops_around(
         input_id: node.node_id(),
         event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
       });
-      if node.button_kind_value().is_some() {
+      if node.button_kind_value().is_some() && !node.has_stops_inside() {
         return;
       }
     }
