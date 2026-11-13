@@ -718,6 +718,7 @@ fn style_rows(style: &Style) -> Vec<DevToolsShapeRow> {
       crate::node::BackgroundColor::Palette(color) => {
         rows.push(shape_leaf("fill", format!("palette({})", color.as_str())))
       }
+      crate::node::BackgroundColor::CurrentForeground => rows.push(shape_leaf("fill", "foreground")),
     }
   }
   if let Some(radius) = style.border_radius {
@@ -873,6 +874,7 @@ fn format_background_color(color: &crate::node::BackgroundColor) -> String {
   match color {
     crate::node::BackgroundColor::Color(color) => color.to_hex(),
     crate::node::BackgroundColor::Palette(color) => format!("palette({})", color.as_str()),
+    crate::node::BackgroundColor::CurrentForeground => "foreground".to_owned(),
   }
 }
 

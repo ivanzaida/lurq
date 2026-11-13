@@ -1309,7 +1309,7 @@ impl LayoutEngine {
       );
     }
 
-    let background_color = node.resolved_color(&self.palette.borrow());
+    let background_color = node.painted_color(&self.palette.borrow(), self.foreground.get());
     let background_gradient = node
       .resolved_gradient()
       .and_then(|gradient| crate::layout::render_list::RenderGradient::resolve(&gradient, &self.palette.borrow()));
