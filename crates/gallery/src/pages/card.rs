@@ -296,8 +296,10 @@ impl CardPage {
   /// A project the page opens on a press.
   fn project(&self, name: &str, about: &str) -> Element {
     let (opened, said) = (self.opened.clone(), name.to_owned());
+    // The column cuts nothing off: an elevated card's shadow falls outside it.
     Column::new()
       .flex(1.0)
+      .overflow_visible()
       .child(
         Card::new()
           .variant(CardVariant::Elevated)
@@ -416,10 +418,12 @@ impl Component for CardPage {
     let projects = Column::new()
       .width(FILL)
       .spacing(12.0)
+      .overflow_visible()
       .child(
         Row::new()
           .width(FILL)
           .spacing(16.0)
+          .overflow_visible()
           .align_items(Alignment::Stretch)
           .child(self.project("lurq", "A Rust UI toolkit with GPU-backed rendering."))
           .child(self.project("gallery", "Every component of the design system, a page each."))
