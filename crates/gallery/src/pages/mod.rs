@@ -5,6 +5,7 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
+mod avatar;
 mod breadcrumb;
 mod button;
 mod checkbox;
@@ -286,6 +287,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/avatar",
+    name: "Avatar",
+    icon: None,
+    about: "avatar initials picture image photo profile person user presence online away busy offline group stack overlap more count",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<avatar::AvatarPage>(()),
   },
 ];
 
