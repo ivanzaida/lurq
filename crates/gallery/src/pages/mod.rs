@@ -23,6 +23,7 @@ mod slider;
 mod steps;
 mod switch;
 mod tabs;
+mod tag;
 mod textarea;
 mod toast;
 mod tokens;
@@ -286,6 +287,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/tag",
+    name: "Tag",
+    icon: None,
+    about: "tag chip pill label keyword category remove filter choice selected chip group",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<tag::TagPage>(()),
   },
 ];
 
