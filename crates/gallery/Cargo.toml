@@ -1,0 +1,15 @@
+[package]
+name = "gallery"
+default-run = "gallery"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+# Lets the running app be driven and captured over lurq's MCP server.
+mcp = ["lurq/mcp"]
+devtools = ["lurq/devtools"]
+
+[dependencies]
+lurq = { version = "=0.61.0", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router"] }
