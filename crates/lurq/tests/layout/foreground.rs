@@ -8,7 +8,7 @@ use lurq::{
   components::{Column, Popup, Row, Text},
   core::ElementRef,
   layout::{Constraints, Size, quad::QuadContent, text_style::TextStyle},
-  node::{Element, color::Color},
+  node::{BackgroundColor, Element, color::Color},
 };
 
 use crate::support::TestSurface;
@@ -43,6 +43,46 @@ fn color_of(tree: &Tree, text: &str) -> Color {
     .into_iter()
     .find_map(|(painted, color)| (painted == text).then_some(color))
     .unwrap_or_else(|| panic!("no text {text:?} was painted"))
+}
+
+/// The fills of the rectangles of `width` by 6 that were painted, in the order they are painted.
+fn fills(tree: &Tree, width: f32) -> Vec<Color> {
+  tree
+    .resolve_quads(tree.last_layout().unwrap())
+    .iter()
+    .filter_map(|quad| match &quad.content {
+      QuadContent::Rect { color, .. } if quad.width == width && quad.height == 6.0 => Some(*color),
+      _ => None,
+    })
+    .collect()
+}
+
+#[test]
+fn a_fill_of_the_current_foreground_is_the_color_a_text_there_would_have() {
+  let mark = |width: f32| {
+    Row::new()
+      .size(width, 6.0)
+      .background(BackgroundColor::CurrentForeground)
+  };
+  let mut app = App::new();
+  let tree = painted(
+    &mut app,
+    Column::new()
+      // With no foreground above it, the theme's.
+      .child(mark(10.0))
+      // The nearest foreground above it, and the element's own before that.
+      .child(
+        Row::new()
+          .foreground(RED)
+          .child(mark(20.0))
+          .child(Row::new().foreground(BLUE).child(mark(30.0)))
+          .child(mark(40.0).foreground(GREEN)),
+      ),
+  );
+  assert_eq!(fills(&tree, 10.0), [INK]);
+  assert_eq!(fills(&tree, 20.0), [RED]);
+  assert_eq!(fills(&tree, 30.0), [BLUE]);
+  assert_eq!(fills(&tree, 40.0), [GREEN]);
 }
 
 #[test]

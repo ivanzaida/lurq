@@ -4766,6 +4766,23 @@ impl Node {
       .and_then(|color| color.resolve(palette))
   }
 
+  /// The fill the node is painted with, in the `foreground` it inherits where it is painted: what
+  /// [`Self::resolved_color`] gives, and the foreground for a fill that is [`BackgroundColor::CurrentForeground`].
+  pub(crate) fn painted_color(
+    &self,
+    palette: &crate::app::theme::ThemePalette,
+    foreground: Option<Color>,
+  ) -> Option<Color> {
+    if let Some(c) = self.animation_override_color() {
+      return Some(c);
+    }
+    self
+      .state_style()
+      .color
+      .or_else(|| <Option<BackgroundColor> as Clone>::clone(&self.color))
+      .and_then(|color| color.resolve_in(palette, foreground))
+  }
+
   /// The box shadow in effect: the innermost matching state style (active,
   /// then hovered, then focus-visible, then focused) over the node's own.
   pub(crate) fn effective_box_shadow(&self) -> Option<&BoxShadowValue> {
