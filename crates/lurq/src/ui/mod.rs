@@ -33,6 +33,7 @@ mod slider;
 mod switch;
 mod textarea;
 pub(crate) mod theme;
+mod toast;
 mod toggle;
 mod toggle_group;
 
@@ -60,6 +61,10 @@ pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaState, TextareaView,
 };
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
+pub use toast::{
+  TOAST_DURATION, TOASTS_SHOWN, Toast, ToastAction, ToastId, ToastPart, ToastPosition, ToastRenderer, ToastState,
+  ToastVariant, ToastView, Toasts,
+};
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
 pub use toggle_group::{ToggleGroup, ToggleGroupPart};
 

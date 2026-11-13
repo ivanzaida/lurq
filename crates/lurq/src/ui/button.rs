@@ -172,6 +172,7 @@ pub type ButtonPartRenderer = Arc<dyn Fn(&ButtonView) -> Element + Send + Sync>;
 /// // While what it started is under way.
 /// let saving = Button::new("Saving…").loading(true);
 /// ```
+#[derive(Clone)]
 pub struct Button {
   label: Arc<str>,
   description: Option<Arc<str>>,

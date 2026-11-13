@@ -58,6 +58,7 @@ pub type LinkRenderer = Arc<dyn Fn(LinkView) -> Element + Send + Sync>;
 /// Where it goes is what its press does: an app with a router goes to a
 /// route there, another opens a page. It is pressed by a click, and by Enter
 /// or Space while it is focused.
+#[derive(Clone)]
 pub struct Link {
   label: Arc<str>,
   icon: Option<Name>,

@@ -15,6 +15,7 @@ mod radio;
 mod slider;
 mod switch;
 mod textarea;
+mod toast;
 mod tokens;
 
 /// A group of the side bar.
@@ -187,6 +188,14 @@ pub const PAGES: &[Page] = &[
     about: "slider range value min max step track thumb volume drag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<slider::SliderPage>(()),
+  },
+  Page {
+    path: "/toast",
+    name: "Toast",
+    icon: None,
+    about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<toast::ToastPage>(()),
   },
 ];
 
