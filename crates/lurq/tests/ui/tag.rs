@@ -12,7 +12,7 @@ use lurq::{
   components::{Column, Row},
   core::Signal,
   layout::quad::{Quad, QuadContent},
-  node::color::Color,
+  node::{FocusGroup, color::Color},
   ui::{
     Case, Chip, ChipGroup, ChipPart, ChipState, Interaction, Opacity, Tag, TagPart, TagRenderer, TagSize, TagState,
     TagVariant, TagView, Themed,
@@ -222,6 +222,46 @@ fn the_remove_button_takes_the_tag_away_from_the_pointer_and_the_keyboard() {
   let label = stage.text_quad("go").unwrap();
   press_at(&mut stage, (label.x, label.y, label.width, label.height));
   assert_eq!(*removed.lock().unwrap(), ["rust"]);
+}
+
+#[test]
+fn the_focus_goes_on_to_the_next_tag_when_one_is_taken_away_in_a_focus_group() {
+  let tags = Signal::new(vec!["rust", "go", "wasm"]);
+  let held = tags.clone();
+  let mut stage = Stage::new(move |_| {
+    let mut row = Row::new()
+      .padding(8.0)
+      .spacing(6.0)
+      .focus_group(FocusGroup::horizontal());
+    for label in held.get() {
+      let list = held.clone();
+      row = row.child(
+        Tag::new(label)
+          .key(label)
+          .on_remove(move || list.update(|tags| tags.retain(|kept| *kept != label))),
+      );
+    }
+    row.into()
+  });
+  // Tab reaches the first tag's button. Backspace takes the tag away, and its button with it: the focus is on
+  // the next tag's button, so the next Backspace takes that one, and the one after the last is the last.
+  stage.key("Tab");
+  stage.key("Backspace");
+  assert_eq!(tags.get(), ["go", "wasm"]);
+  stage.key("Backspace");
+  assert_eq!(tags.get(), ["wasm"]);
+  stage.key("Backspace");
+  assert!(tags.get().is_empty());
+
+  // The last of them taken away, the focus goes to the one before it.
+  tags.set(vec!["rust", "go"]);
+  stage.pass();
+  stage.key("Tab");
+  stage.key("End");
+  stage.key("Delete");
+  assert_eq!(tags.get(), ["rust"]);
+  stage.key("Delete");
+  assert!(tags.get().is_empty());
 }
 
 #[test]

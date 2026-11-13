@@ -783,6 +783,9 @@ pub struct Tree {
   /// What paste shortcuts read instead of the OS clipboard; see `paste`.
   clipboard_reader: Option<Arc<dyn paste::ClipboardReader>>,
   focus_memory: FocusMemory,
+  /// The focus group the focused element is in, and which of the group's stops it is: where the focus goes
+  /// when the element leaves the tree and the group stays.
+  focus_group_place: Option<(NodeId, usize)>,
   focused_node: Option<NodeId>,
   focused_event_node: Option<NodeId>,
   focused_path: Option<Vec<usize>>,
@@ -1220,6 +1223,7 @@ impl Tree {
       loading_images_built_seen: 0,
       clipboard_reader: None,
       focus_memory: FocusMemory::default(),
+      focus_group_place: None,
       focused_node: None,
       focused_event_node: None,
       focused_path: None,
@@ -7709,6 +7713,7 @@ impl Tree {
     self.focused_event_node = None;
     self.focused_path = None;
     self.focused_event_path = None;
+    self.focus_group_place = None;
     if had_focus {
       self.cached_render_list = None;
     }
@@ -7735,9 +7740,28 @@ impl Tree {
       return;
     };
     let Some(input_path) = find_path_by_id(root, focused_node) else {
+      // What had the focus has left the tree. In a focus group that is still there the focus goes to what
+      // took its place, the next of the group's stops or the last: a tag taken away with the keyboard leaves
+      // the focus on the next tag, and not on nothing.
+      let place = self.focus_group_place.take();
       self.clear_focus();
+      let next = place.and_then(|(group, index)| {
+        let root = self.root.as_ref()?;
+        let path = find_path_by_id(root, group)?;
+        if tab_navigation::path_is_disabled(root, &path) {
+          return None;
+        }
+        let group = find_node_by_path(root, &path)?;
+        group.focus_group_value()?;
+        let stops = tab_navigation::group_stops(group, &self.dropped_nodes);
+        stops.get(index).or(stops.last()).copied()
+      });
+      if let Some(target) = next {
+        self.focus_node(target);
+      }
       return;
     };
+    self.focus_group_place = focus_group_place(root, &input_path, focused_node, &self.dropped_nodes);
     let event_id = self.focused_event_node.unwrap_or(focused_node);
     let event_path = find_path_by_id(root, event_id).unwrap_or_else(|| input_path.clone());
 
@@ -7776,6 +7800,25 @@ impl Tree {
       self.cached_render_list = None;
     }
   }
+}
+
+/// The innermost focus group around the node at `path`, and which of the group's stops the node is.
+fn focus_group_place(root: &Node, path: &[usize], focused: NodeId, dropped: &[NodeId]) -> Option<(NodeId, usize)> {
+  let mut group = None;
+  let mut node = root;
+  for &index in path {
+    match node.focus_group_value() {
+      Some(held) if held.is_none() => group = None,
+      Some(_) => group = Some(node),
+      None => {}
+    }
+    node = node.children().get(index)?;
+  }
+  let group = group?;
+  let index = tab_navigation::group_stops(group, dropped)
+    .iter()
+    .position(|stop| stop.input_id == focused)?;
+  Some((group.node_id(), index))
 }
 
 struct OverlayHostParts {
