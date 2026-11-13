@@ -4,19 +4,23 @@ use std::sync::Arc;
 
 use super::{
   names,
-  part_style::{Length, PartStyle},
+  part_style::{Length, PartAnimation, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  shared::{FADE_IN, FADE_OUT},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
     ctx::{CollisionStrategy, Placement},
-    theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, SpacingSize, Theme, TypographyStyle},
+    theme::{
+      BorderSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, SpacingSize, Theme,
+      TypographyStyle,
+    },
   },
-  components::{Column, Popup},
+  components::{Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, text_style::FontWeight},
-  node::{Element, SpacingValue, border::Border},
+  node::{Element, NodeUpdate, SpacingValue, border::Border},
 };
 
 /// The parts of a popover a recipe styles.
@@ -56,26 +60,40 @@ pub type PopoverRenderer = Arc<dyn Fn(PopoverView) -> Element + Send + Sync>;
 ///   ui::{Button, Field, Input, Popover},
 /// };
 ///
+/// // What the app keeps from one render to the next: the anchor, and whether it is open.
 /// let (anchor, open) = (ElementRef::new(), Signal::new(false));
-/// let toggle = open.clone();
-/// let trigger = Row::new()
-///   .ref_element(anchor.clone())
-///   .child(Button::new("Dimensions").on_click(move |_| toggle.update(|open| *open = !*open)));
-/// let popover = Popover::new(anchor, open)
+///
+/// // The button opens and closes it, and it is shown under the button.
+/// let popover = Popover::new(anchor.clone(), open.clone())
+///   .trigger(Button::new("Dimensions"))
 ///   .title("Dimensions")
 ///   .description("Set the size of the layer.")
 ///   .placement(Placement::BottomStart)
 ///   .child(Field::new("Width", Input::new(Signal::new("320px".to_owned())).full_width(true)).full_width(true));
-/// let both = Row::new().child(trigger).child(popover);
+///
+/// // Beside an element of the app's, which opens it in its own way.
+/// let (anchor, open) = (ElementRef::new(), Signal::new(false));
+/// let row = Row::new()
+///   .child(Row::new().ref_element(anchor.clone()))
+///   .child(Popover::new(anchor, open).title("Details"));
 /// ```
 ///
 /// A popover does not keep whether it is open: the app's signal does. A
 /// press outside it or Escape closes it, which sets the signal to `false`.
-/// The element that opens it is the app's too: the anchor is what it is
-/// shown beside, and a press of the anchor is not a press outside it.
+/// Its trigger ([`Popover::trigger`]) turns the signal; without one the app
+/// opens it, and the anchor is any element of its own. A press of the
+/// anchor is not a press outside it. The anchor is kept from one render to
+/// the next (a field of the component, `ctx.element_ref()`): one made anew in
+/// each render is not the one the focus goes back to as it closes.
+///
+/// As it opens the focus goes to the first thing in it that takes the focus,
+/// and as it closes with the focus inside, back to the anchor. Where there is
+/// no room for it on its side it goes to the other, and it is kept in the
+/// window.
 pub struct Popover {
   anchor: ElementRef,
   open: Signal<bool>,
+  trigger: Option<Element>,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
   children: Vec<Element>,
@@ -95,6 +113,7 @@ impl Popover {
     Self {
       anchor: anchor.into(),
       open,
+      trigger: None,
       title: None,
       description: None,
       children: Vec::new(),
@@ -107,6 +126,15 @@ impl Popover {
       id: None,
       key: None,
     }
+  }
+
+  /// What opens and closes the popover: a button. It is put before the
+  /// popover, is its anchor, and a press of it turns the signal. While
+  /// another popup is open a press of it closes that one and opens this one.
+  /// It says to what reads the tree whether the popover is open.
+  pub fn trigger(mut self, trigger: impl Into<Element>) -> Self {
+    self.trigger = Some(trigger.into());
+    self
   }
 
   /// What the popover is about, at the top of it.
@@ -231,12 +259,30 @@ impl Popover {
       | Placement::RightEnd => (offset, 0.0),
       _ => (0.0, offset),
     };
-    Popup::new(self.anchor, panel)
-      .open(self.open)
+    let popup = Popup::new(self.anchor.clone(), panel)
+      .open(self.open.clone())
       .placement(self.placement)
       .offset(x, y)
       .collision(self.collision)
-      .into()
+      .move_focus(true);
+    let Some(mut trigger) = self.trigger else {
+      return popup.into();
+    };
+    // The trigger's own node is the anchor, so the engine knows it for the popup's trigger: the first thing
+    // a press reaches that takes the focus.
+    let node = &mut *trigger.node;
+    let (open, expanded) = (self.open.clone(), self.open.get());
+    NodeUpdate::ref_element(node, self.anchor);
+    NodeUpdate::on_click(node, move |_: crate::app::events::MouseEvent| {
+      open.update(|open| *open = !*open)
+    });
+    NodeUpdate::describe(node, Arc::from("a11y_haspopup"), Arc::from("dialog"));
+    NodeUpdate::describe(
+      node,
+      Arc::from("a11y_expanded"),
+      Arc::from(if expanded { "true" } else { "false" }),
+    );
+    Row::new().child(trigger).child(popup).into()
   }
 }
 
@@ -339,7 +385,10 @@ impl Themed for Popover {
   /// color, the large radius and the medium shadow, 16 of padding and 14
   /// between its header and its body. The header has the title in the body's
   /// type at medium weight over the description in 13 and the muted
-  /// foreground, 4 apart; what the body holds is 14 apart.
+  /// foreground, 4 apart; what the body holds is 14 apart. It fades in over
+  /// the theme's base duration in the entering curve, and out over the fast
+  /// one in the leaving curve (Foundations, Motion: popovers take the base
+  /// duration, and exits are quicker than entrances).
   fn recipe() -> Recipe {
     use PaletteColor::{Border as Edge, MutedForeground, Popover as Panel, PopoverForeground};
     use PopoverPart::{Body, Description, Header, Root, Title};
@@ -354,6 +403,8 @@ impl Themed for Popover {
           .foreground(PopoverForeground)
           .border(Border::inside(BorderSize::Sm, Edge))
           .shadow(ShadowStyle::Md)
+          .enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+          .exit(PartAnimation::new(FADE_OUT, MotionDuration::Fast, MotionEasing::Exit))
       })
       .base(Header, |s| s.gap(4.0))
       .base(Title, |s| {

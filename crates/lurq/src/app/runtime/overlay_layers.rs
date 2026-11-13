@@ -38,6 +38,8 @@ pub(super) struct OverlayLayers {
   pub(super) placings: Vec<Option<super::OverlayPlacing>>,
   /// The anchors of the overlays not drawn because their anchor is out of view.
   hidden_anchors: Vec<OwnedElementRef>,
+  /// The anchors of the open overlays that move the focus (`Overlay::move_focus`), drawn or hidden.
+  pub(super) focus_movers: Vec<OwnedElementRef>,
   /// The nodes that declare the modals built that take the focus (`Modal::takes_focus`).
   pub(super) focus_modals: Vec<NodeId>,
 }
@@ -84,6 +86,59 @@ impl Tree {
     let layer = *self.focused_path.as_deref()?.first()?;
     let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
     layers.is_hidden(anchor).then(|| anchor.clone())
+  }
+
+  /// The anchor of the overlay that moves the focus (`Overlay::move_focus`) and held keyboard focus in the
+  /// last layout, when it is not open in `layers` any more: the focus goes back to it.
+  pub(super) fn focused_overlay_closed(&self, had_host: bool, layers: &OverlayLayers) -> Option<OwnedElementRef> {
+    if !had_host {
+      return None;
+    }
+    let layer = *self.focused_path.as_deref()?.first()?;
+    let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
+    let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
+    let open = layers.focus_movers.iter().any(|mover| mover.same_handle(anchor));
+    (moved && !open).then(|| anchor.clone())
+  }
+
+  /// The layers of the overlay host whose overlays move the focus, each with its anchor: what Tab walks right
+  /// after the anchor.
+  pub(super) fn focus_moving_layers(&self) -> Vec<(OwnedElementRef, &Node)> {
+    let Some(host) = self.root.as_ref() else {
+      return Vec::new();
+    };
+    self
+      .overlay_layer_anchors
+      .iter()
+      .enumerate()
+      .filter_map(|(index, anchor)| {
+        let anchor = anchor.as_ref()?;
+        self
+          .overlay_focus_movers
+          .iter()
+          .any(|mover| mover.same_handle(anchor))
+          .then(|| Some((anchor.clone(), host.children().get(index + 1)?)))?
+      })
+      .collect()
+  }
+
+  /// The first element that takes the focus in the topmost layer of the overlay host whose overlay moves the
+  /// focus and opened in this pass: where the focus goes. `layers` are the layers as the host stacks them.
+  pub(super) fn opened_overlay_focus(&self, layers: &OverlayLayers) -> Option<NodeId> {
+    let host = self.root.as_ref()?;
+    layers
+      .focus_movers
+      .iter()
+      .filter(|mover| !self.overlay_focus_movers.iter().any(|old| old.same_handle(mover)))
+      .filter_map(|mover| {
+        layers
+          .anchors
+          .iter()
+          .position(|anchor| anchor.as_ref().is_some_and(|anchor| anchor.same_handle(mover)))
+      })
+      .max()
+      .and_then(|layer| host.children().get(layer + 1))
+      .and_then(first_focusable)
   }
 
   /// Gives keyboard focus, lost with a hidden overlay, back to the overlay's

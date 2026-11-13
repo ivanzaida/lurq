@@ -62,14 +62,15 @@ pub use menu::{
   MenuView,
 };
 pub use part_style::{
-  FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
+  FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
+  TransitionEasing,
 };
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
-pub use shared::Choice;
+pub use shared::{Choice, FADE_IN, FADE_OUT};
 pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use text_box::{Judgment, TextBoxSize, TextBoxState};

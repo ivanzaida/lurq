@@ -37,13 +37,12 @@ impl Tree {
         .map(|(input_id, event_id)| FocusTarget { input_id, event_id });
       self.modal_focus.push((origin, had));
       // The first stop of the topmost modal, which is the one that has just opened.
-      let first =
-        self.root.as_ref().and_then(
-          |root| match tab_navigation::tab_move(root, &self.dropped_nodes, None, false) {
-            tab_navigation::TabMove::Focus(target) => Some(target),
-            _ => None,
-          },
-        );
+      let first = self.root.as_ref().and_then(|root| {
+        match tab_navigation::tab_move(root, &self.dropped_nodes, &[], None, false) {
+          tab_navigation::TabMove::Focus(target) => Some(target),
+          _ => None,
+        }
+      });
       if let Some(target) = first {
         self.focus_node(target);
       }
