@@ -13,6 +13,7 @@ Buttons, text inputs, checkboxes, sliders, selects, and any element with a `tab_
 
 - `.focusable(true)` makes any element focusable by click and by request. It does not put the element in the Tab order outside a form; add `.tab_index(0)` for that.
 - `.focusable(false)` keeps an element from ever taking focus: not by click, not by Tab, not by `ctx.focus`. A click on it does not change focus either: whatever had focus keeps it. Its click handlers still run, and a checkbox still toggles. Use it for toolbar buttons that must leave focus in an editor.
+- `.focuses(&element_ref)` makes a click on an element focus another, as a `<label for>` focuses its control: the click focuses the first focusable element under the one the ref is on, as `ctx.focus(&element_ref)` does, once the click's handlers have run. A builder that has no `Ctx` can use it: it makes an `ElementRef::new()`, puts it on what holds the control with `.ref_element(..)` (and a `key`, so that a ref made anew in each render does not make that node another one), and names it on the label. A click on something under the element that takes the focus itself (a link in the label) focuses that instead, a click whose default a handler prevented focuses nothing, and a disabled target is not focused.
 
 ```rust
 use lurq::components::Button;
@@ -69,18 +70,22 @@ Row::new()
 | `wrap(bool)` | Whether the focus goes from the last to the first and back. It does unless told otherwise |
 | `activate(bool)` | What the focus is moved to is pressed as well, as Space would press it: the choice follows the focus, as in a radio group |
 | `one_stop(bool)` | Tab stops in the group once, on the element marked `.focus_entry(true)` (the chosen one) or the first, and from inside the group Tab leaves it |
+| `follow_pointer(bool)` | While the focus is in the group, the pointer coming onto one of its elements moves the focus there, with no ring, and an arrow key takes the hover off the element under a pointer that holds still: what the pointer and the keyboard are on is one, as in a menu |
+| `typeahead(bool)` | Typing a letter moves the focus to the element whose label starts with it. Letters typed within a second of one another are one prefix, the same letter again goes on to the next element that starts with it, and a pause starts again |
 
 - The keys move between what Tab would stop at inside the element (a `tab_index` of `0` or more, or a control of a form), in the order of the tree; a disabled or dropped one is passed by. Home and End go to the first and the last.
 - A key that is the group's is taken even where it moves nothing, at an end of a group that does not wrap. A handler that prevents the key's default keeps the group from acting on it.
 - A text input, a slider and a select keep the arrow keys for themselves while they are focused. With Ctrl, Alt or the system key held an arrow is not the group's.
 - The innermost group around the focused element that takes the key acts: a vertical menu inside a horizontal bar takes Up and Down, the bar Left and Right.
+- An element's label for typeahead is what `.focus_label(..)` gives it, or, for a button with one text in it, that text; an element with neither is not reached by typing. A menu item's label is its label alone, not its shortcut. A text input, a slider and a select in the group keep the letters, and Space still presses what has the focus.
+- A key event reaches every node's `on_key_down`, focused or not. `KeyboardEvent::focus_within` says whether the focus is on the node whose handler runs or inside it: a handler that acts only for what has the focus (a menu item opening its submenu on Right) checks it.
 
 ## Tab Scope
 
 Tab and Shift+Tab move through one scope and wrap around at its ends:
 
 1. **A modal is open**: the topmost open modal (see [Modal Focus Trap](#modal-focus-trap)).
-2. **Otherwise**: the whole window, including open popups and overlays after the page, in tree order.
+2. **Otherwise**: the whole window, including open popups and overlays after the page, in tree order. The stops of a popup or overlay that takes the focus (`takes_focus(true)`, see [Popups](../modals/#popups-and-outside-presses)) come right after its anchor's instead, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last stop goes on to what follows the trigger. Where the anchor is in a focus group Tab stops in once, they come after the group.
 
 `WindowChrome`'s title bar and resize zones are a layer over the page, but they are window decoration, not a modal: they never become the Tab scope, and stops placed in the title bar follow the page's stops in the window order. A `Modal` declared in the chrome's content or passed to `WindowChrome::overlay` is a real modal and traps Tab as usual.
 

@@ -421,6 +421,9 @@ Row::new()
   in, as with a disabled control on the web: a clickable card is not clicked through its disabled button. A press on it
   leaves focus where it is.
 - A pointer that moves over it still reaches the elements it is in: a row stays hovered over its disabled button.
+- It still hears the pointer come and go: its `on_mouse_enter` and `on_mouse_leave` run as the pointer comes onto it
+  and leaves it, so a tooltip can say why it is disabled. Nothing else of the pointer reaches it: it is not hovered and
+  its hovered style is not drawn.
 - Scrolling is not input to a control, so it works as if nothing were disabled: a wheel or a finger over a disabled
   element scrolls the containers the element is in and the scroll containers inside it, and their scrollbars can be
   dragged, so what a disabled panel holds can be read to its end. Scroll handlers (`on_scroll`) of the disabled element
@@ -944,6 +947,44 @@ Slider::new(value)
   .thumb(|style| style.background_image("ui/slider-thumb.png").background_cover())
 ```
 
+#### Vertical And Range Sliders
+
+`.orientation(SliderOrientation::Vertical)` (or `.vertical()`) runs the track up the slider: the least value is at the bottom, a drag goes along the height, and the up and down arrows move it as the right and left ones do. The parts are laid along the height, so a vertical track's style gives its thickness as `width` and leaves `height` to the slider's, and a fill's `width` is its thickness. An unsized vertical slider asks for 20 by 120.
+
+```rust
+use lurq::{components::Slider, core::Signal, node::SliderOrientation};
+
+let level = Signal::new(60);
+
+Slider::new(level)
+  .range(0, 100)
+  .orientation(SliderOrientation::Vertical)
+  .height(160.0)
+  .track(|style| style.width(4.0).background("#334155"))
+  .fill(|style| style.background("#f97316"))
+  .thumb(|style| style.size(14.0, 14.0).background("#f8fafc"));
+```
+
+`Slider::new_range(Signal<(i32, i32)>)` and `Slider::new_range_f32(Signal<(f32, f32)>)` put two thumbs on one track, bound to a low value and a high one, with the fill between them. A press on the track moves the nearer thumb there (of two at one place, the one on the side of the press), a drag moves the thumb it began on to its end, and neither thumb passes the other: the low one stops at the high one's value. Each thumb is a stop of Tab, the low one first going forward and the high one first going back, and the keys move the focused thumb, which alone takes the `thumb_focused` style. Both thumbs take the same `thumb` style. A range slider can be vertical too.
+
+```rust
+let price = lurq::core::Signal::new((20, 80));
+lurq::components::Slider::new_range(price).range(0, 100).step(5);
+```
+
+#### Slider Keys
+
+| Key | |
+| --- | --- |
+| Right, Up | One step toward the greatest value |
+| Left, Down | One step toward the least |
+| Page Up, Page Down | A tenth of the range, in whole steps and at least one step, as a browser's range input pages |
+| Home, End | To the least value, to the greatest |
+
+The keys are the same for a vertical slider, and for the focused thumb of a range slider, which stops at the other thumb's value. A disabled slider is not a stop of Tab and takes no key.
+
+In a form a range slider submits two entries under its name, its low value and then its high one. `SliderHandle::values()` reads both values, `value()` the low one, and `set_from_ratio` moves the thumb nearer the ratio, as a press does.
+
 ### Select
 
 `Select::new` binds a `Signal<T>` for one value and `Select::multiple` a `Signal<Vec<T>>`. Options are `(value, label)` tuples or `SelectOption`s, which add a detail line under the label, an element before or after the label, and a disabled state:
@@ -989,6 +1030,18 @@ SelectOption::new(Connection::Codex, "Codex").leading_with(|state| {
 ```
 
 The builder receives a `SelectAdornmentState`: `selected`, `highlighted` (the keyboard highlight) and `disabled` for the option, `in_field` when the element is built for the closed field instead of a menu row, and `text_color`, the `text_color` of the row's resolved part (`option` with its state parts merged, or the trigger part on the field; `None` when the part sets none). The pointer hover is not a state: as for the label, it repaints the row's fill, border and shadow without rebuilding it.
+
+`group(label)` starts a group of options at the option: the menu draws a separator above it, unless it is the first row, and the label over it, unless the label is empty; the options after it are in the group until another starts one. The separator and the label are rows of the menu, not options, so the keys, type-ahead and the pointer pass them by. `hint(text)` is a short note at the end of an option's row, after its trailing element ("beta", "soon"); the closed field does not show it:
+
+```rust
+Select::new(platform.clone()).options([
+  SelectOption::new(Platform::Windows, "Windows").group("Desktop"),
+  SelectOption::new(Platform::Linux, "Linux"),
+  SelectOption::new(Platform::Ios, "iOS").group("Mobile").hint("beta"),
+])
+```
+
+`SelectStyle::group_label(part)` styles a group's label row (padding, fill, text and color), `separator(part)` the line between groups (its `background` is the line's color, its `min_height` the thickness, 1 unset, its `padding` the room around it), and `option_hint(part)` the hint's text.
 
 A pointer press on the trigger opens the menu without a highlight. On the focused select:
 
@@ -1050,11 +1103,12 @@ SelectStyle::new()
 ```
 
 - An option row merges `option`, then `option_selected`, the pointer hover (`option_hovered`), the keyboard highlight, `option_selected_hovered`, the highlighted-and-selected part, and `option_disabled` last. Without `option_highlighted`, the keyboard highlight looks like the hover (`option_hovered`, `option_selected_hovered`). With it, the highlight has its own look, such as an inset ring from an inset `box_shadow`, which composes with the hover fill; `option_selected_highlighted` then styles a highlighted selected option. The pointer hover changes a row's fill, border and shadow.
-- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
+- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), `outline` (a ring the trigger paints over itself, at a negative offset inside its edge: `trigger_focused` and `trigger_open` can be a focus ring), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
+- `trigger_gap` (a number or a spacing role, default 8) is the room between the default trigger's label and its chevron.
 - The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `min_menu_width(260.0)` lets a menu grow wider than a narrow trigger; it is still capped by the viewport width and repositioned to fit. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar; its insets are measured from the menu's outer bounds, border included (see [Scroll](#scroll) for `edge_inset`/`end_inset`). The menu's padding insets the options and scrolls with them.
 - Option rows are at least 34 px tall unless the option part sets `min_height`. The default option part pads labels by 10 px horizontally, like the trigger.
 - The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
-- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
+- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown before the label, or in a multi-select, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift; a single-select's trailing checkmark takes its room on the selected row only, so the other rows' labels and trailing elements run to the row's end. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
 - `Select::trigger(|state| ...)` replaces the trigger content. It receives the label, placeholder and selection, and a single-select's selected option's `leading` and `trailing` elements.
 - The trigger's fill is its part's `background`: the theme's `SurfaceInput` in the default `SelectStyle`. A trigger part without a `background`, as in `SelectStyle::unstyled()` or a part passed to `.trigger(...)` that sets none, paints no fill, like a button or text input without a background, so an app that styles the trigger itself (or puts it on a surface of its own) sees that surface. Its border, radius and shadows still paint. `Tree::painted_quads()` shows the fill in tests (see [Testing](../testing/#painted-output-without-a-window)).
 

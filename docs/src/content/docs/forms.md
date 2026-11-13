@@ -94,6 +94,22 @@ Give each input a `.name(...)` so the form can collect its value on submission. 
 
 `form.number(...)` returns `Signal<f64>`. Use `FormSliderInput` to bridge a numeric form field to an integer slider; the plain `Slider::new` expects `Signal<i32>`, while `Slider::new_f32` expects `Signal<f32>`.
 
+A range slider's field is a pair: `form.range(name)` returns `Signal<(f64, f64)>`, the low value first, and `FormRangeSliderInput` bridges it to the engine's range slider as `FormSliderInput` does a number. The form submits the two values under the field's name, validates the field when the slider loses the focus, and a reset puts both thumbs back at the default.
+
+```rust
+use lurq::components::{FormOptions, FormRangeSliderInput, FormRangeSliderInputProps, validators};
+
+let form = ctx.form(
+  FormOptions::new()
+    .field("price", (20, 80))
+    .validate_range("price", validators::range_span(0.0, 100.0, 10.0, "At least 10 apart")),
+);
+
+ctx.mount::<FormRangeSliderInput>(
+  FormRangeSliderInputProps::new(form.range_control("price")).label("Price").range(0, 100),
+)
+```
+
 Here is the same pattern as a complete settings form with validation and inline errors:
 
 ```rust
@@ -278,6 +294,7 @@ Available resolvers:
 | `ctx.string_control(name)` | Resolve a string field control from the nearest form. |
 | `ctx.number_control(name)` | Resolve a numeric field control from the nearest form. |
 | `ctx.bool_control(name)` | Resolve a boolean field control from the nearest form. |
+| `ctx.range_control(name)` | Resolve a range field control from the nearest form. |
 | `ctx.form_control(&control)` | Resolve an explicit `Control<T>` descriptor. |
 
 Resolved controls expose `name`, `value`, `error`, `touched`, `dirty`, `submit_attempted`, `submitting`, `visible_error`, `should_show_error`, `mark_touched`, `validate`, `reset`, and `on_blur`.
@@ -464,6 +481,7 @@ Built-in validators:
 | `validators::min_len(min, message)` | `validate_string` |
 | `validators::max_len(max, message)` | `validate_string` |
 | `validators::range(min, max, message)` | `validate_number` |
+| `validators::range_span(min, max, span, message)` | `validate_range`: both values between `min` and `max`, and at least `span` apart |
 
 Validation and error APIs:
 
@@ -564,6 +582,7 @@ let email_dirty = email.dirty();
 | `form.string_field(name)` | `Signal<String>` |
 | `form.number_field(name)` | `Signal<f64>` |
 | `form.bool_field(name)` | `Signal<bool>` |
+| `form.range_field(name)` | `Signal<(f64, f64)>`, the low value first |
 
 `FormField` exposes `name`, `value`, `error`, `dirty`, `touched`, `is_dirty`, `is_touched`, `mark_touched`, `clear_touched`, `validate`, and `reset`.
 
@@ -577,6 +596,7 @@ let email_dirty = email.dirty();
 | `get_string(name)` | `Option<&str>` |
 | `get_number(name)` | `Option<f64>` |
 | `get_bool(name)` | `Option<bool>` |
+| `get_range(name)` | `Option<(f64, f64)>` |
 | `entries()` | Iterator over `(&str, &FormValue)` |
 | `len()` / `is_empty()` | Field count |
 
