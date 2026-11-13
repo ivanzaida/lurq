@@ -25,6 +25,7 @@ pub mod icons;
 mod input;
 mod link;
 mod part_style;
+mod popover;
 mod radio;
 mod recipe;
 mod segmented;
@@ -53,6 +54,7 @@ pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
 };
+pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
