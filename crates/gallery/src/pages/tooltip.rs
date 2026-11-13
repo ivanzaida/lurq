@@ -244,6 +244,13 @@ impl Component for TooltipPage {
           .open(Some(true))
           .mount(ctx, Button::new("Blur").variant(ButtonVariant::Outline)),
         "a long text wraps at 200",
+      ))
+      .child(item(
+        Tooltip::new("Nothing to export yet").mount(
+          ctx,
+          Button::new("Export").variant(ButtonVariant::Outline).disabled(true),
+        ),
+        "a disabled button: hover it",
       ));
 
     let rows = [
@@ -317,7 +324,8 @@ impl Component for TooltipPage {
         Section::new(
           "On a toolbar",
           "Rest the pointer on a button: its tooltip shows after half a second, and the next one along shows at \
-           once. Tab shows them with no delay, and Escape puts one away. The pointer goes through a tooltip.",
+           once. The pointer can be moved onto a tooltip to read it. Tab shows them with no delay, and Escape puts \
+           one away.",
           self.frame.demo(
             0,
             toolbar,
@@ -349,8 +357,9 @@ impl Component for TooltipPage {
           ),
         ),
         Section::new(
-          "A shortcut, and a longer text",
-          "A shortcut is a chip after the text. A text longer than 200 wraps.",
+          "A shortcut, a longer text, a disabled button",
+          "A shortcut is a chip after the text. A text longer than 200 wraps, with 8 above and below it. A disabled \
+           button shows its tooltip too: it can say why it is disabled.",
           self.frame.demo(
             2,
             more,
@@ -363,6 +372,9 @@ impl Component for TooltipPage {
               "",
               "Tooltip::new(\"Blur radius is in logical pixels and scales with the display.\")",
               "    .mount(ctx, blur_button)",
+              "",
+              "let export = Button::new(\"Export\").variant(ButtonVariant::Outline).disabled(true);",
+              "Tooltip::new(\"Nothing to export yet\").mount(ctx, export)",
             ],
           ),
         ),

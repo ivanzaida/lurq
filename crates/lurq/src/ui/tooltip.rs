@@ -8,7 +8,7 @@
 //! the element it describes.
 
 use std::{
-  cell::Cell,
+  cell::{Cell, RefCell},
   f32::consts::SQRT_2,
   sync::Arc,
   time::{Duration, Instant},
@@ -26,11 +26,11 @@ use crate::{
   app::{
     component::Component,
     ctx::{CollisionStrategy, Ctx, Overlay, Placement, Timeout},
-    events::{KeyboardEvent, MouseEvent},
+    events::MouseEvent,
     theme::{PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Row},
-  core::{ElementRef, Signal},
+  core::{ElementRect, ElementRef, Signal},
   layout::{
     Alignment,
     layout_kind::{Justify, LayoutKind},
@@ -57,9 +57,29 @@ fn warm() -> bool {
   WARM_UNTIL.with(|until| until.get().is_some_and(|until| Instant::now() < until))
 }
 
-/// A tooltip went: the next to show within the skip delay shows at once.
+/// A tooltip went, or the pointer left the element of one that shows: the
+/// next to show within the skip delay shows at once.
 fn went() {
   WARM_UNTIL.with(|until| until.set(Some(Instant::now() + TOOLTIP_SKIP_DELAY)));
+}
+
+/// What puts away a tooltip the pointer showed.
+type Hide = Arc<dyn Fn() + Send + Sync>;
+
+thread_local! {
+  /// The tooltip the pointer showed last, by its host, and what puts it away.
+  static SHOWING: RefCell<Option<(usize, Hide)>> = const { RefCell::new(None) };
+}
+
+/// The pointer showed the tooltip of the host `id`: the one it showed before,
+/// still there for its grace, goes, so that one tooltip shows at a time.
+fn take_turn(id: usize, hide: &Hide) {
+  let before = SHOWING.with(|showing| showing.borrow_mut().replace((id, hide.clone())));
+  if let Some((before, hide)) = before
+    && before != id
+  {
+    hide();
+  }
 }
 
 /// Sets `signal` to `value` if it is not that already: a signal set tells
@@ -146,11 +166,16 @@ pub enum TooltipState {
   Arrow,
   /// It shows a shortcut after its text.
   Shortcut,
+  /// Its text wraps: it is longer than the box is wide. Known once the text
+  /// is laid out, so a tooltip shown on an element; one anchored to nothing
+  /// is never in it.
+  Multiline,
 }
 
 names!(TooltipState {
   Arrow => "arrow",
   Shortcut => "shortcut",
+  Multiline => "multiline",
 });
 
 /// What builds a tooltip's nodes: a theme's in place of the default one. It
@@ -172,11 +197,16 @@ pub type TooltipRenderer = Arc<dyn Fn(TooltipView) -> Element + Send + Sync>;
 ///
 /// It shows after the pointer has rested on the element for its delay, at
 /// once if another tooltip went a moment before, and at once when the focus
-/// comes to the element from the keyboard. It goes when the pointer leaves,
-/// the focus leaves, the element is pressed or Escape is pressed. It takes
-/// neither the pointer nor the focus: the pointer goes through it. Its text is
-/// what tooling that reads the tree is told the element is described by, and
-/// what the element is called if nothing else names it.
+/// comes to the element, or to anything in it (a button in a row), from
+/// the keyboard. It goes when the pointer has left both the element and
+/// the tooltip for a moment (the pointer can be moved onto it to read it),
+/// when the focus leaves, when the element is pressed, and on Escape, which
+/// it takes before anything under it. One tooltip of the pointer shows at a
+/// time. It takes no focus, and it stands beside the element, over it only
+/// where the window has room on neither side, as it is kept in the window.
+/// A disabled element shows its tooltip too. Its text is what tooling that
+/// reads the tree is told the element is described by, and what the element
+/// is called if nothing else names it.
 ///
 /// Converted into an element on its own, a tooltip is its box as it shows,
 /// anchored to nothing: for a gallery, a test, or a host of an app's own.
@@ -288,8 +318,8 @@ impl Tooltip {
   }
 
   /// Puts the tooltip on `element`, the element it describes, and returns
-  /// that element. The pointer and the focus are the element's root's: give
-  /// it the control itself (a button), not a row the control is in.
+  /// that element. The pointer and the focus are the element's, or those of
+  /// anything in it.
   pub fn mount(self, ctx: &mut Ctx, element: impl Into<Element>) -> Element {
     ctx.mount::<TooltipHost>(TooltipProps {
       tooltip: Arc::new(self),
@@ -297,8 +327,8 @@ impl Tooltip {
     })
   }
 
-  /// The tooltip as it is drawn on `side`, in `theme`.
-  fn view(&self, theme: &Theme, side: TooltipSide) -> TooltipView {
+  /// The tooltip as it is drawn on `side`, in `theme`, its text wrapped or not.
+  fn view(&self, theme: &Theme, side: TooltipSide, multiline: bool) -> TooltipView {
     let case = Case {
       variant: Some(side.into()),
       size: None,
@@ -307,22 +337,24 @@ impl Tooltip {
       states: self.states.clone(),
     }
     .state(TooltipState::Arrow, self.arrow)
-    .state(TooltipState::Shortcut, self.shortcut.is_some());
+    .state(TooltipState::Shortcut, self.shortcut.is_some())
+    .state(TooltipState::Multiline, multiline);
     TooltipView {
       text: self.text.clone(),
       shortcut: self.shortcut.clone(),
       side,
       arrow: self.arrow,
+      aim: 0.0,
       recipe: theme.resolve::<Tooltip>(&case, Some(&self.rules)),
+      label_ref: None,
       id: self.id.clone(),
       key: self.key.clone(),
     }
   }
 
-  /// Builds what the tooltip shows on `side`, in `theme`.
-  fn shown(&self, theme: &Theme, side: TooltipSide) -> Element {
-    let view = self.view(theme, side);
-    match theme.renderer::<Tooltip>() {
+  /// Builds what `view` shows: the theme's renderer, or the default one.
+  fn render_view(view: TooltipView) -> Element {
+    match view.theme().renderer::<Tooltip>() {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
@@ -332,7 +364,7 @@ impl Tooltip {
   /// Converting a tooltip into an element does this in the theme of what is
   /// being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    self.shown(theme, self.side)
+    Self::render_view(self.view(theme, self.side, false))
   }
 }
 
@@ -350,8 +382,14 @@ pub struct TooltipView {
   /// The side it is on: the side it was given, or the other where there was no room.
   pub side: TooltipSide,
   pub arrow: bool,
+  /// How far along the box's edge from its middle the arrow is, toward the
+  /// middle of what the tooltip describes: not 0 where the box was pushed
+  /// along to stay in the window. Never so far that the arrow leaves the box.
+  pub aim: f32,
   /// The style of each part of this tooltip.
   pub recipe: ResolvedRecipe,
+  /// What the host reads the label's height by, to know whether it wraps.
+  label_ref: Option<ElementRef>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -371,8 +409,13 @@ impl TooltipView {
     let label = self.part(TooltipPart::Label);
     let mut content = Row::new()
       .align_items(Alignment::Center)
-      .part(&self.part(TooltipPart::Content))
-      .child(label.text(&self.text));
+      .part(&self.part(TooltipPart::Content));
+    // The text gives way to the box's greatest width, and wraps.
+    let mut words = label.text(&self.text).flex_shrink(1.0);
+    if let Some(label_ref) = &self.label_ref {
+      words = words.ref_element(label_ref.clone());
+    }
+    content = content.child(words);
     if let Some(keys) = &self.shortcut {
       let part = self.part(TooltipPart::Shortcut);
       content = content.child(
@@ -392,21 +435,10 @@ impl TooltipView {
   /// it. `None` without an arrow, and where the recipe gives the arrow's part
   /// no size in pixels or the box no color.
   pub fn arrow(&self) -> Option<Element> {
-    if !self.arrow {
-      return None;
-    }
-    let theme = self.theme();
-    let px = |length: Option<Length>| match length?.resolve(theme)? {
-      Dimension::Px(px) => Some(px),
-      _ => None,
-    };
+    let (along, away) = self.arrow_size()?;
     let part = self.part(TooltipPart::Arrow);
-    let rest = part.rest();
-    let (width, height) = (px(rest.width)?, px(rest.height)?);
     let fill = self.part(TooltipPart::Content).rest().background?;
     let vertical = self.side.vertical();
-    // Along the box's edge, and away from it.
-    let (along, away) = if vertical { (width, height) } else { (height, width) };
     let side = along / SQRT_2;
     // The arrow's part is on the side of the box toward what it describes: its edge that meets the box is the
     // near one above or left of what it describes, the far one below or right of it.
@@ -422,12 +454,14 @@ impl TooltipView {
       .background(fill)
       .offset(dx, dy)
       .transform(Transform2D::rotate_deg(45.0));
-    // The part's long side is its main axis, so the square is not shrunk to its short one.
+    // The part's long side is its main axis, so the square is not shrunk to its short one. It is moved along
+    // the box by the aim, not laid out there: the box's size does not change with it.
     Some(if vertical {
       Row::new()
         .justify(Justify::Center)
         .align_items(Alignment::Center)
         .part(&part)
+        .offset(self.aim, 0.0)
         .child(tip)
         .into()
     } else {
@@ -435,8 +469,30 @@ impl TooltipView {
         .justify(Justify::Center)
         .align_items(Alignment::Center)
         .part(&part)
+        .offset(0.0, self.aim)
         .child(tip)
         .into()
+    })
+  }
+
+  /// How long the arrow is along the box's edge, and how far out from it it
+  /// goes: the size of the arrow's part. `None` without an arrow, and where
+  /// the recipe gives the part no size in pixels.
+  pub fn arrow_size(&self) -> Option<(f32, f32)> {
+    if !self.arrow {
+      return None;
+    }
+    let theme = self.theme();
+    let px = |length: Option<Length>| match length?.resolve(theme)? {
+      Dimension::Px(px) => Some(px),
+      _ => None,
+    };
+    let rest = self.part(TooltipPart::Arrow).rest();
+    let (width, height) = (px(rest.width)?, px(rest.height)?);
+    Some(if self.side.vertical() {
+      (width, height)
+    } else {
+      (height, width)
     })
   }
 
@@ -490,7 +546,7 @@ impl Themed for Tooltip {
   /// is 8 after the text, in a chip of 16 high, 4 from its sides, with a
   /// radius of 3, in a white of 15%, its keys in the mono family in 10. The
   /// arrow is 12 along the box and 6 out from it. It stands 6 from what it
-  /// describes.
+  /// describes. A text that wraps has 8 above and below it, in lines of 1.4.
   fn recipe() -> Recipe {
     use PaletteColor::{Primary, PrimaryForeground};
     use TooltipPart::{Arrow, Content, Label, Root, Shortcut};
@@ -515,6 +571,9 @@ impl Themed for Tooltip {
           .font_size(10.0)
       })
       .base(Arrow, |s| s.width(12.0).height(6.0))
+      // A text that wraps: 8 above and below it, in lines of 1.4.
+      .state(TooltipState::Multiline, Content, |s| s.padding_y(8.0))
+      .state(TooltipState::Multiline, Label, |s| s.line_height(1.4))
       // The room between the tooltip and what it describes, on both sides of it so that it stays centered.
       .variant(Top, Root, |s| s.padding_y(6.0))
       .variant(Bottom, Root, |s| s.padding_y(6.0))
@@ -543,23 +602,87 @@ impl PartialEq for TooltipProps {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for TooltipProps {}
 
+/// How long a tooltip stays after the pointer left the element or the
+/// tooltip: time to cross the room between them, so that the pointer can be
+/// moved onto the tooltip to read it, and off it, without it going.
+const TOOLTIP_GRACE: Duration = Duration::from_millis(100);
+
+/// Where the pointer is: on the element, on the tooltip.
+#[derive(Default)]
+struct Pointer {
+  on_element: bool,
+  on_tooltip: bool,
+}
+
 /// What shows a tooltip on the element it describes, and when.
 struct TooltipHost {
-  /// Whether the pointer has rested on the element for the delay.
+  /// Whether the pointer has rested on the element for the delay, and not left both it and the tooltip since.
   hovered: Signal<bool>,
-  /// Whether Escape or a press put the tooltip away: it stays away until the
-  /// pointer comes again or the focus leaves.
-  dismissed: Signal<bool>,
-  /// Whether the tooltip was put on the other side, where there was no room
-  /// on its own: its arrow turns with it.
+  /// Whether the tooltip may show: Escape (the runtime closes the top layer that takes it) or a press of the
+  /// element turns it off, and it stays off until the pointer comes again, or until nothing asks for the
+  /// tooltip (the pointer and the focus both gone), when a new one takes its place.
+  allowed: Mutex<Signal<bool>>,
+  /// Whether the tooltip was put on the other side, where there was no room on its own: its arrow turns with it.
   flipped: Signal<bool>,
-  /// The side the tooltip was given, for what reads where it was put.
-  side: Arc<Mutex<TooltipSide>>,
-  timer: Timeout,
-  /// The element it describes.
+  /// How far along the box the arrow is moved toward the element's middle, where the box was pushed along.
+  aim: Signal<f32>,
+  /// Whether the text wraps.
+  multiline: Signal<bool>,
+  /// What the readers of where the tooltip was put need from the last render: the side it was given, the
+  /// element's anchor, the arrow's length along the box and the label's font size.
+  placing: Arc<Mutex<Placing>>,
+  pointer: Arc<Mutex<Pointer>>,
+  /// The delay before the pointer shows it.
+  delay: Timeout,
+  /// The grace after the pointer left before it goes.
+  grace: Timeout,
+  /// The element's anchor where the element has none of its own.
   anchor: ElementRef,
-  /// What shows.
+  /// What shows, and its label.
   shown: ElementRef,
+  label: ElementRef,
+  /// Who this host is among the tooltips the pointer shows, and what puts its tooltip away.
+  id: usize,
+  hide: Hide,
+}
+
+/// See [`TooltipHost::placing`].
+struct Placing {
+  side: TooltipSide,
+  anchor: ElementRef,
+  along: f32,
+  font_size: f32,
+}
+
+impl TooltipHost {
+  /// Reads where the overlay put what shows: on which side of the element, and how far along from the
+  /// element's middle; the overlay does not say.
+  fn read_placement(placing: &Mutex<Placing>, rect: ElementRect, flipped: &Signal<bool>, aim: &Signal<f32>) {
+    // Read and let go before a signal is set: what the signal tells may read it too.
+    let (side, anchor, along) = {
+      let placing = placing.lock();
+      (placing.side, placing.anchor.clone(), placing.along)
+    };
+    let ((x, y), (anchor_x, anchor_y)) = (rect.center(), anchor.bounds().center());
+    let other = match side {
+      TooltipSide::Top => y > anchor_y,
+      TooltipSide::Bottom => y < anchor_y,
+      TooltipSide::Left => x > anchor_x,
+      TooltipSide::Right => x < anchor_x,
+    };
+    put(flipped, other);
+    // The root is as long as the box along the side's edge: its room is on the other axis.
+    let (off, length) = if side.vertical() {
+      (anchor_x - x, rect.width)
+    } else {
+      (anchor_y - y, rect.height)
+    };
+    let limit = (length / 2.0 - along).max(0.0);
+    let off = (off.clamp(-limit, limit) * 2.0).round() / 2.0;
+    if (aim.get_untracked() - off).abs() > 0.25 {
+      aim.set(off);
+    }
+  }
 }
 
 impl Component for TooltipHost {
@@ -567,35 +690,65 @@ impl Component for TooltipHost {
 
   fn create(ctx: &mut Ctx) -> Self {
     let hovered = ctx.signal(false);
-    let timer = {
+    let pointer = Arc::new(Mutex::new(Pointer::default()));
+    let id = Arc::as_ptr(&pointer) as usize;
+    let hide: Hide = {
       let hovered = hovered.clone();
-      ctx.create_timeout(TOOLTIP_DELAY, move || put(&hovered, true))
+      Arc::new(move || put(&hovered, false))
     };
-    let (anchor, shown) = (ElementRef::new(), ElementRef::new());
-    let flipped = ctx.signal(false);
-    let side = Arc::new(Mutex::new(TooltipSide::Top));
+    let delay = {
+      let (hovered, hide) = (hovered.clone(), hide.clone());
+      ctx.create_timeout(TOOLTIP_DELAY, move || {
+        put(&hovered, true);
+        take_turn(id, &hide);
+      })
+    };
+    let grace = {
+      let (hovered, pointer) = (hovered.clone(), pointer.clone());
+      ctx.create_timeout(TOOLTIP_GRACE, move || {
+        let pointer = pointer.lock();
+        if !pointer.on_element && !pointer.on_tooltip && hovered.get_untracked() {
+          hovered.set(false);
+          went();
+        }
+      })
+    };
+    let (anchor, shown, label) = (ElementRef::new(), ElementRef::new(), ElementRef::new());
+    let (flipped, aim, multiline) = (ctx.signal(false), ctx.signal(0.0_f32), ctx.signal(false));
+    let placing = Arc::new(Mutex::new(Placing {
+      side: TooltipSide::Top,
+      anchor: anchor.clone(),
+      along: 0.0,
+      font_size: 0.0,
+    }));
     {
-      // The overlay does not say which side it put the tooltip on: where it was laid out says.
-      let (anchor, flipped, side) = (anchor.clone(), flipped.clone(), side.clone());
-      shown.observe_rect(move |rect| {
-        let ((x, y), (anchor_x, anchor_y)) = (rect.center(), anchor.bounds().center());
-        let other = match *side.lock() {
-          TooltipSide::Top => y > anchor_y,
-          TooltipSide::Bottom => y < anchor_y,
-          TooltipSide::Left => x > anchor_x,
-          TooltipSide::Right => x < anchor_x,
-        };
-        put(&flipped, other);
+      let (placing, flipped, aim) = (placing.clone(), flipped.clone(), aim.clone());
+      shown.observe_rect(move |rect| Self::read_placement(&placing, rect, &flipped, &aim));
+    }
+    {
+      // A label more than about a line and a half high wraps. The lines of a wrapped text are taller, so a text
+      // that wraps stays wrapped, and one that does not is never as high.
+      let (placing, multiline) = (placing.clone(), multiline.clone());
+      label.observe_rect(move |rect| {
+        let font_size = placing.lock().font_size;
+        put(&multiline, font_size > 0.0 && rect.height > font_size * 1.6);
       });
     }
     Self {
       hovered,
-      dismissed: ctx.signal(false),
+      allowed: Mutex::new(ctx.signal(true)),
       flipped,
-      side,
-      timer,
+      aim,
+      multiline,
+      placing,
+      pointer,
+      delay,
+      grace,
       anchor,
       shown,
+      label,
+      id,
+      hide,
     }
   }
 
@@ -604,25 +757,90 @@ impl Component for TooltipHost {
     if tooltip.disabled {
       return child;
     }
-    self.timer.set_duration(tooltip.delay);
-    *self.side.lock() = tooltip.side;
-    // Reading them subscribes: this renders again when the pointer, the focus or Escape changes them.
-    let asked = (self.hovered.get() || self.anchor.focus_visible()) && !self.dismissed.get();
-    let open = !tooltip.text.is_empty() && tooltip.open.unwrap_or(asked);
-    let overlay = if open {
-      let side = if self.flipped.get() {
-        tooltip.side.opposite()
-      } else {
-        tooltip.side
+    self.delay.set_duration(tooltip.delay);
+    // A disabled element is not hovered, the elements it is in are: it is put in a row the pointer reaches.
+    let child = if child.node.is_disabled() {
+      hoverable(child)
+    } else {
+      holds_children(child)
+    };
+    // An element that has an anchor of its own keeps it, and the tooltip is anchored to it.
+    let anchor = child.node.element_ref.clone().unwrap_or_else(|| self.anchor.clone());
+
+    // Reading them subscribes: this renders again when the pointer, the focus or Escape changes them. The focus
+    // is the element's or that of anything in it, a button in a row.
+    let asked = self.hovered.get() || anchor.focus_visible_within();
+    let allowed = {
+      let mut allowed = self.allowed.lock();
+      if !asked {
+        // Nothing asks for it: whatever put it away is over, and the next time it is asked for it shows.
+        *allowed = Signal::new(true);
+      }
+      allowed.clone()
+    };
+    let side = if self.flipped.get() {
+      tooltip.side.opposite()
+    } else {
+      tooltip.side
+    };
+    let mut view = tooltip.view(&current_theme(), side, self.multiline.get());
+    view.aim = self.aim.get();
+    view.label_ref = Some(self.label.clone());
+    {
+      let mut placing = self.placing.lock();
+      placing.side = tooltip.side;
+      placing.anchor = anchor.clone();
+      placing.along = view.arrow_size().map_or(0.0, |(along, _)| along);
+      placing.font_size = view
+        .part(TooltipPart::Label)
+        .rest()
+        .text
+        .resolve(view.theme())
+        .font_size;
+    }
+    let shows = !tooltip.text.is_empty() && tooltip.open.unwrap_or(asked);
+    // A tooltip that went from under the pointer is told of no leave: the pointer is on it no longer.
+    if !shows || (tooltip.open.is_none() && !allowed.get()) {
+      self.pointer.lock().on_tooltip = false;
+    }
+    let overlay = if shows {
+      let tooltip_enter = {
+        let (pointer, grace) = (self.pointer.clone(), self.grace.clone());
+        move || {
+          pointer.lock().on_tooltip = true;
+          grace.cancel();
+        }
       };
-      let shown = tooltip
-        .shown(&current_theme(), side)
-        .map_node(|node| node.ref_element(self.shown.clone()));
-      Overlay::new(shown)
-        .anchor(self.anchor.clone())
+      let tooltip_leave = {
+        let (pointer, grace, hovered) = (self.pointer.clone(), self.grace.clone(), self.hovered.clone());
+        move || {
+          pointer.lock().on_tooltip = false;
+          if hovered.get_untracked() {
+            grace.restart();
+          }
+        }
+      };
+      let shown = Tooltip::render_view(view).map_node(|node| {
+        node
+          .ref_element(self.shown.clone())
+          .on_mouse_enter(tooltip_enter)
+          .on_mouse_leave(tooltip_leave)
+      });
+      let overlay = Overlay::new(shown)
+        .anchor(anchor.clone())
         .placement(tooltip.side.placement())
         .collision(CollisionStrategy::FlipThenClamp)
-        .hit_test(HitTestBehavior::None)
+        // The pointer can be moved onto the tooltip, its root and the room in it toward the element included (with
+        // `ContentOnly` the root, which holds the handlers, would not be hit). It stands beside the element, so it
+        // covers nothing of it.
+        .hit_test(HitTestBehavior::Auto);
+      match tooltip.open {
+        // Shown by the app: Escape is not the tooltip's to take.
+        Some(_) => overlay,
+        // The runtime turns `allowed` off on an Escape while this is the top layer that takes it, so the key
+        // closes the tooltip and not the dialog under it.
+        None => overlay.open(allowed.clone()).dismiss_on_escape(true),
+      }
     } else {
       Overlay::new(Element::new()).open_when(false)
     };
@@ -630,66 +848,75 @@ impl Component for TooltipHost {
     let overlay = Arc::new(Mutex::new(Element::from(overlay)));
 
     let enter = {
-      let (hovered, dismissed, timer, delay) = (
+      let (hovered, allowed, delay, grace, pointer, wait) = (
         self.hovered.clone(),
-        self.dismissed.clone(),
-        self.timer.clone(),
+        allowed.clone(),
+        self.delay.clone(),
+        self.grace.clone(),
+        self.pointer.clone(),
         tooltip.delay,
       );
+      let (id, hide) = (self.id, self.hide.clone());
       move || {
-        put(&dismissed, false);
-        if delay.is_zero() || warm() {
-          timer.cancel();
-          put(&hovered, true);
+        pointer.lock().on_element = true;
+        grace.cancel();
+        put(&allowed, true);
+        if hovered.get_untracked() {
+          return;
+        }
+        if wait.is_zero() || warm() {
+          delay.cancel();
+          hovered.set(true);
+          take_turn(id, &hide);
         } else {
-          timer.restart();
+          delay.restart();
         }
       }
     };
     let leave = {
-      let (hovered, dismissed, timer) = (self.hovered.clone(), self.dismissed.clone(), self.timer.clone());
-      move || {
-        timer.cancel();
-        if hovered.get_untracked() {
-          hovered.set(false);
-          went();
-        }
-        put(&dismissed, false);
-      }
-    };
-    // A press, or Escape while it shows, puts it away until the pointer comes again or the focus leaves.
-    let away = {
-      let (hovered, dismissed, timer, anchor) = (
+      let (hovered, allowed, delay, grace, pointer) = (
         self.hovered.clone(),
-        self.dismissed.clone(),
-        self.timer.clone(),
-        self.anchor.clone(),
+        allowed.clone(),
+        self.delay.clone(),
+        self.grace.clone(),
+        self.pointer.clone(),
       );
       move || {
-        timer.cancel();
-        let showing = hovered.get_untracked() || anchor.focus_visible_signal().get_untracked();
-        if showing && !dismissed.get_untracked() {
+        pointer.lock().on_element = false;
+        delay.cancel();
+        if !hovered.get_untracked() {
+          return;
+        }
+        if allowed.get_untracked() {
+          // It stays for its grace, and the next tooltip along shows at once.
+          grace.restart();
+          went();
+        } else {
+          // Put away already: nothing is there to move onto.
+          hovered.set(false);
+        }
+      }
+    };
+    // A press puts it away until the pointer comes again or the focus leaves.
+    let press = {
+      let (hovered, allowed, delay, grace) = (
+        self.hovered.clone(),
+        allowed.clone(),
+        self.delay.clone(),
+        self.grace.clone(),
+      );
+      move |_: MouseEvent| {
+        delay.cancel();
+        grace.cancel();
+        if hovered.get_untracked() && allowed.get_untracked() {
           went();
         }
         put(&hovered, false);
-        put(&dismissed, true);
+        put(&allowed, false);
       }
-    };
-    let press = {
-      let away = away.clone();
-      move |_: MouseEvent| away()
-    };
-    let escape = move |event: KeyboardEvent| {
-      if event.key == "Escape" {
-        away();
-      }
-    };
-    let blur = {
-      let dismissed = self.dismissed.clone();
-      move || put(&dismissed, false)
     };
 
-    let (anchor, text) = (self.anchor.clone(), tooltip.text.clone());
+    let text = tooltip.text.clone();
     let describe = move |node: Node| {
       // What tooling is told is kept only where there is tooling to tell.
       #[cfg(any(feature = "devtools", feature = "mcp"))]
@@ -700,9 +927,7 @@ impl Component for TooltipHost {
         .ref_element(anchor.clone())
         .on_mouse_enter(enter.clone())
         .on_mouse_leave(leave.clone())
-        .on_mouse_down(press.clone())
-        .on_key_down(escape.clone())
-        .on_blur(blur.clone());
+        .on_mouse_down(press.clone());
       NodeUpdate::describe(&mut node, Arc::from("a11y_description"), text.clone());
       if !named {
         NodeUpdate::describe(&mut node, Arc::from("a11y_name"), text.clone());
@@ -711,8 +936,21 @@ impl Component for TooltipHost {
       NodeUpdate::child(&mut node, overlay.lock().clone().into_node());
       node
     };
-    holds_children(child).decorate_root(describe)
+    child.decorate_root(describe)
   }
+}
+
+/// A disabled `element` in a row of its own, which the pointer hovers: a disabled element is not hovered, the
+/// elements it is in are. The row is as large as the element would be where it was: it takes the element's
+/// width and height where they are shares of the room (`Fill`), and the element's flex.
+fn hoverable(element: Element) -> Element {
+  let (frame, flex) = (element.node.frame, element.node.flex);
+  let share = |length: Option<Dimension>| length.filter(|length| matches!(length, Dimension::Pct(_)));
+  let mut row: Element = Row::new().child(element).into();
+  row.node.frame.width = share(frame.width);
+  row.node.frame.height = share(frame.height);
+  row.node.flex = flex;
+  row
 }
 
 /// `element`, in a row of its own where its root lays out no children (a

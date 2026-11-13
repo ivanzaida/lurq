@@ -683,6 +683,8 @@ fn log_pass_breakdown(
 struct FocusMemory {
   blur: Vec<VoidEventHandler>,
   refs: Vec<OwnedElementRef>,
+  /// The element refs of the focused node and of the nodes it is in: what is focus-visible within.
+  within: Vec<OwnedElementRef>,
   interactions: Vec<crate::node::interaction_state::InteractionState>,
   input: Option<TextInputState>,
 }
@@ -710,6 +712,9 @@ impl FocusMemory {
   fn clear(self) {
     for reference in self.refs {
       reference.set_focused(false);
+    }
+    for reference in self.within {
+      reference.set_focus_visible_within(false);
     }
     for state in self.interactions {
       state.set_focused(false);
@@ -7632,18 +7637,27 @@ impl Tree {
     let event_id = self.focused_event_node.unwrap_or(focused_node);
     let event_path = find_path_by_id(root, event_id).unwrap_or_else(|| input_path.clone());
 
-    let memory = FocusMemory::capture(root, focused_node, event_id);
+    let mut memory = FocusMemory::capture(root, focused_node, event_id);
     for old in &self.focus_memory.refs {
       if !memory.refs.iter().any(|current| old.same_handle(current)) {
         old.set_focused(false);
       }
     }
+    let input = find_node_by_path(root, &input_path);
+    let visible = input.is_some_and(|node| focus_visible::shows_focus_ring(self.input_modality, node));
+    memory.within = element_refs_along_path(root, &event_path);
+    for old in &self.focus_memory.within {
+      if !memory.within.iter().any(|current| old.same_handle(current)) {
+        old.set_focus_visible_within(false);
+      }
+    }
+    for reference in &memory.within {
+      reference.set_focus_visible_within(visible);
+    }
     self.focus_memory = memory;
     self.focused_path = Some(input_path.clone());
     self.focused_event_path = Some(event_path.clone());
 
-    let input = find_node_by_path(root, &input_path);
-    let visible = input.is_some_and(|node| focus_visible::shows_focus_ring(self.input_modality, node));
     if let Some(node) = input {
       set_node_focused(node, true);
       focus_visible::set_node_focus_visible(node, visible);
@@ -9608,6 +9622,20 @@ fn find_node_by_id(node: &Node, id: NodeId) -> Option<&Node> {
   }
 
   None
+}
+
+/// The element refs of the node at `path` and of every node it is in.
+fn element_refs_along_path(root: &Node, path: &[usize]) -> Vec<OwnedElementRef> {
+  let mut current = root;
+  let mut refs: Vec<OwnedElementRef> = current.element_ref.iter().cloned().collect();
+  for &index in path {
+    let Some(child) = current.children().get(index) else {
+      break;
+    };
+    current = child;
+    refs.extend(current.element_ref.iter().cloned());
+  }
+  refs
 }
 
 fn find_node_by_path<'a>(node: &'a Node, path: &[usize]) -> Option<&'a Node> {
