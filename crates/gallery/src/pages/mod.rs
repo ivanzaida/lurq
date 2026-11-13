@@ -4,6 +4,7 @@
 
 use lurq::{app::ctx::Ctx, node::Element};
 
+mod button;
 mod icons;
 mod overview;
 mod tokens;
@@ -82,6 +83,14 @@ pub const PAGES: &[Page] = &[
     about: "icon font glyph size",
     group: Group::GettingStarted,
     mount: |ctx| ctx.mount::<icons::Icons>(()),
+  },
+  Page {
+    path: "/button",
+    name: "Button",
+    icon: None,
+    about: "variant size shape icon icon_only loading disabled full_width on_click pill primary secondary outline ghost destructive",
+    group: Group::Actions,
+    mount: |ctx| ctx.mount::<button::ButtonPage>(()),
   },
 ];
 

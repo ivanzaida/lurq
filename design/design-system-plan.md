@@ -462,7 +462,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Sizes, variants and states by name (D11) | built: they are names everywhere |
 | Rules by breakpoint (D13) | built: `Recipe::at`, `Selector::breakpoint` |
 | The density a theme is at, and rules by density | built: `Theme::set_density`, `Recipe::density`, `Selector::density`. No recipe of the design has such a rule yet |
-| Scoped themes | built: `Ctx::in_theme` |
+| Scoped themes | half built: `Ctx::in_theme` reaches what a component takes from the theme as it is built, and not the roles its nodes are painted with (14.4) |
 | Presentation options | not started: no component has one yet |
 | Behavior as public pieces (D10) | started: a view hands a renderer the wired root (`ButtonView::root`); nothing of it is promised yet |
 | Recipes for what lurq draws itself: scroll bars, selection, the caret (D12) | not started |
@@ -496,6 +496,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 
 ### 14.4 Next
 
+- **A theme for a subtree, down to the paint.** `Ctx::in_theme` was called built and is half of it. A component built in the scope resolves its recipe, its sizes, its type and its icons in the scoped theme; the roles left on its nodes (a palette color, a radius, a shadow, a spacing role) are resolved by the layout engine, which holds the values of one theme for the window (`LayoutEngine::set_theme`). A dark side bar in a light window is therefore light. Found with the gallery's Button page, whose stage was to be shown in the other appearance beside the page's; the switch was left out. To do: a node carries the theme of its scope, and layout and paint take that theme's values for the subtree, with the transitions, the state styles and the caches that are keyed by resolved values; then the switch on the stage.
 - **The rest of step 2**: `Switch` (an anatomy a renderer replaces), `Tabs` (several parts and a selected state) and `MessageBox` (a composite with two buttons in places), each with its page in the gallery. Then the iOS-looking skin and the made-up brand of section 7, on public API alone. The recipe, slot and renderer API is frozen only after that.
 - **Presentation options**, with the first component that has one.
 - **What lurq draws itself** on recipes: scroll bars, selection, the caret (D12), and the test that fails on a literal color, size or duration in `lurq::ui`.
@@ -586,4 +587,6 @@ The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, the
 - **The shell is measured against the board**: every size, gap, weight and role of the title bar, the header, the side bar, the page's header and the list of sections was read from the board's nodes, and a capture of the gallery was laid beside an export of the board at the same scale. What differs is the typeface: the board is drawn in Inter and JetBrains Mono, lurq bundles no font, and the gallery stays in the system's (decided on 2026-11-13: it carries no font of its own).
 - `--size 800x600` opens the window at a size, to see a breakpoint.
 
-Not built: the playground, the state matrix and the props table, which come with the Button page. The side bar does not fold in a narrow window: it waits for the component that does.
+- **The Button page**: the playground (a state forced with nothing pointing at the button, its measured size and its radius, a count of its presses, the Rust that builds it, the log of its events and the parts it is built of, each copied to the clipboard, and a control for every prop with the count of those changed and a reset), then Variants, Sizes, the matrix of every variant in every state at a size, Icons & shapes, and the table of props. The copy button of a demo card's footer copies its call.
+
+Not built: the stage in the other appearance beside the page's, which waits for a theme for a subtree that reaches the paint (14.4); the stage in a window of its own, for which a component has no way to open one; "Show code" on a demo card. The side bar does not fold in a narrow window: it waits for the component that does.

@@ -224,6 +224,7 @@ let inspector = ctx.in_theme(&dense, |ctx| inspector_panel(ctx));
 
 - The order, later over earlier: the theme's recipe, the rules of the place (`.rules(...)`), the instance's own (`.style(...)`).
 - `ctx.in_theme(&theme, |ctx| ...)` is the theme of everything the closure builds and mounts. Components mounted in it keep the theme when they render again on their own.
+- A theme for a subtree changes what a component takes from the theme as it is built: its recipe and its renderers, the sizes, type, opacity and motion its parts resolve, its density and its icons. The roles its nodes are painted with, a color of the palette, a radius, a shadow, a spacing role, are still read from the window's theme: a subtree in a dark theme inside a light window is not dark yet.
 - `ui::current_theme()` is the theme of what is being built. Outside a render there is none, and it is a neutral one that follows nothing: build components where they are rendered.
 
 ## Icon

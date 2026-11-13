@@ -16,7 +16,7 @@ use lurq::{
     text_style::{FontWeight, TextStyle},
   },
   node::{CursorIcon, Element, border::Border, dimension::Dimension},
-  ui::Icon,
+  ui::{Button, ButtonSize, ButtonVariant, Icon},
 };
 
 pub const FILL: Dimension = Dimension::Pct(100.0);
@@ -253,6 +253,163 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
   control
 }
 
+/// A few choices that share the width they are given, named as the code names them: a size, a shape.
+pub fn segmented_fill<T: Clone + PartialEq + Send + Sync + 'static>(
+  options: &[(&str, T)],
+  chosen: &T,
+  choose: impl Fn(T) + Send + Sync + 'static,
+) -> Row {
+  let choose = Arc::new(choose);
+  let mut control = Row::new()
+    .width(FILL)
+    .align_items(Alignment::Center)
+    .height(36.0)
+    .padding(3.0)
+    .spacing(2.0)
+    .rounded(RadiusSize::Md)
+    .background(PaletteColor::Muted);
+  for (name, value) in options {
+    let on = value == chosen;
+    let (choose, value) = (choose.clone(), value.clone());
+    let mut label = lurq::ui::current_theme().typography_style(TypographyStyle::Mono);
+    label.font_size = lurq::ui::current_theme().scaled(12.0);
+    label.weight = FontWeight::Medium;
+    let mut segment = Row::new()
+      .flex(1.0)
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .height(30.0)
+      .rounded(RadiusSize::Sm)
+      .cursor(CursorIcon::Pointer)
+      .foreground(if on {
+        PaletteColor::Foreground
+      } else {
+        PaletteColor::MutedForeground
+      })
+      .on_click(move |_| choose(value.clone()))
+      .child(Text::styled(name, label));
+    if on {
+      segment = segment.background(PaletteColor::Background).box_shadow(ShadowStyle::Sm);
+    } else {
+      segment = segment.hovered(|style| style.foreground(PaletteColor::Foreground));
+    }
+    control = control.child(segment);
+  }
+  control
+}
+
+/// On or off: a thumb that is at one end of its track or at the other.
+///
+/// The design system's `Switch` takes its place.
+pub fn switch(on: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Row {
+  let ring = lurq::ui::current_theme().focus_ring().outline();
+  Row::new()
+    .size(36.0, 20.0)
+    .padding(2.0)
+    .align_items(Alignment::Center)
+    .justify(if on { Justify::End } else { Justify::Start })
+    .rounded(RadiusSize::Full)
+    .background(if on { PaletteColor::Primary } else { PaletteColor::Input })
+    .cursor(CursorIcon::Pointer)
+    .focus_visible(|style| style.outline(ring))
+    .tab_index(0)
+    .on_click(move |_| toggle(!on))
+    .child(
+      Rect::new(16.0, 16.0)
+        .rounded(RadiusSize::Full)
+        .background(PaletteColor::Background),
+    )
+}
+
+/// A small button with no fill, for the edge of a card: Copy, Reset.
+pub fn tool(label: &str, glyph: &str, press: impl Fn() + Send + Sync + 'static) -> Button {
+  Button::new(label)
+    .variant(ButtonVariant::Ghost)
+    .size(ButtonSize::Xs)
+    .icon(glyph)
+    .on_click(move |_| press())
+}
+
+/// A small button that is an icon alone, for the edge of a card.
+pub fn icon_tool(label: &str, glyph: &str, press: impl Fn() + Send + Sync + 'static) -> Button {
+  tool(label, glyph, press).icon_only(true)
+}
+
+/// Rust as a page shows it: a line number, and each piece in the color of what it is. A name of a type is the
+/// color of information, a string the color of success, punctuation is quiet.
+pub fn code_block(lines: &[String]) -> Column {
+  let mut block = Column::new()
+    .width(FILL)
+    .padding_horizontal(16.0)
+    .padding_top(16.0)
+    .padding_bottom(18.0)
+    .spacing(4.0);
+  for (index, line) in lines.iter().enumerate() {
+    let mut row = Row::new().height(20.0).align_items(Alignment::Center).child(
+      mono(&(index + 1).to_string(), 13.0)
+        .color(PaletteColor::Input)
+        .width(28.0),
+    );
+    for (piece, role) in pieces(line) {
+      row = row.child(mono(&piece, 13.0).color(role));
+    }
+    block = block.child(row);
+  }
+  block
+}
+
+/// The pieces of a line of Rust, each with the color it is drawn in.
+fn pieces(line: &str) -> Vec<(String, PaletteColor)> {
+  let chars: Vec<char> = line.chars().collect();
+  let mut pieces: Vec<(String, PaletteColor)> = Vec::new();
+  let mut push = |piece: String, role: PaletteColor| match pieces.last_mut() {
+    // What is beside a piece of its color is drawn with it, as one text.
+    Some((last, held)) if *held == role => last.push_str(&piece),
+    _ => pieces.push((piece, role)),
+  };
+  let mut at = 0;
+  while at < chars.len() {
+    let start = at;
+    let first = chars[at];
+    if first == '/' && chars.get(at + 1) == Some(&'/') {
+      push(chars[at..].iter().collect(), PaletteColor::MutedForeground);
+      break;
+    }
+    if first == '"' {
+      at += 1;
+      while at < chars.len() && chars[at] != '"' {
+        at += 1;
+      }
+      at = (at + 1).min(chars.len());
+      push(chars[start..at].iter().collect(), PaletteColor::Success);
+    } else if first.is_alphanumeric() || first == '_' {
+      while at < chars.len() && (chars[at].is_alphanumeric() || chars[at] == '_') {
+        at += 1;
+      }
+      let word: String = chars[start..at].iter().collect();
+      // A name with a capital that leads somewhere is a type or a module: `ButtonVariant::`.
+      let leads = chars.get(at) == Some(&':') && chars.get(at + 1) == Some(&':');
+      let role = if leads || word == "_" {
+        if word == "_" {
+          PaletteColor::MutedForeground
+        } else {
+          PaletteColor::Info
+        }
+      } else {
+        PaletteColor::Foreground
+      };
+      push(word, role);
+    } else if first == '.' || first == ' ' {
+      at += 1;
+      push(first.to_string(), PaletteColor::Foreground);
+    } else {
+      at += 1;
+      push(first.to_string(), PaletteColor::MutedForeground);
+    }
+  }
+  pieces
+}
+
 /// A card: a surface with a line around it.
 pub fn card() -> Column {
   Column::new()
@@ -273,16 +430,21 @@ pub fn stage(content: impl Into<Element>) -> Column {
     .child(content)
 }
 
-/// The footer of a demo card: the builder call that makes what the stage shows.
+/// The footer of a demo card: the builder call that makes what the stage shows, and a button that copies it.
 pub fn card_footer(call: &str) -> Row {
+  let copied = call.to_owned();
   Row::new()
     .width(FILL)
     .height(40.0)
     .padding_left(16.0)
     .padding_right(8.0)
     .align_items(Alignment::Center)
+    .justify(Justify::SpaceBetween)
     .border_top(Border::inside(BorderSize::Sm, PaletteColor::Border))
     .child(mono(call, 12.0).color(PaletteColor::MutedForeground))
+    .child(icon_tool("Copy", "copy", move || {
+      lurq::clipboard::copy_to_clipboard(&copied);
+    }))
 }
 
 /// A demo card: a stage and the call that builds what is on it.
