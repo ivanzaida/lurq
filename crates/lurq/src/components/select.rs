@@ -36,6 +36,8 @@ pub struct SelectOption<T> {
   detail: Option<Arc<str>>,
   leading: Option<SelectAdornment>,
   trailing: Option<SelectAdornment>,
+  hint: Option<Arc<str>>,
+  group: Option<Arc<str>>,
   disabled: bool,
 }
 
@@ -47,6 +49,8 @@ impl<T> SelectOption<T> {
       detail: None,
       leading: None,
       trailing: None,
+      hint: None,
+      group: None,
       disabled: false,
     }
   }
@@ -104,6 +108,23 @@ impl<T> SelectOption<T> {
     E: Into<Element>,
   {
     self.trailing = Some(Arc::new(move |state| build(state).into()));
+    self
+  }
+
+  /// A short text at the end of the row, after the trailing element: a
+  /// note such as "beta", styled by `SelectStyle::option_hint`. The closed
+  /// field does not show it.
+  pub fn hint(mut self, hint: impl Into<Arc<str>>) -> Self {
+    self.hint = Some(hint.into());
+    self
+  }
+
+  /// Starts a group of options at this one: the menu draws the separator
+  /// (`SelectStyle::separator`) above it, unless it is the first row, and
+  /// `label` over it (`SelectStyle::group_label`) unless the label is empty.
+  /// The options after it are in the group until another starts one.
+  pub fn group(mut self, label: impl Into<Arc<str>>) -> Self {
+    self.group = Some(label.into());
     self
   }
 
@@ -268,6 +289,8 @@ where
     let labels: Vec<Arc<str>> = self.options.iter().map(|option| option.label.clone()).collect();
     let details: Vec<Option<Arc<str>>> = self.options.iter().map(|option| option.detail.clone()).collect();
     let disabled: Vec<bool> = self.options.iter().map(|option| option.disabled).collect();
+    let hints: Vec<Option<Arc<str>>> = self.options.iter().map(|option| option.hint.clone()).collect();
+    let groups: Vec<Option<Arc<str>>> = self.options.iter().map(|option| option.group.clone()).collect();
     let mut leading = Vec::with_capacity(self.options.len());
     let mut trailing = Vec::with_capacity(self.options.len());
     let mut values = Vec::with_capacity(self.options.len());
@@ -357,6 +380,7 @@ where
       .with_children([trigger])
       .select_labels(labels)
       .select_options_meta(details, disabled)
+      .select_option_extras(hints, groups)
       .select_option_adornments(leading, trailing)
       .select_selected(selected)
       .select_multiple(multiple)
@@ -408,7 +432,7 @@ fn default_trigger(state: SelectTriggerState, style: &SelectStyle) -> Node {
       .flex(1.0)
   };
 
-  Node::row(8.0, Alignment::Center, vec![content, chevron])
+  Node::row(style.trigger_gap, Alignment::Center, vec![content, chevron])
     .justify(Justify::Start)
     .width(Dimension::Pct(100.0))
 }

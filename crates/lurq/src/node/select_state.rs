@@ -32,6 +32,10 @@ struct SelectInner {
   // Per-render config, rebuilt by the generic `Select<T>` wrapper each render.
   labels: Vec<Arc<str>>,
   details: Vec<Option<Arc<str>>>,
+  /// The short text at the end of each option's row.
+  hints: Vec<Option<Arc<str>>>,
+  /// The label of the group each option starts, where it starts one.
+  groups: Vec<Option<Arc<str>>>,
   disabled: Vec<bool>,
   /// The builders of the elements before and after each option's label.
   leading: Vec<Option<SelectAdornment>>,
@@ -121,6 +125,8 @@ impl SelectState {
       inner: Arc::new(Mutex::new(SelectInner {
         labels: Vec::new(),
         details: Vec::new(),
+        hints: Vec::new(),
+        groups: Vec::new(),
         disabled: Vec::new(),
         leading: Vec::new(),
         trailing: Vec::new(),
@@ -149,6 +155,12 @@ impl SelectState {
 
   pub(crate) fn set_details(&self, details: Vec<Option<Arc<str>>>) {
     self.inner.lock().unwrap().details = details;
+  }
+
+  pub(crate) fn set_extras(&self, hints: Vec<Option<Arc<str>>>, groups: Vec<Option<Arc<str>>>) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.hints = hints;
+    inner.groups = groups;
   }
 
   pub(crate) fn set_disabled(&self, disabled: Vec<bool>) {
@@ -213,6 +225,15 @@ impl SelectState {
 
   pub(crate) fn detail(&self, index: usize) -> Option<Arc<str>> {
     self.inner.lock().unwrap().details.get(index).cloned().flatten()
+  }
+
+  pub(crate) fn hint(&self, index: usize) -> Option<Arc<str>> {
+    self.inner.lock().unwrap().hints.get(index).cloned().flatten()
+  }
+
+  /// The label of the group option `index` starts, if it starts one.
+  pub(crate) fn group(&self, index: usize) -> Option<Arc<str>> {
+    self.inner.lock().unwrap().groups.get(index).cloned().flatten()
   }
 
   /// The builders of the elements before and after the label of option

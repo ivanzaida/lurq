@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::{
   icon::Icon,
   icons, names,
-  part_style::{Length, Opacity, PartStyle},
+  part_style::{FontFamily, Length, Opacity, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   theme::{Themed, current_theme},
 };
@@ -15,7 +15,7 @@ use crate::{
   },
   components::{self, SelectOption},
   core::{Signal, SignalValue},
-  layout::text_style::TextStyle,
+  layout::text_style::{FontWeight, TextStyle},
   node::{
     CursorIcon, Element, NodeUpdate, Outline, SelectCheckmarkPosition, SelectIcon, SelectPartStyle, SelectStyle,
     SpacingValue, TextColor,
@@ -29,7 +29,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SelectPart {
   /// The box that is pressed and focused, and that the list opens under: its size, its edge, its fill, its ring, and
-  /// the type of what it says.
+  /// the type of what it says. Its gap is the room between what it says and the chevron.
   Trigger,
   /// The label of the chosen option in the trigger: its type and its color, over the trigger's.
   Value,
@@ -38,7 +38,7 @@ pub enum SelectPart {
   /// The glyph at the end of the trigger: its side and its color.
   Chevron,
   /// The panel of the open list: its fill, edge, corners, shadow and padding. Its gap is the room between the trigger
-  /// and it.
+  /// and it; its height is the most it is, past which it scrolls.
   Menu,
   /// An option of the open list: its height, padding, corners, type and color. Under the pointer or the keys it is
   /// `hovered`. Its gap is the room between its label and the check.
@@ -47,6 +47,13 @@ pub enum SelectPart {
   Check,
   /// The second, smaller line of an option that has one ([`SelectOption::detail`]).
   Detail,
+  /// The short text at the end of an option that has one ([`SelectOption::hint`]): "beta", "soon".
+  Hint,
+  /// The label over a group of options ([`SelectOption::group`]): its padding, type and color.
+  Group,
+  /// The line between two groups: its fill is the line's color, its height the line's, and its padding the room
+  /// around it.
+  Separator,
 }
 
 names!(SelectPart {
@@ -58,6 +65,9 @@ names!(SelectPart {
   Item => "item",
   Check => "check",
   Detail => "detail",
+  Hint => "hint",
+  Group => "group",
+  Separator => "separator",
 });
 
 /// The sizes of a select: the heights of the theme's controls, as an input has them.
@@ -86,6 +96,10 @@ pub enum SelectState {
   Open,
   /// What is chosen is wrong, or nothing is and something has to be: its edge is in the destructive color.
   Invalid,
+  /// What is chosen is allowed, with a caveat: its edge is in the warning color.
+  Warning,
+  /// What is chosen was checked and is right: its edge is in the success color.
+  Valid,
   /// It takes no input.
   Disabled,
   /// It is as wide as what holds it.
@@ -99,6 +113,8 @@ pub enum SelectState {
 names!(SelectState {
   Open => "open",
   Invalid => "invalid",
+  Warning => "warning",
+  Valid => "valid",
   Disabled => "disabled",
   FullWidth => "full_width",
   Chosen => "chosen",
@@ -136,13 +152,17 @@ type Make = Box<dyn FnOnce(SelectStyle, Option<Arc<str>>) -> Element>;
 /// and the first letters move through it, and a press or Enter sets the
 /// signal to the option's value and closes it. What the app sets on the signal
 /// is what it shows. It stands beside an [`Input`](super::Input) in a form: the
-/// same box, the same sizes, the same ring.
+/// same box, the same sizes, the same ring, and the same judgments of what it
+/// holds (`invalid`, `warning`, `valid`). An option can start a group, which
+/// the list draws with its label over it and a line above it.
 pub struct Select {
   make: Make,
   placeholder: Option<Arc<str>>,
   label: Option<Arc<str>>,
   size: Name,
   invalid: bool,
+  warning: bool,
+  valid: bool,
   disabled: bool,
   full_width: bool,
   states: Vec<Name>,
@@ -177,6 +197,8 @@ impl Select {
       label: None,
       size: SelectSize::default().into(),
       invalid: false,
+      warning: false,
+      valid: false,
       disabled: false,
       full_width: false,
       states: Vec::new(),
@@ -206,9 +228,22 @@ impl Select {
     self
   }
 
-  /// Whether what is chosen is wrong, or nothing is and something has to be.
+  /// Whether what is chosen is wrong, or nothing is and something has to be. Of invalid, warning and valid, the
+  /// first that is set is the one shown, as an input shows them.
   pub fn invalid(mut self, invalid: bool) -> Self {
     self.invalid = invalid;
+    self
+  }
+
+  /// Whether what is chosen is allowed with a caveat.
+  pub fn warning(mut self, warning: bool) -> Self {
+    self.warning = warning;
+    self
+  }
+
+  /// Whether what is chosen was checked and is right.
+  pub fn valid(mut self, valid: bool) -> Self {
+    self.valid = valid;
     self
   }
 
@@ -277,6 +312,10 @@ impl Select {
   /// Builds the select in `theme`. Converting a select into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    // One judgment is shown: what is wrong over what is doubtful over what is right.
+    let invalid = self.invalid;
+    let warning = self.warning && !invalid;
+    let valid = self.valid && !invalid && !warning;
     let case = Case {
       variant: None,
       size: Some(self.size),
@@ -284,13 +323,15 @@ impl Select {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(SelectState::Invalid, self.invalid)
+    .state(SelectState::Invalid, invalid)
+    .state(SelectState::Warning, warning)
+    .state(SelectState::Valid, valid)
     .state(SelectState::Disabled, self.disabled)
     .state(SelectState::FullWidth, self.full_width);
     let view = SelectView {
       placeholder: self.placeholder,
       label: self.label,
-      invalid: self.invalid,
+      invalid,
       disabled: self.disabled,
       recipe: theme.resolve::<Select>(&case, Some(&self.rules)),
       case,
@@ -320,6 +361,7 @@ pub struct SelectView {
   pub placeholder: Option<Arc<str>>,
   /// What it is called, to what reads the tree.
   pub label: Option<Arc<str>>,
+  /// Whether what is chosen is wrong, as the select shows it.
   pub invalid: bool,
   pub disabled: bool,
   /// The style of each part of this select.
@@ -371,7 +413,7 @@ impl SelectView {
   /// under the pointer or the keys, chosen and disabled, with its check and
   /// its detail.
   pub fn select_style(&self) -> SelectStyle {
-    use SelectPart::{Check, Chevron, Detail, Item, Menu, Placeholder, Trigger, Value};
+    use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Menu, Placeholder, Separator, Trigger, Value};
     let theme = self.theme();
     let trigger = self.part(Trigger);
     let rest = trigger.rest();
@@ -384,6 +426,9 @@ impl SelectView {
     let mut style = SelectStyle::unstyled()
       .trigger(text)
       .placeholder_text(self.ink(&placeholder));
+    if let Some(gap) = rest.gap {
+      style = style.trigger_gap(gap);
+    }
     let states = trigger.styles();
     if !states.hovered.is_empty() {
       style = style.trigger_hovered(engine_part(&states.hovered, theme));
@@ -406,8 +451,12 @@ impl SelectView {
     // The list is not forced: a forced interaction is the trigger's.
     let menu = self.recipe.part(Menu).rest();
     style = style
-      .menu(engine_part(&menu, theme))
+      // Its height is the most it is, which the engine says apart: not the least the panel is.
+      .menu(engine_part(&PartStyle { height: None, ..menu.clone() }, theme))
       .menu_gap(spacing(menu.gap, theme).unwrap_or(4.0));
+    if let Some(height) = px(menu.height, theme) {
+      style = style.max_menu_height(height);
+    }
 
     let item = self.recipe.part(Item);
     let chosen = self.in_state(SelectState::Chosen).part(Item);
@@ -418,7 +467,10 @@ impl SelectView {
         &self.in_state(SelectState::ItemDisabled).part(Item).rest(),
         theme,
       ))
-      .option_detail(engine_part(&self.recipe.part(Detail).rest(), theme));
+      .option_detail(engine_part(&self.recipe.part(Detail).rest(), theme))
+      .option_hint(engine_part(&self.recipe.part(Hint).rest(), theme))
+      .group_label(engine_part(&self.recipe.part(Group).rest(), theme))
+      .separator(engine_part(&self.recipe.part(Separator).rest(), theme));
     // The item under the keys looks as the one under the pointer does.
     if !item.styles().hovered.is_empty() {
       style = style.option_hovered(engine_part(&item.styles().hovered, theme));
@@ -580,17 +632,21 @@ impl Themed for Select {
   /// round, its text 12 from its edge in the body's type, its placeholder and
   /// its chevron of 16 in the muted foreground. Under the pointer its edge is
   /// the ring's color; focused from the keyboard and open it has a line of 2
-  /// inside the box in that color, the destructive color while it is invalid.
-  /// A disabled one is half opaque on the muted fill. Small is 32 with text of
-  /// 13, large 40 with text of 15. The list is 4 under it on the popover's
+  /// inside the box in that color; the destructive, warning and success
+  /// colors for what is chosen, as an input has them. A disabled one is half opaque on the muted fill. Small is 32 with
+  /// text of 13, large 40 with text of 15. The list is 4 under it on the popover's
   /// fill, in an edge of 1 in the border's color, 8 round, with the theme's
   /// middle shadow and 4 of padding; an item is 32 high, 8 from the edge of
   /// the list, 4 round, in the body's type, on the highlight under the
   /// pointer or the keys; the chosen one has a check of 16 at its end, and a
-  /// disabled one is dimmed.
+  /// disabled one is dimmed. A hint at an item's end is 11 in the mono type,
+  /// muted; a group's label is 11 and semibold, muted, over its items; a
+  /// line of the border's color is between groups, 4 from each.
   fn recipe() -> Recipe {
-    use PaletteColor::{Background, Destructive, Foreground, Highlight, Muted, MutedForeground, Popover, Ring};
-    use SelectPart::{Check, Chevron, Detail, Item, Menu, Placeholder, Trigger};
+    use PaletteColor::{
+      Background, Destructive, Foreground, Highlight, Muted, MutedForeground, Popover, Ring, Success,
+    };
+    use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Menu, Placeholder, Separator, Trigger};
     let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
     // The focus is a line of 2 inside the box, over its edge, as an input's is: an outline, so that the edge under
     // the pointer does not take it away.
@@ -600,6 +656,7 @@ impl Themed for Select {
         s.width(260.0)
           .height(ControlSize::Md)
           .padding_x(12.0)
+          .gap(8.0)
           .radius(RadiusSize::Md)
           .background(Background)
           .border(edge(PaletteColor::Input))
@@ -630,6 +687,25 @@ impl Themed for Select {
       .base(Detail, |s| {
         s.typography(TypographyStyle::Caption).foreground(MutedForeground)
       })
+      .base(Hint, |s| {
+        s.font_family(FontFamily::Mono)
+          .font_size(11.0)
+          .foreground(MutedForeground)
+      })
+      // The board pads a group's label 6 over and 4 under; a part's padding is the same over and under.
+      .base(Group, |s| {
+        s.padding_x(8.0)
+          .padding_y(5.0)
+          .typography(TypographyStyle::Caption)
+          .font_size(11.0)
+          .weight(FontWeight::SemiBold)
+          .foreground(MutedForeground)
+      })
+      .base(Separator, |s| {
+        s.height(1.0)
+          .padding_y(4.0)
+          .background(PaletteColor::Border)
+      })
       .hovered(Trigger, |s| s.border(edge(Ring)))
       .focus_visible(Trigger, |s| s.outline(ring(Ring)))
       .state(SelectState::Open, Trigger, |s| s.outline(ring(Ring)))
@@ -643,22 +719,26 @@ impl Themed for Select {
           .opacity(OpacityLevel::Disabled)
           .cursor(CursorIcon::Default)
       });
-    // Invalid keeps its color under the pointer, in the focus and while open.
-    recipe
-      .state(SelectState::Invalid, Trigger, |s| s.border(edge(Destructive)))
-      .when(Selector::new().state(SelectState::Invalid).hovered(), Trigger, |s| {
-        s.border(edge(Destructive))
-      })
-      .when(
-        Selector::new().state(SelectState::Invalid).focus_visible(),
-        Trigger,
-        |s| s.outline(ring(Destructive)),
-      )
-      .when(
-        Selector::new().state(SelectState::Invalid).state(SelectState::Open),
-        Trigger,
-        |s| s.outline(ring(Destructive)),
-      )
+    // A judgment keeps its color under the pointer, in the focus and while open.
+    [
+      (SelectState::Invalid, Destructive),
+      (SelectState::Warning, PaletteColor::Warning),
+      (SelectState::Valid, Success),
+    ]
+    .into_iter()
+    .fold(recipe, |recipe, (state, color)| {
+      recipe
+        .state(state, Trigger, |s| s.border(edge(color.clone())))
+        .when(Selector::new().state(state).hovered(), Trigger, |s| {
+          s.border(edge(color.clone()))
+        })
+        .when(Selector::new().state(state).focus_visible(), Trigger, |s| {
+          s.outline(ring(color.clone()))
+        })
+        .when(Selector::new().state(state).state(SelectState::Open), Trigger, |s| {
+          s.outline(ring(color))
+        })
+    })
   }
 }
 

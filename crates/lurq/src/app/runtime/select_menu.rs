@@ -36,11 +36,21 @@ pub(super) fn build_select_menu(
 ) -> Node {
   let style = state.style();
   let labels = state.labels();
-  let rows = labels
-    .iter()
-    .enumerate()
-    .map(|(index, label)| option_row(state, &style, index, label, labels.len(), measure))
-    .collect();
+  // A group's separator and label are rows of their own: where each option's row is among them.
+  let mut rows = Vec::with_capacity(labels.len());
+  let mut positions = Vec::with_capacity(labels.len());
+  for (index, label) in labels.iter().enumerate() {
+    if let Some(group) = state.group(index) {
+      if !rows.is_empty() {
+        rows.push(separator_row(&style));
+      }
+      if !group.is_empty() {
+        rows.push(group_label_row(&style, &group));
+      }
+    }
+    positions.push(rows.len());
+    rows.push(option_row(state, &style, index, label, labels.len(), measure));
+  }
 
   // The menu's padding goes on the scrolled list, so it scrolls with the
   // options like CSS padding on a scroll container.
@@ -63,7 +73,7 @@ pub(super) fn build_select_menu(
 
   let measured = measure(&menu);
   if let Some(index) = state.take_reveal()
-    && let Some((start, end)) = option_extent(&measured, index)
+    && let Some((start, end)) = positions.get(index).and_then(|row| option_extent(&measured, *row))
   {
     state.menu_scroll().reveal_y_pending(start, end);
   }
@@ -83,11 +93,49 @@ pub(super) fn build_select_menu(
   menu.absolute_positioned(x, y, Some(Dimension::Px(width)), None)
 }
 
-/// The vertical extent of option `index` in the menu's scroll content.
+/// The vertical extent of the menu's row `index` in its scroll content.
 fn option_extent(menu: &LayoutResult, index: usize) -> Option<(f32, f32)> {
   let list = menu.children.first()?;
   let row = list.result.children.get(index)?;
   Some((row.offset.y, row.offset.y + row.result.size.height))
+}
+
+/// The line above a group that is not the first row of the menu.
+fn separator_row(style: &SelectStyle) -> Node {
+  let mut part = style.separator.clone();
+  let thickness = part.min_height.take().unwrap_or(1.0);
+  let padding = part.padding.take();
+  let line_color = part.background.take();
+  let mut line = Node::row(0.0, Alignment::Start, Vec::new())
+    .width(Dimension::Pct(100.0))
+    .height(Dimension::Px(thickness));
+  if let Some(color) = line_color {
+    line = line.background(color);
+  }
+  let mut row = Node::row(0.0, Alignment::Start, vec![line])
+    .width(Dimension::Pct(100.0))
+    .apply_select_part(&part);
+  if let Some(padding) = padding {
+    row = row.padding_custom(padding);
+  }
+  row.set_tag_name("SelectSeparator");
+  row
+}
+
+/// The label over a group.
+fn group_label_row(style: &SelectStyle, label: &str) -> Node {
+  let part = &style.group_label;
+  let text = part
+    .text_node(label)
+    .text_wrap(false)
+    .text_overflow(TextOverflow::Elipsis)
+    .min_width(0.0)
+    .flex(1.0);
+  let mut row = Node::row(0.0, Alignment::Center, vec![text])
+    .width(Dimension::Pct(100.0))
+    .apply_select_part(part);
+  row.set_tag_name("SelectGroupLabel");
+  row
 }
 
 fn option_row(
@@ -115,10 +163,27 @@ fn option_row(
     text_color: part.text_color.clone(),
   };
   let (leading, trailing) = state.adornments(index);
-  let slots = [leading, trailing].map(|build| build.map(|build| build(&adornment).into_node().flex_shrink(0.0)));
+  let [leading, trailing] =
+    [leading, trailing].map(|build| build.map(|build| build(&adornment).into_node().flex_shrink(0.0)));
+  // The hint goes at the end, after the trailing element, in its own style over the row's.
+  let hint = state.hint(index).map(|hint| {
+    let mut hint_part = part.clone();
+    hint_part.merge_from(&style.option_hint);
+    hint_part.text_node(&hint).text_wrap(false).flex_shrink(0.0)
+  });
+  let trailing = match (trailing, hint) {
+    (Some(element), Some(hint)) => {
+      Some(Node::row(style.option_adornment_gap, Alignment::Center, vec![element, hint]).flex_shrink(0.0))
+    }
+    (element, hint) => element.or(hint),
+  };
+  let slots = [leading, trailing];
   let content = option_content(&part, style, label, state.detail(index), slots, measure);
   let multiple = state.multiple();
-  let (gap, children) = if style.shows_checkmark(multiple) {
+  // A slot keeps the labels in line where the mark is before them. After them, in a single-select, only the chosen
+  // row needs it: the others' labels may run to the row's end.
+  let slot_kept = !matches!(style.checkmark_position, SelectCheckmarkPosition::Trailing) || multiple || option.selected;
+  let (gap, children) = if style.shows_checkmark(multiple) && slot_kept {
     let slot = checkmark_slot(style, &part, option.selected);
     let children = match style.checkmark_position {
       SelectCheckmarkPosition::Leading => vec![slot, content],

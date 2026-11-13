@@ -2667,6 +2667,18 @@ impl Node {
     self
   }
 
+  /// The hint of each option and the label of the group each option starts, if it does.
+  pub(crate) fn select_option_extras(
+    self,
+    hints: Vec<Option<std::sync::Arc<str>>>,
+    groups: Vec<Option<std::sync::Arc<str>>>,
+  ) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_extras(hints, groups);
+    }
+    self
+  }
+
   pub(crate) fn select_option_adornments(
     self,
     leading: Vec<Option<crate::node::select_icon::SelectAdornment>>,
