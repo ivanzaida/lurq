@@ -42,7 +42,7 @@ use crate::{
     },
     padding::Padding,
     radius_value::RadiusValue,
-    slider_style::SliderPartStyle,
+    slider_style::{SliderOrientation, SliderPartStyle},
     spacing_value::SpacingValue,
     style::{StateStyles, Style},
     transform::Transform2D,
@@ -714,6 +714,7 @@ pub(crate) trait NodeUpdate {
   fn range(&mut self, min: i32, max: i32);
   fn range_f32(&mut self, min: f32, max: f32);
   fn slider_step(&mut self, step: f32);
+  fn slider_orientation(&mut self, orientation: SliderOrientation);
   fn slider_track_style(&mut self, style: SliderPartStyle);
   fn slider_track_hovered_style(&mut self, style: SliderPartStyle);
   fn slider_fill_style(&mut self, style: SliderPartStyle);
@@ -2216,6 +2217,12 @@ impl NodeUpdate for Node {
     }
   }
 
+  fn slider_orientation(&mut self, orientation: SliderOrientation) {
+    if let Some(state) = self.slider_state() {
+      state.set_orientation(orientation);
+    }
+  }
+
   fn slider_track_style(&mut self, style: SliderPartStyle) {
     if let Some(state) = self.slider_state() {
       state.set_track_style(style);
@@ -2592,6 +2599,28 @@ impl Node {
       LayoutKind::Leaf,
       NodeKind::Slider {
         state: SliderState::new_f32(value),
+      },
+      vec![],
+    )
+  }
+
+  /// A slider of two thumbs bound to a low value and a high one.
+  pub fn range_slider(values: Signal<(i32, i32)>) -> Self {
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Slider {
+        state: SliderState::new_range(values),
+      },
+      vec![],
+    )
+  }
+
+  /// A slider of two thumbs bound to a low fraction and a high one.
+  pub fn range_slider_f32(values: Signal<(f32, f32)>) -> Self {
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::Slider {
+        state: SliderState::new_range_f32(values),
       },
       vec![],
     )
@@ -4188,6 +4217,13 @@ impl Node {
   pub fn slider_step(self, step: f32) -> Self {
     if let Some(state) = self.slider_state() {
       state.set_step(step);
+    }
+    self
+  }
+
+  pub fn slider_orientation(self, orientation: SliderOrientation) -> Self {
+    if let Some(state) = self.slider_state() {
+      state.set_orientation(orientation);
     }
     self
   }
