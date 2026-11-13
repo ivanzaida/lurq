@@ -466,7 +466,8 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Presentation options | not started: no component has one yet |
 | Behavior as public pieces (D10) | started: a view hands a renderer the wired root (`ButtonView::root`); nothing of it is promised yet |
 | Recipes for what lurq draws itself: scroll bars, selection, the caret (D12) | not started |
-| Step 2: `Button` | built, with its tests and its page of the docs. `Switch`, `Tabs`, `MessageBox` are not |
+| `Icon`, and the theme's table of icons | built: `ui::Icon`, `ui::icons`, `ThemeIcons`, the font loaded in every app |
+| Step 2: `Button` | built to the board's Buttons section (14.6), with its tests and its page of the docs. `Switch`, `Tabs`, `MessageBox` are not |
 | The gallery | its shell is built, with a title bar of its own, and Overview, Tokens and Icons (15.5) |
 
 ### 14.2 What was decided while building
@@ -498,7 +499,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 - **The rest of step 2**: `Switch` (an anatomy a renderer replaces), `Tabs` (several parts and a selected state) and `MessageBox` (a composite with two buttons in places), each with its page in the gallery. Then the iOS-looking skin and the made-up brand of section 7, on public API alone. The recipe, slot and renderer API is frozen only after that.
 - **Presentation options**, with the first component that has one.
 - **What lurq draws itself** on recipes: scroll bars, selection, the caret (D12), and the test that fails on a literal color, size or duration in `lurq::ui`.
-- **`Icon`** and the hinted font loaded by default: `Button` takes any element before and after its label until then, and has no loading state because there is no spinner yet.
+- **The rest of the board's Buttons section**: `Link`, `Toggle Group`, `Segmented Control`, `Button Group`, `Split Button`, `Compound Button` and `FAB` are components of their own, each with its page after it is built.
 
 ### 14.5 The theme machinery as built
 
@@ -514,6 +515,19 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 - **A text from a style that keeps the default color takes the foreground above it.** It took the theme's foreground whatever was above. A part's label is such a text, and has to take the color of its root.
 - **A theme is at a density.** `Theme::density()` is `Default` unless set, and is part of a definition. A rule for a density holds while the theme is at it, and ranks between a size and a breakpoint. A case takes the density of the theme it is resolved in, so the theme's kept styles need no key for it: a change of density is a change of the theme. What a density does to a control is not decided: the scale is the height of a row, a button has its control sizes, and the design's `Button` has no rule for a density. The first component with rows (a list item, a menu item, a table row) is where the design's recipes start to use it, and `Touch` is how the mobile phase raises controls.
 - **Not yet in a part style:** margins, a size per axis for icons, an overlay other than a veil, text decoration. They are added when a component needs them.
+
+### 14.6 Icon, and the whole Button
+
+Said on 2026-11-13: a component is built first, to what the board draws of it, and its page of the gallery comes after. `Button` had been called built with three sizes and no icon; the board's Buttons section draws more, and the plan's note that the control scale has three sizes and the page would show three was wrong.
+
+- **`Icon` is a name.** `Icon::new(icons::SEARCH)` draws the glyph the theme has for the name (`ThemeIcons`, a table from a name to a font's family and a character), so a theme gives a name another drawing or adds names (D5). `ui::icons` is written by `scripts/build-icon-font.py` beside the font: a constant for each glyph and the table the theme starts from; a test holds it to `design/icons/codepoints.json`. A name with no glyph draws nothing and keeps its room. It is not a themed component: it has no recipe, and the table is the theme's hook.
+- **The font is in every app.** The glyph engine loads `assets/lurq-icons.ttf` hinted when it is made, from the bytes in the binary, with no copy. It is 92 KB.
+- **A spinner is an icon that turns.** `Icon::spin(true)` plays `ui::SPIN`, keyframes of a full turn that every window's animation engine has, in phase, once in a second. Keyframe identifiers from `0xFF00` up are lurq's. It turns under reduced motion too: it says that something is under way, and nothing else does.
+- **Five sizes.** `Xs` and `Xl` are not steps of the control scale, which has three: the board draws them 28 and 44 high, the heights of a row at the compact and the comfortable density, and the recipe says so (`Density::Compact`, `Density::Comfortable`). Each size has its padding (10, 12, 16, 20, 24), and the two outer ones a label (12, 15) and an icon (14, 20) of their own; a large button's icon is 18, which is no step of the icon scale.
+- **An icon by name, and an element.** `icon(name)` and `trailing_icon(name)` draw an icon of the theme's set in the part `Icon`, whose side the recipe gives per size; `leading(element)` and `trailing(element)` stay for what a name is not enough for.
+- **An icon alone, a pill, loading** are states of the recipe (`IconOnly`, `Pill`, `Loading`), so a theme styles them as any other. An icon alone has no padding and the width of its height; a pill has the full radius, and an icon alone in it is a circle. A loading button shows the spinner where its icon was, or before its label, at three quarters of its opacity (the board's value; the opacity scale has no step for it), and is not pressed: its handlers are not attached and it does not submit its form.
+- **Pressed is the veil.** The board's pressed row draws the hover fill; the recipe lays `StatePressed` over it, as decided in 14.5, so that a press shows on a button the pointer is already on.
+- **The gallery's own icon, icon button and page actions are `Icon` and `Button` now.**
 
 ## 15. The gallery
 
@@ -568,7 +582,7 @@ The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, the
 - **The side bar**: the pages in the design system's groups with a count for each; a group with no page is not shown. A row is 32 high at the default density, as the board draws it, and moves with the density by as much as a row of the theme does.
 - **The frame of a page** (`doc.rs`): its header (the way to it, name, description, import, status, the version it is in since, and two actions: its source and the design system's board, each opened in what the system opens it with), its sections 48 apart, and the list of them on the right from the large breakpoint up, sticky. The list marks the section being read as the page scrolls, and scrolls to the one that is clicked. The content is 880 wide at most, with 32 above it, 48 beside it (32 in a narrow window) and 64 under it.
 - **Pages**: Overview; Tokens, which draws the palette, the type scale, radii, elevations and every scale from the theme as it is; Icons, the 152 icons of lurq's font with their names, at the sizes of the scale and in the foreground of what they are in.
-- **Its own parts** (`kit.rs`): the icon, the icon button, the segmented control, the select, the panel of a popup, badges, keys, cards, the stage and footer of a demo card. Each goes when the design system has the component.
+- **Its own parts** (`kit.rs`): the segmented control, the select, the panel of a popup, badges, keys, cards, the stage and footer of a demo card. Each goes when the design system has the component.
 - **The shell is measured against the board**: every size, gap, weight and role of the title bar, the header, the side bar, the page's header and the list of sections was read from the board's nodes, and a capture of the gallery was laid beside an export of the board at the same scale. What differs is the typeface: the board is drawn in Inter and JetBrains Mono, lurq bundles no font, and the gallery stays in the system's (decided on 2026-11-13: it carries no font of its own).
 - `--size 800x600` opens the window at a size, to see a breakpoint.
 

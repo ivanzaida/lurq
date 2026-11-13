@@ -578,6 +578,37 @@ The side of an icon. Roles are named by `IconSize` and stored on `ThemeIconSizes
 | `Lg` | `lg` | `20.0` |
 | `Xl` | `xl` | `24.0` |
 
+An [`Icon`](../design-system/#icon) is a square of one of these sides, `Md` unless it says otherwise.
+
+## Icons
+
+What each name of an icon is drawn with: a character of a font. `ThemeIcons` is the table, and a theme starts with lurq's own set, the 152 icons of the font every app has loaded (`ui::icons`).
+
+```rust
+use lurq::{app::theme::{IconGlyph, ThemeIcons}, ui::icons};
+
+// Another drawing of an icon there is, and an icon of the app's own.
+theme.set_icon(icons::SEARCH, IconGlyph::new("brand icons", '\u{F002}'));
+theme.set_icon("rocket", IconGlyph::new("brand icons", '\u{F135}'));
+
+// A whole set at once, in a definition.
+let mut brand = ThemeDefinition::neutral();
+brand.icons.set_font("brand icons", [(icons::CHECK, '\u{F00C}'), (icons::CLOSE, '\u{F00D}')]);
+```
+
+| | |
+| --- | --- |
+| `theme.icon(name)` | The glyph a name is drawn with, if the theme has it |
+| `theme.set_icon(name, glyph)` | Gives a name a glyph; every icon of that name on screen is drawn again |
+| `theme.icons()`, `theme.set_icons(icons)` | The whole table |
+| `ThemeIcons::lurq()`, `ThemeIcons::empty()` | lurq's set, and no icon at all, for a theme that brings every one it draws |
+| `icons.set(name, glyph)`, `icons.set_font(family, [(name, char)])`, `icons.remove(name)` | One name, a set from one font, and a name taken out |
+| `icons.get(name)`, `icons.names()`, `icons.len()` | What is in the table |
+
+- The font of a glyph is the app's to load (`App::load_font`, or `App::load_hinted_font` for a font hinted for the pixel grid). lurq's own is loaded in every app.
+- lurq's components name the icons they draw (a button's spinner is `icons::SPINNER`), so a theme that gives those names other glyphs changes the components too.
+- A name with no glyph draws nothing and keeps its room.
+
 ## Density
 
 How much room a row of a list, a menu or a table takes. Roles are named by `Density` and stored on `ThemeDensities`, as the height of a row in logical pixels.

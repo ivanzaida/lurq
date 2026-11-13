@@ -40,7 +40,8 @@ pub enum Length {
 }
 
 impl Length {
-  fn resolve(self, theme: &Theme) -> Option<Dimension> {
+  /// The length in `theme`: `None` for [`Self::Auto`], and for a step the theme does not have.
+  pub(crate) fn resolve(self, theme: &Theme) -> Option<Dimension> {
     Some(match self {
       Self::Px(px) => Dimension::Px(px),
       Self::Control(size) => Dimension::Px(theme.control_sizes().try_get(size)?),

@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use super::{
-  names,
+  icon::Icon,
+  icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   theme::{Themed, current_theme},
@@ -11,7 +12,8 @@ use super::{
 use crate::{
   animation::Transition,
   app::theme::{
-    BorderSize, ControlSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle,
+    BorderSize, ControlSize, Density, IconSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme,
+    TypographyStyle,
   },
   components::{self, Row},
   layout::layout_kind::Justify,
@@ -43,20 +45,36 @@ names!(ButtonVariant {
   Destructive => "destructive",
 });
 
-/// How tall a button is: the steps of the theme's control sizes.
+/// How tall a button is. `Sm`, `Md` and `Lg` are the steps of the theme's
+/// control sizes (32, 36, 40); `Xs` is as high as a row of a compact tool
+/// (28) and `Xl` as one with room to breathe (44).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ButtonSize {
+  Xs,
   Sm,
   #[default]
   Md,
   Lg,
+  Xl,
 }
 
 names!(ButtonSize {
+  Xs => "xs",
   Sm => "sm",
   Md => "md",
   Lg => "lg",
+  Xl => "xl",
 });
+
+/// The shape of a button's corners.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ButtonShape {
+  /// The theme's radius for a control.
+  #[default]
+  Default,
+  /// Rounded all the way: a pill, and a circle for a button that is an icon alone.
+  Pill,
+}
 
 /// The parts of a button a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -65,15 +83,21 @@ pub enum ButtonPart {
   Root,
   /// Its text.
   Label,
-  /// What is before the text: an icon.
+  /// An icon the button was given by name, before or after the text: its side, and a color of its own.
+  Icon,
+  /// What turns while the button is loading, in the place of its icon.
+  Spinner,
+  /// An element put before the text.
   Leading,
-  /// What is after the text.
+  /// An element put after the text.
   Trailing,
 }
 
 names!(ButtonPart {
   Root => "root",
   Label => "label",
+  Icon => "icon",
+  Spinner => "spinner",
   Leading => "leading",
   Trailing => "trailing",
 });
@@ -86,17 +110,30 @@ pub enum ButtonState {
   Disabled,
   /// It is as wide as what it is in.
   FullWidth,
+  /// What it started is under way: it shows a spinner and is not pressed again.
+  Loading,
+  /// It is an icon alone, as wide as it is high.
+  IconOnly,
+  /// Its corners are rounded all the way ([`ButtonShape::Pill`]).
+  Pill,
 }
 
 names!(ButtonState {
   Disabled => "disabled",
   FullWidth => "full_width",
+  Loading => "loading",
+  IconOnly => "icon_only",
+  Pill => "pill",
 });
+
+/// How much of a button shows while it is loading, in the design's recipe.
+const LOADING_OPACITY: f32 = 0.75;
 
 /// What builds a button's nodes: a theme's in place of the default one.
 pub type ButtonRenderer = Arc<dyn Fn(ButtonView) -> Element + Send + Sync>;
 
-/// What builds one part of a button: a theme's, for [`ButtonPart::Label`].
+/// What builds one part of a button: a theme's, for [`ButtonPart::Label`],
+/// [`ButtonPart::Icon`] or [`ButtonPart::Spinner`].
 pub type ButtonPartRenderer = Arc<dyn Fn(&ButtonView) -> Element + Send + Sync>;
 
 /// A button.
@@ -115,10 +152,29 @@ pub type ButtonPartRenderer = Arc<dyn Fn(&ButtonView) -> Element + Send + Sync>;
 /// the variants of [`ButtonVariant`], the sizes of [`ButtonSize`] and the
 /// states of [`ButtonState`], and a theme may add variants, sizes and states
 /// of its own by name.
+///
+/// An icon is given by its name in the theme's set, and is drawn in the
+/// color of the label at the size the button's size has for it:
+///
+/// ```
+/// use lurq::ui::{Button, ButtonShape, ButtonVariant, icons};
+///
+/// let new_window = Button::new("New window").variant(ButtonVariant::Outline).icon(icons::PLUS);
+/// // An icon alone: a square, or a circle. Its label is still what it is called.
+/// let settings = Button::new("Settings").variant(ButtonVariant::Ghost).icon(icons::SETTINGS).icon_only(true);
+/// let add = Button::new("Add").icon(icons::PLUS).icon_only(true).shape(ButtonShape::Pill);
+/// // While what it started is under way.
+/// let saving = Button::new("Saving…").loading(true);
+/// ```
 pub struct Button {
   label: Arc<str>,
   variant: Name,
   size: Name,
+  shape: ButtonShape,
+  icon: Option<Name>,
+  trailing_icon: Option<Name>,
+  icon_only: bool,
+  loading: bool,
   leading: Option<Element>,
   trailing: Option<Element>,
   disabled: bool,
@@ -139,6 +195,11 @@ impl Button {
       label: Arc::from(label),
       variant: ButtonVariant::default().into(),
       size: ButtonSize::default().into(),
+      shape: ButtonShape::default(),
+      icon: None,
+      trailing_icon: None,
+      icon_only: false,
+      loading: false,
       leading: None,
       trailing: None,
       disabled: false,
@@ -166,7 +227,43 @@ impl Button {
     self
   }
 
-  /// An element before the label: an icon.
+  /// The shape of the button's corners.
+  pub fn shape(mut self, shape: ButtonShape) -> Self {
+    self.shape = shape;
+    self
+  }
+
+  /// An icon before the label, by its name in the theme's set
+  /// ([`icons`](super::icons)). It is drawn in the color of the label, at the
+  /// size the recipe gives [`ButtonPart::Icon`] for the button's size.
+  pub fn icon(mut self, name: impl Into<Name>) -> Self {
+    self.icon = Some(name.into());
+    self
+  }
+
+  /// An icon after the label: a chevron, an arrow.
+  pub fn trailing_icon(mut self, name: impl Into<Name>) -> Self {
+    self.trailing_icon = Some(name.into());
+    self
+  }
+
+  /// Whether the button is its icon alone: a square as wide as it is high,
+  /// or a circle with [`ButtonShape::Pill`]. Its label is not drawn, and
+  /// stays what the button is called.
+  pub fn icon_only(mut self, icon_only: bool) -> Self {
+    self.icon_only = icon_only;
+    self
+  }
+
+  /// Whether what the button started is under way: a spinner turns in the
+  /// place of its icon, or before its label, and a click, Enter and Space do
+  /// nothing until it is over. The label is the app's to change: "Saving…".
+  pub fn loading(mut self, loading: bool) -> Self {
+    self.loading = loading;
+    self
+  }
+
+  /// An element before the label, where an icon by name is not enough.
   pub fn leading(mut self, element: impl Into<Element>) -> Self {
     self.leading = Some(element.into());
     self
@@ -255,12 +352,20 @@ impl Button {
       states: self.states.clone(),
     }
     .state(ButtonState::Disabled, self.disabled)
-    .state(ButtonState::FullWidth, self.full_width);
+    .state(ButtonState::FullWidth, self.full_width)
+    .state(ButtonState::Loading, self.loading)
+    .state(ButtonState::IconOnly, self.icon_only)
+    .state(ButtonState::Pill, self.shape == ButtonShape::Pill);
     let recipe = theme.resolve::<Button>(&case, Some(&self.rules));
     let view = ButtonView {
       label: self.label,
       variant: self.variant,
       size: self.size,
+      shape: self.shape,
+      icon: self.icon,
+      trailing_icon: self.trailing_icon,
+      icon_only: self.icon_only,
+      loading: self.loading,
       disabled: self.disabled,
       full_width: self.full_width,
       leading: self.leading,
@@ -292,6 +397,15 @@ pub struct ButtonView {
   pub label: Arc<str>,
   pub variant: Name,
   pub size: Name,
+  pub shape: ButtonShape,
+  /// The name of the icon before the label, if the button has one.
+  pub icon: Option<Name>,
+  /// The name of the icon after the label, if the button has one.
+  pub trailing_icon: Option<Name>,
+  /// Whether the button is its icon alone.
+  pub icon_only: bool,
+  /// Whether what the button started is under way.
+  pub loading: bool,
   pub disabled: bool,
   pub full_width: bool,
   /// The element before the label, if the button has one.
@@ -326,12 +440,15 @@ impl ButtonView {
       .justify(Justify::Center)
       .disabled(self.disabled)
       .part(&self.part(ButtonPart::Root));
+    // A button that is loading is not pressed again: it is there, and focused if it was, and does nothing.
     #[cfg(feature = "form")]
-    if self.submit {
+    if self.submit && !self.loading {
       root = root.submit();
     }
-    for handler in &self.on_click {
-      root = root.on_click(handler.clone());
+    if !self.loading {
+      for handler in &self.on_click {
+        root = root.on_click(handler.clone());
+      }
     }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
@@ -355,16 +472,63 @@ impl ButtonView {
     part.text(&self.label).nowrap().part(&part).into()
   }
 
+  /// An icon of the theme's set as this button draws one: in the style of
+  /// `part`, at the side the recipe gives that part for the button's size.
+  fn glyph(&self, part: ButtonPart, name: Name, spin: bool) -> Element {
+    if let Some(renderer) = self.theme().part_renderer::<Button, ButtonPartRenderer>(part) {
+      return renderer(self);
+    }
+    let part = self.part(part);
+    let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
+    Row::new()
+      .part(&part)
+      .child(Icon::new(name).size(side).spin(spin).build(self.theme()))
+      .into()
+  }
+
+  /// The button's icon before its label, if it has one. A theme's renderer
+  /// for [`ButtonPart::Icon`] builds it in place of the default one.
+  pub fn icon(&self) -> Option<Element> {
+    self.icon.map(|name| self.glyph(ButtonPart::Icon, name, false))
+  }
+
+  /// The button's icon after its label, if it has one.
+  pub fn trailing_icon(&self) -> Option<Element> {
+    self.trailing_icon.map(|name| self.glyph(ButtonPart::Icon, name, false))
+  }
+
+  /// What turns while the button is loading. A theme's renderer for
+  /// [`ButtonPart::Spinner`] builds it in place of the default one.
+  pub fn spinner(&self) -> Element {
+    self.glyph(ButtonPart::Spinner, Name::new(icons::SPINNER), true)
+  }
+
   /// How the default renderer builds a button: the root, with what is before
-  /// the label, the label, and what is after it.
+  /// the label, the label, and what is after it. While the button is loading
+  /// the spinner stands where its icon was, or before the label; a button
+  /// that is an icon alone draws that icon, or the spinner, and nothing else.
   pub fn render(mut self) -> Element {
     let mut root = self.root();
+    let before = if self.loading {
+      Some(self.spinner())
+    } else {
+      self.icon()
+    };
+    if let Some(before) = before {
+      root = root.child(before);
+    }
+    if self.icon_only {
+      return root.into();
+    }
     if let Some(leading) = self.leading.take() {
       root = root.child(Row::new().part(&self.part(ButtonPart::Leading)).child(leading));
     }
     root = root.child(self.label());
     if let Some(trailing) = self.trailing.take() {
       root = root.child(Row::new().part(&self.part(ButtonPart::Trailing)).child(trailing));
+    }
+    if let Some(after) = self.trailing_icon() {
+      root = root.child(after);
     }
     root.into()
   }
@@ -374,11 +538,13 @@ impl Themed for Button {
   const NAME: &'static str = "button";
   type Renderer = ButtonRenderer;
 
-  /// The design's button (`pencil/lurq-design-system.pen`, Button): 36 tall,
-  /// padded 16, its corners `radius-md`, its label 13/500, and a fill for
-  /// each variant with its fill under the pointer.
+  /// The design's button (`pencil/lurq-design-system.pen`, Buttons): 36 tall,
+  /// padded 16, its corners `radius-md`, its label 13/500 and its icon 16,
+  /// and a fill for each variant with its fill under the pointer. Five
+  /// sizes, from 28 to 44, each with its padding, and the smallest and the
+  /// largest with a label and an icon of their own size.
   fn recipe() -> Recipe {
-    use ButtonPart::{Label, Root};
+    use ButtonPart::{Icon, Label, Root, Spinner};
     use PaletteColor::*;
     let paint = |style: super::PartStyle| {
       [
@@ -420,10 +586,33 @@ impl Themed for Button {
       .base(Label, |s| s.typography(TypographyStyle::Button))
       .pressed(Root, |s| s.veil(StatePressed))
       .focus_visible(Root, |s| s.focus_ring())
+      .base(Icon, |s| s.square(IconSize::Md))
+      .base(Spinner, |s| s.square(IconSize::Md))
+      .size(ButtonSize::Xs, Root, |s| s.height(Density::Compact).padding_x(10.0))
+      .size(ButtonSize::Xs, Label, |s| s.font_size(12.0))
       .size(ButtonSize::Sm, Root, |s| s.height(ControlSize::Sm).padding_x(12.0))
       .size(ButtonSize::Lg, Root, |s| s.height(ControlSize::Lg).padding_x(20.0))
+      .size(ButtonSize::Xl, Root, |s| s.height(Density::Comfortable).padding_x(24.0))
+      .size(ButtonSize::Xl, Label, |s| s.font_size(15.0))
       .state(ButtonState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
-      .state(ButtonState::FullWidth, Root, |s| s.width(Length::Fill));
+      .state(ButtonState::Loading, Root, |s| s.opacity(LOADING_OPACITY))
+      .state(ButtonState::FullWidth, Root, |s| s.width(Length::Fill))
+      .state(ButtonState::Pill, Root, |s| s.radius(RadiusSize::Full))
+      // An icon alone: no padding, and as wide as the button of its size is high.
+      .state(ButtonState::IconOnly, Root, |s| s.padding_x(0.0).width(ControlSize::Md));
+    // The icon of a size, and the width of a button of that size that is an icon alone.
+    let sized = |recipe: Recipe, size: ButtonSize, icon: Length, side: Length| {
+      recipe
+        .size(size, Icon, |s| s.square(icon))
+        .size(size, Spinner, |s| s.square(icon))
+        .when(Selector::new().size(size).state(ButtonState::IconOnly), Root, |s| {
+          s.width(side)
+        })
+    };
+    let recipe = sized(recipe, ButtonSize::Xs, IconSize::Sm.into(), Density::Compact.into());
+    let recipe = sized(recipe, ButtonSize::Sm, IconSize::Md.into(), ControlSize::Sm.into());
+    let recipe = sized(recipe, ButtonSize::Lg, Length::Px(18.0), ControlSize::Lg.into());
+    let recipe = sized(recipe, ButtonSize::Xl, IconSize::Lg.into(), Density::Comfortable.into());
     let recipe = filled(recipe, ButtonVariant::Primary, Primary, PrimaryForeground, PrimaryHover);
     let recipe = filled(
       recipe,

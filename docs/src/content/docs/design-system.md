@@ -1,6 +1,6 @@
 ---
 title: Design System
-description: The components of lurq::ui and what a theme styles them with. Recipes, part styles, rules by variant, size, density, breakpoint and state, renderers, a bare theme, a theme for a subtree, and Button.
+description: The components of lurq::ui and what a theme styles them with. Recipes, part styles, rules by variant, size, density, breakpoint and state, renderers, a bare theme, a theme for a subtree, Icon and Button.
 ---
 
 # Design System
@@ -226,24 +226,76 @@ let inspector = ctx.in_theme(&dense, |ctx| inspector_panel(ctx));
 - `ctx.in_theme(&theme, |ctx| ...)` is the theme of everything the closure builds and mounts. Components mounted in it keep the theme when they render again on their own.
 - `ui::current_theme()` is the theme of what is being built. Outside a render there is none, and it is a neutral one that follows nothing: build components where they are rendered.
 
+## Icon
+
+A glyph of the theme's set, by name.
+
+```rust
+use lurq::{
+  app::theme::{IconSize, PaletteColor},
+  ui::{Icon, icons},
+};
+
+Icon::new(icons::SEARCH);                             // 16 high, in the foreground of what it is in
+Icon::new(icons::SETTINGS).size(IconSize::Lg);        // a step of the theme's icon sizes
+Icon::new(icons::CHECK).color(PaletteColor::Success); // a color of its own
+Icon::new(icons::SPINNER).spin(true);                 // a spinner
+```
+
+| Builder | |
+| --- | --- |
+| `Icon::new(name)` | A constant of `ui::icons`, or a name the theme added |
+| `size(size)` | An [`IconSize`](../theme/#icon-size) (`Md`, 16, by default) or a number of logical pixels. The icon is a square of that side |
+| `color(color)` | A color in place of the foreground of what it is in |
+| `spin(bool)` | It turns once in `ui::SPIN_PERIOD`, a second |
+| `id(id)`, `key(key)` | Its id and key |
+
+- An icon names no color: it is drawn in the `.foreground(..)` of what it is in, as text is, so the icon of a button is the color of its label.
+- `ui::icons` has a constant for each of the 152 icons of lurq's font (`icons::CHEVRON_DOWN` is `"chevron-down"`), `icons::ALL` lists them with their characters, and `icons::FAMILY` is the family of the font. Every app has the font loaded, hinted: at 16 and 20 pixels its strokes land on whole pixels of the display.
+- The theme says what a name is drawn with ([`ThemeIcons`](../theme/#icons)). A theme gives a name another glyph, or adds names of its own, from a font the app loads; lurq's components name the icons they draw, so they change with it.
+- A name the theme has no glyph for takes its room and draws nothing.
+- Spinning icons are in phase: spinners that appear at different moments turn together. `ui::SPIN` is the keyframes of the turn, registered in every window; keyframe identifiers from `0xFF00` up are lurq's own.
+
+```rust
+use lurq::{app::theme::IconGlyph, ui::{Icon, icons}};
+
+// The app loads its font, and the theme draws from it.
+app.load_font(include_bytes!("brand-icons.ttf").to_vec());
+theme.set_icon(icons::SEARCH, IconGlyph::new("brand icons", '\u{F002}'));
+theme.set_icon("rocket", IconGlyph::new("brand icons", '\u{F135}'));
+Icon::new("rocket");
+```
+
 ## Button
 
 An action a press starts: a click, or Enter or Space while it is focused.
 
 ```rust
-use lurq::ui::{Button, ButtonSize, ButtonVariant};
+use lurq::ui::{Button, ButtonShape, ButtonSize, ButtonVariant, icons};
 
 Button::new("Delete")
   .variant(ButtonVariant::Destructive)
   .size(ButtonSize::Sm)
+  .icon(icons::TRASH)
   .on_click(|_| delete());
+
+// An icon alone: a square, or a circle. Its label is still what it is called.
+Button::new("Settings").variant(ButtonVariant::Ghost).icon(icons::SETTINGS).icon_only(true);
+Button::new("Add").icon(icons::PLUS).icon_only(true).shape(ButtonShape::Pill);
+
+// While what it started is under way.
+Button::new("Saving…").loading(saving.get());
 ```
 
 | Builder | |
 | --- | --- |
 | `variant(variant)` | `Primary` (the default), `Secondary`, `Outline`, `Ghost`, `Destructive`, or a variant the theme's recipe names |
-| `size(size)` | `Sm` 32, `Md` 36 (the default), `Lg` 40: the steps of the theme's control sizes; or a size the recipe names |
-| `leading(element)`, `trailing(element)` | An element before and after the label: an icon |
+| `size(size)` | `Xs` 28, `Sm` 32, `Md` 36 (the default), `Lg` 40, `Xl` 44, or a size the recipe names |
+| `shape(shape)` | `ButtonShape::Default`, the theme's radius for a control, or `Pill`, rounded all the way |
+| `icon(name)`, `trailing_icon(name)` | An [icon](#icon) before and after the label, by its name in the theme's set. It is drawn in the color of the label, at the size the button's size has for it |
+| `icon_only(bool)` | The icon alone: a square as wide as it is high, a circle with `ButtonShape::Pill`. The label is not drawn |
+| `loading(bool)` | A spinner turns in the place of the icon, or before the label, and a click, Enter and Space do nothing until it is over |
+| `leading(element)`, `trailing(element)` | Any element before and after the label, where an icon by name is not enough |
 | `disabled(bool)` | It takes no input: no press, hover or focus, and Tab passes it by. It is dimmed to the theme's `OpacityLevel::Disabled` |
 | `full_width(bool)` | As wide as what it is in |
 | `on_click(handler)` | A click, and Enter and Space while it is focused |
@@ -252,15 +304,27 @@ Button::new("Delete")
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test |
 | `id(id)`, `key(key)`, `submit()` | Its id and key; with the `form` feature, the button that submits the form it is in |
 
+| Size | Height | Padding | Label | Icon |
+| --- | --- | --- | --- | --- |
+| `Xs` | 28, `Density::Compact` | 10 | 12 | 14 |
+| `Sm` | 32, `ControlSize::Sm` | 12 | 13 | 16 |
+| `Md` | 36, `ControlSize::Md` | 16 | 13 | 16 |
+| `Lg` | 40, `ControlSize::Lg` | 20 | 13 | 18 |
+| `Xl` | 44, `Density::Comfortable` | 24 | 15 | 20 |
+
 | Part | |
 | --- | --- |
 | `ButtonPart::Root` | The button itself: its fill, size, padding, corners, focus ring |
 | `ButtonPart::Label` | Its text: 13/500 in the design |
-| `ButtonPart::Leading`, `ButtonPart::Trailing` | What is before and after the label |
+| `ButtonPart::Icon` | An icon given by name: its side (`square(..)`), and a color of its own if the part names one |
+| `ButtonPart::Spinner` | What turns while the button is loading |
+| `ButtonPart::Leading`, `ButtonPart::Trailing` | The elements put before and after the label |
 
-States a recipe styles: `ButtonState::Disabled`, `ButtonState::FullWidth`, and hovered, pressed and focus-visible.
+States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly` and `Pill`, and hovered, pressed and focus-visible.
 
-In the design a button under the pointer has its variant's hover fill (`PrimaryHover`, `SecondaryHover`, `DestructiveHover`, and `Highlight` for an outline or a ghost button), a button held down has the `StatePressed` veil over that, and one focused from the keyboard has the theme's focus ring.
+- In the design a button under the pointer has its variant's hover fill (`PrimaryHover`, `SecondaryHover`, `DestructiveHover`, and `Highlight` for an outline or a ghost button), a button held down has the `StatePressed` veil over that, and one focused from the keyboard has the theme's focus ring.
+- A loading button shows three quarters of itself. It stays where the focus is and is not pressed: a form it submits is not submitted again. Its label is the app's to change.
+- A theme's renderer for `ButtonPart::Label`, `ButtonPart::Icon` or `ButtonPart::Spinner` builds that part in place of the default one: dots that pulse where the design turns a ring.
 
 ## A Component Of Your Own
 

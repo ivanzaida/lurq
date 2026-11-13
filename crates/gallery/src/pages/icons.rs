@@ -10,11 +10,12 @@ use lurq::{
   components::{Column, Grid, Row},
   layout::{Alignment, layout_kind::Justify},
   node::Element,
+  ui::{Icon, icons},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, ICON_FAMILY, card, code, demo_card, icon, icons, muted},
+  kit::{FILL, card, code, demo_card, icon, muted},
 };
 
 pub struct Icons {
@@ -31,7 +32,7 @@ impl Icons {
       _ => 3,
     };
     let mut grid = Grid::with_columns(columns).gap(8.0).width(FILL);
-    for (name, _) in icons() {
+    for (name, _) in icons::ALL {
       grid = grid.child(
         Column::new()
           .width(FILL)
@@ -50,7 +51,7 @@ impl Icons {
       .spacing(12.0)
       .child(card().padding(12.0).child(grid))
       .child(muted(
-        &format!("{} icons, in the order of the font.", icons().len()),
+        &format!("{} icons, in the order of the font.", icons::ALL.len()),
         TypographyStyle::Body,
       ))
       .into()
@@ -102,20 +103,31 @@ impl Icons {
     .into()
   }
 
-  /// How an app draws one today.
+  /// A spinner is an icon that turns, and every one on screen turns with the others.
+  fn spinning(&self) -> Element {
+    let row = Row::new()
+      .spacing(24.0)
+      .align_items(Alignment::Center)
+      .child(Icon::new(icons::SPINNER).spin(true))
+      .child(Icon::new(icons::SPINNER_RAYS).spin(true).size(IconSize::Lg))
+      .child(Icon::new(icons::REFRESH).spin(true).size(IconSize::Xl));
+    demo_card(row, "Icon::new(icons::SPINNER).spin(true)").into()
+  }
+
+  /// How an app draws one, and how a theme changes what a name is drawn with.
   fn usage(&self) -> Element {
     let mut lines = card().padding(20.0).spacing(2.0);
     for line in [
-      "// Once, when the app starts: the font, hinted to the pixels of the display.",
-      "app.load_hinted_font(include_bytes!(\"lurq-icons.ttf\").to_vec());",
+      "use lurq::ui::{Icon, icons};",
       "",
-      "// An icon is a text in that family. It names no color, so it takes the foreground above it.",
-      "Text::styled(\"\\u{E06F}\", TextStyle {",
-      &format!("  font_family: \"{ICON_FAMILY}\".into(),"),
-      "  font_size: theme.icon_size_value(IconSize::Md),",
-      "  line_height: 1.0,",
-      "  ..TextStyle::default()",
-      "})",
+      "Icon::new(icons::SETTINGS)                            // 16 high, in the foreground of what it is in",
+      "Icon::new(icons::SETTINGS).size(IconSize::Lg)         // a step of the theme's icon sizes",
+      "Icon::new(icons::CHECK).color(PaletteColor::Success)  // a color of its own",
+      "",
+      "// A theme draws a name with another glyph, and adds names of its own, from a font the app loads.",
+      "theme.set_icon(icons::SEARCH, IconGlyph::new(\"brand icons\", '\\u{F002}'));",
+      "theme.set_icon(\"rocket\", IconGlyph::new(\"brand icons\", '\\u{F135}'));",
+      "Icon::new(\"rocket\")",
     ] {
       lines = lines.child(code(line).height(18.0));
     }
@@ -146,9 +158,14 @@ impl Component for Icons {
         self.color(),
       ),
       Section::new(
+        "Spinning",
+        "An icon that turns once a second. Spinners that appear at different moments turn together.",
+        self.spinning(),
+      ),
+      Section::new(
         "In an app",
-        "The font is in the crate's assets, and an icon is a text in it. The design system's Icon, which takes a \
-         name and a size of the scale, is not built yet: this is what it will wrap.",
+        "An icon is named, and the theme says what the name is drawn with: lurq's font, which every app has, \
+         unless the theme gives the name another glyph.",
         self.usage(),
       ),
     ];
@@ -159,8 +176,8 @@ impl Component for Icons {
         title: "Icons",
         description: "The icons of lurq's font, from the design system's board. This gallery draws its own with \
                       them: the title bar, the search, the side bar.",
-        import: None,
-        status: None,
+        import: Some("use lurq::ui::{Icon, icons};"),
+        status: Some("Stable"),
         since: Some("0.62"),
         source: file!(),
       },

@@ -249,6 +249,22 @@ fn start_time(in_phase: bool, direction: AnimationDirection, duration: Duration,
   now - Duration::from_nanos(late)
 }
 
+/// A full turn about the middle of the element: [`SPIN`](crate::ui::SPIN).
+fn spin() -> Keyframes {
+  use super::interpolate::AnimatableProperty;
+  use crate::node::transform::Decomposed;
+  Keyframes::new(crate::ui::SPIN)
+    .frame(0.0, |frame| {
+      frame.set(AnimatableProperty::Transform, Decomposed::IDENTITY);
+    })
+    .frame(1.0, |frame| {
+      frame.set(
+        AnimatableProperty::Transform,
+        Decomposed::IDENTITY.with_rotate_deg(360.0),
+      );
+    })
+}
+
 pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
@@ -267,14 +283,17 @@ impl Default for AnimationEngine {
 
 impl AnimationEngine {
   pub fn new() -> Self {
-    Self {
+    let mut engine = Self {
       active: HashMap::new(),
       keyframe_store: HashMap::new(),
       seen: HashSet::new(),
       next_change: None,
       in_phase: HashSet::new(),
       has_active: false,
-    }
+    };
+    // What lurq's own components play: a full turn, for a spinner.
+    engine.register_keyframes_in_phase(spin());
+    engine
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {

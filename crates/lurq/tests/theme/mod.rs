@@ -8,6 +8,7 @@ mod lens {
 
 mod parity {
   mod design_variables;
+  mod icon_names;
 }
 
 mod palette {

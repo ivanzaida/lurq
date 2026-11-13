@@ -22,9 +22,6 @@ use lurq::{
 
 use crate::{pages::PAGES, shell::Shell};
 
-/// lurq's icon font: the gallery draws its own icons with it.
-const ICONS: &[u8] = include_bytes!("../../lurq/assets/lurq-icons.ttf");
-
 #[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct GalleryProps {
   route: String,
@@ -111,7 +108,6 @@ fn size() -> (u32, u32) {
 
 fn main() {
   let mut app = App::new();
-  app.load_hinted_font(ICONS.to_vec());
   let mut tree = Tree::new();
   tree.set_render_engine_factory(|| Box::new(WgpuRenderEngine::new()));
   #[cfg(feature = "mcp")]

@@ -15,6 +15,7 @@ mod caret;
 mod definition;
 #[cfg(feature = "form")]
 mod form;
+mod icons;
 #[cfg(feature = "markdown")]
 mod markdown;
 mod motion;
@@ -37,6 +38,7 @@ pub use form::{
   FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
   FormTheme,
 };
+pub use icons::{IconGlyph, ThemeIcons};
 #[cfg(feature = "markdown")]
 pub use markdown::{
   MarkdownBlockStyle, MarkdownFocusRing, MarkdownInlineStyle, MarkdownLinkState, MarkdownTextStyle, ThemeMarkdown,
@@ -83,6 +85,8 @@ struct ThemeInner {
   opacities: ThemeOpacities,
   blurs: ThemeBlurs,
   focus_ring: ThemeFocusRing,
+  /// What each name of an icon is drawn with.
+  icons: ThemeIcons,
   /// What the theme says about components: recipes and renderers.
   ui: crate::ui::UiDefinition,
   /// The styles as they are used: `set_typography`'s, at `text_scale`.
@@ -173,6 +177,7 @@ impl Theme {
         opacities: definition.opacities,
         blurs: definition.blurs,
         focus_ring: definition.focus_ring,
+        icons: definition.icons,
         ui: definition.ui,
         typography: definition.typography.clone(),
         base_typography: definition.typography,
@@ -612,6 +617,32 @@ impl Theme {
 
   pub fn set_focus_ring(&self, focus_ring: ThemeFocusRing) {
     self.mutate_inner(|inner| inner.focus_ring = focus_ring);
+  }
+
+  /// What each name of an icon is drawn with: lurq's own set unless the theme says otherwise.
+  pub fn icons(&self) -> ThemeRef<'_, ThemeIcons> {
+    self.track_access();
+    ThemeRef {
+      inner: self.inner.read().unwrap(),
+      value: |inner| &inner.icons,
+    }
+  }
+
+  pub fn set_icons(&self, icons: ThemeIcons) {
+    self.mutate_inner(|inner| inner.icons = icons);
+  }
+
+  /// The glyph the theme draws the icon `name` with, if it has one.
+  pub fn icon(&self, name: impl Into<RoleName>) -> Option<IconGlyph> {
+    self.track_access();
+    self.inner.read().unwrap().icons.get(name).cloned()
+  }
+
+  /// Gives the icon `name` a glyph: a new icon, or another drawing of one there is. Every
+  /// [`Icon`](crate::ui::Icon) of that name on screen is drawn again.
+  pub fn set_icon(&self, name: impl Into<RoleName>, glyph: IconGlyph) {
+    let name = name.into();
+    self.mutate_inner(|inner| inner.icons.set(name, glyph));
   }
 
   pub fn typography(&self) -> ThemeRef<'_, ThemeTypography> {

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use super::FormTheme;
 use super::{
   Density, ThemeBlurs, ThemeBorderSizes, ThemeBreakpoints, ThemeCaret, ThemeControlSizes, ThemeDensities,
-  ThemeDurations, ThemeEasings, ThemeFocusRing, ThemeIconSizes, ThemeInner, ThemeOpacities, ThemePalette, ThemeRadii,
-  ThemeShadows, ThemeSpacing, ThemeTypography,
+  ThemeDurations, ThemeEasings, ThemeFocusRing, ThemeIconSizes, ThemeIcons, ThemeInner, ThemeOpacities, ThemePalette,
+  ThemeRadii, ThemeShadows, ThemeSpacing, ThemeTypography,
 };
 #[cfg(feature = "markdown")]
 use super::{ThemeMarkdown, ThemeTextMarks};
@@ -61,6 +61,8 @@ pub struct ThemeDefinition {
   pub opacities: ThemeOpacities,
   pub blurs: ThemeBlurs,
   pub focus_ring: ThemeFocusRing,
+  /// What each name of an icon is drawn with.
+  pub icons: ThemeIcons,
   /// What the theme says about components: recipes in place of the design's,
   /// rules laid over them, renderers.
   pub ui: crate::ui::UiDefinition,
@@ -96,6 +98,7 @@ impl ThemeDefinition {
       opacities: ThemeOpacities::default(),
       blurs: ThemeBlurs::default(),
       focus_ring: ThemeFocusRing::default(),
+      icons: ThemeIcons::lurq(),
       ui: crate::ui::UiDefinition::new(),
       #[cfg(feature = "markdown")]
       markdown: ThemeMarkdown::default(),
@@ -171,6 +174,7 @@ impl ThemeInner {
     self.opacities = definition.opacities;
     self.blurs = definition.blurs;
     self.focus_ring = definition.focus_ring;
+    self.icons = definition.icons;
     self.ui = definition.ui;
     #[cfg(feature = "markdown")]
     {
@@ -209,6 +213,7 @@ impl ThemeInner {
       opacities: self.opacities.clone(),
       blurs: self.blurs.clone(),
       focus_ring: self.focus_ring.clone(),
+      icons: self.icons.clone(),
       ui: self.ui.clone(),
       #[cfg(feature = "markdown")]
       markdown: self.markdown.clone(),

@@ -16,13 +16,17 @@
 //! what renders it renders again when the theme changes.
 
 mod button;
+mod icon;
+pub mod icons;
 mod part_style;
 mod recipe;
 pub(crate) mod theme;
 
 pub use button::{
-  Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonSize, ButtonState, ButtonVariant, ButtonView,
+  Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
+  ButtonView,
 };
+pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use part_style::{
   FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
 };

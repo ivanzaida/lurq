@@ -276,7 +276,7 @@ fn page_actions(source: &'static str) -> Row {
     Button::new(label)
       .variant(ButtonVariant::Outline)
       .size(ButtonSize::Sm)
-      .leading(icon(glyph, 16.0))
+      .icon(glyph)
       .on_click(move |_| open(&file))
   };
   let file = root.join(source);

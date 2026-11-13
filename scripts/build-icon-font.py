@@ -8,6 +8,7 @@ Reads:
 Writes:
   crates/lurq/assets/lurq-icons.ttf  the hinted font the toolkit embeds
   design/icons/codepoints.json       only to append a name it has not seen (from U+E000 up)
+  crates/lurq/src/ui/icons.rs        the names and characters of the font, for `lurq::ui::Icon`
   design/icons/svg/<name>.svg        with --from-board: the glyphs that are new or redrawn
 
 Run from the repository root (needs fontTools):
@@ -70,6 +71,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ROOT / "design" / "icons" / "svg"
 CODEPOINTS = ROOT / "design" / "icons" / "codepoints.json"
 FONT = ROOT / "crates" / "lurq" / "assets" / "lurq-icons.ttf"
+NAMES = ROOT / "crates" / "lurq" / "src" / "ui" / "icons.rs"
 BOARD = ROOT / "pencil" / "lurq-design-system.pen"
 COMPONENT = "Icon/"  # a glyph is the reusable component named Icon/<name>
 GLYPH_NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
@@ -644,6 +646,29 @@ def read_codepoints(names):
     return codepoints
 
 
+def write_names(codepoints):
+    """The Rust module that names the icons: a constant for each, and the table the theme starts from."""
+    names = sorted(codepoints, key=lambda name: codepoints[name])
+    lines = [
+        "//! The icons of lurq's font by name: what [`Icon`](super::Icon) draws in a theme that",
+        "//! names no icons of its own.",
+        "//!",
+        "//! Written by `scripts/build-icon-font.py` from `design/icons/codepoints.json`. Do not",
+        "//! edit it by hand: add the icon to the board and build the font.",
+        "",
+        "/// The family of lurq's icon font, which every app has loaded.",
+        'pub const FAMILY: &str = "lurq icons";',
+        "",
+    ]
+    for name in names:
+        lines.append('pub const %s: &str = "%s";' % (name.upper().replace("-", "_"), name))
+    lines += ["", "/// Every icon of the font with its character, in the order of the font.", "pub const ALL: &[(&str, char)] = &["]
+    for name in names:
+        lines.append("  (%s, '\\u{%04X}')," % (name.upper().replace("-", "_"), codepoints[name]))
+    lines += ["];", ""]
+    NAMES.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+
+
 def build(sources, codepoints, hinted):
     names = sorted(sources, key=lambda name: codepoints[name])
     glyphs = {".notdef": TTGlyphPen(None).glyph()}
@@ -709,6 +734,8 @@ def main():
     FONT.parent.mkdir(parents=True, exist_ok=True)
     build(sources, codepoints, hinted=True).save(FONT)
     print(f"Saved {FONT.relative_to(ROOT).as_posix()}: {len(sources)} glyphs, {FONT.stat().st_size} bytes.")
+    write_names(codepoints)
+    print(f"Saved {NAMES.relative_to(ROOT).as_posix()}: the names of the glyphs.")
     if args.unhinted:
         args.unhinted.parent.mkdir(parents=True, exist_ok=True)
         build(sources, codepoints, hinted=False).save(args.unhinted)

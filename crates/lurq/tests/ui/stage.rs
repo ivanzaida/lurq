@@ -181,3 +181,25 @@ impl Stage {
     self.pass();
   }
 }
+
+impl Stage {
+  /// The quad of the text `content` as painted.
+  pub fn text_quad(&self, content: &str) -> Option<Quad> {
+    self
+      .quads()
+      .into_iter()
+      .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == content))
+  }
+
+  /// Whether the text `content` is painted.
+  pub fn paints(&self, content: &str) -> bool {
+    self.text_quad(content).is_some()
+  }
+
+  /// Paints once more, `later` after the last pass: for what moves on its own.
+  pub fn pass_after(&mut self, later: Duration) {
+    self.tree.set_animation_clock(Some(self.now + later));
+    self.tree.request_redraw();
+    self.tree.pass(&mut self.app, &TestSurface);
+  }
+}

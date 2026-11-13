@@ -4,11 +4,11 @@
 //! Everything here takes its colors, sizes and type from the theme, so the
 //! gallery is light or dark with it.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use lurq::{
   app::theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, TypographyStyle},
-  components::{Column, Popup, Row, Text},
+  components::{Column, Popup, Rect, Row, Text},
   core::{ElementRef, Signal},
   layout::{
     Alignment,
@@ -16,6 +16,7 @@ use lurq::{
     text_style::{FontWeight, TextStyle},
   },
   node::{CursorIcon, Element, border::Border, dimension::Dimension},
+  ui::Icon,
 };
 
 pub const FILL: Dimension = Dimension::Pct(100.0);
@@ -61,63 +62,9 @@ pub fn muted(content: &str, style: TypographyStyle) -> Text {
   Text::new(content).variant(style).color(PaletteColor::MutedForeground)
 }
 
-/// The family of lurq's icon font, loaded when the gallery starts.
-pub const ICON_FAMILY: &str = "lurq icons";
-
-/// The icons of lurq's font by name, in the order of the font.
-pub fn icons() -> &'static [(String, char)] {
-  static ICONS: OnceLock<Vec<(String, char)>> = OnceLock::new();
-  ICONS.get_or_init(|| {
-    // A line of the table is `"name": "E000",`.
-    include_str!("../../../design/icons/codepoints.json")
-      .lines()
-      .filter_map(|line| {
-        let mut quoted = line.split('"');
-        let (name, code) = (quoted.nth(1)?, quoted.nth(1)?);
-        Some((name.to_owned(), char::from_u32(u32::from_str_radix(code, 16).ok()?)?))
-      })
-      .collect()
-  })
-}
-
-/// An icon of lurq's font, `size` high. It names no color, so it takes the
-/// foreground of what it is in.
-///
-/// The design system's `Icon` takes its place.
-pub fn icon(name: &str, size: f32) -> Text {
-  let glyph = icons()
-    .iter()
-    .find_map(|(known, glyph)| (known == name).then_some(*glyph))
-    .unwrap_or_else(|| panic!("lurq's icon font has no icon {name:?}"));
-  Text::styled(
-    &glyph.to_string(),
-    TextStyle {
-      font_family: ICON_FAMILY.into(),
-      font_size: size,
-      line_height: 1.0,
-      ..TextStyle::default()
-    },
-  )
-}
-
-/// A button that is an icon, with no fill until the pointer is on it: the settings.
-pub fn icon_button(name: &str) -> Row {
-  let ring = lurq::ui::current_theme().focus_ring().outline();
-  Row::new()
-    .size(36.0, 36.0)
-    .align_items(Alignment::Center)
-    .justify(Justify::Center)
-    .rounded(RadiusSize::Md)
-    .cursor(CursorIcon::Pointer)
-    .foreground(PaletteColor::Foreground)
-    .hovered(|style| {
-      style
-        .background(PaletteColor::Highlight)
-        .foreground(PaletteColor::HighlightForeground)
-    })
-    .focus_visible(|style| style.outline(ring))
-    .tab_index(0)
-    .child(icon(name, 16.0))
+/// An icon of the theme's set, `size` high.
+pub fn icon(name: &str, size: f32) -> Icon {
+  Icon::new(name).size(size)
 }
 
 /// A key or a chord of keys, as it is on a keyboard: `Ctrl K`.
@@ -214,7 +161,12 @@ pub fn select<T: Clone + PartialEq + Send + Sync + 'static>(
           open.set(false);
         })
         .child(text(name, 14.0, FontWeight::Normal))
-        .child(icon("check", 16.0).opacity(if on { 1.0 } else { 0.0 })),
+        // The mark of the one that is chosen, and its room beside the others.
+        .child(if on {
+          Element::from(icon("check", 16.0))
+        } else {
+          Rect::new(16.0, 16.0).into()
+        }),
     );
   }
   // The list is beside the trigger, not in it: a click on a row of it is not a click on the trigger.

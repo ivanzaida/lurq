@@ -6,10 +6,10 @@ use std::sync::{
 };
 
 use lurq::{
-  app::theme::{OpacityLevel, PaletteColor, ThemePalette},
+  app::theme::{IconGlyph, OpacityLevel, PaletteColor, ThemePalette},
   components::{Column, Row},
   node::color::Color,
-  ui::{Button, ButtonPart, ButtonSize, ButtonState, ButtonVariant, Case, Interaction, Opacity},
+  ui::{Button, ButtonPart, ButtonShape, ButtonSize, ButtonState, ButtonVariant, Case, Interaction, Opacity, icons},
 };
 
 use super::stage::Stage;
@@ -66,21 +66,211 @@ fn each_variant_has_its_fill_and_its_ink() {
 }
 
 #[test]
-fn each_size_is_a_step_of_the_control_scale() {
+fn each_size_has_its_height_its_padding_and_its_label() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .spacing(8.0)
+      .child(Button::new("Tiny").size(ButtonSize::Xs).id("xs"))
       .child(Button::new("Small").size(ButtonSize::Sm).id("sm"))
       .child(Button::new("Medium").size(ButtonSize::Md).id("md"))
       .child(Button::new("Large").size(ButtonSize::Lg).id("lg"))
+      .child(Button::new("Huge").size(ButtonSize::Xl).id("xl"))
       .into()
   });
-  let heights = ["sm", "md", "lg"].map(|id| stage.bounds(id).3);
-  assert_eq!(heights, [32.0, 36.0, 40.0]);
-  assert!(
-    stage.bounds("sm").2 < stage.bounds("lg").2,
-    "a larger button is padded more"
+  let heights = ["xs", "sm", "md", "lg", "xl"].map(|id| stage.bounds(id).3);
+  assert_eq!(heights, [28.0, 32.0, 36.0, 40.0, 44.0]);
+  let labels = ["Tiny", "Small", "Medium", "Large", "Huge"].map(|label| stage.text(label).1);
+  assert_eq!(labels, [12.0, 13.0, 13.0, 13.0, 15.0]);
+  // What is beside the label: the padding of the size, on each side.
+  let padding = |stage: &mut Stage, id: &str, label: &str| {
+    let width = stage.bounds(id).2;
+    let text = stage.text_quad(label).unwrap().width;
+    ((width - text) / 2.0).round()
+  };
+  assert_eq!(padding(&mut stage, "xs", "Tiny"), 10.0);
+  assert_eq!(padding(&mut stage, "sm", "Small"), 12.0);
+  assert_eq!(padding(&mut stage, "md", "Medium"), 16.0);
+  assert_eq!(padding(&mut stage, "lg", "Large"), 20.0);
+  assert_eq!(padding(&mut stage, "xl", "Huge"), 24.0);
+}
+
+/// The character lurq's font has for an icon.
+fn glyph(name: &str) -> String {
+  icons::ALL
+    .iter()
+    .find_map(|(known, glyph)| (*known == name).then(|| glyph.to_string()))
+    .unwrap_or_else(|| panic!("lurq's font has no icon {name:?}"))
+}
+
+#[test]
+fn an_icon_is_drawn_before_the_label_in_its_color_at_the_size_of_the_button() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .spacing(8.0)
+      .child(Button::new("Tiny").size(ButtonSize::Xs).icon(icons::PLUS).id("xs"))
+      .child(Button::new("New window").icon(icons::WINDOW).id("md"))
+      .child(Button::new("Large").size(ButtonSize::Lg).icon(icons::DOWNLOAD).id("lg"))
+      .child(Button::new("Huge").size(ButtonSize::Xl).icon(icons::TRASH).id("xl"))
+      .child(Button::new("Next").trailing_icon(icons::ARROW_RIGHT).id("next"))
+      .into()
+  });
+  let sides = [icons::PLUS, icons::WINDOW, icons::DOWNLOAD, icons::TRASH].map(|name| stage.text(&glyph(name)).1);
+  assert_eq!(sides, [14.0, 16.0, 18.0, 20.0], "the icon of each size");
+  let (ink, _) = stage.text(&glyph(icons::WINDOW));
+  assert_eq!(ink, light(PaletteColor::PrimaryForeground), "the color of the label");
+  assert_eq!(stage.font_of(&glyph(icons::WINDOW)), icons::FAMILY);
+
+  let icon = stage.text_quad(&glyph(icons::WINDOW)).unwrap();
+  let label = stage.text_quad("New window").unwrap();
+  assert_eq!(
+    label.x - (icon.x + icon.width),
+    8.0,
+    "the gap between the icon and the label"
   );
+  assert_eq!(icon.x - stage.bounds("md").0, 16.0, "the padding before the icon");
+
+  let arrow = stage.text_quad(&glyph(icons::ARROW_RIGHT)).unwrap();
+  let next = stage.text_quad("Next").unwrap();
+  assert_eq!(
+    arrow.x - (next.x + next.width),
+    8.0,
+    "a trailing icon is after the label"
+  );
+}
+
+#[test]
+fn a_button_that_is_an_icon_alone_is_a_square_of_its_size() {
+  let mut stage = Stage::new(|_| {
+    let only = |size: ButtonSize, id: &'static str| {
+      Button::new("Settings")
+        .variant(ButtonVariant::Outline)
+        .size(size)
+        .icon(icons::SETTINGS)
+        .icon_only(true)
+        .id(id)
+    };
+    Row::new()
+      .spacing(8.0)
+      .child(only(ButtonSize::Xs, "xs"))
+      .child(only(ButtonSize::Sm, "sm"))
+      .child(only(ButtonSize::Md, "md"))
+      .child(only(ButtonSize::Lg, "lg"))
+      .child(only(ButtonSize::Xl, "xl"))
+      .into()
+  });
+  for (id, side) in [("xs", 28.0), ("sm", 32.0), ("md", 36.0), ("lg", 40.0), ("xl", 44.0)] {
+    let (x, y, width, height) = stage.bounds(id);
+    assert_eq!((width, height), (side, side), "{id} is a square");
+    let icon = stage
+      .quads()
+      .into_iter()
+      .find(|quad| quad.x >= x && quad.x < x + width && quad.y >= y && quad.y < y + height && is_text(quad))
+      .unwrap_or_else(|| panic!("{id} draws its icon"));
+    assert_eq!(
+      (icon.x + icon.width / 2.0, icon.y + icon.height / 2.0),
+      (x + side / 2.0, y + side / 2.0),
+      "the icon is in the middle of {id}"
+    );
+  }
+  assert!(!stage.paints("Settings"), "its label is not drawn");
+}
+
+fn is_text(quad: &lurq::layout::quad::Quad) -> bool {
+  matches!(quad.content, lurq::layout::quad::QuadContent::Text { .. })
+}
+
+#[test]
+fn a_pill_is_rounded_all_the_way_and_an_icon_alone_in_it_is_a_circle() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .spacing(8.0)
+      .child(Button::new("Pill").shape(ButtonShape::Pill).id("pill"))
+      .child(
+        Button::new("Add")
+          .variant(ButtonVariant::Secondary)
+          .icon(icons::PLUS)
+          .icon_only(true)
+          .shape(ButtonShape::Pill)
+          .id("round"),
+      )
+      .into()
+  });
+  let radius = |stage: &mut Stage, id: &str| stage.fill(id).unwrap().border_radius.unwrap().top_left;
+  assert_eq!(radius(&mut stage, "pill"), 999.0, "the theme's full radius");
+  assert_eq!(radius(&mut stage, "round"), 999.0);
+  let (_, _, width, height) = stage.bounds("round");
+  assert_eq!((width, height), (36.0, 36.0));
+}
+
+#[test]
+fn a_loading_button_turns_a_spinner_in_the_place_of_its_icon_and_is_not_pressed() {
+  let presses = Arc::new(AtomicUsize::new(0));
+  let counted = presses.clone();
+  let mut stage = Stage::new(move |_| {
+    let counted = counted.clone();
+    Column::new()
+      .spacing(8.0)
+      .child(
+        Button::new("Saving…")
+          .icon(icons::DOWNLOAD)
+          .loading(true)
+          .id("saving")
+          .on_click(move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+          }),
+      )
+      .child(Button::new("Wait").loading(true).id("plain"))
+      .into()
+  });
+  assert!(
+    !stage.paints(&glyph(icons::DOWNLOAD)),
+    "the spinner stands where the icon was"
+  );
+  let spinners: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if *text == glyph(icons::SPINNER)))
+    .collect();
+  assert_eq!(spinners.len(), 2, "a button with no icon gets one before its label");
+  assert!(stage.paints("Saving…"), "the label stays");
+
+  // It turns: a quarter of its period on, it is drawn turned about its middle.
+  stage.pass_after(lurq::ui::SPIN_PERIOD / 4);
+  let turned = stage.text_quad(&glyph(icons::SPINNER)).unwrap();
+  assert!(!turned.transform.is_identity(), "the spinner is turning");
+
+  stage.click("saving");
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(presses.load(Ordering::SeqCst), 0, "it is not pressed while it loads");
+
+  let theme = stage.app.theme().clone();
+  let case = Case::new()
+    .variant(ButtonVariant::Primary)
+    .size(ButtonSize::Md)
+    .state(ButtonState::Loading, true);
+  let root = theme.resolve::<Button>(&case, None).part(ButtonPart::Root).rest();
+  assert_eq!(root.opacity, Some(Opacity::Value(0.75)), "the design's: three quarters");
+}
+
+#[test]
+fn a_theme_gives_a_buttons_icon_another_glyph_and_its_part_another_size() {
+  let app = lurq::app::App::new();
+  app.theme().set_icon(icons::PLUS, IconGlyph::new("brand icons", 'A'));
+  app.theme().patch_recipe::<Button>(|rules| {
+    rules.base(ButtonPart::Icon, |s| {
+      s.square(24.0).foreground(Color::new(200, 30, 30, 255))
+    })
+  });
+  let stage = Stage::in_app(app, |_| Row::new().child(Button::new("Add").icon(icons::PLUS)).into());
+  let (ink, size) = stage.text("A");
+  assert_eq!(size, 24.0);
+  assert_eq!(
+    ink,
+    Color::new(200, 30, 30, 255),
+    "the part's own color over the label's"
+  );
+  assert_eq!(stage.font_of("A"), "brand icons");
 }
 
 #[test]

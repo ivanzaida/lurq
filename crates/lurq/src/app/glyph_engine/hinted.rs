@@ -162,6 +162,9 @@ mod tests {
     if hinted {
       engine.load_hinted_font(ICONS.to_vec());
     } else {
+      // An engine has lurq's icons hinted from the start. This one forgets that, and has the font as any
+      // other is: what a font an app loads with `load_font` is drawn as.
+      engine.hinted_fonts = super::HintedFonts::default();
       engine.load_font(ICONS.to_vec());
     }
     let is_loaded = |face: &cosmic_text::fontdb::FaceInfo| face.families.iter().any(|(name, _)| name == "lurq icons");

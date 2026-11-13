@@ -59,6 +59,8 @@ use crate::{
 };
 
 const GLYPH_LAYOUT_CACHE_LIMIT: usize = 1024;
+/// lurq's icon font (`scripts/build-icon-font.py`): the family `ui::icons::FAMILY`.
+static LURQ_ICONS: &[u8] = include_bytes!("../../assets/lurq-icons.ttf");
 const PLAIN_BUFFER_CACHE_LIMIT: usize = 64;
 // Keep logical and physical document layouts together at fractional display scales.
 const PLAIN_BUFFER_CACHE_BYTES: usize = 48 * 1024 * 1024;
@@ -527,7 +529,7 @@ impl GlyphEngine {
       FontSystem::new_with_locale_and_db_and_fallback(locale, db, ios_fallback::IosFallback)
     };
 
-    Self {
+    let mut engine = Self {
       font_system,
       #[cfg(feature = "canvas")]
       canvas_text: None,
@@ -561,7 +563,12 @@ impl GlyphEngine {
       glyph_misses: 0,
       #[cfg(feature = "perf_profile")]
       profile: GlyphEngineProfile::default(),
-    }
+    };
+    // lurq's own icons, which its components draw: every app has the font, hinted.
+    let icons = cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(LURQ_ICONS));
+    let faces = engine.font_system.db_mut().load_font_source(icons);
+    engine.hinted_fonts.add(faces);
+    engine
   }
 
   /// Does ahead of time what the first text drawn with `style` makes

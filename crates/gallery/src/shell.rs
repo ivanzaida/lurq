@@ -20,10 +20,11 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
+  ui::{Button, ButtonVariant, icons},
 };
 
 use crate::{
-  kit::{FILL, badge, icon, icon_button, keys, mono, overline, popover, row_height, segmented, select, text},
+  kit::{FILL, badge, icon, keys, mono, overline, popover, row_height, segmented, select, text},
   pages::{Group, PAGES, page_at},
 };
 
@@ -320,12 +321,17 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
     },
   )
   .width(150.0);
-  let gear = icon_button("settings")
-    .ref_element(state.settings_anchor.clone())
-    .on_click({
-      let open = state.settings_open.clone();
-      move |_| open.update(|open| *open = !*open)
-    });
+  // The popup hangs from what the button is in: a component takes no reference to itself.
+  let gear = Row::new().ref_element(state.settings_anchor.clone()).child(
+    Button::new("Settings")
+      .variant(ButtonVariant::Ghost)
+      .icon(icons::SETTINGS)
+      .icon_only(true)
+      .on_click({
+        let open = state.settings_open.clone();
+        move |_| open.update(|open| *open = !*open)
+      }),
+  );
   let controls = Row::new()
     .spacing(12.0)
     .align_items(Alignment::Center)
