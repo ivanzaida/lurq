@@ -5943,8 +5943,16 @@ impl Tree {
       return false;
     }
 
-    // Auto-scroll from the innermost scroll container outward, preserving
-    // any delta an edge-clamped child could not consume.
+    // Auto-scroll from the innermost scroll container outward. A container already at its end on an axis
+    // moves nothing and leaves that axis of the event whole to the container around it.
+    //
+    // A wheel or a trackpad moves one container on each axis: the innermost that moves takes that axis of
+    // the event whole, and what it could not take, reaching its end, is dropped. So a list scrolled to its
+    // end inside a page does not take the page along in the same event; the page moves with the next one.
+    //
+    // A finger's scroll has its own targets, the gesture's taker and what is inside it
+    // (`touch_scroll_begin`), and what one of them could not take goes on to the next.
+    let one_container_per_axis = !self.touch_scroll_latched;
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
     let mut pending_scroll_reach = Vec::new();
@@ -5977,11 +5985,21 @@ impl Tree {
           previous_max_scroll_y,
         ));
         if dx != 0.0 {
-          horizontal_taken |= overflow_dx != dx;
-          remaining_dx = overflow_dx;
+          let moved = overflow_dx != dx;
+          horizontal_taken |= moved;
+          remaining_dx = if one_container_per_axis && moved {
+            0.0
+          } else {
+            overflow_dx
+          };
         }
         if dy != 0.0 {
-          remaining_dy = overflow_dy;
+          let moved = overflow_dy != dy;
+          remaining_dy = if one_container_per_axis && moved {
+            0.0
+          } else {
+            overflow_dy
+          };
         }
         if remaining_dx == 0.0 && remaining_dy == 0.0 {
           break;

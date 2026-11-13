@@ -5,6 +5,7 @@ use crate::{
     BackgroundColor, BoxShadowValue, Node, SpacingValue, TextColor,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     border_size_value::BorderSizeValue,
+    outline::Outline,
     padding::Padding,
     radius_value::RadiusValue,
     select_icon::{SelectCheckmarkPosition, SelectIcon},
@@ -21,6 +22,8 @@ pub struct SelectPartStyle {
   pub(crate) border: Option<Borders>,
   pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) box_shadow: Option<BoxShadowValue>,
+  /// A ring around the part, as a node's outline is: the trigger's focus ring. Painted on the trigger only.
+  pub(crate) outline: Option<Outline>,
   pub(crate) padding: Option<Padding>,
   pub(crate) text: Option<TextStyle>,
   pub(crate) typography: Option<TypographyStyle>,
@@ -102,6 +105,15 @@ impl SelectPartStyle {
     self
   }
 
+  /// A ring around the part, painted over the select: the line, its color
+  /// and its distance from the part's edge, as a node's outline has them. A
+  /// negative offset draws it inside the edge. The trigger paints it; the
+  /// menu and the option rows do not.
+  pub fn outline(mut self, outline: Outline) -> Self {
+    self.outline = Some(outline);
+    self
+  }
+
   /// Opacity of the part and its content, `0.0..=1.0`. Applies to the menu
   /// and option rows; the trigger ignores it.
   pub fn opacity(mut self, opacity: f32) -> Self {
@@ -134,6 +146,9 @@ impl SelectPartStyle {
     }
     if other.box_shadow.is_some() {
       self.box_shadow = other.box_shadow.clone();
+    }
+    if other.outline.is_some() {
+      self.outline = other.outline.clone();
     }
     if other.text.is_some() {
       self.text = other.text.clone();

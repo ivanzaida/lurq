@@ -491,6 +491,27 @@ VirtualizedList::new(ctx, entries)
   .mount_keyed::<EntryRow, _, _, _>(|entry| entry.id, Clone::clone)
 ```
 
+### Scroll containers inside one another
+
+A wheel or a trackpad scrolls one container on each axis: the innermost one under the pointer that scrolls along that
+axis and can still move the way the event goes. It takes that axis of the event whole. What it cannot take, reaching its
+end within the event, is dropped and not handed to the container around it: one notch of the wheel over a list with
+30 px left to scroll moves the list those 30 px and leaves the page where it is.
+
+A container already at its end takes nothing, and the event goes to the container around it. So the next notch the same
+way scrolls the page, and one the other way scrolls the list again, which has room that way. A trackpad's swipe is many
+events: those that come after the list reached its end scroll the page.
+
+The two axes are decided separately. Over a strip that scrolls sideways inside a page that scrolls down, the sideways
+part of a slanted event scrolls the strip and its vertical part the page; a `ScrollBoth` list at its bottom hands on the
+vertical part alone and keeps scrolling sideways. A container that scrolls sideways only takes no part of a mostly
+vertical event, as a [code block](../resources-media/#code-blocks) does.
+
+`on_scroll_reach_top` and `on_scroll_reach_bottom` run on the container that moved.
+
+A finger's scroll is a gesture with one container for all of it, chosen where the finger lands: see
+[iOS](../ios/#scrolling).
+
 ### Sticky elements
 
 `.sticky(Sticky::top(0.0))` holds an element at an edge of the scroll container it is in while that scrolls, as CSS

@@ -2,11 +2,15 @@
 
 mod button;
 mod checkbox;
+mod dialog;
 mod family;
 mod icon;
 mod radio;
+mod select;
 mod slider;
 mod input;
+mod popover;
+mod menu;
 mod stage;
 mod switch;
 mod textarea;
