@@ -68,6 +68,12 @@ other sessions build its siblings. Read this first, then the reference implement
 - Code, comments, the handoff file and the commit message are in English. Comments say what the code cannot
   say for itself, in the plain manner of the files around them.
 
+## "Not done" is work, not a record
+
+What you leave undone is done by whoever merges the batch, before the batch counts as merged: nothing is kept as a known gap. So build everything the board draws for your component and everything a person would expect of it (the keyboard, a disabled state, a group of it where the board lays several out as one). Put under `## Not done` only what you could not build, each with what stands in the way and the smallest change that would remove it: "needs the engine to ..." is a task for the merge. Other components of the board that your brief told you to leave out are not "not done": do not list them.
+
+The engine has what earlier batches needed: `FocusGroup` (`docs/src/content/docs/focus-navigation.md`, Focus Groups) for arrow keys within a group, with Tab stopping in it once; use it wherever the board has several things that are one choice or one bar.
+
 ## A component that must keep something
 
 A builder has no `Ctx`. What is open, what is chosen, what is typed is the app's: a `Signal` or an
@@ -101,8 +107,8 @@ with the recipe and the parts of any other; say in the handoff why a builder wou
   states (`SwitchView::thumb`).
 - `Length::Fill` as a height in a parent whose height is its content's is nothing: use
   `align_items(Stretch)`.
-- A key event reaches every node, focused or not: a component cannot yet tell that the focus is inside it,
-  so arrow keys within a group are not built. Say so in the handoff if the board implies them.
+- A key event reaches every node, focused or not, so a component does not handle the arrow keys itself:
+  `.focus_group(FocusGroup::..)` on what holds its items makes the runtime move the focus within it.
 - A builder has no `Ctx`: no signals, no element refs that outlive a render, no focus requests. State is the
   app's, given by `on(bool)` / a `Signal` and told back by a handler, as `Switch` and `ToggleGroup` do.
 - A press of the pointer reaches a node with `on_click`; `describe("a11y_role", ..)`, `"a11y_name"` and
