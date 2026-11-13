@@ -76,6 +76,8 @@ struct ThemeInner {
   control_sizes: ThemeControlSizes,
   icon_sizes: ThemeIconSizes,
   densities: ThemeDensities,
+  /// The density the theme is at.
+  density: Density,
   durations: ThemeDurations,
   easings: ThemeEasings,
   opacities: ThemeOpacities,
@@ -165,6 +167,7 @@ impl Theme {
         control_sizes: definition.control_sizes,
         icon_sizes: definition.icon_sizes,
         densities: definition.densities,
+        density: definition.density,
         durations: definition.durations,
         easings: definition.easings,
         opacities: definition.opacities,
@@ -498,6 +501,25 @@ impl Theme {
 
   pub fn set_density_value(&self, role: impl Into<Density>, value: f32) {
     self.mutate_inner(|inner| inner.densities.set(role, value));
+  }
+
+  /// The density the theme is at: [`Density::Default`] unless set. The rules
+  /// of a recipe for a density ([`Recipe::density`](crate::ui::Recipe::density))
+  /// hold while the theme is at it, and what draws rows of its own reads it:
+  /// `theme.density_value(theme.density())` is the height of a row.
+  pub fn density(&self) -> Density {
+    self.track_access();
+    self.inner.read().unwrap().density
+  }
+
+  /// Puts the theme at a density: a tool with much to show at
+  /// [`Density::Compact`], an app for a finger at [`Density::Touch`].
+  /// Everything drawn from the theme is built again.
+  pub fn set_density(&self, density: impl Into<Density>) {
+    let density = density.into();
+    if self.inner.read().unwrap().density != density {
+      self.mutate_inner(|inner| inner.density = density);
+    }
   }
 
   pub fn durations(&self) -> ThemeRef<'_, ThemeDurations> {

@@ -201,6 +201,7 @@ impl Theme {
   pub fn resolve<C: Themed>(&self, case: &Case, instance: Option<&Recipe>) -> ResolvedRecipe {
     self.track_access();
     let layers = self.with_ui(|ui| ui.layers::<C>());
+    let case = &case.in_theme(self);
     let mut recipes: Vec<&Recipe> = layers.iter().map(|layer| &**layer).collect();
     if let Some(instance) = instance.filter(|rules| !rules.is_empty()) {
       recipes.push(instance);

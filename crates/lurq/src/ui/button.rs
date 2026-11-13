@@ -250,6 +250,7 @@ impl Button {
     let case = Case {
       variant: Some(self.variant),
       size: Some(self.size),
+      density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }

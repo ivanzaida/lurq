@@ -589,6 +589,20 @@ How much room a row of a list, a menu or a table takes. Roles are named by `Dens
 | `Comfortable` | `comfortable` | `44.0` | Room to breathe |
 | `Touch` | `touch` | `48.0` | A row a finger can press |
 
+A theme is at one density: `Default` unless set. `theme.set_density(Density::Compact)` puts it at another, and everything drawn from the theme is built again; `theme.density()` reads it, and it is part of a `ThemeDefinition` (`density`).
+
+```rust
+use lurq::app::theme::Density;
+
+theme.set_density(Density::Compact);
+// The height of a row of the app's own list, at the density the theme is at.
+let row = theme.density_value(theme.density());
+```
+
+- A recipe has rules for a density, which hold while the theme is at it: see [Density](../design-system/#density).
+- The density is a setting of the theme, not of the window: a theme for a subtree ([`Ctx::in_theme`](../design-system/#one-instance-one-place-one-subtree)) can be at another, for a dense inspector beside a roomy page.
+- `Button` does not change with the density: a control has its sizes (`ControlSize`). A theme that wants its controls to follow the density says so in rules.
+
 ## Motion
 
 How long a change takes and how it moves. Durations are named by `MotionDuration` and stored on `ThemeDurations` as `std::time::Duration`; easings are named by `MotionEasing` and stored on `ThemeEasings` as [`Easing`](../animation-transforms/).

@@ -14,6 +14,7 @@ use lurq::{
     ChromeBorderPolicy, ChromeTitleBar, Column, Rect, ResizeHandlePlacement, WindowChrome, WindowChromeMode,
     WindowControlContent, WindowControlKind, WindowControlStyle, WindowControls,
   },
+  layout::quad::QuadContent,
   node::{CursorIcon, Element, TextColor, color::Color, dimension::Dimension},
 };
 
@@ -46,6 +47,7 @@ fn active() -> Color {
 enum Controls {
   Default,
   Styled,
+  Tinted,
 }
 
 #[derive(Clone)]
@@ -85,6 +87,7 @@ impl Component for ChromeHost {
     let controls = match props.controls {
       Controls::Default => WindowControls::new().style(WindowControlStyle::Windows),
       Controls::Styled => styled_controls(),
+      Controls::Tinted => tinted_controls(),
     };
     let content = Column::new()
       .id("content")
@@ -131,6 +134,25 @@ fn styled_controls() -> WindowControls {
     controls = controls.content(kind, icon());
   }
   controls
+}
+
+// Glyph controls in one foreground, with a close control that turns white under the pointer.
+fn tinted_controls() -> WindowControls {
+  WindowControls::new()
+    .style(WindowControlStyle::Windows)
+    .foreground(foreground())
+    .hover_foreground(WindowControlKind::Close, Color::from_hex("#ffffff"))
+}
+
+fn glyph_color(tree: &Tree, glyph: &str) -> Color {
+  tree
+    .resolve_quads(tree.last_layout().expect("a layout"))
+    .iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, style, .. } if text == glyph => Some(style.color),
+      _ => None,
+    })
+    .unwrap_or_else(|| panic!("no glyph {glyph:?} was painted"))
 }
 
 fn mount(controls: Controls, placement: ResizeHandlePlacement) -> (App, Tree, Arc<AtomicUsize>) {
@@ -423,4 +445,38 @@ fn themed_chrome_edges_are_covered_by_background_colors_only() {
       assert_eq!(edge, edge.round(), "edge rects sit on whole physical pixels: {rect:?}");
     }
   }
+}
+
+#[test]
+fn a_control_under_the_pointer_takes_its_hover_foreground() {
+  let (mut app, mut tree, _) = mount(Controls::Tinted, ResizeHandlePlacement::Overlay);
+  assert_eq!(
+    glyph_color(&tree, "x"),
+    foreground(),
+    "at rest: the foreground of the controls"
+  );
+  assert_eq!(glyph_color(&tree, "-"), foreground());
+
+  let (x, y) = button_center(2);
+  tree.mouse_move(x, y);
+  render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(
+    glyph_color(&tree, "x"),
+    Color::from_hex("#ffffff"),
+    "the close control under the pointer"
+  );
+  assert_eq!(
+    glyph_color(&tree, "-"),
+    foreground(),
+    "a control that names no hover foreground keeps its own"
+  );
+
+  let (x, y) = button_center(0);
+  tree.mouse_move(x, y);
+  render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(
+    glyph_color(&tree, "x"),
+    foreground(),
+    "and has it back when the pointer leaves"
+  );
 }

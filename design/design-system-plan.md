@@ -461,12 +461,13 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | `Theme::bare()`, a recipe replaced whole (D8) | built |
 | Sizes, variants and states by name (D11) | built: they are names everywhere |
 | Rules by breakpoint (D13) | built: `Recipe::at`, `Selector::breakpoint` |
+| The density a theme is at, and rules by density | built: `Theme::set_density`, `Recipe::density`, `Selector::density`. No recipe of the design has such a rule yet |
 | Scoped themes | built: `Ctx::in_theme` |
 | Presentation options | not started: no component has one yet |
 | Behavior as public pieces (D10) | started: a view hands a renderer the wired root (`ButtonView::root`); nothing of it is promised yet |
 | Recipes for what lurq draws itself: scroll bars, selection, the caret (D12) | not started |
 | Step 2: `Button` | built, with its tests and its page of the docs. `Switch`, `Tabs`, `MessageBox` are not |
-| The gallery | its shell is built, with Overview and Tokens (15.5) |
+| The gallery | its shell is built, with a title bar of its own, and Overview, Tokens and Icons (15.5) |
 
 ### 14.2 What was decided while building
 
@@ -511,6 +512,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 - **A definition says of a component**: a recipe in place of the design's, rules over it, a renderer, renderers for parts. A bare definition is one in which a component that has no recipe set gets none, instead of the design's.
 - **A slot is rules handed to an inner component** (`Button::rules(&recipe)`): the composite's recipe for its place, laid over the theme's for the component and under the instance's own. No composite exists yet to use it.
 - **A text from a style that keeps the default color takes the foreground above it.** It took the theme's foreground whatever was above. A part's label is such a text, and has to take the color of its root.
+- **A theme is at a density.** `Theme::density()` is `Default` unless set, and is part of a definition. A rule for a density holds while the theme is at it, and ranks between a size and a breakpoint. A case takes the density of the theme it is resolved in, so the theme's kept styles need no key for it: a change of density is a change of the theme. What a density does to a control is not decided: the scale is the height of a row, a button has its control sizes, and the design's `Button` has no rule for a density. The first component with rows (a list item, a menu item, a table row) is where the design's recipes start to use it, and `Touch` is how the mobile phase raises controls.
 - **Not yet in a part style:** margins, a size per axis for icons, an overlay other than a veil, text decoration. They are added when a component needs them.
 
 ## 15. The gallery
@@ -543,7 +545,7 @@ The sidebar's groups, 43 pages: Getting started (Overview, Tokens, Icons); Actio
 - **The gallery is made of what it shows.** Its header, sidebar, playground panel and tables are a segmented control, a select, an input, switches, badges, a breadcrumb, tabs and a table. The shell starts on primitives and on the first components, and each part moves to its component when that lands.
 - **A code view.** The Rust that builds the preview, colored, following the props, with Copy. Markdown already colors code; whether the gallery uses it or a view of its own is to settle with the first page.
 - **Measured size and layout tree** come from what DevTools and `ElementRef::bounds` already read.
-- **Density** is a switch in the header: the theme has the scale (`Density`), and nothing applies it to components yet. It belongs with recipes.
+- **Density** is a switch in the header. The theme is at a density (`Theme::set_density`), and a recipe has rules for one (14.5). The design's `Button` has none: the switch moves rows, the gallery's own first.
 
 ### 15.3 The board is an example
 
@@ -561,9 +563,12 @@ The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, the
 
 ### 15.5 What is built
 
-- **The shell**: the header (brand and version, a search over the pages, the appearance: System, Light, Dark), the side bar (the pages in the design system's groups with a count for each; a group with no page is not shown), and the page beside it. The title bar is the system's.
-- **The frame of a page** (`doc.rs`): its header (the way to it, name, description, import, status), its sections 48 apart, and the list of them on the right from the large breakpoint up, sticky, which scrolls to the section that is clicked. The main column is padded 32, 48 or 64 by the breakpoint.
-- **Pages**: Overview, and Tokens, which draws the palette, the type scale, radii, elevations and every scale from the theme as it is.
-- **Its own parts** (`kit.rs`): the segmented control, badges, cards, the stage and footer of a demo card. Each goes when the design system has the component.
+- **The window has no frame of the system's.** The gallery draws its title bar from the theme with `WindowChrome`: 36 high, the icon and name on the left, minimize, maximize and close on the right in icons of lurq's font, a close control that turns to the destructive color with white on it. `WindowControls::hover_foreground` was added for that: a control kept one foreground in every state.
+- **The header**: brand and version; the search over the pages, by name and by what a page is about, which `Ctrl K` (`⌘ K` on a Mac) goes to from anywhere; the appearance (System, Light, Dark); the density, which is the theme's and moves the rows of the side bar and of the gallery's menus; and a gear that opens what else a theme can be told: reduced motion, text size, bold text. Narrower than the extra large breakpoint it keeps its controls and drops what names them.
+- **The side bar**: the pages in the design system's groups with a count for each; a group with no page is not shown. A row is as high as a row is at the theme's density.
+- **The frame of a page** (`doc.rs`): its header (the way to it, name, description, import, status), its sections 48 apart, and the list of them on the right from the large breakpoint up, sticky. The list marks the section being read as the page scrolls, and scrolls to the one that is clicked. The main column is padded 32, 48 or 64 by the breakpoint.
+- **Pages**: Overview; Tokens, which draws the palette, the type scale, radii, elevations and every scale from the theme as it is; Icons, the 152 icons of lurq's font with their names, at the sizes of the scale and in the foreground of what they are in.
+- **Its own parts** (`kit.rs`): the icon, the icon button, the segmented control, the select, the panel of a popup, badges, keys, cards, the stage and footer of a demo card. Each goes when the design system has the component.
+- `--size 800x600` opens the window at a size, to see a breakpoint.
 
-Not built: the playground, the state matrix and the props table, which come with the Button page; the density switch, which has nothing to switch yet; the list of sections following the scroll, where it marks the section last clicked; `Ctrl K`; a title bar of its own.
+Not built: the playground, the state matrix and the props table, which come with the Button page. The side bar does not fold in a narrow window: it waits for the component that does.

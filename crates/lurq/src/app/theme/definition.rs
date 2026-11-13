@@ -6,9 +6,9 @@ use std::sync::Arc;
 #[cfg(feature = "form")]
 use super::FormTheme;
 use super::{
-  ThemeBlurs, ThemeBorderSizes, ThemeBreakpoints, ThemeCaret, ThemeControlSizes, ThemeDensities, ThemeDurations,
-  ThemeEasings, ThemeFocusRing, ThemeIconSizes, ThemeInner, ThemeOpacities, ThemePalette, ThemeRadii, ThemeShadows,
-  ThemeSpacing, ThemeTypography,
+  Density, ThemeBlurs, ThemeBorderSizes, ThemeBreakpoints, ThemeCaret, ThemeControlSizes, ThemeDensities,
+  ThemeDurations, ThemeEasings, ThemeFocusRing, ThemeIconSizes, ThemeInner, ThemeOpacities, ThemePalette, ThemeRadii,
+  ThemeShadows, ThemeSpacing, ThemeTypography,
 };
 #[cfg(feature = "markdown")]
 use super::{ThemeMarkdown, ThemeTextMarks};
@@ -54,6 +54,8 @@ pub struct ThemeDefinition {
   pub control_sizes: ThemeControlSizes,
   pub icon_sizes: ThemeIconSizes,
   pub densities: ThemeDensities,
+  /// The density the theme is at.
+  pub density: Density,
   pub durations: ThemeDurations,
   pub easings: ThemeEasings,
   pub opacities: ThemeOpacities,
@@ -88,6 +90,7 @@ impl ThemeDefinition {
       control_sizes: ThemeControlSizes::default(),
       icon_sizes: ThemeIconSizes::default(),
       densities: ThemeDensities::default(),
+      density: Density::Default,
       durations: ThemeDurations::default(),
       easings: ThemeEasings::default(),
       opacities: ThemeOpacities::default(),
@@ -162,6 +165,7 @@ impl ThemeInner {
     self.control_sizes = definition.control_sizes;
     self.icon_sizes = definition.icon_sizes;
     self.densities = definition.densities;
+    self.density = definition.density;
     self.durations = definition.durations;
     self.easings = definition.easings;
     self.opacities = definition.opacities;
@@ -199,6 +203,7 @@ impl ThemeInner {
       control_sizes: self.control_sizes.clone(),
       icon_sizes: self.icon_sizes.clone(),
       densities: self.densities.clone(),
+      density: self.density,
       durations: self.durations.clone(),
       easings: self.easings.clone(),
       opacities: self.opacities.clone(),

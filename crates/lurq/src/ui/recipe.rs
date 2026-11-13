@@ -15,7 +15,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use super::part_style::PartStyle;
 use crate::{
-  app::theme::{Breakpoint, RoleName, Theme},
+  app::theme::{Breakpoint, Density, RoleName, Theme},
   components::Text,
   node::{Node, NodeUpdate},
 };
@@ -44,6 +44,8 @@ impl Interaction {
 pub struct Selector {
   variant: Option<Name>,
   size: Option<Name>,
+  /// The density of the theme the rule is for.
+  density: Option<Name>,
   /// The narrowest window the rule is for: it holds at this breakpoint and at every wider one.
   breakpoint: Option<Breakpoint>,
   /// States of the component that all have to hold: checked, disabled, loading.
@@ -64,6 +66,12 @@ impl Selector {
 
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = Some(size.into());
+    self
+  }
+
+  /// While the theme is at `density` ([`Theme::density`]).
+  pub fn density(mut self, density: impl Into<Density>) -> Self {
+    self.density = Some(Name::new(density.into().as_str()));
     self
   }
 
@@ -101,13 +109,15 @@ impl Selector {
 
   /// How specific the case is: the rules of a more specific case are laid
   /// over those of a less specific one. Always, then a variant, then a size,
-  /// then a breakpoint, a wider one over a narrower, then states, more of
-  /// them over fewer.
+  /// then a density, then a breakpoint, a wider one over a narrower, then
+  /// states, more of them over fewer.
   fn rank(&self) -> usize {
     if !self.states.is_empty() {
       10 + self.states.len()
     } else if let Some(breakpoint) = self.breakpoint {
-      3 + breakpoint as usize
+      4 + breakpoint as usize
+    } else if self.density.is_some() {
+      3
     } else if self.size.is_some() {
       2
     } else if self.variant.is_some() {
@@ -121,6 +131,7 @@ impl Selector {
   fn holds(&self, case: &Case) -> bool {
     self.variant.is_none_or(|variant| case.variant == Some(variant))
       && self.size.is_none_or(|size| case.size == Some(size))
+      && self.density.is_none_or(|density| case.density == Some(density))
       && self
         .breakpoint
         .is_none_or(|from| case.breakpoint.is_some_and(|window| window >= from))
@@ -137,11 +148,15 @@ pub struct Rule {
 }
 
 /// What a component is as it is being built: its variant, its size, the
-/// breakpoint of the window it is in and the states it is in.
+/// density of its theme, the breakpoint of the window it is in and the
+/// states it is in.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Case {
   pub variant: Option<Name>,
   pub size: Option<Name>,
+  /// The density of the theme. A case that names none takes the density
+  /// of the theme it is resolved in.
+  pub density: Option<Name>,
   /// The breakpoint of the window: `None` below the smallest one.
   pub breakpoint: Option<Breakpoint>,
   pub states: Vec<Name>,
@@ -160,6 +175,21 @@ impl Case {
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = Some(size.into());
     self
+  }
+
+  /// The density the component is at, whatever its theme is at.
+  pub fn density(mut self, density: impl Into<Density>) -> Self {
+    self.density = Some(Name::new(density.into().as_str()));
+    self
+  }
+
+  /// The case with the density of `theme`, unless it names one.
+  pub(crate) fn in_theme(&self, theme: &Theme) -> Self {
+    let mut case = self.clone();
+    if case.density.is_none() {
+      case.density = Some(Name::new(theme.density().as_str()));
+    }
+    case
   }
 
   /// The breakpoint of the window the component is in.
@@ -232,6 +262,17 @@ impl Recipe {
     self.when(Selector::new().size(size), part, style)
   }
 
+  /// A rule for a density of the theme: a row that is lower in a compact
+  /// tool and higher under a finger.
+  pub fn density(
+    self,
+    density: impl Into<Density>,
+    part: impl Into<Name>,
+    style: impl FnOnce(PartStyle) -> PartStyle,
+  ) -> Self {
+    self.when(Selector::new().density(density), part, style)
+  }
+
   /// A rule for a window at `breakpoint` or wider: a part that is one size
   /// on a phone and another on a desktop.
   pub fn at(self, breakpoint: Breakpoint, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
@@ -288,7 +329,7 @@ impl Recipe {
 /// The styles of every part of a component in one case: the rules of
 /// `recipes` that hold, each recipe's over the one before it.
 pub(crate) fn resolve(recipes: &[&Recipe], case: &Case, theme: &Theme) -> ResolvedRecipe {
-  ResolvedRecipe::new(theme, Arc::new(resolve_styles(recipes, case)))
+  ResolvedRecipe::new(theme, Arc::new(resolve_styles(recipes, &case.in_theme(theme))))
 }
 
 /// The styles of [`resolve`], apart from a theme: they are the same in every
@@ -537,6 +578,31 @@ mod tests {
       resolved.part("root").rest().background,
       background(PaletteColor::Destructive),
       "the instance's rule for any case over the theme's rule for the variant"
+    );
+  }
+
+  #[test]
+  fn a_rule_for_a_density_holds_while_the_theme_is_at_it() {
+    use crate::app::theme::Density;
+    let theme = Theme::new();
+    let recipe = Recipe::new()
+      .base("root", |s| s.height(36.0))
+      .size("lg", "root", |s| s.height(40.0))
+      .density(Density::Compact, "root", |s| s.height(28.0))
+      .density(Density::Touch, "root", |s| s.height(48.0));
+    let height = |case: Case| recipe.resolve(&case, &theme).part("root").rest().height;
+    assert_eq!(height(Case::new()), Some(Length::Px(36.0)), "the default density");
+    theme.set_density(Density::Compact);
+    assert_eq!(height(Case::new()), Some(Length::Px(28.0)), "the theme at compact");
+    assert_eq!(
+      height(Case::new().size("lg")),
+      Some(Length::Px(28.0)),
+      "the rule for the density over the rule for the size"
+    );
+    assert_eq!(
+      height(Case::new().density(Density::Touch)),
+      Some(Length::Px(48.0)),
+      "a case that names a density keeps it"
     );
   }
 

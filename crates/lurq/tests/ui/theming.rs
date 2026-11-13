@@ -354,3 +354,24 @@ fn a_button_built_outside_a_render_is_in_a_neutral_theme() {
   let button: Element = Button::new("Save").into();
   drop(button);
 }
+
+#[test]
+fn a_rule_for_a_density_holds_while_the_theme_is_at_it() {
+  use lurq::app::theme::Density;
+  let app = App::new();
+  // A theme whose buttons are as high as a row is at its density.
+  app.theme().patch_recipe::<Button>(|rules| {
+    rules
+      .density(Density::Compact, ButtonPart::Root, |s| s.height(28.0))
+      .density(Density::Touch, ButtonPart::Root, |s| s.height(48.0))
+  });
+  let theme = app.theme().clone();
+  let mut stage = Stage::in_app(app, |_| save());
+  assert_eq!(stage.bounds("save").3, 36.0, "the default density: the design's height");
+  theme.set_density(Density::Compact);
+  stage.pass();
+  assert_eq!(stage.bounds("save").3, 28.0, "the button on screen follows the theme");
+  theme.set_density(Density::Touch);
+  stage.pass();
+  assert_eq!(stage.bounds("save").3, 48.0);
+}

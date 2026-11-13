@@ -1,6 +1,6 @@
 ---
 title: Design System
-description: The components of lurq::ui and what a theme styles them with. Recipes, part styles, rules by variant, size, breakpoint and state, renderers, a bare theme, a theme for a subtree, and Button.
+description: The components of lurq::ui and what a theme styles them with. Recipes, part styles, rules by variant, size, density, breakpoint and state, renderers, a bare theme, a theme for a subtree, and Button.
 ---
 
 # Design System
@@ -56,12 +56,13 @@ let recipe = Recipe::new()
 | `base(part, style)` | Always |
 | `variant(variant, part, style)` | For a variant |
 | `size(size, part, style)` | For a size |
+| `density(density, part, style)` | While the theme is at a [density](../theme/#density) |
 | `at(breakpoint, part, style)` | In a window at a [breakpoint](../theme/#breakpoints) or wider |
 | `state(state, part, style)` | While the component is in a state: disabled, checked, loading |
 | `hovered(part, style)`, `pressed(...)`, `focus_visible(...)` | Under the pointer, held down, focused from the keyboard |
 | `when(selector, part, style)` | In the case a `Selector` describes: several of the above together |
 
-- The rules that hold are laid one over another, the more specific over the less: always, then a variant, then a size, then a breakpoint (a wider one over a narrower), then states (more of them over fewer). Rules of one rank apply in the order they were written.
+- The rules that hold are laid one over another, the more specific over the less: always, then a variant, then a size, then a density, then a breakpoint (a wider one over a narrower), then states (more of them over fewer). Rules of one rank apply in the order they were written.
 - A style a later rule sets replaces the earlier one's field by field; what it leaves alone shows through.
 - Variants, sizes, states and parts are names. A component gives its own as enums, which are accepted where a name is, and an app adds any others: `.variant("brand", ...)`, `.state("pinned", ...)`.
 - Rules for the pointer and the keyboard become [state styles](../styling-events/) of the node. A hover renders nothing again, and changes only what is painted: no size, padding or text.
@@ -83,6 +84,24 @@ theme.patch_recipe::<Button>(|rules| {
 ```
 
 A component is built again when the window's width crosses a breakpoint, not at every resize. `ui::current_breakpoint()` is the breakpoint of the window what is being built is in.
+
+### Density
+
+A theme is at one [density](../theme/#density), and a rule `density(Density::Compact, ...)` holds while it is at that one. A component is resolved at the density of the theme it is built in, and is built again when `theme.set_density(..)` changes it.
+
+```rust
+use lurq::{app::theme::Density, ui::{Button, ButtonPart}};
+
+// A theme whose buttons are as high as a row is: lower in a compact tool, higher under a finger.
+theme.patch_recipe::<Button>(|rules| {
+  rules
+    .density(Density::Compact, ButtonPart::Root, |s| s.height(Density::Compact))
+    .density(Density::Touch, ButtonPart::Root, |s| s.height(Density::Touch))
+});
+theme.set_density(Density::Compact);
+```
+
+The design's recipe for `Button` has no rule for a density: a button has its sizes. `Selector::density(..)` joins a density with a variant, a size or a state in one rule.
 
 ## Part Styles
 

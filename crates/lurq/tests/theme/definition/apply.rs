@@ -273,3 +273,19 @@ fn the_legacy_theme_has_the_elevations_of_0_61() {
     "the smallest is the same"
   );
 }
+
+#[test]
+fn the_density_a_theme_is_at_is_part_of_its_definition() {
+  use lurq::app::theme::Density;
+  let theme = Theme::new();
+  assert_eq!(theme.density(), Density::Default);
+  assert_eq!(theme.density_value(theme.density()), 36.0, "the height of a row");
+  theme.set_density(Density::Compact);
+  assert_eq!(theme.density_value(theme.density()), 28.0);
+  let compact = theme.definition();
+  assert_eq!(compact.density, Density::Compact);
+  theme.apply(ThemeDefinition::neutral());
+  assert_eq!(theme.density(), Density::Default, "a definition says the density too");
+  theme.apply(compact);
+  assert_eq!(theme.density(), Density::Compact);
+}

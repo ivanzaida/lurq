@@ -4,6 +4,7 @@
 
 use lurq::{app::ctx::Ctx, node::Element};
 
+mod icons;
 mod overview;
 mod tokens;
 
@@ -48,6 +49,10 @@ impl Group {
 pub struct Page {
   pub path: &'static str,
   pub name: &'static str,
+  /// The icon before its name in the side bar.
+  pub icon: Option<&'static str>,
+  /// What the page is about, in lower case: the search finds it by these words too.
+  pub about: &'static str,
   pub group: Group,
   pub mount: fn(&mut Ctx) -> Element,
 }
@@ -57,14 +62,26 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/",
     name: "Overview",
+    icon: Some("home"),
+    about: "start layers recipes renderers",
     group: Group::GettingStarted,
     mount: |ctx| ctx.mount::<overview::Overview>(()),
   },
   Page {
     path: "/tokens",
     name: "Tokens",
+    icon: Some("palette"),
+    about: "palette color typography font radius shadow spacing size density duration motion opacity blur focus ring",
     group: Group::GettingStarted,
     mount: |ctx| ctx.mount::<tokens::Tokens>(()),
+  },
+  Page {
+    path: "/icons",
+    name: "Icons",
+    icon: Some("sparkles"),
+    about: "icon font glyph size",
+    group: Group::GettingStarted,
+    mount: |ctx| ctx.mount::<icons::Icons>(()),
   },
 ];
 

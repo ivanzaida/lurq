@@ -6,8 +6,8 @@ use lurq::{
     component::Component,
     ctx::Ctx,
     theme::{
-      BlurSize, BorderSize, ControlSize, Density, IconSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize,
-      ShadowStyle, SpacingSize, ThemePalette, TypographyStyle,
+      BlurSize, BorderSize, Breakpoint, ControlSize, Density, IconSize, MotionDuration, OpacityLevel, PaletteColor,
+      RadiusSize, ShadowStyle, SpacingSize, ThemePalette, TypographyStyle,
     },
   },
   components::{Column, Grid, Rect, Row, Text},
@@ -79,12 +79,14 @@ impl Tokens {
       ("Highlight", Highlight, HighlightForeground),
       ("Destructive", Destructive, DestructiveForeground),
     ];
-    let mut surfaces = Grid::with_columns(4).gap(12.0).width(FILL);
+    // Fewer in a row where the window is narrow, so that a name fits its cell.
+    let wide = ctx.breakpoint() >= Some(Breakpoint::Lg);
+    let mut surfaces = Grid::with_columns(if wide { 4 } else { 2 }).gap(12.0).width(FILL);
     for (name, fill, ink) in pairs {
       surfaces = surfaces.child(surface(name, fill, ink));
     }
     let palette = ctx.theme().palette().clone();
-    let mut swatches = Grid::with_columns(6).gap(12.0).width(FILL);
+    let mut swatches = Grid::with_columns(if wide { 6 } else { 3 }).gap(12.0).width(FILL);
     // The roles of the design: a deprecated one has the color of the role that replaces it.
     for role in ThemePalette::roles()
       .into_iter()
