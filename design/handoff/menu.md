@@ -7,17 +7,19 @@ label and the destructive item.
 
 ## Changed outside the component's own files
 
-Four small changes to the engine, each what a menu needs of it, each tested by `crates/lurq/tests/ui/menu.rs`
-(only `ui_tests menu` was run: the engine's own suites were not):
+Changes to the engine, each what a menu needs of it, each tested by `crates/lurq/tests/ui/menu.rs` (run with
+`ui_tests menu`, `popover`, `dialog`, `tooltip` and `input_tests`):
 
-- **`Overlay::takes_focus(bool)` and `Popup::takes_focus(bool)`** (`app/ctx.rs`, `components/popup.rs`), off by
-  default: as the overlay opens the focus goes to the first element of its own layer that takes it, and as it closes
-  back to what had it, unless it has gone somewhere still in the tree. It is `Modal::takes_focus` (the dialog's, in
-  `app/runtime/modal_focus.rs`) for an overlay: the overlays that take the focus are kept with the modals
-  (`built_focus_overlays` beside `built_focus_modals` in `runtime.rs`, `focus_overlays` in `OverlayLayers`), and an
-  overlay's first element is looked up in its own layer (`Tree::first_in_overlay`, with `first_focusable` of
-  `overlay_layers.rs` made `pub(super)`), since an overlay does not trap Tab as a modal does. The ring shows as the
-  input that opened it shows it: after a key, not after a press of the pointer.
+- **`Overlay::takes_focus(bool)` and `Popup::takes_focus(bool)`**, off by default, shared with `ui::Popover`,
+  which built the mechanism (see `design/handoff/popover.md`, where it was `move_focus`; the two were made one and
+  the name kept is the one beside `Modal::takes_focus`). As the overlay opens the focus goes to the first element
+  in it that takes the focus; Tab goes through its elements right after its anchor's; as it closes with the focus
+  inside, the focus goes back. From the menu it took where the focus goes back to: to what had the focus when the
+  overlay opened (`Tree::overlay_focus_returns`, kept by anchor in `Tree::note_focus_returns`, read by
+  `return_focus_to_anchor` in `app/runtime/overlay_layers.rs`), where that is still in the tree, and only else to
+  the anchor. A split button's anchor is the whole group: its focus goes back to the chevron that opened the menu,
+  not the group's first button. An app's focus request in the same pass wins, and the ring shows after a key and
+  not after a press of the pointer, as before.
 - **`KeyboardEvent::focus_within`** (`app/events/keyboard_event.rs`, `runtime.rs`): a key event reaches every
   node's `on_key_down`; this says whether the keyboard's focus is on the node whose handler is called or inside it.
   `fire_keyboard_recursive` and `fire_keyboard_up_recursive` take the path to the focused node and set it. The item

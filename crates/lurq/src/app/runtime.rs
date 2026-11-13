@@ -866,12 +866,15 @@ pub struct Tree {
   /// The anchor of each overlay host layer after the page, in host order;
   /// `None` for a select menu or a modal over the page.
   overlay_layer_anchors: Vec<Option<OwnedElementRef>>,
-  /// The anchors of the open overlays that move the focus, as the last layout had them: what tells an
+  /// The anchors of the open overlays that take the focus, as the last layout had them: what tells an
   /// overlay that opens or closes from one that stays open.
   overlay_focus_movers: Vec<OwnedElementRef>,
-  /// The element the focus goes to in an overlay that moves it and has just opened, once the pass has put
+  /// The element the focus goes to in an overlay that takes it and has just opened, once the pass has put
   /// the interaction state back.
   overlay_focus_entry: Option<NodeId>,
+  /// What had the focus as each open overlay that takes it opened, by its anchor: where the focus goes back to
+  /// as it closes.
+  overlay_focus_returns: Vec<(OwnedElementRef, Option<FocusTarget>)>,
   /// The node that declares each overlay host layer after the page, in host
   /// order, where it has an id: what tells a layer from another between
   /// passes. `None` for a layer that is leaving.
@@ -881,9 +884,6 @@ pub struct Tree {
   modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
   /// The modals that take the focus among the layers the last pass built.
   built_focus_modals: Vec<NodeId>,
-  /// The overlays that take the focus among the layers the last pass built: these are in `built_focus_modals`
-  /// too, and take the focus at the first focusable element of their own layer.
-  built_focus_overlays: Vec<NodeId>,
   /// The arrow keys moved the focus in a group that follows the pointer, and took the hover away with it: the
   /// hover stays away, under a pointer that holds still, until the pointer moves.
   hover_held_by_keys: bool,
@@ -1286,10 +1286,10 @@ impl Tree {
       overlay_layer_anchors: Vec::new(),
       overlay_focus_movers: Vec::new(),
       overlay_focus_entry: None,
+      overlay_focus_returns: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
       built_focus_modals: Vec::new(),
-      built_focus_overlays: Vec::new(),
       hover_held_by_keys: false,
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
@@ -7169,7 +7169,7 @@ impl Tree {
       self.overlay_focus_entry = None;
       self.overlay_layer_origins.clear();
       self.built_focus_modals.clear();
-      self.built_focus_overlays.clear();
+      self.overlay_focus_returns.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
       return None;
@@ -7255,15 +7255,14 @@ impl Tree {
       overlay_index += 1;
     }
 
-    self.built_focus_overlays = std::mem::take(&mut layers.focus_overlays);
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
-    self.built_focus_modals.extend(self.built_focus_overlays.iter().copied());
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
       let focus_return = self
         .focused_overlay_hidden(had_host, &layers)
         .or_else(|| self.focused_overlay_closed(had_host, &layers));
+      self.note_focus_returns(&layers.focus_movers, focus_return.as_ref());
       self.overlay_focus_movers = layers.focus_movers;
       self.overlay_focus_entry = None;
       #[cfg(feature = "canvas")]
@@ -7300,6 +7299,7 @@ impl Tree {
       .focused_overlay_hidden(old_parts_had_host, &layers)
       .or_else(|| self.focused_overlay_closed(old_parts_had_host, &layers));
     self.overlay_focus_entry = self.opened_overlay_focus(&layers);
+    self.note_focus_returns(&layers.focus_movers, focus_return.as_ref());
     self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
@@ -7970,7 +7970,7 @@ fn build_overlays_from_layout_index(
           continue;
         };
         // Hidden or drawn, it is open: it moves the focus when it opens, not when its anchor comes back.
-        if spec.move_focus {
+        if spec.takes_focus {
           layers.focus_movers.push(spec.anchor.clone());
         }
         // An anchor scrolled or clipped out of view takes its overlay with
@@ -7995,11 +7995,6 @@ fn build_overlays_from_layout_index(
         let dismiss_on_outside_click = spec.dismiss_on_outside_click;
         let outside_press = spec.outside_press;
         let dismiss_on_escape = spec.dismiss_on_escape;
-        if spec.takes_focus
-          && let Some(origin) = origin
-        {
-          layers.focus_overlays.push(origin);
-        }
         let (mut overlay, bounds, placing) = build_overlay_node(
           spec,
           anchor,

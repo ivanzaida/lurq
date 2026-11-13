@@ -76,8 +76,9 @@ impl Popup {
     self
   }
 
-  /// Whether the focus goes into the popup as it opens and back to what had
-  /// it as it closes: see [`Overlay::takes_focus`]. Off by default.
+  /// Whether the keyboard focus goes into the popup as it opens and back as it
+  /// closes, and Tab goes through it right after its anchor: see
+  /// [`Overlay::takes_focus`](crate::app::ctx::Overlay::takes_focus). Off by default.
   pub fn takes_focus(mut self, takes: bool) -> Self {
     self.overlay = self.overlay.takes_focus(takes);
     self
@@ -95,14 +96,6 @@ impl Popup {
   /// a context menu or an autocomplete list.
   pub fn switch_on_anchor_press(mut self, switch: bool) -> Self {
     self.overlay = self.overlay.switch_on_anchor_press(switch);
-    self
-  }
-
-  /// Whether the keyboard focus goes into the popup when it opens, to the
-  /// first element in it that takes the focus, and back to its anchor when it
-  /// closes with the focus inside it. Defaults to `false`.
-  pub fn move_focus(mut self, move_focus: bool) -> Self {
-    self.overlay = self.overlay.move_focus(move_focus);
     self
   }
 }

@@ -9,7 +9,7 @@ use lurq::{
     events::MouseButton,
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
-  components::{Column, Rect, Row},
+  components::{Column, Placement, Rect, Row},
   core::{ElementRef, Signal},
   layout::quad::QuadContent,
   node::{Element, color::Color},
@@ -623,4 +623,49 @@ fn a_menu_is_as_wide_as_its_widest_item_and_never_as_its_window() {
   assert!((x + item - 8.0 - (keys.x + keys.width)).abs() < 0.5);
   // Every item is as wide as the widest.
   assert_eq!(stage.bounds("undo").2, item);
+}
+
+#[test]
+fn the_focus_goes_back_to_what_opened_the_menu_and_not_the_first_button_of_its_anchor() {
+  let (chosen, tell) = log();
+  let merged = Arc::new(Mutex::new(0));
+  let open = Signal::new(false);
+  let (anchor, held, presses) = (ElementRef::new(), open.clone(), merged.clone());
+  // A split button: the anchor is the group, and its second button opens the menu.
+  let mut stage = Stage::new(move |_| {
+    let (toggle, presses) = (held.clone(), presses.clone());
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new()
+          .ref_element(anchor.clone())
+          .child(Button::new("Merge").on_click(move |_| *presses.lock().unwrap() += 1))
+          .child(
+            Button::new("How to merge")
+              .icon_only(true)
+              .on_click(move |_| toggle.update(|open| *open = !*open)),
+          ),
+      )
+      .child(
+        Menu::new(anchor.clone(), held.clone())
+          .placement(Placement::BottomEnd)
+          .item(MenuItem::new("Squash and merge").on_select(tell("squash"))),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(open.get());
+  stage.key("Escape");
+  assert!(!open.get());
+  // The focus is back on the button that opened the menu: Enter opens it again, and Merge was not pressed.
+  stage.key("Enter");
+  assert!(open.get());
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["squash"]);
+  stage.key("Enter");
+  assert!(open.get(), "back on the button that opened it");
+  assert_eq!(*merged.lock().unwrap(), 0);
 }

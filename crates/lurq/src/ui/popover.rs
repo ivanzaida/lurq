@@ -264,7 +264,7 @@ impl Popover {
       .placement(self.placement)
       .offset(x, y)
       .collision(self.collision)
-      .move_focus(true);
+      .takes_focus(true);
     let Some(mut trigger) = self.trigger else {
       return popup.into();
     };
