@@ -23,10 +23,10 @@ use lurq::{
     text_style::FontWeight,
   },
   node::{CursorIcon, Element, border::Border},
-  ui::{Button, ButtonSize, ButtonVariant},
+  ui::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant},
 };
 
-use crate::kit::{FILL, code_block, icon, icon_tool, line, mono, overline, status_badge, styled, text, tool};
+use crate::kit::{FILL, code_block, icon, icon_tool, line, mono, overline, styled, text, tool};
 
 /// How wide the list of sections is.
 const ON_THIS_PAGE: f32 = 216.0;
@@ -433,7 +433,7 @@ fn page_header(header: Header, wide: bool) -> Column {
     );
   }
   if let Some(status) = header.status {
-    facts = facts.child(status_badge(status));
+    facts = facts.child(Badge::new(status).variant(BadgeVariant::Success));
   }
   if let Some(since) = header.since {
     facts = facts.child(mono(&format!("since {since}"), 12.0).color(PaletteColor::MutedForeground));

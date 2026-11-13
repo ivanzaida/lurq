@@ -20,11 +20,11 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
-  ui::{Button, ButtonVariant, SegmentedControl, icons},
+  ui::{Badge, BadgePart, BadgeVariant, Button, ButtonVariant, FontFamily, SegmentedControl, icons},
 };
 
 use crate::{
-  kit::{FILL, badge, icon, keys, mono, overline, popover, row_height, segmented, select, text},
+  kit::{FILL, icon, keys, mono, overline, popover, row_height, segmented, select, text},
   pages::{Group, PAGES, page_at},
 };
 
@@ -298,7 +298,11 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
   if roomy {
     brand = brand.child(text("Design System", 14.0, FontWeight::Normal).color(PaletteColor::MutedForeground));
   }
-  brand = brand.child(badge(&format!("v{}", lurq::VERSION)));
+  brand = brand.child(
+    Badge::new(&format!("v{}", lurq::VERSION))
+      .variant(BadgeVariant::Secondary)
+      .style(BadgePart::Label, |s| s.font_family(FontFamily::Mono).font_size(11.0)),
+  );
 
   let labeled = |label: &str, control: Element| {
     let mut row = Row::new().spacing(12.0).align_items(Alignment::Center);

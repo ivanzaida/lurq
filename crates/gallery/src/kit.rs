@@ -183,34 +183,6 @@ pub fn code(content: &str) -> Text {
   Text::new(content).variant(TypographyStyle::Mono)
 }
 
-/// A small label in a tinted pill: a version.
-pub fn badge(content: &str) -> Row {
-  let theme = lurq::ui::current_theme();
-  let mut style = theme.typography_style(TypographyStyle::Mono);
-  style.font_size = theme.scaled(11.0);
-  style.weight = FontWeight::Medium;
-  Row::new()
-    .align_items(Alignment::Center)
-    .height(22.0)
-    .padding_horizontal(8.0)
-    .rounded(RadiusSize::Full)
-    .background(PaletteColor::Secondary)
-    .foreground(PaletteColor::SecondaryForeground)
-    .child(Text::styled(content, style))
-}
-
-/// A badge for something that went well: "Stable".
-pub fn status_badge(content: &str) -> Row {
-  Row::new()
-    .align_items(Alignment::Center)
-    .height(22.0)
-    .padding_horizontal(8.0)
-    .rounded(RadiusSize::Full)
-    .background(PaletteColor::SuccessMuted)
-    .foreground(PaletteColor::Success)
-    .child(text(content, 12.0, FontWeight::Medium))
-}
-
 /// One of a few choices in a row, of which one is chosen: the appearance.
 pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
   options: &[(&str, T)],
