@@ -6,6 +6,7 @@ mod family;
 mod icon;
 mod radio;
 mod slider;
+mod input;
 mod stage;
 mod switch;
 mod textarea;

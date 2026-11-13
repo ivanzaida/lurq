@@ -9,6 +9,7 @@ mod checkbox;
 mod family;
 mod family_play;
 mod icons;
+mod input;
 mod overview;
 mod radio;
   },
@@ -164,6 +165,14 @@ pub const PAGES: &[Page] = &[
     about: "textarea multiline text rows placeholder invalid disabled scroll bio note",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<textarea::TextareaPage>(()),
+  },
+  Page {
+    path: "/input",
+    name: "Input",
+    icon: None,
+    about: "input field text entry label description error hint required optional placeholder icon invalid read only form",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<input::InputPage>(()),
   },
   Page {
     path: "/switch",

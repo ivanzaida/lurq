@@ -19,8 +19,10 @@ mod button;
 mod button_group;
 mod checkbox;
 mod fab;
+mod field;
 mod icon;
 pub mod icons;
+mod input;
 mod link;
 mod part_style;
 mod radio;
@@ -41,7 +43,9 @@ pub use button::{
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
 pub use checkbox::{Checkbox, CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView};
 pub use fab::{Fab, FabPart, FabState};
+pub use field::{Field, FieldPart, FieldRenderer, FieldState, FieldView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
+pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartStyle, PartTransition, TextPatch, TransitionDuration, TransitionEasing,
