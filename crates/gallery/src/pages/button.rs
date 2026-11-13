@@ -323,6 +323,7 @@ impl ButtonPage {
       .part(ButtonPart::Root)
       .rest()
       .radius
+      .map(|radius| radius.top_left)
     {
       Some(RadiusValue::Theme(RadiusSize::Full)) => "full".to_owned(),
       Some(RadiusValue::Theme(size)) => theme.radius_value(size).to_string(),

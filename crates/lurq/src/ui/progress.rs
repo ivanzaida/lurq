@@ -13,7 +13,7 @@ use crate::{
   app::theme::{MotionDuration, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{Row, Stack},
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
-  node::{BackgroundColor, Element, Gradient, GradientStop, color::Color, dimension::Dimension},
+  node::{BackgroundColor, Element, border::Border, color::Color, dimension::Dimension},
 };
 
 /// The keyframes of the room before the moving segment of a progress that does not know how far it is: it grows
@@ -558,8 +558,8 @@ impl Themed for Progress {
   /// the success, warning or destructive one. The rail is 6 under a label
   /// and in a dialog, 4 in a row of a list. Over it, 8 above, the label in
   /// the label's type at the start and the value at the end in the mono type
-  /// of 11 in the muted foreground. The top bar is 3 high with no rail, filled
-  /// with corners of 2.
+  /// of 11 in the muted foreground. The top bar is 3 high with no rail, its
+  /// fill square where it starts and round 2 where it ends.
   fn recipe() -> Recipe {
     use PaletteColor::*;
     use ProgressPart::{Fill, Header, Label, Root, Track, Value};
@@ -604,11 +604,13 @@ impl Themed for Progress {
 pub enum RingProgressPart {
   /// The ring with its value in the middle: a square.
   Root,
-  /// The disc the ring is cut from: its background is the color of what is not done.
+  /// The ring under the arc: a round box over the whole of the root, its inside border the ring, as wide as the
+  /// ring is and in the color of what is not done.
   Track,
-  /// What is done, from the top and clockwise: its background is the color of the arc.
+  /// The arc of what is done, over the track: a round box with an inside border of one dash, from the top and
+  /// clockwise. Its border's color is the arc's; its width is the track's.
   Fill,
-  /// The middle of the disc, over it: as large as the ring is not wide, in the color of what the ring is on.
+  /// The middle, which holds the value and paints nothing: as large as the ring is not wide.
   Middle,
   /// How far it is, in the middle.
   Value,
@@ -630,29 +632,23 @@ pub type RingProgressRenderer = Arc<dyn Fn(RingProgressView) -> Element + Send +
 /// card.
 ///
 /// ```
-/// use lurq::{
-///   app::theme::PaletteColor,
-///   ui::{ProgressVariant, RingProgress, RingProgressPart},
-/// };
+/// use lurq::ui::{ProgressVariant, RingProgress};
 ///
 /// let export = RingProgress::new(0.7).label("Export");
 /// let quota = RingProgress::new(96.0)
 ///   .max(128.0)
 ///   .variant(ProgressVariant::Warning)
 ///   .format(|used, _| format!("{used} GB"));
-/// // On a card: the middle is the card's color.
-/// let on_card = RingProgress::new(0.4).style(RingProgressPart::Middle, |s| s.background(PaletteColor::Card));
 /// ```
 ///
 /// It takes the [`ProgressVariant`]s and the [`ProgressSize`]s of a
 /// [`Progress`]. The ring always knows how far the work is: what does not
 /// is a spinner's. To tooling it is a `progressbar`, as a progress is.
 ///
-/// The ring is a disc filled clockwise from the top in the arc's color and
-/// the rest of the way in the track's, with its middle painted over it in the
-/// color of the page: on a surface of another color, give
-/// [`RingProgressPart::Middle`] that color. The arc moves to a new value at
-/// once.
+/// The ring is two round borders one over the other, with nothing painted
+/// in the middle: the track's, and over it the fill's, cut to one dash as
+/// long as the arc. The arc moves round to a new value over the theme's slow
+/// duration, at once while motion is reduced.
 pub struct RingProgress {
   amount: Amount,
   variant: Name,
@@ -849,35 +845,52 @@ impl RingProgressView {
     root
   }
 
-  /// The disc in the style of the track, filled from the top and clockwise in the fill's background as far as
-  /// what is done, and in the track's background the rest of the way.
-  pub fn disc(&self) -> Row {
-    let disc = Row::new().part(&self.part(RingProgressPart::Track));
-    let fraction = self.fraction();
-    match self.part(RingProgressPart::Fill).rest().background {
-      Some(fill) if fraction >= 1.0 => disc.background(fill),
-      Some(fill) if fraction > 0.0 => {
-        let track = self
-          .part(RingProgressPart::Track)
-          .rest()
-          .background
-          .unwrap_or(BackgroundColor::Color(Color::new(0, 0, 0, 0)));
-        // Two stops at one place: the arc ends there, with no blend into the track.
-        disc.background_gradient(Gradient::conic(
-          0.0,
-          [
-            GradientStop::at(fill.clone(), 0.0),
-            GradientStop::at(fill, fraction),
-            GradientStop::at(track.clone(), fraction),
-            GradientStop::at(track, 1.0),
-          ],
-        ))
-      }
-      _ => disc,
+  /// The side of the ring in pixels: the width the recipe gives its root. `None` where it gives none in pixels.
+  pub fn side(&self) -> Option<f32> {
+    match self.part(RingProgressPart::Root).rest().width?.resolve(self.theme())? {
+      Dimension::Px(side) => Some(side),
+      _ => None,
     }
   }
 
-  /// The middle of the disc, in the style of its part, with the value in it where it is shown.
+  /// How wide the ring is: the width of the track's border, 0 where it has none.
+  pub fn thickness(&self) -> f32 {
+    self
+      .part(RingProgressPart::Track)
+      .rest()
+      .border
+      .map_or(0.0, |border| border.width.resolve(&self.theme().border_sizes()))
+  }
+
+  /// The ring under the arc, in the style of the track.
+  pub fn track(&self) -> Row {
+    Row::new().part(&self.part(RingProgressPart::Track))
+  }
+
+  /// The arc of what is done, in the style of the fill, with an inside border as wide as the track's in the fill's
+  /// border color, of one dash: as long as the arc, from the top and clockwise, with a gap of the rest of the
+  /// circle. A border's dashes run along its outline from the start of its top edge, which on a circle is the top,
+  /// and the period is fitted to the outline: a dash and a gap that make the circle are one dash of it. With
+  /// nothing done the dash is too short to see and has no color, so that a transition to a value grows the arc
+  /// from the top as it fades in.
+  pub fn arc(&self) -> Row {
+    let part = self.part(RingProgressPart::Fill);
+    let arc = Row::new().part(&part);
+    let (Some(side), Some(border)) = (self.side(), part.rest().border) else {
+      return arc;
+    };
+    let circle = std::f32::consts::PI * side;
+    let fraction = self.fraction();
+    let (color, length) = if fraction > 0.0 {
+      (border.color, circle * fraction)
+    } else {
+      (BackgroundColor::Color(Color::new(0, 0, 0, 0)), NO_ARC)
+    };
+    // A whole circle is a dash with no gap: a solid line.
+    arc.border(Border::inside(self.thickness(), color).dash(length, circle - length))
+  }
+
+  /// The middle, in the style of its part, with the value in it where it is shown.
   pub fn middle(&self) -> Row {
     let mut middle = Row::new()
       .align_items(Alignment::Center)
@@ -890,51 +903,71 @@ impl RingProgressView {
     middle
   }
 
-  /// How the default renderer builds a ring: the disc, and its middle over it with the value.
+  /// How the default renderer builds a ring: the track, the arc over it, and the middle with the value.
   pub fn render(self) -> Element {
-    self.root().child(self.disc()).child(self.middle()).into()
+    self
+      .root()
+      .child(self.track())
+      .child(self.arc())
+      .child(self.middle())
+      .into()
   }
 }
+
+/// How long the arc of a ring with nothing done is, in pixels: a dash, so that the border stays dashed and a
+/// transition to a value grows it from the top. It has no color.
+const NO_ARC: f32 = 0.01;
 
 impl Themed for RingProgress {
   const NAME: &'static str = "ring_progress";
   type Renderer = RingProgressRenderer;
 
   /// The design's ring progress (`pencil/lurq-design-system.pen`, Ring
-  /// Progress): a ring of 72 whose width is a tenth of its side, its middle
-  /// four fifths of it across, in the secondary color, with what is done over
-  /// it in the primary color from the top and clockwise, and the value in the
-  /// middle in the label's type of 13 at a weight of 600. The variants color
-  /// the arc as they color a bar; the smaller rings are 56 and 40, their value
-  /// 12 and 11.
+  /// Progress): a ring of 72 whose width is a tenth of its side, in the
+  /// secondary color, with what is done over it in the primary color from the
+  /// top and clockwise, and the value in the middle in the label's type of 13
+  /// at a weight of 600. The variants color the arc as they color a bar; the
+  /// smaller rings are 56 and 40, their value 12 and 11. The arc moves round,
+  /// and fades in from nothing, over the theme's slow duration.
   fn recipe() -> Recipe {
     use PaletteColor::*;
     use RingProgressPart::{Fill, Middle, Root, Track, Value};
+
+    // A border; `Border` is a color of the palette here.
+    use crate::node::border::Border as Stroke;
     let middle = |side: f32| move |s: super::PartStyle| s.square(side * 0.8);
+    let ring = |side: f32| move |s: super::PartStyle| s.border(Stroke::inside(side / 10.0, Secondary));
+    let round = |s: super::PartStyle| s.width(Length::Fill).height(Length::Fill).radius(RadiusSize::Full);
     Recipe::new()
       .base(Root, |s| s.square(72.0).foreground(Foreground))
-      .base(Track, |s| {
-        s.width(Length::Fill)
-          .height(Length::Fill)
-          .radius(RadiusSize::Full)
-          .background(Secondary)
+      .base(Track, |s| round(s).border(Stroke::inside(7.2, Secondary)))
+      .base(Fill, |s| {
+        round(s)
+          .border(Stroke::inside(7.2, Primary))
+          .transition(PartTransition::new(Transition::border_dash(), MotionDuration::Slow))
+          .transition(PartTransition::new(Transition::border_color(), MotionDuration::Slow))
       })
-      .base(Fill, |s| s.background(Primary))
-      .base(Middle, |s| {
-        s.square(57.6).radius(RadiusSize::Full).background(Background)
-      })
+      .base(Middle, |s| s.square(57.6))
       .base(Value, |s| {
         s.typography(TypographyStyle::Label)
           .font_size(13.0)
           .weight(FontWeight::SemiBold)
       })
-      .variant(ProgressVariant::Success, Fill, |s| s.background(Success))
-      .variant(ProgressVariant::Warning, Fill, |s| s.background(Warning))
-      .variant(ProgressVariant::Destructive, Fill, |s| s.background(Destructive))
+      .variant(ProgressVariant::Success, Fill, |s| {
+        s.border(Stroke::inside(7.2, Success))
+      })
+      .variant(ProgressVariant::Warning, Fill, |s| {
+        s.border(Stroke::inside(7.2, Warning))
+      })
+      .variant(ProgressVariant::Destructive, Fill, |s| {
+        s.border(Stroke::inside(7.2, Destructive))
+      })
       .size(ProgressSize::Sm, Root, |s| s.square(40.0))
+      .size(ProgressSize::Sm, Track, ring(40.0))
       .size(ProgressSize::Sm, Middle, middle(40.0))
       .size(ProgressSize::Sm, Value, |s| s.font_size(11.0))
       .size(ProgressSize::Md, Root, |s| s.square(56.0))
+      .size(ProgressSize::Md, Track, ring(56.0))
       .size(ProgressSize::Md, Middle, middle(56.0))
       .size(ProgressSize::Md, Value, |s| s.font_size(12.0))
   }

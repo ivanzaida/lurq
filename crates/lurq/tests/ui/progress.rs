@@ -12,7 +12,11 @@ use lurq::{
   },
   components::Column,
   core::Signal,
-  layout::quad::{Quad, QuadContent},
+  layout::{
+    quad::{Quad, QuadContent},
+    render_list::StrokeStyle,
+    stroke::{StrokeShape, stroke_coverage},
+  },
   node::color::Color,
   ui::{
     PROGRESS_PERIOD, Progress, ProgressPart, ProgressRenderer, ProgressSize, ProgressVariant, ProgressView,
@@ -286,8 +290,35 @@ fn a_top_bar_is_thin_and_as_wide_as_what_holds_it_with_no_rail() {
   assert!(done.border_radius.is_some_and(|radius| near(radius.top_right, 2.0)));
 }
 
+/// The quads with a border in the box of the ring with `id`: the track's and the arc's, as painted.
+fn rings(stage: &mut Stage, id: &str) -> Vec<Quad> {
+  let (x, y, width, height) = stage.bounds(id);
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| quad.border.is_some() && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height))
+    .collect()
+}
+
+/// The color, the width and the dash of the border of `quad`.
+fn stroke(quad: &Quad) -> (Color, f32, [f32; 2]) {
+  let side = quad.border.and_then(|border| border.top).expect("a border on top");
+  (side.color, side.width, side.dash)
+}
+
+/// The arc of the ring with `id`: the border in `color`.
+fn arc(stage: &mut Stage, id: &str, color: Color) -> (f32, [f32; 2]) {
+  let quads = rings(stage, id);
+  let arc = quads
+    .iter()
+    .map(stroke)
+    .find(|(painted, ..)| *painted == color)
+    .unwrap_or_else(|| panic!("#{id} should have an arc"));
+  (arc.1, arc.2)
+}
+
 #[test]
-fn a_ring_is_the_value_around_a_circle_with_it_in_the_middle() {
+fn a_ring_is_a_track_with_an_arc_of_one_dash_over_it_and_nothing_in_the_middle() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .padding(8.0)
@@ -296,44 +327,42 @@ fn a_ring_is_the_value_around_a_circle_with_it_in_the_middle() {
       .child(RingProgress::new(0.5).size(ProgressSize::Sm).id("sm"))
       .child(RingProgress::new(0.5).size(ProgressSize::Md).show_value(false).id("md"))
       .child(RingProgress::new(1.0).variant(ProgressVariant::Success).id("done"))
+      .child(RingProgress::new(0.0).id("none"))
       .into()
   });
   let (x, y, width, height) = stage.bounds("ring");
   assert_eq!((width, height), (72.0, 72.0));
-  // The disc: from the top and clockwise in the primary color as far as 70%, the rest in the secondary one.
-  let disc = stage
-    .quads()
-    .into_iter()
-    .find(|quad| {
-      (quad.x, quad.y, quad.width, quad.height) == (x, y, 72.0, 72.0)
-        && matches!(&quad.content, QuadContent::Rect { gradient: Some(_), .. })
-    })
-    .expect("a disc filled by a gradient");
+  // The track: an inside border a tenth of the side wide, in the secondary color, all the way round.
+  let quads = rings(&mut stage, "ring");
+  assert_eq!(quads.len(), 2, "the track and the arc");
   assert!(
-    disc.border_radius.is_some_and(|radius| radius.top_left >= 36.0),
-    "round"
+    quads
+      .iter()
+      .all(|quad| quad.border_radius.is_some_and(|radius| radius.top_left >= 36.0))
   );
-  let QuadContent::Rect {
-    gradient: Some(gradient),
-    ..
-  } = &disc.content
-  else {
-    panic!("the disc is filled by a gradient");
-  };
-  assert_eq!(gradient.kind, 2, "conic");
-  let positions: Vec<f32> = gradient.stops.iter().map(|stop| stop.position).collect();
-  assert_eq!(positions.len(), 4);
-  assert!(near(positions[1], 0.7) && near(positions[2], 0.7), "{positions:?}");
-  // The middle, four fifths across, in the page's color: the ring is a tenth of the side wide.
-  let middle = stage
-    .quads()
-    .into_iter()
-    .find(|quad| {
-      matches!(&quad.content, QuadContent::Rect { color, gradient: None } if *color == light(PaletteColor::Background))
-        && near(quad.width, 57.6)
-    })
-    .expect("a middle");
-  assert!(near(middle.x - x, 7.2) && near(middle.y - y, 7.2));
+  let (color, ring_width, dash) = stroke(&quads[0]);
+  assert_eq!((color, dash), (light(PaletteColor::Secondary), [0.0, 0.0]));
+  assert!(near(ring_width, 7.2));
+  // The arc over it: as wide, in the primary color, one dash of 70% of the circle and a gap of the rest.
+  let circle = std::f32::consts::PI * 72.0;
+  let (arc_width, [dash, gap]) = arc(&mut stage, "ring", light(PaletteColor::Primary));
+  assert!(near(arc_width, 7.2));
+  assert!(
+    (dash - circle * 0.7).abs() < 0.01 && (gap - circle * 0.3).abs() < 0.01,
+    "{dash} {gap}"
+  );
+  // Nothing is painted in the middle: the track and the arc fill nothing.
+  assert!(
+    stage.quads().iter().all(|quad| {
+      let inside = quad.x >= x - 0.01 && quad.y >= y - 0.01 && quad.x + quad.width <= x + 72.01;
+      !inside
+        || match &quad.content {
+          QuadContent::Rect { color, gradient } => color.a() == 0 && gradient.is_none(),
+          _ => true,
+        }
+    }),
+    "nothing filled in the ring's box"
+  );
   assert_eq!(stage.text("70%").1, 13.0);
   let value = stage.text_quad("70%").unwrap();
   assert!(
@@ -341,19 +370,141 @@ fn a_ring_is_the_value_around_a_circle_with_it_in_the_middle() {
     "in the middle"
   );
 
+  // The smaller rings: a ring a tenth of the side, the value in a smaller type or not at all.
   assert_eq!(stage.bounds("sm").2, 40.0);
   assert_eq!(stage.bounds("md").2, 56.0);
+  assert!(near(arc(&mut stage, "sm", light(PaletteColor::Primary)).0, 4.0));
+  let (_, [dash, gap]) = arc(&mut stage, "md", light(PaletteColor::Primary));
+  assert!((dash - std::f32::consts::PI * 28.0).abs() < 0.01 && (gap - dash).abs() < 0.01);
   assert_eq!(
     stage.text("50%").1,
     11.0,
     "the small ring's value; the other shows none"
   );
-  // A whole turn is the arc's color all round.
-  let (x, y, ..) = stage.bounds("done");
-  assert!(stage.quads().iter().any(|quad| {
-    (quad.x, quad.y, quad.width) == (x, y, 72.0)
-      && matches!(&quad.content, QuadContent::Rect { color, gradient: None } if *color == light(PaletteColor::Success))
-  }));
+  // A whole turn is a dash with no gap: a solid line, in the variant's color.
+  let (_, [_, gap]) = arc(&mut stage, "done", light(PaletteColor::Success));
+  assert_eq!(gap, 0.0);
+  // Nothing done: the arc has no color.
+  assert!(
+    rings(&mut stage, "none")
+      .iter()
+      .map(stroke)
+      .all(|(color, ..)| color == light(PaletteColor::Secondary) || color.a() == 0)
+  );
+}
+
+/// Whether the dashed border of a ring of `side`, `fraction` of the way round, covers the ring from the top and
+/// clockwise as far as the fraction and nowhere else, as the renderers paint it: one dash, starting at 12 o'clock.
+fn one_dash_from_the_top(side: f32, fraction: f32) {
+  let half = side / 2.0;
+  let width = side / 10.0;
+  let circle = std::f32::consts::PI * side;
+  let dash = circle * fraction;
+  let shape = StrokeShape {
+    half: [half; 2],
+    radii: [half; 4],
+    stroke: [width; 4],
+    style: StrokeStyle {
+      dash: [dash, circle - dash],
+      radii_at: 0.0,
+    },
+  };
+  // Along the middle of the ring, a sample every half degree; the ends of the dash have a ramp of a pixel.
+  let middle = half - width / 2.0;
+  let ramp = 1.5 / circle;
+  for step in 0..720 {
+    let turn = step as f32 / 720.0;
+    let angle = turn * std::f32::consts::TAU;
+    let coverage = stroke_coverage(middle * angle.sin(), -middle * angle.cos(), &shape);
+    let near_an_end = turn.min(1.0 - turn) < ramp || (turn - fraction).abs() < ramp;
+    if near_an_end && fraction < 1.0 {
+      continue;
+    }
+    if turn < fraction {
+      assert!(
+        coverage > 0.99,
+        "side {side}, {fraction}: covered at {turn}: {coverage}"
+      );
+    } else {
+      assert!(coverage < 0.01, "side {side}, {fraction}: bare at {turn}: {coverage}");
+    }
+  }
+}
+
+#[test]
+fn the_arcs_dash_starts_at_the_top_and_is_the_only_one_at_every_value_and_size() {
+  for side in [40.0, 56.0, 72.0] {
+    for fraction in [0.02, 0.1, 0.25, 0.4999, 0.5, 0.5001, 0.7, 0.9, 0.98, 1.0] {
+      one_dash_from_the_top(side, fraction);
+    }
+  }
+}
+
+#[test]
+fn the_arc_moves_round_to_a_new_value() {
+  let value = Signal::new(0.2_f32);
+  let read = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(RingProgress::new(read.get()).id("ring"))
+      .into()
+  });
+  let primary = light(PaletteColor::Primary);
+  let circle = std::f32::consts::PI * 72.0;
+  let (_, [dash, _]) = arc(&mut stage, "ring", primary);
+  assert!((dash - circle * 0.2).abs() < 0.01);
+  value.set(0.8);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let (_, [dash, gap]) = arc(&mut stage, "ring", primary);
+  assert!(
+    dash > circle * 0.2 + 0.5 && dash < circle * 0.8 - 0.5,
+    "on the way: {dash}"
+  );
+  assert!((dash + gap - circle).abs() < 0.01, "one dash all the way");
+  stage.pass_after(Duration::from_secs(1));
+  let (_, [dash, _]) = arc(&mut stage, "ring", primary);
+  assert!((dash - circle * 0.8).abs() < 0.01);
+}
+
+#[test]
+fn a_whole_ring_goes_back_as_one_dash() {
+  let value = Signal::new(1.0_f32);
+  let read = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(RingProgress::new(read.get()).id("ring"))
+      .into()
+  });
+  let primary = light(PaletteColor::Primary);
+  let circle = std::f32::consts::PI * 72.0;
+  value.set(0.5);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let (_, [dash, gap]) = arc(&mut stage, "ring", primary);
+  assert!(dash > circle * 0.5 + 0.5 && dash < circle - 0.5, "on the way: {dash}");
+  assert!((dash + gap - circle).abs() < 0.01, "one dash, not many: {dash} {gap}");
+}
+
+#[test]
+fn reduced_motion_moves_the_arc_at_once() {
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(true));
+  let value = Signal::new(0.2_f32);
+  let read = value.clone();
+  let mut stage = Stage::in_app(app, move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(RingProgress::new(read.get()).id("ring"))
+      .into()
+  });
+  value.set(0.8);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let (_, [dash, _]) = arc(&mut stage, "ring", light(PaletteColor::Primary));
+  assert!((dash - std::f32::consts::PI * 72.0 * 0.8).abs() < 0.01, "{dash}");
 }
 
 #[test]

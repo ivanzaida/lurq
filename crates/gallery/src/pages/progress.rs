@@ -141,11 +141,12 @@ impl ProgressPage {
     let tree = if ring {
       vec![
         format!("root       {}", self.playground.measured()),
+        "├─ track   a ring, a tenth of the side   secondary".to_owned(),
         format!(
-          "├─ track   the disc        secondary, {value}% {}",
+          "├─ fill    one dash, {value}% from the top   {}",
           named(&VARIANTS, variant).to_lowercase()
         ),
-        "└─ middle  four fifths across   background".to_owned(),
+        "└─ middle  nothing painted".to_owned(),
         format!(
           "   └─ value  {}",
           if show_value {
@@ -277,6 +278,7 @@ impl Component for ProgressPage {
           .show_value(true),
         "progress · moves to a new value",
       ))
+      .child(item(RingProgress::new(upload).max(100), "ring · moves round"))
       .child(
         Button::new("Upload more")
           .variant(ButtonVariant::Outline)
@@ -453,7 +455,7 @@ impl Component for ProgressPage {
         Section::new(
           "Progress",
           "The page keeps the value, in a signal. What is filled moves to a new value over the theme's slow \
-           duration, at once while motion is reduced.",
+           duration, and the ring's arc moves round; at once while motion is reduced.",
           self.frame.demo(
             0,
             moving,
@@ -464,6 +466,8 @@ impl Component for ProgressPage {
               "    .max(100)",
               "    .label(\"Uploading theme.json\")",
               "    .show_value(true)",
+              "",
+              "RingProgress::new(done.get()).max(100)",
             ],
           ),
         ),
@@ -558,8 +562,9 @@ impl Component for ProgressPage {
         ),
         Section::new(
           "Ring",
-          "The value around a circle, from the top and clockwise, with it in the middle. On a surface of another \
-           color than the page's, give the ring's middle that color.",
+          "The value around a circle, from the top and clockwise, with it in the middle: two round borders one \
+           over the other, the arc's cut to one dash, and nothing painted in the middle, so a ring sits on any \
+           surface.",
           self.frame.demo(
             7,
             rings,
@@ -572,9 +577,6 @@ impl Component for ProgressPage {
               "    .max(128)",
               "    .variant(ProgressVariant::Warning)",
               "    .format(|used, _| format!(\"{used}G\"))",
-              "",
-              "// On a card:",
-              "RingProgress::new(0.4).style(RingProgressPart::Middle, |s| s.background(PaletteColor::Card))",
             ],
           ),
         ),
