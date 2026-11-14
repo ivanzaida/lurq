@@ -20,6 +20,7 @@ mod checkbox_card;
 mod combobox;
 mod command_palette;
 mod context_menu;
+mod data_grid;
 mod data_list;
 mod date_picker;
 mod date_range_picker;
@@ -740,6 +741,14 @@ pub const PAGES: &[Page] = &[
     about: "table data rows columns sort sortable select selection checkbox header sticky scroll virtualized thousands density empty loading skeleton pagination footer grid row_key selected checkboxes height max_height count total on_row_click on_row_activate mount label disabled style rules",
     group: Group::Data,
     mount: |ctx| ctx.mount::<table::TablePage>(()),
+  },
+  Page {
+    path: "/data-grid",
+    name: "Data Grid",
+    icon: Some("table"),
+    about: "data grid datagrid spreadsheet cells cell focus edit editing in place editor text number choice checkbox on_edit read_only resizable resize pinned pin columns sort selected keyboard arrows tab enter escape f2 virtualized thousands fifty columns mount CellEditor CellValue CellEdit",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<data_grid::DataGridPage>(()),
   },
   Page {
     path: "/splitter",

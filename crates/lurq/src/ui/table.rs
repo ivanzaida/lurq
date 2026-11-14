@@ -2414,7 +2414,6 @@ impl TableCell {
       .align_items(Alignment::Center)
       .justify(justify(self.align))
       .part(&self.part)
-      .describe("a11y_role", "cell")
       // A cell is the same element wherever the columns built around it start.
       .key(format!("cell-{}", self.column));
     match self.grid.take() {
@@ -2425,7 +2424,12 @@ impl TableCell {
           .dress(self.column, cell, editor.is_some())
           .child(editor.unwrap_or(self.content));
       }
-      None => cell = cell.focus_group(FocusGroup::none()).child(self.content),
+      None => {
+        cell = cell
+          .describe("a11y_role", "cell")
+          .focus_group(FocusGroup::none())
+          .child(self.content)
+      }
     }
     if !self.last {
       cell = cell.padding_right(self.gap);
