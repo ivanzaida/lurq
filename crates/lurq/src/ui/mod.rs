@@ -26,6 +26,7 @@ mod checkbox;
 mod chip;
 mod choice_card;
 mod collapsible;
+mod combobox;
 mod dialog;
 mod fab;
 mod field;
@@ -38,6 +39,7 @@ mod input_group;
 mod link;
 mod menu;
 mod number_input;
+mod multi_select;
 mod pagination;
 mod part_style;
 mod password_input;
@@ -91,6 +93,7 @@ pub use choice_card::{
   ChoiceCardRenderer, ChoiceCardState, ChoiceCardView, RadioCard, RadioCardGroup,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
+pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
@@ -115,6 +118,7 @@ pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
   NumberInputState, NumberInputView,
 };
+pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
 pub use pagination::{PageItem, Pagination, PaginationPart, PaginationRenderer, PaginationState, PaginationView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,

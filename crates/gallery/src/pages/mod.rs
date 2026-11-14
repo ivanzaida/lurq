@@ -12,6 +12,7 @@ mod button;
 mod card;
 mod checkbox;
 mod checkbox_card;
+mod combobox;
 mod dialog;
 mod family;
 mod family_play;
@@ -22,6 +23,7 @@ mod input_otp;
 mod input_group;
 mod menu;
 mod number_input;
+mod multi_select;
 mod overview;
 mod pagination;
 mod password_input;
@@ -310,6 +312,22 @@ pub const PAGES: &[Page] = &[
     about: "number input numeric stepper spin button quantity price min max step precision format prefix suffix",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<number_input::NumberInputPage>(()),
+  },
+  Page {
+    path: "/combobox",
+    name: "Combobox",
+    icon: None,
+    about: "combobox autocomplete typeahead search filter select option list type custom value fetch loading no results",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<combobox::ComboboxPage>(()),
+  },
+  Page {
+    path: "/multi-select",
+    name: "Multi Select",
+    icon: None,
+    about: "multi select multiple choose several tags tokens chips checkbox list filter max shown clear",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<multi_select::MultiSelectPage>(()),
   },
   Page {
     path: "/tooltip",

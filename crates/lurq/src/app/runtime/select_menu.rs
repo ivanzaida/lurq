@@ -12,8 +12,8 @@ use crate::{
   core::ElementRect,
   layout::{Alignment, Size, layout_kind::Justify, layout_result::LayoutResult},
   node::{
-    EventHandler, Node, SelectAdornmentState, SelectCheckmarkPosition, SelectPartStyle, SelectStyle, SpacingValue,
-    Style, SyntheticNodeRole,
+    EventHandler, Node, NodeUpdate, SelectAdornmentState, SelectCheckmarkPosition, SelectPartStyle, SelectStyle,
+    SpacingValue, Style, SyntheticNodeRole,
     border::ThemedBorderRadius,
     dimension::Dimension,
     node_kind::{NodeKind, SelectState, TextOverflow},
@@ -51,6 +51,12 @@ pub(super) fn build_select_menu(
     positions.push(rows.len());
     rows.push(option_row(state, &style, index, label, labels.len(), measure));
   }
+  // What the list says of itself, after its options: that it has none, or that more are loading.
+  if let Some(status) = state.status() {
+    let mut row = Node::row(0.0, Alignment::Center, vec![status.into_node()]).width(Dimension::Pct(100.0));
+    row.set_tag_name("SelectStatus");
+    rows.push(row);
+  }
 
   // The menu's padding goes on the scrolled list, so it scrolls with the
   // options like CSS padding on a scroll container.
@@ -70,6 +76,11 @@ pub(super) fn build_select_menu(
   }
   menu.set_tag_name("SelectMenu");
   menu.set_synthetic_role(SyntheticNodeRole::SelectMenu);
+  // To what reads the tree, a listbox, which says which of its options the keys are on.
+  NodeUpdate::describe(&mut menu, Arc::from("a11y_role"), Arc::from("listbox"));
+  if let Some(label) = state.highlighted().and_then(|index| labels.get(index)) {
+    NodeUpdate::describe(&mut menu, Arc::from("a11y_activedescendant"), label.clone());
+  }
 
   let measured = measure(&menu);
   if let Some(index) = state.take_reveal()
@@ -201,7 +212,12 @@ fn option_row(
     row = row.min_height(SELECT_OPTION_ROW_HEIGHT);
   }
   row.set_tag_name("SelectOption");
+  let yes_no = |on: bool| Arc::from(if on { "true" } else { "false" });
+  NodeUpdate::describe(&mut row, Arc::from("a11y_role"), Arc::from("option"));
+  NodeUpdate::describe(&mut row, Arc::from("a11y_name"), Arc::from(label));
+  NodeUpdate::describe(&mut row, Arc::from("a11y_selected"), yes_no(option.selected));
   if option.disabled {
+    NodeUpdate::describe(&mut row, Arc::from("a11y_disabled"), yes_no(true));
     return row;
   }
 
@@ -294,8 +310,13 @@ fn option_content(
 /// The checkmark slot every option reserves, so labels line up whether or not
 /// the option is selected.
 fn checkmark_slot(style: &SelectStyle, part: &SelectPartStyle, selected: bool) -> Node {
-  let icon = selected.then(|| {
-    style.checkmark.build(
+  let mark = if selected {
+    Some(&style.checkmark)
+  } else {
+    style.checkmark_unchecked.as_ref()
+  };
+  let icon = mark.map(|mark| {
+    mark.build(
       part.text_style(),
       style.checkmark_size,
       style.checkmark_color.as_ref().or(part.text_color.as_ref()),

@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
 use crate::{
-  app::ctx::OutsidePress,
+  app::{
+    ctx::OutsidePress,
+    events::{KeyboardEvent, TextInputEvent},
+  },
+  components::TextInput,
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, StackAlignment, layout_kind::Justify},
   node::{
-    Element, Node, SelectAdornmentState, SelectIcon, SelectStyle, SyntheticNodeRole,
+    Element, Node, NodeUpdate, SelectAdornmentState, SelectIcon, SelectStyle, SyntheticNodeRole,
     dimension::Dimension,
-    node_kind::{SelectChangeCallback, TextOverflow},
+    node_kind::{NodeKind, SelectChangeCallback, SelectState, TextInputState, TextOverflow},
     select_icon::SelectAdornment,
   },
 };
@@ -132,6 +136,25 @@ impl<T> SelectOption<T> {
     self.disabled = disabled;
     self
   }
+
+  /// The value the option sets.
+  pub fn value(&self) -> &T {
+    &self.value
+  }
+
+  /// What the option is called: the text of its row, and of the closed field while it is selected.
+  pub fn label(&self) -> &str {
+    &self.label
+  }
+
+  /// The label of the group the option starts, where it starts one.
+  pub fn starts_group(&self) -> Option<&str> {
+    self.group.as_deref()
+  }
+
+  pub fn is_disabled(&self) -> bool {
+    self.disabled
+  }
 }
 
 /// An adornment that draws a copy of `element` in every state.
@@ -166,6 +189,9 @@ where
   style: SelectStyle,
   trigger: Option<Arc<dyn Fn(SelectTriggerState) -> Element + Send + Sync>>,
   outside_press: OutsidePress,
+  combobox: Option<TextInput>,
+  free_text: bool,
+  status: Option<SelectAdornment>,
 }
 
 #[derive(Clone)]
@@ -179,6 +205,8 @@ pub struct SelectTriggerState {
   pub selected_labels: Vec<Arc<str>>,
   pub selected_count: usize,
   pub multiple: bool,
+  /// The text input of a combobox ([`Select::combobox`]), for the trigger to place: `None` in a plain select.
+  pub input: Option<Element>,
 }
 
 impl<T> Select<T>
@@ -195,6 +223,9 @@ where
       style: SelectStyle::new(),
       trigger: None,
       outside_press: OutsidePress::default(),
+      combobox: None,
+      free_text: false,
+      status: None,
     }
   }
 
@@ -207,6 +238,9 @@ where
       style: SelectStyle::new(),
       trigger: None,
       outside_press: OutsidePress::default(),
+      combobox: None,
+      free_text: false,
+      status: None,
     }
   }
 
@@ -271,6 +305,34 @@ where
   /// way and opens that dropdown.
   pub fn outside_press(mut self, outside_press: OutsidePress) -> Self {
     self.outside_press = outside_press;
+    self
+  }
+
+  /// Makes the select a combobox: a select a person types in. `input` is in its trigger
+  /// ([`SelectTriggerState::input`]) and takes the focus a press anywhere on the select gives; the select itself is no
+  /// stop of Tab. A press opens the list and leaves it open. Typing opens it too, with the first option that can be
+  /// chosen highlighted once the app has given the options what was typed filters (it reads the input's signal in its
+  /// render). While the focus is in the input, Down and Up open the list or move the highlight, Alt+Down opens it with
+  /// nothing highlighted and Alt+Up closes it, Enter chooses the highlighted option, Escape closes the list and a
+  /// second Escape clears what was typed, and Tab closes the list and goes on. The other keys are the input's: the
+  /// caret's Home and End, a Space typed. Choosing an option of a single combobox puts its label in the input; a
+  /// multiple one keeps the list open and the input as it is.
+  pub fn combobox(mut self, input: TextInput) -> Self {
+    self.combobox = Some(input);
+    self
+  }
+
+  /// Whether what is typed in a combobox may be no option's label: typing highlights nothing then, and Enter with
+  /// nothing highlighted closes the list and is left to the input and the app.
+  pub fn free_text(mut self, free_text: bool) -> Self {
+    self.free_text = free_text;
+    self
+  }
+
+  /// A row the open list draws after its options, which cannot be chosen: what it says while it has no options ("No
+  /// results"), or while more are loading.
+  pub fn status(mut self, row: impl Into<Element>) -> Self {
+    self.status = Some(fixed_adornment(row.into()));
     self
   }
 
@@ -361,6 +423,13 @@ where
       let build = slots.get(single?)?.as_ref()?;
       Some(build(&field))
     };
+    // The select's state, which a combobox's input holds without keeping it alive.
+    let state = (*self.node).clone_select_state();
+    let combobox = self.combobox.map(|input| {
+      let node = Element::from(input).into_node();
+      combobox_input(node, state.as_ref(), labels.len())
+    });
+    let combobox_state = combobox.as_ref().and_then(|(_, input)| input.clone());
     let trigger_state = SelectTriggerState {
       leading: adornment(&leading),
       trailing: adornment(&trailing),
@@ -369,12 +438,19 @@ where
       selected_count: selected.len(),
       selected_labels,
       multiple,
+      input: combobox.map(|(node, _)| Element::from_node(node)),
     };
     let trigger = self
       .trigger
       .map(|render| render(trigger_state.clone()).into_node())
       .unwrap_or_else(|| default_trigger(trigger_state, &self.style));
 
+    if let (Some(state), Some(input)) = (&state, combobox_state) {
+      state.set_combobox(input, self.free_text);
+    }
+    if let Some(state) = &state {
+      state.set_status(self.status);
+    }
     (*self.node)
       .with_tag_name(Arc::from("Select"))
       .with_children([trigger])
@@ -396,12 +472,16 @@ fn default_trigger(state: SelectTriggerState, style: &SelectStyle) -> Node {
   let trigger = style.resolved_trigger(false, false, false);
   let is_placeholder = state.selected_count == 0;
   let text = state.label.unwrap_or_default();
-  let text_node = match (is_placeholder, style.placeholder_text.as_ref()) {
-    (true, Some(text_style)) => Node::text_styled(&text, text_style.clone()),
-    _ => trigger.text_node(&text),
+  // A combobox's input is where the label is: it shows what is typed, and the placeholder while that is nothing.
+  let text_node = match state.input {
+    Some(input) => input.into_node(),
+    None => match (is_placeholder, style.placeholder_text.as_ref()) {
+      (true, Some(text_style)) => Node::text_styled(&text, text_style.clone()),
+      _ => trigger.text_node(&text),
+    }
+    .text_wrap(false)
+    .text_overflow(TextOverflow::Elipsis),
   }
-  .text_wrap(false)
-  .text_overflow(TextOverflow::Elipsis)
   .min_width(0.0)
   .flex(1.0);
 
@@ -435,6 +515,95 @@ fn default_trigger(state: SelectTriggerState, style: &SelectStyle) -> Node {
   Node::row(style.trigger_gap, Alignment::Center, vec![content, chevron])
     .justify(Justify::Start)
     .width(Dimension::Pct(100.0))
+}
+
+/// A combobox's text input, with what makes it the combobox's: an edit opens the list, and the keys of
+/// [`Select::combobox`] move through it while the input has the focus. Returns the input's state too, which the
+/// select holds.
+fn combobox_input(mut input: Node, select: Option<&SelectState>, options: usize) -> (Node, Option<TextInputState>) {
+  let text = match input.node_kind() {
+    NodeKind::TextInput { state, .. } => Some(state.clone()),
+    _ => None,
+  };
+  let (Some(select), Some(text)) = (select, text) else {
+    return (input, None);
+  };
+  // The input holds the select without keeping it: the select holds the input.
+  let typed = select.downgrade();
+  NodeUpdate::on_input(&mut input, move |event: TextInputEvent| {
+    if !event.default_prevented()
+      && let Some(select) = typed.upgrade()
+    {
+      select.typed();
+    }
+  });
+  let (keyed, field) = (select.downgrade(), text.downgrade());
+  NodeUpdate::on_key_down(&mut input, move |event: KeyboardEvent| {
+    if !event.focus_within || event.composing || event.ctrl || event.meta {
+      return;
+    }
+    let (Some(select), Some(field)) = (keyed.upgrade(), field.upgrade()) else {
+      return;
+    };
+    if combobox_key(&select, &field, &event, options) {
+      event.prevent_default();
+    }
+  });
+  (input, Some(text))
+}
+
+/// What a key does in a combobox whose input has the focus; whether it took the key from the input.
+fn combobox_key(select: &SelectState, input: &TextInputState, event: &KeyboardEvent, options: usize) -> bool {
+  let open = select.is_open();
+  match event.key.as_str() {
+    "ArrowDown" if event.alt => {
+      select.set_open(true);
+      true
+    }
+    "ArrowUp" if event.alt => {
+      select.set_open(false);
+      true
+    }
+    "ArrowDown" | "ArrowUp" => {
+      let forward = event.key == "ArrowDown";
+      match (open, select.highlighted()) {
+        (true, Some(_)) => select.move_highlight(if forward { 1 } else { -1 }),
+        // Open with nothing highlighted, the first move lands on the first option, or from the end on the last.
+        (true, None) => select.highlight_edge(!forward),
+        (false, _) if options > 0 => select.open_with_highlight_from(forward),
+        (false, _) => select.set_open(true),
+      }
+      true
+    }
+    "Enter" if open => match select.highlighted() {
+      Some(index) => {
+        select.commit(index);
+        true
+      }
+      None => {
+        select.set_open(false);
+        // What is typed is the input's and the app's: a value of its own, or a form sent.
+        false
+      }
+    },
+    "Escape" if open => {
+      select.set_open(false);
+      true
+    }
+    // A second Escape clears what was typed, as an edit, which the input's handlers hear.
+    "Escape" if !input.value().is_empty() => {
+      input.select_all();
+      input.backspace(event);
+      // The edit opened the list, as an edit does; clearing leaves it closed.
+      select.set_open(false);
+      true
+    }
+    "Tab" if open => {
+      select.set_open(false);
+      false
+    }
+    _ => false,
+  }
 }
 
 /// Tags a chevron for one open state; painting skips it in the other.

@@ -394,106 +394,13 @@ impl SelectView {
     self.theme().resolve::<Select>(&case, Some(&self.rules))
   }
 
-  /// The type of a part's text as the engine paints it: its typography, in
-  /// the color of its foreground, which is named.
-  fn ink(&self, style: &PartStyle) -> TextStyle {
-    let theme = self.theme();
-    let mut text = style.text.resolve(theme);
-    match &style.foreground {
-      Some(TextColor::Color(color)) => text.color = *color,
-      Some(TextColor::Palette(role)) => text.color = theme.palette_color(role.clone()),
-      None => {}
-    }
-    text
-  }
-
   /// The engine's style for the select, from the recipe: the trigger at rest,
   /// under the pointer, focused from the keyboard and open; its value, its
   /// placeholder and its chevron; the panel of the list; an item at rest,
   /// under the pointer or the keys, chosen and disabled, with its check and
   /// its detail.
   pub fn select_style(&self) -> SelectStyle {
-    use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Menu, Placeholder, Separator, Trigger, Value};
-    let theme = self.theme();
-    let trigger = self.part(Trigger);
-    let rest = trigger.rest();
-    let value = rest.clone().merged(&self.part(Value).rest());
-    let placeholder = value.clone().merged(&self.part(Placeholder).rest());
-    let mut text = engine_part(&rest, theme).text(self.ink(&value));
-    if let Some(color) = &value.foreground {
-      text = text.text_color(color.clone());
-    }
-    let mut style = SelectStyle::unstyled()
-      .trigger(text)
-      .placeholder_text(self.ink(&placeholder));
-    if let Some(gap) = rest.gap {
-      style = style.trigger_gap(gap);
-    }
-    let states = trigger.styles();
-    if !states.hovered.is_empty() {
-      style = style.trigger_hovered(engine_part(&states.hovered, theme));
-    }
-    if !states.focus_visible.is_empty() {
-      style = style.trigger_focused(engine_part(&states.focus_visible, theme));
-    }
-    // Merged over the trigger last while the list is open: the whole of the trigger as the open case has it.
-    style = style.trigger_open(engine_part(
-      &self.in_state(SelectState::Open).part(Trigger).rest(),
-      theme,
-    ));
-
-    let chevron = self.part(Chevron).rest();
-    style = style.chevron(icon(icons::CHEVRON_DOWN, &chevron, theme));
-    if let Some(color) = &chevron.foreground {
-      style = style.chevron_color(color.clone());
-    }
-
-    // The list is not forced: a forced interaction is the trigger's.
-    let menu = self.recipe.part(Menu).rest();
-    style = style
-      // Its height is the most it is, which the engine says apart: not the least the panel is.
-      .menu(engine_part(&PartStyle { height: None, ..menu.clone() }, theme))
-      .menu_gap(spacing(menu.gap, theme).unwrap_or(4.0));
-    if let Some(height) = px(menu.height, theme) {
-      style = style.max_menu_height(height);
-    }
-
-    let item = self.recipe.part(Item);
-    let chosen = self.in_state(SelectState::Chosen).part(Item);
-    style = style
-      .option(engine_part(&item.rest(), theme))
-      .option_selected(engine_part(&chosen.rest(), theme))
-      .option_disabled(engine_part(
-        &self.in_state(SelectState::ItemDisabled).part(Item).rest(),
-        theme,
-      ))
-      .option_detail(engine_part(&self.recipe.part(Detail).rest(), theme))
-      .option_hint(engine_part(&self.recipe.part(Hint).rest(), theme))
-      .group_label(engine_part(&self.recipe.part(Group).rest(), theme))
-      .separator(engine_part(&self.recipe.part(Separator).rest(), theme));
-    // The item under the keys looks as the one under the pointer does.
-    if !item.styles().hovered.is_empty() {
-      style = style.option_hovered(engine_part(&item.styles().hovered, theme));
-    }
-    if !chosen.styles().hovered.is_empty() {
-      style = style.option_selected_hovered(engine_part(&chosen.styles().hovered, theme));
-    }
-    if let Some(gap) = item.rest().gap {
-      style = style.checkmark_gap(gap).option_adornment_gap(gap);
-    }
-
-    let check = self.in_state(SelectState::Chosen).part(Check).rest();
-    style = style
-      .checkmark(icon(icons::CHECK, &check, theme))
-      .checkmark_position(SelectCheckmarkPosition::Trailing)
-      .single_checkmark(true);
-    if let Some(side) = px(check.width, theme) {
-      style = style.checkmark_size(side);
-    }
-    if let Some(color) = &check.foreground {
-      style = style.checkmark_color(color.clone());
-    }
-    style
+    engine_style(&self.recipe, self.forced, &|state| self.in_state(state))
   }
 
   /// The engine's select bound to the value and its options, in `style`, with
@@ -544,19 +451,123 @@ impl SelectView {
   }
 }
 
+/// The type of a part's text as the engine paints it: its typography, in the color of its foreground, which is named.
+fn ink(theme: &Theme, style: &PartStyle) -> TextStyle {
+  let mut text = style.text.resolve(theme);
+  match &style.foreground {
+    Some(TextColor::Color(color)) => text.color = *color,
+    Some(TextColor::Palette(role)) => text.color = theme.palette_color(role.clone()),
+    None => {}
+  }
+  text
+}
+
+/// The engine's style for a select from a recipe of the parts a select has, by their names ([`SelectPart`]): the
+/// trigger at rest, under the pointer, focused from the keyboard and open; its value, its placeholder and its chevron;
+/// the panel of the list; an item at rest, under the pointer or the keys, chosen and disabled, with its check and its
+/// detail. `forced` is the trigger's; `in_state` resolves the recipe with a state of [`SelectState`] on as well. A
+/// combobox's list is drawn by this too.
+pub(crate) fn engine_style(
+  recipe: &ResolvedRecipe,
+  forced: Option<Interaction>,
+  in_state: &dyn Fn(Name) -> ResolvedRecipe,
+) -> SelectStyle {
+  use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Menu, Placeholder, Separator, Trigger, Value};
+  let theme = recipe.theme();
+  let trigger = recipe.part(Trigger).forced(forced);
+  let rest = trigger.rest();
+  let value = rest.clone().merged(&recipe.part(Value).forced(forced).rest());
+  let placeholder = value.clone().merged(&recipe.part(Placeholder).forced(forced).rest());
+  let mut text = engine_part(&rest, theme).text(ink(theme, &value));
+  if let Some(color) = &value.foreground {
+    text = text.text_color(color.clone());
+  }
+  let mut style = SelectStyle::unstyled()
+    .trigger(text)
+    .placeholder_text(ink(theme, &placeholder));
+  if let Some(gap) = rest.gap {
+    style = style.trigger_gap(gap);
+  }
+  let states = trigger.styles();
+  if !states.hovered.is_empty() {
+    style = style.trigger_hovered(engine_part(&states.hovered, theme));
+  }
+  if !states.focus_visible.is_empty() {
+    style = style.trigger_focused(engine_part(&states.focus_visible, theme));
+  }
+  // Merged over the trigger last while the list is open: the whole of the trigger as the open case has it.
+  style = style.trigger_open(engine_part(
+    &in_state(SelectState::Open.into()).part(Trigger).rest(),
+    theme,
+  ));
+
+  let chevron = recipe.part(Chevron).forced(forced).rest();
+  style = style.chevron(icon(icons::CHEVRON_DOWN, &chevron, theme));
+  if let Some(color) = &chevron.foreground {
+    style = style.chevron_color(color.clone());
+  }
+
+  // The list is not forced: a forced interaction is the trigger's.
+  let menu = recipe.part(Menu).rest();
+  style = style
+    // Its height is the most it is, which the engine says apart: not the least the panel is.
+    .menu(engine_part(&PartStyle { height: None, ..menu.clone() }, theme))
+    .menu_gap(spacing(menu.gap, theme).unwrap_or(4.0));
+  if let Some(height) = px(menu.height, theme) {
+    style = style.max_menu_height(height);
+  }
+
+  let item = recipe.part(Item);
+  let chosen = in_state(SelectState::Chosen.into()).part(Item);
+  style = style
+    .option(engine_part(&item.rest(), theme))
+    .option_selected(engine_part(&chosen.rest(), theme))
+    .option_disabled(engine_part(
+      &in_state(SelectState::ItemDisabled.into()).part(Item).rest(),
+      theme,
+    ))
+    .option_detail(engine_part(&recipe.part(Detail).rest(), theme))
+    .option_hint(engine_part(&recipe.part(Hint).rest(), theme))
+    .group_label(engine_part(&recipe.part(Group).rest(), theme))
+    .separator(engine_part(&recipe.part(Separator).rest(), theme));
+  // The item under the keys looks as the one under the pointer does.
+  if !item.styles().hovered.is_empty() {
+    style = style.option_hovered(engine_part(&item.styles().hovered, theme));
+  }
+  if !chosen.styles().hovered.is_empty() {
+    style = style.option_selected_hovered(engine_part(&chosen.styles().hovered, theme));
+  }
+  if let Some(gap) = item.rest().gap {
+    style = style.checkmark_gap(gap).option_adornment_gap(gap);
+  }
+
+  let check = in_state(SelectState::Chosen.into()).part(Check).rest();
+  style = style
+    .checkmark(icon(icons::CHECK, &check, theme))
+    .checkmark_position(SelectCheckmarkPosition::Trailing)
+    .single_checkmark(true);
+  if let Some(side) = px(check.width, theme) {
+    style = style.checkmark_size(side);
+  }
+  if let Some(color) = &check.foreground {
+    style = style.checkmark_color(color.clone());
+  }
+  style
+}
+
 /// A length in pixels: `None` for one that is not.
-fn px(length: Option<Length>, theme: &Theme) -> Option<f32> {
+pub(crate) fn px(length: Option<Length>, theme: &Theme) -> Option<f32> {
   match length?.resolve(theme)? {
     Dimension::Px(px) => Some(px),
     _ => None,
   }
 }
 
-fn spacing(value: Option<SpacingValue>, theme: &Theme) -> Option<f32> {
+pub(crate) fn spacing(value: Option<SpacingValue>, theme: &Theme) -> Option<f32> {
   value.map(|value| value.resolve(&theme.spacing(), 0.0))
 }
 
-fn opacity(opacity: Option<Opacity>, theme: &Theme) -> Option<f32> {
+pub(crate) fn opacity(opacity: Option<Opacity>, theme: &Theme) -> Option<f32> {
   match opacity? {
     Opacity::Value(value) => Some(value),
     Opacity::Level(level) => theme.opacities().try_get(level),
@@ -565,7 +576,7 @@ fn opacity(opacity: Option<Opacity>, theme: &Theme) -> Option<f32> {
 
 /// A glyph of the theme's set in the side of `style`, in the color the engine
 /// gives it: the chevron's or the check's.
-fn icon(name: &'static str, style: &PartStyle, theme: &Theme) -> SelectIcon {
+pub(crate) fn icon(name: &'static str, style: &PartStyle, theme: &Theme) -> SelectIcon {
   let (side, theme) = (style.width.unwrap_or(Length::Icon(IconSize::Md)), theme.clone());
   SelectIcon::element(move |color| {
     let mut icon = Icon::new(name).size(side);
@@ -578,7 +589,7 @@ fn icon(name: &'static str, style: &PartStyle, theme: &Theme) -> SelectIcon {
 
 /// A part's style as the engine's select paints a part: its fill, edge,
 /// corners, shadow, ring, opacity, padding, height (at least), type and color.
-fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
+pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
   let mut part = SelectPartStyle::new();
   if let Some(color) = &style.background {
     part = part.background(color.clone());

@@ -2668,10 +2668,21 @@ impl Node {
       .on_mouse_down
       .push(EventHandler::new(move |event: &MouseEvent| {
         if event.button == MouseButton::Left {
-          toggle.toggle_open();
+          // A press opens a combobox and leaves it open: it is pressed to type in, and closes when an option is
+          // chosen, with Escape, or with a press outside it.
+          if toggle.is_combobox() {
+            toggle.set_open(true);
+          } else {
+            toggle.toggle_open();
+          }
         }
       }));
     node
+  }
+
+  /// The state of a select node, to hold beside it.
+  pub(crate) fn clone_select_state(&self) -> Option<SelectState> {
+    self.select_state().cloned()
   }
 
   fn select_state(&self) -> Option<&SelectState> {

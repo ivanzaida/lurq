@@ -228,6 +228,7 @@ pub struct SelectStyle {
   pub(crate) chevron_color: Option<TextColor>,
   pub(crate) chevron_size: f32,
   pub(crate) checkmark: SelectIcon,
+  pub(crate) checkmark_unchecked: Option<SelectIcon>,
   pub(crate) checkmark_color: Option<TextColor>,
   pub(crate) checkmark_size: Option<f32>,
   pub(crate) checkmark_position: SelectCheckmarkPosition,
@@ -327,6 +328,7 @@ impl SelectStyle {
       chevron_color: None,
       chevron_size: 10.0,
       checkmark: SelectIcon::default_checkmark(),
+      checkmark_unchecked: None,
       checkmark_color: None,
       checkmark_size: None,
       checkmark_position: SelectCheckmarkPosition::Leading,
@@ -504,6 +506,13 @@ impl SelectStyle {
   /// Replaces the checkmark glyph `✓`.
   pub fn checkmark(mut self, icon: SelectIcon) -> Self {
     self.checkmark = icon;
+    self
+  }
+
+  /// What the slot of the checkmark holds on an option that is not selected, where the rows draw the slot: the empty
+  /// box of a list of checkboxes, whose `checkmark` is the checked box. Unset, it is empty.
+  pub fn checkmark_unchecked(mut self, icon: SelectIcon) -> Self {
+    self.checkmark_unchecked = Some(icon);
     self
   }
 

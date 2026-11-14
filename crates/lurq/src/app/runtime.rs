@@ -5083,15 +5083,22 @@ impl Tree {
     }
 
     if !evt.default_prevented() && is_left_down {
-      // Focus the select trigger on press so keyboard navigation works.
+      // Focus the select trigger on press so keyboard navigation works: a combobox's text input, which a press on
+      // the input itself focuses after this.
       if let Some((node, _)) = hits
         .iter()
         .find(|(node, _)| matches!(node.node_kind(), NodeKind::Select { .. }))
       {
-        pending_focus = Some(FocusTarget {
-          input_id: node.node_id(),
-          event_id: node.node_id(),
-        });
+        let target = match node.node_kind() {
+          NodeKind::Select { state } if state.is_combobox() => combobox_input_id(node),
+          _ => Some(node.node_id()),
+        };
+        if let Some(target) = target {
+          pending_focus = Some(FocusTarget {
+            input_id: target,
+            event_id: target,
+          });
+        }
         builtin_needs_redraw = true;
       }
 
@@ -8511,6 +8518,14 @@ fn clamp_overlay_position(x: f32, y: f32, overlay: Size, viewport: Size) -> (f32
   let max_x = (viewport.width - overlay.width).max(0.0);
   let max_y = (viewport.height - overlay.height).max(0.0);
   (x.clamp(0.0, max_x), y.clamp(0.0, max_y))
+}
+
+/// The text input in a combobox, which takes the focus a press on the combobox gives.
+fn combobox_input_id(node: &Node) -> Option<NodeId> {
+  if matches!(node.node_kind(), NodeKind::TextInput { .. }) {
+    return Some(node.node_id());
+  }
+  node.children().iter().find_map(combobox_input_id)
 }
 
 /// Close every open select; returns whether any were open.
