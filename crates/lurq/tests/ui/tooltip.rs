@@ -584,3 +584,42 @@ fn a_theme_gives_the_tooltip_another_anatomy_and_it_still_shows_when_it_should()
   assert!(stage.paints("COPY LINK"));
   assert!(!stage.paints(WORDS));
 }
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_tooltip_names_only_what_nothing_else_names_and_describes_it() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(100.0)
+      .spacing(8.0)
+      .child(Tooltip::new("Copy link").mount(ctx, copy()))
+      .child(
+        Tooltip::new("Settings of the page").mount(
+          ctx,
+          Button::new("")
+            .icon(lurq::ui::icons::SETTINGS)
+            .variant(ButtonVariant::Ghost)
+            .id("cog"),
+        ),
+      )
+      .into()
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  // Its label names the button: the tooltip says more of it.
+  assert_eq!(said(&mut stage, "copy", "a11y_name"), None, "named by its label");
+  assert_eq!(
+    said(&mut stage, "copy", "a11y_description").as_deref(),
+    Some("Copy link")
+  );
+  // An icon with no name of its own is named by its tooltip.
+  assert_eq!(
+    said(&mut stage, "cog", "a11y_name").as_deref(),
+    Some("Settings of the page")
+  );
+}

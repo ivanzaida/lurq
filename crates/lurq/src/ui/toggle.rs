@@ -198,7 +198,9 @@ impl Toggle {
 
   /// Builds the toggle in `theme`. Converting a toggle into an element does
   /// this in the theme of what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
+  pub fn build(mut self, theme: &Theme) -> Element {
+    // An icon with an empty label is an icon alone: no gap and no padding for a label.
+    self.icon_only = self.icon_only || self.label.is_empty() && self.icon.is_some();
     let case = Case {
       variant: None,
       size: Some(self.size),
@@ -275,7 +277,7 @@ impl ToggleView {
         }
       });
     }
-    if self.icon_only {
+    if self.icon_only && !self.label.is_empty() {
       root = root.describe("a11y_name", self.label.clone());
     }
     if let Some(id) = &self.id {

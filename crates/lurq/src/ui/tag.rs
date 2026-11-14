@@ -17,7 +17,7 @@ use crate::{
   },
   components::{self, Row},
   layout::{Alignment, text_style::FontWeight},
-  node::{CursorIcon, Element, border::Border as Line},
+  node::{CursorIcon, Element, border::Border as Line, outline::Outline},
 };
 
 /// The parts of a tag a recipe styles.
@@ -421,7 +421,8 @@ impl Themed for Tag {
       .base(RemoveIcon, |s| s.square(11.0))
       .hovered(Remove, |s| s.background(StateHover).foreground(Foreground))
       .pressed(Remove, |s| s.background(StatePressed).foreground(Foreground))
-      .focus_visible(Remove, |s| s.focus_ring())
+      // The ring hugs the button: one at the theme's offset would cover the end of the label, 4 before it.
+      .focus_visible(Remove, |s| s.outline(Outline::new(BorderSize::Md, Ring)))
       .size(TagSize::Sm, Root, |s| s.height(20.0).padding_x(6.0))
       .size(TagSize::Sm, Label, |s| s.font_size(11.0))
       .size(TagSize::Sm, Remove, |s| s.square(14.0))

@@ -10,7 +10,7 @@ use lurq::{
     theme::{BorderSize, PaletteColor, RadiusSize},
   },
   components::{Column, Row, Stack},
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::{Alignment, text_style::FontWeight},
   node::{Element, border::Border},
   ui::{ActionBar, ActionBarPart, ActionBarPlacement, Button, Checkbox, Length, icons},
@@ -36,8 +36,9 @@ const PLACEMENTS: [(&str, ActionBarPlacement); 2] =
   [("Bottom", ActionBarPlacement::Bottom), ("Top", ActionBarPlacement::Top)];
 
 /// The list of files, each with a check box bound to whether it is selected, `height` high.
-fn list(selected: &Signal<Vec<usize>>, height: f32) -> Element {
+fn list(selected: &Signal<Vec<usize>>, height: f32, rows_ref: &ElementRef) -> Element {
   let mut rows = Column::new()
+    .ref_element(rows_ref.clone())
     .width(FILL)
     .height(height)
     .padding(8.0)
@@ -101,6 +102,8 @@ pub struct ActionBarPage {
   /// The selection of the examples under the playground.
   top: Signal<Vec<usize>>,
   phone: Signal<Vec<usize>>,
+  /// The list of each, where the focus goes as its bar leaves with it.
+  rows: [ElementRef; 3],
 }
 
 impl ActionBarPage {
@@ -128,11 +131,20 @@ impl ActionBarPage {
           .width(480.0)
           .height(260.0)
           .overflow_visible()
-          .child(list(&selected, 260.0))
+          .child(list(&selected, 260.0, &ElementRef::new()))
           .child(plain())
           .into()
       }
     };
+    // On the stage the bar is mounted: as it leaves with the focus, the focus goes back to the list.
+    let rows = self.rows[0].clone();
+    let shown: Element = Stack::new()
+      .width(480.0)
+      .height(260.0)
+      .overflow_visible()
+      .child(list(&self.selected, 260.0, &rows))
+      .child(plain().return_focus(rows.clone()).mount(ctx))
+      .into();
 
     let mut code = vec![format!("ActionBar::new({count})")];
     if !text.is_empty() {
@@ -148,6 +160,8 @@ impl ActionBarPage {
     if escape {
       code.push("    .escape_clears(true)".to_owned());
     }
+    code.push("    .return_focus(list.clone())".to_owned());
+    code.push("    .mount(ctx)".to_owned());
     let tree = vec![
       "root          the room over the list · padding 16 · takes no press".to_owned(),
       "└─ bar        44 high · popover · round · edge · shadow lg".to_owned(),
@@ -175,7 +189,7 @@ impl ActionBarPage {
       Spec {
         title: "Action Bar",
         make: Arc::new(over.clone()),
-        shown: over(),
+        shown,
         fill: false,
         forceable: false,
         facts: format!("{count} selected"),
@@ -222,6 +236,7 @@ impl Component for ActionBarPage {
       escape: ctx.signal(false),
       top: ctx.signal(vec![1, 3]),
       phone: ctx.signal(vec![0, 2, 4]),
+      rows: [ElementRef::new(), ElementRef::new(), ElementRef::new()],
     }
   }
 
@@ -231,11 +246,13 @@ impl Component for ActionBarPage {
       .width(FILL)
       .height(240.0)
       .overflow_visible()
-      .child(list(&self.top, 240.0))
+      .child(list(&self.top, 240.0, &self.rows[1]))
       .child(
         bar(&self.top, quiet)
           .placement(ActionBarPlacement::Top)
-          .escape_clears(true),
+          .escape_clears(true)
+          .return_focus(self.rows[1].clone())
+          .mount(ctx),
       );
     // The board's Mobile/Selection Bar: the same parts, restyled into a bar across the top of a phone.
     let phone_bar = {
@@ -262,12 +279,14 @@ impl Component for ActionBarPage {
         .style(ActionBarPart::ActionIcon, |s| s.square(22.0))
         .style(ActionBarPart::Clear, |s| s.square(44.0))
         .style(ActionBarPart::ClearIcon, |s| s.square(22.0))
+        .return_focus(self.rows[2].clone())
+        .mount(ctx)
     };
     let phone = Stack::new()
       .width(360.0)
       .height(240.0)
       .overflow_visible()
-      .child(list(&self.phone, 240.0))
+      .child(list(&self.phone, 240.0, &self.rows[2]))
       .child(phone_bar);
 
     let rows = [
@@ -307,6 +326,18 @@ impl Component for ActionBarPage {
         "bool",
         "false",
         "Escape clears the selection wherever the focus is, unless what has it took the key.",
+      ),
+      (
+        "return_focus",
+        "ElementRef",
+        "",
+        "Where the focus goes as the bar leaves with the focus in it: the list it acts on. A mounted bar does this.",
+      ),
+      (
+        "mount",
+        "&mut Ctx",
+        "",
+        "Puts the bar in the component's tree, keeping whether the focus is in it.",
       ),
       (
         "clear_label",
@@ -351,7 +382,9 @@ impl Component for ActionBarPage {
               "            .action(Button::new(\"Move\").icon(icons::FOLDER_IMPORT))",
               "            .on_clear(move || selection.set(Vec::new()))",
               "            .placement(ActionBarPlacement::Top)",
-              "            .escape_clears(true),",
+              "            .escape_clears(true)",
+              "            .return_focus(list_ref.clone())",
+              "            .mount(ctx),",
               "    )",
             ],
           ),

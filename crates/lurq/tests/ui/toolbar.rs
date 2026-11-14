@@ -303,6 +303,30 @@ fn what_does_not_fit_goes_into_the_menu_at_the_end_last_first() {
 }
 
 #[test]
+fn more_opened_by_enter_gives_the_focus_to_its_first_item() {
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let held = pressed.clone();
+  let mut stage = stage(200.0, move || letters(&held));
+  stage.key("Tab");
+  stage.key("End");
+  assert_eq!(focused(&stage).as_deref(), Some("bar-more"));
+  // Enter opens the menu at its first item, and the arrows move in it.
+  stage.key("Enter");
+  assert!(stage.paints("Ctrl+E"), "open");
+  assert_eq!(focused(&stage).as_deref(), Some("e-item"));
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("f-item"));
+  // Escape closes it and gives the focus back to More.
+  stage.key("Escape");
+  assert!(!stage.paints("Ctrl+E"), "closed");
+  assert_eq!(focused(&stage).as_deref(), Some("bar-more"));
+  // Enter on an item presses its control.
+  stage.key("Enter");
+  stage.key("Enter");
+  assert_eq!(*pressed.lock().unwrap(), ["E"]);
+}
+
+#[test]
 fn a_control_that_stays_never_goes_into_the_menu() {
   let pressed = Arc::new(Mutex::new(Vec::new()));
   let held = pressed.clone();

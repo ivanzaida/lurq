@@ -476,3 +476,16 @@ fn the_arrow_keys_move_between_the_toggles_of_a_group_and_space_turns_one() {
   stage.key(" ");
   assert_eq!(marks.get(), ["italic"]);
 }
+
+#[test]
+fn a_toggle_with_an_empty_label_and_an_icon_is_a_square_as_an_icon_alone_is() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .spacing(8.0)
+      .child(Toggle::new("").icon(icons::BOLD).id("empty"))
+      .child(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).id("alone"))
+      .into()
+  });
+  let alone = stage.bounds("alone").2;
+  assert_eq!(stage.bounds("empty").2, alone, "no gap and no padding of a label");
+}
