@@ -105,7 +105,7 @@ mod tree_view;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
 pub use action_bar::{
-  ActionBar, ActionBarAction, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarState, ActionBarView,
+  ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
 };
 pub use alert::{Alert, AlertIcon, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use avatar::{

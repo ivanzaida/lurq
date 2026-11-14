@@ -3252,20 +3252,21 @@ Stack::new()
 | Builder | |
 | --- | --- |
 | `ActionBar::new(count)` | The bar of a selection of `count`: shown while it is more than none |
-| `text(&str)` | What it says, in place of "3 selected" |
-| `action(Button)`, `destructive_action(Button)` | An action on what is selected: a round ghost button; one that destroys in the destructive color |
-| `on_clear(handler)` | What clearing does: the round button with a cross at the end (none without it), and Escape where it clears |
+| `count_text(&str)` | What it says, in place of "3 selected" |
+| `label(&str)` | What it is called to what reads the tree, in place of what it says |
+| `action(Button)`, `destructive_action(Button)` | Adds an action on what is selected: a round ghost button; one that destroys in the destructive color. `actions(..)` and `destructive_actions(..)` add several |
+| `on_clear(handler)` | What clearing does: the round button with a cross at the end (none without one), and Escape where it clears. Each one adds, called in order |
 | `escape_clears(bool)` | Escape clears the selection while the bar is shown, wherever the focus is, unless what has it took the key |
 | `return_focus(ElementRef)` | Where the focus goes as the bar leaves with the focus in it, cleared by its button or by Escape, or emptied by an action: the list it acts on (its first control that takes the focus). Without it the focus leaves with the bar |
 | `mount(ctx)` | Puts the bar in the tree of `ctx`'s component, which keeps whether the focus is in it: `return_focus` needs it. `build(theme)` and `From<ActionBar> for Element` draw it with nothing kept |
-| `placement(ActionBarPlacement)` | `Bottom` (the default) or `Top` of the room it is given |
+| `side(ActionBarSide)` | The edge of the room it is given that it stands at: `Bottom` (the default) or `Top` |
 | `clear_label(&str)` | What the clear button is called: "Clear selection" |
-| `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. The clear button has the id with `-clear` after it |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the clear button; an action is forced with its own. The clear button has the id with `-clear` after it |
 
 - It is as large as the room it is given and takes no press itself: put it over what it acts on, in a `Stack`. The bar stands 16 from the bottom (or the top) of that room, in the middle; it comes in with a fade and a move of 16 from that edge, and leaves the same way as the count goes to none.
-- It is a toolbar to what reads the tree, called by what it says, and one stop of Tab whose Left and Right move between its buttons.
+- It is a toolbar to what reads the tree, called by its label or what it says, and one stop of Tab whose Left and Right move between its buttons.
 - What it says is on one line. Where the room is narrower than the bar, it gives way first and is cut with an ellipsis: the actions and the clear button stay whole, at any text size.
-- Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarPlacement::Bottom`, `Top`.
+- Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarSide::Bottom`, `Top`.
 - In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
 
 ## Splitter

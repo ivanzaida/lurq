@@ -13,7 +13,7 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, text_style::FontWeight},
   node::{Element, border::Border},
-  ui::{ActionBar, ActionBarPart, ActionBarPlacement, Button, Checkbox, Length, icons},
+  ui::{ActionBar, ActionBarPart, ActionBarSide, Button, Checkbox, Length, icons},
 };
 
 use crate::{
@@ -32,8 +32,7 @@ const FILES: [&str; 5] = [
 ];
 
 /// Where the playground puts the bar, as the code names it.
-const PLACEMENTS: [(&str, ActionBarPlacement); 2] =
-  [("Bottom", ActionBarPlacement::Bottom), ("Top", ActionBarPlacement::Top)];
+const PLACEMENTS: [(&str, ActionBarSide); 2] = [("Bottom", ActionBarSide::Bottom), ("Top", ActionBarSide::Top)];
 
 /// The list of files, each with a check box bound to whether it is selected, `height` high.
 fn list(selected: &Signal<Vec<usize>>, height: f32, rows_ref: &ElementRef) -> Element {
@@ -115,11 +114,9 @@ impl ActionBarPage {
     let plain = {
       let (selected, text, record) = (self.selected.clone(), text.clone(), self.playground.recorder());
       move || {
-        let mut made = bar(&selected, record.clone())
-          .placement(placement)
-          .escape_clears(escape);
+        let mut made = bar(&selected, record.clone()).side(placement).escape_clears(escape);
         if !text.is_empty() {
-          made = made.text(&text);
+          made = made.count_text(&text);
         }
         made
       }
@@ -148,14 +145,14 @@ impl ActionBarPage {
 
     let mut code = vec![format!("ActionBar::new({count})")];
     if !text.is_empty() {
-      code.push(format!("    .text({text:?})"));
+      code.push(format!("    .count_text({text:?})"));
     }
     code.push("    .action(Button::new(\"Move\").icon(icons::FOLDER_IMPORT))".to_owned());
     code.push("    .action(Button::new(\"Duplicate\").icon(icons::COPY))".to_owned());
     code.push("    .destructive_action(Button::new(\"Delete\").icon(icons::TRASH))".to_owned());
     code.push("    .on_clear(move || selected.set(Vec::new()))".to_owned());
-    if placement != ActionBarPlacement::Bottom {
-      code.push(format!("    .placement(ActionBarPlacement::{placement_name})"));
+    if placement != ActionBarSide::Bottom {
+      code.push(format!("    .side(ActionBarSide::{placement_name})"));
     }
     if escape {
       code.push("    .escape_clears(true)".to_owned());
@@ -197,10 +194,10 @@ impl ActionBarPage {
         code,
         tree,
         controls: vec![
-          prop("text", "&str", field(&self.text)),
+          prop("count_text", "&str", field(&self.text)),
           prop(
-            "placement",
-            "ActionBarPlacement",
+            "side",
+            "ActionBarSide",
             crate::kit::segmented_fill(&placements, &self.placement.get(), move |index| {
               set_placement.set(index)
             }),
@@ -208,7 +205,7 @@ impl ActionBarPage {
           divider(),
           flag("escape_clears", &self.escape),
         ],
-        changed: [placement != ActionBarPlacement::Bottom, !text.is_empty(), escape]
+        changed: [placement != ActionBarSide::Bottom, !text.is_empty(), escape]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -249,7 +246,7 @@ impl Component for ActionBarPage {
       .child(list(&self.top, 240.0, &self.rows[1]))
       .child(
         bar(&self.top, quiet)
-          .placement(ActionBarPlacement::Top)
+          .side(ActionBarSide::Top)
           .escape_clears(true)
           .return_focus(self.rows[1].clone())
           .mount(ctx),
@@ -259,7 +256,7 @@ impl Component for ActionBarPage {
       let count = self.phone.get().len();
       let clear = self.phone.clone();
       ActionBar::new(count)
-        .placement(ActionBarPlacement::Top)
+        .side(ActionBarSide::Top)
         .action(Button::new("Archive").icon(icons::ARCHIVE).icon_only(true))
         .destructive_action(Button::new("Delete").icon(icons::TRASH).icon_only(true))
         .on_clear(move || clear.set(Vec::new()))
@@ -298,26 +295,34 @@ impl Component for ActionBarPage {
          changes.",
       ),
       (
-        "text",
+        "count_text",
         "&str",
         "\"{n} selected\"",
         "What the bar says of the selection.",
       ),
       (
+        "label",
+        "&str",
+        "count_text",
+        "What the bar is called to what reads the tree.",
+      ),
+      (
         "action / destructive_action",
         "Button",
         "",
-        "An action on what is selected: a round ghost button; the one that destroys in the destructive color.",
+        "Adds an action on what is selected: a round ghost button; the one that destroys in the destructive \
+         color. actions and destructive_actions add several.",
       ),
       (
         "on_clear",
         "Fn()",
         "",
-        "What clearing the selection does: the round button with a cross at the end, and Escape where it clears.",
+        "What clearing the selection does: the round button with a cross at the end, and Escape where it clears. \
+         Each one adds.",
       ),
       (
-        "placement",
-        "ActionBarPlacement",
+        "side",
+        "ActionBarSide",
         "Bottom",
         "At the bottom of the room it is given, or at its top, 16 from the edge and in the middle.",
       ),
@@ -354,7 +359,7 @@ impl Component for ActionBarPage {
         title: "Action Bar",
         description: "The toolbar of a selection: over the list whose rows are selected, it says how many are, \
                       offers what can be done to them, and clears them.",
-        import: Some("use lurq::ui::{ActionBar, ActionBarPlacement};"),
+        import: Some("use lurq::ui::{ActionBar, ActionBarSide};"),
         status: Some("New"),
         since: Some("0.62"),
         source: file!(),
@@ -373,7 +378,7 @@ impl Component for ActionBarPage {
           self.frame.demo(
             0,
             top,
-            ".placement(ActionBarPlacement::Top)",
+            ".side(ActionBarSide::Top)",
             &[
               "Stack::new()",
               "    .child(list)",
@@ -381,7 +386,7 @@ impl Component for ActionBarPage {
               "        ActionBar::new(selected.len())",
               "            .action(Button::new(\"Move\").icon(icons::FOLDER_IMPORT))",
               "            .on_clear(move || selection.set(Vec::new()))",
-              "            .placement(ActionBarPlacement::Top)",
+              "            .side(ActionBarSide::Top)",
               "            .escape_clears(true)",
               "            .return_focus(list_ref.clone())",
               "            .mount(ctx),",
@@ -402,7 +407,7 @@ impl Component for ActionBarPage {
             ".style(ActionBarPart::Bar, |s| s.height(56.0).radius(0.0))",
             &[
               "ActionBar::new(count)",
-              "    .placement(ActionBarPlacement::Top)",
+              "    .side(ActionBarSide::Top)",
               "    .action(Button::new(\"Archive\").icon(icons::ARCHIVE).icon_only(true))",
               "    .destructive_action(Button::new(\"Delete\").icon(icons::TRASH).icon_only(true))",
               "    .style(ActionBarPart::Bar, |s| s.width(Length::Fill).height(56.0).radius(0.0)",
