@@ -132,6 +132,8 @@ pub struct PropertyGridPage {
   read_only: Signal<bool>,
   disabled: Signal<bool>,
   full_width: Signal<bool>,
+  /// The values of the long inspector: 500 numbers.
+  many: Vec<Signal<f64>>,
 }
 
 impl PropertyGridPage {
@@ -282,6 +284,7 @@ impl Component for PropertyGridPage {
       read_only: ctx.signal(false),
       disabled: ctx.signal(false),
       full_width: ctx.signal(false),
+      many: (0..500).map(|index| ctx.signal(index as f64)).collect(),
     }
   }
 
@@ -345,6 +348,20 @@ impl Component for PropertyGridPage {
         "the grid disabled",
       ));
 
+    let mut long = PropertyGrid::new().title("Inspector").height(360.0);
+    for category in 0..20 {
+      let mut group = PropertyCategory::new(&format!("Component {}", category + 1)).default_open(category < 3);
+      for index in 0..25 {
+        let at = category * 25 + index;
+        group = group.property(Property::number(&format!("Field {}", at + 1), self.many[at].clone()));
+      }
+      long = long.category(group);
+    }
+    let long = items().child(item(
+      long.mount(ctx),
+      "500 properties in 20 categories: only the rows near the view are built",
+    ));
+
     let rows = [
       (
         "title",
@@ -382,6 +399,12 @@ impl Component for PropertyGridPage {
         "false",
         "As wide as what holds it, in place of 300: an inspector's column.",
       ),
+      (
+        "height",
+        "impl Into<Length>",
+        "",
+        "Its rows scroll in it; mounted, only the rows near the view are built.",
+      ),
       ("label", "&str", "its title", "What it is called to tooling."),
       (
         "on_change",
@@ -408,10 +431,22 @@ impl Component for PropertyGridPage {
         "A slider with the number typed beside it.",
       ),
       (
-        "Property::toggle / choice / color",
+        "Property::toggle / choice",
         "&str, Signal<..>",
         "",
-        "A checkbox; a select; a color field.",
+        "A checkbox; a select.",
+      ),
+      (
+        "Property::color",
+        "&str, Signal<Color>",
+        "",
+        "Its swatch, which opens the picker, and its hex in a box; eyedropper(true) adds the eyedropper.",
+      ),
+      (
+        "stepper",
+        "bool",
+        "false",
+        "A number's chevrons at the end of its box, whose halves step it.",
       ),
       (
         "Property::xy / pair",
@@ -517,6 +552,24 @@ impl Component for PropertyGridPage {
               "Property::number(\"Disabled\", radius).disabled(true)",
               "Property::number(\"Changed\", radius).default(8.0)",
               "PropertyGrid::new().disabled(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A long inspector",
+          "A game engine's inspector holds hundreds of properties. Given a height, the grid scrolls, and mounted it \
+           builds only the rows near its view: Up, Down, Home, End, PageUp and PageDown reach every row, which is \
+           built as the focus comes to it.",
+          self.frame.demo(
+            3,
+            long,
+            "PropertyGrid::new().height(360.0)",
+            &[
+              "let mut grid = PropertyGrid::new().title(\"Inspector\").height(360.0);",
+              "for (name, fields) in components {",
+              "    grid = grid.category(PropertyCategory::new(name).properties(fields));",
+              "}",
+              "grid.mount(ctx)",
             ],
           ),
         ),

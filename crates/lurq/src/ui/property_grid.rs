@@ -6,7 +6,8 @@ use std::{
 };
 
 use super::{
-  Checkbox, ColorField, Input, InputPart, NumberFormat, NumberInput, NumberInputLayout, Select, Slider, icons, names,
+  Checkbox, ColorPicker, ColorSwatch, ColorSwatchSize, Input, InputPart, NumberFormat, NumberInput, NumberInputLayout,
+  Popover, Select, Slider, icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
@@ -18,11 +19,15 @@ use crate::{
     events::{DragEvent, KeyboardEvent, MouseButtonMask},
     theme::{OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{self, Column, Row, SelectOption, Stack},
+  components::{self, Column, Row, SelectOption, Stack, VirtualizedList},
   core::{ElementRef, Signal},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, ScrollState},
+    text_style::FontWeight,
+  },
   node::{
-    CursorIcon, Element, FocusGroup, border::Border as Edge, color::Color, dimension::Dimension,
+    CursorIcon, Element, FocusGroup, FocusRows, border::Border as Edge, color::Color, dimension::Dimension,
     node_kind::TextOverflow,
   },
 };
@@ -60,6 +65,10 @@ pub enum PropertyGridPart {
   AxisY,
   /// What puts a property's default back.
   Reset,
+  /// The chevrons at the end of a number's box that step it; the eyedropper at the end of a color's.
+  Stepper,
+  /// A color's swatch, outside its box.
+  Swatch,
   /// What is dragged to share the width between the names and the editors.
   Divider,
 }
@@ -80,6 +89,8 @@ names!(PropertyGridPart {
   AxisX => "axis_x",
   AxisY => "axis_y",
   Reset => "reset",
+  Stepper => "stepper",
+  Swatch => "swatch",
   Divider => "divider",
 });
 
@@ -131,11 +142,24 @@ pub struct EditorContext {
   pub label: Arc<str>,
   pub read_only: bool,
   pub disabled: bool,
-  /// Whether a number has its buttons, one over the other at the end of its box.
+  /// Whether a number has its stepper at the end of its box, or a color its eyedropper.
   pub stepper: bool,
   notify: Notify,
   /// The texts a person edited and has not committed yet, kept by the mounted grid.
   edited: Option<(Arc<str>, Edited)>,
+  /// What a color row keeps from render to render where the grid is mounted: whether its picker is open, and the
+  /// hex being typed.
+  color: Option<ColorKeep>,
+  /// The grid's stepper, swatch and eyedropper parts.
+  stepper_part: ResolvedPart,
+  swatch_part: ResolvedPart,
+}
+
+/// What a color row keeps.
+#[derive(Clone)]
+struct ColorKeep {
+  open: Signal<bool>,
+  draft: Signal<String>,
 }
 
 /// The ids of the texts edited since they were last told.
@@ -164,6 +188,30 @@ impl EditorContext {
       .base(inner, |_| styles.rest.clone())
       .hovered(inner, |_| styles.hovered.clone())
       .focus_visible(inner, |_| styles.focus_visible.clone())
+  }
+
+  /// The rules of the grid's `Swatch` part laid over a color swatch's root.
+  fn swatch_rules(&self) -> Recipe {
+    let styles = self.swatch_part.styles().clone();
+    Recipe::new().base(super::ColorSwatchPart::Root, |_| styles.rest.clone())
+  }
+
+  /// How far in from an editor's edge its content starts: its padding.
+  fn inset(&self) -> f32 {
+    let rest = self.editor.rest();
+    rest
+      .padding_end
+      .or(rest.padding_x.clone())
+      .map(|padding: crate::node::SpacingValue| padding.resolve(&self.theme.spacing(), 0.0))
+      .unwrap_or(6.0)
+  }
+
+  /// A length in pixels, where it is one.
+  fn px(&self, length: Option<super::part_style::Length>) -> Option<f32> {
+    match length?.resolve(&self.theme)? {
+      Dimension::Px(px) => Some(px),
+      _ => None,
+    }
   }
 
   /// Tells the grid that a person changed the value: after it is set.
@@ -334,19 +382,51 @@ impl Property<f64> {
       move |number| format!("{}{unit}", number_text(*number)),
       move |cx| {
         let changed = cx.clone();
-        NumberInput::new(bound.clone())
-          .layout(if cx.stepper {
-            NumberInputLayout::Stacked
-          } else {
-            NumberInputLayout::Bare
-          })
+        let mut field = NumberInput::new(bound.clone())
+          .layout(NumberInputLayout::Bare)
           .format(NumberFormat::new().suffix(&suffix))
           .label(&cx.label)
           .read_only(cx.read_only)
           .disabled(cx.disabled)
           .full_width(true)
           .rules(&cx.rules_for(super::NumberInputPart::Control))
-          .on_change(move |_| changed.changed())
+          .on_change(move |_| changed.changed());
+        if !cx.stepper {
+          return field.into();
+        }
+        // The board's stepper: one control of chevrons at the end of the box, its upper half a step up and its
+        // lower half a step down. The keys step the number in the box; the stepper takes no focus.
+        let side = cx.px(cx.stepper_part.rest().width).unwrap_or(12.0);
+        let inset = cx.inset();
+        field = field.style(super::NumberInputPart::Control, move |s: super::PartStyle| {
+          s.padding_end(inset + side + 4.0)
+        });
+        let able = !cx.read_only && !cx.disabled;
+        let half = |up: bool| {
+          let (value, told) = (bound.clone(), cx.clone());
+          let mut half = components::Button::empty()
+            .width(side)
+            .height(side / 2.0)
+            .focusable(false)
+            .disabled(!able)
+            .describe("a11y_role", "button")
+            .describe("a11y_name", if up { "Increase" } else { "Decrease" });
+          if able {
+            half = half.on_click(move |_| {
+              value.update(|number| *number += if up { 1.0 } else { -1.0 });
+              told.changed();
+            });
+          }
+          half
+        };
+        let stepper = Stack::new()
+          .child(glyph(&cx.stepper_part, Name::from(icons::CHEVRONS_VERTICAL), false))
+          .child(Column::new().child(half(true)).child(half(false)));
+        Stack::new()
+          .width(Dimension::Pct(100.0))
+          .stack_align(crate::layout::StackAlignment::CenterEnd)
+          .child(field)
+          .child(Row::new().padding_right(inset).child(stepper))
           .into()
       },
     )
@@ -425,26 +505,142 @@ impl Property<bool> {
 }
 
 impl Property<Color> {
-  /// A color, chosen in a color field: its swatch and its hex.
+  /// A color: its swatch, a press of which opens the picker, and its hex typed in a box beside it, as the board's
+  /// inspector draws it. With [`eyedropper`](Property::eyedropper) the box has the picker's eyedropper at its end.
   pub fn color(name: &str, value: Signal<Color>) -> Self {
     let bound = value.clone();
     Self::bound(
       name,
       &value,
-      |color| color.to_hex(),
-      move |cx| {
-        let changed = cx.clone();
-        ColorField::new(bound.clone())
-          .label(&cx.label)
-          .read_only(cx.read_only)
-          .disabled(cx.disabled)
-          .full_width(true)
-          .rules(&cx.rules_for_unpadded(super::ColorFieldPart::Control))
-          .on_change(move |_| changed.changed())
-          .into()
-      },
+      |color| color.to_hex_upper(),
+      move |cx| color_row(cx, &bound),
     )
   }
+
+  /// Whether the hex's box has the eyedropper at its end, which opens the picker too.
+  pub fn eyedropper(mut self, eyedropper: bool) -> Self {
+    self.stepper = eyedropper;
+    self
+  }
+}
+
+/// A hex as a person types it, `#RGB`, `#RRGGBB` or `#RRGGBBAA` with or without its `#`: the color it says.
+fn parse_hex(text: &str) -> Option<Color> {
+  let digits = text.trim().trim_start_matches('#');
+  let valid = matches!(digits.len(), 3 | 6 | 8) && digits.chars().all(|c| c.is_ascii_hexdigit());
+  valid.then(|| Color::from_hex(&format!("#{digits}")))
+}
+
+/// The board's color row: a swatch of 24 outside the box, the hex in the box.
+fn color_row(cx: &EditorContext, value: &Signal<Color>) -> Element {
+  let color = value.get_untracked();
+  let hex = color.to_hex_upper();
+  let keep = cx.color.clone().unwrap_or_else(|| ColorKeep {
+    open: Signal::new(false),
+    draft: Signal::new(hex.clone()),
+  });
+  let edited = cx
+    .edited
+    .as_ref()
+    .is_some_and(|(id, edited)| edited.lock().unwrap().contains(id));
+  // What the box shows follows the color, but for a hex being typed.
+  if !edited && keep.draft.get_untracked() != hex {
+    keep.draft.set(hex.clone());
+  }
+  let able = !cx.read_only && !cx.disabled;
+  let anchor = ElementRef::new();
+  let commit = {
+    let (draft, value, told) = (keep.draft.clone(), value.clone(), cx.clone());
+    move || {
+      if let Some(id_edited) = &told.edited {
+        id_edited.1.lock().unwrap().remove(&id_edited.0);
+      }
+      match parse_hex(&draft.get_untracked()) {
+        Some(color) if color != value.get_untracked() => {
+          value.set(color);
+          told.changed();
+        }
+        Some(_) => {}
+        // What is not a color is put back.
+        None => draft.set(value.get_untracked().to_hex_upper()),
+      }
+    }
+  };
+  let submitted = commit.clone();
+  let mut input = Input::new(keep.draft.clone())
+    .label(&cx.label)
+    .read_only(cx.read_only)
+    .disabled(cx.disabled)
+    .full_width(true)
+    .rules(&cx.rules_for(InputPart::Control))
+    .on_submit(move |_| submitted());
+  if let Some((id, edited)) = cx.edited.clone() {
+    input = input.on_input(move |event: &crate::app::events::TextInputEvent| {
+      if !event.default_prevented() {
+        edited.lock().unwrap().insert(id.clone());
+      }
+    });
+    input.on_leave.push(Arc::new(commit));
+  }
+  let toggle = |open: &Signal<bool>| {
+    let open = open.clone();
+    move |_: crate::app::events::MouseEvent| open.update(|open| *open = !*open)
+  };
+  let mut swatch = components::Button::empty()
+    .focusable(false)
+    .disabled(!able)
+    .ref_element(anchor.clone())
+    .describe("a11y_name", format!("{} picker", cx.label))
+    .describe("a11y_haspopup", "dialog")
+    .child(
+      ColorSwatch::new(color)
+        .size(ColorSwatchSize::Md)
+        .rules(&cx.swatch_rules())
+        .build(&cx.theme),
+    );
+  if able && cx.color.is_some() {
+    swatch = swatch.on_click(toggle(&keep.open));
+  }
+  let mut field: Element = input.into();
+  if cx.stepper {
+    // The eyedropper at the end of the box, which opens the picker as the swatch does.
+    let mut dropper = components::Button::empty()
+      .focusable(false)
+      .disabled(!able)
+      .describe("a11y_name", format!("{} picker", cx.label))
+      .child(glyph(&cx.stepper_part, Name::from(icons::EYEDROPPER), false));
+    if able && cx.color.is_some() {
+      dropper = dropper.on_click(toggle(&keep.open));
+    }
+    field = Stack::new()
+      .width(Dimension::Pct(100.0))
+      .stack_align(crate::layout::StackAlignment::CenterEnd)
+      .child(field)
+      .child(Row::new().padding_right(cx.inset()).child(dropper))
+      .into();
+  }
+  let mut row = Row::new()
+    .width(Dimension::Pct(100.0))
+    .align_items(Alignment::Center)
+    .spacing(6.0)
+    .child(swatch)
+    .child(Row::new().flex(1.0).min_width(Dimension::Px(0.0)).child(field));
+  if cx.color.is_some() {
+    let (value, told) = (value.clone(), cx.clone());
+    let picker = ColorPicker::controlled(color, move |color| {
+      if color != value.get_untracked() {
+        value.set(color);
+        told.changed();
+      }
+    })
+    .bare(true);
+    row = row.child(
+      Popover::new(keep.open.clone(), anchor)
+        .label(&format!("{} picker", cx.label))
+        .child(picker.build(&cx.theme)),
+    );
+  }
+  row.into()
 }
 
 impl Property<(f64, f64)> {
@@ -702,6 +898,8 @@ struct GridHost {
   open: Signal<HashMap<Arc<str>, bool>>,
   name_width: Signal<Option<f32>>,
   edited: Edited,
+  /// What each color row keeps, by its property's id.
+  colors: Arc<Mutex<HashMap<Arc<str>, ColorKeep>>>,
   /// The row the focus is to go back to at the next render: set by Escape in its editor, taken by the render.
   refocus: Arc<Mutex<Option<Arc<str>>>>,
   /// Moved on to wake the render that takes `refocus`.
@@ -742,6 +940,7 @@ pub struct PropertyGrid {
   trailing: Option<Arc<dyn Fn() -> Element + Send + Sync>>,
   categories: Vec<PropertyCategory>,
   name_width: f32,
+  height: Option<super::part_style::Length>,
   label: Option<Arc<str>>,
   read_only: bool,
   disabled: bool,
@@ -769,6 +968,7 @@ impl PropertyGrid {
       trailing: None,
       categories: Vec::new(),
       name_width: PROPERTY_NAME_WIDTH,
+      height: None,
       label: None,
       read_only: false,
       disabled: false,
@@ -810,6 +1010,13 @@ impl PropertyGrid {
   /// The width of the names, in place of the board's 84: where the mounted grid's divider starts.
   pub fn name_width(mut self, width: f32) -> Self {
     self.name_width = width;
+    self
+  }
+
+  /// The height of the grid, its rows scrolling in it: a long inspector's. Mounted, it builds only the rows in view
+  /// and those near them, the keys reaching every row.
+  pub fn height(mut self, height: impl Into<super::part_style::Length>) -> Self {
+    self.height = Some(height.into());
     self
   }
 
@@ -907,6 +1114,15 @@ impl PropertyGrid {
   /// Builds the grid in `theme`. Converting a grid into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    let view = self.view(theme);
+    match theme.renderer::<PropertyGrid>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+
+  /// The grid as a renderer sees it, in `theme`.
+  fn view(self, theme: &Theme) -> PropertyGridView {
     let case = Case {
       variant: None,
       size: None,
@@ -961,6 +1177,13 @@ impl PropertyGrid {
         rows,
       });
     }
+    let mut recipe = recipe;
+    if let Some(height) = self.height {
+      recipe = theme.resolve::<PropertyGrid>(
+        &case,
+        Some(&self.rules.clone().base(PropertyGridPart::Root, |s| s.height(height))),
+      );
+    }
     let view = PropertyGridView {
       label: self
         .label
@@ -980,10 +1203,7 @@ impl PropertyGrid {
       id: self.id.clone(),
       key: self.key.clone(),
     };
-    match theme.renderer::<PropertyGrid>() {
-      Some(renderer) => renderer(view),
-      None => view.render(),
-    }
+    view
   }
 }
 
@@ -1183,6 +1403,20 @@ impl PropertyGridView {
         .host
         .as_ref()
         .map(|host| (property.id.clone(), host.edited.clone())),
+      color: self.host.as_ref().map(|host| {
+        host
+          .colors
+          .lock()
+          .unwrap()
+          .entry(property.id.clone())
+          .or_insert_with(|| ColorKeep {
+            open: Signal::new(false),
+            draft: Signal::new(String::new()),
+          })
+          .clone()
+      }),
+      stepper_part: view.recipe.part(PropertyGridPart::Stepper),
+      swatch_part: view.recipe.part(PropertyGridPart::Swatch),
     };
     let row_key: Arc<str> = Arc::from(format!("property-{}", property.key.as_deref().unwrap_or(&property.id)));
     let editor_ref = ElementRef::new();
@@ -1279,7 +1513,8 @@ impl PropertyGridView {
       if let Some(element_id) = self.child_id(&format!("{}-reset", property.id)) {
         control = control.id(element_id);
       }
-      row_button = row_button.child(control);
+      // A stop of Tab after the editor, and not a row the arrows go to.
+      row_button = row_button.child(Row::new().focus_group(FocusGroup::none()).child(control));
     }
     if let Some(element_id) = self.child_id(&property.id) {
       row_button = row_button.id(element_id);
@@ -1356,6 +1591,61 @@ impl PropertyGridView {
     Some(divider.into())
   }
 
+  /// The rows shown, in order: each category, and the properties of an open one.
+  fn shown_rows(&self) -> Vec<Shown> {
+    let mut shown = Vec::new();
+    for (index, category) in self.categories.iter().enumerate() {
+      shown.push(Shown::Category(index));
+      if category.open {
+        shown.extend((0..category.rows.len()).map(|row| Shown::Property(index, row)));
+      }
+    }
+    shown
+  }
+
+  /// The row `shown` stands for, in a virtual list: it says its place to the focus group's rows.
+  fn shown_row(&self, shown: Shown, place: usize) -> Option<Element> {
+    let row = match shown {
+      Shown::Category(index) => self.category_row(index, place == 0)?,
+      Shown::Property(category, row) => self.property_row(category, row, false)?,
+    };
+    Some(row.focus_row(place).into())
+  }
+
+  /// The root: its header over `body`, the rows with the divider over them.
+  fn root(&self, rows: Element) -> Element {
+    let body: Element = match self.divider() {
+      Some(divider) => Stack::new()
+        .width(Dimension::Pct(100.0))
+        .flex(1.0)
+        .child(rows)
+        .child(
+          Row::new()
+            .height(Dimension::Pct(100.0))
+            .overflow_visible()
+            .child(divider),
+        )
+        .into(),
+      None => rows,
+    };
+    let mut root = Column::new()
+      .align_items(Alignment::Stretch)
+      .part(&self.part(PropertyGridPart::Root))
+      .describe("a11y_role", "treegrid")
+      .describe("a11y_name", self.label.clone());
+    if let Some(header) = self.header() {
+      root = root.child(header);
+    }
+    root = root.child(body);
+    if let Some(id) = &self.id {
+      root = root.id(id.clone());
+    }
+    if let Some(key) = &self.key {
+      root = root.key(key.clone());
+    }
+    root.into()
+  }
+
   /// How the default renderer builds a grid: the header, then each category's row and, while it is open, the rows
   /// of its properties, in a nested group of the focus; the divider over them.
   pub fn render(self) -> Element {
@@ -1377,36 +1667,15 @@ impl PropertyGridView {
         }
       }
     }
-    let body: Element = match self.divider() {
-      Some(divider) => Stack::new()
-        .width(Dimension::Pct(100.0))
-        .child(rows)
-        .child(
-          Row::new()
-            .height(Dimension::Pct(100.0))
-            .overflow_visible()
-            .child(divider),
-        )
-        .into(),
-      None => rows.into(),
-    };
-    let mut root = Column::new()
-      .align_items(Alignment::Stretch)
-      .part(&self.part(PropertyGridPart::Root))
-      .describe("a11y_role", "treegrid")
-      .describe("a11y_name", self.label.clone());
-    if let Some(header) = self.header() {
-      root = root.child(header);
-    }
-    root = root.child(body);
-    if let Some(id) = &self.id {
-      root = root.id(id.clone());
-    }
-    if let Some(key) = &self.key {
-      root = root.key(key.clone());
-    }
-    root.into()
+    self.root(rows.into())
   }
+}
+
+/// A row a grid shows: a category's, or a property's of an open category.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shown {
+  Category(usize),
+  Property(usize, usize),
 }
 
 /// The focus ring inside a row, over its line: the tree view's.
@@ -1511,6 +1780,13 @@ impl Themed for PropertyGrid {
         )
       })
       .base(Divider, |s| s.width(8.0).cursor(CursorIcon::ColResize))
+      .base(Stepper, |s| {
+        s.square(12.0).foreground(MutedForeground).cursor(CursorIcon::Pointer)
+      })
+      .hovered(Stepper, |s| s.foreground(Foreground))
+      .base(Swatch, |s| {
+        s.radius(RadiusSize::Sm).border(Edge::inside(1.0, PaletteColor::Border))
+      })
       .hovered(Category, |s| s.foreground(Foreground))
       .hovered(Row, |s| s.background(Muted))
       .focus_visible(Category, |s| s.outline(ring_inside()))
@@ -1548,6 +1824,10 @@ impl crate::app::component::DevtoolsInspectable for GridProps {}
 /// What keeps a mounted grid's open categories and its names' width.
 struct GridMount {
   host: GridHost,
+  /// The rows a virtual list steps over, and what its row components draw.
+  rows: Arc<GridRows>,
+  shown: ShownRows,
+  generation: std::sync::atomic::AtomicU64,
   /// The row the focus went back to last, and the ref it carries: kept on it in every render after, since the
   /// render that asks for the focus need not be the last of its pass.
   focused: Arc<Mutex<Option<(Arc<str>, ElementRef)>>>,
@@ -1562,11 +1842,20 @@ impl Component for GridMount {
         open: ctx.signal(HashMap::new()),
         name_width: ctx.signal(None),
         edited: Arc::default(),
+        colors: Arc::default(),
         refocus: Arc::default(),
         wake: ctx.signal(0),
         focus: None,
       },
       focused: Arc::default(),
+      rows: Arc::new(GridRows {
+        data: Mutex::default(),
+        reveal_key: ctx.signal(None),
+        reveal_request: ctx.signal(0),
+        scroll: ScrollState::new(),
+      }),
+      shown: Arc::default(),
+      generation: std::sync::atomic::AtomicU64::new(0),
     }
   }
 
@@ -1582,7 +1871,241 @@ impl Component for GridMount {
     }
     host.focus = self.focused.lock().unwrap().clone();
     grid.host = Some(host);
-    let element: Element = grid.into();
-    element
+    let theme = current_theme();
+    // A grid with no height has nothing to scroll: every row is built. One a theme draws is the theme's.
+    if grid.height.is_none() || theme.renderer::<PropertyGrid>().is_some() {
+      let element: Element = grid.into();
+      return element;
+    }
+    let view = grid.view(&theme);
+    let shown = view.shown_rows();
+    let key = |row: &Shown| match *row {
+      Shown::Category(index) => format!("category-{}", view.categories[index].category.known_as()),
+      Shown::Property(category, row) => {
+        let property = &view.categories[category].rows[row].property;
+        format!("property-{}", property.key.as_deref().unwrap_or(&property.id))
+      }
+    };
+    let keys: Vec<String> = shown.iter().map(key).collect();
+    let height = |row: &Shown| {
+      let part = match row {
+        Shown::Category(_) => PropertyGridPart::Category,
+        Shown::Property(..) => PropertyGridPart::Row,
+      };
+      match view.part(part).rest().height.and_then(|height| height.resolve(&theme)) {
+        Some(Dimension::Px(px)) => px,
+        _ => 32.0,
+      }
+    };
+    let heights: Vec<f32> = shown.iter().map(height).collect();
+    let open = self.host.open.clone();
+    *self.rows.data.lock().unwrap() = RowsData {
+      keys: keys.clone(),
+      labels: shown
+        .iter()
+        .map(|row| match *row {
+          Shown::Category(index) => view.categories[index].category.title.clone(),
+          Shown::Property(category, row) => view.categories[category].rows[row].property.name.clone(),
+        })
+        .collect(),
+      levels: shown
+        .iter()
+        .map(|row| if matches!(row, Shown::Category(_)) { 1 } else { 2 })
+        .collect(),
+      expanded: shown
+        .iter()
+        .map(|row| match *row {
+          Shown::Category(index) => Some(view.categories[index].open),
+          Shown::Property(..) => None,
+        })
+        .collect(),
+      enabled: shown
+        .iter()
+        .map(|row| match *row {
+          Shown::Category(index) => !view.categories[index].category.disabled && !view.disabled,
+          Shown::Property(category, row) => {
+            !view.categories[category].rows[row].property.disabled
+              && !view.categories[category].category.disabled
+              && !view.disabled
+          }
+        })
+        .collect(),
+      toggles: shown
+        .iter()
+        .map(|row| match *row {
+          Shown::Category(index) => {
+            let (open, known) = (open.clone(), view.categories[index].category.known_as());
+            Some(Arc::new(move |to: bool| {
+              open.update(|open| {
+                open.insert(known.clone(), to);
+              })
+            }) as Arc<dyn Fn(bool) + Send + Sync>)
+          }
+          Shown::Property(..) => None,
+        })
+        .collect(),
+      step: heights.iter().copied().fold(32.0, f32::min),
+    };
+    let generation = self.generation.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let view = Arc::new(view);
+    *self.shown.lock().unwrap() = Some((view.clone(), shown));
+    let items: Arc<Vec<GridItem>> = Arc::new(
+      keys
+        .into_iter()
+        .zip(heights)
+        .enumerate()
+        .map(|(place, (key, height))| GridItem {
+          place,
+          key,
+          height,
+          generation,
+        })
+        .collect(),
+    );
+    let shared = self.shown.clone();
+    let list = VirtualizedList::new_shared(ctx, items)
+      .with_scroll_state(self.rows.scroll.clone())
+      .reveal_key(self.rows.reveal_key.get())
+      .reveal_request(self.rows.reveal_request.get())
+      .estimate_height(|item: &GridItem| item.height)
+      .width(Dimension::Pct(100.0))
+      .flex(1.0)
+      .mount_keyed::<GridRowHost, _, _, _>(
+        |item: &GridItem| item.key.clone(),
+        move |item: &GridItem| GridRowProps {
+          place: item.place,
+          generation: item.generation,
+          shown: shared.clone(),
+        },
+      );
+    let rows: Arc<dyn FocusRows> = self.rows.clone();
+    let rows = Column::new()
+      .width(Dimension::Pct(100.0))
+      .flex(1.0)
+      .align_items(Alignment::Stretch)
+      .focus_group(
+        FocusGroup::vertical()
+          .nested(true)
+          .one_stop(true)
+          .typeahead(true)
+          .wrap(false),
+      )
+      .focus_rows(rows)
+      .child(list);
+    view.root(rows.into())
+  }
+}
+
+/// What a grid in a virtual list built last, which its row components draw.
+type ShownRows = Arc<Mutex<Option<(Arc<PropertyGridView>, Vec<Shown>)>>>;
+
+/// The rows of a grid in a virtual list as the engine's focus group steps over them.
+struct GridRows {
+  data: Mutex<RowsData>,
+  reveal_key: Signal<Option<String>>,
+  reveal_request: Signal<u64>,
+  scroll: ScrollState,
+}
+
+#[derive(Default)]
+struct RowsData {
+  keys: Vec<String>,
+  labels: Vec<Arc<str>>,
+  levels: Vec<u32>,
+  expanded: Vec<Option<bool>>,
+  enabled: Vec<bool>,
+  toggles: Vec<Option<Arc<dyn Fn(bool) + Send + Sync>>>,
+  /// The height of the lowest row: what a page of rows is counted in.
+  step: f32,
+}
+
+impl FocusRows for GridRows {
+  fn count(&self) -> usize {
+    self.data.lock().unwrap().keys.len()
+  }
+
+  fn label(&self, row: usize) -> Option<String> {
+    self.data.lock().unwrap().labels.get(row).map(|label| label.to_string())
+  }
+
+  fn enabled(&self, row: usize) -> bool {
+    self.data.lock().unwrap().enabled.get(row).copied().unwrap_or(false)
+  }
+
+  fn level(&self, row: usize) -> u32 {
+    self.data.lock().unwrap().levels.get(row).copied().unwrap_or(1)
+  }
+
+  fn expanded(&self, row: usize) -> Option<bool> {
+    self.data.lock().unwrap().expanded.get(row).copied().flatten()
+  }
+
+  fn set_expanded(&self, row: usize, open: bool) {
+    let toggle = self.data.lock().unwrap().toggles.get(row).cloned().flatten();
+    if let Some(toggle) = toggle {
+      toggle(open);
+    }
+  }
+
+  fn page(&self) -> usize {
+    let step = self.data.lock().unwrap().step.max(1.0);
+    ((self.scroll.viewport_height() / step).floor() as usize).max(1)
+  }
+
+  fn reveal(&self, row: usize) {
+    let Some(key) = self.data.lock().unwrap().keys.get(row).cloned() else {
+      return;
+    };
+    self.reveal_key.set(Some(key));
+    self.reveal_request.update(|request| *request = request.wrapping_add(1));
+  }
+}
+
+/// A row of the virtual list: its place among the rows shown, from which render.
+#[derive(Clone, PartialEq)]
+struct GridItem {
+  place: usize,
+  key: String,
+  height: f32,
+  generation: u64,
+}
+
+struct GridRowProps {
+  place: usize,
+  generation: u64,
+  shown: ShownRows,
+}
+
+impl PartialEq for GridRowProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.place == other.place && self.generation == other.generation && Arc::ptr_eq(&self.shown, &other.shown)
+  }
+}
+
+impl crate::app::component::DevtoolsInspectable for GridRowProps {}
+
+/// One row of a grid in a virtual list.
+struct GridRowHost;
+
+impl Component for GridRowHost {
+  type Props = GridRowProps;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<GridRowProps>();
+    let (view, row) = {
+      let shown = props.shown.lock().unwrap();
+      match shown.as_ref() {
+        Some((view, rows)) => (Some(view.clone()), rows.get(props.place).copied()),
+        None => (None, None),
+      }
+    };
+    match (view, row) {
+      (Some(view), Some(row)) => view.shown_row(row, props.place).unwrap_or_else(|| Column::new().into()),
+      _ => Column::new().into(),
+    }
   }
 }

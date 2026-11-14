@@ -38,6 +38,7 @@ mod text_input {
   mod mode_rerender;
   mod overflow_anchor;
   mod preserves_editing_state_across_render;
+  mod caret_after_focus_moves;
   mod renders_caret;
   mod scroll_presentation;
   mod scroll_tokens;

@@ -420,3 +420,244 @@ fn escape_gives_the_row_the_focus_when_the_page_around_the_grid_renders_again_to
   stage.key("Escape");
   assert_eq!(focused(&stage).as_deref(), Some("grid-Rotation"));
 }
+
+#[test]
+fn after_escape_the_editor_paints_no_caret() {
+  let values = Values::new();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| Column::new().size(400.0, 500.0).child(scene.grid().mount(ctx)).into());
+  let carets = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .count()
+  };
+  let unfocused = carets(&stage);
+  stage.click("grid-Radius");
+  assert_eq!(carets(&stage), unfocused + 1, "the focused editor's caret");
+  stage.key("Escape");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Radius"));
+  assert_eq!(carets(&stage), unfocused, "no caret once the row has the focus");
+}
+
+#[test]
+fn two_grids_of_the_same_values_paint_one_caret_and_none_after_escape() {
+  let values = Values::new();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Row::new()
+      .size(800.0, 500.0)
+      .child(scene.grid().id("first").mount(ctx))
+      .child(scene.grid().mount(ctx))
+      .into()
+  });
+  let carets = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .count()
+  };
+  let unfocused = carets(&stage);
+  stage.click("grid-Radius");
+  assert_eq!(carets(&stage), unfocused + 1, "the focused editor's caret only");
+  stage.key("Escape");
+  assert_eq!(carets(&stage), unfocused, "no caret once the row has the focus");
+}
+
+#[test]
+fn a_press_of_a_name_then_escape_leaves_no_caret() {
+  let values = Values::new();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| Column::new().size(400.0, 500.0).child(scene.grid().mount(ctx)).into());
+  let carets = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| quad.width == 1.0 && quad.height > 8.0 && quad.border.is_none())
+      .count()
+  };
+  let unfocused = carets(&stage);
+  let (x, y, _, height) = stage.bounds("grid-Radius");
+  let (px, py) = (x + 20.0, y + height / 2.0);
+  stage.tree.mouse_move(px, py);
+  stage.tree.mouse_down(px, py, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(px, py, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert_ne!(
+    focused(&stage).as_deref(),
+    Some("grid-Radius"),
+    "the press of the name focused the editor"
+  );
+  assert_eq!(carets(&stage), unfocused + 1, "the editor's caret");
+  stage.key("Escape");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Radius"));
+  assert_eq!(carets(&stage), unfocused, "no caret once the row has the focus");
+}
+
+#[test]
+fn the_color_row_is_the_boards_swatch_outside_its_hex_and_the_swatch_opens_the_picker() {
+  let fill = Signal::new(Color::from_hex("#2563EB"));
+  let told: Arc<Mutex<Vec<String>>> = Arc::default();
+  let (bound, heard) = (fill.clone(), told.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let heard = heard.clone();
+    Column::new()
+      .size(400.0, 600.0)
+      .child(
+        PropertyGrid::new()
+          .id("grid")
+          .category(
+            PropertyCategory::new("Appearance")
+              .property(Property::color("Fill", bound.clone()))
+              .property(Property::color("Stroke", bound.clone()).eyedropper(true)),
+          )
+          .on_change(move |id| heard.lock().unwrap().push(id.to_owned()))
+          .mount(ctx),
+      )
+      .into()
+  });
+  let (ex, ..) = stage.bounds("grid-Fill-editor");
+  let hex = stage.text_quad("#2563EB").expect("the hex in its box");
+  assert!(hex.x > ex + 24.0 + 6.0, "the box after the swatch of 24 and a gap of 6");
+  let eyedroppers = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == "\u{E02D}"))
+      .count()
+  };
+  assert_eq!(eyedroppers(&stage), 1, "the eyedropper only where asked");
+
+  // A press of the swatch opens the picker: the panel and its fields are painted.
+  let closed = stage.quads().len();
+  let (x, y, _, h) = stage.bounds("grid-Fill-editor");
+  stage.tree.mouse_move(x + 12.0, y + h / 2.0);
+  stage
+    .tree
+    .mouse_down(x + 12.0, y + h / 2.0, lurq::app::events::MouseButton::Left);
+  stage
+    .tree
+    .mouse_up(x + 12.0, y + h / 2.0, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert!(
+    stage.quads().len() > closed + 10,
+    "the picker is open: {} quads, {closed} closed",
+    stage.quads().len()
+  );
+
+  // Escape closes it; the hex typed and committed is the color.
+  stage.key("Escape");
+  assert!(stage.quads().len() <= closed + 2, "closed");
+  stage.click("grid-Stroke-editor");
+  stage.tree.text_input_replace(0..7, "#22C55E");
+  stage.pass();
+  stage.key("Enter");
+  assert_eq!(fill.get(), Color::from_hex("#22C55E"));
+  assert_eq!(*told.lock().unwrap(), ["Stroke"]);
+}
+
+#[test]
+fn the_stepper_is_one_control_of_chevrons_whose_halves_step_the_number() {
+  let rotation = Signal::new(0.0);
+  let bound = rotation.clone();
+  let mut stage = Stage::new(move |_| {
+    PropertyGrid::new()
+      .id("grid")
+      .category(
+        PropertyCategory::new("Transform")
+          .property(Property::number_with("Rotation", bound.clone(), "°").stepper(true)),
+      )
+      .into()
+  });
+  let (x, y, width, height) = stage.bounds("grid-Rotation-editor");
+  let chevrons = stage.text_quad("\u{E01D}").expect("the chevrons");
+  assert!(
+    chevrons.x + chevrons.width <= x + width - 5.0,
+    "inside the box, 6 from its end"
+  );
+  let at = (chevrons.x + chevrons.width / 2.0, y + height / 2.0);
+  let press = |stage: &mut Stage, dy: f32| {
+    let (px, py) = (at.0, at.1 + dy);
+    stage.tree.mouse_move(px, py);
+    stage.tree.mouse_down(px, py, lurq::app::events::MouseButton::Left);
+    stage.tree.mouse_up(px, py, lurq::app::events::MouseButton::Left);
+    stage.pass();
+  };
+  press(&mut stage, -3.0);
+  assert_eq!(rotation.get(), 1.0, "the upper half steps up");
+  press(&mut stage, 3.0);
+  press(&mut stage, 3.0);
+  assert_eq!(rotation.get(), -1.0, "the lower half steps down");
+  assert!(!stage.paints("\u{E05A}"), "no number input's own buttons");
+}
+
+#[test]
+fn a_long_inspector_builds_the_rows_in_view_and_the_keys_reach_every_row() {
+  let values: Vec<Signal<f64>> = (0..2000).map(|index| Signal::new(index as f64)).collect();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let mut grid = PropertyGrid::new().id("grid").height(400.0);
+    for category in 0..20 {
+      let mut group = PropertyCategory::new(&format!("Group {category}"));
+      for index in 0..100 {
+        let at = category * 100 + index;
+        group = group.property(Property::number(&format!("p{at}"), scene[at].clone()));
+      }
+      grid = grid.category(group);
+    }
+    Column::new().size(400.0, 500.0).child(grid.mount(ctx)).into()
+  });
+  let built = |stage: &mut Stage| {
+    (0..2000)
+      .filter(|index| stage.tree.get_element_by_id_mut(&format!("grid-p{index}")).is_some())
+      .count()
+  };
+  let first = built(&mut stage);
+  assert!(
+    first > 5 && first < 60,
+    "only the rows near the view are built: {first}"
+  );
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Group 0"));
+  stage.key("End");
+  stage.pass();
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("grid-p1999"),
+    "End reaches the last row, built for it"
+  );
+  assert!(built(&mut stage) < 80, "still only the rows near the view");
+  stage.key("Enter");
+  stage.key("ArrowUp");
+  assert_eq!(values[1999].get(), 2000.0, "its editor has the focus, and steps it");
+  stage.key("Escape");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-p1999"));
+  stage.key("ArrowLeft");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("grid-Group 19"),
+    "Left goes to its category"
+  );
+  stage.key("ArrowLeft");
+  stage.key("Home");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Group 0"));
+  assert!(
+    stage.tree.get_element_by_id_mut("grid-p1999").is_none(),
+    "the closed category's rows are gone"
+  );
+}
+
+#[test]
+fn down_from_a_changed_row_goes_to_the_next_row_and_not_to_its_reset() {
+  let values = Values::new();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| Column::new().size(400.0, 500.0).child(scene.grid().mount(ctx)).into());
+  stage.click("grid-Radius");
+  stage.key("Escape");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Radius"));
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Name"), "the next row");
+}
