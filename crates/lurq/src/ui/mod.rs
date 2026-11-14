@@ -31,6 +31,9 @@ mod checkbox;
 mod chip;
 mod choice_card;
 mod collapsible;
+mod color_field;
+mod color_picker;
+mod color_swatch;
 mod combobox;
 mod command_palette;
 mod context_menu;
@@ -85,6 +88,7 @@ mod slider;
 mod spinner;
 mod splitter;
 mod steps;
+mod swatch_picker;
 mod switch;
 mod table;
 mod tabs;
@@ -145,6 +149,16 @@ pub use choice_card::{
   RadioCardGroup,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
+pub use color_field::{
+  ColorField, ColorFieldPart, ColorFieldRenderer, ColorFieldSize, ColorFieldState, ColorFieldView, FieldColor,
+};
+pub use color_picker::{
+  ColorFormat, ColorPicker, ColorPickerPart, ColorPickerRenderer, ColorPickerState, ColorPickerView,
+};
+pub use color_swatch::{
+  ColorSwatch, ColorSwatchPart, ColorSwatchRenderer, ColorSwatchShape, ColorSwatchSize, ColorSwatchState,
+  ColorSwatchView,
+};
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use command_palette::{
   CommandFilter, CommandItem, CommandPalette, CommandPalettePart, CommandPaletteRenderer, CommandPaletteState,
@@ -190,9 +204,7 @@ pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,
 };
-pub use listbox::{
-  Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView,
-};
+pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
   MentionsState, MentionsView,
@@ -287,6 +299,9 @@ pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
 };
 pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView};
+pub use swatch_picker::{
+  Swatch, SwatchItem, SwatchPicker, SwatchPickerPart, SwatchPickerRenderer, SwatchPickerState, SwatchPickerView,
+};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
   BodyWindow, ColumnAlign, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
@@ -390,6 +405,8 @@ inspectable!(
   button::ButtonShape,
   calendar::CalendarChoice,
   choice_card::ChoiceCardKind,
+  color_picker::ColorFormat,
+  color_swatch::ColorSwatchShape,
   input_otp::InputOtpKind,
   kbd::KeyPlatform,
   message_box::MessageBoxRole,

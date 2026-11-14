@@ -17,6 +17,8 @@ mod callout;
 mod card;
 mod checkbox;
 mod checkbox_card;
+mod color_field;
+mod color_picker;
 mod combobox;
 mod command_palette;
 mod context_menu;
@@ -66,6 +68,7 @@ mod slider;
 mod spinner;
 mod splitter;
 mod steps;
+mod swatch_picker;
 mod switch;
 mod table;
 mod tabs;
@@ -411,6 +414,30 @@ pub const PAGES: &[Page] = &[
     about: "rating stars score review feedback quality half precision clearable read only at optional controlled max size icon empty_icon label value_text invalid disabled on_change slider",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<rating::RatingPage>(()),
+  },
+  Page {
+    path: "/color-picker",
+    name: "Color Picker",
+    icon: Some("palette"),
+    about: "color picker colour hue saturation brightness alpha opacity hex rgb hsl swatches eyedropper area rail value controlled on_change on_change_end alpha format formats swatch swatches bare label disabled saturation_label brightness_label hue_label alpha_label format_label",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<color_picker::ColorPickerPage>(()),
+  },
+  Page {
+    path: "/color-field",
+    name: "Color Field",
+    icon: Some("eyedropper"),
+    about: "color field colour input hex swatch eyedropper picker popover typed parse rgb hsl value optional controlled on_change placeholder size invalid warning valid read_only disabled full_width alpha format formats swatches placement label trigger_label panel_label name color swatch selected shape round on_click",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<color_field::ColorFieldPage>(()),
+  },
+  Page {
+    path: "/swatch-picker",
+    name: "Swatch Picker",
+    icon: Some("palette"),
+    about: "swatch picker color colour palette swatches grid choose label tag highlight hex value optional controlled on_change columns size framed label invalid disabled swatch",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<swatch_picker::SwatchPickerPage>(()),
   },
   Page {
     path: "/tooltip",
