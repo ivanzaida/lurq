@@ -548,6 +548,37 @@ for (index, name) in ["Bold", "Italic", "Link", "Image"].into_iter().enumerate()
 bar.child(Button::new("More").tab_index(0).drop_marker(true))
 ```
 
+### A form that follows its own room
+
+A component whose form depends on the room it is given, not on the window (a timeline whose two sides fold to one in
+a narrow panel), reads its width through an element ref. `ElementRef::observe_rect` calls its observer after layout,
+and a signal written there renders the component again in the next frame: the frame in between shows the old form.
+`ElementRef::observe_rect_before_paint` calls it at the same point, but what it changes is rendered and laid out again
+before that frame is painted, once a frame: the component shows the form that fits from its first frame, and as a
+splitter's divider drags its pane across the width, with no frame of the other.
+
+The observer writes only where the rect crosses what it watches for, so a pane dragged within one side of the width
+renders nothing again. The element it is on takes the room it is given (`width(Dimension::Pct(100.0))`), not its
+content's width, which the form would change.
+
+```rust
+use lurq::{components::Column, core::ElementRef, node::dimension::Dimension};
+
+// In `create`: `roomy` is `ctx.signal(None::<bool>)`, `anchor` an `ElementRef` kept on the component.
+let watch = roomy.clone();
+anchor.observe_rect_before_paint(move |rect| {
+  let fits = Some(rect.width >= 480.0);
+  if watch.get_untracked() != fits {
+    watch.set(fits);
+  }
+});
+// In `render`: the room it is given, measured, around the form that fits it.
+Column::new()
+  .width(Dimension::Pct(100.0))
+  .ref_element(anchor.clone())
+  .child(if roomy.get() == Some(false) { narrow() } else { wide() })
+```
+
 `ui::Toolbar` with `overflow(true)` is built this way.
 
 ## Scroll

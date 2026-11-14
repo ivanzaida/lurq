@@ -2768,7 +2768,15 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let _layout_phase = self.profiling.context.phase(crate::app::profiler::Phase::LayoutUpdate);
     self.tick_wheel_scrolls(app.theme());
+    crate::core::element_ref::take_observed_before_paint();
     let mut layout_updated = self.update_layout(app);
+    // An element's size changed what a component that watches it before paint renders (a timeline that folds its
+    // sides to one in a narrow room): render it and lay out again, once, so this frame already shows the form
+    // that fits.
+    if crate::core::element_ref::take_observed_before_paint() && self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+      layout_updated |= self.update_layout(app);
+      crate::core::element_ref::take_observed_before_paint();
+    }
     // A scroll-into-view request moved a container: lay out again so this
     // frame already shows the element where it was revealed.
     if self.resolve_pending_scroll_into_view() {

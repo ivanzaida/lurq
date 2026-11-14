@@ -1,7 +1,7 @@
 //! A timeline: what happened, in its order, each thing a mark on a line with its title, its description and its
 //! time.
 
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 use super::{
   button::{Button, ButtonSize, ButtonVariant},
@@ -15,10 +15,13 @@ use super::{
 };
 use crate::{
   app::{
+    component::Component,
+    ctx::Ctx,
     events::MouseEvent,
     theme::{BorderSize, Breakpoint, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Row},
+  core::{ElementRef, Signal},
   layout::{
     Alignment,
     layout_kind::Justify,
@@ -91,8 +94,10 @@ pub enum TimelineAlign {
   /// After the line, every item: the board's.
   #[default]
   Start,
-  /// On either side of the line, item by item, the time on the other side: a history read down the middle. In a
-  /// window narrower than the theme's `md` breakpoint (768 by default) it is `Start`.
+  /// On either side of the line, item by item, the time on the other side: a history read down the middle. Where
+  /// there is too little room it is `Start`: a [mounted](Timeline::mount) timeline given less than
+  /// [`Timeline::ALTERNATE_LEAST`] across, or one built as an element in a window narrower than the theme's `md`
+  /// breakpoint.
   Alternate,
   /// The time in a column of its own before the line, the rest after it: a log read by its times. Across, the
   /// time is over the line.
@@ -229,6 +234,7 @@ pub type TimelineRenderer = Arc<dyn Fn(TimelineView) -> Element + Send + Sync>;
 type Select = Arc<dyn Fn() + Send + Sync>;
 
 /// What stands for an item's mark.
+#[derive(Clone)]
 enum Mark {
   Icon(Name),
   Media(Element),
@@ -237,6 +243,7 @@ enum Mark {
 /// An item of a [`Timeline`]: what happened, with its description, its time, its mark and what the app puts under
 /// it. Its `T` is the value a timeline's [`on_select`](Timeline::on_select) is told, which
 /// [`value`](Self::value) gives it.
+#[derive(Clone)]
 pub struct TimelineItem<T = ()> {
   value: T,
   title: Arc<str>,
@@ -448,6 +455,12 @@ impl<T> TimelineItem<T> {
 /// A long history is loaded a page at a time, as a feed is: with [`on_load_more`](Self::on_load_more) the line
 /// runs on to an item at the end that shows more, and [`loading`](Self::loading) turns its mark into a spinner
 /// while the next page comes. The timeline builds every item it holds.
+///
+/// Its two sides of [`TimelineAlign::Alternate`] need room: [mounted](Self::mount), a timeline folds them to one
+/// side where it is given less than [`ALTERNATE_LEAST`](Self::ALTERNATE_LEAST) across, whatever the window, and
+/// shows the form that fits from its first frame and as a panel is dragged across that width. Built as an element
+/// of its own it has no room to read, and folds them in a window narrower than the theme's `md` breakpoint.
+#[derive(Clone)]
 pub struct Timeline<T = ()> {
   items: Vec<TimelineItem<T>>,
   orientation: Orientation,
@@ -464,9 +477,15 @@ pub struct Timeline<T = ()> {
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  /// Whether its room, as a mounted timeline last measured it, is wide enough for alternate sides.
+  room: Option<bool>,
 }
 
 impl<T: Send + Sync + 'static> Timeline<T> {
+  /// The least width across which a mounted timeline keeps the two sides of [`TimelineAlign::Alternate`]: in less,
+  /// they fold to one. Each side then has some 220 for its text.
+  pub const ALTERNATE_LEAST: f32 = 480.0;
+
   /// A timeline of `items`, the first at the top, or at the start across.
   pub fn new(items: impl IntoIterator<Item = TimelineItem<T>>) -> Self {
     Self {
@@ -485,6 +504,7 @@ impl<T: Send + Sync + 'static> Timeline<T> {
       forced: None,
       id: None,
       key: None,
+      room: None,
     }
   }
 
@@ -607,15 +627,15 @@ impl<T: Send + Sync + 'static> Timeline<T> {
     }
   }
 
-  /// How the items are laid out where the timeline is built: alternate sides need the room of a window at the
-  /// theme's `md` breakpoint or wider, and are one side in a narrower one. Across, the text is under the marks.
+  /// How the items are laid out where the timeline is built: alternate sides need room, the timeline's own where
+  /// it is mounted and has measured it, else a window at the theme's `md` breakpoint or wider; in less they are one
+  /// side. Across, the text is under the marks.
   fn laid_out(&self) -> TimelineAlign {
+    let roomy = self
+      .room
+      .unwrap_or_else(|| super::current_breakpoint() >= Some(Breakpoint::Md));
     match self.align {
-      TimelineAlign::Alternate
-        if self.orientation.is_vertical() && super::current_breakpoint() >= Some(Breakpoint::Md) =>
-      {
-        TimelineAlign::Alternate
-      }
+      TimelineAlign::Alternate if self.orientation.is_vertical() && roomy => TimelineAlign::Alternate,
       TimelineAlign::TimeColumn => TimelineAlign::TimeColumn,
       _ => TimelineAlign::Start,
     }
@@ -736,6 +756,84 @@ impl<T: Send + Sync + 'static> Timeline<T> {
       id: self.id,
       key: self.key,
     }
+  }
+}
+
+impl<T: Clone + Send + Sync + 'static> Timeline<T> {
+  /// The timeline as a component that reads its own room: alternate sides fold to one where it is given less than
+  /// [`ALTERNATE_LEAST`](Self::ALTERNATE_LEAST) across, in a narrow panel of a wide window too, with no frame of the
+  /// other form when it first shows or when the panel is dragged across that width. It takes the width of what holds
+  /// it.
+  ///
+  /// ```
+  /// use lurq::{app::ctx::Ctx, node::Element, ui::{Timeline, TimelineAlign, TimelineItem}};
+  ///
+  /// # fn history(ctx: &mut Ctx) -> Element {
+  /// Timeline::new([TimelineItem::new("0.60").time("Nov 10"), TimelineItem::new("0.59").time("Oct 21")])
+  ///   .align(TimelineAlign::Alternate)
+  ///   .mount(ctx)
+  /// # }
+  /// ```
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    ctx.mount::<TimelineHost<T>>(TimelineHostProps { timeline: self })
+  }
+}
+
+struct TimelineHostProps<T> {
+  timeline: Timeline<T>,
+}
+
+impl<T> PartialEq for TimelineHostProps<T> {
+  /// A timeline built again is drawn again: its items are the app's as it builds them.
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl<T> crate::app::component::DevtoolsInspectable for TimelineHostProps<T> {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value("Timeline", format!("{} items", self.timeline.items.len()));
+  }
+}
+
+/// A mounted timeline: the column that takes the room it is given, which it measures before the frame is painted,
+/// around the timeline laid out for that room.
+struct TimelineHost<T> {
+  anchor: ElementRef,
+  roomy: Signal<Option<bool>>,
+  _values: PhantomData<fn() -> T>,
+}
+
+impl<T: Clone + Send + Sync + 'static> Component for TimelineHost<T> {
+  type Props = TimelineHostProps<T>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let (anchor, roomy) = (ElementRef::new(), ctx.signal(None));
+    let watch = roomy.clone();
+    // Written only where the room crosses the least width: a panel dragged within one side of it renders nothing.
+    anchor.observe_rect_before_paint(move |rect| {
+      let fits = Some(rect.width >= Timeline::<T>::ALTERNATE_LEAST);
+      if watch.get_untracked() != fits {
+        watch.set(fits);
+      }
+    });
+    Self {
+      anchor,
+      roomy,
+      _values: PhantomData,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let mut timeline = ctx.props::<TimelineHostProps<T>>().timeline.clone();
+    timeline.room = self.roomy.get();
+    Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .overflow_visible()
+      .ref_element(self.anchor.clone())
+      .child(timeline.build(&current_theme()))
   }
 }
 
