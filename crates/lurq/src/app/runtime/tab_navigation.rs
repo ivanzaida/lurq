@@ -40,6 +40,9 @@ struct Stop {
   entry: bool,
   /// Where the focus goes as a modal opens, in place of its first stop (`autofocus`).
   autofocus: bool,
+  /// The stop the stop is in: a button that has stops inside it (`stops_inside`), a row of a table holding its
+  /// own buttons.
+  owner: Option<NodeId>,
 }
 
 struct Walk<'a> {
@@ -56,6 +59,8 @@ struct Walk<'a> {
   in_one_stop: usize,
   /// The layers met in a focus group that is one stop, walked when the group ends.
   pending: Vec<&'a Node>,
+  /// The stop the walk is in, where it is in a button that has stops inside it.
+  owner: Option<NodeId>,
 }
 
 /// `dropped` holds the nodes the last layout dropped from their Row/Column
@@ -185,6 +190,7 @@ fn next_stop<'a>(
     walked: Vec::new(),
     in_one_stop: 0,
     pending: Vec::new(),
+    owner: None,
   };
   collect_stops(scope, dropped, None, false, &mut walk);
   // A layer whose anchor the walk did not reach (in a disabled element) is where the host has it: after the
@@ -289,11 +295,16 @@ fn collect_node<'a>(
       key: stop_key(tab_index, order),
       entry: node.is_focus_entry(),
       autofocus: node.is_autofocus(),
+      owner: walk.owner,
     });
     // A button's content is part of the button, not separate stops, unless the button says otherwise.
     if node.button_kind_value().is_some() && !node.has_stops_inside() {
       return;
     }
+  }
+  let owner = walk.owner;
+  if tab_index.is_some_and(|index| index >= 0) && node.is_focusable() && node.has_stops_inside() {
+    walk.owner = Some(node.node_id());
   }
 
   let first_inside = walk.stops.len();
@@ -304,21 +315,34 @@ fn collect_node<'a>(
   for child in node.children() {
     collect_stops(child, dropped, focus_event_id, in_form, walk);
   }
+  walk.owner = owner;
   if one_stop {
     walk.in_one_stop -= 1;
   }
   // A group that is one stop keeps one of the stops in it: the focused one, so that Tab from inside leaves
-  // the group; or the one marked as its entry; or its first.
+  // the group; or the one marked as its entry; or its first. Where the focus is on a stop inside another (a
+  // button of a row of a table), that other is the one kept. The stops inside the kept one stay after it: Tab
+  // goes from a row into what it holds, and on out of the group.
   if one_stop && walk.stops.len() > first_inside + 1 {
     let inside = &walk.stops[first_inside..];
+    let is_inside = |id: NodeId| inside.iter().any(|stop| stop.target.input_id == id);
     let kept = inside
       .iter()
-      .position(|stop| walk.focused == Some(stop.target.input_id))
-      .or_else(|| inside.iter().position(|stop| stop.entry))
-      .unwrap_or(0);
-    let stop = walk.stops.swap_remove(first_inside + kept);
-    walk.stops.truncate(first_inside);
-    walk.stops.push(stop);
+      .find(|stop| walk.focused == Some(stop.target.input_id))
+      .map(|stop| {
+        stop
+          .owner
+          .filter(|owner| is_inside(*owner))
+          .unwrap_or(stop.target.input_id)
+      })
+      .or_else(|| inside.iter().find(|stop| stop.entry).map(|stop| stop.target.input_id))
+      .unwrap_or(inside[0].target.input_id);
+    let held: Vec<Stop> = walk
+      .stops
+      .drain(first_inside..)
+      .filter(|stop| stop.target.input_id == kept || stop.owner == Some(kept))
+      .collect();
+    walk.stops.extend(held);
   }
   // The layers whose anchors are in the group come after it, once it is done.
   if one_stop && walk.in_one_stop == 0 {

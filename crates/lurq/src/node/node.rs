@@ -529,6 +529,9 @@ pub(crate) trait NodeUpdate {
   fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
   fn absolute_position(&mut self, x: f32, y: f32);
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky);
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn fills_viewport_width(&mut self, fills: bool);
   fn align(&mut self, alignment: Alignment);
   fn flex(&mut self, factor: f32);
   fn grid_cell(&mut self, update: impl FnOnce(&mut crate::layout::grid::GridCell));
@@ -911,6 +914,13 @@ pub(crate) struct RareStyle {
   /// Where the node sticks in the scroll container it is in. Here, and not in `Position`, because every
   /// node holds a `Position` and few stick.
   pub(crate) sticky: Option<crate::layout::layout_kind::Sticky>,
+  /// The tracks the node lays its children out in, one to a track: a row of a table. See
+  /// `layout/column_tracks.rs`.
+  pub(crate) column_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// The tracks whose cells the node measures in the rows it holds: what holds the rows of a table.
+  pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
+  pub(crate) fills_viewport_width: bool,
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
@@ -1291,6 +1301,23 @@ impl NodeUpdate for Node {
 
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky) {
     self.rare_style.sticky = Some(sticky);
+  }
+
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.column_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.measured_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn fills_viewport_width(&mut self, fills: bool) {
+    if self.rare_style.fills_viewport_width != fills {
+      self.rare_style.fills_viewport_width = fills;
+      self.layout_cache.invalidate();
+    }
   }
 
   fn align(&mut self, alignment: Alignment) {
@@ -3080,6 +3107,21 @@ impl Node {
 
   pub(crate) fn is_sticky(&self) -> bool {
     self.rare_style.sticky.is_some()
+  }
+
+  /// The tracks the node lays its children out in, if it is a row of a table.
+  pub(crate) fn column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.column_tracks.as_ref()
+  }
+
+  /// The tracks whose cells the node measures in the rows it holds.
+  pub(crate) fn measured_column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.measured_tracks.as_ref()
+  }
+
+  /// Whether the node, a scroll container, lays its content out at least as wide as its viewport.
+  pub(crate) fn fills_viewport_width(&self) -> bool {
+    self.rare_style.fills_viewport_width
   }
 
   pub fn align(mut self, alignment: Alignment) -> Self {
@@ -5643,6 +5685,9 @@ impl Node {
       && self.text_overflow == old.text_overflow
       && self.overflow == old.overflow
       && self.intrinsic_size == old.intrinsic_size
+      && self.rare_style.column_tracks == old.rare_style.column_tracks
+      && self.rare_style.measured_tracks == old.rare_style.measured_tracks
+      && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }

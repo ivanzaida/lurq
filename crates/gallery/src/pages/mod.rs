@@ -58,6 +58,7 @@ mod spinner;
 mod splitter;
 mod steps;
 mod switch;
+mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -657,6 +658,14 @@ pub const PAGES: &[Page] = &[
     about: "result outcome success error warning info not found 404 done finished page dialog",
     group: Group::Data,
     mount: |ctx| ctx.mount::<outcome::OutcomePage>(()),
+  },
+  Page {
+    path: "/table",
+    name: "Table",
+    icon: None,
+    about: "table data rows columns sort sortable select selection checkbox header sticky scroll virtualized thousands density empty loading skeleton pagination footer grid",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<table::TablePage>(()),
   },
   Page {
     path: "/splitter",
