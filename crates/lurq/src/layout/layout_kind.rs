@@ -248,6 +248,9 @@ struct ScrollStateInner {
   /// for a container whose bars keep clear of it (`scrollbars_clear_of_sticky`). Nothing for one that does not.
   bar_clear_x: f32,
   bar_clear_y: f32,
+  /// Which ways the container scrolls, told at each layout: where it scrolls both and both bars are there, each
+  /// track ends before the other's lane, so that the two keep out of the corner where they meet.
+  scrolls: (bool, bool),
   /// Viewport top in layout space (the space of `ElementRef` positions), set
   /// when element refs are updated after layout — unlike `viewport_abs_y`,
   /// which is set while painting and lags one frame behind layout.
@@ -334,8 +337,23 @@ fn bar_track(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle)
   };
   // What sticks never takes the whole viewport from the bar.
   let clear = if clear < viewport { clear } else { 0.0 };
+  // Where the bar across is there too, the track ends before its lane: the corner is no bar's.
+  let (other_scrolls, other_content, other_viewport) = match axis {
+    ScrollAxis::Horizontal => (inner.scrolls.1, inner.content_height, inner.viewport_height),
+    ScrollAxis::Vertical => (inner.scrolls.0, inner.content_width, inner.viewport_width),
+  };
+  let other_shows = match style.visible {
+    ScrollBarVisibility::Never => false,
+    ScrollBarVisibility::Always => true,
+    _ => other_content > other_viewport,
+  };
+  let corner = if other_scrolls && other_shows {
+    style.width + style.resolved_edge_inset()
+  } else {
+    0.0
+  };
   let start = clear + style.resolved_end_inset();
-  let track = viewport - clear - style.resolved_end_inset() * 2.0;
+  let track = viewport - clear - style.resolved_end_inset() * 2.0 - corner;
   if track <= 0.0 {
     return None;
   }
@@ -387,6 +405,7 @@ impl ScrollState {
         viewport_abs_x: 0.0,
         viewport_abs_y: 0.0,
         bar_clear_x: 0.0,
+        scrolls: (false, false),
         bar_clear_y: 0.0,
         layout_viewport_y: 0.0,
         pass_start: None,
@@ -1167,6 +1186,11 @@ impl ScrollState {
   /// How far in from the viewport's left and top edges its bars start: the reach of what sticks at those
   /// edges, measured at each layout of a container whose bars keep clear of it, and nothing for one whose bars
   /// do not.
+  /// Tells the state which ways its container scrolls, across and down.
+  pub(crate) fn set_scrolls(&self, across: bool, down: bool) {
+    self.inner.lock().unwrap().scrolls = (across, down);
+  }
+
   pub(crate) fn set_bar_clearance(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.bar_clear_x = x.max(0.0);

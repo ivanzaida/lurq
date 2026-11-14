@@ -760,3 +760,44 @@ fn a_style_says_its_own_pressed_thumb() {
   let (pressed, _) = thumbs(&mut tree, &mut app);
   assert_eq!(pressed.unwrap().color, foreground);
 }
+
+#[test]
+fn where_two_bars_meet_each_track_ends_before_the_others_lane() {
+  use lurq::layout::layout_kind::{ScrollAxis, ScrollState};
+
+  let state = ScrollState::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    lurq::components::ScrollBoth::new(lurq::components::Spacer::new().size(300.0, 300.0))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  let mut app = App::new();
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  // At the end of both ways, each thumb ends its own inset before the other bar's lane, which is 8 and 2 from
+  // the edge: 100 less 2, less 10, less 1.
+  state.set_scroll(200.0, 200.0);
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  let style = state.style();
+  let corner = style.width + style.resolved_edge_inset();
+  let end = 100.0 - style.resolved_end_inset() - corner - style.thumb_inset;
+  let (_, y, _, height) = state.thumb_rect_for_axis(ScrollAxis::Vertical, &style).unwrap();
+  let (x, _, width, _) = state.thumb_rect_for_axis(ScrollAxis::Horizontal, &style).unwrap();
+  assert!((y + height - end).abs() < 0.01, "down: {}", y + height);
+  assert!((x + width - end).abs() < 0.01, "across: {}", x + width);
+
+  // A container that scrolls down only keeps its whole track, however wide its content.
+  let state = ScrollState::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    lurq::components::ScrollVertical::new(lurq::components::Spacer::new().size(300.0, 300.0))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  state.set_scroll(0.0, 200.0);
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  let (_, y, _, height) = state.thumb_rect_for_axis(ScrollAxis::Vertical, &style).unwrap();
+  let whole = 100.0 - style.resolved_end_inset() - style.thumb_inset;
+  assert!((y + height - whole).abs() < 0.01, "{}", y + height);
+}

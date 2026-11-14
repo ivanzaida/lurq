@@ -55,6 +55,7 @@ mod progress;
 mod progress_dialog;
 mod radio;
 mod radio_card;
+mod scroll_area;
 mod search_field;
 mod select;
 mod separator;
@@ -636,6 +637,14 @@ pub const PAGES: &[Page] = &[
     about: "separator divider line rule horizontal vertical label or toolbar section length decorative",
     group: Group::Data,
     mount: |ctx| ctx.mount::<separator::SeparatorPage>(()),
+  },
+  Page {
+    path: "/scroll-area",
+    name: "Scroll Area",
+    icon: Some("rows-3"),
+    about: "scroll area scrollbar scroll bar thumb track lane gutter overflow wheel drag region keys orientation             vertical horizontal both scrollbars auto always hover scrolling never label scroll_state width height             max_height croll rea",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<scroll_area::ScrollAreaPage>(()),
   },
   Page {
     path: "/spinner",
