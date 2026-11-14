@@ -933,7 +933,7 @@ impl<V: Picked> PickerView<V> {
       .on_dismiss(move || model.dismissed())
       .child(self.content());
     if let Some(offset) = self.offset {
-      let _ = offset; // TEMP until Popover::offset is a distance again
+      popover = popover.offset(offset);
     }
     if let Some(collision) = self.collision {
       popover = popover.collision(collision);

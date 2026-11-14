@@ -355,7 +355,8 @@ fn overscrolled_content_is_laid_out_past_its_end() {
   assert!(gap > 10.0);
   let layout = tree.last_layout.as_ref().expect("a layout");
   let content = layout.children.first().expect("the list's content");
-  assert_eq!(content.offset.y, gap);
+  // The content is drawn on a whole device pixel (here a logical one), as all that scrolls is.
+  assert_eq!(content.offset.y, gap.round());
 }
 
 #[test]
