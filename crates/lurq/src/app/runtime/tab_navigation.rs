@@ -403,7 +403,10 @@ fn visit_node<'a>(
   if one_stop && walk.stops.len() > first_inside + 1 {
     let inside = &walk.stops[first_inside..];
     let is_inside = |id: NodeId| inside.iter().any(|stop| stop.target.input_id == id);
-    let ours = || inside.iter().filter(|stop| stop.apart != Some(depth));
+    // Out of the group is what a group of none in it holds beside its stops (the new tab button beside the tabs),
+    // not what is in a stop of the group (a button in a cell of a row): that stays with the stop it is in.
+    let apart_here = |stop: &Stop| stop.apart == Some(depth) && !stop.owner.is_some_and(is_inside);
+    let ours = || inside.iter().filter(|stop| !apart_here(stop));
     let kept = ours()
       .find(|stop| walk.focused == Some(stop.target.input_id))
       .map(|stop| {
@@ -414,14 +417,16 @@ fn visit_node<'a>(
       })
       .or_else(|| ours().find(|stop| stop.entry).map(|stop| stop.target.input_id))
       .or_else(|| ours().next().map(|stop| stop.target.input_id));
+    let apart: Vec<bool> = inside.iter().map(apart_here).collect();
     let held: Vec<Stop> = walk
       .stops
       .drain(first_inside..)
-      .filter(|stop| {
-        stop.apart == Some(depth) || kept.is_some_and(|kept| stop.target.input_id == kept || stop.owner == Some(kept))
+      .zip(apart)
+      .filter(|(stop, apart)| {
+        *apart || kept.is_some_and(|kept| stop.target.input_id == kept || stop.owner == Some(kept))
       })
-      .map(|mut stop| {
-        // Out of this group, it is in the groups around it as any stop is.
+      .map(|(mut stop, _)| {
+        // Out of this group, or in it, it is in the groups around it as any stop is.
         if stop.apart == Some(depth) {
           stop.apart = None;
         }
