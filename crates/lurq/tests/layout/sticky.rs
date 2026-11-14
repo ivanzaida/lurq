@@ -427,14 +427,16 @@ fn vertical_thumb(state: &lurq::layout::layout_kind::ScrollState) -> (f32, f32, 
 fn a_container_that_does_not_ask_has_its_bar_over_the_whole_viewport() {
   let (_, state) = headed(false);
   let (_, y, ..) = vertical_thumb(&state);
-  let inset = state.style().resolved_end_inset();
+  // The thumb is the end inset and its own inset from the track's start.
+  let inset = state.style().resolved_end_inset() + state.style().thumb_inset;
   assert!((y - inset).abs() < 0.01, "the track starts at the viewport's top: {y}");
 }
 
 #[test]
 fn a_bar_told_to_keep_clear_of_what_sticks_runs_beside_the_rows_only_and_reaches_their_end() {
   let (mut tree, state) = headed(true);
-  let inset = state.style().resolved_end_inset();
+  // Where the thumb goes: the track's end insets and the thumb's own inset in it.
+  let inset = state.style().resolved_end_inset() + state.style().thumb_inset;
   let (x, y, width, height) = vertical_thumb(&state);
   assert!(y >= 20.0 + inset - 0.01, "the thumb starts under the header: {y}");
   // What shows of the rows is 80 of their 600: the thumb is that share of a track of 80 less its insets.
@@ -486,7 +488,7 @@ fn a_bar_across_keeps_clear_of_a_first_column_that_stays() {
       .size(200.0, 60.0),
   );
   crate::support::render_pass(&mut tree);
-  let inset = state.style().resolved_end_inset();
+  let inset = state.style().resolved_end_inset() + state.style().thumb_inset;
   let thumb = |state: &lurq::layout::layout_kind::ScrollState| {
     state
       .thumb_rect_for_axis(lurq::layout::layout_kind::ScrollAxis::Horizontal, &state.style())

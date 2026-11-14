@@ -248,6 +248,9 @@ struct ScrollStateInner {
   /// for a container whose bars keep clear of it (`scrollbars_clear_of_sticky`). Nothing for one that does not.
   bar_clear_x: f32,
   bar_clear_y: f32,
+  /// Which ways the container scrolls, told at each layout: where it scrolls both and both bars are there, each
+  /// track ends before the other's lane, so that the two keep out of the corner where they meet.
+  scrolls: (bool, bool),
   /// Viewport top in layout space (the space of `ElementRef` positions), set
   /// when element refs are updated after layout — unlike `viewport_abs_y`,
   /// which is set while painting and lags one frame behind layout.
@@ -257,6 +260,8 @@ struct ScrollStateInner {
   /// restart from it, so the final measurement decides the offset.
   pass_start: Option<ScrollPassStart>,
   thumb_hovered: bool,
+  /// The bar under the pointer, whose thumb is drawn hovered.
+  hovered_bar: Option<ScrollAxis>,
   /// Whether the pointer is over the scroll container, anywhere in it.
   pointer_over: bool,
   /// Whether a [`ScrollBarVisibility::OnHover`] bar is shown.
@@ -265,6 +270,8 @@ struct ScrollStateInner {
   /// content scrolled; `None` before the first frame.
   painted_scroll: Option<(f32, f32)>,
   dragging: bool,
+  /// The bar whose thumb is dragged, drawn pressed; `None` while the track is paged or nothing is held.
+  drag_axis: Option<ScrollAxis>,
   drag_start_x: f32,
   drag_start_y: f32,
   drag_start_scroll_x: f32,
@@ -330,14 +337,36 @@ fn bar_track(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle)
   };
   // What sticks never takes the whole viewport from the bar.
   let clear = if clear < viewport { clear } else { 0.0 };
+  // Where the bar across is there too, the track ends before its lane: the corner is no bar's.
+  let (other_scrolls, other_content, other_viewport) = match axis {
+    ScrollAxis::Horizontal => (inner.scrolls.1, inner.content_height, inner.viewport_height),
+    ScrollAxis::Vertical => (inner.scrolls.0, inner.content_width, inner.viewport_width),
+  };
+  let other_shows = match style.visible {
+    ScrollBarVisibility::Never => false,
+    ScrollBarVisibility::Always => true,
+    _ => other_content > other_viewport,
+  };
+  let corner = if other_scrolls && other_shows {
+    style.width + style.resolved_edge_inset()
+  } else {
+    0.0
+  };
   let start = clear + style.resolved_end_inset();
-  let track = viewport - clear - style.resolved_end_inset() * 2.0;
+  let track = viewport - clear - style.resolved_end_inset() * 2.0 - corner;
   if track <= 0.0 {
     return None;
   }
   let ratio = (viewport - clear) / (content - clear).max(1.0);
-  let thumb = (track * ratio).max(style.min_thumb_length).min(track);
+  let travel = thumb_travel(track, style);
+  let thumb = (travel * ratio).max(style.min_thumb_length).min(travel);
   Some((start, track, thumb))
+}
+
+/// How far along a track of `track` its thumb may go: the track less the thumb's inset at each end. The thumb's
+/// place, its drag and what takes the pointer all measure by it.
+fn thumb_travel(track: f32, style: &ScrollBarStyle) -> f32 {
+  (track - style.thumb_inset * 2.0).max(0.0)
 }
 
 impl Default for ScrollState {
@@ -376,14 +405,17 @@ impl ScrollState {
         viewport_abs_x: 0.0,
         viewport_abs_y: 0.0,
         bar_clear_x: 0.0,
+        scrolls: (false, false),
         bar_clear_y: 0.0,
         layout_viewport_y: 0.0,
         pass_start: None,
         thumb_hovered: false,
+        hovered_bar: None,
         pointer_over: false,
         reveal: ScrollBarReveal::default(),
         painted_scroll: None,
         dragging: false,
+        drag_axis: None,
         drag_start_x: 0.0,
         drag_start_y: 0.0,
         drag_start_scroll_x: 0.0,
@@ -854,8 +886,30 @@ impl ScrollState {
     self.inner.lock().unwrap().dragging
   }
 
+  /// The bar under the pointer, whose thumb is drawn in [`ScrollBarStyle::thumb_hovered_color`].
+  pub fn hovered_bar(&self) -> Option<ScrollAxis> {
+    self.inner.lock().unwrap().hovered_bar
+  }
+
+  /// The bar whose thumb is dragged, drawn in [`ScrollBarStyle::thumb_pressed_color`].
+  pub fn dragged_bar(&self) -> Option<ScrollAxis> {
+    let inner = self.inner.lock().unwrap();
+    inner.drag_axis.filter(|_| inner.dragging)
+  }
+
+  /// Sets the bar under the pointer, and with it [`Self::is_thumb_hovered`].
+  pub(crate) fn set_hovered_bar(&self, bar: Option<ScrollAxis>) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.hovered_bar = bar;
+    inner.thumb_hovered = bar.is_some();
+  }
+
   pub fn set_thumb_hovered(&self, hovered: bool) {
-    self.inner.lock().unwrap().thumb_hovered = hovered;
+    let mut inner = self.inner.lock().unwrap();
+    inner.thumb_hovered = hovered;
+    if !hovered {
+      inner.hovered_bar = None;
+    }
   }
 
   /// Records whether the pointer is over the scroll container, which holds
@@ -900,6 +954,7 @@ impl ScrollState {
       ScrollAxis::Vertical => (inner.pending_scroll_y, inner.wheel_y) = (None, None),
     }
     inner.dragging = true;
+    inner.drag_axis = Some(axis);
     inner.drag_start_x = mouse_x;
     inner.drag_start_y = mouse_y;
     inner.drag_start_scroll_x = inner.scroll_x;
@@ -907,7 +962,9 @@ impl ScrollState {
   }
 
   pub fn end_drag(&self) {
-    self.inner.lock().unwrap().dragging = false;
+    let mut inner = self.inner.lock().unwrap();
+    inner.dragging = false;
+    inner.drag_axis = None;
   }
 
   pub fn drag_to(&self, mouse_y: f32, style: &crate::layout::scrollbar::ScrollBarStyle) {
@@ -931,7 +988,7 @@ impl ScrollState {
         let Some((_, track_width, thumb_width)) = bar_track(&inner, ScrollAxis::Horizontal, style) else {
           return;
         };
-        let scrollable_track = track_width - thumb_width;
+        let scrollable_track = thumb_travel(track_width, style) - thumb_width;
         if scrollable_track <= 0.0 {
           return;
         }
@@ -945,7 +1002,7 @@ impl ScrollState {
         let Some((_, track_height, thumb_height)) = bar_track(&inner, ScrollAxis::Vertical, style) else {
           return;
         };
-        let scrollable_track = track_height - thumb_height;
+        let scrollable_track = thumb_travel(track_height, style) - thumb_height;
         if scrollable_track <= 0.0 {
           return;
         }
@@ -971,9 +1028,10 @@ impl ScrollState {
     } else {
       0.0
     };
-    let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
+    let inset = style.thumb_inset;
+    let thumb_y = track_y + inset + (thumb_travel(track_height, style) - thumb_height) * scroll_ratio;
 
-    (track_x, thumb_y, style.width, thumb_height)
+    (track_x + inset, thumb_y, style.width - inset * 2.0, thumb_height)
   }
 
   pub fn thumb_rect_for_axis(
@@ -1023,8 +1081,10 @@ impl ScrollState {
         } else {
           0.0
         };
-        let thumb_x = track_x + (track_width - thumb_width) * scroll_ratio;
-        let (thumb_x, thumb_width) = squeezed_thumb(thumb_x, thumb_width, inner.overscroll_x, style.width);
+        let inset = style.thumb_inset;
+        let thickness = track_height - inset * 2.0;
+        let thumb_x = track_x + inset + (thumb_travel(track_width, style) - thumb_width) * scroll_ratio;
+        let (thumb_x, thumb_width) = squeezed_thumb(thumb_x, thumb_width, inner.overscroll_x, thickness);
 
         Some(ScrollBarGeometry {
           track_x,
@@ -1032,9 +1092,9 @@ impl ScrollState {
           track_width,
           track_height,
           thumb_x,
-          thumb_y: track_y,
+          thumb_y: track_y + inset,
           thumb_width,
-          thumb_height: track_height,
+          thumb_height: thickness,
         })
       }
       ScrollAxis::Vertical => {
@@ -1051,17 +1111,19 @@ impl ScrollState {
         } else {
           0.0
         };
-        let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
-        let (thumb_y, thumb_height) = squeezed_thumb(thumb_y, thumb_height, inner.overscroll_y, style.width);
+        let inset = style.thumb_inset;
+        let thickness = track_width - inset * 2.0;
+        let thumb_y = track_y + inset + (thumb_travel(track_height, style) - thumb_height) * scroll_ratio;
+        let (thumb_y, thumb_height) = squeezed_thumb(thumb_y, thumb_height, inner.overscroll_y, thickness);
 
         Some(ScrollBarGeometry {
           track_x,
           track_y,
           track_width,
           track_height,
-          thumb_x: track_x,
+          thumb_x: track_x + inset,
           thumb_y,
-          thumb_width: track_width,
+          thumb_width: thickness,
           thumb_height,
         })
       }
@@ -1124,6 +1186,11 @@ impl ScrollState {
   /// How far in from the viewport's left and top edges its bars start: the reach of what sticks at those
   /// edges, measured at each layout of a container whose bars keep clear of it, and nothing for one whose bars
   /// do not.
+  /// Tells the state which ways its container scrolls, across and down.
+  pub(crate) fn set_scrolls(&self, across: bool, down: bool) {
+    self.inner.lock().unwrap().scrolls = (across, down);
+  }
+
   pub(crate) fn set_bar_clearance(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.bar_clear_x = x.max(0.0);

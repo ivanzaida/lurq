@@ -50,6 +50,7 @@ mod progress;
 mod progress_dialog;
 mod radio;
 mod rating;
+mod scroll_area;
 mod select;
 mod separator;
 mod sheet;

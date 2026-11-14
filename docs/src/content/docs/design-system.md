@@ -1740,6 +1740,47 @@ Card::new()
 - To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its label or its title, and a pressed card a `button`.
 - A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.content()` (the header over the body), `view.header()`, `view.text()`, `view.action()`, `view.body()` and `view.footer()` are the default ones.
 
+## Scroll Area
+
+Content that scrolls in a room of its own: a dialog's long body, a list in a panel, a table's cells. Its bar is the design's.
+
+```rust
+use lurq::ui::{ScrollArea, ScrollAreaOrientation, ScrollAreaScrollbars};
+
+ScrollArea::new()
+  .height(184.0)
+  .label("Terms of use")
+  .children(paragraphs);
+
+// A list with its bar in a lane of its own beside the rows.
+ScrollArea::new().width(340.0).height(160.0).gutter(true).children(rows);
+
+// A table's cells, both ways, the bars only under the pointer and while they scroll.
+ScrollArea::new()
+  .orientation(ScrollAreaOrientation::Both)
+  .scrollbars(ScrollAreaScrollbars::Hover)
+  .child(cells);
+```
+
+| Builder | |
+| --- | --- |
+| `ScrollArea::new()`, `child(element)`, `children(..)` | What scrolls: one under another, or side by side in an area that scrolls across |
+| `orientation(..)` | `ScrollAreaOrientation::Vertical` (the default), `Horizontal`, or `Both`; a `ui::Orientation` is one of the first two |
+| `scrollbars(ScrollAreaScrollbars)` | When its bars show: `Auto` (while the content overflows), `Always`, `Hover` (under the pointer and while it scrolls, then they fade), `Scrolling` (only while it scrolls, as a system set to show scroll bars only when scrolling), `Never` |
+| `gutter(bool)` | Its bars in a lane of their own beside the content, kept while a bar fades, and not over its edge |
+| `label(&str)` | A region of that name to what reads the tree, and a stop of Tab whose keys scroll it |
+| `scroll_state(ScrollState)` | The app's: where it is scrolled to, read and set |
+| `width(..)`, `height(..)`, `max_height(..)` | Its size, `impl Into<Length>`; it is as large as the room it is given without one |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them; `force` draws its ring of focus |
+
+- Its content scrolls with the wheel (smoothly, as every scroll container's), a finger, a drag of the bar's thumb and a press on its track. A bar is drawn over the content's edge unless the area has a `gutter`; content that runs under it, as a text does, is given a padding of the root at its end.
+- A scroll area with a label is a stop of Tab with the ring of the focus inside it. With the focus on it, Up and Down scroll it by 40, Left and Right likewise across, PageUp, PageDown, Space and Shift+Space by what it shows, Home and End to its ends: the keys of any scroll container that has the focus itself. Give a label to an area whose content has nothing that takes the focus, so that the keyboard reaches it. One with no label is no stop: the controls in it are.
+- To what reads the tree it is a `region` called by its label, and each bar of content that overflows is a scrollbar with its value: `scrollbar_vertical` and `scrollbar_horizontal`, how far it is scrolled from 0 at its start to 100 at its end.
+- Its bar is the theme's [`ScrollBarStyle`](../styling-events/#scroll) (`theme.scrollbar()`), shown and placed as the area says: the scroll area adds no look of its own to the bar, and a theme that changes the bar changes it here and on every scroll container.
+- In the design (`Scrollbar`) the bar is a lane of 8 with no fill, padded 1, and a thumb of 6 in it, round, in `Ring`. Under the pointer, and while it is dragged, the thumb is `MutedForeground`. The lane is 2 from the edge it runs along and from the ends of the area. The board has the bar beside a list's rows and in a dialog's padding; it draws no bar across, no corner where two meet, and no bar under the pointer or dragged, which are the engine's with the board's numbers: where both bars are there, each ends before the other's lane, and the corner is no bar's.
+- Parts: `ScrollAreaPart::Root`. States: `ScrollAreaState::Vertical` and `Horizontal` (both on for an area that scrolls both ways), `Gutter`.
+- A renderer that draws another area has `view.content()`, what scrolls laid out its way, `view.bar`, the theme's bar as the area shows it, and `view.render()`.
+
 ## Separator
 
 A line between things: sections of a page, groups of a toolbar, the two ways to sign in.

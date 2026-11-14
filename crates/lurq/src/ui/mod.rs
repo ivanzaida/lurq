@@ -75,6 +75,7 @@ mod progress_dialog;
 mod radio;
 mod rating;
 mod recipe;
+mod scroll_area;
 mod search_field;
 mod segmented;
 mod select;
@@ -261,6 +262,10 @@ pub use rating::{
 };
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
+};
+pub use scroll_area::{
+  ScrollArea, ScrollAreaOrientation, ScrollAreaPart, ScrollAreaRenderer, ScrollAreaScrollbars, ScrollAreaState,
+  ScrollAreaView,
 };
 pub use search_field::{
   SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldSize, SearchFieldState, SearchFieldView,

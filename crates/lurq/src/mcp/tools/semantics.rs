@@ -174,6 +174,33 @@ pub(super) fn inspection_attrs(node: &Node) -> Vec<(String, String)> {
     attrs.push(("sensitive".to_owned(), "true".to_owned()));
   }
   attrs.extend(canvas_items::canvas_attrs(node));
+  attrs.extend(scrollbar_attrs(node));
+  attrs
+}
+
+/// The bars of a scroll container whose content overflows, each a `scrollbar` with its value as an ARIA
+/// scrollbar has it: how far the content is scrolled along that way, from 0 at its start to 100 at its end.
+/// `scrollbar_vertical=25` for a container a quarter of the way down. A container whose content fits has none.
+pub(super) fn scrollbar_attrs(node: &Node) -> Vec<(String, String)> {
+  use crate::layout::layout_kind::ScrollDirection;
+  let Some((state, direction)) = node.scroll_container() else {
+    return Vec::new();
+  };
+  let percent = |offset: f32, content: f32, viewport: f32| {
+    let max = content - viewport;
+    (max > 0.5).then(|| format!("{}", ((offset / max).clamp(0.0, 1.0) * 100.0).round()))
+  };
+  let mut attrs = Vec::new();
+  if matches!(direction, ScrollDirection::Vertical | ScrollDirection::Both)
+    && let Some(value) = percent(state.scroll_y(), state.content_height(), state.viewport_height())
+  {
+    attrs.push(("scrollbar_vertical".to_owned(), value));
+  }
+  if matches!(direction, ScrollDirection::Horizontal | ScrollDirection::Both)
+    && let Some(value) = percent(state.scroll_x(), state.content_width(), state.viewport_width())
+  {
+    attrs.push(("scrollbar_horizontal".to_owned(), value));
+  }
   attrs
 }
 

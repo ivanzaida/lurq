@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-  parse_macro_input, parse_quote, AngleBracketedGenericArguments, Data, DeriveInput, Fields, GenericArgument,
-  PathArguments, Type,
+  AngleBracketedGenericArguments, Data, DeriveInput, Fields, GenericArgument, PathArguments, Type, parse_macro_input,
+  parse_quote,
 };
 
 mod query;
@@ -48,11 +48,14 @@ pub fn derive_accessors(input: TokenStream) -> TokenStream {
     let set_name = format_ident!("set_{}", field_name);
 
     quote! {
+      // A clone, so that a field that is not `Copy` (a role of the palette) has a getter too; for one that is,
+      // the same value as a copy.
+      #[allow(clippy::clone_on_copy)]
       pub fn #getter_name(&self) -> #field_ty
       where
-        #field_ty: Copy,
+        #field_ty: Clone,
       {
-        self.#field_name
+        ::core::clone::Clone::clone(&self.#field_name)
       }
 
       pub fn #with_name(mut self, value: #field_ty) -> Self {

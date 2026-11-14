@@ -4260,6 +4260,10 @@ impl LayoutEngine {
         size.height,
       );
       clear_bars_of_sticky(node, child, &child_result, state);
+      state.set_scrolls(
+        scroll_direction_has_axis(direction, ScrollAxis::Horizontal),
+        scroll_direction_has_axis(direction, ScrollAxis::Vertical),
+      );
 
       return LayoutResult {
         size,
@@ -4306,6 +4310,10 @@ impl LayoutEngine {
       size.height,
     );
     clear_bars_of_sticky(node, child, &child_result, state);
+    state.set_scrolls(
+      scroll_direction_has_axis(direction, ScrollAxis::Horizontal),
+      scroll_direction_has_axis(direction, ScrollAxis::Vertical),
+    );
 
     LayoutResult {
       size,

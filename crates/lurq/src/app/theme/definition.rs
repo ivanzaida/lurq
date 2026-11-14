@@ -74,6 +74,24 @@ pub struct ThemeDefinition {
   pub form: FormTheme,
 }
 
+/// The design's scroll bar (`pencil/lurq-design-system.pen`, Scrollbar): a lane of 8 with no fill, a thumb of 6
+/// in it, round, in `Ring`, which is `MutedForeground` under the pointer and while it is dragged, 2 from the edge
+/// it runs along and from the ends of the container, as the engine's bar. On iOS the platform's indicator, as an
+/// app with no theme has.
+fn design_scrollbar() -> ScrollBarStyle {
+  if cfg!(target_os = "ios") {
+    return ScrollBarStyle::default();
+  }
+  ScrollBarStyle {
+    thumb_inset: 1.0,
+    thumb_radius: 3.0,
+    thumb_hovered_color: Some(crate::node::BackgroundColor::Palette(
+      super::PaletteColor::MutedForeground,
+    )),
+    ..ScrollBarStyle::default()
+  }
+}
+
 impl ThemeDefinition {
   /// The design system's theme (`pencil/lurq-design-system.pen`), light and
   /// dark: what an app has when it sets none.
@@ -88,7 +106,7 @@ impl ThemeDefinition {
       shadows: ThemeShadows::default(),
       breakpoints: ThemeBreakpoints::default(),
       caret: ThemeCaret::default(),
-      scrollbar: ScrollBarStyle::default(),
+      scrollbar: design_scrollbar(),
       control_sizes: ThemeControlSizes::default(),
       icon_sizes: ThemeIconSizes::default(),
       densities: ThemeDensities::default(),
@@ -118,6 +136,7 @@ impl ThemeDefinition {
       typography: ThemeTypography::legacy(),
       radii: ThemeRadii::legacy(),
       shadows: ThemeShadows::legacy(),
+      scrollbar: ScrollBarStyle::default(),
       ..Self::neutral()
     }
   }

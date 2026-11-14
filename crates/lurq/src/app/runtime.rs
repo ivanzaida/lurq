@@ -90,6 +90,7 @@ mod inline_link_copy_tests;
 mod inline_link_keys;
 mod input_token_paint;
 mod interaction_groups;
+mod key_scroll;
 mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
@@ -4242,6 +4243,8 @@ impl Tree {
         true
       } else if !ctrl && !meta && self.menu_row_key(&key, alt, click_modifiers) {
         true
+      } else if !ctrl && !alt && !meta && self.scroll_focused_container(&key, &code, shift) {
+        true
       } else if matches!(
         (key.as_str(), code.as_str()),
         ("Enter" | " ", _) | (_, "Enter" | "Space")
@@ -5582,8 +5585,9 @@ impl Tree {
           continue;
         };
         let hit = scrollbar_hit_at(node, lx, ly);
-        if hit.is_some() != state.is_thumb_hovered() {
-          state.set_thumb_hovered(hit.is_some());
+        let bar = hit.map(|(axis, _)| axis);
+        if bar != state.hovered_bar() {
+          state.set_hovered_bar(bar);
           self.needs_redraw = true;
         }
         if is_left_down && let Some((axis, part)) = hit {

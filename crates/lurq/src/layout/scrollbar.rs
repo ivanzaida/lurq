@@ -1,7 +1,7 @@
 use crate::{
   animation::Easing,
   app::theme::{PaletteColor, ThemePalette},
-  node::color::Color,
+  node::{BackgroundColor, color::Color},
   time::{Duration, Instant},
 };
 
@@ -37,6 +37,16 @@ pub struct ScrollBarStyle {
   /// The color of the thumb. A style that never set one has [`Self::THEME_THUMB`], which is drawn in the
   /// theme's `Ring`: grey on a light theme and on a dark one, as the design system's scrollbar is.
   pub thumb_color: Color,
+  /// The color of the thumb of the bar under the pointer, a color or a role of the palette. `None` keeps
+  /// [`Self::thumb_color`].
+  pub thumb_hovered_color: Option<BackgroundColor>,
+  /// The color of the thumb while it is dragged, a color or a role of the palette. `None` keeps the color it has
+  /// under the pointer.
+  pub thumb_pressed_color: Option<BackgroundColor>,
+  /// The gap between the lane of the bar and its thumb, on every side: the thumb is [`Self::width`] less twice
+  /// this across, and moves along the track less twice this. The design system's bar is a lane of 8 with a
+  /// thumb of 6 in it.
+  pub thumb_inset: f32,
   pub thumb_radius: f32,
   pub track_radius: f32,
   /// The gap around the bar: from the edge it runs along and from the two
@@ -125,6 +135,24 @@ impl ScrollBarStyle {
     }
   }
 
+  /// The color the thumb is drawn in under `palette`, under the pointer (`hovered`) or dragged (`pressed`):
+  /// [`Self::thumb_pressed_color`], else [`Self::thumb_hovered_color`], else [`Self::thumb_in`].
+  pub fn thumb_when(&self, palette: &ThemePalette, hovered: bool, pressed: bool) -> Color {
+    let color = |color: &BackgroundColor| match color {
+      BackgroundColor::Color(color) => Some(*color),
+      BackgroundColor::Palette(role) => palette.try_get(role),
+      BackgroundColor::CurrentForeground => palette.try_get(&PaletteColor::Foreground),
+    };
+    let state = if pressed {
+      self.thumb_pressed_color.as_ref().or(self.thumb_hovered_color.as_ref())
+    } else if hovered {
+      self.thumb_hovered_color.as_ref()
+    } else {
+      None
+    };
+    state.and_then(color).unwrap_or_else(|| self.thumb_in(palette))
+  }
+
   /// A phone's scroll indicator: a thin rounded bar over the content, clear of the corners, that shows while
   /// the content scrolls and fades out after. Grey, to show over light content and dark.
   pub fn indicator() -> Self {
@@ -149,6 +177,9 @@ impl ScrollBarStyle {
       min_thumb_length: DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH,
       track_color: DEFAULT_SCROLLBAR_TRACK_COLOR,
       thumb_color: DEFAULT_SCROLLBAR_THUMB_COLOR,
+      thumb_hovered_color: None,
+      thumb_pressed_color: None,
+      thumb_inset: 0.0,
       thumb_radius: DEFAULT_SCROLLBAR_THUMB_RADIUS,
       track_radius: DEFAULT_SCROLLBAR_TRACK_RADIUS,
       padding: DEFAULT_SCROLLBAR_PADDING,
@@ -415,20 +446,22 @@ pub fn compute_vertical_scrollbar(
   let track_width = style.width;
   let track_height = viewport_height - style.resolved_end_inset() * 2.0;
 
+  let inset = style.thumb_inset;
+  let travel = track_height - inset * 2.0;
   let ratio = viewport_height / content_height.max(1.0);
-  let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
+  let thumb_height = (travel * ratio).max(style.min_thumb_length).min(travel);
   let max_scroll = (content_height - viewport_height).max(0.0);
   let scroll_ratio = if max_scroll > 0.0 { scroll_y / max_scroll } else { 0.0 };
-  let thumb_y = track_y + (track_height - thumb_height) * scroll_ratio;
+  let thumb_y = track_y + inset + (travel - thumb_height) * scroll_ratio;
 
   Some(ScrollBarGeometry {
     track_x,
     track_y,
     track_width,
     track_height,
-    thumb_x: track_x,
+    thumb_x: track_x + inset,
     thumb_y,
-    thumb_width: track_width,
+    thumb_width: track_width - inset * 2.0,
     thumb_height,
   })
 }
@@ -457,11 +490,13 @@ pub fn compute_horizontal_scrollbar(
   let track_width = viewport_width - style.resolved_end_inset() * 2.0;
   let track_height = style.width;
 
+  let inset = style.thumb_inset;
+  let travel = track_width - inset * 2.0;
   let ratio = viewport_width / content_width.max(1.0);
-  let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
+  let thumb_width = (travel * ratio).max(style.min_thumb_length).min(travel);
   let max_scroll = (content_width - viewport_width).max(0.0);
   let scroll_ratio = if max_scroll > 0.0 { scroll_x / max_scroll } else { 0.0 };
-  let thumb_x = track_x + (track_width - thumb_width) * scroll_ratio;
+  let thumb_x = track_x + inset + (travel - thumb_width) * scroll_ratio;
 
   Some(ScrollBarGeometry {
     track_x,
@@ -469,8 +504,8 @@ pub fn compute_horizontal_scrollbar(
     track_width,
     track_height,
     thumb_x,
-    thumb_y: track_y,
+    thumb_y: track_y + inset,
     thumb_width,
-    thumb_height: track_height,
+    thumb_height: track_height - inset * 2.0,
   })
 }

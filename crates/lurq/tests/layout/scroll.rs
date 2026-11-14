@@ -312,6 +312,9 @@ fn scroll_empty_child() {
 
 /// The colors of the thumbs painted for a scroll container of 100 whose content is 300 high.
 fn thumb_colors(app: &mut App) -> Vec<Color> {
+  // The thumb is the theme's lane less its inset on each side.
+  let style = app.theme().scrollbar().clone();
+  let thumb = style.width - 2.0 * style.thumb_inset;
   let mut rt = rt();
   rt.set_root(lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0)).size(100.0, 100.0));
   rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
@@ -319,7 +322,7 @@ fn thumb_colors(app: &mut App) -> Vec<Color> {
   rt.resolve_quads(rt.last_layout().unwrap())
     .iter()
     .filter_map(|quad| match &quad.content {
-      QuadContent::Rect { color, .. } if quad.width == ScrollBarStyle::default().width => Some(*color),
+      QuadContent::Rect { color, .. } if quad.width == thumb => Some(*color),
       _ => None,
     })
     .collect()
@@ -645,4 +648,156 @@ fn what_a_scroll_holds_is_drawn_on_a_whole_device_pixel() {
     let y = scrolled_box_y(1.5, by) * 1.5;
     assert!((y - y.round()).abs() < 1e-3, "{by}: {y}");
   }
+}
+
+/// The thumbs a container of 100 by 100 whose content is 300 by 300 paints, through `app`'s theme: the vertical one
+/// (narrower than it is long) and the horizontal one.
+fn thumbs(
+  tree: &mut Tree,
+  app: &mut App,
+) -> (
+  Option<crate::support::RectSnapshot>,
+  Option<crate::support::RectSnapshot>,
+) {
+  let snapshot = crate::support::render_pass_with_app(tree, app);
+  let style = app.theme().scrollbar().clone();
+  let thickness = style.width - 2.0 * style.thumb_inset;
+  let find = |vertical: bool| {
+    snapshot.rects.iter().copied().find(|rect| {
+      let (across, along) = if vertical {
+        (rect.width, rect.height)
+      } else {
+        (rect.height, rect.width)
+      };
+      (across - thickness).abs() < 0.01 && along > thickness * 2.0
+    })
+  };
+  (find(true), find(false))
+}
+
+fn both_ways() -> Tree {
+  let mut tree = Tree::new();
+  tree
+    .set_root(lurq::components::ScrollBoth::new(lurq::components::Spacer::new().size(300.0, 300.0)).size(100.0, 100.0));
+  tree
+}
+
+#[test]
+fn the_design_themes_bar_is_a_lane_of_8_with_a_round_thumb_of_6_and_the_legacy_one_fills_its_lane() {
+  use lurq::app::theme::{PaletteColor, ThemeDefinition};
+
+  let mut app = App::new();
+  let mut tree = both_ways();
+  let (vertical, _) = thumbs(&mut tree, &mut app);
+  let vertical = vertical.expect("the design's thumb");
+  // The lane is 8, 2 from the edge: 90 to 98. The thumb is 1 inside it.
+  assert!((vertical.x - 91.0).abs() < 0.01, "{}", vertical.x);
+  assert_eq!(vertical.width, 6.0);
+  assert_eq!(vertical.radii, [3.0; 4], "round");
+  assert_eq!(vertical.color, app.theme().palette_color(PaletteColor::Ring));
+
+  let mut legacy = App::new();
+  legacy.theme().apply(ThemeDefinition::legacy());
+  let mut tree = both_ways();
+  let (vertical, _) = thumbs(&mut tree, &mut legacy);
+  let vertical = vertical.expect("the engine's thumb");
+  assert_eq!((vertical.x, vertical.width), (90.0, 8.0), "as wide as its lane");
+}
+
+#[test]
+fn the_thumb_under_the_pointer_and_dragged_is_in_its_state_and_the_other_bar_is_not() {
+  use lurq::app::{events::MouseButton, theme::PaletteColor};
+
+  let mut app = App::new();
+  let (ring, hovered) = (
+    app.theme().palette_color(PaletteColor::Ring),
+    app.theme().palette_color(PaletteColor::MutedForeground),
+  );
+  let mut tree = both_ways();
+  let (vertical, horizontal) = thumbs(&mut tree, &mut app);
+  let (vertical, horizontal) = (vertical.unwrap(), horizontal.unwrap());
+  assert_eq!((vertical.color, horizontal.color), (ring, ring), "at rest");
+
+  let (x, y) = (vertical.x + vertical.width / 2.0, vertical.y + vertical.height / 2.0);
+  tree.mouse_move(x, y);
+  let (on, other) = thumbs(&mut tree, &mut app);
+  assert_eq!(on.unwrap().color, hovered, "under the pointer");
+  assert_eq!(other.unwrap().color, ring, "the bar across is not under it");
+
+  // Held and dragged, it stays in its state, and the drag goes the measure of the thumb's travel.
+  tree.mouse_down(x, y, MouseButton::Left);
+  tree.mouse_move(x, y + 20.0);
+  let (dragged, _) = thumbs(&mut tree, &mut app);
+  assert_eq!(dragged.unwrap().color, hovered, "dragged");
+  tree.mouse_up(x, y + 20.0, MouseButton::Left);
+  tree.mouse_move(10.0, 10.0);
+  let (left, _) = thumbs(&mut tree, &mut app);
+  assert_eq!(left.unwrap().color, ring, "let go, and the pointer gone");
+}
+
+#[test]
+fn a_style_says_its_own_pressed_thumb() {
+  use lurq::{
+    app::{events::MouseButton, theme::PaletteColor},
+    layout::scrollbar::ScrollBarStyle,
+    node::BackgroundColor,
+  };
+
+  let mut app = App::new();
+  // Read, then written: the theme's read guard is gone before it is set.
+  let style = app.theme().scrollbar().clone();
+  app.theme().set_scrollbar(ScrollBarStyle {
+    thumb_pressed_color: Some(BackgroundColor::Palette(PaletteColor::Foreground)),
+    ..style
+  });
+  let foreground = app.theme().palette_color(PaletteColor::Foreground);
+  let mut tree = both_ways();
+  let (vertical, _) = thumbs(&mut tree, &mut app);
+  let vertical = vertical.unwrap();
+  let (x, y) = (vertical.x + vertical.width / 2.0, vertical.y + vertical.height / 2.0);
+  tree.mouse_move(x, y);
+  tree.mouse_down(x, y, MouseButton::Left);
+  let (pressed, _) = thumbs(&mut tree, &mut app);
+  assert_eq!(pressed.unwrap().color, foreground);
+}
+
+#[test]
+fn where_two_bars_meet_each_track_ends_before_the_others_lane() {
+  use lurq::layout::layout_kind::{ScrollAxis, ScrollState};
+
+  let state = ScrollState::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    lurq::components::ScrollBoth::new(lurq::components::Spacer::new().size(300.0, 300.0))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  let mut app = App::new();
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  // At the end of both ways, each thumb ends its own inset before the other bar's lane, which is 8 and 2 from
+  // the edge: 100 less 2, less 10, less 1.
+  state.set_scroll(200.0, 200.0);
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  let style = state.style();
+  let corner = style.width + style.resolved_edge_inset();
+  let end = 100.0 - style.resolved_end_inset() - corner - style.thumb_inset;
+  let (_, y, _, height) = state.thumb_rect_for_axis(ScrollAxis::Vertical, &style).unwrap();
+  let (x, _, width, _) = state.thumb_rect_for_axis(ScrollAxis::Horizontal, &style).unwrap();
+  assert!((y + height - end).abs() < 0.01, "down: {}", y + height);
+  assert!((x + width - end).abs() < 0.01, "across: {}", x + width);
+
+  // A container that scrolls down only keeps its whole track, however wide its content.
+  let state = ScrollState::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    lurq::components::ScrollVertical::new(lurq::components::Spacer::new().size(300.0, 300.0))
+      .with_scroll_state(state.clone())
+      .size(100.0, 100.0),
+  );
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  state.set_scroll(0.0, 200.0);
+  crate::support::render_pass_with_app(&mut tree, &mut app);
+  let (_, y, _, height) = state.thumb_rect_for_axis(ScrollAxis::Vertical, &style).unwrap();
+  let whole = 100.0 - style.resolved_end_inset() - style.thumb_inset;
+  assert!((y + height - whole).abs() < 0.01, "{}", y + height);
 }
