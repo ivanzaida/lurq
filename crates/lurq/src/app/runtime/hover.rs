@@ -120,9 +120,9 @@ impl Tree {
     let mut thumb_changed = false;
     for (node, _) in scrollable_in_disabled.iter().chain(&hits) {
       if let Some((state, _)) = node.scroll_container() {
-        let on_thumb = scrollbar_hit_at(node, lx, ly).is_some();
-        if on_thumb != state.is_thumb_hovered() {
-          state.set_thumb_hovered(on_thumb);
+        let bar = scrollbar_hit_at(node, lx, ly).map(|(axis, _)| axis);
+        if bar != state.hovered_bar() {
+          state.set_hovered_bar(bar);
           thumb_changed = true;
         }
       }

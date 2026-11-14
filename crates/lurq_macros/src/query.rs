@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-  parse::Parser, punctuated::Punctuated, FnArg, GenericArgument, ItemFn, MetaNameValue, Pat, ReturnType, Token, Type,
+  FnArg, GenericArgument, ItemFn, MetaNameValue, Pat, ReturnType, Token, Type, parse::Parser, punctuated::Punctuated,
 };
 
 pub fn expand(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
@@ -155,7 +155,7 @@ fn duration_nanos(value: &syn::LitStr) -> syn::Result<u64> {
       return Err(syn::Error::new_spanned(
         value,
         "duration requires an integer and ns, us, ms, s, m, or h",
-      ))
+      ));
     }
   };
   text[..split]
@@ -183,15 +183,17 @@ mod tests {
       quote!(retry = "3"),
       quote!(gc_time = "1m", gc_time = "2m"),
     ] {
-      assert!(expand(
-        options,
-        quote!(
-          async fn q() -> Result<(), ()> {
-            Ok(())
-          }
+      assert!(
+        expand(
+          options,
+          quote!(
+            async fn q() -> Result<(), ()> {
+              Ok(())
+            }
+          )
         )
-      )
-      .is_err());
+        .is_err()
+      );
     }
   }
 

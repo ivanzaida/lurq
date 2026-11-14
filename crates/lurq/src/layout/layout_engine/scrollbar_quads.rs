@@ -47,7 +47,8 @@ impl LayoutEngine {
       return;
     }
     let opacity = DEFAULT_QUAD_OPACITY * reveal.opacity;
-    let thumb_color = style.thumb_in(&self.palette.borrow());
+    let palette = self.palette.borrow();
+    let (hovered, dragged) = (state.hovered_bar(), state.dragged_bar());
     for axis in [ScrollAxis::Vertical, ScrollAxis::Horizontal] {
       if !scroll_direction_has_axis(direction, axis) {
         continue;
@@ -59,6 +60,8 @@ impl LayoutEngine {
         let track = (bar.track_x, bar.track_y, bar.track_width, bar.track_height);
         quads.push(bar_quad(track, style.track_color, style.track_radius, opacity, clip));
       }
+      // The bar under the pointer and the one whose thumb is dragged each draw their thumb in their state.
+      let thumb_color = style.thumb_when(&palette, hovered == Some(axis), dragged == Some(axis));
       let thumb = (bar.thumb_x, bar.thumb_y, bar.thumb_width, bar.thumb_height);
       quads.push(bar_quad(thumb, thumb_color, style.thumb_radius, opacity, clip));
     }
