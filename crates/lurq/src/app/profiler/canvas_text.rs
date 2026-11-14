@@ -1,7 +1,8 @@
 //! Per-pass Canvas text aggregation; no shared-engine resets or collector locks.
-use std::{cell::Cell, marker::PhantomData, rc::Rc, time::Instant};
+use std::{cell::Cell, marker::PhantomData, rc::Rc};
 
 use super::CanvasTextProfile;
+use crate::time::Instant;
 
 thread_local! {
   static CURRENT: Cell<Option<CanvasTextProfile>> = const { Cell::new(None) };

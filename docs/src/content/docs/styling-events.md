@@ -829,7 +829,7 @@ Mask glyphs use the normal text shaping and font fallback chain. If the selected
 
 Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys, `Home`, `End`, `Ctrl+A`, `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z`. Hold `Shift` with movement keys to extend the selection; hold `Ctrl` with horizontal movement to jump by words.
 
-With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard.
+With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard. In a browser a paste arrives a turn of the loop after its shortcut, once the browser has answered, and carries text only; see [Web](../web/#the-clipboard).
 
 #### Paste
 

@@ -7,8 +7,6 @@
 //! the time since the last step, and the shell asks for a frame at every
 //! vblank while it moves, as it does for an animation.
 
-use std::time::{Duration, Instant};
-
 use super::{Tree, find_node_by_id, find_scroll_node_id_by_state, mark_scroll_layout_dirty};
 use crate::{
   app::events::{MouseButton, ScrollPhase},
@@ -19,6 +17,7 @@ use crate::{
     render_list::RectCmd,
   },
   node::{color::Color, cursor::CursorIcon, node::Node},
+  time::{Duration, Instant},
 };
 
 /// How far, in logical pixels, the pointer may move from the mark on an axis

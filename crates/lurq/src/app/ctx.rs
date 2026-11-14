@@ -1,7 +1,5 @@
 #[cfg(feature = "devtools")]
 use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "devtools")]
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
   any::{Any, TypeId},
   collections::HashSet,
@@ -10,7 +8,7 @@ use std::{
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
   task::Context as TaskContext,
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::Mutex;
@@ -26,6 +24,8 @@ use super::{
   theme::Theme,
   window::{Window, WindowWaker},
 };
+#[cfg(feature = "devtools")]
+use crate::time::{SystemTime, UNIX_EPOCH};
 use crate::{
   core::{
     ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
@@ -36,6 +36,7 @@ use crate::{
     tracking,
   },
   node::{Element, HitTestBehavior, Node},
+  time::Instant,
 };
 
 mod futures;

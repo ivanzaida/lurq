@@ -1,8 +1,6 @@
 //! The scrollbars a scroll container paints over its content, and the time
 //! a bar shown only on hover next changes.
 
-use std::time::Instant;
-
 use super::{DEFAULT_QUAD_OPACITY, LayoutEngine, scroll_direction_has_axis};
 use crate::{
   layout::{
@@ -11,6 +9,7 @@ use crate::{
     scrollbar::ScrollBarStyle,
   },
   node::{border::BorderRadius, color::Color, transform::Transform2D},
+  time::Instant,
 };
 
 impl LayoutEngine {

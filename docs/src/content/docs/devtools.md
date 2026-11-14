@@ -7,6 +7,8 @@ description: Enabling DevTools, inspecting components, selecting nodes, profilin
 
 DevTools is feature-gated. Without the `devtools` Cargo feature, the app does not store extra prop trees, signal values, memo values, effect metadata, or profiler snapshots for inspection.
 
+DevTools opens in a secondary window, which a page of a browser does not have yet: it is a desktop's for now. See [Web](../web/#not-done-yet).
+
 ## Enable It
 
 Build with `lurq/devtools` and mount DevTools from the main tree. For the WGPU desktop example, also enable `winit` and `wgpu`. `devtools` enables `perf_profile`, so a DevTools build has frame timings, memory counters and [profiling sessions](../profiling/), and pays the profiler's idle cost on every pass (see [Profiler](#profiler)).

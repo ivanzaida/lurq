@@ -68,6 +68,9 @@ pub mod runtime;
 mod stroke_readback_tests;
 pub mod synthetic_input;
 pub mod theme;
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(not(all(feature = "winit", feature = "wgpu")), allow(dead_code))]
+pub(crate) mod web_canvas;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_render;
 pub mod window;

@@ -32,15 +32,15 @@
 //! copy cursor over the whole window), so an element's refusal does not
 //! change the cursor.
 
-use std::{
-  path::PathBuf,
-  time::{Duration, Instant},
-};
+use std::{path::PathBuf, time::Duration};
 
 use winit::{event::WindowEvent, window::Window};
 
 use super::cursor;
-use crate::app::{Tree, events::DraggedPaths};
+use crate::{
+  app::{Tree, events::DraggedPaths},
+  time::Instant,
+};
 
 /// How often the pointer position is read while files hover over the window.
 pub(super) const POLL_INTERVAL: Duration = Duration::from_millis(16);

@@ -1,6 +1,8 @@
-use std::time::{Duration, Instant};
-
-use crate::{animation::Easing, node::color::Color};
+use crate::{
+  animation::Easing,
+  node::color::Color,
+  time::{Duration, Instant},
+};
 
 const DEFAULT_SCROLLBAR_WIDTH: f32 = 8.0;
 const DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 24.0;

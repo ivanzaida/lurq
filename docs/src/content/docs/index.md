@@ -32,6 +32,7 @@ The docs are organized around the questions that come up while building:
 - [Modals](./modals/) covers render-flow modal overlays, targets, controlling visibility, and how popups handle a press outside them.
 - [App Runtime](./app-runtime/) covers `App`, `Tree`, render engine factories, windows, profiling, frame flow, and browser-style element lookup (`get_element_by_id`, typed interaction handles).
 - [Window lifecycle and native menus](./window-lifecycle-menus/) covers close requests, confirmation dialogs, and macOS menus.
+- [Web](./web/) covers running an app as a page of a browser through WebGPU or WebGL2: what `main` waits for, the fonts, the canvas, and what a page does differently.
 - [DevTools](./devtools/) covers enabling the devtools feature, mounting the secondary window, inspecting components, and profiling renders.
 - [MCP Server](./mcp/) covers agent inspection, input, permissions, and custom tools.
 - [Resources And Media](./resources-media/) covers fonts, raw and decoded images, SVGs, resources, and Markdown.

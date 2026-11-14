@@ -8,12 +8,10 @@
 //!   timeline changes and waits for the next refresh like any other, with no pacing of the shell's own on top, which
 //!   went by a refresh rate the monitor reports as 60 Hz on a display that runs at 120.
 
-use std::time::Instant;
-
 use winit::{event::WindowEvent, window::Window};
 
 use super::frame_pacing::{FramePacing, PresentedFrame};
-use crate::app::Tree;
+use crate::{app::Tree, time::Instant};
 
 #[derive(Default)]
 pub(super) struct FrameSource {

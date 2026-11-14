@@ -1,7 +1,8 @@
 //! CPU-only benchmark of the real recording and preparation paths.
-use std::{hint::black_box, time::Instant};
+use std::hint::black_box;
 
 use super::*;
+use crate::time::Instant;
 
 #[test]
 #[ignore = "release CPU benchmark; run with --ignored --nocapture"]

@@ -1,6 +1,6 @@
 use std::{
   sync::{Arc, Mutex},
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::WindowControls;
@@ -13,6 +13,7 @@ use crate::{
   components::{Column, Row, Stack},
   layout::Alignment,
   node::{BackgroundColor, CursorIcon, Element, HitTestBehavior, border::Border, color::Color, dimension::Dimension},
+  time::Instant,
 };
 
 const WINDOWS_CHROME_HEIGHT: f32 = 36.0;

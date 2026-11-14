@@ -22,6 +22,7 @@ Useful optional features:
 |---------|---------|
 | `winit` | Window shell integration |
 | `wgpu` | WGPU renderer |
+| `webgl` | WebGL2 for the WGPU renderer in a browser without WebGPU |
 | `dx12` | DirectX 12 renderer on Windows |
 | `raster` | Raw image/video transport and composition without image codecs |
 | `image` | Image components and image-backed styles |
@@ -71,6 +72,7 @@ fn main() {
 ## Documentation
 
 - Guide: <https://ivanzaida.github.io/lurq/>
+- Running an app in a browser: [docs/src/content/docs/web.md](docs/src/content/docs/web.md); what is not done there: [docs/web-gaps.md](docs/web-gaps.md)
 - API docs: <https://docs.rs/lurq>
 - Local documentation build and maintenance: [docs/README.md](docs/README.md)
 

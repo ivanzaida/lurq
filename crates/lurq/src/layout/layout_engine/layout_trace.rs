@@ -35,11 +35,10 @@ use std::{
   io::{BufWriter, Write},
   path::Path,
   sync::Arc,
-  time::Instant,
 };
 
 use super::layout_kind_profile_name;
-use crate::{layout::Constraints, node::node::Node};
+use crate::{layout::Constraints, node::node::Node, time::Instant};
 
 const TRACE_ENV: &str = "LURQ_LAYOUT_TRACE";
 

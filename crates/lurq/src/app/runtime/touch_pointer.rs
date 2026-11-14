@@ -25,10 +25,7 @@
 //!   the element no longer shows as pressed, and shows so again when the finger comes back; lifted within that reach,
 //!   even beside the element, the finger clicks it.
 
-use std::{
-  collections::VecDeque,
-  time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Duration};
 
 use super::{Tree, find_node_by_id, hit_test_tree, set_node_active};
 use crate::{
@@ -38,6 +35,7 @@ use crate::{
   },
   core::NodeId,
   node::node::Node,
+  time::Instant,
 };
 
 /// How far from what it presses a finger may go and still hold it, in logical pixels: a control's reach in

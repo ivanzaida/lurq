@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "perf_profile"), allow(dead_code))]
 use std::{
   sync::{Arc, atomic::Ordering},
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::{
@@ -9,7 +9,7 @@ use super::{
   model::*,
   phase_slot::{Entered, PhaseSlot},
 };
-use crate::app::PassReport;
+use crate::{app::PassReport, time::Instant};
 
 /// Lightweight context passed to render backends for current-phase publication.
 #[derive(Clone)]

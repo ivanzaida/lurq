@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 #[cfg(target_os = "macos")]
 use winit::platform::macos::EventLoopBuilderExtMacOS;
@@ -30,6 +28,7 @@ use crate::{
     },
   },
   node::{CursorIcon, color::Color},
+  time::{Duration, Instant},
 };
 
 mod cursor;
@@ -52,6 +51,8 @@ mod native_resize;
 mod touch;
 #[cfg(test)]
 mod touch_tests;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 use file_drag::FileDragShell;
 use frame_pacing::PresentedFrame;
@@ -265,6 +266,9 @@ impl WinitWindow {
     tree.window().attach_shell(waker.clone());
     #[cfg(feature = "mcp")]
     tree.set_mcp_waker(waker.clone());
+    // A paste's text comes from the browser a turn later; see `clipboard::web`.
+    #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
+    crate::clipboard::web::set_waker(waker.clone());
     let secondaries = (0..tree.secondary_window_count())
       .filter_map(|index| {
         tree
@@ -273,6 +277,7 @@ impl WinitWindow {
       })
       .collect();
 
+    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
     let mut handler = WinitHandler {
       app: self.app,
       main: ManagedWindow::new(
@@ -293,9 +298,18 @@ impl WinitWindow {
     #[cfg(target_os = "macos")]
     let _native =
       crate::app::macos_menu::NativeMenu::install(handler.app.shared.menu.clone(), handler.main.tree.window().clone());
-    event_loop.run_app(&mut handler).unwrap();
-    #[cfg(feature = "mcp")]
-    handler.main.tree.shutdown_mcp();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      event_loop.run_app(&mut handler).unwrap();
+      #[cfg(feature = "mcp")]
+      handler.main.tree.shutdown_mcp();
+    }
+    // A page's loop is the browser's: the app is handed to it and `run` returns at once, the window alive.
+    #[cfg(target_arch = "wasm32")]
+    {
+      use winit::platform::web::EventLoopExtWebSys;
+      event_loop.spawn_app(handler);
+    }
   }
 }
 
@@ -323,6 +337,9 @@ struct ManagedWindow {
   last_interaction_present: Instant,
   ime: ime::ImeSync,
   file_drag: FileDragShell,
+  /// Where the wheel turns over the canvas, which winit does not say.
+  #[cfg(target_arch = "wasm32")]
+  wheel_pointer: Option<web::WheelPointer>,
   #[cfg(target_os = "ios")]
   touch: touch::TouchPointer,
   /// The status bar was last asked to be hidden.
@@ -383,6 +400,8 @@ impl ManagedWindow {
       last_interaction_present: Instant::now(),
       ime: ime::ImeSync::default(),
       file_drag: FileDragShell::default(),
+      #[cfg(target_arch = "wasm32")]
+      wheel_pointer: None,
       #[cfg(target_os = "ios")]
       touch: touch::TouchPointer::default(),
       #[cfg(target_os = "ios")]
@@ -460,7 +479,13 @@ impl ManagedWindow {
     } else {
       attrs
     };
+    #[cfg(target_arch = "wasm32")]
+    let attrs = web::window_attributes(attrs);
     let window = event_loop.create_window(attrs).unwrap();
+    #[cfg(target_arch = "wasm32")]
+    {
+      self.wheel_pointer = web::WheelPointer::watch(&window);
+    }
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
       self.tree.window().set_corner_radius(radius);
@@ -1091,6 +1116,15 @@ impl ManagedWindow {
         };
         if phase == TouchPhase::Started {
           self.tree.set_history_swipes(history_swipes::enabled());
+        }
+        // The wheel's own event says where the pointer is, also before it has moved; see `web::WheelPointer`.
+        #[cfg(target_arch = "wasm32")]
+        if let Some(position) = self
+          .wheel_pointer
+          .as_ref()
+          .and_then(|pointer| pointer.take(f64::from(self.tree.scale_factor())))
+        {
+          self.cursor_pos = position;
         }
         self
           .tree
@@ -2277,6 +2311,11 @@ impl ApplicationHandler for WinitHandler {
     #[cfg(target_os = "macos")]
     crate::app::macos_menu::sync();
     self.app.shared.menu.drain(self.main.tree.window());
+    // The text of a paste the browser has answered; see `clipboard::web`.
+    #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
+    if let Some(text) = crate::clipboard::web::take_pasted() {
+      self.main.tree.paste(crate::app::events::ClipboardContent::text(text));
+    }
     self.main.tick();
     // What the person set for the whole system, read again each turn: it is a few calls, and the loop turns
     // when the app comes back from the settings or from the control centre, where it is changed.
@@ -2477,7 +2516,16 @@ impl ApplicationHandler for WinitHandler {
 fn surface_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
   #[cfg(target_os = "ios")]
   return window.outer_size();
-  #[cfg(not(target_os = "ios"))]
+  // A canvas's size reaches winit from an observer: until it has run, the size is read from the page.
+  #[cfg(target_arch = "wasm32")]
+  {
+    let size = window.inner_size();
+    if size.width == 0 || size.height == 0 {
+      return web::canvas_size(window).unwrap_or(size);
+    }
+    return size;
+  }
+  #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
   window.inner_size()
 }
 

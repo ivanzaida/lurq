@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use super::{
   DevToolsNode, DevToolsSnapshot,
   style::{
@@ -15,6 +13,7 @@ use crate::{
     text_style::{FontWeight, TextStyle},
   },
   node::{CursorIcon, Element, border::Border, color::Color, dimension::Dimension},
+  time::{SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, crate::DevtoolsInspectable)]

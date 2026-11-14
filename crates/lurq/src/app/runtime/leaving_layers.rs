@@ -27,13 +27,11 @@
 //! it only paints, as a layer, and removes it in the first pass after the
 //! longest of them ends.
 
-use std::time::Instant;
-
 use super::{
   OverlayHostReuse, Tree, find_node_by_id, find_node_by_id_mut, overlay_layers::OverlayLayers,
   reset_element_ref_flags_recursive,
 };
-use crate::{core::NodeId, node::Node};
+use crate::{core::NodeId, node::Node, time::Instant};
 
 /// A layer the overlay host keeps while its exit animations play.
 pub(super) struct LeavingLayer {

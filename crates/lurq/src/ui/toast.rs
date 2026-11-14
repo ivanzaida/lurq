@@ -6,7 +6,7 @@ use std::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicU64, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::{
@@ -32,6 +32,7 @@ use crate::{
   core::{ElementRef, Signal},
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, HitTestBehavior, border::Border, dimension::Dimension, padding::Padding},
+  time::Instant,
 };
 
 /// How long a toast is shown when it says nothing else.

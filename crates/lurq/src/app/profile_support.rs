@@ -1,6 +1,7 @@
 use std::time::Duration;
+
 #[cfg(feature = "perf_profile")]
-use std::time::Instant;
+use crate::time::Instant;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PerfMeterStats {

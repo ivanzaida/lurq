@@ -16,13 +16,14 @@ use std::{
     OnceLock,
     atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU64, AtomicUsize, Ordering, fence},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::{
   detail,
   model::{MAX_COMPONENT_SPANS_PER_PASS, MAX_SPANS_PER_PASS, Phase, PhaseSpan},
 };
+use crate::time::Instant;
 
 /// Every phase in declaration order: `PHASES[phase as usize] == phase`.
 pub(super) const PHASES: [Phase; 24] = [

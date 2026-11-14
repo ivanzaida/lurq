@@ -32,6 +32,13 @@ tokio = ["dep:tokio"]
 svg = ["dep:usvg", "dep:lyon", "dep:tiny-skia"]
 render = ["dep:bytemuck"]
 wgpu = ["render", "dep:wgpu", "dep:pollster", "dep:objc2-metal", "dep:wgpu-hal", "dep:core-video-sys"]
+# In a browser without WebGPU the `wgpu` renderer draws through WebGL2. It adds wgpu's own implementation and its
+# shader translator to the page's binary, so an app asks for it. Nothing changes outside a browser.
+#
+# `fragile-send-sync-non-atomic-wasm`: lurq keeps GPU objects in types that are `Send + Sync` on a desktop. wgpu's
+# own implementation is neither in a browser unless told that the page has one thread, which a page built
+# without atomics has.
+webgl = ["wgpu", "wgpu/webgl", "wgpu/fragile-send-sync-non-atomic-wasm"]
 dx12 = ["render"]
 winit = ["dep:winit"]
 resources = ["dep:ureq"]
@@ -65,7 +72,6 @@ mcp = [
 ]
 
 [dependencies]
-arboard = { version = "3", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
 # `shape-run-cache` keeps the glyphs of shaped words: a word shaped in one text is not shaped again in the next.
 cosmic-text = { version = "0.19", features = ["shape-run-cache"] }
@@ -108,6 +114,34 @@ tower-service = { version = "0.3", optional = true }
 base64 = { version = "0.22", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"], optional = true }
+
+# The system clipboard. A browser has none `arboard` can reach: see `clipboard::web`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+arboard = { version = "3", optional = true }
+
+# The browser: the page's canvas, its clipboard, and the promises a GPU device comes from.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+# The page's clock, behind `lurq::time`: std's `Instant::now` and `SystemTime::now` panic in a browser.
+web-time = "1"
+web-sys = { version = "0.3", features = [
+    "Clipboard",
+    "CssStyleDeclaration",
+    "Document",
+    "Element",
+    "Event",
+    "EventTarget",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "MouseEvent",
+    "Navigator",
+    "Node",
+    "WheelEvent",
+    "Window",
+    "console",
+] }
 
 # `windows` is needed on Windows regardless of the render backend: the winit
 # shell uses it for native title-bar drag/resize under a plain `cfg(windows)`.

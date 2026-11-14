@@ -1,3 +1,7 @@
+// A branch on a value of the instance (a stroke, a mode) is the same for every fragment of a quad, which the
+// browser's compiler cannot tell: it takes the derivatives under such a branch for an error. naga does not check.
+diagnostic(off, derivative_uniformity);
+
 // Image pipeline: instanced textured quads sampling an Rgba8UnormSrgb
 // texture. Each instance covers one <img> element's content rect and
 // maps the full [0,1]² UV range to the image texture.
