@@ -79,11 +79,11 @@ mod switch;
 mod table;
 mod tabs;
 mod tag;
-mod timeline;
 mod teaching_tip;
 mod textarea;
 mod time_field;
 mod time_picker;
+mod timeline;
 mod toast;
 mod toggletip;
 mod token_input;
@@ -91,6 +91,7 @@ mod tokens;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod window_chrome;
 mod year_picker;
 
 /// A group of the side bar.
@@ -874,6 +875,14 @@ pub const PAGES: &[Page] = &[
     about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse horizontal vertical sizes on_resize on_resize_end step large_step framed disabled plitter ane size share min max collapsible label",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),
+  },
+  Page {
+    path: "/window-chrome",
+    name: "Window Chrome",
+    icon: Some("window"),
+    about: "window chrome title bar titlebar frame controls minimize maximize restore close traffic lights windows macos gnome kde linux platform WindowPlatform WindowControls minimize_label maximize_label restore_label close_label minimizable maximizable on_close title icon label leading trailing tabs menubar content overlay inactive maximized drag snap system menu decorations custom",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<window_chrome::WindowChromePage>(()),
   },
 ];
 

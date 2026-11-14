@@ -8,6 +8,7 @@ use crate::{
   app::{
     ctx::{Ctx, Modal, ModalTarget},
     events::{MouseButton, MouseEvent},
+    theme::PaletteColor,
     window::{WindowBorderColor, WindowHandle, WindowInfo, WindowResizeDirection},
   },
   components::{Column, Row, Stack},
@@ -74,8 +75,12 @@ pub enum ChromeBorderPolicy {
   Hidden,
 }
 
+/// What draws a title bar of an app's own across the bar's width: given the window and the bar's height.
+pub type TitleBarDraw = Arc<dyn Fn(&WindowHandle, f32) -> Element + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ChromeTitleBar {
+  draw: Option<TitleBarDraw>,
   leading: Option<Element>,
   title: Option<Element>,
   center: Option<Element>,
@@ -373,15 +378,26 @@ impl ChromeBorderPolicy {
 impl ChromeTitleBar {
   pub fn new() -> Self {
     Self {
+      draw: None,
       leading: None,
       title: None,
       center: None,
       trailing: None,
       controls: Some(WindowControls::new()),
       height: None,
-      background: BackgroundColor::Color(Color::from_hex("#101215")),
-      border_bottom: Some(Border::inside(1.0, Color::from_hex("#252a32"))),
+      background: PaletteColor::Muted.into(),
+      border_bottom: Some(Border::inside(1.0, PaletteColor::Border)),
     }
+  }
+
+  /// What the bar draws across its width, in place of its leading, title, center, trailing and controls: a
+  /// title bar of the app's own, given the window (to read whether it is maximized or in front, and to minimize,
+  /// maximize and close it) and the bar's height. The bar still drags the window from wherever nothing else takes
+  /// the press, maximizes it on a double press and shows the system's menu on a right press. `ui::WindowChrome`
+  /// draws its bar so.
+  pub fn draw(mut self, draw: impl Fn(&WindowHandle, f32) -> Element + Send + Sync + 'static) -> Self {
+    self.draw = Some(Arc::new(draw));
+    self
   }
 
   pub fn leading(mut self, element: impl Into<Element>) -> Self {
@@ -433,6 +449,7 @@ impl ChromeTitleBar {
     let height = self.height.unwrap_or(chrome_height);
     let drag_window = window.clone();
     let maximize_window = window.clone();
+    let menu_window = window.clone();
     let titlebar_click = Arc::new(Mutex::new(None::<TitlebarClick>));
     let titlebar = Row::new()
       .width(Dimension::Pct(100.0))
@@ -465,8 +482,17 @@ impl ChromeTitleBar {
 
           event.prevent_default();
           event.stop_immediate_propagation();
+        } else if event.button == MouseButton::Right {
+          // The system's menu of the window, as a right press on its own title bar shows it (Windows only).
+          menu_window.show_system_menu();
+          event.prevent_default();
+          event.stop_immediate_propagation();
         }
       });
+
+    if let Some(draw) = self.draw {
+      return titlebar.child(draw(window, height)).into();
+    }
 
     let mut titlebar = if let Some(border) = self.border_bottom {
       titlebar.border_bottom(border)
@@ -533,9 +559,7 @@ impl WindowChromeMetrics {
 
 fn border_layers(window: &WindowHandle, policy: &ChromeBorderPolicy) -> Vec<Element> {
   let (size, color) = match policy {
-    ChromeBorderPolicy::PlatformDefault if policy.size() > 0.0 => {
-      (1.0, BackgroundColor::Color(Color::from_hex("#252a32")))
-    }
+    ChromeBorderPolicy::PlatformDefault if policy.size() > 0.0 => (1.0, BackgroundColor::from(PaletteColor::Border)),
     ChromeBorderPolicy::PlatformDefault => return Vec::new(),
     ChromeBorderPolicy::Visible { size, color } => (*size, color.clone()),
     ChromeBorderPolicy::Hidden => return Vec::new(),
@@ -826,7 +850,10 @@ mod tests {
   #[test]
   fn inset_chrome_separates_client_layers_from_resize_edges() {
     let root = mounted_chrome(false, ResizeHandlePlacement::Inset).node;
-    assert_eq!(root.color(), Some(Color::from_hex("#101215")));
+    assert_eq!(
+      root.background_color(),
+      Some(BackgroundColor::from(PaletteColor::Muted))
+    );
     let expected_inset = crate::node::SpacingValue::from(RESIZE_HANDLE_SIZE);
     let no_top_inset = crate::node::SpacingValue::default();
     let content_layer = &root.children[0];

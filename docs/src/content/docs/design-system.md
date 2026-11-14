@@ -3627,6 +3627,57 @@ Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 - Splitters nest, one orientation in the other: a pane holds a splitter of its own.
 - A renderer that draws another splitter is given the view: `view.part(..)`, `view.thickness()` (the room between two panes), `view.sizes()`, and `view.render()` the default.
 
+## Window Chrome
+
+The title bar of a window the app draws itself, as Windows, macOS, GNOME and KDE draw theirs: the app's icon, the title, room for the app's own controls (a menubar, tabs, a search) and the window's controls.
+
+```rust
+use lurq::ui::{MenuItem, Menubar, MenubarMenu, WindowChrome, WindowControls, WindowPlatform};
+
+// In the app's root component: open is a Signal<Option<usize>> of the menubar.
+WindowChrome::new()
+  .title("Untitled — Notes")
+  .leading(Menubar::new(open).menu(MenubarMenu::new("File", [MenuItem::new("New"), MenuItem::new("Open…")])))
+  .controls(WindowControls::new().close_label("Close Notes").on_close(|| save_draft()))
+  .content(document)
+  .mount(ctx);
+
+// The bar of another platform, as a picture: a gallery, a test.
+WindowChrome::new().platform(WindowPlatform::Kde).title("Notes");
+```
+
+| Builder | |
+| --- | --- |
+| `WindowChrome::new()` | The chrome of the platform the app runs on (`WindowPlatform::current()`), with a box as the app's icon and the window's three controls |
+| `platform(WindowPlatform)` | `Windows`, `Macos`, `Gnome` or `Kde`: the bar's look and order, in place of the platform's own |
+| `title(&str)` | The window's title: in the bar (not a bar with tabs) and given to the window, where the system shows it. On one line, ending with an ellipsis where it has no room |
+| `icon(impl Into<IconChoice>)`, `label(&str)` | The app's icon where the platform shows one (Windows, KDE), or `None`; the bar's name to what reads the tree, its title unless told |
+| `leading(element)`, `trailing(element)` | The app's own at the start of the bar (after the icon, after the lights on macOS) and at its end (before the controls). A press there is theirs: it does not drag the window |
+| `tabs(element)` | [Window tabs](#window-tabs) in the bar: the bar of the board's chrome with tabs, higher, with no title and no line under it, the tabs on its bottom edge so that the selected one runs into the content |
+| `controls(WindowControls)` | The window's controls: `minimizable(bool)`, `maximizable(bool)`, their names `minimize_label`, `maximize_label`, `restore_label` and `close_label`, and `on_close(Fn())`, called before the window is asked to close |
+| `content(element)`, `overlay(element)`, `overlays(..)` | What the window shows under the bar, and layers over the whole of it, as the engine's chrome has them |
+| `mode(WindowChromeMode)`, `resize_handles(ResizeHandlePolicy)`, `border(ChromeBorderPolicy)` | The engine's chrome: when the app draws it (Windows and macOS by default), the zones along the edges that resize the window, the line around it |
+| `mount(ctx)` | The window: the engine's [`WindowChrome`](../components/) around the content, with this bar as its title bar |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `state` gives the still form `WindowChromeState::Inactive` and `Maximized`; `force` draws the close control under the pointer or held, and on macOS the lights' glyphs. `id` is the bar's: its title is `{id}-title`, its controls `{id}-minimize`, `{id}-maximize` and `{id}-close` |
+
+- Mounted, it is the window's frame. The window loses the system's title bar, and the bar drags the window from wherever nothing in it takes the press, a double press maximizes and restores it, and a right press shows the system's menu of the window (Restore, Move, Size, Minimize, Maximize, Close) where the system has one, on Windows (`WindowHandle::show_system_menu`). The edges resize it. Windows 11's snap layouts over the maximize button are not shown: the shell would have to answer the system's hit test with that button's region, which winit does not let it do.
+- The controls act on the window: minimize, maximize and restore, and close asks the window to close (`WindowHandle::request_close`), which an app that must confirm first hears with `ctx.window().on_close_requested(..)`. A press on a control is the control's, never a drag.
+- The bar is drawn as the window is: a window that is not the one in front has its title, its icon and its glyphs in `MutedForeground` and grey lights on macOS (`WindowChromeState::Inactive`), and a maximized one's middle control restores it, named `restore_label` (`Maximized`). A mounted chrome reads both from the window and is drawn again as they change; the still form takes them from `state(..)`.
+- An app's menus go in the bar's leading room: `leading(Menubar::new(open)..)`. Its titles open their menus over the window; a press on them is theirs, and the bar around them still drags the window. On macOS an app's menus belong in the system's menu bar (`App::set_menu_bar`), and the leading room holds what else the app puts there.
+- Converted into an element on its own it is the still form of itself: the window, its bar over its content, as a picture, with controls that act on no window (`on_close` is still told). A gallery shows the four platforms side by side so.
+- One component, four renderers: `view.windows()`, `view.macos()`, `view.gnome()` and `view.kde()`, which `view.render()` chooses by the platform. A theme's renderer may draw every platform as one of them, or another bar from `view.bar()`, `view.icon()`, `view.title()`, `view.balance()`, `view.leading()`, `view.trailing()`, `view.tabs()`, `view.drag_room()`, `view.control(WindowControl)` and `view.controls()`.
+- In the design the bar is `Muted` with a line of 1 in `Border` under it, its title 13 in `Foreground`:
+  - Windows: 36 high, 12 in at the start; the box icon 16 and the title 13/500, 8 apart, at the start; three controls 46 by 36 at the end, a minus 16, a square 12 (two squares 13 while maximized) and a cross 16 in `Foreground`; minimize and maximize on `SecondaryHover` under the pointer, close on `Destructive` with its cross in `DestructiveForeground`.
+  - macOS: 36 high, 12 in; the lights 12 across, 8 apart, at the start, close, minimize and zoom, in the system's red `#FF5F57`, yellow `#FEBC2E` and green `#28C840` with a rim of `#0000001F`, grey (`Input`) in a window that is not in front, showing a cross, a minus and a plus of 8 in `#00000099` under the pointer on any of them; the title 13/600 in the middle of the bar.
+  - GNOME: 44 high, 10 in; the title 13/600 in the middle; round controls of 24, 8 apart, on `SecondaryHover`, a minus 14, a square 10 and a cross 14; close on `Destructive`.
+  - KDE: 32 high, 8 in at the start and 6 at the end; the box icon 16 at the start, the title 13/400 in the middle; round controls of 22, 6 apart, a chevron down 16, a chevron up 16 and a cross 14; close on `Destructive`.
+  - A bar with tabs is 40 high (44 on GNOME, 38 on KDE), and has no title and no line under it. On Windows the controls keep the top 36 of it; elsewhere they are in its middle.
+  - The window is `Background` in an edge of 1 in `Border`, its corners 8 on Windows, 12 on macOS and GNOME, 6 on KDE (the still form; a window's own corners and shadow are the system's).
+  - Where the board is silent: a pressed control is as it is under the pointer, close `DestructiveHover`; GNOME's round controls are `Border` under the pointer and `Input` held, KDE's `SecondaryHover` and `Border`; GNOME's maximized control shows two squares, KDE's keeps its chevron; a window not in front is muted on every platform.
+- Parts: `WindowChromePart::Root` (the window, in the still form), `Bar`, `Icon`, `Title`, `Balance` (the room on the other side of a centred title), `Controls`, `Minimize`, `Maximize`, `Close`, `MinimizeGlyph`, `MaximizeGlyph`, `CloseGlyph`. The platform is the recipe's variant (`windows`, `macos`, `gnome`, `kde`); states `WindowChromeState::Inactive`, `Maximized`, `Tabs`.
+- To what reads the tree the bar is a `group` called by its label or its title, and each control a `button` called by its label.
+- The engine's own title bar (`components::ChromeTitleBar` with `components::WindowControls`) is drawn in the theme's roles too: `Muted` under a line of `Border`, controls in `Foreground` on `SecondaryHover`, close on `Destructive`.
+
 ## Tree View
 
 Things inside things, one level under the other: the files of a project in their folders, the layers of a scene, settings in their groups.

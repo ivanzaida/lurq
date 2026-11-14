@@ -389,6 +389,9 @@ pub(crate) enum WindowCommand {
   StartDrag,
   StartResize(WindowResizeDirection),
   StopDrag,
+  /// Show the system's menu of the window (Restore, Move, Size, Minimize, Maximize, Close) where the pointer is,
+  /// as a right press on a title bar the system draws does. Only Windows has one; elsewhere it does nothing.
+  ShowSystemMenu,
   InjectInput(crate::app::synthetic_input::SyntheticInput),
   /// Read the OS clipboard and paste it into the focused text input, as
   /// Ctrl+V does: for an app's own Paste menu item. `synthetic` is whether

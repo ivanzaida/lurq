@@ -669,6 +669,12 @@ impl ManagedWindow {
           }
         }
         WindowCommand::StopDrag => {}
+        WindowCommand::ShowSystemMenu => {
+          if let Some(window) = &self.window {
+            let (x, y) = self.cursor_pos;
+            window.show_window_menu(PhysicalPosition::new(x, y));
+          }
+        }
         WindowCommand::InjectInput(input) => {
           crate::app::synthetic_input::apply(&mut self.tree, &input);
         }
@@ -1542,6 +1548,12 @@ impl ManagedSecondaryWindow {
           }
         }
         WindowCommand::StopDrag => {}
+        WindowCommand::ShowSystemMenu => {
+          if let Some(window) = &self.window {
+            let (x, y) = self.cursor_pos;
+            window.show_window_menu(PhysicalPosition::new(x, y));
+          }
+        }
         WindowCommand::InjectInput(input) => {
           crate::app::synthetic_input::apply(tree, &input);
         }

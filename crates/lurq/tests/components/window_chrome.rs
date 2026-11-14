@@ -258,8 +258,9 @@ fn styled_controls_share_hover_and_active_backgrounds() {
 #[test]
 fn default_controls_keep_the_red_close_hover() {
   let (mut app, mut tree, _) = mount(Controls::Default, ResizeHandlePlacement::Overlay);
-  let default_hover = Color::from_hex("#232934");
-  let close_hover = Color::from_hex("#c0392b");
+  let palette = lurq::app::theme::ThemePalette::light();
+  let default_hover = palette.get(PaletteColor::SecondaryHover);
+  let close_hover = palette.get(PaletteColor::Destructive);
   let default_height = TITLE_HEIGHT;
   let color_at = |snapshot: &RenderSnapshot, slot: usize| {
     snapshot
@@ -365,7 +366,8 @@ fn borderless_chrome_paints_no_outline() {
 fn default_title_bar_paints_its_bottom_border() {
   let (mut app, mut tree, _) = mount(Controls::Default, ResizeHandlePlacement::Overlay);
   let snapshot = render_pass_with_app(&mut tree, &mut app);
-  let title_border = (0.0, TITLE_HEIGHT - 1.0, WIDTH, 1.0, Color::from_hex("#252a32"));
+  let border = lurq::app::theme::ThemePalette::light().get(PaletteColor::Border);
+  let title_border = (0.0, TITLE_HEIGHT - 1.0, WIDTH, 1.0, border);
 
   assert!(thin_lines(&snapshot).contains(&title_border));
 }
