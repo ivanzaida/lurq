@@ -502,3 +502,93 @@ fn a_bar_across_keeps_clear_of_a_first_column_that_stays() {
   assert!(end_x >= 60.0 + inset - 0.01);
   assert!((end_x + end_width - (200.0 - inset)).abs() < 0.5, "at the end");
 }
+
+#[test]
+fn the_bars_end_before_a_column_that_stays_at_the_end_and_its_thumb_is_dragged_there() {
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  let mut rows = Column::new();
+  for index in 0..10 {
+    rows = rows.child(
+      Row::new().child(Rect::new(400.0, 20.0).background(ROW)).child(
+        Rect::new(60.0, 20.0)
+          .id(format!("end-{index}"))
+          .background(HEADER)
+          .sticky(Sticky::right(0.0)),
+      ),
+    );
+  }
+  let mut tree = Tree::new();
+  tree.set_root(
+    lurq::components::ScrollBoth::new(rows)
+      .with_scroll_state(state.clone())
+      .scrollbars_clear_of_sticky(true)
+      .size(200.0, 100.0),
+  );
+  crate::support::render_pass(&mut tree);
+  let thumb = |state: &lurq::layout::layout_kind::ScrollState, axis| {
+    state
+      .thumb_rect_for_axis(axis, &state.style())
+      .expect("the rows overflow both ways")
+  };
+  use lurq::layout::layout_kind::ScrollAxis::{Horizontal, Vertical};
+  // The column that stays is the last 60 of the viewport: neither bar reaches into it.
+  for (axis, name) in [(Vertical, "down"), (Horizontal, "across")] {
+    let (x, _, width, _) = thumb(&state, axis);
+    assert!(x + width <= 140.0 + 0.01, "the bar {name} ends at {}", x + width);
+  }
+  tree.scroll(100.0, 50.0, -10_000.0, 0.0, ScrollPhase::Scroll);
+  crate::support::render_pass(&mut tree);
+  let (x, _, width, _) = thumb(&state, Horizontal);
+  assert!(
+    x + width <= 140.0 + 0.01,
+    "scrolled to the end, the bar across ends at {}",
+    x + width
+  );
+
+  // The thumb is pressed and dragged where it is painted.
+  let (x, y, width, height) = thumb(&state, Vertical);
+  let (cx, cy) = (x + width / 2.0, y + height / 2.0);
+  tree.mouse_move(cx, cy);
+  tree.mouse_down(cx, cy, MouseButton::Left);
+  tree.mouse_move(cx, cy + 20.0);
+  tree.mouse_up(cx, cy + 20.0, MouseButton::Left);
+  crate::support::render_pass(&mut tree);
+  assert!(state.scroll_y() > 0.0, "the drag scrolled the rows");
+}
+
+/// A row 200 by 60 scrolling sideways over content `width` wide, its bar given a lane of its own while it is
+/// wider.
+fn laned(width: f32) -> lurq::layout::layout_kind::ScrollState {
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  let mut tree = Tree::new();
+  tree.set_root(
+    ScrollHorizontal::new(Rect::new(width, 40.0).background(ROW))
+      .with_scroll_state(state.clone())
+      .reserve_bar_across(true)
+      .size(200.0, 60.0),
+  );
+  crate::support::render_pass(&mut tree);
+  state
+}
+
+#[test]
+fn a_bar_across_given_a_lane_has_one_while_the_content_is_wider_and_none_while_it_fits() {
+  let state = laned(600.0);
+  let style = state.style();
+  let lane = style.width + 2.0 * style.resolved_edge_inset();
+  assert!(
+    (state.viewport_height() - (60.0 - lane)).abs() < 0.01,
+    "{}",
+    state.viewport_height()
+  );
+  let (_, y, ..) = state
+    .thumb_rect_for_axis(lurq::layout::layout_kind::ScrollAxis::Horizontal, &style)
+    .expect("the content overflows");
+  assert!(
+    y >= state.viewport_height() - 0.01,
+    "the thumb is in the lane, under the viewport: {y}"
+  );
+
+  let state = laned(150.0);
+  assert_eq!(state.viewport_height(), 60.0, "content that fits has no lane");
+}

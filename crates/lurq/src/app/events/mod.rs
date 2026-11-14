@@ -1,4 +1,5 @@
 pub mod clipboard_content;
+pub mod copy_event;
 pub mod drag_event;
 pub mod event_control;
 pub mod file_drag_event;
@@ -13,6 +14,7 @@ pub mod text_input_event;
 pub mod touch_event;
 
 pub use clipboard_content::*;
+pub use copy_event::*;
 pub use drag_event::*;
 pub use event_control::*;
 pub use file_drag_event::*;

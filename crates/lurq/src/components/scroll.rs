@@ -15,8 +15,9 @@ impl ScrollVertical {
   }
 
   /// Keeps the bars beside what scrolls: the vertical one starts under what sticks at the top (a table's
-  /// header), the horizontal one after what sticks at the start (its first column), and the thumb is the share
-  /// of what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
+  /// header) and stands before what sticks at the right (a column pinned at the end), the horizontal one runs
+  /// from what sticks at the start (its first column) to what sticks at the end, and the thumb is the share of
+  /// what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
   /// height, as a browser's does.
   pub fn scrollbars_clear_of_sticky(mut self, clear: bool) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::scrollbars_clear_of_sticky(node, clear));
@@ -53,11 +54,19 @@ impl ScrollHorizontal {
   }
 
   /// Keeps the bars beside what scrolls: the vertical one starts under what sticks at the top (a table's
-  /// header), the horizontal one after what sticks at the start (its first column), and the thumb is the share
-  /// of what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
+  /// header) and stands before what sticks at the right (a column pinned at the end), the horizontal one runs
+  /// from what sticks at the start (its first column) to what sticks at the end, and the thumb is the share of
+  /// what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
   /// height, as a browser's does.
   pub fn scrollbars_clear_of_sticky(mut self, clear: bool) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::scrollbars_clear_of_sticky(node, clear));
+    self
+  }
+
+  /// Gives the bar a lane of its own under the content while the content is wider than the view; see
+  /// `ScrollBoth::reserve_bar_across`.
+  pub fn reserve_bar_across(mut self, reserve: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::reserve_bar_across(node, reserve));
     self
   }
 
@@ -92,14 +101,23 @@ impl ScrollBoth {
     self
   }
 
+  /// Gives the bar across a lane of its own under the content while the content is wider than the view: the
+  /// viewport ends above it, so nothing it shows is ever under the bar (a table's last row). Content that fits
+  /// has no lane and no strip. Off unless set: the bar lies over the content, as an overlay bar does.
+  pub fn reserve_bar_across(mut self, reserve: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::reserve_bar_across(node, reserve));
+    self
+  }
+
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self
   }
 
   /// Keeps the bars beside what scrolls: the vertical one starts under what sticks at the top (a table's
-  /// header), the horizontal one after what sticks at the start (its first column), and the thumb is the share
-  /// of what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
+  /// header) and stands before what sticks at the right (a column pinned at the end), the horizontal one runs
+  /// from what sticks at the start (its first column) to what sticks at the end, and the thumb is the share of
+  /// what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
   /// height, as a browser's does.
   pub fn scrollbars_clear_of_sticky(mut self, clear: bool) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::scrollbars_clear_of_sticky(node, clear));

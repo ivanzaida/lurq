@@ -345,3 +345,78 @@ fn a_ctrl_v_from_the_os_reads_as_much_of_the_clipboard_as_the_paste_needs() {
   );
   assert_eq!(seen.lock().unwrap().as_slice(), &[1]);
 }
+
+/// What copies wrote, in place of the OS clipboard.
+#[derive(Default)]
+struct Written(Mutex<Vec<String>>);
+
+impl lurq::app::ClipboardWriter for Written {
+  fn write_text(&self, text: &str) -> bool {
+    self.0.lock().unwrap().push(text.to_owned());
+    true
+  }
+}
+
+/// A focused element that is not an input, in a column that hears copies and pastes, with the test's
+/// clipboards.
+fn focused_cell(heard: Arc<Mutex<Vec<String>>>) -> (Tree, Arc<Written>) {
+  let mut runtime = Tree::new();
+  let (copies, pastes) = (heard.clone(), heard);
+  runtime.set_root(
+    Column::new()
+      .on_copy(move |event: lurq::app::events::CopyEvent| {
+        copies.lock().unwrap().push(format!("copy cut={}", event.is_cut()));
+        event.set_text("a\tb\nc\td");
+      })
+      .on_paste(move |event: PasteEvent| {
+        pastes
+          .lock()
+          .unwrap()
+          .push(format!("paste {}", event.text().unwrap_or_default()));
+      })
+      .child(lurq::components::Row::new().size(80.0, 30.0).tab_index(0).id("input")),
+  );
+  let mut runtime = focus(runtime);
+  TestClipboard::install(&mut runtime);
+  let written = Arc::new(Written::default());
+  runtime.set_clipboard_writer(Some(written.clone()));
+  (runtime, written)
+}
+
+#[test]
+fn ctrl_c_on_a_focused_element_that_is_not_an_input_writes_what_its_handler_says() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (mut runtime, written) = focused_cell(heard.clone());
+  runtime.key_down("c".into(), "KeyC".into(), false, true, false);
+  runtime.key_down("x".into(), "KeyX".into(), false, true, false);
+  assert_eq!(*heard.lock().unwrap(), ["copy cut=false", "copy cut=true"]);
+  assert_eq!(*written.0.lock().unwrap(), ["a\tb\nc\td", "a\tb\nc\td"]);
+}
+
+#[test]
+fn ctrl_v_on_a_focused_element_that_is_not_an_input_reaches_its_handlers_with_the_clipboard() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (mut runtime, _) = focused_cell(heard.clone());
+  runtime.key_down("v".into(), "KeyV".into(), false, true, false);
+  assert_eq!(*heard.lock().unwrap(), ["paste secret"]);
+  assert!(
+    runtime.paste(ClipboardContent::text("given")),
+    "a paste of given content too"
+  );
+  assert_eq!(heard.lock().unwrap().last().map(String::as_str), Some("paste given"));
+}
+
+#[test]
+fn a_copy_nothing_hears_writes_nothing() {
+  let mut runtime = Tree::new();
+  runtime.set_root(lurq::components::Row::new().size(80.0, 30.0).tab_index(0).id("input"));
+  let mut runtime = focus(runtime);
+  let written = Arc::new(Written::default());
+  runtime.set_clipboard_writer(Some(written.clone()));
+  runtime.key_down("c".into(), "KeyC".into(), false, true, false);
+  assert!(written.0.lock().unwrap().is_empty());
+  assert!(
+    !runtime.paste(ClipboardContent::text("given")),
+    "no handler takes a paste"
+  );
+}

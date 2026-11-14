@@ -2623,7 +2623,7 @@ impl LayoutEngine {
       let content_height = result.children.first().map(|c| c.result.size.height).unwrap_or(0.0);
       let style = node.scrollbar_style(self.scrollbar.borrow().clone());
       let reserve_vertical = should_reserve_scrollbar(&style, *direction, ScrollAxis::Vertical);
-      let reserve_horizontal = should_reserve_scrollbar(&style, *direction, ScrollAxis::Horizontal);
+      let mut reserve_horizontal = should_reserve_scrollbar(&style, *direction, ScrollAxis::Horizontal);
       // The container's own padding is around what scrolls: the content is seen in the room inside it, and
       // starts at its inner corner.
       let padding = self.resolved_padding_for_size(node, result.size);
@@ -2631,6 +2631,10 @@ impl LayoutEngine {
         (result.size.width - padding.left - padding.right).max(0.0),
         (result.size.height - padding.top - padding.bottom).max(0.0),
       );
+      let across_room = reserved_viewport(inner, &style, reserve_vertical, reserve_horizontal).width;
+      let across = !reserve_horizontal && reserves_across(node, &style, *direction, content_width, across_room);
+      reserve_horizontal |= across;
+      state.set_reserved_across(across);
       let viewport = reserved_viewport(inner, &style, reserve_vertical, reserve_horizontal);
       state.update_layout_with_container(
         content_width,
@@ -4251,6 +4255,16 @@ impl LayoutEngine {
       } else {
         child_result
       };
+      // Content wider than the viewport, in a container that asks: the bar across has a lane of its own under
+      // it, and the viewport ends above the lane. The width does not change, so the content is not laid out again.
+      let across = reserves_across(node, &style, direction, child_result.size.width, viewport.width);
+      let (size, viewport) = if across {
+        let size = scroll_container_size(constraints, &child_result, &style, false, true);
+        (size, reserved_viewport(size, &style, false, true))
+      } else {
+        (size, viewport)
+      };
+      state.set_reserved_across(across);
       state.update_layout_with_container(
         child_result.size.width,
         child_result.size.height,
@@ -4280,7 +4294,7 @@ impl LayoutEngine {
     }
 
     let reserve_vertical = should_reserve_scrollbar(&style, direction, ScrollAxis::Vertical);
-    let reserve_horizontal = should_reserve_scrollbar(&style, direction, ScrollAxis::Horizontal);
+    let mut reserve_horizontal = should_reserve_scrollbar(&style, direction, ScrollAxis::Horizontal);
     // First pass sizes the container from the child's natural extent (only
     // relevant when the constraints leave an axis content-sized); the second
     // lays the child inside the gutter-reduced viewport.
@@ -4293,6 +4307,10 @@ impl LayoutEngine {
     );
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
+    let across =
+      !reserve_horizontal && reserves_across(node, &style, direction, child_result.size.width, viewport.width);
+    reserve_horizontal |= across;
+    let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
     let mut within = scroll_child_constraints(direction, constraints, viewport.width, viewport.height);
     if fills_viewport_width(node, direction) {
       within.min_width = viewport.width.min(within.max_width);
@@ -4300,6 +4318,7 @@ impl LayoutEngine {
     let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, within);
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
+    state.set_reserved_across(across);
 
     state.update_layout_with_container(
       child_result.size.width,
@@ -4453,11 +4472,26 @@ fn explicit_multiline_height(text: &str, line_height: f32) -> f32 {
 /// a revealed element is kept clear of it.
 fn clear_bars_of_sticky(node: &Node, content: &Node, content_layout: &LayoutResult, state: &ScrollState) {
   if !node.scrollbars_clear_of_sticky() {
-    state.set_bar_clearance(0.0, 0.0);
+    state.set_bar_clearance(0.0, 0.0, 0.0, 0.0);
     return;
   }
   let reach = crate::layout::sticky_reach::sticky_reach(content, content_layout, None);
-  state.set_bar_clearance(reach.left, reach.top);
+  state.set_bar_clearance(reach.left, reach.top, reach.right, reach.bottom);
+}
+
+/// Whether a scroll container gives its bar across a lane of its own under the content now: one that asks
+/// (`reserve_bar_across`), scrolls across and shows that bar, while its content is wider than its viewport.
+fn reserves_across(
+  node: &Node,
+  style: &ScrollBarStyle,
+  direction: ScrollDirection,
+  content_width: f32,
+  viewport_width: f32,
+) -> bool {
+  node.reserves_bar_across()
+    && scroll_direction_has_axis(direction, ScrollAxis::Horizontal)
+    && style.visible != ScrollBarVisibility::Never
+    && content_width > viewport_width + 0.5
 }
 
 /// Whether a scroll container lays its content out at least as wide as its viewport: one that scrolls sideways

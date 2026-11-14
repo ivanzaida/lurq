@@ -695,10 +695,17 @@ ScrollVertical::new(Column::new().child(section)).size(240.0, 320.0)
 - Scrolling only moves it: nothing in it or around it is laid out again. An element ref on it reports where it is drawn.
 - A container's bars run over the whole viewport, what sticks included, as a browser's do beside a banner that stays.
   `.scrollbars_clear_of_sticky(true)` on `ScrollVertical`, `ScrollHorizontal` or `ScrollBoth` keeps them beside what
-  scrolls: the bar down starts under what sticks at the top (a table's header), the bar across after what sticks at
-  the start (its first column), each as far in as that reaches (its inset and its size), and the thumb is the share of
-  what scrolls that shows. Painting, the pointer on the bar and a drag of its thumb go by that track, so a thumb at the
-  track's end is the end of the scroll. `ui::Table` asks for it.
+  scrolls: the bar down starts under what sticks at the top (a table's header) and ends above what sticks at the
+  bottom, the bar across runs from what sticks at the start (its first column) to what sticks at the end (a column
+  pinned there), each as far in as that reaches (its inset and its size), and the thumb is the share of what scrolls
+  that shows. The bar down stands before what sticks at the right, beside the rows, as a native grid's does beside a
+  frozen column, and the bar across above what sticks at the bottom. Painting, the pointer on the bar and a drag of
+  its thumb go by that track, so a thumb at the track's end is the end of the scroll. `ui::Table` asks for it.
+- An overlay bar across lies over the bottom of what scrolls, a table's last row in view. `.reserve_bar_across(true)`
+  on `ScrollHorizontal` or `ScrollBoth` gives it a lane of its own under the content, as wide as a `Reserved` gutter
+  (the bar and its edge inset on both sides), while the content is wider than the viewport: the viewport ends above
+  the lane, so nothing it shows is ever under the bar, and the bar down ends where the viewport does. Content that
+  fits has no lane and no strip under it. `ui::Table` asks for it.
 
 ### Middle-button autoscroll
 

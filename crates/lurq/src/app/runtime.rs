@@ -107,7 +107,7 @@ mod paste;
 mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
 mod profiler_screenshot_tests;
-pub use paste::ClipboardReader;
+pub use paste::{ClipboardReader, ClipboardWriter};
 pub use touch::TouchMomentum;
 pub use touch_pointer::TouchRoute;
 #[cfg(test)]
@@ -460,12 +460,12 @@ fn log_render_list_cache_hit_timeline(
 }
 
 #[cfg(feature = "clipboard")]
-fn write_clipboard_text(text: &str) -> bool {
+fn write_os_clipboard_text(text: &str) -> bool {
   crate::clipboard::copy_to_clipboard(text)
 }
 
 #[cfg(not(feature = "clipboard"))]
-fn write_clipboard_text(_text: &str) -> bool {
+fn write_os_clipboard_text(_text: &str) -> bool {
   false
 }
 
@@ -802,6 +802,8 @@ pub struct Tree {
   loading_images_built_seen: u64,
   /// What paste shortcuts read instead of the OS clipboard; see `paste`.
   clipboard_reader: Option<Arc<dyn paste::ClipboardReader>>,
+  /// What copies write instead of the OS clipboard; see `paste`.
+  clipboard_writer: Option<Arc<dyn paste::ClipboardWriter>>,
   focus_memory: FocusMemory,
   /// The focus group the focused element is in, and which of the group's stops it is: where the focus goes
   /// when the element leaves the tree and the group stays.
@@ -1271,6 +1273,7 @@ impl Tree {
       #[cfg(feature = "image")]
       loading_images_built_seen: 0,
       clipboard_reader: None,
+      clipboard_writer: None,
       focus_memory: FocusMemory::default(),
       focus_group_place: None,
       focused_node: None,
@@ -4271,7 +4274,11 @@ impl Tree {
       } else {
         let blurred_text_input = self.blur_focused_text_input_on_key(&key, &code);
         let cleared_text_selection = self.clear_selectable_text_selection_on_key(&key, &code);
-        if blurred_text_input || cleared_text_selection || self.dispatch_text_input(&evt) {
+        if blurred_text_input
+          || cleared_text_selection
+          || self.dispatch_text_input(&evt)
+          || self.clipboard_shortcut_on_focus(&evt)
+        {
           self.needs_redraw = true;
         } else {
           self.dispatch_selectable_text_clipboard(&key, &code, shift, ctrl, meta);
@@ -5998,13 +6005,13 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            return write_clipboard_text(&selected);
+            return self.write_clipboard_text(&selected);
           }
           ("x" | "X", _) | (_, "KeyX") if shortcut => {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            if !write_clipboard_text(&selected) {
+            if !self.write_clipboard_text(&selected) {
               return false;
             }
             let _ = state.cut_selection(evt);
@@ -6018,7 +6025,7 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            return write_clipboard_text(&selected);
+            return self.write_clipboard_text(&selected);
           }
           ("Insert", _) | (_, "Insert") if shift => {
             if !self.paste_from_clipboard_shortcut(evt) {
@@ -6029,7 +6036,7 @@ impl Tree {
             let Some(selected) = state.clipboard_selection() else {
               return false;
             };
-            if !write_clipboard_text(&selected) {
+            if !self.write_clipboard_text(&selected) {
               return false;
             }
             let _ = state.cut_selection(evt);
@@ -6123,7 +6130,7 @@ impl Tree {
     let Some(selected) = selected_selectable_text(root, layout) else {
       return false;
     };
-    write_clipboard_text(&selected)
+    self.write_clipboard_text(&selected)
   }
 
   /// The key held for a shortcut, and the one for moving by words: Command and Option on Apple's platforms,

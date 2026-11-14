@@ -11,7 +11,7 @@ use std::{hash::Hash, sync::Arc};
 
 use super::{
   Interaction, Length, Name, PartStyle, Recipe,
-  table::{CellEdit, Table, TableColumn, TableSort},
+  table::{CellEdit, CellRange, Table, TableColumn, TableSort},
 };
 use crate::{
   app::{ctx::Ctx, theme::Density},
@@ -80,7 +80,12 @@ use crate::{
 /// cell of the first row and the last of the last, PageUp and PageDown by what the grid's height shows; the rows
 /// not built are scrolled to, built and focused. Tab goes on to the next cell of the row, Shift+Tab to the one
 /// before, and out of the grid from the row's last and first. Space selects the row (with Shift from the last
-/// selected one), Ctrl+A selects them all, Enter on a cell that is not edited activates its row.
+/// selected one), Enter on a cell that is not edited activates its row. A press of a cell does not select its row.
+///
+/// **A range of cells** ([`cell_selection`](Self::cell_selection)): a drag from a cell, Shift with the arrows or with
+/// a press, and Ctrl+A select the cells between, drawn as one area with the focused cell in it, and told by the
+/// rows' keys and the columns' ids. Ctrl+C copies it as tab-separated text, Ctrl+V pastes into it a cell at a time
+/// through [`on_edit`](Self::on_edit), Delete clears what is edited.
 ///
 /// **A cell is edited in place** with its column's editor ([`CellEditor`]): an input for a text, a number input,
 /// a select of the column's choices, or a box ticked in the cell itself. Enter or F2 on a cell, a double press of
@@ -145,6 +150,32 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// first, and the edit is taken only where none refused it.
   pub fn on_edit(self, handler: impl Fn(&CellEdit<K>) -> bool + Send + Sync + 'static) -> Self {
     self.with(|table| table.add_on_edit(handler))
+  }
+
+  /// The range of cells selected: the signal's, which a drag, Shift with the arrows or a press, and Ctrl+A set,
+  /// and a press of a cell, a move of the focus and Escape clear. Without it, the grid keeps its own.
+  pub fn cell_selection(self, range: Signal<Option<CellRange<K>>>) -> Self
+  where
+    Option<CellRange<K>>: SignalValue,
+  {
+    let now = range.get();
+    self.with(|table| table.cell_selection(now, Arc::new(move |next| range.set(next))))
+  }
+
+  /// The range of cells selected, as the app holds it: `on_change` is told the next after each drag, key or press
+  /// that changes it, and the grid shows what the app gives it at the next render.
+  pub fn cell_selection_controlled(
+    self,
+    range: Option<CellRange<K>>,
+    on_change: impl Fn(Option<CellRange<K>>) + Send + Sync + 'static,
+  ) -> Self {
+    self.with(|table| table.cell_selection(range, Arc::new(on_change)))
+  }
+
+  /// Called with the range of cells selected after each drag, key or press that changes it, bound to a signal or
+  /// not: not when the app sets it. A second handler is called after the first.
+  pub fn on_cell_selection_change(self, handler: impl Fn(Option<&CellRange<K>>) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.add_on_cell_selection_change(handler))
   }
 
   /// Whether no cell is edited: the cells take the focus and are read, and say so to what reads the tree.
