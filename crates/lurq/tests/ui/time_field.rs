@@ -57,7 +57,7 @@ fn a_time_field_is_the_box_of_the_design_with_its_hours_and_minutes() {
   let (gx, _, gwidth, _) = stage.bounds("tf-icon");
   assert_eq!((gx + gwidth, gwidth), (x + 110.0, 16.0));
   stage.click("tf-minute");
-  assert_eq!(stage.fill_color("tf-minute"), Some(light(PaletteColor::Info)));
+  assert_eq!(stage.fill_color("tf-minute"), Some(light(PaletteColor::Selection)));
 }
 
 #[test]
