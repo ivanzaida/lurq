@@ -221,6 +221,8 @@ an alias.
   or `kind`.
 - **Wrong: `invalid(bool)`**, state `Invalid`. `error` is the text a field shows.
 - **Where an anchored panel stands: `placement(Placement)`**. The edge of a container a panel is on is `side`.
+  How far it is from its anchor, along the side it is on, is `offset(impl Into<SpacingValue>)`, the theme's
+  spacing; a shift across that side is `cross_offset(..)`. Never a pair of pixels.
 - **Words lurq writes itself**: every one can be said otherwise: `<control>_label(&str)` for the name of a
   control (`close_label`, `clear_label`, `more_label`, `previous_label`), `<thing>_text(&str)` for a sentence
   (`empty_text`, `loading_text`, `optional_text`). One method for one string.
