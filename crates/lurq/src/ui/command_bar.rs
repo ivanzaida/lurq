@@ -39,6 +39,8 @@ pub enum CommandBarPart {
   TabLabel,
   /// What the bar says of the row of the selected tab's commands: laid over the toolbar's root.
   Bar,
+  /// What the bar says of the chevron at its end: laid over the toolbar's More button.
+  More,
 }
 
 names!(CommandBarPart {
@@ -47,6 +49,7 @@ names!(CommandBarPart {
   Tab => "tab",
   TabLabel => "tab_label",
   Bar => "bar",
+  More => "more",
 });
 
 /// The states of a command bar a recipe styles.
@@ -369,9 +372,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> CommandBar<T> {
       .overflow(true)
       .more_label(&self.more_label)
       .more_icon(icons::CHEVRON_DOWN)
+      // The chevron stands level with the large commands, at the top of the groups and their labels.
+      .top(true)
       .disabled(self.disabled)
       .force(self.forced)
-      .rules(&recipe.rules_for(CommandBarPart::Bar, ToolbarPart::Root))
+      .rules(
+        &recipe
+          .rules_for(CommandBarPart::Bar, ToolbarPart::Root)
+          .extend(&recipe.rules_for(CommandBarPart::More, ToolbarPart::MoreButton)),
+      )
       .items(items)
       .secondary_commands(secondary)
       // Each tab's commands are a bar of their own: which of them did not fit is not another tab's.
@@ -473,9 +482,9 @@ impl<T: Send + Sync + 'static> Themed for CommandBar<T> {
   /// muted foreground, the selected one 600 in the foreground and underlined
   /// with 2. Under them the commands are padded 8 and 4, their groups side by
   /// side, each padded 10 with a line of 1 at its end and its label of 10
-  /// under its commands; at the end, behind a chevron, what does not fit.
+  /// under its commands; at the end, behind a chevron 28 by 52, what does not fit.
   fn recipe() -> Recipe {
-    use CommandBarPart::{Bar, Root, Tab, TabLabel, Tabs};
+    use CommandBarPart::{Bar, More, Root, Tab, TabLabel, Tabs};
     let line = || Border::inside(BorderSize::Sm, PaletteColor::Border);
     Recipe::new()
       .base(Root, |s| {
@@ -496,6 +505,8 @@ impl<T: Send + Sync + 'static> Themed for CommandBar<T> {
       .base(Bar, |s| {
         s.width(Length::Fill).padding_x(4.0).padding_y(8.0).gap(0.0).radius(0.0)
       })
+      // The chevron is as high as a row of large commands: 28 by 52.
+      .base(More, |s| s.height(52.0))
   }
 }
 

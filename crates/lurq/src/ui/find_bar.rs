@@ -175,6 +175,9 @@ struct Words {
   replace: Arc<str>,
   replace_all: Arc<str>,
   toggle_replace: Arc<str>,
+  match_case_text: Arc<str>,
+  whole_word_text: Arc<str>,
+  regex_text: Arc<str>,
 }
 
 /// A find bar: what a person types to find in the view in front of them, how
@@ -278,6 +281,9 @@ impl FindBar {
         replace: Arc::from("Replace"),
         replace_all: Arc::from("Replace all"),
         toggle_replace: Arc::from("Toggle replace"),
+        match_case_text: Arc::from("Aa"),
+        whole_word_text: Arc::from("ab"),
+        regex_text: Arc::from(".*"),
       },
       states: Vec::new(),
       rules: Recipe::new(),
@@ -489,6 +495,24 @@ impl FindBar {
   /// What the option of a regular expression is called: "Use regular expression" by default.
   pub fn regex_label(mut self, label: &str) -> Self {
     self.words.regex = Arc::from(label);
+    self
+  }
+
+  /// What the option that matches the case shows: "Aa" by default.
+  pub fn match_case_text(mut self, text: &str) -> Self {
+    self.words.match_case_text = Arc::from(text);
+    self
+  }
+
+  /// What the option that matches whole words shows: "ab" by default.
+  pub fn whole_word_text(mut self, text: &str) -> Self {
+    self.words.whole_word_text = Arc::from(text);
+    self
+  }
+
+  /// What the option of a regular expression shows: ".*" by default.
+  pub fn regex_text(mut self, text: &str) -> Self {
+    self.words.regex_text = Arc::from(text);
     self
   }
 
@@ -831,9 +855,19 @@ impl FindBarView {
   /// The options the app gave, in a row: match case, whole word, regular expression.
   pub fn options(&self) -> Option<Row> {
     let options: Vec<Element> = [
-      self.option(&self.bar.match_case, "Aa", &self.words.match_case, "match-case"),
-      self.option(&self.bar.whole_word, "ab", &self.words.whole_word, "whole-word"),
-      self.option(&self.bar.regex, ".*", &self.words.regex, "regex"),
+      self.option(
+        &self.bar.match_case,
+        &self.words.match_case_text,
+        &self.words.match_case,
+        "match-case",
+      ),
+      self.option(
+        &self.bar.whole_word,
+        &self.words.whole_word_text,
+        &self.words.whole_word,
+        "whole-word",
+      ),
+      self.option(&self.bar.regex, &self.words.regex_text, &self.words.regex, "regex"),
     ]
     .into_iter()
     .flatten()
