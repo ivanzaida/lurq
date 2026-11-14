@@ -351,6 +351,9 @@ fn its_arrow_with_its_edge_stands_between_the_panel_and_the_button() {
 #[test]
 fn where_there_is_no_room_under_it_it_is_above_and_its_arrow_turns() {
   let mut stage = stage_at(230.0, || card().arrow(true).open(Some(true)));
+  // An overlay is kept in the window, not in the root: the stage's window is 800 by 600 unless it is made the
+  // scene's size, and under a button 230 down a window of 600 has room for the card.
+  stage.tree.resize(400, 300);
   stage.pass();
   stage.pass();
   let shown = panel(&stage).unwrap();
