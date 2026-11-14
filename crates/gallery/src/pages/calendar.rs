@@ -9,7 +9,7 @@ use lurq::{
   core::{Date, DateLocale, DateRange, DateText, Signal, Weekday, YearMonth},
   layout::Alignment,
   node::Element,
-  ui::{Calendar, CalendarMemory, Kbd, Picked},
+  ui::{Calendar, DateMemory, Kbd, Picked},
 };
 
 use crate::{
@@ -161,7 +161,7 @@ fn dressed<V: Picked>(
   calendar: Calendar<V>,
   settings: Settings,
   month: &Signal<YearMonth>,
-  memory: &CalendarMemory,
+  memory: &DateMemory,
 ) -> Calendar<V> {
   let mut calendar = calendar
     .month(month.clone())
@@ -212,11 +212,11 @@ pub struct CalendarPage {
   week_numbers: Signal<bool>,
   outside_days: Signal<bool>,
   disabled: Signal<bool>,
-  memory: CalendarMemory,
+  memory: DateMemory,
   due: Signal<Option<Date>>,
   shown: Signal<YearMonth>,
   stay: Signal<Option<DateRange>>,
-  kept: [CalendarMemory; 7],
+  kept: [DateMemory; 7],
 }
 
 impl CalendarPage {
@@ -259,7 +259,7 @@ impl CalendarPage {
         .on_change(move |range: DateRange| record(format!("on_change({range})")))
         .into(),
     };
-    let detached = CalendarMemory::new();
+    let detached = DateMemory::new();
     let make: Arc<dyn Fn() -> Element + Send + Sync> = {
       let (date, range, month) = (self.date.clone(), self.range.clone(), self.month.clone());
       Arc::new(move || match mode {
@@ -456,11 +456,11 @@ impl Component for CalendarPage {
       week_numbers: ctx.signal(false),
       outside_days: ctx.signal(true),
       disabled: ctx.signal(false),
-      memory: CalendarMemory::new(),
+      memory: DateMemory::new(),
       due: ctx.signal(None),
       shown: ctx.signal(YearMonth::current()),
       stay: ctx.signal(None),
-      kept: std::array::from_fn(|_| CalendarMemory::new()),
+      kept: std::array::from_fn(|_| DateMemory::new()),
     }
   }
 
@@ -547,7 +547,7 @@ impl Component for CalendarPage {
       ),
       (
         "memory",
-        "&CalendarMemory",
+        "&DateMemory",
         "",
         "What the calendar keeps between renders, kept by the app: the month, a range's first press. mount(ctx) \
          keeps one of its own.",
@@ -640,7 +640,7 @@ impl Component for CalendarPage {
             bound,
             "Calendar::new(due.clone()).month(shown.clone())",
             &[
-              "// due: Signal<Option<Date>>, shown: Signal<YearMonth>, memory: CalendarMemory",
+              "// due: Signal<Option<Date>>, shown: Signal<YearMonth>, memory: DateMemory",
               "Calendar::new(due.clone())",
               "    .month(shown.clone())",
               "    .memory(&memory)",

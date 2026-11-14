@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
-  calendar::{Calendar, CalendarChoice, CalendarMemory, Kept, MonthSource, Selection},
+  calendar::{Calendar, CalendarChoice, DateMemory, Kept, MonthSource, Selection},
   field::{FieldControl, InField},
   icon::Icon,
   icons,
@@ -232,7 +232,7 @@ pub(crate) struct Picker<V: Picked> {
   /// Whether a change is only told, and the app answers with the value.
   pub controlled: bool,
   pub open: Option<Signal<bool>>,
-  pub memory: Option<CalendarMemory>,
+  pub memory: Option<DateMemory>,
   pub on_change: Vec<Arc<dyn Fn(Option<V>) + Send + Sync>>,
   pub on_input: Vec<Arc<dyn Fn(&TextInputEvent) + Send + Sync>>,
   pub on_submit: Vec<Arc<dyn Fn(Option<V>) + Send + Sync>>,
@@ -990,7 +990,7 @@ impl<V: Picked> PickerView<V> {
 /// // Mounted, so that it keeps whether its calendar is open and the month it shows.
 /// let picker = DatePicker::new(due.clone()).placeholder("Pick a date").clearable(true).mount(ctx);
 /// // In a field, which names it and judges it, with what it keeps kept by the app (made once, in `create`).
-/// let memory = lurq::ui::CalendarMemory::new();
+/// let memory = lurq::ui::DateMemory::new();
 /// let named = Field::new("Due date", DatePicker::new(due.clone()).min(Date::new(2026, 1, 1).unwrap()).memory(&memory));
 /// # }
 /// ```
@@ -1007,7 +1007,7 @@ impl<V: Picked> PickerView<V> {
 /// button takes no focus.
 ///
 /// The picker keeps whether its calendar is open, the field it opens under and the month its calendar shows where it
-/// is mounted ([`DatePicker::mount`]) or given a [`CalendarMemory`](super::CalendarMemory) the app keeps
+/// is mounted ([`DatePicker::mount`]) or given a [`DateMemory`](super::DateMemory) the app keeps
 /// ([`DatePicker::memory`]), as a picker in a [`Field`](super::Field) is. Converted into an element with neither, it
 /// opens only where the app gives it whether it is open ([`DatePicker::open`]).
 #[derive(Clone)]
@@ -1170,7 +1170,7 @@ macro_rules! picker_methods {
 
     /// What keeps whether the calendar is open, the field it opens under and what the calendar keeps, from one
     /// render to the next: the app's, made once. A picker in a [`Field`](crate::ui::Field) keeps them so.
-    pub fn memory(mut self, memory: &crate::ui::CalendarMemory) -> Self {
+    pub fn memory(mut self, memory: &crate::ui::DateMemory) -> Self {
       self.core.memory = Some(memory.clone());
       self
     }
@@ -1407,7 +1407,7 @@ impl<V: Picked> crate::app::component::DevtoolsInspectable for PickerProps<V> {}
 
 /// What a mounted picker keeps between renders.
 struct PickerHost<V: Picked> {
-  memory: CalendarMemory,
+  memory: DateMemory,
   _value: std::marker::PhantomData<fn() -> V>,
 }
 
@@ -1416,7 +1416,7 @@ impl<V: Picked> Component for PickerHost<V> {
 
   fn create(_ctx: &mut Ctx) -> Self {
     Self {
-      memory: CalendarMemory::new(),
+      memory: DateMemory::new(),
       _value: std::marker::PhantomData,
     }
   }

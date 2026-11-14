@@ -2,6 +2,7 @@ pub mod cell_ref;
 pub mod context;
 pub mod date;
 mod date_locale;
+pub mod time;
 pub mod effect;
 pub mod element_ref;
 pub mod guard;
@@ -18,8 +19,11 @@ pub mod tracking;
 pub use cell_ref::Ref;
 pub use context::{ContextMap, ReactiveContext};
 pub use date::{Date, DateRange, ParseDateError, Weekday, YearMonth, days_in_month, is_leap_year};
+pub use time::{DayPeriod, HourCycle, ParseTimeError, Time};
 pub(crate) use date_locale::{AppDateText, english_date_text, shared_date_text};
-pub use date_locale::{DateFormatter, DateLabels, DateLocale, DateOrder, DateParser, DateStyle, DateText};
+pub use date_locale::{
+  DateFormatter, DateLabels, DateLocale, DateOrder, DateParser, DateSegment, DateStyle, DateText, SegmentWords,
+};
 pub use effect::Effect;
 pub use element_ref::{ElementRect, ElementRef, ElementRefMut};
 pub use guard::Guard;

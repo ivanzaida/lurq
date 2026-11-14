@@ -14,7 +14,7 @@ use lurq::{
   core::{Date, DateLocale, DateStyle, Signal},
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
-  ui::{CalendarMemory, DatePicker, DatePickerPart, DatePickerSize, Field},
+  ui::{DateMemory, DatePicker, DatePickerPart, DatePickerSize, Field},
 };
 
 use super::stage::Stage;
@@ -259,7 +259,7 @@ fn a_disabled_picker_opens_nothing() {
 #[test]
 fn a_field_judges_it_and_its_memory_keeps_it_open() {
   let value = Signal::new(Some(day(11, 12)));
-  let (shown, memory) = (value.clone(), CalendarMemory::new());
+  let (shown, memory) = (value.clone(), DateMemory::new());
   let kept = memory.clone();
   let mut stage = Stage::new(move |_| {
     Column::new()
@@ -333,7 +333,7 @@ fn a_choice_of_the_chosen_day_closes_it_and_tells_nothing() {
 #[test]
 fn a_choice_closes_the_calendar_before_its_handler_runs() {
   let value = Signal::new(Some(day(11, 12)));
-  let memory = CalendarMemory::new();
+  let memory = DateMemory::new();
   let seen = Arc::new(Mutex::new(Vec::new()));
   let (kept, heard) = (memory.clone(), seen.clone());
   let mut stage = picker(&value, move |picker| {
@@ -352,7 +352,7 @@ fn a_choice_closes_the_calendar_before_its_handler_runs() {
 fn a_controlled_picker_shows_what_the_app_answers() {
   // The app holds the date and takes any but the 20th.
   let held = Signal::new(Some(day(11, 12)));
-  let memory = CalendarMemory::new();
+  let memory = DateMemory::new();
   let (app, kept) = (held.clone(), memory.clone());
   let mut stage = Stage::new(move |_| {
     let answer = app.clone();

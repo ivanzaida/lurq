@@ -3737,7 +3737,7 @@ The days of a month in weeks, which a person chooses a date from, or a range of 
 ```rust
 use lurq::{
   core::{Date, DateRange, Signal, YearMonth},
-  ui::{Calendar, CalendarMemory},
+  ui::{Calendar, DateMemory},
 };
 
 // due: Signal<Option<Date>>; in a component's render, mounted so that it keeps the month it shows.
@@ -3765,7 +3765,7 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `new(Signal<Option<Date>>)`, `new(Signal<Option<DateRange>>)` | What is chosen, which a choice sets: a date (a `Calendar`), or a range chosen with two presses (a `Calendar<DateRange>`) |
 | `controlled(Option<V>, Fn(V))` | The app's value, and what it is told of a choice, which the calendar does not set: the app answers with the value it renders it with next |
 | `month(Signal<YearMonth>)` | The month shown, the first where there are several: not the value. The heading's buttons and the keys set it |
-| `memory(&CalendarMemory)` | What the calendar keeps between renders, the app's: the month it shows where the app gives none, a range's first press and where it would end |
+| `memory(&DateMemory)` | What the calendar keeps between renders, the app's: the month it shows where the app gives none, a range's first press and where it would end |
 | `mount(ctx)` | The calendar with a memory of its own |
 | `months(n)` | How many months side by side, each with its heading |
 | `min(Date)`, `max(Date)` | The least and the greatest date that can be chosen. The months beyond are not shown |
@@ -3780,7 +3780,7 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `on_change(Fn(Date))`, `on_change(Fn(DateRange))` | Told of another date chosen, or another range ended, with it; bound to a signal, the value is set already. Not for what is chosen already, nor for the app setting the value. A second handler is called after the first |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the id with the date after it: `due-2026-11-12`; the buttons `-previous` and `-next` |
 
-- The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `CalendarMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
+- The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `DateMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
 - Its text (the title of a month, the heads of the weekdays, what a day and the buttons are called) is one [`DateText`](../dates/#how-an-app-writes-its-dates): its own `.locale(..)`, else the app's `app.set_date_locale(..)`, else English. The app's is read where the calendar is built in a render, mounted or not, and a change of it builds the calendar again.
 - A range: the first press starts it, the pointer and the keys show where it would end, and the second ends it, before the first or after it. Its ends are chosen days, and the days between are one band.
 - The days are one stop of Tab, at the chosen day, today or the first of the month; the buttons of the heading are stops of their own before them. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and with Shift a year: into the month before or after, which is then shown, and kept between the least and the greatest date. A day that cannot be chosen takes the focus too and says so: the keys pass no day by. Enter and Space choose. The keys are the days' own, through the engine's `KeyboardEvent::focus_key`.
@@ -3796,7 +3796,7 @@ A field that holds a date, typed in it or chosen from a calendar that opens unde
 ```rust
 use lurq::{
   core::{Date, Signal},
-  ui::{CalendarMemory, DatePicker, Field},
+  ui::{DateMemory, DatePicker, Field},
 };
 
 // due: Signal<Option<Date>>
@@ -3817,7 +3817,7 @@ DatePicker::controlled(self.due.get(), move |date| due.set(date));
 | --- | --- |
 | `new(Signal<Option<Date>>)` | The date the field holds |
 | `controlled(Option<Date>, Fn(Option<Date>))` | The app's date, and what it is told of an edit or a choice, which the picker does not set: the field shows what the app holds until it answers |
-| `memory(&CalendarMemory)`, `mount(ctx)` | What it keeps between renders (whether the calendar is open, the field it opens under, the month shown): the app's, or its own where it is mounted |
+| `memory(&DateMemory)`, `mount(ctx)` | What it keeps between renders (whether the calendar is open, the field it opens under, the month shown): the app's, or its own where it is mounted |
 | `open(Signal<bool>)`, `month(Signal<YearMonth>)` | Whether the calendar is open and the month it shows, where the app holds them |
 | `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Where the calendar opens beside the field (`BottomStart`), how far from it, and where it goes with no room, as a [popover](#popover)'s |
 | `inline(bool)` | The panel drawn in place under the field, open or not, taking no focus: for a gallery, a test, a page that holds a calendar |
@@ -3839,7 +3839,7 @@ DatePicker::controlled(self.due.get(), move |date| due.set(date));
 - What is typed is read as it is typed, in the locale's short form (`Nov 12, 2026`), in its numbers (`11/12/2026`, `12.11.2026`) or as ISO 8601, a month by its name or the start of it in the locale's words or in English: a date that can be chosen is the value at once, and the field keeps what is half typed while it has the focus. The year has four digits, so `Nov 12, 20` is no date yet. When the focus leaves the field, or on Enter, the text is written again as the picker writes the value; an emptied field is no date, and anything else takes back the date it had.
 - The calendar opens in a [popover](#popover) under the field, from the button at its start or from Down in the field, with the focus on the chosen day, today or the first of the month. A choice closes it and the focus goes back to the field, as Escape and a press outside do.
 - To what reads the tree the field is a `combobox` that says `a11y_haspopup` `dialog` and `a11y_expanded`, as the date picker of the ARIA patterns is; the panel is a `dialog` called "Choose date". The button that opens it and the cross that empties it are pressed by the pointer and take no focus.
-- In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A picker in a field keeps what it keeps in a `CalendarMemory`, since a field is given the picker's builder.
+- In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A picker in a field keeps what it keeps in a `DateMemory`, since a field is given the picker's builder.
 - Parts: `DatePickerPart::Control` (rules over the input's box), `Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's root), and a range picker's `Presets`, `Preset` and `Separator` (rules over the line beside them). The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, and the input's size.
 - In the design the field is the input, 260 by 36, with a calendar's glyph of 16 in `MutedForeground` 12 from its start and the date 8 after it in the body's type. The glyph is in a button of 24 with `radius-sm`, on `Highlight` under the pointer. The calendar opens 4 under the field, in the popover's panel with no padding of its own, as wide as the calendar.
 - A theme's renderer is given `DatePickerView` (`PickerView<Date>`): `view.text`, `view.value`, `view.open`, and the pieces `control()`, `trigger()`, `clear()`, `field()`, `calendar()`, `panel()` and `render()`.

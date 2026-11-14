@@ -35,6 +35,7 @@ mod combobox;
 mod command_palette;
 mod context_menu;
 mod data_list;
+mod date_field;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
@@ -92,6 +93,7 @@ mod teaching_tip;
 mod text_box;
 mod textarea;
 pub(crate) mod theme;
+mod time_field;
 mod tip;
 mod toast;
 mod toggle;
@@ -126,7 +128,7 @@ pub use button_group::{
   ButtonGroup, ButtonGroupPart, ButtonGroupRenderer, ButtonGroupSize, ButtonGroupState, ButtonGroupVariant,
 };
 pub use calendar::{
-  Calendar, CalendarChoice, CalendarMemory, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
+  Calendar, CalendarChoice, DateMemory, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
 };
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
@@ -151,6 +153,11 @@ pub use command_palette::{
 pub use context_menu::{ContextMenu, ContextMenuPart, ContextMenuRenderer, ContextMenuState, ContextMenuView};
 pub use data_list::{
   DataList, DataListItem, DataListOrientation, DataListPart, DataListRenderer, DataListState, DataListView,
+};
+pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
+pub use date_field::{
+  DateField, DateFieldPart, DateFieldRenderer, DateFieldSize, DateFieldState, DateFieldView, FieldValue, SegmentFieldView,
+  SegmentShown,
 };
 pub use date_picker::{
   DatePicker, DatePickerPart, DatePickerRenderer, DatePickerSize, DatePickerState, DatePickerView, Picked,

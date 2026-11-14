@@ -9,7 +9,7 @@ use lurq::{
   core::{Date, DateLocale, DateStyle, Signal},
   layout::Alignment,
   node::Element,
-  ui::{CalendarMemory, DatePicker, DatePickerSize, Field, Interaction, Kbd},
+  ui::{DateMemory, DatePicker, DatePickerSize, Field, Interaction, Kbd},
 };
 
 use crate::{
@@ -101,11 +101,11 @@ pub struct DatePickerPage {
   invalid: Signal<bool>,
   read_only: Signal<bool>,
   disabled: Signal<bool>,
-  memory: CalendarMemory,
+  memory: DateMemory,
   due: Signal<Option<Date>>,
   start: Signal<Option<Date>>,
   iso: Signal<Option<Date>>,
-  kept: [CalendarMemory; 12],
+  kept: [DateMemory; 12],
 }
 
 impl DatePickerPage {
@@ -128,7 +128,7 @@ impl DatePickerPage {
     let today = Date::today();
     let plain = {
       let (bound, placeholder) = (self.value.clone(), placeholder.clone());
-      move |memory: &CalendarMemory| {
+      move |memory: &DateMemory| {
         let mut picker = DatePicker::new(bound.clone())
           .placeholder(&placeholder)
           .size(size)
@@ -162,7 +162,7 @@ impl DatePickerPage {
       .on_submit(move |date| record_submit(format!("on_submit({})", said(date))))
       .on_open_change(move |open| record_open(format!("on_open_change({open})")))
       .on_dismiss(move || record_dismiss("on_dismiss()".to_owned()));
-    let detached = CalendarMemory::new();
+    let detached = DateMemory::new();
     let make: Arc<dyn Fn() -> Element + Send + Sync> = Arc::new(move || plain(&detached).into());
 
     let mut code = vec![
@@ -333,11 +333,11 @@ impl Component for DatePickerPage {
       invalid: ctx.signal(false),
       read_only: ctx.signal(false),
       disabled: ctx.signal(false),
-      memory: CalendarMemory::new(),
+      memory: DateMemory::new(),
       due: ctx.signal(None),
       start: ctx.signal(None),
       iso: ctx.signal(Some(Date::today())),
-      kept: std::array::from_fn(|_| CalendarMemory::new()),
+      kept: std::array::from_fn(|_| DateMemory::new()),
     }
   }
 
@@ -458,7 +458,7 @@ impl Component for DatePickerPage {
       ),
       (
         "memory",
-        "&CalendarMemory",
+        "&DateMemory",
         "",
         "What the picker keeps between renders, kept by the app: whether it is open, the month shown. mount(ctx) \
          keeps one of its own.",
@@ -627,13 +627,13 @@ impl Component for DatePickerPage {
         ),
         Section::new(
           "In a field",
-          "A field names it and judges it. What the picker keeps is in a CalendarMemory the page made once.",
+          "A field names it and judges it. What the picker keeps is in a DateMemory the page made once.",
           self.frame.demo(
             1,
             fields,
             "Field::new(\"Start date\", DatePicker::new(start.clone()).memory(&memory))",
             &[
-              "// start: Signal<Option<Date>>, memory: CalendarMemory, both fields of the component",
+              "// start: Signal<Option<Date>>, memory: DateMemory, both fields of the component",
               "Field::new(",
               "    \"Start date\",",
               "    DatePicker::new(start.clone()).min(Date::today()).memory(&memory),",

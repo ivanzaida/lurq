@@ -9,7 +9,7 @@ use lurq::{
   core::{Date, DateLocale, DateRange, Signal},
   layout::Alignment,
   node::Element,
-  ui::{CalendarMemory, DateRangePicker, Field},
+  ui::{DateMemory, DateRangePicker, Field},
 };
 
 use crate::{
@@ -62,11 +62,11 @@ pub struct DateRangePickerPage {
   clearable: Signal<bool>,
   invalid: Signal<bool>,
   disabled: Signal<bool>,
-  memory: CalendarMemory,
+  memory: DateMemory,
   stay: Signal<Option<DateRange>>,
   period: Signal<Option<DateRange>>,
   leave: Signal<Option<DateRange>>,
-  kept: [CalendarMemory; 3],
+  kept: [DateMemory; 3],
 }
 
 impl DateRangePickerPage {
@@ -82,7 +82,7 @@ impl DateRangePickerPage {
     let open = self.memory.is_open();
     let plain = {
       let bound = self.value.clone();
-      move |memory: &CalendarMemory| {
+      move |memory: &DateMemory| {
         let picker = DateRangePicker::new(bound.clone())
           .placeholder("Pick dates")
           .months(months)
@@ -108,7 +108,7 @@ impl DateRangePickerPage {
       })
       .on_open_change(move |open| record_open(format!("on_open_change({open})")))
       .on_dismiss(move || record_dismiss("on_dismiss()".to_owned()));
-    let detached = CalendarMemory::new();
+    let detached = DateMemory::new();
     let make: Arc<dyn Fn() -> Element + Send + Sync> = Arc::new(move || plain(&detached).into());
 
     let mut code = vec![
@@ -231,11 +231,11 @@ impl Component for DateRangePickerPage {
       clearable: ctx.signal(false),
       invalid: ctx.signal(false),
       disabled: ctx.signal(false),
-      memory: CalendarMemory::new(),
+      memory: DateMemory::new(),
       stay: ctx.signal(None),
       period: ctx.signal(None),
       leave: ctx.signal(None),
-      kept: std::array::from_fn(|_| CalendarMemory::new()),
+      kept: std::array::from_fn(|_| DateMemory::new()),
     }
   }
 
@@ -272,7 +272,7 @@ impl Component for DateRangePickerPage {
       ),
       (
         "memory",
-        "&CalendarMemory",
+        "&DateMemory",
         "",
         "What the picker keeps between renders, kept by the app: whether it is open, the month, a first press. \
          mount(ctx) keeps one of its own.",
@@ -418,7 +418,7 @@ impl Component for DateRangePickerPage {
         ),
         Section::new(
           "In a field",
-          "A field names it and judges it; what it keeps is in a CalendarMemory the page made once.",
+          "A field names it and judges it; what it keeps is in a DateMemory the page made once.",
           self.frame.demo(
             2,
             fields,
