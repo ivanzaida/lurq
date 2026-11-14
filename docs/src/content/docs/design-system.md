@@ -3659,6 +3659,135 @@ DateRangePicker::new(period.clone())
 - The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
 - A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
 
+## List
+
+Rows one under the other: settings, people, files, notifications. A row has a title, a description under it, what stands before it and what stands at its end.
+
+```rust
+use lurq::ui::{Avatar, List, ListItem, Switch, icons};
+
+List::new()
+  .item(
+    ListItem::new("Ivan Zaida")
+      .description("Pushed 3 commits to feat/node-blur")
+      .leading(Avatar::new("Ivan Zaida"))
+      .meta("2m"),
+  )
+  .item(ListItem::new("Dependabot").description("Bumped wgpu to 26.0").selected(true));
+
+// Settings: a value and a chevron where a row leads somewhere, a switch where it holds one.
+List::new()
+  .dividers(true)
+  .inset(40.0)
+  .item(ListItem::new("Wi-Fi").icon(icons::WIFI).value("Home").chevron(true).on_click(|| open_wifi()))
+  .item(ListItem::new("Dark mode").icon(icons::MOON).trailing(Switch::new("Dark mode").label_hidden(true)));
+
+// A contained list: the rows in a box, under a header.
+List::new().contained(true).header("Recent").item(ListItem::new("theme.md").chevron(true).href("/docs/theme"));
+```
+
+| Builder | |
+| --- | --- |
+| `ListItem::new(title)` | A row that says `title`, with nothing before or after it |
+| `description(&str)` | A second line under the title, in the muted color |
+| `leading(element)`, `icon(name)` | What stands before the text: an avatar, a picture; or an icon of the theme's set |
+| `checkbox(bool)`, `radio(bool)` | A checkbox or a radio before the text, checked or not: the row is that control, which its press changes through `on_click` |
+| `value(&str)`, `meta(&str)` | A value at the end in the muted color ("Home"), or a note in the mono type ("2m") |
+| `trailing(element)`, `shortcut(keys)`, `chevron(bool)` | What the app puts at the end (a switch, a badge), the keys that do what the row does, and a chevron for a row that leads somewhere |
+| `on_click(handler)`, `href(path)` | What a press does, or where it goes in the app's router: the row is pressed |
+| `selected(bool)`, `disabled(bool)`, `density(Density)` | The selected row is highlighted; a disabled one is dimmed and takes nothing; how high it is, whatever the theme is at |
+| `List::new()`, `item(row)`, `items(rows)` | The rows, one under the other |
+| `dividers(bool)`, `inset(f32)` | A line between each two rows, and how far from the start it starts |
+| `contained(bool)`, `header(&str)`, `action(element)` | The rows in a box, touching, under a header with a title (in capitals) and an action |
+| `label(&str)`, `density(Density)`, `force(..)` | What the list is called to what reads the tree; the density of every row; every row drawn as under the pointer or focused |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them, on the row and on the list |
+
+- A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
+- A row with `href` goes to its path in the router around it (`router::current_navigator`), after its `on_click`; outside a router it goes nowhere.
+- What is selected is the app's: `selected(true)` on the row. A list of which one or many are chosen by a person is a [listbox](#listbox).
+- To what reads the tree a list is a `list` called by its label or its header. A row is a `listitem`; a pressed one a `button`, a `link` with a path, a `checkbox` or `radio` with one before its text (with `a11y_checked`), and a selected one says `a11y_selected`.
+- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `TwoLine`, `WithIcon`, `Contained`. Parts of a list: `ListPart::Root`, `Header`, `HeaderTitle`, `HeaderAction`, `Items`, `Divider` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Divided`.
+- In the design a row is 36 high (28, 44 and 56 at the compact, comfortable and touch densities), 12 in, with the medium radius and 12 between what it holds; with a description it is 16 higher, 52 at the default, its title at 500. The title is the body's type at 14, the description 12 in `MutedForeground` 2 under it, a value 13 and a chevron of 14 in `MutedForeground`, a note the mono type at 11, an icon 16 in `MutedForeground`. The selected row is on `Highlight`. A pressed row under the pointer and held down has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. Under a finger a row is the board's mobile row: 56 high, 16 in, its title at 16, its value at 15, its chevron 18, its icon of 18 on a tile of 32 on `Muted` with the large radius.
+- Rows are 2 apart; with lines between them they touch, a line of 1 in `Border` from the inset to the end. A contained list is a box on `Background` with an edge of 1 in `Border` and the large radius; its header is 32 high on `Muted`, 12 in, with a line under it, its title the mono type at 11 in `MutedForeground`, 1 apart; its rows are square and their titles 13.
+- A theme's renderer is given `ListItemView` (`view.root(children)`, `view.leading()`, `view.content()`, `view.trailing()`, `view.render()`) and `ListView` (`view.root()`, `view.header()`, `view.rows()`, `view.divider()`).
+
+## Listbox
+
+A list in the page of which one option is chosen, or any number: a renderer, a time zone, the columns a table shows.
+
+```rust
+use lurq::{components::SelectOption, ui::Listbox};
+
+// renderer: Signal<&str>
+Listbox::new(renderer, [
+  SelectOption::new("wgpu", "wgpu").group("Renderers"),
+  SelectOption::new("dx12", "DirectX 12"),
+  SelectOption::new("metal", "Metal"),
+  SelectOption::new("gl", "OpenGL (legacy)").disabled(true),
+])
+.label("Renderer");
+
+// Any number: a Signal<Vec<&str>>.
+Listbox::new(columns, [("name", "Name"), ("size", "Size"), ("kind", "Kind")]).label("Columns");
+
+// A long list scrolls in a box with a most height.
+Listbox::new(zone, zones).style(ListboxPart::Root, |s| s.max_height(240.0));
+
+// Thousands of options: in a virtual list, in a box with a height.
+Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `new(value, options)` | A `Signal<T>` of which the option of its value is chosen, or a `Signal<Vec<T>>` of which those of its values are; options as a [select](#select) takes them: `(value, label)`, a `Choice`, or a `SelectOption` with `group`, `detail`, `hint`, `leading`, `trailing`, `disabled` |
+| `follow_focus(bool)` | Of one, whether the arrows choose as they move. They do unless told otherwise; without it Space, Enter and a press choose |
+| `on_change(handler)` | Told what is chosen after each press or key that changes it |
+| `label(&str)` | What it is called, to what reads the tree. A [field](#field) gives it its label |
+| `invalid(bool)`, `disabled(bool)`, `full_width(bool)`, `density(Density)` | Its edge in `Destructive`; no option chosen; as wide as what holds it, in place of 220; how high an option is |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box; each option's is that id, `-` and its place from 0 |
+| `mount(ctx)` | In place of building it: the options in a virtual list, which builds only those near the view, for thousands. Give `Root` a height |
+
+- It is one stop of Tab, at the chosen option or the first. Up and Down move through the options, Home and End to the first and the last, PageUp and PageDown by what the box shows, without going round, and a letter to the next option that starts with it; a disabled option is passed by.
+- Of one, the choice follows the focus, as in a radio group: a key that moves the focus chooses what it moves to, a letter too. With `follow_focus(false)` the focus and the choice are apart: the focus moves alone and Space, Enter or a press choose.
+- Of many, a press chooses one alone, with Ctrl (Cmd) it adds or takes out one, with Shift it chooses from the last chosen to it. Space adds or takes out the focused option; Shift with the arrows, Home, End and the page keys chooses from where the choice started to where the focus goes; Ctrl+A chooses every option that can be. The last of the `Vec` is where a range starts.
+- The keys are the engine's: the options are a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead`, `pages` and without `wrap`; one of one `activate`s, one of many `shift_extends`. The range and the toggle are `ui::selection`'s, which the [tree view](#tree-view) shares.
+- Mounted with `mount(ctx)`, the options are in the engine's virtual list and the group steps over every option, built or not (`FocusRows`): the keys, the page keys and typeahead go to any option, the list builds it and the focus goes to it, and the choice follows as it does where every option is built; Shift with the keys and Ctrl+A choose over every option. The list opens at the chosen option. Each option is drawn with `ListboxOption::render`, its group's label over it; a theme's renderer of the whole listbox is not used there, its rules are.
+- To what reads the tree it is a `listbox` (`a11y_multiselectable` of many) called by its label, with `option`s that say `a11y_selected`, `a11y_posinset` and `a11y_setsize`; a group's label is a `group`.
+- Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled` (of an option), `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
+- In the design the box is 220 on `Background` with an edge of 1 in `Border` and the large radius, its options 1 apart, 4 in. An option is 32 high (24, 40 and 44 at the compact, comfortable and touch densities), 8 in, with the small radius, its label in the body's type at 13. The chosen one is on `Highlight`, its label at 500, with a check of 14 at its end; the one under the pointer is on `Muted`; one held down has the `StatePressed` veil; the focus from the keyboard is a ring of 2 in `Ring` inside it; a disabled one says its label in `MutedForeground`, faded. A group's label is 11 at 600 in `MutedForeground`, 6 over it, 4 under it, 8 in.
+- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`.
+
+## Data List
+
+Terms with their values: what a thing is, item by item. The details of a build, of an order, of a file.
+
+```rust
+use lurq::ui::{Badge, DataList};
+
+DataList::new()
+  .text("Version", "0.60.0")
+  .text("Renderer", "wgpu")
+  .text("License", "MIT")
+  .item("Status", Badge::new("Stable").variant("success"));
+
+// Each term over its value, for a narrow column.
+DataList::new().vertical(true).text("Ship to", "Ivan Zaida, 12 Khreshchatyk St, Kyiv");
+```
+
+| Builder | |
+| --- | --- |
+| `text(term, value)` | An item whose value is a text, in the value's type |
+| `item(term, element)` | An item whose value is what the app puts there: a badge, a link, tags |
+| `vertical(bool)` | Each term over its value, in place of beside it |
+| `label(&str)` | What the list is called, to what reads the tree |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- Side by side, the terms are one column as wide as the widest of them and the values the column of the rest of the width (a grid of two columns, `Auto` and `Fr(1.0)`); a line runs under each item but the last, the term's and the value's meeting. One over the other, each item is a column.
+- To what reads the tree each term is a `term` and each value its `definition`.
+- Parts: `DataListPart::Root`, `Item` (an item one over the other), `Term`, `Value`. States: `DataListState::Vertical`, `Divided` (of an item's parts: a line under it).
+- In the design each term and its value are 10 from the lines over and under them and 12 apart, both in the body's type at 13, the term in `MutedForeground` and the value in `Foreground`; the line is 1 in `Border`. One over the other the term is 12, 2 over its value.
+- A theme's renderer is given `DataListView`: `view.items` (each a term with its text or its element), `view.term(item, lined)`, `view.value(item, lined)` and `view.render()`.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.

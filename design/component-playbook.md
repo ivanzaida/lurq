@@ -179,6 +179,30 @@ starting under the window's own title bar.
   `ui::Chip`, `ui::Avatar`, `ui::Card`, `ui::Separator`, `ui::Progress`, `ui::Spinner`, `ui::Skeleton` in what your
   component is made of, and in the gallery's pages in place of anything drawn by hand.
 
+## What the eighth batch and the QA pass taught
+
+- **A text has a rule for when it does not fit**, and the test of a component has a text longer than its room: a
+  title and a description wrap, a label on one line ends in an ellipsis, what stands beside it (a shortcut, an
+  action, a close button) keeps its room. A component whose page shows only the board's short words was cut the
+  first time a playground was given a sentence.
+- **Where the focus goes is part of every way out.** Closing by a choice, by Escape, by Tab, by the control that
+  clears: each returns the focus to what opened it, or says where (`ActionBar::return_focus`). The engine keeps a
+  starting point when the focus is dropped, so the next Tab goes on from there; a test that blurs and presses Tab
+  does not start at the top of the window.
+- **A row follows the density; a control keeps its size.** A recipe of a row-like part says
+  `Recipe::row_density(selector, part, board_height)`, with a test that its height follows the theme's density.
+- **Two things on one anchor are two layers.** A tooltip and a menu on one button: what looks a layer up by its
+  anchor finds the first.
+- **A session that moves another component's code** (a selection model shared by the tree and the listbox) merges
+  the base first and often: the other session is changing that code too.
+- **The checks of a session are three**: `cargo check -p lurq --features form,router --tests`,
+  `cargo check -p gallery --features mcp` and `cargo check -p gallery --features devtools`. A value kept in a
+  signal is `DevtoolsInspectable` with the third.
+- **What a batch may use now**: `FocusGroup::pages`, `shift_extends`, `panel_row`; `ColumnTracks` and
+  `ScrollBoth::fill_width`; `KeyboardEvent::focus_key`; `core::Date`, `YearMonth`, `DateRange`, `DateLocale`;
+  `Recipe::row_density`; `ui::Navbar`, `ui::NavigationMenu`, `ui::Table`, `ui::List`, `ui::ListItem`,
+  `ui::Listbox`, `ui::DataList`, `ui::Calendar`, `ui::DatePicker`, `ui::DateRangePicker`.
+
 ## What the seventh batch taught
 
 - **A scene made for a stage fills it.** The stage scrolls what is larger than it, but a scene of a fixed width
