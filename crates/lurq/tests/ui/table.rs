@@ -567,7 +567,7 @@ fn a_first_column_that_stays_takes_its_rows_veil_under_the_pointer_and_held_down
   });
   let name = within(&mut stage, "t-row-0", "crates/lurq").expect("the first row's name");
   let (name_x, name_y) = (name.x + 2.0, name.y + name.height / 2.0);
-  let (_, row_y, row_width, _) = stage.bounds("t-row-0");
+  let (_, row_y, row_width, row_height) = stage.bounds("t-row-0");
   let hover = light(PaletteColor::StateHover);
   let pressed = light(PaletteColor::StatePressed);
   assert!(veils_at(&stage, hover, name_x, name_y).is_empty(), "no veil at rest");
@@ -581,6 +581,14 @@ fn a_first_column_that_stays_takes_its_rows_veil_under_the_pointer_and_held_down
   assert_eq!(veils.len(), 2, "the row's veil and the stuck cell's own over its fill");
   assert!(veils[0].width < row_width - 1.0, "the narrower is the cell's");
   assert!(veils[0].y >= row_y - 0.01);
+  // The cell that stays is as high as its row: its fill covers all of what scrolls under it, and not only the
+  // line of its text, over and under which a taller cell (a badge) would show.
+  assert!(
+    (veils[0].height - row_height).abs() < 0.01 && (veils[0].y - row_y).abs() < 0.01,
+    "the stuck cell is {} high at {} in a row of {row_height} at {row_y}",
+    veils[0].height,
+    veils[0].y
+  );
 
   // Held down: the cell is veiled as pressed, as the row is.
   stage.tree.mouse_down(x, y, MouseButton::Left);

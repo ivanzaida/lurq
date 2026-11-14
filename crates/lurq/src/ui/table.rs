@@ -1533,8 +1533,9 @@ impl TableView {
     let mut header = Row::new()
       .part(&part)
       .spacing(0.0)
-      // A title and the header's checkbox stand in the middle of the header's height, as a cell does in its row.
-      .align_items(Alignment::Center)
+      // Each cell is as high as the row, so that one that stays covers what scrolls under it, and sets what it
+      // holds in the middle of that height itself.
+      .align_items(Alignment::Stretch)
       .column_tracks(&self.tracks)
       .sticky(Sticky::top(0.0))
       .focus_group(FocusGroup::horizontal().one_stop(true).wrap(false))
@@ -1633,7 +1634,7 @@ impl TableView {
         let mut row = Row::new()
           .part(&row_part)
           .spacing(0.0)
-          .align_items(Alignment::Center)
+          .align_items(Alignment::Stretch)
           .column_tracks(&self.tracks)
           .describe("a11y_hidden", "true");
         if self.checkboxes {
@@ -1947,7 +1948,9 @@ impl TableRow {
   pub fn button(&self) -> components::Button {
     let mut row = pressable(&self.part(TablePart::Row), self.disabled)
       .justify(Justify::Start)
-      .align_items(Alignment::Center)
+      // Each cell is as high as the row: a first column that stays covers all of what scrolls under it, not only
+      // the line of its text. A cell sets what it holds in the middle of that height.
+      .align_items(Alignment::Stretch)
       .spacing(0.0)
       .column_tracks(&self.tracks)
       // The cells that stay cover the row's veil: they take it from the row under the pointer and held down.
