@@ -268,19 +268,28 @@ pub fn fit(key: &str, room: f32, least: f32, content: impl Into<Element>) -> Ele
 /// The props of a component, a row for each. `room` is the width there is for the table:
 /// `Frame::room`.
 pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f32) -> Element {
-  // A column is as wide as the longest thing in it, and no narrower than the design draws it: a name or a type
-  // is one word that does not break, and one wider than its column would be drawn under the column after it.
+  // A column is as wide as the longest word in it, and no narrower than the design draws it: a word does not
+  // break, and one wider than its column would be drawn under the column after it. What is more than a word
+  // ("invalid / warning / valid", a type with spaces in it) goes on to more lines in its column, so the
+  // description keeps its room.
   let theme = lurq::ui::current_theme();
   let wide = |size: f32, longest: usize| longest as f32 * theme.scaled(size) * 0.62;
+  let word = |cell: &str| {
+    cell
+      .split_whitespace()
+      .map(|word| word.chars().count())
+      .max()
+      .unwrap_or(0)
+  };
   let longest = |of: &dyn Fn(&(&str, &str, &str, &str)) -> usize| rows.iter().map(of).max().unwrap_or(0);
   let badge = theme.scaled(11.0) * 0.62 * 8.0 + 12.0 + 8.0;
   let prop_width = rows
     .iter()
-    .map(|row| wide(13.0, row.0.chars().count()) + if required.contains(&row.0) { badge } else { 0.0 })
+    .map(|row| wide(13.0, word(row.0)) + if required.contains(&row.0) { badge } else { 0.0 })
     .fold(0.0, f32::max);
   let prop_width = (prop_width + 16.0).max(150.0);
-  let type_width = (wide(12.0, longest(&|row| row.1.chars().count())) + 10.0 + 16.0).max(180.0);
-  let default_width = (wide(13.0, longest(&|row| row.2.chars().count())) + 16.0).max(110.0);
+  let type_width = (wide(12.0, longest(&|row| word(row.1))) + 10.0 + 16.0).max(180.0);
+  let default_width = (wide(13.0, longest(&|row| word(row.2))) + 16.0).max(110.0);
   let least = PROPS_WIDTH + (prop_width - 150.0) + (type_width - 180.0) + (default_width - 110.0);
   let head = |title: &str| text(title, 12.0, FontWeight::Medium).color(PaletteColor::MutedForeground);
   let mut table = Column::new().width(FILL).child(
@@ -296,12 +305,14 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
       .child(Row::new().flex(1.0).child(head("Description"))),
   );
   for (prop, kind, default, about) in rows {
+    // A column in each cell gives its text the cell's width to wrap in: a row lays a text out on one line.
     let mut named = Row::new()
       .width(prop_width)
       .flex_shrink(0.0)
+      .padding_right(16.0)
       .spacing(8.0)
       .align_items(Alignment::Center)
-      .child(name(prop, 13.0));
+      .child(Column::new().flex(1.0).min_width(0.0).child(name(prop, 13.0)));
     if required.contains(prop) {
       named = named.child(
         Row::new()
@@ -314,10 +325,14 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
           .child(text("required", 11.0, FontWeight::Medium)),
       );
     }
-    let mut typed = Row::new().width(type_width).flex_shrink(0.0);
+    let mut typed = Column::new()
+      .width(type_width)
+      .flex_shrink(0.0)
+      .padding_right(16.0)
+      .align_items(Alignment::Start);
     if !kind.is_empty() {
       typed = typed.child(
-        Row::new()
+        Column::new()
           .padding_horizontal(5.0)
           .padding_vertical(1.0)
           .rounded(RadiusSize::Sm)
@@ -335,9 +350,11 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
         .child(named)
         .child(typed)
         .child(
-          Row::new()
+          Column::new()
             .width(default_width)
             .flex_shrink(0.0)
+            .padding_right(16.0)
+            .align_items(Alignment::Start)
             .child(if default.is_empty() {
               quiet("—", 13.0)
             } else {

@@ -26,14 +26,14 @@
 //! The pointer leaves the window once the gesture ends. Positions and deltas are physical pixels, as the tree's pointer
 //! input takes them.
 
-use std::{
-  collections::VecDeque,
-  time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Duration};
 
 use winit::event::TouchPhase;
 
-use crate::app::{events::ScrollPhase, runtime::TouchMomentum};
+use crate::{
+  app::{events::ScrollPhase, runtime::TouchMomentum},
+  time::Instant,
+};
 
 /// How far apart two taps may land and still be a double tap, in logical pixels.
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]

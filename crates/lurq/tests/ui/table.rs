@@ -184,6 +184,13 @@ fn the_header_is_40_high_on_the_muted_fill_and_the_rows_44_their_text_as_the_boa
   }
   let header = texts(&stage, "Name").pop().expect("the header says Name");
   assert!(header.y < y + 40.0, "the header is above the rows");
+  // A title stands in the middle of the header's 40, as a cell's text does in its row: not at its top edge.
+  let middle = header.y + header.height * 0.5;
+  assert!(
+    (middle - (y + 1.0 + 20.0)).abs() < 1.51,
+    "the title's middle {} under the top",
+    middle - y
+  );
   assert!(
     stage.quads().iter().any(|quad| matches!(
       &quad.content,

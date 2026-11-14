@@ -1,7 +1,4 @@
-use std::{
-  sync::{Arc, Mutex},
-  time::Instant,
-};
+use std::sync::{Arc, Mutex};
 
 use crate::{
   layout::{
@@ -11,6 +8,7 @@ use crate::{
     },
   },
   node::{dimension::Dimension, spacing_value::SpacingValue},
+  time::Instant,
 };
 
 const DEFAULT_FLEX_GROW: f32 = 1.0;

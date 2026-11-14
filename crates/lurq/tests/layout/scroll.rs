@@ -600,3 +600,49 @@ fn scroll_row_colors(quads: &[lurq::layout::quad::Quad]) -> Vec<Color> {
     })
     .collect()
 }
+
+/// Where the red box in a scroll of 100 is drawn, scrolled by `by` at `scale` device pixels to a logical one.
+fn scrolled_box_y(scale: f32, by: f32) -> f32 {
+  let red = Color::from_hex("#ff0000");
+  let state = ScrollState::new();
+  let mut rt = rt();
+  rt.set_scale_factor(scale);
+  rt.set_root(
+    ScrollVertical::new(
+      Column::new()
+        .height(600.0)
+        .child(Spacer::new().height(40.0))
+        .child(Row::new().size(50.0, 20.0).background(red)),
+    )
+    .size(100.0, 100.0)
+    .with_scroll_state(state.clone()),
+  );
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  let mut app = App::new();
+  rt.pass(&mut app, &TestSurface);
+  state.scroll_by(0.0, by);
+  rt.pass(&mut app, &TestSurface);
+  rt.resolve_quads(rt.last_layout().unwrap())
+    .iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == red))
+    .map(|quad| quad.y)
+    .expect("the box")
+}
+
+#[test]
+fn what_a_scroll_holds_is_drawn_on_a_whole_device_pixel() {
+  // At a whole scale a logical pixel is a device pixel: the content is where the offset says.
+  assert_eq!(scrolled_box_y(1.0, 17.0), 23.0);
+  assert_eq!(scrolled_box_y(2.0, 17.5), 22.5);
+  // At 150% an offset of 17 is 25.5 device pixels. A text is painted on a whole device pixel and a box where it is:
+  // half a pixel moved every label a pixel against its box, and back at the next step of the wheel. The content is
+  // drawn at 26 device pixels, and the scroll keeps the 17 it was given.
+  let y = scrolled_box_y(1.5, 17.0);
+  assert!((y * 1.5 - (y * 1.5).round()).abs() < 1e-3, "{y}");
+  assert!((y - (40.0 - 17.0)).abs() <= 0.5 / 1.5 + 1e-3, "{y}");
+  // Whatever the offset, the box and what is beside it keep their distance in device pixels.
+  for by in [1.0, 3.3, 16.7, 51.0] {
+    let y = scrolled_box_y(1.5, by) * 1.5;
+    assert!((y - y.round()).abs() < 1e-3, "{by}: {y}");
+  }
+}

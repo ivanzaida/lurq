@@ -273,6 +273,20 @@ impl App {
     self.shared.glyph_engine.lock().register_font(name, family);
   }
 
+  /// Names the font a generic family draws with, in place of the one chosen
+  /// from the system's fonts when the app started. [`GenericFamily::SansSerif`]
+  /// is also the font of text with no family.
+  ///
+  /// A browser has no system fonts a page can read: an app that runs in one
+  /// loads its fonts ([`Self::load_font`]) and names them here, the
+  /// sans-serif one at least. On a desktop it replaces the system's choice
+  /// with a font the app ships.
+  ///
+  /// [`GenericFamily::SansSerif`]: crate::layout::text_style::GenericFamily::SansSerif
+  pub fn set_generic_family(&mut self, generic: crate::layout::text_style::GenericFamily, family: &str) {
+    self.shared.glyph_engine.lock().set_generic_family(generic, family);
+  }
+
   /// Installs multiple font faces and aliases with one text-cache invalidation.
   /// Existing atlas entries remain valid because fontdb assigns stable IDs to
   /// loaded faces, so only newly requested glyphs need to be rasterized.

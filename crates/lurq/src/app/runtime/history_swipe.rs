@@ -5,12 +5,11 @@
 //! container moved with it and no handler prevented its default. Its end then goes back or forward, as browsers do.
 //! Mouse wheels send scrolls without a start, so they never make one.
 
-use std::time::{Duration, Instant};
-
 use super::{EventControl, Tree, hit_test_tree};
 use crate::{
   app::events::{HistoryDirection, HistorySwipeEvent, ScrollPhase, is_synthetic_input},
   core::NodeId,
+  time::{Duration, Instant},
 };
 
 /// How far the fingers must travel sideways, in logical pixels.

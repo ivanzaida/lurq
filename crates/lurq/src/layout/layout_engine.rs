@@ -1,10 +1,10 @@
-#[cfg(feature = "perf_profile")]
-use std::time::{Duration, Instant};
 use std::{
   cell::{Cell, RefCell},
   sync::Arc,
 };
 
+#[cfg(feature = "perf_profile")]
+use crate::time::{Duration, Instant};
 use crate::{
   app::{
     ctx::{ModalSpec, OverlaySpec},
@@ -292,9 +292,9 @@ pub(crate) struct LayoutEngine {
   /// Where the focused text input was last painted (`text_input_quads`).
   text_input_frame: Cell<Option<text_input_quads::TextInputFrame>>,
   /// The time of the frame being painted (`begin_scrollbar_frame`).
-  scrollbar_frame_at: Cell<std::time::Instant>,
+  scrollbar_frame_at: Cell<crate::time::Instant>,
   /// When a bar painted in this frame next changes (`take_scrollbar_change`).
-  scrollbar_change_at: Cell<Option<std::time::Instant>>,
+  scrollbar_change_at: Cell<Option<crate::time::Instant>>,
   /// The theme the values below were copied from, and its version then
   /// (`set_theme`). `None` until a theme is set: the values are the defaults.
   theme_seen: RefCell<Option<(Theme, u64)>>,
@@ -605,7 +605,7 @@ impl LayoutEngine {
       native_text_selection: Cell::new(false),
       native_selection_rects: RefCell::new(Vec::new()),
       text_input_frame: Cell::new(None),
-      scrollbar_frame_at: Cell::new(std::time::Instant::now()),
+      scrollbar_frame_at: Cell::new(crate::time::Instant::now()),
       scrollbar_change_at: Cell::new(None),
       theme_seen: RefCell::new(None),
       theme_scopes: RefCell::new(Vec::new()),
@@ -647,6 +647,22 @@ impl LayoutEngine {
   /// underline geometry depends on it; changing it needs a full relayout.
   pub(crate) fn set_paint_scale(&self, scale: f32) {
     self.paint_scale.set(scale);
+  }
+
+  /// Where a scroll's content is laid out relative to its viewport: the scroll's offset on a whole device pixel.
+  /// A text is painted on whole device pixels and a box where it is, so at a scale that is no whole number
+  /// (150%) an offset of half a device pixel moved every label a pixel against its box, and back at the next
+  /// step of the wheel. The scroll keeps the offset it was given: only where its content is drawn is rounded.
+  fn content_offset(&self, state: &ScrollState) -> Offset {
+    let offset = state.content_offset();
+    let scale = self.paint_scale.get();
+    if !(scale.is_finite() && scale > 0.0) {
+      return offset;
+    }
+    Offset {
+      x: (offset.x * scale).round() / scale,
+      y: (offset.y * scale).round() / scale,
+    }
   }
 
   /// The theme's corner radii, which the nodes' radii resolve against: hit
@@ -2625,7 +2641,7 @@ impl LayoutEngine {
         result.size.height,
       );
       if let Some(child) = result.children.first_mut() {
-        let offset = state.content_offset();
+        let offset = self.content_offset(state);
         child.offset = Offset {
           x: offset.x + padding.left,
           y: offset.y + padding.top,
@@ -4231,7 +4247,7 @@ impl LayoutEngine {
       return LayoutResult {
         size,
         children: vec![ChildLayout {
-          offset: state.content_offset(),
+          offset: self.content_offset(state),
           result: child_result,
         }],
         text_layout: None,
@@ -4276,7 +4292,7 @@ impl LayoutEngine {
     LayoutResult {
       size,
       children: vec![ChildLayout {
-        offset: state.content_offset(),
+        offset: self.content_offset(state),
         result: child_result,
       }],
       text_layout: None,

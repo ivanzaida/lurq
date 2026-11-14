@@ -1,3 +1,7 @@
+// A branch on a value of the instance (a stroke, a mode) is the same for every fragment of a quad, which the
+// browser's compiler cannot tell: it takes the derivatives under such a branch for an error. naga does not check.
+diagnostic(off, derivative_uniformity);
+
 // Glyph pipeline: instanced textured quads. The atlas stores RGBA pixels.
 // Monochrome glyphs use white RGB plus alpha coverage and are tinted by the
 // per-instance color. Color glyphs use their atlas RGB directly.

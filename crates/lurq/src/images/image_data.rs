@@ -6,7 +6,7 @@ use std::{
     Arc, OnceLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 #[cfg(target_os = "macos")]
@@ -16,6 +16,8 @@ use core_video_sys::pixel_buffer::CVPixelBufferRef;
 #[cfg(feature = "image")]
 use image::{AnimationDecoder, ImageFormat, codecs};
 use parking_lot::{Mutex, RwLock};
+
+use crate::time::Instant;
 
 pub enum ImageKind {
   Bytes(ImageData),
@@ -906,11 +908,10 @@ fn nv12_len(width: u32, height: u32) -> usize {
 
 #[cfg(all(test, feature = "image"))]
 mod tests {
-  use std::time::{Duration, Instant};
-
   use image::{Delay, Frame, Rgba, RgbaImage, codecs::gif::GifEncoder};
 
   use super::{ImageData, ImagePixelFormat, NativeImageBackend, NativeImageData, StreamingImage, animation_epoch};
+  use crate::time::{Duration, Instant};
 
   #[test]
   fn gif_decoding_preserves_animation_with_stable_image_id() {

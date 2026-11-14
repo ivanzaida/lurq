@@ -16,13 +16,13 @@ use std::{
     atomic::{AtomicBool, AtomicU64, Ordering},
   },
   task::{Context, Poll, Wake, Waker},
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::Mutex;
 use sealed::Selector as _;
 
-use crate::{app::window::WindowWaker, core::Signal};
+use crate::{app::window::WindowWaker, core::Signal, time::Instant};
 
 /// The future returned by a query's implementation.
 pub type QueryFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'static>>;

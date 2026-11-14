@@ -7,7 +7,7 @@ use std::{
     Arc,
     atomic::{AtomicU64, Ordering},
   },
-  time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+  time::Duration,
 };
 
 use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, WindowHandle};
@@ -66,6 +66,7 @@ use crate::{
     },
     transform::Transform2D,
   },
+  time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(all(test, feature = "screenshot", feature = "raster"))]
@@ -2889,7 +2890,7 @@ impl Tree {
       images
     };
     #[cfg(feature = "raster")]
-    let image_frame_time = std::time::Instant::now();
+    let image_frame_time = crate::time::Instant::now();
     #[cfg(feature = "raster")]
     let mut image_sources = Vec::new();
     #[cfg(feature = "raster")]

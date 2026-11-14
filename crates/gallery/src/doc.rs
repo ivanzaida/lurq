@@ -7,7 +7,7 @@
 use std::{
   path::{Path, PathBuf},
   sync::{Arc, Mutex},
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use lurq::{
@@ -23,6 +23,7 @@ use lurq::{
     text_style::FontWeight,
   },
   node::{CursorIcon, Element, border::Border},
+  time::Instant,
   ui::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant},
 };
 

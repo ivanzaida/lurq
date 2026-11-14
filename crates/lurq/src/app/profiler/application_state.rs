@@ -1,5 +1,5 @@
 //! Collector-owned live slots and per-session application history.
-use std::{collections::VecDeque, sync::Arc, time::Instant};
+use std::{collections::VecDeque, sync::Arc};
 
 use super::{
   ProfilingHandle,
@@ -7,6 +7,7 @@ use super::{
   application_model::*,
   collector::{Session, State},
 };
+use crate::time::Instant;
 
 pub(super) struct ApplicationState {
   next_id: u64,

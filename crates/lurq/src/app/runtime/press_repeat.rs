@@ -4,12 +4,11 @@
 //! pointer that leaves the element pauses the repeat, and one that comes back resumes it. The release ends it and
 //! clicks nothing more.
 
-use std::time::{Duration, Instant};
-
 use super::{Tree, find_node_by_id};
 use crate::{
   app::events::{EventControl, MouseButton, MouseEvent, MouseEventKind, PointerKind},
   core::NodeId,
+  time::{Duration, Instant},
 };
 
 /// How long a press is held before it repeats.

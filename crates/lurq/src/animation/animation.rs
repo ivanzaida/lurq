@@ -1,7 +1,7 @@
 use std::{
   collections::{HashMap, HashSet},
   sync::OnceLock,
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::{
@@ -9,7 +9,7 @@ use super::{
   interpolate::write_property,
   keyframes::{KeyframeEntry, Keyframes, KeyframesId},
 };
-use crate::core::NodeId;
+use crate::{core::NodeId, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnimationDirection {

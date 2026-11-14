@@ -2,9 +2,9 @@
 //! deadline or a wake: input, a window command, an MCP call, a menu action, a future or query that can make
 //! progress, and a timer started from another thread all wake it.
 
-use std::time::Instant;
-
 use winit::event_loop::ControlFlow;
+
+use crate::time::Instant;
 
 /// What the windows of the loop need from it after a turn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
