@@ -11,10 +11,10 @@ use lurq::{
   layout::Alignment,
   node::Element,
   ui::{
-    Avatar, AvatarSize, Badge, BadgeVariant, Button, ButtonPart, ButtonSize, ButtonVariant, Choice, EmptyState,
-    EmptyStateSize, InputSize, Interaction, Length, Menu, MenuItem, Pagination, SearchField, SearchFieldPart,
-    SortDirection, Table, TableColumn, TablePart, TableSort, Tag, TagPart, TagVariant, ToggleGroup, ToggleGroupPart,
-    Toolbar, ToolbarItem, ToolbarPart, icons,
+    Avatar, AvatarSize, Badge, BadgeVariant, Button, ButtonPart, ButtonSize, ButtonVariant, Choice, ColumnPin,
+    EmptyState, EmptyStateSize, InputSize, Interaction, Length, Menu, MenuItem, Pagination, SearchField,
+    SearchFieldPart, SortDirection, Table, TableColumn, TablePart, TableSort, Tag, TagPart, TagVariant, ToggleGroup,
+    ToggleGroupPart, Toolbar, ToolbarItem, ToolbarPart, icons,
   },
 };
 
@@ -114,7 +114,7 @@ fn columns(sticky: bool, record: Option<Arc<dyn Fn(String) + Send + Sync>>) -> V
       .text(|row: &Krate| row.name.to_owned())
       .mono(true)
       .min_width(170.0)
-      .sticky(sticky)
+      .pin(if sticky { ColumnPin::Start } else { ColumnPin::None })
       .sortable(true),
     TableColumn::new("status", "Status")
       .width(110.0)
@@ -331,7 +331,7 @@ impl TablePage {
       "Table::new([".to_owned(),
       format!(
         "    TableColumn::new(\"name\", \"Name\").text(|row| row.name.into()).mono(true).min_width(170.0){}{},",
-        if sticky { ".sticky(true)" } else { "" },
+        if sticky { ".pin(ColumnPin::Start)" } else { "" },
         if sortable { ".sortable(true)" } else { "" }
       ),
       format!(

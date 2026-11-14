@@ -380,6 +380,14 @@ macro_rules! impl_into_node {
       /// Measures the cells of the rows in the element that lay their children out in `tracks`, its children
       /// and the children of those: what holds the rows of a table. A track sized by its content is as wide as
       /// the widest of them. See [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      /// How many tracks of the row of [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks) it is in the
+      /// element takes, from the one it would take: as wide as those tracks and the gaps between them. One room
+      /// for the columns a table does not build where they are out of view, in place of a cell for each.
+      pub fn track_span(mut self, span: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::track_span(node, span));
+        self
+      }
+
       pub fn measures_column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::measures_column_tracks(node, tracks.clone()));
         self
@@ -1307,6 +1315,15 @@ macro_rules! impl_into_node {
       /// steps over the rows, and focuses the element of the row it steps to.
       pub fn focus_row(mut self, row: usize) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::focus_row(node, row));
+        self
+      }
+
+      /// The column of its row the element is in, in a group of [`FocusRows`]($crate::node::FocusRows) whose
+      /// rows hold several stops each (the cells of a grid, with `.focus_row(row)` on each): Up, Down, PageUp and
+      /// PageDown go to the stop of the same column in the row they go to, and Ctrl+Home and Ctrl+End to the
+      /// first stop of the first row and the last of the last. Left and Right are a group of each row's own.
+      pub fn focus_column(mut self, column: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_column(node, column));
         self
       }
 

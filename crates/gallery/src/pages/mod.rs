@@ -22,6 +22,7 @@ mod color_picker;
 mod combobox;
 mod command_palette;
 mod context_menu;
+mod data_grid;
 mod data_list;
 mod date_picker;
 mod date_range_picker;
@@ -812,6 +813,14 @@ pub const PAGES: &[Page] = &[
     about: "timeline history activity feed log events release deploy tracking order steps dot line rail mark avatar new item items label description time icon media variant current upcoming pending child children action on_select disabled style rules",
     group: Group::Data,
     mount: |ctx| ctx.mount::<timeline::TimelinePage>(()),
+  },
+  Page {
+    path: "/data-grid",
+    name: "Data Grid",
+    icon: Some("table"),
+    about: "data grid datagrid spreadsheet cells cell focus edit editing in place editor text number choice checkbox on_edit read_only resizable resize pinned pin columns sort selected keyboard arrows tab enter escape f2 virtualized thousands fifty columns mount CellEditor CellValue CellEdit",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<data_grid::DataGridPage>(()),
   },
   Page {
     path: "/splitter",

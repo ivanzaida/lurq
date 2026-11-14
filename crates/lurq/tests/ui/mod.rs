@@ -18,6 +18,7 @@ mod color_swatch;
 mod combobox;
 mod command_palette;
 mod context_menu;
+mod data_grid;
 mod data_list;
 mod date_picker;
 mod date_range_picker;

@@ -378,6 +378,8 @@ pub(crate) struct FocusBranch {
   pub(crate) expanded: Option<bool>,
   pub(crate) toggle: Option<std::sync::Arc<dyn Fn(bool) + Send + Sync>>,
   pub(crate) row: Option<usize>,
+  /// The column of its row it is in: the stop Up and Down go to in another row is the one of the same column.
+  pub(crate) column: Option<usize>,
   pub(crate) rows: Option<std::sync::Arc<dyn FocusRows>>,
 }
 

@@ -15,9 +15,13 @@ use parking_lot::Mutex;
 use super::{
   checkbox::Checkbox,
   empty_state::{EmptyState, EmptyStateSize},
-  icons, names,
+  icons,
+  input::{Input, InputSize},
+  names,
+  number_input::NumberInput,
   part_style::{FontFamily, Length},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  select::Select,
   shared::{fading, glyph, pressable},
   skeleton::Skeleton,
   theme::{Themed, current_theme},
@@ -26,7 +30,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{KeyboardEvent, MouseEvent, ScrollEvent},
+    events::{DragEvent, KeyboardEvent, MouseButtonMask, MouseEvent, ScrollEvent},
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
@@ -57,6 +61,10 @@ pub enum TablePart {
   HeaderCell,
   /// The arrow of the column the rows are sorted by, and the mark of one that sorts.
   SortIcon,
+  /// What is dragged at the end of a column's header to make it wider or narrower: its width, its cursor.
+  Resizer,
+  /// The line in the resizer, shown under the pointer and while it is dragged.
+  ResizeLine,
   /// One row: its height, its padding, the room between columns, the line under it. What is pressed,
   /// selected and focused.
   Row,
@@ -64,6 +72,8 @@ pub enum TablePart {
   Cell,
   /// The cell of the column of checkboxes, in the header and in each row.
   Select,
+  /// What holds the control a cell of a data grid is edited with, while it is.
+  Editor,
   /// What stands under the header where there are no rows.
   Empty,
   /// The footer under the rows: the count of them and the pagination.
@@ -78,9 +88,12 @@ names!(TablePart {
   Header => "header",
   HeaderCell => "header_cell",
   SortIcon => "sort_icon",
+  Resizer => "resizer",
+  ResizeLine => "resize_line",
   Row => "row",
   Cell => "cell",
   Select => "select",
+  Editor => "editor",
   Empty => "empty",
   Footer => "footer",
   Count => "count",
@@ -106,8 +119,8 @@ pub enum TableState {
   Mono,
   /// A cell of a column of numbers: at its end, in the mono type, smaller and muted.
   Numeric,
-  /// A cell of the column that stays while the rows scroll sideways.
-  Sticky,
+  /// A cell or a header of a column that stays while the rows scroll sideways ([`ColumnPin`]).
+  Pinned,
   /// It has a footer under its rows.
   Footer,
   /// It takes no input.
@@ -123,7 +136,7 @@ names!(TableState {
   Muted => "muted",
   Mono => "mono",
   Numeric => "numeric",
-  Sticky => "sticky",
+  Pinned => "pinned",
   Footer => "footer",
   Disabled => "disabled",
 });
@@ -211,6 +224,18 @@ pub enum ColumnAlign {
   End,
 }
 
+/// Where a column stays while the rows scroll sideways under the others.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ColumnPin {
+  /// It scrolls with the rows.
+  #[default]
+  None,
+  /// It stays at the start: a name, an id. The columns pinned there are the first ones, one after another.
+  Start,
+  /// It stays at the end: a row's actions, a total. The columns pinned there are the last ones.
+  End,
+}
+
 type CellFn<R> = Arc<dyn Fn(&R) -> Element + Send + Sync>;
 type TextFn<R> = Arc<dyn Fn(&R) -> String + Send + Sync>;
 type CompareFn<R> = Arc<dyn Fn(&R, &R) -> Ordering + Send + Sync>;
@@ -257,11 +282,13 @@ pub struct TableColumn<R> {
   track: TrackSpec,
   align: ColumnAlign,
   sortable: bool,
-  sticky: bool,
+  pin: ColumnPin,
+  resizable: Option<bool>,
   controls: bool,
   kinds: Vec<Name>,
   content: Content<R>,
   compare: Option<CompareFn<R>>,
+  editor: Option<CellEditor<R>>,
 }
 
 impl<R> Clone for TableColumn<R> {
@@ -273,11 +300,13 @@ impl<R> Clone for TableColumn<R> {
       track: self.track,
       align: self.align,
       sortable: self.sortable,
-      sticky: self.sticky,
+      pin: self.pin,
+      resizable: self.resizable,
       controls: self.controls,
       kinds: self.kinds.clone(),
       content: self.content.clone(),
       compare: self.compare.clone(),
+      editor: self.editor.clone(),
     }
   }
 }
@@ -293,11 +322,13 @@ impl<R: 'static> TableColumn<R> {
       track: TrackSpec::share(1.0),
       align: ColumnAlign::Start,
       sortable: false,
-      sticky: false,
+      pin: ColumnPin::None,
+      resizable: None,
       controls: false,
       kinds: Vec::new(),
       content: Content::Nothing,
       compare: None,
+      editor: None,
     }
   }
 
@@ -407,10 +438,21 @@ impl<R: 'static> TableColumn<R> {
     self.sort_by(move |a, b| key(a).cmp(&key(b)))
   }
 
-  /// Whether the column stays at the start while the rows scroll sideways under the others. Only the first
-  /// column stays; with the column of checkboxes, both do.
-  pub fn sticky(mut self, sticky: bool) -> Self {
-    self.sticky = sticky;
+  /// Where the column stays while the rows scroll sideways under the others: at the start or at the end. The
+  /// columns pinned at the start are the first ones, one after another, the column of checkboxes before them;
+  /// those at the end are the last ones. A column pinned where others between it and its end are not scrolls
+  /// with them. Pinned columns after the first are best given a width of their own: where each stays is reckoned
+  /// from the widths of those before it.
+  pub fn pin(mut self, pin: ColumnPin) -> Self {
+    self.pin = pin;
+    self
+  }
+
+  /// Whether a person makes the column wider or narrower, by dragging the end of its header or with Ctrl and
+  /// Left or Right on its header: as the table says unless told ([`Table::resizable`]). Only a mounted table keeps
+  /// the width it is made.
+  pub fn resizable(mut self, resizable: bool) -> Self {
+    self.resizable = Some(resizable);
     self
   }
 
@@ -418,6 +460,14 @@ impl<R: 'static> TableColumn<R> {
   /// not select or press the row.
   pub fn controls(mut self, controls: bool) -> Self {
     self.controls = controls;
+    self
+  }
+
+  /// How a [`DataGrid`](super::DataGrid) edits the column's cells in place: a text, a number, a choice or a box
+  /// ticked. A table shows them and edits nothing. A column edited with a checkbox that builds no cell of its
+  /// own shows the box.
+  pub fn editor(mut self, editor: CellEditor<R>) -> Self {
+    self.editor = Some(editor);
     self
   }
 
@@ -438,6 +488,14 @@ type SortHeard = Arc<dyn Fn(Option<&TableSort>) + Send + Sync>;
 type SelectionHeard<K> = Arc<dyn Fn(&[K]) + Send + Sync>;
 /// What says the count of the footer, given how many rows there are and how many are selected where they are.
 type CountFn = Arc<dyn Fn(usize, Option<usize>) -> String + Send + Sync>;
+/// What is told the width a column is made: its id, and the width.
+type ResizeHeard = Arc<dyn Fn(&str, f32) + Send + Sync>;
+type ResizeLabelFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
+/// The least a column is made by a person, where it says no least of its own.
+const LEAST_COLUMN: f32 = 48.0;
+/// How far Ctrl and Left or Right make a column narrower or wider, and with Shift too.
+const RESIZE_STEP: f32 = 10.0;
+const RESIZE_STEP_SHIFT: f32 = 50.0;
 
 /// The words a table writes itself, each of which the app says otherwise.
 #[derive(Clone)]
@@ -450,6 +508,8 @@ struct Words {
   select_row: Arc<str>,
   /// The footer's count, where the app says it.
   count: Option<CountFn>,
+  /// The name of a column's resizer, given the column's title.
+  resize: Option<ResizeLabelFn>,
 }
 
 impl Default for Words {
@@ -459,6 +519,7 @@ impl Default for Words {
       select_all: Arc::from("Select all"),
       select_row: Arc::from("Select row"),
       count: None,
+      resize: None,
     }
   }
 }
@@ -526,6 +587,15 @@ pub struct Table<R, K = usize> {
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
   on_selection_change: Vec<SelectionHeard<K>>,
   words: Words,
+  resizable: bool,
+  on_column_resize: Vec<ResizeHeard>,
+  on_column_resize_end: Vec<ResizeHeard>,
+  /// The widths a person made the columns, by their ids: what the table's host keeps.
+  resized: Arc<HashMap<Arc<str>, f32>>,
+  /// Whether its cells take the focus and are edited: a data grid.
+  grid: bool,
+  read_only: bool,
+  on_edit: Vec<EditHeard<K>>,
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
@@ -560,6 +630,13 @@ impl<R, K: Clone> Clone for Table<R, K> {
       select: self.select.clone(),
       on_selection_change: self.on_selection_change.clone(),
       words: self.words.clone(),
+      resizable: self.resizable,
+      on_column_resize: self.on_column_resize.clone(),
+      on_column_resize_end: self.on_column_resize_end.clone(),
+      resized: self.resized.clone(),
+      grid: self.grid,
+      read_only: self.read_only,
+      on_edit: self.on_edit.clone(),
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
@@ -604,6 +681,13 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       select: None,
       on_selection_change: Vec::new(),
       words: Words::default(),
+      resizable: false,
+      on_column_resize: Vec::new(),
+      on_column_resize_end: Vec::new(),
+      resized: Arc::default(),
+      grid: false,
+      read_only: false,
+      on_edit: Vec::new(),
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -643,6 +727,13 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       select: None,
       on_selection_change: Vec::new(),
       words: self.words,
+      resizable: self.resizable,
+      on_column_resize: self.on_column_resize,
+      on_column_resize_end: self.on_column_resize_end,
+      resized: self.resized,
+      grid: self.grid,
+      read_only: self.read_only,
+      on_edit: Vec::new(),
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -793,6 +884,35 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self
   }
 
+  /// Whether a person makes the columns wider or narrower, each that says nothing of its own
+  /// ([`TableColumn::resizable`]): by dragging the end of a column's header, or with Ctrl and Left or Right on it
+  /// (with Shift, by more). Off unless told. A mounted table keeps the widths it is made; one converted into an
+  /// element has no resizers.
+  pub fn resizable(mut self, resizable: bool) -> Self {
+    self.resizable = resizable;
+    self
+  }
+
+  /// Called with a column's id and its width as a person makes it wider or narrower, at each move; a second
+  /// handler is called after the first.
+  pub fn on_column_resize(mut self, handler: impl Fn(&str, f32) + Send + Sync + 'static) -> Self {
+    self.on_column_resize.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with a column's id and its width when a person has made it wider or narrower: the end of a drag
+  /// that changed it, or a key.
+  pub fn on_column_resize_end(mut self, handler: impl Fn(&str, f32) + Send + Sync + 'static) -> Self {
+    self.on_column_resize_end.push(Arc::new(handler));
+    self
+  }
+
+  /// The name of a column's resizer to what reads the tree, given the column's title: "Resize Name" unless told.
+  pub fn resize_label(mut self, label: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+    self.words.resize = Some(Arc::new(label));
+    self
+  }
+
   /// What stands under the header where there are no rows: by default an empty state that says so.
   pub fn empty(mut self, empty: impl Into<Element>) -> Self {
     self.empty = Some(empty.into());
@@ -912,6 +1032,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self.select.is_some()
   }
 
+  /// The table as a data grid: its cells take the focus and are edited, where it is mounted.
+  pub(super) fn as_grid(mut self) -> Self {
+    self.grid = true;
+    self.resizable = true;
+    self
+  }
+
+  pub(super) fn set_read_only(mut self, read_only: bool) -> Self {
+    self.read_only = read_only;
+    self
+  }
+
+  pub(super) fn add_on_edit(mut self, handler: impl Fn(&CellEdit<K>) -> bool + Send + Sync + 'static) -> Self {
+    self.on_edit.push(Arc::new(handler));
+    self
+  }
+
   fn with_checkboxes(&self) -> bool {
     self.selectable() && self.checkboxes
   }
@@ -941,19 +1078,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let count = self.columns.len();
     let mut specs = Vec::with_capacity(count + 1);
     if self.with_checkboxes() {
-      let lead = if self.sticky_lead() {
-        geometry.padding_start
-      } else {
-        0.0
-      };
+      let lead = if self.pins().0 > 0 { geometry.padding_start } else { 0.0 };
       specs.push(TrackSpec::px(geometry.select + geometry.gap + lead));
     }
     for (index, column) in self.columns.iter().enumerate() {
       let mut extra = if index + 1 < count { geometry.gap } else { 0.0 };
-      if index == 0 && column.sticky && !self.with_checkboxes() {
+      let (start, end) = self.pins();
+      if index == 0 && start > 0 && !self.with_checkboxes() {
         extra += geometry.padding_start;
       }
+      // A row whose last columns stay holds its padding at the end in the last cell, which covers it.
+      if index + 1 == count && end > 0 {
+        extra += geometry.padding_end;
+      }
       let mut spec = column.track;
+      if let Some(width) = self.resized.get(&column.id) {
+        spec.width = TrackWidth::Px(*width);
+      }
       if let TrackWidth::Px(px) = spec.width {
         spec.width = TrackWidth::Px(px + extra);
       }
@@ -968,9 +1109,20 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     specs
   }
 
-  /// Whether the cells at the start stay while the rows scroll sideways: the first column says so.
-  fn sticky_lead(&self) -> bool {
-    self.columns.first().is_some_and(|column| column.sticky)
+  /// How many columns stay at the start and how many at the end: the first ones pinned at the start, one
+  /// after another, and the last ones pinned at the end.
+  fn pins(&self) -> (usize, usize) {
+    let start = self
+      .columns
+      .iter()
+      .take_while(|column| column.pin == ColumnPin::Start)
+      .count();
+    let end = self.columns[start..]
+      .iter()
+      .rev()
+      .take_while(|column| column.pin == ColumnPin::End)
+      .count();
+    (start, end)
   }
 
   /// The table as a renderer sees it, with the rows of `window` where it builds some of them.
@@ -980,7 +1132,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let geometry = Geometry::of(&recipe);
     let selectable = self.selectable();
     let checkboxes = self.with_checkboxes();
-    let sticky = self.sticky_lead();
+    let (start_pins, end_pins) = self.pins();
+    let sticky = start_pins > 0;
     let footer = self.count || self.pagination.is_some();
     let count = self.rows.len();
 
@@ -994,7 +1147,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             .clone()
             .state(TableState::Selected, selected)
             .state(TableState::Last, last)
-            .state(TableState::Sticky, sticky);
+            .state(TableState::Pinned, sticky);
           self.resolve(theme, &case)
         })
         .clone()
@@ -1004,10 +1157,11 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       cell_recipes
         .entry((column, selected))
         .or_insert_with(|| {
+          let pinned = column < start_pins || column + end_pins >= self.columns.len();
           let mut case = case
             .clone()
             .state(TableState::Selected, selected)
-            .state(TableState::Sticky, column == 0 && sticky);
+            .state(TableState::Pinned, pinned);
           case.states.extend(self.columns[column].kinds.iter().copied());
           self.resolve(theme, &case)
         })
@@ -1037,11 +1191,66 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     } else {
       0.0
     };
-    let sticky_of = |column: usize| (column == 0 && sticky).then_some(lead_inset);
+    // Where each pinned column stays: after the checkboxes and the pinned columns before it at the start, before
+    // the pinned columns after it at the end. Each is as wide as its track is known to be.
+    let track_widths = tracks.widths(None, 0.0);
+    let lead_tracks = usize::from(checkboxes);
+    let width_of = |column: usize| track_widths.get(column + lead_tracks).copied().unwrap_or(0.0);
+    let columns_count = self.columns.len();
+    let sticky_of = |column: usize| -> Option<Sticky> {
+      if column < start_pins {
+        Some(Sticky::left(lead_inset + (0..column).map(width_of).sum::<f32>()))
+      } else if column + end_pins >= columns_count {
+        Some(Sticky::right((column + 1..columns_count).map(width_of).sum::<f32>()))
+      } else {
+        None
+      }
+    };
+    let trail_of = |column: usize| {
+      if column + 1 == columns_count && end_pins > 0 {
+        geometry.padding_end
+      } else {
+        0.0
+      }
+    };
     let table_fill = recipe.part(TablePart::Root).rest().background;
     let header_fill = recipe.part(TablePart::Header).rest().background;
     let cell_ends = |column: usize| column + 1 == self.columns.len();
+    let columns_built = window.as_ref().and_then(|window| window.columns.clone());
+    let built = |column: usize| {
+      columns_built
+        .as_ref()
+        .is_none_or(|built| built.get(column).copied().unwrap_or(true))
+    };
 
+    // A mounted grid's cells take the focus and are edited.
+    let grid_host = window
+      .as_ref()
+      .filter(|_| self.grid)
+      .and_then(|window| window.host.as_ref())
+      .map(|host| host.state.clone());
+    let grid_model: Option<Arc<dyn GridCells>> = grid_host.as_ref().map(|host| {
+      Arc::new(GridModel {
+        host: host.clone(),
+        rows: self.rows.clone(),
+        keys: keys.clone(),
+        editors: Arc::new(
+          self
+            .columns
+            .iter()
+            .map(|column| (column.id.clone(), column.editor.clone()))
+            .collect(),
+        ),
+        on_edit: self.on_edit.clone(),
+        model: model.clone(),
+        read_only: self.read_only,
+      }) as Arc<dyn GridCells>
+    });
+    let editing = grid_host.as_ref().and_then(|host| *host.editing.lock());
+    let focused_column = grid_host
+      .as_ref()
+      .and_then(|host| *host.focused_column.lock())
+      .unwrap_or(0);
     let held_now: HashSet<&K> = self.selected.iter().collect();
     let shown: Vec<usize> = match &window {
       _ if self.loading => Vec::new(),
@@ -1073,20 +1282,90 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .columns
           .iter()
           .enumerate()
+          .filter(|(column_index, _)| built(*column_index))
           .map(|(column_index, column)| {
             let part = cell_recipe(column_index, selected)
               .part(TablePart::Cell)
               .forced(self.forced);
-            let content = match &column.content {
-              Content::Text(text) => part.text(&text(row)).nowrap().into(),
-              Content::Element(cell) => cell(row),
-              Content::Nothing => Row::new().into(),
+            let content = match (&column.content, column.editor.as_ref().map(|editor| &editor.kind)) {
+              (Content::Text(text), _) => part.text(&text(row)).nowrap().into(),
+              (Content::Element(cell), _) => cell(row),
+              // A column edited with a box that builds no cell of its own shows the box.
+              (Content::Nothing, Some(EditorKind::Checkbox(checked))) => Row::new()
+                .inert(true)
+                .child(
+                  Checkbox::new(&column.title)
+                    .label_hidden(true)
+                    .checked(checked(row))
+                    .build(theme),
+                )
+                .into(),
+              (Content::Nothing, _) => Row::new().into(),
             };
+            let grid = grid_model.as_ref().map(|grid| {
+              let editable = !self.read_only && !self.disabled && column.editor.is_some();
+              let being_edited = editing.filter(|editing| (editing.row, editing.column) == (index, column_index));
+              let editor = being_edited.and_then(|editing| {
+                let host = grid_host.as_ref()?;
+                let editor = column.editor.as_ref()?;
+                let ref_ = window.as_ref()?.editor_ref.clone();
+                let part = recipe.part(TablePart::Editor);
+                let built: Element = match &editor.kind {
+                  EditorKind::Text(_) => Input::new(host.draft_text.clone())
+                    .id(id_of("editor").unwrap_or_else(|| Arc::from("editor")))
+                    .size(InputSize::Sm)
+                    .invalid(editing.refused)
+                    .label(&column.title)
+                    .build(theme),
+                  EditorKind::Number(_) => NumberInput::optional(host.draft_number.clone())
+                    .id(id_of("editor").unwrap_or_else(|| Arc::from("editor")))
+                    .size(InputSize::Sm)
+                    .invalid(editing.refused)
+                    .label(&column.title)
+                    .build(theme),
+                  EditorKind::Choice(choices, _) => {
+                    let committing = grid.clone();
+                    Select::new(
+                      host.draft_choice.clone(),
+                      choices
+                        .iter()
+                        .enumerate()
+                        .map(|(place, choice)| crate::components::SelectOption::new(place, choice.clone())),
+                    )
+                    .id(id_of("editor").unwrap_or_else(|| Arc::from("editor")))
+                    .size(InputSize::Sm)
+                    .invalid(editing.refused)
+                    .label(&column.title)
+                    .on_change(move |_: &usize| committing.commit(GridStep::Stay))
+                    .build(theme)
+                  }
+                  EditorKind::Checkbox(_) => return None,
+                };
+                let choice = matches!(editor.kind, EditorKind::Choice(..));
+                Some(editor_in(&part, built, choice, grid.clone(), ref_).into())
+              });
+              GridCell {
+                row: index,
+                editable,
+                editor,
+                entry: entry == Some(index) && column_index == focused_column.min(self.columns.len().saturating_sub(1)),
+                column_index: column_index + 1 + usize::from(checkboxes),
+                checkbox: column.editor.as_ref().is_some_and(CellEditor::is_checkbox),
+                element: window
+                  .as_ref()
+                  .and_then(|window| window.cell_refs.get(&(index, column_index)).cloned())
+                  .unwrap_or_default(),
+                grid: grid.clone(),
+                id: id_of(&format!("cell-{index}-{column_index}")),
+              }
+            });
             TableCell {
+              column: column_index,
               content,
+              grid,
               part,
               align: column.align,
-              sticky: sticky_of(column_index),
+              pinned: sticky_of(column_index),
               fill: sticky_of(column_index).map(|_| stuck_fill.clone()),
               controls: column.controls,
               last: cell_ends(column_index),
@@ -1096,6 +1375,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               } else {
                 0.0
               },
+              trail: trail_of(column_index),
             }
           })
           .collect();
@@ -1110,12 +1390,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           name,
           cells,
           checkbox: checkboxes,
-          sticky,
+          pinned_start: sticky,
+          pinned_end: end_pins > 0,
           lead_fill: sticky.then(|| stuck_fill.clone()),
           entry: entry == Some(index),
           recipe,
           forced: self.forced,
           tracks: tracks.clone(),
+          columns_built: columns_built.clone(),
+          grid: grid_model.is_some(),
           geometry,
           actions: (!self.disabled).then(|| model.actions(index)),
           select_label: self.words.select_row.clone(),
@@ -1133,6 +1416,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       .columns
       .iter()
       .enumerate()
+      .filter(|(column_index, _)| built(*column_index))
       .map(|(column_index, column)| {
         let sorted = self
           .sort
@@ -1144,7 +1428,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .clone()
           .state(TableState::Sortable, sortable)
           .state(TableState::Sorted, sorted.is_some())
-          .state(TableState::Sticky, column_index == 0 && sticky);
+          .state(TableState::Pinned, sticky_of(column_index).is_some());
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
           let (write, handlers, next) = (
             self.write_sort.clone(),
@@ -1160,13 +1444,44 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             }
           }) as Arc<dyn Fn() + Send + Sync>
         });
+        let resizable = column.resizable.unwrap_or(self.resizable) && !self.disabled;
+        let resize = window
+          .as_ref()
+          .and_then(|window| window.host.clone())
+          .filter(|_| resizable)
+          .map(|host| {
+            let floor = column.track.min.max(LEAST_COLUMN);
+            Arc::new(ResizeLink {
+              host,
+              column: column_index,
+              id: column.id.clone(),
+              least: floor,
+              most: column.track.max,
+              extra: geometry.gap * f32::from(u8::from(column_index + 1 < columns_count))
+                + if column_index == 0 && sticky && !checkboxes {
+                  geometry.padding_start
+                } else {
+                  0.0
+                }
+                + trail_of(column_index),
+              start: Mutex::new(0.0),
+              on_resize: self.on_column_resize.clone(),
+              on_resize_end: self.on_column_resize_end.clone(),
+              label: self
+                .words
+                .resize
+                .as_ref()
+                .map_or_else(|| format!("Resize {}", column.title), |label| label(&column.title)),
+            })
+          });
         TableHeader {
+          column: column_index,
           title: column.title.clone(),
           title_hidden: column.title_hidden,
           align: column.align,
           sortable,
           sorted,
-          sticky: sticky_of(column_index),
+          pinned: sticky_of(column_index),
           last: cell_ends(column_index),
           fill: sticky_of(column_index).and(header_fill.clone()),
           gap: geometry.gap,
@@ -1175,8 +1490,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           } else {
             0.0
           },
+          trail: trail_of(column_index),
           recipe: self.resolve(theme, &header_case),
           press,
+          resize,
           id: id_of(&format!("header-{}", column.id)),
         }
       })
@@ -1217,7 +1534,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       rows,
       selectable,
       checkboxes,
-      sticky,
+      grid: grid_model.is_some(),
+      pinned_start: sticky,
+      pinned_end: end_pins > 0,
       lead_inset,
       selection: match (all, some) {
         (true, _) => Some(true),
@@ -1240,6 +1559,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       recipe,
       geometry,
       tracks,
+      columns_built,
       window: body_window,
       scroll: window.as_ref().map(|window| window.scroll.clone()),
       on_scroll: window.as_ref().and_then(|window| window.on_scroll.clone()),
@@ -1267,6 +1587,8 @@ pub struct Geometry {
   pub gap: f32,
   /// The padding at the start of a row.
   pub padding_start: f32,
+  /// The padding at the end of a row.
+  pub padding_end: f32,
   /// The width of the column of checkboxes.
   pub select: f32,
 }
@@ -1281,6 +1603,7 @@ impl Geometry {
     Self {
       gap: spacing(row.gap),
       padding_start: spacing(row.padding_start.or(row.padding_x)),
+      padding_end: spacing(row.padding_end.or(row.padding_x)),
       select: px(select.width, theme).unwrap_or(16.0),
     }
   }
@@ -1419,6 +1742,11 @@ struct Window {
   row_height: f32,
   scroll: ScrollState,
   refs: HashMap<usize, ElementRef>,
+  /// Which columns are built, where the table builds those in view only: `None` for every one.
+  columns: Option<Arc<Vec<bool>>>,
+  /// The refs of the cells of a grid, by row and column, and of the editor of the cell being edited.
+  cell_refs: HashMap<(usize, usize), ElementRef>,
+  editor_ref: ElementRef,
   host: Option<Arc<HostLink>>,
   /// The rows as the body's focus group steps over them, built or not.
   rows: Arc<dyn FocusRows>,
@@ -1444,8 +1772,12 @@ pub struct TableView {
   pub selectable: bool,
   /// Whether it has the column of checkboxes.
   pub checkboxes: bool,
-  /// Whether the cells at the start stay while the rows scroll sideways.
-  pub sticky: bool,
+  /// Whether its cells take the focus and are edited: a mounted data grid.
+  pub grid: bool,
+  /// Whether the cells at the start stay while the rows scroll sideways ([`ColumnPin::Start`]).
+  pub pinned_start: bool,
+  /// Whether the cells at the end stay ([`ColumnPin::End`]).
+  pub pinned_end: bool,
   /// Where the first column stays from the start, after the checkbox's.
   pub lead_inset: f32,
   /// Whether every row is selected: `Some(true)` all, `Some(false)` none, `None` some.
@@ -1473,6 +1805,8 @@ pub struct TableView {
   pub geometry: Geometry,
   /// The tracks of the columns, which the header and every row lay their cells out in.
   pub tracks: ColumnTracks,
+  /// Which columns are built, where a mounted table builds those in view only: `None` for every one.
+  pub columns_built: Option<Arc<Vec<bool>>>,
   /// Where the rows a mounted table does not build are.
   pub window: Option<BodyWindow>,
   scroll: Option<ScrollState>,
@@ -1499,7 +1833,7 @@ impl TableView {
     let mut root = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(TablePart::Root))
-      .describe("a11y_role", if self.selectable { "grid" } else { "table" })
+      .describe("a11y_role", if self.selectable || self.grid { "grid" } else { "table" })
       .describe("a11y_rowcount", (self.total + 1).to_string())
       .describe("a11y_colcount", columns.to_string());
     if let Some(label) = &self.label {
@@ -1541,14 +1875,21 @@ impl TableView {
       .focus_group(FocusGroup::horizontal().one_stop(true).wrap(false))
       .describe("a11y_role", "row")
       .describe("a11y_rowindex", "1");
-    if self.sticky {
+    if self.pinned_start {
       header = header.padding_left(0.0);
+    }
+    if self.pinned_end {
+      header = header.padding_right(0.0);
     }
     if self.checkboxes {
       header = header.child(self.select_all());
     }
     let headers = std::mem::take(&mut self.headers);
-    header.with_children(headers.into_iter().map(TableHeader::render))
+    let placed = headers.into_iter().map(|header| (header.column, header.render()));
+    header.with_children(in_tracks(
+      self.columns_built.as_ref().map(|built| built.as_slice()),
+      placed,
+    ))
   }
 
   /// The header's checkbox, in the cell of the column of checkboxes: checked where every row is selected,
@@ -1566,8 +1907,8 @@ impl TableView {
     if let Some(id) = &self.id {
       checkbox = checkbox.id(format!("{id}-select-all"));
     }
-    let mut cell = lead_cell(&part, self.geometry, self.sticky).child(checkbox.build(self.theme()));
-    if self.sticky {
+    let mut cell = lead_cell(&part, self.geometry, self.pinned_start).child(checkbox.build(self.theme()));
+    if self.pinned_start {
       // It covers what scrolls under it, in the header's fill.
       cell = cell.sticky(Sticky::left(0.0));
       if let Some(fill) = self.part(TablePart::Header).rest().background {
@@ -1730,6 +2071,27 @@ impl TableView {
   }
 }
 
+/// The cells of a row, each with the column it is of, in the tracks of the columns: where a run of columns is
+/// not built (`built` says so), one room spans their tracks in place of a cell each.
+pub fn in_tracks(built: Option<&[bool]>, cells: impl IntoIterator<Item = (usize, Element)>) -> Vec<Element> {
+  let mut placed = Vec::new();
+  let mut next = 0;
+  let room = |from: usize, to: usize, placed: &mut Vec<Element>| {
+    if to > from {
+      placed.push(Row::new().track_span(to - from).key(format!("columns-{from}")).into());
+    }
+  };
+  for (column, cell) in cells {
+    room(next, column, &mut placed);
+    placed.push(cell);
+    next = column + 1;
+  }
+  if let Some(built) = built {
+    room(next, built.len(), &mut placed);
+  }
+  placed
+}
+
 /// The cell of the column of checkboxes, the header's or a row's: as wide as its track, its padding at the
 /// start where the cells at the start stay.
 fn lead_cell(part: &ResolvedPart, geometry: Geometry, sticky: bool) -> Row {
@@ -1746,6 +2108,8 @@ fn lead_cell(part: &ResolvedPart, geometry: Geometry, sticky: bool) -> Row {
 
 /// The header of one column as a renderer sees it.
 pub struct TableHeader {
+  /// Which column it is of, from 0.
+  pub column: usize,
   pub title: Arc<str>,
   /// Whether its title is said to what reads the tree and not drawn: the column of a row's actions.
   pub title_hidden: bool,
@@ -1754,17 +2118,19 @@ pub struct TableHeader {
   pub sortable: bool,
   /// Which way the rows are sorted by it, if they are.
   pub sorted: Option<SortDirection>,
-  /// Where it stays from the start while the rows scroll sideways, if it does.
-  pub sticky: Option<f32>,
+  /// Where it stays while the rows scroll sideways, if its column is pinned.
+  pub pinned: Option<Sticky>,
   /// Whether it is the last column, with no room after it.
   pub last: bool,
   /// The fill of a header that stays: the header row's, over which the others scroll.
   pub fill: Option<BackgroundColor>,
   gap: f32,
   lead: f32,
+  trail: f32,
   /// The style of each part of the header, in its case.
   pub recipe: ResolvedRecipe,
   press: Option<Arc<dyn Fn() + Send + Sync>>,
+  resize: Option<Arc<ResizeLink>>,
   id: Option<Arc<str>>,
 }
 
@@ -1780,7 +2146,9 @@ impl TableHeader {
       .align_items(Alignment::Center)
       .justify(justify(self.align))
       .describe("a11y_role", "columnheader")
-      .describe("a11y_name", self.title.clone());
+      .describe("a11y_name", self.title.clone())
+      // A header is the same element wherever the columns built around it start.
+      .key(format!("header-{}", self.column));
     if self.sortable || self.sorted.is_some() {
       let sort = match self.sorted {
         Some(SortDirection::Ascending) => "ascending",
@@ -1792,11 +2160,14 @@ impl TableHeader {
     if !self.last {
       cell = cell.padding_right(self.gap);
     }
+    if self.trail > 0.0 {
+      cell = cell.padding_right(self.trail);
+    }
     if self.lead > 0.0 {
       cell = cell.padding_left(self.lead);
     }
-    if let Some(inset) = self.sticky {
-      cell = cell.sticky(Sticky::left(inset));
+    if let Some(pinned) = self.pinned {
+      cell = cell.sticky(pinned);
     }
     if let Some(fill) = self.fill.clone() {
       cell = cell.background(fill);
@@ -1815,39 +2186,191 @@ impl TableHeader {
     Some(glyph(&self.part(TablePart::SortIcon), Name::new(name), false))
   }
 
-  /// How the default renderer builds a header: its title and its arrow, pressed to sort where it sorts.
+  /// What is dragged at the end of the header to make the column wider or narrower: `None` for a column that is
+  /// not resized. It is a separator to what reads the tree, with the column's width as its value; the keys that
+  /// resize the column are its header's (Ctrl and Left or Right).
+  pub fn resizer(&self) -> Option<Row> {
+    let link = self.resize.clone()?;
+    let width = link.width();
+    let (start, moved, end) = (link.clone(), link.clone(), link.clone());
+    Some(
+      Row::new()
+        .part(&self.part(TablePart::Resizer))
+        .justify(Justify::Center)
+        .align_items(Alignment::Stretch)
+        .height(Dimension::Pct(100.0))
+        .interaction_group(true)
+        .describe("a11y_role", "separator")
+        .describe("a11y_orientation", "vertical")
+        .describe("a11y_name", link.label.clone())
+        .describe("a11y_valuenow", format!("{}", width.round()))
+        .start_drag_buttons(MouseButtonMask::LEFT)
+        .on_drag_start(move |_: DragEvent| start.begin())
+        .on_drag_move(move |event: DragEvent| moved.drag(event.total_delta_x))
+        .on_drag_end(move |_: DragEvent| end.finish())
+        // A press of it is its own: it does not sort the rows.
+        .on_click(|event: MouseEvent| event.stop_propagation())
+        .child(Row::new().part(&self.part(TablePart::ResizeLine))),
+    )
+  }
+
+  /// How the default renderer builds a header: its title and its arrow, pressed to sort where it sorts, and its
+  /// resizer at its end where the column is resized.
   pub fn render(self) -> Element {
     let part = self.part(TablePart::HeaderCell);
     let title = if self.title_hidden {
       None
     } else {
-      Some(part.text(&self.title).nowrap())
+      // It gives way to the room the column has, and ends in an ellipsis.
+      Some(
+        part
+          .text(&self.title)
+          .nowrap()
+          .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
+          .flex_full(0.0, 1.0, None)
+          .min_width(Dimension::Px(0.0)),
+      )
     };
-    let cell = self.cell();
-    let Some(press) = self.press.clone().filter(|_| self.sortable) else {
-      let mut label = Row::new().align_items(Alignment::Center).part(&part);
-      if let Some(title) = title {
-        label = label.child(title);
+    let resizer = self.resizer();
+    let mut cell = self.cell();
+    let label: Element = match self.press.clone().filter(|_| self.sortable) {
+      None => {
+        let mut label = Row::new()
+          .align_items(Alignment::Center)
+          .flex_full(0.0, 1.0, None)
+          .min_width(Dimension::Px(0.0))
+          .part(&part);
+        if let Some(title) = title {
+          label = label.child(title);
+        }
+        if let Some(icon) = self.sort_icon() {
+          label = label.child(icon);
+        }
+        // A header that is resized and not sorted is a stop of the header's keys, for Ctrl and Left or Right.
+        if self.resize.is_some() {
+          label = label.tab_index(0).describe("a11y_name", self.title.clone());
+          if let Some(id) = &self.id {
+            label = label.id(id.clone());
+          }
+        }
+        label.into()
       }
-      if let Some(icon) = self.sort_icon() {
-        label = label.child(icon);
+      Some(press) => {
+        let mut button = pressable(&part, false)
+          .align_items(Alignment::Center)
+          .flex_full(0.0, 1.0, None)
+          .min_width(Dimension::Px(0.0))
+          .describe("a11y_name", format!("Sort by {}", self.title))
+          .on_click(move |_| press());
+        if let Some(title) = title {
+          button = button.child(title);
+        }
+        if let Some(icon) = self.sort_icon() {
+          button = button.child(icon);
+        }
+        if let Some(id) = &self.id {
+          button = button.id(id.clone());
+        }
+        button.into()
       }
+    };
+    let Some(resizer) = resizer else {
       return cell.child(label).into();
     };
-    let mut button = pressable(&part, false)
-      .align_items(Alignment::Center)
-      .describe("a11y_name", format!("Sort by {}", self.title))
-      .on_click(move |_| press());
-    if let Some(title) = title {
-      button = button.child(title);
+    let link = self.resize.clone().expect("a resizer has its link");
+    // The label takes the room the resizer leaves, which stands in the room after the column, on its edge.
+    let half = px(self.part(TablePart::Resizer).rest().width, self.recipe.theme()).unwrap_or(8.0) / 2.0;
+    let after = if self.last { self.trail } else { self.gap };
+    cell = cell
+      .padding_right((after / 2.0 - half).max(0.0))
+      .on_key_down(move |event: KeyboardEvent| {
+        if !event.focus_within || !(event.ctrl || event.meta) || event.alt {
+          return;
+        }
+        let step = if event.shift { RESIZE_STEP_SHIFT } else { RESIZE_STEP };
+        let by = match event.key.as_str() {
+          "ArrowLeft" => -step,
+          "ArrowRight" => step,
+          _ => return,
+        };
+        event.prevent_default();
+        link.step(by);
+      });
+    cell
+      .child(
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(Dimension::Px(0.0))
+          .justify(justify(self.align))
+          .align_items(Alignment::Center)
+          .child(label),
+      )
+      .child(resizer)
+      .into()
+  }
+}
+
+/// A column's resizer and its table's host: what a drag or a key makes the column, and who is told.
+struct ResizeLink {
+  host: Arc<HostLink>,
+  column: usize,
+  id: Arc<str>,
+  /// The least and the most a person makes the column.
+  least: f32,
+  most: f32,
+  /// The room of its track that is not the column's own: the gap after it, and the row's padding it holds.
+  extra: f32,
+  /// The column's width when the drag started.
+  start: Mutex<f32>,
+  on_resize: Vec<ResizeHeard>,
+  on_resize_end: Vec<ResizeHeard>,
+  label: String,
+}
+
+impl ResizeLink {
+  /// The column's width now: its track's, less what of it is not the column's own.
+  fn width(&self) -> f32 {
+    (self.host.track_width(self.column) - self.extra).max(0.0)
+  }
+
+  fn begin(&self) {
+    *self.start.lock() = self.width();
+  }
+
+  fn drag(&self, by: f32) {
+    let start = *self.start.lock();
+    self.set(start + by);
+  }
+
+  fn finish(&self) {
+    let width = self.width();
+    if (width - *self.start.lock()).abs() > 0.01 {
+      for handler in &self.on_resize_end {
+        handler(&self.id, width);
+      }
     }
-    if let Some(icon) = self.sort_icon() {
-      button = button.child(icon);
+  }
+
+  /// A key: narrower or wider by `by`, and that is the end of it.
+  fn step(&self, by: f32) {
+    let before = self.width();
+    let after = self.set(before + by);
+    if (after - before).abs() > 0.01 {
+      for handler in &self.on_resize_end {
+        handler(&self.id, after);
+      }
     }
-    if let Some(id) = &self.id {
-      button = button.id(id.clone());
+  }
+
+  /// Makes the column `width`, between its least and its most: its width now.
+  fn set(&self, width: f32) -> f32 {
+    let width = width.clamp(self.least, self.most.max(self.least));
+    if (width - self.width()).abs() > 0.01 && self.host.resize(&self.id, width) {
+      for handler in &self.on_resize {
+        handler(&self.id, width);
+      }
     }
-    cell.child(button).into()
+    width
   }
 }
 
@@ -1861,13 +2384,17 @@ fn justify(align: ColumnAlign) -> Justify {
 
 /// One cell of a row as a renderer sees it.
 pub struct TableCell {
+  /// Which column it is of, from 0.
+  pub column: usize,
   /// What the column built from the row.
   pub content: Element,
+  /// What it is and does in a data grid: `None` in a table.
+  pub grid: Option<GridCell>,
   /// The style of the cell, in the case of its column and its row.
   pub part: ResolvedPart,
   pub align: ColumnAlign,
-  /// Where it stays from the start while the rows scroll sideways, if it does.
-  pub sticky: Option<f32>,
+  /// Where it stays while the rows scroll sideways, if its column is pinned.
+  pub pinned: Option<Sticky>,
   /// Whether a press in it is its own, not the row's.
   pub controls: bool,
   /// Whether it is the last of the row, with no room after it.
@@ -1876,27 +2403,45 @@ pub struct TableCell {
   pub fill: Option<BackgroundColor>,
   gap: f32,
   lead: f32,
+  trail: f32,
 }
 
 impl TableCell {
   /// How the default renderer builds a cell: its content where its column has it, in the room of its
   /// track. What takes the focus in it is out of the arrow keys of the rows: Tab reaches it from its row.
-  pub fn render(self) -> Element {
+  pub fn render(mut self) -> Element {
     let mut cell = Row::new()
       .align_items(Alignment::Center)
       .justify(justify(self.align))
       .part(&self.part)
-      .focus_group(FocusGroup::none())
-      .describe("a11y_role", "cell")
-      .child(self.content);
+      // A cell is the same element wherever the columns built around it start.
+      .key(format!("cell-{}", self.column));
+    match self.grid.take() {
+      // A cell of a grid is a stop of the grid's keys, and holds its editor while it is edited.
+      Some(mut grid) => {
+        let editor = grid.editor.take();
+        cell = grid
+          .dress(self.column, cell, editor.is_some())
+          .child(editor.unwrap_or(self.content));
+      }
+      None => {
+        cell = cell
+          .describe("a11y_role", "cell")
+          .focus_group(FocusGroup::none())
+          .child(self.content)
+      }
+    }
     if !self.last {
       cell = cell.padding_right(self.gap);
+    }
+    if self.trail > 0.0 {
+      cell = cell.padding_right(self.trail);
     }
     if self.lead > 0.0 {
       cell = cell.padding_left(self.lead);
     }
-    if let Some(inset) = self.sticky {
-      cell = cell.sticky(Sticky::left(inset));
+    if let Some(pinned) = self.pinned {
+      cell = cell.sticky(pinned);
     }
     if let Some(fill) = self.fill {
       cell = cell.background(fill);
@@ -1922,7 +2467,9 @@ pub struct TableRow {
   /// Whether it has a checkbox before its cells.
   pub checkbox: bool,
   /// Whether the cells at its start stay while the rows scroll sideways.
-  pub sticky: bool,
+  pub pinned_start: bool,
+  /// Whether the cells at its end stay.
+  pub pinned_end: bool,
   /// The fill of the cells that stay, the row's, over which the others scroll.
   pub lead_fill: Option<BackgroundColor>,
   /// Whether Tab enters the rows at it.
@@ -1931,6 +2478,9 @@ pub struct TableRow {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   tracks: ColumnTracks,
+  columns_built: Option<Arc<Vec<bool>>>,
+  /// Whether its cells take the focus, and not the row: a row of a data grid.
+  grid: bool,
   geometry: Geometry,
   actions: Option<Arc<RowActions>>,
   /// The name of its checkbox.
@@ -1960,16 +2510,24 @@ impl TableRow {
       .interaction_group(true)
       .stops_inside(true)
       .ref_element(self.element.clone())
-      .focus_entry(self.entry)
       .describe("a11y_role", "row")
       .describe("a11y_rowindex", (self.index + 2).to_string())
       // A row is the same element wherever the rows built around it start.
       .key(format!("row-{}", self.index));
-    if self.host.is_some() {
-      row = row.focus_row(self.index);
+    if self.grid {
+      // The cells are the stops of a grid's keys, Left and Right a group of the row's own.
+      row = row.focusable(false).focus_group(FocusGroup::horizontal().wrap(false));
+    } else {
+      row = row.focus_entry(self.entry);
+      if self.host.is_some() {
+        row = row.focus_row(self.index);
+      }
     }
-    if self.sticky {
+    if self.pinned_start {
       row = row.padding_left(0.0);
+    }
+    if self.pinned_end {
+      row = row.padding_right(0.0);
     }
     if let Some(name) = &self.name {
       row = row.describe("a11y_name", name.clone()).focus_label(name.clone());
@@ -2044,8 +2602,8 @@ impl TableRow {
       .checked(self.selected)
       .disabled(self.disabled)
       .build(self.recipe.theme());
-    let mut cell = lead_cell(&part, self.geometry, self.sticky).child(Row::new().inert(true).child(checkbox));
-    if self.sticky {
+    let mut cell = lead_cell(&part, self.geometry, self.pinned_start).child(Row::new().inert(true).child(checkbox));
+    if self.pinned_start {
       cell = cell.sticky(Sticky::left(0.0));
     }
     if let Some(fill) = self.lead_fill.clone() {
@@ -2067,7 +2625,13 @@ impl TableRow {
       row = row.child(self.checkbox());
     }
     let cells = std::mem::take(&mut self.cells);
-    row.with_children(cells.into_iter().map(TableCell::render)).into()
+    let placed = cells.into_iter().map(|cell| (cell.column, cell.render()));
+    row
+      .with_children(in_tracks(
+        self.columns_built.as_ref().map(|built| built.as_slice()),
+        placed,
+      ))
+      .into()
   }
 }
 
@@ -2093,6 +2657,487 @@ fn second_press(index: usize, event: &MouseEvent) -> bool {
   })
 }
 
+/// What a person typed or chose in a cell of a [`DataGrid`](super::DataGrid), told to the app with the row and
+/// the column ([`CellEdit`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum CellValue {
+  /// A text typed in.
+  Text(String),
+  /// A number typed in.
+  Number(f64),
+  /// The place of the choice chosen among the column's choices.
+  Choice(usize),
+  /// A box ticked, or not.
+  Checked(bool),
+}
+
+/// An edit a person committed in a cell: which row (its key), which column (its id), and the new value. The app
+/// that takes it changes its rows, and the grid shows them at the next render.
+#[derive(Clone, Debug)]
+pub struct CellEdit<'a, K> {
+  pub row: &'a K,
+  pub column: &'a str,
+  pub value: CellValue,
+}
+
+type EditHeard<K> = Arc<dyn Fn(&CellEdit<K>) -> bool + Send + Sync>;
+
+/// How the cells of a column of a [`DataGrid`](super::DataGrid) are edited in place, with `ui`'s own control in
+/// the cell, and the value a row's cell starts the edit from.
+pub struct CellEditor<R> {
+  kind: EditorKind<R>,
+}
+
+enum EditorKind<R> {
+  Text(TextFn<R>),
+  Number(Arc<dyn Fn(&R) -> f64 + Send + Sync>),
+  Choice(Arc<Vec<Arc<str>>>, Arc<dyn Fn(&R) -> usize + Send + Sync>),
+  Checkbox(Arc<dyn Fn(&R) -> bool + Send + Sync>),
+}
+
+impl<R> Clone for CellEditor<R> {
+  fn clone(&self) -> Self {
+    Self {
+      kind: match &self.kind {
+        EditorKind::Text(text) => EditorKind::Text(text.clone()),
+        EditorKind::Number(number) => EditorKind::Number(number.clone()),
+        EditorKind::Choice(choices, chosen) => EditorKind::Choice(choices.clone(), chosen.clone()),
+        EditorKind::Checkbox(checked) => EditorKind::Checkbox(checked.clone()),
+      },
+    }
+  }
+}
+
+impl<R> CellEditor<R> {
+  /// A text typed in an input: `ui::Input`, from the row's text.
+  pub fn text(value: impl Fn(&R) -> String + Send + Sync + 'static) -> Self {
+    Self {
+      kind: EditorKind::Text(Arc::new(value)),
+    }
+  }
+
+  /// A number typed in a number input: `ui::NumberInput`, from the row's number.
+  pub fn number(value: impl Fn(&R) -> f64 + Send + Sync + 'static) -> Self {
+    Self {
+      kind: EditorKind::Number(Arc::new(value)),
+    }
+  }
+
+  /// One of `choices`, chosen in a select: `ui::Select`, from the place of the row's choice.
+  pub fn choice<S: AsRef<str>>(
+    choices: impl IntoIterator<Item = S>,
+    chosen: impl Fn(&R) -> usize + Send + Sync + 'static,
+  ) -> Self {
+    Self {
+      kind: EditorKind::Choice(
+        Arc::new(choices.into_iter().map(|choice| Arc::from(choice.as_ref())).collect()),
+        Arc::new(chosen),
+      ),
+    }
+  }
+
+  /// A box ticked or not, in the cell itself: a press of it or Space turns it, with no editor to open. A column
+  /// edited with one that builds nothing of its own shows the box.
+  pub fn checkbox(checked: impl Fn(&R) -> bool + Send + Sync + 'static) -> Self {
+    Self {
+      kind: EditorKind::Checkbox(Arc::new(checked)),
+    }
+  }
+
+  fn is_checkbox(&self) -> bool {
+    matches!(self.kind, EditorKind::Checkbox(_))
+  }
+}
+
+/// Where the focus goes from a cell whose edit was committed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GridStep {
+  /// It stays on the cell.
+  Stay,
+  /// The cell under it: Enter.
+  Down,
+  /// The cell after it in the row: Tab.
+  On,
+  /// The cell before it: Shift+Tab.
+  Back,
+}
+
+/// The edit going on in a cell: where, and whether the app refused what was committed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Editing {
+  row: usize,
+  column: usize,
+  refused: bool,
+}
+
+/// What the focus is to go to once a render has it: a cell, or the editor of the cell being edited.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FocusAim {
+  Cell(usize, usize),
+  Editor,
+}
+
+/// What a cell of a grid does, with the types of the table's rows and keys out of sight.
+trait GridCells: Send + Sync {
+  /// The cell `(row, column)` has the focus: an edit going on elsewhere is committed, or put back where it is
+  /// refused.
+  fn focused(&self, row: usize, column: usize);
+  /// Starts editing the cell, from what is typed where a key started it.
+  fn start(&self, row: usize, column: usize, typed: Option<String>);
+  /// Turns the box of a cell edited with a checkbox.
+  fn toggle(&self, row: usize, column: usize);
+  /// Commits the edit going on, and moves the focus as `step` says where the app takes it.
+  fn commit(&self, step: GridStep);
+  /// Puts the edit going on back, and gives the focus back to its cell.
+  fn cancel(&self);
+  /// Moves the focus to the cell `(row, column)`, where there is one: whether there is.
+  fn move_to(&self, row: usize, column: usize) -> bool;
+  fn select(&self, row: usize, pick: Pick);
+  fn select_all(&self);
+  fn activate(&self, row: usize);
+  /// How many rows and columns the grid has.
+  fn size(&self) -> (usize, usize);
+}
+
+/// The cells of a grid as its host works them.
+struct GridModel<R, K> {
+  host: Arc<HostState>,
+  rows: Arc<Vec<R>>,
+  keys: Arc<Vec<K>>,
+  /// The id and the editor of each column, where it is edited.
+  editors: Arc<Vec<(Arc<str>, Option<CellEditor<R>>)>>,
+  on_edit: Vec<EditHeard<K>>,
+  model: Arc<Model<K>>,
+  read_only: bool,
+}
+
+impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> GridModel<R, K> {
+  fn editor(&self, column: usize) -> Option<&CellEditor<R>> {
+    if self.read_only {
+      return None;
+    }
+    self.editors.get(column).and_then(|(_, editor)| editor.as_ref())
+  }
+
+  /// Tells the app `value` for the cell: whether every handler took it.
+  fn tell(&self, row: usize, column: usize, value: CellValue) -> bool {
+    let (Some(key), Some((id, _))) = (self.keys.get(row), self.editors.get(column)) else {
+      return false;
+    };
+    let edit = CellEdit {
+      row: key,
+      column: id,
+      value,
+    };
+    // Every handler is told, and the edit is taken only where none refused it.
+    self.on_edit.iter().fold(true, |taken, handler| handler(&edit) && taken)
+  }
+
+  /// The value typed or chosen in the editor of the cell being edited.
+  fn drafted(&self, column: usize) -> Option<CellValue> {
+    Some(match &self.editor(column)?.kind {
+      EditorKind::Text(_) => CellValue::Text(self.host.draft_text.get()),
+      EditorKind::Number(_) => CellValue::Number(self.host.draft_number.get()?),
+      EditorKind::Choice(..) => CellValue::Choice(self.host.draft_choice.get()),
+      EditorKind::Checkbox(_) => return None,
+    })
+  }
+
+  fn aim(&self, aim: FocusAim) {
+    *self.host.pending_focus.lock() = Some(aim);
+    if let FocusAim::Cell(row, column) = aim {
+      *self.host.focused.lock() = Some(row);
+      *self.host.focused_column.lock() = Some(column);
+    }
+    self.host.rebuild();
+  }
+}
+
+impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> GridCells for GridModel<R, K> {
+  fn focused(&self, row: usize, column: usize) {
+    *self.host.focused.lock() = Some(row);
+    *self.host.focused_column.lock() = Some(column);
+    let editing = *self.host.editing.lock();
+    if let Some(editing) = editing
+      && (editing.row, editing.column) != (row, column)
+    {
+      // The focus left the cell being edited for another: what was typed is committed, or put back.
+      if let Some(value) = self.drafted(editing.column) {
+        self.tell(editing.row, editing.column, value);
+      }
+      *self.host.editing.lock() = None;
+      self.host.rebuild();
+    }
+  }
+
+  fn start(&self, row: usize, column: usize, typed: Option<String>) {
+    let (Some(editor), Some(values)) = (self.editor(column), self.rows.get(row)) else {
+      return;
+    };
+    match &editor.kind {
+      EditorKind::Text(text) => self.host.draft_text.set(typed.unwrap_or_else(|| text(values))),
+      EditorKind::Number(number) => self.host.draft_number.set(
+        typed
+          .and_then(|typed| typed.parse::<f64>().ok())
+          .or(Some(number(values))),
+      ),
+      EditorKind::Choice(_, chosen) => self.host.draft_choice.set(chosen(values)),
+      EditorKind::Checkbox(_) => {
+        self.toggle(row, column);
+        return;
+      }
+    }
+    *self.host.editing.lock() = Some(Editing {
+      row,
+      column,
+      refused: false,
+    });
+    self.aim(FocusAim::Editor);
+  }
+
+  fn toggle(&self, row: usize, column: usize) {
+    let (Some(editor), Some(values)) = (self.editor(column), self.rows.get(row)) else {
+      return;
+    };
+    if let EditorKind::Checkbox(checked) = &editor.kind {
+      self.tell(row, column, CellValue::Checked(!checked(values)));
+    }
+  }
+
+  fn commit(&self, step: GridStep) {
+    let Some(editing) = *self.host.editing.lock() else {
+      return;
+    };
+    let Some(value) = self.drafted(editing.column) else {
+      return;
+    };
+    if !self.tell(editing.row, editing.column, value) {
+      // Refused: the editor stays, said to be wrong, and keeps the focus.
+      *self.host.editing.lock() = Some(Editing {
+        refused: true,
+        ..editing
+      });
+      self.aim(FocusAim::Editor);
+      return;
+    }
+    *self.host.editing.lock() = None;
+    let (row, column) = (editing.row, editing.column);
+    let columns = self.editors.len();
+    let target = match step {
+      GridStep::Stay => (row, column),
+      GridStep::Down if row + 1 < self.rows.len() => (row + 1, column),
+      GridStep::On if column + 1 < columns => (row, column + 1),
+      GridStep::Back if column > 0 => (row, column - 1),
+      _ => (row, column),
+    };
+    self.aim(FocusAim::Cell(target.0, target.1));
+  }
+
+  fn cancel(&self) {
+    let Some(editing) = self.host.editing.lock().take() else {
+      return;
+    };
+    self.aim(FocusAim::Cell(editing.row, editing.column));
+  }
+
+  fn move_to(&self, row: usize, column: usize) -> bool {
+    if row >= self.rows.len() || column >= self.editors.len() {
+      return false;
+    }
+    self.aim(FocusAim::Cell(row, column));
+    true
+  }
+
+  fn select(&self, row: usize, pick: Pick) {
+    self.model.pick(row, pick);
+  }
+
+  fn select_all(&self) {
+    self.model.select_shown(true);
+  }
+
+  fn activate(&self, row: usize) {
+    if let Some(key) = self.keys.get(row) {
+      for handler in &self.model.on_row_activate {
+        handler(key);
+      }
+    }
+  }
+
+  fn size(&self) -> (usize, usize) {
+    (self.rows.len(), self.editors.len())
+  }
+}
+
+/// What a cell of a grid is and does, as a renderer sees it beside the cell's own: where it is, whether it is
+/// edited or being edited, and what its keys and presses do.
+pub struct GridCell {
+  /// The row it is in, from 0.
+  pub row: usize,
+  /// Whether a person edits it: its column has an editor and the grid is not read only.
+  pub editable: bool,
+  /// The editor in it while it is being edited, in place of its content.
+  pub editor: Option<Element>,
+  /// Whether it is the cell Tab enters the grid at.
+  pub entry: bool,
+  /// Its place to what reads the tree: its column's among the grid's, the checkboxes' counted, from 1.
+  pub column_index: usize,
+  checkbox: bool,
+  element: ElementRef,
+  grid: Arc<dyn GridCells>,
+  id: Option<Arc<str>>,
+}
+
+thread_local! {
+  /// The last plain press of a cell of a grid: which, when and where. A second one of it soon after at the
+  /// same place edits it.
+  static LAST_CELL_PRESS: Cell<Option<((usize, usize), Instant, (f32, f32))>> = const { Cell::new(None) };
+}
+
+fn second_cell_press(cell: (usize, usize), event: &MouseEvent) -> bool {
+  let plain = !(event.from_keyboard || event.shift || event.ctrl || event.meta || event.alt);
+  let now = Instant::now();
+  let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
+  LAST_CELL_PRESS.with(|last| {
+    let second = plain
+      && last.get().is_some_and(|(at, when, place)| {
+        at == cell && now.duration_since(when) <= DOUBLE_CLICK_INTERVAL && near(place)
+      });
+    last.set((plain && !second).then_some((cell, now, (event.x, event.y))));
+    second
+  })
+}
+
+impl GridCell {
+  /// The cell's behavior on the element of the cell: a stop of the grid's keys, its row and its column said to
+  /// them, its keys, and a double press that edits it.
+  fn dress(&self, column: usize, cell: Row, editing: bool) -> Row {
+    let (row, grid, element) = (self.row, self.grid.clone(), self.element.clone());
+    let editable = self.editable;
+    let checkbox = self.checkbox;
+    let mut cell = cell
+      .tab_index(0)
+      .focus_row(row)
+      .focus_column(column)
+      .focus_entry(self.entry)
+      .ref_element(self.element.clone())
+      .describe("a11y_role", "gridcell")
+      .describe("a11y_colindex", self.column_index.to_string())
+      .describe("a11y_readonly", if editable { "false" } else { "true" })
+      .describe("a11y_rowindex", (row + 2).to_string())
+      .on_focus({
+        let grid = grid.clone();
+        move || grid.focused(row, column)
+      })
+      .on_click({
+        let grid = grid.clone();
+        move |event: MouseEvent| {
+          // A second press of an editable cell edits it, and is not the row's.
+          if editable && second_cell_press((row, column), &event) {
+            event.stop_propagation();
+            grid.start(row, column, None);
+          }
+        }
+      });
+    if let Some(id) = &self.id {
+      cell = cell.id(id.clone());
+    }
+    // A cell being edited leaves its keys to its editor.
+    if !editing {
+      cell = cell.on_key_down(move |event: KeyboardEvent| {
+        // A key in the cell is the cell's only where the cell has the focus itself, not its editor.
+        if !element.focused() || event.composing || event.alt {
+          return;
+        }
+        let command = event.ctrl || event.meta;
+        match event.key.as_str() {
+          "Enter" | "F2" if !command && editable && !checkbox => {
+            event.prevent_default();
+            grid.start(row, column, None);
+          }
+          "Enter" if !command => {
+            event.prevent_default();
+            grid.activate(row);
+          }
+          " " if !command && checkbox && editable => {
+            event.prevent_default();
+            grid.toggle(row, column);
+          }
+          " " if !command => {
+            event.prevent_default();
+            grid.select(row, if event.shift { Pick::Range } else { Pick::Toggle });
+          }
+          "Tab" if !command => {
+            let to = if event.shift {
+              column.checked_sub(1)
+            } else {
+              Some(column + 1)
+            };
+            if to.is_some_and(|to| grid.move_to(row, to)) {
+              event.prevent_default();
+            }
+          }
+          // The ends of the row, and with Ctrl of the grid: cells that may not be built, as the columns and the
+          // rows out of view are not.
+          "Home" | "End" if !event.shift => {
+            event.prevent_default();
+            let (rows, columns) = grid.size();
+            let last = event.key == "End";
+            let to_row = match (command, last) {
+              (true, true) => rows.saturating_sub(1),
+              (true, false) => 0,
+              (false, _) => row,
+            };
+            grid.move_to(to_row, if last { columns.saturating_sub(1) } else { 0 });
+          }
+          "a" | "A" if command && !event.shift => {
+            event.prevent_default();
+            grid.select_all();
+          }
+          // What is typed in an editable cell starts its edit with it.
+          key if !command && editable && !checkbox && key.chars().count() == 1 && !key.trim().is_empty() => {
+            event.prevent_default();
+            grid.start(row, column, Some(key.to_owned()));
+          }
+          _ => {}
+        }
+      });
+    }
+    cell
+  }
+}
+
+/// The editor of the cell being edited, in its part: its keys commit it and move on, or put it back.
+fn editor_in(part: &ResolvedPart, editor: Element, choice: bool, grid: Arc<dyn GridCells>, element: ElementRef) -> Row {
+  Row::new()
+    .part(part)
+    .align_items(Alignment::Center)
+    .width(Dimension::Pct(100.0))
+    .ref_element(element)
+    .on_key_down(move |event: KeyboardEvent| {
+      if !event.focus_within || event.composing {
+        return;
+      }
+      match event.key.as_str() {
+        // A select keeps Enter for its menu: its choice commits it.
+        "Enter" if !choice && !event.shift && !event.alt => {
+          event.prevent_default();
+          grid.commit(GridStep::Down);
+        }
+        "Tab" if !event.alt => {
+          event.prevent_default();
+          grid.commit(if event.shift { GridStep::Back } else { GridStep::On });
+        }
+        "Escape" => {
+          event.prevent_default();
+          grid.cancel();
+        }
+        _ => {}
+      }
+    })
+    .child(editor)
+}
+
 /// What a mounted table's rows tell its host: where the focus is.
 struct HostLink {
   state: Arc<HostState>,
@@ -2101,6 +3146,33 @@ struct HostLink {
 impl HostLink {
   fn focused(&self, index: usize) {
     *self.state.focused.lock() = Some(index);
+  }
+
+  /// How wide the track of the column `column` is now.
+  fn track_width(&self, column: usize) -> f32 {
+    let metrics = *self.state.metrics.lock();
+    let Some(tracks) = self.state.tracks.lock().as_ref().map(|(_, tracks)| tracks.clone()) else {
+      return 0.0;
+    };
+    let viewport = self.state.scroll.viewport_width();
+    let available = (viewport > 0.0).then(|| (viewport - metrics.padding_start - metrics.padding_end).max(0.0));
+    tracks
+      .widths(available, 0.0)
+      .get(column + metrics.lead_tracks)
+      .copied()
+      .unwrap_or(0.0)
+  }
+
+  /// Keeps the column of `id` at `width`, and renders the table again: whether that is another width.
+  fn resize(&self, id: &Arc<str>, width: f32) -> bool {
+    let mut resized = self.state.resized.lock();
+    if resized.get(id).is_some_and(|held| (held - width).abs() < 0.01) {
+      return false;
+    }
+    resized.insert(id.clone(), width);
+    drop(resized);
+    self.state.rebuild();
+    true
   }
 }
 
@@ -2160,10 +3232,19 @@ struct Metrics {
   header_height: f32,
   count: usize,
   disabled: bool,
+  /// The room before the first track of a row, and after the last.
+  padding_start: f32,
+  padding_end: f32,
+  /// The tracks before the first column's: the checkboxes'.
+  lead_tracks: usize,
+  /// The columns that stay at the start and at the end, built wherever the rows are scrolled.
+  pins: (usize, usize),
 }
 
 /// Rows built past each edge of what is in view.
 const OVERSCAN: usize = 8;
+/// Columns built past each side of what is in view.
+const OVERSCAN_COLUMNS: usize = 2;
 /// Rows built before the table knows how high it is.
 const FIRST_ROWS: usize = 40;
 
@@ -2174,6 +3255,19 @@ struct HostState {
   tracks: Mutex<Option<(Vec<TrackSpec>, ColumnTracks)>>,
   /// The places of the rows built.
   built: Mutex<Vec<usize>>,
+  /// Which columns are built, where the columns in view only are.
+  columns_built: Mutex<Option<Arc<Vec<bool>>>>,
+  /// The column that has, or last had, the focus: built wherever the rows are scrolled.
+  focused_column: Mutex<Option<usize>>,
+  /// The widths a person made the columns, by their ids.
+  resized: Mutex<HashMap<Arc<str>, f32>>,
+  /// What is typed or chosen in the editor of the cell being edited, and which cell that is.
+  draft_text: Signal<String>,
+  draft_number: Signal<Option<f64>>,
+  draft_choice: Signal<usize>,
+  editing: Mutex<Option<Editing>>,
+  /// Where the focus is to go once a render has it.
+  pending_focus: Mutex<Option<FocusAim>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -2213,6 +3307,87 @@ impl HostState {
   fn rebuild(&self) {
     self.revision.update(|revision| *revision = revision.wrapping_add(1));
   }
+
+  /// Which columns are in view at `scroll_x`, with [`OVERSCAN_COLUMNS`] past each side, the pinned ones and the
+  /// focused one: `None` while the table does not know its width, or where every column is in view anyway.
+  fn columns_at(&self, scroll_x: f32) -> Option<Vec<bool>> {
+    let metrics = *self.metrics.lock();
+    let tracks = self.tracks.lock().as_ref()?.1.clone();
+    let viewport = self.scroll.viewport_width();
+    if viewport <= 0.0 {
+      return None;
+    }
+    let available = (viewport - metrics.padding_start - metrics.padding_end).max(0.0);
+    let widths = tracks.widths(Some(available), 0.0);
+    let columns = widths.len().saturating_sub(metrics.lead_tracks);
+    let mut x = metrics.padding_start;
+    let mut seen = vec![false; columns];
+    for (track, width) in widths.iter().enumerate() {
+      if let Some(column) = track.checked_sub(metrics.lead_tracks) {
+        seen[column] = x + width >= scroll_x && x <= scroll_x + viewport;
+      }
+      x += width;
+    }
+    if seen.iter().all(|seen| *seen) {
+      return None;
+    }
+    let mut built = seen.clone();
+    for (column, seen) in seen.iter().enumerate() {
+      if *seen {
+        let (from, to) = (
+          column.saturating_sub(OVERSCAN_COLUMNS),
+          (column + OVERSCAN_COLUMNS + 1).min(columns),
+        );
+        built[from..to].iter_mut().for_each(|built| *built = true);
+      }
+    }
+    let (start, end) = metrics.pins;
+    built[..start.min(columns)].iter_mut().for_each(|built| *built = true);
+    built[columns.saturating_sub(end)..]
+      .iter_mut()
+      .for_each(|built| *built = true);
+    if let Some(column) = *self.focused_column.lock()
+      && column < columns
+    {
+      built[column] = true;
+    }
+    Some(built)
+  }
+
+  /// Whether a column in view at `scroll_x` is not built, or the table built only some columns and now sees
+  /// them all: it is rendered again.
+  fn needs_columns(&self, scroll_x: f32) -> bool {
+    let wanted = self.columns_at(scroll_x);
+    let built = self.columns_built.lock().clone();
+    match (wanted, built) {
+      (None, None) => false,
+      (None, Some(built)) => built.iter().any(|built| !built),
+      (Some(_), None) => false,
+      (Some(wanted), Some(built)) => {
+        // Only a column that came into view: one that left keeps its cells until the next render.
+        wanted
+          .iter()
+          .zip(built.iter())
+          .enumerate()
+          .any(|(column, (wanted, built))| *wanted && !built && self.seen_at(column, scroll_x))
+      }
+    }
+  }
+
+  /// Whether the column `column` is in view at `scroll_x`.
+  fn seen_at(&self, column: usize, scroll_x: f32) -> bool {
+    let metrics = *self.metrics.lock();
+    let Some(tracks) = self.tracks.lock().as_ref().map(|(_, tracks)| tracks.clone()) else {
+      return true;
+    };
+    let viewport = self.scroll.viewport_width();
+    let available = (viewport - metrics.padding_start - metrics.padding_end).max(0.0);
+    let widths = tracks.widths(Some(available), 0.0);
+    let track = column + metrics.lead_tracks;
+    let x = metrics.padding_start + widths[..track.min(widths.len())].iter().sum::<f32>();
+    let width = widths.get(track).copied().unwrap_or(0.0);
+    x + width >= scroll_x && x <= scroll_x + viewport
+  }
 }
 
 struct TableProps<R, K> {
@@ -2243,6 +3418,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         scroll: ScrollState::new(),
         tracks: Mutex::new(None),
         built: Mutex::new(Vec::new()),
+        columns_built: Mutex::new(None),
+        focused_column: Mutex::new(None),
+        resized: Mutex::new(HashMap::new()),
+        draft_text: ctx.signal(String::new()),
+        draft_number: ctx.signal(None),
+        draft_choice: ctx.signal(0),
+        editing: Mutex::new(None),
+        pending_focus: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
@@ -2252,8 +3435,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let table = ctx.props::<TableProps<R, K>>().table.lock().clone();
+    let mut table = ctx.props::<TableProps<R, K>>().table.lock().clone();
     let _ = self.state.revision.get();
+    // The widths a person made the columns are the table's.
+    table.resized = Arc::new(self.state.resized.lock().clone());
     let theme = current_theme();
     let state = &self.state;
 
@@ -2275,12 +3460,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     let row_height = px(recipe.part(TablePart::Row).rest().height, &theme).unwrap_or(0.0);
     let header_height = px(recipe.part(TablePart::Header).rest().height, &theme).unwrap_or(0.0);
     let count = table.rows.len();
+    let geometry = Geometry::of(&recipe);
+    let pins = table.pins();
+    let lead_tracks = usize::from(table.with_checkboxes());
     *state.metrics.lock() = Metrics {
       row_height,
       header_height,
       count,
       disabled: table.disabled,
+      // A row whose cells stay at an end holds its padding there in its pinned cell, in a track.
+      padding_start: if pins.0 > 0 { 0.0 } else { geometry.padding_start },
+      padding_end: if pins.1 > 0 { 0.0 } else { geometry.padding_end },
+      lead_tracks,
+      pins,
     };
+    // The columns in view, and the pinned and the focused one; every column before the table knows its width.
+    let columns_built = state.columns_at(state.scroll.scroll_x()).map(Arc::new);
+    *state.columns_built.lock() = columns_built.clone();
 
     // A recipe whose rows have no height in pixels builds every row: where they are cannot be reckoned.
     let window = (row_height > 0.0).then(|| {
@@ -2295,6 +3491,38 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       }
       *state.built.lock() = indices.clone();
       let refs: HashMap<usize, ElementRef> = indices.iter().map(|index| (*index, ElementRef::new())).collect();
+      // A grid's cells have refs of their own, which the focus is sent to.
+      let cell_refs: HashMap<(usize, usize), ElementRef> = if table.grid {
+        let built = |column: usize| columns_built.as_ref().is_none_or(|built| built[column]);
+        indices
+          .iter()
+          .flat_map(|row| {
+            (0..table.columns.len())
+              .filter(|column| built(*column))
+              .map(move |column| ((*row, column), ElementRef::new()))
+          })
+          .collect()
+      } else {
+        HashMap::new()
+      };
+      let editor_ref = ElementRef::new();
+      let pending = *state.pending_focus.lock();
+      match pending {
+        Some(FocusAim::Editor) => {
+          ctx.focus(&editor_ref);
+          *state.pending_focus.lock() = None;
+        }
+        Some(FocusAim::Cell(row, column)) => match cell_refs.get(&(row, column)) {
+          Some(target) => {
+            ctx.focus(target);
+            *state.pending_focus.lock() = None;
+          }
+          // A row not built yet is scrolled to; the focus goes to it once it is.
+          None if !indices.contains(&row) => state.reveal(row),
+          None => *state.pending_focus.lock() = None,
+        },
+        None => {}
+      }
       let watcher = state.clone();
       let on_scroll: Arc<dyn Fn(ScrollEvent) + Send + Sync> = Arc::new(move |event: ScrollEvent| {
         // Handlers run before the scroll moves: the rows are reckoned from where it is going.
@@ -2307,8 +3535,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         let first = (scroll_y / metrics.row_height).floor() as usize;
         let last = (((scroll_y + viewport) / metrics.row_height).ceil() as usize).min(metrics.count);
         let built = watcher.built.lock().clone();
+        let scroll_x = (watcher.scroll.scroll_x() - event.delta_x).max(0.0);
         if (first.saturating_sub(OVERSCAN / 2)..(last + OVERSCAN / 2).min(metrics.count))
           .any(|index| !built.contains(&index))
+          || watcher.needs_columns(scroll_x)
         {
           watcher.rebuild();
         }
@@ -2319,6 +3549,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         row_height,
         scroll: state.scroll.clone(),
         refs,
+        cell_refs,
+        editor_ref,
+        columns: columns_built,
         host: Some(Arc::new(HostLink { state: state.clone() })),
         rows: state.clone(),
         on_scroll: Some(on_scroll),
@@ -2333,7 +3566,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
 
   fn after_layout(&self) {
     // A scroll the handler did not see (the bar dragged, a row scrolled into view) or a height first known.
-    if self.state.needs_rows() {
+    if self.state.needs_rows() || self.state.needs_columns(self.state.scroll.scroll_x()) {
       self.state.rebuild();
     }
   }
@@ -2390,6 +3623,12 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(SortIcon, |s| s.square(IconSize::Sm))
+      // A column's edge: 8 of room that takes the pointer, a line of 2 in the ring's color under it and while it is
+      // dragged, nothing at rest, as the board draws no line between headers.
+      .base(TablePart::Resizer, |s| s.width(8.0).cursor(CursorIcon::ColResize))
+      .base(TablePart::ResizeLine, |s| s.width(2.0).radius(RadiusSize::Full))
+      .within_hovered(TablePart::ResizeLine, |s| s.background(Ring))
+      .within_pressed(TablePart::ResizeLine, |s| s.background(Ring))
       .state(Sortable, HeaderCell, |s| fading(s.radius(RadiusSize::Sm).cursor(CursorIcon::Pointer)))
       .hovered(HeaderCell, |s| s.foreground(Foreground))
       .focus_visible(HeaderCell, |s| s.focus_ring())
@@ -2423,15 +3662,18 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(Select, |s| s.width(16.0).cursor(CursorIcon::Pointer))
+      // A cell of a data grid takes the focus: from the keyboard, the ring inside it, as a row's.
+      .focus_visible(TablePart::Cell, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
+      .base(TablePart::Editor, |s| s.width(Length::Fill))
       // The cells that stay cover the row's veil with its fill: they have it themselves.
-      .when(Selector::new().state(TableState::Sticky).within().hovered(), TablePart::Cell, |s| {
+      .when(Selector::new().state(TableState::Pinned).within().hovered(), TablePart::Cell, |s| {
         s.veil(StateHover)
       })
-      .when(Selector::new().state(TableState::Sticky).within().pressed(), TablePart::Cell, |s| {
+      .when(Selector::new().state(TableState::Pinned).within().pressed(), TablePart::Cell, |s| {
         s.veil(StatePressed)
       })
-      .when(Selector::new().state(TableState::Sticky).within().hovered(), Select, |s| s.veil(StateHover))
-      .when(Selector::new().state(TableState::Sticky).within().pressed(), Select, |s| s.veil(StatePressed))
+      .when(Selector::new().state(TableState::Pinned).within().hovered(), Select, |s| s.veil(StateHover))
+      .when(Selector::new().state(TableState::Pinned).within().pressed(), Select, |s| s.veil(StatePressed))
       .base(Empty, |s| s.width(Length::Fill))
       .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {

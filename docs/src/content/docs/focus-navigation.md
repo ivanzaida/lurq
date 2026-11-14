@@ -355,6 +355,25 @@ Column::new()
 - In a group that `activate`s, or that has `shift_extends` and Shift is held, the row the keys or a letter move to is pressed as well, as an element of a group that builds every one is: at once where it is built, and otherwise once the layout that has it has focused it. `Listbox::mount(ctx)` chooses that way over thousands of options.
 - The group is known by its `Arc`: give the same one at every render, as a component that keeps it in a field does.
 
+A row may hold several stops, as the cells of a grid do: each says its row and its column, `.focus_row(row)` and
+`.focus_column(column)`, and each row's stops are a horizontal group of their own. Left, Right, Home and End move
+within the row; Up, Down, PageUp and PageDown go to the stop of the same column in the row they go to (or the
+nearest before it, where that row has fewer), built or not; Ctrl+Home and Ctrl+End go to the first stop of the
+first row and the last stop of the last. `ui::DataGrid` is one.
+
+```rust
+Column::new()
+  .focus_group(FocusGroup::vertical().one_stop(true).wrap(false))
+  .focus_rows(rows)
+  .with_children((start..end).map(|row| {
+    Row::new()
+      .focus_group(FocusGroup::horizontal().wrap(false))
+      .with_children((0..3).map(move |column| {
+        Button::new(&format!("{row}:{column}")).tab_index(0).focus_row(row).focus_column(column)
+      }))
+  }));
+```
+
 ## Tab Scope
 
 Tab and Shift+Tab move through one scope and wrap around at its ends:

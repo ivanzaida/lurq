@@ -212,3 +212,91 @@ fn the_keys_of_a_nested_group_read_the_levels_of_rows_that_are_not_built() {
   step(&mut tree, &mut app, "ArrowLeft");
   assert_eq!(*rows.asked.lock().unwrap(), [(61, true), (0, false)]);
 }
+
+/// A grid of the hundred rows, three cells to a row, each saying its row and its column; Left and Right a group of
+/// each row's own.
+struct Grid;
+
+impl Component for Grid {
+  type Props = WindowProps;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let rows = ctx.props::<WindowProps>().0.clone();
+    let start = rows.start.get();
+    let group: Arc<dyn FocusRows> = rows.clone();
+    Column::new()
+      .focus_group(FocusGroup::vertical().one_stop(true).wrap(false))
+      .focus_rows(group)
+      .with_children((start..start + WINDOW).map(|row| {
+        lurq::components::Row::new()
+          .focus_group(FocusGroup::horizontal().wrap(false))
+          .with_children((0..3).map(move |column| {
+            Button::new(&format!("{row}:{column}"))
+              .id(format!("cell-{row}-{column}"))
+              .tab_index(0)
+              .focus_row(row)
+              .focus_column(column)
+          }))
+      }))
+  }
+}
+
+fn ctrl(tree: &mut Tree, app: &mut App, name: &str) {
+  tree.key_down(name.to_owned(), name.to_owned(), false, true, false);
+  tree.key_up(name.to_owned(), name.to_owned(), false, true, false);
+  tree.pass_headless(app);
+  tree.pass_headless(app);
+}
+
+#[test]
+fn up_and_down_keep_the_column_of_a_grid_built_or_not_and_ctrl_home_and_end_go_to_its_corners() {
+  let rows = Rows::new(false);
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<Grid>(&mut app, WindowProps(rows.clone()));
+  tree.pass_headless(&mut app);
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("cell-0-0"));
+
+  // Left and Right within the row; Up and Down to the same column of the next row.
+  step(&mut tree, &mut app, "ArrowRight");
+  step(&mut tree, &mut app, "ArrowRight");
+  assert_eq!(focused_id(&tree).as_deref(), Some("cell-0-2"));
+  step(&mut tree, &mut app, "ArrowDown");
+  assert_eq!(focused_id(&tree).as_deref(), Some("cell-1-2"), "the same column");
+  step(&mut tree, &mut app, "Home");
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("cell-1-0"),
+    "Home is the row's first"
+  );
+
+  // A page down goes to a row not built yet, in the same column, once a layout has it.
+  step(&mut tree, &mut app, "ArrowRight");
+  step(&mut tree, &mut app, "PageDown");
+  assert_eq!(focused_id(&tree).as_deref(), Some("cell-11-1"));
+
+  ctrl(&mut tree, &mut app, "End");
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("cell-99-2"),
+    "the last cell of the last row"
+  );
+  ctrl(&mut tree, &mut app, "Home");
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("cell-0-0"),
+    "the first cell of the first row"
+  );
+  step(&mut tree, &mut app, "End");
+  ctrl(&mut tree, &mut app, "Home");
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("cell-0-0"),
+    "on the first row, its first cell"
+  );
+}

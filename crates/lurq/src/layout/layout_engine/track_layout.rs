@@ -72,12 +72,18 @@ impl LayoutEngine {
     collect_rows(node, tracks, 1, &mut rows, &mut between);
     let mut widths = vec![0.0_f32; count];
     for row in &rows {
-      let cells = row.children().iter().filter(|child| takes_track(child));
-      for (track, cell) in cells.enumerate().take(count) {
-        if measured[track] {
+      let mut track = 0;
+      for cell in row.children().iter().filter(|child| takes_track(child)) {
+        if track >= count {
+          break;
+        }
+        let span = cell.track_span();
+        // What spans tracks stands for cells that are not built: it measures none of them.
+        if span == 1 && measured[track] {
           let natural = self.layout_node(glyph_engine, cell, Constraints::unbounded());
           widths[track] = widths[track].max(natural.size.width);
         }
+        track += span;
       }
     }
     if tracks.record(&widths) {
@@ -117,10 +123,25 @@ impl LayoutEngine {
     let cells: Vec<usize> = (0..children.len())
       .filter(|index| takes_track(&children[*index]))
       .collect();
+    // The first track of each cell and how wide it is: a cell that spans tracks is as wide as they are, with the
+    // gaps between them.
+    let mut placed: Vec<(usize, f32)> = Vec::with_capacity(cells.len());
+    let mut next = 0;
+    for index in &cells {
+      let span = children[*index].track_span().max(1);
+      let end = (next + span).min(widths.len());
+      let width = if next < end {
+        widths[next..end].iter().sum::<f32>() + gap * (end - next - 1) as f32
+      } else {
+        0.0
+      };
+      placed.push((next, width));
+      next += span;
+    }
     let mut results: Vec<Option<Arc<LayoutResult>>> = vec![None; children.len()];
     let mut tallest = 0.0_f32;
-    for (track, index) in cells.iter().enumerate() {
-      let width = widths.get(track).copied().unwrap_or(0.0);
+    for (slot, index) in cells.iter().enumerate() {
+      let width = placed[slot].1;
       let in_its_track = Constraints {
         min_width: width,
         max_width: width,
@@ -135,12 +156,12 @@ impl LayoutEngine {
 
     // A cell stretched to the row is laid out as tall as it.
     if align == Alignment::Stretch {
-      for (track, index) in cells.iter().enumerate() {
+      for (slot, index) in cells.iter().enumerate() {
         let laid_out = results[*index].as_ref().map_or(0.0, |result| result.size.height);
         if (laid_out - size.height).abs() < 0.01 {
           continue;
         }
-        let width = widths.get(track).copied().unwrap_or(0.0);
+        let width = placed[slot].1;
         let in_the_row = Constraints::tight(Size::new(width, size.height));
         results[*index] =
           Some(self.layout_child_node(glyph_engine, child_overrides, *index, &children[*index], in_the_row));
@@ -162,8 +183,8 @@ impl LayoutEngine {
     }
 
     let mut track_of_child = vec![None; children.len()];
-    for (track, index) in cells.iter().enumerate() {
-      track_of_child[*index] = Some(track);
+    for (slot, index) in cells.iter().enumerate() {
+      track_of_child[*index] = Some(placed[slot].0);
     }
     let child_layouts = children
       .iter()
@@ -273,6 +294,50 @@ mod tests {
     // The share takes the rest: 640 less the status, 90 and two gaps.
     assert!((widths(0)[0] - (640.0 - status - 90.0 - 32.0)).abs() < 0.5);
     assert!((result.children[0].result.size.width - 640.0).abs() < 0.5);
+  }
+
+  #[test]
+  fn a_child_that_spans_tracks_is_as_wide_as_they_are_and_what_comes_after_it_is_in_its_own_track() {
+    let tracks = ColumnTracks::new([
+      TrackSpec::px(50.0),
+      TrackSpec::px(60.0),
+      TrackSpec::px(70.0),
+      TrackSpec::content(),
+    ]);
+    // The row builds its first and last cells, and stands one room for the two between them.
+    let spanned = Row::new()
+      .spacing(10.0)
+      .column_tracks(&tracks)
+      .child(Text::new("a"))
+      .child(Row::new().track_span(2))
+      .child(Text::new("a long last cell"));
+    let full = row4(&tracks);
+    let table = Column::new().measures_column_tracks(&tracks).child(full).child(spanned);
+    let result = lay_out(table, 400.0);
+
+    let full = &result.children[0].result.children;
+    let spanned = &result.children[1].result.children;
+    assert_eq!(
+      spanned[1].offset.x, full[1].offset.x,
+      "the room starts where the second track does"
+    );
+    assert_eq!(
+      spanned[1].result.size.width,
+      60.0 + 10.0 + 70.0,
+      "the two tracks and the gap between them"
+    );
+    assert_eq!(spanned[2].offset.x, full[3].offset.x, "the last cell in its own track");
+    assert!(
+      tracks.content_widths()[3] > 60.0,
+      "a cell after a room is measured in its track"
+    );
+  }
+
+  fn row4(tracks: &ColumnTracks) -> Row {
+    Row::new()
+      .spacing(10.0)
+      .column_tracks(tracks)
+      .with_children(["a", "b", "c", "d"].map(Text::new))
   }
 
   #[test]

@@ -3836,7 +3836,9 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 | `TableColumn::width(px)`, `share(f32)`, `fit()`, `min_width(px)`, `max_width(px)` | Its width: in pixels, a share of what is left, or as wide as the widest of its cells shown, between a least and a most |
 | `TableColumn::align(ColumnAlign)`, `numeric()`, `mono(bool)`, `muted(bool)` | Where its content sits; a column of numbers (at its end, mono 12 in the muted color); its text in the mono type or the muted color |
 | `TableColumn::sortable(bool)`, `sort_by(\|a, b\|)`, `sort_key(\|row\|)` | A press of its header sorts the rows by it; what `TableSort::sort` compares rows by |
-| `TableColumn::sticky(bool)` | The first column stays at the start while the rows scroll sideways |
+| `TableColumn::pin(ColumnPin)` | Where the column stays while the rows scroll sideways: `Start` (the first columns, after the checkboxes) or `End` (the last columns, a row's actions); `None` unless told |
+| `TableColumn::resizable(bool)` | Whether a person makes the column wider or narrower: as the table says unless told |
+| `TableColumn::editor(CellEditor)` | How a [data grid](#data-grid) edits its cells; a table shows them |
 | `TableColumn::controls(bool)`, `TableColumn::actions(id, cell)` | Its cells hold what is pressed, and a press of it is not the row's; a column of a row's buttons at its end |
 | `row_key(\|row\| K)` | What tells a row apart, which the selection and the handlers name it by. Without it, a row's place |
 | `sort(Signal<Option<TableSort>>)`, `sort_controlled(sort, on_change)` | What the rows are sorted by, the app's signal or its value: a press of a sortable header goes through ascending, descending and none |
@@ -3852,18 +3854,75 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 | `count_text(\|rows, selected\| String)` | What the footer's count says: "24 rows", "3 of 24 rows selected" unless told |
 | `loading(bool)`, `loading_rows(n)` | Rows of skeletons under the header while the rows are on their way |
 | `pagination(element)`, `count(bool)`, `total(n)` | A footer that counts the rows and what is selected, with the pagination at its end |
-| `mount(ctx)` | The table mounted: it builds the rows in view and a few around them, and keeps its columns' measured widths |
+| `resizable(bool)`, `on_column_resize(\|id, width\|)`, `on_column_resize_end(\|id, width\|)`, `resize_label(\|title\| String)` | Columns made wider or narrower by a person (off unless told): told while a column moves and when it is done; what a resizer is called, "Resize Name" unless told |
+| `mount(ctx)` | The table mounted: it builds the rows and the columns in view and a few around them, and keeps its columns' measured widths and the widths a person made them |
 | `label(&str)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. A row's id is the table's with `-row-` and its place; a header's `-header-` and its column's id; the header's checkbox `-select-all` |
 
 - What the rows are, their order, what is selected and what they are sorted by are the app's. A press of a sortable header asks for the rows sorted by it, ascending, then descending, then not at all, and the app gives them in that order; `TableSort::sort(&columns, &mut rows)` sorts them by the column's key or its text.
 - With a selection a table has a column of checkboxes. A press of a row selects it alone, with Ctrl (Cmd) adds it or takes it out, with Shift selects the rows from the last selected one to it; a press of its checkbox adds or takes it out, with Shift the range. The header's checkbox selects every row the table shows, or none where all are, and is mixed while some are. A press in a column of `controls` is the control's alone.
-- The header stays while the rows scroll in the table's own height, and a table wider than its box scrolls sideways, its header with it; a sticky first column stays at the start. Converted into an element a table builds every row; mounted (`mount(ctx)`) it builds the rows in view and a few around them, so ten thousand rows cost about what a screen of them does. A table with no height builds every row either way.
+- The header stays while the rows scroll in the table's own height, and a table wider than its box scrolls sideways, its header with it, the scroll bars beside the rows and not over the header or the pinned columns. The first columns pinned at the start stay there after the checkboxes, each after the ones before it, and the last ones pinned at the end stay at the end; a pinned column after the first is best given a width of its own, since where it stays is reckoned from the widths of the pinned ones before it. Converted into an element a table builds every row; mounted (`mount(ctx)`) it builds the rows in view and a few around them, and of those the cells of the columns in view, two past each side, the pinned ones and the focused one, a run of columns not built standing as one room across their tracks (`in_tracks`): ten thousand rows of fifty columns cost about what a screen of them does. A table with no height builds every row either way.
+- A resizable column has a resizer at the end of its header, in the room after the column: dragged, it makes the column wider or narrower between its least (48 at the least) and its most, and Ctrl with Left or Right on the column's header does it by 10 (50 with Shift). The resizer is a `separator` to what reads the tree, with the column's width as `a11y_valuenow`; its line of 2 in `Ring` shows under the pointer and while it is dragged. A mounted table keeps the widths a person made; a header's title ends in an ellipsis where its column is too narrow for it.
 - The columns are one list of tracks for the header and every row (`ColumnTracks`), measured from the rows that are built: a column sized by its content is as wide as the widest of its cells shown so far, and does not narrow as rows scroll by.
 - The rows are one stop of Tab, at the focused, the first selected or the first row. Up and Down move through them, Home and End to the first and the last, and in a mounted table PageUp and PageDown by what is shown. Space selects the focused row (adds it or takes it out), Enter activates it, Ctrl+A selects them all. Tab from a row goes into what it holds that takes the focus, its buttons, and then out of the table. The sortable headers and the header's checkbox are a stop of their own before the rows, Left and Right between them. A row the keys reach is scrolled into view clear of the header.
 - To what reads the tree it is a `table`, or a `grid` (`a11y_multiselectable`) where its rows are selected, with `a11y_rowcount` (the header's among them) and `a11y_colcount`, `a11y_busy` while loading; its header and rows are `row`s with `a11y_rowindex` (the header's 1), `a11y_selected` where rows are selected; a header is a `columnheader` with `a11y_sort` (`ascending`, `descending`, `none`) where it sorts; a cell is a `cell`.
-- Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Row`, `Cell`, `Select` (the checkbox column's cell), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Sticky`, `Footer`, `Disabled`.
+- Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Resizer` and `ResizeLine` (a column's edge), `Row`, `Cell`, `Select` (the checkbox column's cell), `Editor` (what holds a grid's editor), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Pinned`, `Footer`, `Disabled`.
 - In the design the table is a box with `radius-lg`, an inner edge of 1 in `Border` and the `Background` fill. The header is 40 high on `Muted` with a line of 1 in `Border` under it, its titles 13/500 in `MutedForeground`; a row is 44 high with the same line under it but the last, its text 13 in `Foreground`. Both are padded 16 at each side with 16 between columns, 12 where the rows have checkboxes, whose column is 16 wide. A sorted column's title is in `Foreground` with an arrow of 14, 4 after it; a sortable one has a muted mark of `chevrons-vertical`, and its title is in `Foreground` under the pointer. A selected row is on `Highlight`. A number is mono 12 in `MutedForeground` at its column's end. The footer is 44 high, padded 16 and 8, its count 13 in `MutedForeground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled table is half opaque.
-- A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in. It is set for `Table<R, K>` of any `R` and `K`.
+- A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in, with `view.columns_built` (which columns a mounted table built) and `in_tracks(built, cells)` to lay a row's cells out with the room of those not built. A header and a cell say their `column`. It is set for `Table<R, K>` of any `R` and `K`, a data grid's too.
+
+## Data Grid
+
+A table whose cells are worked in: the focus is on a cell, the arrows move it from cell to cell, and a cell is edited in place with the system's own controls. A list of files whose names are edited, a sheet of orders whose states are chosen.
+
+```rust
+use lurq::ui::{CellEditor, CellValue, DataGrid, TableColumn};
+
+// files: Signal<Vec<File>>, the app's rows
+let columns = vec![
+  TableColumn::new("name", "Name").text(|row: &File| row.name.clone()).editor(CellEditor::text(|row: &File| row.name.clone())),
+  TableColumn::new("kind", "Kind").width(120.0).text(|row: &File| KINDS[row.kind].into()).editor(CellEditor::choice(KINDS, |row: &File| row.kind)),
+  TableColumn::new("size", "Size").width(90.0).numeric().text(|row: &File| format!("{} KB", row.size)).editor(CellEditor::number(|row: &File| row.size)),
+  TableColumn::new("shared", "Shared").width(80.0).editor(CellEditor::checkbox(|row: &File| row.shared)),
+];
+let store = files.clone();
+DataGrid::new(columns, files.get())
+  .row_key(|row: &File| row.name.clone())
+  .label("Files")
+  .selected(selected)
+  .height(320.0)
+  .on_edit(move |edit| {
+    let mut files = store.get();
+    let Some(file) = files.iter_mut().find(|file| &file.name == edit.row) else { return false };
+    match (edit.column, &edit.value) {
+      ("name", CellValue::Text(name)) if name.is_empty() => return false, // refused: the editor stays open
+      ("name", CellValue::Text(name)) => file.name = name.clone(),
+      ("kind", CellValue::Choice(kind)) => file.kind = *kind,
+      ("size", CellValue::Number(size)) => file.size = *size,
+      ("shared", CellValue::Checked(shared)) => file.shared = *shared,
+      _ => return false,
+    }
+    store.set(files);
+    true
+  })
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `DataGrid::new(columns, rows)`, `new_shared(columns, Arc<Vec<R>>)`, `row_key(\|row\| K)` | A table's columns and rows, and what tells a row apart |
+| `TableColumn::editor(CellEditor)` | How the column's cells are edited: `CellEditor::text(\|row\| String)` (an `Input`), `number(\|row\| f64)` (a `NumberInput`), `choice(choices, \|row\| usize)` (a `Select` of the choices), `checkbox(\|row\| bool)` (a box ticked in the cell, which a column that builds no cell of its own shows). A column with none is read |
+| `on_edit(\|edit: &CellEdit<K>\| bool)` | Told each edit committed: `edit.row` (the row's key), `edit.column` (the column's id), `edit.value` (a `CellValue`: `Text`, `Number`, `Choice`, `Checked`). It returns whether the app takes it; every handler is told, and one refusing it refuses it |
+| `read_only(bool)` | No cell is edited: the cells take the focus and are read |
+| `resizable(bool)` | Columns made wider or narrower by a person: on unless told |
+| `mount(ctx)` | The grid that works: its cells take the focus and are edited, and it builds the rows and the columns in view. Converted into an element it is the still form of itself, read and selected as a table |
+| `sort`, `sort_controlled`, `on_sort_change`, `selected`, `selected_controlled`, `on_selection_change`, `checkboxes`, `on_row_click`, `on_row_activate`, `on_column_resize`, `on_column_resize_end`, `density`, `height`, `max_height`, `empty`, `empty_text`, `loading`, `loading_rows`, `pagination`, `count`, `total`, `count_text`, `select_all_label`, `select_row_label`, `resize_label`, `label`, `disabled`, `state`, `style`, `rules`, `force`, `id`, `key` | As a [table](#table) has them. A cell's id is the grid's with `-cell-`, its row and its column (`files-cell-2-0`); the editor's is the grid's with `-editor` |
+
+- The grid is one stop of Tab after its header (whose sortable and resizable headers are a stop of their own), at the cell that last had the focus or the first cell of the first selected row. Left and Right move along the row, Up and Down to the same column of the row before and after, Home and End to the row's first and last cell, Ctrl+Home and Ctrl+End to the first cell of the first row and the last of the last, PageUp and PageDown by what the grid's height shows; a row or a column that is not built is scrolled to, built and focused. Tab goes on to the next cell of the row, Shift+Tab to the one before, and out of the grid from the row's last and first. Space selects the row (with Shift from the last selected one), Ctrl+A selects them all, Enter on a cell that is not edited activates its row.
+- A cell is edited with its column's editor: Enter or F2 on it, a double press of it, or a letter or a digit typed on it, which the edit starts from. Enter commits and goes to the cell under it, Tab commits and goes on to the next cell, Shift+Tab to the one before, Escape puts the cell back as it was and gives it the focus again. A choice commits as it is chosen; a box turns at a press or Space, with no editor. An edit the app refuses leaves the editor open with its value, marked `invalid`, and the focus in it. The focus moving to another cell commits what was typed, and closes the editor however the app answers.
+- The grid edits nothing of its own: the rows are the app's, which `on_edit` changes and gives again, and the grid shows them at the next render.
+- To what reads the tree it is a `grid`, its rows `row`s with `a11y_rowindex` and `a11y_selected` where rows are selected, its cells `gridcell`s with `a11y_colindex` (the checkboxes' column counted), `a11y_rowindex` and `a11y_readonly`, its headers `columnheader`s.
+- In the design (`pencil/lurq-design-system.pen`, Data Grid) it is the table with the column of checkboxes: 12 between columns, the checkboxes 16, the name in the mono type and sorted with its arrow, a status as a badge, a size of 12 in `MutedForeground` at its end, the selected row on `Highlight`, a footer of 44 with the count and the pager. Where the board draws nothing: a cell focused from the keyboard has the ring of 2 in `Ring` inside it, as a row of a table; an editor is the system's control of the small size (32), as wide as its cell; a column's resizer is the table's.
+- Its parts and states are the table's (`TablePart`, `TableState`), and so is its renderer: a theme restyles a grid as it restyles a table, and a `TableView` of a grid says `view.grid`, each `TableCell` its `grid` (a `GridCell`: its row, whether it is editable, its editor while it is edited, whether Tab enters at it, its `a11y_colindex`).
+- The board's Property Grid (two columns of a name and a control, in categories that open and close) is not a data grid: it would take its tracks and its editors' controls from it, its categories from a tree view's open rows, and edit every value in place at once rather than one cell at a time.
 
 ## Calendar
 

@@ -17,7 +17,7 @@ use lurq::{
     quad::{Quad, QuadContent},
   },
   node::{Element, color::Color},
-  ui::{Button, Table, TableColumn, TablePart, TableRenderer, TableSort, TableView},
+  ui::{Button, ColumnPin, Table, TableColumn, TablePart, TableRenderer, TableSort, TableView},
 };
 
 use super::stage::Stage;
@@ -536,11 +536,67 @@ fn thumbs(stage: &Stage, (x, y, width, height): (f32, f32, f32, f32)) -> Vec<Qua
 }
 
 #[test]
+fn columns_pinned_at_both_ends_stay_while_the_ones_between_scroll_under_them() {
+  let mut stage = wide(|| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(160.0)
+        .pin(ColumnPin::Start)
+        .text(|row: &Crate| row.name.to_owned()),
+      TableColumn::new("status", "Status")
+        .width(400.0)
+        .text(|row: &Crate| row.status.to_owned()),
+      TableColumn::new("updated", "Updated")
+        .width(400.0)
+        .text(|row: &Crate| row.updated.to_owned()),
+      TableColumn::new("size", "Size")
+        .width(80.0)
+        .pin(ColumnPin::End)
+        .text(|row: &Crate| format!("{} KB", row.size)),
+    ];
+    Table::new(columns, crates())
+      .row_key(|row: &Crate| row.name)
+      .id("t")
+      .into()
+  });
+  let (x, y, width, _) = stage.bounds("t");
+  let at = |stage: &mut Stage, content: &str| within(stage, "t-row-0", content).map(|quad| quad.x);
+  let (name, size) = (at(&mut stage, "crates/lurq").unwrap(), at(&mut stage, "48 KB").unwrap());
+  let before = at(&mut stage, "2 min ago").unwrap();
+  assert!(
+    size + 40.0 < x + width,
+    "the size is in view at the end before any scroll"
+  );
+  assert!(
+    (size - (x + width - 1.0 - 16.0 - 80.0)).abs() < 1.5,
+    "at the end, padded 16: {}",
+    size - x
+  );
+
+  stage.tree.scroll(x + 300.0, y + 80.0, -300.0, 0.0, ScrollPhase::Scroll);
+  stage.pass();
+  assert!(
+    (at(&mut stage, "crates/lurq").unwrap() - name).abs() < 0.5,
+    "the name stays at the start"
+  );
+  assert!(
+    (at(&mut stage, "48 KB").unwrap() - size).abs() < 0.5,
+    "the size stays at the end"
+  );
+  let updated = at(&mut stage, "2 min ago").unwrap();
+  assert!(
+    (updated - (before - 300.0)).abs() < 0.5,
+    "the columns between scrolled: {}",
+    updated - x
+  );
+}
+
+#[test]
 fn the_bars_run_beside_the_rows_and_not_over_the_header_or_a_first_column_that_stays() {
   let rows = many(30);
   let mut stage = wide(move || {
     let mut columns = columns();
-    let name = columns.remove(0).sticky(true).min_width(400.0);
+    let name = columns.remove(0).pin(ColumnPin::Start).min_width(400.0);
     columns.insert(0, name);
     Table::new_shared(columns, rows.clone()).id("t").height(240.0).into()
   });
@@ -628,7 +684,7 @@ fn veils_at(stage: &Stage, color: Color, x: f32, y: f32) -> Vec<Quad> {
 fn a_first_column_that_stays_takes_its_rows_veil_under_the_pointer_and_held_down_and_not_from_the_focus() {
   let mut stage = wide(|| {
     let mut columns = columns();
-    let name = columns.remove(0).sticky(true);
+    let name = columns.remove(0).pin(ColumnPin::Start);
     columns.insert(0, name);
     Table::new(columns, crates())
       .row_key(|row: &Crate| row.name)
@@ -762,6 +818,126 @@ fn a_mounted_table_of_ten_thousand_rows_builds_those_in_view_and_end_reaches_the
   key_with(&mut stage, "Home", false, false);
   stage.pass();
   assert_eq!(focused(&stage).as_deref(), Some("t-row-0"));
+}
+
+#[test]
+fn a_mounted_table_of_fifty_columns_builds_the_cells_of_those_in_view_and_the_pinned_ones() {
+  let rows = many(200);
+  let columns = || {
+    let mut columns = vec![
+      TableColumn::new("name", "Name")
+        .width(140.0)
+        .pin(ColumnPin::Start)
+        .text(|row: &Crate| row.name.to_owned()),
+    ];
+    columns.extend((1..50).map(|index| {
+      TableColumn::new(&format!("c{index}"), &format!("Column {index}"))
+        .width(120.0)
+        .text(move |row: &Crate| format!("{}/{index}", row.size))
+    }));
+    columns
+  };
+  let mut stage = window(Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        Table::new_shared(columns(), rows.clone())
+          .id("t")
+          .height(300.0)
+          .mount(ctx),
+      )
+      .into()
+  }));
+  stage.pass();
+  let painted = |stage: &Stage, column: usize| stage.paints(&format!("Column {column}"));
+  let built: Vec<usize> = (1..50).filter(|column| painted(&stage, *column)).collect();
+  assert!(
+    built.contains(&1) && built.len() < 12,
+    "the columns in view and two past them: {built:?}"
+  );
+  assert!(!painted(&stage, 49), "a far column is not built");
+  // The columns not built keep their room: the cells of the first row are where their tracks are.
+  let (x, y, ..) = stage.bounds("t");
+  stage
+    .tree
+    .scroll(x + 300.0, y + 150.0, -3000.0, 0.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  assert!(
+    stage.paints("crate 0"),
+    "the pinned name is built wherever the rows are scrolled"
+  );
+  let built: Vec<usize> = (1..50).filter(|column| painted(&stage, *column)).collect();
+  assert!(!built.contains(&1), "the first columns left: {built:?}");
+  assert!(
+    built.iter().any(|column| (24..=28).contains(column)),
+    "the columns now in view: {built:?}"
+  );
+  // A column's cell stands where its track is: column 26 starts 140 + 25 columns of 120 after the row's start.
+  let header = texts(&stage, "Column 26").pop().expect("its header is built");
+  let cell = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.ends_with("/26")))
+    .expect("a cell of it");
+  assert!((header.x - cell.x).abs() < 0.5, "the cell under its header");
+}
+
+#[test]
+fn a_resizable_column_is_made_wider_by_a_drag_of_its_edge_and_by_ctrl_and_an_arrow_on_its_header() {
+  let heard: Arc<Mutex<Vec<(String, f32, bool)>>> = Arc::default();
+  let told = heard.clone();
+  let mut stage = window(Stage::new(move |ctx| {
+    let (moved, ended) = (told.clone(), told.clone());
+    Column::new()
+      .size(800.0, 300.0)
+      .child(
+        table(crates())
+          .resizable(true)
+          .on_column_resize(move |id, width| moved.lock().unwrap().push((id.to_owned(), width, false)))
+          .on_column_resize_end(move |id, width| ended.lock().unwrap().push((id.to_owned(), width, true)))
+          .mount(ctx),
+      )
+      .into()
+  }));
+  stage.pass();
+  let title_x = |stage: &Stage, title: &str| texts(stage, title).pop().map(|quad| quad.x).unwrap();
+  let (status, updated) = (title_x(&stage, "Status"), title_x(&stage, "Updated"));
+  let (_, y, ..) = stage.bounds("t");
+  // The edge of the status column is in the room after it, 8 before where the next column starts.
+  let (edge_x, edge_y) = (updated - 8.0, y + 20.0);
+  stage.tree.mouse_move(edge_x, edge_y);
+  stage.tree.mouse_down(edge_x, edge_y, MouseButton::Left);
+  for step in 1..=6 {
+    stage.tree.mouse_move(edge_x + 10.0 * step as f32, edge_y);
+    stage.pass();
+  }
+  stage.tree.mouse_up(edge_x + 60.0, edge_y, MouseButton::Left);
+  stage.pass();
+  // The status is 60 wider; the name, which takes the room the others leave, gave it.
+  let wider = (title_x(&stage, "Updated") - title_x(&stage, "Status")) - (updated - status);
+  assert!(
+    (wider - 60.0).abs() < 1.5,
+    "the column is as much wider as the drag: {wider}"
+  );
+  {
+    let heard = heard.lock().unwrap();
+    let end = heard.iter().filter(|(_, _, end)| *end).collect::<Vec<_>>();
+    assert_eq!(end.len(), 1, "one end: {heard:?}");
+    assert_eq!(end[0].0, "status");
+    assert!((end[0].1 - 180.0).abs() < 1.5, "120 and 60: {}", end[0].1);
+    assert!(heard.iter().any(|(_, _, end)| !end), "told while it moved");
+  }
+
+  // Ctrl and Right on a header: 10 wider.
+  heard.lock().unwrap().clear();
+  stage.click("t-header-name");
+  let before = title_x(&stage, "Status");
+  key_with(&mut stage, "ArrowRight", false, true);
+  stage.pass();
+  assert!((title_x(&stage, "Status") - (before + 10.0)).abs() < 1.5);
+  let heard = heard.lock().unwrap();
+  assert!(heard.iter().any(|(id, _, end)| id == "name" && *end), "{heard:?}");
 }
 
 #[test]

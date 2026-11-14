@@ -4235,10 +4235,10 @@ impl Tree {
         true
       } else if matches!((key.as_str(), code.as_str()), ("Tab", _) | (_, "Tab")) {
         self.focus_tab(shift)
-      } else if !ctrl
+      } else if (!ctrl || matches!(key.as_str(), "Home" | "End"))
         && !alt
         && !meta
-        && (self.focus_group_key(&key, click_modifiers) || self.focus_group_typeahead(&key))
+        && (self.focus_group_key(&key, click_modifiers) || (!ctrl && self.focus_group_typeahead(&key)))
       {
         true
       } else if !ctrl && !meta && self.menu_row_key(&key, alt, click_modifiers) {
@@ -4377,10 +4377,15 @@ impl Tree {
     // The innermost group around the focused node that takes this key. What is in a group of no keys is in
     // no group around that one either.
     let mut found = None;
+    // Ctrl+Home and Ctrl+End are a group of rows' own, where one is around a stop of a row of several stops: the
+    // first stop of the first row and the last of the last, past the group of the row's own stops.
+    let ends = modifiers.ctrl && matches!(key, "Home" | "End");
+    let mut rows_found = None;
     let mut node = root;
     for &index in &path {
       if node.focus_group_value().is_some_and(|group| group.is_none()) {
         found = None;
+        rows_found = None;
       }
       if let Some((group, step)) = node
         .focus_group_value()
@@ -4391,6 +4396,9 @@ impl Tree {
         })
       {
         found = Some((node, group, step));
+        if ends && node.focus_branch().is_some_and(|branch| branch.rows.is_some()) {
+          rows_found = found;
+        }
       }
       let Some(child) = node.children().get(index) else {
         return false;
@@ -4404,6 +4412,15 @@ impl Tree {
     ) {
       return false;
     }
+    let column = node.focus_branch().and_then(|branch| branch.column);
+    // Ctrl+Home and Ctrl+End are a grid's alone: elsewhere they are left to what else takes them.
+    if modifiers.ctrl && column.is_none() {
+      return false;
+    }
+    let found = match rows_found {
+      Some(rows) if column.is_some() => Some(rows),
+      _ => found,
+    };
     let Some((group_node, group, step)) = found else {
       return false;
     };
@@ -4412,7 +4429,13 @@ impl Tree {
       && let Some(row) = node.focus_branch().and_then(|branch| branch.row)
     {
       let group_id = group_node.node_id();
-      return self.focus_rows_key(group_id, rows, group, row, step, modifiers);
+      let aim = match (column, step) {
+        (Some(_), crate::node::FocusStep::First) if ends => nested_focus::ColumnAim::First,
+        (Some(_), crate::node::FocusStep::Last) if ends => nested_focus::ColumnAim::Last,
+        (Some(column), _) => nested_focus::ColumnAim::Same(column),
+        (None, _) => nested_focus::ColumnAim::First,
+      };
+      return self.focus_rows_key(group_id, rows, group, row, step, modifiers, aim);
     }
     // Right, Left and `*` in a nested group open, close and climb: see `nested_focus`.
     if step.is_nested() {
