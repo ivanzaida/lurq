@@ -273,7 +273,7 @@ an alias.
   the new value. No handler is called when the app sets the signal, nor for a press that changes nothing.
   `on_change_end` is called only where the value changed between the start and the end of the gesture.
 - **A component shown and not operated** (the steps of a wizard the app drives) has a form that takes the value
-  alone and tells nothing; it is not `new(Signal::new(..))`.
+  alone and tells nothing, `at(value, ..)`: `Steps::at(current, steps)`. It is not `new(Signal::new(..))`.
 - **Every `on_*` adds**: a second handler is called after the first, never in its place. The app's handlers
   are called before the component acts on the event; what a handler refuses (`prevent_default`) the component
   does not act on.
