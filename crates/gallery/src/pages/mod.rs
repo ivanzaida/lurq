@@ -49,6 +49,7 @@ mod search_field;
 mod select;
 mod separator;
 mod sheet;
+mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -506,6 +507,15 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/sidebar",
+    name: "Sidebar",
+    icon: Some("panel-left"),
+    about: "sidebar side bar navigation rail collapsed collapse expand trigger groups items nested tree selected \
+            current page badge count shortcut header footer workspace account drawer overlay narrow",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<sidebar::SidebarPage>(()),
   },
   Page {
     path: "/badge",
