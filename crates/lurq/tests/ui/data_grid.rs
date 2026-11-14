@@ -14,7 +14,7 @@ use lurq::{
     quad::{Quad, QuadContent},
   },
   node::color::Color,
-  ui::{CellEditor, CellRange, CellValue, DataGrid, TableColumn, TableSort},
+  ui::{CellEditor, CellRange, CellValue, ColumnLayout, DataGrid, TableColumn, TableSort},
 };
 
 use super::stage::Stage;
@@ -919,4 +919,240 @@ fn ten_thousand_rows_of_fifty_columns_select_copy_and_reach_their_last_cell_buil
   assert_eq!(copied.lines().count(), 10_000);
   assert_eq!(copied.lines().last().map(|line| line.split('\t').count()), Some(50));
   assert!(copied.ends_with("9999.49"));
+}
+
+const MORE: &str = "\u{E053}";
+
+/// The grid of [`grid`] with its arrangement of columns and its sort bound to signals.
+fn arranged(layout: Signal<ColumnLayout>, sort: Signal<Option<TableSort>>) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .sort(sort.clone())
+          .column_layout(layout.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage
+}
+
+/// The ids of the columns shown, in their order, and those hidden.
+fn order(layout: &Signal<ColumnLayout>) -> (Vec<String>, Vec<String>) {
+  let layout = layout.get();
+  (
+    layout
+      .columns
+      .iter()
+      .filter(|place| !place.hidden)
+      .map(|place| place.id.to_string())
+      .collect(),
+    layout.hidden().map(str::to_owned).collect(),
+  )
+}
+
+/// A press of the menu item that says `label`.
+fn choose(stage: &mut Stage, label: &str) {
+  let quad = stage
+    .text_quad(label)
+    .unwrap_or_else(|| panic!("the menu shows {label:?}"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.pass();
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  stage.pass();
+}
+
+fn more_shown(stage: &Stage) -> bool {
+  texts(stage, MORE).iter().any(|quad| quad.opacity > 0.5)
+}
+
+#[test]
+fn a_headers_menu_trigger_shows_under_the_pointer_and_its_menu_sorts_pins_hides_and_shows_the_columns() {
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(None));
+  let mut stage = arranged(layout.clone(), sort.clone());
+  assert!(!more_shown(&stage), "no trigger at rest");
+  stage.hover("g-header-name");
+  stage.pass_after(std::time::Duration::from_millis(500));
+  assert!(more_shown(&stage), "the trigger under the pointer");
+
+  stage.click("g-header-name-menu");
+  stage.pass();
+  assert!(stage.paints("Sort descending"), "the menu is open");
+  choose(&mut stage, "Sort descending");
+  assert_eq!(sort.get(), Some(TableSort::descending("name")));
+  assert!(!stage.paints("Sort descending"), "a choice closes it");
+
+  // Pinned at the end: the name goes after the others, and stays there.
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  choose(&mut stage, "Pin to end");
+  assert_eq!(
+    layout.get().place("name").map(|place| place.pin),
+    Some(lurq::ui::ColumnPin::End)
+  );
+  let (name_x, ..) = stage.bounds("g-header-name");
+  let (status_x, ..) = stage.bounds("g-header-status");
+  assert!(name_x > status_x, "the name is at the end now");
+
+  // Hidden, and shown again from another column's menu.
+  stage.hover("g-header-status");
+  stage.click("g-header-status-menu");
+  stage.pass();
+  choose(&mut stage, "Hide column");
+  assert_eq!(order(&layout).1, ["status"]);
+  assert!(!stage.paints("Status"), "its header is gone");
+  stage.hover("g-header-size");
+  stage.click("g-header-size-menu");
+  stage.pass();
+  choose(&mut stage, "Columns");
+  choose(&mut stage, "Show all columns");
+  assert!(order(&layout).1.is_empty());
+  assert!(stage.paints("Status"));
+}
+
+#[test]
+fn alt_down_on_a_header_opens_its_menu_and_ctrl_shift_page_down_moves_its_column() {
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(None));
+  let mut stage = arranged(layout.clone(), sort);
+  key(&mut stage, "Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("g-header-name"));
+  stage
+    .tree
+    .key_down("ArrowDown".into(), "ArrowDown".into(), false, false, true);
+  stage
+    .tree
+    .key_up("ArrowDown".into(), "ArrowDown".into(), false, false, true);
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("Pin to start"), "Alt+Down opens the menu");
+  assert!(more_shown(&stage), "its trigger shows while it is open");
+  key(&mut stage, "Escape");
+  assert!(!stage.paints("Pin to start"));
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-header-name"),
+    "the focus back on the header"
+  );
+  modified(&mut stage, "PageDown", true, true);
+  assert_eq!(order(&layout).0, ["status", "name", "size", "shared"], "one place on");
+  modified(&mut stage, "PageUp", true, true);
+  assert_eq!(order(&layout).0, ["name", "status", "size", "shared"], "and back");
+}
+
+#[test]
+fn a_header_dragged_to_another_place_moves_its_column() {
+  use lurq::app::events::MouseButton::Left;
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(None));
+  let mut stage = arranged(layout.clone(), sort);
+  let (x, y) = stage.center("g-header-name");
+  // The size's cell: its column, as wide as the header's.
+  let (size_x, _, size_width, _) = stage.bounds("g-cell-0-2");
+  let to = size_x + size_width * 0.75;
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, Left);
+  for step in 1..=8 {
+    stage.tree.mouse_move(x + (to - x) * step as f32 / 8.0, y);
+    stage.pass();
+  }
+  stage.tree.mouse_up(to, y, Left);
+  stage.pass();
+  assert_eq!(
+    order(&layout).0,
+    ["status", "size", "name", "shared"],
+    "after the size, before the shared box"
+  );
+}
+
+#[test]
+fn a_layout_the_app_gives_orders_hides_widens_and_pins_the_columns_and_a_resize_and_size_to_fit_are_kept_in_it() {
+  use lurq::ui::{ColumnPin, ColumnPlace};
+  let place = |id: &str, hidden: bool, width: Option<f32>, pin: ColumnPin| ColumnPlace {
+    id: id.into(),
+    hidden,
+    width,
+    fit: false,
+    pin,
+  };
+  let layout = Signal::new(ColumnLayout {
+    columns: vec![
+      place("size", false, Some(150.0), ColumnPin::None),
+      place("name", false, None, ColumnPin::None),
+      place("status", true, None, ColumnPin::None),
+      place("shared", false, None, ColumnPin::Start),
+    ],
+  });
+  let mut stage = arranged(layout.clone(), Signal::new(None));
+  let (shared_x, ..) = stage.bounds("g-header-shared");
+  let (size_x, ..) = stage.bounds("g-header-size");
+  let (name_x, ..) = stage.bounds("g-header-name");
+  let size_width = stage.bounds("g-cell-0-1").2;
+  assert!(
+    shared_x < size_x && size_x < name_x,
+    "pinned first, then in the layout's order"
+  );
+  assert!(!stage.paints("Status"), "hidden");
+  assert!(size_width >= 150.0, "its width: {size_width}");
+
+  // Ctrl+Right on the size's header makes it wider: the width is kept in the layout.
+  key(&mut stage, "Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-header-shared"),
+    "the first header, pinned"
+  );
+  key(&mut stage, "ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("g-header-size"));
+  modified(&mut stage, "ArrowRight", false, true);
+  assert_eq!(layout.get().place("size").and_then(|place| place.width), Some(160.0));
+
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  choose(&mut stage, "Size to fit");
+  assert!(
+    layout
+      .get()
+      .place("name")
+      .is_some_and(|place| place.fit && place.width.is_none())
+  );
+}
+
+#[test]
+fn a_grid_without_a_layout_keeps_its_own_and_a_menu_can_be_turned_off() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(DataGrid::new(columns(), files()).id("g").mount(ctx))
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.hover("g-header-status");
+  stage.click("g-header-status-menu");
+  stage.pass();
+  choose(&mut stage, "Hide column");
+  assert!(!stage.paints("Status"), "kept by the grid");
+
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(DataGrid::new(columns(), files()).id("g").column_menu(false).mount(ctx))
+      .into()
+  });
+  stage.pass();
+  assert!(texts(&stage, MORE).is_empty(), "no trigger");
 }
