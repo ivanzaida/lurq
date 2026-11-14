@@ -509,8 +509,9 @@ impl MultiSelectView {
       .single_line()
       .text_style(text_box::ink(theme, &value))
       .placeholder_style(text_box::ink(theme, &placeholder))
+      // As long as its least room when the tags are laid on their lines, and as long as the rest of its line then.
       .min_width(least)
-      .flex(1.0);
+      .flex_full(1.0, 1.0, Some(least));
     let mut control = text_box::text_box(control, &self.boxed, self.on_input.clone());
     // The placeholder says what to do while nothing is chosen; beside tags it would say it again.
     if let Some(placeholder) = self.placeholder.as_ref().filter(|_| self.chosen.is_empty()) {

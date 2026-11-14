@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::quad::{Quad, QuadContent},
   node::color::Color,
-  ui::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxView, Field, Interaction, icons},
+  ui::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxView, Field, Input, Interaction, icons},
 };
 
 use super::stage::Stage;
@@ -40,17 +40,20 @@ fn window() -> Column {
   Column::new().size(400.0, 300.0)
 }
 
-/// A page with one combobox of the frameworks, bound to `value`, as `dress` makes it.
+/// A page with one combobox of the frameworks, bound to `value`, as `dress` makes it, and an input under it that Tab
+/// goes on to: with the combobox alone on the page, Tab would come round to it again.
 fn page(value: &Signal<String>, dress: impl Fn(Combobox) -> Combobox + Send + Sync + 'static) -> Stage {
-  let value = value.clone();
+  let (value, next) = (value.clone(), Signal::new(String::new()));
   Stage::new(move |_| {
     window()
       .padding(8.0)
+      .spacing(12.0)
       .child(dress(
         Combobox::new(value.clone(), frameworks())
           .placeholder("Select framework")
           .id("framework"),
       ))
+      .child(Input::new(next.clone()).id("next"))
       .into()
   })
 }
@@ -303,7 +306,7 @@ fn what_leaves_no_option_says_no_results_and_leaving_takes_back_what_was_typed()
   );
   // Tab chooses nothing, closes the list and goes on; what was typed goes back to the chosen label.
   stage.key("Tab");
-  assert_ne!(focused(&stage).as_deref(), Some("framework-input"));
+  assert_eq!(focused(&stage).as_deref(), Some("next"));
   assert!(!is_open(&mut stage));
   assert_eq!(typed(&mut stage), "Iced");
   assert_eq!(value.get(), "iced");
@@ -355,6 +358,7 @@ fn custom_values_keep_what_was_typed() {
   stage.key("Escape");
   type_in(&mut stage, "slint");
   stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("next"), "the focus left the box");
   assert_eq!(value.get(), "slint");
   assert_eq!(typed(&mut stage), "Slint");
 }
