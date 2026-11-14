@@ -17,6 +17,7 @@ mod checkbox;
 mod checkbox_card;
 mod combobox;
 mod dialog;
+mod empty_state;
 mod family;
 mod family_play;
 mod fieldset;
@@ -24,10 +25,12 @@ mod icons;
 mod input;
 mod input_group;
 mod input_otp;
+mod kbd;
 mod mentions;
 mod menu;
 mod multi_select;
 mod number_input;
+mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
@@ -493,6 +496,30 @@ pub const PAGES: &[Page] = &[
     about: "callout note tip warning caution admonition aside hint prose document bar form",
     group: Group::Data,
     mount: |ctx| ctx.mount::<callout::CalloutPage>(()),
+  },
+  Page {
+    path: "/kbd",
+    name: "Kbd",
+    icon: None,
+    about: "kbd key keyboard shortcut hotkey chord sequence accelerator mac command glyph inline code mono",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<kbd::KbdPage>(()),
+  },
+  Page {
+    path: "/empty-state",
+    name: "Empty State",
+    icon: None,
+    about: "empty state blank no results nothing zero data placeholder illustration call to action",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<empty_state::EmptyStatePage>(()),
+  },
+  Page {
+    path: "/result",
+    name: "Result",
+    icon: None,
+    about: "result outcome success error warning info not found 404 done finished page dialog",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<outcome::OutcomePage>(()),
   },
 ];
 
