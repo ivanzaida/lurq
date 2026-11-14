@@ -213,7 +213,9 @@ pub use progress_dialog::{
   ProgressDialog, ProgressDialogPart, ProgressDialogRenderer, ProgressDialogState, ProgressDialogView,
 };
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
-pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
+pub use recipe::{
+  Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
+};
 pub use search_field::{SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldState, SearchFieldView};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};

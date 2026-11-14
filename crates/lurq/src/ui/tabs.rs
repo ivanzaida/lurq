@@ -928,6 +928,8 @@ impl Themed for Tabs {
           .background(Muted)
       })
       .variant(Default, Tab, |s| s.height(28.0).padding_x(12.0).gap(6.0).radius(RadiusSize::Md))
+      // Each form's tab is of the density's height, the steps of a row from the board's.
+      .row_density(Selector::new().variant(Default), Tab, 28.0)
       .when(when(Default, &[Selected]), Tab, |s| {
         s.background(Background).shadow(ShadowStyle::Sm)
       })
@@ -948,6 +950,8 @@ impl Themed for Tabs {
           .underline(line(BorderSize::Sm, PaletteColor::Border))
       })
       .when(when(Line, &[Horizontal]), Tab, |s| s.height(44.0))
+      .row_density(when(Line, &[Horizontal]), List, 44.0)
+      .row_density(when(Line, &[Horizontal]), Tab, 44.0)
       .when(when(Line, &[Horizontal, Selected]), Tab, |s| {
         s.underline(line(BorderSize::Md, Foreground))
       })
@@ -955,6 +959,7 @@ impl Themed for Tabs {
         s.min_width(180.0).start_line(line(BorderSize::Sm, PaletteColor::Border))
       })
       .when(when(Line, &[Vertical]), Tab, |s| s.height(32.0).padding_x(12.0))
+      .row_density(when(Line, &[Vertical]), Tab, 32.0)
       .when(when(Line, &[Vertical]), Label, |s| s.font_size(13.0))
       .when(when(Line, &[Vertical, Selected]), Tab, |s| s.start_line(line(BorderSize::Md, Foreground)))
       .when(when(Line, &[Overflow]), Bar, |s| {
@@ -962,11 +967,15 @@ impl Themed for Tabs {
       })
       .when(when(Line, &[Overflow]), List, |s| s.height(40.0).width(Length::Auto).gap(20.0))
       .when(when(Line, &[Overflow]), Tab, |s| s.height(40.0))
+      .row_density(when(Line, &[Overflow]), Bar, 40.0)
+      .row_density(when(Line, &[Overflow]), List, 40.0)
+      .row_density(when(Line, &[Overflow]), Tab, 40.0)
       .when(when(Line, &[Overflow]), Label, |s| s.font_size(13.0))
       .when(when(Line, &[Overflow]), More, |s| s.start_line(line(BorderSize::Sm, PaletteColor::Border)))
       // Pill: round tabs, the selected one in the primary fill.
       .variant(Pill, List, |s| s.gap(4.0))
       .variant(Pill, Tab, |s| s.height(30.0).padding_x(14.0).gap(6.0).radius(RadiusSize::Full))
+      .row_density(Selector::new().variant(Pill), Tab, 30.0)
       .when(when(Pill, &[Selected]), Tab, |s| {
         s.background(Primary).foreground(PrimaryForeground)
       })

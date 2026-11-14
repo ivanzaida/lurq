@@ -534,3 +534,32 @@ fn a_theme_gives_the_collapsible_another_anatomy_and_it_still_opens() {
   stage.click("details");
   assert_eq!(*asked.lock().unwrap(), [true]);
 }
+
+#[test]
+fn a_headers_height_follows_the_density() {
+  use lurq::app::theme::Density;
+  let apart = |density: Density| {
+    let app = App::new();
+    app.theme().set_density(density);
+    let open = Signal::new(None);
+    let stage = Stage::in_app(app, move |_| {
+      Column::new()
+        .padding(8.0)
+        .child(Accordion::new(open.clone(), items()).style(AccordionPart::Root, |s| s.width(360.0)))
+        .into()
+    });
+    top(&stage, DARK) - top(&stage, GPU)
+  };
+  let default = apart(Density::Default);
+  for (density, step) in [
+    (Density::Compact, -8.0),
+    (Density::Comfortable, 8.0),
+    (Density::Touch, 12.0),
+  ] {
+    let moved = apart(density) - default;
+    assert!(
+      (moved - step).abs() < 0.5,
+      "{density:?}: {step} from the default, not {moved}"
+    );
+  }
+}

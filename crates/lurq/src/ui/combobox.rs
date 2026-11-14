@@ -1027,6 +1027,8 @@ pub(crate) fn status_rules(recipe: Recipe) -> Recipe {
         .font_size(13.0)
     })
     .base(ComboboxPart::Spinner, |s| s.foreground(PaletteColor::Foreground))
+    // As high as the options at each density.
+    .row_density(super::Selector::new(), ComboboxPart::Status, 32.0)
 }
 
 impl Themed for Combobox {

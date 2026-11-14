@@ -7,7 +7,7 @@
 //! its anchor, none of which a builder can keep. [`Sidebar`] says what it
 //! holds, and [`Sidebar::mount`] puts it where it goes.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use parking_lot::Mutex;
 
@@ -34,8 +34,8 @@ use crate::{
     ctx::{Ctx, OpenState, Placement},
     events::KeyboardEvent,
     theme::{
-      BorderSize, Breakpoint, Density, IconSize, MotionDuration, MotionEasing, OpacityLevel, PaletteColor, RadiusSize,
-      Theme, TypographyStyle,
+      BorderSize, Breakpoint, IconSize, MotionDuration, MotionEasing, OpacityLevel, PaletteColor, RadiusSize, Theme,
+      TypographyStyle,
     },
   },
   components::{Column, Row, ScrollVertical},
@@ -663,6 +663,10 @@ struct SidebarHost {
   menus: Mutex<HashMap<Arc<str>, (ElementRef, Signal<bool>)>>,
   /// Whether it is open over the page, where the app gives no signal of its own.
   open: Signal<bool>,
+  /// Where the selected item was at the last render, `None` before the first: it is scrolled into view when it moves.
+  revealed: Mutex<Option<Option<Arc<str>>>>,
+  /// What is scrolled into view: the selected item, or what stands for it where it is not shown.
+  reveal: ElementRef,
 }
 
 impl Component for SidebarHost {
@@ -673,6 +677,8 @@ impl Component for SidebarHost {
       opened: Mutex::new(HashMap::new()),
       menus: Mutex::new(HashMap::new()),
       open: ctx.signal(false),
+      revealed: Mutex::new(None),
+      reveal: ElementRef::new(),
     }
   }
 
@@ -693,6 +699,8 @@ impl SidebarHost {
       opened: Mutex::new(HashMap::new()),
       menus: Mutex::new(HashMap::new()),
       open: Signal::new(false),
+      revealed: Mutex::new(None),
+      reveal: ElementRef::new(),
     }
   }
 }
@@ -715,6 +723,29 @@ fn build_sidebar(
   // Over the page it is the whole sidebar, whatever the rail would be.
   let collapsed = !overlay && sidebar.collapsed.is_open();
   let open = sidebar.open.clone().unwrap_or_else(|| host.open.clone());
+  // Where the selected item has moved to since the last render, it is scrolled into view, and the lists it is in are
+  // opened: by the app, a router, a search, as by a press of it. The lists start open where it starts.
+  let mut reveal = false;
+  if ctx.is_some() {
+    let selected = selected_path(sidebar);
+    let key = selected.as_ref().map(|(_, key)| key.clone());
+    let before = host.revealed.lock().replace(key.clone());
+    reveal = key.is_some() && before.as_ref() != Some(&key);
+    // The first render opens what holds it by the lists' own start, which the app may have closed.
+    if let Some((lists, _)) = selected.as_ref().filter(|_| reveal && before.is_some()) {
+      for list in lists {
+        let signal = host
+          .opened
+          .lock()
+          .entry(list.clone())
+          .or_insert_with(|| Signal::new(true))
+          .clone();
+        if !signal.get_untracked() {
+          signal.set(true);
+        }
+      }
+    }
+  }
   let build = Build {
     theme: theme.clone(),
     sidebar,
@@ -723,6 +754,7 @@ fn build_sidebar(
     close: overlay.then(|| open.clone()),
     host,
     navigator,
+    marked: RefCell::new(None),
   };
   let mut ctx = ctx;
   let groups: Vec<Element> = sidebar
@@ -731,6 +763,9 @@ fn build_sidebar(
     .enumerate()
     .map(|(index, group)| build.group(&mut ctx, group, index))
     .collect();
+  if let (true, Some(ctx), Some(marked)) = (reveal, ctx.as_deref_mut(), build.marked.borrow().as_ref()) {
+    ctx.scroll_into_view(marked);
+  }
   let (header, footer) = if collapsed {
     (sidebar.header_collapsed.clone(), sidebar.footer_collapsed.clone())
   } else {
@@ -784,6 +819,9 @@ struct Build<'a> {
   close: Option<Signal<bool>>,
   host: &'a SidebarHost,
   navigator: Option<Navigator>,
+  /// What the selected item is marked on: itself, or the closed group or item it is in. Its ref is what a move of
+  /// the selection scrolls into view.
+  marked: RefCell<Option<ElementRef>>,
 }
 
 impl Build<'_> {
@@ -817,6 +855,13 @@ impl Build<'_> {
       .entry(Arc::from(key))
       .or_insert_with(|| Signal::new(initial))
       .clone()
+  }
+
+  /// The ref of what shows the selected item, `own` where it has one already: what is scrolled into view.
+  fn mark(&self, own: Option<&ElementRef>) -> ElementRef {
+    let marked = own.cloned().unwrap_or_else(|| self.host.reveal.clone());
+    *self.marked.borrow_mut() = Some(marked.clone());
+    marked
   }
 
   /// The anchor and the open signal of the menu of the item at `key`.
@@ -866,7 +911,13 @@ impl Build<'_> {
     } else {
       true
     };
-    let recipe = self.recipe(&[(SidebarState::Open, open), (SidebarState::Interactive, collapsible)]);
+    // A closed group shows that it holds the selected item, as a tree's closed item does.
+    let holds = !open && group.items.iter().any(|item| item.selected || item.holds_selected());
+    let recipe = self.recipe(&[
+      (SidebarState::Open, open),
+      (SidebarState::Interactive, collapsible),
+      (SidebarState::Selected, holds),
+    ]);
     let mut root = Column::new()
       .align_items(if self.collapsed {
         Alignment::Center
@@ -880,7 +931,7 @@ impl Build<'_> {
       root = root.describe("a11y_name", label.clone());
     }
     if !self.collapsed && (group.label.is_some() || group.count.is_some() || group.action.is_some()) {
-      root = root.child(self.group_label(group, &recipe, &key, open, collapsible));
+      root = root.child(self.group_label(group, &recipe, &key, open, collapsible, holds));
     }
     // To the keys a group that opens and closes is an item its items are in.
     let level = if collapsible { 2 } else { 1 };
@@ -904,6 +955,7 @@ impl Build<'_> {
     key: &str,
     open: bool,
     collapsible: bool,
+    holds: bool,
   ) -> Row {
     let part = recipe.part(SidebarPart::GroupLabel);
     let text = group.label.as_deref().map(|label| {
@@ -932,6 +984,10 @@ impl Build<'_> {
         .focus_level(1)
         .focus_expanded(open, move |open| toggle.set(open))
         .on_click(move |_| signal.update(|open| *open = !*open));
+      // The selected item is not shown: Tab stops here, and here is what is scrolled into view.
+      if holds {
+        button = button.focus_entry(true).ref_element(self.mark(None));
+      }
       button = button.with_children(text).with_children(count).child(glyph(
         &recipe.part(SidebarPart::GroupChevron),
         Name::new(if open {
@@ -982,8 +1038,8 @@ impl Build<'_> {
     let open_signal =
       (has_children && !self.collapsed).then(|| self.opened(key, item.open.unwrap_or_else(|| item.holds_selected())));
     let open = open_signal.as_ref().is_some_and(Signal::get);
-    // On the rail an item stands for its nested items, which it does not show.
-    let selected = item.selected || (self.collapsed && item.holds_selected());
+    // On the rail, and closed, an item stands for its nested items, which it does not show.
+    let selected = item.selected || (!open && item.holds_selected());
     let recipe = self.recipe(&[
       (SidebarState::Selected, selected),
       (SidebarState::Disabled, item.disabled),
@@ -1003,15 +1059,23 @@ impl Build<'_> {
       .focus_label(item.label.clone())
       .focus_level(level);
     if selected {
-      button = button.describe("a11y_current", "page").focus_entry(true);
+      // Where it stands for the selected item it is the current page's place, not the page.
+      let current = if item.selected { "page" } else { "location" };
+      button = button.describe("a11y_current", current).focus_entry(true);
     }
     if let Some(id) = &item.id {
       button = button.id(id.clone());
+    }
+    if selected && !(self.collapsed && has_children) {
+      button = button.ref_element(self.mark(None));
     }
     let choose = self.choose(item);
     let mut menu = None;
     if self.collapsed && has_children {
       let (anchor, menu_open) = self.menu_state(key);
+      if selected {
+        self.mark(Some(&anchor));
+      }
       button = button
         .ref_element(anchor.clone())
         .describe("a11y_haspopup", "menu")
@@ -1172,6 +1236,29 @@ impl Build<'_> {
     }
     entry
   }
+}
+
+/// Where the selected item is: the keys of the group and the items it is in, outermost first, and its own key.
+fn selected_path(sidebar: &Sidebar) -> Option<(Vec<Arc<str>>, Arc<str>)> {
+  fn find(items: &[SidebarItem], key: &str, path: &mut Vec<Arc<str>>) -> Option<Arc<str>> {
+    for item in items {
+      let own: Arc<str> = Arc::from(format!("{key}/{}", item.ident()));
+      if item.selected {
+        return Some(own);
+      }
+      path.push(own.clone());
+      if let Some(found) = find(&item.children, &own, path) {
+        return Some(found);
+      }
+      path.pop();
+    }
+    None
+  }
+  sidebar.groups.iter().enumerate().find_map(|(index, group)| {
+    let key = format!("{index}:{}", group.ident());
+    let mut path = vec![Arc::from(key.as_str())];
+    find(&group.items, &key, &mut path).map(|found| (path, found))
+  })
 }
 
 /// What opens and closes with its height: `children` while it is `open`, called `label` to tooling. Its content is
@@ -1746,6 +1833,9 @@ impl Themed for Sidebar {
           .foreground(MutedForeground)
       })
       .base(GroupChevron, |s| s.square(14.0).foreground(MutedForeground))
+      // A closed group that holds the selected item: its label in the foreground.
+      .state(Selected, GroupText, |s| s.foreground(Foreground))
+      .state(Selected, GroupChevron, |s| s.foreground(Foreground))
       .base(Item, |s| {
         fading(
           s.height(32.0)
@@ -1756,10 +1846,8 @@ impl Themed for Sidebar {
             .cursor(CursorIcon::Pointer),
         )
       })
-      // A row of the density's height, as the gallery's own lists have it: 32 at the default.
-      .density(Density::Compact, Item, |s| s.height(24.0))
-      .density(Density::Comfortable, Item, |s| s.height(40.0))
-      .density(Density::Touch, Item, |s| s.height(44.0))
+      // A row of the density's height: 32 at the default, 24, 40 and 44 at the others.
+      .row_density(Selector::new(), Item, 32.0)
       .state(Collapsed, Item, |s| s.width(36.0).padding_x(0.0))
       // The pointer's veil, on whatever fill the sidebar has.
       .hovered(Item, |s| s.background(StateHover))

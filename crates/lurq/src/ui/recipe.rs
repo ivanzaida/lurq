@@ -23,6 +23,14 @@ use crate::{
 /// The name of a variant, a size, a state or a part.
 pub type Name = RoleName;
 
+/// What a row moves by at each density but the default, from its height at the default: a row of 36 is 28 in a
+/// compact theme, 44 in a comfortable one and 48 under a finger. A control keeps its size at every density.
+pub const ROW_STEPS: [(Density, f32); 3] = [
+  (Density::Compact, -8.0),
+  (Density::Comfortable, 8.0),
+  (Density::Touch, 12.0),
+];
+
 /// What the pointer or the keyboard does to a part, which the part shows by
 /// itself: a rule for one of these is no reason to render the component.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -281,6 +289,27 @@ impl Recipe {
     style: impl FnOnce(PartStyle) -> PartStyle,
   ) -> Self {
     self.when(Selector::new().density(density), part, style)
+  }
+
+  /// A rule for each density but the default, in the case of `selector`, with the step a row moves by at it
+  /// ([`ROW_STEPS`]): `style` is given the part's style and the step.
+  pub fn by_density(
+    self,
+    selector: Selector,
+    part: impl Into<Name>,
+    style: impl Fn(PartStyle, f32) -> PartStyle,
+  ) -> Self {
+    let part = part.into();
+    ROW_STEPS.iter().fold(self, |recipe, (density, step)| {
+      recipe.when(selector.clone().density(*density), part, |s| style(s, *step))
+    })
+  }
+
+  /// The rules that move a row of `part`, `height` high at the default density, by the steps of the others in the
+  /// case of `selector`: 8 lower in a compact theme, 8 higher in a comfortable one and 12 higher under a finger, as a
+  /// row of 36 is 28, 44 and 48 ([`ROW_STEPS`]).
+  pub fn row_density(self, selector: Selector, part: impl Into<Name>, height: f32) -> Self {
+    self.by_density(selector, part, move |s, step| s.height(height + step))
   }
 
   /// A rule for a window at `breakpoint` or wider: a part that is one size
