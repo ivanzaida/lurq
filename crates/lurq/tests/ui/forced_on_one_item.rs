@@ -71,17 +71,20 @@ fn a_tree_draws_it_on_the_selected_row_else_the_first() {
   let items = || {
     [
       TreeItem::new("src", "src")
-        .element_id("src")
-        .child(TreeItem::new("lib", "lib.rs").element_id("lib")),
-      TreeItem::new("cargo", "Cargo.toml").element_id("cargo"),
-      TreeItem::new("readme", "README.md").element_id("readme"),
+        .id("src")
+        .item(TreeItem::new("lib", "lib.rs").id("lib")),
+      TreeItem::new("cargo", "Cargo.toml").id("cargo"),
+      TreeItem::new("readme", "README.md").id("readme"),
     ]
   };
-  let mut first = stage(move || TreeView::new(items()).force(Some(Interaction::FocusVisible)).into());
+  let mut first = stage(move || {
+    TreeView::new(Signal::new(None), items())
+      .force(Some(Interaction::FocusVisible))
+      .into()
+  });
   ring_on(&mut first, "src");
   let mut chosen = stage(move || {
-    TreeView::new(items())
-      .selected(Signal::new(vec!["cargo"]))
+    TreeView::new(Signal::new(vec!["cargo"]), items())
       .force(Some(Interaction::FocusVisible))
       .into()
   });

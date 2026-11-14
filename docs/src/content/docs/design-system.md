@@ -3311,9 +3311,9 @@ Things inside things, one level under the other: the files of a project in their
 use lurq::ui::{TreeItem, TreeView};
 
 // open: Signal<Vec<&str>>, selected: Signal<Option<&str>>
-TreeView::new([
-  TreeItem::folder("crates", "crates").children([
-    TreeItem::folder("lurq", "lurq").children([
+TreeView::new(selected, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
       TreeItem::file("lib.rs", "lib.rs"),
       TreeItem::file("theme.rs", "theme.rs"),
     ]),
@@ -3321,12 +3321,14 @@ TreeView::new([
   TreeItem::file("Cargo.toml", "Cargo.toml"),
 ])
 .label("Files")
-.expanded(open)
-.selected(selected)
+.open(open)
 .on_activate(|file| open_file(file));
 
 // Any number selected, with Ctrl and Shift.
-TreeView::new(project).expanded(open).selected(many).multiple(true);
+TreeView::new(many, project).open(open).multiple(true);
+
+// The selection held by the app, which is told each new one.
+TreeView::controlled(app.selected(), project, |next| app.select(next));
 
 // Children the app brings when the row is first opened.
 TreeItem::folder("registry", "registry").lazy(true);
@@ -3335,32 +3337,31 @@ TreeItem::folder("registry", "registry").lazy(true);
 TreeItem::folder("src", "src").trailing(new_file_button).trailing_on_hover(true);
 
 // Ten thousand rows: in the engine's virtual list, which builds those in view.
-TreeView::new(items)
-  .expanded(open)
+TreeView::new(selected, items)
+  .open(open)
   .style(TreeViewPart::Root, |s| s.height(480.0))
   .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
-| `new(items)` | The rows at the top, each a `TreeItem<T>` with what it holds. `T` is what rows are told apart by: a path, an id |
-| `TreeItem::new(id, label)`, `folder(id, label)`, `file(id, label)` | A row; a folder has the icons of a folder and of an open one, a file the icon of a file |
-| `TreeItem::icon(name)`, `open_icon(name)` | The icon before the label, and another while the row is open |
+| `new(selection, items)` | The rows at the top, each a `TreeItem<T>` with what it holds, and what is selected: a `Signal<Option<T>>` of one row, or a `Signal<Vec<T>>` of any number with `multiple`. `T` is what rows are told apart by: a path, an id |
+| `controlled(selected, items, on_change)` | The selection held by the app: the rows of `selected`, and `on_change(&next)` is told what is to be selected; the tree shows what the app gives back |
+| `TreeItem::new(value, label)`, `folder(value, label)`, `file(value, label)` | A row; a folder has the icons of a folder and of an open one, a file the icon of a file |
+| `TreeItem::icon(icon)`, `open_icon(icon)` | The icon before the label, and another while the row is open: a name, or `None` for none in place of a folder's or a file's |
 | `TreeItem::trailing(element)` | What stands at the row's end: a count, a badge |
 | `TreeItem::trailing_on_hover(bool)` | What stands at the row's end shows only while the row is pointed at or the focus is in it, and always at the touch density: an action |
-| `TreeItem::children(items)`, `child(item)` | What the row holds |
+| `TreeItem::items(items)`, `item(item)` | What the row holds |
 | `TreeItem::lazy(bool)` | It has children the app brings when it is first opened: it opens as a folder does, with a spinner in place of its chevron while it is open with none |
-| `TreeItem::disabled(bool)`, `element_id(id)` | A row that takes nothing; the id of the row's element |
-| `expanded(Signal<Vec<T>>)` | The rows that are open. Opening a row adds it, closing one takes it out |
-| `expanded_ids(ids, toggle)` | The same held by the app: `toggle(&id, open)` is told of each row a press or a key asks to open or close |
-| `selected(signal)` | What is selected: a `Signal<Option<T>>`, or a `Signal<Vec<T>>` with `multiple` |
-| `selected_ids(ids, change)` | The same held by the app: `change(next)` is told what is to be selected |
+| `TreeItem::disabled(bool)`, `id(id)`, `key(key)` | A row that takes nothing; the id of the row's element; what the row is told apart by among the rows in place of its place, which keeps its node and its focus in a virtual list as rows are put in before it |
+| `open(Signal<Vec<T>>)` | The rows that are open. Opening a row adds it, closing one takes it out |
+| `open_ids(ids, toggle)` | The same held by the app: `toggle(&value, open)` is told of each row a press or a key asks to open or close |
 | `multiple(bool)` | Any number selected, with Ctrl and Shift as a list of files has them |
 | `guides(bool)` | A line down each level, under the chevron of the row it is in |
 | `label(&str)` | What the tree is called, to what reads the tree. It draws nothing |
-| `on_select(handler)` | Told of the row a press or Space selects |
-| `on_activate(handler)` | Told of the row a double press or Enter activates: open the file. A row that opens opens or closes as well |
-| `on_expand(handler)` | Told of each row as it opens: where a lazy row's children are brought |
+| `on_change(handler)` | Told the whole new selection (`&[T]`, of one row where the tree holds one) after a click, Space, Shift with a key or Ctrl+A changed it; not for what was selected already, nor when the app sets it |
+| `on_activate(handler)` | Told of the row a double click or Enter activates: open the file. A row that opens opens or closes as well |
+| `on_open_change(handler)` | Told of each row a press or a key opens or closes, `(&value, open)`: where a lazy row's children are brought |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root; `force` draws the row Tab stops on so, the first selected, else the first that is not disabled |
 | `mount(ctx)` | In place of converting it: the tree in the engine's virtual list, for thousands of rows. Give it a height |
 
@@ -3371,7 +3372,7 @@ TreeView::new(items)
 - `mount(ctx)` puts the rows in the engine's virtual list, which builds the rows near its view: a tree of ten thousand rows costs about one screen of them. The keys still reach every row: the tree gives its rows to its focus group ([`FocusRows`](../focus-navigation/#focus-groups)), so Up, Down, Home, End, PageUp and PageDown (a view of rows), Right, Left, `*` and typeahead go to any row, the list builds and shows the row they go to, and the focus goes to it once it is built. Shift with them and Ctrl+A select over every row. The list fills the tree, which is given a height; its rows are drawn by `TreeRow::render`, so a theme's rules reach them and its renderer of the whole tree does not.
 - What an item marks with `trailing_on_hover` is in a `Reveal` part, hidden at rest and shown `within` the row: each row is an interaction group (`interaction_group`), lit while the pointer is on it or the focus is in it. At the touch density, where nothing points, it always shows.
 - To what reads the tree it is a `tree` (`a11y_multiselectable` with `multiple`) of `treeitem`s, each with `a11y_level`, `a11y_posinset` and `a11y_setsize` among the rows of its level in its row, `a11y_selected`, `a11y_expanded` where it opens and `a11y_busy` while its children are on their way.
-- Parts: `TreeViewPart::Root` (the rows, one under the other), `Row` (what is pressed, selected and focused), `Indent` (one step of a row's indent, for each level it is in), `Guide` (the line in a step), `Content` (what a row holds after its indent), `Chevron` (also the room of one in a row that does not open, and the spinner's), `Icon`, `Label`, `Trailing`, `Reveal` (around what is at the end of a row marked to show it on hover). States of a row: `TreeViewState::Selected`, `Expanded`, `Disabled`.
+- Parts: `TreeViewPart::Root` (the rows, one under the other), `Row` (what is pressed, selected and focused), `Indent` (one step of a row's indent, for each level it is in), `Guide` (the line in a step), `Content` (what a row holds after its indent), `Chevron` (also the room of one in a row that does not open, and the spinner's), `Icon`, `Label`, `Trailing`, `Reveal` (around what is at the end of a row marked to show it on hover). States of a row: `TreeViewState::Selected`, `Open`, `Disabled`.
 - In the design a row is 28 high, 2 under the one before, with `radius-sm` and 8 at each side; each level moves it in by 16. It holds a chevron of 14 in `MutedForeground` (right while it is closed, down while it is open), an icon of 16 in `MutedForeground` and its label in the body's type at 13, 6 apart. The selected row is on `Highlight`, its label at 500 and its icon in `Foreground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. A guide is a line of 1 in `Border` under the middle of the chevron of the row it is in, as high as a row and the room under it. What is at a row's end is 12 in `MutedForeground`.
 - A row follows the [density](../theme/#density): 20, 28 (the design's), 36 and 40 high at compact, default, comfortable and touch, its guide with it.
 - A theme's renderer is given `TreeViewView`: `view.rows` (each a `TreeRow` with its label, level, position, whether it opens, is open, is loading, is selected, is disabled, its icon and what is at its end), `view.root()` (the column with the keys and its role) and, on each row, `row.button()` (the behavior with the row's style), `row.indent()`, `row.chevron()`, `row.icon()`, `row.label()` and `row.render()`. It is set for `TreeView<T>` of any `T`: `theme.set_renderer::<TreeView<String>>(..)` draws trees of every id.
