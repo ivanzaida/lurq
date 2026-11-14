@@ -3,6 +3,7 @@ use lurq::app::{App, Tree};
 mod dropped;
 mod focus_group;
 mod focusable;
+mod inert;
 #[cfg(feature = "form")]
 mod forms_in_scope;
 mod menu_row;

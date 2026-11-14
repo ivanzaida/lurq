@@ -244,7 +244,12 @@ fn the_keys_move_a_divider_focused_from_the_keyboard() {
   stage.pass();
   assert_eq!(width(&mut stage, "a"), 80.0, "50 with Shift, stopped at its least");
   stage.key("End");
-  assert_eq!(width(&mut stage, "a"), 240.0, "End: its most");
+  // Its most is 240, but the editor beside it keeps its least of 60 of the 298 the two share.
+  assert_eq!(
+    width(&mut stage, "a"),
+    238.0,
+    "End: its most, as far as the editor lets it"
+  );
   stage.key("Home");
   assert_eq!(width(&mut stage, "a"), 80.0, "Home: its least");
   stage.key("Enter");
@@ -420,4 +425,73 @@ fn a_theme_restyles_its_parts() {
       .into()
   });
   assert_eq!(rects(&stage, light(PaletteColor::Primary), 1.0).len(), 2);
+}
+
+#[test]
+fn nothing_in_a_closed_pane_is_a_stop_of_tab() {
+  let pressed = Arc::new(AtomicUsize::new(0));
+  let mut stage = Stage::new({
+    let pressed = pressed.clone();
+    move |_| {
+      let pressed = pressed.clone();
+      Splitter::horizontal()
+        .pane(
+          SplitterPane::new(lurq::ui::Button::new("Inside").on_click(move |_| {
+            pressed.fetch_add(1, Ordering::Relaxed);
+          }))
+          .size(120.0)
+          .min(80.0)
+          .collapsible(true),
+        )
+        .pane(SplitterPane::new(content("b")))
+        .into()
+    }
+  });
+  // Open, the button in the pane is the first stop.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(pressed.load(Ordering::Relaxed), 1);
+  drag(&mut stage, 120.5, 150.0, 20.0);
+  assert_eq!(stage.bounds("b").0, 1.0, "closed");
+  // Closed, the divider is the first: Enter opens the pane, and the button is not pressed.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(pressed.load(Ordering::Relaxed), 1);
+  assert_eq!(stage.bounds("b").0, 121.0, "opened again");
+}
+
+/// What a divider says to tooling follows a drag and a key at once, in a splitter that is not rendered again.
+#[cfg(feature = "mcp")]
+#[test]
+fn a_divider_tells_tooling_where_it_is_as_it_moves() {
+  let mut stage = Stage::new(|_| three().into());
+  let said = |stage: &mut Stage, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("s-divider-0")
+      .and_then(|divider| divider.description(name))
+  };
+  assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("separator"));
+  assert_eq!(said(&mut stage, "a11y_orientation").as_deref(), Some("vertical"));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Files"));
+  assert_eq!(said(&mut stage, "a11y_valuenow").as_deref(), Some("120"));
+  assert_eq!(said(&mut stage, "a11y_valuemin").as_deref(), Some("80"));
+  assert_eq!(said(&mut stage, "a11y_valuemax").as_deref(), Some("240"));
+  stage.tree.mouse_move(120.5, 150.0);
+  stage.tree.mouse_down(120.5, 150.0, MouseButton::Left);
+  stage.tree.mouse_move(180.5, 150.0);
+  assert_eq!(
+    said(&mut stage, "a11y_valuenow").as_deref(),
+    Some("180"),
+    "while it is dragged"
+  );
+  stage.tree.mouse_up(180.5, 150.0, MouseButton::Left);
+  // A drag focuses nothing; Tab reaches the divider.
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(
+    said(&mut stage, "a11y_valuenow").as_deref(),
+    Some("190"),
+    "and moved by a key"
+  );
 }

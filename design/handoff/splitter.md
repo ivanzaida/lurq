@@ -42,6 +42,41 @@ The board draws no handle on the edge or the corner of a single box.
   set_size(width, height)` lays the element out at another width or height (`Dimension::Px` or `Dimension::Pct`) than
   it was built with, until it is set again or set to `None`; its least and most size still hold. Nothing renders
   again: the next pass lays it and its parent out. A splitter resizes its panes so while a divider moves."
+- **Engine: inert elements** (built after the batch's merge, to close what this handoff had under Not done; it
+  replaces a rule of the first fix that counted a zero-size element that clips as dropped, which is gone). An element
+  that is inert, and everything in it, is out of the focus and the pointer while it is still painted.
+  - `NodeUpdate::inert` and `Node::is_inert()` (`crates/lurq/src/node/node.rs`): a field `inert` in `RareStyle`; a
+    node is inert when built so or when its ref says so. The builder every component has, `.inert(bool)`
+    (`crates/lurq/src/components/mod.rs`, after `focusable`).
+  - `ElementRefMut::set_inert(bool)` and `ElementRef::is_inert()` (crate) (`crates/lurq/src/core/element_ref.rs`): a
+    field `inert` in `ElementRefInner`; setting it marks the ref's layout dirty, so the pass it asks for lets the
+    focus leave. An element built inert stays inert whatever its ref says.
+  - `crates/lurq/src/app/runtime/tab_navigation.rs`: `collect_node` and `walk_group`'s `collect` pass an inert node by
+    as they pass a disabled one (one condition each: Tab, a focus group's arrows, typeahead); a new
+    `path_is_inert(root, path)`. Nothing else there changed (the TreeView session works beside it).
+  - `crates/lurq/src/app/hit_test.rs`: `hit_test_tree_with_transform` returns at an inert node as at one that takes
+    no hits, so what is under it gets the pointer.
+  - `crates/lurq/src/app/runtime.rs`: `focus_node` refuses a target inside an inert element;
+    `blur_focus_in_dropped_child` lets the focus inside an inert element go where that of an element taken out of the
+    tree goes (the stop of its focus group that takes its place, the next or the last, or nothing; a group inside the
+    inert element does not count); `reapply_interaction_state` calls it when a render made the focus's element inert.
+  - Docs: `docs/src/content/docs/focus-navigation.md`, a section "Inert Elements" under Tab Order (edited here, as
+    asked).
+  - Tests, run: `crates/lurq/tests/input/tab_order/inert.rs` (registered in `tests/input/tab_order/mod.rs`).
+- **Engine: a description an element ref gives, with no render.** `ElementRefMut::describe(name, value)`
+  (`crates/lurq/src/core/element_ref.rs`): says `value` under `name` to tooling in place of what the element's
+  `describe(name, ..)` said when it was built. `ElementRefInner` has a field `descriptions`, `ElementRef::descriptions()`
+  (crate) reads it. `Node::debug_attrs()` (`crates/lurq/src/node/node.rs`) now returns a
+  `Cow<[(Arc<str>, Arc<str>)]>`: borrowed as before where the ref describes nothing, otherwise the node's attributes
+  with the ref's laid over them by name; `Element::debug_attrs()` (`node/element.rs`) returns the same. Every caller
+  (DevTools' snapshot, the MCP server's `lurq_inspect`, `lurq_read_tree` and `lurq_find` through `inspection_attrs`
+  and `semantics`, `ui::Field`) reads it with `.iter()` and compiles unchanged, and reads the new value at once.
+  `ElementHandle::description(name)` (`app/runtime.rs`, with `mcp` or `devtools`) is the tree's lookup of it. Docs:
+  a paragraph in `docs/src/content/docs/mcp.md`, Making Your App Agent-Friendly (edited here). Tests, run with `mcp`:
+  `element_ref::tests` at the end of `element_ref.rs`, `a_ref_describes_its_element_without_a_render` in
+  `tests/layout/ref_size.rs`, `a_divider_tells_tooling_where_it_is_as_it_moves` in `tests/ui/splitter.rs`. The lib
+  does not build with `devtools` now (`ui/combobox.rs` 232 and 308: `Signal<T>` with no `DevtoolsInspectable` bound),
+  not of this session.
 - `crates/gallery/src/pages/mod.rs`: the page is the first of `Group::Desktop`, at the end of `PAGES`. If the
   Sidebar, Menubar or Toolbar session put pages in that group too, the merge orders them as the board does.
 - No keyframes were registered (none is used).
@@ -92,14 +127,14 @@ Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
 | `mount(ctx)` | Mounted where it is declared: it keeps its sizes where the app gives it no signal, and shows the sizes the app sets in the signal from outside |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the dividers; `id` is the root's, and the dividers are `{id}-divider-{n}` |
 
-- A drag holds the pointer: the divider follows it wherever it goes, in the window and out of it, the cursor is the resizing one over the divider and for the whole drag, and no text is selected by it. A double press puts the divider back where it began, or opens the closed pane beside it.
+- A drag holds the pointer: the divider follows it wherever it goes, in the window and out of it, the cursor is the resizing one over the divider and for the whole drag, and no text is selected by it. A double press puts the divider back where it began, or opens the closed pane beside it. A closed pane is inert (`.inert`, see Focus And Keyboard Navigation): what is in it stays mounted and takes neither the focus nor the pointer.
 - A divider is a stop of Tab. The arrow keys of its orientation (Left and Right across, Up and Down one over the other) move it by a step, with Shift by a larger one; Home and End take the pane before it to its least and most size, and Enter closes and opens the collapsible pane beside it.
 - The panes say what gives way when the window grows or shrinks: one of pixels keeps them, one of a share keeps its share, and the pane given no size takes the rest. No open pane is made smaller than its least size while there is room: where the rest would be, the panes nearest it give way down to theirs.
 - Converted into an element, a splitter keeps its sizes while what holds it does not render again, unless it is given `sizes`; mounted, it keeps them, and an app that sets `sizes` from outside (to restore a layout) sees the panes take them. Pixels set from a saved layout are the pane's pixels, and a pane of a share takes the share its pixels were of the room they were saved in.
-- A drag renders nothing again while it moves: the panes are resized by sizes their element refs are given (`ElementRefMut::set_size`), and what is in them is only laid out again at the next pass. A mounted splitter renders again, by itself, once a divider is let go, so that tooling reads where it was let go; what is in its panes is not built again.
+- A drag renders nothing again while it moves: the panes are resized by sizes their element refs are given (`ElementRefMut::set_size`), and what is in them is only laid out again at the next pass. Nor does letting it go: tooling reads where it stands from the divider at once (`ElementRefMut::describe`).
 - Parts: `SplitterPart::Root`, `Pane`, `Handle` (the room around a divider's line that takes the pointer and the focus), `Line`, `Bar` (the wider line under the pointer, dragged and focused), `Grip`, `GripIcon`. States: `SplitterState::Vertical`, `Framed`, `Disabled`.
 - In the design a divider is a line of 1 in the `Border` color; under the pointer and focused from the keyboard it is 3 wide in `Ring`, and dragged in `Primary`. The room that takes the pointer is 12 across the line, over the edges of the panes beside it. The grip is 12 by 20 (20 by 12 across a vertical splitter), round by the small radius, in `Border`, with a grip icon of 10 in `Foreground`. Framed, the splitter has the `Background` fill, an edge of 1 in `Border` and the large radius.
-- To what reads the tree a divider is a `separator` that can be focused, with `a11y_orientation` (that of its line), `a11y_valuenow` (the pixels of the pane before it), `a11y_valuemin`, `a11y_valuemax` (where it has a most) and the name of the pane before it, or the splitter's `label`.
+- To what reads the tree a divider is a `separator` that can be focused, with `a11y_orientation` (that of its line), `a11y_valuenow` (the pixels of the pane before it), `a11y_valuemin`, `a11y_valuemax` (where it has a most) and the name of the pane before it, or the splitter's `label`. `a11y_valuenow` follows the divider as it is dragged and moved by the keys.
 - Splitters nest, one orientation in the other: a pane holds a splitter of its own.
 - A renderer that draws another splitter is given the view: `view.part(..)`, `view.thickness()` (the room between two panes), `view.sizes()`, and `view.render()` the default.
 
@@ -137,19 +172,21 @@ Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
   divided by lines with no box; `framed(true)` draws the specimen.
 - **Mounted, or converted.** A builder has no `Ctx`: converted into an element, the splitter's own sizes live as long
   as what holds it does not render again; `mount(ctx)` keeps them in a host, which also renders the splitter again
-  when the app writes the signal (a write that is not the splitter's own) and once a divider is let go.
+  when the app writes the signal (a write that is not the splitter's own). A divider let go renders nothing: it tells
+  tooling where it is through its handle's ref (`ElementRefMut::describe`).
+- **The line has a room of its own between the panes**, as on the board (Pane A, the Handle of 1, Pane B, with no gap):
+  the line does not lie on the first pane's edge. The handle that takes the pointer is a stack centered on that room,
+  its line, bar and grip centered in it (`StackAlignment::Center`: a stack lays its children at its top start
+  otherwise, which put them 5.5 to the left and the grip at the top until the merge's tests found it).
+- **A closed pane is inert**, through its ref (`ElementRefMut::set_inert`), so that a drag closes and opens it with no
+  render, in a splitter converted into an element too: what it holds stays mounted, takes neither the focus nor the
+  pointer, and the focus in it leaves when it closes.
 - Keys: a step of 10 and with Shift 50, as other desktop splitters move.
 
 ## Not done
 
-- **What is in a closed pane can still take the focus.** A closed pane is 0 along the splitter and keeps its content
-  mounted, so a button in it is still a stop of Tab. Needs the engine to skip, in Tab's order, what is inside an
-  element laid out at a size of 0 that clips (as it skips what is inside a dropped child of a line); or a
-  `Node`-level "inert" flag the splitter could set on the closed pane's box.
-- **`a11y_valuenow` of a converted splitter** is the size when it was last built: one converted into an element (not
-  mounted) is not rendered again after a drag, so tooling reads the old value until what holds it renders. Mounted, it
-  is up to date once the divider is let go. Needs the engine to let a description be set without a render (an
-  `ElementRefMut::describe`), the smallest change.
+Nothing. The two items this handoff had here (what is in a closed pane taking the focus, and `a11y_valuenow` of a
+splitter not rendered again after a drag) are built by the two engine changes added after the merge, above.
 
 ## Differs from the board
 

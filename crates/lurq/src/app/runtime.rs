@@ -4416,15 +4416,21 @@ impl Tree {
     // Nor does a disabled element keep the focus it had. In a focus group the focus stays in the group: on
     // the element before the one that was disabled, or the one after it. Next pressed onto the last page
     // disables itself, and the keyboard is still in the pagination.
-    if !tab_navigation::path_is_disabled(root, path) {
+    // Nor does an inert one: its focus goes where that of an element taken out of the tree goes, to the stop of its
+    // group that takes its place, or to nothing.
+    let inert = tab_navigation::path_is_inert(root, path);
+    if !inert && !tab_navigation::path_is_disabled(root, path) {
       return;
     }
     let mut group = None;
     let mut node = root;
+    // A group inside an inert element is inert with it.
+    let mut in_inert = false;
     for &index in path {
+      in_inert |= node.is_inert();
       match node.focus_group_value() {
         Some(held) if held.is_none() => group = None,
-        Some(_) if !node.is_disabled() => group = Some(node),
+        Some(_) if !node.is_disabled() && !in_inert => group = Some(node),
         _ => {}
       }
       let Some(child) = node.children().get(index) else {
@@ -4435,6 +4441,9 @@ impl Tree {
     let near = group.and_then(|group| {
       let (stops, before) = tab_navigation::group_stops_around(group, &self.dropped_nodes, self.focused_node);
       let before = before?;
+      if inert {
+        return stops.get(before).or(stops.last()).copied();
+      }
       before
         .checked_sub(1)
         .and_then(|index| stops.get(index))
@@ -6038,6 +6047,10 @@ impl Tree {
     // A node its Row/Column dropped (`ShrinkLimit::Drop`) is not drawn and
     // takes no focus, like a disabled one.
     if tab_navigation::path_is_dropped(root, &self.dropped_nodes, &input_path) {
+      return;
+    }
+    // Nor does anything in an inert element.
+    if tab_navigation::path_is_inert(root, &input_path) {
       return;
     }
     let event_path = find_path_by_id(root, target.event_id).unwrap_or_else(|| input_path.clone());
@@ -7811,6 +7824,12 @@ impl Tree {
     );
     self.refresh_focus_ids();
     self.refresh_file_drag_state();
+    // What a render made inert lets the focus in it go at once, as one removed does.
+    if let (Some(root), Some(path)) = (&self.root, &self.focused_path)
+      && tab_navigation::path_is_inert(root, path)
+    {
+      self.blur_focus_in_dropped_child();
+    }
   }
 
   fn clear_focus(&mut self) {
@@ -9375,6 +9394,19 @@ impl<'t> ElementHandle<'t> {
 
   pub fn text_content(&self) -> Option<&str> {
     self.node()?.text_content()
+  }
+
+  /// What the element is said to be under `name` to tooling: what its `describe(name, ..)` said when it was built,
+  /// or what its ref said since (`ElementRefMut::describe`), as `lurq_inspect` reads it. Kept only with the `mcp` or
+  /// `devtools` feature.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  pub fn description(&self, name: &str) -> Option<String> {
+    self
+      .node()?
+      .debug_attrs()
+      .iter()
+      .find(|(said, _)| said.as_ref() == name)
+      .map(|(_, value)| value.to_string())
   }
 
   pub fn has_class(&self, class: &str) -> bool {

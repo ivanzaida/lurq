@@ -6,7 +6,8 @@
 //!
 //! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops.
 //!
-//! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop.
+//! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop. Nor
+//! is anything inside an inert element (`.inert(true)`).
 //!
 //! The stops of an overlay that takes the focus (`Overlay::takes_focus`: a popover, a menu) come right after its
 //! anchor's, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last
@@ -133,6 +134,24 @@ pub(super) fn path_is_disabled(root: &Node, path: &[usize]) -> bool {
   false
 }
 
+/// Whether the node at `path`, or an element it is in, is inert.
+pub(super) fn path_is_inert(root: &Node, path: &[usize]) -> bool {
+  let mut node = root;
+  if node.is_inert() {
+    return true;
+  }
+  for &index in path {
+    let Some(child) = node.children().get(index) else {
+      return false;
+    };
+    node = child;
+    if node.is_inert() {
+      return true;
+    }
+  }
+  false
+}
+
 pub(super) fn path_is_dropped(root: &Node, dropped: &[NodeId], path: &[usize]) -> bool {
   if dropped.is_empty() {
     return false;
@@ -243,7 +262,7 @@ fn collect_node<'a>(
 ) {
   // Nothing in a disabled element takes focus, so Tab passes all of it by.
   // Nor in a layer that is on its way out, which is only painted.
-  if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
+  if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_inert() || node.is_leaving_layer() {
     return;
   }
   let order = walk.visited;
@@ -353,7 +372,7 @@ fn walk_group<'a>(group: &'a Node, dropped: &[NodeId], around: Option<NodeId>) -
     if walk.around == Some(node.node_id()) {
       walk.before = Some(walk.stops.len());
     }
-    if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
+    if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_inert() || node.is_leaving_layer() {
       return;
     }
     if !root && node.focus_group_value().is_some_and(|group| group.is_none()) {

@@ -56,6 +56,10 @@ struct ElementRefInner {
   /// The width and the height the element is laid out at in place of those it was built with
   /// ([`ElementRefMut::set_size`]).
   size_override: (Option<Dimension>, Option<Dimension>),
+  /// What the element is said to be since it was built, by name ([`ElementRefMut::describe`]).
+  descriptions: Vec<(Arc<str>, Arc<str>)>,
+  /// Whether the element is out of the focus and the pointer ([`ElementRefMut::set_inert`]).
+  inert: bool,
   override_clear_generation: u64,
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
@@ -277,6 +281,16 @@ impl ElementRef {
     self.inner.read().unwrap().size_override
   }
 
+  /// Whether [`ElementRefMut::set_inert`] made the element inert.
+  pub(crate) fn is_inert(&self) -> bool {
+    self.inner.read().unwrap().inert
+  }
+
+  /// What [`ElementRefMut::describe`] said of the element.
+  pub(crate) fn descriptions(&self) -> Vec<(Arc<str>, Arc<str>)> {
+    self.inner.read().unwrap().descriptions.clone()
+  }
+
   pub(crate) fn override_clear_generation(&self) -> u64 {
     self.inner.read().unwrap().override_clear_generation
   }
@@ -420,6 +434,33 @@ impl ElementRefMut {
     inner.layout_subscribers.mark();
   }
 
+  /// Says `value` of the element under `name` to tooling that reads the tree (the DevTools, the MCP server), in
+  /// place of what its `describe(name, ..)` said when it was built, until it is said again. Nothing is rendered
+  /// again: a splitter tells where its divider is after a drag so.
+  pub fn describe(&self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) {
+    let (name, value) = (name.into(), value.into());
+    let mut inner = self.inner.write().unwrap();
+    match inner.descriptions.iter_mut().find(|(said, _)| *said == name) {
+      Some((_, held)) => *held = value,
+      None => inner.descriptions.push((name, value)),
+    }
+  }
+
+  /// Makes the element inert, or not, as `.inert(..)` does where it was built, with nothing rendered again: Tab and
+  /// a focus group's keys pass by everything in it, no pointer reaches it, and the focus in it leaves at the next
+  /// pass, which this asks for. Built inert, it stays inert whatever this says. A splitter makes a pane it closes
+  /// inert so while a divider is dragged.
+  pub fn set_inert(&self, inert: bool) {
+    let mut inner = self.inner.write().unwrap();
+    if inner.inert == inert {
+      return;
+    }
+    inner.inert = inert;
+    // A pass, after whose layout the focus leaves what became inert.
+    inner.layout_dirty = true;
+    inner.layout_subscribers.mark();
+  }
+
   /// The width and the height [`Self::set_size`] gave the element.
   pub fn size(&self) -> (Option<Dimension>, Option<Dimension>) {
     self.as_ref().size_override()
@@ -470,5 +511,38 @@ impl ElementRefMut {
 impl From<ElementRefMut> for ElementRef {
   fn from(value: ElementRefMut) -> Self {
     value.as_ref()
+  }
+}
+
+#[cfg(all(test, any(feature = "devtools", feature = "mcp")))]
+mod tests {
+  use std::sync::Arc;
+
+  use super::ElementRefMut;
+  use crate::node::{NodeUpdate, node::Node};
+
+  fn attr(node: &Node, name: &str) -> Option<String> {
+    node
+      .debug_attrs()
+      .iter()
+      .find(|(said, _)| said.as_ref() == name)
+      .map(|(_, value)| value.to_string())
+  }
+
+  #[test]
+  fn what_a_ref_describes_stands_for_what_the_element_was_built_with() {
+    let handle = ElementRefMut::new();
+    let mut node = Node::new().ref_element(handle.clone());
+    NodeUpdate::describe(&mut node, Arc::from("a11y_role"), Arc::from("separator"));
+    NodeUpdate::describe(&mut node, Arc::from("a11y_valuenow"), Arc::from("120"));
+    assert_eq!(attr(&node, "a11y_valuenow").as_deref(), Some("120"));
+    handle.describe("a11y_valuenow", "180");
+    handle.describe("a11y_valuemax", "240");
+    assert_eq!(attr(&node, "a11y_valuenow").as_deref(), Some("180"));
+    assert_eq!(attr(&node, "a11y_valuemax").as_deref(), Some("240"));
+    assert_eq!(attr(&node, "a11y_role").as_deref(), Some("separator"));
+    assert_eq!(node.debug_attrs().len(), 3, "said once each");
+    handle.describe("a11y_valuenow", "200");
+    assert_eq!(attr(&node, "a11y_valuenow").as_deref(), Some("200"));
   }
 }

@@ -112,3 +112,34 @@ fn none_gives_back_the_size_it_was_built_with() {
   assert_eq!(width(&mut tree, "pane"), 100.0);
   assert_eq!(width(&mut tree, "rest"), 300.0);
 }
+
+/// What a ref says of its element reaches the tree's lookups at once, with nothing rendered again.
+#[cfg(feature = "mcp")]
+#[test]
+fn a_ref_describes_its_element_without_a_render() {
+  let (mut tree, pane, renders) = tree();
+  assert_eq!(
+    tree.get_element_by_id_mut("pane").unwrap().description("a11y_valuenow"),
+    None
+  );
+  pane.describe("a11y_valuenow", "220");
+  assert_eq!(
+    tree
+      .get_element_by_id_mut("pane")
+      .unwrap()
+      .description("a11y_valuenow")
+      .as_deref(),
+    Some("220")
+  );
+  pane.describe("a11y_valuenow", "180");
+  assert_eq!(
+    tree
+      .get_element_by_id_mut("pane")
+      .unwrap()
+      .description("a11y_valuenow")
+      .as_deref(),
+    Some("180"),
+    "said again, it says the new value alone"
+  );
+  assert_eq!(renders.load(Ordering::Relaxed), 1);
+}
