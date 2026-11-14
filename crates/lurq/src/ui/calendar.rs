@@ -22,7 +22,7 @@ use crate::{
   components::{self, Column, Row},
   core::{Date, DateLocale, DateRange, Signal, Weekday, YearMonth},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, RadiusValue, border::Border, color::Color},
+  node::{CursorIcon, Element, FocusGroup, RadiusValue, border::Border, color::Color, dimension::Dimension},
 };
 
 /// The parts of a calendar a recipe styles.
@@ -1056,13 +1056,34 @@ impl CalendarView {
     grid
   }
 
-  /// The headings of the months, side by side, each as wide as the days of its month under it.
+  /// How wide the days of a month are: seven days, after a week's number where the calendar shows them. `None` where
+  /// a theme's rules give a day no width.
+  fn days_width(&self) -> Option<f32> {
+    let width = |part: CalendarPart| match self.part(part).rest().width?.resolve(self.theme())? {
+      Dimension::Px(width) => Some(width),
+      _ => None,
+    };
+    let days = width(CalendarPart::Day)? * 7.0;
+    if self.week_numbers {
+      Some(days + width(CalendarPart::WeekNumber)?)
+    } else {
+      Some(days)
+    }
+  }
+
+  /// The headings of the months, side by side, each as wide as the days of its month under it. Where a day has no
+  /// width the headings share the row, which then takes the room it is given.
   pub fn headers(&self) -> Row {
     let mut row = Row::new()
       .align_items(Alignment::Center)
       .part(&self.part(CalendarPart::Months));
+    let width = self.days_width();
     for index in 0..self.months.len() {
-      row = row.child(self.header(index).flex(1.0));
+      let header = self.header(index);
+      row = row.child(match width {
+        Some(width) => header.width(width),
+        None => header.flex(1.0),
+      });
     }
     row
   }

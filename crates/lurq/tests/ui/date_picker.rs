@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::theme::{PaletteColor, ThemePalette},
-  components::Column,
+  components::{Button, Column},
   core::{Date, DateLocale, Signal},
-  layout::{Constraints, Size},
+  layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
   ui::{CalendarMemory, DatePicker, Field},
 };
@@ -96,9 +96,20 @@ fn its_button_opens_the_calendar_under_it_at_the_chosen_day() {
   assert!((cy - (y + height + 4.0)).abs() < 0.5, "4 under the field");
   assert!(stage.paints("November 2026"));
   assert_eq!(focused(&stage).as_deref(), Some("dp-calendar-2026-11-12"));
-  // The panel is the popover's: the calendar draws no fill of its own over it.
-  assert_eq!(stage.fill_color("dp-calendar"), None);
+  // The panel is the popover's: the calendar draws no fill of its own over it. The panel has no padding, so the
+  // calendar's box is the panel's, and the one fill at it is the panel's.
+  assert_eq!(stage.bounds("dp-calendar"), stage.bounds("dp-panel"));
   assert_eq!(stage.fill_color("dp-panel"), Some(light(PaletteColor::Popover)));
+  let (x, y, width, height) = stage.bounds("dp-calendar");
+  let fills = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if color.a() > 0)
+        && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
+    })
+    .count();
+  assert_eq!(fills, 1, "the panel's fill alone");
 }
 
 #[test]
@@ -150,7 +161,21 @@ fn escape_closes_it_and_changes_nothing() {
 #[test]
 fn what_is_typed_is_the_date_as_soon_as_it_is_one() {
   let value = Signal::new(Some(day(11, 12)));
-  let mut stage = picker(&value, |picker| picker);
+  // A stop after the field, for Tab to leave it to: alone, the field is the stop Tab comes back to.
+  let held_value = value.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .padding(10.0)
+      .spacing(8.0)
+      .child(
+        DatePicker::new(held_value.clone())
+          .today(day(11, 9))
+          .id("dp")
+          .mount(ctx),
+      )
+      .child(Button::empty().size(40.0, 20.0).tab_index(0).id("after"))
+      .into()
+  });
   stage.click("dp");
   let held = "Nov 12, 2026".len();
   type_over(&mut stage, held, "Dec 1, 20");
@@ -163,6 +188,7 @@ fn what_is_typed_is_the_date_as_soon_as_it_is_one() {
   assert_eq!(value.get_untracked(), Some(day(12, 24)));
   stage.key("Tab");
   stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("after"));
   assert!(stage.paints("Dec 24, 2026"));
 }
 
@@ -174,6 +200,8 @@ fn what_is_no_date_takes_back_the_one_it_had_and_empty_is_none() {
   type_over(&mut stage, "Nov 12, 2026".len(), "someday");
   stage.key("Enter");
   assert!(stage.paints("Nov 12, 2026"), "Enter puts it right");
+  // Outside a form Enter takes the focus out of a field of one line, as from every input: back into it.
+  stage.click("dp");
   type_over(&mut stage, "Nov 12, 2026".len(), "Jan 5, 2027");
   assert_eq!(value.get_untracked(), Some(day(11, 12)), "after the greatest date");
   type_over(&mut stage, "Jan 5, 2027".len(), "");
