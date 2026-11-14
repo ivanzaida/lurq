@@ -17,6 +17,8 @@ mod callout;
 mod card;
 mod checkbox;
 mod checkbox_card;
+mod color_field;
+mod color_picker;
 mod combobox;
 mod command_palette;
 mod context_menu;
@@ -402,6 +404,22 @@ pub const PAGES: &[Page] = &[
     about: "date range picker period from to start end calendar presets last 7 days two months stay report value memory preset format parse placeholder min max disabled_days clearable size judgments read_only disabled label on_change controlled presets on_input on_submit on_open_change on_dismiss placement offset collision inline trigger_label clear_label panel_label months",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<date_range_picker::DateRangePickerPage>(()),
+  },
+  Page {
+    path: "/color-picker",
+    name: "Color Picker",
+    icon: Some("palette"),
+    about: "color picker colour hue saturation brightness alpha opacity hex rgb hsl swatches eyedropper area rail value controlled on_change on_change_end alpha format formats swatch swatches bare label disabled saturation_label brightness_label hue_label alpha_label format_label",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<color_picker::ColorPickerPage>(()),
+  },
+  Page {
+    path: "/color-field",
+    name: "Color Field",
+    icon: Some("eyedropper"),
+    about: "color field colour input hex swatch eyedropper picker popover typed parse rgb hsl value optional controlled on_change placeholder size invalid warning valid read_only disabled full_width alpha format formats swatches placement label trigger_label panel_label name color swatch selected shape round on_click",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<color_field::ColorFieldPage>(()),
   },
   Page {
     path: "/swatch-picker",
