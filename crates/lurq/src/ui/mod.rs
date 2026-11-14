@@ -330,8 +330,8 @@ pub use swatch_picker::{
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
   BodyWindow, CellEdit, CellEditor, CellKey, CellRange, CellValue, ColumnAlign, ColumnLayout, ColumnPin, ColumnPlace,
-  Geometry, GridCell, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart, TableRenderer, TableRow,
-  TableSort, TableState, TableView, in_tracks,
+  Geometry, GridCell, GroupKey, SortDirection, Table, TableCell, TableColumn, TableGroup, TableHeader, TablePart,
+  TableRenderer, TableRow, TableSort, TableState, TableView, in_tracks,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};

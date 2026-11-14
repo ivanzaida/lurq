@@ -11,7 +11,7 @@ use std::{hash::Hash, sync::Arc};
 
 use super::{
   Interaction, Length, Name, PartStyle, Recipe,
-  table::{CellEdit, CellRange, ColumnLayout, Table, TableColumn, TableSort},
+  table::{CellEdit, CellRange, ColumnLayout, GroupKey, Table, TableColumn, TableSort},
 };
 use crate::{
   app::{ctx::Ctx, theme::Density},
@@ -91,6 +91,10 @@ use crate::{
 /// with the focus and opened by Alt+Down too, sorts by the column, pins it, sizes it to its content, hides it and
 /// shows the columns hidden; a header dragged to another place, or Ctrl+Shift+PageUp and PageDown on it, moves its
 /// column. How the columns are arranged is a value the app holds and stores ([`column_layout`](Self::column_layout)).
+///
+/// **Group rows** ([`group_by`](Self::group_by)): the rows grouped by the values of columns, nested, each group a
+/// row with its value and its count that opens and closes ([`open`](Self::open)), the rows of a closed one not
+/// built.
 ///
 /// **A cell is edited in place** with its column's editor ([`CellEditor`]): an input for a text, a number input,
 /// a select of the column's choices, or a box ticked in the cell itself. Enter or F2 on a cell, a double press of
@@ -214,6 +218,42 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// told.
   pub fn column_menu(self, menu: bool) -> Self {
     self.with(|table| table.set_column_menu(menu))
+  }
+
+  /// Groups the rows by the values of these columns, by their ids: a group's row for each value of the first,
+  /// with its value and how many rows it holds, and in it a group for each value of the next, then the rows. The
+  /// groups are in the order their first rows are, the rows of each in theirs. A column grouped by may be hidden.
+  pub fn group_by<S: AsRef<str>>(self, columns: impl IntoIterator<Item = S>) -> Self {
+    let columns = columns.into_iter().map(|id| Arc::from(id.as_ref())).collect();
+    self.with(|table| table.set_group_by(columns))
+  }
+
+  /// The groups that are open: those the signal has. A press of a group's row, Enter or Space on it, Right and
+  /// Left open and close it. The rows of a closed group are not built. Without it, the grid keeps its own, every
+  /// group closed at first.
+  pub fn open(self, open: Signal<Vec<GroupKey>>) -> Self
+  where
+    Vec<GroupKey>: SignalValue,
+  {
+    let now = open.get();
+    self.with(|table| table.set_open_groups(now, Arc::new(move |next| open.set(next))))
+  }
+
+  /// The groups that are open, as the app holds them: `on_change` is told the groups open after each press or key
+  /// that opens or closes one.
+  pub fn open_controlled(
+    self,
+    open: impl IntoIterator<Item = GroupKey>,
+    on_change: impl Fn(Vec<GroupKey>) + Send + Sync + 'static,
+  ) -> Self {
+    let now = open.into_iter().collect();
+    self.with(|table| table.set_open_groups(now, Arc::new(on_change)))
+  }
+
+  /// Called with each group a press or a key opens (`true`) or closes, bound to a signal or not. A second handler
+  /// is called after the first.
+  pub fn on_open_change(self, handler: impl Fn(&GroupKey, bool) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.add_on_open_change(handler))
   }
 
   /// Whether no cell is edited: the cells take the focus and are read, and say so to what reads the tree.

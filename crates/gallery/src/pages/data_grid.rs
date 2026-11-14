@@ -1,6 +1,6 @@
 //! The page of the data grid: its playground, the board's Data Grid, editing in place, a range of cells, a
-//! column's menu, columns pinned at both ends and resized, ten thousand rows of fifty columns, a grid that is read
-//! only, and its props.
+//! column's menu, group rows, columns pinned at both ends and resized, ten thousand rows of fifty columns, a grid that
+//! is read only, and its props.
 
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use lurq::{
   node::Element,
   ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnLayout, ColumnPin,
-    DataGrid, Pagination, TableColumn, TableSort, icons,
+    DataGrid, GroupKey, Pagination, TableColumn, TableSort, icons,
   },
 };
 
@@ -128,6 +128,11 @@ fn sorted(mut rows: Vec<File>, sort: &Option<TableSort>) -> Vec<File> {
 }
 
 const SELECTIONS: [&str; 3] = ["none", "checkboxes", "by a press"];
+const GROUPINGS: [(&str, &[&str]); 3] = [
+  ("none", &[]),
+  ("status", &["status"]),
+  ("status, shared", &["status", "shared"]),
+];
 const DENSITIES: [(&str, Density); 3] = [
   ("compact", Density::Compact),
   ("default", Density::Default),
@@ -148,6 +153,8 @@ pub struct DataGridPage {
   played_range: Signal<Option<CellRange<String>>>,
   column_menu: Signal<bool>,
   played_layout: Signal<ColumnLayout>,
+  grouping: Signal<usize>,
+  played_open: Signal<Vec<GroupKey>>,
   played: Signal<Vec<File>>,
   played_selected: Signal<Vec<String>>,
   played_sort: Signal<Option<TableSort>>,
@@ -162,6 +169,8 @@ pub struct DataGridPage {
   menu_rows: Signal<Vec<File>>,
   menu_sort: Signal<Option<TableSort>>,
   layout: Signal<ColumnLayout>,
+  group_rows: Signal<Vec<File>>,
+  groups_open: Signal<Vec<GroupKey>>,
   many: Arc<Vec<File>>,
 }
 
@@ -179,12 +188,19 @@ impl DataGridPage {
       self.bind_range.get(),
     );
     let column_menu = self.column_menu.get();
+    let (_, grouping) = GROUPINGS[self.grouping.get().min(GROUPINGS.len() - 1)];
     let record = self.playground.recorder();
     let rows = self.played.clone();
     let sort = self.played_sort.get();
 
-    let (edited, selected_to, sorted_to, ranged_to, arranged_to) =
-      (record.clone(), record.clone(), record.clone(), record.clone(), record);
+    let (edited, selected_to, sorted_to, ranged_to, arranged_to, opened_to) = (
+      record.clone(),
+      record.clone(),
+      record.clone(),
+      record.clone(),
+      record.clone(),
+      record,
+    );
     let mut grid = DataGrid::new(columns(pin_name), sorted(rows.get(), &sort))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -192,6 +208,9 @@ impl DataGridPage {
       .read_only(read_only)
       .resizable(resizable)
       .column_menu(column_menu)
+      .group_by(grouping.iter().copied())
+      .open(self.played_open.clone())
+      .on_open_change(move |key, open| opened_to(format!("on_open_change({:?}, {open})", key.values)))
       .column_layout(self.played_layout.clone())
       .on_column_layout_change(move |layout| arranged_to(format!("on_column_layout_change({})", said_layout(layout))))
       .sort(self.played_sort.clone())
@@ -281,6 +300,9 @@ impl DataGridPage {
       code.push(".cell_selection(range) // Signal<Option<CellRange<String>>>".to_owned());
     }
     code.push(".column_layout(layout) // Signal<ColumnLayout>".to_owned());
+    if !grouping.is_empty() {
+      code.push(format!(".group_by({grouping:?}).open(open) // Signal<Vec<GroupKey>>"));
+    }
     if !column_menu {
       code.push(".column_menu(false)".to_owned());
     }
@@ -290,6 +312,7 @@ impl DataGridPage {
     let tree = vec![
       format!("root        {} · a table's · grid", self.playground.measured()),
       "├─ header   the table's · a menu_trigger and a resizer at each column's end · drop_line".to_owned(),
+      "├─ group_row  a row at its level · chevron, group_label, group_count".to_owned(),
       "└─ row      not a stop · Left and Right its own".to_owned(),
       "   └─ cell     a gridcell · the ring inside it from the keyboard · in_range, range_top..range_end".to_owned(),
       "      └─ editor   Input, NumberInput or Select, Sm, while it is edited".to_owned(),
@@ -319,6 +342,8 @@ impl DataGridPage {
       self.played_range.clone(),
       self.column_menu.clone(),
       self.played_layout.clone(),
+      self.grouping.clone(),
+      self.played_open.clone(),
     );
     let still = {
       let rows = rows.get();
@@ -339,7 +364,7 @@ impl DataGridPage {
           self.played_selected.get().len(),
           self.played_range.get().map_or(0, |range| range.len())
         ),
-        event: "on_edit / on_selection_change / on_cell_selection_change / on_column_layout_change",
+        event: "on_edit / on_selection_change / on_cell_selection_change / on_column_layout_change / on_open_change",
         code,
         tree,
         controls: vec![
@@ -367,6 +392,16 @@ impl DataGridPage {
           flag("count in a footer", &self.footer),
           flag("cell_selection(signal): told the range", &self.bind_range),
           flag("column_menu: a menu on each header", &self.column_menu),
+          prop(
+            "group_by",
+            "columns' ids",
+            self
+              .playground
+              .select(2, &indexed(&GROUPINGS.map(|(name, _)| name)), &self.grouping.get(), {
+                let set = self.grouping.clone();
+                move |index| set.set(index)
+              }),
+          ),
         ],
         changed: [
           selection != 1,
@@ -378,6 +413,7 @@ impl DataGridPage {
           footer,
           !bind_range,
           !column_menu,
+          !grouping.is_empty(),
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -399,6 +435,8 @@ impl DataGridPage {
           reset.11.set(None);
           reset.12.set(true);
           reset.13.set(ColumnLayout::default());
+          reset.14.set(0);
+          reset.15.set(Vec::new());
         }),
       },
     )
@@ -446,7 +484,7 @@ impl Component for DataGridPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 2),
+      playground: Playground::new(ctx, 3),
       selection: ctx.signal(1),
       density: ctx.signal(1),
       fixed_height: ctx.signal(true),
@@ -458,6 +496,8 @@ impl Component for DataGridPage {
       played_range: ctx.signal(None),
       column_menu: ctx.signal(true),
       played_layout: ctx.signal(ColumnLayout::default()),
+      grouping: ctx.signal(0),
+      played_open: ctx.signal(Vec::new()),
       played: ctx.signal(files(8)),
       played_selected: ctx.signal(Vec::new()),
       played_sort: ctx.signal(None),
@@ -472,6 +512,8 @@ impl Component for DataGridPage {
       menu_rows: ctx.signal(files(8)),
       menu_sort: ctx.signal(None),
       layout: ctx.signal(ColumnLayout::default()),
+      group_rows: ctx.signal(files(16)),
+      groups_open: ctx.signal(vec![GroupKey::new(["Passing"])]),
       many: Arc::new(
         (0..10_000)
           .map(|index| File {
@@ -640,6 +682,20 @@ impl Component for DataGridPage {
           ),
       );
 
+    // Group rows: by the status, each group opened and closed, the rows of the closed ones not built.
+    let group_rows = self.group_rows.clone();
+    let grouped = DataGrid::new(columns(false), group_rows.get())
+      .label("Files")
+      .height(320.0)
+      .group_by(["status"])
+      .open(self.groups_open.clone())
+      .on_edit(move |edit| {
+        let name = group_rows.get().get(*edit.row).map(|file| file.name.clone());
+        name.is_some_and(|name| take(&group_rows, &name, edit.column, &edit.value))
+      })
+      .key("groups")
+      .mount(ctx);
+
     // Pinned at both ends: the name stays at the start, the actions at the end, while the columns between scroll.
     let pinned_rows = self.pinned.clone();
     let mut pinned_columns = columns(true);
@@ -732,6 +788,12 @@ impl Component for DataGridPage {
         "bool",
         "false",
         "No cell is edited; the cells still take the focus.",
+      ),
+      (
+        "group_by / open",
+        "columns' ids / Signal<Vec<GroupKey>>",
+        "none / the grid's own",
+        "Rows grouped by the values of columns, nested; the groups open, with open_controlled and on_open_change.",
       ),
       (
         "column_layout",
@@ -888,6 +950,25 @@ impl Component for DataGridPage {
               "    .sort(sort)",
               "    .column_layout(layout)",
               "    .on_column_layout_change(|layout| store(layout))",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Group rows",
+          "The rows grouped by their status: a group's row with its chevron, its value and how many rows it \
+           holds, opened and closed by a press, Enter, Right and Left. The rows of a closed group are not built. \
+           Grouping by a second column nests its groups in the first's.",
+          self.frame.demo(
+            7,
+            grouped,
+            ".group_by([\"status\"])",
+            &[
+              "// open: Signal<Vec<GroupKey>>, with GroupKey::new([\"Passing\"]) open",
+              "DataGrid::new(columns, files.get())",
+              "    .group_by([\"status\"])",
+              "    .open(open)",
+              "    .height(320.0)",
               "    .mount(ctx)",
             ],
           ),
