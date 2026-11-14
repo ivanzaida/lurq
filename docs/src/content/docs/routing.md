@@ -355,6 +355,30 @@ let path = ctx.route_path();
 
 Reading it during render marks the component as dependent on route changes.
 
+## The Address Of A Page
+
+In a [browser](../web/) a router can be the one the page's address follows:
+
+```rust
+let router = ctx.router(routes());
+router.replace("/");
+router.follow_address();
+```
+
+From then on the two say the same:
+
+- The address has the router's path as its fragment: `index.html#/settings`, with the path's query after it (`#/search?q=lurq`). A fragment changes without the browser asking the server for anything, so the page needs no rule on the server.
+- A `push` is an entry of the browser's history as it is one of the router's, and a `replace` the same entry with another path. [Links](#links) push, so a page a person went to by a link is one the back button returns from.
+- The browser's back and forward buttons move the router, and `back`, `back_by` and `forward` move the browser.
+- An address a person types into the bar or follows is navigated to as a `push` is, through the routes' [guards](#guards). A guard that redirects puts the path it sends to into the address; one that denies leaves the router where it is and the address says so.
+- A page loaded with a path in its address starts there, in place of the path the router was given: a reload stays on the screen it was on, and a link to a screen opens it.
+
+Call it once the router has its first path, which is where a page loaded without one starts. Only one router of an app follows the address, the one whose screens the address should name: the routers of [tabs](#tabs) keep histories of their own. Outside a browser a window has no address and `follow_address` does nothing, so the same code runs on a desktop.
+
+The entries of the two histories are kept one for one while the page lives. A reload starts the router's history again with the one entry it is at, while the browser still has the ones before: going back to one of those starts the router's history again there, so `can_back()` is `false` on it though the browser's button goes on.
+
+What a history entry carries as its state (`push_with_state`) is in memory and does not outlive a reload; what should, belongs in the path or its query.
+
 ## Params
 
 Use `:name` in a route pattern to capture one path segment.

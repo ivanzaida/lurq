@@ -2203,6 +2203,12 @@ fn window_event_name(event: &WindowEvent) -> &'static str {
 }
 
 impl ApplicationHandler for WinitHandler {
+  // A page calls into the app between the loop's turns as well as in them; see `Window::off_loop_waker`.
+  #[cfg(target_arch = "wasm32")]
+  fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: winit::event::StartCause) {
+    crate::app::window::set_in_loop_turn(true);
+  }
+
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     self.main.create_window(event_loop, &mut self.app);
     #[cfg(not(target_os = "ios"))]
@@ -2317,6 +2323,8 @@ impl ApplicationHandler for WinitHandler {
   }
 
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    #[cfg(target_arch = "wasm32")]
+    let _turn = web::TurnEnd;
     let _slow_scope = WinitSlowScope::new("about_to_wait", "main");
     let started_at = Instant::now();
     let stage_started_at = Instant::now();

@@ -23,6 +23,15 @@ pub(super) fn window_attributes(mut attrs: WindowAttributes) -> WindowAttributes
   }
 }
 
+/// Ends the loop's turn when the pass after its events is over; see `Window::off_loop_waker`.
+pub(super) struct TurnEnd;
+
+impl Drop for TurnEnd {
+  fn drop(&mut self) {
+    crate::app::window::set_in_loop_turn(false);
+  }
+}
+
 /// Whether the browser tells a wheel's turn as the distance the system wants scrolled, as it does on Apple's
 /// systems, and not as a notch's worth of a page; see `web_wheel`.
 pub(super) fn scrolls_the_systems_distance() -> bool {

@@ -73,10 +73,14 @@ Chromium and in Firefox, on Windows, with a mouse and a hardware keyboard.
 
 ## The page
 
-- **The address does not follow the router.** The gallery reads the page to open on from the fragment once
-  (`index.html#/button`). Navigating does not change the address, the browser's back button leaves the app,
-  and a reload opens the page the address names, not the one that was shown. It takes a `hashchange` (or
-  `popstate`) listener that navigates, and the router telling the page when it has.
+- **The address is the fragment only.** A router the address follows (`RouterHandle::follow_address`)
+  keeps its path in the fragment (`index.html#/button`). A path of the address itself (`/button`) is not
+  followed: it takes a server that sends the page for every path. The page's title does not change with
+  the screen, so the browser's history lists every entry under one name.
+- **The router's own `back` and `forward` were not run in a browser.** They move the browser's history
+  with `history.go`, and the gallery has nothing that calls them. Run there: navigating, the browser's
+  back and forward buttons, a typed address, a reload, and going back past a reload.
+- **A history entry's state does not outlive a reload** (`push_with_state`): it is in memory.
 - **A page reader finds nothing.** Everything is pixels of one canvas: no text to select by the browser, to
   search with Ctrl+F, to translate or to read out. The element tree an MCP client reads is not given to the
   page.

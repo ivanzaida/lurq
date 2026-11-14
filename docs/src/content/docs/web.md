@@ -207,6 +207,16 @@ What is drawn is the same. Two things are done another way on WebGL2, which an a
 A frame extension (`WgpuFrameExtension`) draws with the device it is given and keeps to the same limits: no
 storage buffers and no compute on WebGL2.
 
+## The address
+
+A router can be the one the page's address follows:
+
+```rust
+router.follow_address();
+```
+
+The address then has the router's path as its fragment (`index.html#/button`), navigating adds to the browser's history, the browser's back and forward buttons move the router, an address a person types is navigated to, and a reload stays on the screen it was on. It does nothing outside a browser, so an app calls it on every platform. [The Address Of A Page](../routing/#the-address-of-a-page) has the rules.
+
 ## The canvas
 
 The page lays the window out, not the app:
@@ -241,6 +251,8 @@ own, so nothing changes for code that passes them to std or to another crate.
 ### Threads
 
 A page has one thread, and `std::thread::spawn` fails on it.
+
+What the browser calls on that thread between the loop's turns, such as a promise of the app's own that settled or a listener it put on the page, may write a signal as another thread may on a desktop: the loop is woken and draws what changed.
 
 Images decode on that thread, each after the turn of the loop that asked for it, so a large image holds
 frames back while it decodes. `DecodedImages::wait_idle` cannot wait there: it tells whether a decode is
@@ -304,8 +316,8 @@ Without `--fonts`, on Windows, the script copies the system's Segoe UI and Conso
 desktop gallery does. Those are Microsoft's and are not to be published: a gallery put on a server needs
 `--fonts` with fonts it may ship.
 
-The address chooses the page and the backend: `index.html#/button` opens on a page, `?backend=webgl` draws
-through WebGL2.
+The address names the page and the backend: `index.html#/button` is the Button page, and follows the
+gallery as it goes from page to page; `?backend=webgl` draws through WebGL2.
 
 ## When nothing is drawn
 
@@ -332,6 +344,6 @@ through WebGL2.
 - Browsers. Chromium and Firefox were run, Safari was not. WebGL2 was run in Chromium by asking for it; no
   browser without WebGPU was tried, and on WebGL2 the `svg` feature and video frames (NV12) were not looked
   at.
-- The address does not follow the router: the gallery reads the page to open on from the fragment once, when
-  it starts.
+- The address is the fragment only: a path of the address itself (`/button`, which a server has to send
+  the page for) is not followed, and the page's title does not change with the screen.
 - A page reader finds nothing in a canvas, and the browser's own search and selection see no text.

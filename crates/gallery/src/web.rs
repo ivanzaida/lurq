@@ -8,7 +8,8 @@
 //!   `fonts/index.txt` names the files, one a line, and the families the generic ones draw with, as `sans-serif = Segoe
 //!   UI`.
 //!
-//! The page to open on is the address's fragment: `index.html#/button`.
+//! The page shown is the address's fragment, `index.html#/button`, which the gallery's router follows
+//! (`RouterHandle::follow_address`).
 
 use lurq::{
   app::{
@@ -50,7 +51,8 @@ pub fn start() {
       return;
     }
     status(None);
-    crate::run(app, route(), move || {
+    // The overview, unless the address names a page: the router follows the address.
+    crate::run(app, "/".to_owned(), move || {
       WgpuRenderEngine::new().with_device(device.clone())
     });
   });
@@ -71,15 +73,6 @@ fn backends() -> WgpuBackends {
     Some("webgpu") => WgpuBackends::BROWSER_WEBGPU,
     _ => WgpuBackends::all(),
   }
-}
-
-/// The page the address asks for: the fragment, or the overview.
-fn route() -> String {
-  web_sys::window()
-    .and_then(|window| window.location().hash().ok())
-    .map(|hash| hash.trim_start_matches('#').to_owned())
-    .filter(|route| route.starts_with('/'))
-    .unwrap_or_else(|| "/".to_owned())
 }
 
 /// Says `message` on the page, or takes the line away once the gallery draws.

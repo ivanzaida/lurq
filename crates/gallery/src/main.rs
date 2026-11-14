@@ -57,6 +57,8 @@ impl Component for Gallery {
     let shell = Shell::new(ctx);
     let router = ctx.router(routes(shell));
     router.replace(&ctx.props::<GalleryProps>().route);
+    // In a browser the address names the page: it is opened on, follows the pages and takes the back button.
+    router.follow_address();
     #[cfg(feature = "mcp")]
     if let Some(handle) = MCP.get() {
       handle.set_navigator(router.navigator());

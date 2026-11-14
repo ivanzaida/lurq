@@ -1,3 +1,5 @@
+#[cfg(any(target_arch = "wasm32", test))]
+mod address;
 mod guard;
 mod handle;
 mod navigator;
