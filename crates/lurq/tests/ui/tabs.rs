@@ -14,8 +14,7 @@ use lurq::{
   layout::quad::{Quad, QuadContent},
   node::{Element, color::Color},
   ui::{
-    Case, Interaction, Opacity, Tab, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState,
-    TabsVariant, TabsView,
+    Case, Interaction, Opacity, Tab, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
   },
 };
 
@@ -32,6 +31,15 @@ fn settings() -> [Tab<u8>; 3] {
     Tab::new(1, "Appearance").id("appearance"),
     Tab::new(2, "Shortcuts").id("shortcuts"),
   ]
+}
+
+/// Whether the element with `id` is laid out: in the tree, and with a box.
+fn laid_out(stage: &mut Stage, id: &str) -> bool {
+  stage
+    .tree
+    .get_element_by_id_mut(id)
+    .and_then(|element| element.bounds())
+    .is_some()
 }
 
 /// The filled rectangle of `color` that is `height` high, if one is painted.
@@ -170,19 +178,72 @@ fn the_line_tabs_are_a_row_over_a_line_with_the_selected_one_underlined() {
   let rail = underlined(&stage, light(PaletteColor::Border), 1.0).expect("a line under the list");
   assert_eq!(rail.width, 600.0);
 
-  // A divider of 1 by 16 in the border's color sets the archived apart, 28 from each side.
-  let divider = stage
+  // A separator of 1 by 16 in the border's color sets the archived apart, 28 from each side.
+  let separator = stage
     .quads()
     .into_iter()
     .find(|quad| {
       matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Border))
         && (quad.width, quad.height) == (1.0, 16.0)
     })
-    .expect("a divider");
+    .expect("a separator");
   let (memory_x, ..) = stage.bounds("memory");
   let (archived, ..) = stage.bounds("archived");
-  assert!((divider.x - (memory_x + memory) - 28.0).abs() < 0.01);
-  assert!((archived - (divider.x + 1.0) - 28.0).abs() < 0.01);
+  assert!((separator.x - (memory_x + memory) - 28.0).abs() < 0.01);
+  assert!((archived - (separator.x + 1.0) - 28.0).abs() < 0.01);
+}
+
+/// Overflowing tabs whose More button is told `more` and whose scroll buttons `back` and `on`, or nothing.
+fn worded(more: Option<&'static str>, back: Option<&'static str>, on: Option<&'static str>) -> Stage {
+  Stage::new(move |ctx| {
+    let tabs = (0..12).map(|index| Tab::new(index, "A long tab"));
+    let mut tabs = Tabs::controlled(0, tabs, |_| {})
+      .variant(TabsVariant::Line)
+      .overflow(true)
+      .id("tabs");
+    if let Some(more) = more {
+      tabs = tabs.more_label(more);
+    }
+    if let Some(back) = back {
+      tabs = tabs.scroll_back_label(back);
+    }
+    if let Some(on) = on {
+      tabs = tabs.scroll_on_label(on);
+    }
+    Column::new().width(320.0).child(tabs.mount(ctx)).into()
+  })
+}
+
+#[test]
+fn the_more_button_says_what_the_app_gives_it() {
+  let stage = worded(None, None, None);
+  assert!(stage.paints("More"));
+  let stage = worded(Some("Plus"), None, None);
+  assert!(stage.paints("Plus"));
+  assert!(!stage.paints("More"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn tooling_reads_the_words_of_the_overflowing_form_the_app_gives() {
+  let said = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  let mut stage = worded(None, None, None);
+  assert_eq!(said(&mut stage, "tabs-more").as_deref(), Some("More tabs"));
+  assert_eq!(said(&mut stage, "tabs-back").as_deref(), Some("Scroll back"));
+  assert_eq!(said(&mut stage, "tabs-on").as_deref(), Some("Scroll on"));
+  let mut stage = worded(Some("Plus"), Some("Retour"), Some("Suite"));
+  assert_eq!(
+    said(&mut stage, "tabs-more").as_deref(),
+    Some("Plus"),
+    "what it says is its name"
+  );
+  assert_eq!(said(&mut stage, "tabs-back").as_deref(), Some("Retour"));
+  assert_eq!(said(&mut stage, "tabs-on").as_deref(), Some("Suite"));
 }
 
 #[test]
@@ -279,7 +340,7 @@ fn a_press_selects_a_tab_and_a_disabled_or_the_selected_one_asks_for_nothing() {
       .child(Tabs::controlled(
         "a",
         [Tab::new("a", "A").id("a"), Tab::new("b", "B").id("b")],
-        move |value| told.lock().unwrap().push(value),
+        move |value| told.lock().unwrap().push(*value),
       ))
       .into()
   });
@@ -292,6 +353,70 @@ fn a_press_selects_a_tab_and_a_disabled_or_the_selected_one_asks_for_nothing() {
   stage.click("a");
   stage.click("b");
   assert_eq!(*asked.lock().unwrap(), ["b"], "the selected one asks for nothing");
+}
+
+#[test]
+fn on_change_is_told_what_a_person_selects_and_not_what_the_app_sets() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let tell = told.clone();
+  let section = Signal::new(0u8);
+  let held = section.clone();
+  let mut stage = Stage::new(move |_| {
+    let (first, second) = (tell.clone(), tell.clone());
+    Column::new()
+      .padding(8.0)
+      .child(Button::new("Before").tab_index(0))
+      .child(
+        Tabs::new(
+          held.clone(),
+          [
+            Tab::new(0, "One").id("one"),
+            Tab::new(1, "Two").id("two"),
+            Tab::new(2, "Three").id("three"),
+          ],
+        )
+        .on_change(move |value| first.lock().unwrap().push(("first", *value)))
+        .on_change(move |value| second.lock().unwrap().push(("second", *value))),
+      )
+      .into()
+  });
+  // A press: the signal is set, and each handler is told the new value, the first before the second.
+  stage.click("two");
+  assert_eq!(section.get(), 1);
+  assert_eq!(*told.lock().unwrap(), [("first", 1), ("second", 1)]);
+  // A press of the selected tab tells nothing.
+  stage.click("two");
+  assert_eq!(told.lock().unwrap().len(), 2, "what is already so");
+  // The app sets the signal: nothing is told.
+  section.set(2);
+  stage.pass();
+  assert_eq!(told.lock().unwrap().len(), 2, "what the app sets");
+  // The arrow keys select, and are told as a press is.
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("ArrowLeft");
+  assert_eq!(section.get(), 1);
+  assert_eq!(told.lock().unwrap()[2..], [("first", 1), ("second", 1)]);
+}
+
+#[test]
+fn controlled_tabs_show_what_the_app_answers_and_not_what_was_pressed() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let tell = told.clone();
+  let mut stage = Stage::new(move |_| {
+    let tell = tell.clone();
+    Row::new()
+      .padding(8.0)
+      .child(Tabs::controlled(0, settings(), move |value| {
+        tell.lock().unwrap().push(*value)
+      }))
+      .into()
+  });
+  stage.click("appearance");
+  assert_eq!(*told.lock().unwrap(), [1]);
+  // The app answered nothing: the first is still the selected one.
+  assert_eq!(stage.fill_color("general"), Some(light(PaletteColor::Background)));
+  assert_eq!(stage.fill_color("appearance"), None);
 }
 
 #[test]
@@ -418,26 +543,23 @@ fn only_the_selected_tab_has_its_panel_and_tab_goes_from_the_list_into_it() {
 #[test]
 fn the_overflowing_list_scrolls_between_its_buttons_and_more_opens_a_menu_of_every_tab() {
   let section = Signal::new(0usize);
-  let overflow = TabsOverflow::new(Signal::new(false));
-  let (held, kept) = (section.clone(), overflow.clone());
+  let held = section.clone();
   let names = [
     "Canvas", "Layout", "Text", "Theme", "Router", "Forms", "Motion", "Charts",
   ];
-  let mut stage = Stage::new(move |_| {
+  let mut stage = Stage::new(move |ctx| {
     let tabs = names
       .iter()
       .enumerate()
       .map(|(index, name)| Tab::new(index, name).id(name.to_lowercase()));
+    let tabs = Tabs::new(held.clone(), tabs)
+      .variant(TabsVariant::Line)
+      .overflow(true)
+      .id("tabs")
+      .mount(ctx);
     Column::new()
       .size(400.0, 300.0)
-      .child(
-        Column::new().width(320.0).child(
-          Tabs::new(held.clone(), tabs)
-            .variant(TabsVariant::Line)
-            .overflow(kept.clone())
-            .id("tabs"),
-        ),
-      )
+      .child(Column::new().width(320.0).child(tabs))
       .into()
   });
   // The row is 40 high, its tabs 40 with labels of 13, 20 apart.
@@ -447,23 +569,27 @@ fn the_overflowing_list_scrolls_between_its_buttons_and_more_opens_a_menu_of_eve
   let (next, ..) = stage.bounds("layout");
   assert!((next - (x + width) - 20.0).abs() < 0.01, "20 apart");
 
-  // The button at the end of the list scrolls it on, the one at its start back.
+  // The button at the end of the list scrolls it on, the one at its start back; the tabs keep where it is.
   let before = stage.bounds("canvas").0;
   stage.click("tabs-on");
-  assert!(overflow.scroll().scroll_x() > 0.0, "scrolled on");
-  assert!(stage.bounds("canvas").0 < before);
+  stage.pass();
+  assert!(stage.bounds("canvas").0 < before, "scrolled on");
   stage.click("tabs-back");
-  assert_eq!(overflow.scroll().scroll_x(), 0.0, "back");
+  stage.pass();
+  assert_eq!(stage.bounds("canvas").0, before, "back");
   let (back_x, _, back_width, back_height) = stage.bounds("tabs-back");
   assert_eq!((back_width, back_height), (28.0, 40.0));
   assert!(x >= back_x + 28.0, "the list after the scroll button");
 
-  // More opens the menu of every tab; choosing one there selects it.
+  // More opens the menu of every tab, which the tabs keep open; choosing one there selects it and closes it.
+  assert!(!laid_out(&mut stage, "charts-item"));
   stage.click("tabs-more");
-  assert!(overflow.open().get(), "open");
+  stage.pass();
+  assert!(laid_out(&mut stage, "charts-item"), "open");
   stage.click("charts-item");
   assert_eq!(section.get(), 7);
-  assert!(!overflow.open().get(), "closed");
+  stage.pass();
+  assert!(!laid_out(&mut stage, "charts-item"), "closed");
   // The list scrolled the least that shows the chosen tab, the last, whole: its end at the scroll button's start.
   stage.pass();
   let (charts_x, _, charts_width, _) = stage.bounds("charts");
@@ -518,7 +644,7 @@ fn a_theme_gives_the_tabs_another_anatomy_and_they_still_select() {
   app.theme().set_renderer::<Tabs>(renderer);
   let mut stage = Stage::in_app(app, move |_| {
     let told = told.clone();
-    let tabs: Element = Tabs::controlled(0, settings(), move |value| told.lock().unwrap().push(value)).into();
+    let tabs: Element = Tabs::controlled(0, settings(), move |value| told.lock().unwrap().push(*value)).into();
     Row::new().padding(8.0).child(tabs).into()
   });
   assert!(stage.paints("SECTIONS"));

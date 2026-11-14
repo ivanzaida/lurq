@@ -18,7 +18,7 @@ use lurq::{
   node::color::Color,
   ui::{
     Accordion, AccordionItem, AccordionPart, Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleView,
-    Interaction,
+    Interaction, Recipe,
   },
 };
 
@@ -191,24 +191,161 @@ fn any_number_are_open_in_an_accordion_of_several() {
 }
 
 #[test]
-fn a_controlled_accordion_shows_what_the_app_says_and_tells_it_of_a_press() {
-  let told = Arc::new(Mutex::new(Vec::new()));
+fn a_controlled_accordion_shows_what_the_app_says_and_tells_it_what_is_to_be_open() {
+  let told: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
   let tell = told.clone();
   let mut stage = Stage::new(move |_| {
     let tell = tell.clone();
     Column::new()
       .padding(8.0)
-      .child(Accordion::controlled([1], items(), move |value| {
-        tell.lock().unwrap().push(value)
+      .child(Accordion::controlled([1], items(), move |open| {
+        tell.lock().unwrap().push(open.to_vec())
       }))
       .into()
   });
   assert!(stage.paints(DARK_ANSWER));
+  // One at a time: a press of another is told that one alone, a press of the open one none.
   press(&mut stage, GPU);
   press(&mut stage, DARK);
-  assert_eq!(*told.lock().unwrap(), [0, 1]);
+  assert_eq!(*told.lock().unwrap(), [vec![0], vec![]]);
   // The app opened nothing and closed nothing.
   assert!(stage.paints(DARK_ANSWER) && !stage.paints(GPU_ANSWER));
+}
+
+#[test]
+fn a_controlled_accordion_of_several_is_told_the_whole_set() {
+  let told: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+  let tell = told.clone();
+  let mut stage = Stage::new(move |_| {
+    let tell = tell.clone();
+    Column::new()
+      .padding(8.0)
+      .child(Accordion::controlled_multiple([1], items(), move |open| {
+        tell.lock().unwrap().push(open.to_vec())
+      }))
+      .into()
+  });
+  press(&mut stage, GPU);
+  press(&mut stage, DARK);
+  assert_eq!(*told.lock().unwrap(), [vec![1, 0], vec![]]);
+  assert!(
+    stage.paints(DARK_ANSWER) && !stage.paints(GPU_ANSWER),
+    "the app answered nothing"
+  );
+}
+
+#[test]
+fn on_change_is_told_what_a_person_opens_and_not_what_the_app_sets() {
+  let told: Arc<Mutex<Vec<(&str, Vec<u8>)>>> = Arc::new(Mutex::new(Vec::new()));
+  let (tell, open) = (told.clone(), Signal::new(None));
+  let read = open.clone();
+  let mut stage = Stage::new(move |_| {
+    let (first, second) = (tell.clone(), tell.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        Accordion::new(read.clone(), items())
+          .on_change(move |open| first.lock().unwrap().push(("first", open.to_vec())))
+          .on_change(move |open| second.lock().unwrap().push(("second", open.to_vec()))),
+      )
+      .into()
+  });
+  press(&mut stage, GPU);
+  assert_eq!(open.get(), Some(0), "the signal is set");
+  assert_eq!(*told.lock().unwrap(), [("first", vec![0]), ("second", vec![0])]);
+  press(&mut stage, GPU);
+  assert_eq!(open.get(), None);
+  assert_eq!(told.lock().unwrap()[2..], [("first", vec![]), ("second", vec![])]);
+  // The app opens one: nothing is told.
+  open.set(Some(2));
+  stage.pass();
+  assert_eq!(told.lock().unwrap().len(), 4);
+
+  // Any number open: the whole set.
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (tell, open) = (told.clone(), Signal::new(vec![2u8]));
+  let read = open.clone();
+  let mut stage = Stage::new(move |_| {
+    let tell = tell.clone();
+    Column::new()
+      .padding(8.0)
+      .child(Accordion::multiple(read.clone(), items()).on_change(move |open| tell.lock().unwrap().push(open.to_vec())))
+      .into()
+  });
+  press(&mut stage, GPU);
+  assert_eq!(*told.lock().unwrap(), [vec![2, 0]]);
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_named_accordion_is_a_group_of_that_name() {
+  let open = Signal::new(None);
+  let read = open.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(Accordion::new(read.clone(), items()).label("Questions").id("faq"))
+      .into()
+  });
+  let mut said = |name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("faq")
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said("a11y_role").as_deref(), Some("group"));
+  assert_eq!(said("a11y_name").as_deref(), Some("Questions"));
+}
+
+#[test]
+fn a_forced_focus_draws_the_ring_on_the_first_header_tab_stops_on() {
+  let mut stage = Stage::new(|_| {
+    let [gpu, dark, theme] = items();
+    Column::new()
+      .padding(8.0)
+      .child(
+        Accordion::controlled(
+          None,
+          [gpu.disabled(true).id("gpu"), dark.id("dark"), theme.id("theme")],
+          |_| {},
+        )
+        .style(AccordionPart::Root, |s| s.width(360.0))
+        .force(Some(Interaction::FocusVisible)),
+      )
+      .into()
+  });
+  stage.pass();
+  let rings: Vec<Quad> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, gradient: None } if color.a() == 0)
+        && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Ring))
+    })
+    .collect();
+  assert_eq!(rings.len(), 1, "one ring, not one on each header");
+  // The first header is disabled: Tab stops first on the second.
+  let (_, y, _, height) = stage.bounds("dark");
+  assert!(
+    rings[0].y >= y - 4.0 && rings[0].y <= y + height,
+    "around the second header"
+  );
+}
+
+#[test]
+fn a_state_of_the_app_styles_every_item() {
+  let stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Accordion::controlled([0], items(), |_| {})
+          .rules(&Recipe::new().state("roomy", AccordionPart::Label, |s| s.font_size(16.0)))
+          .state("roomy", true),
+      )
+      .into()
+  });
+  assert_eq!(stage.text(GPU).1, 16.0);
+  assert_eq!(stage.text(DARK).1, 16.0);
 }
 
 #[test]
@@ -407,7 +544,7 @@ fn a_rule_of_the_app_styles_a_part_of_every_item() {
       .child(
         Accordion::new(read.clone(), items())
           .style(AccordionPart::Label, |s| s.font_size(16.0))
-          .style(AccordionPart::Content, |s| s.foreground(PaletteColor::Primary)),
+          .style(AccordionPart::Body, |s| s.foreground(PaletteColor::Primary)),
       )
       .into()
   });

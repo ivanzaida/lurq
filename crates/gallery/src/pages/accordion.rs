@@ -83,30 +83,26 @@ impl AccordionPage {
     } else {
       self.played_one.get().into_iter().collect()
     };
-    // The app holds what is open, so that each press is counted: `new` and `multiple` are this with the
-    // signal set for it.
+    // The accordion is bound to the page's signals, as an app's is, and each change is counted.
     let record = self.playground.recorder();
-    let (one, many) = (self.played_one.clone(), self.played_many.clone());
-    let shown = Accordion::controlled(open.clone(), questions(item_disabled), move |value| {
-      if multiple {
-        many.update(|open| match open.iter().position(|held| *held == value) {
-          Some(index) => {
-            open.remove(index);
-          }
-          None => open.push(value),
-        });
-      } else {
-        one.update(|open| *open = if *open == Some(value) { None } else { Some(value) });
-      }
-      record(format!("press({value})"));
-    })
+    let told = move |open: &[usize]| record(format!("on_change({open:?})"));
+    let shown = if multiple {
+      Accordion::multiple(self.played_many.clone(), questions(item_disabled)).on_change(told)
+    } else {
+      Accordion::new(self.played_one.clone(), questions(item_disabled)).on_change(told)
+    }
     .disabled(disabled)
     .style(AccordionPart::Root, |s| s.width(WIDE));
 
     let make = {
       let open = open.clone();
       move || {
-        Accordion::controlled(open.clone(), questions(item_disabled), |_| {})
+        let accordion = if multiple {
+          Accordion::controlled_multiple(open.clone(), questions(item_disabled), |_| {})
+        } else {
+          Accordion::controlled(open.clone(), questions(item_disabled), |_| {})
+        };
+        accordion
           .disabled(disabled)
           .style(AccordionPart::Root, |s| s.width(WIDE))
           .into()
@@ -114,11 +110,15 @@ impl AccordionPage {
     };
 
     let mut code = vec![if multiple {
-      "// open: Signal<Vec<usize>>, which `Accordion::multiple(open, items)` sets itself".to_owned()
+      "// open: Signal<Vec<usize>>".to_owned()
     } else {
-      "// open: Signal<Option<usize>>, which `Accordion::new(open, items)` sets itself".to_owned()
+      "// open: Signal<Option<usize>>".to_owned()
     }];
-    code.push("Accordion::controlled(open.get(), [".to_owned());
+    code.push(if multiple {
+      "Accordion::multiple(open, [".to_owned()
+    } else {
+      "Accordion::new(open, [".to_owned()
+    });
     for (index, (question, answer)) in QUESTIONS.iter().enumerate() {
       let tail = if item_disabled && index == 1 {
         ".disabled(true)"
@@ -129,7 +129,8 @@ impl AccordionPage {
         "    AccordionItem::text({index}, {question:?}, {answer:?}){tail},"
       ));
     }
-    code.push("], move |value| /* open or close `value` in `open` */)".to_owned());
+    code.push("])".to_owned());
+    code.push(".on_change(|open| /* the values open after a press */)".to_owned());
     if disabled {
       code.push(".disabled(true)".to_owned());
     }
@@ -168,7 +169,7 @@ impl AccordionPage {
         fill: false,
         forceable: false,
         facts: format!("{} open", open.len()),
-        event: "press",
+        event: "on_change",
         code,
         tree,
         controls: vec![
@@ -216,10 +217,8 @@ impl Component for AccordionPage {
     let several =
       Accordion::multiple(self.many.clone(), questions(false)).style(AccordionPart::Root, |s| s.width(WIDE));
     let disabled = Accordion::new(self.one.clone(), questions(true)).style(AccordionPart::Root, |s| s.width(WIDE));
-    let set = self.crates_open.clone();
     let collapsible = Collapsible::new("3 crates in this workspace", crates())
-      .open(self.crates_open.get())
-      .on_change(move |open| set.set(open))
+      .bind(self.crates_open.clone())
       .style(CollapsiblePart::Root, |s| s.width(280.0));
     let collapsible_states = Row::new()
       .spacing(28.0)
@@ -255,10 +254,24 @@ impl Component for AccordionPage {
         "Each with its value, what its header says and what it shows: an element (`new`) or a text (`text`).",
       ),
       (
-        "controlled",
-        "(open, items, impl Fn(T))",
+        "controlled / controlled_multiple",
+        "(open, items, impl Fn(&[T]))",
         "",
-        "The app holds what is open, and is told the value of each header pressed.",
+        "The app holds what is open, one at a time or any number, and is told the values that are to be open after \
+         each press.",
+      ),
+      (
+        "on_change",
+        "impl Fn(&[T])",
+        "",
+        "Told the values open after a press, once the signal is set: not what the app sets. A second one is called \
+         after the first.",
+      ),
+      (
+        "label",
+        "&str",
+        "",
+        "What the accordion is called, to what reads the tree: a group of that name.",
       ),
       (
         "disabled",
@@ -270,7 +283,13 @@ impl Component for AccordionPage {
         "style / rules",
         "AccordionPart",
         "",
-        "Root, Item, Trigger, Label, Indicator, Panel, Content.",
+        "Root, Item, Trigger, Label, Chevron, Panel, Body.",
+      ),
+      (
+        "state / force",
+        "Name / Option<Interaction>",
+        "",
+        "A state of the theme's recipe on every item; an interaction drawn on the first header Tab stops on.",
       ),
     ];
     let playground = self.play(ctx);
@@ -352,13 +371,11 @@ impl Component for AccordionPage {
           self.frame.demo(
             3,
             collapsible,
-            "Collapsible::new(label, content).open(open.get())",
+            "Collapsible::new(label, content).bind(open)",
             &[
-              "// open: Signal<bool>",
-              "let set = open.clone();",
+              "// open: Signal<bool>, which a press of the header turns",
               "Collapsible::new(\"3 crates in this workspace\", crates)",
-              "    .open(open.get())",
-              "    .on_change(move |open| set.set(open))",
+              "    .bind(open)",
             ],
           ),
         ),

@@ -8,12 +8,13 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Chosen, fading, glyph, pressable},
+  shared::{Orientation, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
-    ctx::Placement,
+    component::Component,
+    ctx::{Ctx, Placement},
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{self, Column, Row, ScrollHorizontal, Stack},
@@ -48,15 +49,9 @@ names!(TabsVariant {
   Pill => "pill",
 });
 
-/// Which way the list of tabs runs.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum TabsOrientation {
-  /// Along the top, the panel under it. Left and Right move the selection.
-  #[default]
-  Horizontal,
-  /// Down the start side, the panel beside it. Up and Down move the selection.
-  Vertical,
-}
+/// Which way the list of tabs runs: `Horizontal`, along the top with the panel under it, where Left and Right
+/// move the selection; or `Vertical`, down the start side with the panel beside it, where Up and Down do.
+pub type TabsOrientation = Orientation;
 
 /// The parts of tabs a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -74,7 +69,7 @@ pub enum TabsPart {
   /// The count of a tab, after its label: how many things are in it.
   Count,
   /// The line that sets a tab apart from those before it.
-  Divider,
+  Separator,
   /// The panel of the selected tab.
   Panel,
   /// Of the overflowing form: the row with the list that scrolls, its scroll buttons and the More button.
@@ -98,7 +93,7 @@ names!(TabsPart {
   Label => "label",
   Icon => "icon",
   Count => "count",
-  Divider => "divider",
+  Separator => "separator",
   Panel => "panel",
   Bar => "bar",
   ScrollButton => "scroll_button",
@@ -157,20 +152,22 @@ pub struct Tab<T> {
   separated: bool,
   panel: Option<PanelBuilder>,
   id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl<T> Tab<T> {
   /// A tab of `value`, called `label`.
-  pub fn new(value: T, label: impl AsRef<str>) -> Self {
+  pub fn new(value: T, label: &str) -> Self {
     Self {
       value,
-      label: Arc::from(label.as_ref()),
+      label: Arc::from(label),
       icon: None,
       count: None,
       disabled: false,
       separated: false,
       panel: None,
       id: None,
+      key: None,
     }
   }
 
@@ -210,49 +207,43 @@ impl<T> Tab<T> {
     self.id = Some(id.into());
     self
   }
+
+  /// The key of the tab, among the others.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
+  }
 }
 
-impl<T, L: AsRef<str>> From<(T, L)> for Tab<T> {
-  fn from((value, label): (T, L)) -> Self {
+impl<T> From<(T, &str)> for Tab<T> {
+  fn from((value, label): (T, &str)) -> Self {
     Self::new(value, label)
   }
 }
 
 /// What the overflowing form of tabs keeps from one render to the next:
 /// where its list is scrolled, the button its menu hangs from, and whether
-/// that menu is open. The app makes it once, where its component is
-/// created, and gives a clone of it to the tabs each time they are built.
+/// that menu is open. Mounted tabs keep it; tabs converted into an element
+/// on their own have one that starts again at each build.
 #[derive(Clone)]
-pub struct TabsOverflow {
+struct Kept {
   scroll: ScrollState,
   anchor: ElementRef,
   open: Signal<bool>,
 }
 
-impl TabsOverflow {
-  /// What an overflowing list of tabs keeps, made where the app's component
-  /// is created: `open` is whether the menu of every tab is open,
-  /// `ctx.signal(false)`.
-  pub fn new(open: Signal<bool>) -> Self {
+impl Kept {
+  fn new(open: Signal<bool>) -> Self {
     Self {
       scroll: ScrollState::new(),
       anchor: ElementRef::new(),
       open,
     }
   }
-
-  /// Where the list is scrolled.
-  pub fn scroll(&self) -> &ScrollState {
-    &self.scroll
-  }
-
-  /// Whether the menu of every tab is open.
-  pub fn open(&self) -> &Signal<bool> {
-    &self.open
-  }
 }
 
 /// One tab as it is built: what it shows, whether it is the selected one, and what a press of it does.
+#[derive(Clone)]
 pub struct TabEntry {
   pub label: Arc<str>,
   pub icon: Option<Name>,
@@ -263,6 +254,21 @@ pub struct TabEntry {
   select: Arc<dyn Fn() + Send + Sync>,
   panel: Option<PanelBuilder>,
   id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+/// What is told the value of the tab a person selected.
+type Handler<T> = Arc<dyn Fn(&T) + Send + Sync>;
+
+/// What sets the signal of bound tabs to a value, and says whether it was another.
+type Write<T> = Arc<dyn Fn(&T) -> bool + Send + Sync>;
+
+/// The words of the controls of the overflowing form, which lurq writes itself.
+#[derive(Clone)]
+struct Words {
+  back: Arc<str>,
+  on: Arc<str>,
+  more: Option<Arc<str>>,
 }
 
 /// Tabs: a list of tabs of which one is selected, and under it (or beside
@@ -285,8 +291,9 @@ pub struct TabEntry {
 ///     Tab::new("advanced", "Advanced").disabled(true),
 ///   ],
 /// )
-/// .variant(TabsVariant::Line);
-/// // The app holds which is selected, and is told of a press.
+/// .variant(TabsVariant::Line)
+/// .on_change(|section| println!("{section}"));
+/// // The app holds which is selected, and is told the tab a person selects.
 /// let filter = Tabs::controlled(0, [(0, "All"), (1, "Open"), (2, "Closed")], |index| println!("{index}"));
 /// # }
 /// ```
@@ -297,14 +304,18 @@ pub struct TabEntry {
 /// the first and the last, and a disabled one is passed by. Tab from the
 /// list goes to the panel. The panel of a tab is built only while the tab
 /// is selected.
-pub struct Tabs {
-  tabs: Vec<TabEntry>,
+pub struct Tabs<T = ()> {
+  tabs: Vec<Tab<T>>,
+  selected: Option<T>,
+  write: Option<Write<T>>,
+  on_change: Vec<Handler<T>>,
   variant: Name,
   orientation: TabsOrientation,
   disabled: bool,
   manual: bool,
   label: Option<Arc<str>>,
-  overflow: Option<TabsOverflow>,
+  overflow: bool,
+  words: Words,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -312,43 +323,24 @@ pub struct Tabs {
   key: Option<Arc<str>>,
 }
 
-impl Tabs {
-  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Chosen<T>,
-    tabs: impl IntoIterator<Item = impl Into<Tab<T>>>,
-  ) -> Self {
-    let tabs = tabs
-      .into_iter()
-      .map(Into::into)
-      .map(|tab: Tab<T>| {
-        let selected = chosen.has(&tab.value);
-        let pick = chosen.picker(tab.value);
-        TabEntry {
-          label: tab.label,
-          icon: tab.icon,
-          count: tab.count,
-          disabled: tab.disabled,
-          separated: tab.separated,
-          selected,
-          // A press of the selected tab asks for nothing.
-          select: Arc::new(move || {
-            if !selected {
-              pick()
-            }
-          }),
-          panel: tab.panel,
-          id: tab.id,
-        }
-      })
-      .collect();
+impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
+  fn of(selected: T, tabs: impl IntoIterator<Item = impl Into<Tab<T>>>, write: Option<Write<T>>) -> Self {
     Self {
-      tabs,
+      tabs: tabs.into_iter().map(Into::into).collect(),
+      selected: Some(selected),
+      write,
+      on_change: Vec::new(),
       variant: TabsVariant::default().into(),
       orientation: TabsOrientation::default(),
       disabled: false,
       manual: false,
       label: None,
-      overflow: None,
+      overflow: false,
+      words: Words {
+        back: Arc::from("Scroll back"),
+        on: Arc::from("Scroll on"),
+        more: None,
+      },
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -358,21 +350,38 @@ impl Tabs {
   }
 
   /// Tabs whose selected tab is the one with the signal's value. Selecting another sets the signal.
-  pub fn new<T>(value: Signal<T>, tabs: impl IntoIterator<Item = impl Into<Tab<T>>>) -> Self
+  pub fn new(value: Signal<T>, tabs: impl IntoIterator<Item = impl Into<Tab<T>>>) -> Self
   where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    T: SignalValue,
   {
-    Self::of(Chosen::one(value), tabs)
+    let now = value.get();
+    let write: Write<T> = Arc::new(move |next: &T| {
+      let other = value.get_untracked() != *next;
+      if other {
+        value.set(next.clone());
+      }
+      other
+    });
+    Self::of(now, tabs, Some(write))
   }
 
   /// Tabs whose state the app holds: the tab of `value` is the selected
-  /// one, and `select` is told the value of each other one selected.
-  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
+  /// one, and `on_change` is told the value of each other one a person selects. The tabs select nothing
+  /// themselves.
+  pub fn controlled(
     value: T,
     tabs: impl IntoIterator<Item = impl Into<Tab<T>>>,
-    select: impl Fn(T) + Send + Sync + 'static,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held(vec![value], select), tabs)
+    Self::of(value, tabs, None).on_change(on_change)
+  }
+
+  /// Called when a person selects a tab other than the selected one, by a press, the arrow keys or the menu of
+  /// the overflowing form, with its value: after the signal is set where the tabs are bound. A value the app sets
+  /// is told to none of them, and so is a press of the selected tab. A second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
+    self
   }
 
   /// A [`TabsVariant`], or a variant the theme's recipe names.
@@ -409,10 +418,32 @@ impl Tabs {
 
   /// Draws a list that runs along the top as the overflowing form: the list
   /// scrolls between two scroll buttons, and a More button at its end opens
-  /// a menu of every tab. What it keeps is the app's ([`TabsOverflow`]). A
-  /// list that runs down scrolls with what holds it, and takes no notice of this.
-  pub fn overflow(mut self, overflow: TabsOverflow) -> Self {
-    self.overflow = Some(overflow);
+  /// a menu of every tab. Tabs put in the tree with [`mount`](Self::mount)
+  /// keep where the list is scrolled and whether the menu is open; converted
+  /// into an element on their own they are its still form, whose menu does
+  /// not open. A list that runs down scrolls with what holds it, and takes no
+  /// notice of this.
+  pub fn overflow(mut self, overflow: bool) -> Self {
+    self.overflow = overflow;
+    self
+  }
+
+  /// What the scroll button at the start of the overflowing list is called, to what reads the tree: "Scroll back".
+  pub fn scroll_back_label(mut self, label: &str) -> Self {
+    self.words.back = Arc::from(label);
+    self
+  }
+
+  /// What the scroll button at the end of the overflowing list is called, to what reads the tree: "Scroll on".
+  pub fn scroll_on_label(mut self, label: &str) -> Self {
+    self.words.on = Arc::from(label);
+    self
+  }
+
+  /// What the More button of the overflowing form says, and what it is called to what reads the tree. It says
+  /// "More", and is called "More tabs", unless told otherwise.
+  pub fn more_label(mut self, label: &str) -> Self {
+    self.words.more = Some(Arc::from(label));
     self
   }
 
@@ -456,16 +487,112 @@ impl Tabs {
     self
   }
 
+  /// The key of the tabs, among what is beside them.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
   }
 
-  /// Builds the tabs in `theme`. Converting tabs into an element does this
-  /// in the theme of what is being rendered.
+  /// The tabs with what a press of each does, of no type of the app's.
+  fn prepare(mut self) -> Prepared {
+    let selected = self.selected.take();
+    let (write, handlers): (_, Arc<[Handler<T>]>) = (self.write, self.on_change.into());
+    let tabs = self
+      .tabs
+      .into_iter()
+      .map(|tab| {
+        let chosen = selected.as_ref() == Some(&tab.value);
+        let (value, write, handlers) = (tab.value, write.clone(), handlers.clone());
+        TabEntry {
+          label: tab.label,
+          icon: tab.icon,
+          count: tab.count,
+          disabled: tab.disabled,
+          separated: tab.separated,
+          selected: chosen,
+          // A press of the selected tab asks for nothing, and tells nothing.
+          select: Arc::new(move || {
+            if chosen || write.as_ref().is_some_and(|write| !write(&value)) {
+              return;
+            }
+            for handler in handlers.iter() {
+              handler(&value);
+            }
+          }),
+          panel: tab.panel,
+          id: tab.id,
+          key: tab.key,
+        }
+      })
+      .collect();
+    Prepared {
+      tabs,
+      variant: self.variant,
+      orientation: self.orientation,
+      disabled: self.disabled,
+      manual: self.manual,
+      label: self.label,
+      overflow: self.overflow,
+      words: self.words,
+      states: self.states,
+      rules: self.rules,
+      forced: self.forced,
+      id: self.id,
+      key: self.key,
+    }
+  }
+
+  /// Puts the tabs in the tree of `ctx`'s component, in the theme of what is
+  /// being rendered, where their overflowing form keeps where its list is
+  /// scrolled and whether its menu is open from one render to the next.
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    let mut tabs = self.prepare();
+    let key = tabs.key.take();
+    let mut element = ctx.mount::<TabsHost>(TabsProps { tabs });
+    if let Some(key) = key {
+      element = element.key(key);
+    }
+    element
+  }
+
+  /// Builds the tabs in `theme`, with nothing kept: the overflowing form is
+  /// its still form, scrolled to its start, whose menu does not open.
+  /// Converting tabs into an element does this in the theme of what is being
+  /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let vertical = self.orientation == TabsOrientation::Vertical;
-    let overflow = if vertical { None } else { self.overflow };
+    self.prepare().build(theme, Kept::new(Signal::new(false)))
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<Tabs<T>> for Element {
+  fn from(tabs: Tabs<T>) -> Self {
+    tabs.build(&current_theme())
+  }
+}
+
+/// Tabs as they are built, once a press of each tab knows what it does.
+#[derive(Clone)]
+struct Prepared {
+  tabs: Vec<TabEntry>,
+  variant: Name,
+  orientation: TabsOrientation,
+  disabled: bool,
+  manual: bool,
+  label: Option<Arc<str>>,
+  overflow: bool,
+  words: Words,
+  states: Vec<Name>,
+  rules: Recipe,
+  forced: Option<Interaction>,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl Prepared {
+  /// The tabs in `theme`, their overflowing form with what `kept` keeps.
+  fn build(self, theme: &Theme, kept: Kept) -> Element {
+    let vertical = self.orientation.is_vertical();
+    let overflow = (self.overflow && !vertical).then_some(kept);
     let case = Case {
       variant: Some(self.variant),
       size: None,
@@ -506,6 +633,7 @@ impl Tabs {
       list_ref: ElementRef::new(),
       tab_refs,
       overflow,
+      words: self.words,
       forced: self.forced,
       id: self.id,
       key: self.key,
@@ -517,9 +645,39 @@ impl Tabs {
   }
 }
 
-impl From<Tabs> for Element {
-  fn from(tabs: Tabs) -> Self {
-    tabs.build(&current_theme())
+#[derive(Clone)]
+struct TabsProps {
+  tabs: Prepared,
+}
+
+/// The tabs are prepared anew by every render of what holds them, so props are
+/// never the same as before.
+impl PartialEq for TabsProps {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for TabsProps {}
+
+/// What mounted tabs keep from one render to the next: what their overflowing form keeps.
+struct TabsHost {
+  kept: Kept,
+}
+
+impl Component for TabsHost {
+  type Props = TabsProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      kept: Kept::new(ctx.signal(false)),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let TabsProps { tabs } = ctx.props::<TabsProps>().clone();
+    tabs.build(&current_theme(), self.kept.clone())
   }
 }
 
@@ -535,7 +693,8 @@ pub struct TabsView {
   /// The recipe of a tab neither selected nor disabled, then selected, disabled, and both. The first is
   /// every other part's.
   recipes: [ResolvedRecipe; 4],
-  overflow: Option<TabsOverflow>,
+  overflow: Option<Kept>,
+  words: Words,
   /// Of the overflowing form, where the list and each tab were last laid out: what scrolls a tab chosen from
   /// the menu into view.
   list_ref: ElementRef,
@@ -580,7 +739,7 @@ impl TabsView {
   }
 
   fn vertical(&self) -> bool {
-    self.orientation == TabsOrientation::Vertical
+    self.orientation.is_vertical()
   }
 
   /// Whether the list scrolls between two scroll buttons, with a menu of every tab at its end.
@@ -616,6 +775,9 @@ impl TabsView {
     if let Some(id) = &entry.id {
       tab = tab.id(id.clone());
     }
+    if let Some(key) = &entry.key {
+      tab = tab.key(key.clone());
+    }
     if let Some(at) = self.tab_refs.get(index) {
       tab = tab.ref_element(at.clone());
     }
@@ -623,11 +785,11 @@ impl TabsView {
   }
 
   /// The line that sets a tab apart from those before it.
-  pub fn divider(&self) -> Element {
-    Row::new().part(&self.part(TabsPart::Divider)).into()
+  pub fn separator(&self) -> Element {
+    Row::new().part(&self.part(TabsPart::Separator)).into()
   }
 
-  /// The list of the tabs, with a divider before each that is set apart:
+  /// The list of the tabs, with a separator before each that is set apart:
   /// one stop of Tab, at the selected tab, whose arrow keys move the
   /// selection. It is a tab list to what reads the tree.
   pub fn list(&self) -> Element {
@@ -641,7 +803,7 @@ impl TabsView {
     let mut children: Vec<Element> = Vec::new();
     for index in 0..self.tabs.len() {
       if index > 0 && self.tabs[index].separated {
-        children.push(self.divider());
+        children.push(self.separator());
       }
       children.push(self.tab(index).into());
     }
@@ -707,12 +869,12 @@ impl TabsView {
   /// A button at an end of the list of the overflowing form, which scrolls
   /// it most of the way it shows. It is for the pointer: the keyboard moves
   /// along the list with the arrow keys, and the list scrolls to the tab focused.
-  fn scroll_button(&self, overflow: &TabsOverflow, back: bool) -> components::Button {
+  fn scroll_button(&self, overflow: &Kept, back: bool) -> components::Button {
     let scroll = overflow.scroll.clone();
     let (icon, name) = if back {
-      (icons::CHEVRON_LEFT, "Scroll back")
+      (icons::CHEVRON_LEFT, self.words.back.clone())
     } else {
-      (icons::CHEVRON_RIGHT, "Scroll on")
+      (icons::CHEVRON_RIGHT, self.words.on.clone())
     };
     let mut button = components::Button::empty()
       .focusable(false)
@@ -731,15 +893,19 @@ impl TabsView {
 
   /// The More button of the overflowing form, and the menu of every tab it
   /// opens: the selected one marked, a disabled one that cannot be chosen.
-  fn more(&self, overflow: &TabsOverflow) -> (components::Button, Menu) {
+  fn more(&self, overflow: &Kept) -> (components::Button, Menu) {
     let open = overflow.open.clone();
     let label = self.part(TabsPart::MoreLabel);
+    let (says, name) = match &self.words.more {
+      Some(words) => (words.clone(), words.clone()),
+      None => (Arc::from("More"), Arc::from("More tabs")),
+    };
     let mut button = pressable(&self.part(TabsPart::More), self.disabled)
       .ref_element(overflow.anchor.clone())
-      .describe("a11y_name", "More tabs")
+      .describe("a11y_name", name)
       .describe("a11y_haspopup", "menu")
       .describe("a11y_expanded", if open.get() { "true" } else { "false" })
-      .child(label.text("More").nowrap().part(&label))
+      .child(label.text(&says).nowrap().part(&label))
       .child(glyph(
         &self.part(TabsPart::MoreIcon),
         Name::new(icons::CHEVRON_DOWN),
@@ -773,7 +939,7 @@ impl TabsView {
 
   /// What scrolls the list of the overflowing form the least that shows the
   /// tab at `index` whole, from where the list and the tab were last laid out.
-  fn reveal(&self, overflow: &TabsOverflow, index: usize) -> impl Fn() + Send + Sync + 'static {
+  fn reveal(&self, overflow: &Kept, index: usize) -> impl Fn() + Send + Sync + 'static {
     let (scroll, list, tab) = (
       overflow.scroll.clone(),
       self.list_ref.clone(),
@@ -867,7 +1033,8 @@ impl TabsView {
   }
 }
 
-impl Themed for Tabs {
+/// Every tabs have the one recipe and renderer, whatever their values are.
+impl<T: Send + Sync + 'static> Themed for Tabs<T> {
   const NAME: &'static str = "tabs";
   type Renderer = TabsRenderer;
 
@@ -879,9 +1046,9 @@ impl Themed for Tabs {
   ///   the background's color with the small shadow, its label in the foreground.
   /// - Line: a row 44 high over a line of 1 in the border's color, its tabs 28 apart; a label is 14 in the muted
   ///   foreground, its count 13 at 0.7, 8 apart. The selected one is underlined with 2 in the foreground, its label 500
-  ///   in the foreground and its count whole. A divider is 1 by 16 in the border's color. Down the side (Tabs/Vertical)
-  ///   the list is at least 180 wide with its line at the start, a tab 32 high, padded 12, its label 13, the selected
-  ///   one marked at the start.
+  ///   in the foreground and its count whole. A separator is 1 by 16 in the border's color. Down the side
+  ///   (Tabs/Vertical) the list is at least 180 wide with its line at the start, a tab 32 high, padded 12, its label
+  ///   13, the selected one marked at the start.
   /// - Pill: round tabs 4 apart, 30 high, padded 14, the label 13/500; the selected one in the primary fill.
   /// - The overflowing form (Tabs/Overflow): a row 40 high, the list between two scroll buttons 28 wide with chevrons
   ///   of 14 in the foreground, its tabs 20 apart with labels of 13; at the end a More button set apart by a line,
@@ -889,7 +1056,7 @@ impl Themed for Tabs {
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Primary, PrimaryForeground, Ring};
     use TabsPart::{
-      Bar, Count, Divider, Icon, Label, List, More, MoreIcon, MoreLabel, Panel, Root, ScrollButton, ScrollIcon, Tab,
+      Bar, Count, Icon, Label, List, More, MoreIcon, MoreLabel, Panel, Root, ScrollButton, ScrollIcon, Separator, Tab,
     };
     use TabsState::{Disabled, Horizontal, Overflow, Selected, Vertical};
     use TabsVariant::{Default, Line, Pill};
@@ -905,7 +1072,7 @@ impl Themed for Tabs {
       .base(Label, |s| s.typography(TypographyStyle::Label))
       .base(Icon, |s| s.square(IconSize::Sm))
       .base(Count, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
-      .base(Divider, |s| s.width(1.0).height(16.0).background(PaletteColor::Border))
+      .base(Separator, |s| s.width(1.0).height(16.0).background(PaletteColor::Border))
       .base(Panel, |s| s.radius(RadiusSize::Md))
       .base(Bar, |s| s.width(Length::Fill))
       .base(ScrollButton, |s| {
@@ -929,7 +1096,7 @@ impl Themed for Tabs {
       .focus_visible(Panel, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(4.0)))
       .focus_visible(More, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .state(Vertical, Root, |s| s.gap(24.0))
-      .state(Vertical, Divider, |s| s.width(Length::Auto).height(1.0))
+      .state(Vertical, Separator, |s| s.width(Length::Auto).height(1.0))
       .state(Selected, Tab, |s| s.foreground(Foreground))
       .state(Disabled, Tab, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
