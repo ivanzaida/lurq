@@ -11,6 +11,11 @@ impl WindowHandle {
   pub(crate) fn dialog_window(&self) -> DialogWindow {
     DialogWindow(Arc::downgrade(&self.window.inner))
   }
+  /// The system's handles of the window, where the shell recorded them: the parent of a dialog of the system.
+  pub(crate) fn parent(&self) -> Option<super::parent::ParentWindow> {
+    self.window.parent()
+  }
+
   pub fn info(&self) -> WindowInfo {
     self.info
   }

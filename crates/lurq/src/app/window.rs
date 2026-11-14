@@ -344,6 +344,7 @@ impl CloseRequest {
 type CloseHandler = Arc<dyn Fn(CloseRequest) + Send + Sync>;
 
 mod handle;
+pub(crate) mod parent;
 pub(crate) mod resize;
 #[cfg(test)]
 mod resize_tests;
@@ -457,6 +458,8 @@ struct WindowInner {
   /// Set once a platform shell applies this window's commands; a headless tree has none.
   shell_attached: bool,
   resize_reports: resize::ResizeReports,
+  /// The system's handles of the window, recorded by the shell: the parent of a dialog of the system.
+  parent: Option<parent::ParentWindow>,
   close_handler: Option<CloseHandler>,
   app_event_handler: Option<AppEventHandler>,
 }
@@ -516,11 +519,23 @@ impl Window {
         loop_thread: None,
         shell_attached: false,
         resize_reports: resize::ResizeReports::default(),
+        parent: None,
         close_handler: None,
         app_event_handler: None,
       })),
       version_signal: Signal::new(0),
     }
+  }
+
+  /// The shell records the system's handles of the window it made, and clears them as the window goes.
+  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  pub(crate) fn set_parent(&self, parent: Option<parent::ParentWindow>) {
+    self.inner.write().unwrap().parent = parent;
+  }
+
+  /// The system's handles of the window, where the shell recorded them.
+  pub(crate) fn parent(&self) -> Option<parent::ParentWindow> {
+    self.inner.read().unwrap().parent
   }
 
   pub(crate) fn set_app_event_handler(&self, handler: Option<AppEventHandler>) {

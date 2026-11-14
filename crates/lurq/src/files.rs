@@ -11,8 +11,9 @@
 //! # What each platform gives
 //!
 //! - **Windows, macOS, Linux**: files dragged from Explorer, Finder or a file manager arrive with their paths; the
-//!   dialog is the system's (`rfd`, with the feature `file_dialog`), and a chosen file has its path and size. The
-//!   dialog has no parent window: it is not modal to the app's window.
+//!   dialog is the system's (`rfd`, with the feature `file_dialog`), and a chosen file has its path and size. On
+//!   Windows the dialog is modal to the window it is opened over; on macOS and Linux it has no parent window yet, so it
+//!   is not modal to the app's.
 //! - **A browser**: no drop from the system reaches the page (winit reports none), and a page reads no path. The dialog
 //!   is the browser's file input, which asks the person to confirm first (a press must open it); a chosen file has its
 //!   name and size and no path. Its bytes are not read through lurq yet.
@@ -211,6 +212,8 @@ pub struct FileDialog {
   filters: Vec<(String, Vec<String>)>,
   multiple: bool,
   folder: Option<PathBuf>,
+  /// The window it is modal to, where the platform's dialog takes one.
+  parent: Option<crate::app::window::parent::ParentWindow>,
 }
 
 impl FileDialog {
@@ -255,17 +258,17 @@ impl FileDialog {
   /// [`Ctx::future_action`](crate::app::ctx::Ctx::future_action), whose result is `Result<Vec<DroppedFile>, ()>`
   /// with [`FileDialog::pick_result`].
   pub fn pick(self, window: &WindowHandle) -> impl Future<Output = Vec<DroppedFile>> + Send + 'static + use<> {
-    let _ = window;
+    let this = self.over(window);
     #[cfg(feature = "mcp")]
     if let Some(broker) = crate::mcp::FileDialogBroker::registered() {
       use crate::mcp::{FileDialogOperation, FileDialogRequest};
-      let mut request = FileDialogRequest::new(if self.multiple {
+      let mut request = FileDialogRequest::new(if this.multiple {
         FileDialogOperation::OpenFiles
       } else {
         FileDialogOperation::OpenFile
       });
-      request.title = self.title.clone();
-      request.filters = self.filters.clone();
+      request.title = this.title.clone();
+      request.filters = this.filters.clone();
       match broker.request(window, request) {
         Ok(Some(pending)) => {
           return Picked::Broker(Box::pin(async move {
@@ -280,7 +283,20 @@ impl FileDialog {
         Ok(None) => {}
       }
     }
-    Picked::Native(native::pick(self))
+    Picked::Native(native::pick(this))
+  }
+
+  /// The dialog over `window`: modal to it where the platform's dialog takes a parent (Windows), and as it was
+  /// elsewhere.
+  pub(crate) fn over(mut self, window: &WindowHandle) -> Self {
+    self.parent = if cfg!(windows) { window.parent() } else { None };
+    self
+  }
+
+  /// The window it is modal to.
+  #[cfg(test)]
+  pub(crate) fn parent(&self) -> Option<crate::app::window::parent::ParentWindow> {
+    self.parent
   }
 
   /// [`pick`](Self::pick) as the `Result` a future action holds.
@@ -396,6 +412,10 @@ mod native {
     if let Some(folder) = &dialog.folder {
       native = native.set_directory(folder);
     }
+    // Over its window the dialog is modal: the window takes no input until it closes.
+    if let Some(parent) = &dialog.parent {
+      native = native.set_parent(parent);
+    }
     let handles = if multiple {
       native.pick_files().await.unwrap_or_default()
     } else {
@@ -502,6 +522,38 @@ mod tests {
       "a name that starts with its dot has no extension"
     );
     assert_eq!(dotfile.kind(), FileKind::Other);
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn on_windows_the_dialog_is_given_its_window_as_its_parent() {
+    use raw_window_handle::{RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle};
+
+    use crate::app::{Tree, window::parent::ParentWindow};
+    let tree = Tree::new();
+    let window = tree.window().handle();
+    assert_eq!(
+      FileDialog::new().over(&window).parent(),
+      None,
+      "a window the shell did not make has none"
+    );
+    let hwnd = Win32WindowHandle::new(std::num::NonZeroIsize::new(0x1234).unwrap());
+    let parent = ParentWindow::new(
+      RawWindowHandle::Win32(hwnd),
+      RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+    );
+    tree.window().set_parent(Some(parent));
+    let dialog = FileDialog::new().title("Add files").over(&window);
+    assert_eq!(
+      dialog.parent().map(|parent| parent.raw().0),
+      Some(RawWindowHandle::Win32(hwnd))
+    );
+    tree.window().set_parent(None);
+    assert_eq!(
+      FileDialog::new().over(&window).parent(),
+      None,
+      "the window gone, the dialog has none"
+    );
   }
 
   #[test]
