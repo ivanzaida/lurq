@@ -226,6 +226,9 @@ struct Toolbar;
 #[derive(Clone)]
 struct Again(Signal<u32>);
 
+#[cfg(feature = "devtools")]
+impl lurq::app::component::DevtoolsInspectable for Again {}
+
 /// The same signal: the toolbar renders again by itself, not because its props changed.
 impl PartialEq for Again {
   fn eq(&self, _: &Self) -> bool {
