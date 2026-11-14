@@ -1398,7 +1398,7 @@ Badge::count(3)
 | --- | --- |
 | `Badge::new(label)` | A badge that says `label` |
 | `Badge::count(n)` | A count: `n` in a small round badge, `BadgeVariant::Destructive` and `BadgeSize::Sm` unless told |
-| `variant(BadgeVariant)` | `Default` (the primary color), `Secondary`, `Outline` (an edge and no fill), and the statuses `Success`, `Warning`, `Info`, `Destructive` (the status's muted fill and its strong text). A count in `Destructive` is solid |
+| `variant(BadgeVariant)` | `Default` (the primary color), `Secondary`, `Outline` (an edge and no fill), and the statuses `Info`, `Success`, `Warning`, `Destructive` (the status's muted fill and its strong text). A count in `Destructive` is solid |
 | `size(BadgeSize)` | `Sm` (18 high, at 11), `Md` (22, at 12, the default), `Lg` (26, at 13) |
 | `shape(BadgeShape)` | `Pill` (the default) or `Square`, with the theme's small radius |
 | `icon(name)` | An icon of the theme's set before the text |
@@ -1516,7 +1516,7 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 | --- | --- |
 | `new(&str)` | Who it is. The initials are the first letters of the first word and the last: "Ivan Zaida" is "IZ", "Ivan" is "I". A name with no letters shows the icon of a person |
 | `image(Image)` | A picture in place of the initials, which fills the face, cropped to it (`cover`) and clipped to its shape: the engine's image element as the app builds it, from pixels (`Image::new`) or from a file or bytes it decodes (`Image::from_file`, `Image::from_bytes`, feature `image`), with a cache key and a size to decode to where it wants them. Feature `raster` |
-| `icon(name)` | An icon of the theme's set in place of the initials, for what is not a person: a bot, a team |
+| `icon(IconChoice)` | An icon of the theme's set in place of the initials, for what is not a person: a bot, a team. `None` is no icon, not even the person a name with no letters shows |
 | `size(AvatarSize)` | `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, or a size the theme's recipe names |
 | `shape(AvatarShape)` | `Circle` (the default), or `Square` with the corners of a control |
 | `presence(AvatarPresence)` | The dot at the bottom end of the face: `Online`, `Away`, `Busy`, `Offline`; `None` for none |
@@ -1543,7 +1543,7 @@ use lurq::{
 
 let people = ["Ivan Zaida", "Anna K.", "Mark R.", "Ivy Chen", "Ivo Kovac", "Lena Quinn"];
 // Three, and "+3" for the three it leaves out.
-AvatarGroup::new(people.map(Avatar::new)).max(3).label("Reviewers");
+AvatarGroup::new(people.map(Avatar::new)).max_shown(3).label("Reviewers");
 
 // On a card, the ring is the card's color.
 AvatarGroup::new(people.map(Avatar::new))
@@ -1554,10 +1554,10 @@ AvatarGroup::new(people.map(Avatar::new))
 | Builder | |
 | --- | --- |
 | `new(avatars)` | The avatars, in order: each lies over the end of the one before it |
-| `max(usize)` | The most avatars it shows; after them a last one says how many it leaves out, "+3" |
-| `size(AvatarSize)` | The size of every avatar in it |
+| `max_shown(usize)` | The most avatars it shows; after them a last one says how many it leaves out, "+3" |
+| `size(AvatarGroupSize)` | The size of every avatar in it: an `AvatarSize` |
 | `label(&str)` | What it is called to what reads the tree. Without one, the names it shows and how many more |
-| `style(part, ..)`, `id`, `key` | As a [button](#button) has them |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - The group gives its avatars its size and what its recipe says of an item; each keeps everything else it was given: its picture, its icon, its presence.
 - To what reads the tree it is a `group` called by its label; the count is an `img` called "3 more".

@@ -26,12 +26,12 @@ pub enum BadgeVariant {
   Secondary,
   /// An edge and no fill.
   Outline,
+  /// Something going on: building, syncing.
+  Info,
   /// Something that went well: passing, online.
   Success,
   /// Something to look at: modified, away.
   Warning,
-  /// Something going on: building, syncing.
-  Info,
   /// Something that went wrong, and a count of what waits: failed, 3 unread.
   Destructive,
 }
@@ -40,9 +40,9 @@ names!(BadgeVariant {
   Default => "default",
   Secondary => "secondary",
   Outline => "outline",
+  Info => "info",
   Success => "success",
   Warning => "warning",
-  Info => "info",
   Destructive => "destructive",
 });
 

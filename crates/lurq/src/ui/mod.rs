@@ -109,8 +109,8 @@ pub use action_bar::{
 };
 pub use alert::{Alert, AlertIcon, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use avatar::{
-  Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupView, AvatarPart, AvatarPresence,
-  AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
+  Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
+  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};

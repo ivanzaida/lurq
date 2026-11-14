@@ -24,9 +24,9 @@ const VARIANTS: [(BadgeVariant, &str, &str); 7] = [
   (BadgeVariant::Default, "default", "BadgeVariant::Default"),
   (BadgeVariant::Secondary, "secondary", "BadgeVariant::Secondary"),
   (BadgeVariant::Outline, "outline", "BadgeVariant::Outline"),
+  (BadgeVariant::Info, "info", "BadgeVariant::Info"),
   (BadgeVariant::Success, "success", "BadgeVariant::Success"),
   (BadgeVariant::Warning, "warning", "BadgeVariant::Warning"),
-  (BadgeVariant::Info, "info", "BadgeVariant::Info"),
   (BadgeVariant::Destructive, "destructive", "BadgeVariant::Destructive"),
 ];
 

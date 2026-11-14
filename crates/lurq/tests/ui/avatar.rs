@@ -252,7 +252,7 @@ fn a_group_with_a_most_shows_how_many_it_leaves_out_as_the_last() {
           ]
           .map(Avatar::new),
         )
-        .max(3)
+        .max_shown(3)
         .label("Reviewers")
         .id("group"),
       )
@@ -292,7 +292,7 @@ fn a_group_gives_its_avatars_its_size_and_none_beyond_its_most() {
       )
       .child(
         AvatarGroup::new(["Ivan Zaida", "Anna K."].map(Avatar::new))
-          .max(5)
+          .max_shown(5)
           .id("all"),
       )
       .into()
@@ -415,4 +415,36 @@ fn a_picture_that_decodes_shows_and_one_that_fails_leaves_the_letters() {
     "a picture that fails leaves the letters"
   );
   assert_eq!(stage.fill_color("fails"), Some(light(PaletteColor::Muted)));
+}
+
+#[test]
+fn an_avatar_told_no_icon_shows_none_and_a_group_takes_the_rules_of_its_place() {
+  use lurq::{
+    app::theme::PaletteColor,
+    ui::{AvatarGroupPart, Recipe},
+  };
+  let mut stage = Stage::new(|_| {
+    lurq::components::Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(Avatar::new("").id("person"))
+      .child(Avatar::new("").icon(None).id("nobody"))
+      .child(
+        AvatarGroup::new(["Ivan Zaida", "Anna K."].map(Avatar::new))
+          .rules(&Recipe::new().base(AvatarGroupPart::Root, |s| s.background(PaletteColor::Destructive)))
+          .id("group"),
+      )
+      .into()
+  });
+  let person = glyph(icons::USER);
+  let painted = stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if *text == person))
+    .count();
+  assert_eq!(painted, 1, "a name with no letters shows a person, unless told no icon");
+  assert_eq!(
+    stage.fill_color("group"),
+    Some(lurq::app::theme::ThemePalette::light().get(PaletteColor::Destructive))
+  );
 }
