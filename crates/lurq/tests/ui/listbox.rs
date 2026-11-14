@@ -1,6 +1,6 @@
 //! A listbox: its box and its options against the board, a group's label, the chosen option and a disabled one,
 //! what a press and the keys of a listbox do with one chosen and with many, the page keys in a box that scrolls, a
-//! disabled listbox, and a theme's other anatomy.
+//! disabled listbox, a theme's other anatomy, and a listbox of thousands of options in a virtual list.
 
 use std::sync::{Arc, Mutex};
 
@@ -358,4 +358,128 @@ fn a_listbox_tells_tooling_what_is_chosen() {
   assert_eq!(said("box-2", "a11y_role").as_deref(), Some("option"));
   assert_eq!(said("box-2", "a11y_selected").as_deref(), Some("true"));
   assert_eq!(said("box-1", "a11y_selected").as_deref(), Some("false"));
+}
+
+/// Five thousand options, a group's label over every thousandth: option `i` is "Option i", element `big-{i}`, but
+/// 3210 is "Zeta".
+fn thousands() -> Vec<SelectOption<u32>> {
+  (0..5000u32)
+    .map(|i| {
+      let label = if i == 3210 {
+        "Zeta".to_owned()
+      } else {
+        format!("Option {i}")
+      };
+      let option = SelectOption::new(i, label);
+      if i % 1000 == 0 {
+        option.group(format!("From {i}"))
+      } else {
+        option
+      }
+    })
+    .collect()
+}
+
+/// The five thousand options in a virtual list 240 high.
+fn big_one(chosen: &Signal<u32>) -> Stage {
+  let chosen = chosen.clone();
+  Stage::new(move |ctx| {
+    Column::new()
+      .child(
+        Listbox::new(chosen.clone(), thousands())
+          .label("Options")
+          .style(ListboxPart::Root, |s| s.height(240.0))
+          .id("big")
+          .mount(ctx),
+      )
+      .into()
+  })
+}
+
+/// A key, then the passes in which the list builds the option it went to and the focus goes there.
+fn settle(stage: &mut Stage, key: &str) {
+  stage.key(key);
+  stage.pass();
+  stage.pass();
+}
+
+fn built_options(stage: &Stage) -> usize {
+  stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.starts_with("Option ")))
+    .count()
+}
+
+#[test]
+fn a_listbox_of_thousands_builds_the_options_in_view_and_the_keys_reach_and_choose_every_one() {
+  let chosen = Signal::new(0u32);
+  let mut stage = big_one(&chosen);
+  let built = built_options(&stage);
+  assert!(built > 0 && built < 60, "{built} options built");
+  // As wide as the box, 4 in from each side.
+  assert_eq!(stage.bounds("big-0").2, 212.0);
+
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("big-0"));
+  // The choice follows the focus to options that were not built.
+  settle(&mut stage, "End");
+  assert_eq!(focused(&stage).as_deref(), Some("big-4999"));
+  assert_eq!(chosen.get(), 4999);
+  settle(&mut stage, "Home");
+  assert_eq!(focused(&stage).as_deref(), Some("big-0"));
+  assert_eq!(chosen.get(), 0);
+  // A letter: Zeta, 3210 options down.
+  settle(&mut stage, "z");
+  assert_eq!(focused(&stage).as_deref(), Some("big-3210"));
+  assert_eq!(chosen.get(), 3210);
+  // A page is as many options as the box shows: a few, and less than the box holds.
+  settle(&mut stage, "PageDown");
+  let paged = chosen.get();
+  assert!(paged > 3212 && paged < 3218, "a page went to {paged}");
+  assert_eq!(focused(&stage), Some(format!("big-{paged}")));
+}
+
+#[test]
+fn a_listbox_of_thousands_opens_at_the_chosen_option() {
+  let chosen = Signal::new(4000u32);
+  let mut stage = big_one(&chosen);
+  stage.pass();
+  assert!(stage.tree.get_element_by_id_mut("big-4000").is_some());
+  assert!(stage.tree.get_element_by_id_mut("big-0").is_none());
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("big-4000"));
+}
+
+#[test]
+fn of_thousands_shift_with_the_keys_and_ctrl_a_choose_options_that_are_not_built() {
+  let chosen: Signal<Vec<u32>> = Signal::new(Vec::new());
+  let scene = chosen.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .child(
+        Listbox::new(scene.clone(), thousands())
+          .style(ListboxPart::Root, |s| s.height(240.0))
+          .id("big")
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(chosen.get(), [0]);
+  // Shift+End: from where the choice started to the last option, and the focus goes there.
+  stage
+    .tree
+    .key_down("End".to_owned(), "End".to_owned(), true, false, false);
+  stage.pass();
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("big-4999"));
+  assert_eq!(chosen.get().len(), 5000);
+  assert_eq!(chosen.get().last(), Some(&0), "where the choice started stays last");
+  // A press of the last option alone, then Ctrl+A: every option.
+  stage.click("big-4999");
+  assert_eq!(chosen.get(), [4999]);
+  key_with(&mut stage, "a", false, true);
+  assert_eq!(chosen.get().len(), 5000);
 }

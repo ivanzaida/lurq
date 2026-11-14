@@ -1,6 +1,12 @@
 //! A listbox: a list in the page of which one option or any number are chosen, with the keys of a listbox.
 
-use std::sync::Arc;
+use std::{
+  marker::PhantomData,
+  sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+  },
+};
 
 use super::{
   icons, names,
@@ -12,15 +18,21 @@ use super::{
 };
 use crate::{
   app::{
+    component::Component,
+    ctx::Ctx,
     events::{KeyboardEvent, MouseEvent},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{self, Column, Row, ScrollVertical, SelectOption},
+  components::{self, Column, Row, ScrollVertical, SelectOption, VirtualizedList},
   core::{Signal, SignalValue},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, ScrollState},
+    text_style::FontWeight,
+  },
   node::{
-    CursorIcon, Element, FocusGroup, SelectAdornmentState, border::Border, color::Color, dimension::Dimension,
-    outline::Outline,
+    CursorIcon, Element, FocusGroup, FocusRows, SelectAdornmentState, SpacingValue, border::Border, color::Color,
+    dimension::Dimension, outline::Outline,
   },
 };
 
@@ -163,6 +175,9 @@ type Told<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
 /// [`follow_focus`](Self::follow_focus) is off: then Space and Enter choose. Of many, Space adds the focused option
 /// or takes it out, Shift with the arrows, Home, End and the page keys chooses from where the choice started to
 /// there, a press with Ctrl adds or takes out one, a press with Shift chooses a range, and Ctrl+A chooses them all.
+///
+/// A listbox of thousands of options is [mounted](Self::mount) in a virtual list, which builds only the options near
+/// its view; the keys reach every one.
 pub struct Listbox<T> {
   options: Vec<SelectOption<T>>,
   chosen: Vec<T>,
@@ -298,6 +313,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
   /// Builds the listbox in `theme`. Converting a listbox into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    let view = self.view(theme);
+    match theme.renderer::<Listbox<T>>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+
+  /// The listbox as a renderer sees it, in `theme`: every option, in order.
+  fn view(&self, theme: &Theme) -> ListboxView {
     let base = Case {
       variant: None,
       size: None,
@@ -357,7 +381,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     let mut position = 0;
     let options = self
       .options
-      .into_iter()
+      .iter()
       .enumerate()
       .map(|(index, option)| {
         let is_chosen = chosen.contains(option.value());
@@ -394,6 +418,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
           forced: self.forced,
           pick,
           select_all,
+          row: None,
           id: self.id.as_ref().map(|id| Arc::from(format!("{id}-{index}"))),
         }
       })
@@ -407,20 +432,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
       })
       .collect();
 
-    let view = ListboxView {
+    ListboxView {
       options,
       multiple: many,
       follow_focus: self.follow_focus && !many,
       disabled: self.disabled,
-      label: self.label,
-      description: self.description,
+      label: self.label.clone(),
+      description: self.description.clone(),
       recipe: cases[0][0].clone(),
-      id: self.id,
-      key: self.key,
-    };
-    match theme.renderer::<Listbox<T>>() {
-      Some(renderer) => renderer(view),
-      None => view.render(),
+      id: self.id.clone(),
+      key: self.key.clone(),
     }
   }
 }
@@ -480,11 +501,16 @@ impl ListboxView {
     let scroll = ScrollVertical::new(content)
       .width(Dimension::Pct(100.0))
       .flex_full(0.0, 1.0, None);
+    self.frame().child(scroll)
+  }
+
+  /// The box in the style of its root, with nothing in it yet: a listbox to what reads the tree. What
+  /// [`root`](Self::root) puts its scroll in, and a [mounted](Listbox::mount) listbox its virtual list.
+  pub fn frame(&self) -> Column {
     let mut root = Column::new()
       .align_items(Alignment::Stretch)
       .describe("a11y_role", "listbox")
-      .part(&self.part(ListboxPart::Root))
-      .child(scroll);
+      .part(&self.part(ListboxPart::Root));
     if let Some(label) = &self.label {
       root = root.describe("a11y_name", label.clone());
     }
@@ -541,6 +567,7 @@ impl ListboxView {
 
 /// One option of a listbox as a renderer sees it: what it says, whether it is chosen, the style of its parts, and
 /// its behavior ready to be dressed.
+#[derive(Clone)]
 pub struct ListboxOption {
   pub label: Arc<str>,
   /// The label of the group it starts, where it starts one.
@@ -564,6 +591,8 @@ pub struct ListboxOption {
   forced: Option<Interaction>,
   pick: Option<Arc<dyn Fn(Pick) + Send + Sync>>,
   select_all: Option<Arc<dyn Fn() + Send + Sync>>,
+  /// Which row of the group's rows it is, in a listbox in a virtual list.
+  row: Option<usize>,
   id: Option<Arc<str>>,
 }
 
@@ -606,6 +635,9 @@ impl ListboxOption {
       .describe("a11y_setsize", self.position.1.to_string())
       .focus_label(self.label.clone())
       .focus_entry(self.entry);
+    if let Some(row) = self.row {
+      option = option.focus_row(row);
+    }
     if let Some(detail) = &self.detail {
       option = option.describe("a11y_description", detail.clone());
     }
@@ -762,5 +794,279 @@ impl<T: Send + Sync + 'static> Themed for Listbox<T> {
           .weight(FontWeight::SemiBold)
           .foreground(MutedForeground)
       })
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
+  /// The listbox in the engine's virtual list, for thousands of options: only the options near its view are built,
+  /// and the keys reach every option, built or not. Up, Down, Home, End, PageUp, PageDown and typeahead step over
+  /// every option that can be chosen (the engine's [`FocusRows`](crate::node::FocusRows)); the list builds and brings
+  /// into view the one they go to, and the focus goes to it once it is built. The choice follows the focus there as
+  /// it does in a listbox that builds every option, and Shift with the keys and Ctrl+A choose over every option.
+  /// The list opens at the chosen option.
+  ///
+  /// The list fills the box, which is to be given a height: `.style(ListboxPart::Root, |s| s.height(..))`, or the
+  /// room of what holds it. The options are drawn by [`ListboxOption::render`], each with its group's label over it;
+  /// a theme's renderer of the whole listbox is not used, its rules are.
+  ///
+  /// ```
+  /// use lurq::{app::ctx::Ctx, core::Signal, node::Element, ui::{Listbox, ListboxPart}};
+  ///
+  /// # fn zones(ctx: &mut Ctx, zone: Signal<u32>, names: Vec<String>) -> Element {
+  /// Listbox::new(zone, names.iter().enumerate().map(|(index, name)| (index as u32, name.as_str())))
+  ///   .label("Time zone")
+  ///   .style(ListboxPart::Root, |s| s.height(320.0))
+  ///   .mount(ctx)
+  /// # }
+  /// ```
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    ctx.mount::<ListboxHost<T>>(ListboxHostProps { listbox: self })
+  }
+}
+
+struct ListboxHostProps<T> {
+  listbox: Listbox<T>,
+}
+
+impl<T> PartialEq for ListboxHostProps<T> {
+  /// A listbox built again is drawn again: what is chosen is read from the app's signal as it is built.
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl<T> crate::app::component::DevtoolsInspectable for ListboxHostProps<T> {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value("Listbox", format!("{} options", self.listbox.options.len()));
+  }
+}
+
+/// The options a listbox in a virtual list built last, which its option components draw.
+#[derive(Default)]
+struct Shown {
+  options: Vec<ListboxOption>,
+  gap: SpacingValue,
+}
+
+/// The options of a listbox in a virtual list as the engine's focus group steps over them.
+struct HostRows {
+  data: Mutex<RowsData>,
+  reveal_key: Signal<Option<String>>,
+  reveal_request: Signal<u64>,
+  scroll: ScrollState,
+}
+
+#[derive(Default)]
+struct RowsData {
+  labels: Vec<Arc<str>>,
+  enabled: Vec<bool>,
+  /// The height of an option and the room after it.
+  step: f32,
+}
+
+impl FocusRows for HostRows {
+  fn count(&self) -> usize {
+    self.data.lock().unwrap().labels.len()
+  }
+
+  fn label(&self, row: usize) -> Option<String> {
+    self.data.lock().unwrap().labels.get(row).map(|label| label.to_string())
+  }
+
+  fn enabled(&self, row: usize) -> bool {
+    self.data.lock().unwrap().enabled.get(row).copied().unwrap_or(false)
+  }
+
+  fn page(&self) -> usize {
+    let step = self.data.lock().unwrap().step.max(1.0);
+    ((self.scroll.viewport_height() / step).floor() as usize).max(1)
+  }
+
+  fn reveal(&self, row: usize) {
+    if row >= self.count() {
+      return;
+    }
+    self.reveal_key.set(Some(row.to_string()));
+    self.reveal_request.update(|request| *request = request.wrapping_add(1));
+  }
+}
+
+/// A listbox in a virtual list: its box holds the options' column, the focus group, which holds the list, and the
+/// list an option component for each option near its view.
+struct ListboxHost<T> {
+  shown: Arc<Mutex<Shown>>,
+  rows: Arc<HostRows>,
+  generation: AtomicU64,
+  _values: PhantomData<fn() -> T>,
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Component for ListboxHost<T> {
+  type Props = ListboxHostProps<T>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      shown: Arc::default(),
+      rows: Arc::new(HostRows {
+        data: Mutex::default(),
+        reveal_key: ctx.signal(None),
+        reveal_request: ctx.signal(0),
+        scroll: ScrollState::new(),
+      }),
+      generation: AtomicU64::new(0),
+      _values: PhantomData,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let theme = current_theme();
+    let mut view = ctx.props::<ListboxHostProps<T>>().listbox.view(&theme);
+    for (index, option) in view.options.iter_mut().enumerate() {
+      option.row = Some(index);
+    }
+    let (step, group) = option_steps(&view);
+    *self.rows.data.lock().unwrap() = RowsData {
+      labels: view.options.iter().map(|option| option.label.clone()).collect(),
+      enabled: view.options.iter().map(|option| !option.disabled).collect(),
+      step,
+    };
+    // Until the keys ask for an option, the list opens at the chosen one.
+    let entry = view
+      .options
+      .iter()
+      .position(|option| option.entry)
+      .map(|index| index.to_string());
+    // Every option component draws again from what this render built: what is chosen.
+    let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+    let items: Arc<Vec<OptionItem>> = Arc::new(
+      view
+        .options
+        .iter()
+        .enumerate()
+        .map(|(index, option)| OptionItem {
+          index,
+          grouped: option.group.as_ref().is_some_and(|label| !label.is_empty()),
+          generation,
+        })
+        .collect(),
+    );
+    *self.shown.lock().unwrap() = Shown {
+      options: std::mem::take(&mut view.options),
+      gap: view.part(ListboxPart::Content).rest().gap.unwrap_or_default(),
+    };
+    let shown = self.shown.clone();
+    let list = VirtualizedList::new_shared(ctx, items)
+      .with_scroll_state(self.rows.scroll.clone())
+      .reveal_key(self.rows.reveal_key.get().or(entry))
+      .reveal_request(self.rows.reveal_request.get())
+      .estimate_height(move |item: &OptionItem| if item.grouped { step + group } else { step })
+      .width(Dimension::Pct(100.0))
+      .flex(1.0)
+      .mount_keyed::<ListboxOptionHost, _, _, _>(
+        |item: &OptionItem| item.index.to_string(),
+        move |item: &OptionItem| ListboxOptionProps {
+          index: item.index,
+          generation: item.generation,
+          shown: shown.clone(),
+        },
+      );
+    let rows: Arc<dyn FocusRows> = self.rows.clone();
+    let content = view
+      .content()
+      .flex(1.0)
+      .min_height(Dimension::Px(0.0))
+      .focus_rows(rows)
+      .child(list);
+    view.frame().child(content)
+  }
+}
+
+/// The height of an option and the room after it, and the height of a group's label, as the recipe gives them:
+/// what the list places options it has not built by, and what a page of options is.
+fn option_steps(view: &ListboxView) -> (f32, f32) {
+  let theme = view.theme();
+  let spacing = theme.spacing();
+  let px = |value: Option<&SpacingValue>| value.map(|value| value.resolve(&spacing, 0.0)).unwrap_or(0.0);
+  let option = view
+    .part(ListboxPart::Option)
+    .rest()
+    .height
+    .and_then(|height| height.resolve(theme))
+    .and_then(|height| match height {
+      Dimension::Px(px) => Some(px),
+      _ => None,
+    })
+    .unwrap_or(32.0);
+  let content = view.part(ListboxPart::Content).rest();
+  let group = view.part(ListboxPart::Group).rest();
+  // A line of its text, as the type sets it: about half as high again as the letters.
+  let line = group.text.size.unwrap_or(11.0) * 1.5;
+  (
+    option + px(content.gap.as_ref()),
+    px(group.padding_top.as_ref()) + px(group.padding_bottom.as_ref()) + line,
+  )
+}
+
+/// An option of the virtual list: which of the options, from which render, and whether a group's label is over it.
+#[derive(Clone, PartialEq)]
+struct OptionItem {
+  index: usize,
+  grouped: bool,
+  generation: u64,
+}
+
+struct ListboxOptionProps {
+  index: usize,
+  generation: u64,
+  shown: Arc<Mutex<Shown>>,
+}
+
+impl PartialEq for ListboxOptionProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.index == other.index && self.generation == other.generation && Arc::ptr_eq(&self.shown, &other.shown)
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for ListboxOptionProps {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value("ListboxOption", format!("option {}", self.index));
+  }
+}
+
+/// One option of a listbox in a virtual list, with its group's label over it where it starts one, and the room
+/// after it that the options have between them.
+struct ListboxOptionHost;
+
+impl Component for ListboxOptionHost {
+  type Props = ListboxOptionProps;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<ListboxOptionProps>();
+    let (option, gap) = {
+      let shown = props.shown.lock().unwrap();
+      (shown.options.get(props.index).cloned(), shown.gap.clone())
+    };
+    let Some(option) = option else {
+      return Column::new();
+    };
+    let mut column = Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch);
+    if let Some(group) = option.group_label() {
+      column = column.child(group);
+    }
+    column.child(
+      Column::new()
+        .align_items(Alignment::Stretch)
+        .spacing(gap)
+        .child(option.render())
+        // Nothing, after the room under the option.
+        .child(Row::new()),
+    )
   }
 }

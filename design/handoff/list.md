@@ -10,11 +10,12 @@ Settings Row (`qYnUc`) beside them. This session owned selection in a list and t
 - **Engine: the page keys in a focus group.** `FocusGroup::pages(bool)` (`crates/lurq/src/node/focus_group.rs`): in a
   vertical group PageUp and PageDown move the focus to the stop as far back or on as the innermost scroll that runs
   down around the focused one shows, and at least one on; a group that does not scroll is one page (the keys go to
-  its ends). `FocusStep::PageBack` and `PageOn`, mapped in `FocusGroup::step` only where `pages` is on. The walk is
-  `crates/lurq/src/app/runtime/page_focus.rs` (new): `Tree::focus_group_page(stops, current, on)`, one walk of the
+  its ends). `FocusStep::PageBack` and `PageOn` are the ones the tree view's `FocusRows` brought, mapped in
+  `FocusGroup::step` in any vertical group; `focus_group_key` takes them for a group with `pages` or with rows of its
+  own (`!step.is_page() || group.pages || node.focus_branch().is_some_and(|branch| branch.rows.is_some())`). The walk
+  is `crates/lurq/src/app/runtime/page_focus.rs` (new): `Tree::focus_group_page(stops, current, on)`, one walk of the
   last layout for the stops' heights and the scroll's. `app/runtime.rs`: `mod page_focus;` and the two steps in the
-  `match` of `next` in `focus_group_key`. `app/runtime/nested_focus.rs`: the two steps named with the others that are
-  not a nested group's.
+  `match` of `next` in `focus_group_key`, out of the arm that leaves the focus where it is.
 - **Engine: Shift with the keys presses with Shift.** `FocusGroup::shift_extends(bool)`: a key that moves the focus
   with Shift held presses what it moves to with Shift (`activate_focused_button(modifiers)`), as a press of the
   pointer with Shift does: the one hunk in `focus_group_key` is `if group.activate || (group.shift_extends &&
@@ -23,6 +24,13 @@ Settings Row (`qYnUc`) beside them. This session owned selection in a list and t
 - **Engine: typeahead chooses where the choice follows the focus.** `app/runtime/typeahead.rs`: in a group with
   `activate`, the element a letter moves to is pressed too, as an arrow's is. A listbox of one chooses by its first
   letters.
+- **Engine: a group of `FocusRows` presses as a group of built stops does.** `app/runtime/nested_focus.rs`: in a group
+  with `activate`, or with `shift_extends` and Shift held, `focus_rows_key` and typeahead press the row they move to
+  (`focus_row(group, rows, row, press)`), at once where it is built and otherwise once a layout has built and focused
+  it (`PendingRowFocus::press`, applied in `apply_pending_row_focus`). `focus_rows_key` and `pending_rows_key` take the
+  key's modifiers for it. So a listbox in a virtual list chooses as it moves and extends a range with Shift over
+  options that are not built, through the option's own press, as it does where every option is built. The tree view
+  sets neither flag and is as it was.
 - **Engine: the router of what is being built.** `crate::router::current_navigator()` (`router/navigator.rs`, re-exported
   from `router`; `mod navigator` is `pub(crate)` now): the `Navigator` `Ctx::navigator` would give, for a builder that
   has no `Ctx` (a list item with `href`). `Ctx::begin_render` pushes the navigator of the component's contexts on a
@@ -31,28 +39,34 @@ Settings Row (`qYnUc`) beside them. This session owned selection in a list and t
 - **The range and toggle model, moved out of the tree view and shared.** `crates/lurq/src/ui/selection.rs` (new):
   `Pick` (`Only`, `Toggle`, `Range`; `Pick::of(&MouseEvent, multiple)` reads Shift, Ctrl/Cmd and Space from the
   keyboard), `ListSelection<T>` (the rows in order, which take input, what is selected with the anchor last, what
-  writes the next; `pick(index, pick)`, `select_all()`), and `select_all_key(&KeyboardEvent, select_all)` for Ctrl+A.
-  `ui/tree_view.rs` uses it: its `Model` holds a `ListSelection` with its `on_select` and `on_activate`, its own
-  `Pick`, `Reach` and `extend` are gone, and its root group has `.shift_extends(self.multiple)` in place of a key
-  handler that counted rows for Shift with Up, Down, Home and End. What it does is the same, and with many selected
-  `on_select` is now told of the row Shift with a key reaches too, as it is of one a press with Shift reaches.
-  **What a table's rows would call:** build one `ListSelection::new(ids, enabled, selected, multiple, write)` per
-  render, give each row's press `selection.pick(index, Pick::of(&event, multiple))` and its `on_key_down`
-  `select_all_key(&event, &select_all)`, and give the rows' group `FocusGroup::vertical().one_stop(true)
-  .shift_extends(multiple).pages(true)`.
+  writes the next; `pick(index, pick)`, `extend(from, step, page)`, `select_all()`), and
+  `select_all_key(&KeyboardEvent, select_all)` for Ctrl+A. `extend` is Shift with a key for a list that steps the
+  selection itself: from the anchor to where the engine's `step_rows` takes the focus from `from`, a row that need
+  not be built. `ui/tree_view.rs` uses it, merged with the tree on a virtual list: its `Model` holds a
+  `ListSelection` with its `on_select`, `on_activate` and `page`; its own `Pick`, `pick_of` and the selecting half of
+  `Model` are gone; `Reach` and `Model::extend(from, reach)` stay, the row's key handler calling them for Shift with
+  Up, Down, Home, End, PageUp and PageDown, and `extend` now maps the reach to a `FocusStep` and calls
+  `ListSelection::extend` with the tree's page. The tree does not use `shift_extends` (it would write each range
+  twice), so what it does is what the base's tree does. **What a table's rows would call:** build one
+  `ListSelection::new(ids, enabled, selected, multiple, write)` per render, give each row's press
+  `selection.pick(index, Pick::of(&event, multiple))` and its `on_key_down` `select_all_key(&event, &select_all)`, and
+  give the rows' group `FocusGroup::vertical().one_stop(true).shift_extends(multiple).pages(true)`. The table in the
+  base selects with its own code; moving it onto `ListSelection` is the table's to do.
 - `crates/lurq/src/components/select.rs`: three `pub(crate)` readers on `SelectOption` for a list that draws its options
   itself: `detail_text()`, `hint_text()`, `adornments(&SelectAdornmentState)`.
 - `crates/lurq/src/ui/shared.rs`: `impl From<Choice<T>> for SelectOption<T>` (its label, its icon as the leading
   element, disabled), so a listbox takes `Choice`s as a toggle group does.
 - Tests of the engine, written and not run: `crates/lurq/tests/input/tab_order/list_keys.rs`, registered in
   `tests/input/tab_order/mod.rs` (`input_tests`).
-- The tree view session works in `focus_group.rs`, `focus_group_key` and `typeahead.rs` too (a virtualized focus
-  group): these hunks are apart from theirs, but both name steps in the `match` of `next`.
+- `feat/design-system` is merged into this branch (the seventh batch, Navbar, Table, Calendar): `tree_view.rs`,
+  `focus_group.rs` (both sides' fields and builders, one pair of page steps), `app/runtime.rs`, `ui/mod.rs`, the tests'
+  and the gallery's lists of modules resolved as above.
 - `docs/src/content/docs/focus-navigation.md`, Focus Groups, wants a paragraph the merge adds: "A group with `pages`
   moves the focus by a page with PageUp and PageDown: as far as the scroll it is in shows. A group with
   `shift_extends` presses what a key moves the focus to with Shift, when Shift is held, so that a list selects a range
   with Shift and the keys as it does with Shift and a press. In a group whose choice follows the focus (`activate`),
-  typeahead chooses as well."
+  typeahead chooses as well. Both hold in a group of `FocusRows`: the row the keys move to is pressed once it is
+  built and focused."
 - No keyframes were registered.
 
 ## For `docs/src/content/docs/design-system.md`
@@ -130,6 +144,9 @@ Listbox::new(columns, [("name", "Name"), ("size", "Size"), ("kind", "Kind")]).la
 
 // A long list scrolls in a box with a most height.
 Listbox::new(zone, zones).style(ListboxPart::Root, |s| s.max_height(240.0));
+
+// Thousands of options: in a virtual list, in a box with a height.
+Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ctx)
 ```
 
 | Builder | |
@@ -140,11 +157,13 @@ Listbox::new(zone, zones).style(ListboxPart::Root, |s| s.max_height(240.0));
 | `label(&str)` | What it is called, to what reads the tree. A [field](#field) gives it its label |
 | `invalid(bool)`, `disabled(bool)`, `full_width(bool)`, `density(Density)` | Its edge in `Destructive`; no option chosen; as wide as what holds it, in place of 220; how high an option is |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box; each option's is that id, `-` and its place from 0 |
+| `mount(ctx)` | In place of building it: the options in a virtual list, which builds only those near the view, for thousands. Give `Root` a height |
 
 - It is one stop of Tab, at the chosen option or the first. Up and Down move through the options, Home and End to the first and the last, PageUp and PageDown by what the box shows, without going round, and a letter to the next option that starts with it; a disabled option is passed by.
 - Of one, the choice follows the focus, as in a radio group: a key that moves the focus chooses what it moves to, a letter too. With `follow_focus(false)` the focus and the choice are apart: the focus moves alone and Space, Enter or a press choose.
 - Of many, a press chooses one alone, with Ctrl (Cmd) it adds or takes out one, with Shift it chooses from the last chosen to it. Space adds or takes out the focused option; Shift with the arrows, Home, End and the page keys chooses from where the choice started to where the focus goes; Ctrl+A chooses every option that can be. The last of the `Vec` is where a range starts.
 - The keys are the engine's: the options are a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead`, `pages` and without `wrap`; one of one `activate`s, one of many `shift_extends`. The range and the toggle are `ui::selection`'s, which the [tree view](#tree-view) shares.
+- Mounted with `mount(ctx)`, the options are in the engine's virtual list and the group steps over every option, built or not (`FocusRows`): the keys, the page keys and typeahead go to any option, the list builds it and the focus goes to it, and the choice follows as it does where every option is built; Shift with the keys and Ctrl+A choose over every option. The list opens at the chosen option. Each option is drawn with `ListboxOption::render`, its group's label over it; a theme's renderer of the whole listbox is not used there, its rules are.
 - To what reads the tree it is a `listbox` (`a11y_multiselectable` of many) called by its label, with `option`s that say `a11y_selected`, `a11y_posinset` and `a11y_setsize`; a group's label is a `group`.
 - Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled` (of an option), `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
 - In the design the box is 220 on `Background` with an edge of 1 in `Border` and the large radius, its options 1 apart, 4 in. An option is 32 high (24, 40 and 44 at the compact, comfortable and touch densities), 8 in, with the small radius, its label in the body's type at 13. The chosen one is on `Highlight`, its label at 500, with a check of 14 at its end; the one under the pointer is on `Muted`; one held down has the `StatePressed` veil; the focus from the keyboard is a ring of 2 in `Ring` inside it; a disabled one says its label in `MutedForeground`, faded. A group's label is 11 at 600 in `MutedForeground`, 6 over it, 4 under it, 8 in.
@@ -184,14 +203,16 @@ DataList::new().vertical(true).text("Ship to", "Ivan Zaida, 12 Khreshchatyk St, 
 ## For `CHANGELOG.md`
 
 - `ui::ListItem` and `ui::List`: rows of a list with a title, a description, what stands before them (an avatar, an icon, a checkbox, a radio) and at their end (a value, a note, a switch, keys, a chevron), pressed or not, a path in the router, a height for each density with the mobile row under a finger, lines between rows from an inset, and the contained list in a box with a header; `router::current_navigator` for a builder that goes somewhere.
-- `ui::Listbox`: a list in the page of which one option or many are chosen, from a `Signal<T>` or a `Signal<Vec<T>>` and what a select takes, with groups, disabled options, and the keys of a listbox: one stop, the choice following the focus or waiting for Space, the page keys, typeahead, and ranges with Shift, Ctrl with a press and Ctrl+A; the engine's `FocusGroup::pages` and `FocusGroup::shift_extends`, and one model of ranges in `ui::selection` that the tree view now shares.
+- `ui::Listbox`: a list in the page of which one option or many are chosen, from a `Signal<T>` or a `Signal<Vec<T>>` and what a select takes, with groups, disabled options, and the keys of a listbox: one stop, the choice following the focus or waiting for Space, the page keys, typeahead, and ranges with Shift, Ctrl with a press and Ctrl+A, and `Listbox::mount` for thousands of options in a virtual list that the keys reach every option of; the engine's `FocusGroup::pages` and `FocusGroup::shift_extends`, which a group of `FocusRows` honors too, and one model of ranges in `ui::selection` that the tree view now shares.
 - `ui::DataList`: terms with their values, side by side with the terms as wide as the widest or one over the other, a value a text or any element.
 
 ## Decided
 
 - **Builders, not mounted components.** What is chosen and what is selected are the app's: a listbox reads and writes the
   app's signal, as a select does, and a row is `selected` by the app. The anchor of a range needs no state: it is the
-  last of the `Vec`, and a range is written with its anchor last (the tree view's rule, now shared).
+  last of the `Vec`, and a range is written with its anchor last (the tree view's rule, now shared). A listbox of
+  thousands is mounted (`mount(ctx)`), as the tree view is, because a virtual list keeps what it has built and asked
+  for between renders; what is chosen is still the app's signal.
 - **Of one, the choice follows the focus.** The board's listbox stands in a form (Forms & Fields): it is a field's
   value, as a radio group is, which lurq's radio group chooses with the arrows. `follow_focus(false)` gives the other
   for a choice that costs something as it is made. Of many, the focus and the choice are apart.
@@ -200,7 +221,8 @@ DataList::new().vertical(true).text("Ship to", "Ivan Zaida, 12 Khreshchatyk St, 
 - **The listbox takes what a select takes**: `SelectOption<T>`, `(value, label)` and now `Choice<T>`, so that a group's
   label, a detail, a hint and elements before and after the label are written one way for both.
 - **Shift with the keys is the engine's**, through a press with Shift, so that the page keys extend a range too and a
-  table gets it by one flag; the tree view moved to it.
+  table gets it by one flag, in a group of built stops and in a group of `FocusRows` alike. The tree view keeps its
+  own Shift with the keys (`Model::extend` over `ListSelection::extend`), as its virtual list was built with it.
 - **The list's rows are a focus group** (vertical, without wrap, with typeahead) but not one stop: a list of pressed
   rows is a list of buttons or links, each a stop of Tab, which the arrows move between too. A listbox is one stop.
 - **Density sets a row's height** (the theme's densities for the list item, a sidebar's heights for a listbox's
@@ -218,17 +240,11 @@ DataList::new().vertical(true).text("Ship to", "Ivan Zaida, 12 Khreshchatyk St, 
   (`ListItem::new(..).description(..).trailing(Switch::new(..))` in a list with `dividers`).
 - **The gallery's pages** are in Data: List (a playground of every prop and the board's people, a contained list,
   settings, rows under a finger, the states), Listbox (one, many, a choice that waits, a long list with the page keys,
-  the states) and Data List (side by side, one over the other, values that are elements; read and not operated).
+  ten thousand options in a virtual list, the states) and Data List (side by side, one over the other, values that are elements; read and not operated).
 
 ## Not done
 
-- **A listbox of thousands of options.** The options are one `Column` in a scroll: every option is built at each render,
-  which is fine for hundreds. The tree view session is adding a virtualized focus group (a list that tells the engine
-  how many rows it has, so that the keys reach rows that are not built). With it a listbox would put its options in
-  `components::VirtualizedList` from `Listbox::mount(ctx)`, give the group the count and a key of each option, and
-  keep the rest as it is: `ListSelection` takes ids, not built rows, so a range and Ctrl+A over rows that are not built
-  need nothing more; `FocusGroup::pages` would have to step over the virtual count by the viewport's height divided by
-  an option's (the walk in `page_focus.rs` reads built stops only).
+Nothing.
 
 ## Differs from the board
 

@@ -1,5 +1,5 @@
 //! The page of the listbox: its playground, the board's renderers, many chosen, a choice that waits for Space, a
-//! long list the page keys move through, and the states of an option.
+//! long list the page keys move through, thousands of options in a virtual list, and the states of an option.
 
 use std::sync::Arc;
 
@@ -338,6 +338,8 @@ impl Component for ListboxPage {
     .label("Time zone")
     .style(ListboxPart::Root, |s| s.width(260.0).max_height(240.0));
 
+    let thousands = ctx.mount::<BigListbox>(());
+
     let state = |forced: Option<Interaction>, disabled: bool| {
       Listbox::new(
         Signal::new("wgpu"),
@@ -408,6 +410,12 @@ impl Component for ListboxPage {
         "",
         "Root, Content, Group, Option, Leading, Label, Detail, Hint, Trailing, Check. A `max_height` on Root \
          makes the options scroll.",
+      ),
+      (
+        "mount",
+        "&mut Ctx",
+        "",
+        "For thousands of options: in a virtual list, which builds only those near the view. Give Root a height.",
       ),
     ];
     let playground = self.play(ctx);
@@ -505,6 +513,28 @@ impl Component for ListboxPage {
           ),
         ),
         Section::new(
+          "Thousands of options",
+          "Ten thousand options in groups of a thousand: `mount(ctx)` puts them in the engine's virtual list, which \
+           builds those near the view and opens at the chosen one. The keys reach every option, built or not, and \
+           the choice follows them: End goes to the last, a letter to the next option it starts, PageDown a view \
+           down.",
+          self.frame.demo(
+            5,
+            thousands,
+            "Listbox::new(value, options).mount(ctx)",
+            &[
+              "// item: Signal<u32>",
+              "Listbox::new(item, (0..10_000u32).map(|i| {",
+              "    let option = SelectOption::new(i, format!(\"Item {i}\"));",
+              "    if i % 1000 == 0 { option.group(format!(\"From {i}\")) } else { option }",
+              "}))",
+              ".label(\"Items\")",
+              ".style(ListboxPart::Root, |s| s.width(260.0).height(320.0))",
+              ".mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
           "States",
           "The board draws the chosen option, one under the pointer and a disabled one. One held down is veiled, \
            the focus from the keyboard is a ring inside the option, and a disabled listbox is dimmed.",
@@ -531,5 +561,35 @@ impl Component for ListboxPage {
         ),
       ],
     )
+  }
+}
+
+/// Ten thousand options, in a component of its own so that the page's other signals do not build them again.
+struct BigListbox {
+  item: Signal<u32>,
+}
+
+impl Component for BigListbox {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self { item: ctx.signal(4321) }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    Listbox::new(
+      self.item.clone(),
+      (0..10_000u32).map(|i| {
+        let option = SelectOption::new(i, format!("Item {i}"));
+        if i % 1000 == 0 {
+          option.group(format!("From {i}"))
+        } else {
+          option
+        }
+      }),
+    )
+    .label("Items")
+    .style(ListboxPart::Root, |s| s.width(260.0).height(320.0))
+    .mount(ctx)
   }
 }
