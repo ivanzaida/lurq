@@ -1443,3 +1443,103 @@ fn each_group_open_ends_in_the_summary_of_its_rows_which_the_keys_pass_by() {
     "the next group, past the summary"
   );
 }
+
+/// A grid of `rows` with its rows' numbers, selected into `selected`, 400 wide so that its columns scroll sideways.
+fn numbered(rows: Vec<File>, selected: Signal<Vec<String>>) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    let mut columns = columns();
+    columns[0] = columns[0].clone().width(220.0);
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        DataGrid::new(columns, rows.clone())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .height(300.0)
+          .selected(selected.clone())
+          .row_numbers(true)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  stage
+}
+
+#[test]
+fn a_column_of_the_rows_numbers_stays_at_the_start_before_the_checkboxes() {
+  let mut stage = numbered(files(), Signal::new(Vec::new()));
+  let (x, ..) = stage.bounds("g");
+  let one = stage.text_quad("1").expect("the first row's number");
+  let (number_x, _, number_width, _) = stage.bounds("g-row-0-number");
+  assert!((number_x - x).abs() < 1.5, "at the grid's start: {}", number_x - x);
+  assert!(one.x + one.width <= number_x + number_width, "in its cell");
+  let (box_x, ..) = stage.bounds("g-select-all");
+  assert!(box_x > number_x + number_width - 1.0, "the checkboxes after it");
+  assert!(stage.paints("2") && stage.paints("3"));
+
+  // The columns scroll sideways under it: the number stays.
+  let (_, y, ..) = stage.bounds("g-row-1");
+  stage
+    .tree
+    .scroll(200.0, y, -300.0, 0.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  assert_eq!(stage.bounds("g-row-0-number").0, number_x, "it stays");
+  assert!(
+    stage.bounds("g-cell-0-0").0 < number_x,
+    "the name scrolled away under it"
+  );
+}
+
+#[test]
+fn a_rows_number_is_pressed_to_select_it_and_the_numbers_header_selects_every_row() {
+  let selected = Signal::new(Vec::<String>::new());
+  let mut stage = numbered(files(), selected.clone());
+  stage.click("g-row-1-number");
+  stage.pass();
+  assert_eq!(selected.get(), ["canvas.rs"], "that row alone");
+  let (x, y) = stage.center("g-row-2-number");
+  stage.tree.mouse_move(x, y);
+  stage
+    .tree
+    .mouse_down_with_modifiers(x, y, lurq::app::events::MouseButton::Left, false, true, false);
+  stage
+    .tree
+    .mouse_up_with_modifiers(x, y, lurq::app::events::MouseButton::Left, false, true, false);
+  stage.pass();
+  assert_eq!(selected.get(), ["canvas.rs", "theme.rs"], "with Ctrl, added");
+  stage.click("g-numbers");
+  stage.pass();
+  assert_eq!(selected.get().len(), 3, "the header selects every row");
+  stage.click("g-numbers");
+  stage.pass();
+  assert!(selected.get().is_empty(), "and none where all are");
+}
+
+#[test]
+fn ten_thousand_rows_are_numbered_to_their_last() {
+  let rows: Vec<File> = (0..10_000)
+    .map(|index| File {
+      name: format!("file {index}"),
+      status: index % 3,
+      size: index as f64,
+      shared: false,
+    })
+    .collect();
+  let mut stage = numbered(rows, Signal::new(Vec::new()));
+  // The header's stop is its checkbox here; the cells are the next.
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  modified(&mut stage, "End", false, true);
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("g-cell-9999-3"));
+  assert!(stage.paints("10000"), "the last row's number");
+  let quad = stage.text_quad("10000").unwrap();
+  let (_, _, width, _) = stage.bounds("g-row-9999-number");
+  assert!(quad.width < width, "its column is as wide as the widest number");
+}

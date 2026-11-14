@@ -100,6 +100,9 @@ use crate::{
 /// of each group open, with a sum, an average, a count, the least or the most the grid computes of a column of
 /// numbers, or the app's text.
 ///
+/// **Row numbers** ([`row_numbers`](Self::row_numbers)): a column of them at the start that stays, a number pressed
+/// to select its row, its header to select every row.
+///
 /// **A cell is edited in place** with its column's editor ([`CellEditor`]): an input for a text, a number input,
 /// a select of the column's choices, or a box ticked in the cell itself. Enter or F2 on a cell, a double press of
 /// it, or a letter typed on it (which the edit starts from) opens the editor; Enter commits and goes to the cell
@@ -258,6 +261,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// is called after the first.
   pub fn on_open_change(self, handler: impl Fn(&GroupKey, bool) + Send + Sync + 'static) -> Self {
     self.with(|table| table.add_on_open_change(handler))
+  }
+
+  /// Whether the grid has a column of its rows' numbers at its start, which stays there while the rows scroll
+  /// sideways: a number is pressed to select its row (with Ctrl adds it, with Shift the rows from the last
+  /// selected one), its header to select every row, or none where all are.
+  pub fn row_numbers(self, numbers: bool) -> Self {
+    self.with(|table| table.set_row_numbers(numbers))
   }
 
   /// Whether no cell is edited: the cells take the focus and are read, and say so to what reads the tree.

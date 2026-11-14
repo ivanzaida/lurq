@@ -1,6 +1,6 @@
 //! The page of the data grid: its playground, the board's Data Grid, editing in place, a range of cells, a
-//! column's menu, group rows, summary rows, columns pinned at both ends and resized, ten thousand rows of fifty
-//! columns, a grid that is read only, and its props.
+//! column's menu, group rows, summary rows, row numbers, columns pinned at both ends and resized, ten thousand rows of
+//! fifty columns, a grid that is read only, and its props.
 
 use std::sync::Arc;
 
@@ -164,6 +164,7 @@ pub struct DataGridPage {
   grouping: Signal<usize>,
   played_open: Signal<Vec<GroupKey>>,
   summary: Signal<usize>,
+  row_numbers: Signal<bool>,
   played: Signal<Vec<File>>,
   played_selected: Signal<Vec<String>>,
   played_sort: Signal<Option<TableSort>>,
@@ -182,6 +183,7 @@ pub struct DataGridPage {
   groups_open: Signal<Vec<GroupKey>>,
   summed_rows: Signal<Vec<File>>,
   summed_open: Signal<Vec<GroupKey>>,
+  numbered_selected: Signal<Vec<String>>,
   many: Arc<Vec<File>>,
 }
 
@@ -199,6 +201,7 @@ impl DataGridPage {
       self.bind_range.get(),
     );
     let column_menu = self.column_menu.get();
+    let row_numbers = self.row_numbers.get();
     let (_, grouping) = GROUPINGS[self.grouping.get().min(GROUPINGS.len() - 1)];
     let (summary_name, summary) = SUMMARIES[self.summary.get().min(SUMMARIES.len() - 1)];
     let mut played_columns = columns(pin_name);
@@ -224,6 +227,7 @@ impl DataGridPage {
       .read_only(read_only)
       .resizable(resizable)
       .column_menu(column_menu)
+      .row_numbers(row_numbers)
       .group_by(grouping.iter().copied())
       .open(self.played_open.clone())
       .on_open_change(move |key, open| opened_to(format!("on_open_change({:?}, {open})", key.values)))
@@ -319,6 +323,9 @@ impl DataGridPage {
     if !grouping.is_empty() {
       code.push(format!(".group_by({grouping:?}).open(open) // Signal<Vec<GroupKey>>"));
     }
+    if row_numbers {
+      code.push(".row_numbers(true)".to_owned());
+    }
     if summary.is_some() {
       code.push(format!(
         "// the size's column: .summary(SummaryKind::{})",
@@ -333,6 +340,7 @@ impl DataGridPage {
 
     let tree = vec![
       format!("root        {} · a table's · grid", self.playground.measured()),
+      "├─ row_number  at the start, held there · pressed to select".to_owned(),
       "├─ header   the table's · a menu_trigger and a resizer at each column's end · drop_line".to_owned(),
       "├─ group_row  a row at its level · chevron, group_label, group_count".to_owned(),
       "├─ row      not a stop · Left and Right its own".to_owned(),
@@ -368,6 +376,7 @@ impl DataGridPage {
       self.grouping.clone(),
       self.played_open.clone(),
       self.summary.clone(),
+      self.row_numbers.clone(),
     );
     let still = {
       let rows = rows.get();
@@ -416,6 +425,7 @@ impl DataGridPage {
           flag("count in a footer", &self.footer),
           flag("cell_selection(signal): told the range", &self.bind_range),
           flag("column_menu: a menu on each header", &self.column_menu),
+          flag("row_numbers: a column of numbers at the start", &self.row_numbers),
           prop(
             "summary",
             "SummaryKind of the size",
@@ -449,6 +459,7 @@ impl DataGridPage {
           !column_menu,
           !grouping.is_empty(),
           summary.is_some(),
+          row_numbers,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -473,6 +484,7 @@ impl DataGridPage {
           reset.14.set(0);
           reset.15.set(Vec::new());
           reset.16.set(0);
+          reset.17.set(false);
         }),
       },
     )
@@ -535,6 +547,7 @@ impl Component for DataGridPage {
       grouping: ctx.signal(0),
       played_open: ctx.signal(Vec::new()),
       summary: ctx.signal(0),
+      row_numbers: ctx.signal(false),
       played: ctx.signal(files(8)),
       played_selected: ctx.signal(Vec::new()),
       played_sort: ctx.signal(None),
@@ -553,6 +566,7 @@ impl Component for DataGridPage {
       groups_open: ctx.signal(vec![GroupKey::new(["Passing"])]),
       summed_rows: ctx.signal(files(16)),
       summed_open: ctx.signal(vec![GroupKey::new(["Building"]), GroupKey::new(["Modified"])]),
+      numbered_selected: ctx.signal(vec!["canvas.rs".to_owned()]),
       many: Arc::new(
         (0..10_000)
           .map(|index| File {
@@ -760,6 +774,17 @@ impl Component for DataGridPage {
       .key("summary")
       .mount(ctx);
 
+    // Row numbers: a column of them at the start, which stays, pressed to select a row, its header all of them.
+    let numbered = DataGrid::new(columns(false), files(8))
+      .row_key(|row: &File| row.name.clone())
+      .label("Files")
+      .height(280.0)
+      .selected(self.numbered_selected.clone())
+      .checkboxes(false)
+      .row_numbers(true)
+      .key("numbers")
+      .mount(ctx);
+
     // Pinned at both ends: the name stays at the start, the actions at the end, while the columns between scroll.
     let pinned_rows = self.pinned.clone();
     let mut pinned_columns = columns(true);
@@ -858,6 +883,12 @@ impl Component for DataGridPage {
         "SummaryKind / Fn(&[&R]) -> String",
         "none",
         "What a column says in the summary rows: a sum, an average, a count, the least or the most, or the app's.",
+      ),
+      (
+        "row_numbers",
+        "bool",
+        "false",
+        "A column of the rows' numbers at the start, which stays: pressed to select a row, its header all of them.",
       ),
       (
         "group_by / open",
@@ -1057,6 +1088,18 @@ impl Component for DataGridPage {
               "TableColumn::new(\"size\", \"Size\").numeric().summary(SummaryKind::Sum)",
               "DataGrid::new(columns, files.get()).group_by([\"status\"]).open(open).mount(ctx)",
             ],
+          ),
+        ),
+        Section::new(
+          "Row numbers",
+          "A column of the rows' numbers at the start, which stays while the columns scroll sideways. A number is \
+           pressed to select its row, with Ctrl to add it, with Shift the rows from the last selected one; the \
+           header's mark selects every row, or none.",
+          self.frame.demo(
+            9,
+            numbered,
+            ".row_numbers(true)",
+            &["DataGrid::new(columns, files.get()).selected(selected).checkboxes(false).row_numbers(true).mount(ctx)"],
           ),
         ),
         Section::new(

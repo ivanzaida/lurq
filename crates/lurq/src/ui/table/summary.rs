@@ -119,6 +119,8 @@ pub struct TableSummary {
   pub(super) columns_built: Option<Arc<Vec<bool>>>,
   pub(super) geometry: Geometry,
   pub(super) checkbox: bool,
+  /// How wide the track of the rows' numbers is, where the grid has them.
+  pub(super) number_lead: f32,
   pub(super) pinned_start: bool,
   pub(super) pinned_end: bool,
   pub(super) fill: Option<BackgroundColor>,
@@ -154,10 +156,23 @@ impl TableSummary {
     if let Some(id) = &self.id {
       row = row.id(id.clone());
     }
+    let numbered = self.number_lead > 0.0;
+    if numbered {
+      // The column of numbers says nothing here, and covers what scrolls under it.
+      let mut lead = Row::new().sticky(Sticky::left(0.0));
+      if let Some(fill) = self.fill.clone() {
+        lead = lead.background(fill);
+      }
+      row = row.child(lead);
+    }
     if self.checkbox {
-      let mut lead = lead_cell(&self.part(TablePart::Select), self.geometry, self.pinned_start);
+      let mut lead = lead_cell(
+        &self.part(TablePart::Select),
+        self.geometry,
+        self.pinned_start && !numbered,
+      );
       if self.pinned_start {
-        lead = lead.sticky(Sticky::left(0.0));
+        lead = lead.sticky(Sticky::left(self.number_lead));
       }
       if let Some(fill) = self.fill.clone() {
         lead = lead.background(fill);
