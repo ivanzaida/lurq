@@ -12,6 +12,7 @@ mod badge;
 mod banner;
 mod breadcrumb;
 mod button;
+mod calendar;
 mod callout;
 mod card;
 mod checkbox;
@@ -20,6 +21,8 @@ mod combobox;
 mod command_palette;
 mod context_menu;
 mod data_list;
+mod date_picker;
+mod date_range_picker;
 mod dialog;
 mod drawer;
 mod empty_state;
@@ -39,6 +42,8 @@ mod menu;
 mod menubar;
 mod message_box;
 mod multi_select;
+mod navbar;
+mod navigation_menu;
 mod number_input;
 mod outcome;
 mod overview;
@@ -61,6 +66,7 @@ mod spinner;
 mod splitter;
 mod steps;
 mod switch;
+mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -373,6 +379,30 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
   },
   Page {
+    path: "/calendar",
+    name: "Calendar",
+    icon: None,
+    about: "calendar date day month week range picker grid today weekday locale first day week numbers",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<calendar::CalendarPage>(()),
+  },
+  Page {
+    path: "/date-picker",
+    name: "Date Picker",
+    icon: None,
+    about: "date picker datepicker calendar day field typed parse format popover due date birthday",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<date_picker::DatePickerPage>(()),
+  },
+  Page {
+    path: "/date-range-picker",
+    name: "Date Range Picker",
+    icon: None,
+    about: "date range picker period from to start end calendar presets last 7 days two months stay report",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<date_range_picker::DateRangePickerPage>(()),
+  },
+  Page {
     path: "/tooltip",
     name: "Tooltip",
     icon: None,
@@ -558,6 +588,24 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<sidebar::SidebarPage>(()),
   },
   Page {
+    path: "/navbar",
+    name: "Navbar",
+    icon: None,
+    about: "navbar nav bar header top bar app bar site navigation links brand logo search avatar account menu \
+            current page sticky narrow mobile hamburger drawer",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<navbar::NavbarPage>(()),
+  },
+  Page {
+    path: "/navigation-menu",
+    name: "Navigation Menu",
+    icon: None,
+    about: "navigation menu mega menu nav links panel dropdown hover delay columns featured card site header \
+            disclosure",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<navigation_menu::NavigationMenuPage>(()),
+  },
+  Page {
     path: "/badge",
     name: "Badge",
     icon: None,
@@ -665,7 +713,7 @@ pub const PAGES: &[Page] = &[
     path: "/list",
     name: "List",
     icon: None,
-    about: "list item row settings person avatar icon title description subtitle value meta time chevron switch             divider inset contained header density touch mobile",
+    about: "list item row settings person avatar icon title description subtitle value meta time chevron switch divider inset contained header density touch mobile",
     group: Group::Data,
     mount: |ctx| ctx.mount::<list::ListPage>(()),
   },
@@ -673,7 +721,7 @@ pub const PAGES: &[Page] = &[
     path: "/listbox",
     name: "Listbox",
     icon: None,
-    about: "listbox list box option choose chosen select single multiple many range shift ctrl group check keys             page typeahead",
+    about: "listbox list box option choose chosen select single multiple many range shift ctrl group check keys page typeahead",
     group: Group::Data,
     mount: |ctx| ctx.mount::<listbox::ListboxPage>(()),
   },
@@ -684,6 +732,14 @@ pub const PAGES: &[Page] = &[
     about: "data list description list term definition value key details properties metadata dl",
     group: Group::Data,
     mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
+  },
+  Page {
+    path: "/table",
+    name: "Table",
+    icon: None,
+    about: "table data rows columns sort sortable select selection checkbox header sticky scroll virtualized thousands density empty loading skeleton pagination footer grid",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<table::TablePage>(()),
   },
   Page {
     path: "/splitter",

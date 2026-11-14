@@ -781,6 +781,8 @@ app.theme().set_scrollbar(ScrollBarStyle {
 
 Scroll components can still override the theme default with `.scrollbar(...)`. `.scrollbar_hovered(...)` receives the effective style, whether it came from the theme or the component.
 
+A style that sets no `thumb_color` is drawn in the palette's `Ring`, so the default bar shows on a light theme and on a dark one and follows a palette an app sets. `ScrollBarStyle::THEME_THUMB` is the value that stands for it, and `style.thumb_in(&palette)` says what a style is drawn in. Selected text follows the palette the same way: a text or an input that names no `selection_color` uses `Selection`.
+
 ## Breakpoints
 
 Breakpoints are named viewport-width thresholds, stored as public fields on `ThemeBreakpoints` and keyed by `Breakpoint`. Thresholds are logical pixels and expected to be non-decreasing.

@@ -5,6 +5,10 @@
 //! Left closes the submenu, an item's Right opens its own) close it, with the menus opened from it, and press the
 //! element of the row before or after the one it hangs from: that one opens its menu, which takes the focus.
 //!
+//! A row of panels ([`FocusGroup::panel_row`](crate::node::FocusGroup::panel_row)), a site's navigation menu, is
+//! a row of menus whose elements are links as well as buttons: Left and Right close the panel and focus the element
+//! beside it, asking it to open its own panel where it has one, and pressing nothing; Alt is not its.
+//!
 //! Alt with a letter presses the element of the row whose label starts with the letter, wherever the focus is.
 //! Alt pressed and let go with nothing between puts the focus on the row, at its entry, and from the row (or a menu
 //! of it) gives the focus back to what had it. On a Mac, where Option with a letter types a character and an app's
@@ -67,6 +71,7 @@ impl Tree {
       return false;
     };
     let wrap = group_node.focus_group_value().is_some_and(|group| group.wrap);
+    let panels = group_node.focus_group_value().is_some_and(|group| group.panel_row);
     let last = stops.len() - 1;
     let next = match (back, current) {
       (true, 0) if wrap => last,
@@ -79,8 +84,27 @@ impl Tree {
     // The key is the row's even where there is no neighbour to go to.
     if next != current {
       let target = stops[next];
+      // In a row of panels a link is not pressed: going past it must not follow it. What opens a panel is asked to.
+      let toggle = panels
+        .then(|| {
+          find_node_by_id(group_node, target.input_id)
+            .and_then(Node::focus_branch)
+            .filter(|branch| branch.expanded.is_some())
+            .and_then(|branch| branch.toggle.clone())
+        })
+        .flatten();
       self.close_layers_from(layer);
-      self.press_in_row(target, modifiers);
+      if panels {
+        self.set_input_modality(focus_visible::InputModality::Keyboard);
+        self.focus_node(target);
+        self.scroll_focused_into_view();
+        if let Some(toggle) = toggle {
+          toggle(true);
+        }
+        self.needs_redraw = true;
+      } else {
+        self.press_in_row(target, modifiers);
+      }
     }
     true
   }
@@ -270,8 +294,11 @@ fn find_menu_rows(node: &Node, path: &mut Vec<usize>, found: &mut impl FnMut(&[u
   if node.is_disabled() {
     return;
   }
-  if node.focus_group_value().is_some_and(|group| group.menu_row) {
-    found(path, node);
+  if let Some(group) = node.focus_group_value().filter(|group| group.menu_row) {
+    // A row of panels is a site's links: Alt is not its.
+    if !group.panel_row {
+      found(path, node);
+    }
     return;
   }
   for (index, child) in node.children().iter().enumerate() {

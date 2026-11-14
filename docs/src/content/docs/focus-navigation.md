@@ -63,6 +63,17 @@ Column::new().inert(!open).child(panel_content);
 - Unlike `disabled(true)`, it sets no disabled state on what is in it: no disabled style is drawn, and controls in it look as they did.
 - An element ref makes its element inert with nothing rendered again: `ElementRefMut::set_inert(bool)`. It takes effect at the next pass, which it asks for. An element built inert stays inert whatever its ref says.
 
+```rust
+use lurq::{components::Column, core::ElementRefMut, node::dimension::Dimension};
+
+let pane = ElementRefMut::new();
+let panel = Column::new().ref_element(pane.clone()).child(panel_content);
+
+// Closed by a drag, with no render: no width, and nothing in it takes the focus or the pointer.
+pane.set_size(Some(Dimension::Px(0.0)), None);
+pane.set_inert(true);
+```
+
 ## Focus Groups
 
 `.focus_group(FocusGroup::..)` on an element makes what is in it a group the arrow keys move the focus within, while the focus is on one of them: the buttons of a toolbar, the choices of a radio group, the items of a menu.
@@ -89,6 +100,8 @@ Row::new()
 | `one_stop(bool)` | Tab stops in the group once, on the element marked `.focus_entry(true)` (the chosen one) or the first, and from inside the group Tab leaves it |
 | `follow_pointer(bool)` | While the focus is in the group, the pointer coming onto one of its elements moves the focus there, with no ring, and an arrow key takes the hover off the element under a pointer that holds still: what the pointer and the keyboard are on is one, as in a menu |
 | `typeahead(bool)` | Typing a letter moves the focus to the element whose label starts with it. Letters typed within a second of one another are one prefix, the same letter again goes on to the next element that starts with it, and a pause starts again |
+| `menu_row(bool)` | The group is a row of menus, as the File, Edit and View of a menubar: each of its elements opens a menu hung from it. With one of those menus open, Left and Right go to the menu beside it, and Alt reaches the row from anywhere. See [a row of menus](#a-row-of-menus) |
+| `nested(bool)` | The group is a tree: Right and Left open, close and go between levels, and `*` opens the elements beside the focused one. Its elements say their level with `.focus_level(n)` and whether they are open with `.focus_expanded(open, toggle)`. See [a nested list](#a-nested-list) |
 | `FocusGroup::none()` | No key moves the focus within it, and what is in it is out of the group around it: that group's arrows pass it by, and do nothing while the focus is in it. For what a group holds beside what its keys move between, as the content of an accordion's open item is between two headers |
 
 - The keys move between what Tab would stop at inside the element (a `tab_index` of `0` or more, or a control of a form), in the order of the tree; a disabled or dropped one is passed by. Home and End go to the first and the last.
@@ -100,6 +113,146 @@ Row::new()
 - The innermost group around the focused element that takes the key acts: a vertical menu inside a horizontal bar takes Up and Down, the bar Left and Right.
 - An element's label for typeahead is what `.focus_label(..)` gives it, or, for a button with one text in it, that text; an element with neither is not reached by typing. A menu item's label is its label alone, not its shortcut. A text input, a slider and a select in the group keep the letters, and Space still presses what has the focus.
 - A key event reaches every node's `on_key_down`, focused or not. `KeyboardEvent::focus_within` says whether the focus is on the node whose handler runs or inside it: a handler that acts only for what has the focus (a menu item opening its submenu on Right) checks it.
+
+### A Row Of Menus
+
+`FocusGroup::menu_row(true)` makes a group a row of menus: each of its elements opens a menu hung from it when it is pressed, a popup whose anchor is the element, as `ui::Menu` is. It is what a menubar's titles are (`ui::Menubar` has it), and what a bar of your own of buttons and menus takes to have a menubar's keys.
+
+```rust
+use lurq::{
+  components::{Button, Column, Row},
+  core::{ElementRef, Signal},
+  node::FocusGroup,
+  ui::{Menu, MenuItem},
+};
+
+// file, edit: ElementRef; file_open, edit_open: Signal<bool>. A press of a title opens its menu and closes the other.
+let title = |name: &str, anchor: &ElementRef, open: &Signal<bool>, other: &Signal<bool>| {
+  let (open, other) = (open.clone(), other.clone());
+  Button::new(name)
+    .tab_index(0)
+    .ref_element(anchor.clone())
+    .on_click(move |_| {
+      other.set(false);
+      open.update(|open| *open = !*open);
+    })
+};
+Row::new()
+  .focus_group(FocusGroup::horizontal().one_stop(true).typeahead(true).menu_row(true))
+  .child(
+    Column::new()
+      .child(title("File", &file, &file_open, &edit_open))
+      .child(Menu::new(file.clone(), file_open.clone()).item(MenuItem::new("New")).item(MenuItem::new("Open"))),
+  )
+  .child(
+    Column::new()
+      .child(title("Edit", &edit, &edit_open, &file_open))
+      .child(Menu::new(edit.clone(), edit_open.clone()).item(MenuItem::new("Undo")).item(MenuItem::new("Redo"))),
+  );
+```
+
+- On the row itself it is a group as any other: Left and Right move between its elements, and Enter or Space presses one, which opens its menu with the focus in it.
+- While a menu hung from an element of the row has the focus, Left and Right that nothing in the menu takes close it, with every menu opened from it, and press the element before or after the one it hangs from, going round at the ends as the group wraps: that element opens its menu, which takes the focus. A key a handler in the menu prevents stays the menu's: a submenu's Left closes the submenu, and an item's Right opens its own submenu. From a submenu, Right on an item with none goes on to the next element of the row.
+- Alt pressed and let go with nothing pressed between puts the focus on the first row of menus of the window, at its entry (the element marked `.focus_entry(true)`, or the first that takes the focus); Alt alone again, from the row or a menu of it, closes the menu and gives the focus back to what had it before. A key or a press of the pointer while Alt is down makes its release no Alt alone, and a handler that prevents the release's default keeps it from the row.
+- Alt with a letter presses the element of that row whose label starts with it (its `focus_label`, or the one text of a button), from wherever the focus is: it opens its menu, closing the one that was open. Where several start with the letter, the next press goes on to the next. A letter that starts no element is not the row's.
+- A disabled row, or a disabled element of it, is passed by: the row with no element to stop at is not reached by Alt.
+- On a Mac, Alt (Option) does neither: Option with a letter types a character there, and an app's menus belong in the system's menu bar (see [native menus](../window-lifecycle-menus/#building-a-native-menu)).
+
+### A Nested List
+
+`FocusGroup::nested(true)` on a vertical group makes it a tree: its elements stand at levels, and those that open and close say so. Each element gives its level with `.focus_level(n)` (1 at the top; an element with none is at 1), and one that opens gives whether it is open and what asks it to change with `.focus_expanded(open, toggle)`. What an element holds is the elements after it at a higher level, up to the next one at its level or lower, so the group may be one flat list of rows, as a tree view's is, or elements inside elements, as a sidebar's sections. `ui::TreeView` is one.
+
+```rust
+use lurq::{
+  components::{Button, Column},
+  core::Signal,
+  node::FocusGroup,
+};
+
+// open: Signal<bool>, whether the folder is open.
+let set = open.clone();
+let mut tree = Column::new()
+  .focus_group(FocusGroup::vertical().nested(true).one_stop(true).typeahead(true))
+  .child(
+    Button::new("src")
+      .tab_index(0)
+      .focus_level(1)
+      .focus_expanded(open.get(), move |to| set.set(to)),
+  );
+if open.get() {
+  tree = tree
+    .child(Button::new("lib.rs").tab_index(0).focus_level(2))
+    .child(Button::new("main.rs").tab_index(0).focus_level(2));
+}
+tree = tree.child(Button::new("Cargo.toml").tab_index(0).focus_level(1));
+```
+
+- Right opens a closed element (it calls its toggle with `true`), and on an open one goes to the first element in it. Left closes an open element, and on a closed one or one that does not open goes to the element it is in: the nearest one before it at a lower level. `*` opens every closed element at the focused one's level in the element it is in.
+- Opening and closing is the app's: the keys call the toggle, and what the element holds comes and goes with the next render. What a closed element holds is not in the tree, so Up, Down, Home, End and typeahead go through the elements that are shown.
+- A nested list in a sidebar, whose items hold their children in a column under the button (or in a `ui::Collapsible`'s panel), takes the same calls: the level of each item's button, and `focus_expanded` on those that open. Children kept in the tree while their item closes (to animate their height out) are still stops until they leave: put them in a `FocusGroup::none()` while closing.
+- Only a vertical group is nested: Right and Left are its cross keys. A group that is not nested leaves Right, Left and `*` to what is around it.
+
+### Rows A List Builds In Part
+
+A virtual list of thousands of rows builds those near its view; the rest are not in the tree, so they are no stops for a group's keys. `.focus_rows(rows)` on the element of the group gives the group the rows themselves, an `Arc` of an `impl FocusRows`, and each row the list builds says which it is with `.focus_row(index)`. The group's keys then step over the rows, built or not. `TreeView::mount(ctx)` is one.
+
+```rust
+use std::sync::Arc;
+
+use lurq::{
+  components::{Button, Column},
+  core::Signal,
+  node::{FocusGroup, FocusRows},
+};
+
+/// A thousand rows, of which the list builds those from `start` on.
+struct Rows {
+  start: Signal<usize>,
+}
+
+impl FocusRows for Rows {
+  fn count(&self) -> usize {
+    1000
+  }
+
+  fn label(&self, row: usize) -> Option<String> {
+    Some(format!("Row {row}"))
+  }
+
+  fn page(&self) -> usize {
+    20
+  }
+
+  // Build the row and bring it into view: the focus goes to it once a layout has it.
+  fn reveal(&self, row: usize) {
+    self.start.set(row.saturating_sub(5));
+  }
+}
+
+// rows: Arc<Rows>, the same one from one render to the next.
+let start = rows.start.get();
+let group: Arc<dyn FocusRows> = rows.clone();
+Column::new()
+  .focus_group(FocusGroup::vertical().one_stop(true).typeahead(true).wrap(false))
+  .focus_rows(group)
+  .with_children((start..(start + 30).min(1000)).map(|row| {
+    Button::new(&format!("Row {row}")).tab_index(0).focus_row(row)
+  }));
+```
+
+| `FocusRows` | |
+| --- | --- |
+| `count()` | How many rows there are |
+| `label(row)` | What typeahead matches the row by |
+| `enabled(row)` | Whether the row takes the focus; a disabled one is passed by. All do unless told otherwise |
+| `level(row)`, `expanded(row)`, `set_expanded(row, open)` | In a [nested](#a-nested-list) group: the row's level, whether it is open, and what asks it to open or close |
+| `page()` | How many rows PageUp and PageDown move by: as many as the view holds. 10 unless told otherwise |
+| `reveal(row)` | Asks for the row to be built and brought into view: a virtual list's [`reveal_key`](../layout/#scroll), with `reveal_request` to ask for one row again |
+
+- Up, Down, Home, End, PageUp and PageDown, the keys of a nested group, and typeahead go to any row. A row that is built has the focus at once; one that is not is asked for with `reveal`, and has the focus after the layout that has it.
+- Keys pressed while a row is awaited go on from that row, not from the row that had the focus: holding Down runs down the list. A press of the pointer, Tab and a focus the app asks for (`Ctx::focus`) end the wait.
+- PageUp and PageDown are a group's only where it has rows; a group that builds every one of its elements leaves them to what scrolls.
+- The group is known by its `Arc`: give the same one at every render, as a component that keeps it in a field does.
 
 ## Tab Scope
 

@@ -566,6 +566,39 @@ lurq::components::Rect::new(100.0, 40.0)
 element_ref.set_relative_bounds(15.0, 20.0, 120.0, 60.0);
 ```
 
+### Sizing An Element Without A Render
+
+`ElementRefMut::set_size(width, height)` lays the element out at another width or height than it was built with, each a `Dimension` (pixels, or `Dimension::Pct` of its parent) or `None` for the one it was built with. Nothing renders again: the next pass, which the call asks for, lays the element and what holds it out again, and its parent places it as it would any element of that size. The least and most size it was built with still hold, and the size stays until it is set again. Use it for what a person resizes continuously, a pane under a dragged divider, where rendering the component again on every move would rebuild what is in it:
+
+```rust
+use lurq::{app::events::DragEvent, components::{Column, Row}, core::ElementRefMut, node::dimension::Dimension};
+
+let pane = ElementRefMut::new();
+// The width the drag began at.
+let start = std::sync::Arc::new(std::sync::Mutex::new(240.0_f32));
+
+Row::new()
+  .child(Column::new().width(240.0).ref_element(pane.clone()).child(sidebar))
+  .child(
+    Column::new()
+      .width(1.0)
+      .on_drag_start({
+        let (pane, start) = (pane.clone(), start.clone());
+        move |_: DragEvent| *start.lock().unwrap() = pane.width()
+      })
+      .on_drag_move({
+        let (pane, start) = (pane.clone(), start.clone());
+        move |event: DragEvent| {
+          let width = (*start.lock().unwrap() + event.total_delta_x).clamp(160.0, 480.0);
+          pane.set_size(Some(Dimension::Px(width)), None);
+        }
+      }),
+  )
+  .child(Column::new().flex(1.0).child(editor));
+```
+
+`element_ref.size()` reads what was set. A ref made anew by each render starts with no size of its own, so keep what was set where the next render reads it (a signal read without subscribing, as `ui::Splitter` does) or keep the ref itself across renders.
+
 ## Interaction State
 
 ```rust

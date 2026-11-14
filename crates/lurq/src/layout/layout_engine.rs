@@ -69,6 +69,7 @@ mod text_highlights;
 mod text_input_quads;
 mod text_layout_output;
 mod theme_scope;
+mod track_layout;
 
 use flex_shrink::{FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_line};
 pub(crate) use text_layout_output::TextLayoutOutput;
@@ -2333,6 +2334,11 @@ impl LayoutEngine {
     if matches!(node.layout_kind(), LayoutKind::Grid(_)) {
       return None;
     }
+    // What holds the rows of a table measures the cells of the rows it holds when it is laid out: a row that
+    // changed or came into it is measured, not patched in at the widths it had.
+    if node.measured_column_tracks().is_some() {
+      return None;
+    }
 
     // A descendant changed, but this node may still be able to keep its own
     // geometry. Patch dirty child results into the cached tree and only force
@@ -2791,6 +2797,14 @@ impl LayoutEngine {
     padding: ResolvedPadding,
     child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
+    // What holds the rows of a table measures their cells before they are laid out at the widths that gives.
+    if let Some(tracks) = node.measured_column_tracks() {
+      self.measure_column_tracks(glyph_engine, node, tracks);
+    }
+    if let (Some(tracks), LayoutKind::Row { spacing, align, .. }) = (node.column_tracks(), node.layout_kind()) {
+      let gap = spacing.resolve(&self.spacing.borrow(), constraints.max_width);
+      return self.layout_track_row(glyph_engine, node, constraints, tracks, gap, *align, child_overrides);
+    }
     match node.layout_kind() {
       LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints, padding),
       LayoutKind::Row {
@@ -4142,6 +4156,15 @@ impl LayoutEngine {
       );
       let size = scroll_container_size(constraints, &child_result, &style, false, false);
       let viewport = reserved_viewport(size, &style, false, false);
+      // Content that fills the viewport's width is laid out again at it, where it is narrower.
+      let child_result = if fills_viewport_width(node, direction) && child_result.size.width < viewport.width {
+        let mut filled =
+          scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height);
+        filled.min_width = viewport.width.min(filled.max_width);
+        self.layout_child_node(glyph_engine, child_overrides, 0, child, filled)
+      } else {
+        child_result
+      };
       state.update_layout_with_container(
         child_result.size.width,
         child_result.size.height,
@@ -4179,13 +4202,11 @@ impl LayoutEngine {
     );
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
-    let child_result = self.layout_child_node(
-      glyph_engine,
-      child_overrides,
-      0,
-      child,
-      scroll_child_constraints(direction, constraints, viewport.width, viewport.height),
-    );
+    let mut within = scroll_child_constraints(direction, constraints, viewport.width, viewport.height);
+    if fills_viewport_width(node, direction) {
+      within.min_width = viewport.width.min(within.max_width);
+    }
+    let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, within);
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
 
@@ -4329,6 +4350,12 @@ fn multiline_preferred_height(
 
 fn explicit_multiline_height(text: &str, line_height: f32) -> f32 {
   text.split('\n').count().max(1) as f32 * line_height
+}
+
+/// Whether a scroll container lays its content out at least as wide as its viewport: one that scrolls sideways
+/// and is told to (`ScrollBoth::fill_width`). One that scrolls only up and down does so already.
+fn fills_viewport_width(node: &Node, direction: ScrollDirection) -> bool {
+  direction != ScrollDirection::Vertical && node.fills_viewport_width()
 }
 
 fn scroll_child_constraints(
@@ -4573,6 +4600,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.state_styles.focus_visible.is_none()
     && node.state_styles.drag_over.is_none()
     && node.state_styles.disabled.is_none()
+    && node.state_styles.within.is_none()
     && node.effective_opacity() == DEFAULT_QUAD_OPACITY
     && node.effective_blur() == 0.0
     && node.effective_backdrop_blur() == 0.0

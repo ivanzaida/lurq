@@ -1,25 +1,41 @@
 //! A tree view: things inside things, files in folders, each level opened and closed in place.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+  cell::Cell,
+  collections::HashMap,
+  marker::PhantomData,
+  sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+  },
+  time::Instant,
+};
 
 use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  selection::{ListSelection, Pick, select_all_key},
+  selection::{ListSelection, Pick},
   shared::{fading, glyph, pressable},
   spinner::{Spinner, SpinnerPart},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
-    events::{KeyboardEvent, MouseEvent},
-    theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+    component::Component,
+    ctx::Ctx,
+    events::{KeyboardEvent, MouseButton, MouseEvent},
+    runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
+    theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{self, Column, Row},
+  components::{self, Column, Row, VirtualizedList},
   core::{Signal, SignalValue},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, outline::Outline},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, ScrollState},
+    text_style::FontWeight,
+  },
+  node::{CursorIcon, Element, FocusGroup, FocusRows, FocusStep, SpacingValue, dimension::Dimension, outline::Outline},
 };
 
 /// The parts of a tree view a recipe styles.
@@ -44,6 +60,9 @@ pub enum TreeViewPart {
   Label,
   /// What the app puts at the row's end: a count, a badge.
   Trailing,
+  /// Around what is at the row's end of an item marked to show it on hover: hidden until the pointer is on the
+  /// row or the focus is in it.
+  Reveal,
 }
 
 names!(TreeViewPart {
@@ -56,6 +75,7 @@ names!(TreeViewPart {
   Icon => "icon",
   Label => "label",
   Trailing => "trailing",
+  Reveal => "reveal",
 });
 
 /// The states of a row of a tree view a recipe styles, besides what the
@@ -91,12 +111,14 @@ pub type TreeViewRenderer = Arc<dyn Fn(TreeViewView) -> Element + Send + Sync>;
 /// // Children the app brings when the row is first opened.
 /// let remote = TreeItem::new("origin", "origin").icon(icons::BRANCH).lazy(true);
 /// ```
+#[derive(Clone)]
 pub struct TreeItem<T> {
   id: T,
   label: Arc<str>,
   icon: Option<Name>,
   open_icon: Option<Name>,
   trailing: Option<Element>,
+  trailing_on_hover: bool,
   disabled: bool,
   lazy: bool,
   children: Vec<TreeItem<T>>,
@@ -112,6 +134,7 @@ impl<T> TreeItem<T> {
       icon: None,
       open_icon: None,
       trailing: None,
+      trailing_on_hover: false,
       disabled: false,
       lazy: false,
       children: Vec::new(),
@@ -144,6 +167,13 @@ impl<T> TreeItem<T> {
   /// What stands at the row's end: a count, a badge.
   pub fn trailing(mut self, element: impl Into<Element>) -> Self {
     self.trailing = Some(element.into());
+    self
+  }
+
+  /// Whether what stands at the row's end shows only while the pointer is on the row or the focus is on it or in
+  /// it, and always where the theme is at the touch density: an action, as a new file on a folder's row.
+  pub fn trailing_on_hover(mut self, on_hover: bool) -> Self {
+    self.trailing_on_hover = on_hover;
     self
   }
 
@@ -447,6 +477,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
   /// Builds the tree in `theme`. Converting a tree into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    let (view, _) = self.view(theme, None);
+    match theme.renderer::<TreeView<T>>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+
+  /// The tree as a renderer sees it, in `theme`: every shown row, with a key of each that stays its own while
+  /// rows open and close before it. `page` says how many rows PageUp and PageDown move by, in a tree in a virtual
+  /// list.
+  fn view(&self, theme: &Theme, page: Option<Page>) -> (TreeViewView, Vec<String>) {
     let breakpoint = super::current_breakpoint();
     let base = Case {
       variant: None,
@@ -472,7 +513,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     };
 
     let mut flat = Vec::new();
-    flatten(self.items, 1, &self.open, self.disabled, &mut flat);
+    flatten(&self.items, 1, "", &self.open, self.disabled, &mut flat);
 
     let multiple = self.multiple && self.holds_many;
     let model = Arc::new(Model {
@@ -481,15 +522,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
         flat.iter().map(|row| !row.disabled).collect(),
         self.selected.clone(),
         multiple,
-        self.select,
+        self.select.clone(),
       ),
-      on_select: self.on_select,
-      on_activate: self.on_activate,
+      on_select: self.on_select.clone(),
+      on_activate: self.on_activate.clone(),
+      page,
     });
     let entry = flat
       .iter()
       .position(|row| !row.disabled && self.selected.contains(&row.id));
 
+    let keys = flat.iter_mut().map(|row| std::mem::take(&mut row.key)).collect();
     let rows = flat
       .into_iter()
       .enumerate()
@@ -520,6 +563,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
               let model = model.clone();
               Arc::new(move || model.select_all())
             },
+            extend: {
+              let model = model.clone();
+              Arc::new(move |reach| model.extend(index, reach))
+            },
             activate: {
               let (toggle, expanded) = (toggle.clone(), row.expanded);
               Arc::new(move || {
@@ -545,14 +592,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
             row.icon
           },
           trailing: row.trailing,
+          trailing_on_hover: row.trailing_on_hover,
           position: (row.position, row.siblings),
           guides: self.guides,
           entry: entry == Some(index),
+          index,
           multiple,
           recipe: recipe(selected, row.expanded, row.disabled),
           forced: self.forced,
           toggle,
           actions,
+          row: None,
           id: row.element_id,
         }
       })
@@ -562,15 +612,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
       rows,
       multiple,
       guides: self.guides,
-      label: self.label,
+      label: self.label.clone(),
       recipe: recipe(false, false, self.disabled),
-      id: self.id,
-      key: self.key,
+      id: self.id.clone(),
+      key: self.key.clone(),
     };
-    match theme.renderer::<TreeView<T>>() {
-      Some(renderer) => renderer(view),
-      None => view.render(),
-    }
+    (view, keys)
   }
 }
 
@@ -587,6 +634,7 @@ struct Flat<T> {
   icon: Option<Name>,
   open_icon: Option<Name>,
   trailing: Option<Element>,
+  trailing_on_hover: bool,
   disabled: bool,
   opens: bool,
   expanded: bool,
@@ -595,34 +643,61 @@ struct Flat<T> {
   position: usize,
   siblings: usize,
   element_id: Option<Arc<str>>,
+  /// Where it is among the items, from the top: `0/2/1`.
+  key: String,
 }
 
 /// The rows of `items` at `level` and of what is open in them, in the order they are shown.
-fn flatten<T: PartialEq>(items: Vec<TreeItem<T>>, level: u32, open: &[T], disabled: bool, out: &mut Vec<Flat<T>>) {
+fn flatten<T: Clone + PartialEq>(
+  items: &[TreeItem<T>],
+  level: u32,
+  parent: &str,
+  open: &[T],
+  disabled: bool,
+  out: &mut Vec<Flat<T>>,
+) {
   let siblings = items.len();
-  for (position, item) in items.into_iter().enumerate() {
+  for (position, item) in items.iter().enumerate() {
     let opens = item.lazy || !item.children.is_empty();
     let expanded = opens && open.contains(&item.id);
     let row_disabled = disabled || item.disabled;
+    let key = if parent.is_empty() {
+      position.to_string()
+    } else {
+      format!("{parent}/{position}")
+    };
     out.push(Flat {
       loading: expanded && item.lazy && item.children.is_empty(),
-      id: item.id,
-      label: item.label,
+      id: item.id.clone(),
+      label: item.label.clone(),
       icon: item.icon,
       open_icon: item.open_icon,
-      trailing: item.trailing,
+      trailing: item.trailing.clone(),
+      trailing_on_hover: item.trailing_on_hover,
       disabled: row_disabled,
       opens,
       expanded,
       level,
       position: position + 1,
       siblings,
-      element_id: item.element_id,
+      element_id: item.element_id.clone(),
+      key: key.clone(),
     });
     if expanded {
-      flatten(item.children, level + 1, open, disabled, out);
+      flatten(&item.children, level + 1, &key, open, disabled, out);
     }
   }
+}
+
+/// Where Shift with a key takes the selection, from the focused row: where the focus goes with the key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reach {
+  Back,
+  On,
+  First,
+  Last,
+  PageBack,
+  PageOn,
 }
 
 /// The shown rows and what is selected of them, which every row's behavior reads.
@@ -630,7 +705,12 @@ struct Model<T> {
   selection: ListSelection<T>,
   on_select: Vec<Told<T>>,
   on_activate: Vec<Told<T>>,
+  /// How many rows PageUp and PageDown move by, in a tree in a virtual list.
+  page: Option<Page>,
 }
+
+/// How many rows PageUp and PageDown move by.
+type Page = Arc<dyn Fn() -> usize + Send + Sync>;
 
 impl<T: Clone + PartialEq> Model<T> {
   fn pick(&self, index: usize, pick: Pick) {
@@ -638,6 +718,23 @@ impl<T: Clone + PartialEq> Model<T> {
     for handler in &self.on_select {
       handler(self.selection.id(index));
     }
+  }
+
+  /// Shift with a key on the row `from`: the rows from the anchor to where the focus goes. The tree steps the
+  /// selection itself, and not with a press of the row the focus goes to: in a virtual list that row may not be
+  /// built.
+  fn extend(&self, from: usize, reach: Reach) {
+    // Where the group's keys take the focus: the engine's step over the rows that take it, without going round.
+    let step = match reach {
+      Reach::Back => FocusStep::Back,
+      Reach::On => FocusStep::On,
+      Reach::First => FocusStep::First,
+      Reach::Last => FocusStep::Last,
+      Reach::PageBack => FocusStep::PageBack,
+      Reach::PageOn => FocusStep::PageOn,
+    };
+    // PageUp and PageDown are keys of a tree in a virtual list only.
+    self.selection.extend(from, step, self.page.as_ref().map(|page| page()));
   }
 
   fn select_all(&self) {
@@ -651,11 +748,31 @@ impl<T: Clone + PartialEq> Model<T> {
   }
 }
 
+thread_local! {
+  /// The last press of a row: which row of its tree, when and where. A second press of it soon after at the same
+  /// place, as the engine counts a double press, activates it.
+  static LAST_PRESS: Cell<Option<(usize, Instant, (f32, f32))>> = const { Cell::new(None) };
+}
+
+/// Whether a press of the row `index` is the second of a double press: then the next is a first again.
+fn second_press(index: usize, event: &MouseEvent) -> bool {
+  let now = Instant::now();
+  let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
+  LAST_PRESS.with(|last| {
+    let second = last
+      .get()
+      .is_some_and(|(row, at, place)| row == index && now.duration_since(at) <= DOUBLE_CLICK_INTERVAL && near(place));
+    last.set((!second).then_some((index, now, (event.x, event.y))));
+    second
+  })
+}
+
 /// What a row that takes input does, with the type of the tree's ids out of sight.
 struct RowActions {
   pick: Arc<dyn Fn(Pick) + Send + Sync>,
   select_all: Arc<dyn Fn() + Send + Sync>,
   activate: Arc<dyn Fn() + Send + Sync>,
+  extend: Arc<dyn Fn(Reach) + Send + Sync>,
 }
 
 /// A tree as a renderer sees it: its rows, one flat list of what is shown,
@@ -695,9 +812,7 @@ impl TreeViewView {
           .nested(true)
           .one_stop(true)
           .typeahead(true)
-          .wrap(false)
-          // With many selected, Shift with the keys selects on the way.
-          .shift_extends(self.multiple),
+          .wrap(false),
       )
       .describe("a11y_role", "tree")
       .part(&self.part(TreeViewPart::Root));
@@ -725,6 +840,7 @@ impl TreeViewView {
 
 /// One row of a tree as a renderer sees it: what it says and where it is,
 /// the style of its parts, and its behavior ready to be dressed.
+#[derive(Clone)]
 pub struct TreeRow {
   pub label: Arc<str>,
   /// Its level: 1 at the top, 2 in a row at the top, and so on.
@@ -741,18 +857,24 @@ pub struct TreeRow {
   pub icon: Option<Name>,
   /// What stands at its end.
   pub trailing: Option<Element>,
+  /// Whether what stands at its end shows only while the row is pointed at or holds the focus.
+  pub trailing_on_hover: bool,
   /// Where it is among the rows of its level in the row it is in, from 1, and how many they are.
   pub position: (usize, usize),
   /// Whether a line runs down each level of its indent.
   pub guides: bool,
   /// Whether Tab enters the tree at it: the first selected row.
   pub entry: bool,
+  /// Which of the tree's shown rows it is.
+  index: usize,
   multiple: bool,
   /// The style of each part of this row, in its case.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   toggle: Option<Arc<dyn Fn(bool) + Send + Sync>>,
   actions: Option<Arc<RowActions>>,
+  /// Which row of the group's rows it is, in a tree in a virtual list.
+  row: Option<usize>,
   id: Option<Arc<str>>,
 }
 
@@ -785,7 +907,12 @@ impl TreeRow {
       .describe("a11y_selected", flag(self.selected))
       .focus_label(self.label.clone())
       .focus_level(self.level)
-      .focus_entry(self.entry);
+      .focus_entry(self.entry)
+      // What is at its end may show only while it is pointed at or holds the focus.
+      .interaction_group(true);
+    if let Some(index) = self.row {
+      row = row.focus_row(index);
+    }
     if self.opens {
       row = row.describe("a11y_expanded", flag(self.expanded));
     }
@@ -797,23 +924,51 @@ impl TreeRow {
     }
     if let Some(actions) = self.actions.clone() {
       let multiple = self.multiple;
+      // A press selects as the button goes down, as a file manager's does, and a second press of the row soon
+      // after at the same place activates it. The row has no `on_dblclick`: the engine holds back the click of an
+      // element that has one until it knows it is not the first of a double press, and the focus with it.
       let press = actions.clone();
-      // Space adds the focused row or takes it out where any number are selected, as Ctrl with a press does; a move
-      // of the focus with Shift is a press with Shift.
-      row = row.on_click(move |event: MouseEvent| (press.pick)(Pick::of(&event, multiple)));
-      let activate = actions.clone();
-      row = row.on_dblclick(move |_| (activate.activate)());
+      let index = self.index;
+      row = row.on_mouse_down(move |event: MouseEvent| {
+        if event.button != MouseButton::Left {
+          return;
+        }
+        if second_press(index, &event) {
+          (press.activate)();
+        } else {
+          (press.pick)(Pick::of(&event, false));
+        }
+      });
+      // Space clicks the focused row: it selects too. A click of the pointer selected at its press.
+      let space = actions.clone();
+      row = row.on_click(move |event: MouseEvent| {
+        if event.from_keyboard {
+          (space.pick)(Pick::of(&event, multiple));
+        }
+      });
       row = row.on_key_down(move |event: KeyboardEvent| {
         if !event.focus_within || event.composing || event.alt {
           return;
         }
-        // Enter activates; it does not press the row, which would select it.
-        if event.key == "Enter" && !event.ctrl && !event.meta && !event.shift {
-          event.prevent_default();
-          (actions.activate)();
-        }
-        if multiple {
-          select_all_key(&event, &*actions.select_all);
+        let command = event.ctrl || event.meta;
+        match event.key.as_str() {
+          // Enter activates; it does not press the row, which would select it.
+          "Enter" if !command && !event.shift => {
+            event.prevent_default();
+            (actions.activate)();
+          }
+          "a" | "A" if command && multiple && !event.shift => {
+            event.prevent_default();
+            (actions.select_all)();
+          }
+          // The focus moves on with the key, as it does without Shift; the selection goes with it.
+          "ArrowUp" if event.shift && !command => (actions.extend)(Reach::Back),
+          "ArrowDown" if event.shift && !command => (actions.extend)(Reach::On),
+          "Home" if event.shift && !command => (actions.extend)(Reach::First),
+          "End" if event.shift && !command => (actions.extend)(Reach::Last),
+          "PageUp" if event.shift && !command => (actions.extend)(Reach::PageBack),
+          "PageDown" if event.shift && !command => (actions.extend)(Reach::PageOn),
+          _ => {}
         }
       });
     }
@@ -871,10 +1026,14 @@ impl TreeRow {
     let mut chevron = Row::new().child(glyph(&part, Name::new(name), false));
     if let Some(toggle) = self.toggle.clone() {
       let open = !self.expanded;
-      chevron = chevron.on_click(move |event: MouseEvent| {
-        // The press is the chevron's: it does not select the row as well.
+      // The press is the chevron's, as the button goes down: it does not select the row as well, and is not the
+      // first of a double press of the row.
+      chevron = chevron.on_mouse_down(move |event: MouseEvent| {
         event.stop_propagation();
-        toggle(open);
+        LAST_PRESS.with(|last| last.set(None));
+        if event.button == MouseButton::Left {
+          toggle(open);
+        }
       });
     }
     chevron.into()
@@ -914,6 +1073,15 @@ impl TreeRow {
     }
     content = content.child(self.label());
     if let Some(trailing) = self.trailing.take() {
+      let trailing: Element = if self.trailing_on_hover {
+        Row::new()
+          .align_items(Alignment::Center)
+          .part(&self.part(TreeViewPart::Reveal))
+          .child(trailing)
+          .into()
+      } else {
+        trailing
+      };
       content = content.child(
         Row::new()
           .align_items(Alignment::Center)
@@ -940,7 +1108,7 @@ impl<T: Send + Sync + 'static> Themed for TreeView<T> {
   /// row and the room under it.
   fn recipe() -> Recipe {
     use PaletteColor::{Foreground, Highlight, MutedForeground, Ring, StateHover, StatePressed};
-    use TreeViewPart::{Chevron, Content, Guide, Icon, Indent, Label, Root, Row, Trailing};
+    use TreeViewPart::{Chevron, Content, Guide, Icon, Indent, Label, Reveal, Root, Row, Trailing};
     Recipe::new()
       .base(Root, |s| s.gap(2.0).foreground(Foreground))
       .base(Row, |s| {
@@ -966,11 +1134,288 @@ impl<T: Send + Sync + 'static> Themed for TreeView<T> {
           .typography(TypographyStyle::Caption)
           .foreground(MutedForeground)
       })
+      // What an item marks to show on hover: hidden at rest, shown while the row is pointed at or holds the
+      // focus, and always under a finger, which points at nothing.
+      .base(Reveal, |s| s.opacity(0.0))
+      .within(Reveal, |s| s.opacity(1.0))
+      .density(Density::Touch, Reveal, |s| s.opacity(1.0))
       .state(TreeViewState::Selected, Row, |s| s.background(Highlight))
       .state(TreeViewState::Selected, Icon, |s| s.foreground(Foreground))
       .state(TreeViewState::Selected, Label, |s| s.weight(FontWeight::Medium))
       .state(TreeViewState::Disabled, Row, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
+  /// The tree in the engine's virtual list, for a tree of thousands of rows: only the rows near its view are
+  /// built, and the keys reach every row, built or not. Up, Down, Home, End, PageUp, PageDown, Right, Left, `*`
+  /// and typeahead step over the rows that are shown (the engine's [`FocusRows`](crate::node::FocusRows)), the
+  /// list builds and brings into view the row they go to, and the focus goes to it once it is built; Shift with
+  /// them and Ctrl+A select over every row.
+  ///
+  /// The list fills the tree, which is to be given a height: `.style(TreeViewPart::Root, |s| s.height(..))`, or
+  /// the room of what holds it. The rows are drawn by [`TreeRow::render`]; a theme's renderer of the whole tree is
+  /// not used, its rules are.
+  ///
+  /// ```
+  /// use lurq::{app::ctx::Ctx, core::Signal, node::Element, ui::{TreeItem, TreeView, TreeViewPart}};
+  ///
+  /// # fn files(ctx: &mut Ctx, items: Vec<TreeItem<u32>>, open: Signal<Vec<u32>>) -> Element {
+  /// TreeView::new(items)
+  ///   .expanded(open)
+  ///   .style(TreeViewPart::Root, |s| s.height(480.0))
+  ///   .mount(ctx)
+  /// # }
+  /// ```
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    ctx.mount::<TreeViewHost<T>>(TreeViewHostProps { tree: self })
+  }
+}
+
+struct TreeViewHostProps<T> {
+  tree: TreeView<T>,
+}
+
+impl<T> PartialEq for TreeViewHostProps<T> {
+  /// A tree built again is drawn again: what is open and selected is read from the app's signals as it is built.
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl<T> crate::app::component::DevtoolsInspectable for TreeViewHostProps<T> {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value("TreeView", format!("{} items at the top", self.tree.items.len()));
+  }
+}
+
+/// The rows a tree in a virtual list built last, which its row components draw.
+#[derive(Default)]
+struct Shown {
+  rows: Vec<TreeRow>,
+  gap: SpacingValue,
+}
+
+/// The rows of a tree in a virtual list as the engine's focus group steps over them.
+struct HostRows {
+  data: Mutex<RowsData>,
+  reveal_key: Signal<Option<String>>,
+  reveal_request: Signal<u64>,
+  scroll: ScrollState,
+}
+
+#[derive(Default)]
+struct RowsData {
+  keys: Vec<String>,
+  labels: Vec<Arc<str>>,
+  levels: Vec<u32>,
+  expanded: Vec<Option<bool>>,
+  enabled: Vec<bool>,
+  toggles: Vec<Option<Arc<dyn Fn(bool) + Send + Sync>>>,
+  /// The height of a row and the room after it.
+  step: f32,
+}
+
+impl FocusRows for HostRows {
+  fn count(&self) -> usize {
+    self.data.lock().unwrap().keys.len()
+  }
+
+  fn label(&self, row: usize) -> Option<String> {
+    self.data.lock().unwrap().labels.get(row).map(|label| label.to_string())
+  }
+
+  fn enabled(&self, row: usize) -> bool {
+    self.data.lock().unwrap().enabled.get(row).copied().unwrap_or(false)
+  }
+
+  fn level(&self, row: usize) -> u32 {
+    self.data.lock().unwrap().levels.get(row).copied().unwrap_or(1)
+  }
+
+  fn expanded(&self, row: usize) -> Option<bool> {
+    let data = self.data.lock().unwrap();
+    data.toggles.get(row)?.as_ref()?;
+    data.expanded.get(row).copied().flatten()
+  }
+
+  fn set_expanded(&self, row: usize, open: bool) {
+    let toggle = self.data.lock().unwrap().toggles.get(row).cloned().flatten();
+    if let Some(toggle) = toggle {
+      toggle(open);
+    }
+  }
+
+  fn page(&self) -> usize {
+    let step = self.data.lock().unwrap().step.max(1.0);
+    ((self.scroll.viewport_height() / step).floor() as usize).max(1)
+  }
+
+  fn reveal(&self, row: usize) {
+    let Some(key) = self.data.lock().unwrap().keys.get(row).cloned() else {
+      return;
+    };
+    self.reveal_key.set(Some(key));
+    self.reveal_request.update(|request| *request = request.wrapping_add(1));
+  }
+}
+
+/// A tree in a virtual list: its root, the focus group, holds the list, and the list a row component for each
+/// row near its view.
+struct TreeViewHost<T> {
+  shown: Arc<Mutex<Shown>>,
+  rows: Arc<HostRows>,
+  generation: AtomicU64,
+  _ids: PhantomData<fn() -> T>,
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Component for TreeViewHost<T> {
+  type Props = TreeViewHostProps<T>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      shown: Arc::default(),
+      rows: Arc::new(HostRows {
+        data: Mutex::default(),
+        reveal_key: ctx.signal(None),
+        reveal_request: ctx.signal(0),
+        scroll: ScrollState::new(),
+      }),
+      generation: AtomicU64::new(0),
+      _ids: PhantomData,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let theme = current_theme();
+    let rows = self.rows.clone();
+    let page: Page = Arc::new(move || rows.page());
+    let (mut view, keys) = ctx.props::<TreeViewHostProps<T>>().tree.view(&theme, Some(page));
+    for (index, row) in view.rows.iter_mut().enumerate() {
+      row.row = Some(index);
+    }
+    let step = row_step(&view);
+    *self.rows.data.lock().unwrap() = RowsData {
+      keys: keys.clone(),
+      labels: view.rows.iter().map(|row| row.label.clone()).collect(),
+      levels: view.rows.iter().map(|row| row.level).collect(),
+      expanded: view.rows.iter().map(|row| row.opens.then_some(row.expanded)).collect(),
+      enabled: view.rows.iter().map(|row| !row.disabled).collect(),
+      toggles: view.rows.iter().map(|row| row.toggle.clone()).collect(),
+      step,
+    };
+    // Every row component draws again from what this render built: what is selected, open and loading.
+    let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+    *self.shown.lock().unwrap() = Shown {
+      rows: std::mem::take(&mut view.rows),
+      gap: view.part(TreeViewPart::Root).rest().gap.unwrap_or_default(),
+    };
+    let items: Arc<Vec<RowItem>> = Arc::new(
+      keys
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| RowItem { index, key, generation })
+        .collect(),
+    );
+    let shown = self.shown.clone();
+    let list = VirtualizedList::new_shared(ctx, items)
+      .with_scroll_state(self.rows.scroll.clone())
+      .reveal_key(self.rows.reveal_key.get())
+      .reveal_request(self.rows.reveal_request.get())
+      .estimate_height(move |_| step)
+      .width(Dimension::Pct(100.0))
+      .flex(1.0)
+      .mount_keyed::<TreeRowHost, _, _, _>(
+        |item: &RowItem| item.key.clone(),
+        move |item: &RowItem| TreeRowProps {
+          index: item.index,
+          generation: item.generation,
+          shown: shown.clone(),
+        },
+      );
+    let rows: Arc<dyn FocusRows> = self.rows.clone();
+    view.root().focus_rows(rows).child(list)
+  }
+}
+
+/// The height of a row and the room after it, as the recipe gives them: what the list places rows it has not
+/// built by, and what a page of rows is.
+fn row_step(view: &TreeViewView) -> f32 {
+  let theme = view.theme();
+  let height = view
+    .part(TreeViewPart::Row)
+    .rest()
+    .height
+    .and_then(|height| height.resolve(theme))
+    .and_then(|height| match height {
+      Dimension::Px(px) => Some(px),
+      _ => None,
+    })
+    .unwrap_or(28.0);
+  let gap = view
+    .part(TreeViewPart::Root)
+    .rest()
+    .gap
+    .map(|gap| gap.resolve(&theme.spacing(), 0.0))
+    .unwrap_or(0.0);
+  height + gap
+}
+
+/// A row of the virtual list: which of the shown rows, from which render.
+#[derive(Clone, PartialEq)]
+struct RowItem {
+  index: usize,
+  key: String,
+  generation: u64,
+}
+
+struct TreeRowProps {
+  index: usize,
+  generation: u64,
+  shown: Arc<Mutex<Shown>>,
+}
+
+impl PartialEq for TreeRowProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.index == other.index && self.generation == other.generation && Arc::ptr_eq(&self.shown, &other.shown)
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for TreeRowProps {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value("TreeRow", format!("row {}", self.index));
+  }
+}
+
+/// One row of a tree in a virtual list, with the room after it that the tree's rows have between them.
+struct TreeRowHost;
+
+impl Component for TreeRowHost {
+  type Props = TreeRowProps;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<TreeRowProps>();
+    let (row, gap) = {
+      let shown = props.shown.lock().unwrap();
+      (shown.rows.get(props.index).cloned(), shown.gap.clone())
+    };
+    let Some(row) = row else {
+      return Column::new();
+    };
+    Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .spacing(gap)
+      .child(row.render())
+      // Nothing, after the room under the row.
+      .child(Row::new())
   }
 }

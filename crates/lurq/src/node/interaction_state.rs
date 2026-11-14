@@ -15,6 +15,8 @@ struct InteractionStateInner {
   focus_visible: bool,
   drag_over: bool,
   disabled: bool,
+  /// The interaction group the node is in is under the pointer or holds the focus.
+  within: bool,
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
 }
@@ -89,6 +91,24 @@ impl InteractionState {
 
   pub(crate) fn set_disabled(&self, val: bool) {
     self.shared_inner().lock().unwrap().disabled = val;
+  }
+
+  /// The interaction group the node is in (`interaction_group`) is under the pointer, or the focus is in it:
+  /// what a part shown only then (`within_style`) reads. Paint only.
+  pub fn is_within(&self) -> bool {
+    self.inner.get().is_some_and(|inner| inner.lock().unwrap().within)
+  }
+
+  pub(crate) fn set_within(&self, val: bool) {
+    self.shared_inner().lock().unwrap().within = val;
+  }
+
+  /// Whether `other` is a handle of this same state.
+  pub(crate) fn same(&self, other: &Self) -> bool {
+    match (self.inner.get(), other.inner.get()) {
+      (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+      _ => false,
+    }
   }
 
   pub(crate) fn set_drag_over(&self, val: bool) {

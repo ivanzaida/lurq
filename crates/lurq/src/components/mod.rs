@@ -368,6 +368,23 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Lays the element's children out side by side in the tracks of a table's columns, one child to a track,
+      /// each as wide as its track and the element's gap apart: a row of a table, which every other row of
+      /// the table lines up with whatever is in its cells. See
+      /// [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      pub fn column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::column_tracks(node, tracks.clone()));
+        self
+      }
+
+      /// Measures the cells of the rows in the element that lay their children out in `tracks`, its children
+      /// and the children of those: what holds the rows of a table. A track sized by its content is as wide as
+      /// the widest of them. See [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      pub fn measures_column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::measures_column_tracks(node, tracks.clone()));
+        self
+      }
+
       pub fn absolute(
         mut self,
         x: f32,
@@ -656,6 +673,22 @@ macro_rules! impl_into_node {
       /// Builder form of `disabled_style`.
       pub fn when_disabled(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::when_disabled(node, f));
+        self
+      }
+
+      /// Merged over the element's style, under every other state style, while the
+      /// [interaction group](Self::interaction_group) it is in is under the pointer or holds the focus: an action
+      /// at the end of a row shown only then. It changes painting only.
+      pub fn within_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_style(node, style));
+        self
+      }
+
+      /// Whether the element is an interaction group: while the pointer is on it, or the focus is on it or in
+      /// it, the elements in it show their [`within_style`](Self::within_style). An element in two groups answers
+      /// to the innermost.
+      pub fn interaction_group(mut self, group: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::interaction_group(node, group));
         self
       }
 
@@ -1245,6 +1278,20 @@ macro_rules! impl_into_node {
       pub fn focus_expanded(mut self, open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Self {
         let toggle: std::sync::Arc<dyn Fn(bool) + Send + Sync> = std::sync::Arc::new(toggle);
         self.update_node(|node| $crate::node::NodeUpdate::focus_expanded(node, open, toggle));
+        self
+      }
+
+      /// Which row of the [`FocusRows`]($crate::node::FocusRows) of its focus group the element is: the group
+      /// steps over the rows, and focuses the element of the row it steps to.
+      pub fn focus_row(mut self, row: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_row(node, row));
+        self
+      }
+
+      /// The rows the [`FocusGroup`]($crate::node::FocusGroup) of this element steps over, where a list builds
+      /// only some of them: see [`FocusRows`]($crate::node::FocusRows).
+      pub fn focus_rows(mut self, rows: std::sync::Arc<dyn $crate::node::FocusRows>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_rows(node, rows));
         self
       }
 

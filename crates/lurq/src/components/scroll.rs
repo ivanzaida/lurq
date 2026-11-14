@@ -67,6 +67,13 @@ impl ScrollBoth {
     Self::from_node(crate::node::dsl::scroll_both(child.into().into_node()))
   }
 
+  /// Lays the content out at least as wide as the viewport: what is in it fills the width it is shown in, and
+  /// scrolls sideways only where it needs more. A table, whose columns share the room there is.
+  pub fn fill_width(mut self, fills: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::fills_viewport_width(node, fills));
+    self
+  }
+
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self

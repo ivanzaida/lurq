@@ -5,7 +5,7 @@ use lurq::{
   app::{
     ctx::Ctx,
     events::KeyboardEvent,
-    theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme},
+    theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Appearance,
   },
   components::{
@@ -17,8 +17,8 @@ use lurq::{
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
   ui::{
     Badge, BadgePart, BadgeVariant, Button, ButtonVariant, CommandItem, CommandPalette, FontFamily, Kbd, KeyPlatform,
-    Recipe, SegmentedControl, Selector, Sidebar, SidebarGroup, SidebarItem, SidebarPart, SidebarState, SidebarTrigger,
-    icons,
+    Length, Recipe, SegmentedControl, Selector, Sidebar, SidebarGroup, SidebarItem, SidebarPart, SidebarState,
+    SidebarTrigger, icons,
   },
 };
 
@@ -29,6 +29,7 @@ use crate::{
 
 const TITLE_BAR: f32 = 36.0;
 const HEADER: f32 = 56.0;
+const SIDEBAR: f32 = 248.0;
 
 /// What the shell keeps between renders: whether the search is open, and which of its popups is.
 #[derive(Clone)]
@@ -410,10 +411,33 @@ fn sidebar(ctx: &mut Ctx, state: &Shell, current: &str) -> Element {
     });
     Some(SidebarGroup::new(group.name()).count(pages.len()).items(items))
   });
-  // The gallery's side bar is on the canvas of its window, as its design draws it, and the page that is open is a
-  // card on it: the component's own fill is the board's sidebar's, which stands beside a page of another color.
+  // The gallery's side bar is its own, as it was drawn by hand: on the canvas of its window, the page that is open
+  // a card on it, 248 wide, padded 20 down and 16 across with 20 between its groups, a group's label in the mono
+  // family over 6, and its rows' names in 14. The component's own look is the board's sidebar, which stands beside
+  // a page of another color. The rail and the sidebar over the page keep the component's room.
   let look = Recipe::new()
-    .base(SidebarPart::Root, |s| s.background(PaletteColor::Canvas))
+    .base(SidebarPart::Root, |s| {
+      s.width(SIDEBAR).padding_y(20.0).background(PaletteColor::Canvas)
+    })
+    .state(SidebarState::Collapsed, SidebarPart::Root, |s| s.width(52.0).padding_y(8.0))
+    .state(SidebarState::Overlay, SidebarPart::Root, |s| {
+      s.width(Length::Fill).background(Color::new(0, 0, 0, 0))
+    })
+    .base(SidebarPart::Body, |s| s.padding_x(16.0).gap(20.0))
+    .state(SidebarState::Collapsed, SidebarPart::Body, |s| s.padding_x(8.0).gap(4.0))
+    // A line of 15 and 6 under it, as the design has it, whatever the font's own line is.
+    .base(SidebarPart::GroupLabel, |s| {
+      s.height(21.0).padding_top(0.0).padding_bottom(6.0)
+    })
+    .base(SidebarPart::GroupText, |s| {
+      s.typography(TypographyStyle::Mono)
+        .font_size(11.0)
+        .weight(FontWeight::Normal)
+        .letter_spacing(1.0)
+    })
+    .base(SidebarPart::ItemLabel, |s| s.font_size(14.0))
+    // The open page's icon stays muted: the card says which it is.
+    .state(SidebarState::Selected, SidebarPart::ItemIcon, |s| s.foreground(PaletteColor::MutedForeground))
     .hovered(SidebarPart::Item, |s| {
       s.background(PaletteColor::Highlight)
         .foreground(PaletteColor::HighlightForeground)

@@ -51,6 +51,8 @@ pub struct Selector {
   /// States of the component that all have to hold: checked, disabled, loading.
   states: Vec<Name>,
   interaction: Option<Interaction>,
+  /// While the interaction group the part is in is under the pointer or holds the focus.
+  within: bool,
 }
 
 impl Selector {
@@ -104,6 +106,14 @@ impl Selector {
 
   pub fn focus_visible(mut self) -> Self {
     self.interaction = Some(Interaction::FocusVisible);
+    self
+  }
+
+  /// While the pointer is on the element the part is in that is an interaction group, or the focus is on it or in
+  /// it (`.interaction_group(true)`, which a component puts on what is pressed: a row, an item). What it sets is
+  /// painted only, never sized.
+  pub fn within(mut self) -> Self {
+    self.within = true;
     self
   }
 
@@ -305,6 +315,12 @@ impl Recipe {
     self.when(Selector::new().focus_visible(), part, style)
   }
 
+  /// A rule for a part while the interaction group it is in is under the pointer or holds the focus: an action at
+  /// the end of a row that shows only then. See [`Selector::within`].
+  pub fn within(self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.when(Selector::new().within(), part, style)
+  }
+
   /// Adds the rules of `other` after this recipe's: where both style a case,
   /// `other` wins.
   pub fn extend(mut self, other: &Recipe) -> Self {
@@ -350,6 +366,7 @@ pub(crate) fn resolve_styles(recipes: &[&Recipe], case: &Case) -> ResolvedStyles
   for (_, _, rule) in holding {
     let part = parts.entry(rule.part).or_default();
     match rule.selector.interaction {
+      None if rule.selector.within => part.within.merge(&rule.style),
       None => part.rest.merge(&rule.style),
       Some(Interaction::Hovered) => part.hovered.merge(&rule.style),
       Some(Interaction::Pressed) => part.pressed.merge(&rule.style),
@@ -369,6 +386,8 @@ pub struct PartStyles {
   pub hovered: PartStyle,
   pub pressed: PartStyle,
   pub focus_visible: PartStyle,
+  /// What the part shows while the interaction group it is in is under the pointer or holds the focus.
+  pub within: PartStyle,
 }
 
 impl PartStyles {
@@ -435,6 +454,7 @@ impl ResolvedRecipe {
       .hovered(inner, |_| styles.hovered.clone())
       .pressed(inner, |_| styles.pressed.clone())
       .focus_visible(inner, |_| styles.focus_visible.clone())
+      .within(inner, |_| styles.within.clone())
   }
 }
 
@@ -466,10 +486,20 @@ impl ResolvedPart {
   /// The style of the part at rest, with a forced interaction laid over it.
   pub fn rest(&self) -> PartStyle {
     let styles = self.styles();
+    // A part drawn as pointed at or focused is in a group that is: what shows only then shows.
     match self.forced {
       // A part held down is under the pointer too.
-      Some(Interaction::Pressed) => styles.rest.clone().merged(&styles.hovered).merged(&styles.pressed),
-      Some(interaction) => styles.rest.clone().merged(styles.interaction(interaction)),
+      Some(Interaction::Pressed) => styles
+        .rest
+        .clone()
+        .merged(&styles.within)
+        .merged(&styles.hovered)
+        .merged(&styles.pressed),
+      Some(interaction) => styles
+        .rest
+        .clone()
+        .merged(&styles.within)
+        .merged(styles.interaction(interaction)),
       None => styles.rest.clone(),
     }
   }
@@ -498,6 +528,9 @@ impl ResolvedPart {
     }
     if let Some(style) = styles.focus_visible.state_style(theme) {
       NodeUpdate::focus_visible_style(node, style);
+    }
+    if let Some(style) = styles.within.state_style(theme) {
+      NodeUpdate::within_style(node, style);
     }
   }
 }

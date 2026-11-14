@@ -1,6 +1,7 @@
 //! A tree view: its rows against the board, what a press of a row, of its chevron and a double press do, the
 //! keys of a tree, selecting many with Ctrl and Shift, a disabled row, children that come later, the guides,
-//! and a theme's other anatomy.
+//! a theme's other anatomy, a tree of ten thousand rows in a virtual list that the keys reach every row of, and
+//! what stands at a row's end shown only while the row is pointed at or focused.
 
 use std::sync::{Arc, Mutex};
 
@@ -8,16 +9,16 @@ use lurq::{
   app::{
     App,
     events::MouseButton,
-    theme::{PaletteColor, ThemePalette},
+    theme::{Density, PaletteColor, Theme, ThemePalette},
   },
-  components::{Column, Row},
+  components::{Column, Row, Text},
   core::Signal,
   layout::{
     quad::{Quad, QuadContent},
     text_style::FontWeight,
   },
   node::color::Color,
-  ui::{TreeItem, TreeView, TreeViewPart, TreeViewRenderer, TreeViewView},
+  ui::{Case, Opacity, Recipe, Themed, TreeItem, TreeView, TreeViewPart, TreeViewRenderer, TreeViewView},
 };
 
 use super::stage::Stage;
@@ -476,4 +477,184 @@ fn a_renderer_sees_the_rows_shown_with_their_levels_and_places() {
       ("Cargo.toml".to_owned(), 1, (2, 2), false, false),
     ]
   );
+}
+
+/// A hundred folders of a hundred files: folder `i` is `i * 1000`, its file `j` is `i * 1000 + j + 1`; folder 87
+/// is called "Zeta". Rows are `r{i}` and `r{i}-{j}`.
+fn big() -> Vec<TreeItem<u32>> {
+  (0..100u32)
+    .map(|i| {
+      let label = if i == 87 {
+        "Zeta".to_owned()
+      } else {
+        format!("Folder {i}")
+      };
+      TreeItem::folder(i * 1000, &label).element_id(format!("r{i}")).children(
+        (0..100u32)
+          .map(move |j| TreeItem::file(i * 1000 + j + 1, &format!("file {i}.{j}")).element_id(format!("r{i}-{j}"))),
+      )
+    })
+    .collect()
+}
+
+/// The big tree in a virtual list 240 high, `open` open, any number selected.
+fn big_stage(open: Vec<u32>) -> (Stage, Signal<Vec<u32>>, Signal<Vec<u32>>) {
+  let (open, selected) = (Signal::new(open), Signal::new(Vec::new()));
+  let (scene_open, scene_selected) = (open.clone(), selected.clone());
+  let stage = Stage::new(move |ctx| {
+    Column::new()
+      .child(
+        TreeView::new(big())
+          .label("Files")
+          .expanded(scene_open.clone())
+          .selected(scene_selected.clone())
+          .multiple(true)
+          .style(TreeViewPart::Root, |s| s.width(220.0).height(240.0))
+          .id("tree")
+          .mount(ctx),
+      )
+      .into()
+  });
+  (stage, open, selected)
+}
+
+/// A key, then the passes in which the list builds the row it went to and the focus goes there.
+fn settle(stage: &mut Stage, key: &str) {
+  stage.key(key);
+  stage.pass();
+  stage.pass();
+}
+
+#[test]
+fn a_tree_in_a_virtual_list_builds_the_rows_in_view_and_the_keys_reach_every_row() {
+  let every: Vec<u32> = (0..100).map(|i| i * 1000).collect();
+  let (mut stage, open, _) = big_stage(every);
+  // 10100 rows are shown; a few are built, each as wide as the tree.
+  let built = stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.starts_with("file ")))
+    .count();
+  assert!(built > 0 && built < 60, "{built} rows built");
+  assert_eq!(stage.bounds("r0").2, 220.0);
+
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("r0"));
+  settle(&mut stage, "End");
+  assert_eq!(focused(&stage).as_deref(), Some("r99-99"));
+  settle(&mut stage, "Home");
+  assert_eq!(focused(&stage).as_deref(), Some("r0"));
+  // A page is as many rows as the view holds: 240 over rows of 28 and 2 apart.
+  settle(&mut stage, "PageDown");
+  assert_eq!(focused(&stage).as_deref(), Some("r0-7"));
+  settle(&mut stage, "PageUp");
+  assert_eq!(focused(&stage).as_deref(), Some("r0"));
+
+  // A letter: Zeta, 8787 rows down.
+  settle(&mut stage, "z");
+  assert_eq!(focused(&stage).as_deref(), Some("r87"));
+  // Left closes it, Right opens it again and goes in.
+  settle(&mut stage, "ArrowLeft");
+  assert!(!open.get().contains(&87000));
+  settle(&mut stage, "ArrowRight");
+  assert!(open.get().contains(&87000));
+  settle(&mut stage, "ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("r87-0"));
+  // From the last file of a folder, Left goes out to the folder, a hundred rows up, not built.
+  settle(&mut stage, "End");
+  settle(&mut stage, "ArrowLeft");
+  assert_eq!(focused(&stage).as_deref(), Some("r99"));
+}
+
+#[test]
+fn shift_with_the_keys_and_ctrl_a_select_rows_that_are_not_built() {
+  let every: Vec<u32> = (0..100).map(|i| i * 1000).collect();
+  let (mut stage, _, selected) = big_stage(every);
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(selected.get(), [0]);
+  // Shift+End: from the anchor to the last row, and the focus goes there.
+  stage
+    .tree
+    .key_down("End".to_owned(), "End".to_owned(), true, false, false);
+  stage.pass();
+  stage.pass();
+  assert_eq!(selected.get().len(), 10100);
+  assert_eq!(selected.get().last(), Some(&0), "the anchor stays last");
+  assert_eq!(focused(&stage).as_deref(), Some("r99-99"));
+  // A press of the last row alone, then Shift+PageUp: a page of rows up.
+  stage.click("r99-99");
+  stage
+    .tree
+    .key_down("PageUp".to_owned(), "PageUp".to_owned(), true, false, false);
+  stage.pass();
+  stage.pass();
+  assert_eq!(selected.get().len(), 9);
+  // Ctrl+A: every row shown.
+  stage.tree.key_down("a".to_owned(), "a".to_owned(), false, true, false);
+  stage.pass();
+  assert_eq!(selected.get().len(), 10100);
+}
+
+#[test]
+fn star_opens_every_folder_at_the_top_of_a_tree_in_a_virtual_list() {
+  let (mut stage, open, _) = big_stage(Vec::new());
+  stage.key("Tab");
+  settle(&mut stage, "*");
+  assert_eq!(open.get().len(), 100);
+  settle(&mut stage, "End");
+  assert_eq!(focused(&stage).as_deref(), Some("r99-99"));
+}
+
+#[test]
+fn what_an_item_marks_shows_at_the_row_end_only_while_the_row_is_pointed_at_or_focused() {
+  // The design: hidden at rest, shown in the group's light, and always under a finger.
+  let theme = Theme::new();
+  let recipe = TreeView::<u32>::recipe();
+  let rest = recipe.resolve(&Case::new(), &theme);
+  assert_eq!(
+    rest.part(TreeViewPart::Reveal).styles().rest.opacity,
+    Some(Opacity::Value(0.0))
+  );
+  assert_eq!(
+    rest.part(TreeViewPart::Reveal).styles().within.opacity,
+    Some(Opacity::Value(1.0))
+  );
+  let touch = recipe.resolve(&Case::new().density(Density::Touch), &theme);
+  assert_eq!(
+    touch.part(TreeViewPart::Reveal).rest().opacity,
+    Some(Opacity::Value(1.0))
+  );
+
+  // Live: the part is lit with the row. A rule of the test's paints it while it is.
+  let lit = light(PaletteColor::Primary);
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .child(
+        TreeView::new([
+          TreeItem::file("a", "a.rs")
+            .element_id("a")
+            .trailing(Text::new("new"))
+            .trailing_on_hover(true),
+          TreeItem::file("b", "b.rs").element_id("b").trailing(Text::new("2")),
+        ])
+        .rules(&Recipe::new().within(TreeViewPart::Reveal, |s| s.background(PaletteColor::Primary)))
+        .style(TreeViewPart::Root, |s| s.width(220.0)),
+      )
+      .into()
+  });
+  let shown = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .any(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == lit))
+  };
+  assert!(!shown(&stage), "at rest");
+  stage.hover("a");
+  assert!(shown(&stage), "the row under the pointer");
+  stage.hover("b");
+  assert!(!shown(&stage), "another row under the pointer");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("a"));
+  assert!(shown(&stage), "the row with the focus");
 }

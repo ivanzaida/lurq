@@ -529,6 +529,9 @@ pub(crate) trait NodeUpdate {
   fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
   fn absolute_position(&mut self, x: f32, y: f32);
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky);
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn fills_viewport_width(&mut self, fills: bool);
   fn align(&mut self, alignment: Alignment);
   fn flex(&mut self, factor: f32);
   fn grid_cell(&mut self, update: impl FnOnce(&mut crate::layout::grid::GridCell));
@@ -588,6 +591,8 @@ pub(crate) trait NodeUpdate {
   fn inert(&mut self, inert: bool);
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);
+  fn within_style(&mut self, style: Style);
+  fn interaction_group(&mut self, group: bool);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
   fn off_click(&mut self, f: impl IntoMouseEventHandler);
   fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
@@ -690,6 +695,8 @@ pub(crate) trait NodeUpdate {
   fn focus_label(&mut self, label: Arc<str>);
   fn focus_level(&mut self, level: u32);
   fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>);
+  fn focus_row(&mut self, row: usize);
+  fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>);
@@ -911,9 +918,19 @@ pub(crate) struct RareStyle {
   /// Where the node sticks in the scroll container it is in. Here, and not in `Position`, because every
   /// node holds a `Position` and few stick.
   pub(crate) sticky: Option<crate::layout::layout_kind::Sticky>,
+  /// The tracks the node lays its children out in, one to a track: a row of a table. See
+  /// `layout/column_tracks.rs`.
+  pub(crate) column_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// The tracks whose cells the node measures in the rows it holds: what holds the rows of a table.
+  pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
+  pub(crate) fills_viewport_width: bool,
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
+  /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
+  /// see [`NodeUpdate::interaction_group`].
+  pub(crate) interaction_group: bool,
 }
 
 /// Whether any node of the process was ever disabled. Until one is, no tree
@@ -1293,6 +1310,23 @@ impl NodeUpdate for Node {
     self.rare_style.sticky = Some(sticky);
   }
 
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.column_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.measured_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn fills_viewport_width(&mut self, fills: bool) {
+    if self.rare_style.fills_viewport_width != fills {
+      self.rare_style.fills_viewport_width = fills;
+      self.layout_cache.invalidate();
+    }
+  }
+
   fn align(&mut self, alignment: Alignment) {
     self.align_self = Some(alignment);
     self.layout_cache.invalidate();
@@ -1539,6 +1573,14 @@ impl NodeUpdate for Node {
 
   fn disabled_style(&mut self, style: Style) {
     self.state_styles.disabled = Some(style);
+  }
+
+  fn within_style(&mut self, style: Style) {
+    self.state_styles.within = Some(style);
+  }
+
+  fn interaction_group(&mut self, group: bool) {
+    self.rare_style.interaction_group = group;
   }
 
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style) {
@@ -2100,6 +2142,14 @@ impl NodeUpdate for Node {
     let branch = Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default));
     branch.expanded = Some(open);
     branch.toggle = Some(toggle);
+  }
+
+  fn focus_row(&mut self, row: usize) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).row = Some(row);
+  }
+
+  fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).rows = Some(rows);
   }
 
   fn button_kind(&mut self, kind: ButtonKind) {
@@ -3080,6 +3130,21 @@ impl Node {
 
   pub(crate) fn is_sticky(&self) -> bool {
     self.rare_style.sticky.is_some()
+  }
+
+  /// The tracks the node lays its children out in, if it is a row of a table.
+  pub(crate) fn column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.column_tracks.as_ref()
+  }
+
+  /// The tracks whose cells the node measures in the rows it holds.
+  pub(crate) fn measured_column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.measured_tracks.as_ref()
+  }
+
+  /// Whether the node, a scroll container, lays its content out at least as wide as its viewport.
+  pub(crate) fn fills_viewport_width(&self) -> bool {
+    self.rare_style.fills_viewport_width
   }
 
   pub fn align(mut self, alignment: Alignment) -> Self {
@@ -4799,6 +4864,11 @@ impl Node {
     {
       return Some(value);
     }
+    if let Some(value) = states.within.as_ref().and_then(&pick)
+      && state.is_within()
+    {
+      return Some(value);
+    }
     None
   }
 
@@ -4913,6 +4983,7 @@ impl Node {
       .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
       .or_else(|| state_shadow(self.style_state.is_focus_visible(), &states.focus_visible))
       .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
+      .or_else(|| state_shadow(self.style_state.is_within(), &states.within))
       .or(self.rare_style.box_shadow.as_ref())
   }
 
@@ -5224,6 +5295,26 @@ impl Node {
       self.style_state.mark_layout_dirty();
     }
     layout_dirty
+  }
+
+  /// Lights or puts out what the interaction group around the node lights in it (its `within` style). Returns
+  /// the node's state, whose handle the tree keeps to put it out again.
+  pub(crate) fn set_style_within(&self, within: bool) -> InteractionState {
+    let state = self.bound_style_state();
+    if state.is_within() != within {
+      state.set_within(within);
+    }
+    state.clone()
+  }
+
+  /// Whether the node is an interaction group: see [`NodeUpdate::interaction_group`].
+  pub(crate) fn is_interaction_group(&self) -> bool {
+    self.rare_style.interaction_group
+  }
+
+  /// Whether the node has a style for while its interaction group is lit.
+  pub(crate) fn has_within_style(&self) -> bool {
+    self.state_styles.within.is_some()
   }
 
   pub(crate) fn set_style_focused(&self, focused: bool) -> bool {
@@ -5643,6 +5734,9 @@ impl Node {
       && self.text_overflow == old.text_overflow
       && self.overflow == old.overflow
       && self.intrinsic_size == old.intrinsic_size
+      && self.rare_style.column_tracks == old.rare_style.column_tracks
+      && self.rare_style.measured_tracks == old.rare_style.measured_tracks
+      && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }
@@ -6161,6 +6255,11 @@ impl Node {
 
   pub(crate) fn state_style(&self) -> Style {
     let mut style = Style::new();
+    if let Some(within) = &self.state_styles.within
+      && self.style_state.is_within()
+    {
+      style.merge_from(within);
+    }
     if self.style_state.is_focused()
       && let Some(focused) = &self.state_styles.focused
     {

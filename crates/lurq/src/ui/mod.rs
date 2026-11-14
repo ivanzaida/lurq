@@ -24,6 +24,7 @@ mod banner;
 mod breadcrumb;
 mod button;
 mod button_group;
+mod calendar;
 mod callout;
 mod card;
 mod checkbox;
@@ -34,6 +35,8 @@ mod combobox;
 mod command_palette;
 mod context_menu;
 mod data_list;
+mod date_picker;
+mod date_range_picker;
 mod dialog;
 mod drawer;
 mod empty_state;
@@ -55,6 +58,8 @@ mod menu;
 mod menubar;
 mod message_box;
 mod multi_select;
+mod navbar;
+mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;
@@ -80,6 +85,7 @@ mod spinner;
 mod splitter;
 mod steps;
 mod switch;
+mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -117,6 +123,9 @@ pub use button::{
   ButtonView,
 };
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use calendar::{
+  Calendar, CalendarChoice, CalendarMemory, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
+};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 pub use checkbox::{
@@ -136,6 +145,10 @@ pub use command_palette::{
 };
 pub use context_menu::{ContextMenu, ContextMenuPart, ContextMenuRenderer, ContextMenuState, ContextMenuView};
 pub use data_list::{DataList, DataListItem, DataListPart, DataListRenderer, DataListState, DataListView};
+pub use date_picker::{
+  DatePicker, DatePickerPart, DatePickerRenderer, DatePickerState, DatePickerView, Picked, PickerRenderer, PickerView,
+};
+pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use empty_state::{
@@ -180,6 +193,11 @@ pub use message_box::{
   MessageBoxView,
 };
 pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
+pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, NavbarView};
+pub use navigation_menu::{
+  NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
+  NavigationMenuVariant, NavigationMenuView,
+};
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
   NumberInputState, NumberInputView,
@@ -240,6 +258,10 @@ pub use steps::{
   CurrentStep, Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView,
 };
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
+pub use table::{
+  BodyWindow, ColumnAlign, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
+  TableRenderer, TableRow, TableSort, TableState, TableView,
+};
 pub use tabs::{
   Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
 };

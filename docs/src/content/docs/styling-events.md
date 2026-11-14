@@ -385,7 +385,8 @@ A state style can also set:
 - `.outline(outline)`: an [outline](#outline) while the state holds, typically a focus ring in `focus_visible`.
 
 These three change painting only. Where several state styles set the same value, the one applied last wins: the
-[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused.
+[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused, and last the style
+[within an interaction group](#within-an-interaction-group).
 
 ```rust
 use lurq::{components::{Row, Text}, node::Outline};
@@ -412,6 +413,42 @@ let hovered = interaction.is_hovered();
 ```
 
 Attach the state to an element with `.interactive(interaction)` if you need to observe that element's state from component code.
+
+### Within An Interaction Group
+
+`.interaction_group(true)` makes an element a group: while the pointer is on it, or the focus is on it or in it, the
+elements in it show their `.within_style(style)`. An action at the end of a row that shows only while the row is
+pointed at or focused is a style within the row's group.
+
+```rust
+use lurq::{
+  components::{Button, Row, Text},
+  node::Style,
+};
+
+// The delete button shows while the pointer is on the row or the focus is in it.
+Row::new()
+  .padding_horizontal(12.0)
+  .interaction_group(true)
+  .hovered(|style| style.background("#f4f4f5"))
+  .child(Text::new("report.pdf"))
+  .child(
+    Button::new("Delete")
+      .tab_index(0)
+      .opacity(0.0)
+      .within_style(Style::new().opacity(1.0)),
+  )
+```
+
+- The pointer anywhere on the group lights it, on an element in it as well as between them. The focus on the group or
+  on anything in it lights it too, so a keyboard reaches the action and sees it.
+- An element in two groups answers to the innermost: a group inside another lights only what is in it, and the outer
+  one lights the rest.
+- It paints only, as the disabled style does: a frame, padding or flex in it is ignored, so nothing moves as it comes and
+  goes. It is laid under every other state style.
+- An element hidden by it (opacity 0) is still under the pointer and still a stop of Tab; with the pointer on it, its
+  group is lit and it shows. A design system's recipe names it `within` (see
+  [Recipes](../design-system/#recipes)).
 
 ## Disabled
 
@@ -1200,6 +1237,34 @@ DragContainer::mount(
 `DragContainerProps::new()` bounds descendant draggables to the container surface. Use `DragBounds::None` when the draggable should not be constrained.
 
 Low-level node drag handlers are also available: `.on_drag_start`, `.on_drag_move`, `.on_drag_end`, and `.on_drop`.
+
+### A Drag Holds The Pointer
+
+A press on an element with `on_drag_*` handlers starts a drag that holds the pointer until the button is let go, as a pointer capture does in a browser:
+
+- Every move reaches `on_drag_move`, wherever the pointer is: over other elements, and out of the window too, where the shell goes on passing the moves of a held button. `DragEvent::total_delta_x` and `total_delta_y` count from where the press was.
+- Nothing is hovered meanwhile and no text is selected by the move.
+- The window shows the cursor that was under the pointer at the press for the whole drag (`Tree::cursor`), over elements with cursors of their own and out of the window, until the release; then it is that of what is under the pointer again.
+- A drag that moved clicks nothing when it is let go. `.start_drag_buttons(MouseButtonMask::LEFT)` keeps the other buttons from starting one.
+
+A divider that resizes what is beside it needs nothing more than its handlers and its cursor:
+
+```rust
+use lurq::{
+  app::events::{DragEvent, MouseButtonMask},
+  components::Row,
+  node::CursorIcon,
+};
+
+Row::new()
+  .width(6.0)
+  .cursor(CursorIcon::ColResize) // shown for the whole drag, whatever the pointer crosses
+  .start_drag_buttons(MouseButtonMask::LEFT)
+  .on_drag_move(move |event: DragEvent| resize_by(event.total_delta_x))
+  .on_drag_end(move |_: DragEvent| save_layout());
+```
+
+`ui::Splitter` is such a divider between panes, with the keys, panes that close and a layout the app saves.
 
 ## File Drag And Drop
 

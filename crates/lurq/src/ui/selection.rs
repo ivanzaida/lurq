@@ -5,11 +5,15 @@
 //! app's: a list of ids, the last of it where a range with Shift starts, and what writes the next one. A row's
 //! press tells [`ListSelection::pick`] how it was pressed ([`Pick::of`]); Shift with the keys is a press with Shift
 //! of where the focus goes, which the engine makes for a focus group with
-//! [`shift_extends`](crate::node::FocusGroup::shift_extends); Ctrl+A is [`select_all_key`].
+//! [`shift_extends`](crate::node::FocusGroup::shift_extends), or, for a list that steps the selection with the
+//! keys itself, [`ListSelection::extend`]; Ctrl+A is [`select_all_key`].
 
 use std::sync::Arc;
 
-use crate::app::events::{KeyboardEvent, MouseEvent};
+use crate::{
+  app::events::{KeyboardEvent, MouseEvent},
+  node::{FocusStep, step_rows},
+};
 
 /// How a press selects a row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +95,25 @@ impl<T: Clone + PartialEq> ListSelection<T> {
       Pick::Range => self.range(self.anchor().unwrap_or(index), index),
     };
     self.write(next);
+  }
+
+  /// Shift with a key on the row at `from`, where any number may be selected: the rows from where the selection
+  /// started to where `step` takes the focus, as the engine steps a focus group over rows that take input, without
+  /// going round its ends. PageUp and PageDown go `page` rows, and do nothing without it. The row it reaches need
+  /// not be built: a list that builds only the rows near its view reaches any.
+  pub(crate) fn extend(&self, from: usize, step: FocusStep, page: Option<usize>) {
+    if !self.multiple {
+      return;
+    }
+    let page = match (page, step.is_page()) {
+      (Some(page), true) => page,
+      (None, true) => return,
+      _ => 1,
+    };
+    let to = step_rows(step, from, self.ids.len(), page, false, |index| self.enabled[index]);
+    if let Some(to) = to {
+      self.write(self.range(self.anchor().unwrap_or(from), to));
+    }
   }
 
   /// Every row that takes input, where any number may be selected: where the selection started stays where it is.
