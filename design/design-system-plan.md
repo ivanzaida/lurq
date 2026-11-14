@@ -683,6 +683,27 @@ An independent session (Fable 5.2, no part in building anything) drove Ivan's ow
 - **Not a defect**: the Command Palette's Reset (the pass pressed a button that was scrolled out of view). **Left as it is**: a Mac's glyphs of `Kbd` on Windows come from the system's fallback font (thinner than the letters); on a Mac, where `KeyPlatform::current()` chooses them, they are the system font's.
 - **The props** (77 findings: one meaning under several names, the signal's place in `new`, handlers that replace where others add, the order of a handler and a closing, defaults that differ) are a decision for Ivan before any of them is changed: `target/qa/report.md`, part 2.
 
+### 14.19 The props batch
+
+Ivan decided on 2026-11-14 that every proposal of the QA pass on props is applied before another component is built. The rules were written first (the playbook's "Props: one way to say each thing"), with two types every family shares (`ui::Orientation`, `ui::IconChoice`); then the nine sessions that had built the components each brought a family to the rules, renaming with no alias, since nothing of `ui` is released.
+
+- **What the merge found.** Nine branches crossed in five places, each a rename of one family met by another's new code, fixed at the merge. Three things the rules had not said were decided there and written down: an anchored panel's `offset` is a distance in the theme's spacing (one session had made it a pair of pixels); a handler's type is checked by the compiler (two sessions had erased the value's type and checked the handler when it was called, a third had made its components generic over the value they hold, which became the rule); the forms for one, one or none, and any number have one set of names.
+- **A second pass** closed what the nine reports listed as unclear, each answered in the playbook, and what they left: `Modal::on_dismiss` in the engine, Listbox and Accordion on the forms, a Textarea 260 wide as the board's, `Steps::at`, a hidden More button of a toolbar keeping no room (a fault of the flex layout).
+- **What was learned about checking**: the tests of what tooling reads are behind the `mcp` feature and had not run at any merge (a list's row with a checkbox said `button` to tooling since it was built); the library did not compile without the `router` feature. Both are checks of every merge now.
+
+### 14.20 Scrolling, said by Ivan on 2026-11-14
+
+Three things he saw in his own window while the batches ran, each in the engine: a scroll's content is drawn on a whole device pixel (at 150% a fractional offset moved every label a pixel against its box); a notch of the mouse's wheel is animated to where it scrolls (it moved the page 60 pixels in one frame, which read as labels jumping, though no frame of a recording at 120 a second showed anything wrong); a scroll container's bars can keep clear of what sticks at its start (a table's bar ran over its header). A table's cells are as high as their row, so a first column that stays covers what scrolls under it.
+
+### 14.21 The ninth batch
+
+Seven sessions, the ones that built the batches before: `DataGrid` on the Table; `Timeline`; `Rating`; `DropZone` with `FileUpload`; `ColorPicker`, `ColorField`, `ColorSwatch`, `SwatchPicker`; `DateField`, `TimeField`, `TimePicker`, `MonthPicker`, `YearPicker`; the theme's scroll bar as the board draws it, with `ScrollArea`.
+
+- **Built to the rules of props from the first commit**, with the docs written where they live and no handoff file, each page looked at in a running gallery by the session that built it.
+- **What the engine got for it**: `lurq::files` (files dropped on an element from the system, and the system's file dialog); `Color::parse` with HSV and HSL; `core::Time` and the time of `DateText`; a row of column tracks whose child spans several, and columns built only in view; the design's scroll bar with its own states, and the keys of a focused scroll container; a solid star in the icon font.
+- **Dates are the app's to write**: `app.set_date_locale(..)` with a `DateText` an app implements, English unless told (Ivan's, the same day).
+- **What the merge found**: every ui test passed at the first run (1306 with `mcp`); one runtime test stated a rule the scroll bar's work had changed (two bars no longer share the corner).
+
 ## 15. The gallery
 
 Asked for on 2026-11-13: `pencil/lurq-design-system-demo.pen` is the demo app, in place of the one there is. It is built from the moment work on components starts, a page at a time, so that each component can be looked at as it lands.
@@ -743,6 +764,7 @@ The gallery is `crates/gallery`, beside `crates/demo`. Its shell came first, the
 
 - **The Button page**: the playground (a state forced with nothing pointing at the button, its measured size and its radius, a count of its presses, the Rust that builds it, the log of its events and the parts it is built of, each copied to the clipboard, and a control for every prop with the count of those changed and a reset), then Variants, Sizes, the matrix of every variant in every state at a size, Icons & shapes, and the table of props. The copy button of a demo card's footer copies its call.
 - **The playground is one module** (`playground.rs`): a page says what is on the stage, the Rust that builds it, the parts it is built of and the controls of its panel, and the rest is the same on every page: the switch of forced states, the measured size, the count and the log of what the component did, the tabs, Copy, the count of changed props and Reset. Said on 2026-11-13: a page of a component has a playground; the five pages below were first built without one.
+- **The pages of the ninth batch**: Data Grid, Timeline (Data); Rating, Drop Zone, File Upload, Color Picker, Color Field, Swatch Picker, Date Field, Time Field, Time Picker, Month Picker, Year Picker (Inputs); Scroll Area. A stage builds what is on it in its own theme and measures the component itself.
 - **The pages of the data batch**: Navbar, Navigation Menu (Navigation); Table, List, Listbox, Data List (Data); Calendar, Date Picker, Date Range Picker (Inputs), each with its playground.
 - **The pages of the structure batch**: Sidebar, Menubar, Toolbar, Action Bar, Tree View (Navigation) and Splitter (Desktop), each with its playground. The gallery's own side bar is `ui::Sidebar`, in the gallery's colors by a recipe over it. A playground's stage scrolls what is larger than it, its code and its log are one text each that is selected and copied, and a panel's choices wrap onto rows.
 - **The pages of the feedback batch**: Alert, Banner, Callout, Kbd, Empty State, Result (Data), and Message Box, Popconfirm, Progress Dialog, Sheet, Drawer, Hover Card, Toggletip, Teaching Tip, Command Palette, Context Menu (Surfaces & overlays), each with its playground. The gallery's keys are `ui::Kbd` and its search is `ui::CommandPalette`.
