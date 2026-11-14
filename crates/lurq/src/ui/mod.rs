@@ -16,11 +16,14 @@
 //! what renders it renders again when the theme changes.
 
 mod accordion;
+mod alert;
 mod avatar;
 mod badge;
+mod banner;
 mod breadcrumb;
 mod button;
 mod button_group;
+mod callout;
 mod card;
 mod checkbox;
 mod chip;
@@ -70,11 +73,13 @@ mod token_input;
 mod tooltip;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
+pub use alert::{Alert, AlertIcon, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupView, AvatarPart, AvatarPresence,
   AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
+pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
@@ -84,6 +89,7 @@ pub use button::{
   ButtonView,
 };
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
