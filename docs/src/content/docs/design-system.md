@@ -884,6 +884,49 @@ Rating::at(3.0).icon(icons::HEART).empty_icon(icons::HEART);
 - In a [field](#field) it is called by the field's label unless it has one of its own, invalid where the field is and disabled where the field is.
 - A renderer that draws another rating is given a `RatingView`: `view.root()` is the row with its behavior (the keys, the role, the value), `view.star(index)` a star with its room for a press, `view.lit(index)` how much of a star is lit, `view.stars` the value and `view.shown` what is lit now.
 
+## Shortcut Recorder
+
+A box that holds a key combination, which a person sets by pressing it: the shortcut of a command in an app's settings, the key that shows a window.
+
+```rust
+use lurq::{app::Accelerator, ui::ShortcutRecorder};
+
+// palette: Signal<Option<Accelerator>>. Mounted, it records.
+ShortcutRecorder::optional(palette.clone())
+  .label("Command palette")
+  // The app refuses a combination with a sentence the box says under it.
+  .validate(|pressed| match pressed.to_string().as_str() {
+    "Ctrl+Q" => Err("Already used by Quit".to_owned()),
+    _ => Ok(()),
+  })
+  .mount(ctx);
+
+// The app holds it: told what is pressed, it shows what the app says next.
+ShortcutRecorder::controlled(saved, move |shortcut| store(shortcut.to_string()));
+```
+
+| Builder | |
+| --- | --- |
+| `ShortcutRecorder::new(Signal<Accelerator>)` | The shortcut the signal holds; a combination pressed and taken sets it |
+| `ShortcutRecorder::optional(Signal<Option<Accelerator>>)` | The same where none is a state of its own, which Backspace and the cross at its end give |
+| `controlled(Accelerator, on_change)`, `controlled_optional(Option<Accelerator>, on_change)` | The app holds the shortcut: it is told what a combination pressed (or an emptying) asks for, and what is shown is what it says next |
+| `on_change(handler)` | Called with `&Accelerator` (`&Option<Accelerator>` for an optional one) after the signal is set. Not for the shortcut it holds already, nor when the app sets the signal. Each call adds |
+| `validate(Fn(&Accelerator) -> Result<(), String>)` | The app refuses a combination with a sentence: the box shows what was pressed, edged as wrong, says why under it, and keeps what it held. Each call adds a check |
+| `require_modifier(bool)` | A combination needs a modifier held with its key: it does unless told, but a function key is taken alone |
+| `platform(KeyPlatform)` | Whose names its keys are drawn with ([`Kbd`](#kbd)): the platform the app runs on unless told |
+| `label(&str)` | What it is called to tooling: "Shortcut" unless told. It draws nothing |
+| `placeholder(&str)`, `recording_text(&str)`, `clear_label(&str)`, `modifier_text(&str)` | What it says with no shortcut ("Record shortcut") and while it records ("Press shortcut…"), what its cross is called ("Clear shortcut"), and what it says of a combination with no modifier |
+| `size(ShortcutRecorderSize)` | A box's sizes: `Sm` 32 high, the board's and the default, `Md` 36, `Lg` 40 |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)`, `read_only(bool)`, `disabled(bool)`, `full_width(bool)`, `name(..)` | As an [input](#input) has them. Read only, it does not record and has no cross. Its `name` gives the form its shortcut written as `Ctrl+Shift+P` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the box's |
+
+- A press of the box, or Enter or Space while it has the focus, starts recording. While it records it takes every key of the window ([`captures_keys`](../styling-events/#taking-every-key)): the app's own shortcuts and the accelerators of its menu are held back, and Tab is recorded with what is held. It shows the modifiers as they are held, and takes the combination when a key that is no modifier goes down ([`Accelerator::from_key_event`](../window-lifecycle-menus/#reactive-updates-and-shortcuts)). Escape gives up, the focus leaving it gives up, and Backspace and Delete with no modifier empty an optional one.
+- It records where it is mounted (`mount(ctx)`), which keeps whether it records, the modifiers held and the combination it refused. Converted into an element, or given to a [field](#field) as a builder, it shows its shortcut and its cross empties it, but a press does not record: in a field, mount it and give it the field's label and judgment.
+- In the design the box is 230 by 32, a box's fill and edge with the medium radius, 8 in at its start and 6 at its end; its keys are [`Kbd`](#kbd)s 4 apart, and the cross at its end is 14 in `MutedForeground`. Recording, its edge is a line of 2 in `Ring`, and a dot of 8 in `Destructive` stands before "Press shortcut…" in `MutedForeground` at 13. A refused combination edges it in `Destructive` and says why 6 under it at 12 in `Destructive`. Under the pointer, judged, read only and disabled it is a box.
+- Parts: `ShortcutRecorderPart::Root`, `Control` (the box), `Keys`, `Dot`, `Hint`, `Clear`, `Message`. States: `ShortcutRecorderState::Recording`, `Empty`, `Refused`, `FullWidth`, and a box's `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`.
+- To what reads the tree the box is a `button` called by its label, with `a11y_value` its shortcut in the platform's words ("Ctrl+Shift+P", "Cmd+Shift+P"), `a11y_pressed` while it records, and a refusal as `a11y_invalid` and its `a11y_description`.
+- A renderer is given a `ShortcutRecorderView`: `view.control()` is the box with its behavior, `view.content()` what it shows, `view.clear()` the cross, `view.message()` why a combination was refused, `view.kbd(shortcut)` the keys of a shortcut.
+
 ## Select
 
 One value chosen from a list that opens under a trigger shaped like an input: a theme, a time zone, a page size.
@@ -3569,6 +3612,82 @@ Stack::new()
 - What it says is on one line. Where the room is narrower than the bar, it gives way first and is cut with an ellipsis: the actions and the clear button stay whole, at any text size.
 - Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarSide::Bottom`, `Top`.
 - In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
+
+## Floating Panel
+
+A tool window inside the app's window, over its content: layers, a color picker, the properties of what is chosen. A person moves it by its title bar, resizes it by its edges and its corner, collapses it to its title bar and closes it.
+
+```rust
+use lurq::{components::Stack, ui::{FloatingPanel, FloatingPanels, MenuItem}};
+
+// One panel over the canvas. place: Signal<(f32, f32)>, kept with the window.
+Stack::new()
+  .child(canvas)
+  .child(
+    FloatingPanel::new("Layers")
+      .position(place.clone())
+      .on_dismiss(move || layers.set(false))
+      .menu(more.clone(), || [MenuItem::new("Lock all")])
+      .child(layer_rows)
+      .mount(ctx),
+  );
+
+// Several: the one pressed comes to the front.
+FloatingPanels::new()
+  .panel(FloatingPanel::new("Layers").default_position((16.0, 16.0)).child(layer_rows))
+  .panel(FloatingPanel::new("Color").default_position((280.0, 16.0)).child(color))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `FloatingPanel::new(title)`, `child(..)`, `children(..)` | A panel called by its title, and what it holds under its title bar |
+| `position(Signal<(f32, f32)>)`, `position_controlled((x, y), on_position_change)`, `default_position((x, y))` | Where it stands in its room, from the top start: the app's signal, which a drag and the keys set; the app's value, which it is told a move of; or where its own place starts (16, 16 unless told) |
+| `size(Signal<Option<(f32, f32)>>)`, `size_controlled(..)`, `default_size((w, h))`, `min_size((w, h))` | Its size the same three ways: `None` is the board's 240 wide and the height of what it holds; a size of its own makes what it holds scroll. No smaller than 160 by 80 unless told |
+| `on_position_change(handler)`, `on_size_change(handler)` | Called with its new place, its new size, when a person moves or resizes it. Not when the app sets the signal. Each call adds |
+| `open(Signal<bool>)`, `default_open(bool)`, `on_open_change(handler)` | Whether it shows what it holds or its title bar alone, which its collapse button turns; told when the button turns it |
+| `on_dismiss(handler)`, `close_button(bool)`, `dismiss_on_escape(bool)` | Called when its close button or Escape in it closes it: the app takes it away. It has both where it has `on_dismiss`, unless told |
+| `media(element)` | Between the grip and the title: an icon, a swatch |
+| `button(icon, label, handler)`, `menu(Signal<bool>, Fn() -> items)` | A button of its title bar, before its own; the menu its "more" button opens, of [`MenuItem`](#menu)s |
+| `collapsible(bool)`, `resizable(bool)` | Its collapse button; its edges and its corner. Both unless told |
+| `label(&str)` | What it is called to tooling: its title unless told |
+| `move_label`, `resize_label`, `collapse_label`, `more_label`, `close_label` | What its grip ("Move"), its corner's grip ("Resize") and its buttons are called to tooling. The collapse button keeps its name and says whether it is open |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. Its grip is `{id}-grip`, its corner's `{id}-resize`, its buttons `{id}-collapse` and `{id}-close`. In a layer its key (its title unless told) tells it from the others |
+
+- It is mounted (`mount(ctx)`): it keeps where a drag began, and its place, its size and whether it is open where the app gives no signal. Mounted, it is a layer as large as what holds it (a `Stack` over the content), which lets a press through where the panel is not, with the panel in it at its place. Converted into an element it is drawn where it stands, and a drag does not move it.
+- A drag of its title bar moves it, the pointer held; a drag of its start edge, its end edge, its bottom row or its corner resizes it. A drag keeps it inside its layer, and no smaller than its least size.
+- From the keyboard: its grip, at the start of its title bar, is a stop of Tab, and the arrow keys move the panel by 10, by 1 with Shift. The grip in its corner resizes it with the arrows the same way. Its buttons are pressed with Enter and Space, and Escape anywhere in it closes it. The platforms move a window from the keyboard by its own menu (Alt+Space on Windows) or not at all; a panel inside a window has a grip that takes the focus, as a splitter's divider does.
+- `FloatingPanels` holds the panels over one content, the one pressed last in front: a press anywhere in a panel brings it there. The panel in front is `Active`, its title in `Foreground`; the others' are in `MutedForeground`.
+- In the design the panel is 240 wide on `Popover`, an edge of 1 in `Border` inside it, the large radius and the large shadow. Its title bar is 30 high on `Muted` with a line of 1 in `Border` along its bottom, 6 in at its start and 4 at its end, 4 between what it holds: a grip of 14 in `MutedForeground`, the title at 12 and semibold, and buttons of 22 with the small radius, an icon of 14 in `Foreground` in each, on `Highlight` under the pointer. What it holds is padded 4, its rows 2 apart; the row along its bottom is 22 high with a grip of 10 in `MutedForeground` 3 in from the corner.
+- Parts: `FloatingPanelPart::Root`, `Header`, `Grip`, `Media`, `Title`, `Actions`, `Button`, `Body`, `Footer`, `ResizeGrip`, `Edge`. States: `FloatingPanelState::Active`, `Collapsed`, `Sized`, `Resizable`, `Media`.
+- To what reads the tree it is a `dialog` called by its label; its grip and its corner's grip are buttons called "Move Layers" and "Resize Layers", and its collapse button says `a11y_expanded`.
+- A renderer is given a `FloatingPanelView`: `view.root()` the panel with its place and behavior, `view.header()`, `view.grip()`, `view.title()`, `view.actions()`, `view.body()`, `view.footer()`, `view.resize_grip()` and `view.edges()`.
+- A dock layout is a batch of its own: it would take this panel's title bar as its tab, `FloatingPanels`' order as the order of its floating windows, and the board's Dock Drop Indicator (five squares of 32 on `Popover`, the one under the pointer in `Info`) as what a drag of a panel shows over the room it would dock into.
+
+## Panel Header
+
+The header of a panel that stands on its own in a layout: a side bar's Explorer, an inspector's Properties.
+
+```rust
+use lurq::ui::{MenuItem, PanelHeader, icons};
+
+PanelHeader::new("Explorer")
+  .button(icons::REFRESH, "Refresh", || refresh())
+  .menu(more.clone(), || [MenuItem::new("Collapse folders")])
+  .on_close(move || explorer.set(false));
+```
+
+| Builder | |
+| --- | --- |
+| `PanelHeader::new(title)` | A header called by its title, written in capitals |
+| `media(element)` | What stands before the title |
+| `button(icon, label, handler)`, `menu(Signal<bool>, Fn() -> items)` | A button at its end, after those it has; the menu its "more" button opens |
+| `on_close(handler)` | Shows its close button, and is called on a press of it. Each call adds |
+| `more_label(&str)`, `close_label(&str)`, `level(u32)` | What its buttons are called to tooling ("More", "Close"); the level of the heading it is (2) |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- In the design it is 30 high on `Muted` with a line of 1 in `Border` along its bottom, 10 in at its start and 4 at its end; its title is 11 and semibold in capitals, 0.6 apart, in `MutedForeground`; its buttons are a floating panel's.
+- Parts: `PanelHeaderPart::Root`, `Media`, `Title`, `Actions`, `Button`. State: `PanelHeaderState::Media`. To what reads the tree its title is a heading of its level.
 
 ## Splitter
 

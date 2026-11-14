@@ -39,6 +39,11 @@ Deprecated:
 
 Added:
 
+- `ui::ShortcutRecorder`: a box that holds a key combination (`Accelerator`), bound to a `Signal<Accelerator>` (`new`) or a `Signal<Option<Accelerator>>` (`optional`), or held by the app (`controlled`, `controlled_optional`). Mounted, a press or Enter records: it takes every key of the window, shows the modifiers held and takes the combination; Escape gives up, Backspace and its cross empty it. `validate` refuses a combination with a sentence, `require_modifier`, the platform's names of the keys, and every prop of a typed control. See [Shortcut Recorder](docs/src/content/docs/design-system.md#shortcut-recorder).
+- `ui::FloatingPanel`, `ui::FloatingPanels` and `ui::PanelHeader`: a tool window inside the app's window, moved by its title bar and resized by its edges and its corner, kept inside its room, collapsed to its title bar, closed by its button and Escape, its place and size the app's (`position`, `size`) or its own; several over one content, the one pressed in front; and the header of a panel on its own. The grips take the arrow keys. See [Floating Panel](docs/src/content/docs/design-system.md#floating-panel).
+- `.captures_keys(bool)` on every element: while it is in the tree it alone hears the keys of the window, and nothing the window does with a key is done, the accelerators of a Mac's menu included. See [Taking Every Key](docs/src/content/docs/styling-events.md#taking-every-key).
+- `Accelerator::parse`, `from_key_event`, `matches`, `has_modifier`, `new` and its `Display`: the key combination of the menu is the one of lurq, read and written as `Ctrl+Shift+P`. `SyntheticModifiers` and `Accelerator` are `Hash`.
+- `.form_value(Option<Arc<str>>)` with `form`: what an element that is no engine control gives the form under its `name`. See [Submission](docs/src/content/docs/forms.md#submission).
 - `ui::Rating`: a number of stars, bound to a `Signal<f64>` (`new`) or a `Signal<Option<f64>>` (`optional`), held by the app (`controlled`, `controlled_optional`) or shown and not chosen (`at`), in whole stars or halves, `clearable`, `read_only`, three sizes and an icon of its own. A slider to a screen reader, one stop of Tab with the arrows, Home, End and the digits; mounted, the stars under the pointer are lit as a press would set them. See [Rating](docs/src/content/docs/design-system.md#rating).
 - `ui::icons::STAR_FILL`: a solid star in lurq's icon font, the shape a rating lights.
 - `Color::parse(&str)` reads a color a person typed (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` with or without `#`, `rgb()`/`rgba()`, `hsl()`/`hsla()`, by commas or spaces) and gives `None` for what is no color; `Color::to_hsv()` and `to_hsl_values()` with `node::color::Hsv` and `Hsl` and `Color::from` both, `to_hex_upper()` and `to_rgb_string()`. See [colors](docs/src/content/docs/styling-events.md#colors).
@@ -281,6 +286,7 @@ Added:
 
 Fixes:
 
+- An absolute child of a stack sized in percent where the stack's constraints leave that side unbounded is a share of the stack as laid out, not of nothing: a layer over a stack as high as its content is as high. See [Stack](docs/src/content/docs/layout.md).
 - lurq compiles without the `router` feature again: `ui::Navbar` gave its links' paths to a sidebar's items with no router to go to them.
 - A `ui::Table`'s cells are as high as their row. A first column that stays covered only the line of its text, so a taller cell that scrolled under it (a badge) showed over and under the name.
 - What a scroll container holds is drawn on a whole device pixel. A text is painted on whole device pixels and a box where it is, so at a scale that is no whole number (150%) a scroll offset of half a device pixel moved every label a pixel against its box, and back at the next step of the wheel: the text of a field jumped as its page scrolled. The scroll's own offset is as it was given.

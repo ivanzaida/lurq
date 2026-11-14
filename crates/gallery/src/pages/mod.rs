@@ -35,6 +35,7 @@ mod family;
 mod family_play;
 mod fieldset;
 mod file_upload;
+mod floating_panel;
 mod hover_card;
 mod icons;
 mod input;
@@ -68,6 +69,7 @@ mod search_field;
 mod select;
 mod separator;
 mod sheet;
+mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -79,11 +81,11 @@ mod switch;
 mod table;
 mod tabs;
 mod tag;
-mod timeline;
 mod teaching_tip;
 mod textarea;
 mod time_field;
 mod time_picker;
+mod timeline;
 mod toast;
 mod toggletip;
 mod token_input;
@@ -423,6 +425,14 @@ pub const PAGES: &[Page] = &[
     about: "rating stars score review feedback quality half precision clearable read only at optional controlled max size icon empty_icon label value_text invalid disabled on_change slider",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<rating::RatingPage>(()),
+  },
+  Page {
+    path: "/shortcut-recorder",
+    name: "Shortcut Recorder",
+    icon: Some("keyboard"),
+    about: "shortcut recorder hotkey keybinding key combination accelerator record capture press keys kbd conflict taken validate require_modifier placeholder recording_text clear_label modifier_text platform optional controlled on_change size invalid warning valid read_only disabled full_width name label",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<shortcut_recorder::ShortcutRecorderPage>(()),
   },
   Page {
     path: "/color-picker",
@@ -874,6 +884,14 @@ pub const PAGES: &[Page] = &[
     about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse horizontal vertical sizes on_resize on_resize_end step large_step framed disabled plitter ane size share min max collapsible label",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),
+  },
+  Page {
+    path: "/floating-panel",
+    name: "Floating Panel",
+    icon: Some("layers"),
+    about: "floating panel tool window palette inspector layers drag move resize collapse close dock title bar grip header PanelHeader FloatingPanels front position size open media button menu on_dismiss on_position_change on_size_change on_open_change default_position default_size min_size resizable collapsible close_button dismiss_on_escape label",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<floating_panel::FloatingPanelPage>(()),
   },
 ];
 
