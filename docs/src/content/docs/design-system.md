@@ -1712,6 +1712,551 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 - To what reads the tree (`lurq_snapshot` of the MCP server) a progress and a ring are a `progressbar` called by their label, with `a11y_valuenow`, `a11y_valuemin` (0), `a11y_valuemax` and `a11y_valuetext` (the value as it is said); one that does not know how far the work is has no value.
 - A renderer that draws another progress has `view.fraction()`, `view.value()`, `view.max()`, `view.value_text()`, `view.root()` (the root with its name to tooling), `view.header()` and `view.track()` (the rail with what is filled, or with the moving segment). A meter is the same parts restyled: `Progress::new(96).max(128).label("Disk space").show_value(true).variant(ProgressVariant::Warning).format(..)` with a radius of 2 on the `Track` and the `Fill`; a meter of cells is a renderer that draws a row of them from `view.fraction()`. A ring's renderer has `view.fraction()`, `view.value_text()`, `view.side()`, `view.thickness()`, `view.root()`, `view.track()`, `view.arc()` (the fill with its dash) and `view.middle()`. A gauge is such a renderer: half a ring, its arc's box turned a quarter back so that the dash starts at 9 o'clock, in a box that clips the lower half.
 
+## Password Input
+
+An input whose text is masked, with an eye at its end that shows it and hides it again, and under it, where the app says so, a meter of how strong the password is.
+
+```rust
+use lurq::ui::{PasswordInput, PasswordStrength};
+
+// password: Signal<String>, shown: Signal<bool>
+PasswordInput::new(password.clone())
+  .placeholder("Password")
+  .bind_reveal(shown.clone());
+
+// A password being chosen, judged by the app as it is typed.
+PasswordInput::new(chosen.clone())
+  .new_password(true)
+  .bind_reveal(shown.clone())
+  .strength(judge(&chosen.get()));
+```
+
+| Builder | |
+| --- | --- |
+| `PasswordInput::new(value)` | A password input bound to a `Signal<String>`: what is typed is set on it |
+| `reveal(bool)`, `on_reveal(Fn(bool))` | Whether the password is shown as it is; called on a press of the eye with whether it is to be shown |
+| `bind_reveal(Signal<bool>)` | Shown while the signal is true, which the eye turns |
+| `reveal_labels(show, hide)` | What the eye is called to tooling, in place of "Show password" and "Hide password" |
+| `strength(Option<PasswordStrength>)` | The meter under the input: `Weak`, `Fair`, `Good`, `Strong` fill 1 to 4 of its bars |
+| `strength_message(&str)` | What the meter says, in place of "Weak password" to "Strong password" |
+| `new_password(bool)` | The password is being chosen, not entered: the platform may offer a strong one |
+| `input_rules(&recipe)` | Rules over the theme's recipe for the input it is made of |
+| `placeholder`, `icon`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `on_input`, `name` | As an [input](#input) has them |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control |
+
+- It is an [input](#input) in every other way: its box, its sizes, its judgments, a field's label. The reveal is the app's, as a switch's state is: a `bool` and a handler, or a `Signal<bool>` bound with `bind_reveal`. The eye is drawn where something hears it.
+- Tab reaches the input and then the eye, which Space and Enter press. To tooling the eye is a `button` called "Show password" or "Hide password", with `a11y_pressed`.
+- Masked, the password is not copied or cut, the platform's keyboard keeps it out of its suggestions, and tooling (`lurq_snapshot`, `lurq_set_value` of the MCP server) reads only its dots and `masked=true`. Shown, it is what the screen shows, to tooling too. Shown or not it holds a password to the platform (`ContentKind::Password`, or `NewPassword`), which may offer to fill it in.
+- Parts: `PasswordInputPart::Root` (the input, the meter and its message, one under another), `Mask` (the room between the dots), `Toggle` (the eye), `Strength` (the meter), `Bar` (a bar the strength does not reach), `Filled` (one it does), `Message`. States: `PasswordInputState::Revealed`, `Disabled`, `FullWidth`, and the strength by its name (`weak`, `fair`, `good`, `strong`). The box, its text and its placeholder are the input's parts, styled by the theme's recipe for an input or `input_rules`.
+- In the design the dots are 1 apart; the eye is 16 in `MutedForeground`, 12 from the end of the box and 8 after the text, in `Foreground` under the pointer; while the password is shown it is an eye with a line through it (`icons::EYE_OFF`), in `Foreground`. The meter is 8 under the box: four bars 4 high and 4 apart, round, in `Input` where the strength does not reach and in its color where it does, `Destructive` for weak, `Warning` for fair, `Success` for good and strong; the message is 8 under it in a caption's type in the same color.
+- A renderer that draws another password input has `view.input` (the input's view: `render_with_end` is crate-private, so it lays the eye over `view.control()` itself), `view.control()` (the masked text input with room at its end), `view.toggle()`, `view.strength_meter()` and `view.message()`.
+
+## Search Field
+
+An input for a query: the search icon before the text, a button that empties it, and the hint of the key that reaches it.
+
+```rust
+use lurq::ui::SearchField;
+
+// query: Signal<String>
+SearchField::new(query.clone())
+  .placeholder("Search components")
+  .shortcut("/")
+  .on_submit(|query| search(query));
+```
+
+| Builder | |
+| --- | --- |
+| `SearchField::new(value)` | A search field bound to a `Signal<String>`, which the app filters by as it changes |
+| `shortcut(&str)` | The key that reaches the field, at its end while it is empty: `/`, `Ctrl K`. The app binds the key |
+| `on_submit(Fn(&str))` | Called on Enter with what the field holds. The focus stays in the field |
+| `clear_label(&str)` | What the clear button is called to tooling, in place of "Clear search" |
+| `input_rules(&recipe)` | Rules over the theme's recipe for the input it is made of |
+| `placeholder`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `on_input`, `name` | As an [input](#input) has them |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control |
+
+- While it holds something a clear button is at its end, which empties it and takes no focus, so the caret stays in it; Escape does the same while the focus is in it, and keeps the focus there. Escape in an empty field does what it does in any input. A read-only or disabled field has no clear button, and Escape does not empty it.
+- The clear button is no stop of Tab: from the keyboard Escape does what it does. The hint shows while the field is empty; the field does not bind the key, which the app does and focuses the field on (`ctx.focus`).
+- To tooling the field is a `searchbox` and its button a `button` called "Clear search".
+- Parts: `SearchFieldPart::Root` and `Control` (what the field says of the input's root and box: its width, its padding), `End` (what is at the end of the box), `Clear`, `Shortcut` (the hint). States: `SearchFieldState::Filled`, `FullWidth`. The box, its text, its placeholder and its icon are the input's parts.
+- In the design the field is 280 by 36, padded 10 at its start and 8 at its end; the search icon is 16 in `MutedForeground`, 8 before the text. The clear button is a circled cross of 16 in `MutedForeground`, `Foreground` under the pointer. The hint is 20 high, padded 6, 4 round on `Muted` in an edge of 1 in `Border`, in the mono type of 11 in `MutedForeground`.
+- The field renders again as it fills and empties, to show the clear button or the hint: it reads its signal as it is built.
+- A renderer that draws another search field has `view.input`, `view.control()` (the text input with its keys and room at its end), `view.clear()` and `view.shortcut()`.
+
+## Input Group
+
+An input joined with what stands before and after it into one box: a scheme, a domain, a unit, an icon, the button that sends it.
+
+```rust
+use lurq::ui::{Button, ButtonVariant, Input, InputAddon, InputGroup, Select, icons};
+
+InputGroup::new(Input::new(site.clone())).before("https://").after(".com");
+
+InputGroup::new(Input::new(email.clone()).placeholder("Email"))
+  .before(InputAddon::icon(icons::MAIL))
+  .after(Button::new("Invite").variant(ButtonVariant::Ghost).on_click(invite));
+
+InputGroup::new(Input::new(site.clone())).before(Select::new(scheme.clone(), [("https", "https://"), ("http", "http://")]));
+```
+
+| Builder | |
+| --- | --- |
+| `InputGroup::new(input)` | A group around an [input](#input), which keeps its own value, handlers and id |
+| `before(addon)`, `after(addon)` | What stands before and after the input, in order: a text (`&str`), `InputAddon::icon(name)`, a `Button`, a `Select` |
+| `size(InputSize)` | The input's, and each button's and select's in the group |
+| `invalid`, `warning`, `valid`, `disabled`, `full_width`, `on_input` | The input's judgment and the box's edge; nothing in a disabled group takes input; 280 wide or as wide as what holds it |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
+
+- The corners of the box are the group's: what is at its ends is round where the box is, every other corner is square. A line is between two neighbours. The input has no edge or fill of its own: the box's edge says what it holds, and turns the ring's color under the pointer. The ring of the focus is the focused part's own, drawn over its neighbours and the box's edge.
+- An icon beside the input is in its box: before it, the input's own icon; after it, over the end of the input. An icon away from the input stands on the muted fill as a text does.
+- A button and a select keep what they do and their variant; the group gives them its size and its corners, and a select no edge or fill of its own. Each is its own stop of Tab.
+- In a [field](#field) the input is called by the field's label and judged as the field is, and the group is disabled where the field is.
+- Parts: `InputGroupPart::Root` (the box), `Field` (what the group says of the input's root), `Control` (of the input's box), `Addon` (a text or an icon on the muted fill), `AddonIcon`, `Separator` (the line), `Button` (of a button's root), `Select` (of a select's trigger). States: `InputGroupState::Disabled`, `FullWidth`, and the input's size and judgment by their names.
+- In the design the box is 280 by 36, `Background` in an edge of 1 in `Input`, 6 round. A text addon is on `Muted`, padded 10, in 13 and `MutedForeground` (12 small, 14 large); the line between two parts is 1 in `Input`; the input is padded 10. A disabled group is half opaque on `Muted`.
+- A renderer that draws another group has `view.input`, `view.before`, `view.after`, `view.addon(addon, index)`, `view.field()` and `view.separator()`.
+
+## Number Input
+
+A number a person types or steps: a quantity, a price, a size in pixels.
+
+```rust
+use lurq::ui::{NumberFormat, NumberInput, NumberInputLayout};
+
+// A number there always is, between 1 and 99.
+NumberInput::new(quantity.clone()).min(1.0).max(99.0).label("Quantity");
+
+// A price with two decimals, its thousands set apart, the buttons stacked at the end.
+NumberInput::new(price.clone())
+  .min(0.0)
+  .step(0.5)
+  .precision(2)
+  .format(NumberFormat::new().prefix("$").grouping(true))
+  .layout(NumberInputLayout::Stacked);
+
+// A number that may be left out: an emptied field is None, not 0.
+NumberInput::optional(limit.clone()).placeholder("No limit");
+
+// The app's own value, told back.
+NumberInput::controlled(seats.get()).on_change(move |value| seats.set(value));
+```
+
+| Builder | |
+| --- | --- |
+| `NumberInput::new(Signal<f64>)` | Bound to a number there always is: an emptied field takes back the number it had when it is left |
+| `NumberInput::optional(Signal<Option<f64>>)` | Bound to a number that may be none: an emptied field sets `None` |
+| `NumberInput::controlled(Option<f64>)` | Shows what the app gives it and tells each change to `on_change` |
+| `min(f64)`, `max(f64)` | The ends of the range, where it has them. With no least value a minus can be typed and Home moves the caret; with no greatest End does |
+| `step(f64)` | How far apart the values a step takes it to are, from the least (from 0 with none): 1 when not given |
+| `precision(usize)` | How many decimals the value keeps and shows: as many as the step has when not given. With none no decimal separator is taken |
+| `format(NumberFormat)` | How the number is written out of the focus: `prefix`, `suffix`, `grouping`, `separators(decimal, group)`, or `NumberFormat::custom(format, parse)`, the app's own |
+| `layout(NumberInputLayout)` | `Split` (the board's: a minus at the start, a plus at the end, the number in the middle), `Stacked` (a chevron up over one down at the end, the number at the start), `Bare` (no buttons) |
+| `size(NumberInputSize)` | `Sm` 32, `Md` 36, `Lg` 40 high, the type 13, 14, 15 |
+| `placeholder(&str)` | What an empty input says |
+| `invalid`, `warning`, `valid`, `read_only` | As an [input](#input) has them. A read-only one is focused and selected, and its keys and buttons change nothing |
+| `on_change(Fn(Option<f64>))` | Called with the value each time it changes |
+| `name(..)` | The name of its text in a form's data. A form's number is bound with `NumberInput::new(form.number("seats"))` |
+| `label`, `full_width`, `disabled`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an [input](#input) has them. `id` is the id of the box that is typed in |
+
+- What is typed is kept as text while it is typed, and is the value as soon as it is a number. A minus (first, where the range has room below 0), digits and one decimal separator (where the precision keeps decimals) are taken; anything else is not. A number pasted as it is written (`$2,000`) is read and typed as the number. On Enter and when the focus leaves, the text is put right: the number rounded to the precision, kept in the range and written in the format; what is not a number goes back to the value.
+- In the focus the number is typed plain, with the decimal separator and nothing around it; out of it, it is written in the format. A locale's decimal separator is the format's: `NumberFormat::new().separators(',', '.')`.
+- Up and Down take a step, Page Up and Page Down ten, Home and End go to the least and the greatest value where the range has them. A step from a value between two steps goes to the next one; from an empty field it goes to 0, or to the end of the range nearer to it. A wheel over the input scrolls what it is in and leaves the number as it is.
+- The buttons take a step when pressed, and while held another after 400 ms and then every 50 ms. They are not stops of Tab and take no focus: a press leaves the focus on the number being typed. The one toward an end of the range the value is at is disabled and dimmed (states `AtMin`, `AtMax`).
+- Parts: `NumberInputPart::Root` (its width), `Control` (the box that is typed in, which holds the ring of the focus), `Placeholder`, `Buttons` (what holds the buttons over the box: its inset and corners), `Decrease`, `Increase`, `Divider` (the line between a button and the number), `Icon`. Variants: `NumberInputLayout`. States: `NumberInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `AtMin`, `AtMax`.
+- In the design the box is 132 by 36, an input's box (the `Background` fill in an edge of 1 in `Input`, 6 round), its number in the middle in the mono type at 14 in `Foreground`. The minus and the plus are 36 wide at the ends, each with a line of 1 in `Input` between it and the number, their glyphs 16; under the pointer a button is in `Highlight`. The ring's color under the pointer, a line of 2 inside the box in the focus, and the judgments' colors are the input's.
+- The board's mobile quantity stepper is the number input restyled: rules make the `Control` 44 high, round, in `Secondary` with no edge, the number in the sans type at 16, semibold; the `Buttons` with no inset and round; `Decrease` and `Increase` 44 wide; the `Divider` 0 wide; the `Icon` 20. The gallery's page has them.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `spinbutton` called by its label, with `a11y_valuenow`, `a11y_valuetext` (as it is written), `a11y_valuemin` and `a11y_valuemax`; the buttons are `button`s called "Increase" and "Decrease", with `a11y_disabled` at an end of the range.
+- A renderer that draws another number input has `view.control()` (the box with all of its typing, keys and putting right), `view.button(part, icon, steps)`, `view.divider()`, `view.buttons()` (laid over the box as the layout has them) and `view.buttons_reach()` (how far they reach in from each end).
+
+## Input OTP
+
+A one-time code: a few characters typed one to a cell, the code a message or an authenticator app gives to prove who a person is.
+
+```rust
+use lurq::ui::{Field, InputOtp, InputOtpKind};
+
+Field::new(
+  "Verification code",
+  InputOtp::new(code.clone())
+    .groups([3, 3])
+    .on_complete(move |code| verify(code)),
+)
+.description("We sent a code to ivan@lurq.dev.");
+
+// A recovery code of letters and digits, taken as capitals however it is typed.
+InputOtp::new(recovery.clone())
+  .length(8)
+  .groups([4, 4])
+  .kind(InputOtpKind::Alphanumeric)
+  .uppercase(true);
+```
+
+| Builder | |
+| --- | --- |
+| `InputOtp::new(Signal<String>)` | The code. The cells show what the signal holds, and what is typed is set on it |
+| `length(usize)` | How many cells it has: 6 unless it says |
+| `groups(sizes)` | The sizes of the groups of cells, from the first: `[3, 3]` puts a dash after the third cell. Cells past the groups are a group of their own |
+| `kind(InputOtpKind)` | `Digits` (the default) or `Alphanumeric`. Anything else typed or pasted is not taken |
+| `uppercase(bool)` | A letter is taken as a capital |
+| `mask(bool)` | A dot for each character in place of it, as a PIN is shown |
+| `on_complete(handler)` | Called with the code when an edit fills its last cell |
+| `size(InputOtpSize)` | `Sm`, `Md`, `Lg`: cells of 32 by 36, 36 by 40, 40 by 44, with type of 14, 16, 18 |
+| `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name` | As an [input](#input) has them; `name` is the whole code's in its form |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the input under the cells |
+
+- To a person it is one field. Tab puts the focus on the first empty cell. Typing fills the cell that has the focus and goes on to the next; typing on a filled cell replaces its character. Backspace empties the cell that has the focus, or, on an empty one, goes back and empties the one before; Delete empties it and stays. Left and Right move, no further than the first empty cell; Home and End go to the first cell and to the first empty one. A click puts the focus on the cell clicked, or on the first empty one where that is before it.
+- A code has no gaps: emptying a cell before the last filled one moves the cells after it up.
+- A paste of a whole code, or more, fills every cell from the first; a shorter one fills the cells from the one that has the focus. What the code does not take of it (spaces, dashes) is dropped, so `123-456` is `123456`.
+- To a form, to tooling and to the platform it is one text input: under the cells is the engine's `TextInput`, bound to the code, which draws nothing of its own. It is the one stop of Tab, the one `textbox` to what reads the tree (`lurq_snapshot` of the MCP server), called by its label, with the code as its value, and the one value of its form under its `name`. It says it holds a `ContentKind::OneTimeCode`, so a phone offers the code from a message that just came, and asks for the digits keyboard where the code is of digits. A masked code is a masked input.
+- The cell the focus is on, and whether the input has the focus, are kept by the code's signal for as long as its input is in the tree, since a builder keeps nothing between renders: two codes bound to one signal share them.
+- Parts: `InputOtpPart::Root` (the row of cells and separators, and the room between them), `Cell`, `Value` (the character, or its dot), `Caret` (in the empty cell that has the focus), `Separator` (the dash between groups). States: `InputOtpState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `Masked`, and on a cell of its own `Active` (the focus is on it) and `Filled`.
+- In the design a cell is 36 wide and 40 high, 6 from the next, in the background's fill with an edge of 1 in the `Input` color, `radius-md` round, its character in the mono type at 16 in `Foreground`. The cell the focus is on has a line of 2 inside it in the `Ring` color, and while it is empty a caret 1.5 wide and 18 high in `Foreground`, which blinks unless the theme reduces motion. The dash between groups is the `minus` glyph at 16 in `MutedForeground`, 6 from the cells on either side. A judgment colors every edge and the ring; a disabled code is half opaque on the muted fill, a read-only one on the muted fill in the `Border` color.
+- The mobile skin of the board (Mobile/OTP Field) is a rule of the theme: `Root` 8 apart, `Cell` 46 by 56 and `radius-lg`, `Value` in the sans type at 22 and semibold, `Caret` 2 by 24.
+- A renderer that draws other cells starts from `view.input()`, the behavior, and lays its own cells over it: `view.characters`, `view.shown(index)` (what a cell shows, its dot where masked), `view.active` (the cell the focus is on, while the code has it), `view.separators`, and `view.cell_part(index, part)` for the style of a part of one cell. `view.cell(index)`, `view.separator()` and `view.cells()` are the default ones. A cell built by `view.cell(index)` is one a click is known to be on.
+
+## Checkbox Card
+
+A checkbox whose whole card is pressed, with a title, a description and an icon or a price: the add-ons of a plan, the reports a team is sent.
+
+```rust
+use lurq::ui::{CheckboxCard, CheckboxCardGroup, icons};
+
+CheckboxCard::new("Analytics")
+  .description("Share anonymous usage data.")
+  .checked(analytics.get())
+  .on_change(move |checked| analytics.set(checked));
+
+// Cards over one list: those whose values the signal has are checked.
+CheckboxCardGroup::new(add_ons, [
+  ("backups", CheckboxCard::new("Backups").icon(icons::SHIELD).price("$4")),
+  ("support", CheckboxCard::new("Priority support").icon(icons::MAIL).price("$20")),
+])
+.horizontal(true);
+```
+
+| Builder | |
+| --- | --- |
+| `description(&str)` | More of it, under the title in the muted color; what the card is described by to tooling |
+| `icon(name)`, `price(&str)` | An icon of 20 before the text; what the choice costs, at the end of the title |
+| `checked(bool)` | Whether it is checked. The card does not keep it: the app says so |
+| `on_change(handler)` | Called on a press with what the card is to be: checked if it was not |
+| `invalid(bool)`, `full_width(bool)` | The edge in the destructive color; as wide as what holds it in place of 220 |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the card |
+
+| `CheckboxCardGroup` | |
+| --- | --- |
+| `new(Signal<Vec<T>>, [(T, CheckboxCard)])` | The cards whose values the signal has are checked; a press adds a value or takes it out |
+| `controlled(checked, [(T, CheckboxCard)], press)` | The app holds what is checked and is told each value pressed |
+| `horizontal(bool)` | Side by side, 12 apart and as high as the highest, going on to the next line where there is no room |
+| `label(&str)`, `invalid(bool)`, `disabled(bool)`, `style(..)`, `id`, `key` | What the group is called to tooling; every card invalid or disabled |
+
+- The card is what is pressed: a click anywhere on it, or Space or Enter while it has the focus. It is the one stop of Tab and the ring of the focus is around it; the box in it is drawn and takes no focus of its own. In a group each card is its own stop.
+- Parts: `ChoiceCardPart::Root` (what is pressed), `Icon`, `Text`, `Heading` (the title and the price), `Title`, `Price`, `Description`. States: `ChoiceCardState::Chosen`, `Invalid`, `Disabled`, `FullWidth`. The box is the checkbox's own `CheckboxPart::Box` and `Indicator`, resolved from the theme's checkbox recipe: a theme that restyles a checkbox restyles the card's box. A group's parts are `ChoiceCardGroupPart::Root` and `Item` (laid over each card's root), its state `ChoiceCardGroupState::Horizontal`.
+- In the design the card is 220 wide, padded 16, in `Background` with the large radius; the text first, the title in 14 and medium over the description 4 under it in 13 of `MutedForeground`, and the box 12 after it at the top. Not checked its edge is 1 of `Input`; checked, 2 of `Primary`. Under the pointer the edge of a card not checked is `Ring`; an invalid card is edged in `Destructive`; a disabled one is dimmed.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the card is a `checkbox` called by its title, described by its description, with `a11y_checked` saying whether it is checked; a group is a `group`.
+- In a [field](#field) a card is invalid where the field is and disabled where the field is, and keeps its title as its name; a group takes the field's label as its name unless it has one.
+- A renderer that draws another card is given a `ChoiceCardView`: `view.root()` is the behavior with the root's style, `view.text()`, `view.icon()` and `view.control()` the default parts. The same renderer type serves the radio card; `view.kind` says which it is.
+
+## Radio Card
+
+A radio whose whole card is pressed, with a title, a description and an icon or a price: the plan of an account, the density of a list.
+
+```rust
+use lurq::ui::{RadioCard, RadioCardGroup};
+
+RadioCardGroup::new(density, [
+  (Density::Comfortable, RadioCard::new("Comfortable").description("Roomy rows, 36px controls.")),
+  (Density::Compact, RadioCard::new("Compact").description("Dense rows, 28px controls.")),
+  (Density::Touch, RadioCard::new("Spacious").description("For touch.").disabled(true)),
+]);
+
+// One card alone: the app says whether it is chosen and is told when it is pressed.
+RadioCard::new("Team").price("$12").chosen(plan.get() == Plan::Team).on_choose(move || plan.set(Plan::Team));
+```
+
+| Builder | |
+| --- | --- |
+| `description(&str)`, `icon(name)`, `price(&str)` | As a [checkbox card](#checkbox-card) has them |
+| `chosen(bool)` | Whether it is the choice made: the dot in its mark. The card does not keep it |
+| `on_choose(handler)` | Called on a press while the card is not chosen. A press of the one chosen does nothing |
+| `invalid(bool)`, `full_width(bool)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a checkbox card has them |
+
+| `RadioCardGroup` | |
+| --- | --- |
+| `new(Signal<T>, [(T, RadioCard)])` | The card whose value the signal has is chosen; a press of another sets the signal |
+| `controlled(Option<T>, [(T, RadioCard)], choose)` | The app holds the choice, none while it is `None`, and is told each value pressed |
+| `horizontal(bool)`, `label(&str)`, `invalid(bool)`, `disabled(bool)`, `style(..)`, `id`, `key` | As a checkbox card group has them |
+
+- A group is one stop of Tab, at the chosen card or the first. The arrow keys move the focus to the next card and choose it, Home and End the first and the last, and a disabled card is passed by: the focus group of a [radio group](#radio), `FocusGroup::both().activate(true).one_stop(true)`.
+- Parts and states are a checkbox card's (`ChoiceCardPart`, `ChoiceCardState`); its mark is the radio's own `RadioPart::Mark` and `Dot`, from the theme's radio recipe.
+- In the design it is a checkbox card with the radio's mark of 16 in place of the box: not chosen, an edge of 1 of `Input`; chosen, 2 of `Primary`, with the dot of 8 in the mark.
+- To what reads the tree the card is a `radio` called by its title, described by its description, with `a11y_checked`; a group is a `radiogroup`.
+
+## Fieldset
+
+Fields that go together, under a legend that says what they are: the profile of an account, the address of an order.
+
+```rust
+use lurq::ui::{Button, Field, Fieldset, Input};
+
+Fieldset::new("Profile")
+  .description("Shown to people you share a workspace with.")
+  .field(Field::new("Display name", Input::new(name).full_width(true)).required(true))
+  .field(Field::new("Bio", Input::new(bio).full_width(true)).optional(true))
+  .child(Button::new("Save profile"))
+  .disabled(locked.get());
+```
+
+| Builder | |
+| --- | --- |
+| `description(&str)` | More of it, 4 under the legend, in the muted color |
+| `field(Field)` | Adds a field, made as wide as the fieldset (`Field::full_width`) |
+| `child(element)`, `children(..)` | Adds anything else under what is there: a row of buttons, a group of cards, an [error summary](#error-summary) |
+| `disabled(bool)` | Every control in it takes no input and Tab passes it by; the whole fieldset is dimmed |
+| `full_width(bool)` | As wide as what holds it, in place of 400 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [field](#field) has them |
+
+- What it holds is one under another, 16 apart, and stretched to its width: a field keeps a width of its own unless it is made full width, which `field` does.
+- Parts: `FieldsetPart::Root`, `Legend` (the title over the description), `Title`, `Description`. States: `FieldsetState::Disabled`, `FullWidth`.
+- In the design the fieldset is 400 wide, padded 20, with an edge of 1 of `Border` inside it and the large radius. The legend's title is 15 and semibold in `Foreground`, its description 13 in `MutedForeground`.
+- A disabled fieldset disables its root, and an element that is disabled takes everything in it out of input, whatever it is: a control the app built itself too. The fieldset is dimmed as a whole, so a control in it is not dimmed again by its own disabled state.
+- To what reads the tree it is a `group` called by its legend and described by its description.
+
+## Error Summary
+
+What is wrong in a form, at its top, a line for each field with a link to it: what a person reads when a form they sent was not accepted.
+
+```rust
+use lurq::ui::{ErrorSummary, FieldError};
+
+ErrorSummary::new([
+  FieldError::new("Display name", "Display name is required").focuses(&name_field),
+  FieldError::new("Email", "Email must include a domain").focuses(&email_field),
+]);
+
+// From a form's own errors, once a submit of it was attempted (the `form` feature).
+ErrorSummary::form(&form, [("name", "Display name", &name_field), ("email", "Email", &email_field)]);
+```
+
+| Builder | |
+| --- | --- |
+| `new(errors)` | A line for each `FieldError`, in the order given. With none the summary draws nothing |
+| `FieldError::new(label, message)` | The field's label and what is wrong with it. The line shows the message |
+| `FieldError::focuses(&ElementRef)` | A press of the line, or Enter or Space on it, focuses the first control under the ref |
+| `form(&FormHandle, [(name, label, &ElementRef)])` | The form's errors once a submit was attempted: a line for each listed field that has one, in their order, then one for each other field with an error, called by its name and focusing nothing. It reads them as signals: what renders it renders again when they change |
+| `title(&str)` | The title in the app's own words, in place of "2 fields need attention" |
+| `full_width(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a fieldset has them; `force` draws every line as under the pointer or focused |
+
+- A line that focuses a field is a stop of Tab, underlined under the pointer, with the ring of the focus around it. One that focuses nothing is read and not pressed.
+- Parts: `ErrorSummaryPart::Root`, `Icon`, `Body` (the title over the lines), `Title`, `Item` (a line), `Bullet`, `Message`. State: `ErrorSummaryState::FullWidth`.
+- In the design the summary is 400 wide, padded 12 and 14, in `DestructiveMuted` with an edge of 1 of `Destructive` inside it and the medium radius. The alert icon of 16 in `Destructive` is 10 before the body; the title is 13 and semibold in `Destructive`, and the lines are 6 apart under it, a dot of 4 in `Destructive` 8 before each message in 13 of `Foreground`.
+- To what reads the tree it is an `alert` called by its title; each line is a `link` called by the field's label and its message.
+- A line focuses its field through `.focuses(&ElementRef)`, which a button has: a click of it or Enter or Space on it focuses the target. A ref on a column around a `Field` will do: the control is the first thing under it that takes the focus.
+
+## Combobox
+
+A select a person types in, whose list what is typed filters: a framework, a country, an assignee among many.
+
+```rust
+use lurq::{components::SelectOption, ui::Combobox};
+
+Combobox::new(framework.clone(), [
+  ("lurq".to_owned(), "lurq"),
+  ("gpui".to_owned(), "GPUI"),
+  ("slint".to_owned(), "Slint"),
+])
+.placeholder("Select framework");
+
+// Options an app fetches as a person types: it keeps all it was given.
+Combobox::new(country.clone(), fetched.get().iter().map(|name| (name.clone(), name.as_str())).collect::<Vec<_>>())
+  .on_input(move |typed| fetched.set(search(typed)))
+  .filter(|_, _| true)
+  .loading(searching.get());
+
+// A value that is no option's: what is typed becomes the value of a combobox of String.
+Combobox::new(label.clone(), [SelectOption::new("bug".to_owned(), "bug")]).allow_custom(true);
+```
+
+| Builder | |
+| --- | --- |
+| `Combobox::new(value, options)` | Bound to a `Signal<T>`: the option with its value is chosen, and choosing another sets it. The options are a [select](#select)'s: `(value, label)` or `SelectOption`s with a detail, a hint, elements before and after the label, a group they start, or disabled |
+| `placeholder(&str)` | What the box says while nothing is typed |
+| `filter(Fn(&str, &str) -> bool)` | Which options are shown while something is typed, given the label and what is typed. By default the labels that contain it, without regard to case |
+| `on_input(Fn(&str))` | Called with what the box will hold at each edit: for an app that fetches its options |
+| `loading(bool)` | The list ends in a row with a spinner, "Loading results…" (`loading_text(&str)` says otherwise) |
+| `empty(&str)` | What the list says while what is typed leaves no option: "No results" |
+| `allow_custom(bool)` | What is typed may be no option's: typing highlights nothing, and Enter or leaving keeps it. A label of an option, in any case, chooses the option; anything else becomes the value of a combobox of `String` |
+| `query(Signal<String>)` | Where the app keeps what is typed, to read or set it. Without one the combobox keeps it while it is in the tree, one for each signal of a value |
+| `size(ComboboxSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15 |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)` | What is chosen is wrong, doubtful or right: the edge and the ring in the destructive, warning or success color. Of the three, the first that is set is shown |
+| `disabled(bool)`, `full_width(bool)`, `label(&str)`, `name(..)` | As a [select](#select) has them. `name` is the name of the value in a form: the chosen option's label |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box; its input has the id with `-input` after it |
+
+- The box is a select's with a text input in it, which keeps the focus the whole time. A press anywhere on the box focuses the input and opens the list; typing opens it too and filters it, with the first option that can be chosen highlighted. Down and Up move the highlight, which a row shows as it shows the pointer; Enter chooses; Escape closes the list and a second Escape clears what was typed; Tab chooses nothing, closes the list and goes on.
+- Choosing puts the option's label in the box. While the box shows the chosen label the list opens whole; what is typed otherwise filters it. When the focus leaves, what was typed goes back to the chosen label, unless custom values are allowed. A group keeps its label over the first of its options that what is typed leaves.
+- It is a control a [field](#field) holds (`FieldControl`): the field names it, judges it and disables it.
+- Parts: `ComboboxPart::Trigger` (the box), `Value` (what is typed), `Placeholder`, `Chevron`, `Menu` (the panel of the list), `Item`, `Check`, `Detail`, `Hint`, `Group`, `Separator` (a select's, by the same names), `Status` (the row of no results or of loading) and `Spinner`. States: `ComboboxState::Open`, `Invalid`, `Warning`, `Valid`, `Disabled`, `FullWidth`, and of an item `Chosen` and `ItemDisabled`.
+- In the design the box is a select's: 260 by 36, `Background` in an edge of 1 in `Input`, 6 round, its text 12 in, the placeholder in `MutedForeground`, two chevrons of 16 at its end; the ring's color under the pointer and a line of 2 inside it while the focus is in it or the list is open. The list is a select's: 4 under the box on `Popover`, 8 round, items of 32 on `Highlight` under the pointer or the keys, the chosen one with a check of 16 at its end. The status row is 32 high, 8 in, in `MutedForeground` at 13, its spinner 16 in `Foreground`.
+- It is the engine's `Select` in its combobox mode (`Select::combobox`): one implementation of the list, its rows, groups, checks and adornments with the select's. To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `combobox` with `expanded` while its list is open, the input in it a `textbox` called by the combobox's label, and the list a `listbox` of `option`s with `a11y_selected`, which says in `a11y_activedescendant` which option the keys are on.
+- A renderer that draws another combobox has `view.select_style()`, `view.input()` (the text input, with what leaving it does), `view.chevron()`, `view.status()`, `view.query()`, `view.shown()` (the labels the list shows) and `view.select(style, trigger)`, which builds the combobox and calls `trigger` with a `SelectTriggerState` whose `input` is the input to place.
+
+## Multi Select
+
+Several values chosen from a list that what is typed filters, held as tags in the box: the labels of an issue, the people a review goes to.
+
+```rust
+use lurq::ui::MultiSelect;
+
+MultiSelect::new(languages.clone(), [
+  ("rust".to_owned(), "Rust"),
+  ("wgsl".to_owned(), "WGSL"),
+  ("typescript".to_owned(), "TypeScript"),
+  ("swift".to_owned(), "Swift"),
+])
+.placeholder("Select languages")
+.max_shown(3)
+.clearable(true);
+```
+
+| Builder | |
+| --- | --- |
+| `MultiSelect::new(value, options)` | Bound to a `Signal<Vec<T>>`: the options with its values are chosen, shown as tags in the order they were chosen; choosing one adds its value, or takes it out. The options are a select's |
+| `placeholder(&str)` | What the box says while nothing is chosen and nothing is typed |
+| `max_shown(usize)` | How many tags the box shows: the rest are one tag that counts them, "+3" |
+| `clearable(bool)` | A cross at the end of the box, while something is chosen, that takes every value away |
+| `filter(..)`, `on_input(..)`, `loading(bool)`, `loading_text(&str)`, `empty(&str)`, `query(..)` | As a [combobox](#combobox) has them |
+| `size(ComboboxSize)` | `Sm` 32, `Md` 36, `Lg` 40 high at least, with tags of 20, 24, 28 |
+| `invalid`, `warning`, `valid`, `disabled`, `full_width`, `label`, `name`, `state`, `style`, `rules`, `force`, `id`, `key` | As a combobox has them. A disabled one keeps its tags and takes none away; `full_width` is in place of 280 |
+
+- The box holds the chosen values as tags ([tag](#tag)s with `pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
+- Typing opens the list and filters it; Down and Up move the highlight; Enter or a press chooses an option or takes it back, and the list stays open while one chooses, with what was typed kept, to choose another of it. A tag's cross takes its value away, and so does Backspace in the empty input, the last one's. Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared when the focus leaves. A press of a tag or of the clear control does not open the list. Tab reaches the cross of each tag before the input.
+- It is a control a [field](#field) holds.
+- Parts: a combobox's, by the same names, and `MultiSelectPart::Check` (the box before a chosen option), `CheckIcon`, `Unchecked` (the box before one that is not), `Tags` (the lines of the tags and the input: its gap), `Tag` and `TagLabel` (what is laid over a tag's root and label), `Clear` and `ClearIcon`. Its states and sizes are a combobox's (`ComboboxState`, `ComboboxSize`).
+- In the design the box is a select's, 280 wide and at least 36 high, padded 6 at its start, 10 at its end and 6 over and under, a chevron down of 16 at its end. A tag is 24 high on `Secondary`, 4 round, padded 8 before its text of 13 in `SecondaryForeground` and 6 after its cross of 12 in `MutedForeground`; the tags are 6 apart, across and down, and what is typed keeps 48 on their line. The list is a select's, with a box of 16 before each option, 8 before its label, 4 round: `Background` in an edge of `Input`, and, chosen, `Primary` with a check of 12 in `PrimaryForeground`.
+- It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear".
+- A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
+
+## Token Input
+
+A box of text in which what the app recognizes stands as a token: tags, recipients, the variables of a template.
+
+```rust
+use lurq::ui::{TagVariant, Token, TokenInput};
+
+// Tags: every word with a space after it is a token.
+TokenInput::new(tags.clone())
+  .tokens(|text| Token::separated(text, ' '))
+  .placeholder("Add tag");
+
+// A template on rows, its variables tokens with no cross.
+TokenInput::new(template.clone())
+  .rows(2, 6)
+  .tokens(|text| {
+    text
+      .match_indices("{{name}}")
+      .map(|(at, name)| Token::new(at..at + name.len()).variant(TagVariant::Info).removable(false))
+      .collect()
+  });
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<String>)` | The text, tokens and all; what is typed is set on it, and what the app sets on it is shown |
+| `tokens(impl Fn(&str) -> Vec<Token>)` | How the app finds its tokens in the text, called in every render. Tokens that overlap one before them, hold a line break or are not on characters are left out |
+| `Token::new(range)` | A token over a byte range of the text: atomic and removable by default |
+| `Token::variant(name)` | A `TagVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), `MENTION`, or a variant the theme's recipe names |
+| `Token::removable(bool)` | The cross at its end, which a click takes it away by |
+| `Token::atomic(bool)` | One thing to the caret (the default), or text drawn as a token that the caret goes into |
+| `Token::separated(text, char)` | The items of a list typed with a separator: each item with a separator after it |
+| `rows(min, max)` | Text on several rows, between the two counts, tokens wrapping with the words; one line without it |
+| `placeholder(&str)` | What it says while it is empty |
+| `size(TokenInputSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with tokens of 20, 24 and 28 |
+| `invalid(bool)`, `warning(bool)`, `valid(bool)` | The edge in the destructive, warning or success color, as an input's |
+| `read_only(bool)` | Focused, selected and copied, not changed; its tokens have no cross |
+| `full_width(bool)` | As wide as what holds it, in place of 260 |
+| `on_input(handler)` | Called before an edit, taking a token away by its cross too; `prevent_default()` refuses it |
+| `controller(TextInputController)` | Kept by the app: reads the selection and puts text at it, a token chosen from a picker |
+| `label(&str)`, `name(..)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an [input](#input) has them. `id` is the id of the control |
+
+- It is the engine's `TextInput` with `TextInput::tokens`: what it holds is text, and a token is a range of that text
+  the app's function finds in every render, so an edit that changes a token's text makes it what the function then
+  says of it. Copying, pasting, undo, a form and tooling see the text: to what reads the tree it is a `textbox` whose
+  value is the text, each token as its own words.
+- A token is atomic: Left and Right go past it whole, a click selects all of it, Backspace after it selects it and the
+  next deletes it. A click on its cross deletes it with the space after it, as one edit `on_input` hears and undo
+  brings back. With `Token::separated`, deleting the space after the last token makes it text again, to be edited.
+- The box is an input's (one line) or, with `rows`, a textarea's: the same sizes, judgments, read only and disabled,
+  and a [field](#field) names and judges it as it does an input.
+- Parts: `TokenInputPart::Root` (its width), `Control` (the box: edge, fill, height, padding, the type of the text),
+  `Placeholder`, `Token` (fill, edge, radius, height, the room before the text and after the cross, and the gap
+  between them), `TokenLabel` (the token's type and color), `TokenIcon` (the cross: its side and color). States:
+  `TokenInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Multiline`, and a token's own
+  `TokenHovered` and `TokenSelected`. A token's parts are resolved with its variant and its state as the case, so a
+  recipe styles a variant's tokens with `.variant(..)` and their looks with `.state(TokenInputState::TokenHovered, ..)`.
+- In the design the box is 260 by 36, an input's, padded 6 at its sides. A token is 24 high, `Secondary`, `radius-sm`,
+  8 before its text and 6 after its cross; its text is 13 in `SecondaryForeground` and its cross 12 in
+  `MutedForeground`, 4 after the text. A colored variant is in the muted fill of its color with its text and cross in
+  the color, as a tag is. Under the pointer a token is `SecondaryHover` (a colored one keeps its fill) and its cross
+  `Foreground`; covered by the selection it is `Primary` with its text and cross in `PrimaryForeground`. On rows the
+  box is padded 6 down too and its lines are 28 high, so a token has room around it.
+- A renderer is given a `TokenInputView`: `view.tokens` (what was found), `view.control()` (the engine's input with
+  the tokens drawn in the recipe's style), `view.token_style(recipe, cross)` (how the engine draws a token of a
+  resolved case), `view.root(control)`.
+
+## Mentions
+
+Text in which a trigger opens a list of what can be mentioned, and what is chosen stands as a token: a comment, a
+message, a prompt.
+
+```rust
+use lurq::ui::{Avatar, Mention, Mentions, MentionsController, icons};
+
+// Kept by the app, with the value, from one render to the next.
+let mentions = MentionsController::new();
+
+Mentions::new(comment.clone(), &mentions)
+  .trigger('@', vec![
+    Mention::new("Ivan Zaida").avatar(Avatar::new("Ivan Zaida")),
+    Mention::new("Ivy Chen").avatar(Avatar::new("Ivy Chen")),
+  ])
+  .trigger('#', |typed: &str| teams_starting_with(typed))
+  .on_mention(|text| println!("mentioned {text}"))
+  .placeholder("Write a comment");
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<String>, &MentionsController)` | The text, and what the field keeps between renders: the app keeps both |
+| `trigger(char, options)` | What a character at the start of a word offers: a `Vec<Mention>`, narrowed to the offers whose label or text has what is typed after it (without regard to case), or a function of what is typed. At most 8 are shown |
+| `Mention::new(label)` | An offer: `text(&str)` is what it puts in the field (the trigger and the label by default), `avatar(Avatar)` or `icon(name)` before its label |
+| `on_mention(handler)` | Called with the text of an offer as it is chosen |
+| `tokens(..)` | Other tokens of the app's in the text, as a [token input](#token-input) finds them |
+| `rows(min, max)` | 2 and 8 unless told |
+| `full_width(bool)` | As wide as what holds it, in place of 280 |
+| `input_rules(&recipe)` | Rules laid over the token input it is |
+| `placeholder`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name`, `on_input`, `state`, `style`, `rules`, `force`, `id`, `key` | As a token input has them |
+
+- Typing a trigger at the start of the text or after a space opens the list under it while it offers something. Up and
+  Down move the offer that Enter (or Tab) chooses, a click chooses one, the pointer moves the active one, and Escape
+  puts the list away while the caret stays in that word, so that Enter is a new line again. The keys stay in the
+  field the whole time: the list takes no focus, and a press on it does not blur the field.
+- Choosing puts the offer's text and a space in place of the trigger and what was typed, as one edit through
+  `on_input`. From then on that text is a mention wherever it stands as a word of its own: a token of the variant
+  `MENTION`, atomic, with no cross. `MentionsController::mention(text)` makes a text a mention without choosing it
+  (what a message loaded with mentions has), and `mentioned()` lists them.
+- `MentionsController` holds the field's `TextInputController` (`input()`), the active offer, the trigger Escape put
+  away and the mentions; a builder has no `Ctx`, and these must outlive a render, as the engine's controller does.
+- It is a [token input](#token-input) on rows: to tooling a `textbox` whose value is the text with each mention as the
+  offer's text, with `a11y_haspopup` `listbox` and `a11y_expanded`; the list is a `listbox` of `option`s, the active
+  one `a11y_selected`.
+- Parts: `MentionsPart::Root`, `Control` (laid over the token input's control: its padding, line and least height),
+  `List`, `Option`, `OptionAvatar`, `OptionIcon`, `OptionLabel`; the mentions themselves are the token input's parts in
+  the variant `MENTION`. States: `MentionsState::Open`, `Active` (an offer's own).
+- In the design the box is 280 wide and at least 64 high, padded 12 across and 8 down, its text 14 with lines of 1.5.
+  The list hangs 4 under the trigger: 220 wide, `Popover`, `radius-lg`, an edge of 1 in `Border`, the medium shadow,
+  padded 4. An offer is 36 high, padded 8, `radius-sm`, an avatar of 24 (or an icon of 16 in `MutedForeground`) 8
+  before its label in the body's type; the active one, and the one under the pointer, are on `Highlight`. A mention is
+  in the text's type on `InfoMuted`, its text in `Info`, 20 high and padded 4.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
