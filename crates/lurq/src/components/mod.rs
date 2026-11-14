@@ -684,6 +684,21 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Merged over the element's [`within_style`](Self::within_style) while the interaction group it is in is
+      /// under the pointer, not while it only holds the focus: a cell that stays as a row scrolls, veiled with
+      /// its row under the pointer. It changes painting only.
+      pub fn within_hovered_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_hovered_style(node, style));
+        self
+      }
+
+      /// Merged over the element's [`within_hovered_style`](Self::within_hovered_style) while the interaction
+      /// group it is in is held down. It changes painting only.
+      pub fn within_pressed_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_pressed_style(node, style));
+        self
+      }
+
       /// Whether the element is an interaction group: while the pointer is on it, or the focus is on it or in
       /// it, the elements in it show their [`within_style`](Self::within_style). An element in two groups answers
       /// to the innermost.

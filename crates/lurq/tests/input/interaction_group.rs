@@ -120,3 +120,61 @@ fn the_focus_in_a_group_lights_it_too() {
     Some(Color::from_hex(LIT))
   );
 }
+
+const HOVERED: &str = "#2563eb";
+const PRESSED: &str = "#9333ea";
+
+/// A group whose cell is styled by the group's hover and press alone, beside a button that takes the focus.
+fn hover_and_press() -> Column {
+  Column::new().child(
+    Row::new()
+      .id("row")
+      .size(200.0, 40.0)
+      .interaction_group(true)
+      .child(Button::new("Open").id("row-button").tab_index(0))
+      .child(
+        Row::new()
+          .id("cell")
+          .size(20.0, 20.0)
+          .within_hovered_style(Style::new().background(HOVERED))
+          .within_pressed_style(Style::new().background(PRESSED)),
+      ),
+  )
+}
+
+#[test]
+fn a_style_by_the_groups_hover_or_press_is_lit_by_those_and_not_by_the_focus() {
+  use lurq::app::events::MouseButton;
+
+  let mut tree = Tree::new();
+  tree.set_root(hover_and_press());
+  render_pass(&mut tree);
+  tree.key_down("Tab".to_owned(), "Tab".to_owned(), false, false, false);
+  let snapshot = render_pass(&mut tree);
+  assert!(
+    !has_fill(&snapshot, HOVERED) && !has_fill(&snapshot, PRESSED),
+    "the focus in the group lights neither"
+  );
+
+  hover(&mut tree, "row-button");
+  assert!(
+    has_fill(&render_pass(&mut tree), HOVERED),
+    "the pointer on the group lights its hover"
+  );
+
+  let (x, y) = tree
+    .get_element_by_id_mut("row-button")
+    .and_then(|element| element.bounds())
+    .expect("laid out")
+    .center();
+  tree.mouse_down(x, y, MouseButton::Left);
+  let snapshot = render_pass(&mut tree);
+  assert!(has_fill(&snapshot, PRESSED), "held down, its press, over its hover");
+  assert!(!has_fill(&snapshot, HOVERED));
+  tree.mouse_up(x, y, MouseButton::Left);
+  assert!(has_fill(&render_pass(&mut tree), HOVERED), "let go, its hover again");
+
+  tree.mouse_leave_window();
+  let snapshot = render_pass(&mut tree);
+  assert!(!has_fill(&snapshot, HOVERED) && !has_fill(&snapshot, PRESSED));
+}

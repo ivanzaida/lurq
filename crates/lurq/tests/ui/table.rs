@@ -505,6 +505,69 @@ fn the_header_stays_while_the_rows_scroll_in_the_tables_height() {
   );
 }
 
+/// The veils of `color` (inset shadows) whose box holds the point `(x, y)`, narrowest first.
+fn veils_at(stage: &Stage, color: Color, x: f32, y: f32) -> Vec<Quad> {
+  let mut veils: Vec<Quad> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::BoxShadow(shadow) if shadow.inset && shadow.color == color)
+        && quad.x <= x
+        && x <= quad.x + quad.width
+        && quad.y <= y
+        && y <= quad.y + quad.height
+    })
+    .collect();
+  veils.sort_by(|a, b| a.width.total_cmp(&b.width));
+  veils
+}
+
+#[test]
+fn a_first_column_that_stays_takes_its_rows_veil_under_the_pointer_and_held_down_and_not_from_the_focus() {
+  let mut stage = wide(|| {
+    let mut columns = columns();
+    let name = columns.remove(0).sticky(true);
+    columns.insert(0, name);
+    Table::new(columns, crates())
+      .row_key(|row: &Crate| row.name)
+      .id("t")
+      .into()
+  });
+  let name = within(&mut stage, "t-row-0", "crates/lurq").expect("the first row's name");
+  let (name_x, name_y) = (name.x + 2.0, name.y + name.height / 2.0);
+  let (_, row_y, row_width, _) = stage.bounds("t-row-0");
+  let hover = light(PaletteColor::StateHover);
+  let pressed = light(PaletteColor::StatePressed);
+  assert!(veils_at(&stage, hover, name_x, name_y).is_empty(), "no veil at rest");
+
+  // The pointer on the row's last cell, away from the cell that stays: the row and that cell are veiled.
+  let updated = within(&mut stage, "t-row-0", "2 min ago").expect("the first row's time");
+  let (x, y) = (updated.x + 2.0, updated.y + updated.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.pass();
+  let veils = veils_at(&stage, hover, name_x, name_y);
+  assert_eq!(veils.len(), 2, "the row's veil and the stuck cell's own over its fill");
+  assert!(veils[0].width < row_width - 1.0, "the narrower is the cell's");
+  assert!(veils[0].y >= row_y - 0.01);
+
+  // Held down: the cell is veiled as pressed, as the row is.
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.pass();
+  let veils = veils_at(&stage, pressed, name_x, name_y);
+  assert_eq!(veils.len(), 2, "the row and the stuck cell held down");
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+
+  // The press focused the row; with the pointer gone the row has no veil, and nor has the cell.
+  assert_eq!(focused(&stage).as_deref(), Some("t-row-0"));
+  stage.tree.mouse_leave_window();
+  stage.pass();
+  assert!(
+    veils_at(&stage, hover, name_x, name_y).is_empty(),
+    "the focus alone veils nothing"
+  );
+}
+
 #[test]
 fn a_row_the_keys_reach_is_shown_clear_of_the_header_that_stays_over_it() {
   let rows = many(30);
