@@ -89,6 +89,7 @@ mod inline_link_copy_tests;
 mod inline_link_keys;
 mod input_token_paint;
 mod interaction_groups;
+mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
 mod loading_images;
@@ -4143,6 +4144,11 @@ impl Tree {
     if let Some(root) = &self.root {
       fire_keyboard_recursive(root, &mut evt, self.focused_path.as_deref());
     }
+    // A handler that asked for an element of its group by its key has it focused after the render the key causes.
+    let keyed_focus = evt
+      .control
+      .take_focus_key()
+      .and_then(|key| Some((self.focus_group_around_focus()?, key)));
     // An Enter the input method passes on during a composition reaches
     // handlers marked `composing`, but no default acts on it (form submit,
     // button or select activation, newline, blur): it belongs to the
@@ -4203,6 +4209,9 @@ impl Tree {
       }
     }
     self.apply_reactive_updates_after_event();
+    if let Some((group, key)) = keyed_focus {
+      self.focus_keyed_in_group(group, &key);
+    }
   }
 
   pub fn key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {

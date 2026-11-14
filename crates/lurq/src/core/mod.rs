@@ -1,5 +1,7 @@
 pub mod cell_ref;
 pub mod context;
+pub mod date;
+mod date_locale;
 pub mod effect;
 pub mod element_ref;
 pub mod guard;
@@ -15,6 +17,8 @@ pub mod tracking;
 
 pub use cell_ref::Ref;
 pub use context::{ContextMap, ReactiveContext};
+pub use date::{Date, DateRange, ParseDateError, Weekday, YearMonth, days_in_month, is_leap_year};
+pub use date_locale::{DateLocale, DateOrder};
 pub use effect::Effect;
 pub use element_ref::{ElementRect, ElementRef, ElementRefMut};
 pub use guard::Guard;

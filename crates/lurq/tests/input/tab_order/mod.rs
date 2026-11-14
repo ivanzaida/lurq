@@ -5,6 +5,7 @@ mod focus_group;
 mod focus_rows;
 mod focusable;
 mod inert;
+mod keyed_focus;
 #[cfg(feature = "form")]
 mod forms_in_scope;
 mod menu_row;
