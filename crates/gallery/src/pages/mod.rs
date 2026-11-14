@@ -65,6 +65,7 @@ mod slider;
 mod spinner;
 mod splitter;
 mod steps;
+mod swatch_picker;
 mod switch;
 mod table;
 mod tabs;
@@ -401,6 +402,14 @@ pub const PAGES: &[Page] = &[
     about: "date range picker period from to start end calendar presets last 7 days two months stay report value memory preset format parse placeholder min max disabled_days clearable size judgments read_only disabled label on_change controlled presets on_input on_submit on_open_change on_dismiss placement offset collision inline trigger_label clear_label panel_label months",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<date_range_picker::DateRangePickerPage>(()),
+  },
+  Page {
+    path: "/swatch-picker",
+    name: "Swatch Picker",
+    icon: Some("palette"),
+    about: "swatch picker color colour palette swatches grid choose label tag highlight hex value optional controlled on_change columns size framed label invalid disabled swatch",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<swatch_picker::SwatchPickerPage>(()),
   },
   Page {
     path: "/tooltip",

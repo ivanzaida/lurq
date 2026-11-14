@@ -85,6 +85,7 @@ mod slider;
 mod spinner;
 mod splitter;
 mod steps;
+mod swatch_picker;
 mod switch;
 mod table;
 mod tabs;
@@ -284,6 +285,9 @@ pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
 };
 pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView};
+pub use swatch_picker::{
+  Swatch, SwatchItem, SwatchPicker, SwatchPickerPart, SwatchPickerRenderer, SwatchPickerState, SwatchPickerView,
+};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
   BodyWindow, ColumnAlign, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
