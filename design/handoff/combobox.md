@@ -50,6 +50,12 @@ This session owns the engine's select, its list in a layer, and what typing does
   `engine_style(recipe, forced, in_state)`, which `SelectView::select_style` calls and the combobox and the multi select
   call too; `px`, `spacing`, `opacity`, `icon` and `engine_part` are `pub(crate)`. Nothing a select does changed.
 
+- `crates/lurq/src/layout/layout_engine.rs`, `layout_flex_wrap`: a child of a wrapping row or column with a grow
+  factor and a basis (`flex_full(grow, shrink, Some(basis))`) is its basis long when the lines are broken, and grows
+  into what is left of its line after, as a flex item of a wrapping flexbox does. A child without a basis is laid out
+  as before. The multi select's input keeps 48 on the line of the tags this way and takes the rest of it: a text input
+  measured on its own is as wide as it may be, and went to a line of its own.
+
 No keyframes were added.
 
 ## For `docs/src/content/docs/design-system.md`
@@ -152,6 +158,10 @@ MultiSelect::new(languages.clone(), [
 - **When the value changes other than by typing** (the app sets it, or an option is chosen), what is typed becomes what the box shows of it; while it does not, what is typed is left alone.
 - **Leaving the box** puts back the chosen label, or with custom values keeps what was typed: an option whose label it is, without regard to case, is chosen, and otherwise a value of `String` becomes the text. A value of another type cannot be made from text, so a combobox of one keeps the text in the box and the app hears it by `on_input`. Enter does what leaving does.
 - **A press opens a combobox and leaves it open**: it is pressed to type in, and a press that toggled would close it under a press to place the caret. It closes when an option is chosen, with Escape, with Tab, or with a press outside it.
+- **A press outside a combobox reaches what it lands on** (`OutsidePress::PassThrough`), as a press outside a text
+  field does: it closes the list and the focus goes to what was pressed, or nowhere, and what was typed is put back
+  or cleared. A select's press outside only closes its list, which keeps the focus; in a box that is typed in, the
+  caret would stay in it after a press elsewhere.
 - **Escape on a closed list clears what is typed as an edit** (select all, Backspace), so `on_input` hears it, and leaves the list closed. On a closed list with nothing typed, Escape is the input's: it blurs it.
 - **The multi select** is the engine's multiple select as a combobox. Choosing keeps the list open and what was typed, to choose another of it; leaving clears what was typed. Its tags are `ui::Tag` with `pill` (round and without a line, as the brief asks for a token in a box), with the board's corners of 4, padding and text of 13 laid over it by the parts `Tag` and `TagLabel`, so a theme styles them in the multi select apart from other tags. A tag and the clear control stop the press, so taking a value away does not open the list. The tags are in the order the values were chosen, which is the order of the signal.
 - **The boxes of the list are the engine's check slot**, the checked box as the check and the empty box as the new unchecked mark, before the label, so a row's label is where it is in a select.

@@ -3662,7 +3662,12 @@ impl LayoutEngine {
       // Keep natural children intrinsic, but resolve percentage frames
       // against the finite content constraints, as in the non-wrap path.
       // The container's min cross-constraint must not stretch wrapped items.
-      let c = Self::non_flex_child_constraints(child, constraints, vertical);
+      // A growing child with a basis is its basis long when the lines are broken, and grows into what is left of
+      // its line after: an input after the tags of a box, which keeps a least room on their line.
+      let c = match wrap_basis(child) {
+        Some(basis) => main_tight(constraints, basis, vertical),
+        None => Self::non_flex_child_constraints(child, constraints, vertical),
+      };
       child_layouts.push(ChildLayout {
         offset: Offset::default(),
         result: self.layout_child_node(glyph_engine, child_overrides, index, child, c),
@@ -3675,6 +3680,32 @@ impl LayoutEngine {
 
     while line_start < child_layouts.len() {
       let line_end = wrap_line_end(&child_layouts, line_start, spacing, max_main, vertical);
+      let room = if vertical {
+        max_main.min(constraints.max_height)
+      } else {
+        max_main.min(constraints.max_width)
+      };
+      let used = child_layouts[line_start..line_end]
+        .iter()
+        .map(|layout| main_size(&layout.result, vertical))
+        .sum::<f32>()
+        + spacing * (line_end - line_start).saturating_sub(1) as f32;
+      let grow_total: f32 = children[line_start..line_end]
+        .iter()
+        .filter(|child| wrap_basis(child).is_some())
+        .filter_map(|child| child.state_flex().map(|params| params.grow))
+        .sum();
+      if room.is_finite() && room > used && grow_total > 0.0 {
+        for index in line_start..line_end {
+          let child = &children[index];
+          let (Some(basis), Some(params)) = (wrap_basis(child), child.state_flex()) else {
+            continue;
+          };
+          let grown = basis + (room - used) * params.grow / grow_total;
+          let c = main_tight(constraints, grown, vertical);
+          child_layouts[index].result = self.layout_child_node(glyph_engine, child_overrides, index, child, c);
+        }
+      }
       let line = &mut child_layouts[line_start..line_end];
 
       let line_cross: f32 = line
@@ -4205,6 +4236,34 @@ impl LayoutEngine {
 
 /// Where the wrapped line starting at child `start` ends: a line takes at least
 /// one child, and then every child that still fits on it.
+/// The basis of a child of a wrapping row or column that grows into what is left of its line: one with a grow factor
+/// and a basis. A child without a basis keeps its own size.
+fn wrap_basis(child: &Node) -> Option<f32> {
+  child
+    .state_flex()
+    .filter(|params| params.grow > 0.0)
+    .and_then(|params| params.basis)
+}
+
+/// `constraints` with the main axis held at `main`.
+fn main_tight(constraints: Constraints, main: f32, vertical: bool) -> Constraints {
+  if vertical {
+    Constraints {
+      min_width: 0.0,
+      max_width: constraints.max_width,
+      min_height: main,
+      max_height: main,
+    }
+  } else {
+    Constraints {
+      min_width: main,
+      max_width: main,
+      min_height: 0.0,
+      max_height: constraints.max_height,
+    }
+  }
+}
+
 fn wrap_line_end(child_layouts: &[ChildLayout], start: usize, spacing: f32, max_main: f32, vertical: bool) -> usize {
   let mut line_main = main_size(&child_layouts[start].result, vertical);
   for (index, layout) in child_layouts.iter().enumerate().skip(start + 1) {

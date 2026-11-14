@@ -19,6 +19,7 @@ use super::{
 };
 use crate::{
   app::{
+    ctx::OutsidePress,
     events::{KeyboardEvent, TextInputEvent},
     theme::{IconSize, PaletteColor, Theme},
   },
@@ -209,7 +210,10 @@ where
   Vec<T>: SignalValue,
 {
   let trigger = engine.trigger;
+  // A press outside a combobox closes its list and reaches what it lands on, as a press outside a text field does:
+  // the focus leaves the box for what was pressed, or for nothing.
   let mut select = select
+    .outside_press(OutsidePress::PassThrough)
     .style(engine.style)
     .combobox(engine.input)
     .free_text(engine.free_text)
