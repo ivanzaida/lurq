@@ -683,6 +683,8 @@ pub(crate) trait NodeUpdate {
   fn stops_inside(&mut self, stops: bool);
   fn autofocus(&mut self, autofocus: bool);
   fn focus_label(&mut self, label: Arc<str>);
+  fn focus_level(&mut self, level: u32);
+  fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>);
@@ -1011,6 +1013,8 @@ pub(crate) struct Node {
   /// What typing in a focus group with typeahead matches this node by. An `Arc<String>` and not an `Arc<str>`:
   /// it is one pointer, and few nodes have one.
   pub(crate) focus_label: Option<Arc<String>>,
+  /// Where this node stands in a nested focus group: its level, and whether it opens. Few nodes have one.
+  pub(crate) focus_branch: Option<Arc<crate::node::FocusBranch>>,
   pub(crate) button_kind: Option<ButtonKind>,
   #[cfg(feature = "form")]
   pub(crate) form_name: Option<Arc<str>>,
@@ -2068,6 +2072,17 @@ impl NodeUpdate for Node {
     self.focus_label = Some(Arc::new(label.to_string()));
   }
 
+  fn focus_level(&mut self, level: u32) {
+    let branch = self.focus_branch.get_or_insert_with(Default::default);
+    Arc::make_mut(branch).level = Some(level);
+  }
+
+  fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>) {
+    let branch = Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default));
+    branch.expanded = Some(open);
+    branch.toggle = Some(toggle);
+  }
+
   fn button_kind(&mut self, kind: ButtonKind) {
     self.button_kind = Some(kind);
   }
@@ -2422,6 +2437,7 @@ impl Node {
       stops_inside: false,
       autofocus: false,
       focus_label: None,
+      focus_branch: None,
       button_kind: None,
       #[cfg(feature = "form")]
       form_name: None,
@@ -4056,6 +4072,11 @@ impl Node {
   /// What typing in a focus group with typeahead matches this node by, if it has its own.
   pub(crate) fn focus_label(&self) -> Option<&str> {
     self.focus_label.as_deref().map(String::as_str)
+  }
+
+  /// Where this node stands in a nested focus group, if it says.
+  pub(crate) fn focus_branch(&self) -> Option<&crate::node::FocusBranch> {
+    self.focus_branch.as_deref()
   }
 
   pub(crate) fn button_kind_value(&self) -> Option<ButtonKind> {
@@ -5951,6 +5972,7 @@ impl Node {
       stops_inside: self.stops_inside,
       autofocus: self.autofocus,
       focus_label: self.focus_label.clone(),
+      focus_branch: self.focus_branch.clone(),
       button_kind: self.button_kind,
       #[cfg(feature = "form")]
       form_name: self.form_name.clone(),

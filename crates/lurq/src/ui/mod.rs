@@ -86,6 +86,7 @@ mod toggletip;
 mod token_input;
 mod token_list;
 mod tooltip;
+mod tree_view;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
 pub use alert::{Alert, AlertIcon, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
@@ -240,6 +241,9 @@ pub use token_input::{
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
+pub use tree_view::{
+  TreeItem, TreeRow, TreeSelection, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState, TreeViewView,
 };
 
 /// Gives an enum of names its names: `as_str`, and a conversion into

@@ -45,6 +45,7 @@ pub struct FocusGroup {
   pub(crate) one_stop: bool,
   pub(crate) follow_pointer: bool,
   pub(crate) typeahead: bool,
+  pub(crate) nested: bool,
 }
 
 impl FocusGroup {
@@ -56,6 +57,7 @@ impl FocusGroup {
       one_stop: false,
       follow_pointer: false,
       typeahead: false,
+      nested: false,
     }
   }
 
@@ -139,6 +141,37 @@ impl FocusGroup {
     self
   }
 
+  /// Whether the group is a nested list, a tree: its elements stand at levels
+  /// (`.focus_level(n)`, 1 at the top, which an element without one is at), and
+  /// those that open and close say so with `.focus_expanded(open, toggle)`. In
+  /// a vertical group Right opens a closed element, and on an open one goes to
+  /// the first element in it; Left closes an open element, and on a closed one
+  /// or one that does not open goes to the element it is in: the nearest one
+  /// before it at a lower level. `*` opens every element at its level in the
+  /// element it is in. What is in a closed element is not there, so Up, Down,
+  /// Home, End and typeahead go through the elements that are shown.
+  ///
+  /// ```
+  /// use lurq::{
+  ///   components::{Button, Column},
+  ///   node::FocusGroup,
+  /// };
+  ///
+  /// # fn tree(open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Column {
+  /// let mut tree = Column::new()
+  ///   .focus_group(FocusGroup::vertical().nested(true).one_stop(true))
+  ///   .child(Button::new("src").tab_index(0).focus_level(1).focus_expanded(open, toggle));
+  /// if open {
+  ///   tree = tree.child(Button::new("main.rs").tab_index(0).focus_level(2));
+  /// }
+  /// # tree
+  /// # }
+  /// ```
+  pub fn nested(mut self, nested: bool) -> Self {
+    self.nested = nested;
+    self
+  }
+
   /// Whether Tab stops in the group once: on the element marked with
   /// `.focus_entry(true)` (the chosen one), or the first, and from inside
   /// the group Tab leaves it.
@@ -155,6 +188,19 @@ pub(crate) enum FocusStep {
   On,
   First,
   Last,
+  /// Right in a nested group: open, or go into.
+  Open,
+  /// Left in a nested group: close, or go out to the element it is in.
+  Close,
+  /// `*` in a nested group: open every element at the level of the focused one, in the element it is in.
+  OpenSiblings,
+}
+
+impl FocusStep {
+  /// Whether it is a key of a nested group: open, close or open the siblings.
+  pub(crate) fn is_nested(self) -> bool {
+    matches!(self, Self::Open | Self::Close | Self::OpenSiblings)
+  }
 }
 
 impl FocusGroup {
@@ -166,7 +212,11 @@ impl FocusGroup {
       FocusAxis::Both => (true, true),
       FocusAxis::None => return None,
     };
+    let nested = self.nested && self.axis == FocusAxis::Vertical;
     match key {
+      "ArrowRight" if nested => Some(FocusStep::Open),
+      "ArrowLeft" if nested => Some(FocusStep::Close),
+      "*" if nested => Some(FocusStep::OpenSiblings),
       "ArrowLeft" if horizontal => Some(FocusStep::Back),
       "ArrowRight" if horizontal => Some(FocusStep::On),
       "ArrowUp" if vertical => Some(FocusStep::Back),
@@ -175,5 +225,21 @@ impl FocusGroup {
       "End" => Some(FocusStep::Last),
       _ => None,
     }
+  }
+}
+
+/// Where an element stands in a nested [`FocusGroup`]: its level, and, for one
+/// that opens and closes, whether it is open and what asks it to be.
+#[derive(Clone, Default)]
+pub(crate) struct FocusBranch {
+  pub(crate) level: Option<u32>,
+  pub(crate) expanded: Option<bool>,
+  pub(crate) toggle: Option<std::sync::Arc<dyn Fn(bool) + Send + Sync>>,
+}
+
+impl FocusBranch {
+  /// Its level: 1 where it has none.
+  pub(crate) fn level(&self) -> u32 {
+    self.level.unwrap_or(1).max(1)
   }
 }

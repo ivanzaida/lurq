@@ -323,18 +323,32 @@ pub(super) fn group_stops_around(
   dropped: &[NodeId],
   around: Option<NodeId>,
 ) -> (Vec<FocusTarget>, Option<usize>) {
-  struct Walk {
-    stops: Vec<FocusTarget>,
-    around: Option<NodeId>,
-    before: Option<usize>,
-  }
-  fn collect(
-    node: &Node,
+  let walk = walk_group(group, dropped, around);
+  (walk.stops, walk.before)
+}
+
+/// The stops of [`group_stops`], each with its node: for what reads more of each than where it is, the level
+/// of an element of a nested group, the label typeahead matches, in one walk of the group.
+pub(super) fn group_stop_nodes<'a>(group: &'a Node, dropped: &[NodeId]) -> (Vec<FocusTarget>, Vec<&'a Node>) {
+  let walk = walk_group(group, dropped, None);
+  (walk.stops, walk.nodes)
+}
+
+struct GroupWalk<'a> {
+  stops: Vec<FocusTarget>,
+  nodes: Vec<&'a Node>,
+  around: Option<NodeId>,
+  before: Option<usize>,
+}
+
+fn walk_group<'a>(group: &'a Node, dropped: &[NodeId], around: Option<NodeId>) -> GroupWalk<'a> {
+  fn collect<'a>(
+    node: &'a Node,
     root: bool,
     dropped: &[NodeId],
     focus_event_id: Option<NodeId>,
     in_form: bool,
-    walk: &mut Walk,
+    walk: &mut GroupWalk<'a>,
   ) {
     if walk.around == Some(node.node_id()) {
       walk.before = Some(walk.stops.len());
@@ -361,6 +375,7 @@ pub(super) fn group_stops_around(
         input_id: node.node_id(),
         event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
       });
+      walk.nodes.push(node);
       if node.button_kind_value().is_some() && !node.has_stops_inside() {
         return;
       }
@@ -369,13 +384,14 @@ pub(super) fn group_stops_around(
       collect(child, false, dropped, focus_event_id, in_form, walk);
     }
   }
-  let mut walk = Walk {
+  let mut walk = GroupWalk {
     stops: Vec::new(),
+    nodes: Vec::new(),
     around,
     before: None,
   };
   collect(group, true, dropped, None, false, &mut walk);
-  (walk.stops, walk.before)
+  walk
 }
 
 fn stop_key(tab_index: i32, order: usize) -> StopKey {
