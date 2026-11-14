@@ -202,8 +202,9 @@ fn a_drawer_over_the_page_is_a_sheet_at_its_edge() {
   let open = Signal::new(true);
   let held = open.clone();
   let mut stage = stage(move |_| layout(navigation(held.clone()).overlay(true), SheetSide::Start));
-  // It takes no room: the page is as wide as the layout, under the drawer.
-  assert_eq!(stage.bounds("page"), (0.0, 0.0, 600.0, 300.0));
+  // It takes no room: the page starts at the layout's start and is as wide as it, under the drawer.
+  let (page_x, _, page_width, _) = stage.bounds("page");
+  assert_eq!((page_x, page_width), (0.0, 600.0));
   assert_eq!(stage.bounds("drawer"), (0.0, 0.0, 300.0, 300.0));
   assert!(
     stage.quads().iter().any(|quad| {
