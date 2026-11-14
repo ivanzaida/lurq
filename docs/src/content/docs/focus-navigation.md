@@ -89,6 +89,7 @@ Row::new()
 | `one_stop(bool)` | Tab stops in the group once, on the element marked `.focus_entry(true)` (the chosen one) or the first, and from inside the group Tab leaves it |
 | `follow_pointer(bool)` | While the focus is in the group, the pointer coming onto one of its elements moves the focus there, with no ring, and an arrow key takes the hover off the element under a pointer that holds still: what the pointer and the keyboard are on is one, as in a menu |
 | `typeahead(bool)` | Typing a letter moves the focus to the element whose label starts with it. Letters typed within a second of one another are one prefix, the same letter again goes on to the next element that starts with it, and a pause starts again |
+| `menu_row(bool)` | The group is a row of menus, as the File, Edit and View of a menubar: each of its elements opens a menu hung from it. With one of those menus open, Left and Right go to the menu beside it, and Alt reaches the row from anywhere. See [a row of menus](#a-row-of-menus) |
 | `FocusGroup::none()` | No key moves the focus within it, and what is in it is out of the group around it: that group's arrows pass it by, and do nothing while the focus is in it. For what a group holds beside what its keys move between, as the content of an accordion's open item is between two headers |
 
 - The keys move between what Tab would stop at inside the element (a `tab_index` of `0` or more, or a control of a form), in the order of the tree; a disabled or dropped one is passed by. Home and End go to the first and the last.
@@ -100,6 +101,50 @@ Row::new()
 - The innermost group around the focused element that takes the key acts: a vertical menu inside a horizontal bar takes Up and Down, the bar Left and Right.
 - An element's label for typeahead is what `.focus_label(..)` gives it, or, for a button with one text in it, that text; an element with neither is not reached by typing. A menu item's label is its label alone, not its shortcut. A text input, a slider and a select in the group keep the letters, and Space still presses what has the focus.
 - A key event reaches every node's `on_key_down`, focused or not. `KeyboardEvent::focus_within` says whether the focus is on the node whose handler runs or inside it: a handler that acts only for what has the focus (a menu item opening its submenu on Right) checks it.
+
+### A Row Of Menus
+
+`FocusGroup::menu_row(true)` makes a group a row of menus: each of its elements opens a menu hung from it when it is pressed, a popup whose anchor is the element, as `ui::Menu` is. It is what a menubar's titles are (`ui::Menubar` has it), and what a bar of your own of buttons and menus takes to have a menubar's keys.
+
+```rust
+use lurq::{
+  components::{Button, Column, Row},
+  core::{ElementRef, Signal},
+  node::FocusGroup,
+  ui::{Menu, MenuItem},
+};
+
+// file, edit: ElementRef; file_open, edit_open: Signal<bool>. A press of a title opens its menu and closes the other.
+let title = |name: &str, anchor: &ElementRef, open: &Signal<bool>, other: &Signal<bool>| {
+  let (open, other) = (open.clone(), other.clone());
+  Button::new(name)
+    .tab_index(0)
+    .ref_element(anchor.clone())
+    .on_click(move |_| {
+      other.set(false);
+      open.update(|open| *open = !*open);
+    })
+};
+Row::new()
+  .focus_group(FocusGroup::horizontal().one_stop(true).typeahead(true).menu_row(true))
+  .child(
+    Column::new()
+      .child(title("File", &file, &file_open, &edit_open))
+      .child(Menu::new(file.clone(), file_open.clone()).item(MenuItem::new("New")).item(MenuItem::new("Open"))),
+  )
+  .child(
+    Column::new()
+      .child(title("Edit", &edit, &edit_open, &file_open))
+      .child(Menu::new(edit.clone(), edit_open.clone()).item(MenuItem::new("Undo")).item(MenuItem::new("Redo"))),
+  );
+```
+
+- On the row itself it is a group as any other: Left and Right move between its elements, and Enter or Space presses one, which opens its menu with the focus in it.
+- While a menu hung from an element of the row has the focus, Left and Right that nothing in the menu takes close it, with every menu opened from it, and press the element before or after the one it hangs from, going round at the ends as the group wraps: that element opens its menu, which takes the focus. A key a handler in the menu prevents stays the menu's: a submenu's Left closes the submenu, and an item's Right opens its own submenu. From a submenu, Right on an item with none goes on to the next element of the row.
+- Alt pressed and let go with nothing pressed between puts the focus on the first row of menus of the window, at its entry (the element marked `.focus_entry(true)`, or the first that takes the focus); Alt alone again, from the row or a menu of it, closes the menu and gives the focus back to what had it before. A key or a press of the pointer while Alt is down makes its release no Alt alone, and a handler that prevents the release's default keeps it from the row.
+- Alt with a letter presses the element of that row whose label starts with it (its `focus_label`, or the one text of a button), from wherever the focus is: it opens its menu, closing the one that was open. Where several start with the letter, the next press goes on to the next. A letter that starts no element is not the row's.
+- A disabled row, or a disabled element of it, is passed by: the row with no element to stop at is not reached by Alt.
+- On a Mac, Alt (Option) does neither: Option with a letter types a character there, and an app's menus belong in the system's menu bar (see [native menus](../window-lifecycle-menus/#building-a-native-menu)).
 
 ## Tab Scope
 
