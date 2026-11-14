@@ -122,7 +122,9 @@ pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
   ButtonView,
 };
-pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use button_group::{
+  ButtonGroup, ButtonGroupPart, ButtonGroupRenderer, ButtonGroupSize, ButtonGroupState, ButtonGroupVariant,
+};
 pub use calendar::{
   Calendar, CalendarChoice, CalendarMemory, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
 };
@@ -132,7 +134,9 @@ pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
   CheckboxView,
 };
-pub use chip::{Chip, ChipGroup, ChipGroupPart, ChipPart, ChipRenderer, ChipState, ChipView};
+pub use chip::{
+  Chip, ChipGroup, ChipGroupPart, ChipGroupRenderer, ChipGroupState, ChipPart, ChipRenderer, ChipState, ChipView,
+};
 pub use choice_card::{
   CheckboxCard, CheckboxCardGroup, ChoiceCardGroupPart, ChoiceCardGroupState, ChoiceCardKind, ChoiceCardPart,
   ChoiceCardRenderer, ChoiceCardState, ChoiceCardView, RadioCard, RadioCardGroup,
@@ -227,7 +231,9 @@ pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
 pub use search_field::{SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldState, SearchFieldView};
-pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
+pub use segmented::{
+  SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
+};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
@@ -283,8 +289,10 @@ pub use toast::{
   TOAST_DURATION, TOASTS_SHOWN, Toast, ToastAction, ToastId, ToastPart, ToastPosition, ToastRenderer, ToastState,
   ToastVariant, ToastView, Toasts,
 };
-pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
-pub use toggle_group::{ToggleGroup, ToggleGroupPart};
+pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleSize, ToggleState, ToggleView};
+pub use toggle_group::{
+  ToggleGroup, ToggleGroupOrientation, ToggleGroupPart, ToggleGroupRenderer, ToggleGroupSize, ToggleGroupState,
+};
 pub use toggletip::{Toggletip, ToggletipPart, ToggletipRenderer, ToggletipState, ToggletipView};
 pub use token_input::{
   MENTION, Token, TokenInput, TokenInputPart, TokenInputRenderer, TokenInputSize, TokenInputState, TokenInputView,

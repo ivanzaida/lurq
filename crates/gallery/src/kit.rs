@@ -183,7 +183,7 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
   SegmentedControl::controlled(
     chosen.clone(),
     options.iter().map(|(label, value)| (value.clone(), *label)),
-    choose,
+    move |value: &T| choose(value.clone()),
   )
 }
 

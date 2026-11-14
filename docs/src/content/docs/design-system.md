@@ -379,9 +379,10 @@ Toggle::new("Bold")
 | Builder | |
 | --- | --- |
 | `on(bool)` | Whether it is on. The toggle does not keep it: the app says so |
+| `bind(Signal<bool>)` | On while the signal is true, which a press turns; `on_change` handlers are called after it is set |
 | `on_change(handler)` | Called on a press with what the toggle is to be: on if it was off |
 | `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square. An icon with an empty label is drawn so too |
-| `size(size)` | A `ButtonSize`: a toggle is as high as a button of that size |
+| `size(size)` | A `ToggleSize` (a `ButtonSize`): a toggle is as high as a button of that size |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
 Parts: `TogglePart::Root`, `Label`, `Icon`. States: `ToggleState::On`, `Disabled`, `IconOnly`. In the design a toggle has no fill until the pointer is on it or it is on, and then the `Highlight` fill; it is padded 10.
@@ -395,24 +396,23 @@ Buttons that belong together, joined into one shape.
 ```rust
 use lurq::ui::{Button, ButtonGroup, ButtonGroupVariant, icons};
 
-ButtonGroup::new()
-  .child(Button::new("Years"))
-  .child(Button::new("Months"))
-  .child(Button::new("Days"));
+ButtonGroup::new([Button::new("Years"), Button::new("Months"), Button::new("Days")]).label("Period");
 
 // An action and the choice of how to do it: a split button.
-ButtonGroup::new()
+ButtonGroup::new([Button::new("Merge").on_click(|_| merge())])
   .variant(ButtonGroupVariant::Primary)
-  .child(Button::new("Merge").on_click(|_| merge()))
-  .child(Button::new("How to merge").icon(icons::CHEVRON_DOWN).icon_only(true).on_click(|_| choose()));
+  .button(Button::new("How to merge").icon(icons::CHEVRON_DOWN).icon_only(true).on_click(|_| choose()));
 ```
 
 | Builder | |
 | --- | --- |
-| `child(button)`, `children(buttons)` | The buttons, in order |
+| `ButtonGroup::new(buttons)` | The buttons, in order |
+| `button(button)`, `buttons(buttons)` | Buttons after the ones it has |
 | `variant(variant)` | `Outline` (the default): one line around the group and a line between its buttons, which have no fill. `Primary`, `Secondary`, `Destructive`: buttons in that fill, a pixel apart |
-| `size(size)` | The `ButtonSize` of every button in it |
-| `style(part, ..)`, `id`, `key` | One instance over the theme; its id and key |
+| `size(size)` | The `ButtonGroupSize` (a `ButtonSize`) of every button in it |
+| `label(&str)` | What the group is called to what reads the tree, a `group` |
+| `disabled(bool)` | Every button in it is disabled. State: `ButtonGroupState::Disabled` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the first button |
 
 - The group gives its buttons their variant and their size and squares their corners: the corners of the group are the round ones. A button keeps the rest of what it was given: its icon, what a press does, whether it is disabled.
 - Parts: `ButtonGroupPart::Root`, the group; `Item`, what the group says of each button, laid over the theme's recipe for a button's root (padded 14 in the design); `Separator`, the line between two.
@@ -439,9 +439,16 @@ ToggleGroup::multiple(marks.clone(), [
 | --- | --- |
 | `ToggleGroup::new(signal, choices)` | Exactly one is on: a press of another sets the signal |
 | `ToggleGroup::multiple(signal, choices)` | A `Signal<Vec<T>>`: a press adds a value, or takes it out |
-| `ToggleGroup::controlled(on, choices, press)` | The app holds the state: the toggles of `on` are on, and `press` is told the value of each one pressed |
+| `ToggleGroup::controlled(value, choices, on_change)` | The app holds the one that is on: a press of another tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the one that is on tells nothing |
+| `ToggleGroup::controlled_multiple(values, choices, on_change)` | The app holds those that are on: a press tells `on_change` (`Fn(&[T])`) the whole set it is to be |
+| `on_change(handler)` | Called as a person changes what is on, with the new value: `\|align: &Align\|` for a group of one, `\|marks: &[Mark]\|` for one of any number. Not called where the app sets the signal. Each one adds; a handler of another type panics |
+| `label(&str)` | What the group is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
+| `orientation(Orientation)` | Along a row (the default), or down a column, with the arrow keys of that way |
+| `invalid(bool)` | Its line is in the destructive color; a field's judgment sets it |
+| `size(size)`, `disabled(bool)` | For the whole group: a `ToggleGroupSize` (a `ButtonSize`) |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the toggle Tab stops on |
 
-A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. `size(size)` and `disabled(bool)` are for the whole group. Tab stops in the group once; Left and Right move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`.
+A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. Tab stops in the group once; the arrow keys move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`. States: `ToggleGroupState::Horizontal`, `Vertical`, `Disabled`, `Invalid`.
 
 In a [toolbar](#toolbar) the group takes the bar's size and is no stop of its own: its toggles are among the bar's controls, and the bar's Left and Right move through them and on. Where the bar is too narrow for it, the whole group goes into the bar's menu, after a line, as a checked item for each toggle, on while it is; choosing one presses that toggle.
 
@@ -454,22 +461,26 @@ use lurq::ui::SegmentedControl;
 
 SegmentedControl::new(period.clone(), [(Period::Day, "Day"), (Period::Week, "Week"), (Period::Month, "Month")]);
 
-// The app holds what is chosen.
+// The app holds what is chosen, and is told what it is to be.
 SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (Some(Light), "Light")], |look| {
-  theme.set_preferred_appearance(look)
-});
+  theme.set_preferred_appearance(*look)
+})
+.label("Appearance");
 ```
 
 | Builder | |
 | --- | --- |
 | `SegmentedControl::new(signal, choices)` | The chosen segment is the one with the signal's value; a press of another sets it |
-| `SegmentedControl::controlled(value, choices, choose)` | The app holds the value and is told of a press |
-| `size(size)` | A `ButtonSize`: the track is as high as a button of that size |
+| `SegmentedControl::controlled(value, choices, on_change)` | The app holds the value: a press of another segment tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the chosen one tells nothing |
+| `on_change(handler)` | Called as a person chooses another segment, with its value (`\|period: &Period\|`). Not called where the app sets the signal. Each one adds |
+| `label(&str)` | What the control is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
+| `invalid(bool)` | The track has a line in the destructive color; a field's judgment sets it |
+| `size(size)` | A `SegmentedControlSize` (a `ButtonSize`): the track is as high as a button of that size |
 | `full_width(bool)` | As wide as what it is in, its segments sharing the width |
-| `disabled(bool)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the segment Tab stops on: the chosen one, else the first that is not disabled |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the segment Tab stops on: the chosen one, else the first that is not disabled |
 
 - The control is one choice: Tab stops in it once, at the chosen segment; Left and Right move the focus to the next segment and choose it, Home and End the first and the last, and a click chooses one.
-- Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`.
+- Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`; `Invalid`.
 
 ## Link
 
@@ -1473,14 +1484,18 @@ ChipGroup::multiple(languages, [
 | --- | --- |
 | `ChipGroup::new(signal, choices)` | Exactly one chosen: the signal's value. A press of another sets it |
 | `ChipGroup::multiple(signal, choices)` | Any number chosen: the signal's values. A press adds a value or takes it out |
-| `ChipGroup::controlled(selected, choices, press)` | The app holds what is chosen, and `press` is told each value pressed |
-| `disabled(bool)`, `style(part, ..)`, `id`, `key` | `ChipGroupPart::Item` lays rules over each chip's root |
+| `ChipGroup::controlled(value, choices, on_change)` | The app holds the one chosen: a press of another tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the chosen one tells nothing |
+| `ChipGroup::controlled_multiple(values, choices, on_change)` | The app holds those chosen: a press tells `on_change` (`Fn(&[T])`) the whole set it is to be |
+| `on_change(handler)` | Called as a person changes what is chosen, with the new value: `&T` for a group of one, `&[T]` for one of any number. Not called where the app sets the signal. Each one adds |
+| `label(&str)` | What the group is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
+| `invalid(bool)` | Each chip has a line in the destructive color; a field's judgment sets it. State: `ChipGroupState::Invalid` |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | `ChipGroupPart::Item` lays rules over each chip's root. `force` draws the chip Tab stops on |
 
 - Tab reaches a chip, Space and Enter turn it, and the focus ring is the chip's. A group is one stop of Tab: the arrow keys move between its chips and Space or Enter turns the one the focus is on. A choice is a [`Choice`](#toggle-group), as a toggle group's: its icon is the chip's.
 - To what reads the tree a chip is a `button` called by its text, with `a11y_pressed` saying whether it is chosen; `lurq_inspect` reports it as `state.pressed`.
-- Parts: `ChipPart::Root` (what is pressed), `Icon`, `Label`; `ChipGroupPart::Root`, `Item`. States: `ChipState::Selected`, `Leading` (it has an icon before its text: the check or its own), `Disabled`.
+- Parts: `ChipPart::Root` (what is pressed), `Icon`, `Label`; `ChipGroupPart::Root`, `Item`. States: `ChipState::Selected`, `Icon` (it has an icon before its text: the check or its own), `Disabled`.
 - In the design a chip is 28 high and round, padded 12, its text 13 and medium. One not chosen is in `Background` with a line of `Input` and its text in `Foreground`, `Highlight` under the pointer; a chosen one is in `Primary`, line and fill, its text in `PrimaryForeground`, with a check of 14 before it, 6 from it and padded 8 at its start, and in `PrimaryHover` under the pointer. A disabled chip is dimmed. The chips of a group are 6 apart and go on to the next line where the row has no room.
-- A renderer that draws another chip starts from `view.root()`, the behavior with the root's style; `view.leading()` is the icon the default renderer puts before the text.
+- A renderer that draws another chip starts from `view.root()`, the behavior with the root's style; `view.shown_icon()` is the icon the default renderer puts before the text.
 
 ## Avatar
 
