@@ -147,6 +147,21 @@ impl SheetStyle {
 /// What makes a sheet's content when the sheet builds it itself.
 type SheetContent = Arc<dyn Fn(&mut Ctx) -> Element + Send + Sync>;
 
+/// A node a sheet draws itself, which [`SheetProps::dress`] is given.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SheetNode {
+  /// What is drawn over the window behind the sheet. The sheet sets how much of it shows.
+  Backdrop,
+  /// The sheet itself: what is behind its content, reaching under the window's bottom edge.
+  Panel,
+  /// The bar at the sheet's top that says it can be dragged.
+  Grabber,
+}
+
+/// What dresses the nodes a sheet draws itself: the look of a design system's sheet in place of the colors of
+/// [`SheetStyle`].
+pub type SheetDress = Arc<dyn Fn(SheetNode, Column) -> Column + Send + Sync>;
+
 #[derive(Clone)]
 pub struct SheetProps {
   open: Signal<bool>,
@@ -154,6 +169,10 @@ pub struct SheetProps {
   detent: Option<Signal<usize>>,
   style: SheetStyle,
   dismissable: bool,
+  /// Whether Escape puts the sheet away, where it is not as [`SheetProps::dismissable`] says.
+  escape: Option<bool>,
+  takes_focus: bool,
+  dress: Option<SheetDress>,
   scroll: Option<ScrollState>,
   /// What makes the content, for a sheet whose content is made in it ([`Sheet::mount_with`]).
   content: Option<SheetContent>,
@@ -171,6 +190,13 @@ impl PartialEq for SheetProps {
       && self.detent.as_ref().map(Signal::id) == other.detent.as_ref().map(Signal::id)
       && self.style == other.style
       && self.dismissable == other.dismissable
+      && self.escape == other.escape
+      && self.takes_focus == other.takes_focus
+      && match (&self.dress, &other.dress) {
+        (None, None) => true,
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        _ => false,
+      }
       && same_scroll
       && match (&self.content, &other.content) {
         (None, None) => true,
@@ -194,6 +220,9 @@ impl SheetProps {
       detent: None,
       style: SheetStyle::default(),
       dismissable: true,
+      escape: None,
+      takes_focus: false,
+      dress: None,
       scroll: None,
       content: None,
     }
@@ -224,6 +253,27 @@ impl SheetProps {
   /// down only when its signal is cleared.
   pub fn dismissable(mut self, dismissable: bool) -> Self {
     self.dismissable = dismissable;
+    self
+  }
+
+  /// Whether Escape puts the sheet away, over what [`SheetProps::dismissable`] says of it.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.escape = Some(dismiss);
+    self
+  }
+
+  /// Whether the focus goes into the sheet as it comes up, to its first stop of Tab, and back to what had it
+  /// as it goes down, as `Modal::takes_focus` has it. Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
+    self
+  }
+
+  /// What dresses the nodes the sheet draws itself, the backdrop, the panel and the grabber, after the sheet
+  /// has given them their place and the colors of its style: a design system's edge, corners, colors and
+  /// shadow. The sheet still says how much of the backdrop shows and where the panel is.
+  pub fn dress(mut self, dress: impl Fn(SheetNode, Column) -> Column + Send + Sync + 'static) -> Self {
+    self.dress = Some(Arc::new(dress));
     self
   }
 
@@ -442,7 +492,9 @@ impl Component for Sheet {
     let at = detent.get().min(props.detents.len() - 1);
 
     let window = ctx.window();
-    let (room, safe_area) = (window.logical_height(), window.safe_area);
+    // A sheet over the whole window is laid out under the title bar the app draws, as every modal is.
+    let room = (window.logical_height() - window.title_bar_inset()).max(0.0);
+    let safe_area = window.safe_area;
     let large = room - safe_area.top - style.top_margin;
 
     let mut state = self.state.lock();
@@ -564,9 +616,12 @@ impl Component for Sheet {
     };
     drop(state);
 
-    let backdrop = Row::new()
-      .size(FILL, FILL)
-      .background(style.backdrop)
+    let dress = |node: SheetNode, column: Column| match &props.dress {
+      Some(dress) => dress(node, column),
+      None => column,
+    };
+    let backdrop = Column::new().size(FILL, FILL).background(style.backdrop);
+    let backdrop = dress(SheetNode::Backdrop, backdrop)
       .opacity(style.dim * up)
       .transition(Transition::opacity().duration(pace).easing(curve))
       .on_click({
@@ -605,13 +660,14 @@ impl Component for Sheet {
           .padding_top(style.grabber_top)
           .justify(crate::layout::layout_kind::Justify::Center)
           .pointer_events_none()
-          .child(
-            Row::new()
+          .child(dress(
+            SheetNode::Grabber,
+            Column::new()
               .width(style.grabber_width)
               .height(style.grabber_height)
               .rounded(style.grabber_height / 2.0)
               .background(style.grabber_color),
-          ),
+          )),
       );
     }
 
@@ -622,7 +678,8 @@ impl Component for Sheet {
       .height(room + UNDER)
       .background(style.background)
       .rounded(style.corner_radius)
-      .clip()
+      .clip();
+    let panel = dress(SheetNode::Panel, panel)
       .child(body)
       .opacity(if reduce_motion && away { 0.0 } else { 1.0 })
       .transform(Transform2D::translate(0.0, top))
@@ -719,8 +776,11 @@ impl Component for Sheet {
       .stack_align(StackAlignment::TopCenter)
       .child(backdrop)
       .child(panel);
-    let mut modal = Modal::new(layer).open_when(true).target(Root);
-    modal = if props.dismissable {
+    let mut modal = Modal::new(layer)
+      .open_when(true)
+      .target(Root)
+      .takes_focus(props.takes_focus);
+    modal = if props.escape.unwrap_or(props.dismissable) {
       modal.dismisses(props.open.clone())
     } else {
       modal.dismiss_on_escape(false)

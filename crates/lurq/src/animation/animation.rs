@@ -326,6 +326,10 @@ impl AnimationEngine {
     for keyframes in crate::ui::input_otp_keyframes() {
       engine.register_keyframes(keyframes);
     }
+    // A sheet sliding in from an edge of the window and out to it.
+    for keyframes in crate::ui::sheet_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
     engine
   }
 

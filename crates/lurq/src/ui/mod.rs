@@ -28,6 +28,7 @@ mod choice_card;
 mod collapsible;
 mod combobox;
 mod dialog;
+mod drawer;
 mod fab;
 mod field;
 mod fieldset;
@@ -53,6 +54,7 @@ mod segmented;
 mod select;
 mod separator;
 mod shared;
+mod sheet;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -97,6 +99,7 @@ pub use choice_card::{
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
+pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
@@ -147,6 +150,12 @@ pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlStat
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT};
+pub(crate) use sheet::keyframes as sheet_keyframes;
+pub use sheet::{
+  SHEET_IN_FROM_BOTTOM, SHEET_IN_FROM_END, SHEET_IN_FROM_START, SHEET_IN_FROM_TOP, SHEET_OUT_TO_BOTTOM,
+  SHEET_OUT_TO_END, SHEET_OUT_TO_START, SHEET_OUT_TO_TOP, Sheet, SheetPart, SheetRenderer, SheetSide, SheetSize,
+  SheetState, SheetView,
+};
 pub(crate) use skeleton::keyframes as skeleton_keyframes;
 pub use skeleton::{
   SKELETON_PULSE, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation,
