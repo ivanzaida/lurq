@@ -661,3 +661,59 @@ fn down_from_a_changed_row_goes_to_the_next_row_and_not_to_its_reset() {
   stage.key("ArrowDown");
   assert_eq!(focused(&stage).as_deref(), Some("grid-Name"), "the next row");
 }
+
+#[test]
+fn a_grid_that_scrolls_keeps_a_lane_for_its_bar_and_one_that_does_not_keeps_its_width() {
+  let style = lurq::layout::scrollbar::ScrollBarStyle::default();
+  let lane = style.width + style.resolved_edge_inset() * 2.0;
+  let values: Vec<Signal<f64>> = (0..60).map(|index| Signal::new(index as f64)).collect();
+  let (scene, few) = (values.clone(), values.clone());
+  let grid = |values: &[Signal<f64>], count: usize, id: &str| {
+    let mut category = PropertyCategory::new("Fields");
+    for (index, value) in values.iter().take(count).enumerate() {
+      let property = Property::number(&format!("f{index}"), value.clone());
+      // The last row is changed, so that its reset is at the row's end too.
+      category = category.property(if index + 1 == count {
+        property.default(-1.0)
+      } else {
+        property
+      });
+    }
+    PropertyGrid::new().id(id).category(category)
+  };
+  let mut stage = Stage::new(move |ctx| {
+    Row::new()
+      .size(800.0, 500.0)
+      .align_items(lurq::layout::Alignment::Start)
+      .child(grid(&scene, 60, "long").height(300.0).mount(ctx))
+      .child(grid(&few, 3, "short").mount(ctx))
+      .into()
+  });
+  let (gx, _, gw, _) = stage.bounds("long");
+  let lane_starts = gx + gw - lane;
+  for id in ["long-f0-editor", "long-f5-editor"] {
+    let (x, _, w, _) = stage.bounds(id);
+    assert!(
+      x + w <= lane_starts + 0.5,
+      "{id} ends at {} before the bar's lane at {lane_starts}",
+      x + w
+    );
+  }
+  // Under the pointer the bar is shown; nothing moves into its lane.
+  let (cx, cy) = stage.center("long-f0");
+  stage.tree.mouse_move(cx, cy);
+  stage.pass();
+  let (x, _, w, _) = stage.bounds("long-f0-editor");
+  assert!(x + w <= lane_starts + 0.5, "with the bar shown");
+
+  // The grid that does not scroll keeps its full width: its editor ends at its row's padding.
+  let (sx, _, sw, _) = stage.bounds("short");
+  let (x, _, w, _) = stage.bounds("short-f0-editor");
+  assert!(
+    (x + w - (sx + sw - 8.0)).abs() < 0.5,
+    "no lane: the editor ends 8 from the edge"
+  );
+  // Its last row's reset ends at the row's padding, where a scrolling one keeps out of the lane.
+  let (rx, _, rw, _) = stage.bounds("short-f2-reset");
+  assert!(rx + rw <= sx + sw - 8.0 + 0.5);
+}
