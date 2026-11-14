@@ -6,6 +6,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  selection::{ListSelection, Pick, select_all_key},
   shared::{fading, glyph, pressable},
   spinner::{Spinner, SpinnerPart},
   theme::{Themed, current_theme},
@@ -475,11 +476,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
 
     let multiple = self.multiple && self.holds_many;
     let model = Arc::new(Model {
-      ids: flat.iter().map(|row| row.id.clone()).collect(),
-      enabled: flat.iter().map(|row| !row.disabled).collect(),
-      selected: self.selected.clone(),
-      multiple,
-      select: self.select,
+      selection: ListSelection::new(
+        flat.iter().map(|row| row.id.clone()).collect(),
+        flat.iter().map(|row| !row.disabled).collect(),
+        self.selected.clone(),
+        multiple,
+        self.select,
+      ),
       on_select: self.on_select,
       on_activate: self.on_activate,
     });
@@ -512,10 +515,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
             pick: {
               let model = model.clone();
               Arc::new(move |pick| model.pick(index, pick))
-            },
-            extend: {
-              let model = model.clone();
-              Arc::new(move |reach| model.extend(index, reach))
             },
             select_all: {
               let model = model.clone();
@@ -626,119 +625,28 @@ fn flatten<T: PartialEq>(items: Vec<TreeItem<T>>, level: u32, open: &[T], disabl
   }
 }
 
-/// How a press or a key selects a row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Pick {
-  /// That row alone.
-  Only,
-  /// The row in or out of what is selected, the rest as it is.
-  Toggle,
-  /// The rows from the last selected one to it.
-  Range,
-}
-
-/// Where Shift with a key takes the selection, from the focused row: where the focus goes with the key.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Reach {
-  Back,
-  On,
-  First,
-  Last,
-}
-
 /// The shown rows and what is selected of them, which every row's behavior reads.
 struct Model<T> {
-  ids: Vec<T>,
-  enabled: Vec<bool>,
-  selected: Vec<T>,
-  multiple: bool,
-  select: Option<Arc<dyn Fn(Vec<T>) + Send + Sync>>,
+  selection: ListSelection<T>,
   on_select: Vec<Told<T>>,
   on_activate: Vec<Told<T>>,
 }
 
 impl<T: Clone + PartialEq> Model<T> {
   fn pick(&self, index: usize, pick: Pick) {
-    let id = &self.ids[index];
-    let next = match pick {
-      _ if !self.multiple => vec![id.clone()],
-      Pick::Only => vec![id.clone()],
-      Pick::Toggle => {
-        let mut next = self.selected.clone();
-        match next.iter().position(|held| held == id) {
-          Some(at) => {
-            next.remove(at);
-          }
-          None => next.push(id.clone()),
-        }
-        next
-      }
-      Pick::Range => self.range(self.anchor().unwrap_or(index), index),
-    };
-    self.write(next);
+    self.selection.pick(index, pick);
     for handler in &self.on_select {
-      handler(id);
-    }
-  }
-
-  /// Shift with a key on the row `from`: the rows from the anchor to where the focus goes.
-  fn extend(&self, from: usize, reach: Reach) {
-    if !self.multiple {
-      return;
-    }
-    let enabled = |index: &usize| self.enabled[*index];
-    let to = match reach {
-      Reach::Back => (0..from).rev().find(enabled),
-      Reach::On => (from + 1..self.ids.len()).find(enabled),
-      Reach::First => (0..self.ids.len()).find(enabled),
-      Reach::Last => (0..self.ids.len()).rev().find(enabled),
-    };
-    if let Some(to) = to {
-      self.write(self.range(self.anchor().unwrap_or(from), to));
+      handler(self.selection.id(index));
     }
   }
 
   fn select_all(&self) {
-    if !self.multiple {
-      return;
-    }
-    let anchor = self.anchor();
-    let mut all: Vec<T> = (0..self.ids.len())
-      .filter(|index| self.enabled[*index] && Some(*index) != anchor)
-      .map(|index| self.ids[index].clone())
-      .collect();
-    all.extend(anchor.map(|anchor| self.ids[anchor].clone()));
-    self.write(all);
+    self.selection.select_all();
   }
 
   fn activate(&self, index: usize) {
     for handler in &self.on_activate {
-      handler(&self.ids[index]);
-    }
-  }
-
-  /// Where a range starts: the last selected row, where it is shown.
-  fn anchor(&self) -> Option<usize> {
-    let last = self.selected.last()?;
-    self.ids.iter().position(|id| id == last)
-  }
-
-  /// The rows from `anchor` to `to` that take input, the anchor last, so that it stays where the next starts.
-  fn range(&self, anchor: usize, to: usize) -> Vec<T> {
-    let (start, end) = (anchor.min(to), anchor.max(to));
-    let mut range: Vec<T> = (start..=end)
-      .filter(|index| self.enabled[*index] && *index != anchor)
-      .map(|index| self.ids[index].clone())
-      .collect();
-    range.push(self.ids[anchor].clone());
-    range
-  }
-
-  fn write(&self, next: Vec<T>) {
-    if let Some(select) = &self.select
-      && next != self.selected
-    {
-      select(next);
+      handler(self.selection.id(index));
     }
   }
 }
@@ -746,7 +654,6 @@ impl<T: Clone + PartialEq> Model<T> {
 /// What a row that takes input does, with the type of the tree's ids out of sight.
 struct RowActions {
   pick: Arc<dyn Fn(Pick) + Send + Sync>,
-  extend: Arc<dyn Fn(Reach) + Send + Sync>,
   select_all: Arc<dyn Fn() + Send + Sync>,
   activate: Arc<dyn Fn() + Send + Sync>,
 }
@@ -788,7 +695,9 @@ impl TreeViewView {
           .nested(true)
           .one_stop(true)
           .typeahead(true)
-          .wrap(false),
+          .wrap(false)
+          // With many selected, Shift with the keys selects on the way.
+          .shift_extends(self.multiple),
       )
       .describe("a11y_role", "tree")
       .part(&self.part(TreeViewPart::Root));
@@ -889,40 +798,22 @@ impl TreeRow {
     if let Some(actions) = self.actions.clone() {
       let multiple = self.multiple;
       let press = actions.clone();
-      row = row.on_click(move |event: MouseEvent| {
-        let pick = if event.shift {
-          Pick::Range
-        } else if event.ctrl || event.meta || (event.from_keyboard && multiple) {
-          // Space adds the focused row or takes it out where any number are selected, as Ctrl with a press does.
-          Pick::Toggle
-        } else {
-          Pick::Only
-        };
-        (press.pick)(pick);
-      });
+      // Space adds the focused row or takes it out where any number are selected, as Ctrl with a press does; a move
+      // of the focus with Shift is a press with Shift.
+      row = row.on_click(move |event: MouseEvent| (press.pick)(Pick::of(&event, multiple)));
       let activate = actions.clone();
       row = row.on_dblclick(move |_| (activate.activate)());
       row = row.on_key_down(move |event: KeyboardEvent| {
         if !event.focus_within || event.composing || event.alt {
           return;
         }
-        let command = event.ctrl || event.meta;
-        match event.key.as_str() {
-          // Enter activates; it does not press the row, which would select it.
-          "Enter" if !command && !event.shift => {
-            event.prevent_default();
-            (actions.activate)();
-          }
-          "a" | "A" if command && multiple && !event.shift => {
-            event.prevent_default();
-            (actions.select_all)();
-          }
-          // The focus moves on with the key, as it does without Shift; the selection goes with it.
-          "ArrowUp" if event.shift && !command => (actions.extend)(Reach::Back),
-          "ArrowDown" if event.shift && !command => (actions.extend)(Reach::On),
-          "Home" if event.shift && !command => (actions.extend)(Reach::First),
-          "End" if event.shift && !command => (actions.extend)(Reach::Last),
-          _ => {}
+        // Enter activates; it does not press the row, which would select it.
+        if event.key == "Enter" && !event.ctrl && !event.meta && !event.shift {
+          event.prevent_default();
+          (actions.activate)();
+        }
+        if multiple {
+          select_all_key(&event, &*actions.select_all);
         }
       });
     }

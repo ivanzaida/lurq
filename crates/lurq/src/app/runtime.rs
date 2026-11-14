@@ -98,6 +98,7 @@ mod modal_focus;
 mod nested_focus;
 mod outside_press;
 mod overlay_layers;
+mod page_focus;
 mod paste;
 mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
@@ -4325,6 +4326,9 @@ impl Tree {
       crate::node::FocusStep::Back if group.wrap => last,
       crate::node::FocusStep::On if current < last => current + 1,
       crate::node::FocusStep::On if group.wrap => 0,
+      // A page back or on: see `page_focus`.
+      crate::node::FocusStep::PageBack => self.focus_group_page(&stops, current, false),
+      crate::node::FocusStep::PageOn => self.focus_group_page(&stops, current, true),
       crate::node::FocusStep::Back
       | crate::node::FocusStep::On
       | crate::node::FocusStep::Open
@@ -4337,7 +4341,8 @@ impl Tree {
       self.set_input_modality(focus_visible::InputModality::Keyboard);
       self.focus_node(target);
       self.scroll_focused_into_view();
-      if group.activate {
+      // A move with Shift in a group that extends with it presses what it moved to with Shift: a range.
+      if group.activate || (group.shift_extends && modifiers.shift) {
         self.activate_focused_button(modifiers);
       }
       // In a group the focus follows the pointer in, what the keys moved to is the one item that is lit: the

@@ -83,7 +83,12 @@ impl Tree {
             .map(|toggle| (toggle, true)),
         );
       }
-      FocusStep::Back | FocusStep::On | FocusStep::First | FocusStep::Last => return false,
+      FocusStep::Back
+      | FocusStep::On
+      | FocusStep::First
+      | FocusStep::Last
+      | FocusStep::PageBack
+      | FocusStep::PageOn => return false,
     }
     let target = target.map(|index| stops[index]);
     for (toggle, open) in toggles {

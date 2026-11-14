@@ -47,6 +47,8 @@ pub struct FocusGroup {
   pub(crate) typeahead: bool,
   pub(crate) nested: bool,
   pub(crate) menu_row: bool,
+  pub(crate) pages: bool,
+  pub(crate) shift_extends: bool,
 }
 
 impl FocusGroup {
@@ -60,6 +62,8 @@ impl FocusGroup {
       typeahead: false,
       nested: false,
       menu_row: false,
+      pages: false,
+      shift_extends: false,
     }
   }
 
@@ -186,6 +190,22 @@ impl FocusGroup {
     self
   }
 
+  /// Whether PageUp and PageDown move the focus by a page, in a vertical group: to the element as far before or
+  /// after the focused one as the scroll the group is in shows (or the whole group, where it does not scroll), and
+  /// at least one on. A listbox's and a long menu's.
+  pub fn pages(mut self, pages: bool) -> Self {
+    self.pages = pages;
+    self
+  }
+
+  /// Whether a key that moves the focus with Shift held presses what it moves to with Shift, as a press of the
+  /// pointer with Shift would: in a list of which any number are selected, Shift with the arrows, Home, End and
+  /// the page keys selects from where the selection started to there.
+  pub fn shift_extends(mut self, extends: bool) -> Self {
+    self.shift_extends = extends;
+    self
+  }
+
   /// Whether Tab stops in the group once: on the element marked with
   /// `.focus_entry(true)` (the chosen one), or the first, and from inside
   /// the group Tab leaves it.
@@ -208,6 +228,10 @@ pub(crate) enum FocusStep {
   Close,
   /// `*` in a nested group: open every element at the level of the focused one, in the element it is in.
   OpenSiblings,
+  /// PageUp in a group with pages: a page back.
+  PageBack,
+  /// PageDown in a group with pages: a page on.
+  PageOn,
 }
 
 impl FocusStep {
@@ -235,6 +259,8 @@ impl FocusGroup {
       "ArrowRight" if horizontal => Some(FocusStep::On),
       "ArrowUp" if vertical => Some(FocusStep::Back),
       "ArrowDown" if vertical => Some(FocusStep::On),
+      "PageUp" if vertical && self.pages => Some(FocusStep::PageBack),
+      "PageDown" if vertical && self.pages => Some(FocusStep::PageOn),
       "Home" => Some(FocusStep::First),
       "End" => Some(FocusStep::Last),
       _ => None,

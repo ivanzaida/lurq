@@ -71,3 +71,35 @@ impl std::hash::Hash for Navigator {
     (Arc::as_ptr(&self.handle.inner) as usize).hash(state);
   }
 }
+
+thread_local! {
+  /// The navigator of each component being rendered, innermost last: what a builder with a path to go to reads.
+  static RENDERING_UNDER: std::cell::RefCell<Vec<Option<Navigator>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The navigator of the router around what is being built, as `Ctx::navigator` reads it: for a builder that has no
+/// `Ctx`, a list item with a path to go to. `None` outside a router and outside a render.
+pub fn current_navigator() -> Option<Navigator> {
+  RENDERING_UNDER.with(|under| under.borrow().last().cloned().flatten())
+}
+
+/// A component's render starts under `navigator`.
+pub(crate) fn enter_render(navigator: Option<Navigator>) {
+  RENDERING_UNDER.with(|under| under.borrow_mut().push(navigator));
+}
+
+/// The component being rendered provides `navigator` to what it builds.
+pub(crate) fn provide_in_render(navigator: Navigator) {
+  RENDERING_UNDER.with(|under| {
+    if let Some(top) = under.borrow_mut().last_mut() {
+      *top = Some(navigator);
+    }
+  });
+}
+
+/// A component's render ends.
+pub(crate) fn leave_render() {
+  RENDERING_UNDER.with(|under| {
+    under.borrow_mut().pop();
+  });
+}

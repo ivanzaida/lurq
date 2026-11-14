@@ -70,6 +70,8 @@ impl Tree {
     let Some(group) = group else {
       return false;
     };
+    // Where the choice follows the focus, it follows the focus a letter moves as well.
+    let activate = group.focus_group_value().is_some_and(|held| held.activate);
 
     let now = self.now();
     let typed: String = typed.to_lowercase().collect();
@@ -92,6 +94,9 @@ impl Tree {
       self.set_input_modality(focus_visible::InputModality::Keyboard);
       self.focus_node(target);
       self.scroll_focused_into_view();
+      if activate {
+        self.activate_focused_button(Default::default());
+      }
     }
     true
   }
