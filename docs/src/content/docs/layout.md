@@ -690,6 +690,12 @@ ScrollVertical::new(Column::new().child(section)).size(240.0, 320.0)
 - It sticks in the nearest scroll container around it. In none, it stays where it is laid out.
 - It is painted over its siblings and is hit before them, so a press on a stuck header does not reach the row under it.
 - Scrolling only moves it: nothing in it or around it is laid out again. An element ref on it reports where it is drawn.
+- A container's bars run over the whole viewport, what sticks included, as a browser's do beside a banner that stays.
+  `.scrollbars_clear_of_sticky(true)` on `ScrollVertical`, `ScrollHorizontal` or `ScrollBoth` keeps them beside what
+  scrolls: the bar down starts under what sticks at the top (a table's header), the bar across after what sticks at
+  the start (its first column), each as far in as that reaches (its inset and its size), and the thumb is the share of
+  what scrolls that shows. Painting, the pointer on the bar and a drag of its thumb go by that track, so a thumb at the
+  track's end is the end of the scroll. `ui::Table` asks for it.
 
 ### Middle-button autoscroll
 

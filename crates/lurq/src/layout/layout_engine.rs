@@ -4243,6 +4243,7 @@ impl LayoutEngine {
         size.width,
         size.height,
       );
+      clear_bars_of_sticky(node, child, &child_result, state);
 
       return LayoutResult {
         size,
@@ -4288,6 +4289,7 @@ impl LayoutEngine {
       size.width,
       size.height,
     );
+    clear_bars_of_sticky(node, child, &child_result, state);
 
     LayoutResult {
       size,
@@ -4420,6 +4422,18 @@ fn multiline_preferred_height(
 
 fn explicit_multiline_height(text: &str, line_height: f32) -> f32 {
   text.split('\n').count().max(1) as f32 * line_height
+}
+
+/// Tells the bars of a scroll container that keeps them clear of what sticks (`scrollbars_clear_of_sticky`) how
+/// far in from the start of each axis their tracks begin: the reach of what sticks at the top and at the left, as
+/// a revealed element is kept clear of it.
+fn clear_bars_of_sticky(node: &Node, content: &Node, content_layout: &LayoutResult, state: &ScrollState) {
+  if !node.scrollbars_clear_of_sticky() {
+    state.set_bar_clearance(0.0, 0.0);
+    return;
+  }
+  let reach = crate::layout::sticky_reach::sticky_reach(content, content_layout, None);
+  state.set_bar_clearance(reach.left, reach.top);
 }
 
 /// Whether a scroll container lays its content out at least as wide as its viewport: one that scrolls sideways

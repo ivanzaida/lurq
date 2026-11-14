@@ -517,6 +517,76 @@ fn many(count: usize) -> Arc<Vec<Crate>> {
   )
 }
 
+/// The thumbs of the bars painted in the box `(x, y, width, height)`: rectangles in the theme's thumb color.
+fn thumbs(stage: &Stage, (x, y, width, height): (f32, f32, f32, f32)) -> Vec<Quad> {
+  let ring = light(PaletteColor::Ring);
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. }
+        if (color.r(), color.g(), color.b()) == (ring.r(), ring.g(), ring.b()) && color.a() > 0)
+        && quad.x >= x
+        && quad.x + quad.width <= x + width + 0.5
+        && quad.y >= y - 0.5
+        && quad.y + quad.height <= y + height + 0.5
+        && quad.width.min(quad.height) <= 12.0
+    })
+    .collect()
+}
+
+#[test]
+fn the_bars_run_beside_the_rows_and_not_over_the_header_or_a_first_column_that_stays() {
+  let rows = many(30);
+  let mut stage = wide(move || {
+    let mut columns = columns();
+    let name = columns.remove(0).sticky(true).min_width(400.0);
+    columns.insert(0, name);
+    Table::new_shared(columns, rows.clone()).id("t").height(240.0).into()
+  });
+  let (x, y, width, height) = stage.bounds("t");
+  let header_bottom = y + 40.0;
+  let vertical = |stage: &Stage| {
+    thumbs(stage, (x, y, width, height))
+      .into_iter()
+      .find(|quad| quad.height > quad.width)
+      .expect("the rows overflow down")
+  };
+  let across = |stage: &Stage| {
+    thumbs(stage, (x, y, width, height))
+      .into_iter()
+      .find(|quad| quad.width > quad.height)
+      .expect("the columns overflow across")
+  };
+  let thumb = vertical(&stage);
+  assert!(
+    thumb.y >= header_bottom - 0.5,
+    "at the top, under the header: {}",
+    thumb.y - y
+  );
+  // The name column that stays is 400 and 16 after it, from the box's start.
+  let column_end = x + 1.0 + 400.0;
+  assert!(
+    across(&stage).x >= column_end - 0.5,
+    "after the column: {}",
+    across(&stage).x - x
+  );
+
+  // At the end of both, the thumbs are still clear of them, at their tracks' ends.
+  stage
+    .tree
+    .scroll(x + 300.0, y + 120.0, -10_000.0, -10_000.0, ScrollPhase::Scroll);
+  stage.pass();
+  let thumb = vertical(&stage);
+  assert!(thumb.y >= header_bottom - 0.5);
+  assert!(
+    thumb.y + thumb.height > y + height - 20.0,
+    "at the end: {}",
+    thumb.y + thumb.height - y
+  );
+  assert!(across(&stage).x >= column_end - 0.5);
+}
+
 #[test]
 fn the_header_stays_while_the_rows_scroll_in_the_tables_height() {
   let rows = many(30);

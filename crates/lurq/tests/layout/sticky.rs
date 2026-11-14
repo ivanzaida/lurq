@@ -392,3 +392,111 @@ fn a_corner_cell_sticks_on_both_axes() {
   stage.scroll(0.0, 90.0);
   assert_eq!(stage.top_left("corner"), (0.0, 0.0));
 }
+
+/// A list 200 by 100 of a header of 20 that stays and 30 rows of 20 under it, its bars told to keep clear of
+/// what sticks or not, with the state of its scroll.
+fn headed(clear: bool) -> (Tree, lurq::layout::layout_kind::ScrollState) {
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  let mut rows = Column::new().child(
+    Rect::new(200.0, 20.0)
+      .id("header")
+      .background(HEADER)
+      .sticky(Sticky::top(0.0)),
+  );
+  for index in 0..30 {
+    rows = rows.child(Rect::new(200.0, 20.0).id(format!("row-{index}")).background(ROW));
+  }
+  let mut tree = Tree::new();
+  tree.set_root(
+    ScrollVertical::new(rows)
+      .with_scroll_state(state.clone())
+      .scrollbars_clear_of_sticky(clear)
+      .size(200.0, 100.0),
+  );
+  crate::support::render_pass(&mut tree);
+  (tree, state)
+}
+
+fn vertical_thumb(state: &lurq::layout::layout_kind::ScrollState) -> (f32, f32, f32, f32) {
+  state
+    .thumb_rect_for_axis(lurq::layout::layout_kind::ScrollAxis::Vertical, &state.style())
+    .expect("the rows overflow")
+}
+
+#[test]
+fn a_container_that_does_not_ask_has_its_bar_over_the_whole_viewport() {
+  let (_, state) = headed(false);
+  let (_, y, ..) = vertical_thumb(&state);
+  let inset = state.style().resolved_end_inset();
+  assert!((y - inset).abs() < 0.01, "the track starts at the viewport's top: {y}");
+}
+
+#[test]
+fn a_bar_told_to_keep_clear_of_what_sticks_runs_beside_the_rows_only_and_reaches_their_end() {
+  let (mut tree, state) = headed(true);
+  let inset = state.style().resolved_end_inset();
+  let (x, y, width, height) = vertical_thumb(&state);
+  assert!(y >= 20.0 + inset - 0.01, "the thumb starts under the header: {y}");
+  // What shows of the rows is 80 of their 600: the thumb is that share of a track of 80 less its insets.
+  let track = 80.0 - 2.0 * inset;
+  assert!(
+    (height - (track * 80.0 / 600.0).max(state.style().min_thumb_length)).abs() < 0.5,
+    "{height}"
+  );
+
+  // At the end of the scroll the thumb is at the track's end, under the header still.
+  tree.scroll(100.0, 50.0, 0.0, -10_000.0, ScrollPhase::Scroll);
+  crate::support::render_pass(&mut tree);
+  let (_, end_y, _, end_height) = vertical_thumb(&state);
+  assert!(
+    (end_y + end_height - (100.0 - inset)).abs() < 0.5,
+    "at the end: {}",
+    end_y + end_height
+  );
+
+  // Back at the top, a drag of the thumb to the track's end takes the rows to theirs.
+  tree.scroll(100.0, 50.0, 0.0, 10_000.0, ScrollPhase::Scroll);
+  crate::support::render_pass(&mut tree);
+  assert_eq!(state.scroll_y(), 0.0);
+  let (cx, cy) = (x + width / 2.0, y + height / 2.0);
+  tree.mouse_move(cx, cy);
+  tree.mouse_down(cx, cy, MouseButton::Left);
+  tree.mouse_move(cx, cy + (track - height));
+  tree.mouse_up(cx, cy + (track - height), MouseButton::Left);
+  crate::support::render_pass(&mut tree);
+  let end = state.content_height() - state.viewport_height();
+  assert!(
+    (state.scroll_y() - end).abs() < 0.5,
+    "the drag reached the end: {} of {end}",
+    state.scroll_y()
+  );
+}
+
+#[test]
+fn a_bar_across_keeps_clear_of_a_first_column_that_stays() {
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  let row = Row::new()
+    .child(Rect::new(60.0, 40.0).background(HEADER).sticky(Sticky::left(0.0)))
+    .child(Rect::new(600.0, 40.0).background(ROW));
+  let mut tree = Tree::new();
+  tree.set_root(
+    ScrollHorizontal::new(row)
+      .with_scroll_state(state.clone())
+      .scrollbars_clear_of_sticky(true)
+      .size(200.0, 60.0),
+  );
+  crate::support::render_pass(&mut tree);
+  let inset = state.style().resolved_end_inset();
+  let thumb = |state: &lurq::layout::layout_kind::ScrollState| {
+    state
+      .thumb_rect_for_axis(lurq::layout::layout_kind::ScrollAxis::Horizontal, &state.style())
+      .expect("the row overflows")
+  };
+  let (x, ..) = thumb(&state);
+  assert!(x >= 60.0 + inset - 0.01, "the thumb starts after the column: {x}");
+  tree.scroll(100.0, 30.0, -10_000.0, 0.0, ScrollPhase::Scroll);
+  crate::support::render_pass(&mut tree);
+  let (end_x, _, end_width, _) = thumb(&state);
+  assert!(end_x >= 60.0 + inset - 0.01);
+  assert!((end_x + end_width - (200.0 - inset)).abs() < 0.5, "at the end");
+}
