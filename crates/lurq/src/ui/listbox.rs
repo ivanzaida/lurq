@@ -103,9 +103,10 @@ names!(ListboxState {
 /// What builds a listbox's nodes: a theme's in place of the default one.
 pub type ListboxRenderer = Arc<dyn Fn(ListboxView) -> Element + Send + Sync>;
 
-/// What a listbox reads and writes: a signal of one value, `Signal<T>`, of which one option is chosen, or of any
-/// number, `Signal<Vec<T>>`, which [`Listbox::new`] takes either of, as [`Select`](super::Select) and
-/// [`MultiSelect`](super::MultiSelect) take them.
+/// What a listbox reads and writes: a signal of one value, `Signal<T>`, of which one option is chosen; of one or
+/// none, `Signal<Option<T>>`, of which nothing is chosen until an option is; or of any number, `Signal<Vec<T>>`.
+/// [`Listbox::new`] takes any of them, as [`Select`](super::Select) and [`MultiSelect`](super::MultiSelect) take
+/// theirs.
 pub struct ListboxValue<T> {
   read: Arc<dyn Fn() -> Vec<T> + Send + Sync>,
   write: Arc<dyn Fn(Vec<T>) + Send + Sync>,
@@ -126,6 +127,47 @@ impl<T: Clone + PartialEq + Send + Sync + SignalValue + 'static> From<Signal<T>>
       }),
       many: false,
     }
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<Signal<Option<T>>> for ListboxValue<T>
+where
+  Option<T>: SignalValue,
+{
+  fn from(signal: Signal<Option<T>>) -> Self {
+    let read = signal.clone();
+    Self {
+      read: Arc::new(move || read.get().into_iter().collect()),
+      write: Arc::new(move |chosen: Vec<T>| {
+        let value = chosen.into_iter().last();
+        if value.is_some() && signal.get() != value {
+          signal.set(value);
+        }
+      }),
+      many: false,
+    }
+  }
+}
+
+/// What a listbox the app holds shows chosen ([`Listbox::controlled`]): `Option<T>` of one, which may be none, or
+/// `Vec<T>` of any number.
+pub struct ListboxChosen<T> {
+  values: Vec<T>,
+  many: bool,
+}
+
+impl<T> From<Option<T>> for ListboxChosen<T> {
+  fn from(value: Option<T>) -> Self {
+    Self {
+      values: value.into_iter().collect(),
+      many: false,
+    }
+  }
+}
+
+impl<T> From<Vec<T>> for ListboxChosen<T> {
+  fn from(values: Vec<T>) -> Self {
+    Self { values, many: true }
   }
 }
 
@@ -200,8 +242,8 @@ pub struct Listbox<T> {
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
   /// A listbox of `options` bound to `value`: a `Signal<T>` of which the option of its value is chosen, and
-  /// choosing another sets it; or a `Signal<Vec<T>>` of which the options of its values are, and choosing one adds
-  /// it or takes it out.
+  /// choosing another sets it; a `Signal<Option<T>>` the same, of which none is chosen while it is `None`; or a
+  /// `Signal<Vec<T>>` of which the options of its values are, and choosing one adds it or takes it out.
   pub fn new(value: impl Into<ListboxValue<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
     let value = value.into();
     Self {
@@ -225,6 +267,24 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     }
   }
 
+  /// A listbox whose choice the app holds: what `chosen` has is chosen (`Option<T>` of one, `Vec<T>` of any
+  /// number), and `on_change` is told what a press or a key would choose. It shows what the app answers with, the
+  /// next time it is built: a choice the app does not take is not shown.
+  pub fn controlled(
+    chosen: impl Into<ListboxChosen<T>>,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
+  ) -> Self {
+    let chosen = chosen.into();
+    let values = chosen.values;
+    let value = ListboxValue {
+      read: Arc::new(move || values.clone()),
+      write: Arc::new(|_| {}),
+      many: chosen.many,
+    };
+    Self::new(value, options).on_change(on_change)
+  }
+
   /// Of a listbox of one, whether the choice follows the focus: the arrows choose as they move, as in a radio
   /// group. It does unless told otherwise; without it the arrows move the focus alone, and Space, Enter or a press
   /// choose.
@@ -233,7 +293,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     self
   }
 
-  /// Called with what is chosen after each press or key that changes it, after the signal is set.
+  /// Called with what is chosen after each press or key that changes it, after the signal is set: the whole new set,
+  /// of one for a listbox of one. It is not called for what is already so (a press of the chosen option), nor when
+  /// the app sets the signal. A second handler is called after the first.
   pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self

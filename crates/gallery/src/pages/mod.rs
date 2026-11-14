@@ -414,7 +414,7 @@ pub const PAGES: &[Page] = &[
     path: "/toast",
     name: "Toast",
     icon: Some("bell"),
-    about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss title description variant icon icon_hidden closable on_close duration persistent",
+    about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss title description variant icon close_button on_close label destructive duration persistent mount",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
   },

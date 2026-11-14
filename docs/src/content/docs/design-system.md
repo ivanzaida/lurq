@@ -1053,8 +1053,8 @@ use lurq::ui::{Button, ButtonSize, ButtonVariant, Toast, ToastVariant, Toasts};
 
 // In the root component's create, once, kept in a field of it.
 let toasts = Toasts::new();
-// In its render, the host last, so that its layer is over every other.
-column.child(self.toasts.host(ctx));
+// In its render, mounted last, so that its layer is over every other.
+column.child(self.toasts.mount(ctx));
 
 // Anywhere, with a clone of it.
 toasts.show(Toast::new("Settings saved").description("Your theme applies to every open window.").variant(ToastVariant::Success));
@@ -1069,10 +1069,11 @@ toasts.show(
 | Builder | |
 | --- | --- |
 | `Toast::new(title)`, `description(&str)` | What happened, and more of it under the title |
-| `variant(ToastVariant)` | `Neutral` (the default, no icon), `Success`, `Info`, `Warning`, `Error`: the icon and its color |
-| `icon(name)`, `icon_hidden(bool)` | An icon of the theme's set in place of the variant's, or none |
-| `action(Button \| Link)` | What can be done about it, before the close control |
-| `closable(bool)`, `on_close(handler)` | Whether it has its close control (it has by default), and what a press of it calls |
+| `variant(impl Into<Name>)` | A `ToastVariant`: `Neutral` (the default, no icon), `Info`, `Success`, `Warning`, `Destructive`: the icon and its color. A variant a theme adds has no icon of its own |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the variant's, or none: `icon(None)` |
+| `action(Button \| Link)` | What can be done about it, before the close control: the one action, a second takes its place |
+| `close_button(bool)`, `on_close(handler)` | Whether it has its close control (it has unless told otherwise), and what a press of it calls; a second handler is called after the first |
+| `label(&str)` | What it is called to tooling, in place of its title |
 | `timer(bool)` | A rail along the bottom edge that says how long it has left |
 | `duration(Duration)`, `persistent(bool)` | How long a `Toasts` shows it (`TOAST_DURATION`, 5 s), or that it stays until it is closed |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel; `force` draws the close control |
@@ -1082,15 +1083,15 @@ toasts.show(
 | `Toasts::new()` | No toasts yet. It needs no `Ctx`: make it once and clone it into whatever shows a toast |
 | `show(toast) -> ToastId`, `dismiss(id)`, `clear()` | Shows one in front of the others; takes one away; takes all away |
 | `ids()`, `len()`, `is_empty()` | The toasts shown and waiting, the oldest first |
-| `host(ctx)`, `host_at(ctx, ToastPosition)` | What draws them: at the bottom right, or at `TopLeft`, `Top`, `TopRight`, `BottomLeft`, `Bottom` |
+| `mount(ctx)`, `mount_at(ctx, ToastPosition)` | What draws them and keeps their time: at the bottom right, or at `TopLeft`, `Top`, `TopRight`, `BottomLeft`, `Bottom` |
 
-- A toast is a panel like any other component and can be put anywhere. Sent to a `Toasts`, it is drawn by the host in a layer over the window, clear of its safe area and under the title bar a `WindowChrome` draws: the layer takes a press only on the toasts, and Tab reaches their controls from the page as it reaches any other.
+- A toast is a panel like any other component and can be put anywhere. Sent to a `Toasts`, it is drawn by what the `Toasts` mounts, in a layer over the window, clear of its safe area and under the title bar a `WindowChrome` draws: the layer takes a press only on the toasts, and Tab reaches their controls from the page as it reaches any other.
 - It leaves after its duration, on a press of its close control or of its action, when a finger throws it to a side or toward the window's edge, and by `dismiss`. While the pointer is on the toasts their time stands still, timers too, and runs on from there when it leaves.
 - Several are stacked: the newest in front, an edge of each of two others behind it, on the side away from the window's edge. With the pointer on them they are laid out one over another, 10 apart, the newest nearest the edge: those behind move out from behind the front one, fading in, and move back and fade when the pointer has gone, so nothing jumps and no shadow is left to vanish. At most `TOASTS_SHOWN` (3) are shown, and their time runs, those behind the front one too; the others wait in order.
 - A toast comes in from the window's edge, fading in over the theme's slow duration, and leaves toward it over the base duration. One that comes while another is shown comes in over it: the one that was in front stays where it is, and fades under the new one when that is in. With reduced motion it comes and goes at once.
 - Parts: `ToastPart::Root` (the panel), `Content` (what is in it above the timer, side by side), `Icon`, `Text` (the title over the description), `Title`, `Description`, `Action`, `Close`, `Timer` (the rail), `Remaining` (what is left of it); and the host's `Viewport` (how far from the window's edges), `List` (the toasts one over another), `BehindNear`, `BehindFar` (the edges behind the front one). State: `ToastState::Action`. Variants: `ToastVariant`.
 - In the design the panel is 360 wide, in `Popover` with an edge of `Border`, large corners and the large shadow; 16 inside it are the icon of 16 in the variant's color (`Success`, `Info`, `Warning`, `Destructive`), 12 from the title (14, medium) over the description (13, `MutedForeground`), each going on to the next line where the panel has no room for it, and the close control of 16 in `MutedForeground`. With an action it is 14 high inside, centered on the action, and the title is 2 over the description. The timer is a rail of 2 in `Secondary` with what is left in `Primary`. Toasts are 16 from the window's edges; the edges behind are 24 and 48 narrower than the panel, three quarters and half opaque.
-- To what reads the tree the panel is a `status` called by its title, and its close control a `button` called "Close". Tab reaches the action and the close control; Space and Enter press them.
+- To what reads the tree the panel is a `status` called by its label or its title, and its close control a `button` called "Close". Tab reaches the action and the close control; Space and Enter press them.
 - A renderer that draws another toast starts from the view's parts: `view.icon()`, `view.text()`, `view.action()`, `view.close()` (the close control with its behavior) and `view.timer()`.
 
 ## Tabs
@@ -2348,21 +2349,23 @@ Alert::new("Downloading lurq 0.61")
 | --- | --- |
 | `Alert::new(&str)` | The title: what it is about. It is what the alert is called |
 | `description(&str)` | More of it, under the title |
-| `variant(AlertVariant)` | `Neutral` (the default), `Info`, `Success`, `Warning`, `Destructive` |
-| `icon(..)` | An icon of the theme's set in place of the variant's (`icon(icons::DOWNLOAD)`), or none (`icon(None)`) |
-| `action(element)` | What can be done about it, at its end before the close control: a button, a link |
+| `variant(impl Into<Name>)` | An `AlertVariant`: `Neutral` (the default), `Info`, `Success`, `Warning`, `Destructive`; a variant a theme adds has the neutral one's icon and role |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the variant's (`icon(icons::DOWNLOAD)`), or none (`icon(None)`) |
+| `action(element)` | What can be done about it, at its end before the close control: a button, a link. The one action: a second takes its place |
 | `child(element)`, `children(..)` | Elements under the description, for more than text |
-| `on_close(handler)` | Draws the close control, called on a press of it. The app takes the alert away |
+| `on_close(handler)` | Called on a press of the close control, which an alert has once it is given `on_close` and has not until then. The app takes the alert away. A second handler is called after the first |
+| `label(&str)` | What it is called to tooling, in place of its title |
 | `role(&str)` | What it is to tooling, in place of the variant's |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the close control's states; `id` is the id of the box |
 
 - It is read where it stands and is not an overlay. It is as wide as the room it is given, and its title and description wrap in the room the icon, the action and the close control leave them.
 - The close control is a stop of Tab with the focus ring; Enter, Space and a click press it.
-- To what reads the tree (`lurq_snapshot` of the MCP server) a warning and a destructive alert are an `alert`, which a screen reader says at once, and the others a `status`, said when the reader is done; each is called by its title. `role("status")` says a warning is no news, `role("alert")` that an informative one is urgent. `AlertVariant::role()` is the variant's.
+- To what reads the tree (`lurq_snapshot` of the MCP server) a warning and a destructive alert are an `alert`, which a screen reader says at once, and the others a `status`, said when the reader is done; each is called by its title, or by its `label`. `role("status")` says a warning is no news, `role("alert")` that an informative one is urgent. `AlertVariant::role()` is the variant's.
 - Parts: `AlertPart::Root` (the box), `Icon`, `Text` (the title, the description and the body, one over the other), `Title`, `Description`, `Body`, `Action`, `Close`. States: `AlertState::Action`, which centres what is in the box on the action. Variants by `AlertVariant`.
 - In the design the box is in the `Card` color with an edge of 1 in `Border`, corners of `radius-lg`, padded 16. The icon is 16, 12 from the title (14, medium, `Foreground`) over the description (13, 1.5 high, `MutedForeground`), 4 apart. An informative, a successful and a warning alert are in `InfoMuted`, `SuccessMuted`, `WarningMuted`, with an edge and an icon of `Info`, `Success`, `Warning` and a description in `Foreground`. A destructive one keeps the `Card` color, with an edge, an icon and a title of `Destructive`. The icon is the information sign for a neutral and an informative alert, the check in a circle for a successful one, the warning sign for a warning and a destructive one. The close control is 16 in `MutedForeground`, in `Foreground` under the pointer.
 - `AlertVariant` is shared with the banner and the callout: `icon()`, `accent()` (the color of its icon, edge, bar and link) and `tint()` (its fill) say the same for the three.
-- A renderer that draws another alert starts from `view.text()`, `view.icon()`, `view.action()` and `view.close()` (the behavior), with `view.role` and `view.closable`.
+- The icon is the information sign for a neutral alert as for an informative one, as the board draws it.
+- A renderer that draws another alert starts from `view.text()`, `view.icon()`, `view.action()` and `view.close()` (the behavior), with `view.role`, `view.label` and `view.close_button`. `view.variant` is the variant's name.
 
 ## Banner
 
@@ -2388,12 +2391,13 @@ Banner::new("No connection. Changes will sync later.")
 | Builder | |
 | --- | --- |
 | `Banner::new(&str)` | What it says. It is what the banner is called |
-| `variant(AlertVariant)` | As an [alert](#alert)'s. A neutral and an informative banner have the megaphone |
-| `icon(..)` | An icon of its own, or none: `icon(None)` |
+| `variant(impl Into<Name>)` | As an [alert](#alert)'s. A neutral and an informative banner have the megaphone |
+| `icon(impl Into<IconChoice>)` | An icon of its own, or none: `icon(None)` |
 | `link(Link)` | A link after the text, in the variant's color and semibold |
-| `action(element)` | Any element after the text in place of a link: a button |
-| `on_close(handler)` | Draws the close control, called on a press of it |
-| `open(bool)` | Whether it is shown. It is unless it says |
+| `action(element)` | Any element after the text in place of a link: a button. A banner has one action: a second, or a link, takes its place |
+| `on_close(handler)` | Called on a press of the close control, which a banner has once it is given `on_close` and has not until then. A second handler is called after the first |
+| `open(bool)` | Whether it is shown: the app's to say, which a press of the close control does not change. It is unless it says |
+| `label(&str)` | What it is called to tooling, in place of its text |
 | `centered(bool)` | Its icon, text and action in its middle rather than from its start |
 | `sticky(bool)` | It sticks to the top of what scrolls the page it is on |
 | `role(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an alert has them. `id` is the id of the bar, `key` the key of what stands in the page |
@@ -2401,8 +2405,8 @@ Banner::new("No connection. Changes will sync later.")
 - It stays in the tree whether it is shown or not, so it fades in as `open(true)` shows it and out as `open(false)` takes it away (the `Panel` part's `enter` and `exit`: `ui::FADE_IN` over the theme's base duration, `ui::FADE_OUT` over its fast one). Taken away it is no height, and what is under it moves up.
 - A text too long for one line goes on to the next in the room the rest leaves it; a centred one is as wide as it is, and no wider than that room.
 - `sticky(true)` gives what stands in the page the engine's `Sticky::top(0.0)`: in a scroll container it stays at the top while the page scrolls under it.
-- The link and the close control are stops of Tab, in that order. To what reads the tree it is an `alert` or a `status` as an alert is, called by its text.
-- Parts: `BannerPart::Root` (what stands in the page, sticky or not), `Panel` (the bar), `Icon`, `Text`, `Action`, `Link` (the style a link given by `link` takes over the theme's for a link), `Close`. States: `BannerState::Centered`, `Sticky`.
+- The link and the close control are stops of Tab, in that order. To what reads the tree it is an `alert` or a `status` as an alert is, called by its label or its text.
+- Parts: `BannerPart::Root` (what stands in the page, sticky or not), `Panel` (the bar), `Icon`, `Label` (what it says), `Action`, `Link` (the style a link given by `link` takes over the theme's for a link), `Close`. States: `BannerState::Centered`, `Sticky`.
 - In the design the bar is in the muted form of the variant's color (`Muted` for a neutral one), with corners of `radius-md`, padded 10 and 16, what is in it 12 apart and centred on a line: the icon of 16 in the variant's color, the text of 13 in `Foreground`, the link 13 and semibold in the variant's color, the close control 16 in `Foreground`.
 - A renderer that draws another banner starts from `view.panel()`, or from `view.icon()`, `view.text()`, `view.action()` and `view.close()`.
 
@@ -2434,13 +2438,15 @@ Callout::new("The key is shown once.")
 | `Callout::new(&str)` | What it says. An empty text says nothing, for a callout of a title and elements |
 | `title(&str)` | What it is, in a word, over its text. It is what the callout is called |
 | `child(element)`, `children(..)` | Elements under the text |
-| `variant(AlertVariant)`, `icon(..)` | As an [alert](#alert) has them |
+| `variant(impl Into<Name>)`, `icon(impl Into<IconChoice>)` | As an [alert](#alert) has them |
 | `bar(bool)` | A bar along its start in the variant's color, and the icon before a title in that color |
+| `label(&str)` | What it is called to tooling, in place of its title |
 | `role(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As an alert has them |
 
-- It is read, and is no stop of Tab. To what reads the tree it is a `note`, called by its title where it has one.
-- Without a bar, the icon stands at its start and the title, the text and the elements beside it. With a bar and a title, the icon and the title are a heading over the text; with a bar and no title, the icon stands at the start as without one.
-- Parts: `CalloutPart::Root` (the box), `Icon`, `Heading` (the icon and the title, with a bar), `Content` (the title, the text and the elements), `Title`, `Text`. States: `CalloutState::Bar`, `Titled`.
+- Its words are given to `new` and its title is the word over them, where an alert and a toast have a title and a `description` under it: a callout's one sentence is what it says, and "Tip" or "Note" is what it is.
+- It is read, and is no stop of Tab. To what reads the tree it is a `note`, called by its label, or by its title where it has one.
+- Without a bar, the icon stands at its start and the title, the text and the elements beside it. With a bar and a title, the icon and the title are a header over the text; with a bar and no title, the icon stands at the start as without one.
+- Parts: `CalloutPart::Root` (the box), `Icon`, `Header` (the icon and the title, with a bar), `Text` (the title, what it says and the elements), `Title`, `Label` (what it says). States: `CalloutState::Bar`, `Title`.
 - In the design the box is in the muted form of the variant's color (`Muted` for a neutral one), with corners of `radius-md`, padded 12 and 14; the icon of 16 in the variant's color is 10 from the text, 13 in `Foreground` and 1.5 high; a title is 13 and semibold. With a bar (the board's Markdown/Admonition) the bar is 3 wide in the variant's color and the corners on its side are square; the icon is 8 before a title of 14, semibold, in the variant's color, and the text of 14 is 4 under them.
 
 ## Kbd
@@ -3678,13 +3684,13 @@ List::new()
 
 // Settings: a value and a chevron where a row leads somewhere, a switch where it holds one.
 List::new()
-  .dividers(true)
+  .separators(true)
   .inset(40.0)
-  .item(ListItem::new("Wi-Fi").icon(icons::WIFI).value("Home").chevron(true).on_click(|| open_wifi()))
+  .item(ListItem::new("Wi-Fi").icon(icons::WIFI).value("Home").chevron(true).on_click(|_| open_wifi()))
   .item(ListItem::new("Dark mode").icon(icons::MOON).trailing(Switch::new("Dark mode").label_hidden(true)));
 
 // A contained list: the rows in a box, under a header.
-List::new().contained(true).header("Recent").item(ListItem::new("theme.md").chevron(true).href("/docs/theme"));
+List::new().contained(true).title("Recent").item(ListItem::new("theme.md").chevron(true).href("/docs/theme"));
 ```
 
 | Builder | |
@@ -3695,22 +3701,22 @@ List::new().contained(true).header("Recent").item(ListItem::new("theme.md").chev
 | `checkbox(bool)`, `radio(bool)` | A checkbox or a radio before the text, checked or not: the row is that control, which its press changes through `on_click` |
 | `value(&str)`, `meta(&str)` | A value at the end in the muted color ("Home"), or a note in the mono type ("2m") |
 | `trailing(element)`, `shortcut(keys)`, `chevron(bool)` | What the app puts at the end (a switch, a badge), the keys that do what the row does, and a chevron for a row that leads somewhere |
-| `on_click(handler)`, `href(path)` | What a press does, or where it goes in the app's router: the row is pressed |
+| `on_click(handler)`, `href(path)` | What a press does, given the press (`Fn(MouseEvent)`), or where it goes in the app's router: the row is pressed. A second handler is called after the first |
 | `selected(bool)`, `disabled(bool)`, `density(Density)` | The selected row is highlighted; a disabled one is dimmed and takes nothing; how high it is, whatever the theme is at |
 | `List::new()`, `item(row)`, `items(rows)` | The rows, one under the other |
-| `dividers(bool)`, `inset(f32)` | A line between each two rows, and how far from the start it starts |
-| `contained(bool)`, `header(&str)`, `action(element)` | The rows in a box, touching, under a header with a title (in capitals) and an action |
+| `separators(bool)`, `inset(f32)` | A line between each two rows, and how far from the start it starts |
+| `contained(bool)`, `title(&str)`, `action(element)` | The rows in a box, touching, under a header with a title (in capitals) and an action: the one action, a second takes its place |
 | `label(&str)`, `density(Density)`, `force(..)` | What the list is called to what reads the tree; the density of every row; every row drawn as under the pointer or focused |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them, on the row and on the list |
 
 - A row given `on_click` or `href` is pressed: by the pointer, and by Enter and Space while it is focused, and Tab stops at it. A row that is not pressed is not a stop of Tab and answers no pointer: a control in it (a switch at its end) is pressed on its own. In a list Up and Down, Home and End move between the rows that are pressed and the controls in rows, and a letter to the next whose title starts with it.
 - A row with `href` goes to its path in the router around it (`router::current_navigator`), after its `on_click`; outside a router it goes nowhere.
 - What is selected is the app's: `selected(true)` on the row. A list of which one or many are chosen by a person is a [listbox](#listbox).
-- To what reads the tree a list is a `list` called by its label or its header. A row is a `listitem`; a pressed one a `button`, a `link` with a path, a `checkbox` or `radio` with one before its text (with `a11y_checked`), and a selected one says `a11y_selected`.
-- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `TwoLine`, `WithIcon`, `Contained`. Parts of a list: `ListPart::Root`, `Header`, `HeaderTitle`, `HeaderAction`, `Items`, `Divider` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Divided`.
+- To what reads the tree a list is a `list` called by its label or its title. A row is a `listitem`; a pressed one a `button`, a `link` with a path, a `checkbox` or `radio` with one before its text (with `a11y_checked`), and a selected one says `a11y_selected`.
+- Parts of a row: `ListItemPart::Root` (what is pressed, selected and focused), `Leading`, `Icon`, `Content`, `Title`, `Description`, `Trailing`, `Value`, `Meta`, `Chevron`. States: `ListItemState::Selected`, `Disabled`, `Pressable`, `Description` (it has one), `Icon` (what is before its text is an icon), `Contained`. Parts of a list: `ListPart::Root`, `Header`, `Title`, `Action`, `Items`, `Separator` (what holds a line; its padding at the start is the inset). States: `ListState::Contained`, `Separator`.
 - In the design a row is 36 high (28, 44 and 56 at the compact, comfortable and touch densities), 12 in, with the medium radius and 12 between what it holds; with a description it is 16 higher, 52 at the default, its title at 500. The title is the body's type at 14, the description 12 in `MutedForeground` 2 under it, a value 13 and a chevron of 14 in `MutedForeground`, a note the mono type at 11, an icon 16 in `MutedForeground`. The selected row is on `Highlight`. A pressed row under the pointer and held down has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. Under a finger a row is the board's mobile row: 56 high, 16 in, its title at 16, its value at 15, its chevron 18, its icon of 18 on a tile of 32 on `Muted` with the large radius.
 - Rows are 2 apart; with lines between them they touch, a line of 1 in `Border` from the inset to the end. A contained list is a box on `Background` with an edge of 1 in `Border` and the large radius; its header is 32 high on `Muted`, 12 in, with a line under it, its title the mono type at 11 in `MutedForeground`, 1 apart; its rows are square and their titles 13.
-- A theme's renderer is given `ListItemView` (`view.root(children)`, `view.leading()`, `view.content()`, `view.trailing()`, `view.render()`) and `ListView` (`view.root()`, `view.header()`, `view.rows()`, `view.divider()`).
+- A theme's renderer is given `ListItemView` (`view.root(children)`, `view.leading()`, `view.content()`, `view.trailing()`, `view.render()`) and `ListView` (`view.root()`, `view.header()`, `view.rows()`, `view.separator()`).
 
 ## Listbox
 
@@ -3731,6 +3737,9 @@ Listbox::new(renderer, [
 // Any number: a Signal<Vec<&str>>.
 Listbox::new(columns, [("name", "Name"), ("size", "Size"), ("kind", "Kind")]).label("Columns");
 
+// What is chosen held by the app: it is told, and answers.
+Listbox::controlled(Some(renderer), options, move |chosen| ask_to_switch(chosen[0]));
+
 // A long list scrolls in a box with a most height.
 Listbox::new(zone, zones).style(ListboxPart::Root, |s| s.max_height(240.0));
 
@@ -3740,9 +3749,10 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 
 | Builder | |
 | --- | --- |
-| `new(value, options)` | A `Signal<T>` of which the option of its value is chosen, or a `Signal<Vec<T>>` of which those of its values are; options as a [select](#select) takes them: `(value, label)`, a `Choice`, or a `SelectOption` with `group`, `detail`, `hint`, `leading`, `trailing`, `disabled` |
+| `new(value, options)` | A `Signal<T>` of which the option of its value is chosen, a `Signal<Option<T>>` the same with none chosen while it is `None`, or a `Signal<Vec<T>>` of which those of its values are; options as a [select](#select) takes them: `(value, label)`, a `Choice`, or a `SelectOption` with `group`, `detail`, `hint`, `leading`, `trailing`, `disabled` |
+| `controlled(chosen, options, on_change)` | What the app holds: `Option<T>` of one or `Vec<T>` of any number, chosen as it says; `on_change` is told what a press or a key would choose, and the listbox shows what the app answers with |
 | `follow_focus(bool)` | Of one, whether the arrows choose as they move. They do unless told otherwise; without it Space, Enter and a press choose |
-| `on_change(handler)` | Told what is chosen after each press or key that changes it |
+| `on_change(handler)` | Told the whole new choice (`&[T]`, of one for a listbox of one) after each press or key that changes it, and not for what is already chosen nor when the app sets the signal. A second handler is called after the first |
 | `label(&str)` | What it is called, to what reads the tree. A [field](#field) gives it its label |
 | `invalid(bool)`, `disabled(bool)`, `full_width(bool)`, `density(Density)` | Its edge in `Destructive`; no option chosen; as wide as what holds it, in place of 220; how high an option is |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box; each option's is that id, `-` and its place from 0 |
@@ -3763,7 +3773,7 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 Terms with their values: what a thing is, item by item. The details of a build, of an order, of a file.
 
 ```rust
-use lurq::ui::{Badge, DataList};
+use lurq::ui::{Badge, DataList, Orientation};
 
 DataList::new()
   .text("Version", "0.60.0")
@@ -3772,22 +3782,23 @@ DataList::new()
   .item("Status", Badge::new("Stable").variant("success"));
 
 // Each term over its value, for a narrow column.
-DataList::new().vertical(true).text("Ship to", "Ivan Zaida, 12 Khreshchatyk St, Kyiv");
+DataList::new().orientation(Orientation::Vertical).text("Ship to", "Ivan Zaida, 12 Khreshchatyk St, Kyiv");
 ```
 
 | Builder | |
 | --- | --- |
 | `text(term, value)` | An item whose value is a text, in the value's type |
 | `item(term, element)` | An item whose value is what the app puts there: a badge, a link, tags |
-| `vertical(bool)` | Each term over its value, in place of beside it |
+| `texts(items)`, `items(items)` | Several of them at once, from `(term, value)` pairs |
+| `orientation(Orientation)` | `Horizontal` (the default), each term beside its value, or `Vertical`, each over it. `DataListOrientation` is `Orientation` |
 | `label(&str)` | What the list is called, to what reads the tree |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - Side by side, the terms are one column as wide as the widest of them and the values the column of the rest of the width (a grid of two columns, `Auto` and `Fr(1.0)`); a line runs under each item but the last, the term's and the value's meeting. One over the other, each item is a column.
 - To what reads the tree each term is a `term` and each value its `definition`.
-- Parts: `DataListPart::Root`, `Item` (an item one over the other), `Term`, `Value`. States: `DataListState::Vertical`, `Divided` (of an item's parts: a line under it).
+- Parts: `DataListPart::Root`, `Item` (an item one over the other), `Term`, `Value`. States: `DataListState::Horizontal` and `Vertical` (one of them is on), `Separator` (of an item's parts: a line under it).
 - In the design each term and its value are 10 from the lines over and under them and 12 apart, both in the body's type at 13, the term in `MutedForeground` and the value in `Foreground`; the line is 1 in `Border`. One over the other the term is 12, 2 over its value.
-- A theme's renderer is given `DataListView`: `view.items` (each a term with its text or its element), `view.term(item, lined)`, `view.value(item, lined)` and `view.render()`.
+- A theme's renderer is given `DataListView`: `view.items` (each a term with its text or its element), `view.orientation`, `view.term(item, lined)`, `view.value(item, lined)` and `view.render()`.
 
 ## Tab And The Design System's Controls
 

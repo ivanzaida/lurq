@@ -232,7 +232,7 @@ impl Component for CalloutPage {
       ),
       (
         "icon",
-        "&str | None",
+        "impl Into<IconChoice>",
         "the variant's",
         "An icon of the theme's set in place of the variant's, or none.",
       ),
@@ -242,6 +242,7 @@ impl Component for CalloutPage {
         "false",
         "A bar of 3 along its start, and the icon before a title in the variant's color: the note of a document.",
       ),
+      ("label", "&str", "the title", "What it is called to tooling."),
       ("role", "&str", "note", "What it is to tooling that reads the tree."),
     ];
     let playground = self.play(ctx);

@@ -45,6 +45,11 @@ names!(AlertVariant {
 });
 
 impl AlertVariant {
+  /// The variant called `name`, where it is one of these: a variant a theme adds is none of them.
+  pub fn named(name: Name) -> Option<Self> {
+    Self::all().iter().copied().find(|variant| Name::from(*variant) == name)
+  }
+
   /// The icon of the variant in the theme's set, as the board draws it on an
   /// alert: the information sign for a neutral and an informative one, the
   /// check in a circle for a success, the warning sign for a warning and for
@@ -92,9 +97,7 @@ impl AlertVariant {
   }
 }
 
-/// The icon a message is given: [`IconChoice`], under the name it had here first.
-pub use super::shared::IconChoice as AlertIcon;
-pub(crate) use super::shared::shown_icon;
+pub(crate) use super::shared::{IconChoice, shown_icon};
 
 /// A text of a message in the style of `part`, as wide as the room it has: a
 /// longer one goes on to the next line. A row would lay it out as wide as it
@@ -194,6 +197,7 @@ pub type AlertRenderer = Arc<dyn Fn(AlertView) -> Element + Send + Sync>;
 
 /// An alert: a message in the flow of a page about what is on it. A file
 /// that could not be saved, a disk that is nearly full, a shortcut to know.
+/// Its tone is an [`AlertVariant`], or a variant a theme adds.
 ///
 /// ```
 /// use lurq::ui::{Alert, AlertVariant, Button, ButtonSize, ButtonVariant};
@@ -211,15 +215,18 @@ pub type AlertRenderer = Arc<dyn Fn(AlertView) -> Element + Send + Sync>;
 /// It is read where it stands and is not an overlay: the page lays it out
 /// as wide as the room it is given. It is an `alert` to tooling that reads
 /// the tree for a warning and for what went wrong, a `status` for the
-/// others, called by its title ([`Alert::role`] says otherwise).
+/// others, called by its title ([`Alert::label`] and [`Alert::role`] say
+/// otherwise). It has a close control once it is given
+/// [`on_close`](Alert::on_close), and none until then.
 pub struct Alert {
   title: Arc<str>,
   description: Option<Arc<str>>,
-  variant: AlertVariant,
-  icon: Option<AlertIcon>,
+  variant: Name,
+  icon: Option<IconChoice>,
   action: Option<Element>,
   body: Vec<Element>,
   role: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -234,11 +241,12 @@ impl Alert {
     Self {
       title: Arc::from(title),
       description: None,
-      variant: AlertVariant::Neutral,
+      variant: AlertVariant::Neutral.into(),
       icon: None,
       action: None,
       body: Vec::new(),
       role: None,
+      label: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -254,13 +262,15 @@ impl Alert {
     self
   }
 
-  pub fn variant(mut self, variant: AlertVariant) -> Self {
-    self.variant = variant;
+  /// Its tone: an [`AlertVariant`], or a variant a theme adds, which has the
+  /// neutral one's icon and role.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
     self
   }
 
   /// An icon of the theme's set in place of the variant's, or none: `icon(None)`.
-  pub fn icon(mut self, icon: impl Into<AlertIcon>) -> Self {
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
     self.icon = Some(icon.into());
     self
   }
@@ -285,6 +295,12 @@ impl Alert {
     self
   }
 
+  /// What it is called to tooling that reads the tree, in place of its title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
   /// What it is to tooling that reads the tree, in place of its variant's:
   /// `"status"` for a warning that is no news, `"alert"` for an informative
   /// one that is urgent.
@@ -304,7 +320,8 @@ impl Alert {
   }
 
   /// Called on a press of its close control, which it has once it is given
-  /// one. The app takes the alert away.
+  /// one: an alert with no `on_close` has no close control. The app takes the
+  /// alert away. A second handler is called after the first.
   pub fn on_close(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_close.push(Arc::new(handler));
     self
@@ -344,8 +361,10 @@ impl Alert {
   /// Builds the alert in `theme`. Converting an alert into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    // A variant a theme adds has the neutral one's icon and role.
+    let tone = AlertVariant::named(self.variant).unwrap_or_default();
     let case = Case {
-      variant: Some(self.variant.into()),
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: current_breakpoint(),
@@ -356,11 +375,12 @@ impl Alert {
       title: self.title,
       description: self.description,
       variant: self.variant,
-      icon: shown_icon(self.icon, self.variant.icon()),
+      icon: shown_icon(self.icon, tone.icon()),
       action: self.action,
       body: self.body,
-      role: self.role.unwrap_or_else(|| Arc::from(self.variant.role())),
-      closable: !self.on_close.is_empty(),
+      role: self.role.unwrap_or_else(|| Arc::from(tone.role())),
+      label: self.label,
+      close_button: !self.on_close.is_empty(),
       recipe: theme.resolve::<Alert>(&case, Some(&self.rules)),
       forced: self.forced,
       on_close: self.on_close,
@@ -385,7 +405,8 @@ impl From<Alert> for Element {
 pub struct AlertView {
   pub title: Arc<str>,
   pub description: Option<Arc<str>>,
-  pub variant: AlertVariant,
+  /// Its tone: an [`AlertVariant`]'s name, or a theme's.
+  pub variant: Name,
   /// The icon it shows, by its name in the theme's set: the variant's, the one it was given, or none.
   pub icon: Option<Name>,
   /// What the app put at its end.
@@ -394,8 +415,10 @@ pub struct AlertView {
   pub body: Vec<Element>,
   /// What it is to tooling that reads the tree: `alert` or `status`, or what the app said.
   pub role: Arc<str>,
+  /// What it is called to tooling, where that is not its title.
+  pub label: Option<Arc<str>>,
   /// Whether it has a close control: it was given a handler for it.
-  pub closable: bool,
+  pub close_button: bool,
   /// The style of each part of this alert.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -459,7 +482,7 @@ impl AlertView {
 
   /// How the default renderer builds an alert: its icon, its text, its action
   /// and its close control side by side. It is what its role says to what
-  /// reads the tree, called by its title.
+  /// reads the tree, called by its label or its title.
   pub fn render(mut self) -> Element {
     let mut root = Row::new()
       .align_items(if self.action.is_some() {
@@ -469,7 +492,7 @@ impl AlertView {
       })
       .part(&self.part(AlertPart::Root))
       .describe("a11y_role", self.role.clone())
-      .describe("a11y_name", self.title.clone());
+      .describe("a11y_name", self.label.clone().unwrap_or_else(|| self.title.clone()));
     if let Some(icon) = self.icon() {
       root = root.child(icon);
     }
@@ -477,7 +500,7 @@ impl AlertView {
     if let Some(action) = self.action() {
       root = root.child(action);
     }
-    if self.closable {
+    if self.close_button {
       root = root.child(self.close());
     }
     if let Some(id) = &self.id {

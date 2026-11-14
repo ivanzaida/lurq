@@ -7,14 +7,20 @@ use lurq::{
   app::{component::Component, ctx::Ctx},
   core::Signal,
   node::Element,
-  ui::{Badge, DataList, DataListPart, Link, Tag},
+  ui::{Badge, DataList, DataListPart, Link, Orientation, Tag},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::props_table,
-  playground::{Playground, Shown, Spec, divider, flag},
+  kit::{props_table, segmented_fill},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
+
+/// The orientations, as the code names them.
+const ORIENTATIONS: [(&str, Orientation); 2] = [
+  ("Horizontal", Orientation::Horizontal),
+  ("Vertical", Orientation::Vertical),
+];
 
 /// The board's data list: what a build is.
 fn board() -> DataList {
@@ -30,7 +36,7 @@ fn board() -> DataList {
 pub struct DataListPage {
   frame: Frame,
   playground: Playground,
-  vertical: Signal<bool>,
+  orientation: Signal<Orientation>,
   badge: Signal<bool>,
   long: Signal<bool>,
 }
@@ -38,10 +44,11 @@ pub struct DataListPage {
 impl DataListPage {
   /// The playground: the details of a build as the panel's props make them.
   fn play(&self, ctx: &mut Ctx) -> Element {
-    let (vertical, badge, long) = (self.vertical.get(), self.badge.get(), self.long.get());
+    let (orientation, badge, long) = (self.orientation.get(), self.badge.get(), self.long.get());
+    let vertical = orientation.is_vertical();
     let make = move || -> Element {
       let mut list = DataList::new()
-        .vertical(vertical)
+        .orientation(orientation)
         .text("Version", "0.60.0")
         .text("Renderer", "wgpu")
         .text("License", "MIT");
@@ -61,7 +68,7 @@ impl DataListPage {
 
     let mut code = vec!["DataList::new()".to_owned()];
     if vertical {
-      code.push("    .vertical(true)".to_owned());
+      code.push("    .orientation(Orientation::Vertical)".to_owned());
     }
     code.push("    .text(\"Version\", \"0.60.0\")".to_owned());
     code.push("    .text(\"Renderer\", \"wgpu\")".to_owned());
@@ -90,7 +97,8 @@ impl DataListPage {
         "   10 over and under each, a line of 1 under all but the last".to_owned(),
       ]
     };
-    let resets = (self.vertical.clone(), self.badge.clone(), self.long.clone());
+    let resets = (self.orientation.clone(), self.badge.clone(), self.long.clone());
+    let set_orientation = self.orientation.clone();
     self.playground.card(
       ctx,
       Spec {
@@ -104,14 +112,18 @@ impl DataListPage {
         code,
         tree,
         controls: vec![
-          flag("vertical", &self.vertical),
+          prop(
+            "orientation",
+            "Orientation",
+            segmented_fill(&ORIENTATIONS, &orientation, move |chosen| set_orientation.set(chosen)),
+          ),
           divider(),
           flag("a badge as a value", &self.badge),
           flag("a long value", &self.long),
         ],
         changed: [vertical, !badge, long].into_iter().filter(|changed| *changed).count(),
         reset: Arc::new(move || {
-          resets.0.set(false);
+          resets.0.set(Orientation::Horizontal);
           resets.1.set(true);
           resets.2.set(false);
         }),
@@ -127,7 +139,7 @@ impl Component for DataListPage {
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 0),
-      vertical: ctx.signal(false),
+      orientation: ctx.signal(Orientation::Horizontal),
       badge: ctx.signal(true),
       long: ctx.signal(false),
     }
@@ -135,7 +147,7 @@ impl Component for DataListPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let narrow = DataList::new()
-      .vertical(true)
+      .orientation(Orientation::Vertical)
       .label("Order")
       .text("Order", "#4021")
       .text("Placed", "14 November 2026")
@@ -169,10 +181,17 @@ impl Component for DataListPage {
         "An item whose value is what the app puts there: a badge, a link, tags.",
       ),
       (
-        "vertical",
-        "bool",
-        "false",
-        "Each term over its value, for a narrow column. Side by side, the terms' column is as wide as the widest.",
+        "texts / items",
+        "IntoIterator<(&str, ..)>",
+        "",
+        "Several items at once, each as `text` or `item` adds it.",
+      ),
+      (
+        "orientation",
+        "Orientation",
+        "Horizontal",
+        "Vertical: each term over its value, for a narrow column. Side by side, the terms' column is as wide as the \
+         widest.",
       ),
       ("label", "&str", "", "What the list is called, to tooling."),
       ("style / rules", "DataListPart", "", "Root, Item, Term, Value."),
@@ -221,10 +240,10 @@ impl Component for DataListPage {
           self.frame.demo(
             1,
             narrow,
-            "DataList::new().vertical(true)",
+            "DataList::new().orientation(Orientation::Vertical)",
             &[
               "DataList::new()",
-              "    .vertical(true)",
+              "    .orientation(Orientation::Vertical)",
               "    .text(\"Order\", \"#4021\")",
               "    .text(\"Placed\", \"14 November 2026\")",
               "    .text(\"Ship to\", \"Ivan Zaida, 12 Khreshchatyk St, Kyiv\")",

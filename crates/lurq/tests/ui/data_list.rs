@@ -11,7 +11,7 @@ use lurq::{
   components::{Column, Row},
   layout::quad::{Quad, QuadContent},
   node::color::Color,
-  ui::{Badge, DataList, DataListPart, DataListRenderer, DataListView},
+  ui::{Badge, DataList, DataListPart, DataListRenderer, DataListState, DataListView, Orientation, Recipe},
 };
 
 use super::stage::Stage;
@@ -91,7 +91,7 @@ fn one_over_the_other_each_term_is_over_its_value() {
       .padding(8.0)
       .child(
         DataList::new()
-          .vertical(true)
+          .orientation(Orientation::Vertical)
           .text("Version", "0.60.0")
           .text("Renderer", "wgpu")
           .id("list")
@@ -136,4 +136,52 @@ fn a_renderer_sees_the_items() {
     seen.lock().unwrap()[0],
     ("Version".to_owned(), Some("0.60.0".to_owned()), false)
   );
+}
+
+/// One of the states `Horizontal` and `Vertical` is on, by the orientation: a recipe styles either.
+#[test]
+fn the_orientation_is_the_horizontal_or_the_vertical_state() {
+  let rules = Recipe::new()
+    .state(DataListState::Horizontal, DataListPart::Term, |s| {
+      s.foreground(PaletteColor::Primary)
+    })
+    .state(DataListState::Vertical, DataListPart::Term, |s| {
+      s.foreground(PaletteColor::Destructive)
+    });
+  let stage = Stage::new(move |_| {
+    Column::new()
+      .child(DataList::new().rules(&rules).text("Side", "by side"))
+      .child(
+        DataList::new()
+          .orientation(Orientation::Vertical)
+          .rules(&rules)
+          .text("Over", "the other"),
+      )
+      .into()
+  });
+  assert_eq!(stage.text("Side").0, light(PaletteColor::Primary));
+  assert_eq!(stage.text("Over").0, light(PaletteColor::Destructive));
+}
+
+/// `texts` and `items` add several at once, as `text` and `item` add one.
+#[test]
+fn texts_and_items_add_several_at_once() {
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let told = seen.clone();
+  let renderer: DataListRenderer = Arc::new(move |view: DataListView| {
+    *told.lock().unwrap() = view.items.iter().map(|item| item.term.to_string()).collect::<Vec<_>>();
+    view.render()
+  });
+  let app = App::new();
+  app.theme().set_renderer::<DataList>(renderer);
+  let _stage = Stage::in_app(app, |_| {
+    Column::new()
+      .child(
+        DataList::new()
+          .texts([("Version", "0.60.0"), ("Renderer", "wgpu")])
+          .items([("Status", Badge::new("Stable"))]),
+      )
+      .into()
+  });
+  assert_eq!(*seen.lock().unwrap(), ["Version", "Renderer", "Status"]);
 }

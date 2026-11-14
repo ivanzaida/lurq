@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::{
   AlertVariant, Link, LinkPart,
-  alert::{AlertIcon, close_control, close_style, shown_icon, wrapping},
+  alert::{IconChoice, close_control, close_style, shown_icon, wrapping},
   icons, names,
   part_style::{Length, PartAnimation},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -35,7 +35,7 @@ pub enum BannerPart {
   /// The icon of its variant, at the start.
   Icon,
   /// What it says.
-  Text,
+  Label,
   /// What holds the action, after the text.
   Action,
   /// A link given as the action, in the variant's color: what the board's
@@ -49,7 +49,7 @@ names!(BannerPart {
   Root => "root",
   Panel => "panel",
   Icon => "icon",
-  Text => "text",
+  Label => "label",
   Action => "action",
   Link => "link",
   Close => "close",
@@ -97,16 +97,18 @@ pub type BannerRenderer = Arc<dyn Fn(BannerView) -> Element + Send + Sync>;
 /// keeps, false once its close control is pressed. It stays in the tree
 /// either way, so it fades in as it is shown and out as it is taken away,
 /// and the page under it moves up when it is gone. Where the page scrolls,
-/// [`Banner::sticky`] keeps it at the top.
+/// [`Banner::sticky`] keeps it at the top. It has a close control once it is
+/// given [`on_close`](Banner::on_close), and none until then.
 pub struct Banner {
   text: Arc<str>,
-  variant: AlertVariant,
-  icon: Option<AlertIcon>,
+  variant: Name,
+  icon: Option<IconChoice>,
   action: Option<BannerAction>,
   open: bool,
   centered: bool,
   sticky: bool,
   role: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -120,13 +122,14 @@ impl Banner {
   pub fn new(text: &str) -> Self {
     Self {
       text: Arc::from(text),
-      variant: AlertVariant::Neutral,
+      variant: AlertVariant::Neutral.into(),
       icon: None,
       action: None,
       open: true,
       centered: false,
       sticky: false,
       role: None,
+      label: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -136,31 +139,35 @@ impl Banner {
     }
   }
 
-  pub fn variant(mut self, variant: AlertVariant) -> Self {
-    self.variant = variant;
+  /// Its tone: an [`AlertVariant`], or a variant a theme adds, which has the
+  /// neutral one's icon and role.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
     self
   }
 
   /// An icon of the theme's set in place of the variant's, or none: `icon(None)`.
-  pub fn icon(mut self, icon: impl Into<AlertIcon>) -> Self {
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
     self.icon = Some(icon.into());
     self
   }
 
-  /// What can be done about it, after the text: a button, or any element.
+  /// What can be done about it, after the text: a button, or any element. It
+  /// is the one action: a second, or a [`link`](Self::link), takes its place.
   pub fn action(mut self, action: impl Into<Element>) -> Self {
     self.action = Some(BannerAction::Element(action.into()));
     self
   }
 
   /// A link as the action, after the text, in the variant's color and
-  /// semibold: "Update now".
+  /// semibold: "Update now". It takes the place of an action given before.
   pub fn link(mut self, link: Link) -> Self {
     self.action = Some(BannerAction::Link(link));
     self
   }
 
-  /// Whether it is shown. It is unless it says; taken away it fades out.
+  /// Whether it is shown: the app's to say, which a press of the close
+  /// control does not change. It is unless it says; taken away it fades out.
   pub fn open(mut self, open: bool) -> Self {
     self.open = open;
     self
@@ -176,6 +183,12 @@ impl Banner {
   /// Whether it sticks to the top of what scrolls the page it is on.
   pub fn sticky(mut self, sticky: bool) -> Self {
     self.sticky = sticky;
+    self
+  }
+
+  /// What it is called to tooling that reads the tree, in place of its text.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -196,7 +209,8 @@ impl Banner {
   }
 
   /// Called on a press of its close control, which it has once it is given
-  /// one. The app takes the banner away: `open(false)`.
+  /// one: a banner with no `on_close` has no close control. The app takes the
+  /// banner away: `open(false)`. A second handler is called after the first.
   pub fn on_close(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_close.push(Arc::new(handler));
     self
@@ -237,8 +251,10 @@ impl Banner {
   /// Builds the banner in `theme`. Converting a banner into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    // A variant a theme adds has the neutral one's icon and role.
+    let tone = AlertVariant::named(self.variant).unwrap_or_default();
     let case = Case {
-      variant: Some(self.variant.into()),
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: current_breakpoint(),
@@ -247,9 +263,9 @@ impl Banner {
     .state(BannerState::Centered, self.centered)
     .state(BannerState::Sticky, self.sticky);
     // The board's banner announces: a neutral and an informative one have the megaphone.
-    let default_icon = match self.variant {
+    let default_icon = match tone {
       AlertVariant::Neutral | AlertVariant::Info => icons::MEGAPHONE,
-      variant => variant.icon(),
+      tone => tone.icon(),
     };
     let view = BannerView {
       text: self.text,
@@ -259,8 +275,9 @@ impl Banner {
       open: self.open,
       centered: self.centered,
       sticky: self.sticky,
-      role: self.role.unwrap_or_else(|| Arc::from(self.variant.role())),
-      closable: !self.on_close.is_empty(),
+      role: self.role.unwrap_or_else(|| Arc::from(tone.role())),
+      label: self.label,
+      close_button: !self.on_close.is_empty(),
       recipe: theme.resolve::<Banner>(&case, Some(&self.rules)),
       forced: self.forced,
       on_close: self.on_close,
@@ -284,7 +301,8 @@ impl From<Banner> for Element {
 /// parts, and its behavior ready to be dressed.
 pub struct BannerView {
   pub text: Arc<str>,
-  pub variant: AlertVariant,
+  /// Its tone: an [`AlertVariant`]'s name, or a theme's.
+  pub variant: Name,
   /// The icon it shows, by its name in the theme's set: the variant's, the one it was given, or none.
   pub icon: Option<Name>,
   action: Option<BannerAction>,
@@ -294,8 +312,10 @@ pub struct BannerView {
   pub sticky: bool,
   /// What it is to tooling that reads the tree: `alert` or `status`, or what the app said.
   pub role: Arc<str>,
+  /// What it is called to tooling, where that is not its text.
+  pub label: Option<Arc<str>>,
   /// Whether it has a close control: it was given a handler for it.
-  pub closable: bool,
+  pub close_button: bool,
   /// The style of each part of this banner.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -323,7 +343,7 @@ impl BannerView {
   /// next line where it does not fit in one; centered, as wide as it is and
   /// no wider than that room.
   pub fn text(&self) -> Column {
-    let part = self.part(BannerPart::Text);
+    let part = self.part(BannerPart::Label);
     if self.centered {
       Column::new()
         .flex_full(0.0, 1.0, None)
@@ -370,7 +390,7 @@ impl BannerView {
 
   /// The bar: its icon, its text, its action and its close control side by
   /// side. It is what its role says to what reads the tree, called by its
-  /// text. It has a key, so that what holds it keeps it while it fades out.
+  /// label or its text. It has a key, so that what holds it keeps it while it fades out.
   pub fn panel(&mut self) -> Row {
     let mut panel = Row::new()
       .key("banner")
@@ -378,7 +398,7 @@ impl BannerView {
       .justify(if self.centered { Justify::Center } else { Justify::Start })
       .part(&self.part(BannerPart::Panel))
       .describe("a11y_role", self.role.clone())
-      .describe("a11y_name", self.text.clone());
+      .describe("a11y_name", self.label.clone().unwrap_or_else(|| self.text.clone()));
     if let Some(icon) = self.icon() {
       panel = panel.child(icon);
     }
@@ -386,7 +406,7 @@ impl BannerView {
     if let Some(action) = self.action() {
       panel = panel.child(action);
     }
-    if self.closable {
+    if self.close_button {
       panel = panel.child(self.close());
     }
     if let Some(id) = &self.id {
@@ -444,7 +464,7 @@ impl Themed for Banner {
         s.square(Length::Icon(IconSize::Md))
           .foreground(PaletteColor::Foreground)
       })
-      .base(P::Text, |s| {
+      .base(P::Label, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)
           .foreground(PaletteColor::Foreground)

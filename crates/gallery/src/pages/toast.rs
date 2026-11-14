@@ -21,10 +21,10 @@ use crate::{
 /// The variants, by the names the code gives them.
 const VARIANTS: [(&str, ToastVariant); 5] = [
   ("Neutral", ToastVariant::Neutral),
-  ("Success", ToastVariant::Success),
   ("Info", ToastVariant::Info),
+  ("Success", ToastVariant::Success),
   ("Warning", ToastVariant::Warning),
-  ("Error", ToastVariant::Error),
+  ("Destructive", ToastVariant::Destructive),
 ];
 
 /// How long the playground's toast is shown, in seconds: none for one that stays.
@@ -87,7 +87,7 @@ impl ToastPage {
     let plain = {
       let (title, description) = (title.clone(), description.clone());
       move || {
-        let mut toast = Toast::new(&title).variant(variant).timer(timer).closable(closable);
+        let mut toast = Toast::new(&title).variant(variant).timer(timer).close_button(closable);
         if !description.is_empty() {
           toast = toast.description(&description);
         }
@@ -129,14 +129,14 @@ impl ToastPage {
       code.push("    .timer(true)".to_owned());
     }
     if !closable {
-      code.push("    .closable(false)".to_owned());
+      code.push("    .close_button(false)".to_owned());
     }
     match duration {
       Some(5) => {}
       Some(seconds) => code.push(format!("    .duration(Duration::from_secs({seconds}))")),
       None => code.push("    .persistent(true)".to_owned()),
     }
-    code.push("// toasts: Toasts, whose host the app's root renders last".to_owned());
+    code.push("// toasts: Toasts, which the app's root mounts last".to_owned());
     code.push("toasts.show(toast);".to_owned());
 
     let mut tree = vec![format!("root            {}", self.playground.measured())];
@@ -198,10 +198,10 @@ impl ToastPage {
           divider(),
           flag("action", &self.action),
           flag("timer", &self.timer),
-          flag("closable", &self.closable),
+          flag("close_button", &self.closable),
           divider(),
           prop(
-            "host_at",
+            "mount_at",
             "ToastPosition",
             self
               .playground
@@ -271,14 +271,14 @@ impl Component for ToastPage {
           ToastVariant::Success => "Settings saved",
           ToastVariant::Info => "A new version is ready",
           ToastVariant::Warning => "Saved, but not synced",
-          ToastVariant::Error => "Could not connect",
+          ToastVariant::Destructive => "Could not connect",
         })
         .description(match variant {
           ToastVariant::Neutral => "The link to this page is on the clipboard.",
           ToastVariant::Success => "Your theme applies to every open window.",
           ToastVariant::Info => "It is installed when the app starts again.",
           ToastVariant::Warning => "The changes are sent when you are online.",
-          ToastVariant::Error => "The MCP server refused the connection.",
+          ToastVariant::Destructive => "The MCP server refused the connection.",
         })
         .variant(*variant);
         column.child(item(toast, &format!("ToastVariant::{name}")))
@@ -310,7 +310,7 @@ impl Component for ToastPage {
       .child(self.shows("Could not connect", || {
         Toast::new("Could not connect")
           .description("The MCP server refused the connection.")
-          .variant(ToastVariant::Error)
+          .variant(ToastVariant::Destructive)
           .persistent(true)
       }))
       .child({
@@ -320,7 +320,7 @@ impl Component for ToastPage {
           .on_click(move |_| toasts.clear())
       });
     // The page's own host: what draws the toasts it shows, over the whole window.
-    let host = self.toasts.host_at(ctx, self.position.get());
+    let host = self.toasts.mount_at(ctx, self.position.get());
     let rows = [
       ("title", "&str", "", "What happened, in a few words."),
       ("description", "&str", "", "More of it, under the title."),
@@ -328,23 +328,34 @@ impl Component for ToastPage {
         "variant",
         "ToastVariant",
         "Neutral",
-        "Neutral, Success, Info, Warning or Error: the icon, and its color. A neutral toast has none.",
+        "Neutral, Info, Success, Warning or Destructive, or a theme's: the icon, and its color. A neutral toast has \
+         none.",
       ),
       (
         "icon",
-        "Name",
+        "impl Into<IconChoice>",
         "",
-        "An icon of the theme's set in place of the variant's.",
+        "An icon of the theme's set in place of the variant's, or none: `icon(None)`.",
       ),
-      ("icon_hidden", "bool", "false", "No icon, whatever the variant."),
       (
         "action",
         "Button | Link",
         "",
         "What can be done about it. The toast is centered on it; shown by a Toasts, it leaves when it is pressed.",
       ),
-      ("closable", "bool", "true", "Whether it has its close control."),
-      ("on_close", "impl Fn()", "", "Called on a press of the close control."),
+      ("close_button", "bool", "true", "Whether it has its close control."),
+      (
+        "on_close",
+        "impl Fn()",
+        "",
+        "Called on a press of the close control. A second is called after the first.",
+      ),
+      (
+        "label",
+        "&str",
+        "",
+        "What it is called to tooling, in place of its title.",
+      ),
       (
         "timer",
         "bool",
@@ -398,7 +409,7 @@ impl Component for ToastPage {
               "",
               "Toast::new(\"Could not connect\")",
               "    .description(\"The MCP server refused the connection.\")",
-              "    .variant(ToastVariant::Error)",
+              "    .variant(ToastVariant::Destructive)",
             ],
           ),
         ),
@@ -426,8 +437,8 @@ impl Component for ToastPage {
         ),
         Section::new(
           "Shown from anywhere",
-          "A Toasts is made once, at the app's root, and cloned into whatever shows a toast. Its host, which the root \
-           renders last, draws them in a corner of the window over everything. Several are stacked; with the pointer \
+          "A Toasts is made once, at the app's root, and cloned into whatever shows a toast. What it mounts, last in \
+           the root, draws them in a corner of the window over everything. Several are stacked; with the pointer \
            on them they are laid out one over another and their time stands still.",
           Column::new()
             .width(FILL)
@@ -440,7 +451,7 @@ impl Component for ToastPage {
                 "let toasts = Toasts::new();",
                 "",
                 "// In its render, last, so that its layer is over every other.",
-                "column.child(self.toasts.host(ctx))",
+                "column.child(self.toasts.mount(ctx))",
                 "",
                 "// Anywhere, with a clone of it.",
                 "toasts.show(Toast::new(\"Settings saved\").variant(ToastVariant::Success));",
