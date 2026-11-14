@@ -1,16 +1,23 @@
-//! A key's handler moving the focus within its group to an element by its key, once the render the key causes is
-//! done: a page of numbered items that Right moves through and onto the next page.
+//! A key's or a press's handler moving the focus within its group to an element by its key, once the render the
+//! event causes is done: a page of numbered items that Right moves through and onto the next page, and whose last
+//! item, pressed, turns the page.
 
 use std::sync::Arc;
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx, events::KeyboardEvent},
+  app::{
+    App, Tree,
+    component::Component,
+    ctx::Ctx,
+    events::{KeyboardEvent, MouseButton, MouseEvent},
+  },
   components::{Button, Column, Row},
   core::Signal,
   node::{Element, FocusGroup},
 };
 
 use super::{focused_id, tab};
+use crate::support::pointer_click;
 
 #[derive(Clone, lurq::DevtoolsInspectable)]
 struct PageSignal(Arc<Signal<u32>>);
@@ -46,7 +53,7 @@ impl Component for Pages {
   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
     let page = self.page.get();
     let item = |number: u32| {
-      let turn = self.page.clone();
+      let (turn, press) = (self.page.clone(), self.page.clone());
       Button::new(&number.to_string())
         .id(format!("item-{number}"))
         .key(format!("item-{number}"))
@@ -66,6 +73,13 @@ impl Component for Pages {
             "ArrowDown" => event.focus_key("item-1000"),
             "x" => event.focus_key("other-1"),
             _ => {}
+          }
+        })
+        // The last item of a page, pressed, turns it and asks for the first of the next, which the press renders.
+        .on_click(move |event: MouseEvent| {
+          if number % 3 == 2 {
+            press.set(number / 3 + 1);
+            event.focus_key(format!("item-{}", number + 1));
           }
         })
     };
@@ -141,4 +155,23 @@ fn an_element_of_another_group_is_not_reached() {
     Some("item-0"),
     "the key is looked for in the group around the focus"
   );
+}
+
+fn click(tree: &mut Tree, app: &mut App, id: &str) {
+  let (x, y) = tree
+    .get_element_by_id_mut(id)
+    .and_then(|element| element.bounds())
+    .expect("element should be laid out")
+    .center();
+  pointer_click(tree, x, y, MouseButton::Left);
+  tree.pass_headless(app);
+}
+
+#[test]
+fn a_press_asks_for_an_element_the_press_renders_with_no_ring() {
+  let (mut tree, mut app, page) = pages();
+  click(&mut tree, &mut app, "item-2");
+  assert_eq!(page.get_untracked(), 1, "the item pressed is gone with its page");
+  assert_eq!(focused_id(&tree).as_deref(), Some("item-3"));
+  assert!(!tree.focus_visible(), "moved by the pointer, it shows no ring");
 }

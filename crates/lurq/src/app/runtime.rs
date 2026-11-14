@@ -821,6 +821,9 @@ pub struct Tree {
   /// A left press that only closed popups (`OutsidePress::Consume`); its
   /// release is swallowed too.
   swallowed_press: Option<MouseButton>,
+  /// What a press's handler asked the focus to go to ([`MouseEvent::focus_key`]): the focus group around the focus
+  /// as it was pressed, and the key. Carried out once the render the press causes is done.
+  pressed_focus_key: Option<(NodeId, Arc<str>)>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
   tree_rebuilt_since_layout: bool,
@@ -1276,6 +1279,7 @@ impl Tree {
       click_press: None,
       press_repeat: None,
       swallowed_press: None,
+      pressed_focus_key: None,
       suppressed_click: None,
       needs_redraw: true,
       tree_rebuilt_since_layout: false,
@@ -4230,7 +4234,7 @@ impl Tree {
     }
     self.apply_reactive_updates_after_event();
     if let Some((group, key)) = keyed_focus {
-      self.focus_keyed_in_group(group, &key);
+      self.focus_keyed_in_group(group, &key, true);
     }
   }
 
@@ -4846,6 +4850,28 @@ impl Tree {
     modifiers: MouseModifiers,
     click_target: Option<NodeId>,
   ) {
+    let control = EventControl::new();
+    self.dispatch_mouse_with_control(x, y, button, kind, modifiers, click_target, control.clone());
+    // A handler asked for an element of the focus group around the focus by its key: found once the render the
+    // press causes is done, in the group the focus was in as it was pressed.
+    if let Some(key) = control.take_focus_key()
+      && let Some(group) = self.focus_group_around_focus()
+    {
+      self.pressed_focus_key = Some((group, key));
+    }
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  fn dispatch_mouse_with_control(
+    &mut self,
+    x: f32,
+    y: f32,
+    button: MouseButton,
+    kind: MouseEventKind,
+    modifiers: MouseModifiers,
+    click_target: Option<NodeId>,
+    control: EventControl,
+  ) {
     let mut evt = MouseEvent {
       x,
       y,
@@ -4862,7 +4888,7 @@ impl Tree {
         crate::app::events::PointerKind::Mouse
       },
       target_id: NodeId::UNASSIGNED,
-      control: EventControl::new(),
+      control,
     };
     let scale = self.scale_factor();
     let text_click_interval = self.double_click_interval.unwrap_or(DOUBLE_CLICK_INTERVAL);
@@ -6852,6 +6878,9 @@ impl Tree {
       self.rebuild_if_dirty();
     }
     self.apply_focus_request();
+    if let Some((group, key)) = self.pressed_focus_key.take() {
+      self.focus_keyed_in_group(group, &key, false);
+    }
     self.refresh_interaction_groups();
   }
 

@@ -112,6 +112,16 @@ impl MouseEvent {
   pub fn immediate_propagation_stopped(&self) -> bool {
     self.control.immediate_propagation_stopped()
   }
+
+  /// Moves the focus, once this press's handlers have run and what they changed is rendered, to the element of the
+  /// [focus group](crate::node::FocusGroup) around the focused element whose key (`.key(..)`) is `key`, and into
+  /// view, with no ring: as [`KeyboardEvent::focus_key`](super::KeyboardEvent::focus_key) does for a key. For a
+  /// press that takes away the element it pressed: a calendar's day of the month beside, after which the day is in
+  /// the month then shown. Nothing moves where the group is not there after the render, or has no element of that
+  /// key that takes the focus. The press's default is not prevented. The last request of a press's handlers wins.
+  pub fn focus_key(&self, key: impl Into<std::sync::Arc<str>>) {
+    self.control.request_focus_key(key.into());
+  }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
-  calendar::{Calendar, CalendarMemory, Kept, MonthSource, app_locale},
+  calendar::{Calendar, CalendarChoice, CalendarMemory, Kept, MonthSource, Selection, app_locale},
   field::{FieldControl, InField},
   icon::Icon,
   icons,
@@ -12,29 +12,31 @@ use super::{
   names,
   part_style::{Length, PartStyle},
   popover::{Popover, PopoverPart},
-  recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  separator::{Separator, SeparatorOrientation},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  separator::{Separator, SeparatorOrientation, SeparatorPart},
   shared::fading,
-  text_box::{BoxStates, Judgment},
+  text_box::{BoxStates, Judgment, TextBoxSize},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
     component::Component,
-    ctx::{Ctx, Placement},
+    ctx::{CollisionStrategy, Ctx, Placement},
     events::{KeyboardEvent, MouseEvent, TextInputEvent},
-    theme::{IconSize, PaletteColor, RadiusSize, Theme},
+    theme::{IconSize, PaletteColor, RadiusSize, SpacingSize, Theme},
   },
   components::{self, Column, Row, Stack},
   core::{Date, DateLocale, DateRange, ElementRef, Signal, Weekday, YearMonth},
   layout::{Alignment, StackAlignment, layout_kind::Justify},
-  node::{CursorIcon, Element, HitTestBehavior, dimension::Dimension},
+  node::{CursorIcon, Element, HitTestBehavior, SpacingValue, dimension::Dimension},
 };
 
 /// The parts of a date picker, and of a date range picker, a recipe styles. The field is an [`Input`] in the theme's
 /// dress for one; the panel a [`Popover`]; the days a [`Calendar`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DatePickerPart {
+  /// What the picker says of the box that is typed in: rules over the input's control.
+  Control,
   /// What is pressed to open the calendar, at the start of the field: its size, its corners, its fill under the
   /// pointer.
   Trigger,
@@ -50,9 +52,12 @@ pub enum DatePickerPart {
   Presets,
   /// What the picker says of a preset's button: rules over its root.
   Preset,
+  /// What the picker says of the line between the presets and the calendar: rules over the separator's line.
+  Separator,
 }
 
 names!(DatePickerPart {
+  Control => "control",
   Trigger => "trigger",
   TriggerIcon => "trigger_icon",
   Clear => "clear",
@@ -60,14 +65,22 @@ names!(DatePickerPart {
   Panel => "panel",
   Presets => "presets",
   Preset => "preset",
+  Separator => "separator",
 });
 
-/// The states of a date picker a recipe styles. It is in the field's judgment, size and read only too, by their
-/// names.
+/// The states of a date picker a recipe styles. It is in the field's size too, by its name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DatePickerState {
   /// Its calendar is open.
   Open,
+  /// What it holds is wrong.
+  Invalid,
+  /// What it holds is allowed with a caveat.
+  Warning,
+  /// What it holds was checked and is right.
+  Valid,
+  /// It can be read and not changed.
+  ReadOnly,
   /// It takes no input.
   Disabled,
   /// It is as wide as what holds it.
@@ -76,6 +89,10 @@ pub enum DatePickerState {
 
 names!(DatePickerState {
   Open => "open",
+  Invalid => "invalid",
+  Warning => "warning",
+  Valid => "valid",
+  ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
 });
@@ -101,7 +118,7 @@ pub trait Picked:
   fn end(self) -> Date;
 
   #[doc(hidden)]
-  fn calendar(value: Signal<Option<Self>>) -> Calendar;
+  fn calendar(value: Signal<Option<Self>>) -> Calendar<Self>;
 
   /// The date a calendar of one date chose, as a value of this kind.
   #[doc(hidden)]
@@ -110,6 +127,16 @@ pub trait Picked:
   /// The range a calendar of ranges chose, as a value of this kind.
   #[doc(hidden)]
   fn from_range(range: DateRange) -> Option<Self>;
+
+  /// What a calendar chose, as a value of this kind.
+  #[doc(hidden)]
+  fn from_choice(choice: CalendarChoice) -> Option<Self> {
+    match choice {
+      CalendarChoice::Date(Some(date)) => Self::from_date(date),
+      CalendarChoice::Range(Some(range)) => Self::from_range(range),
+      _ => None,
+    }
+  }
 }
 
 impl Picked for Date {
@@ -131,8 +158,8 @@ impl Picked for Date {
     self
   }
 
-  fn calendar(value: Signal<Option<Self>>) -> Calendar {
-    Calendar::new(value)
+  fn calendar(value: Signal<Option<Self>>) -> Calendar<Self> {
+    Calendar::with(Selection::Single(value))
   }
 
   fn from_date(date: Date) -> Option<Self> {
@@ -163,8 +190,8 @@ impl Picked for DateRange {
     DateRange::end(self)
   }
 
-  fn calendar(value: Signal<Option<Self>>) -> Calendar {
-    Calendar::range(value)
+  fn calendar(value: Signal<Option<Self>>) -> Calendar<Self> {
+    Calendar::with(Selection::Range(value))
   }
 
   fn from_date(_: Date) -> Option<Self> {
@@ -185,6 +212,9 @@ pub type DatePickerRenderer = PickerRenderer<Date>;
 /// A date picker as a renderer sees it.
 pub type DatePickerView = PickerView<Date>;
 
+/// The sizes of a date picker and of a date range picker: an input's, the heights of the theme's controls.
+pub type DatePickerSize = TextBoxSize;
+
 type Format<V> = Arc<dyn Fn(V) -> String + Send + Sync>;
 type Parse<V> = Arc<dyn Fn(&str) -> Option<V> + Send + Sync>;
 
@@ -198,10 +228,23 @@ pub(crate) struct Picker<V: Picked> {
   pub clearable: bool,
   pub format: Option<Format<V>>,
   pub parse: Option<Parse<V>>,
-  pub calendar: Calendar,
+  pub calendar: Calendar<V>,
+  /// Whether a change is only told, and the app answers with the value.
+  pub controlled: bool,
   pub open: Option<Signal<bool>>,
   pub memory: Option<CalendarMemory>,
   pub on_change: Vec<Arc<dyn Fn(Option<V>) + Send + Sync>>,
+  pub on_input: Vec<Arc<dyn Fn(&TextInputEvent) + Send + Sync>>,
+  pub on_submit: Vec<Arc<dyn Fn(Option<V>) + Send + Sync>>,
+  pub on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  pub on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
+  pub placement: Placement,
+  pub offset: Option<SpacingValue>,
+  pub collision: Option<CollisionStrategy>,
+  pub inline: bool,
+  pub trigger_label: Option<Arc<str>>,
+  pub clear_label: Option<Arc<str>>,
+  pub panel_label: Option<Arc<str>>,
   pub presets: Vec<(Arc<str>, V)>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -218,6 +261,7 @@ impl<V: Picked> Picker<V> {
     Self {
       calendar: V::calendar(value.clone()),
       value,
+      controlled: false,
       placeholder: None,
       boxed: BoxStates::default(),
       full_width: false,
@@ -227,6 +271,17 @@ impl<V: Picked> Picker<V> {
       open: None,
       memory: None,
       on_change: Vec::new(),
+      on_input: Vec::new(),
+      on_submit: Vec::new(),
+      on_open_change: Vec::new(),
+      on_dismiss: Vec::new(),
+      placement: Placement::BottomStart,
+      offset: None,
+      collision: None,
+      inline: false,
+      trigger_label: None,
+      clear_label: None,
+      panel_label: None,
       presets: Vec::new(),
       name: None,
       states: Vec::new(),
@@ -296,7 +351,11 @@ impl<V: Picked> Picker<V> {
       max: calendar_rules.max,
       unavailable: calendar_rules.unavailable.clone(),
       today,
+      controlled: self.controlled,
       on_change: self.on_change.clone(),
+      on_submit: self.on_submit.clone(),
+      on_open_change: self.on_open_change.clone(),
+      on_dismiss: self.on_dismiss.clone(),
       read_only: self.boxed.read_only,
       disabled,
     };
@@ -304,8 +363,11 @@ impl<V: Picked> Picker<V> {
     let mut input = Input::new(text.clone())
       .icon(icons::CALENDAR)
       .full_width(self.full_width)
-      .force(self.forced);
+      .force(self.forced)
+      .rules(&recipe.rules_for(DatePickerPart::Control, InputPart::Control));
     input.boxed = self.boxed.clone();
+    // The box says what it is to what reads the tree: a combobox that opens a dialog.
+    input.boxed.role = Some("combobox");
     if let Some(placeholder) = &self.placeholder {
       input = input.placeholder(placeholder);
     }
@@ -316,8 +378,17 @@ impl<V: Picked> Picker<V> {
     if let Some(id) = &self.id {
       input = input.id(id.clone());
     }
+    // The app's handlers hear an edit first, and may refuse it: what is refused is not read.
+    for handler in &self.on_input {
+      let handler = handler.clone();
+      input = input.on_input(move |event: &TextInputEvent| handler(event));
+    }
     let typed = model.clone();
-    input = input.on_input(move |event: &TextInputEvent| typed.typed(event.new_value()));
+    input = input.on_input(move |event: &TextInputEvent| {
+      if !event.default_prevented() {
+        typed.typed(event.new_value());
+      }
+    });
     PickerView {
       text,
       value,
@@ -334,6 +405,13 @@ impl<V: Picked> Picker<V> {
       recipe,
       input: input.view(theme),
       calendar: self.calendar,
+      placement: self.placement,
+      offset: self.offset,
+      collision: self.collision,
+      inline: self.inline,
+      trigger_label: self.trigger_label,
+      clear_label: self.clear_label,
+      panel_label: self.panel_label,
       kept,
       today,
       model,
@@ -366,7 +444,11 @@ struct Model<V: Picked> {
   max: Option<Date>,
   unavailable: Option<Arc<dyn Fn(Date) -> bool + Send + Sync>>,
   today: Date,
+  controlled: bool,
   on_change: Vec<Arc<dyn Fn(Option<V>) + Send + Sync>>,
+  on_submit: Vec<Arc<dyn Fn(Option<V>) + Send + Sync>>,
+  on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
   read_only: bool,
   disabled: bool,
 }
@@ -382,14 +464,40 @@ impl<V: Picked> Model<V> {
     day(value.start()) && day(value.end())
   }
 
-  /// Sets the value where it changed, and tells the handlers.
+  /// Sets the value where it changed, and tells the handlers; a controlled picker only tells them.
   fn write(&self, value: Option<V>) {
     if self.value.get_untracked() == value {
       return;
     }
-    self.value.set(value);
+    if !self.controlled {
+      self.value.set(value);
+    }
     for handler in &self.on_change {
       handler(value);
+    }
+  }
+
+  /// Opens or closes the calendar, and tells the handlers where it changed.
+  fn set_open(&self, open: bool) {
+    if self.open.get_untracked() == open {
+      return;
+    }
+    self.open.set(open);
+    for handler in &self.on_open_change {
+      handler(open);
+    }
+  }
+
+  /// What Escape or a press outside does after the popover closed: forgets a range half chosen and tells the
+  /// handlers.
+  fn dismissed(&self) {
+    self.draft.set(None);
+    self.hover.set(None);
+    for handler in &self.on_open_change {
+      handler(false);
+    }
+    for handler in &self.on_dismiss {
+      handler();
     }
   }
 
@@ -407,8 +515,9 @@ impl<V: Picked> Model<V> {
   }
 
   /// Puts what `text` holds right: the value it reads as, written as the picker writes it; an empty field none; and
-  /// anything else the value it had.
-  fn commit(&self, text: &Signal<String>) {
+  /// anything else the value it had. A controlled picker writes what the app holds, until it answers. Gives the value
+  /// it holds now.
+  fn commit(&self, text: &Signal<String>) -> Option<V> {
     let held = text.get_untracked();
     let next = if held.trim().is_empty() {
       self.write(None);
@@ -422,10 +531,16 @@ impl<V: Picked> Model<V> {
         None => self.value.get_untracked(),
       }
     };
-    let shown = next.map(|value| (self.format)(value)).unwrap_or_default();
-    if held != shown {
-      text.set(shown);
+    let shown = if self.controlled {
+      self.value.get_untracked()
+    } else {
+      next
+    };
+    let written = shown.map(|value| (self.format)(value)).unwrap_or_default();
+    if held != written {
+      text.set(written);
     }
+    next
   }
 
   /// Opens the calendar at the month of the value, or of today, in the range.
@@ -442,36 +557,25 @@ impl<V: Picked> Model<V> {
     self.month.set(YearMonth::of(date));
     self.draft.set(None);
     self.hover.set(None);
-    self.open.set(true);
+    self.set_open(true);
   }
 
   /// Opens the calendar where it is closed, and closes it where it is open.
   fn toggle(&self) {
     if self.open.get_untracked() {
-      self.open.set(false);
+      self.set_open(false);
     } else {
       self.open();
     }
   }
 
-  /// What a choice in the calendar does: tells the handlers and closes it. The value is set already.
+  /// What a choice in the calendar or of a preset does: closes the calendar, then sets the value and tells the
+  /// handlers where it is another, so that a handler that opens a dialog keeps its focus.
   fn chose(&self, value: V) {
-    for handler in &self.on_change {
-      handler(Some(value));
-    }
-    self.open.set(false);
-  }
-
-  fn chose_date(&self, date: Date) {
-    if let Some(value) = V::from_date(date) {
-      self.chose(value);
-    }
-  }
-
-  fn chose_range(&self, range: DateRange) {
-    if let Some(value) = V::from_range(range) {
-      self.chose(value);
-    }
+    self.draft.set(None);
+    self.hover.set(None);
+    self.set_open(false);
+    self.write(Some(value));
   }
 }
 
@@ -501,7 +605,14 @@ pub struct PickerView<V: Picked> {
   pub recipe: ResolvedRecipe,
   input: InputView,
   id: Option<Arc<str>>,
-  calendar: Calendar,
+  calendar: Calendar<V>,
+  placement: Placement,
+  offset: Option<SpacingValue>,
+  collision: Option<CollisionStrategy>,
+  inline: bool,
+  trigger_label: Option<Arc<str>>,
+  clear_label: Option<Arc<str>>,
+  panel_label: Option<Arc<str>>,
   kept: PickerKept,
   today: Date,
   model: Model<V>,
@@ -544,7 +655,6 @@ impl<V: Picked> PickerView<V> {
       .control()
       // Each build makes the text anew: the field keeps what is half typed while it has the focus.
       .keep_text_while_focused(true)
-      .describe("a11y_role", "combobox")
       .describe("a11y_haspopup", "dialog")
       .describe("a11y_expanded", if self.open { "true" } else { "false" })
       .on_key_down(move |event: KeyboardEvent| {
@@ -557,7 +667,12 @@ impl<V: Picked> PickerView<V> {
             keys.open();
           }
           // The text is put right and Enter goes on to what it does besides: it sends the form.
-          "Enter" => keys.commit(&text),
+          "Enter" => {
+            let value = keys.commit(&text);
+            for handler in &keys.on_submit {
+              handler(value);
+            }
+          }
           _ => {}
         }
       });
@@ -567,9 +682,33 @@ impl<V: Picked> PickerView<V> {
     }
     if !self.read_only {
       let (blur_text, blur) = (self.text.clone(), model);
-      control = control.on_blur(move || blur.commit(&blur_text));
+      control = control.on_blur(move || {
+        blur.commit(&blur_text);
+      });
     }
     control
+  }
+
+  /// What the button that opens the calendar is called: the app's, or "Choose date" ("Choose dates" for a range).
+  fn trigger_name(&self) -> Arc<str> {
+    self.trigger_label.clone().unwrap_or_else(|| {
+      Arc::from(if self.calendar.is_range() {
+        "Choose dates"
+      } else {
+        "Choose date"
+      })
+    })
+  }
+
+  /// What the panel is called: the app's, or "Choose date" ("Choose dates" for a range).
+  fn panel_name(&self) -> Arc<str> {
+    self.panel_label.clone().unwrap_or_else(|| {
+      Arc::from(if self.calendar.is_range() {
+        "Choose dates"
+      } else {
+        "Choose date"
+      })
+    })
   }
 
   /// Whether the field has its button that empties it: where the picker is clearable and holds a value it can change.
@@ -604,7 +743,7 @@ impl<V: Picked> PickerView<V> {
       // calendar, and a choice gives the focus back to the field, the first thing in the anchor that takes it.
       .focusable(false)
       .disabled(self.disabled || self.read_only)
-      .describe("a11y_name", if self.calendar.is_range() { "Choose dates" } else { "Choose date" })
+      .describe("a11y_name", self.trigger_name())
       .describe("a11y_haspopup", "dialog")
       .describe("a11y_expanded", if self.open { "true" } else { "false" })
       .child(self.glyph(DatePickerPart::TriggerIcon, icon))
@@ -627,7 +766,7 @@ impl<V: Picked> PickerView<V> {
       .align_items(Alignment::Center)
       .part(&self.part(DatePickerPart::Clear))
       .focusable(false)
-      .describe("a11y_name", "Clear")
+      .describe("a11y_name", self.clear_label.as_deref().unwrap_or("Clear"))
       .child(self.glyph(DatePickerPart::ClearIcon, icons::CLOSE))
       .on_click(move |_: MouseEvent| {
         model.write(None);
@@ -679,12 +818,17 @@ impl<V: Picked> PickerView<V> {
     let mut calendar = self.calendar.clone();
     calendar.kept = Some(self.kept.calendar.clone());
     calendar.bare = true;
-    calendar.autofocus = true;
+    // Drawn in place, it takes no focus as the page shows it.
+    calendar.autofocus = !self.inline;
     calendar.disabled |= self.disabled;
-    let (single, range) = (self.model.clone(), self.model.clone());
-    let calendar = calendar
-      .on_change(move |date| single.chose_date(date))
-      .on_range_change(move |chosen| range.chose_range(chosen));
+    // The picker sets the value: after it closed the calendar, and only where it is another.
+    calendar.controlled = true;
+    let model = self.model.clone();
+    calendar.on_choose.push(Arc::new(move |choice: CalendarChoice| {
+      if let Some(value) = V::from_choice(choice) {
+        model.chose(value);
+      }
+    }));
     calendar.build_with(
       self.theme(),
       self.kept.calendar.clone(),
@@ -717,12 +861,7 @@ impl<V: Picked> PickerView<V> {
         .full_width(true)
         .disabled(self.disabled || !allowed)
         .rules(&rules)
-        .on_click(move |_: MouseEvent| {
-          model.draft.set(None);
-          model.hover.set(None);
-          model.write(Some(value));
-          model.open.set(false);
-        });
+        .on_click(move |_: MouseEvent| model.chose(value));
       if let Some(id) = &self.id {
         let slug: String = label
           .chars()
@@ -741,33 +880,63 @@ impl<V: Picked> PickerView<V> {
     Some(column)
   }
 
-  /// The panel: a popover under the field, holding the presets, where there are any, beside the calendar. Escape and
-  /// a press outside close it, and with the focus in it give the focus back to the field.
-  pub fn panel(&self) -> Element {
-    let rules = self.recipe.rules_for(DatePickerPart::Panel, PopoverPart::Root);
-    let content: Element = match self.presets() {
+  /// What the panel holds: the presets, where there are any, and a line, beside the calendar.
+  fn content(&self) -> Element {
+    match self.presets() {
       Some(presets) => Row::new()
         .align_items(Alignment::Stretch)
         .child(presets)
-        .child(Separator::new(SeparatorOrientation::Vertical))
+        .child(
+          Separator::new(SeparatorOrientation::Vertical)
+            .rules(&self.recipe.rules_for(DatePickerPart::Separator, SeparatorPart::Line))
+            .build(self.theme()),
+        )
         .child(self.calendar())
         .into(),
       None => self.calendar(),
-    };
-    let (draft, hover) = (self.model.draft.clone(), self.model.hover.clone());
+    }
+  }
+
+  /// The panel: a popover under the field (where [`DatePicker::placement`] says), holding the presets, where there
+  /// are any, beside the calendar. Escape and a press outside close it, and with the focus in it give the focus back
+  /// to the field. Inline, it is the popover's panel drawn in place under the field, open or not.
+  pub fn panel(&self) -> Element {
+    let rules = self.recipe.rules_for(DatePickerPart::Panel, PopoverPart::Root);
+    if self.inline {
+      let case = Case {
+        breakpoint: super::current_breakpoint(),
+        ..Case::default()
+      };
+      let recipe = self.theme().resolve::<Popover>(&case, Some(&rules));
+      let mut panel = Column::new()
+        .align_items(Alignment::Stretch)
+        .part(&recipe.part(PopoverPart::Root))
+        .describe("a11y_role", "dialog")
+        .describe("a11y_name", self.panel_name())
+        .child(
+          Column::new()
+            .align_items(Alignment::Stretch)
+            .part(&recipe.part(PopoverPart::Body))
+            .child(self.content()),
+        );
+      if let Some(id) = &self.id {
+        panel = panel.id(format!("{id}-panel"));
+      }
+      return panel.into();
+    }
+    let model = self.model.clone();
     let mut popover = Popover::new(self.kept.anchor.clone(), self.kept.open.clone())
-      .placement(Placement::BottomStart)
-      .named(if self.calendar.is_range() {
-        "Choose dates"
-      } else {
-        "Choose date"
-      })
+      .placement(self.placement)
+      .named(&self.panel_name())
       .rules(&rules)
-      .on_dismiss(move || {
-        draft.set(None);
-        hover.set(None);
-      })
-      .child(content);
+      .on_dismiss(move || model.dismissed())
+      .child(self.content());
+    if let Some(offset) = self.offset {
+      popover = popover.offset(offset);
+    }
+    if let Some(collision) = self.collision {
+      popover = popover.collision(collision);
+    }
     if let Some(id) = &self.id {
       popover = popover.id(format!("{id}-panel"));
     }
@@ -776,6 +945,21 @@ impl<V: Picked> PickerView<V> {
 
   /// How the default renderer builds a picker: the field, and the panel that opens under it.
   pub fn render(self) -> Element {
+    if self.inline {
+      // The panel in place under the field, as far from it as the popover would be.
+      let gap = self
+        .offset
+        .unwrap_or_else(|| SpacingSize::Xs.into())
+        .resolve(&self.theme().spacing(), 0.0);
+      let mut root = Column::new().spacing(gap).child(self.field()).child(self.panel());
+      if self.full_width {
+        root = root.width(Dimension::Pct(100.0));
+      }
+      if let Some(key) = &self.key {
+        root = root.key(key.clone());
+      }
+      return root.into();
+    }
     let mut root = Row::new().child(self.field()).child(self.panel());
     if self.full_width {
       root = root.width(Dimension::Pct(100.0));
@@ -835,7 +1019,7 @@ macro_rules! picker_methods {
       self
     }
 
-    /// An [`InputSize`](crate::ui::InputSize), or a size the theme's recipe names: the field's.
+    /// A [`DatePickerSize`](crate::ui::DatePickerSize) (an input's), or a size the theme's recipe names: the field's.
     pub fn size(mut self, size: impl Into<Name>) -> Self {
       self.core.boxed.size = size.into();
       self
@@ -907,6 +1091,78 @@ macro_rules! picker_methods {
       self
     }
 
+    /// Called when the calendar opens or closes, with whether it is open: from its button, Down, a choice, Escape or
+    /// a press outside. Not when the app sets [`Self::open`]'s signal. A second handler is called after the first.
+    pub fn on_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+      self.core.on_open_change.push(Arc::new(handler));
+      self
+    }
+
+    /// Called when a person closed the calendar with Escape or a press outside it, not by a choice. A second handler
+    /// is called after the first.
+    pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+      self.core.on_dismiss.push(Arc::new(handler));
+      self
+    }
+
+    /// Where the calendar opens beside the field: under its start by default.
+    pub fn placement(mut self, placement: crate::app::ctx::Placement) -> Self {
+      self.core.placement = placement;
+      self
+    }
+
+    /// How far the calendar is from the field: the theme's smallest spacing by default.
+    pub fn offset(mut self, offset: impl Into<crate::node::SpacingValue>) -> Self {
+      self.core.offset = Some(offset.into());
+      self
+    }
+
+    /// What the calendar does where there is no room for it on its side: goes to the other side, then is moved into
+    /// the window, by default.
+    pub fn collision(mut self, collision: crate::app::ctx::CollisionStrategy) -> Self {
+      self.core.collision = Some(collision);
+      self
+    }
+
+    /// Draws the panel in place under the field, open or not, and not over the window: for a gallery, a test, or a
+    /// calendar that is part of a page. A choice still sets the value, and the calendar takes no focus as it is shown.
+    pub fn inline(mut self, inline: bool) -> Self {
+      self.core.inline = inline;
+      self
+    }
+
+    /// What the button that opens the calendar is called to what reads the tree: "Choose date" in English, "Choose
+    /// dates" for a range.
+    pub fn trigger_label(mut self, label: &str) -> Self {
+      self.core.trigger_label = Some(Arc::from(label));
+      self
+    }
+
+    /// What the button that empties the field is called to what reads the tree: "Clear" in English.
+    pub fn clear_label(mut self, label: &str) -> Self {
+      self.core.clear_label = Some(Arc::from(label));
+      self
+    }
+
+    /// What the panel of the calendar, a dialog, is called to what reads the tree: "Choose date" in English, "Choose
+    /// dates" for a range.
+    pub fn panel_label(mut self, label: &str) -> Self {
+      self.core.panel_label = Some(Arc::from(label));
+      self
+    }
+
+    /// What the calendar's button that shows the month before is called: "Previous month" in English.
+    pub fn previous_label(mut self, label: &str) -> Self {
+      self.core.calendar = self.core.calendar.previous_label(label);
+      self
+    }
+
+    /// What the calendar's button that shows the month after is called: "Next month" in English.
+    pub fn next_label(mut self, label: &str) -> Self {
+      self.core.calendar = self.core.calendar.next_label(label);
+      self
+    }
+
     /// What keeps whether the calendar is open, the field it opens under and what the calendar keeps, from one
     /// render to the next: the app's, made once. A picker in a [`Field`](crate::ui::Field) keeps them so.
     pub fn memory(mut self, memory: &crate::ui::CalendarMemory) -> Self {
@@ -963,10 +1219,27 @@ macro_rules! picker_methods {
       self
     }
 
-    /// Called when the value changes, by typing, a choice or the button that empties it, with what it is now. The
-    /// value is set already.
+    /// Called when a person changes the value, by typing, a choice or the button that empties it, with what it is
+    /// now: `None` for an emptied field. Bound to a signal, the value is set already. Not called for what is chosen
+    /// already, nor when the app sets the value. A choice closes the calendar before it is called. A second handler
+    /// is called after the first.
     pub fn on_change(mut self, handler: impl Fn(Option<$value>) + Send + Sync + 'static) -> Self {
       self.core.on_change.push(Arc::new(handler));
+      self
+    }
+
+    /// Called before an edit of the field's text, with what it will hold: a handler may refuse it
+    /// ([`TextInputEvent::prevent_default`](crate::app::events::TextInputEvent::prevent_default)), and what is refused
+    /// is not read as a value. A second handler is called after the first.
+    pub fn on_input(mut self, handler: impl Fn(&crate::app::events::TextInputEvent) + Send + Sync + 'static) -> Self {
+      self.core.on_input.push(Arc::new(handler));
+      self
+    }
+
+    /// Called on Enter in the field, once its text is put right, with the value it holds then. Enter goes on to send
+    /// the form the picker is in. A second handler is called after the first.
+    pub fn on_submit(mut self, handler: impl Fn(Option<$value>) + Send + Sync + 'static) -> Self {
+      self.core.on_submit.push(Arc::new(handler));
       self
     }
 
@@ -1031,6 +1304,14 @@ impl DatePicker {
     }
   }
 
+  /// A picker that shows `value` and tells `on_change` of what is typed, chosen or emptied, which it does not set:
+  /// the app answers with the value it renders it with next, and the field shows what the app holds until it does.
+  pub fn controlled(value: Option<Date>, on_change: impl Fn(Option<Date>) + Send + Sync + 'static) -> Self {
+    let mut picker = Self::new(Signal::new(value)).on_change(on_change);
+    picker.core.controlled = true;
+    picker
+  }
+
   picker_methods!(Date);
 
   /// Builds the picker in `theme`, with nothing kept but what the app gives it. Converting a picker into an element
@@ -1078,6 +1359,8 @@ impl Themed for DatePicker {
 /// The recipe of a date picker and of a date range picker. A range picker's presets are a column of small ghost
 /// buttons 2 apart, 8 from the panel's edge and the line beside the calendar, 12 from its top and its bottom.
 pub(crate) fn picker_recipe() -> Recipe {
+  // `Control` (rules over the input's box) and `Separator` (over the line beside the presets) add nothing here: the
+  // input and the separator draw them in their own recipes.
   use DatePickerPart::{Clear, ClearIcon, Panel, Preset, Presets, Trigger, TriggerIcon};
   use PaletteColor::{Highlight, MutedForeground};
   let button = |s: PartStyle| {

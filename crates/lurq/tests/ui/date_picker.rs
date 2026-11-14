@@ -5,12 +5,16 @@
 use std::sync::{Arc, Mutex};
 
 use lurq::{
-  app::theme::{PaletteColor, ThemePalette},
+  app::{
+    ctx::Placement,
+    events::TextInputEvent,
+    theme::{PaletteColor, ThemePalette},
+  },
   components::{Button, Column},
   core::{Date, DateLocale, Signal},
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
-  ui::{CalendarMemory, DatePicker, Field},
+  ui::{CalendarMemory, DatePicker, DatePickerPart, DatePickerSize, Field},
 };
 
 use super::stage::Stage;
@@ -307,4 +311,209 @@ fn tooling_reads_a_combobox_that_opens_a_dialog() {
   stage.pass();
   assert_eq!(said(&mut stage, "dp", "a11y_expanded").as_deref(), Some("true"));
   assert_eq!(said(&mut stage, "dp-panel", "a11y_role").as_deref(), Some("dialog"));
+}
+
+#[test]
+fn a_choice_of_the_chosen_day_closes_it_and_tells_nothing() {
+  let value = Signal::new(Some(day(11, 12)));
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let heard = told.clone();
+  let mut stage = picker(&value, move |picker| {
+    let heard = heard.clone();
+    picker.on_change(move |date| heard.lock().unwrap().push(date))
+  });
+  stage.click("dp-trigger");
+  stage.pass();
+  stage.click("dp-calendar-2026-11-12");
+  stage.pass();
+  assert!(!opened(&mut stage));
+  assert!(told.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_choice_closes_the_calendar_before_its_handler_runs() {
+  let value = Signal::new(Some(day(11, 12)));
+  let memory = CalendarMemory::new();
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let (kept, heard) = (memory.clone(), seen.clone());
+  let mut stage = picker(&value, move |picker| {
+    let (asked, heard) = (kept.clone(), heard.clone());
+    picker
+      .memory(&kept)
+      .on_change(move |_| heard.lock().unwrap().push(asked.is_open()))
+  });
+  stage.click("dp-trigger");
+  stage.pass();
+  stage.click("dp-calendar-2026-11-20");
+  assert_eq!(*seen.lock().unwrap(), vec![false], "closed when the handler runs");
+}
+
+#[test]
+fn a_controlled_picker_shows_what_the_app_answers() {
+  // The app holds the date and takes any but the 20th.
+  let held = Signal::new(Some(day(11, 12)));
+  let memory = CalendarMemory::new();
+  let (app, kept) = (held.clone(), memory.clone());
+  let mut stage = Stage::new(move |_| {
+    let answer = app.clone();
+    Column::new()
+      .size(400.0, 500.0)
+      .padding(10.0)
+      .child(
+        DatePicker::controlled(app.get(), move |date| {
+          if date != Some(day(11, 20)) {
+            answer.set(date);
+          }
+        })
+        .today(day(11, 9))
+        .memory(&kept)
+        .id("dp"),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 500.0))));
+  stage.pass();
+  stage.click("dp-trigger");
+  stage.pass();
+  stage.click("dp-calendar-2026-11-20");
+  stage.pass();
+  assert!(!memory.is_open());
+  assert_eq!(held.get_untracked(), Some(day(11, 12)));
+  assert!(stage.paints("Nov 12, 2026"), "what the app holds");
+  stage.click("dp-trigger");
+  stage.pass();
+  stage.click("dp-calendar-2026-11-18");
+  stage.pass();
+  assert_eq!(held.get_untracked(), Some(day(11, 18)));
+  assert!(stage.paints("Nov 18, 2026"));
+}
+
+#[test]
+fn an_edit_is_heard_first_and_enter_submits() {
+  let value = Signal::new(Some(day(11, 12)));
+  let (edits, submitted) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+  let (heard, sent) = (edits.clone(), submitted.clone());
+  let mut stage = picker(&value, move |picker| {
+    let (heard, sent) = (heard.clone(), sent.clone());
+    picker
+      .on_input(move |event: &TextInputEvent| {
+        heard.lock().unwrap().push(event.new_value().to_owned());
+        // No letter x.
+        if event.new_value().contains('x') {
+          event.prevent_default();
+        }
+      })
+      .on_submit(move |date| sent.lock().unwrap().push(date))
+  });
+  stage.click("dp");
+  type_over(&mut stage, "Nov 12, 2026".len(), "Dec 1, 2026x");
+  assert_eq!(value.get_untracked(), Some(day(11, 12)), "refused, and not read");
+  type_over(&mut stage, "Nov 12, 2026".len(), "Dec 1, 2026");
+  assert_eq!(value.get_untracked(), Some(day(12, 1)));
+  assert_eq!(
+    *edits.lock().unwrap(),
+    vec!["Dec 1, 2026x".to_owned(), "Dec 1, 2026".to_owned()]
+  );
+  stage.key("Enter");
+  assert_eq!(*submitted.lock().unwrap(), vec![Some(day(12, 1))]);
+}
+
+#[test]
+fn opening_closing_and_dismissing_are_told() {
+  let value = Signal::new(Some(day(11, 12)));
+  let (changes, dismissed) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(0)));
+  let (heard, gone) = (changes.clone(), dismissed.clone());
+  let mut stage = picker(&value, move |picker| {
+    let (heard, gone) = (heard.clone(), gone.clone());
+    picker
+      .on_open_change(move |open| heard.lock().unwrap().push(open))
+      .on_dismiss(move || *gone.lock().unwrap() += 1)
+  });
+  stage.click("dp-trigger");
+  stage.pass();
+  stage.key("Escape");
+  stage.pass();
+  assert!(!opened(&mut stage));
+  assert_eq!(*changes.lock().unwrap(), vec![true, false]);
+  assert_eq!(*dismissed.lock().unwrap(), 1);
+  // A choice closes it too, and is no dismissal.
+  stage.click("dp-trigger");
+  stage.pass();
+  stage.click("dp-calendar-2026-11-20");
+  stage.pass();
+  assert_eq!(*changes.lock().unwrap(), vec![true, false, true, false]);
+  assert_eq!(*dismissed.lock().unwrap(), 1);
+}
+
+#[test]
+fn placement_and_offset_move_the_panel() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = picker(&value, |picker| picker.placement(Placement::BottomEnd).offset(12.0));
+  stage.click("dp-trigger");
+  stage.pass();
+  let (x, y, width, height) = stage.bounds("dp");
+  let (px, py, pwidth, _) = stage.bounds("dp-panel");
+  assert_eq!(px + pwidth, x + width, "its end under the field's end");
+  assert!((py - (y + height + 12.0)).abs() < 0.5, "12 under it");
+}
+
+#[test]
+fn inline_the_panel_is_drawn_in_place() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = picker(&value, |picker| picker.inline(true));
+  let (x, y, _, height) = stage.bounds("dp");
+  let (px, py, pwidth, _) = stage.bounds("dp-panel");
+  assert_eq!((px, pwidth), (x, 248.0));
+  assert!((py - (y + height + 4.0)).abs() < 0.5, "4 under the field");
+  assert_eq!(stage.fill_color("dp-panel"), Some(light(PaletteColor::Popover)));
+  assert_eq!(focused(&stage), None, "shown, it takes no focus");
+  stage.click("dp-calendar-2026-11-20");
+  assert_eq!(value.get_untracked(), Some(day(11, 20)));
+  stage.bounds("dp-panel");
+}
+
+#[test]
+fn its_control_part_styles_the_box_and_its_sizes_are_an_inputs() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = picker(&value, |picker| {
+    picker
+      .size(DatePickerSize::Lg)
+      .style(DatePickerPart::Control, |s| s.background(PaletteColor::Muted))
+  });
+  assert_eq!(stage.bounds("dp").3, 40.0);
+  assert_eq!(stage.fill_color("dp"), Some(light(PaletteColor::Muted)));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn its_words_can_be_said_otherwise() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = picker(&value, |picker| {
+    picker
+      .clearable(true)
+      .trigger_label("Календар")
+      .clear_label("Очистити")
+      .panel_label("Оберіть дату")
+      .next_label("Далі")
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said(&mut stage, "dp-trigger", "a11y_name").as_deref(), Some("Календар"));
+  assert_eq!(said(&mut stage, "dp-clear", "a11y_name").as_deref(), Some("Очистити"));
+  stage.click("dp-trigger");
+  stage.pass();
+  assert_eq!(
+    said(&mut stage, "dp-panel", "a11y_name").as_deref(),
+    Some("Оберіть дату")
+  );
+  assert_eq!(
+    said(&mut stage, "dp-calendar-next", "a11y_name").as_deref(),
+    Some("Далі")
+  );
 }

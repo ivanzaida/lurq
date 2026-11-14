@@ -61,6 +61,14 @@ impl DateRangePicker {
     }
   }
 
+  /// A picker that shows `value` and tells `on_change` of what is typed, chosen or emptied, which it does not set:
+  /// the app answers with the value it renders it with next, and the field shows what the app holds until it does.
+  pub fn controlled(value: Option<DateRange>, on_change: impl Fn(Option<DateRange>) + Send + Sync + 'static) -> Self {
+    let mut picker = Self::new(Signal::new(value)).on_change(on_change);
+    picker.core.controlled = true;
+    picker
+  }
+
   picker_methods!(DateRange);
 
   /// How many months the calendar shows side by side: one as the design draws it, or two.
@@ -72,6 +80,14 @@ impl DateRangePicker {
   /// A range offered beside the calendar under `label`, after those offered already: "Last 7 days", "This month".
   pub fn preset(mut self, label: &str, range: DateRange) -> Self {
     self.core.presets.push((Arc::from(label), range));
+    self
+  }
+
+  /// Ranges offered beside the calendar, each under its label, after those offered already.
+  pub fn presets<'a>(mut self, presets: impl IntoIterator<Item = (&'a str, DateRange)>) -> Self {
+    for (label, range) in presets {
+      self = self.preset(label, range);
+    }
     self
   }
 

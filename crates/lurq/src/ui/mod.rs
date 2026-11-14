@@ -146,7 +146,7 @@ pub use command_palette::{
 pub use context_menu::{ContextMenu, ContextMenuPart, ContextMenuRenderer, ContextMenuState, ContextMenuView};
 pub use data_list::{DataList, DataListItem, DataListPart, DataListRenderer, DataListState, DataListView};
 pub use date_picker::{
-  DatePicker, DatePickerPart, DatePickerRenderer, DatePickerState, DatePickerView, Picked, PickerRenderer, PickerView,
+  DatePicker, DatePickerPart, DatePickerRenderer, DatePickerSize, DatePickerState, DatePickerView, Picked, PickerRenderer, PickerView,
 };
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};

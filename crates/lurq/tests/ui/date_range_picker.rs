@@ -6,9 +6,9 @@ use lurq::{
   app::theme::{PaletteColor, ThemePalette},
   components::Column,
   core::{Date, DateRange, Signal},
-  layout::{Constraints, Size},
+  layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
-  ui::DateRangePicker,
+  ui::{DatePickerPart, DateRangePicker},
 };
 
 use super::stage::Stage;
@@ -148,4 +148,84 @@ fn two_months_side_by_side() {
   stage.click(&cell(12, 3));
   stage.pass();
   assert_eq!(value.get_untracked(), Some(DateRange::new(day(11, 28), day(12, 3))));
+}
+
+#[test]
+fn presets_add_several_at_once() {
+  let value = Signal::new(None);
+  let mut stage = picker(&value, |picker| {
+    picker.preset("Today", DateRange::day(day(11, 9))).presets([
+      ("Last 7 days", DateRange::new(day(11, 3), day(11, 9))),
+      ("This month", DateRange::new(day(11, 1), day(11, 30))),
+    ])
+  });
+  stage.click("rp-trigger");
+  stage.pass();
+  let (_, today, ..) = stage.bounds("rp-preset-today");
+  let (_, week, ..) = stage.bounds("rp-preset-last-7-days");
+  let (_, month, ..) = stage.bounds("rp-preset-this-month");
+  assert!(today < week && week < month, "in the order they were given");
+}
+
+#[test]
+fn a_controlled_range_picker_shows_what_the_app_answers() {
+  // The app holds the range and takes none longer than a week.
+  let week = DateRange::new(day(11, 9), day(11, 15));
+  let held = Signal::new(Some(week));
+  let app = held.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let answer = app.clone();
+    Column::new()
+      .size(640.0, 500.0)
+      .padding(10.0)
+      .child(
+        DateRangePicker::controlled(app.get(), move |range| {
+          if range.is_none_or(|range| range.days() <= 7) {
+            answer.set(range);
+          }
+        })
+        .today(day(11, 9))
+        .id("rp")
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(640.0, 500.0))));
+  stage.pass();
+  stage.click("rp-trigger");
+  stage.pass();
+  stage.click(&cell(11, 2));
+  stage.click(&cell(11, 20));
+  stage.pass();
+  assert_eq!(held.get_untracked(), Some(week));
+  assert!(stage.paints("Nov 9 – Nov 15, 2026"), "what the app holds");
+  stage.click("rp-trigger");
+  stage.pass();
+  stage.click(&cell(11, 16));
+  stage.click(&cell(11, 20));
+  stage.pass();
+  assert_eq!(held.get_untracked(), Some(DateRange::new(day(11, 16), day(11, 20))));
+  assert!(stage.paints("Nov 16 – Nov 20, 2026"));
+}
+
+#[test]
+fn its_separator_part_styles_the_line_beside_the_presets() {
+  let value = Signal::new(None);
+  let mut stage = picker(&value, |picker| {
+    picker
+      .preset("Today", DateRange::day(day(11, 9)))
+      .style(DatePickerPart::Separator, |s| s.background(PaletteColor::Destructive))
+  });
+  stage.click("rp-trigger");
+  stage.pass();
+  let red = light(PaletteColor::Destructive);
+  assert!(
+    stage
+      .quads()
+      .iter()
+      .any(|quad| quad.width == 1.0 && matches!(quad.content, QuadContent::Rect { color, .. } if color == red)),
+    "a line of 1 in the destructive color"
+  );
 }
