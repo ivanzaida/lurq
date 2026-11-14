@@ -70,6 +70,9 @@ struct TextInputInner {
   return_key: ReturnKey,
   content: ContentKind,
   focused: bool,
+  /// While focused, the input keeps what it shows when a render binds it to another signal: see
+  /// [`TextInputState::copy_runtime_state_from`].
+  keeps_text_while_focused: bool,
   /// An input method composition in progress, shown at the caret.
   composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
@@ -145,6 +148,7 @@ impl TextInputState {
         return_key: ReturnKey::default(),
         content: ContentKind::default(),
         focused: false,
+        keeps_text_while_focused: false,
         composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
@@ -311,6 +315,10 @@ impl TextInputState {
     inner.token_affinity = None;
     drop(inner);
     self.mark_layout_dirty_keeping_scroll();
+  }
+
+  pub(crate) fn set_keeps_text_while_focused(&self, keeps: bool) {
+    self.inner.lock().keeps_text_while_focused = keeps;
   }
 
   pub(crate) fn set_keyboard(&self, keyboard: KeyboardKind) {

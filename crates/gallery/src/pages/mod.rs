@@ -21,6 +21,7 @@ mod input;
 mod input_otp;
 mod input_group;
 mod menu;
+mod number_input;
 mod overview;
 mod pagination;
 mod password_input;
@@ -301,6 +302,14 @@ pub const PAGES: &[Page] = &[
     about: "input group addon prefix suffix before after https url domain unit button select joined",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<input_group::InputGroupPage>(()),
+  },
+  Page {
+    path: "/number-input",
+    name: "Number Input",
+    icon: None,
+    about: "number input numeric stepper spin button quantity price min max step precision format prefix suffix",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<number_input::NumberInputPage>(()),
   },
   Page {
     path: "/tooltip",

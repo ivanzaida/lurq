@@ -16,6 +16,7 @@ mod input;
 mod input_otp;
 mod input_kinds;
 mod menu;
+mod number_input;
 mod pagination;
 mod popover;
 mod progress;

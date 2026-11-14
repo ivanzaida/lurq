@@ -97,6 +97,7 @@ mod modal_focus;
 mod outside_press;
 mod overlay_layers;
 mod paste;
+mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
 mod profiler_screenshot_tests;
 pub use paste::ClipboardReader;
@@ -803,6 +804,8 @@ pub struct Tree {
   /// How long after a press the next one is still a double click, when a shell set it.
   double_click_interval: Option<Duration>,
   click_press: Option<ClickPress>,
+  /// A press held on an element that repeats it (`repeat_press`).
+  press_repeat: Option<press_repeat::PressRepeat>,
   /// A left press that only closed popups (`OutsidePress::Consume`); its
   /// release is swallowed too.
   swallowed_press: Option<MouseButton>,
@@ -1237,6 +1240,7 @@ impl Tree {
       double_click_distance: None,
       double_click_interval: None,
       click_press: None,
+      press_repeat: None,
       swallowed_press: None,
       suppressed_click: None,
       needs_redraw: true,
@@ -1577,6 +1581,10 @@ impl Tree {
     #[cfg(feature = "image")]
     self.notice_decoded_images();
     let before = self.timer_marks();
+    if self.tick_press_repeat(now) {
+      self.needs_redraw = true;
+      self.apply_reactive_updates_after_event();
+    }
     let fired = self.root_ctx.as_mut().is_some_and(|ctx| ctx.tick_timers(now));
     // A pass presents a frame, and on a FIFO swapchain that present can wait for its vblank, holding back the
     // input and timers that come meanwhile: a timer asks for one only when its callback left something to draw.
@@ -1659,6 +1667,7 @@ impl Tree {
       || self.has_continuous_redraw_image()
       || self.click_tracker.has_pending()
       || self.has_focused_blinking_text_input(CaretMode::Blinking)
+      || self.press_repeat.is_some()
       || self
         .root_ctx
         .as_ref()
@@ -1681,7 +1690,8 @@ impl Tree {
   /// [`Tree::next_scheduled_redraw`].
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
   pub(crate) fn next_timer_at(&self) -> Option<Instant> {
-    self.root_ctx.as_ref().and_then(Ctx::next_timer_fire)
+    let timers = self.root_ctx.as_ref().and_then(Ctx::next_timer_fire);
+    timers.into_iter().chain(self.next_press_repeat()).min()
   }
 
   /// Whether any animation or transition is currently running. While true the
@@ -3841,6 +3851,9 @@ impl Tree {
       }
     }
 
+    let repeat = (button == MouseButton::Left)
+      .then(|| self.press_repeat_target(&target_ids))
+      .flatten();
     self.click_press = Some(ClickPress {
       position,
       button,
@@ -3848,6 +3861,11 @@ impl Tree {
       transient_root,
     });
     self.dispatch_mouse(x, y, button, MouseEventKind::Down, modifiers);
+    // A press that repeats is its own click: its release clicks nothing.
+    if let Some(target) = repeat {
+      self.click_press = None;
+      self.start_press_repeat(target, x, y);
+    }
     self.apply_reactive_updates_after_event();
   }
 
@@ -3881,6 +3899,9 @@ impl Tree {
   fn dispatch_mouse_up(&mut self, x: f32, y: f32, button: MouseButton, modifiers: MouseModifiers) {
     self.track_pointer(x, y);
     self.lay_out_rebuilt_for_input();
+    if button == MouseButton::Left {
+      self.end_press_repeat();
+    }
     if self.swallowed_press == Some(button) {
       self.swallowed_press = None;
       // The pointer now hovers whatever the closed popup exposed.
@@ -3930,6 +3951,9 @@ impl Tree {
       || self.dragging_scroll.is_some()
       || self.dragging_slider.is_some()
       || self.dragging_text_selection.is_some();
+    if button == MouseButton::Left {
+      self.end_press_repeat();
+    }
     if !pressed {
       return;
     }
