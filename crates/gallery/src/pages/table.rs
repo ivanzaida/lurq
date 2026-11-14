@@ -474,7 +474,7 @@ impl TablePage {
           .gap(8.0)
           .radius(lurq::app::theme::RadiusSize::Lg)
       })
-      .child(
+      .item(
         ToolbarItem::element(
           SearchField::new(self.search.clone())
             .placeholder("Filter crates")
@@ -483,10 +483,10 @@ impl TablePage {
         )
         .stays(true),
       )
-      .child(ToolbarItem::element(
+      .item(ToolbarItem::element(
         Tag::new("Status: Passing").variant(TagVariant::Info).on_remove(|| {}),
       ))
-      .child(
+      .item(
         ToolbarItem::from(
           Button::new("Filter")
             .icon(icons::PLUS)
@@ -495,8 +495,8 @@ impl TablePage {
         )
         .as_given(true),
       )
-      .child(Toolbar::spacer())
-      .child(ToggleGroup::new(
+      .item(Toolbar::spacer())
+      .item(ToggleGroup::new(
         self.bar_density.clone(),
         [
           Choice::new(4u8, "Compact").icon(icons::ROWS_4).icon_only(true),
@@ -504,7 +504,7 @@ impl TablePage {
           Choice::new(2u8, "Comfortable").icon(icons::ROWS_2).icon_only(true),
         ],
       ))
-      .child(
+      .item(
         ToolbarItem::from(
           Button::new("Export")
             .icon(icons::DOWNLOAD)
@@ -913,10 +913,10 @@ impl Component for TablePage {
             &[
               "// query: Signal<String>, density: Signal<u8>",
               "Toolbar::new()",
-              "    .child(ToolbarItem::element(SearchField::new(query).placeholder(\"Filter crates\")).stays(true))",
-              "    .child(ToolbarItem::element(Tag::new(\"Status: Passing\").variant(TagVariant::Info)))",
-              "    .child(Toolbar::spacer())",
-              "    .child(ToggleGroup::new(density, [/* rows-4, rows-3, rows-2 */]))",
+              "    .item(ToolbarItem::element(SearchField::new(query).placeholder(\"Filter crates\")).stays(true))",
+              "    .item(ToolbarItem::element(Tag::new(\"Status: Passing\").variant(TagVariant::Info)))",
+              "    .item(Toolbar::spacer())",
+              "    .item(ToggleGroup::new(density, [/* rows-4, rows-3, rows-2 */]))",
               "    .mount(ctx)",
               "Table::new(columns, filtered).density(Density::Compact)",
             ],

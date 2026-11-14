@@ -481,10 +481,10 @@ impl Component for MenuPage {
     let split = Column::new()
       .child(
         Row::new().ref_element(self.merge_anchor.clone()).child(
-          ButtonGroup::new()
+          ButtonGroup::new([])
             .variant(ButtonGroupVariant::Primary)
-            .child(Button::new("Merge").on_click(move |_| merged.set(done.to_owned())))
-            .child(
+            .button(Button::new("Merge").on_click(move |_| merged.set(done.to_owned())))
+            .button(
               Button::new("How to merge")
                 .icon(icons::CHEVRON_DOWN)
                 .icon_only(true)
@@ -721,10 +721,10 @@ impl Component for MenuPage {
             &[
               "// anchor: ElementRef, open: Signal<bool>, strategy: Signal<usize>",
               "Row::new().ref_element(anchor.clone()).child(",
-              "    ButtonGroup::new()",
+              "    ButtonGroup::new([])",
               "        .variant(ButtonGroupVariant::Primary)",
-              "        .child(Button::new(\"Merge\").on_click(..))",
-              "        .child(",
+              "        .button(Button::new(\"Merge\").on_click(..))",
+              "        .button(",
               "            Button::new(\"How to merge\")",
               "                .icon(icons::CHEVRON_DOWN)",
               "                .icon_only(true)",

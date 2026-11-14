@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
   app::theme::{ControlSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+  core::Signal,
   node::Element,
 };
 
@@ -49,6 +50,9 @@ names!(ToggleState {
   Disabled => "disabled",
   IconOnly => "icon_only",
 });
+
+/// The sizes of a toggle: a button's.
+pub type ToggleSize = ButtonSize;
 
 /// What builds a toggle's nodes: a theme's in place of the default one.
 pub type ToggleRenderer = Arc<dyn Fn(ToggleView) -> Element + Send + Sync>;
@@ -100,7 +104,7 @@ impl Toggle {
     }
   }
 
-  /// A [`ButtonSize`], or a size the theme's recipe names.
+  /// A [`ToggleSize`], or a size the theme's recipe names.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = size.into();
     self
@@ -122,6 +126,13 @@ impl Toggle {
   pub fn on(mut self, on: bool) -> Self {
     self.on = on;
     self
+  }
+
+  /// On while `on` is true, which a press turns. The handlers of
+  /// [`on_change`](Self::on_change) are called after the signal is set.
+  pub fn bind(self, on: Signal<bool>) -> Self {
+    let set = on.clone();
+    self.on(on.get()).on_change(move |next| set.set(next))
   }
 
   /// Whether the toggle takes no input.
@@ -193,6 +204,7 @@ impl Toggle {
         }
       }),
       id: self.id.clone(),
+      key: None,
     }
   }
 

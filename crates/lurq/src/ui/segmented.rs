@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedRecipe},
-  shared::{Choice, Chosen, fading, glyph, pressable},
+  shared::{Changes, Choice, Chosen, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -16,7 +16,7 @@ use crate::{
   },
   components::Row,
   core::{Signal, SignalValue},
-  node::{Element, FocusGroup},
+  node::{Element, FocusGroup, border::Border as Line},
 };
 
 /// The parts of a segmented control a recipe styles.
@@ -48,13 +48,22 @@ pub enum SegmentedControlState {
   Disabled,
   /// It is as wide as what it is in, and its segments share that width.
   FullWidth,
+  /// What is chosen is wrong: the track has a line in the destructive color.
+  Invalid,
 }
 
 names!(SegmentedControlState {
   Selected => "selected",
   Disabled => "disabled",
   FullWidth => "full_width",
+  Invalid => "invalid",
 });
+
+/// The sizes of a segmented control: a button's.
+pub type SegmentedControlSize = ButtonSize;
+
+/// What builds a segmented control's nodes: a theme's in place of the default one.
+pub type SegmentedControlRenderer = Arc<dyn Fn(SegmentedControl) -> Element + Send + Sync>;
 
 /// One segment, with what a press of it does.
 struct Segment {
@@ -74,21 +83,27 @@ struct Segment {
 ///
 /// # fn period(chosen: Signal<u8>) {
 /// let period = SegmentedControl::new(chosen, [(0, "Day"), (1, "Week"), (2, "Month")]);
-/// // The app holds what is chosen, and is told of a press.
+/// // The app holds what is chosen, and is told what it is to be.
 /// let appearance = SegmentedControl::controlled("light", [("system", "System"), ("light", "Light")], |choice| {
 ///   println!("{choice}")
-/// });
+/// })
+/// .label("Appearance");
 /// # }
 /// ```
 ///
 /// Exactly one segment is chosen. Each is a button: Tab reaches it, and a
 /// click, Enter or Space chooses it. Its sizes are a button's
-/// ([`ButtonSize`]).
+/// ([`SegmentedControlSize`]). [`on_change`](Self::on_change) is told the
+/// value a person chooses; a press of the chosen segment tells nothing.
 pub struct SegmentedControl {
   segments: Vec<Segment>,
+  changes: Changes,
   size: Name,
+  label: Option<Arc<str>>,
   disabled: bool,
+  invalid: bool,
   full_width: bool,
+  states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
@@ -115,8 +130,12 @@ impl SegmentedControl {
     Self {
       segments,
       size: ButtonSize::default().into(),
+      changes: chosen.changes(),
+      label: None,
       disabled: false,
+      invalid: false,
       full_width: false,
+      states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
       id: None,
@@ -133,17 +152,60 @@ impl SegmentedControl {
     Self::of(Chosen::one(value), choices)
   }
 
-  /// A control whose state the app holds: the segment of `value` is the
-  /// chosen one, and `choose` is told the value of each one pressed.
+  /// A control whose value the app holds: the segment of `value` is the
+  /// chosen one, and a press of another tells `on_change` the value it is to
+  /// be. A press of the chosen one tells nothing.
   pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
     value: T,
     choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-    choose: impl Fn(T) + Send + Sync + 'static,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held(vec![value], choose), choices)
+    Self::of(Chosen::held_one(value, on_change), choices)
   }
 
-  /// A [`ButtonSize`], or a size the theme's recipe names.
+  /// Called as a person chooses another segment, after the handlers there
+  /// are, with its value (`|period: &Period| ..`). Not called where the app
+  /// sets the signal, nor for a press of the chosen one.
+  ///
+  /// # Panics
+  ///
+  /// Where it is told another type than the control's values: a handler
+  /// that would never be called.
+  pub fn on_change<V: ?Sized + 'static>(self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
+    self.changes.add(handler);
+    self
+  }
+
+  /// What the control is called to what reads the tree: what its segments are a choice of.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Whether what is chosen is wrong: the track has a line in the destructive color.
+  pub fn invalid(mut self, invalid: bool) -> Self {
+    self.invalid = invalid;
+    self
+  }
+
+  /// Puts the control in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Lays rules over the theme's recipe for this control: what the
+  /// component it is in says of it in this place.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// A [`SegmentedControlSize`], or a size the theme's recipe names.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = size.into();
     self
@@ -189,11 +251,15 @@ impl SegmentedControl {
   /// Builds the control in `theme`. Converting a control into an element
   /// does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new()
+    let mut case = Case::new()
       .size(self.size)
       .breakpoint(super::current_breakpoint())
       .state(SegmentedControlState::Disabled, self.disabled)
-      .state(SegmentedControlState::FullWidth, self.full_width);
+      .state(SegmentedControlState::FullWidth, self.full_width)
+      .state(SegmentedControlState::Invalid, self.invalid);
+    for state in &self.states {
+      case = case.state(state.clone(), true);
+    }
     // A segment is in the state of the control, and the chosen one in its own too.
     let resolve = |selected: bool| -> ResolvedRecipe {
       theme.resolve::<SegmentedControl>(
@@ -206,7 +272,14 @@ impl SegmentedControl {
     // choice with it.
     let mut root = Row::new()
       .part(&plain.part(SegmentedControlPart::Root))
-      .focus_group(FocusGroup::horizontal().activate(true).one_stop(true));
+      .focus_group(FocusGroup::horizontal().activate(true).one_stop(true))
+      .describe("a11y_role", "group");
+    if let Some(label) = &self.label {
+      root = root.describe("a11y_name", label.clone());
+    }
+    if self.invalid {
+      root = root.describe("a11y_invalid", "true");
+    }
     // Where Tab enters the group: the interaction forced is drawn there alone, as it can only be.
     let entry = self
       .segments
@@ -253,7 +326,7 @@ impl From<SegmentedControl> for Element {
 
 impl Themed for SegmentedControl {
   const NAME: &'static str = "segmented_control";
-  type Renderer = Arc<dyn Fn(SegmentedControl) -> Element + Send + Sync>;
+  type Renderer = SegmentedControlRenderer;
 
   /// The design's control (`pencil/lurq-design-system.pen`, Segmented
   /// Control): a muted track as high as a control, padded 3, with segments 2
@@ -302,12 +375,20 @@ impl Themed for SegmentedControl {
         s.opacity(OpacityLevel::Disabled)
       })
       .state(SegmentedControlState::FullWidth, Root, |s| s.width(Length::Fill))
+      .state(SegmentedControlState::Invalid, Root, |s| {
+        s.border(Line::inside(crate::app::theme::BorderSize::Sm, Destructive))
+      })
   }
 }
 
 impl super::FieldControl for SegmentedControl {
-  /// Disabled where the field is. Each segment is called by its own label, and the control has no judgment.
+  /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled
+  /// where the field is. Each segment is called by its own label.
   fn in_field(mut self, field: &super::InField) -> Element {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
     self.disabled |= field.disabled;
     self.into()
   }

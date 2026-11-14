@@ -334,7 +334,7 @@ Button::new("Saving…").loading(saving.get());
 | `state(name, on)` | A state the theme's recipe names |
 | `style(part, \|s\| ...)`, `rules(&recipe)` | One instance over the theme; the rules of the place it is in |
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
-| `id(id)`, `key(key)`, `submit()` | Its id and key; with the `form` feature, the button that submits the form it is in |
+| `id(id)`, `key(key)`, `submit(bool)` | Its id and key; with the `form` feature, the button that submits the form it is in |
 
 | Size | Height | Padding | Label | Icon |
 | --- | --- | --- | --- | --- |
@@ -353,7 +353,7 @@ Button::new("Saving…").loading(saving.get());
 | `ButtonPart::Description` | The line under the label: 12, at the theme's muted opacity, so that it is quieter than the label on any fill |
 | `ButtonPart::Leading`, `ButtonPart::Trailing` | The elements put before and after the label |
 
-States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly`, `Pill` and `Compound` (it has a description), and hovered, pressed and focus-visible.
+States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly`, `Pill` and `Description` (it has a description), and hovered, pressed and focus-visible.
 
 - In the design a button under the pointer has its variant's hover fill (`PrimaryHover`, `SecondaryHover`, `DestructiveHover`, and `Highlight` for an outline or a ghost button), a button held down has the `StatePressed` veil over that, and one focused from the keyboard has the theme's focus ring. A primary button held down has the veil over its `Primary` fill: over `PrimaryHover` the veil is lost (black on near black in the light palette, white on near white in the dark), and a press would look like a hover. The board draws a pressed button in its hover fill.
 - A button is as wide as its label where it has room. In a room narrower than it (a fixed width, `full_width` in something narrow, a panel that cannot grow, a line of a row that wraps) it is never wider than what holds it: it keeps its padding and its icon, and its label (and its description) is cut with an ellipsis. The board draws no button with a long label; the ellipsis is what every one-line label of the design system does. A toggle does the same. An icon alone keeps its square.
@@ -379,9 +379,10 @@ Toggle::new("Bold")
 | Builder | |
 | --- | --- |
 | `on(bool)` | Whether it is on. The toggle does not keep it: the app says so |
+| `bind(Signal<bool>)` | On while the signal is true, which a press turns; `on_change` handlers are called after it is set |
 | `on_change(handler)` | Called on a press with what the toggle is to be: on if it was off |
 | `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square. An icon with an empty label is drawn so too |
-| `size(size)` | A `ButtonSize`: a toggle is as high as a button of that size |
+| `size(size)` | A `ToggleSize` (a `ButtonSize`): a toggle is as high as a button of that size |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
 Parts: `TogglePart::Root`, `Label`, `Icon`. States: `ToggleState::On`, `Disabled`, `IconOnly`. In the design a toggle has no fill until the pointer is on it or it is on, and then the `Highlight` fill; it is padded 10.
@@ -395,24 +396,23 @@ Buttons that belong together, joined into one shape.
 ```rust
 use lurq::ui::{Button, ButtonGroup, ButtonGroupVariant, icons};
 
-ButtonGroup::new()
-  .child(Button::new("Years"))
-  .child(Button::new("Months"))
-  .child(Button::new("Days"));
+ButtonGroup::new([Button::new("Years"), Button::new("Months"), Button::new("Days")]).label("Period");
 
 // An action and the choice of how to do it: a split button.
-ButtonGroup::new()
+ButtonGroup::new([Button::new("Merge").on_click(|_| merge())])
   .variant(ButtonGroupVariant::Primary)
-  .child(Button::new("Merge").on_click(|_| merge()))
-  .child(Button::new("How to merge").icon(icons::CHEVRON_DOWN).icon_only(true).on_click(|_| choose()));
+  .button(Button::new("How to merge").icon(icons::CHEVRON_DOWN).icon_only(true).on_click(|_| choose()));
 ```
 
 | Builder | |
 | --- | --- |
-| `child(button)`, `children(buttons)` | The buttons, in order |
+| `ButtonGroup::new(buttons)` | The buttons, in order |
+| `button(button)`, `buttons(buttons)` | Buttons after the ones it has |
 | `variant(variant)` | `Outline` (the default): one line around the group and a line between its buttons, which have no fill. `Primary`, `Secondary`, `Destructive`: buttons in that fill, a pixel apart |
-| `size(size)` | The `ButtonSize` of every button in it |
-| `style(part, ..)`, `id`, `key` | One instance over the theme; its id and key |
+| `size(size)` | The `ButtonGroupSize` (a `ButtonSize`) of every button in it |
+| `label(&str)` | What the group is called to what reads the tree, a `group` |
+| `disabled(bool)` | Every button in it is disabled. State: `ButtonGroupState::Disabled` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the first button |
 
 - The group gives its buttons their variant and their size and squares their corners: the corners of the group are the round ones. A button keeps the rest of what it was given: its icon, what a press does, whether it is disabled.
 - Parts: `ButtonGroupPart::Root`, the group; `Item`, what the group says of each button, laid over the theme's recipe for a button's root (padded 14 in the design); `Separator`, the line between two.
@@ -439,9 +439,16 @@ ToggleGroup::multiple(marks.clone(), [
 | --- | --- |
 | `ToggleGroup::new(signal, choices)` | Exactly one is on: a press of another sets the signal |
 | `ToggleGroup::multiple(signal, choices)` | A `Signal<Vec<T>>`: a press adds a value, or takes it out |
-| `ToggleGroup::controlled(on, choices, press)` | The app holds the state: the toggles of `on` are on, and `press` is told the value of each one pressed |
+| `ToggleGroup::controlled(value, choices, on_change)` | The app holds the one that is on: a press of another tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the one that is on tells nothing |
+| `ToggleGroup::controlled_multiple(values, choices, on_change)` | The app holds those that are on: a press tells `on_change` (`Fn(&[T])`) the whole set it is to be |
+| `on_change(handler)` | Called as a person changes what is on, with the new value: `\|align: &Align\|` for a group of one, `\|marks: &[Mark]\|` for one of any number. Not called where the app sets the signal. Each one adds; a handler of another type panics |
+| `label(&str)` | What the group is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
+| `orientation(Orientation)` | Along a row (the default), or down a column, with the arrow keys of that way |
+| `invalid(bool)` | Its line is in the destructive color; a field's judgment sets it |
+| `size(size)`, `disabled(bool)` | For the whole group: a `ToggleGroupSize` (a `ButtonSize`) |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the toggle Tab stops on |
 
-A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. `size(size)` and `disabled(bool)` are for the whole group. Tab stops in the group once; Left and Right move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`.
+A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. Tab stops in the group once; the arrow keys move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`. States: `ToggleGroupState::Horizontal`, `Vertical`, `Disabled`, `Invalid`.
 
 In a [toolbar](#toolbar) the group takes the bar's size and is no stop of its own: its toggles are among the bar's controls, and the bar's Left and Right move through them and on. Where the bar is too narrow for it, the whole group goes into the bar's menu, after a line, as a checked item for each toggle, on while it is; choosing one presses that toggle.
 
@@ -454,22 +461,26 @@ use lurq::ui::SegmentedControl;
 
 SegmentedControl::new(period.clone(), [(Period::Day, "Day"), (Period::Week, "Week"), (Period::Month, "Month")]);
 
-// The app holds what is chosen.
+// The app holds what is chosen, and is told what it is to be.
 SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (Some(Light), "Light")], |look| {
-  theme.set_preferred_appearance(look)
-});
+  theme.set_preferred_appearance(*look)
+})
+.label("Appearance");
 ```
 
 | Builder | |
 | --- | --- |
 | `SegmentedControl::new(signal, choices)` | The chosen segment is the one with the signal's value; a press of another sets it |
-| `SegmentedControl::controlled(value, choices, choose)` | The app holds the value and is told of a press |
-| `size(size)` | A `ButtonSize`: the track is as high as a button of that size |
+| `SegmentedControl::controlled(value, choices, on_change)` | The app holds the value: a press of another segment tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the chosen one tells nothing |
+| `on_change(handler)` | Called as a person chooses another segment, with its value (`\|period: &Period\|`). Not called where the app sets the signal. Each one adds |
+| `label(&str)` | What the control is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
+| `invalid(bool)` | The track has a line in the destructive color; a field's judgment sets it |
+| `size(size)` | A `SegmentedControlSize` (a `ButtonSize`): the track is as high as a button of that size |
 | `full_width(bool)` | As wide as what it is in, its segments sharing the width |
-| `disabled(bool)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the segment Tab stops on: the chosen one, else the first that is not disabled |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the segment Tab stops on: the chosen one, else the first that is not disabled |
 
 - The control is one choice: Tab stops in it once, at the chosen segment; Left and Right move the focus to the next segment and choose it, Home and End the first and the last, and a click chooses one.
-- Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`.
+- Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`; `Invalid`.
 
 ## Link
 
@@ -478,13 +489,13 @@ Text that goes somewhere when it is pressed. It has no box, so it sits in a line
 ```rust
 use lurq::ui::Link;
 
-Link::new("Read the docs").external().on_click(move |_| navigator.push("/docs"));
+Link::new("Read the docs").external(true).on_click(move |_| navigator.push("/docs"));
 ```
 
 | Builder | |
 | --- | --- |
 | `on_click(handler)` | A click, and Enter and Space while it is focused. Where the link goes is what its press does |
-| `icon(name)`, `external()` | An icon after the text; `external()` is the arrow of a link that leaves the app |
+| `trailing_icon(name)`, `external(bool)` | An icon after the text; `external(true)` is the arrow of a link that leaves the app, where it has no trailing icon of its own |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
 
 Parts: `LinkPart::Root`, `Label` (14/500), `Icon` (14, four after the text). While the pointer is on the link or the focus is in it, the label has an `underline` (a `within` rule: the root is an interaction group): a straight line under the text alone, not under the icon. The root's own edge would curl up at its ends, rounded as it is for the focus ring.
@@ -501,7 +512,7 @@ Fab::new("Compose", icons::COMPOSE).extended(true); // with its label
 ```
 
 - It is a [button](#button) that is an icon alone, round, 48 across, with an icon of 20 and the theme's large shadow, and takes what a button takes: `variant`, `on_click`, `disabled`, `loading`.
-- Parts: `FabPart::Root`, `Icon`, `Label`, each laid over the theme's recipe for the same part of a button. State: `FabState::Extended`.
+- Parts: `FabPart::Root`, `Icon`, `Label`, each laid over the theme's recipe for the same part of a button. States: `FabState::Extended`, `Disabled`, `Loading` (a button's own rules dim it and turn its spinner). `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id` and `key` as a [button](#button) has them.
 - Where it floats is the app's to say: it is an element, put in a corner of a `Stack`. A container clips what is in it, so give its shadow room, or let the container show what is outside it (`.overflow_visible()`).
 
 ## Switch
@@ -1439,7 +1450,7 @@ Badge::count(3)
 | --- | --- |
 | `Badge::new(label)` | A badge that says `label` |
 | `Badge::count(n)` | A count: `n` in a small round badge, `BadgeVariant::Destructive` and `BadgeSize::Sm` unless told |
-| `variant(BadgeVariant)` | `Default` (the primary color), `Secondary`, `Outline` (an edge and no fill), and the statuses `Success`, `Warning`, `Info`, `Destructive` (the status's muted fill and its strong text). A count in `Destructive` is solid |
+| `variant(BadgeVariant)` | `Default` (the primary color), `Secondary`, `Outline` (an edge and no fill), and the statuses `Info`, `Success`, `Warning`, `Destructive` (the status's muted fill and its strong text). A count in `Destructive` is solid |
 | `size(BadgeSize)` | `Sm` (18 high, at 11), `Md` (22, at 12, the default), `Lg` (26, at 13) |
 | `shape(BadgeShape)` | `Pill` (the default) or `Square`, with the theme's small radius |
 | `icon(name)` | An icon of the theme's set before the text |
@@ -1463,7 +1474,7 @@ Badge::count(3)
 A label on a thing, a keyword or a category, that the app may let a person take away.
 
 ```rust
-use lurq::ui::{Tag, TagSize, TagVariant, icons};
+use lurq::ui::{Tag, TagShape, TagSize, TagVariant, icons};
 
 Tag::new("design");
 Tag::new("in review").variant(TagVariant::Info).icon(icons::CIRCLE);
@@ -1472,7 +1483,7 @@ Tag::new("in review").variant(TagVariant::Info).icon(icons::CIRCLE);
 Tag::new("rust").on_remove(move || topics.update(|all| all.retain(|t| t != "rust")));
 
 // Round, with no line: the token of a box that holds several values.
-Tag::new("React").pill(true).on_remove(move || remove("React"));
+Tag::new("React").shape(TagShape::Pill).on_remove(move || remove("React"));
 ```
 
 | Builder | |
@@ -1481,14 +1492,15 @@ Tag::new("React").pill(true).on_remove(move || remove("React"));
 | `size(TagSize)` | `Sm` (20 high), `Md` (24, the default), `Lg` (28) |
 | `icon(name)` | An icon before the text, by its name in the theme's set |
 | `on_remove(handler)` | Gives the tag its remove button, and is called on a press of it |
-| `pill(bool)` | Round at both ends, with no line around it |
+| `shape(TagShape)` | `Default`, or `Pill`: round at both ends, with no line around it |
+| `remove_label(&str)` | What the remove button is called to what reads the tree: "Remove" and the tag's text by default |
 | `disabled(bool)` | Dimmed; its remove button is not pressed and Tab passes it by |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; `force` draws the remove button |
 
 - A tag does not keep whether it is there: the app holds its list, and `on_remove` tells it which one a person took away. A tag with no handler is read only: it has no button and is no stop of Tab.
-- The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
+- The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree, or its `remove_label`; it has the tag's id with `-remove` after it. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
 - Tags an app lays in a row with a focus group (`Row::new().focus_group(FocusGroup::horizontal())`) keep the focus when one is taken away: it goes to the next tag's button, or to the last, so Backspace takes them one after another. Outside a group the focus leaves with the button.
-- Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Removable` (it has the button), `Pill`, `Disabled`.
+- Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Remove` (it has the button), `Pill`, `Disabled`.
 - In the design a tag is 24 high, padded 8, with the corners of `RadiusSize::Sm`, in `Secondary` with a line of `Border` inside it, its text 12 and medium in `SecondaryForeground`. A removable one is padded 4 at its end, where a button of 16 (corners of 3) holds a cross of 11 in `MutedForeground`, 4 after the text; under the pointer the button is filled `StateHover` and its cross is `Foreground`. Focused from the keyboard, the button has a ring of 2 in `Ring` around its edge, which stands clear of the text before it. `Info`, `Success`, `Warning` and `Destructive` are in the muted fill of their color, line and fill alike, with the text in the color. A pill is round, has no line, is padded 10 and 6, and its cross is 12.
 - Several tags side by side are an app's row: `Row::new().spacing(6.0).wrap()`, 6 apart as the board lays them out.
 - A renderer that draws another tag starts from `view.remove()`, the button with its behavior and its cross, `None` for a tag with no handler.
@@ -1524,14 +1536,18 @@ ChipGroup::multiple(languages, [
 | --- | --- |
 | `ChipGroup::new(signal, choices)` | Exactly one chosen: the signal's value. A press of another sets it |
 | `ChipGroup::multiple(signal, choices)` | Any number chosen: the signal's values. A press adds a value or takes it out |
-| `ChipGroup::controlled(selected, choices, press)` | The app holds what is chosen, and `press` is told each value pressed |
-| `disabled(bool)`, `style(part, ..)`, `id`, `key` | `ChipGroupPart::Item` lays rules over each chip's root |
+| `ChipGroup::controlled(value, choices, on_change)` | The app holds the one chosen: a press of another tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the chosen one tells nothing |
+| `ChipGroup::controlled_multiple(values, choices, on_change)` | The app holds those chosen: a press tells `on_change` (`Fn(&[T])`) the whole set it is to be |
+| `on_change(handler)` | Called as a person changes what is chosen, with the new value: `&T` for a group of one, `&[T]` for one of any number. Not called where the app sets the signal. Each one adds |
+| `label(&str)` | What the group is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
+| `invalid(bool)` | Each chip has a line in the destructive color; a field's judgment sets it. State: `ChipGroupState::Invalid` |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | `ChipGroupPart::Item` lays rules over each chip's root. `force` draws the chip Tab stops on |
 
 - Tab reaches a chip, Space and Enter turn it, and the focus ring is the chip's. A group is one stop of Tab: the arrow keys move between its chips and Space or Enter turns the one the focus is on. A choice is a [`Choice`](#toggle-group), as a toggle group's: its icon is the chip's.
 - To what reads the tree a chip is a `button` called by its text, with `a11y_pressed` saying whether it is chosen; `lurq_inspect` reports it as `state.pressed`.
-- Parts: `ChipPart::Root` (what is pressed), `Icon`, `Label`; `ChipGroupPart::Root`, `Item`. States: `ChipState::Selected`, `Leading` (it has an icon before its text: the check or its own), `Disabled`.
+- Parts: `ChipPart::Root` (what is pressed), `Icon`, `Label`; `ChipGroupPart::Root`, `Item`. States: `ChipState::Selected`, `Icon` (it has an icon before its text: the check or its own), `Disabled`.
 - In the design a chip is 28 high and round, padded 12, its text 13 and medium. One not chosen is in `Background` with a line of `Input` and its text in `Foreground`, `Highlight` under the pointer; a chosen one is in `Primary`, line and fill, its text in `PrimaryForeground`, with a check of 14 before it, 6 from it and padded 8 at its start, and in `PrimaryHover` under the pointer. A disabled chip is dimmed. The chips of a group are 6 apart and go on to the next line where the row has no room.
-- A renderer that draws another chip starts from `view.root()`, the behavior with the root's style; `view.leading()` is the icon the default renderer puts before the text.
+- A renderer that draws another chip starts from `view.root()`, the behavior with the root's style; `view.shown_icon()` is the icon the default renderer puts before the text.
 
 ## Avatar
 
@@ -1552,7 +1568,7 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 | --- | --- |
 | `new(&str)` | Who it is. The initials are the first letters of the first word and the last: "Ivan Zaida" is "IZ", "Ivan" is "I". A name with no letters shows the icon of a person |
 | `image(Image)` | A picture in place of the initials, which fills the face, cropped to it (`cover`) and clipped to its shape: the engine's image element as the app builds it, from pixels (`Image::new`) or from a file or bytes it decodes (`Image::from_file`, `Image::from_bytes`, feature `image`), with a cache key and a size to decode to where it wants them. Feature `raster` |
-| `icon(name)` | An icon of the theme's set in place of the initials, for what is not a person: a bot, a team |
+| `icon(IconChoice)` | An icon of the theme's set in place of the initials, for what is not a person: a bot, a team. `None` is no icon, not even the person a name with no letters shows |
 | `size(AvatarSize)` | `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, or a size the theme's recipe names |
 | `shape(AvatarShape)` | `Circle` (the default), or `Square` with the corners of a control |
 | `presence(AvatarPresence)` | The dot at the bottom end of the face: `Online`, `Away`, `Busy`, `Offline`; `None` for none |
@@ -1579,7 +1595,7 @@ use lurq::{
 
 let people = ["Ivan Zaida", "Anna K.", "Mark R.", "Ivy Chen", "Ivo Kovac", "Lena Quinn"];
 // Three, and "+3" for the three it leaves out.
-AvatarGroup::new(people.map(Avatar::new)).max(3).label("Reviewers");
+AvatarGroup::new(people.map(Avatar::new)).max_shown(3).label("Reviewers");
 
 // On a card, the ring is the card's color.
 AvatarGroup::new(people.map(Avatar::new))
@@ -1590,10 +1606,10 @@ AvatarGroup::new(people.map(Avatar::new))
 | Builder | |
 | --- | --- |
 | `new(avatars)` | The avatars, in order: each lies over the end of the one before it |
-| `max(usize)` | The most avatars it shows; after them a last one says how many it leaves out, "+3" |
-| `size(AvatarSize)` | The size of every avatar in it |
+| `max_shown(usize)` | The most avatars it shows; after them a last one says how many it leaves out, "+3" |
+| `size(AvatarGroupSize)` | The size of every avatar in it: an `AvatarSize` |
 | `label(&str)` | What it is called to what reads the tree. Without one, the names it shows and how many more |
-| `style(part, ..)`, `id`, `key` | As a [button](#button) has them |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - The group gives its avatars its size and what its recipe says of an item; each keeps everything else it was given: its picture, its icon, its presence.
 - To what reads the tree it is a `group` called by its label; the count is an `img` called "3 more".
@@ -2240,7 +2256,7 @@ MultiSelect::new(languages.clone(), [
 | `size(MultiSelectSize)` | `Sm` 32, `Md` 36, `Lg` 40 high at least, with tags of 20, 24, 28 |
 | `invalid`, `warning`, `valid`, `disabled`, `full_width`, `label`, `name`, `state`, `style`, `rules`, `force`, `id`, `key` | As a combobox has them. A disabled one keeps its tags and takes none away; `full_width` is in place of 280 |
 
-- The box holds the chosen values as tags ([tag](#tag)s with `pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
+- The box holds the chosen values as tags ([tag](#tag)s of `TagShape::Pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
 - Typing opens the list and filters it; Down and Up move the highlight; Enter or a press chooses an option or takes it back, and the list stays open while one chooses; a choice clears what was typed, and the list shows every option again. A tag's cross takes its value away, and so does Backspace in the empty input, the last one's. Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared when the focus leaves. A press of a tag or of the clear control does not open the list.
 - The input is the one stop of Tab, as a [token input](#token-input)'s is: the tags are reached from it. With nothing typed, Left goes onto the last tag, drawn as its cross is when focused, and on to the ones before; Right goes back towards the input; Backspace or Delete takes away the tag the arrows are on, and they stay on the tag that takes its place. Typing leaves the tags.
 - It is a control a [field](#field) holds.
@@ -3284,32 +3300,34 @@ use lurq::ui::{Button, Toggle, Toolbar, ToolbarGroup, ToolbarItem, ToolbarVarian
 
 Toolbar::new()
   .label("Formatting")
-  .child(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold.get())).shortcut("Ctrl+B"))
-  .child(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).on(italic.get()))
-  .child(Toolbar::separator())
-  .child(Button::new("Link").icon(icons::LINK).icon_only(true).on_click(link))
-  .child(Toolbar::spacer())
-  .child(ToolbarItem::from(Button::new("Search").icon(icons::SEARCH).icon_only(true)).stays(true))
+  .item(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold.get())).shortcut("Ctrl+B"))
+  .item(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).on(italic.get()))
+  .item(Toolbar::separator())
+  .item(Button::new("Link").icon(icons::LINK).icon_only(true).on_click(link))
+  .item(Toolbar::spacer())
+  .item(ToolbarItem::from(Button::new("Search").icon(icons::SEARCH).icon_only(true)).stays(true))
   .overflow(true)
   .mount(ctx);
 
 // A command bar's groups: a label under each, and the group goes into the menu whole.
 Toolbar::new()
   .variant(ToolbarVariant::Plain)
-  .child(ToolbarGroup::new().label("Clipboard").child(Button::new("Paste").icon(icons::PASTE)))
+  .item(ToolbarGroup::new().label("Clipboard").item(Button::new("Paste").icon(icons::PASTE)))
   .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
 | `Toolbar::new()` | An empty bar on a surface, its controls of the small size |
-| `child(impl Into<ToolbarItem>)`, `children(..)` | A `Button`, a `Toggle`, a `ToggleGroup`, a `Select`, a `ToolbarGroup`, `Toolbar::separator()`, `Toolbar::spacer()`, an `Element`, or a `ToolbarItem` made of any of them |
+| `item(impl Into<ToolbarItem>)`, `items(..)` | A `Button`, a `Toggle`, a `ToggleGroup`, a `Select`, a `ToolbarGroup`, `Toolbar::separator()`, `Toolbar::spacer()`, an `Element`, or a `ToolbarItem` made of any of them. A `ToolbarGroup` takes its controls with `item` and `items` too |
 | `mount(ctx)` | Puts the bar in the tree of `ctx`'s component: it keeps the menu of what does not fit and the control the focus left. `build(theme)` and `From<Toolbar> for Element` draw it once with nothing kept: no tooltips, no menu |
 | `variant(ToolbarVariant)` | `Surface` (the default): the background's fill and an edge. `Plain`: neither. `Floating`: the popover's fill, an edge and the large shadow |
-| `size(ButtonSize)` | The size of its buttons and toggles: `Sm` by default, so the bar is 40 high |
+| `size(ToolbarSize)` | The size of its buttons and toggles (a `ButtonSize`): `Sm` by default, as the board draws the bar, so it is 40 high |
 | `overflow(bool)` | Where the bar is narrower than its controls, those that do not fit go into a menu behind a More button at its end, the last first. Without it they are cut off |
 | `label(&str)` | What the bar is called, to what reads the tree |
-| `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. The More button has the id with `-more` after it, its menu `-menu` |
+| `more_label(&str)` | What the More button is called, in its tooltip and to what reads the tree: "More" |
+| `disabled(bool)` | Its buttons, toggles and groups of toggles are disabled, and so are the items of its menu and More; an element given as it is is the app's to disable. State: `ToolbarState::Disabled` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the More button; a control is forced with its own. The More button has the id with `-more` after it, its menu `-menu` |
 
 | `ToolbarItem` | |
 | --- | --- |
@@ -3318,10 +3336,12 @@ Toolbar::new()
 | `as_given(bool)` | The button or toggle keeps its own variant, size and style over the bar's: the outline Export of a table's bar |
 | `ToolbarItem::element(el)`, `in_menu(ToolbarCommand)` | Any element: it stays in the bar unless it has a command to stand for it in the menu |
 
+A `ToolbarCommand` is an item of the menu: `ToolbarCommand::new(label)` with `icon`, `checked` (a tick, as a menu item's), `disabled`, `on_select` (each one adds, called in order), `id` and `key`.
+
 - The bar gives its buttons its size and makes them ghost ones, and its toggles its size, unless an item is `as_given`. A button or toggle that is its icon alone is called by its label and has a tooltip (below it) of its label and its shortcut.
 - It is one stop of Tab: Tab enters it at the control the focus last left (the first, the first time), and leaves it at once. Left and Right move between its controls, the toggles of a group in it among them; Home and End go to the first and the last; a disabled one is passed by. A field or a select in it keeps its own keys while it is focused.
 - With `overflow`, a control that does not fit drops out of the bar whole, the last first, and the More button (`more-horizontal`, after a line) appears at the end. Enter or Space on it opens its menu with the focus on its first item, and Escape gives the focus back to More; the menu has an item for each control that went, in the order of the bar: its label, its icon, its shortcut, a check for a toggle (each toggle of a group, after a line), and its press. A labelled group goes whole, under its label. A select or a field stays unless it has `in_menu`. The bar learns what went from the layout (the engine's `ShrinkLimit::Drop` and `drop_marker`), and its menu follows it a pass later.
-- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `More`. State: `ToolbarState::Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
+- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `More`. States: `ToolbarState::Disabled`, `Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
 - In the design the bar is padded 4, its controls 2 apart; a button is a ghost one of 32 with an icon of 16; a toggle that is on has the fill of what is picked out; a line of 20 in the border's color stands between two groups with 4 on either side. On a surface it has the background's fill, an edge of 1 in the border's color and the middle radius. A group of a command bar is padded 10 with a line at its end and its label of 10 in the muted foreground under it. A focused control has its ring inside it, where the bar does not cut it off.
 - To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
 - A renderer that draws another bar gets a `ToolbarView`: `view.slot(index)` is a control as the bar lays it out (dropping when it does not fit), `view.more()` the More button with its menu, `view.menu()` the menu alone, `view.dropped` which slots went.
@@ -3350,20 +3370,21 @@ Stack::new()
 | Builder | |
 | --- | --- |
 | `ActionBar::new(count)` | The bar of a selection of `count`: shown while it is more than none |
-| `text(&str)` | What it says, in place of "3 selected" |
-| `action(Button)`, `destructive_action(Button)` | An action on what is selected: a round ghost button; one that destroys in the destructive color |
-| `on_clear(handler)` | What clearing does: the round button with a cross at the end (none without it), and Escape where it clears |
+| `count_text(&str)` | What it says, in place of "3 selected" |
+| `label(&str)` | What it is called to what reads the tree, in place of what it says |
+| `action(Button)`, `destructive_action(Button)` | Adds an action on what is selected: a round ghost button; one that destroys in the destructive color. `actions(..)` and `destructive_actions(..)` add several |
+| `on_clear(handler)` | What clearing does: the round button with a cross at the end (none without one), and Escape where it clears. Each one adds, called in order |
 | `escape_clears(bool)` | Escape clears the selection while the bar is shown, wherever the focus is, unless what has it took the key |
 | `return_focus(ElementRef)` | Where the focus goes as the bar leaves with the focus in it, cleared by its button or by Escape, or emptied by an action: the list it acts on (its first control that takes the focus). Without it the focus leaves with the bar |
 | `mount(ctx)` | Puts the bar in the tree of `ctx`'s component, which keeps whether the focus is in it: `return_focus` needs it. `build(theme)` and `From<ActionBar> for Element` draw it with nothing kept |
-| `placement(ActionBarPlacement)` | `Bottom` (the default) or `Top` of the room it is given |
+| `side(ActionBarSide)` | The edge of the room it is given that it stands at: `Bottom` (the default) or `Top` |
 | `clear_label(&str)` | What the clear button is called: "Clear selection" |
-| `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. The clear button has the id with `-clear` after it |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the clear button; an action is forced with its own. The clear button has the id with `-clear` after it |
 
 - It is as large as the room it is given and takes no press itself: put it over what it acts on, in a `Stack`. The bar stands 16 from the bottom (or the top) of that room, in the middle; it comes in with a fade and a move of 16 from that edge, and leaves the same way as the count goes to none.
-- It is a toolbar to what reads the tree, called by what it says, and one stop of Tab whose Left and Right move between its buttons.
+- It is a toolbar to what reads the tree, called by its label or what it says, and one stop of Tab whose Left and Right move between its buttons.
 - What it says is on one line. Where the room is narrower than the bar, it gives way first and is cut with an ellipsis: the actions and the clear button stay whole, at any text size.
-- Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarPlacement::Bottom`, `Top`.
+- Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarSide::Bottom`, `Top`.
 - In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
 
 ## Splitter

@@ -52,7 +52,7 @@ pub type LinkRenderer = Arc<dyn Fn(LinkView) -> Element + Send + Sync>;
 /// ```
 /// use lurq::ui::Link;
 ///
-/// let docs = Link::new("Read the docs").external().on_click(|_| println!("to the docs"));
+/// let docs = Link::new("Read the docs").external(true).on_click(|_| println!("to the docs"));
 /// ```
 ///
 /// Where it goes is what its press does: an app with a router goes to a
@@ -61,7 +61,8 @@ pub type LinkRenderer = Arc<dyn Fn(LinkView) -> Element + Send + Sync>;
 #[derive(Clone)]
 pub struct Link {
   label: Arc<str>,
-  icon: Option<Name>,
+  trailing_icon: Option<Name>,
+  external: bool,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -75,7 +76,8 @@ impl Link {
   pub fn new(label: &str) -> Self {
     Self {
       label: Arc::from(label),
-      icon: None,
+      trailing_icon: None,
+      external: false,
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -87,14 +89,16 @@ impl Link {
   }
 
   /// An icon after the text, by its name in the theme's set.
-  pub fn icon(mut self, name: impl Into<Name>) -> Self {
-    self.icon = Some(name.into());
+  pub fn trailing_icon(mut self, name: impl Into<Name>) -> Self {
+    self.trailing_icon = Some(name.into());
     self
   }
 
-  /// The icon of a link that leaves the app: an arrow up and to the right.
-  pub fn external(self) -> Self {
-    self.icon(icons::ARROW_UP_RIGHT)
+  /// Whether the link leaves the app: it has an arrow up and to the right
+  /// after its text, where it has no trailing icon of its own.
+  pub fn external(mut self, external: bool) -> Self {
+    self.external = external;
+    self
   }
 
   /// Whether the link takes no input.
@@ -162,7 +166,9 @@ impl Link {
     .state(LinkState::Disabled, self.disabled);
     let view = LinkView {
       label: self.label,
-      icon: self.icon,
+      trailing_icon: self
+        .trailing_icon
+        .or_else(|| self.external.then(|| Name::from(icons::ARROW_UP_RIGHT))),
       disabled: self.disabled,
       recipe: theme.resolve::<Link>(&case, Some(&self.rules)),
       forced: self.forced,
@@ -187,8 +193,8 @@ impl From<Link> for Element {
 /// and its behavior ready to be dressed.
 pub struct LinkView {
   pub label: Arc<str>,
-  /// The name of the icon after its text, if it has one.
-  pub icon: Option<Name>,
+  /// The name of the icon after its text, if it has one: its own, or the arrow of an external link.
+  pub trailing_icon: Option<Name>,
   pub disabled: bool,
   /// The style of each part of this link.
   pub recipe: ResolvedRecipe,
@@ -229,7 +235,7 @@ impl LinkView {
   pub fn render(self) -> Element {
     let label = self.part(LinkPart::Label);
     let mut root = self.root().child(label.text(&self.label).nowrap().part(&label));
-    if let Some(name) = self.icon {
+    if let Some(name) = self.trailing_icon {
       root = root.child(glyph(&self.part(LinkPart::Icon), name, false));
     }
     root.into()

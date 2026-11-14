@@ -6,7 +6,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::glyph,
+  shared::{IconChoice, glyph},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -147,7 +147,7 @@ pub struct Avatar {
   name: Arc<str>,
   /// What the face shows in place of the initials: the count at the end of a group.
   text: Option<Arc<str>>,
-  icon: Option<Name>,
+  icon: Option<IconChoice>,
   #[cfg(feature = "raster")]
   image: Option<crate::components::Image>,
   size: Name,
@@ -206,8 +206,9 @@ impl Avatar {
   }
 
   /// An icon in place of the initials, by its name in the theme: for what is not a person, a bot or a team.
-  pub fn icon(mut self, name: impl Into<Name>) -> Self {
-    self.icon = Some(name.into());
+  /// `None` is no icon at all, not even the person a name with no letters has.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.icon = Some(icon.into());
     self
   }
 
@@ -308,7 +309,8 @@ pub struct AvatarView {
   pub name: Arc<str>,
   /// The letters it shows: the initials of the name, or the count at the end of a group.
   pub initials: String,
-  pub icon: Option<Name>,
+  /// The icon it was given in place of its initials: a name, or `None` for no icon at all.
+  pub icon: Option<IconChoice>,
   /// The picture it shows in place of its initials.
   #[cfg(feature = "raster")]
   pub image: Option<crate::components::Image>,
@@ -348,8 +350,8 @@ impl AvatarView {
 
   /// What builds [`fallback`](Self::fallback), again for each time it is shown: an element is built for one place.
   fn fallback_maker(&self) -> impl Fn() -> Element + Send + Sync + 'static {
-    let icon = match (&self.icon, self.initials.is_empty()) {
-      (Some(icon), _) => Some(*icon),
+    let icon = match (self.icon, self.initials.is_empty()) {
+      (Some(IconChoice(icon)), _) => icon,
       (None, true) => Some(Name::from(icons::USER)),
       (None, false) => None,
     };
@@ -506,6 +508,9 @@ names!(AvatarGroupPart {
 /// What builds a group of avatars' nodes: a theme's in place of the default one.
 pub type AvatarGroupRenderer = Arc<dyn Fn(AvatarGroupView) -> Element + Send + Sync>;
 
+/// The sizes of a group's avatars: an avatar's.
+pub type AvatarGroupSize = AvatarSize;
+
 /// Avatars laid over one another: who is in a document, who reviews a change.
 ///
 /// ```
@@ -514,20 +519,21 @@ pub type AvatarGroupRenderer = Arc<dyn Fn(AvatarGroupView) -> Element + Send + S
 /// let reviewers = AvatarGroup::new(
 ///   ["Ivan Zaida", "Anna K.", "Mark R.", "Ivy Chen", "Ivo Kovac", "Lena Q."].map(Avatar::new),
 /// )
-/// .max(3)
+/// .max_shown(3)
 /// .label("Reviewers");
 /// ```
 ///
 /// Each avatar lies over the end of the one before it, with a ring of the
-/// surface behind the group around it. With [`max`](Self::max) the group
+/// surface behind the group around it. With [`max_shown`](Self::max_shown) the group
 /// shows that many and then how many it leaves out, "+3". The group gives its
 /// avatars its size; each keeps everything else it was given. To tooling that
 /// reads the tree it is a group called by its label.
 pub struct AvatarGroup {
   avatars: Vec<Avatar>,
-  max: Option<usize>,
+  max_shown: Option<usize>,
   size: Name,
   label: Option<Arc<str>>,
+  states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -537,9 +543,10 @@ impl AvatarGroup {
   pub fn new(avatars: impl IntoIterator<Item = Avatar>) -> Self {
     Self {
       avatars: avatars.into_iter().collect(),
-      max: None,
+      max_shown: None,
       size: AvatarSize::default().into(),
       label: None,
+      states: Vec::new(),
       rules: Recipe::new(),
       id: None,
       key: None,
@@ -547,8 +554,8 @@ impl AvatarGroup {
   }
 
   /// The most avatars the group shows; after them it shows how many it leaves out.
-  pub fn max(mut self, max: usize) -> Self {
-    self.max = Some(max);
+  pub fn max_shown(mut self, max_shown: usize) -> Self {
+    self.max_shown = Some(max_shown);
     self
   }
 
@@ -560,8 +567,25 @@ impl AvatarGroup {
 
   /// What the group is called to tooling that reads the tree: "Reviewers". Without one it is called by the
   /// names of the avatars it shows and how many it leaves out.
-  pub fn label(mut self, label: impl Into<Arc<str>>) -> Self {
-    self.label = Some(label.into());
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Puts the group in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Lays rules over the theme's recipe for this group: what the component
+  /// it is in says of it in this place.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
     self
   }
 
@@ -584,9 +608,12 @@ impl AvatarGroup {
   /// Builds the group in `theme`. Converting a group into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new().size(self.size).breakpoint(super::current_breakpoint());
+    let mut case = Case::new().size(self.size).breakpoint(super::current_breakpoint());
+    for state in &self.states {
+      case = case.state(state.clone(), true);
+    }
     let recipe = theme.resolve::<AvatarGroup>(&case, Some(&self.rules));
-    let shown = self.max.unwrap_or(usize::MAX).min(self.avatars.len());
+    let shown = self.max_shown.unwrap_or(usize::MAX).min(self.avatars.len());
     let hidden = self.avatars.len() - shown;
     let label = self.label.map_or_else(
       || {

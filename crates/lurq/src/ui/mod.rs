@@ -105,12 +105,12 @@ mod tree_view;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
 pub use action_bar::{
-  ActionBar, ActionBarAction, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarState, ActionBarView,
+  ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
 };
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use avatar::{
-  Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupView, AvatarPart, AvatarPresence,
-  AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
+  Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
+  AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
@@ -122,7 +122,9 @@ pub use button::{
   Button, ButtonPart, ButtonPartRenderer, ButtonRenderer, ButtonShape, ButtonSize, ButtonState, ButtonVariant,
   ButtonView,
 };
-pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use button_group::{
+  ButtonGroup, ButtonGroupPart, ButtonGroupRenderer, ButtonGroupSize, ButtonGroupState, ButtonGroupVariant,
+};
 pub use calendar::{
   Calendar, CalendarChoice, CalendarMemory, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
 };
@@ -132,7 +134,9 @@ pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupState, CheckboxPart, CheckboxRenderer, CheckboxState,
   CheckboxView,
 };
-pub use chip::{Chip, ChipGroup, ChipGroupPart, ChipPart, ChipRenderer, ChipState, ChipView};
+pub use chip::{
+  Chip, ChipGroup, ChipGroupPart, ChipGroupRenderer, ChipGroupState, ChipPart, ChipRenderer, ChipState, ChipView,
+};
 pub use choice_card::{
   CheckboxCard, CheckboxCardGroup, ChoiceCardGroupPart, ChoiceCardGroupState, ChoiceCardKind, ChoiceCardPart,
   ChoiceCardRenderer, ChoiceCardState, ChoiceCardView, RadioCard, RadioCardGroup,
@@ -156,7 +160,7 @@ pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };
-pub use fab::{Fab, FabPart, FabState};
+pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
@@ -233,7 +237,9 @@ pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
 pub use search_field::{SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldState, SearchFieldView};
-pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
+pub use segmented::{
+  SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
+};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
@@ -273,7 +279,7 @@ pub use table::{
   TableRenderer, TableRow, TableSort, TableState, TableView,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
-pub use tag::{Tag, TagPart, TagRenderer, TagSize, TagState, TagVariant, TagView};
+pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
 pub use teaching_tip::{
   TeachingTip, TeachingTipPart, TeachingTipRenderer, TeachingTipState, TeachingTipVariant, TeachingTipView, Tour,
   TourStep,
@@ -289,15 +295,17 @@ pub use toast::{
   TOAST_DURATION, TOASTS_SHOWN, Toast, ToastAction, ToastId, ToastPart, ToastPosition, ToastRenderer, ToastState,
   ToastVariant, ToastView, Toasts,
 };
-pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
-pub use toggle_group::{ToggleGroup, ToggleGroupPart};
+pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleSize, ToggleState, ToggleView};
+pub use toggle_group::{
+  ToggleGroup, ToggleGroupOrientation, ToggleGroupPart, ToggleGroupRenderer, ToggleGroupSize, ToggleGroupState,
+};
 pub use toggletip::{Toggletip, ToggletipPart, ToggletipRenderer, ToggletipState, ToggletipView};
 pub use token_input::{
   MENTION, Token, TokenInput, TokenInputPart, TokenInputRenderer, TokenInputSize, TokenInputState, TokenInputView,
 };
 pub use toolbar::{
-  Toolbar, ToolbarCommand, ToolbarGroup, ToolbarItem, ToolbarPart, ToolbarRenderer, ToolbarSlot, ToolbarState,
-  ToolbarVariant, ToolbarView,
+  Toolbar, ToolbarCommand, ToolbarGroup, ToolbarItem, ToolbarPart, ToolbarRenderer, ToolbarSize, ToolbarSlot,
+  ToolbarState, ToolbarVariant, ToolbarView,
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,

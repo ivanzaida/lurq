@@ -19,8 +19,7 @@ use lurq::{
   layout::quad::QuadContent,
   node::color::Color,
   ui::{
-    ActionBar, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarView, Button, FADE_IN, PartAnimation,
-    icons,
+    ActionBar, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarView, Button, FADE_IN, PartAnimation, icons,
   },
 };
 
@@ -65,10 +64,10 @@ fn still(make: impl Fn() -> ActionBar + Send + Sync + 'static) -> Stage {
   let app = App::new();
   app.theme().patch_recipe::<ActionBar>(|recipe| {
     recipe
-      .variant(ActionBarPlacement::Bottom, ActionBarPart::Bar, |s| {
+      .variant(ActionBarSide::Bottom, ActionBarPart::Bar, |s| {
         s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
       })
-      .variant(ActionBarPlacement::Top, ActionBarPart::Bar, |s| {
+      .variant(ActionBarSide::Top, ActionBarPart::Bar, |s| {
         s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
       })
   });
@@ -122,7 +121,7 @@ fn the_bar_is_44_high_round_and_floating_16_over_the_bottom_in_the_middle() {
 #[test]
 fn at_the_top_it_stands_16_under_the_top() {
   let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-  let mut stage = still(move || bar(2, &cleared, &moved).placement(ActionBarPlacement::Top));
+  let mut stage = still(move || bar(2, &cleared, &moved).side(ActionBarSide::Top));
   let (_, y, ..) = stage.bounds("bar");
   assert!(close(y, 16.0));
   assert!(stage.paints("2 selected"));
@@ -135,7 +134,7 @@ fn nothing_selected_shows_no_bar_and_what_it_says_can_be_another_text() {
   let mut empty = stage(move || bar(0, &c, &m));
   empty.pass_after(Duration::from_secs(2));
   assert!(!empty.paints("0 selected"));
-  let mut files = stage(move || bar(4, &cleared, &moved).text("4 files"));
+  let mut files = stage(move || bar(4, &cleared, &moved).count_text("4 files"));
   assert!(files.paints("4 files"));
   assert!(!files.paints("4 selected"));
   assert!(files.bounds("bar").3 > 0.0);
@@ -193,7 +192,7 @@ fn narrow(width: f32, scale: f32, make: impl Fn() -> ActionBar + Send + Sync + '
   let app = App::new();
   app.theme().set_text_scale(scale);
   app.theme().patch_recipe::<ActionBar>(|recipe| {
-    recipe.variant(ActionBarPlacement::Bottom, ActionBarPart::Bar, |s| {
+    recipe.variant(ActionBarSide::Bottom, ActionBarPart::Bar, |s| {
       s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
     })
   });
@@ -224,7 +223,7 @@ fn clear_is_whole(stage: &mut Stage, room: f32) {
 fn a_long_text_gives_way_and_the_actions_and_the_clear_button_stay() {
   let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
   let text = "3 files selected in the folder of the quarterly reports of the year before last";
-  let mut stage = still(move || bar(3, &cleared, &moved).text(text));
+  let mut stage = still(move || bar(3, &cleared, &moved).count_text(text));
   clear_is_whole(&mut stage, 600.0);
   // The text is cut where the line after it starts.
   let (move_x, ..) = stage.bounds("move");
@@ -256,7 +255,7 @@ fn cleared_from_the_bar_the_focus_goes_where_the_app_says() {
   let (held, target) = (selected.clone(), row.clone());
   let still = App::new();
   still.theme().patch_recipe::<ActionBar>(|recipe| {
-    recipe.variant(ActionBarPlacement::Bottom, ActionBarPart::Bar, |s| {
+    recipe.variant(ActionBarSide::Bottom, ActionBarPart::Bar, |s| {
       s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
     })
   });
@@ -349,7 +348,7 @@ fn a_rule_of_the_theme_changes_the_bar() {
 fn a_theme_gives_the_bar_another_anatomy() {
   let app = App::new();
   let renderer: ActionBarRenderer = Arc::new(|view: ActionBarView| {
-    let shouted = view.text.to_uppercase();
+    let shouted = view.count_text.to_uppercase();
     let mut column = Column::new().child(Text::new(&shouted));
     if let Some(clear) = view.clear() {
       column = column.child(clear);
@@ -365,4 +364,49 @@ fn a_theme_gives_the_bar_another_anatomy() {
   assert!(stage.paints("3 SELECTED"));
   stage.click("bar-clear");
   assert_eq!(cleared.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn every_clear_handler_is_called_in_order_and_actions_add_several() {
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let (first, second) = (told.clone(), told.clone());
+  let mut stage = still(move || {
+    let (first, second) = (first.clone(), second.clone());
+    ActionBar::new(3)
+      .id("bar")
+      .actions([Button::new("Move").id("move"), Button::new("Copy").id("copy")])
+      .destructive_actions([Button::new("Delete").id("delete")])
+      .on_clear(move || first.lock().unwrap().push("first"))
+      .on_clear(move || second.lock().unwrap().push("second"))
+      .force(Some(lurq::ui::Interaction::Hovered))
+  });
+  let (move_x, ..) = stage.bounds("move");
+  let (copy_x, ..) = stage.bounds("copy");
+  let (delete_x, ..) = stage.bounds("delete");
+  assert!(move_x < copy_x && copy_x < delete_x, "in the order they were added");
+  assert_eq!(stage.text("Delete").0, light(PaletteColor::Destructive));
+  assert_eq!(
+    stage.fill_color("bar-clear"),
+    Some(light(PaletteColor::Highlight)),
+    "the clear button as under the pointer"
+  );
+  stage.click("bar-clear");
+  assert_eq!(*told.lock().unwrap(), ["first", "second"]);
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn the_bar_is_called_by_its_label_or_what_it_says() {
+  let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  let (c, m) = (cleared.clone(), moved.clone());
+  let mut plain = still(move || bar(3, &c, &m));
+  let mut named = still(move || bar(3, &cleared, &moved).label("Actions on 3 files"));
+  let name = |stage: &mut Stage| {
+    stage
+      .tree
+      .get_element_by_id_mut("bar")
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(name(&mut plain).as_deref(), Some("3 selected"));
+  assert_eq!(name(&mut named).as_deref(), Some("Actions on 3 files"));
 }

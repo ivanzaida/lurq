@@ -127,7 +127,18 @@ impl Component for TogglePage {
         "false",
         "The icon alone: a square as wide as the toggle is high.",
       ),
-      ("size", "ButtonSize", "Md", "As high as a button of that size."),
+      (
+        "size",
+        "ToggleSize",
+        "Md",
+        "As high as a button of that size: a ButtonSize.",
+      ),
+      (
+        "bind",
+        "Signal<bool>",
+        "",
+        "On while the signal is true, which a press turns.",
+      ),
       ("disabled", "bool", "false", "Half the opacity; it takes no input."),
     ];
     let playground = self.play.card(ctx);
@@ -262,22 +273,22 @@ impl Component for ButtonGroupPage {
     let (out, back, closer) = (self.zoom.clone(), self.zoom.clone(), self.zoom.clone());
     let outline = items()
       .child(item(
-        ButtonGroup::new()
-          .child(Button::new("Years"))
-          .child(Button::new("Months"))
-          .child(Button::new("Days")),
+        ButtonGroup::new([])
+          .button(Button::new("Years"))
+          .button(Button::new("Months"))
+          .button(Button::new("Days")),
         "three buttons",
       ))
       .child(item(
-        ButtonGroup::new()
-          .child(
+        ButtonGroup::new([])
+          .button(
             Button::new("Zoom out")
               .icon(icons::ZOOM_OUT)
               .icon_only(true)
               .on_click(move |_| out.update(|zoom| *zoom = zoom.saturating_sub(10).max(10))),
           )
-          .child(Button::new(&format!("{}%", self.zoom.get())).on_click(move |_| back.set(100)))
-          .child(
+          .button(Button::new(&format!("{}%", self.zoom.get())).on_click(move |_| back.set(100)))
+          .button(
             Button::new("Zoom in")
               .icon(icons::ZOOM_IN)
               .icon_only(true)
@@ -304,7 +315,7 @@ impl Component for ButtonGroupPage {
         Column::new()
           .child(
             Row::new().ref_element(anchor.clone()).child(
-              ButtonGroup::new().variant(variant).child(Button::new(label)).child(
+              ButtonGroup::new([]).variant(variant).button(Button::new(label)).button(
                 Button::new(&format!("How to {}", label.to_lowercase()))
                   .icon(icons::CHEVRON_DOWN)
                   .icon_only(true)
@@ -319,15 +330,18 @@ impl Component for ButtonGroupPage {
     let mut sizes = items();
     for (size, caption) in SIZES {
       sizes = sizes.child(item(
-        ButtonGroup::new()
+        ButtonGroup::new([])
           .size(size)
-          .child(Button::new("Day"))
-          .child(Button::new("Week")),
+          .button(Button::new("Day"))
+          .button(Button::new("Week")),
         caption,
       ));
     }
     let rows = [
-      ("child, children", "Button", "", "The buttons of the group, in order."),
+      ("new", "buttons", "", "The buttons of the group, in order."),
+      ("button, buttons", "Button", "", "Buttons after the ones it has."),
+      ("label", "&str", "", "What the group is called to what reads the tree."),
+      ("disabled", "bool", "false", "Every button in it is disabled."),
       (
         "variant",
         "ButtonGroupVariant",
@@ -335,7 +349,12 @@ impl Component for ButtonGroupPage {
         "Outline: a line around the group and one between its buttons. Primary, Secondary, Destructive: buttons \
          in that fill, a pixel apart.",
       ),
-      ("size", "ButtonSize", "Md", "The size of every button in the group."),
+      (
+        "size",
+        "ButtonGroupSize",
+        "Md",
+        "The size of every button in the group: a ButtonSize.",
+      ),
     ];
     let playground = self.play.card(ctx);
     self.frame.page(
@@ -364,24 +383,24 @@ impl Component for ButtonGroupPage {
           self.frame.demo(
             0,
             outline,
-            "ButtonGroup::new().child(Button::new(\"Years\")).child(..)",
+            "ButtonGroup::new([Button::new(\"Years\"), ..])",
             &[
-              "ButtonGroup::new()",
-              "    .child(Button::new(\"Years\"))",
-              "    .child(Button::new(\"Months\"))",
-              "    .child(Button::new(\"Days\"))",
+              "ButtonGroup::new([])",
+              "    .button(Button::new(\"Years\"))",
+              "    .button(Button::new(\"Months\"))",
+              "    .button(Button::new(\"Days\"))",
               "",
               "// Each button keeps what a press of it does. zoom: Signal<u32>",
               "let (out, back, closer) = (zoom.clone(), zoom.clone(), zoom.clone());",
-              "ButtonGroup::new()",
-              "    .child(",
+              "ButtonGroup::new([])",
+              "    .button(",
               "        Button::new(\"Zoom out\")",
               "            .icon(icons::ZOOM_OUT)",
               "            .icon_only(true)",
               "            .on_click(move |_| out.update(|zoom| *zoom = zoom.saturating_sub(10).max(10))),",
               "    )",
-              "    .child(Button::new(&format!(\"{}%\", zoom.get())).on_click(move |_| back.set(100)))",
-              "    .child(",
+              "    .button(Button::new(&format!(\"{}%\", zoom.get())).on_click(move |_| back.set(100)))",
+              "    .button(",
               "        Button::new(\"Zoom in\")",
               "            .icon(icons::ZOOM_IN)",
               "            .icon_only(true)",
@@ -402,10 +421,10 @@ impl Component for ButtonGroupPage {
               "// anchor: ElementRef, open: Signal<bool>, way: Signal<usize>",
               "let toggle = open.clone();",
               "Row::new().ref_element(anchor.clone()).child(",
-              "    ButtonGroup::new()",
+              "    ButtonGroup::new([])",
               "        .variant(ButtonGroupVariant::Primary)",
-              "        .child(Button::new(\"Merge\"))",
-              "        .child(",
+              "        .button(Button::new(\"Merge\"))",
+              "        .button(",
               "            Button::new(\"How to merge\")",
               "                .icon(icons::CHEVRON_DOWN)",
               "                .icon_only(true)",
@@ -434,10 +453,10 @@ impl Component for ButtonGroupPage {
             &[
               "for size in [ButtonSize::Xs, ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg, ButtonSize::Xl] {",
               "    row = row.child(",
-              "        ButtonGroup::new()",
+              "        ButtonGroup::new([])",
               "            .size(size)",
-              "            .child(Button::new(\"Day\"))",
-              "            .child(Button::new(\"Week\")),",
+              "            .button(Button::new(\"Day\"))",
+              "            .button(Button::new(\"Week\")),",
               "    );",
               "}",
             ],
@@ -527,17 +546,43 @@ impl Component for ToggleGroupPage {
       ),
       (
         "controlled",
-        "values, choices, press",
+        "value, choices, on_change",
         "",
-        "The app holds what is on, and is told the value of each toggle pressed.",
+        "The app holds the one that is on, and is told the value it is to be. A press of the one that is on \
+         tells nothing.",
       ),
+      (
+        "controlled_multiple",
+        "values, choices, on_change",
+        "",
+        "The app holds those that are on, and is told the whole set it is to be.",
+      ),
+      (
+        "on_change",
+        "Fn(&T) or Fn(&[T])",
+        "",
+        "Told the new value as a person changes it: &T for one, the whole set &[T] for any number.",
+      ),
+      ("label", "&str", "", "What the group is called to what reads the tree."),
+      (
+        "orientation",
+        "Orientation",
+        "Horizontal",
+        "Along a row, or down a column with the arrow keys of that way.",
+      ),
+      ("invalid", "bool", "false", "Its line is in the destructive color."),
       (
         "choices",
         "(T, &str) or Choice<T>",
         "",
         "A value and what it is called; a Choice adds an icon, the icon alone, or disabled.",
       ),
-      ("size", "ButtonSize", "Md", "The size of every toggle in the group."),
+      (
+        "size",
+        "ToggleGroupSize",
+        "Md",
+        "The size of every toggle in the group: a ButtonSize.",
+      ),
       ("disabled", "bool", "false", "The whole group takes no input."),
     ];
     let playground = self.play.card(ctx);
@@ -695,9 +740,28 @@ impl Component for SegmentedControlPage {
       ),
       (
         "controlled",
-        "value, choices, choose",
+        "value, choices, on_change",
         "",
-        "The app holds what is chosen, and is told the value of each segment pressed.",
+        "The app holds what is chosen, and is told the value it is to be. A press of the chosen segment tells \
+         nothing.",
+      ),
+      (
+        "on_change",
+        "Fn(&T)",
+        "",
+        "Told the value a person chooses; not what the app sets.",
+      ),
+      (
+        "label",
+        "&str",
+        "",
+        "What the control is called to what reads the tree.",
+      ),
+      (
+        "invalid",
+        "bool",
+        "false",
+        "The track has a line in the destructive color.",
       ),
       (
         "choices",
@@ -707,9 +771,9 @@ impl Component for SegmentedControlPage {
       ),
       (
         "size",
-        "ButtonSize",
+        "SegmentedControlSize",
         "Md",
-        "The track is as high as a button of that size.",
+        "The track is as high as a button of that size: a ButtonSize.",
       ),
       (
         "full_width",
@@ -829,13 +893,13 @@ impl Component for LinkPage {
     let live = items()
       .child(item(
         Link::new("Read the docs")
-          .external()
+          .external(true)
           .on_click(move |_| count.update(|presses| *presses += 1)),
         &format!("pressed {} times", self.presses.get()),
       ))
       .child(item(Link::new("Privacy policy"), "no icon"))
       .child(item(
-        Link::new("Next page").icon(icons::ARROW_RIGHT),
+        Link::new("Next page").trailing_icon(icons::ARROW_RIGHT),
         "icon(icons::ARROW_RIGHT)",
       ));
     let states = items()
@@ -859,7 +923,7 @@ impl Component for LinkPage {
       ))
       .child(Link::new("terms of use"))
       .child(text("and the", 14.0, lurq::layout::text_style::FontWeight::Normal))
-      .child(Link::new("privacy policy").external());
+      .child(Link::new("privacy policy").external(true));
     let rows = [
       ("label", "&str", "", "The text of the link."),
       (
@@ -869,16 +933,16 @@ impl Component for LinkPage {
         "A click, and Enter and Space while it is focused. Where the link goes is what its press does.",
       ),
       (
-        "icon",
+        "trailing_icon",
         "impl Into<Name>",
         "none",
         "An icon of the theme's set after the text.",
       ),
       (
         "external",
-        "",
-        "",
-        "The icon of a link that leaves the app: an arrow up and to the right.",
+        "bool",
+        "false",
+        "A link that leaves the app: an arrow up and to the right after its text, where it has no trailing icon.",
       ),
       ("disabled", "bool", "false", "Half the opacity; it takes no input."),
     ];
@@ -908,16 +972,16 @@ impl Component for LinkPage {
           self.frame.demo(
             0,
             live,
-            "Link::new(\"Read the docs\").external().on_click(..)",
+            "Link::new(\"Read the docs\").external(true).on_click(..)",
             &[
               "// presses: Signal<u32>",
               "let count = presses.clone();",
               "Link::new(\"Read the docs\")",
-              "    .external()",
+              "    .external(true)",
               "    .on_click(move |_| count.update(|presses| *presses += 1))",
               "",
               "Link::new(\"Privacy policy\")",
-              "Link::new(\"Next page\").icon(icons::ARROW_RIGHT)",
+              "Link::new(\"Next page\").trailing_icon(icons::ARROW_RIGHT)",
             ],
           ),
         ),
@@ -952,7 +1016,7 @@ impl Component for LinkPage {
               "    .child(Text::new(\"By going on you agree to the\"))",
               "    .child(Link::new(\"terms of use\"))",
               "    .child(Text::new(\"and the\"))",
-              "    .child(Link::new(\"privacy policy\").external())",
+              "    .child(Link::new(\"privacy policy\").external(true))",
             ],
           ),
         ),

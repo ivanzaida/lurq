@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   names,
-  recipe::{Case, Name, Recipe},
+  recipe::{Case, Interaction, Name, Recipe},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -53,20 +53,33 @@ names!(ButtonGroupPart {
   Separator => "separator",
 });
 
+/// The states of a group of buttons a recipe styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ButtonGroupState {
+  /// The whole group takes no input.
+  Disabled,
+}
+
+names!(ButtonGroupState {
+  Disabled => "disabled",
+});
+
+/// The sizes of a group's buttons: a button's.
+pub type ButtonGroupSize = ButtonSize;
+
+/// What builds a group of buttons' nodes: a theme's in place of the default one.
+pub type ButtonGroupRenderer = Arc<dyn Fn(ButtonGroup) -> Element + Send + Sync>;
+
 /// Buttons that belong together, joined into one shape: the units of a
 /// period, the steps of a zoom, an action and the choice of how to do it.
 ///
 /// ```
 /// use lurq::ui::{Button, ButtonGroup, ButtonGroupVariant, icons};
 ///
-/// let period = ButtonGroup::new()
-///   .child(Button::new("Years"))
-///   .child(Button::new("Months"))
-///   .child(Button::new("Days"));
-/// let merge = ButtonGroup::new()
+/// let period = ButtonGroup::new([Button::new("Years"), Button::new("Months"), Button::new("Days")]).label("Period");
+/// let merge = ButtonGroup::new([Button::new("Merge")])
 ///   .variant(ButtonGroupVariant::Primary)
-///   .child(Button::new("Merge"))
-///   .child(Button::new("How to merge").icon(icons::CHEVRON_DOWN).icon_only(true));
+///   .button(Button::new("How to merge").icon(icons::CHEVRON_DOWN).icon_only(true));
 /// ```
 ///
 /// The group gives its buttons their variant and their size, and squares
@@ -77,24 +90,27 @@ pub struct ButtonGroup {
   items: Vec<Button>,
   variant: Name,
   size: Name,
+  label: Option<Arc<str>>,
+  disabled: bool,
+  states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
 
-impl Default for ButtonGroup {
-  fn default() -> Self {
-    Self::new()
-  }
-}
-
 impl ButtonGroup {
-  pub fn new() -> Self {
+  /// A group of `buttons`, in their order.
+  pub fn new(buttons: impl IntoIterator<Item = Button>) -> Self {
     Self {
-      items: Vec::new(),
+      items: buttons.into_iter().collect(),
       variant: ButtonGroupVariant::default().into(),
       size: ButtonSize::default().into(),
+      label: None,
+      disabled: false,
+      states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
@@ -106,26 +122,64 @@ impl ButtonGroup {
     self
   }
 
-  /// The size of every button in the group: a [`ButtonSize`].
+  /// The size of every button in the group: a [`ButtonGroupSize`].
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = size.into();
     self
   }
 
   /// A button of the group, after the ones it has.
-  pub fn child(mut self, button: Button) -> Self {
+  pub fn button(mut self, button: Button) -> Self {
     self.items.push(button);
     self
   }
 
-  pub fn children(mut self, buttons: impl IntoIterator<Item = Button>) -> Self {
+  /// Buttons of the group, after the ones it has.
+  pub fn buttons(mut self, buttons: impl IntoIterator<Item = Button>) -> Self {
     self.items.extend(buttons);
+    self
+  }
+
+  /// What the group is called to what reads the tree: what its buttons are for together.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Whether the whole group takes no input: every button in it is disabled.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
+  /// Puts the group in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
     self
   }
 
   /// Styles one part of this group over what the theme gives it.
   pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
     self.rules = self.rules.base(part, style);
+    self
+  }
+
+  /// Lays rules over the theme's recipe for this group: what the component
+  /// it is in says of it in this place.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// Draws the first button the group can take as it is under the pointer,
+  /// held down or focused from the keyboard, with nothing pointing at it:
+  /// for a gallery or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
     self
   }
 
@@ -142,10 +196,14 @@ impl ButtonGroup {
   /// Builds the group in `theme`. Converting a group into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new()
-      .variant(self.variant)
-      .size(self.size)
-      .breakpoint(super::current_breakpoint());
+    let mut case = Case::new()
+      .variant(self.variant.clone())
+      .size(self.size.clone())
+      .breakpoint(super::current_breakpoint())
+      .state(ButtonGroupState::Disabled, self.disabled);
+    for state in &self.states {
+      case = case.state(state.clone(), true);
+    }
     let recipe = theme.resolve::<ButtonGroup>(&case, Some(&self.rules));
     let item = recipe.rules_for(ButtonGroupPart::Item, ButtonPart::Root);
     // In a line around the group a button has no fill of its own; in a filled group it has the group's.
@@ -162,12 +220,28 @@ impl ButtonGroup {
       .focus_group(FocusGroup::horizontal())
       // The line between two of them is as high as they are.
       .align_items(Alignment::Stretch)
-      .clip();
-    for (index, button) in self.items.into_iter().enumerate() {
+      .clip()
+      .describe("a11y_role", "group");
+    if let Some(label) = &self.label {
+      root = root.describe("a11y_name", label.clone());
+    }
+    for (index, mut button) in self.items.into_iter().enumerate() {
       if index > 0 && separated {
         root = root.child(Row::new().part(&separator));
       }
-      root = root.child(button.variant(of_button).size(self.size).rules(&item).build(theme));
+      if self.disabled {
+        button = button.disabled(true);
+      }
+      if index == 0 && self.forced.is_some() {
+        button = button.force(self.forced);
+      }
+      root = root.child(
+        button
+          .variant(of_button.clone())
+          .size(self.size.clone())
+          .rules(&item)
+          .build(theme),
+      );
     }
     if let Some(id) = self.id {
       root = root.id(id);
@@ -187,7 +261,7 @@ impl From<ButtonGroup> for Element {
 
 impl Themed for ButtonGroup {
   const NAME: &'static str = "button_group";
-  type Renderer = Arc<dyn Fn(ButtonGroup) -> Element + Send + Sync>;
+  type Renderer = ButtonGroupRenderer;
 
   /// The design's group (`pencil/lurq-design-system.pen`, Button Group and
   /// Split Button): a line around the buttons and one between them, or

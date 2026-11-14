@@ -110,20 +110,20 @@ fn a_group_joins_its_buttons_in_one_line_around_them() {
     Column::new()
       .spacing(8.0)
       .child(
-        ButtonGroup::new()
+        ButtonGroup::new([])
           .id("period")
-          .child(Button::new("Years").id("years"))
-          .child(Button::new("Months").id("months").on_click(move |_| {
+          .button(Button::new("Years").id("years"))
+          .button(Button::new("Months").id("months").on_click(move |_| {
             counted.fetch_add(1, Ordering::SeqCst);
           }))
-          .child(Button::new("Days").id("days")),
+          .button(Button::new("Days").id("days")),
       )
       .child(
-        ButtonGroup::new()
+        ButtonGroup::new([])
           .variant(ButtonGroupVariant::Primary)
           .id("merge")
-          .child(Button::new("Merge").id("action"))
-          .child(Button::new("How").icon(icons::CHEVRON_DOWN).icon_only(true).id("how")),
+          .button(Button::new("Merge").id("action"))
+          .button(Button::new("How").icon(icons::CHEVRON_DOWN).icon_only(true).id("how")),
       )
       .into()
   });
@@ -313,7 +313,7 @@ fn a_link_is_text_with_an_icon_after_it_and_a_line_under_the_pointer() {
     let counted = counted.clone();
     Row::new()
       .padding(20.0)
-      .child(Link::new("Read the docs").external().id("docs").on_click(move |_| {
+      .child(Link::new("Read the docs").external(true).id("docs").on_click(move |_| {
         counted.fetch_add(1, Ordering::SeqCst);
       }))
       .into()
@@ -549,4 +549,285 @@ fn a_toggle_narrower_than_its_label_cuts_it() {
     .expect("the label");
   assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
   assert!(label_x + label_width <= x + width + 0.5, "inside the toggle");
+}
+
+#[test]
+fn a_links_trailing_icon_stands_after_its_text_and_takes_the_place_of_the_external_arrow() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(Link::new("Next page").trailing_icon(icons::ARROW_RIGHT))
+      .child(Link::new("Out").trailing_icon(icons::LINK).external(true))
+      .child(Link::new("Stays").external(false))
+      .into()
+  });
+  let (label, arrow) = (
+    stage.text_quad("Next page").unwrap(),
+    stage.text_quad(&glyph(icons::ARROW_RIGHT)).unwrap(),
+  );
+  assert!(arrow.x > label.x + label.width, "after the text");
+  assert!(stage.paints(&glyph(icons::LINK)), "its own icon");
+  assert!(
+    !stage.paints(&glyph(icons::ARROW_UP_RIGHT)),
+    "no external arrow beside its own icon, and none for external(false)"
+  );
+}
+
+#[test]
+fn a_fab_takes_a_state_of_the_themes_recipe_and_the_rules_of_its_place() {
+  use lurq::{
+    app::App,
+    ui::{Fab, FabPart, Recipe},
+  };
+  let app = App::new();
+  app
+    .theme()
+    .patch_recipe::<Fab>(|recipe| recipe.state("urgent", FabPart::Root, |s| s.background(PaletteColor::Destructive)));
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(Fab::new("Compose", icons::COMPOSE).id("plain"))
+      .child(Fab::new("Compose", icons::COMPOSE).state("urgent", true).id("urgent"))
+      .child(
+        Fab::new("Compose", icons::COMPOSE)
+          .rules(&Recipe::new().base(FabPart::Root, |s| s.background(PaletteColor::Success)))
+          .id("placed"),
+      )
+      .into()
+  });
+  assert_eq!(stage.fill_color("plain"), Some(light(PaletteColor::Primary)));
+  assert_eq!(stage.fill_color("urgent"), Some(light(PaletteColor::Destructive)));
+  assert_eq!(stage.fill_color("placed"), Some(light(PaletteColor::Success)));
+}
+
+/// Presses the element whose text is `label`, from the pointer.
+fn press_text(stage: &mut Stage, label: &str) {
+  let quad = stage.text_quad(label).unwrap_or_else(|| panic!("{label} is painted"));
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(x, y, lurq::app::events::MouseButton::Left);
+  stage.pass();
+}
+
+/// Whether the text `label` stands on a fill of `color`: the toggle or segment of it is on.
+fn on_fill(stage: &Stage, label: &str, color: Color) -> bool {
+  let text = stage.text_quad(label).unwrap();
+  stage.quads().into_iter().any(|quad| {
+    matches!(&quad.content, QuadContent::Rect { color: fill, .. } if *fill == color)
+      && quad.x <= text.x
+      && quad.x + quad.width >= text.x + text.width
+      && quad.y <= text.y
+      && quad.y + quad.height >= text.y + text.height
+  })
+}
+
+#[test]
+fn a_bound_toggle_group_tells_the_new_value_and_not_what_the_app_sets() {
+  let (align, marks) = (Signal::new(1u8), Signal::new(vec!["bold"]));
+  let (ones, sets) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+  let (a, m, o, s) = (align.clone(), marks.clone(), ones.clone(), sets.clone());
+  let mut stage = Stage::new(move |_| {
+    let (o, s) = (o.clone(), s.clone());
+    Column::new()
+      .spacing(8.0)
+      .child(
+        ToggleGroup::new(a.clone(), [(0u8, "Left"), (1, "Center"), (2, "Right")])
+          .on_change(move |value: &u8| o.lock().unwrap().push(*value)),
+      )
+      .child(
+        ToggleGroup::multiple(m.clone(), [("bold", "Bold"), ("italic", "Italic")])
+          .on_change(move |on: &[&str]| s.lock().unwrap().push(on.to_vec())),
+      )
+      .into()
+  });
+  press_text(&mut stage, "Right");
+  assert_eq!((align.get(), ones.lock().unwrap().clone()), (2, vec![2]));
+  press_text(&mut stage, "Right");
+  assert_eq!(*ones.lock().unwrap(), [2], "what is already on is told nothing");
+  align.set(0);
+  stage.pass();
+  assert_eq!(*ones.lock().unwrap(), [2], "what the app sets is told nothing");
+
+  press_text(&mut stage, "Italic");
+  press_text(&mut stage, "Bold");
+  assert_eq!(
+    *sets.lock().unwrap(),
+    [vec!["bold", "italic"], vec!["italic"]],
+    "the whole new set"
+  );
+  assert_eq!(marks.get(), ["italic"]);
+}
+
+#[test]
+fn a_controlled_toggle_group_shows_what_the_app_holds_and_is_told_what_it_is_to_be() {
+  let (ones, sets) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+  let (o, s) = (ones.clone(), sets.clone());
+  let mut stage = Stage::new(move |_| {
+    let (o, s) = (o.clone(), s.clone());
+    Column::new()
+      .spacing(8.0)
+      // The app answers nothing: what it holds stays on.
+      .child(ToggleGroup::controlled(1u8, [(0u8, "Left"), (1, "Center"), (2, "Right")], move |value| {
+        o.lock().unwrap().push(*value)
+      }))
+      .child(ToggleGroup::controlled_multiple([0u8], [(0u8, "Bold"), (1, "Italic")], move |on| {
+        s.lock().unwrap().push(on.to_vec())
+      }))
+      .into()
+  });
+  press_text(&mut stage, "Right");
+  press_text(&mut stage, "Center");
+  assert_eq!(*ones.lock().unwrap(), [2], "the one that is on tells nothing");
+  // The pointer away, so that no toggle is under it.
+  stage.tree.mouse_move(390.0, 590.0);
+  stage.pass();
+  assert!(
+    on_fill(&stage, "Center", light(PaletteColor::Highlight)),
+    "what the app holds"
+  );
+  assert!(
+    !on_fill(&stage, "Right", light(PaletteColor::Highlight)),
+    "not what was pressed"
+  );
+  press_text(&mut stage, "Italic");
+  press_text(&mut stage, "Bold");
+  assert_eq!(
+    *sets.lock().unwrap(),
+    [vec![0, 1], vec![]],
+    "the whole set it is to be, from what the app holds"
+  );
+}
+
+#[test]
+#[should_panic(expected = "on_change of this group is told")]
+fn a_handler_of_another_type_is_a_mistake() {
+  let _ = ToggleGroup::new(Signal::new(1u8), [(0u8, "One")]).on_change(|_: &u16| {});
+}
+
+#[test]
+fn a_press_of_the_chosen_segment_tells_nothing() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (t, bound) = (told.clone(), Signal::new(0u8));
+  let (b, heard) = (bound.clone(), Arc::new(Mutex::new(Vec::new())));
+  let h = heard.clone();
+  let mut stage = Stage::new(move |_| {
+    let (t, h) = (t.clone(), h.clone());
+    Column::new()
+      .spacing(8.0)
+      .child(SegmentedControl::controlled(
+        1u8,
+        [(0u8, "Day"), (1, "Week")],
+        move |value| t.lock().unwrap().push(*value),
+      ))
+      .child(
+        SegmentedControl::new(b.clone(), [(0u8, "Light"), (1, "Dark")])
+          .on_change(move |value: &u8| h.lock().unwrap().push(*value)),
+      )
+      .into()
+  });
+  press_text(&mut stage, "Week");
+  assert!(told.lock().unwrap().is_empty(), "the chosen one");
+  press_text(&mut stage, "Day");
+  assert_eq!(*told.lock().unwrap(), [0]);
+  press_text(&mut stage, "Dark");
+  press_text(&mut stage, "Dark");
+  assert_eq!((bound.get(), heard.lock().unwrap().clone()), (1, vec![1]));
+}
+
+#[test]
+fn a_bound_toggle_turns_its_signal_and_then_tells_its_handlers() {
+  let (on, told) = (Signal::new(false), Arc::new(Mutex::new(Vec::new())));
+  let (bound, t) = (on.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let (seen, t) = (bound.clone(), t.clone());
+    Row::new()
+      .padding(20.0)
+      .child(
+        Toggle::new("Bold")
+          .id("bold")
+          .bind(bound.clone())
+          .on_change(move |next| t.lock().unwrap().push((next, seen.get_untracked()))),
+      )
+      .into()
+  });
+  stage.click("bold");
+  assert!(on.get());
+  assert_eq!(*told.lock().unwrap(), [(true, true)], "after the signal is set");
+  stage.click("bold");
+  assert!(!on.get());
+}
+
+#[test]
+fn a_button_group_is_its_buttons_and_a_disabled_one_takes_nothing() {
+  let pressed = Arc::new(AtomicUsize::new(0));
+  let counted = pressed.clone();
+  let mut stage = Stage::new(move |_| {
+    let counted = counted.clone();
+    Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(
+        ButtonGroup::new([Button::new("Years").id("years"), Button::new("Months").id("months")])
+          .button(Button::new("Days").id("days"))
+          .label("Period"),
+      )
+      .child(
+        ButtonGroup::new([Button::new("Off").id("off").on_click(move |_| {
+          counted.fetch_add(1, Ordering::SeqCst);
+        })])
+        .disabled(true),
+      )
+      .into()
+  });
+  let (years, days) = (stage.bounds("years"), stage.bounds("days"));
+  assert!(days.0 > years.0, "the one added after the list");
+  stage.click("off");
+  assert_eq!(
+    pressed.load(Ordering::SeqCst),
+    0,
+    "a disabled group's button takes nothing"
+  );
+}
+
+#[test]
+fn a_toggle_group_down_a_column_moves_with_up_and_down() {
+  let align = Signal::new(0u8);
+  let chosen = align.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(20.0)
+      .child(
+        ToggleGroup::new(chosen.clone(), [(0u8, "Top"), (1, "Middle"), (2, "Bottom")])
+          .orientation(lurq::ui::Orientation::Vertical),
+      )
+      .into()
+  });
+  let (top, middle) = (stage.text_quad("Top").unwrap(), stage.text_quad("Middle").unwrap());
+  assert!(middle.y > top.y + top.height, "one under the other");
+  stage.key("Tab");
+  stage.key("ArrowDown");
+  stage.key(" ");
+  assert_eq!(align.get(), 1);
+}
+
+#[test]
+fn an_invalid_group_has_a_line_in_the_destructive_color() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(ToggleGroup::controlled(0u8, [(0u8, "A"), (1, "B")], |_| {}).invalid(true))
+      .into()
+  });
+  let destructive = Some(light(PaletteColor::Destructive));
+  assert!(
+    stage
+      .quads()
+      .iter()
+      .any(|quad| quad.border.and_then(|border| border.top).map(|side| side.color) == destructive),
+    "a line in the destructive color"
+  );
 }
