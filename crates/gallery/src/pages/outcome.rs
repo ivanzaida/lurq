@@ -113,6 +113,12 @@ impl OutcomePage {
     let (_, actions) = ACTIONS[self.actions.get().min(ACTIONS.len() - 1)];
     let (bordered, extra) = (self.bordered.get(), self.extra.get());
 
+    // A press of an action is the event of an outcome: the buttons are the app's, and so is what they do.
+    let record = self.playground.recorder();
+    let pressed = move |label: &'static str| {
+      let record = record.clone();
+      move |_| record(format!("on_click({label:?})"))
+    };
     let plain = {
       let (title, description) = (title.clone(), description.clone());
       move || -> Element {
@@ -124,10 +130,14 @@ impl OutcomePage {
           outcome = outcome.extra(InlineCode::new("cargo test --workspace"));
         }
         if actions == 2 {
-          outcome = outcome.action(Button::new(least).variant(ButtonVariant::Outline));
+          outcome = outcome.action(
+            Button::new(least)
+              .variant(ButtonVariant::Outline)
+              .on_click(pressed(least)),
+          );
         }
         if actions >= 1 {
-          outcome = outcome.action(Button::new(main));
+          outcome = outcome.action(Button::new(main).on_click(pressed(main)));
         }
         outcome.into()
       }
@@ -194,7 +204,7 @@ impl OutcomePage {
         fill: false,
         forceable: false,
         facts: variant_name.to_owned(),
-        event: "",
+        event: if actions == 0 { "" } else { "on_click" },
         code,
         tree,
         controls: vec![

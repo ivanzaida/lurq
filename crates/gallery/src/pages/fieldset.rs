@@ -21,8 +21,15 @@ use crate::{
 };
 
 /// The fields of the board's fieldset, in it: a required one, an optional one, one with its label beside it, and
-/// the row of its actions.
-fn profile(fieldset: Fieldset, name: &Signal<String>, bio: &Signal<String>, zone: &Signal<String>) -> Fieldset {
+/// the row of its actions, whose presses `record` is told of.
+fn profile(
+  fieldset: Fieldset,
+  name: &Signal<String>,
+  bio: &Signal<String>,
+  zone: &Signal<String>,
+  record: impl Fn(String) + Clone + Send + Sync + 'static,
+) -> Fieldset {
+  let (reset, save) = (record.clone(), record);
   fieldset
     .field(Field::new("Display name", Input::new(name.clone()).full_width(true)).required(true))
     .field(
@@ -41,8 +48,12 @@ fn profile(fieldset: Fieldset, name: &Signal<String>, bio: &Signal<String>, zone
         .spacing(8.0)
         .padding_top(4.0)
         .justify(Justify::End)
-        .child(Button::new("Reset").variant(ButtonVariant::Outline))
-        .child(Button::new("Save profile")),
+        .child(
+          Button::new("Reset")
+            .variant(ButtonVariant::Outline)
+            .on_click(move |_| reset("on_click(\"Reset\")".to_owned())),
+        )
+        .child(Button::new("Save profile").on_click(move |_| save("on_click(\"Save profile\")".to_owned()))),
     )
 }
 
@@ -81,6 +92,7 @@ impl FieldsetPage {
     let legend = self.legend.get();
     let (description, disabled, full_width) = (self.description.get(), self.disabled.get(), self.full_width.get());
     let (name, bio, zone) = (self.name.clone(), self.bio.clone(), self.zone.clone());
+    let record = self.playground.recorder();
     let plain = {
       let legend = legend.clone();
       move || {
@@ -88,7 +100,7 @@ impl FieldsetPage {
         if description {
           fieldset = fieldset.description("Shown to people you share a workspace with.");
         }
-        profile(fieldset, &name, &bio, &zone)
+        profile(fieldset, &name, &bio, &zone, record.clone())
       }
     };
     let fieldset = plain();
@@ -148,7 +160,7 @@ impl FieldsetPage {
         fill: full_width,
         forceable: false,
         facts: if disabled { "disabled" } else { "enabled" }.to_owned(),
-        event: "",
+        event: "on_click",
         code,
         tree,
         controls: vec![

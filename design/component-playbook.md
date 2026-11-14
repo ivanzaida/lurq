@@ -153,6 +153,10 @@ starting under the window's own title bar.
   the middle it turns about), or a difference between two moments, never one pose.
 - **A playground offers a control only for what it changes**: a prop that one form of the component has is there
   while that form is chosen. A component that is read and not operated gives `event: ""`, and the stage says so.
+  One that holds the app's own buttons (an outcome's actions, a fieldset's) is operated by them: their presses are
+  recorded as `on_click("Deploy")`, and nothing on a stage is pressed without the Events tab hearing of it.
+- **What a person tells apart, the app's value tells apart.** A token and what is being typed look different, so
+  they are two things to the app: a list and a draft, each with its own event, not one text that holds both.
 - **The stage of a playground cuts nothing off**, and a page's own wrappers must not either where a shadow, a ring
   or a badge reaches past the component: `overflow_visible()` on what holds it.
 - **What a batch may use now**: `BackgroundColor::CurrentForeground`; a width in percent run by a keyframe or a
