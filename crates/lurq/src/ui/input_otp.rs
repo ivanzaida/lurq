@@ -3,7 +3,10 @@
 use std::{
   cell::RefCell,
   collections::HashMap,
-  sync::{Arc, Weak},
+  sync::{
+    Arc, Weak,
+    atomic::{AtomicBool, Ordering},
+  },
   time::Duration,
 };
 
@@ -349,7 +352,17 @@ impl InputOtp {
       resolve(&cell_case(true, true)),
     ];
     let cursor = cursor(&self.value);
-    let characters: Vec<char> = self.value.get().chars().take(self.length).collect();
+    // A value the app set is taken as typing takes it: the characters of the code's kind, as capitals where it
+    // says, no more than it has cells. What it held besides is let go of.
+    let held = self.value.get();
+    let characters: Vec<char> = taken(&held, self.kind, self.uppercase)
+      .into_iter()
+      .take(self.length)
+      .collect();
+    let code: String = characters.iter().collect();
+    if code != held {
+      self.value.set(code);
+    }
     let last = last_cell(characters.len(), self.length);
     let focused = cursor.focused.get() || self.forced == Some(Interaction::FocusVisible);
     let active = focused.then(|| {
@@ -411,6 +424,21 @@ impl From<InputOtp> for Element {
   }
 }
 
+/// What of `text` a code of `kind` takes: its characters of that kind, as capitals where `uppercase` says.
+fn taken(text: &str, kind: InputOtpKind, uppercase: bool) -> Vec<char> {
+  text
+    .chars()
+    .filter(|character| kind.takes(*character))
+    .map(|character| {
+      if uppercase {
+        character.to_ascii_uppercase()
+      } else {
+        character
+      }
+    })
+    .collect()
+}
+
 /// The last cell the focus may be on: the first empty one, or the last cell of a full code.
 fn last_cell(filled: usize, length: usize) -> usize {
   filled.min(length.saturating_sub(1))
@@ -436,6 +464,11 @@ fn separators(groups: &[usize], length: usize) -> Vec<usize> {
 struct CursorState {
   focused: Signal<bool>,
   at: Signal<usize>,
+  /// The last character typed filled the last cell: the cursor is past the end, and what is typed now goes
+  /// nowhere until a key or a click moves it back onto a cell.
+  past: AtomicBool,
+  /// The whole code is selected (Ctrl+A, Cmd+A): Backspace and Delete clear it, and what is typed starts it again.
+  all: AtomicBool,
 }
 
 type Cursor = Arc<CursorState>;
@@ -457,6 +490,8 @@ fn cursor(value: &Signal<String>) -> Cursor {
     let cursor = Arc::new(CursorState {
       focused: Signal::new(false),
       at: Signal::new(0),
+      past: AtomicBool::new(false),
+      all: AtomicBool::new(false),
     });
     cursors.insert(value.id(), Arc::downgrade(&cursor));
     cursor
@@ -477,7 +512,10 @@ struct Editor {
 impl Editor {
   /// What the code holds, a character for each filled cell.
   fn characters(&self) -> Vec<char> {
-    self.value.get_untracked().chars().take(self.length).collect()
+    taken(&self.value.get_untracked(), self.kind, self.uppercase)
+      .into_iter()
+      .take(self.length)
+      .collect()
   }
 
   /// The cell the focus is on, of a code with `filled` cells filled.
@@ -487,30 +525,36 @@ impl Editor {
 
   /// What of `text` the code takes: its characters of the code's kind, as capitals where it says.
   fn taken(&self, text: &str) -> Vec<char> {
-    text
-      .chars()
-      .filter(|character| self.kind.takes(*character))
-      .map(|character| {
-        if self.uppercase {
-          character.to_ascii_uppercase()
-        } else {
-          character
-        }
-      })
-      .collect()
+    taken(text, self.kind, self.uppercase)
   }
 
-  /// Sets the code and the cell the focus is on, and tells the app when the edit filled the last cell.
+  /// Sets the code and the cell the focus is on, and tells the app when the edit filled the last cell. An `at`
+  /// past the last cell of a full code leaves the cursor past the end.
   fn set(&self, before: &[char], characters: Vec<char>, at: usize) {
     let full = characters.len() == self.length && characters != before;
     let code: String = characters.iter().collect();
     self.put_at(last_cell(characters.len(), self.length).min(at));
+    let past = characters.len() == self.length && at >= self.length;
+    self.cursor.past.store(past, Ordering::Relaxed);
     if self.value.get_untracked() != code {
       self.value.set(code.clone());
     }
     if full && let Some(complete) = &self.on_complete {
       complete(&code);
     }
+  }
+
+  /// Moves the cursor onto a cell, by a key or a click: it is past the end no longer, and the code is not
+  /// selected.
+  fn move_to(&self, at: usize) {
+    self.cursor.past.store(false, Ordering::Relaxed);
+    self.cursor.all.store(false, Ordering::Relaxed);
+    self.put_at(at);
+  }
+
+  /// Whether the whole code is selected, and from now on not: what a key does to a selected code it does once.
+  fn take_all(&self) -> bool {
+    self.cursor.all.swap(false, Ordering::Relaxed)
   }
 
   /// Puts the focus on cell `at`, telling what reads the cursor only of a change.
@@ -528,6 +572,17 @@ impl Editor {
       return;
     }
     let before = self.characters();
+    // Typed over the whole code selected, the code starts again from what was typed.
+    if self.take_all() {
+      let code: Vec<char> = taken.into_iter().take(self.length).collect();
+      let at = code.len();
+      self.set(&before, code, at);
+      return;
+    }
+    // Past the end of a full code, what is typed goes nowhere: the last cell is not typed over again and again.
+    if taken.len() < self.length && self.cursor.past.load(Ordering::Relaxed) && before.len() == self.length {
+      return;
+    }
     if taken.len() >= self.length {
       let code: Vec<char> = taken.into_iter().take(self.length).collect();
       let at = code.len();
@@ -553,6 +608,11 @@ impl Editor {
   /// Backspace: empties the cell that has the focus where it is filled, else goes back and empties the one before.
   /// The cells after an emptied one move up, so that a code has no gaps.
   fn backspace(&self) {
+    if self.take_all() {
+      self.clear();
+      return;
+    }
+    self.cursor.past.store(false, Ordering::Relaxed);
     let before = self.characters();
     let at = self.at(before.len());
     let mut code = before.clone();
@@ -567,6 +627,10 @@ impl Editor {
 
   /// Delete: empties the cell that has the focus, and the focus stays.
   fn delete(&self) {
+    if self.take_all() {
+      self.clear();
+      return;
+    }
     let before = self.characters();
     let at = self.at(before.len());
     if at < before.len() {
@@ -586,12 +650,12 @@ impl Editor {
   fn step(&self, by: isize) {
     let filled = self.characters().len();
     let at = self.at(filled).saturating_add_signed(by);
-    self.put_at(at.min(last_cell(filled, self.length)));
+    self.move_to(at.min(last_cell(filled, self.length)));
   }
 
   /// Puts the focus on the cell that was clicked, or on the first empty one where that is before it.
   fn click(&self, cell: usize) {
-    self.put_at(cell.min(last_cell(self.characters().len(), self.length)));
+    self.move_to(cell.min(last_cell(self.characters().len(), self.length)));
   }
 }
 
@@ -753,7 +817,12 @@ impl InputOtpView {
         "Backspace" | "Delete" => {}
         "ArrowLeft" => editor.step(-1),
         "ArrowRight" => editor.step(1),
-        "Home" | "ArrowUp" => editor.put_at(0),
+        "Home" | "ArrowUp" => editor.move_to(0),
+        // The whole code selected: Backspace or Delete then clears it. The input selects its text as well.
+        "a" | "A" if event.ctrl || event.meta => {
+          editor.cursor.all.store(true, Ordering::Relaxed);
+          return;
+        }
         "End" | "ArrowDown" => editor.step(isize::MAX),
         _ => return,
       }
@@ -772,6 +841,7 @@ impl InputOtpView {
       .on_blur({
         let cursor = self.editor.cursor.clone();
         move || {
+          cursor.all.store(false, Ordering::Relaxed);
           if cursor.focused.get_untracked() {
             cursor.focused.set(false);
           }

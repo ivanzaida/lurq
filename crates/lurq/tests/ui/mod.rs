@@ -21,6 +21,7 @@ mod drawer;
 mod empty_state;
 mod family;
 mod fieldset;
+mod forced_on_one_item;
 mod hover_card;
 mod icon;
 mod input;

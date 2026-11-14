@@ -223,7 +223,7 @@ fn the_list_has_a_box_before_each_option_and_stays_open_while_one_chooses() {
 }
 
 #[test]
-fn typing_filters_enter_chooses_and_backspace_takes_the_last_away() {
+fn typing_filters_enter_chooses_and_clears_what_was_typed_and_backspace_takes_the_last_away() {
   let value = chosen(&["rust"]);
   let mut stage = page(&value, |select| select);
   press_input(&mut stage);
@@ -235,9 +235,10 @@ fn typing_filters_enter_chooses_and_backspace_takes_the_last_away() {
   stage.key("Enter");
   assert_eq!(values(&value), ["rust", "swift"]);
   assert!(is_open(&mut stage), "the list stays open");
-  assert_eq!(typed(&mut stage), "sw", "what was typed stays, to choose another");
+  assert_eq!(typed(&mut stage), "", "a choice clears what was typed");
+  assert!(listed(&mut stage, "Rust"), "and the list shows every option again");
   // Backspace edits what is typed while there is any; in an empty input it takes the last value away.
-  stage.key("Backspace");
+  type_in(&mut stage, "t");
   stage.key("Backspace");
   assert_eq!(typed(&mut stage), "");
   assert_eq!(values(&value), ["rust", "swift"]);
@@ -252,6 +253,81 @@ fn typing_filters_enter_chooses_and_backspace_takes_the_last_away() {
   stage.key("ArrowDown");
   stage.key("Enter");
   assert_eq!(values(&value), ["wgsl"]);
+}
+
+fn ring() -> Color {
+  light(PaletteColor::Ring)
+}
+
+/// How many rings are drawn: the focused box has one, and the tag the arrows are on another, drawn as a focused
+/// button is.
+fn rings(stage: &Stage) -> usize {
+  stage
+    .quads()
+    .iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color: fill, gradient: None } if fill.a() == 0)
+        && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(ring())
+    })
+    .count()
+}
+
+#[test]
+fn the_input_is_the_one_stop_of_tab_and_the_arrows_and_backspace_reach_the_tags() {
+  let value = chosen(&["rust", "wgsl", "swift"]);
+  let mut stage = Stage::new({
+    let value = value.clone();
+    move |_| {
+      window()
+        .padding(8.0)
+        .child(lurq::components::Button::new("Before").id("before").tab_index(0))
+        .child(MultiSelect::new(value.clone(), languages()).id("languages"))
+        .child(lurq::components::Button::new("After").id("after").tab_index(0))
+        .into()
+    }
+  });
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("before"));
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("languages-input"),
+    "no tag's cross is a stop"
+  );
+  let alone = rings(&stage);
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("after"));
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("after"), "three stops, round");
+
+  // Back in the input: Left goes onto the last tag, then the one before; Right comes back.
+  stage.key("Tab");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("languages-input"));
+  stage.key("ArrowLeft");
+  assert_eq!(rings(&stage), alone + 1, "the last tag is drawn as focused");
+  stage.key("ArrowLeft");
+  // Backspace takes away the tag the arrows are on, WGSL, and the arrows stay where it was: on Swift.
+  stage.key("Backspace");
+  assert_eq!(values(&value), ["rust", "swift"]);
+  assert_eq!(rings(&stage), alone + 1);
+  stage.key("Delete");
+  assert_eq!(values(&value), ["rust"]);
+  stage.key("ArrowRight");
+  assert_eq!(rings(&stage), alone, "Right from the last tag goes back to the input");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("languages-input"),
+    "the focus never left the input"
+  );
 }
 
 #[test]

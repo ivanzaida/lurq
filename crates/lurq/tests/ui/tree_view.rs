@@ -263,6 +263,28 @@ fn a_press_selects_a_row_its_chevron_opens_it_and_a_double_press_activates_it() 
 }
 
 #[test]
+fn a_press_dragged_off_the_row_selects_nothing() {
+  let (mut stage, held) = board(&["crates"], None);
+  let (x, y) = stage.center("Cargo.toml");
+  let (off_x, off_y) = stage.center("crates");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.pass();
+  assert_eq!(held.selected.get(), None, "the press alone selects nothing");
+  stage.tree.mouse_move(off_x, off_y);
+  stage.tree.mouse_up(off_x, off_y, MouseButton::Left);
+  stage.pass();
+  assert_eq!(held.selected.get(), None, "released off the row it went down on");
+
+  // Released where it went down, it selects.
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+  assert_eq!(held.selected.get(), Some("Cargo.toml"));
+}
+
+#[test]
 fn tab_enters_at_the_selected_row_and_the_keys_move_open_and_close_as_a_tree_does() {
   let (mut stage, held) = board(&["crates"], Some("demo"));
   stage.key("Tab");

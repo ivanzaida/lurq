@@ -458,8 +458,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     self
   }
 
-  /// Draws every row as it is under the pointer, held down or focused from the keyboard, with nothing
-  /// pointing at it: for a gallery or a test.
+  /// Draws the row Tab would stop on (the first selected, else the first that is not disabled) as it is under
+  /// the pointer, held down or focused from the keyboard, with nothing pointing at it: for a gallery or a test.
+  /// The other rows are drawn as they are.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
@@ -531,6 +532,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     let entry = flat
       .iter()
       .position(|row| !row.disabled && self.selected.contains(&row.id));
+    // The forced interaction is drawn on the row Tab would stop on alone, as it can only be: the entry, else
+    // the first row that is not disabled.
+    let forced_at = entry.or_else(|| flat.iter().position(|row| !row.disabled));
 
     let keys = flat.iter_mut().map(|row| std::mem::take(&mut row.key)).collect();
     let rows = flat
@@ -599,7 +603,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
           index,
           multiple,
           recipe: recipe(selected, row.expanded, row.disabled),
-          forced: self.forced,
+          forced: self.forced.filter(|_| forced_at == Some(index)),
           toggle,
           actions,
           row: None,
@@ -823,12 +827,12 @@ impl<T: Clone + PartialEq> Model<T> {
 }
 
 thread_local! {
-  /// The last press of a row: which row of its tree, when and where. A second press of it soon after at the same
+  /// The last click of a row: which row of its tree, when and where. A second click of it soon after at the same
   /// place, as the engine counts a double press, activates it.
   static LAST_PRESS: Cell<Option<(usize, Instant, (f32, f32))>> = const { Cell::new(None) };
 }
 
-/// Whether a press of the row `index` is the second of a double press: then the next is a first again.
+/// Whether a click of the row `index` is the second of a double press: then the next is a first again.
 fn second_press(index: usize, event: &MouseEvent) -> bool {
   let now = Instant::now();
   let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
@@ -1010,12 +1014,17 @@ impl TreeRow {
     }
     if let Some(actions) = self.actions.clone() {
       let multiple = self.multiple;
-      // A press selects as the button goes down, as a file manager's does, and a second press of the row soon
-      // after at the same place activates it. The row has no `on_dblclick`: the engine holds back the click of an
-      // element that has one until it knows it is not the first of a double press, and the focus with it.
+      // A click selects, as the button comes up over the row it went down on: a press dragged off the row
+      // selects nothing. A second click of the row soon after at the same place activates it. The row has no
+      // `on_dblclick`: the engine holds back the click of an element that has one until it knows it is not the
+      // first of a double press, and the focus with it. Space clicks the focused row: it selects too.
       let press = actions.clone();
       let index = self.index;
-      row = row.on_mouse_down(move |event: MouseEvent| {
+      row = row.on_click(move |event: MouseEvent| {
+        if event.from_keyboard {
+          (press.pick)(pick_of(&event, multiple));
+          return;
+        }
         if event.button != MouseButton::Left {
           return;
         }
@@ -1023,13 +1032,6 @@ impl TreeRow {
           (press.activate)();
         } else {
           (press.pick)(pick_of(&event, false));
-        }
-      });
-      // Space clicks the focused row: it selects too. A click of the pointer selected at its press.
-      let space = actions.clone();
-      row = row.on_click(move |event: MouseEvent| {
-        if event.from_keyboard {
-          (space.pick)(pick_of(&event, multiple));
         }
       });
       row = row.on_key_down(move |event: KeyboardEvent| {
@@ -1121,6 +1123,7 @@ impl TreeRow {
           toggle(open);
         }
       });
+      chevron = chevron.on_click(|event: MouseEvent| event.stop_propagation());
     }
     chevron.into()
   }

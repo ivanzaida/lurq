@@ -21,6 +21,19 @@ use crate::{
   node::{Node, SyntheticNodeRole},
 };
 
+/// Where Tab goes on from while nothing has the focus, the sequential focus navigation starting point of a
+/// browser: see [`FocusStart`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StartPoint {
+  /// On the node: Tab goes to the first stop after it, Shift+Tab to the last stop before it.
+  On(NodeId),
+  /// Just before the node: the one that took the place of what was there, or an element Tab passes by
+  /// whole (disabled, inert, dropped) that holds it.
+  Before(NodeId),
+  /// Just after the node and all it holds: what was its last child has gone.
+  After(NodeId),
+}
+
 pub(super) enum TabMove {
   Focus(FocusTarget),
   /// An open modal has no stops: Tab is consumed and focus stays.
@@ -61,17 +74,24 @@ struct Walk<'a> {
   pending: Vec<&'a Node>,
   /// The stop the walk is in, where it is in a button that has stops inside it.
   owner: Option<NodeId>,
+  /// Where Tab goes on from while nothing has the focus.
+  start: Option<StartPoint>,
+  /// The orders `start` is at, where the walk met it: the first a stop has to have for Tab to go to it, and
+  /// the one a stop has to be under for Shift+Tab.
+  start_bounds: Option<(usize, usize)>,
 }
 
 /// `dropped` holds the nodes the last layout dropped from their Row/Column
 /// (see [`dropped_node_ids`]); nothing inside them is a stop. `moved` holds
 /// the layers of the overlays that move the focus, with their anchors
-/// ([`super::Tree::focus_moving_layers`]).
+/// ([`super::Tree::focus_moving_layers`]). `start` is where Tab goes on from
+/// when nothing has the focus.
 pub(super) fn tab_move(
   root: &Node,
   dropped: &[NodeId],
   moved: &[(OwnedElementRef, &Node)],
   focused: Option<(NodeId, &[usize])>,
+  start: Option<StartPoint>,
   reverse: bool,
 ) -> TabMove {
   let modal = top_modal_path(root);
@@ -81,7 +101,7 @@ pub(super) fn tab_move(
     Some(path) => find_node_by_path(root, path),
     None => Some(root),
   };
-  match scope.and_then(|scope| next_stop(scope, dropped, moved, focused.map(|(id, _)| id), reverse)) {
+  match scope.and_then(|scope| next_stop(scope, dropped, moved, focused.map(|(id, _)| id), start, reverse)) {
     Some(target) => TabMove::Focus(target),
     None if modal.is_some() => TabMove::Stay,
     None => TabMove::Unhandled,
@@ -179,6 +199,7 @@ fn next_stop<'a>(
   dropped: &[NodeId],
   moved: &'a [(OwnedElementRef, &'a Node)],
   focused: Option<NodeId>,
+  start: Option<StartPoint>,
   reverse: bool,
 ) -> Option<FocusTarget> {
   let mut walk = Walk {
@@ -191,6 +212,8 @@ fn next_stop<'a>(
     in_one_stop: 0,
     pending: Vec::new(),
     owner: None,
+    start: if focused.is_none() { start } else { None },
+    start_bounds: None,
   };
   collect_stops(scope, dropped, None, false, &mut walk);
   // A layer whose anchor the walk did not reach (in a disabled element) is where the host has it: after the
@@ -201,6 +224,7 @@ fn next_stop<'a>(
       collect_node(layer, dropped, None, false, &mut walk);
     }
   }
+  let start = walk.start_bounds;
   let stops = &mut walk.stops;
   if stops.is_empty() {
     return None;
@@ -222,9 +246,21 @@ fn next_stop<'a>(
         stops.iter().position(|stop| stop.key > key).unwrap_or(0)
       }
     }
-    (None, None) if reverse => last,
-    // Nothing has the focus: a modal opening, or Tab in a window with no focus. A stop marked to take it first.
-    (None, None) => stops.iter().position(|stop| stop.autofocus).unwrap_or(0),
+    // The focus was dropped (a key blurred it, what had it left the tree or was disabled) or a press on what takes
+    // none put the place there: Tab goes on from it, as a browser's does from its starting point.
+    (None, None) => match start {
+      Some((_, back)) if reverse => stops
+        .iter()
+        .rposition(|stop| stop.key < stop_key(0, back))
+        .unwrap_or(last),
+      Some((forward, _)) => stops
+        .iter()
+        .position(|stop| stop.key >= stop_key(0, forward))
+        .unwrap_or(0),
+      None if reverse => last,
+      // Nothing has the focus: a modal opening, or Tab in a window with no focus. A stop marked to take it first.
+      None => stops.iter().position(|stop| stop.autofocus).unwrap_or(0),
+    },
   };
   Some(stops[next].target)
 }
@@ -258,8 +294,35 @@ fn collect_stops<'a>(
   }
 }
 
-/// The stops in `node` and under it, where the walk is at it.
+/// The stops in `node` and under it, where the walk is at it, and the orders of the starting point where it is
+/// at `node`.
 fn collect_node<'a>(
+  node: &'a Node,
+  dropped: &[NodeId],
+  focus_event_id: Option<NodeId>,
+  in_form: bool,
+  walk: &mut Walk<'a>,
+) {
+  let id = node.node_id();
+  let before = walk.visited;
+  if walk.start == Some(StartPoint::Before(id)) {
+    walk.start_bounds = Some((before, before));
+  }
+  visit_node(node, dropped, focus_event_id, in_form, walk);
+  if walk.start == Some(StartPoint::On(id)) {
+    // Its own order is `before` where the walk counted it, a stop or not.
+    walk.start_bounds = Some(if walk.visited > before {
+      (before + 1, before)
+    } else {
+      (before, before)
+    });
+  }
+  if walk.start == Some(StartPoint::After(id)) {
+    walk.start_bounds = Some((walk.visited, walk.visited));
+  }
+}
+
+fn visit_node<'a>(
   node: &'a Node,
   dropped: &[NodeId],
   focus_event_id: Option<NodeId>,
@@ -348,6 +411,70 @@ fn collect_node<'a>(
   if one_stop && walk.in_one_stop == 0 {
     for layer in std::mem::take(&mut walk.pending) {
       collect_node(layer, dropped, None, false, walk);
+    }
+  }
+}
+
+/// The place Tab goes on from while nothing has the focus: the node the focus was dropped from, or the one a press
+/// that took no focus was on, with its path (child indices from the root) then. The root wraps the page in an
+/// overlay host while a layer is open and not otherwise, so the path says which it was from.
+#[derive(Clone, Debug)]
+pub(super) struct FocusStart {
+  node: NodeId,
+  path: Vec<usize>,
+  hosted: bool,
+}
+
+impl FocusStart {
+  pub(super) fn new(root: &Node, node: NodeId, path: Vec<usize>) -> Self {
+    Self {
+      node,
+      path,
+      hosted: root.has_synthetic_role(SyntheticNodeRole::OverlayHost),
+    }
+  }
+
+  /// Where Tab goes on from now: the node where it still is, else what took its place at its path, else the end
+  /// of the deepest element of the path still there. A node inside an element Tab passes by whole (disabled,
+  /// inert, dropped, leaving) is where that element is.
+  pub(super) fn point(&self, root: &Node, dropped: &[NodeId]) -> StartPoint {
+    let passed = |node: &Node| {
+      dropped.contains(&node.node_id()) || node.is_disabled() || node.is_inert() || node.is_leaving_layer()
+    };
+    let (path, found) = match super::find_path_by_id(root, self.node) {
+      Some(path) => (path, true),
+      None => {
+        // The page is the overlay host's first child.
+        let hosted = root.has_synthetic_role(SyntheticNodeRole::OverlayHost);
+        let path = match (self.hosted, hosted) {
+          (true, false) => match self.path.split_first() {
+            Some((0, page)) => page.to_vec(),
+            // It was in a layer that has gone: the end of the page.
+            _ => return StartPoint::After(root.node_id()),
+          },
+          (false, true) => std::iter::once(0).chain(self.path.iter().copied()).collect(),
+          _ => self.path.clone(),
+        };
+        (path, false)
+      }
+    };
+    let mut at = root;
+    if passed(at) {
+      return StartPoint::Before(at.node_id());
+    }
+    for &index in &path {
+      let Some(child) = at.children().get(index) else {
+        return StartPoint::After(at.node_id());
+      };
+      if passed(child) {
+        return StartPoint::Before(child.node_id());
+      }
+      at = child;
+    }
+    if found {
+      StartPoint::On(self.node)
+    } else {
+      StartPoint::Before(at.node_id())
     }
   }
 }
