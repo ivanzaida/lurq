@@ -142,7 +142,16 @@ impl FileUploadPage {
     let upload = make(FileUpload::new(self.files.clone()))
       .force(self.playground.forced())
       .on_files(move |files| {
-        let names: Vec<&str> = files.iter().map(|file| file.name()).collect();
+        // The whole path where the platform gives one (a drop or a choice on a desktop), the name where it
+        // does not (a browser).
+        let names: Vec<String> = files
+          .iter()
+          .map(|file| {
+            file
+              .path()
+              .map_or_else(|| file.name().to_owned(), |path| path.display().to_string())
+          })
+          .collect();
         given(format!("on_files([{}])", names.join(", ")));
         start.start();
       })
