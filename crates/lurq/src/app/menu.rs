@@ -9,14 +9,168 @@ pub enum MenuBarSupport {
   Unavailable,
 }
 
-/// A lowercase character or named key (Tab, Enter, Escape, Backspace, Delete,
-/// ArrowUp/Down/Left/Right, F1..F24). Use the shift modifier for shifted keys.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A key combination: a key with the modifiers held as it goes down. What an item of the app's menu is chosen by,
+/// what [`ui::Kbd`](crate::ui::Kbd) draws, and what a [`ui::ShortcutRecorder`](crate::ui::ShortcutRecorder) holds.
+///
+/// The key is a lowercase character or a named key (Tab, Enter, Escape, Backspace, Delete, Space as `" "`,
+/// ArrowUp/Down/Left/Right, Home, End, PageUp, PageDown, Insert, F1..F24). A shifted key is its unshifted one with the
+/// shift modifier: Shift+1, not `!`.
+///
+/// ```
+/// use lurq::app::Accelerator;
+///
+/// let palette = Accelerator::parse("Ctrl+Shift+P").unwrap();
+/// assert_eq!(palette.to_string(), "Ctrl+Shift+P");
+/// assert!(palette.modifiers.ctrl && palette.modifiers.shift);
+/// // `Mod` is Cmd on a Mac and Ctrl elsewhere.
+/// let save = Accelerator::parse("Mod+S").unwrap();
+/// assert!(save.has_modifier());
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Accelerator {
   pub key: Arc<str>,
   pub modifiers: SyntheticModifiers,
 }
+
+/// Keys that are held with another and are no combination alone, and what names no key.
+const NOT_A_KEY: &[&str] = &[
+  "Shift",
+  "Control",
+  "Alt",
+  "AltGraph",
+  "Meta",
+  "OS",
+  "Super",
+  "Hyper",
+  "Fn",
+  "FnLock",
+  "CapsLock",
+  "NumLock",
+  "ScrollLock",
+  "Dead",
+  "Unidentified",
+  "Process",
+  "",
+];
+
+/// A named key as a person writes it, in lowercase, and the name lurq gives it.
+fn named_key(folded: &str) -> Option<&'static str> {
+  Some(match folded {
+    "enter" | "return" => "Enter",
+    "escape" | "esc" => "Escape",
+    "backspace" => "Backspace",
+    "delete" | "del" => "Delete",
+    "tab" => "Tab",
+    "space" | "spacebar" => " ",
+    "up" | "arrowup" => "ArrowUp",
+    "down" | "arrowdown" => "ArrowDown",
+    "left" | "arrowleft" => "ArrowLeft",
+    "right" | "arrowright" => "ArrowRight",
+    "home" => "Home",
+    "end" => "End",
+    "pageup" | "pgup" => "PageUp",
+    "pagedown" | "pgdn" => "PageDown",
+    "insert" | "ins" => "Insert",
+    _ => return None,
+  })
+}
+
 impl Accelerator {
+  /// `key` with `modifiers` held.
+  pub fn new(key: impl Into<Arc<str>>, modifiers: SyntheticModifiers) -> Self {
+    Self {
+      key: key.into(),
+      modifiers,
+    }
+  }
+
+  /// The combination a key that went down makes: its key, unshifted where it is a letter or a digit, and the
+  /// modifiers held. `None` for a modifier alone (Shift, Control, Alt, Meta) and for what names no key.
+  pub fn from_key_event(event: &crate::app::events::KeyboardEvent) -> Option<Self> {
+    if NOT_A_KEY.contains(&event.key.as_str()) {
+      return None;
+    }
+    let code = event.code.as_str();
+    let key: Arc<str> = if let Some(letter) = code.strip_prefix("Key").filter(|rest| rest.len() == 1) {
+      Arc::from(letter.to_lowercase())
+    } else if let Some(digit) = code.strip_prefix("Digit").filter(|rest| rest.len() == 1) {
+      Arc::from(digit)
+    } else if event.key.chars().count() == 1 {
+      Arc::from(event.key.to_lowercase())
+    } else {
+      Arc::from(event.key.as_str())
+    };
+    Some(Self::new(
+      key,
+      SyntheticModifiers {
+        shift: event.shift,
+        ctrl: event.ctrl,
+        alt: event.alt,
+        meta: event.meta,
+      },
+    ))
+  }
+
+  /// Whether a key that went down is this combination: the same key, with these modifiers held and no other.
+  pub fn matches(&self, event: &crate::app::events::KeyboardEvent) -> bool {
+    Self::from_key_event(event).as_ref() == Some(self)
+  }
+
+  /// Whether a modifier is held with the key: Ctrl, Alt, Shift or Meta.
+  pub fn has_modifier(&self) -> bool {
+    let m = self.modifiers;
+    m.ctrl || m.alt || m.shift || m.meta
+  }
+
+  /// A combination as a person writes it: keys parted by `+` in any case, the modifiers `Ctrl`, `Alt` (`Option`),
+  /// `Shift`, `Meta` (`Cmd`, `Super`, `Win`) and `Mod` (Cmd on a Mac, Ctrl elsewhere), then one key: `Ctrl+Shift+P`,
+  /// `Mod+K`, `Alt+F4`, `Ctrl++`. `None` where there is no key, or more than one.
+  pub fn parse(text: &str) -> Option<Self> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut part = String::new();
+    for character in text.chars() {
+      if character == '+' && !part.trim().is_empty() {
+        parts.push(std::mem::take(&mut part));
+      } else {
+        part.push(character);
+      }
+    }
+    parts.push(part);
+    let mut modifiers = SyntheticModifiers::default();
+    let mut key = None;
+    for part in parts {
+      let written = if part.trim().is_empty() {
+        part.as_str()
+      } else {
+        part.trim()
+      };
+      if written.is_empty() {
+        continue;
+      }
+      let folded = written.to_lowercase();
+      match folded.as_str() {
+        "ctrl" | "control" => modifiers.ctrl = true,
+        "alt" | "option" | "opt" => modifiers.alt = true,
+        "shift" => modifiers.shift = true,
+        "meta" | "cmd" | "command" | "super" | "win" | "windows" => modifiers.meta = true,
+        "mod" if cfg!(any(target_os = "macos", target_os = "ios")) => modifiers.meta = true,
+        "mod" => modifiers.ctrl = true,
+        _ if key.is_some() => return None,
+        _ => {
+          key = Some(match named_key(&folded) {
+            Some(name) => Arc::from(name),
+            None if folded.starts_with('f') && folded[1..].parse::<u32>().is_ok_and(|n| (1..=24).contains(&n)) => {
+              Arc::from(folded.to_uppercase())
+            }
+            None if written.chars().count() == 1 => Arc::from(folded),
+            None => Arc::from(written),
+          })
+        }
+      }
+    }
+    Some(Self::new(key?, modifiers))
+  }
+
   pub fn command(key: impl Into<Arc<str>>) -> Self {
     Self {
       key: key.into(),
@@ -58,6 +212,32 @@ impl Accelerator {
       if m.meta { "⌘" } else { "" },
       self.key.to_uppercase()
     )
+  }
+}
+
+/// A combination written as [`Accelerator::parse`] reads it: the modifiers held, in the order Ctrl, Alt, Shift, Meta,
+/// then the key, a letter in capitals: `Ctrl+Shift+P`, `Alt+Space`. What an app stores; what a person reads is drawn
+/// by [`ui::Kbd`](crate::ui::Kbd) in the names of their platform.
+impl std::fmt::Display for Accelerator {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let m = self.modifiers;
+    for (held, name) in [(m.ctrl, "Ctrl"), (m.alt, "Alt"), (m.shift, "Shift"), (m.meta, "Meta")] {
+      if held {
+        write!(formatter, "{name}+")?;
+      }
+    }
+    match self.key.as_ref() {
+      " " => write!(formatter, "Space"),
+      key if key.chars().count() == 1 => write!(formatter, "{}", key.to_uppercase()),
+      key => write!(formatter, "{key}"),
+    }
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Accelerator {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(&self.to_string());
   }
 }
 
@@ -233,6 +413,80 @@ impl MenuController {
     } else {
       Some((state.version, state.bar.clone()))
     }
+  }
+}
+
+#[cfg(test)]
+mod accelerator_tests {
+  use super::*;
+  use crate::{
+    app::events::{EventControl, KeyboardEvent},
+    core::NodeId,
+  };
+
+  fn pressed(key: &str, code: &str, shift: bool, ctrl: bool) -> KeyboardEvent {
+    KeyboardEvent {
+      key: key.to_owned(),
+      code: code.to_owned(),
+      shift,
+      ctrl,
+      alt: false,
+      meta: false,
+      target_id: NodeId::UNASSIGNED,
+      text_input_focused: false,
+      composing: false,
+      focus_within: true,
+      control: EventControl::new(),
+    }
+  }
+
+  #[test]
+  fn a_key_that_goes_down_makes_its_combination_unshifted() {
+    let palette = Accelerator::from_key_event(&pressed("P", "KeyP", true, true)).unwrap();
+    assert_eq!(palette, Accelerator::parse("Ctrl+Shift+P").unwrap());
+    assert_eq!(palette.key.as_ref(), "p");
+    // Shift+1 is 1 with shift, not the `!` it types.
+    let one = Accelerator::from_key_event(&pressed("!", "Digit1", true, false)).unwrap();
+    assert_eq!(one.to_string(), "Shift+1");
+    assert_eq!(
+      Accelerator::from_key_event(&pressed("F5", "F5", false, false))
+        .unwrap()
+        .to_string(),
+      "F5"
+    );
+    // A modifier alone is no combination.
+    for modifier in ["Shift", "Control", "Alt", "Meta"] {
+      assert_eq!(
+        Accelerator::from_key_event(&pressed(modifier, modifier, true, true)),
+        None,
+        "{modifier}"
+      );
+    }
+    assert!(palette.matches(&pressed("P", "KeyP", true, true)));
+    assert!(!palette.matches(&pressed("P", "KeyP", false, true)), "another modifier");
+  }
+
+  #[test]
+  fn a_combination_is_written_as_it_is_read() {
+    for written in [
+      "Ctrl+Shift+P",
+      "Alt+F4",
+      "Ctrl+Alt+Shift+Meta+K",
+      "Space",
+      "Ctrl+Enter",
+      "Shift+ArrowUp",
+      "Ctrl++",
+    ] {
+      assert_eq!(Accelerator::parse(written).unwrap().to_string(), written, "{written}");
+    }
+    assert_eq!(
+      Accelerator::parse("ctrl + shift + p").unwrap().to_string(),
+      "Ctrl+Shift+P"
+    );
+    assert_eq!(Accelerator::parse("Cmd+Esc").unwrap().to_string(), "Meta+Escape");
+    assert_eq!(Accelerator::parse("Ctrl+Shift"), None, "no key");
+    assert_eq!(Accelerator::parse("Ctrl+A+B"), None, "two keys");
+    assert!(!Accelerator::parse("F5").unwrap().has_modifier());
   }
 }
 

@@ -611,6 +611,15 @@ pub(crate) trait NodeUpdate {
   /// no focus request reaches it, no pointer hits it, and the focus in it leaves when it becomes inert. It is painted
   /// as before. A splitter's closed pane is inert.
   fn inert(&mut self, inert: bool);
+  /// While the node is in the tree it takes every key of the window before anything else does: its own
+  /// `on_key_down` and `on_key_up` handlers alone are told of a key, and nothing the window does with a key is done
+  /// (Tab, Enter, Escape, the arrows of a focus group, a menu's Alt, typing in an input, the handlers of every other
+  /// node, the accelerators of the app's menu). A shortcut recorder while it records.
+  fn captures_keys(&mut self, captures: bool);
+  /// What the node gives a form under its `name` where its kind gives nothing of its own (a text input gives its
+  /// text, a checkbox `on`): a control of the design system that is no engine control, as a shortcut recorder's
+  /// `Ctrl+Shift+P`.
+  fn form_value(&mut self, value: Option<Arc<str>>);
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);
   fn within_style(&mut self, style: Style);
@@ -943,6 +952,11 @@ pub(crate) struct RareStyle {
   pub(crate) disabled: bool,
   /// The node and its subtree are out of the focus and the pointer; see `NodeUpdate::inert`.
   pub(crate) inert: bool,
+  /// The node takes every key of the window while it is in the tree; see `NodeUpdate::captures_keys`.
+  pub(crate) captures_keys: bool,
+  /// What the node gives a form under its name, where its kind gives nothing of its own; see
+  /// `NodeUpdate::form_value`.
+  pub(crate) form_value: Option<Arc<str>>,
   /// A child removed from the node stays until its exit animation ends; see `node/presence.rs`.
   pub(crate) presence: bool,
   /// Where the node sticks in the scroll container it is in. Here, and not in `Position`, because every
@@ -1110,6 +1124,18 @@ impl NodeUpdate for Node {
     // Writing through the lazy box would allocate it for a node that is not, and stays not, inert.
     if self.rare_style.inert != inert {
       self.rare_style.inert = inert;
+    }
+  }
+
+  fn captures_keys(&mut self, captures: bool) {
+    if self.rare_style.captures_keys != captures {
+      self.rare_style.captures_keys = captures;
+    }
+  }
+
+  fn form_value(&mut self, value: Option<Arc<str>>) {
+    if self.rare_style.form_value != value {
+      self.rare_style.form_value = value;
     }
   }
 
@@ -4993,6 +5019,17 @@ impl Node {
   /// see [`InteractionState::is_disabled`](crate::node::interaction_state::InteractionState::is_disabled).
   pub(crate) fn is_disabled(&self) -> bool {
     self.rare_style.disabled
+  }
+
+  /// What the node gives a form under its name where its kind gives nothing: see `NodeUpdate::form_value`.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
+  pub(crate) fn form_value(&self) -> Option<&Arc<str>> {
+    self.rare_style.form_value.as_ref()
+  }
+
+  /// Whether the node takes every key of the window: see `NodeUpdate::captures_keys`.
+  pub(crate) fn captures_keys(&self) -> bool {
+    self.rare_style.captures_keys
   }
 
   /// The node was built inert, or its ref made it so (`ElementRefMut::set_inert`). An element it is in may make it

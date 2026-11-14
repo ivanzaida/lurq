@@ -7,6 +7,7 @@ mod text {
 }
 
 mod clipboard_content;
+mod key_capture;
 mod paste;
 
 mod synthetic {

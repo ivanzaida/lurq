@@ -227,3 +227,33 @@ fn stack_empty() {
   assert_eq!(result.size.width, 0.0);
   assert_eq!(result.size.height, 0.0);
 }
+
+#[test]
+fn an_absolute_child_in_percent_of_an_unbounded_stack_is_a_share_of_the_stack_as_laid_out() {
+  use lurq::node::dimension::Dimension;
+  let mut rt = rt();
+  // What lays the stack out bounds neither way: a share of nothing would be nothing, so it is a share of the stack.
+  let node = lurq::components::Stack::new()
+    .child(lurq::components::Rect::new(300.0, 200.0))
+    .child(lurq::components::Stack::new().absolute(0.0, 0.0, Dimension::Pct(100.0), Dimension::Pct(50.0)));
+  rt.set_root(node);
+  let result = rt
+    .pass_layout(Constraints::loose(Size::new(f32::INFINITY, f32::INFINITY)))
+    .unwrap();
+  assert_eq!((result.size.width, result.size.height), (300.0, 200.0));
+  let layer = &result.children[1].result.size;
+  assert_eq!((layer.width, layer.height), (300.0, 100.0));
+}
+
+#[test]
+fn an_absolute_child_in_percent_of_a_bounded_stack_is_a_share_of_its_bounds_as_before() {
+  use lurq::node::dimension::Dimension;
+  let mut rt = rt();
+  let node = lurq::components::Stack::new()
+    .child(lurq::components::Rect::new(300.0, 200.0))
+    .child(lurq::components::Stack::new().absolute(0.0, 0.0, Dimension::Pct(100.0), Dimension::Pct(100.0)));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 500.0))).unwrap();
+  let layer = &result.children[1].result.size;
+  assert_eq!((layer.width, layer.height), (400.0, 500.0));
+}

@@ -38,6 +38,7 @@ mod family_play;
 mod fieldset;
 mod file_upload;
 mod find_bar;
+mod floating_panel;
 mod hover_card;
 mod icons;
 mod input;
@@ -72,6 +73,7 @@ mod search_field;
 mod select;
 mod separator;
 mod sheet;
+mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -430,6 +432,14 @@ pub const PAGES: &[Page] = &[
     about: "rating stars score review feedback quality half precision clearable read only at optional controlled max size icon empty_icon label value_text invalid disabled on_change slider",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<rating::RatingPage>(()),
+  },
+  Page {
+    path: "/shortcut-recorder",
+    name: "Shortcut Recorder",
+    icon: Some("keyboard"),
+    about: "shortcut recorder hotkey keybinding key combination accelerator record capture press keys kbd conflict taken validate require_modifier placeholder recording_text clear_label modifier_text platform optional controlled on_change size invalid warning valid read_only disabled full_width name label",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<shortcut_recorder::ShortcutRecorderPage>(()),
   },
   Page {
     path: "/color-picker",
@@ -937,6 +947,14 @@ pub const PAGES: &[Page] = &[
     about: "find bar findbar search find in page replace replace all match case whole word regex regular expression count matches next previous f3 enter escape ctrl+f query on_query on_next on_previous on_replace on_replace_all on_dismiss return_focus open count_text",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<find_bar::FindBarPage>(()),
+  },
+  Page {
+    path: "/floating-panel",
+    name: "Floating Panel",
+    icon: Some("layers"),
+    about: "floating panel tool window palette inspector layers drag move resize collapse close dock title bar grip header PanelHeader FloatingPanels front position size open media button menu on_dismiss on_position_change on_size_change on_open_change default_position default_size min_size resizable collapsible close_button dismiss_on_escape label",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<floating_panel::FloatingPanelPage>(()),
   },
 ];
 

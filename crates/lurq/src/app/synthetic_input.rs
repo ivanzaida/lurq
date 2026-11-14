@@ -19,12 +19,19 @@ use crate::app::{
 
 /// Modifier state to apply to a synthetic event, matching what the shell would
 /// have read from `ModifiersChanged`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SyntheticModifiers {
   pub shift: bool,
   pub ctrl: bool,
   pub alt: bool,
   pub meta: bool,
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for SyntheticModifiers {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
 }
 
 impl SyntheticModifiers {

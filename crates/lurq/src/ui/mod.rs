@@ -50,6 +50,7 @@ mod drop_zone;
 mod empty_state;
 mod fab;
 mod field;
+mod floating_panel;
 mod fieldset;
 mod file_upload;
 mod find_bar;
@@ -92,6 +93,7 @@ mod selection;
 mod separator;
 mod shared;
 mod sheet;
+mod shortcut_recorder;
 mod sidebar;
 mod skeleton;
 mod slider;
@@ -210,6 +212,10 @@ pub use empty_state::{
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
+pub use floating_panel::{
+  FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
+  PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
+};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
   FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
@@ -321,6 +327,10 @@ pub use sheet::{
   SHEET_IN_FROM_BOTTOM, SHEET_IN_FROM_END, SHEET_IN_FROM_START, SHEET_IN_FROM_TOP, SHEET_OUT_TO_BOTTOM,
   SHEET_OUT_TO_END, SHEET_OUT_TO_START, SHEET_OUT_TO_TOP, Sheet, SheetPart, SheetRenderer, SheetSide, SheetSize,
   SheetState, SheetView,
+};
+pub use shortcut_recorder::{
+  ShortcutCheck, ShortcutRecorder, ShortcutRecorderPart, ShortcutRecorderRenderer, ShortcutRecorderSize,
+  ShortcutRecorderState, ShortcutRecorderView, ShortcutValue,
 };
 pub use sidebar::{
   Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,

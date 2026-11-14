@@ -134,6 +134,25 @@ An `Accelerator` contains a lowercase character/named key and `SyntheticModifier
 Backspace, Delete, ArrowUp/Down/Left/Right, and F1–F24. Invalid multi-character
 keys have no native equivalent. `display()` gives a readable modifier/key label.
 
+An `Accelerator` is the key combination of lurq everywhere: what a menu item is chosen by, what `ui::Kbd` draws and what
+a `ui::ShortcutRecorder` holds. `Accelerator::parse("Ctrl+Shift+P")` reads one as a person writes it (`Mod` is ⌘ on a
+Mac and Ctrl elsewhere, `Cmd`, `Option`, `Esc`, `Space` and `F5` too), and its `Display` writes it back in that form,
+the modifiers in the order Ctrl, Alt, Shift, Meta: what an app stores. `Accelerator::from_key_event(&event)` is the
+combination a key that went down makes (a letter or a digit unshifted, `None` for a modifier alone), and
+`accelerator.matches(&event)` asks whether a key is it. `has_modifier()` says whether a modifier is held with the key.
+
+```rust
+use lurq::app::{Accelerator, events::KeyboardEvent};
+
+let save = Accelerator::parse("Mod+S").unwrap();
+Row::new().on_key_down(move |event: KeyboardEvent| {
+  if save.matches(&event) {
+    event.prevent_default();
+    // save
+  }
+});
+```
+
 On macOS, a handled native key equivalent consumes both key down and its matching
 key up before the tree sees them. Keep menu-owned shortcuts in the menu model;
 remove their duplicate macOS tree handlers. Unhandled keys continue to the tree.
