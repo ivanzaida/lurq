@@ -14,6 +14,15 @@ impl ScrollVertical {
     self
   }
 
+  /// Keeps the bars beside what scrolls: the vertical one starts under what sticks at the top (a table's
+  /// header), the horizontal one after what sticks at the start (its first column), and the thumb is the share
+  /// of what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
+  /// height, as a browser's does.
+  pub fn scrollbars_clear_of_sticky(mut self, clear: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::scrollbars_clear_of_sticky(node, clear));
+    self
+  }
+
   pub fn culling(mut self, enabled: bool) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::culling(node, enabled));
     self
@@ -40,6 +49,15 @@ impl ScrollHorizontal {
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
+    self
+  }
+
+  /// Keeps the bars beside what scrolls: the vertical one starts under what sticks at the top (a table's
+  /// header), the horizontal one after what sticks at the start (its first column), and the thumb is the share
+  /// of what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
+  /// height, as a browser's does.
+  pub fn scrollbars_clear_of_sticky(mut self, clear: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::scrollbars_clear_of_sticky(node, clear));
     self
   }
 
@@ -76,6 +94,15 @@ impl ScrollBoth {
 
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
+    self
+  }
+
+  /// Keeps the bars beside what scrolls: the vertical one starts under what sticks at the top (a table's
+  /// header), the horizontal one after what sticks at the start (its first column), and the thumb is the share
+  /// of what scrolls that shows. Off unless set: a page with a banner that stays keeps its bar along the whole
+  /// height, as a browser's does.
+  pub fn scrollbars_clear_of_sticky(mut self, clear: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::scrollbars_clear_of_sticky(node, clear));
     self
   }
 

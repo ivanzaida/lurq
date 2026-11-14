@@ -244,6 +244,10 @@ struct ScrollStateInner {
   viewport_height: f32,
   viewport_abs_x: f32,
   viewport_abs_y: f32,
+  /// How far in from the viewport's left and top edges the bars start: the reach of what sticks at those edges,
+  /// for a container whose bars keep clear of it (`scrollbars_clear_of_sticky`). Nothing for one that does not.
+  bar_clear_x: f32,
+  bar_clear_y: f32,
   /// Viewport top in layout space (the space of `ElementRef` positions), set
   /// when element refs are updated after layout — unlike `viewport_abs_y`,
   /// which is set while painting and lags one frame behind layout.
@@ -315,6 +319,27 @@ impl ScrollState {
   }
 }
 
+/// Where the track of `axis`'s bar starts in from the viewport's start, how long it is, and how long its thumb
+/// is: what painting, hit testing and a drag of the thumb all go by. The track keeps the style's end insets and,
+/// where the container asks, clear of what sticks at the start: it runs beside what scrolls, and its thumb is the
+/// share of that which shows. `None` where there is no track.
+fn bar_track(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle) -> Option<(f32, f32, f32)> {
+  let (viewport, content, clear) = match axis {
+    ScrollAxis::Horizontal => (inner.viewport_width, inner.content_width, inner.bar_clear_x),
+    ScrollAxis::Vertical => (inner.viewport_height, inner.content_height, inner.bar_clear_y),
+  };
+  // What sticks never takes the whole viewport from the bar.
+  let clear = if clear < viewport { clear } else { 0.0 };
+  let start = clear + style.resolved_end_inset();
+  let track = viewport - clear - style.resolved_end_inset() * 2.0;
+  if track <= 0.0 {
+    return None;
+  }
+  let ratio = (viewport - clear) / (content - clear).max(1.0);
+  let thumb = (track * ratio).max(style.min_thumb_length).min(track);
+  Some((start, track, thumb))
+}
+
 impl Default for ScrollState {
   fn default() -> Self {
     Self::new()
@@ -350,6 +375,8 @@ impl ScrollState {
         viewport_height: 0.0,
         viewport_abs_x: 0.0,
         viewport_abs_y: 0.0,
+        bar_clear_x: 0.0,
+        bar_clear_y: 0.0,
         layout_viewport_y: 0.0,
         pass_start: None,
         thumb_hovered: false,
@@ -901,12 +928,9 @@ impl ScrollState {
 
     match axis {
       ScrollAxis::Horizontal => {
-        let track_width = inner.viewport_width - style.resolved_end_inset() * 2.0;
-        if track_width <= 0.0 {
+        let Some((_, track_width, thumb_width)) = bar_track(&inner, ScrollAxis::Horizontal, style) else {
           return;
-        }
-        let ratio = inner.viewport_width / inner.content_width.max(1.0);
-        let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
+        };
         let scrollable_track = track_width - thumb_width;
         if scrollable_track <= 0.0 {
           return;
@@ -918,12 +942,9 @@ impl ScrollState {
         inner.scroll_x = (inner.drag_start_scroll_x + scroll_delta).clamp(0.0, inner.max_scroll_x);
       }
       ScrollAxis::Vertical => {
-        let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
-        if track_height <= 0.0 {
+        let Some((_, track_height, thumb_height)) = bar_track(&inner, ScrollAxis::Vertical, style) else {
           return;
-        }
-        let ratio = inner.viewport_height / inner.content_height.max(1.0);
-        let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
+        };
         let scrollable_track = track_height - thumb_height;
         if scrollable_track <= 0.0 {
           return;
@@ -942,11 +963,9 @@ impl ScrollState {
   pub fn thumb_rect(&self, style: &crate::layout::scrollbar::ScrollBarStyle) -> (f32, f32, f32, f32) {
     let inner = self.inner.lock().unwrap();
     let track_x = inner.viewport_abs_x + inner.viewport_width - style.width - style.resolved_edge_inset();
-    let track_y = inner.viewport_abs_y + style.resolved_end_inset();
-    let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
-
-    let ratio = inner.viewport_height / inner.content_height.max(1.0);
-    let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
+    let (start, track_height, thumb_height) =
+      bar_track(&inner, ScrollAxis::Vertical, style).unwrap_or((style.resolved_end_inset(), 0.0, 0.0));
+    let track_y = inner.viewport_abs_y + start;
     let scroll_ratio = if inner.max_scroll_y > 0.0 {
       inner.scroll_y / inner.max_scroll_y
     } else {
@@ -991,16 +1010,13 @@ impl ScrollState {
 
     match axis {
       ScrollAxis::Horizontal => {
-        let track_x = inner.viewport_abs_x + style.resolved_end_inset();
+        let (start, track_width, thumb_width) = bar_track(&inner, ScrollAxis::Horizontal, style)?;
+        let track_x = inner.viewport_abs_x + start;
         let track_y = inner.viewport_abs_y + inner.container_height - style.width - style.resolved_edge_inset();
-        let track_width = inner.viewport_width - style.resolved_end_inset() * 2.0;
         let track_height = style.width;
-        if track_width <= 0.0 || track_height <= 0.0 {
+        if track_height <= 0.0 {
           return None;
         }
-
-        let ratio = inner.viewport_width / inner.content_width.max(1.0);
-        let thumb_width = (track_width * ratio).max(style.min_thumb_length).min(track_width);
         let max_scroll = (inner.content_width - inner.viewport_width).max(0.0);
         let scroll_ratio = if max_scroll > 0.0 {
           inner.scroll_x / max_scroll
@@ -1022,16 +1038,13 @@ impl ScrollState {
         })
       }
       ScrollAxis::Vertical => {
+        let (start, track_height, thumb_height) = bar_track(&inner, ScrollAxis::Vertical, style)?;
         let track_x = inner.viewport_abs_x + inner.container_width - style.width - style.resolved_edge_inset();
-        let track_y = inner.viewport_abs_y + style.resolved_end_inset();
+        let track_y = inner.viewport_abs_y + start;
         let track_width = style.width;
-        let track_height = inner.viewport_height - style.resolved_end_inset() * 2.0;
-        if track_width <= 0.0 || track_height <= 0.0 {
+        if track_width <= 0.0 {
           return None;
         }
-
-        let ratio = inner.viewport_height / inner.content_height.max(1.0);
-        let thumb_height = (track_height * ratio).max(style.min_thumb_length).min(track_height);
         let max_scroll = (inner.content_height - inner.viewport_height).max(0.0);
         let scroll_ratio = if max_scroll > 0.0 {
           inner.scroll_y / max_scroll
@@ -1106,6 +1119,15 @@ impl ScrollState {
 
   pub(crate) fn has_scroll_dirty(&self) -> bool {
     self.inner.lock().unwrap().scroll_dirty
+  }
+
+  /// How far in from the viewport's left and top edges its bars start: the reach of what sticks at those
+  /// edges, measured at each layout of a container whose bars keep clear of it, and nothing for one whose bars
+  /// do not.
+  pub(crate) fn set_bar_clearance(&self, x: f32, y: f32) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.bar_clear_x = x.max(0.0);
+    inner.bar_clear_y = y.max(0.0);
   }
 
   /// Record one measurement of the scroll container. A layout pass can

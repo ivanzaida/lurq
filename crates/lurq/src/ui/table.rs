@@ -1693,8 +1693,11 @@ impl TableView {
     } else if empty.is_none() {
       content = content.child(self.body());
     }
+    // Its bars run beside the rows: the one down under the header that stays, the one across after the first
+    // column that stays.
     let mut scroll = ScrollBoth::new(content)
       .fill_width(true)
+      .scrollbars_clear_of_sticky(true)
       .part(&self.part(TablePart::Scroll));
     if let Some(empty) = empty {
       let mut root = self.root().child(scroll.flex_full(0.0, 1.0, None));

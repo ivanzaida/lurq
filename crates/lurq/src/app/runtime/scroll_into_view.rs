@@ -18,6 +18,7 @@ use crate::{
   layout::{
     layout_kind::{LayoutKind, ScrollDirection, ScrollState},
     layout_result::LayoutResult,
+    sticky_reach::{StickyReach, sticky_reach},
   },
   node::Node,
 };
@@ -120,48 +121,12 @@ struct ScrollContainer<'n> {
 /// The viewport of `container` less the room what sticks to its edges takes, where the node `target` is not in
 /// what sticks: how far in from each edge a sticky element reaches, its inset and its size.
 fn clear_of_sticky(container: &ScrollContainer<'_>, target: NodeId) -> Rect {
-  #[derive(Default)]
-  struct Reach {
-    top: f32,
-    bottom: f32,
-    left: f32,
-    right: f32,
-  }
-  fn contains(node: &Node, target: NodeId) -> bool {
-    node.node_id() == target || node.children().iter().any(|child| contains(child, target))
-  }
-  fn walk(node: &Node, layout: &LayoutResult, target: NodeId, reach: &mut Reach) {
-    for (child, child_layout) in node.children().iter().zip(&layout.children) {
-      let result = &child_layout.result;
-      if let Some(sticky) = child.sticky()
-        && !contains(child, target)
-      {
-        let (width, height) = (result.size.width, result.size.height);
-        if let Some(inset) = sticky.top {
-          reach.top = reach.top.max(inset + height);
-        }
-        if let Some(inset) = sticky.bottom {
-          reach.bottom = reach.bottom.max(inset + height);
-        }
-        if let Some(inset) = sticky.left {
-          reach.left = reach.left.max(inset + width);
-        }
-        if let Some(inset) = sticky.right {
-          reach.right = reach.right.max(inset + width);
-        }
-      }
-      // What sticks in a container inside this one sticks to that one.
-      if result.holds.sticky && !matches!(child.layout_kind(), LayoutKind::ScrollModifier { .. }) {
-        walk(child, result, target, reach);
-      }
-    }
-  }
-  let mut reach = Reach::default();
+  let mut reach = StickyReach::default();
   if container.layout.holds.sticky
     && let (Some(content), Some(content_layout)) =
       (container.node.children().first(), container.layout.children.first())
   {
-    walk(content, &content_layout.result, target, &mut reach);
+    reach = sticky_reach(content, &content_layout.result, Some(target));
   }
   let viewport = container.viewport;
   let width = (viewport.width - reach.left - reach.right).max(0.0);

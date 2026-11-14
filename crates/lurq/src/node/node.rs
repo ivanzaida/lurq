@@ -532,6 +532,7 @@ pub(crate) trait NodeUpdate {
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn fills_viewport_width(&mut self, fills: bool);
+  fn scrollbars_clear_of_sticky(&mut self, clear: bool);
   fn align(&mut self, alignment: Alignment);
   fn flex(&mut self, factor: f32);
   fn grid_cell(&mut self, update: impl FnOnce(&mut crate::layout::grid::GridCell));
@@ -929,6 +930,8 @@ pub(crate) struct RareStyle {
   pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
   /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
   pub(crate) fills_viewport_width: bool,
+  /// A scroll container whose bars run beside what scrolls, clear of what sticks at its start.
+  pub(crate) scrollbars_clear_of_sticky: bool,
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
@@ -1327,6 +1330,13 @@ impl NodeUpdate for Node {
   fn fills_viewport_width(&mut self, fills: bool) {
     if self.rare_style.fills_viewport_width != fills {
       self.rare_style.fills_viewport_width = fills;
+      self.layout_cache.invalidate();
+    }
+  }
+
+  fn scrollbars_clear_of_sticky(&mut self, clear: bool) {
+    if self.rare_style.scrollbars_clear_of_sticky != clear {
+      self.rare_style.scrollbars_clear_of_sticky = clear;
       self.layout_cache.invalidate();
     }
   }
@@ -3165,6 +3175,11 @@ impl Node {
   /// Whether the node, a scroll container, lays its content out at least as wide as its viewport.
   pub(crate) fn fills_viewport_width(&self) -> bool {
     self.rare_style.fills_viewport_width
+  }
+
+  /// Whether the node, a scroll container, keeps its bars clear of what sticks at its start.
+  pub(crate) fn scrollbars_clear_of_sticky(&self) -> bool {
+    self.rare_style.scrollbars_clear_of_sticky
   }
 
   pub fn align(mut self, alignment: Alignment) -> Self {
@@ -5787,6 +5802,7 @@ impl Node {
       && self.rare_style.column_tracks == old.rare_style.column_tracks
       && self.rare_style.measured_tracks == old.rare_style.measured_tracks
       && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
+      && self.rare_style.scrollbars_clear_of_sticky == old.rare_style.scrollbars_clear_of_sticky
       // A node that sticks is placed again by the scroll container above it, which its layout says.
       && self.rare_style.sticky == old.rare_style.sticky
       && !self.holds_overrides_beyond_opacity()
