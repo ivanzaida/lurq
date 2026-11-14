@@ -1117,35 +1117,44 @@ Tabs::new(memory, [
 ])
 .variant(TabsVariant::Line);
 
-// The app holds which is selected, and is told of each other one selected.
-Tabs::controlled(filter, [(0, "Overview"), (1, "Activity")], move |index| set_filter(index))
+// The app holds which is selected, and is told the tab a person selects.
+Tabs::controlled(filter, [(0, "Overview"), (1, "Activity")], move |index| set_filter(*index))
   .variant(TabsVariant::Pill)
   .orientation(TabsOrientation::Vertical);
+
+// More tabs than the width holds, kept between renders.
+Tabs::new(canvas, [(0, "Canvas"), (1, "Layout"), (2, "Text")])
+  .variant(TabsVariant::Line)
+  .overflow(true)
+  .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
-| `Tabs::new(Signal<T>, tabs)` | The selected tab is the one with the signal's value; selecting another sets it. A tab is a `(value, label)` or a `Tab` |
-| `Tabs::controlled(value, tabs, select)` | The app holds which is selected: the tab of `value`, and `select` is told the value of each other tab selected |
+| `Tabs::new(Signal<T>, tabs)` | The selected tab is the one with the signal's value; selecting another sets it. A tab is a `(value, &str)` or a `Tab` |
+| `Tabs::controlled(value, tabs, on_change)` | The app holds which is selected: the tab of `value`, and `on_change` is told the value of each other tab a person selects |
+| `on_change(Fn(&T))` | Told the value of the tab a person selects (a press, the arrow keys, the menu of the overflowing form), after the signal is set. Not what the app sets, nor a press of the selected tab. A second one is called after the first |
 | `variant(TabsVariant)` | `Default`: a muted rail with the selected tab lifted out of it. `Line`: a row over a line, the selected tab underlined. `Pill`: round tabs, the selected one in the primary fill |
-| `orientation(TabsOrientation)` | `Horizontal` (the default): the list along the top, the panel under it. `Vertical`: the list down the start side, the panel beside it |
+| `orientation(TabsOrientation)` | `TabsOrientation` is `ui::Orientation`. `Horizontal` (the default): the list along the top, the panel under it. `Vertical`: the list down the start side, the panel beside it |
 | `manual(bool)` | The arrow keys move the focus alone, and Enter or Space selects: for panels slow to build. Otherwise the selection follows the focus |
 | `label(&str)` | What the list is called to what reads the tree |
-| `overflow(TabsOverflow)` | The overflowing form: the list scrolls between two scroll buttons, and More at its end opens a menu of every tab. `TabsOverflow::new(ctx.signal(false))` is made once, in the app's `create` |
+| `overflow(bool)` | The overflowing form: the list scrolls between two scroll buttons, and More at its end opens a menu of every tab |
+| `mount(ctx)` | Puts the tabs in the tree of the app's component, where the overflowing form keeps where its list is scrolled and whether its menu is open. Converted into an element on their own (`build(theme)`, `Element::from`), the tabs are the still form: scrolled to the start, a menu that does not open |
+| `more_label(&str)`, `scroll_back_label(&str)`, `scroll_on_label(&str)` | The words of the overflowing form: what the More button says and is called (it says "More" and is called "More tabs" unless told otherwise), and the names of the scroll buttons, "Scroll back" and "Scroll on" |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` makes every tab disabled. `force` draws the tab Tab stops on, the selected one, and not the panel. `id` is the root's; in the overflowing form the scroll buttons are `<id>-back` and `<id>-on` and the More button `<id>-more` |
-| `Tab::new(value, label)` | A tab. `icon(name)` before the label, `count(n)` after it, `disabled(bool)`, `separated(bool)` a divider before it, `panel(Fn() -> Element)` what it shows while selected, `id` (its item in the More menu is `<id>-item`) |
+| `Tab::new(value, label)` | A tab. `icon(name)` before the label, `count(n)` after it, `disabled(bool)`, `separated(bool)` a separator before it, `panel(Fn() -> Element)` what it shows while selected, `id` (its item in the More menu is `<id>-item`), `key` |
 
-- Exactly one tab is selected, and the app holds which. A press of a tab selects it; a press of the selected one or of a disabled one asks for nothing.
+- Exactly one tab is selected, and the app holds which. A press of a tab selects it; a press of the selected one or of a disabled one asks for nothing, and tells nothing.
 - The list is one stop of Tab, at the selected tab. The arrow keys of the orientation (Left and Right, or Up and Down) select the tab after and the one before, Home and End the first and the last, and a disabled tab is passed by; with `manual(true)` they move the focus and Space or Enter selects. Tab from the list goes to the panel, and on to what is in it.
 - The panel of a tab is built only while the tab is selected, keyed by the tab, so one tab's panel never takes another's nodes. What the runtime keeps of a panel's nodes (a scroll offset, a caret, an open select) goes when another tab is selected; what the app keeps in its own signals stays. A panel that is to come back as it was keeps its state in the app: its values in signals made in the app's `create`, its scroll in a `ScrollState` it gives the scroll area (`with_scroll_state`).
 - The panel is a stop of Tab itself, so a panel with nothing focusable in it is still reached and read; its ring is the color and width of the focus ring, 4 out from the panel, clear of what runs to its edges.
-- Parts: `TabsPart::Root` (the list and the panel), `List`, `Tab` (what is pressed and focused), `Label`, `Icon`, `Count`, `Divider`, `Panel`, and in the overflowing form `Bar` (the row of the list, its buttons and More), `ScrollButton`, `ScrollIcon`, `More`, `MoreLabel`, `MoreIcon`. A tab's parts are styled in its states: `TabsState::Selected`, `Disabled`; the whole has `Horizontal` or `Vertical`, and `Overflow`. Variants: `TabsVariant::Default`, `Line`, `Pill`.
-- In the design the default list is a rail of `Muted`, `radius-lg`, padded 3, its tabs 2 apart; a tab is 28 high, padded 12, `radius-md`, its label 13/500 in `MutedForeground` and a count of 12 in `MutedForeground` 6 after it; the selected tab is `Background` with the small shadow and its label in `Foreground`. The line list is 44 high over a line of 1 in `Border`, as wide as what holds it, its tabs 28 apart; a label is 14 in `MutedForeground` and a count 13 at 0.7, 8 apart; the selected tab is underlined with 2 in `Foreground`, its label 500 in `Foreground` and its count whole. A divider is 1 by 16 in `Border`. Down the side the line list is at least 180 wide with a line of 1 in `Border` at its start, a tab 32 high, padded 12, its label 13, and the selected tab marked with 2 in `Foreground` at its start. The pills are 30 high, padded 14, round, 4 apart, the label 13/500; the selected one is `Primary` with its label in `PrimaryForeground`. The panel is 16 under the list, or 24 beside it.
+- Parts: `TabsPart::Root` (the list and the panel), `List`, `Tab` (what is pressed and focused), `Label`, `Icon`, `Count`, `Separator`, `Panel`, and in the overflowing form `Bar` (the row of the list, its buttons and More), `ScrollButton`, `ScrollIcon`, `More`, `MoreLabel`, `MoreIcon`. A tab's parts are styled in its states: `TabsState::Selected`, `Disabled`; the whole has `Horizontal` or `Vertical`, and `Overflow`. Variants: `TabsVariant::Default`, `Line`, `Pill`.
+- In the design the default list is a rail of `Muted`, `radius-lg`, padded 3, its tabs 2 apart; a tab is 28 high, padded 12, `radius-md`, its label 13/500 in `MutedForeground` and a count of 12 in `MutedForeground` 6 after it; the selected tab is `Background` with the small shadow and its label in `Foreground`. The line list is 44 high over a line of 1 in `Border`, as wide as what holds it, its tabs 28 apart; a label is 14 in `MutedForeground` and a count 13 at 0.7, 8 apart; the selected tab is underlined with 2 in `Foreground`, its label 500 in `Foreground` and its count whole. A separator is 1 by 16 in `Border`. Down the side the line list is at least 180 wide with a line of 1 in `Border` at its start, a tab 32 high, padded 12, its label 13, and the selected tab marked with 2 in `Foreground` at its start. The pills are 30 high, padded 14, round, 4 apart, the label 13/500; the selected one is `Primary` with its label in `PrimaryForeground`. The panel is 16 under the list, or 24 beside it.
 - A tab follows the [density](../theme/#density) by the steps of a row, 8 lower at compact, 8 and 12 higher at comfortable and touch, from the design's height of each form: the default's 28 is 20, 36 and 40; a line's 44 (its list with it) is 36, 52 and 56, its 32 standing and its 40 overflowing (the bar and the list with it) the same steps; a pill's 30 is 22, 38 and 42.
 - The overflowing form is a row 40 high (over the line in the line variant): the list, its tabs 20 apart with labels of 13, between two scroll buttons 28 wide with chevrons of 14 in `Foreground`, and More at the end, set apart by a line of 1 in `Border`, padded 8 and 4, its label 13 and a chevron of 14 in `MutedForeground`. A scroll button moves the list most of the way it shows; it is for the pointer and no stop of Tab, since the arrow keys scroll the list to the tab they select. More opens a menu of every tab (`ui::Menu`), the selected one marked as a radio and a disabled one not to be chosen; choosing one selects it and scrolls the list the least that shows it.
 - A tab under the pointer has its label in `Foreground`; a disabled tab is dimmed and does not light up. The focus ring is the tab's; in the overflowing form it is drawn inside the tab, where the list that scrolls does not cut it off.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the list is a `tablist` called by `label`, with `a11y_orientation`; a tab is a `tab` called by its label, with `a11y_selected` (which `lurq_inspect` reports as `state.selected`); the panel a `tabpanel` called by its tab. More has `a11y_haspopup` `menu` and `a11y_expanded`.
-- A renderer that draws other tabs has `view.tabs` (each with its label, icon, count, and whether it is selected, disabled, set apart), `view.part(part)`, `view.tab_part(index, part)`, `view.tab(index)` (a tab with its behavior and its name to tooling), `view.list()` (the tabs as one focus group), `view.divider()`, `view.panel()` and `view.bar()` (the overflowing form).
+- A renderer that draws other tabs has `view.tabs` (each with its label, icon, count, and whether it is selected, disabled, set apart), `view.part(part)`, `view.tab_part(index, part)`, `view.tab(index)` (a tab with its behavior and its name to tooling), `view.list()` (the tabs as one focus group), `view.separator()`, `view.panel()` and `view.bar()` (the overflowing form).
 - `lurq::components::Tabs` is another thing: a set of places of an app, each a router with a history of its own kept while it is not shown, with a bar to move between them across the bottom or the top. Tabs of the design system are a choice within a page.
 
 ## Accordion
@@ -1163,20 +1172,23 @@ Accordion::new(open, [
   AccordionItem::new(2, "Can I bring my own theme?", theme_form).disabled(locked),
 ]);
 
-// Any number open: sections is a Signal<Vec<&str>>.
+// Any number open: sections is a Signal<Vec<&str>>. Each press is told what is open after it.
 Accordion::multiple(sections, [
   AccordionItem::text("billing", "Billing", "Card, address and invoices."),
   AccordionItem::text("shipping", "Shipping", "Where the order goes."),
-]);
+])
+.on_change(|open| save(open));
 ```
 
 | Builder | |
 | --- | --- |
 | `Accordion::new(Signal<Option<T>>, items)` | One item open at a time: the one whose value the signal has, or none. A press of another opens it and closes the one that was open; a press of the open one closes it |
 | `Accordion::multiple(Signal<Vec<T>>, items)` | Any number open: those whose values the signal has. A press opens an item, or closes it |
-| `Accordion::controlled(open, items, press)` | The app holds what is open: the items of `open` are, and `press` is told the value of each header pressed |
-| `AccordionItem::new(value, label, content)`, `AccordionItem::text(value, label, body)` | An item: its value, what its header says, and what it shows while it is open, an element or a text. `disabled(bool)` on an item |
-| `disabled(bool)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `disabled` is every header's |
+| `Accordion::controlled(open, items, on_change)`, `Accordion::controlled_multiple(open, items, on_change)` | The app holds what is open, one at a time or any number: the items of `open` are, and `on_change` is told the values that are to be open after a press of a header. The accordion opens and closes nothing itself |
+| `on_change(Fn(&[T]))` | Told the values of every item open after a press of a header, the whole set, once the signal is set. Not what the app sets. A second one is called after the first |
+| `label(&str)` | What the accordion is called, to what reads the tree: a `group` of that name |
+| `AccordionItem::new(value, label, content)`, `AccordionItem::text(value, label, body)` | An item: its value, what its header says, and what it shows while it is open, an element or a text. `disabled(bool)`, `id` (its header's) and `key` on an item |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` is every header's; `state` is every item's; `force` draws the header Tab stops on first, that of the first item that is not disabled |
 
 - Each header is a stop of Tab, as a web accordion's is, and Space and Enter press it; Up and Down move the focus from
   one header to the next and round, Home and End to the first and the last. A disabled header is passed by, and so is
@@ -1187,8 +1199,8 @@ Accordion::multiple(sections, [
   there at once. While an item is closed what it held is not there: not painted, and the controls in it are no stops
   of Tab.
 - Parts: `AccordionPart::Root` (the items), `Item` (an item, with the line under it), `Trigger` (its header: what is
-  pressed and focused), `Label`, `Indicator` (the chevron), `Panel` (what opens and closes) and `Content` (what the
-  panel holds, in its padding). Each item's parts are styled in that item's states, `AccordionState::Open` and
+  pressed and focused), `Label`, `Chevron`, `Panel` (what opens and closes) and `Body` (what the panel holds, in its
+  padding). Each item's parts are styled in that item's states, `AccordionState::Open` and
   `Disabled` (`AccordionState` is `CollapsibleState`).
 - In the design each item has a line of 1 in `Border` under it. Its header is 14 above and under its label, which is
 - A header follows the [density](../theme/#density): 10, 18 and 20 above and under its label at compact, comfortable and touch, the steps of a row from the design's 14.
@@ -1209,32 +1221,35 @@ person rarely needs.
 ```rust
 use lurq::ui::Collapsible;
 
-Collapsible::new("3 crates in this workspace", crates)
-  .open(open.get())
-  .on_change(move |next| open.set(next));
+// open: Signal<bool>, which a press of the header turns.
+Collapsible::new("3 crates in this workspace", crates).bind(open);
 
-Collapsible::text("Why is this here?", "Because the build needs it.");
+// The app holds whether it is open.
+Collapsible::text("Why is this here?", "Because the build needs it.")
+  .open(shown)
+  .on_change(move |next| show(next));
 ```
 
 | Builder | |
 | --- | --- |
 | `Collapsible::new(label, content)`, `Collapsible::text(label, body)` | A header that says `label`, and what it shows while it is open: an element or a text |
 | `open(bool)` | Whether what it holds is shown. The collapsible does not keep it: the app says so |
-| `on_change(handler)` | Called on a press of the header with what the collapsible is to be: open if it was closed |
-| `icons(closed, open)` | The icons of the indicator, closed and open, by their names in the theme's set; `chevrons-vertical` both |
+| `bind(Signal<bool>)` | Open while the signal is true, which a press of the header turns; the handlers of `on_change` are told after it is set |
+| `on_change(handler)` | Called on a press of the header with what the collapsible is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
+| `icon(..)`, `open_icon(..)` | The icon of the chevron by its name in the theme's set, `chevrons-vertical` unless told otherwise, and the one while it is open, the same unless told otherwise. `icon(None)` takes the chevron away |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the header |
 
 - The whole header is pressed; Tab reaches it, and Space and Enter press it. What it holds opens and closes as an
   accordion's item does.
-- Parts: `CollapsiblePart::Root`, `Trigger`, `Label`, `Indicator`, `Panel`, `Content`. States: `CollapsibleState::Open`,
+- Parts: `CollapsiblePart::Root`, `Trigger`, `Label`, `Chevron`, `Panel`, `Body`. States: `CollapsibleState::Open`,
   `Disabled`.
 - In the design the label is in the label's type (13, medium), `Foreground`; at the end of the header the
   `chevrons-vertical` icon of 16 is in a ghost button of 32 that `Highlight` fills under the pointer; what it opens is 8
   under the header. A disabled header is dimmed, and what it opens, which is the app's, is not.
 - To what reads the tree the header is a `button` called by its label, with `a11y_expanded`.
 - A renderer that draws another collapsible (`CollapsibleRenderer`) starts from `view.trigger()`, the behavior with the
-  header's style, and `view.panel()`, what opens and closes with what it holds; `view.label()` and `view.indicator()`
-  are the default ones.
+  header's style, and `view.panel()`, what opens and closes with what it holds; `view.label()` and `view.chevron()`
+  (none where it has no icon) are the default ones.
 
 ## Breadcrumb
 
