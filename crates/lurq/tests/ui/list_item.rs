@@ -59,9 +59,22 @@ fn weight_of(stage: &Stage, content: &str) -> FontWeight {
     .unwrap_or_else(|| panic!("no text {content:?} was painted"))
 }
 
-/// A stage of `list` in a column 340 wide.
+/// A stage of `list` in a column that leaves it the board's 340, 8 in from each side.
 fn stage_of(list: impl Fn() -> List + Send + Sync + 'static) -> Stage {
-  Stage::new(move |_| Column::new().width(340.0).padding(8.0).child(list()).into())
+  Stage::new(move |_| Column::new().width(356.0).padding(8.0).child(list()).into())
+}
+
+/// The color of the veil over the element with `id`: an inset shadow over its whole box, as a part's veil is painted.
+fn veil_of(stage: &mut Stage, id: &str) -> Option<Color> {
+  let (x, y, width, height) = stage.bounds(id);
+  stage.quads().into_iter().find_map(|quad| match &quad.content {
+    QuadContent::BoxShadow(shadow)
+      if shadow.inset && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height) =>
+    {
+      Some(shadow.color)
+    }
+    _ => None,
+  })
 }
 
 #[test]
@@ -245,8 +258,10 @@ fn a_selected_row_is_highlighted_a_pressed_one_veiled_and_a_disabled_one_takes_n
   assert_eq!(stage.fill_color("selected"), Some(light(PaletteColor::Highlight)));
   stage.click("disabled");
   assert_eq!(presses.load(Ordering::Relaxed), 0);
+  assert_eq!(veil_of(&mut stage, "hovered"), None);
   stage.hover("hovered");
-  assert_eq!(stage.fill_color("hovered"), Some(light(PaletteColor::StateHover)));
+  // The veil is over the row, not its fill: a selected row under the pointer stays highlighted under it.
+  assert_eq!(veil_of(&mut stage, "hovered"), Some(light(PaletteColor::StateHover)));
 }
 
 #[test]

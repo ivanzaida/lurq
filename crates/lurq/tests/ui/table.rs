@@ -617,6 +617,26 @@ fn a_row_the_keys_reach_is_shown_clear_of_the_header_that_stays_over_it() {
 }
 
 #[test]
+fn in_a_table_that_is_not_mounted_the_page_keys_move_by_what_its_height_shows() {
+  let rows = many(30);
+  let mut stage = wide(move || Table::new_shared(columns(), rows.clone()).id("t").height(240.0).into());
+  key_with(&mut stage, "Tab", false, false);
+  assert_eq!(focused(&stage).as_deref(), Some("t-row-0"));
+  // Rows of 44 in a table 240 high: a page is four or five rows on, as much as the view shows, not the last row.
+  key_with(&mut stage, "PageDown", false, false);
+  let paged = focused(&stage).unwrap();
+  assert!(paged == "t-row-4" || paged == "t-row-5", "PageDown went to {paged}");
+  let (_, row_y, ..) = stage.bounds(&paged);
+  let (_, y, ..) = stage.bounds("t");
+  assert!(
+    row_y >= y + 40.0 - 0.5 && row_y < y + 240.0,
+    "the row it went to is in view"
+  );
+  key_with(&mut stage, "PageUp", false, false);
+  assert_eq!(focused(&stage).as_deref(), Some("t-row-0"));
+}
+
+#[test]
 fn a_mounted_table_of_ten_thousand_rows_builds_those_in_view_and_end_reaches_the_last() {
   let rows = many(10_000);
   let mut stage = window(Stage::new(move |ctx| {
