@@ -20,6 +20,7 @@ mod checkbox_card;
 mod combobox;
 mod command_palette;
 mod context_menu;
+mod data_list;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
@@ -34,6 +35,8 @@ mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+mod list;
+mod listbox;
 mod mentions;
 mod menu;
 mod menubar;
@@ -705,6 +708,30 @@ pub const PAGES: &[Page] = &[
     about: "result outcome success error warning info not found 404 done finished page dialog",
     group: Group::Data,
     mount: |ctx| ctx.mount::<outcome::OutcomePage>(()),
+  },
+  Page {
+    path: "/list",
+    name: "List",
+    icon: None,
+    about: "list item row settings person avatar icon title description subtitle value meta time chevron switch divider inset contained header density touch mobile",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<list::ListPage>(()),
+  },
+  Page {
+    path: "/listbox",
+    name: "Listbox",
+    icon: None,
+    about: "listbox list box option choose chosen select single multiple many range shift ctrl group check keys page typeahead virtual thousands",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<listbox::ListboxPage>(()),
+  },
+  Page {
+    path: "/data-list",
+    name: "Data List",
+    icon: None,
+    about: "data list description list term definition value key details properties metadata dl",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
   },
   Page {
     path: "/table",

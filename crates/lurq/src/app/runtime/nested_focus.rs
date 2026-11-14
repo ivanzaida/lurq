@@ -11,11 +11,14 @@
 //! A group with [`FocusRows`] (a list that builds only the rows near its view) steps over those rows and not over
 //! the stops that are built: Up, Down, Home, End, PageUp, PageDown, the nested keys and typeahead go to any row.
 //! The row stepped to is focused at once where it is built, and otherwise asked for (`FocusRows::reveal`) and
-//! focused after the layout it is in ([`PendingRowFocus`]); keys pressed meanwhile go on from it.
+//! focused after the layout it is in ([`PendingRowFocus`]); keys pressed meanwhile go on from it. In a group whose
+//! choice follows the focus ([`FocusGroup::activate`]), or that extends with Shift
+//! ([`FocusGroup::shift_extends`]), the row is pressed once it is focused, as an element of a group that builds
+//! every one is.
 
 use std::sync::Arc;
 
-use super::{Tree, find_node_by_id, focus_visible, tab_navigation};
+use super::{MouseModifiers, Tree, find_node_by_id, focus_visible, tab_navigation};
 use crate::{
   core::NodeId,
   node::{FocusGroup, FocusRows, FocusStep, Node, step_rows},
@@ -25,6 +28,8 @@ use crate::{
 pub(super) struct PendingRowFocus {
   rows: Arc<dyn FocusRows>,
   row: usize,
+  /// The press to make of it once it is focused, with these keys held.
+  press: Option<MouseModifiers>,
 }
 
 /// Whether two handles are the rows of one group: the same `Arc`.
@@ -142,8 +147,8 @@ fn parent(branches: &[Branch], index: usize) -> Option<usize> {
 }
 
 impl Tree {
-  /// A key of the group `group` (`config`), whose rows are `rows`, the focus on its row `current`. Returns whether
-  /// the key was the group's.
+  /// A key of the group `group` (`config`), whose rows are `rows`, the focus on its row `current`, with
+  /// `modifiers` held. Returns whether the key was the group's.
   pub(super) fn focus_rows_key(
     &mut self,
     group: NodeId,
@@ -151,6 +156,7 @@ impl Tree {
     config: FocusGroup,
     current: usize,
     step: FocusStep,
+    modifiers: MouseModifiers,
   ) -> bool {
     let count = rows.count();
     if current >= count {
@@ -189,14 +195,22 @@ impl Tree {
       _ => step_rows(step, current, count, rows.page(), config.wrap, |row| rows.enabled(row)),
     };
     if let Some(target) = target {
-      self.focus_row(group, rows, target);
+      // A move with Shift in a group that extends with it presses what it moved to with Shift: a range.
+      let press = (config.activate || (config.shift_extends && modifiers.shift)).then_some(modifiers);
+      self.focus_row(group, rows, target, press);
     }
     true
   }
 
   /// Focuses the row `row` of the group `group`, whose rows are `rows`: its element, where the list built it, or
-  /// once a layout has it, the list asked to build it.
-  pub(super) fn focus_row(&mut self, group: NodeId, rows: Arc<dyn FocusRows>, row: usize) {
+  /// once a layout has it, the list asked to build it. `press` presses it once it is focused, with those keys.
+  pub(super) fn focus_row(
+    &mut self,
+    group: NodeId,
+    rows: Arc<dyn FocusRows>,
+    row: usize,
+    press: Option<MouseModifiers>,
+  ) {
     let built = self
       .root
       .as_ref()
@@ -208,23 +222,26 @@ impl Tree {
         self.pending_row_focus = None;
         self.focus_node(target);
         self.scroll_focused_into_view();
+        if let Some(modifiers) = press {
+          self.activate_focused_button(modifiers);
+        }
       }
       None => {
         rows.reveal(row);
-        self.pending_row_focus = Some(PendingRowFocus { rows, row });
+        self.pending_row_focus = Some(PendingRowFocus { rows, row, press });
       }
     }
   }
 
   /// A key pressed while a group of rows waits for a row: it goes on from that row. `None` where nothing waits
   /// or the key is not the group's.
-  pub(super) fn pending_rows_key(&mut self, key: &str) -> Option<bool> {
+  pub(super) fn pending_rows_key(&mut self, key: &str, modifiers: MouseModifiers) -> Option<bool> {
     let pending = self.pending_row_focus.as_ref()?;
     let (rows, row) = (pending.rows.clone(), pending.row);
     let (group, config) = group_of_rows(self.root.as_ref()?, &rows)?;
     let group = group.node_id();
     let step = config.step(key)?;
-    Some(self.focus_rows_key(group, rows, config, row, step))
+    Some(self.focus_rows_key(group, rows, config, row, step, modifiers))
   }
 
   /// After a layout: focuses the row a group of rows waited for, where the list has built it now.
@@ -243,10 +260,14 @@ impl Tree {
     let Some(target) = row_stop(group, pending.row, &self.dropped_nodes) else {
       return;
     };
+    let press = pending.press;
     self.pending_row_focus = None;
     self.focus_node(target);
     if self.focused_node == Some(target.input_id) {
       self.request_scroll_into_view(target.input_id);
+      if let Some(modifiers) = press {
+        self.activate_focused_button(modifiers);
+      }
     }
   }
 }

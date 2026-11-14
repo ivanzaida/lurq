@@ -176,3 +176,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T> {
     move || pick(value.clone())
   }
 }
+
+/// A choice is an option of a list that is chosen from, a [`Listbox`](super::Listbox)'s: its label, its icon before
+/// it, and whether it cannot be chosen.
+impl<T> From<Choice<T>> for components::SelectOption<T> {
+  fn from(choice: Choice<T>) -> Self {
+    let mut option = components::SelectOption::new(choice.value, choice.label).disabled(choice.disabled);
+    if let Some(name) = choice.icon {
+      option = option.leading_with(move |_| Icon::new(name.clone()).build(&super::current_theme()));
+    }
+    option
+  }
+}

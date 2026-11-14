@@ -8,6 +8,7 @@ mod focusable;
 mod forms_in_scope;
 mod inert;
 mod keyed_focus;
+mod list_keys;
 mod menu_row;
 mod modal_trap;
 mod nested_focus_group;

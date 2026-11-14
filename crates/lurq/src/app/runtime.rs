@@ -100,6 +100,7 @@ mod modal_focus;
 mod nested_focus;
 mod outside_press;
 mod overlay_layers;
+mod page_focus;
 mod paste;
 mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
@@ -4295,7 +4296,7 @@ impl Tree {
   /// group, or it is on a control that takes the arrow keys itself.
   fn focus_group_key(&mut self, key: &str, modifiers: MouseModifiers) -> bool {
     // While a group of rows waits for the row it stepped to, the keys go on from that row: see `nested_focus`.
-    if let Some(handled) = self.pending_rows_key(key) {
+    if let Some(handled) = self.pending_rows_key(key, modifiers) {
       return handled;
     }
     let (Some(focused), Some(path)) = (self.focused_node, self.focused_path.clone()) else {
@@ -4315,8 +4316,10 @@ impl Tree {
       if let Some((group, step)) = node
         .focus_group_value()
         .and_then(|group| Some((group, group.step(key)?)))
-        // PageUp and PageDown are a group's only where it steps over rows of its own.
-        .filter(|(_, step)| !step.is_page() || node.focus_branch().is_some_and(|branch| branch.rows.is_some()))
+        // PageUp and PageDown are a group's only where it pages or steps over rows of its own.
+        .filter(|(group, step)| {
+          !step.is_page() || group.pages || node.focus_branch().is_some_and(|branch| branch.rows.is_some())
+        })
       {
         found = Some((node, group, step));
       }
@@ -4340,7 +4343,7 @@ impl Tree {
       && let Some(row) = node.focus_branch().and_then(|branch| branch.row)
     {
       let group_id = group_node.node_id();
-      return self.focus_rows_key(group_id, rows, group, row, step);
+      return self.focus_rows_key(group_id, rows, group, row, step, modifiers);
     }
     // Right, Left and `*` in a nested group open, close and climb: see `nested_focus`.
     if step.is_nested() {
@@ -4359,13 +4362,14 @@ impl Tree {
       crate::node::FocusStep::Back if group.wrap => last,
       crate::node::FocusStep::On if current < last => current + 1,
       crate::node::FocusStep::On if group.wrap => 0,
+      // A page back or on: see `page_focus`.
+      crate::node::FocusStep::PageBack => self.focus_group_page(&stops, current, false),
+      crate::node::FocusStep::PageOn => self.focus_group_page(&stops, current, true),
       crate::node::FocusStep::Back
       | crate::node::FocusStep::On
       | crate::node::FocusStep::Open
       | crate::node::FocusStep::Close
-      | crate::node::FocusStep::OpenSiblings
-      | crate::node::FocusStep::PageBack
-      | crate::node::FocusStep::PageOn => current,
+      | crate::node::FocusStep::OpenSiblings => current,
     };
     // The key is the group's even where it moves nothing: at an end of a group that does not wrap.
     if next != current {
@@ -4373,7 +4377,8 @@ impl Tree {
       self.set_input_modality(focus_visible::InputModality::Keyboard);
       self.focus_node(target);
       self.scroll_focused_into_view();
-      if group.activate {
+      // A move with Shift in a group that extends with it presses what it moved to with Shift: a range.
+      if group.activate || (group.shift_extends && modifiers.shift) {
         self.activate_focused_button(modifiers);
       }
       // In a group the focus follows the pointer in, what the keys moved to is the one item that is lit: the

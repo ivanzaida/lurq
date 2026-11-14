@@ -47,6 +47,8 @@ pub struct FocusGroup {
   pub(crate) typeahead: bool,
   pub(crate) nested: bool,
   pub(crate) menu_row: bool,
+  pub(crate) pages: bool,
+  pub(crate) shift_extends: bool,
   pub(crate) panel_row: bool,
 }
 
@@ -61,6 +63,8 @@ impl FocusGroup {
       typeahead: false,
       nested: false,
       menu_row: false,
+      pages: false,
+      shift_extends: false,
       panel_row: false,
     }
   }
@@ -188,6 +192,22 @@ impl FocusGroup {
     self
   }
 
+  /// Whether PageUp and PageDown move the focus by a page, in a vertical group: to the element as far before or
+  /// after the focused one as the scroll the group is in shows (or the whole group, where it does not scroll), and
+  /// at least one on. A listbox's and a long menu's.
+  pub fn pages(mut self, pages: bool) -> Self {
+    self.pages = pages;
+    self
+  }
+
+  /// Whether a key that moves the focus with Shift held presses what it moves to with Shift, as a press of the
+  /// pointer with Shift would: in a list of which any number are selected, Shift with the arrows, Home, End and
+  /// the page keys selects from where the selection started to there.
+  pub fn shift_extends(mut self, extends: bool) -> Self {
+    self.shift_extends = extends;
+    self
+  }
+
   /// Whether the group is a row of links and of buttons that each show a panel hung from them, as a site's
   /// navigation menu: a [row of menus](Self::menu_row) whose elements are not all buttons that open something. While
   /// a panel of the row has the focus, Left and Right that nothing in the panel takes close it and move the focus to
@@ -222,9 +242,9 @@ pub(crate) enum FocusStep {
   Close,
   /// `*` in a nested group: open every element at the level of the focused one, in the element it is in.
   OpenSiblings,
-  /// PageUp in a group of [`FocusRows`]: a page of rows back.
+  /// PageUp in a group with pages or of [`FocusRows`]: a page back.
   PageBack,
-  /// PageDown in a group of [`FocusRows`]: a page of rows on.
+  /// PageDown in a group with pages or of [`FocusRows`]: a page on.
   PageOn,
 }
 
@@ -234,7 +254,7 @@ impl FocusStep {
     matches!(self, Self::Open | Self::Close | Self::OpenSiblings)
   }
 
-  /// Whether it is PageUp or PageDown, which only a group of [`FocusRows`] takes.
+  /// Whether it is PageUp or PageDown, which only a group with pages or of [`FocusRows`] takes.
   pub(crate) fn is_page(self) -> bool {
     matches!(self, Self::PageBack | Self::PageOn)
   }

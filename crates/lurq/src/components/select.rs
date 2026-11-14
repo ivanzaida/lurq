@@ -155,6 +155,24 @@ impl<T> SelectOption<T> {
   pub fn is_disabled(&self) -> bool {
     self.disabled
   }
+
+  /// Its second line, for a list that draws its options itself: a listbox.
+  pub(crate) fn detail_text(&self) -> Option<&Arc<str>> {
+    self.detail.as_ref()
+  }
+
+  /// Its short text at the end, for a list that draws its options itself.
+  pub(crate) fn hint_text(&self) -> Option<&Arc<str>> {
+    self.hint.as_ref()
+  }
+
+  /// Its elements before and after the label, built for `state`, for a list that draws its options itself.
+  pub(crate) fn adornments(&self, state: &SelectAdornmentState) -> (Option<Element>, Option<Element>) {
+    (
+      self.leading.as_ref().map(|build| build(state)),
+      self.trailing.as_ref().map(|build| build(state)),
+    )
+  }
 }
 
 /// An adornment that draws a copy of `element` in every state.
