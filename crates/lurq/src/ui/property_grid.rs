@@ -1513,7 +1513,8 @@ impl PropertyGridView {
       if let Some(element_id) = self.child_id(&format!("{}-reset", property.id)) {
         control = control.id(element_id);
       }
-      row_button = row_button.child(control);
+      // A stop of Tab after the editor, and not a row the arrows go to.
+      row_button = row_button.child(Row::new().focus_group(FocusGroup::none()).child(control));
     }
     if let Some(element_id) = self.child_id(&property.id) {
       row_button = row_button.id(element_id);

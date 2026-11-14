@@ -649,3 +649,15 @@ fn a_long_inspector_builds_the_rows_in_view_and_the_keys_reach_every_row() {
     "the closed category's rows are gone"
   );
 }
+
+#[test]
+fn down_from_a_changed_row_goes_to_the_next_row_and_not_to_its_reset() {
+  let values = Values::new();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| Column::new().size(400.0, 500.0).child(scene.grid().mount(ctx)).into());
+  stage.click("grid-Radius");
+  stage.key("Escape");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Radius"));
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Name"), "the next row");
+}
