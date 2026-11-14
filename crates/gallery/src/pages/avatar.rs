@@ -48,13 +48,20 @@ const PEOPLE: [&str; 6] = [
 ];
 
 /// What the playground's avatar shows in place of its initials.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Picture {
   None,
   /// A portrait the page draws.
   Portrait,
   /// Bytes that are no picture: the decode fails and the initials stay.
   Broken,
+}
+
+#[cfg(feature = "devtools")]
+impl lurq::app::component::DevtoolsInspectable for Picture {
+  fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
 }
 
 const PICTURES: [(&str, Picture); 3] = [

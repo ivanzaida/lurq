@@ -150,6 +150,13 @@ pub enum Placement {
   RightEnd,
 }
 
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Placement {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CollisionStrategy {
   None,

@@ -22,6 +22,13 @@ pub enum SliderOrientation {
   Vertical,
 }
 
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for SliderOrientation {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 #[derive(Clone, Default)]
 pub struct SliderPartStyle {
   pub(crate) width: Option<f32>,

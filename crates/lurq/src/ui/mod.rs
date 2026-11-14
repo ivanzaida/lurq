@@ -311,6 +311,56 @@ macro_rules! names {
         $crate::ui::Name::new(name.as_str())
       }
     }
+
+    // A name of the design system goes in a signal with DevTools on, as any value an app keeps does: a
+    // playground's variant, a setting's size.
+    #[cfg(feature = "devtools")]
+    impl $crate::app::component::DevtoolsInspectable for $type {
+      fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
+        formatter.value_debug(&self.as_str());
+      }
+    }
   };
 }
 pub(crate) use names;
+
+/// Values of the design system that are no name of a recipe go in a signal with DevTools on too, shown as they are
+/// debugged: a shape, an orientation, a position.
+macro_rules! inspectable {
+  ($($type:ty),* $(,)?) => {
+    $(
+      #[cfg(feature = "devtools")]
+      impl $crate::app::component::DevtoolsInspectable for $type {
+        fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
+          formatter.value_debug(self);
+        }
+      }
+    )*
+  };
+}
+
+inspectable!(
+  avatar::AvatarShape,
+  badge::BadgeShape,
+  breadcrumb::BreadcrumbSeparator,
+  button::ButtonShape,
+  calendar::CalendarChoice,
+  choice_card::ChoiceCardKind,
+  input_otp::InputOtpKind,
+  kbd::KeyPlatform,
+  message_box::MessageBoxRole,
+  pagination::PageItem,
+  part_style::Length,
+  part_style::Opacity,
+  part_style::FontFamily,
+  part_style::TransitionDuration,
+  part_style::TransitionEasing,
+  recipe::Interaction,
+  skeleton::SkeletonAnimation,
+  spinner::SpinnerKind,
+  splitter::SplitterOrientation,
+  table::SortDirection,
+  table::ColumnAlign,
+  tabs::TabsOrientation,
+  toast::ToastPosition,
+);

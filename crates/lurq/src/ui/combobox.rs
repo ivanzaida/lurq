@@ -228,7 +228,7 @@ where
 }
 
 /// A single value and the options it is one of.
-pub(crate) struct One<T> {
+pub(crate) struct One<T: SignalValue> {
   pub value: Signal<T>,
   pub options: Vec<SelectOption<T>>,
 }
@@ -304,7 +304,10 @@ where
 }
 
 /// Several values and the options they are of.
-pub(crate) struct Many<T> {
+pub(crate) struct Many<T>
+where
+  Vec<T>: SignalValue,
+{
   pub value: Signal<Vec<T>>,
   pub options: Vec<SelectOption<T>>,
 }
