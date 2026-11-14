@@ -114,7 +114,7 @@ app.theme().apply(brand);
 
 - `light` is the palette of the light appearance, and `dark: Option<ThemePalette>` that of the dark one. A definition with no dark palette has one look, whatever the system is in.
 - The other fields are the tables of this page: `typography`, `radii`, `spacing`, `border_sizes`, `shadows`, `breakpoints`, `caret`, `scrollbar`, `control_sizes`, `icon_sizes`, `densities`, `durations`, `easings`, `opacities`, `blurs`, `focus_ring`, and with their features `markdown`, `text_marks` and `form`.
-- What a person or the system set is not part of a definition and stays when one is applied: the appearance the theme is in, the text scale, bold text and reduced motion.
+- What a person or the system set is not part of a definition and stays when one is applied: the appearance the theme is in, the text scale, bold text, reduced motion and smooth scrolling.
 - `ThemeDefinition` cannot be written out field by field outside lurq: it gains fields as the design system grows. Start from `neutral()` or `legacy()`.
 - `Theme::from_definition(definition)` makes a theme with a definition's look.
 
@@ -661,6 +661,11 @@ let fade = Transition::opacity()
   .duration(theme.duration_value(MotionDuration::Fast))
   .easing(theme.easing_value(MotionEasing::Standard));
 ```
+
+Two settings of the theme say whether things move at all, and neither is part of a definition:
+
+- `theme.set_reduced_motion(Some(true))` holds back what moves across the screen, whatever the system says: see [Reduced Motion](../animation-transforms/#reduced-motion).
+- `theme.set_smooth_scroll(false)` scrolls a notch of a mouse's wheel at once, where it is animated by default: see [The mouse wheel](../styling-events/#the-mouse-wheel). `theme.smooth_scroll()` reads it.
 
 ## Opacity
 

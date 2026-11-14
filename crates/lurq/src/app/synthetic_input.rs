@@ -268,10 +268,13 @@ fn deliver(tree: &mut Tree, input: &SyntheticInput) {
     }
     SyntheticInputKind::Wheel { x, y, delta_x, delta_y } => {
       // A wheel notch is a complete gesture: scroll containers latch on Start
-      // and release on End, so omitting either leaves one latched.
+      // and release on End, so omitting either leaves one latched. It is a
+      // mouse's wheel, so the scroll is animated as a real notch is
+      // (`Tree::wheel`): the content is where it was sent once the tree has
+      // no animation left.
       tree.mouse_move_with_meta(*x, *y, m.shift, m.ctrl, m.alt, m.meta);
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::Start);
-      tree.scroll(*x, *y, *delta_x, *delta_y, ScrollPhase::Scroll);
+      tree.wheel(*x, *y, *delta_x, *delta_y, ScrollPhase::Scroll);
       tree.scroll(*x, *y, 0.0, 0.0, ScrollPhase::End);
     }
     SyntheticInputKind::KeyDown { key, code } => {

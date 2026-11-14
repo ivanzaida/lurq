@@ -785,7 +785,8 @@ where
         if runtime.heights.len() >= runtime.order.len() {
           if let Some(anchor_index) = runtime.order.iter().position(|key| key == &anchor.key) {
             let new_top = prefix_height(&runtime.order[..anchor_index], &runtime.heights);
-            scroll_state.set_scroll(0.0, new_top + anchor.offset);
+            // The row is kept where it was shown: a wheel's scroll on its way goes on from there.
+            scroll_state.keep_scroll(0.0, new_top + anchor.offset);
             changed = true;
           }
         } else {

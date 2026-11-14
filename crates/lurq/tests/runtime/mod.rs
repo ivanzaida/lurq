@@ -64,6 +64,7 @@ mod scroll_handler_redraw;
 mod scroll_state;
 mod scrollbar_hits;
 mod scrollbar_on_hover;
+mod smooth_wheel_scroll;
 mod stack_depth;
 mod text_reflow;
 mod text_scale_wrap;

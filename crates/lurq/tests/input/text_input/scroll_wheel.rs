@@ -152,6 +152,38 @@ fn text_input_wheel_scrolls_an_overflowing_input_and_stops_at_both_ends() {
 }
 
 #[test]
+fn text_input_animates_a_notch_of_a_mouses_wheel_as_a_scroll_container_does() {
+  let mut editor = Editor::new(&LINES);
+  let end = editor.top_line();
+  let start = std::time::Instant::now();
+  editor.tree.set_animation_clock(Some(start));
+
+  // A notch of a mouse's wheel (`Tree::wheel`), where `Editor::wheel` is a touchpad's delta.
+  let (x, y) = editor.center();
+  editor.tree.wheel(x, y, 0.0, 1000.0, ScrollPhase::Scroll);
+  let mut seen = vec![end];
+  let mut at = 0;
+  while editor.tree.needs_redraw() || editor.tree.has_active_timeline() {
+    at += 8;
+    assert!(at < 1000, "the text never comes to rest");
+    editor
+      .tree
+      .set_animation_clock(Some(start + std::time::Duration::from_millis(at)));
+    let top = editor.top_line();
+    if seen.last() != Some(&top) {
+      seen.push(top);
+    }
+  }
+  assert!(seen.len() > 5, "the text moves over the frames, not in one: {seen:?}");
+  assert_eq!(
+    editor.top_line().0,
+    0,
+    "and ends at the first line, where the wheel sent it"
+  );
+  assert!((100..=250).contains(&at), "in the time a notch takes: {at} ms");
+}
+
+#[test]
 fn text_input_wheel_scroll_stays_until_the_next_edit() {
   let mut editor = Editor::new(&LINES);
   editor.wheel(1000.0);

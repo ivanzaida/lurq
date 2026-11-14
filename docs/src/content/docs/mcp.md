@@ -152,6 +152,8 @@ lurq_inspect { query: "Open modal", role: "button" }
 | `release` | `button`; optionally `ref` or `x`/`y` | Releases the button where the pointer is, moving to the target first if one is given. A left press released in place is a click. |
 | `key_down` / `key_up` | `key`, `modifiers` | Holds and releases a key, with the key names of `key` (`" "` is the space bar). |
 
+`wheel` is a notch of a mouse's wheel, which the window [animates](../styling-events/#the-mouse-wheel): the content is where the wheel sent it about 150 ms later, not when the call returns. Call `lurq_wait` before a screenshot or an inspection that reads where it ended; a screenshot taken at once shows it on its way.
+
 Held modifier keys apply to every action in their window, as real keys that are down do, together with the action's own `modifiers`. A held `Shift`, `Control` or `Alt` sets `shift`, `ctrl` or `alt`, and a held `Meta` or `Super` sets `meta`, on every later pointer event (moves, presses, releases, clicks) and key event (`key`, `type`, `key_down`, `key_up`). Scroll events carry no modifiers, so `wheel` passes them only to its pointer move.
 
 A call that delivers held input makes the shell present right after the call, before any redraw is requested, as a real mouse-move stream presents from inside its events: one `move` per call is exactly one frame per move. Between calls a held button costs nothing: a held drag changes only on input, so the event loop waits (for a real drag as well).

@@ -1,9 +1,10 @@
 use std::{
   sync::{Arc, Mutex},
-  time::Instant,
+  time::{Duration, Instant},
 };
 
 use crate::{
+  animation::Easing,
   layout::{
     Alignment, Offset, Size, StackAlignment,
     scrollbar::{
@@ -19,6 +20,22 @@ const SCROLL_END_EPSILON: f32 = 2.0;
 /// Text taller than its box by less than this fits: rows of a fractional
 /// line height add up to a hair more than the box sized from them.
 const TEXT_OVERFLOW_EPSILON: f32 = 0.5;
+/// How long a mouse's wheel takes to scroll the content to where a notch sends it. Browsers and most apps on
+/// Windows spread a notch over a tenth of a second or a little more. This is the long end of that, and along
+/// [`WHEEL_SCROLL_EASING`] the content has gone nine tenths of the way in the first 80 ms, so a notch still
+/// feels like one.
+const WHEEL_SCROLL_DURATION: Duration = Duration::from_millis(150);
+/// The curve of a wheel's scroll: a cubic ease-out, `1 - (1 - t)^3` as a Bezier curve. The content starts at its
+/// fastest, three times its mean speed, so the frame after the notch already moves, a sixth of the way at
+/// 120 Hz, and it slows down into its place with no stop to see. A notch that comes on the way starts the curve
+/// again from where the content is with the rest of the way added, which only makes it faster: a wheel that
+/// is spun never comes to rest between two notches.
+const WHEEL_SCROLL_EASING: Easing = Easing::CubicBezier {
+  x1: 1.0 / 3.0,
+  y1: 1.0,
+  x2: 2.0 / 3.0,
+  y2: 1.0,
+};
 
 #[derive(Clone)]
 pub enum LayoutKind {
@@ -111,6 +128,85 @@ impl PendingScroll {
   fn is_request(self) -> bool {
     !matches!(self, Self::PreservePrependAnchor { .. } | Self::Anchor(_))
   }
+
+  /// The place kept, once the offset it was taken at has gone `by` further: a wheel's scroll went on between
+  /// the moment the place was taken and the layout that keeps it. A request is to a place of its own.
+  fn moved_by(self, by: f32) -> Self {
+    match self {
+      Self::Anchor(offset) => Self::Anchor(offset + by),
+      Self::PreservePrependAnchor {
+        previous_content,
+        previous_scroll,
+      } => Self::PreservePrependAnchor {
+        previous_content,
+        previous_scroll: previous_scroll + by,
+      },
+      request => request,
+    }
+  }
+}
+
+/// A wheel's scroll on its way along one axis; see [`ScrollState::wheel_by_with_overflow`].
+#[derive(Clone, Copy)]
+struct WheelScroll {
+  /// Where the offset is going.
+  target: f32,
+  /// How far from there the offset was when the wheel last turned, and when that was.
+  distance: f32,
+  turned: Instant,
+  /// The offset the last step left. A layout that has moved it since (content that came in above what is
+  /// shown, an offset held at the end of shorter content) moved where it is going as far.
+  stepped: f32,
+  /// It is going to the end of the content, and goes on to it if the content grows meanwhile: once there, the
+  /// offset stays at the end as any offset at the end does.
+  to_end: bool,
+}
+
+impl WheelScroll {
+  /// A scroll from `offset` to `target`, of content that can go as far as `max`, that starts at `now`.
+  fn to(target: f32, offset: f32, max: f32, now: Instant) -> Self {
+    Self {
+      target,
+      distance: target - offset,
+      turned: now,
+      stepped: offset,
+      to_end: max > 0.0 && max - target <= SCROLL_END_EPSILON,
+    }
+  }
+
+  /// The scroll a wheel that turns by `delta` at `now` leaves, for an offset at `offset` that can go as far as
+  /// `max`, and how much of the delta it takes. The delta adds to where the scroll was already going, and the
+  /// way there starts again from the offset.
+  fn turned(wheel: Option<Self>, offset: f32, max: f32, delta: f32, now: Instant) -> (Option<Self>, f32) {
+    if delta == 0.0 {
+      return (wheel, 0.0);
+    }
+    let from = wheel.map_or(offset, |wheel| wheel.target);
+    let target = (from + delta).clamp(0.0, max);
+    let wheel = (target != offset).then(|| Self::to(target, offset, max, now));
+    (wheel, target - from)
+  }
+
+  /// Where the offset is at `now`, for an offset drawn at `offset` that can go as far as `max`, and whether
+  /// that is where it was going.
+  fn step(&mut self, offset: f32, max: f32, now: Instant) -> (f32, bool) {
+    self.target += offset - self.stepped;
+    let target = if self.to_end { max } else { self.target.clamp(0.0, max) };
+    if target != self.target {
+      // The content is shorter than where the scroll was going, or its end has moved: the scroll goes there
+      // from where it is.
+      *self = Self::to(target, offset, max, now);
+    }
+    let progress = now.saturating_duration_since(self.turned).as_secs_f64() / WHEEL_SCROLL_DURATION.as_secs_f64();
+    let next = if progress >= 1.0 {
+      self.target
+    } else {
+      let left = self.distance * (1.0 - WHEEL_SCROLL_EASING.evaluate(progress) as f32);
+      self.target - left
+    };
+    self.stepped = next;
+    (next, next == self.target)
+  }
 }
 
 /// Scroll position and range when the current layout pass first measured
@@ -137,6 +233,9 @@ struct ScrollStateInner {
   paging: bool,
   pending_scroll_x: Option<PendingScroll>,
   pending_scroll_y: Option<PendingScroll>,
+  /// A wheel's scroll on its way along each axis.
+  wheel_x: Option<WheelScroll>,
+  wheel_y: Option<WheelScroll>,
   max_scroll_x: f32,
   max_scroll_y: f32,
   content_width: f32,
@@ -179,6 +278,38 @@ struct ScrollStateInner {
   scroll_y_requests: u64,
 }
 
+impl ScrollStateInner {
+  /// Moves the offset to where a wheel's scroll on its way is at `now`. Tells whether it moved.
+  fn step_wheel(&mut self, now: Instant) -> bool {
+    let mut moved = false;
+    if let Some(mut wheel) = self.wheel_x.take() {
+      let (next, there) = wheel.step(self.scroll_x, self.max_scroll_x, now);
+      if next != self.scroll_x {
+        let by = next - self.scroll_x;
+        self.pending_scroll_x = self.pending_scroll_x.map(|pending| pending.moved_by(by));
+        self.scroll_x = next;
+        moved = true;
+      }
+      self.wheel_x = (!there).then_some(wheel);
+    }
+    if let Some(mut wheel) = self.wheel_y.take() {
+      let (next, there) = wheel.step(self.scroll_y, self.max_scroll_y, now);
+      if next != self.scroll_y {
+        let by = next - self.scroll_y;
+        self.pending_scroll_y = self.pending_scroll_y.map(|pending| pending.moved_by(by));
+        self.scroll_y = next;
+        moved = true;
+      }
+      self.wheel_y = (!there).then_some(wheel);
+    }
+    if moved {
+      self.scroll_dirty = true;
+      self.layout_subscribers.mark();
+    }
+    moved
+  }
+}
+
 impl ScrollState {
   /// Whether this is the state `other` is.
   pub(crate) fn same(&self, other: &Self) -> bool {
@@ -209,6 +340,8 @@ impl ScrollState {
         paging: false,
         pending_scroll_x: None,
         pending_scroll_y: None,
+        wheel_x: None,
+        wheel_y: None,
         max_scroll_x: 0.0,
         max_scroll_y: 0.0,
         content_width: 0.0,
@@ -342,8 +475,15 @@ impl ScrollState {
 
   /// Scrolls to `(x, y)`, clamped to the content as last laid out. The new offset is drawn in the next frame,
   /// wherever the call comes from: an event handler, a timer or code outside any event. An offset the content is
-  /// already at asks for no frame.
+  /// already at asks for no frame. A wheel's scroll on its way stops: the content stays where this puts it.
   pub fn set_scroll(&self, x: f32, y: f32) {
+    self.stop_wheel();
+    self.keep_scroll(x, y);
+  }
+
+  /// [`Self::set_scroll`] for an offset that keeps what is shown where it is, after the content above it
+  /// changed: a wheel's scroll on its way goes on from there.
+  pub(crate) fn keep_scroll(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
     let offset = (x.clamp(0.0, inner.max_scroll_x), y.clamp(0.0, inner.max_scroll_y));
     inner.scroll_y_requests = inner.scroll_y_requests.wrapping_add(1);
@@ -360,6 +500,7 @@ impl ScrollState {
   /// queued, asks for no layout or frame: it resolves in the next layout that comes.
   pub fn set_scroll_pending(&self, x: f32, y: f32) {
     let mut inner = self.inner.lock().unwrap();
+    (inner.wheel_x, inner.wheel_y) = (None, None);
     let offset = (x.max(0.0), y.max(0.0));
     let already_there = inner.pending_scroll_x.is_none()
       && inner.pending_scroll_y.is_none()
@@ -377,6 +518,7 @@ impl ScrollState {
   /// `start..end`, resolved after the next layout measurement.
   pub(crate) fn reveal_y_pending(&self, start: f32, end: f32) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_y = None;
     inner.pending_scroll_y = Some(PendingScroll::Reveal { start, end });
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -399,6 +541,7 @@ impl ScrollState {
   /// Queue a vertical scroll to the top after the next layout measurement.
   pub fn scroll_to_top_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_y = None;
     inner.pending_scroll_y = Some(PendingScroll::Start);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -407,6 +550,7 @@ impl ScrollState {
   /// Queue a vertical scroll to the bottom after the next layout measurement.
   pub fn scroll_to_bottom_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_y = None;
     inner.pending_scroll_y = Some(PendingScroll::End);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -454,7 +598,8 @@ impl ScrollState {
   pub(crate) fn next_layout_scroll_y(&self, content_height: f32) -> f32 {
     let inner = self.inner.lock().unwrap();
     let max_scroll = (content_height - inner.viewport_height).max(0.0);
-    let was_at_bottom = inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON;
+    let was_at_bottom =
+      inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON && inner.wheel_y.is_none();
     let target = match inner.pending_scroll_y {
       Some(pending) => resolve_pending_scroll(
         pending,
@@ -482,6 +627,7 @@ impl ScrollState {
   /// Queue a horizontal scroll to the left edge after the next layout measurement.
   pub fn scroll_to_left_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_x = None;
     inner.pending_scroll_x = Some(PendingScroll::Start);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -490,6 +636,7 @@ impl ScrollState {
   /// Queue a horizontal scroll to the right edge after the next layout measurement.
   pub fn scroll_to_right_pending(&self) {
     let mut inner = self.inner.lock().unwrap();
+    inner.wheel_x = None;
     inner.pending_scroll_x = Some(PendingScroll::End);
     inner.scroll_dirty = true;
     inner.layout_subscribers.mark();
@@ -499,6 +646,7 @@ impl ScrollState {
   pub fn stick_to_bottom_if_near_end(&self, threshold: f32) -> bool {
     let mut inner = self.inner.lock().unwrap();
     if inner.max_scroll_y - inner.scroll_y <= threshold.max(0.0) {
+      inner.wheel_y = None;
       inner.pending_scroll_y = Some(PendingScroll::End);
       inner.scroll_dirty = true;
       inner.layout_subscribers.mark();
@@ -512,6 +660,7 @@ impl ScrollState {
   pub fn stick_to_right_if_near_end(&self, threshold: f32) -> bool {
     let mut inner = self.inner.lock().unwrap();
     if inner.max_scroll_x - inner.scroll_x <= threshold.max(0.0) {
+      inner.wheel_x = None;
       inner.pending_scroll_x = Some(PendingScroll::End);
       inner.scroll_dirty = true;
       inner.layout_subscribers.mark();
@@ -543,17 +692,22 @@ impl ScrollState {
     inner.layout_subscribers.mark();
   }
 
+  /// Scrolls by `(dx, dy)` at once, as far as the content goes. A wheel's scroll on its way along an axis that
+  /// is scrolled stops: the content moves from where it is drawn.
   pub fn scroll_by(&self, dx: f32, dy: f32) {
     self.scroll_by_with_overflow(dx, dy);
   }
 
+  /// [`Self::scroll_by`], telling how much of each delta the content could not take.
   pub fn scroll_by_with_overflow(&self, dx: f32, dy: f32) -> (f32, f32) {
     let mut inner = self.inner.lock().unwrap();
     if dx != 0.0 {
       inner.pending_scroll_x = None;
+      inner.wheel_x = None;
     }
     if dy != 0.0 {
       inner.pending_scroll_y = None;
+      inner.wheel_y = None;
     }
 
     let old_x = inner.scroll_x;
@@ -569,6 +723,73 @@ impl ScrollState {
     }
 
     (dx - consumed_x, dy - consumed_y)
+  }
+
+  /// Where the offset is going: where a wheel's scroll on its way leaves it
+  /// ([`Tree::wheel`](crate::app::Tree::wheel)), and else where it is. [`Self::scroll_x`] and
+  /// [`Self::scroll_y`] are the offset drawn now.
+  pub fn scroll_target(&self) -> (f32, f32) {
+    let inner = self.inner.lock().unwrap();
+    (
+      inner.wheel_x.map_or(inner.scroll_x, |wheel| wheel.target),
+      inner.wheel_y.map_or(inner.scroll_y, |wheel| wheel.target),
+    )
+  }
+
+  /// A mouse's wheel turned by `(dx, dy)` at `now`: the offset goes there over [`WHEEL_SCROLL_DURATION`], a
+  /// step with every [`Self::step_wheel`], instead of at once. Tells how much of each delta the content could
+  /// not take, as [`Self::scroll_by_with_overflow`] does: that is decided on where the offset is going, so a
+  /// container on its way to its end takes no more.
+  ///
+  /// A delta adds to where the scroll was already going, and the way there starts again from where the offset
+  /// is at `now`: one the other way turns it round at once. A scroll someone asked for that waits for a layout
+  /// is dropped, as a scroll at once drops it; a place kept is still kept.
+  pub(crate) fn wheel_by_with_overflow(&self, dx: f32, dy: f32, now: Instant) -> (f32, f32) {
+    let mut inner = self.inner.lock().unwrap();
+    // The offset is where it is at `now` before the wheel turns it. The tree has stepped it there already and
+    // told its container (`Tree::wheel`).
+    inner.step_wheel(now);
+    if dx != 0.0 && inner.pending_scroll_x.is_some_and(PendingScroll::is_request) {
+      inner.pending_scroll_x = None;
+    }
+    if dy != 0.0 && inner.pending_scroll_y.is_some_and(PendingScroll::is_request) {
+      inner.pending_scroll_y = None;
+    }
+    let (wheel_x, taken_x) = WheelScroll::turned(inner.wheel_x, inner.scroll_x, inner.max_scroll_x, dx, now);
+    let (wheel_y, taken_y) = WheelScroll::turned(inner.wheel_y, inner.scroll_y, inner.max_scroll_y, dy, now);
+    (inner.wheel_x, inner.wheel_y) = (wheel_x, wheel_y);
+    (dx - taken_x, dy - taken_y)
+  }
+
+  /// Whether a wheel's scroll is on its way.
+  pub(crate) fn wheel_scrolling(&self) -> bool {
+    let inner = self.inner.lock().unwrap();
+    inner.wheel_x.is_some() || inner.wheel_y.is_some()
+  }
+
+  /// Moves the offset to where a wheel's scroll on its way is at `now`. Tells whether it moved.
+  pub(crate) fn step_wheel(&self, now: Instant) -> bool {
+    self.inner.lock().unwrap().step_wheel(now)
+  }
+
+  /// Ends a wheel's scroll on its way where it was going, at once. Tells whether the offset moved.
+  pub(crate) fn end_wheel(&self) -> bool {
+    let mut inner = self.inner.lock().unwrap();
+    let Some(turned) = [inner.wheel_x, inner.wheel_y]
+      .into_iter()
+      .flatten()
+      .map(|wheel| wheel.turned)
+      .max()
+    else {
+      return false;
+    };
+    inner.step_wheel(turned + WHEEL_SCROLL_DURATION)
+  }
+
+  /// Stops a wheel's scroll on its way where the offset is.
+  pub(crate) fn stop_wheel(&self) {
+    let mut inner = self.inner.lock().unwrap();
+    (inner.wheel_x, inner.wheel_y) = (None, None);
   }
 
   pub fn content_width(&self) -> f32 {
@@ -648,9 +869,10 @@ impl ScrollState {
 
   pub fn begin_drag_axis(&self, axis: ScrollAxis, mouse_x: f32, mouse_y: f32) {
     let mut inner = self.inner.lock().unwrap();
+    // The thumb takes the content from where it is drawn: a wheel's scroll on its way stops.
     match axis {
-      ScrollAxis::Horizontal => inner.pending_scroll_x = None,
-      ScrollAxis::Vertical => inner.pending_scroll_y = None,
+      ScrollAxis::Horizontal => (inner.pending_scroll_x, inner.wheel_x) = (None, None),
+      ScrollAxis::Vertical => (inner.pending_scroll_y, inner.wheel_y) = (None, None),
     }
     inner.dragging = true;
     inner.drag_start_x = mouse_x;
@@ -694,6 +916,7 @@ impl ScrollState {
 
         let delta_px = mouse_x - inner.drag_start_x;
         let scroll_delta = delta_px / scrollable_track * inner.max_scroll_x;
+        inner.wheel_x = None;
         inner.scroll_x = (inner.drag_start_scroll_x + scroll_delta).clamp(0.0, inner.max_scroll_x);
       }
       ScrollAxis::Vertical => {
@@ -710,6 +933,7 @@ impl ScrollState {
 
         let delta_px = mouse_y - inner.drag_start_y;
         let scroll_delta = delta_px / scrollable_track * inner.max_scroll_y;
+        inner.wheel_y = None;
         inner.scroll_y = (inner.drag_start_scroll_y + scroll_delta).clamp(0.0, inner.max_scroll_y);
       }
     }
@@ -909,8 +1133,12 @@ impl ScrollState {
       max_scroll_y: inner.max_scroll_y,
     });
     inner.pass_start = Some(start);
-    let was_at_right = start.max_scroll_x > 0.0 && start.max_scroll_x - start.scroll_x <= SCROLL_END_EPSILON;
-    let was_at_bottom = start.max_scroll_y > 0.0 && start.max_scroll_y - start.scroll_y <= SCROLL_END_EPSILON;
+    // An offset at the end stays at the end when the content grows. One a wheel's scroll is moving is the
+    // scroll's: near the end it is leaving it, or on its way to it (`WheelScroll::to_end`).
+    let was_at_right =
+      start.max_scroll_x > 0.0 && start.max_scroll_x - start.scroll_x <= SCROLL_END_EPSILON && inner.wheel_x.is_none();
+    let was_at_bottom =
+      start.max_scroll_y > 0.0 && start.max_scroll_y - start.scroll_y <= SCROLL_END_EPSILON && inner.wheel_y.is_none();
 
     inner.content_width = content_w;
     inner.content_height = content_h;

@@ -30,6 +30,8 @@ mod set_value;
 #[cfg(test)]
 mod tests;
 mod wait;
+#[cfg(test)]
+mod wheel_tests;
 mod windows;
 #[cfg(test)]
 mod windows_tests;
