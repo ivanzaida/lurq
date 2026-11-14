@@ -242,6 +242,13 @@ an alias.
 - **Bound and not: `new(signal, ..)` and `controlled(value, .., on_change)`**, on every component that holds a
   value but a text input, which is always a signal. No type that is "a signal or a value". A component bound to
   `Signal<T>` of one of several is bound to `Signal<Option<T>>` too where nothing chosen is a state it has.
+- **A handler's type is checked when the app is compiled, never when it is called.** A component that holds a
+  value of the app's type is generic over it, with `()` as the default so that the theme's calls read as before
+  (`Tabs<T = ()>`, `resolve::<Tabs>`): `on_change(|value: &T| ..)` of another type does not compile. No builder
+  erases the type and checks a handler against it at run time. A component that holds another one (an input
+  group's select, a toolbar's) is generic too or takes it as an element.
+- **One of several and any number of them**: bound, `new(Signal<T>, ..)` and `multiple(Signal<Vec<T>>, ..)`;
+  not bound, `controlled(value, .., on_change: Fn(&T))` and `controlled_multiple(values, .., on_change: Fn(&[T]))`.
 - **Every `on_*` adds**: a second handler is called after the first, never in its place.
 - **`action(..)` sets the one action** (a second call takes its place); `actions(..)`/`action` of a component
   that has several adds, and that component's docs say so. A button made of a label and a handler is
