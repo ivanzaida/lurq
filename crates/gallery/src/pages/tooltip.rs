@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, Row},
+  components::{Column, Placement, Row},
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Button, ButtonVariant, Tooltip, TooltipSide},
+  ui::{Button, ButtonVariant, Tooltip},
 };
 
 use crate::{
@@ -39,15 +39,15 @@ fn items() -> Row {
     .align_items(Alignment::End)
 }
 
-/// The sides the playground offers, and the index of each in the panel's select.
-const SIDES: [(&str, TooltipSide); 4] = [
-  ("Top", TooltipSide::Top),
-  ("Bottom", TooltipSide::Bottom),
-  ("Left", TooltipSide::Left),
-  ("Right", TooltipSide::Right),
+/// The placements the playground offers: the four sides first, which the page shows too.
+const PLACEMENTS: [(&str, Placement); 6] = [
+  ("Top", Placement::Top),
+  ("Bottom", Placement::Bottom),
+  ("Left", Placement::Left),
+  ("Right", Placement::Right),
+  ("TopStart", Placement::TopStart),
+  ("BottomStart", Placement::BottomStart),
 ];
-
-const CHOICES: [(&str, usize); 4] = [("Top", 0), ("Bottom", 1), ("Left", 2), ("Right", 3)];
 
 /// A button of a toolbar: its icon alone.
 fn tool(label: &str, icon: &str) -> Button {
@@ -62,25 +62,25 @@ pub struct TooltipPage {
   playground: Playground,
   text: Signal<String>,
   shortcut: Signal<String>,
-  /// The side, as its index in [`SIDES`].
-  side: Signal<usize>,
+  /// The placement, as its index in [`PLACEMENTS`].
+  placement: Signal<usize>,
   arrow: Signal<bool>,
-  open: Signal<bool>,
+  force_open: Signal<bool>,
   disabled: Signal<bool>,
 }
 
 impl TooltipPage {
   /// The playground: a button with the tooltip the panel's props make.
   fn play(&self, ctx: &mut Ctx) -> Element {
-    let (text, shortcut, chosen) = (self.text.get(), self.shortcut.get(), self.side.get());
-    let (side_name, side) = SIDES[chosen.min(SIDES.len() - 1)];
-    let (arrow, open, disabled) = (self.arrow.get(), self.open.get(), self.disabled.get());
+    let (text, shortcut, chosen) = (self.text.get(), self.shortcut.get(), self.placement.get());
+    let (placement_name, placement) = PLACEMENTS[chosen.min(PLACEMENTS.len() - 1)];
+    let (arrow, open, disabled) = (self.arrow.get(), self.force_open.get(), self.disabled.get());
     let plain = {
       let (text, shortcut) = (text.clone(), shortcut.clone());
       move || {
         Tooltip::new(&text)
           .shortcut(&shortcut)
-          .side(side)
+          .placement(placement)
           .arrow(arrow)
           .disabled(disabled)
       }
@@ -90,20 +90,20 @@ impl TooltipPage {
       .variant(ButtonVariant::Outline)
       .icon("copy")
       .on_click(move |_| record(format!("pressed: {words:?} went")));
-    let shown = plain().open(open.then_some(true)).mount(ctx, button);
+    let shown = plain().force_open(open.then_some(true)).mount(ctx, button);
 
     let mut code = vec![format!("Tooltip::new({text:?})")];
     if !shortcut.is_empty() {
       code.push(format!("    .shortcut({shortcut:?})"));
     }
-    if side != TooltipSide::Top {
-      code.push(format!("    .side(TooltipSide::{side_name})"));
+    if placement != Placement::Top {
+      code.push(format!("    .placement(Placement::{placement_name})"));
     }
     if arrow {
       code.push("    .arrow(true)".to_owned());
     }
     if open {
-      code.push("    .open(Some(true))".to_owned());
+      code.push("    .force_open(Some(true))".to_owned());
     }
     if disabled {
       code.push("    .disabled(true)".to_owned());
@@ -112,9 +112,9 @@ impl TooltipPage {
 
     let mut tree = vec![
       "button    the element it describes, its root the anchor".to_owned(),
-      format!("└─ root   6 from the button, {}", side_name.to_lowercase()),
+      format!("└─ root   6 from the button, {}", placement_name.to_lowercase()),
       format!(
-        "   {} content  primary, radius 6, 10 × 6 padding, at most 200 wide",
+        "   {} panel  primary, radius 6, 10 × 6 padding, at most 200 wide",
         if arrow { "├─" } else { "└─" }
       ),
       format!(
@@ -133,9 +133,14 @@ impl TooltipPage {
       tree.push("   └─ arrow    12 × 6, the box's color".to_owned());
     }
 
-    let (to_text, to_shortcut, to_side) = (self.text.clone(), self.shortcut.clone(), self.side.clone());
-    let (to_arrow, to_open, to_disabled) = (self.arrow.clone(), self.open.clone(), self.disabled.clone());
-    let set_side = self.side.clone();
+    let (to_text, to_shortcut, to_placement) = (self.text.clone(), self.shortcut.clone(), self.placement.clone());
+    let (to_arrow, to_open, to_disabled) = (self.arrow.clone(), self.force_open.clone(), self.disabled.clone());
+    let set_placement = self.placement.clone();
+    let choices: Vec<(&str, usize)> = PLACEMENTS
+      .iter()
+      .enumerate()
+      .map(|(index, (name, _))| (*name, index))
+      .collect();
     self.playground.card(
       ctx,
       Spec {
@@ -156,25 +161,31 @@ impl TooltipPage {
           prop("text", "&str", field(&self.text)),
           prop("shortcut", "&str", field(&self.shortcut)),
           prop(
-            "side",
-            "TooltipSide",
+            "placement",
+            "Placement",
             self
               .playground
-              .select(0, &CHOICES, &chosen, move |side| set_side.set(side)),
+              .select(0, &choices, &chosen, move |index| set_placement.set(index)),
           ),
           divider(),
           flag("arrow", &self.arrow),
-          flag("open", &self.open),
+          flag("force open", &self.force_open),
           flag("disabled", &self.disabled),
         ],
-        changed: [!shortcut.is_empty(), side != TooltipSide::Top, arrow, !open, disabled]
-          .into_iter()
-          .filter(|changed| *changed)
-          .count(),
+        changed: [
+          !shortcut.is_empty(),
+          placement != Placement::Top,
+          arrow,
+          !open,
+          disabled,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
         reset: Arc::new(move || {
           to_text.set("Copy link".to_owned());
           to_shortcut.set(String::new());
-          to_side.set(0);
+          to_placement.set(0);
           to_arrow.set(false);
           to_open.set(true);
           to_disabled.set(false);
@@ -193,9 +204,9 @@ impl Component for TooltipPage {
       playground: Playground::new(ctx, 1),
       text: ctx.signal("Copy link".to_owned()),
       shortcut: ctx.signal(String::new()),
-      side: ctx.signal(0),
+      placement: ctx.signal(0),
       arrow: ctx.signal(false),
-      open: ctx.signal(true),
+      force_open: ctx.signal(true),
       disabled: ctx.signal(false),
     }
   }
@@ -218,12 +229,15 @@ impl Component for TooltipPage {
       .child(toolbar);
 
     let mut sides = items();
-    for (name, side) in SIDES {
+    for (name, placement) in &PLACEMENTS[..4] {
       let button = Button::new(name).variant(ButtonVariant::Outline);
-      let tooltip = Tooltip::new("Zoom in").side(side).arrow(true).open(Some(true));
+      let tooltip = Tooltip::new("Zoom in")
+        .placement(*placement)
+        .arrow(true)
+        .force_open(Some(true));
       sides = sides.child(item(tooltip.mount(ctx, button), &name.to_lowercase()));
     }
-    let plain = Tooltip::new("Zoom in").open(Some(true));
+    let plain = Tooltip::new("Zoom in").force_open(Some(true));
     sides = sides.child(item(
       plain.mount(ctx, Button::new("Plain").variant(ButtonVariant::Outline)),
       "no arrow",
@@ -235,13 +249,13 @@ impl Component for TooltipPage {
         Tooltip::new("Toggle sidebar")
           .shortcut("Ctrl+B")
           .arrow(true)
-          .open(Some(true))
+          .force_open(Some(true))
           .mount(ctx, tool("Toggle sidebar", "panel-left")),
         "with a shortcut",
       ))
       .child(item(
         Tooltip::new(long)
-          .open(Some(true))
+          .force_open(Some(true))
           .mount(ctx, Button::new("Blur").variant(ButtonVariant::Outline)),
         "a long text wraps at 200",
       ))
@@ -275,10 +289,23 @@ impl Component for TooltipPage {
         "The keys of a shortcut, after the text in a chip of their own.",
       ),
       (
-        "side",
-        "TooltipSide",
+        "placement",
+        "Placement",
         "Top",
-        "The side of the element it is on, where there is room; on the other one where there is not.",
+        "The side of the element it is on and the edge it lines up with, where there is room; on the other side \
+         where there is not.",
+      ),
+      (
+        "offset",
+        "impl Into<SpacingValue>",
+        "6",
+        "How far it stands from the element, in place of what the theme gives it.",
+      ),
+      (
+        "collision",
+        "CollisionStrategy",
+        "FlipThenClamp",
+        "What it does where there is no room on its side: to the other side, then moved into the window.",
       ),
       (
         "arrow",
@@ -287,14 +314,20 @@ impl Component for TooltipPage {
         "A triangle from the box to the element, turned with the side it is on.",
       ),
       (
-        "delay",
-        "Duration",
+        "open_delay",
+        "impl Into<TransitionDuration>",
         "500 ms",
         "How long the pointer rests before it shows. None within 300 ms of another tooltip going, and none for \
          the keyboard's focus.",
       ),
       (
-        "open",
+        "close_delay",
+        "impl Into<TransitionDuration>",
+        "100 ms",
+        "How long it stays after the pointer left the element and the tooltip: time to cross between them.",
+      ),
+      (
+        "force_open",
         "Option<bool>",
         "None",
         "Shown whatever the pointer and the focus do, or never: for a gallery, a test, a tour.",
@@ -309,7 +342,7 @@ impl Component for TooltipPage {
         title: "Tooltip",
         description: "A short text beside an element while the pointer rests on it or the keyboard's focus is on \
                       it: what an icon button does, and the keys that do it too.",
-        import: Some("use lurq::ui::{Tooltip, TooltipSide};"),
+        import: Some("use lurq::{components::Placement, ui::Tooltip};"),
         status: Some("Stable"),
         since: Some("0.62"),
         source: file!(),
@@ -317,8 +350,8 @@ impl Component for TooltipPage {
       vec![
         Section::new(
           "Playground",
-          "Every prop of Tooltip is a control on the right. With open on, the tooltip stays; turn it off and rest \
-           the pointer on the button, or reach it with Tab. A press of the button puts the tooltip away.",
+          "Every prop of Tooltip is a control on the right. With force open on, the tooltip stays; turn it off and \
+           rest the pointer on the button, or reach it with Tab. A press of the button puts the tooltip away.",
           playground,
         ),
         Section::new(
@@ -346,11 +379,11 @@ impl Component for TooltipPage {
           self.frame.demo(
             1,
             sides,
-            ".side(TooltipSide::Bottom).arrow(true)",
+            ".placement(Placement::Bottom).arrow(true)",
             &[
               "let zoom = Button::new(\"Bottom\").variant(ButtonVariant::Outline);",
               "Tooltip::new(\"Zoom in\")",
-              "    .side(TooltipSide::Bottom)",
+              "    .placement(Placement::Bottom)",
               "    .arrow(true)",
               "    .mount(ctx, zoom)",
             ],

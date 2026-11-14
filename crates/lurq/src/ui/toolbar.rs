@@ -20,7 +20,7 @@ use super::{
   theme::{Themed, current_theme},
   toggle::{Toggle, TogglePart},
   toggle_group::ToggleGroup,
-  tooltip::{Tooltip, TooltipSide},
+  tooltip::Tooltip,
 };
 use crate::{
   app::{
@@ -888,7 +888,7 @@ impl Component for ToolbarHost {
         if slot.tooltip
           && let Some(command) = slot.commands.first()
         {
-          let mut tooltip = Tooltip::new(&command.label).side(TooltipSide::Bottom);
+          let mut tooltip = Tooltip::new(&command.label).placement(Placement::Bottom);
           if let Some(keys) = &slot.shortcut {
             tooltip = tooltip.shortcut(keys);
           }
@@ -926,7 +926,7 @@ impl Component for ToolbarHost {
       mark_stops(&mut element.node, &mut next, last, &self.last);
       // The menu hangs from the button, and its tooltip is anchored to it too.
       NodeUpdate::ref_element(&mut *element.node, self.anchor.clone());
-      Some(Tooltip::new("More").side(TooltipSide::Bottom).mount(ctx, element))
+      Some(Tooltip::new("More").placement(Placement::Bottom).mount(ctx, element))
     } else {
       None
     };

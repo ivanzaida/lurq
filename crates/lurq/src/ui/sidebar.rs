@@ -25,7 +25,7 @@ use super::{
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
-  tooltip::{Tooltip, TooltipSide},
+  tooltip::Tooltip,
 };
 use crate::{
   animation::Transition,
@@ -1196,7 +1196,7 @@ impl Build<'_> {
         .child(button)
         .with_children(menu)
         .into();
-      let mut tooltip = Tooltip::new(&item.label).side(TooltipSide::Right);
+      let mut tooltip = Tooltip::new(&item.label).placement(Placement::Right);
       if let Some(keys) = &item.shortcut {
         tooltip = tooltip.shortcut(keys);
       }
