@@ -107,13 +107,13 @@ fn a_date_field_is_the_box_and_the_segments_of_the_design() {
 }
 
 #[test]
-fn the_segment_with_the_focus_is_on_the_info_color() {
+fn the_segment_with_the_focus_is_on_the_selection_color() {
   let value = Signal::new(day(2026, 11, 12));
   let mut stage = field(&value, |field| field);
   stage.click("df-month");
   assert_eq!(focused(&stage).as_deref(), Some("df-month"));
-  assert_eq!(stage.fill_color("df-month"), Some(light(PaletteColor::Info)));
-  assert_eq!(stage.text("11").0, light(PaletteColor::DestructiveForeground));
+  assert_eq!(stage.fill_color("df-month"), Some(light(PaletteColor::Selection)));
+  assert_eq!(stage.text("11").0, light(PaletteColor::Foreground));
   assert_eq!(stage.fill_color("df-day"), None);
   // Tab goes on to the next segment, and Right too.
   stage.key("Tab");
@@ -121,7 +121,7 @@ fn the_segment_with_the_focus_is_on_the_info_color() {
   stage.key("ArrowLeft");
   stage.key("ArrowLeft");
   assert_eq!(focused(&stage).as_deref(), Some("df-day"));
-  assert_eq!(stage.fill_color("df-day"), Some(light(PaletteColor::Info)));
+  assert_eq!(stage.fill_color("df-day"), Some(light(PaletteColor::Selection)));
   assert_eq!(stage.fill_color("df-month"), None);
 }
 
@@ -197,11 +197,7 @@ fn backspace_empties_a_segment_and_an_optional_field_is_none() {
   stage.key("Backspace");
   assert_eq!(value.get_untracked(), None);
   assert!(stage.paints("mm"), "an empty segment shows what it is for");
-  assert_eq!(
-    stage.text("mm").0,
-    light(PaletteColor::DestructiveForeground),
-    "it has the focus"
-  );
+  assert_eq!(stage.text("mm").0, light(PaletteColor::Foreground), "it has the focus");
   stage.key("ArrowRight");
   assert_eq!(stage.text("mm").0, light(PaletteColor::MutedForeground));
   // Up on an empty year starts at this year.

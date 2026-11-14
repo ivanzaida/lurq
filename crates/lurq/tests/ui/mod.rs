@@ -84,3 +84,4 @@ mod toolbar;
 mod tooltip;
 mod tree_view;
 mod window_chrome;
+mod window_tabs;

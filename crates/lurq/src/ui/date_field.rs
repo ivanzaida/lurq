@@ -881,9 +881,7 @@ fn segment_name(segment: DateSegment) -> &'static str {
 /// The recipe of a date field and of a time field: the box `width` wide at least.
 pub(crate) fn segments_recipe(width: f32) -> Recipe {
   use DateFieldPart::{Icon as Glyph, Root, Segment, Segments, Separator};
-  use PaletteColor::{
-    Background, Border, DestructiveForeground, Foreground, Info, Input, Muted, MutedForeground, Ring,
-  };
+  use PaletteColor::{Background, Border, Foreground, Input, Muted, MutedForeground, Ring, Selection};
   let edge = |color: PaletteColor| text_box::edge(color);
   let recipe = Recipe::new()
     .base(Root, |s| {
@@ -919,7 +917,8 @@ pub(crate) fn segments_recipe(width: f32) -> Recipe {
     .base(Glyph, |s| s.square(IconSize::Md).foreground(MutedForeground))
     .state(DateFieldState::Placeholder, Segment, |s| s.foreground(MutedForeground))
     .state(DateFieldState::Focused, Segment, |s| {
-      s.background(Info).foreground(DestructiveForeground)
+      // The segment with the focus is the selected text of the box, in the role a text input's selection is in.
+      s.background(Selection).foreground(Foreground)
     })
     .hovered(Root, |s| s.border(edge(Ring)))
     .state(DateFieldState::FullWidth, Root, |s| s.width(Length::Fill))
@@ -1226,7 +1225,8 @@ impl<V: FieldValue<Date>> Themed for DateField<V> {
   /// The design's date field (`pencil/lurq-design-system.pen`, Date Field): a box 180 by 36 on the background, an edge
   /// of 1 in the color of an input's and the medium radius, 10 of padding. Its segments, 2 apart, are in the mono type
   /// at 13 in the foreground with 3 of padding across and 1 down and a radius of 3; the separators between them in the
-  /// muted foreground. The segment with the focus is on the info color, its digits light. A calendar's glyph of 16 in
+  /// muted foreground. The segment with the focus is on the selection's color, as a text input's selected text is (the
+  /// board fills it with `info` under white, for which the palette has no pair of roles). A calendar's glyph of 16 in
   /// the muted foreground is at the end.
   fn recipe() -> Recipe {
     segments_recipe(180.0)

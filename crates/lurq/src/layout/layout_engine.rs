@@ -3420,6 +3420,26 @@ impl LayoutEngine {
     } else {
       remaining - bases
     };
+    // A line of unbounded room that is to be at least so long (the content of a scroll container that fills its
+    // viewport's width) grows its children into what that least length leaves, as a flex container with a least
+    // size does on the web, where every child that waits for room has a basis to grow from. Nothing shrinks: the
+    // line may be longer than that.
+    let least_main = if vertical {
+      constraints.min_height
+    } else {
+      constraints.min_width
+    };
+    let all_based = children
+      .iter()
+      .zip(&child_layouts)
+      .filter(|(_, layout)| Arc::ptr_eq(&layout.result, &self.awaiting_room))
+      .all(|(child, _)| child.state_flex().is_some_and(|params| params.basis.is_some()));
+    let free = if !remaining.is_finite() && all_based && least_main.is_finite() {
+      let floor = least_main - total_spacing - non_flex_main - bases;
+      if floor > 0.0 { floor } else { free }
+    } else {
+      free
+    };
 
     let mut overflow = LineOverflow::new(
       FreeRoom {

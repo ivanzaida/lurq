@@ -3678,6 +3678,58 @@ WindowChrome::new().platform(WindowPlatform::Kde).title("Notes");
 - To what reads the tree the bar is a `group` called by its label or its title, and each control a `button` called by its label.
 - The engine's own title bar (`components::ChromeTitleBar` with `components::WindowControls`) is drawn in the theme's roles too: `Muted` under a line of `Border`, controls in `Foreground` on `SecondaryHover`, close on `Destructive`.
 
+## Window Tabs
+
+The tabs of a desktop app's title bar, as a browser or an editor has them: one is selected, the tab of what the window shows, and a person closes them, asks for a new one, and drags one along the bar or out of it.
+
+```rust
+use lurq::ui::{WindowTab, WindowTabs, icons};
+
+// open: Signal<u32>, which file the window shows; files: the app's list of open files.
+WindowTabs::new(open, files.iter().map(|file| {
+  WindowTab::new(file.id, &file.name).icon(icons::FILE_CODE).dirty(file.dirty)
+}))
+.label("Open files")
+.on_close(|id| close(*id))
+.on_add(|| open_new())
+.on_reorder(|from, to| move_file(from, to))
+.on_detach(|id| open_in_window(*id))
+.mount(ctx);
+
+// The app holds which is selected, and is told the tab a person selects.
+WindowTabs::controlled(1, [(1, "blur.rs"), (2, "theme.rs")], |id| show(*id));
+```
+
+| Builder | |
+| --- | --- |
+| `WindowTabs::new(Signal<T>, tabs)`, `controlled(value, tabs, on_change)` | The tabs, and which is selected: the one with the signal's value, or the app's value. `T` is the app's own type; `WindowTabs<T = ()>` |
+| `optional(Signal<Option<T>>, tabs)`, `controlled_optional(value, tabs, on_change)` | The same where the window may show none of its tabs (a start page): with `None` no tab is selected. A `WindowTabs<Option<T>>`, whose handlers are told `&Option<T>` |
+| `tab(tab)`, `tabs(tabs)` | A tab, or tabs, after the others |
+| `WindowTab::new(value, &str)`, `(value, &str)` | A tab of `value` with its label. The label takes the room the icon and the close slot leave and ends in an ellipsis where it does not fit |
+| `WindowTab::icon(name)`, `dirty(bool)` | An icon before the label; a dot in the close slot for changes that are not saved, with the x in its place under the pointer |
+| `WindowTab::close_button(bool)`, `on_close(Fn())` | Whether it has a close button (shown unless told otherwise: a tab without one is not closed by a person, nor by the keys), and what hears it closed, before the strip's `on_close` |
+| `WindowTab::disabled(bool)`, `id(..)`, `key(..)` | It cannot be selected, closed or dragged, and the keys pass it by. Its id, which its close button has with `-close` after it |
+| `on_change(Fn(&T))` | Told the value of the tab a person selects (a press, a drag, the arrows, the window's keys), after the signal is set: not a value the app sets, nor a press of the selected tab |
+| `on_close(Fn(&T))` | Told the tab a person closes: its close button, a press of the middle button on it, Delete on it, or Ctrl+W (Cmd+W on macOS) on the selected one. The app removes it, and selects another where it was the selected one |
+| `on_add(Fn())` | Told a press of the add button, which is shown once this is given |
+| `on_reorder(Fn(usize, usize))` | Told a tab moved, from its place to the place it is to have: `tabs.insert(to, tabs.remove(from))`. Dragged along the strip, or Ctrl+Shift+PageDown and PageUp. The app reorders its list |
+| `on_detach(Fn(&T))` | Told a tab dragged out of the strip and let go away from it. The app takes it out, to open it in a window of its own |
+| `shortcuts(bool)` | Whether the window's keys work, from anywhere in the window: on unless told otherwise |
+| `label(&str)`, `add_label(&str)`, `close_label(&str)` | What the list is called to tooling; the add button's name ("New tab"); the word before a tab's label that names its close button ("Close", which makes "Close blur.rs") |
+| `mount(ctx)` | Mounted where it is declared: the dragged tab follows the pointer, the selected tab is kept in view where the strip scrolls, and the focus goes to the selected tab when the keys close the one it was on |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the tab Tab stops on; `id` is the strip's, with `{id}-list` for the list and `{id}-add` for the add button |
+
+- The strip is as wide as its tabs and its add button, never wider. Given less room (a title bar narrower than its tabs), the tabs share it alike down to 72 each, the icon and the close slot, and past that the list scrolls sideways between the strip's start and the add button, which stays at the end; mounted, the selected tab is kept in view.
+- A press on a tab selects it when it is let go. A press and a move of more than 4 pixels is a drag: it selects the tab, and, mounted, the tab follows the pointer along the strip, drawn over the others, which make room for it where it would be let go. Let go, `on_reorder(from, to)` is told where it went; let go more than the strip's height above or below the strip, or past the window's top or start edge, `on_detach` is told instead; Escape puts the tab back, and its release tells nothing. The engine tells where a pointer out of the window is from the window's corner, and nothing of how wide the window is: past its end edge beside the strip a tab is let go along the strip. Converted into an element on its own, the strip still tells where a dragged tab was let go, but the tab does not follow the pointer on the way.
+- A press on a tab, its close button or the add button goes no further than them (`stop_propagation` on `on_mouse_down`), so a title bar that drags the window from a press is dragged from the strip's empty room and the bar around it, and not from a tab.
+- The tabs are one stop of Tab ([focus groups](../focus-navigation/#focus-groups)), at the selected tab: Left and Right select the next tab and the one before, and Delete closes the focused one. The add button is a stop after them. A close button is for the pointer; the keyboard has Delete.
+- The window's keys are heard wherever the focus is: Ctrl+Tab and Ctrl+Shift+Tab select the next tab and the one before, round at the ends, as Ctrl+PageDown and Ctrl+PageUp do on Windows and Linux; Ctrl+W (Cmd+W on macOS) closes the selected tab; Ctrl+Shift+PageDown and PageUp move it on and back. `shortcuts(false)` turns them all off. A key the strip takes is not passed on (`prevent_default`).
+- Parts: `WindowTabsPart::Root` (the strip), `List`, `Tab`, `Icon`, `Label`, `Close` (the slot at a tab's end, its close button), `CloseIcon`, `Dot`, `Separator`, `Add`, `AddIcon`. States: `WindowTabsState::Selected`, `Dirty`, `Dragged` and `Disabled` of a tab, and `Disabled` of the strip.
+- In the design the strip is 32 high with its tabs abutting. A tab is 128 by 32, round by 8 at its top corners and square at its bottom, padded 10 at its start and 6 at its end, its parts 8 apart: an icon of 14, the label 12 in the regular weight, and a close slot of 18 round by the small radius with an x of 12 in `MutedForeground`. The selected tab is `Background`, the color of the content it joins in a title bar, its icon and label `Foreground`; another has no fill, its icon and label `MutedForeground` and its x at 0.6, and under the pointer `SecondaryHover` with its x whole. The dot is 7 in `Foreground`. A separator is 1 by 16 in `Border`, between two tabs that are not the selected one and before the add button. The add button is 30 by 28, round by the small radius, with a plus of 14 in `Foreground`. Where the board is silent: the close slot under the pointer is `Muted` and the add button `SecondaryHover`, the ring of the focus is inside a tab, and a disabled tab is dimmed.
+- In a title bar the strip sits on the bar's bottom edge, and the bar has no line under it, so the selected tab runs into the content.
+- To what reads the tree the list is a `tablist` with the strip's `label`, each tab a `tab` with `a11y_selected`, and its close button is named by `close_label` and the tab's label.
+- A renderer that draws other window tabs is given the view: `view.part(..)`, `view.tab_part(index, ..)`, `view.tab(index)`, `view.close(index)`, `view.separator()`, `view.add()`, `view.list()`, and `view.render()` the default.
+
 ## Tree View
 
 Things inside things, one level under the other: the files of a project in their folders, the layers of a scene, settings in their groups.
@@ -4357,7 +4409,7 @@ Field::new("Due date", DateField::optional(due.clone()).min(Date::today()).memor
 - To what reads the tree the field is a `group` called by its label, of `spinbutton`s called by the segment's name (`Month`) that say `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and `a11y_valuetext` (`November`).
 - Its text is its `.locale(..)`, else the app's `app.set_date_locale(..)`, else English, which writes the month first (`11/12/2026`); `en-GB` writes the day first, as the board draws it.
 - Parts: `DateFieldPart::Root` (the box), `Segments` (the row of segments, its gap), `Segment`, `Separator`, `Icon`. States: `DateFieldState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; of a segment `Focused` and `Placeholder`.
-- In the design the box is 180 by 36 on `Background`, an edge of 1 in `Input`, `radius-md` and 10 of padding; its segments, 2 apart, are in the mono type at 13 in `Foreground`, 19 high with 3 of padding across and a radius of 3, the separators in `MutedForeground`. The segment with the focus is on `Info`, its digits light (`DestructiveForeground`: the palette has no foreground of `Info`). A calendar's glyph of 16 in `MutedForeground` is at the end. An empty segment, which the board does not draw, shows `dd`, `mm`, `yyyy` in `MutedForeground`.
+- In the design the box is 180 by 36 on `Background`, an edge of 1 in `Input`, `radius-md` and 10 of padding; its segments, 2 apart, are in the mono type at 13 in `Foreground`, 19 high with 3 of padding across and a radius of 3, the separators in `MutedForeground`. The segment with the focus is the box's selected text, on `Selection` in `Foreground` as a text input's selection is; the board fills it with `info` under white, for which the palette has no pair of roles. A calendar's glyph of 16 in `MutedForeground` is at the end. An empty segment, which the board does not draw, shows `dd`, `mm`, `yyyy` in `MutedForeground`.
 - A theme's renderer is given `DateFieldView` (`SegmentFieldView`): `view.segments` (each a `SegmentShown`), and the pieces `segment(index)`, `separator(index)`, `segments_row()`, `icon()` and `render()`.
 
 ## Time Field

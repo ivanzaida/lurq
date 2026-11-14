@@ -92,6 +92,7 @@ mod toolbar;
 mod tooltip;
 mod tree_view;
 mod window_chrome;
+mod window_tabs;
 mod year_picker;
 
 /// A group of the side bar.
@@ -883,6 +884,14 @@ pub const PAGES: &[Page] = &[
     about: "window chrome title bar titlebar frame controls minimize maximize restore close traffic lights windows macos gnome kde linux platform WindowPlatform WindowControls minimize_label maximize_label restore_label close_label minimizable maximizable on_close title icon label leading trailing tabs menubar content overlay inactive maximized drag snap system menu decorations custom",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<window_chrome::WindowChromePage>(()),
+  },
+  Page {
+    path: "/window-tabs",
+    name: "Window Tabs",
+    icon: Some("window"),
+    about: "window tabs tab strip title bar titlebar browser editor files open close add new tab plus unsaved dot reorder drag detach tear off move ctrl tab ctrl w shortcuts keyboard WindowTab WindowTabs on_change on_close on_add on_reorder on_detach close_button add_label close_label disabled label mount indow abs",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<window_tabs::WindowTabsPage>(()),
   },
 ];
 
