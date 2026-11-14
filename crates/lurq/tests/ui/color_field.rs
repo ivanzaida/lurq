@@ -11,6 +11,7 @@ use lurq::{
   },
   components::Column,
   core::Signal,
+  eyedropper::EyeDropper,
   layout::quad::QuadContent,
   node::color::Color,
   ui::{ColorField, icons},
@@ -161,12 +162,12 @@ fn an_optional_field_emptied_holds_none_and_shows_its_placeholder() {
 }
 
 #[test]
-fn the_eyedropper_opens_the_picker_and_escape_closes_it_with_the_focus_back_in_the_box() {
+fn the_swatch_opens_the_picker_and_escape_closes_it_with_the_focus_back_in_the_box() {
   let value = Signal::new(blue());
   let bound = value.clone();
   let mut stage = page(move || ColorField::new(bound.clone()).id("field").into());
   assert!(!is_open(&mut stage));
-  stage.click("field-trigger");
+  stage.click("field-swatch");
   stage.pass();
   assert!(is_open(&mut stage), "the picker opens");
   let (_, y, _, height) = stage.bounds("field");
@@ -281,7 +282,66 @@ fn tooling_reads_a_combobox_that_opens_a_dialog() {
   assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Brand color"));
   assert_eq!(said(&mut stage, "a11y_haspopup").as_deref(), Some("dialog"));
   assert_eq!(said(&mut stage, "a11y_expanded").as_deref(), Some("false"));
-  stage.click("field-trigger");
+  stage.click("field-swatch");
   stage.pass();
   assert_eq!(said(&mut stage, "a11y_expanded").as_deref(), Some("true"));
+  // The eyedropper says what it does.
+  let _screen = EyeDropper::stand_in(|| Ok(None));
+  let mut stage = page(move || ColorField::new(Signal::new(blue())).id("field").into());
+  let name = stage
+    .tree
+    .get_element_by_id_mut("field-trigger")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(name.as_deref(), Some("Pick a color from the screen"));
+}
+
+#[test]
+fn the_eyedropper_sets_the_color_picked_from_the_screen_as_a_persons_change() {
+  let value = Signal::new(blue());
+  let (heard, tell) = told();
+  let bound = value.clone();
+  let picked = Color::from_hex("#22C55E");
+  let _screen = EyeDropper::stand_in(move || Ok(Some(picked)));
+  let mut stage = page(move || {
+    ColorField::new(bound.clone())
+      .on_change(tell.clone())
+      .id("field")
+      .into()
+  });
+  // Open the picker first: it stays open while the person picks.
+  stage.click("field-swatch");
+  stage.pass();
+  assert!(is_open(&mut stage));
+  stage.click("field-trigger");
+  stage.pass();
+  assert_eq!(value.get(), picked);
+  assert_eq!(*heard.lock().unwrap(), [picked], "told once");
+  assert!(is_open(&mut stage), "the picker is still open");
+  assert!(stage.paints("#22C55E"), "the box shows it");
+}
+
+#[test]
+fn a_pick_given_up_changes_nothing_and_a_hidden_eyedropper_is_not_there() {
+  let value = Signal::new(blue());
+  let (heard, tell) = told();
+  let bound = value.clone();
+  let _screen = EyeDropper::stand_in(|| Ok(None));
+  let mut stage = page(move || {
+    ColorField::new(bound.clone())
+      .on_change(tell.clone())
+      .id("field")
+      .into()
+  });
+  stage.click("field-trigger");
+  stage.pass();
+  assert_eq!(value.get(), blue());
+  assert!(heard.lock().unwrap().is_empty());
+
+  let mut stage = page(|| {
+    ColorField::new(Signal::new(blue()))
+      .eyedropper(false)
+      .id("field")
+      .into()
+  });
+  assert!(stage.tree.get_element_by_id_mut("field-trigger").is_none());
 }

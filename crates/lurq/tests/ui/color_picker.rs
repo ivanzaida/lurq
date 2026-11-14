@@ -12,6 +12,7 @@ use lurq::{
   },
   components::Column,
   core::Signal,
+  eyedropper::EyeDropper,
   layout::quad::{Quad, QuadContent},
   node::color::Color,
   ui::{ColorFormat, ColorPicker},
@@ -370,4 +371,93 @@ fn the_sliders_say_their_values_in_words() {
   assert_eq!(said("picker-hue", "a11y_valuetext").as_deref(), Some("Hue 221°"));
   assert_eq!(said("picker-alpha", "a11y_valuetext").as_deref(), Some("Alpha 100%"));
   assert_eq!(said("picker-hue", "a11y_name").as_deref(), Some("Hue"));
+}
+
+#[test]
+fn the_eyedropper_sets_the_color_picked_from_the_screen_and_tells_its_change_and_its_end_once() {
+  let value = Signal::new(Color::from_hex("#2563EB"));
+  let changes = Arc::new(Mutex::new(Vec::new()));
+  let ends = Arc::new(Mutex::new(Vec::new()));
+  let (bound, change, end) = (value.clone(), changes.clone(), ends.clone());
+  let picked = Color::from_hex("#22C55E");
+  let _screen = EyeDropper::stand_in(move || Ok(Some(picked)));
+  let mut stage = Stage::new(move |_| {
+    let (change, end) = (change.clone(), end.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        ColorPicker::new(bound.clone())
+          .on_change(move |color| change.lock().unwrap().push(color))
+          .on_change_end(move |color| end.lock().unwrap().push(color))
+          .id("picker"),
+      )
+      .into()
+  });
+  stage.pass();
+  stage.click("picker-eyedropper");
+  stage.pass();
+  assert_eq!(value.get(), picked);
+  assert_eq!(*changes.lock().unwrap(), [picked]);
+  assert_eq!(*ends.lock().unwrap(), [picked]);
+  assert!(stage.paints("#22C55E"));
+  // The same color picked again changes nothing.
+  stage.click("picker-eyedropper");
+  stage.pass();
+  assert_eq!(changes.lock().unwrap().len(), 1);
+  assert_eq!(ends.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_pick_given_up_changes_nothing_and_eyedropper_false_hides_it() {
+  let value = Signal::new(Color::from_hex("#2563EB"));
+  let bound = value.clone();
+  let _screen = EyeDropper::stand_in(|| Ok(None));
+  let mut stage = Stage::new(move |_| Column::new().child(ColorPicker::new(bound.clone()).id("picker")).into());
+  stage.pass();
+  stage.click("picker-eyedropper");
+  stage.pass();
+  assert_eq!(value.get(), Color::from_hex("#2563EB"));
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        ColorPicker::new(Signal::new(Color::from_hex("#2563EB")))
+          .eyedropper(false)
+          .id("picker"),
+      )
+      .into()
+  });
+  stage.pass();
+  assert!(stage.tree.get_element_by_id_mut("picker-eyedropper").is_none());
+}
+
+/// Where the platform cannot pick from the screen, no eyedropper is shown.
+#[cfg(not(windows))]
+#[test]
+fn where_the_platform_cannot_pick_there_is_no_eyedropper() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(ColorPicker::new(Signal::new(Color::from_hex("#2563EB"))).id("picker"))
+      .into()
+  });
+  stage.pass();
+  assert!(stage.tree.get_element_by_id_mut("picker-eyedropper").is_none());
+}
+
+/// The eyedropper says what it does.
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn the_eyedropper_is_a_button_that_says_what_it_does() {
+  let _screen = EyeDropper::stand_in(|| Ok(None));
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(ColorPicker::new(Signal::new(Color::from_hex("#2563EB"))).id("picker"))
+      .into()
+  });
+  stage.pass();
+  let element = stage.tree.get_element_by_id_mut("picker-eyedropper").unwrap();
+  assert_eq!(element.description("a11y_role").as_deref(), Some("button"));
+  assert_eq!(
+    element.description("a11y_name").as_deref(),
+    Some("Pick a color from the screen")
+  );
 }
