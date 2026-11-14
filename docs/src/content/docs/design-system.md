@@ -2948,6 +2948,304 @@ ContextMenu::new(editor, editing.clone())
 - In the design the menu is a menu at least 220 wide, its corner at the pointer. The bar is a row on `Popover` padded 3, `radius-lg`, in an edge of `Border` with the large shadow; its items are 28 high, padded 10, their labels 13.
 - The engine places it: `Popup::at(Some((x, y)))` (`Overlay::at`) stands a popup at a point of the window and keeps it inside, which an app may use for a popup of its own.
 
+## Sidebar
+
+The way round an app, down one side of its window: its groups of places, the one the app is at, a header with the app or the workspace and a footer with who is signed in.
+
+```rust
+use lurq::ui::{Avatar, Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarTrigger, icons};
+
+let heading = |collapsed| SidebarHeading::new("lurq").description("Workspace").icon(icons::BOX).collapsed(collapsed);
+let account = SidebarHeading::new("Ivan Zaida")
+  .variant(SidebarHeadingVariant::Account)
+  .description("ivan@lurq.dev")
+  .mark(Avatar::new("Ivan Zaida"));
+
+Sidebar::new()
+  .label("Workspace")
+  .header(heading(false))
+  .header_collapsed(heading(true))
+  .group(
+    SidebarGroup::new("Project")
+      .item(SidebarItem::new("Overview").icon(icons::HOME).href("/"))
+      .item(SidebarItem::new("Inbox").icon(icons::INBOX).count(12).selected(ctx.route_path() == "/inbox"))
+      .item(
+        SidebarItem::new("Components")
+          .icon(icons::FOLDER)
+          .child(SidebarItem::new("Buttons").icon(icons::FILE))
+          .child(SidebarItem::new("Inputs").icon(icons::FILE)),
+      ),
+  )
+  .footer(account)
+  .collapsed(collapsed.clone())
+  .open(open.clone())
+  .mount(ctx);
+
+// Wherever the app puts it: collapses the sidebar, or opens it over the page on a narrow window.
+SidebarTrigger::new(collapsed.clone()).open(open.clone());
+```
+
+| Builder | |
+| --- | --- |
+| `label(&str)` | What the navigation region is called to tooling. "Sidebar" unless told |
+| `header(element)`, `footer(element)` | What stays at its top and its bottom while its items scroll: a `SidebarHeading`, a search. The footer has a line over it |
+| `header_collapsed(element)`, `footer_collapsed(element)` | What the rail shows in their place: the mark alone, an avatar. Nothing unless told |
+| `group(SidebarGroup)`, `groups(..)`, `item(SidebarItem)` | Groups of items; `item` adds to a group of no label |
+| `collapsed(bool \| Signal<bool>)` | The rail of the items' icons, 52 wide. Its width moves between the two over the theme's slow duration |
+| `open(Signal<bool>)` | On a narrow window, whether it is open over the page. `SidebarTrigger` sets it; choosing an item, Escape and a press on the veil clear it |
+| `narrow(bool)` | Whether it lies over the page whatever the window's width: it does below the `md` breakpoint unless told |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root |
+| `mount(ctx)` | Puts it where it goes. Converted into an element on its own it is drawn as it is at rest, with no tooltips on the rail: for a gallery or a test |
+
+| `SidebarGroup` | |
+| --- | --- |
+| `new(&str)` | A group under a label, written in capitals; an empty one has none |
+| `count(usize)` | How many it has, at the end of its label |
+| `action(element)` | An action at the end of its label: a small ghost button. The arrow keys of the items pass it by |
+| `collapsible(bool)`, `open(bool)` | Its label opens and closes it; `open` is how it starts, and the sidebar keeps it from then on |
+| `item(SidebarItem)`, `items(..)`, `key` | Its items; `key` tells two groups of one label apart |
+
+| `SidebarItem` | |
+| --- | --- |
+| `new(&str)`, `icon(name)` | Its name, and the icon before it: what the rail shows of it (the first letter of its name where it has none) |
+| `count(usize)`, `badge(element)`, `shortcut(&str)` | At its end: a count in the mono family, a `Badge`, the keys that go to it as `Kbd::shortcut` writes them |
+| `selected(bool)` | It is where the app is: the app's, following its route |
+| `disabled(bool)` | It is dimmed and takes nothing |
+| `on_select(handler)`, `href(path)` | What choosing it does: the handler, and with the `router` feature the path the router goes to. A press, Enter and Space choose |
+| `child(SidebarItem)`, `children(..)`, `open(bool)` | Nested items, which open and close with their height under it; `open` is how they start, open where one of them is selected unless told |
+| `force(..)`, `id`, `key` | As a button's. `key` tells two items of one name apart |
+
+- The items are a tree to the keyboard (`FocusGroup::vertical().one_stop(true).typeahead(true).nested(true)`, each item at its `focus_level`, one with nested items `focus_expanded`): Tab stops at it once, on the selected item; Up and Down move through the items shown, nested ones included, Home and End go to the first and the last, and a letter to the item whose name starts with it. Right opens a closed item and on an open one goes to its first nested item; Left closes an open one and on a nested item goes to the item it is in. A group that opens and closes is an item its items are in. On the rail the items are a list, and Right opens an item's menu.
+- Collapsed, it is the rail: each item is its icon, says its name (and its keys) in a `Tooltip` at its right, and an item with nested items opens them in a `Menu` there, the selected one marked. An item whose nested item is selected is the selected one on the rail.
+- On a window narrower than the `md` breakpoint it lies over the page in a `Drawer` with `overlay(true)` and `scroll(false)`, as wide as it is beside the page, its header and footer staying while its items scroll; whatever `collapsed` says, it is whole there. Choosing an item closes it.
+- Which item is selected is the app's: with a router, `.selected(ctx.route_path() == path)` on each, and `.href(path)` to go there. The gallery's shell does this for its pages.
+- `SidebarTrigger::new(collapsed).open(open)` is a ghost button of the `panel-left` icon, called by which way it goes: "Collapse sidebar", "Expand sidebar", or on a narrow window "Open sidebar", "Close sidebar". `narrow(bool)` tells it as the sidebar is told.
+- `SidebarHeading::new(title)` is the row of the header and the footer: `description`, `icon(name)` (a mark on the primary fill) or `mark(element)` (an avatar), `trailing_icon(name)`, `variant(SidebarHeadingVariant::Workspace | Account)`, `collapsed(bool)` (the mark alone, for the rail), `on_click` and `anchor(ElementRef)` (a button, from which a switcher's menu can hang).
+- Parts: `SidebarPart::Root`, `Header`, `Body` (what scrolls), `Footer` (its room at the sidebar's sides), `FooterContent` (the line and what is under it), `Group`, `GroupLabel`, `GroupText`, `GroupCount`, `GroupChevron`, `GroupAction`, `Item`, `ItemIcon`, `ItemLabel`, `ItemCount`, `ItemBadge`, `ItemShortcut`, `ItemChevron`, `ItemIndent` (one for each level an item is nested), `Nested`, `NestedContent`, `Heading`, `HeadingMark`, `HeadingText`, `HeadingTitle`, `HeadingDescription`, `HeadingTrailing`. States: `SidebarState::Collapsed`, `Overlay`, `Selected`, `Disabled`, `Open`, `Interactive` (a group's label that is pressed, a heading with a handler). Variants of a heading: `SidebarHeadingVariant::Workspace`, `Account`.
+- In the design the sidebar is 260 wide on `Muted` with a line of 1 in `Border` along its end, padded 8, 2 between rows. The 8 at its sides is its header's, body's and footer's: the body reaches the sidebar's edge, and at its end it has the lane of the theme's scroll bar (its width and its inset on either side, 12 with the default bar) where that is more than 8, so that the bar, which is drawn over what scrolls, lies beside the rows and not over them. The rail shows no bar: it scrolls with the wheel and the keys. An item is 32 high (it follows the density: 24, 40 and 44 at compact, comfortable and touch), padded 8 across, 8 between an icon of 16 in `MutedForeground` and its name in 13; the selected one is on `Background` with an edge of `Border`, its name in the medium weight and its icon in `Foreground`. Under the pointer an item has the `StateHover` veil, held down `StatePressed`, and the ring of the focus is inside it. A group's label is 11/600 in capitals, 0.6 apart, in `MutedForeground`, 10 over it and 4 under it. A nested item is 18 further in, after the chevron of 14 of the item it is in. The heading of the header is 44 high with a mark of 28 on `Primary`, its title 13/600 over a description of 11 in `MutedForeground`; the footer's is under a line of 1 and 48 high, its name in the medium weight. The rail is 52 wide, its items 36 by 32, 4 apart.
+- It is a mounted component: the tooltips of the rail are mounted, and it keeps which nested lists and groups are open and the anchor and the open signal of each menu of the rail.
+- To what reads the tree it is a `navigation` called by its label, its items `link` (with `href`) or `button`, the selected one with `a11y_current` `page`, an item with nested items with `a11y_expanded`, and a nested list a `group`.
+- A theme's renderer (`SidebarRenderer`) is given a `SidebarView` with the groups built, the header and the footer as the sidebar is now, and `header()`, `body()`, `footer()` and `root(children)` to lay them out; `render()` is the default.
+
+## Menubar
+
+The menus of an app in a row, File, Edit, View, each opened from its title, as the title bar of a window holds them on Windows and Linux.
+
+```rust
+use lurq::ui::{Menu, MenuEntry, MenuItem, Menubar, icons};
+
+// open: Signal<Option<usize>>, the menu open now; export: ElementRef, exporting: Signal<bool> for a submenu.
+Menubar::new(open)
+  .menu("File", [
+    MenuItem::new("New").icon(icons::FILE).shortcut("Ctrl+N").on_select(move || new_file()).into(),
+    MenuItem::new("Open…").shortcut("Ctrl+O").on_select(move || open_file()).into(),
+    MenuEntry::Separator,
+    MenuItem::new("Export as").submenu(Menu::new(export, exporting).items(["PNG", "SVG", "PDF"].map(MenuItem::new))).into(),
+    MenuEntry::Separator,
+    MenuItem::new("Quit").shortcut("Ctrl+Q").on_select(move || quit()).into(),
+  ])
+  .menu("Edit", [
+    MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z").on_select(move || undo()),
+    MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true),
+  ])
+  .menu("View", [MenuItem::new("Show grid").checked(grid.get()).on_select(move || toggle_grid())])
+  .menu("Help", [MenuItem::new("About")])
+  .title_disabled("Help", !online.get());
+```
+
+| `Menubar` | |
+| --- | --- |
+| `new(open)` | Which menu is open, by its index among the bar's: the app's `Signal<Option<usize>>`. A press of a title sets it; choosing an item, a press outside and Escape set it to `None`; the app may set it too |
+| `menu(title, entries)` | A menu called `title`, after the bar's others, holding [menu](#menu) items: `MenuItem`s, with `MenuEntry::Separator` and `MenuEntry::Label` between them (`.into()` each where the list mixes them) |
+| `title_disabled(title, bool)` | The menu of that title cannot be opened: its title is dimmed, and the pointer, the arrows and Alt pass it by |
+| `disabled(bool)` | No menu of the bar can be opened |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the bar's; its titles are `{id}-0`, `{id}-1` and on, and each menu's panel `{id}-0-menu` |
+
+- Its menus are [menus](#menu), with all their items have: icons, shortcuts, checks, radio items, submenus, disabled and destructive items, separators and labels. One is open at a time.
+- The pointer: a press of a title opens its menu, and a press of it again closes it. While a menu is open the pointer coming onto another title opens that one, with no press. Choosing an item, a press outside and Escape close the menu.
+- The keyboard: the bar is one stop of Tab (a [focus group](../focus-navigation/#focus-groups) of one stop). Left and Right move between the titles and go round at the ends, a letter goes to the title that starts with it, and a disabled title is passed by. Down, Enter and Space open the focused title's menu with the focus on its first item, Up on its last that can be chosen. In an open menu Left and Right close it and open the menu beside it, at its first item: Left in a submenu closes the submenu first, Right on an item with a submenu opens it, and Right on one without goes to the next title from a submenu too. Escape closes the menu and gives the focus back to its title.
+- Alt: pressed and let go alone, Alt puts the focus on the first title and underlines the first letter of each title; Alt alone again gives the focus back to what had it, closing a menu that was open. The letters show while Alt is held down too. Alt with a title's first letter opens its menu from wherever the focus is, and from a menu of the bar opens the other; several titles with one first letter are gone round. On a Mac, where Option with a letter types a character and the app's menus are the system's, Alt does neither.
+- Under the pointer, focused from the keyboard, or with its menu open, a title is filled with `Highlight`, the board's `accent`. In the design the bar is 36 tall in `Background`, padded 4, with the medium radius and an edge of 1 in `Border`, its titles 2 apart; a title is 28 tall, padded 10 at its sides, with the small radius, its text 13/500 in `Foreground`. A disabled title is dimmed. A menu opens under its title from its start, 4 below it.
+- The engine's part is `FocusGroup::menu_row(true)`, which the bar's row has: a row of elements each of which opens a menu hung from it when it is pressed. While one of those menus has the focus, the Left and Right that nothing in the menu takes close it, with the menus opened from it, and press the element beside it; Alt with a letter and Alt alone act on the first such row of the window. A bar of your own, of buttons and [menus](#menu), gets the same keys from it.
+- The bar keeps, for the signal it is given, a signal for each menu kept as one with the app's, the anchor each menu hangs from, and what Alt shows, while it is in the tree.
+- Parts: `MenubarPart::Bar`, `Title` (what is pressed, and what is lit), `Label` (its text). States: `MenubarState::Open` (the title's menu is open) and `Disabled` (the bar, or the title, cannot be opened); a title is resolved in the states of the bar and its own.
+- To what reads the tree the bar is a `menubar`, each title a `menuitem` called by its text with `a11y_haspopup` `menu` and `a11y_expanded`.
+- A renderer for `Menubar` gets a `MenubarView`: `view.bar()` is the row with its style, its focus group and its handlers; `view.title(index)` a title's behavior with its style, `view.label(index)` its text, and `view.menu(index)` its menu, hung from the title, to put after it; `view.title_part(index, part)` is the style of a part of one title. `view.render()` builds the bar.
+
+On a Mac an app's menus belong in the system's menu bar, which `App::set_menu_bar` fills (see [native menus](../window-lifecycle-menus/#building-a-native-menu)): there `app.menu_bar_support()` is `MenuBarSupport::Native`, and the app shows no `Menubar`. The native model routes a command by its id (`MenuAction::new(id, label)`, `app.on_menu_activate`), where a `MenuItem` calls a handler and has no id; and it has no check or radio item. So one list feeds both from the app's own description of its commands, built into each:
+
+```rust
+use lurq::app::{Accelerator, Menu as NativeMenu, MenuAction, MenuBarSupport};
+use lurq::ui::{MenuItem, Menubar};
+
+struct Command { id: &'static str, label: &'static str, key: Option<&'static str> }
+const FILE: [Command; 2] = [
+  Command { id: "new", label: "New", key: Some("n") },
+  Command { id: "open", label: "Open…", key: Some("o") },
+];
+
+if app.menu_bar_support() == MenuBarSupport::Native {
+  // menu_bar: the app's MenuBar, its application menu as it likes
+  menu_bar.menus = vec![NativeMenu {
+    title: "File".into(),
+    items: FILE.iter().map(|c| {
+      let action = MenuAction::new(c.id, c.label);
+      match c.key { Some(key) => action.accelerator(Accelerator::command(key)), None => action }.into()
+    }).collect(),
+  }];
+  app.set_menu_bar(menu_bar);
+  app.on_menu_activate(move |id| run(id));
+} else {
+  // In the render, the same commands as a drawn bar.
+  let file = FILE.map(|c| {
+    let item = MenuItem::new(c.label).on_select(move || run(c.id));
+    match c.key { Some(key) => item.shortcut(&format!("Ctrl+{}", key.to_uppercase())), None => item }
+  });
+  Menubar::new(open).menu("File", file);
+}
+```
+
+## Toolbar
+
+The tools of what is in front of a person, in a row: the marks of a text, the actions on a table, the commands of a document.
+
+```rust
+use lurq::ui::{Button, Toggle, Toolbar, ToolbarGroup, ToolbarItem, ToolbarVariant, icons};
+
+Toolbar::new()
+  .label("Formatting")
+  .child(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold.get())).shortcut("Ctrl+B"))
+  .child(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).on(italic.get()))
+  .child(Toolbar::separator())
+  .child(Button::new("Link").icon(icons::LINK).icon_only(true).on_click(link))
+  .child(Toolbar::spacer())
+  .child(ToolbarItem::from(Button::new("Search").icon(icons::SEARCH).icon_only(true)).stays(true))
+  .overflow(true)
+  .mount(ctx);
+
+// A command bar's groups: a label under each, and the group goes into the menu whole.
+Toolbar::new()
+  .variant(ToolbarVariant::Plain)
+  .child(ToolbarGroup::new().label("Clipboard").child(Button::new("Paste").icon(icons::PASTE)))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `Toolbar::new()` | An empty bar on a surface, its controls of the small size |
+| `child(impl Into<ToolbarItem>)`, `children(..)` | A `Button`, a `Toggle`, a `ToggleGroup`, a `Select`, a `ToolbarGroup`, `Toolbar::separator()`, `Toolbar::spacer()`, an `Element`, or a `ToolbarItem` made of any of them |
+| `mount(ctx)` | Puts the bar in the tree of `ctx`'s component: it keeps the menu of what does not fit and the control the focus left. `build(theme)` and `From<Toolbar> for Element` draw it once with nothing kept: no tooltips, no menu |
+| `variant(ToolbarVariant)` | `Surface` (the default): the background's fill and an edge. `Plain`: neither. `Floating`: the popover's fill, an edge and the large shadow |
+| `size(ButtonSize)` | The size of its buttons and toggles: `Sm` by default, so the bar is 40 high |
+| `overflow(bool)` | Where the bar is narrower than its controls, those that do not fit go into a menu behind a More button at its end, the last first. Without it they are cut off |
+| `label(&str)` | What the bar is called, to what reads the tree |
+| `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. The More button has the id with `-more` after it, its menu `-menu` |
+
+| `ToolbarItem` | |
+| --- | --- |
+| `shortcut(&str)` | Keys shown in the tooltip of an icon alone and beside its item in the menu |
+| `stays(bool)` | The control never goes into the menu |
+| `as_given(bool)` | The button or toggle keeps its own variant, size and style over the bar's: the outline Export of a table's bar |
+| `ToolbarItem::element(el)`, `in_menu(ToolbarCommand)` | Any element: it stays in the bar unless it has a command to stand for it in the menu |
+
+- The bar gives its buttons its size and makes them ghost ones, and its toggles its size, unless an item is `as_given`. A button or toggle that is its icon alone is called by its label and has a tooltip (below it) of its label and its shortcut.
+- It is one stop of Tab: Tab enters it at the control the focus last left (the first, the first time), and leaves it at once. Left and Right move between its controls, the toggles of a group in it among them; Home and End go to the first and the last; a disabled one is passed by. A field or a select in it keeps its own keys while it is focused.
+- With `overflow`, a control that does not fit drops out of the bar whole, the last first, and the More button (`more-horizontal`, after a line) appears at the end; its menu has an item for each control that went, in the order of the bar: its label, its icon, its shortcut, a check for a toggle (each toggle of a group, after a line), and its press. A labelled group goes whole, under its label. A select or a field stays unless it has `in_menu`. The bar learns what went from the layout (the engine's `ShrinkLimit::Drop` and `drop_marker`), and its menu follows it a pass later.
+- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `More`. State: `ToolbarState::Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
+- In the design the bar is padded 4, its controls 2 apart; a button is a ghost one of 32 with an icon of 16; a toggle that is on has the fill of what is picked out; a line of 20 in the border's color stands between two groups with 4 on either side. On a surface it has the background's fill, an edge of 1 in the border's color and the middle radius. A group of a command bar is padded 10 with a line at its end and its label of 10 in the muted foreground under it. A focused control has its ring inside it, where the bar does not cut it off.
+- To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
+- A renderer that draws another bar gets a `ToolbarView`: `view.slot(index)` is a control as the bar lays it out (dropping when it does not fit), `view.more()` the More button with its menu, `view.menu()` the menu alone, `view.dropped` which slots went.
+
+## Action Bar
+
+The toolbar of a selection: over the list whose rows are selected, it says how many are, offers what can be done to them, and clears them.
+
+```rust
+use lurq::{components::Stack, ui::{ActionBar, Button, icons}};
+
+Stack::new()
+  .child(list)
+  .child(
+    ActionBar::new(selected.get().len())
+      .action(Button::new("Move").icon(icons::FOLDER_IMPORT).on_click(move_them))
+      .action(Button::new("Duplicate").icon(icons::COPY).on_click(duplicate))
+      .destructive_action(Button::new("Delete").icon(icons::TRASH).on_click(delete))
+      .on_clear(move || selected.set(Vec::new()))
+      .escape_clears(true),
+  );
+```
+
+| Builder | |
+| --- | --- |
+| `ActionBar::new(count)` | The bar of a selection of `count`: shown while it is more than none |
+| `text(&str)` | What it says, in place of "3 selected" |
+| `action(Button)`, `destructive_action(Button)` | An action on what is selected: a round ghost button; one that destroys in the destructive color |
+| `on_clear(handler)` | What clearing does: the round button with a cross at the end (none without it), and Escape where it clears |
+| `escape_clears(bool)` | Escape clears the selection while the bar is shown, wherever the focus is, unless what has it took the key |
+| `placement(ActionBarPlacement)` | `Bottom` (the default) or `Top` of the room it is given |
+| `clear_label(&str)` | What the clear button is called: "Clear selection" |
+| `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. The clear button has the id with `-clear` after it |
+
+- It is as large as the room it is given and takes no press itself: put it over what it acts on, in a `Stack`. The bar stands 16 from the bottom (or the top) of that room, in the middle; it comes in with a fade and a move of 16 from that edge, and leaves the same way as the count goes to none.
+- It is a toolbar to what reads the tree, called by what it says, and one stop of Tab whose Left and Right move between its buttons.
+- Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarPlacement::Bottom`, `Top`.
+- In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
+
+## Splitter
+
+Panes that share a room by the dividers between them, which a person drags: the side bar, the editor and the terminal of a window.
+
+```rust
+use lurq::ui::{Splitter, SplitterPane};
+
+// layout: Signal<Vec<f32>>, saved with the window.
+Splitter::horizontal()
+  .sizes(layout.clone())
+  .pane(SplitterPane::new(files).size(240.0).min(160.0).max(480.0).collapsible(true).label("Files"))
+  .pane(SplitterPane::new(
+    Splitter::vertical()
+      .pane(SplitterPane::new(editor).min(120.0))
+      .pane(SplitterPane::new(terminal).size(160.0).min(80.0).collapsible(true))
+      .mount(ctx),
+  ))
+  .pane(SplitterPane::new(outline).share(0.2).min(100.0))
+  .on_resize_end(|sizes| save(sizes))
+  .mount(ctx);
+
+// The board's Resizable: a grip on each divider, in a box of its own.
+Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
+```
+
+| Builder | |
+| --- | --- |
+| `Splitter::horizontal()`, `vertical()`, `new(orientation)` | Panes side by side, or one over the other |
+| `pane(SplitterPane)`, `panes(..)` | A pane after the others, with a divider before it |
+| `SplitterPane::new(content)` | A pane holding `content`, laid out in its whole width from its top: a height of `Dimension::Pct(100.0)` fills it |
+| `SplitterPane::size(px)`, `share(0..1)` | How large it is to begin with: pixels it keeps as the splitter grows and shrinks, or a share it keeps. A pane with neither takes the rest; where all have one, the last does |
+| `SplitterPane::min(px)`, `max(px)` | The least and the most it is |
+| `SplitterPane::collapsible(bool)` | It closes when a divider is dragged under half its least size, and opens by a drag back, a double press on the divider or Enter. The pane that takes the rest does not close |
+| `SplitterPane::label(&str)`, `key(..)` | What it is called: the divider after it is called so to tooling |
+| `sizes(Signal<Vec<f32>>)` | The sizes of the panes, the app's: pixels along the splitter as a divider last left them, 0 for a closed pane, written as a divider moves and once it is first laid out |
+| `on_resize(handler)` | Called with the sizes each time a divider moves: while it is dragged, and for each key |
+| `on_resize_end(handler)` | Called with the sizes once a divider has moved: let go after a drag, or moved by a key, a double press or Enter |
+| `step(px)`, `large_step(px)` | What an arrow key moves a divider by, and with Shift: 10 and 50 |
+| `grip(bool)` | A grip in the middle of each divider |
+| `framed(bool)` | A box of its own: a fill, an edge and round corners, as the board draws its specimens |
+| `label(&str)` | What a divider is called where the pane before it has no label |
+| `mount(ctx)` | Mounted where it is declared: it keeps its sizes where the app gives it no signal, and shows the sizes the app sets in the signal from outside |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the dividers; `id` is the root's, and the dividers are `{id}-divider-{n}` |
+
+- A drag holds the pointer: the divider follows it wherever it goes, in the window and out of it, the cursor is the resizing one over the divider and for the whole drag, and no text is selected by it. A double press puts the divider back where it began, or opens the closed pane beside it. A closed pane is inert (`.inert`, see Focus And Keyboard Navigation): what is in it stays mounted and takes neither the focus nor the pointer.
+- A divider is a stop of Tab. The arrow keys of its orientation (Left and Right across, Up and Down one over the other) move it by a step, with Shift by a larger one; Home and End take the pane before it to its least and most size, and Enter closes and opens the collapsible pane beside it.
+- The panes say what gives way when the window grows or shrinks: one of pixels keeps them, one of a share keeps its share, and the pane given no size takes the rest. No open pane is made smaller than its least size while there is room: where the rest would be, the panes nearest it give way down to theirs.
+- Converted into an element, a splitter keeps its sizes while what holds it does not render again, unless it is given `sizes`; mounted, it keeps them, and an app that sets `sizes` from outside (to restore a layout) sees the panes take them. Pixels set from a saved layout are the pane's pixels, and a pane of a share takes the share its pixels were of the room they were saved in.
+- A drag renders nothing again while it moves: the panes are resized by sizes their element refs are given (`ElementRefMut::set_size`), and what is in them is only laid out again at the next pass. Nor does letting it go: tooling reads where it stands from the divider at once (`ElementRefMut::describe`).
+- Parts: `SplitterPart::Root`, `Pane`, `Handle` (the room around a divider's line that takes the pointer and the focus), `Line`, `Bar` (the wider line under the pointer, dragged and focused), `Grip`, `GripIcon`. States: `SplitterState::Vertical`, `Framed`, `Disabled`.
+- In the design a divider is a line of 1 in the `Border` color; under the pointer and focused from the keyboard it is 3 wide in `Ring`, and dragged in `Primary`. The room that takes the pointer is 12 across the line, over the edges of the panes beside it. The grip is 12 by 20 (20 by 12 across a vertical splitter), round by the small radius, in `Border`, with a grip icon of 10 in `Foreground`. Framed, the splitter has the `Background` fill, an edge of 1 in `Border` and the large radius.
+- To what reads the tree a divider is a `separator` that can be focused, with `a11y_orientation` (that of its line), `a11y_valuenow` (the pixels of the pane before it), `a11y_valuemin`, `a11y_valuemax` (where it has a most) and the name of the pane before it, or the splitter's `label`. `a11y_valuenow` follows the divider as it is dragged and moved by the keys.
+- Splitters nest, one orientation in the other: a pane holds a splitter of its own.
+- A renderer that draws another splitter is given the view: `view.part(..)`, `view.thickness()` (the room between two panes), `view.sizes()`, and `view.render()` the default.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
