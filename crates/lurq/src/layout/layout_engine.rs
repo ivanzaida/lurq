@@ -3481,6 +3481,50 @@ impl LayoutEngine {
       child_layouts[i].result = result;
     }
 
+    // A line with no bound on its main axis but a least length (a row that fills the viewport of a scroll across)
+    // grows its growing children into the room that length leaves past what they need, as a flex container with a
+    // least width does on the web. Nothing shrinks: a line that needs more than its least length keeps its size.
+    let least_main = if vertical {
+      constraints.min_height
+    } else {
+      constraints.min_width
+    };
+    if !remaining.is_finite() && least_main.is_finite() && grow_total > 0.0 {
+      let used: f32 = child_layouts
+        .iter()
+        .map(|layout| main_size(&layout.result, vertical))
+        .sum::<f32>()
+        + total_spacing;
+      let spare = least_main - used;
+      if spare > 0.0 {
+        for (i, child) in children.iter().enumerate() {
+          if child.is_overlay_declaration() {
+            continue;
+          }
+          let Some(params) = child.state_flex().filter(|params| params.grow > 0.0) else {
+            continue;
+          };
+          let size = main_size(&child_layouts[i].result, vertical) + spare * (params.grow / grow_total);
+          let child_constraints = if vertical {
+            Constraints {
+              min_width: 0.0,
+              max_width: constraints.max_width,
+              min_height: size,
+              max_height: size,
+            }
+          } else {
+            Constraints {
+              min_width: size,
+              max_width: size,
+              min_height: 0.0,
+              max_height: constraints.max_height,
+            }
+          };
+          child_layouts[i].result = self.layout_child_node(glyph_engine, child_overrides, i, child, child_constraints);
+        }
+      }
+    }
+
     let collapsed = self.shrink_flex_line(
       glyph_engine,
       &FlexShrinkLine {

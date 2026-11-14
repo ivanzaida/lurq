@@ -128,6 +128,7 @@ pub struct ScrollArea {
   orientation: ScrollAreaOrientation,
   scrollbars: ScrollAreaScrollbars,
   gutter: bool,
+  fill_width: bool,
   scroll_state: Option<ScrollState>,
   label: Option<Arc<str>>,
   states: Vec<Name>,
@@ -151,6 +152,7 @@ impl ScrollArea {
       orientation: ScrollAreaOrientation::Vertical,
       scrollbars: ScrollAreaScrollbars::Auto,
       gutter: false,
+      fill_width: false,
       scroll_state: None,
       label: None,
       states: Vec::new(),
@@ -190,6 +192,13 @@ impl ScrollArea {
   /// the content's edge. The lane is kept while a bar fades.
   pub fn gutter(mut self, gutter: bool) -> Self {
     self.gutter = gutter;
+    self
+  }
+
+  /// Whether what scrolls across is laid out at least as wide as the area: items that grow share the room there
+  /// is, and scroll sideways only once they need more. Of an area that scrolls across.
+  pub fn fill_width(mut self, fill: bool) -> Self {
+    self.fill_width = fill;
     self
   }
 
@@ -295,6 +304,7 @@ impl ScrollArea {
       content: self.content,
       orientation: self.orientation,
       bar,
+      fill_width: self.fill_width,
       scroll_state: self.scroll_state,
       label: self.label,
       recipe: theme.resolve::<ScrollArea>(&case, Some(&self.rules)),
@@ -321,6 +331,8 @@ pub struct ScrollAreaView {
   pub orientation: ScrollAreaOrientation,
   /// The theme's bar, shown and placed as the area says.
   pub bar: ScrollBarStyle,
+  /// Whether what scrolls across is at least as wide as the area.
+  pub fill_width: bool,
   scroll_state: Option<ScrollState>,
   pub label: Option<Arc<str>>,
   /// The style of each part of this area.
@@ -381,8 +393,8 @@ impl ScrollAreaView {
     }
     match self.orientation {
       ScrollAreaOrientation::Vertical => dress!(ScrollVertical::new(content)),
-      ScrollAreaOrientation::Horizontal => dress!(ScrollHorizontal::new(content)),
-      ScrollAreaOrientation::Both => dress!(ScrollBoth::new(content)),
+      ScrollAreaOrientation::Horizontal => dress!(ScrollHorizontal::new(content).fill_width(self.fill_width)),
+      ScrollAreaOrientation::Both => dress!(ScrollBoth::new(content).fill_width(self.fill_width)),
     }
   }
 }

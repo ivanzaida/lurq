@@ -557,7 +557,9 @@ constraints, so `.max_height(...)` makes it grow with its content up to the cap 
 
 `ScrollBoth::fill_width(true)` lays the content out at least as wide as the viewport, and wider only where it needs
 more: a table's columns share the room there is, and it scrolls sideways only where they do not fit. Without it the
-content of a `ScrollBoth` is as wide as it is itself, as unbounded room makes it.
+content of a `ScrollBoth` is as wide as it is itself, as unbounded room makes it. `ScrollHorizontal::fill_width(true)`
+does the same for what scrolls only sideways: a row of items that grow to share the viewport, and scroll once their
+least widths are more than it.
 
 To bring an element into view, request it from a component with `ctx.scroll_into_view(&element_ref)` (the ref attached
 with `.ref_element(...)`), or call `scroll_into_view()` on the `ElementHandle` from `tree.get_element_by_id_mut(id)`.

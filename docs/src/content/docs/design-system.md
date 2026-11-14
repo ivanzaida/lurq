@@ -1768,6 +1768,7 @@ ScrollArea::new()
 | `orientation(..)` | `ScrollAreaOrientation::Vertical` (the default), `Horizontal`, or `Both`; a `ui::Orientation` is one of the first two |
 | `scrollbars(ScrollAreaScrollbars)` | When its bars show: `Auto` (while the content overflows), `Always`, `Hover` (under the pointer and while it scrolls, then they fade), `Scrolling` (only while it scrolls, as a system set to show scroll bars only when scrolling), `Never` |
 | `gutter(bool)` | Its bars in a lane of their own beside the content, kept while a bar fades, and not over its edge |
+| `fill_width(bool)` | What scrolls across is at least as wide as the area: items that grow share the room there is, and it scrolls sideways only once they need more (a [timeline](#timeline) across) |
 | `label(&str)` | A region of that name to what reads the tree, and a stop of Tab whose keys scroll it |
 | `scroll_state(ScrollState)` | The app's: where it is scrolled to, read and set |
 | `width(..)`, `height(..)`, `max_height(..)` | Its size, `impl Into<Length>`; it is as large as the room it is given without one |
@@ -4561,10 +4562,10 @@ DataList::new().orientation(Orientation::Vertical).text("Ship to", "Ivan Zaida, 
 
 ## Timeline
 
-What happened, in its order: the releases of a project, the history of a deploy, the tracking of an order, the activity of a document.
+What happened, in its order: the releases of a project, the history of a deploy, the tracking of an order, the activity of a document, a log.
 
 ```rust
-use lurq::ui::{Avatar, Button, Card, Timeline, TimelineItem, TimelineVariant};
+use lurq::ui::{Avatar, Button, Card, Orientation, Timeline, TimelineAlign, TimelineItem, TimelineSize, TimelineVariant};
 
 Timeline::new([
   TimelineItem::new("Released 0.60").description("Blur and frosted glass land in the renderer.").time("Nov 10"),
@@ -4587,32 +4588,55 @@ TimelineItem::new("Olena Koval commented")
   .time("2 hours ago")
   .child(Card::new().child(comment))
   .action(Button::new("Reply"));
+
+// An order's steps across, each told by its value when it is pressed.
+Timeline::new([TimelineItem::new("Ordered").value(1u32), TimelineItem::new("Shipped").value(2)])
+  .orientation(Orientation::Horizontal)
+  .on_select(|step: &u32| open_step(*step));
+
+// A log: small, the times in a column, the history loaded a page at a time.
+Timeline::new(entries)
+  .size(TimelineSize::Sm)
+  .align(TimelineAlign::TimeColumn)
+  .on_load_more(move || fetch_next_page())
+  .loading(fetching);
 ```
 
 | Builder | |
 | --- | --- |
-| `Timeline::new(items)` | The items, the first at the top; `item(item)` and `items(items)` add more |
+| `Timeline::new(items)` | The items, the first at the top or the start; `item(item)` and `items(items)` add more. `Timeline<T>` holds items of `TimelineItem<T>`, `()` unless they have a `value` |
+| `orientation(Orientation)` | `Vertical`, the board's: one under another, the line down. `Horizontal`: side by side, the line across, each item's text under its mark |
+| `size(impl Into<Name>)` | A `TimelineSize`: `Md`, the board's, or `Sm`, a log |
+| `align(TimelineAlign)` | Where the text stands: `Start`, after the line (the board's); `Alternate`, on either side of it item by item; `TimeColumn`, the time in a column of its own before the line, over it across |
+| `on_select(Fn(&T))` | Told the value of the item pressed, after the item's own handlers: every item that is not disabled is then pressed. A second handler is called after the first |
+| `on_load_more(Fn())`, `loading(bool)` | An item at the end that shows more, which the line runs on to: its button calls the handler, and while `loading` its mark is a spinner and it takes no press. The app stops giving `on_load_more` once it has loaded everything |
+| `more_label(&str)`, `loading_text(&str)` | What that button says, "Show more" and "Loading" when not given |
 | `label(&str)` | What the timeline is called, to what reads the tree |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first item that is pressed |
 | `TimelineItem::new(&str)` | What happened: its title |
-| `description(&str)`, `time(&str)` | The text under the title, and when it happened as the app writes it ("Nov 10", "2 hours ago"), under the description |
+| `value(T)` | What the timeline's `on_select` is told when the item is pressed: the id of the event, of the commit, of the step |
+| `description(&str)`, `time(&str)` | The text under the title, and when it happened as the app writes it ("Nov 10", "2 hours ago"): under the description, beside the title in the small size, or apart where the timeline's `align` puts it |
 | `icon(name)`, `media(element)` | In place of the dot: an icon in a well, or the app's mark, an avatar |
 | `variant(impl Into<Name>)` | A `TimelineVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), or a variant a theme adds: the color of the mark. One that failed is `Destructive` |
-| `current(bool)`, `upcoming(bool)`, `pending(bool)` | The one that is now, its dot ringed; one to come, its dot hollow; one running, a spinner for its mark |
+| `current(bool)`, `upcoming(bool)`, `pending(bool)` | The one that is now, its mark ringed; one to come, its dot hollow; one running, a spinner for its mark |
 | `child(..)`, `children(..)` | Content under the time: a card, a comment, a list of files |
-| `action(element)` | The one action, at the end of the item beside its title; a second takes the place of the first |
-| `on_select(Fn())` | The item is pressed and a stop of Tab: a press, Enter or Space calls it. A second handler is called after the first |
-| `disabled(bool)`, `id`, `key` | An item that is pressed takes nothing, faded and passed by Tab |
+| `action(element)` | The one action, at the end of the item beside what is pressed; a second takes the place of the first |
+| `on_select(Fn())` | The item is pressed: a press, Enter or Space calls it, before the timeline's handler. A second handler is called after the first |
+| `disabled(bool)`, `id`, `key` | An item that is pressed takes nothing, faded and passed by the keys |
 
-- Each item is its rail beside its content. The rail is the mark over a line that runs down to the next item's mark: the line is as long as the item, so a title or a description that wraps, or content under the time, makes it longer. The last item has no line and no room under its content.
-- The titles and the descriptions wrap in the room the rail and the action leave them; the action keeps its room at the end of the item, beside the title.
-- A timeline is read, not operated: an item is a stop of Tab only where it has `on_select`, and is then pressed as a button is.
-- A timeline builds every item it is given: a long history is the app's to page, with a button after the last item that shows more. It is not in a virtual list: its items hold the app's elements (a card, a comment) and are as high as they wrap.
-- To what reads the tree it is a `list` called by its label, of `listitem`s called by their titles and described by their descriptions; the current one says `a11y_current`, a pending one `a11y_busy`, and inside an item that is pressed is a `button`.
-- Parts: `TimelinePart::Root`, `Item`, `Rail`, `Dot`, `Mark` (the well of an icon, what holds the media, the spinner), `Icon`, `Separator` (the line), `Content` (the title, the description, the time and the body), `Title`, `Action` (at the end of the item), `Description`, `Time`, `Body`. States: `TimelineState::Mark` (of the timeline: an item has an icon or media), and of an item `Current`, `Upcoming`, `Pending`, `Last`, `Icon`, `Media`, `Pressable`, `Disabled`.
+- Each item is its rail beside its content. The rail is the mark over a line that runs to the next item's mark: the line is as long as the item, so a title or a description that wraps, or content under the time, makes it longer. The last item has no line and no room under its content, unless the timeline shows more, whose item is then the last.
+- The titles and the descriptions wrap in the room the rail, the other side and the action leave them; the action keeps its room at the end of the item, beside what is pressed and never in it.
+- A timeline is read, not operated, but where an item is pressed (its own `on_select`, or the timeline's) the pressed items are one stop of Tab, a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead` and without `wrap`: Up and Down move between them (Left and Right across), Home and End go to the first and the last, a letter to the next title it starts, and a disabled item is passed by. An item's action is a stop of its own.
+- Across, the items share the width, each at least 160 (120 small), and wrap their text in it; a timeline wider than its room scrolls sideways in a [scroll area](#scroll-area) that fills its width (`ScrollArea::fill_width`), and the keys bring the focused item into view. Across, the text is under the marks, and the time column is a line over them; alternate sides are drawn down only.
+- Alternate sides need room: in a window narrower than the theme's `md` breakpoint, 768 by default, a timeline with `TimelineAlign::Alternate` is drawn as `Start`. The breakpoint is the window's, what a builder knows of its room: a timeline in a narrow panel of a wide window is given `Start` by the app.
+- A long history is loaded a page at a time, as a feed is: `on_load_more` and `loading`, with the app appending what comes. It is not in a virtual list: a timeline stands in the page and scrolls with it, where a virtual list needs a box of its own, and its items hold the app's elements (a card, a comment). Every item it holds is built.
+- The small size is a log: its items are rows, as high as the theme's [density](../theme/#density) makes a row of 28 at the least (20, 36 and 40 at compact, comfortable and touch); the board's size is not a row and keeps its height.
+- To what reads the tree it is a `list` called by its label, of `listitem`s called by their titles and described by their descriptions; the current one says `a11y_current`, a pending one `a11y_busy`, and inside an item that is pressed is a `button`. The item that shows more is a `listitem` with its button, busy while it loads.
+- Parts: `TimelinePart::Root` (the list), `Item`, `Rail`, `Dot`, `Mark` (the well of an icon, what holds the media, the spinner), `Icon`, `Separator` (the line), `Content` (the title, the description, the time and the body), `Header` (the title, and the time beside it in the small size), `Title`, `Description`, `Time`, `Body`, `Action` (at the end of the item), `Opposite` (the side of the line the time stands on where it is apart), `More` (the button that shows more). States of the timeline: `TimelineState::Vertical` and `Horizontal` (one is on), `Start`, `Alternate` and `TimeColumn` (one is on, as the timeline is laid out), `Mark` (an item has an icon or media); of an item: `Before` (its text is before the line), `Current`, `Upcoming`, `Pending`, `Last`, `Icon`, `Media`, `Pressable`, `Disabled`; of the item that shows more: `More`, `Loading`. Sizes: `TimelineSize::Sm`, `Md`.
 - In the design an item's rail is 12 and its content 12 from it. The rail is 4 down to a dot of 10 in `Primary` and, 4 under it, a line of 1 in `Border`. The title is the body's type at 14 at 500 in `Foreground`, the description 13 in `MutedForeground` with lines 1.4 high, the time the mono type at 11 in `MutedForeground`, 2 apart, with 20 under them. The board's last item has a hollow dot, `Background` with an edge of 1.5 in `Input` inside it.
 - The board draws nothing else of it, and these follow its parts: a tone colors the dot (`Primary`, `Info`, `Success`, `Warning`, `Destructive`), and the edge of a hollow one; the current dot has a ring of 2 in its color, 2 out from it; an icon is 14 in a well of 24 on `Muted`, in the tone's color; media stands in a mark of 24, and every rail of a timeline with a mark is 24 wide, its line stopping 4 over the next mark; a pending item's mark is a spinner of 12; the mark of a current item is ringed as its dot would be, and the well of an upcoming one is hollow. A body is 8 under the time. An item that is pressed has the `StateHover` and `StatePressed` veils and a ring of 2 in `Ring` inside it, with the medium radius, and is half opaque where it is disabled.
-- A theme's renderer is given `TimelineView`: `view.items` (each a `TimelineItemView` with its title, description, time, whether it is current, pending and the last, and `item.mark()`, `item.rail()`, `item.content()`, `item.action()`, `item.root(children)`, `item.render()`) and `view.root(items)`.
+- The small size: a dot of 8 on a rail of 8, 10 from the content, the title 13 with the time at the end of its row, the description 12, 4 under the content; a mark is 20, its icon 12. The time column is 80 (64 small), its time at its end, 2 down to stand by the title. Alternate, the two sides share the room, the text before the line at its end. Across, the rail is a row 12 high (10 small, 24 with marks), its mark in its middle and its line 4 short of the next mark, the content 8 under it (6 small) and 12 from the next item. The item that shows more is a small ghost button, its hollow dot in the middle of it.
+- A theme's renderer is given `TimelineView`: `view.items` (each a `TimelineItemView` with its title, description, time, whether it is current, pending, the last and before the line, and `item.mark()`, `item.rail()`, `item.content()`, `item.opposite()`, `item.action()`, `item.root(children)`, `item.render()`), `view.more` (a `TimelineMore` with `more.mark()`, `more.button()`, `more.render()`), `view.horizontal`, `view.grouped` and `view.root(items)`.
 
 ## Tab And The Design System's Controls
 

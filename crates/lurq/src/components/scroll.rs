@@ -48,6 +48,13 @@ impl ScrollHorizontal {
     Self::from_node(crate::node::dsl::scroll_horizontal(child.into().into_node()))
   }
 
+  /// Lays the content out at least as wide as the viewport, as [`ScrollBoth::fill_width`] does: items that share
+  /// the room there is, and scroll sideways only where they need more (a timeline across).
+  pub fn fill_width(mut self, fills: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::fills_viewport_width(node, fills));
+    self
+  }
+
   pub fn with_scroll_state(mut self, existing: ScrollState) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::with_scroll_state(node, existing));
     self

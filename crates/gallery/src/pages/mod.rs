@@ -855,7 +855,7 @@ pub const PAGES: &[Page] = &[
     path: "/timeline",
     name: "Timeline",
     icon: Some("history"),
-    about: "timeline history activity feed log events release deploy tracking order steps dot line rail mark avatar new item items label description time icon media variant current upcoming pending child children action on_select disabled style rules",
+    about: "timeline history activity feed log events release deploy tracking order steps dot line rail mark avatar new item items label description time icon media variant current upcoming pending child children action on_select disabled style rules orientation horizontal size align alternate time_column value on_load_more loading more_label loading_text",
     group: Group::Data,
     mount: |ctx| ctx.mount::<timeline::TimelinePage>(()),
   },
