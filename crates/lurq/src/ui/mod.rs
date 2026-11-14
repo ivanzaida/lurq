@@ -153,7 +153,8 @@ pub use data_list::{
   DataList, DataListItem, DataListOrientation, DataListPart, DataListRenderer, DataListState, DataListView,
 };
 pub use date_picker::{
-  DatePicker, DatePickerPart, DatePickerRenderer, DatePickerSize, DatePickerState, DatePickerView, Picked, PickerRenderer, PickerView,
+  DatePicker, DatePickerPart, DatePickerRenderer, DatePickerSize, DatePickerState, DatePickerView, Picked,
+  PickerRenderer, PickerView,
 };
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
@@ -296,7 +297,7 @@ pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
   TextareaView,
 };
-pub use theme::{Themed, UiDefinition, current_breakpoint, current_theme, in_theme};
+pub use theme::{Themed, UiDefinition, current_breakpoint, current_date_locale, current_theme, in_theme};
 pub(crate) use toast::keyframes as toast_keyframes;
 pub use toast::{
   TOAST_DURATION, TOASTS_SHOWN, Toast, ToastAction, ToastId, ToastPart, ToastPosition, ToastRenderer, ToastState,

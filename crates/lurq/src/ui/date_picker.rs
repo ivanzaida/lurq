@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
-  calendar::{Calendar, CalendarChoice, CalendarMemory, Kept, MonthSource, Selection, app_locale},
+  calendar::{Calendar, CalendarChoice, CalendarMemory, Kept, MonthSource, Selection},
   field::{FieldControl, InField},
   icon::Icon,
   icons,
@@ -16,7 +16,7 @@ use super::{
   separator::{Separator, SeparatorOrientation, SeparatorPart},
   shared::fading,
   text_box::{BoxStates, Judgment, TextBoxSize},
-  theme::{Themed, current_theme},
+  theme::{Themed, current_date_locale, current_theme},
 };
 use crate::{
   app::{
@@ -26,7 +26,7 @@ use crate::{
     theme::{IconSize, PaletteColor, RadiusSize, SpacingSize, Theme},
   },
   components::{self, Column, Row, Stack},
-  core::{Date, DateLocale, DateRange, ElementRef, Signal, Weekday, YearMonth},
+  core::{Date, DateRange, DateText, ElementRef, Signal, Weekday, YearMonth},
   layout::{Alignment, StackAlignment, layout_kind::Justify},
   node::{CursorIcon, Element, HitTestBehavior, SpacingValue, dimension::Dimension},
 };
@@ -106,10 +106,10 @@ pub trait Picked:
   type Picker: Themed<Renderer = PickerRenderer<Self>>;
 
   /// The short form of it in `locale`.
-  fn format_in(self, locale: &DateLocale) -> String;
+  fn format_in(self, locale: &dyn DateText) -> String;
 
   /// What `text` holds, as `locale` reads it.
-  fn parse_in(text: &str, locale: &DateLocale) -> Option<Self>;
+  fn parse_in(text: &str, locale: &dyn DateText) -> Option<Self>;
 
   /// The day it starts at.
   fn start(self) -> Date;
@@ -142,11 +142,11 @@ pub trait Picked:
 impl Picked for Date {
   type Picker = DatePicker;
 
-  fn format_in(self, locale: &DateLocale) -> String {
+  fn format_in(self, locale: &dyn DateText) -> String {
     locale.format(self)
   }
 
-  fn parse_in(text: &str, locale: &DateLocale) -> Option<Self> {
+  fn parse_in(text: &str, locale: &dyn DateText) -> Option<Self> {
     locale.parse(text)
   }
 
@@ -174,11 +174,11 @@ impl Picked for Date {
 impl Picked for DateRange {
   type Picker = super::DateRangePicker;
 
-  fn format_in(self, locale: &DateLocale) -> String {
+  fn format_in(self, locale: &dyn DateText) -> String {
     locale.format_range(self)
   }
 
-  fn parse_in(text: &str, locale: &DateLocale) -> Option<Self> {
+  fn parse_in(text: &str, locale: &dyn DateText) -> Option<Self> {
     locale.parse_range(text)
   }
 
@@ -293,7 +293,7 @@ impl<V: Picked> Picker<V> {
   }
 
   /// Builds the picker in `theme` with what it keeps: its own where it is mounted, else made anew.
-  pub fn build_with(self, theme: &Theme, kept: PickerKept, locale: DateLocale, today: Date) -> Element {
+  pub fn build_with(self, theme: &Theme, kept: PickerKept, locale: Arc<dyn DateText>, today: Date) -> Element {
     let view = self.view(theme, kept, locale, today);
     match theme.renderer::<V::Picker>() {
       Some(renderer) => renderer(view),
@@ -314,21 +314,21 @@ impl<V: Picked> Picker<V> {
       anchor: memory.as_ref().map(|memory| memory.anchor.clone()).unwrap_or_default(),
       calendar: self.calendar.kept_by(memory.as_ref(), today),
     };
-    let locale = self.calendar.locale.clone().unwrap_or_default();
+    let locale = self.calendar.locale.clone().unwrap_or_else(current_date_locale);
     self.build_with(theme, kept, locale, today)
   }
 
-  fn view(self, theme: &Theme, kept: PickerKept, locale: DateLocale, today: Date) -> PickerView<V> {
+  fn view(self, theme: &Theme, kept: PickerKept, locale: Arc<dyn DateText>, today: Date) -> PickerView<V> {
     // Read so that what renders the picker renders it again when the app's value changes: the text is made from it.
     let value = self.value.get();
     let open = kept.open.get();
     let format: Format<V> = self.format.clone().unwrap_or_else(|| {
       let locale = locale.clone();
-      Arc::new(move |value: V| value.format_in(&locale))
+      Arc::new(move |value: V| value.format_in(&*locale))
     });
     let parse: Parse<V> = self.parse.clone().unwrap_or_else(|| {
       let locale = locale.clone();
-      Arc::new(move |text: &str| V::parse_in(text, &locale))
+      Arc::new(move |text: &str| V::parse_in(text, &*locale))
     });
     let disabled = self.boxed.disabled;
     let case = self
@@ -600,7 +600,8 @@ pub struct PickerView<V: Picked> {
   /// Whether it has a button that empties it while it holds a value.
   pub clearable: bool,
   pub full_width: bool,
-  pub locale: DateLocale,
+  /// What the picker's text is: its own `.locale(..)`, else the app's, else English.
+  pub locale: Arc<dyn DateText>,
   /// The style of each part of this picker.
   pub recipe: ResolvedRecipe,
   input: InputView,
@@ -689,26 +690,23 @@ impl<V: Picked> PickerView<V> {
     control
   }
 
-  /// What the button that opens the calendar is called: the app's, or "Choose date" ("Choose dates" for a range).
-  fn trigger_name(&self) -> Arc<str> {
-    self.trigger_label.clone().unwrap_or_else(|| {
-      Arc::from(if self.calendar.is_range() {
-        "Choose dates"
-      } else {
-        "Choose date"
-      })
+  /// What the locale calls a picker's button and panel: "Choose date", "Choose dates" for a range, in English.
+  fn choose_name(&self) -> Arc<str> {
+    Arc::from(if self.calendar.is_range() {
+      self.locale.choose_dates_label()
+    } else {
+      self.locale.choose_date_label()
     })
   }
 
-  /// What the panel is called: the app's, or "Choose date" ("Choose dates" for a range).
+  /// What the button that opens the calendar is called: the app's, or its locale's.
+  fn trigger_name(&self) -> Arc<str> {
+    self.trigger_label.clone().unwrap_or_else(|| self.choose_name())
+  }
+
+  /// What the panel is called: the app's, or its locale's.
   fn panel_name(&self) -> Arc<str> {
-    self.panel_label.clone().unwrap_or_else(|| {
-      Arc::from(if self.calendar.is_range() {
-        "Choose dates"
-      } else {
-        "Choose date"
-      })
-    })
+    self.panel_label.clone().unwrap_or_else(|| self.choose_name())
   }
 
   /// Whether the field has its button that empties it: where the picker is clearable and holds a value it can change.
@@ -766,7 +764,13 @@ impl<V: Picked> PickerView<V> {
       .align_items(Alignment::Center)
       .part(&self.part(DatePickerPart::Clear))
       .focusable(false)
-      .describe("a11y_name", self.clear_label.as_deref().unwrap_or("Clear"))
+      .describe(
+        "a11y_name",
+        self
+          .clear_label
+          .clone()
+          .unwrap_or_else(|| Arc::from(self.locale.clear_label())),
+      )
       .child(self.glyph(DatePickerPart::ClearIcon, icons::CLOSE))
       .on_click(move |_: MouseEvent| {
         model.write(None);
@@ -1201,9 +1205,10 @@ macro_rules! picker_methods {
       self
     }
 
-    /// The locale the field writes and reads dates in and the calendar names its months and days in, in place of the
-    /// app's.
-    pub fn locale(mut self, locale: DateLocale) -> Self {
+    /// What the field writes and reads dates in, and the calendar names its months, its days and the controls in, in
+    /// place of the app's ([`App::set_date_locale`](crate::app::App::set_date_locale), English where it set none): a
+    /// [`DateLocale`](crate::core::DateLocale), the app's own [`DateText`](crate::core::DateText), or an `Arc` of it.
+    pub fn locale(mut self, locale: impl crate::core::DateText + 'static) -> Self {
       self.core.calendar = self.core.calendar.locale(locale);
       self
     }
@@ -1322,7 +1327,7 @@ impl DatePicker {
   }
 
   /// The picker mounted where it is declared: it keeps whether its calendar is open, the field it opens under and the
-  /// month the calendar shows, and writes dates in the app's locale.
+  /// month the calendar shows, and writes dates as the app says (`App::set_date_locale`).
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     mount_picker(ctx, self.core)
   }
@@ -1421,9 +1426,7 @@ impl<V: Picked> Component for PickerHost<V> {
     if picker.memory.is_none() {
       picker.memory = Some(self.memory.clone());
     }
-    if picker.calendar.locale.is_none() {
-      picker.calendar.locale = Some(app_locale(ctx));
-    }
+    // The app's date text is read in the build, which is in this render: a change of it renders this again.
     picker.build(&current_theme())
   }
 }

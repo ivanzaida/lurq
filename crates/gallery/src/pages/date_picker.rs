@@ -6,7 +6,7 @@ use std::sync::Arc;
 use lurq::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Row},
-  core::{Date, DateLocale, Signal},
+  core::{Date, DateLocale, DateStyle, Signal},
   layout::Alignment,
   node::Element,
   ui::{CalendarMemory, DatePicker, DatePickerSize, Field, Interaction, Kbd},
@@ -105,7 +105,7 @@ pub struct DatePickerPage {
   due: Signal<Option<Date>>,
   start: Signal<Option<Date>>,
   iso: Signal<Option<Date>>,
-  kept: [CalendarMemory; 10],
+  kept: [CalendarMemory; 12],
 }
 
 impl DatePickerPage {
@@ -260,7 +260,7 @@ impl DatePickerPage {
           ),
           prop(
             "locale",
-            "DateLocale",
+            "impl DateText",
             self
               .playground
               .select(1, &LOCALES, &locale, move |locale| set_locale.set(locale)),
@@ -424,6 +424,19 @@ impl Component for DatePickerPage {
           .memory(&self.kept[9]),
         "en-GB",
       ));
+    let own = items()
+      .child(item(
+        DatePicker::new(Signal::new(Some(today)))
+          .locale(DateLocale::for_tag("en-GB").with_style(DateStyle::Long))
+          .memory(&self.kept[10]),
+        "en-GB, the long style",
+      ))
+      .child(item(
+        DatePicker::new(Signal::new(Some(today)))
+          .locale(super::calendar::RomanDates)
+          .memory(&self.kept[11]),
+        "a DateText of the page's own: type 3.XII.2026",
+      ));
     let keyboard = KEYS
       .into_iter()
       .fold(Column::new().width(FILL).spacing(10.0), |list, (key, does)| {
@@ -471,7 +484,7 @@ impl Component for DatePickerPage {
       ),
       (
         "locale",
-        "DateLocale",
+        "impl DateText",
         "app's",
         "How dates are written and read, and the calendar's names and first day.",
       ),
@@ -672,6 +685,27 @@ impl Component for DatePickerPage {
               "",
               "DatePicker::new(value.clone()).locale(DateLocale::for_tag(\"uk\"))",
               "DatePicker::new(value.clone()).locale(DateLocale::for_tag(\"en-GB\"))",
+            ],
+          ),
+        ),
+        Section::new(
+          "A locale of the app's own",
+          "A style covers the common forms (numbers, the month's short or long name, ISO 8601); a DateText of the \
+           app's own covers the rest, here the months in Roman numerals, which the field writes and reads. Each is \
+           given to one picker with .locale(..), or to the whole app with app.set_date_locale(..).",
+          self.frame.demo(
+            5,
+            own,
+            ".locale(RomanDates)",
+            &[
+              "DatePicker::new(value.clone())",
+              "    .locale(DateLocale::for_tag(\"en-GB\").with_style(DateStyle::Long))",
+              "",
+              "// RomanDates: the page's own DateText, as on the Calendar's page.",
+              "DatePicker::new(value.clone()).locale(RomanDates)",
+              "",
+              "// Or once, for every calendar and picker of the app:",
+              "app.set_date_locale(RomanDates)",
             ],
           ),
         ),

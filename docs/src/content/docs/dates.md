@@ -1,9 +1,90 @@
 ---
 title: Dates
-description: lurq's own dates, months and ranges, their arithmetic, and how a locale writes and reads them.
+description: How an app's dates are written and read, set once on the app; lurq's own dates, months and ranges, and their arithmetic.
 ---
 
 # Dates
+
+## How an app writes its dates
+
+Every calendar and date picker of an app asks one thing how a date's text is: the day weeks start on, the names of the months and the days, how a field writes a date and reads what is typed, and what its buttons are called. The app says it once, and it is English until it does:
+
+```rust
+use lurq::{app::App, core::DateLocale};
+
+let app = App::new();
+app.set_date_locale(DateLocale::for_tag("uk"));
+```
+
+`app.date_locale()` reads it. A mounted calendar or picker, and one built in a component's render, is built again when it changes, as it is when the theme changes. The system's language and the [i18n](../i18n/) locale do not change it: an app says what it wants. One that writes dates in its i18n locale sets both where it changes that locale:
+
+```rust
+app.i18n().set_locale(tag);
+app.set_date_locale(DateLocale::for_tag(tag));
+```
+
+A component's own `.locale(..)` is above the app's: `Calendar::new(due).locale(DateLocale::for_tag("de"))`. A component built outside any render (in a test, say) has no app to ask, and is in English unless it is given one.
+
+### Writing dates your way
+
+A date written another way needs no code of the app's own: a [`DateLocale`](#datelocale) has a style, a separator and closures.
+
+```rust
+use lurq::core::{DateLocale, DateStyle};
+
+app.set_date_locale(DateLocale::for_tag("de"));                                    // 12.11.2026
+app.set_date_locale(DateLocale::for_tag("en"));                                    // Nov 12, 2026
+app.set_date_locale(DateLocale::for_tag("en-GB").with_style(DateStyle::Long));     // 12 November 2026
+app.set_date_locale(DateLocale::for_tag("en").with_style(DateStyle::Iso));         // 2026-11-12
+app.set_date_locale(DateLocale::for_tag("en").with_style(DateStyle::Numeric).with_separator('-')); // 11-12-2026
+
+// A form no style is, with a year of two digits: 12/11/26. The app writes it, and reads it back.
+app.set_date_locale(
+  DateLocale::for_tag("en-GB")
+    .with_format(|date| format!("{}/{:02}/{:02}", date.day(), date.month(), date.year() % 100))
+    .with_parse(|text| read_short_year(text)),
+);
+```
+
+Four styles are the least that covers what is asked of a date's form: its numbers in the locale's order (`DateStyle::Numeric`), the month by its short name (`Short`) or its whole name (`Long`), and ISO 8601 (`Iso`). The order of the day, the month and the year is the locale's, so the four cover `12.11.2026`, `11/12/2026`, `Nov 12, 2026`, `12 November 2026` and `2026-11-12`. Anything else is a closure: `with_format` writes a date (a range is two of them with an en dash between), and `with_parse` reads what is typed in place of the locale's forms; give both where the locale would not read back what the format writes. Whatever the style, what is typed is read in any of the locale's forms and as ISO 8601. `with_first_day(Weekday::Sunday)` starts the weeks on another day, and `with_labels(..)` names the controls.
+
+### Plugging in your own
+
+Where the tables of `DateLocale` are not the app's (its own translations, `chrono`, ICU), the app implements `DateText`, the questions a calendar and a picker ask, and gives it as it would give a `DateLocale`, or as an `Arc` of it:
+
+```rust
+use std::sync::Arc;
+use lurq::core::{Date, DateText, Weekday};
+
+struct Catalog { /* the app's translations */ }
+
+impl DateText for Catalog {
+  fn first_day(&self) -> Weekday { Weekday::Monday }
+  fn month_name(&self, month: u8) -> String { self.t(&format!("month.{month}")) }
+  fn weekday_name(&self, day: Weekday) -> String { self.t(&format!("day.{day:?}")) }
+  fn weekday_short(&self, day: Weekday) -> String { self.t(&format!("day.short.{day:?}")) }
+  fn format(&self, date: Date) -> String { self.write(date) }
+  fn parse(&self, text: &str) -> Option<Date> { self.read(text) }
+  fn previous_month_label(&self) -> String { self.t("calendar.previous") }
+}
+
+app.set_date_locale(Arc::new(Catalog::load()));
+```
+
+| `DateText` | Default |
+| --- | --- |
+| `first_day()` | none: the first column of a calendar |
+| `week()` | the seven days from `first_day` |
+| `month_name(month)`, `month_title(year_month)` | none; `month_title` is the name and the year: `November 2026` |
+| `weekday_name(day)`, `weekday_short(day)` | none: `Thursday`, and the head of its column, `Th` |
+| `format(date)`, `format_range(range)` | none; a range is two dates with an en dash between |
+| `day_label(date)` | the weekday's name and the date: `Thursday, Nov 12, 2026`, what a day is called to tooling |
+| `parse(text)`, `parse_range(text)` | ISO 8601; a range is two dates with a dash or `to` between |
+| `previous_month_label()`, `next_month_label()`, `choose_date_label()`, `choose_dates_label()`, `clear_label()` | English: `Previous month`, `Next month`, `Choose date`, `Choose dates`, `Clear` |
+
+The names of the controls are words lurq writes itself, not dates, and are in `DateText` so that one thing gives all of a calendar's text; a component's `previous_label`, `next_label`, `trigger_label`, `clear_label` and `panel_label` are above them. `DateLocale` gives them in its language.
+
+## The date type
 
 `lurq::core` has a date of its own, with no time and no zone: what a calendar, a date picker and an app's due dates and bookings hold. It needs no feature and no other library.
 
@@ -25,7 +106,7 @@ assert_eq!(week.start(), day);
 assert_eq!(week.days(), 4);
 ```
 
-## Date
+### Date
 
 A year, a month and a day of the Gregorian calendar, years 1 to 9999 (`Date::MIN` to `Date::MAX`). `Date::new(year, month, day)` is `None` for a day that does not exist, such as 30 February. Dates are ordered, hashed and copied. They are written and read as ISO 8601 by `Display` and `FromStr`.
 
@@ -57,15 +138,15 @@ fn from_chrono(date: chrono::NaiveDate) -> Date {
 
 `is_leap_year(year)` and `days_in_month(year, month)` are beside it.
 
-## YearMonth
+### YearMonth
 
 A month of a year: the month a calendar shows. `YearMonth::new(year, month)`, `YearMonth::of(date)` and `YearMonth::current()` make one. It has `days()`, its `first()` and `last()` dates, `contains(date)`, `add_months(n)` and `months_since(other)`. `weeks(first)` gives the six weeks a calendar draws it in, from the week its first day is in, each of seven dates from `first`: the days before and after it are of the months beside it. It is written `2026-11`.
 
-## DateRange
+### DateRange
 
 Two dates and the days between them, both ends in it. `DateRange::new(a, b)` orders them, so either may come first, and `DateRange::day(date)` is a range of one day. It has `start()`, `end()`, `days()`, the count of its days with both ends, and `contains(date)`. It is written `2026-11-09/2026-11-15`, as ISO 8601 writes an interval.
 
-## Weekday
+### Weekday
 
 `Weekday::Monday` to `Weekday::Sunday`, and `Weekday::ALL` from Monday. `days_from_monday()` gives 0 to 6, `from_monday(n)` goes the other way and wraps, `next()` is the day after, and `days_from(first)` is how far it is from the first day of a week that starts on `first`.
 
@@ -102,12 +183,12 @@ let own = DateLocale::for_tag("en").with_first_day(Weekday::Sunday);
 | `uk`, `de`, `pl` | Monday | `12.11.2026` |
 | `fr`, `es` | Monday | `12/11/2026` |
 
-Plain `en` starts its weeks on Monday, as lurq's design draws its calendar.
+Plain `en` starts its weeks on Monday, as lurq's design draws its calendar. Each names a calendar's controls in its language: `Попередній місяць`, `Vorheriger Monat`.
 
-- `format(date)` writes the short form, and `format_range(range)` writes a range with an en dash between its ends: `Nov 9 – Nov 15, 2026`, with the year once where both ends are in it.
+- `format(date)` writes the date in the locale's style, and `format_range(range)` writes a range with an en dash between its ends: `Nov 9 – Nov 15, 2026`, with the year once where both ends are in it.
 - `parse(text)` reads the short form, numbers in the locale's order with any separator, and ISO 8601. A month may be written by name or by the start of its name, in the locale's words or in English. The year must have four digits, so what is still being typed (`12.11.20`) is no date yet. `parse_range(text)` reads two dates with a dash or `to` between them, and the first may leave out its year.
 - `month_name(month)` and `month_title(year_month)` give what a calendar's heading says, starting with a capital. `day_label(date)` gives what a day is called to what reads the tree. `week()` gives the seven days from the first.
 
-Every field is public, so a locale lurq does not know can be written out: `tag`, `first_day`, `months`, `months_short`, `weekdays`, `weekdays_short`, `order` (a `DateOrder`) and `separator` (a `char` between numbers, or `None` where the month is written by name).
+Every field is public, so a locale lurq does not know can be written out: `tag`, `first_day`, `months`, `months_short`, `weekdays`, `weekdays_short`, `order` (a `DateOrder`), `style` (a `DateStyle`), `separator` (the `char` between numbers), `formatter` and `parser` (the closures of `with_format` and `with_parse`) and `labels` (a `DateLabels`).
 
-`ui::Calendar`, `ui::DatePicker` and `ui::DateRangePicker` take a locale with `.locale(..)`. When mounted, they use the app's [i18n](../i18n/) locale (`app.i18n().locale()`) and are built again when it changes. Without `ctx` and with no locale given, they are in English. See [the design system](../design-system/#calendar).
+`DateLocale` is lurq's `DateText`: `ui::Calendar`, `ui::DatePicker` and `ui::DateRangePicker` take it, or the app's own, with `.locale(..)`, and the app takes it with `set_date_locale`. See [the design system](../design-system/#calendar).

@@ -269,6 +269,8 @@ impl Theme {
 struct Surroundings {
   theme: Theme,
   breakpoint: Option<Memo<Option<Breakpoint>>>,
+  /// How the app writes dates: what a component's render was given of its app.
+  dates: Option<crate::core::AppDateText>,
 }
 
 thread_local! {
@@ -303,8 +305,33 @@ pub fn current_breakpoint() -> Option<Breakpoint> {
   breakpoint.and_then(|breakpoint| breakpoint.get())
 }
 
-pub(crate) fn enter_theme(theme: Theme, breakpoint: Option<Memo<Option<Breakpoint>>>) {
-  RENDERING_IN.with(|rendering| rendering.borrow_mut().push(Surroundings { theme, breakpoint }));
+pub(crate) fn enter_theme(
+  theme: Theme,
+  breakpoint: Option<Memo<Option<Breakpoint>>>,
+  dates: Option<crate::core::AppDateText>,
+) {
+  RENDERING_IN.with(|rendering| {
+    rendering.borrow_mut().push(Surroundings {
+      theme,
+      breakpoint,
+      dates,
+    })
+  });
+}
+
+/// How the app of what is being built writes and reads dates: what
+/// [`App::set_date_locale`](crate::app::App::set_date_locale) set, read so that what reads it is rendered again when
+/// it changes. Outside a render, and in an app that set none, English. This is where a calendar or a date picker with
+/// no `.locale(..)` of its own takes its text, mounted or built in a render.
+pub fn current_date_locale() -> std::sync::Arc<dyn crate::core::DateText> {
+  RENDERING_IN
+    .with(|rendering| {
+      rendering
+        .borrow()
+        .last()
+        .and_then(|surroundings| surroundings.dates.clone())
+    })
+    .map_or_else(crate::core::english_date_text, |dates| dates.get())
 }
 
 pub(crate) fn leave_theme() {
@@ -321,14 +348,13 @@ pub fn in_theme<R>(theme: &Theme, build: impl FnOnce() -> R) -> R {
       leave_theme();
     }
   }
-  // The window is the one around: only the theme changes.
-  let breakpoint = RENDERING_IN.with(|rendering| {
-    rendering
-      .borrow()
-      .last()
-      .and_then(|surroundings| surroundings.breakpoint.clone())
+  // The window and the app are the ones around: only the theme changes.
+  let (breakpoint, dates) = RENDERING_IN.with(|rendering| {
+    rendering.borrow().last().map_or((None, None), |surroundings| {
+      (surroundings.breakpoint.clone(), surroundings.dates.clone())
+    })
   });
-  enter_theme(theme.clone(), breakpoint);
+  enter_theme(theme.clone(), breakpoint, dates);
   let _leave = Leave;
   build()
 }

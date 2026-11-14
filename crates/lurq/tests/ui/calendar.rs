@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use lurq::{
   app::theme::{PaletteColor, ThemePalette},
   components::{Column, Row},
-  core::{Date, DateLocale, DateRange, Signal, Weekday, YearMonth},
+  core::{Date, DateLocale, DateRange, DateText, Signal, Weekday, YearMonth},
   layout::{Constraints, Size},
   node::color::Color,
   ui::{Calendar, CalendarPart, CalendarRenderer, CalendarView, Recipe},
@@ -563,4 +563,131 @@ fn a_press_of_a_day_of_the_month_beside_keeps_the_focus_on_it() {
   // The keys go on from it.
   stage.key("ArrowRight");
   assert_eq!(focused(&stage), Some(cell(10, 29)));
+}
+
+/// A date text of the test's own: months in Roman numerals, weeks from Sunday, `12.XI.2026`, and its own words.
+pub(super) struct Roman;
+
+const NUMERALS: [&str; 12] = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+
+impl DateText for Roman {
+  fn first_day(&self) -> Weekday {
+    Weekday::Sunday
+  }
+  fn month_name(&self, month: u8) -> String {
+    NUMERALS[month as usize - 1].to_owned()
+  }
+  fn weekday_name(&self, day: Weekday) -> String {
+    format!("{day:?}")
+  }
+  fn weekday_short(&self, day: Weekday) -> String {
+    format!("{day:?}")[..3].to_uppercase()
+  }
+  fn format(&self, date: Date) -> String {
+    format!("{}.{}.{}", date.day(), self.month_name(date.month()), date.year())
+  }
+  fn parse(&self, text: &str) -> Option<Date> {
+    let mut parts = text.trim().split('.');
+    let day = parts.next()?.parse().ok()?;
+    let numeral = parts.next()?;
+    let month = NUMERALS.iter().position(|held| *held == numeral)? as u8 + 1;
+    Date::new(parts.next()?.parse().ok()?, month, day)
+  }
+  fn previous_month_label(&self) -> String {
+    "Back".to_owned()
+  }
+}
+
+/// A calendar of one date in `app`, mounted, or built in the render where `mounted` is false.
+fn in_app(app: &lurq::app::App, value: &Signal<Option<Date>>, mounted: bool) -> Stage {
+  let value = value.clone();
+  roomy(Stage::in_app(app.clone(), move |ctx| {
+    let calendar = Calendar::new(value.clone()).today(day(11, 9)).id("cal");
+    Column::new()
+      .padding(10.0)
+      .child(if mounted { calendar.mount(ctx) } else { calendar.into() })
+      .into()
+  }))
+}
+
+#[test]
+fn an_apps_own_date_text_writes_the_calendar() {
+  let value = Signal::new(Some(day(11, 12)));
+  let stage = single(&value, |calendar| calendar.locale(Roman));
+  assert!(stage.paints("XI 2026"), "the month's title");
+  let (sun, mon) = (stage.text_quad("SUN").unwrap(), stage.text_quad("MON").unwrap());
+  assert!(sun.x < mon.x, "its first day first");
+  // An `Arc` of it is it too.
+  let stage = single(&value, |calendar| calendar.locale(Arc::new(Roman)));
+  assert!(stage.paints("XI 2026"));
+}
+
+#[test]
+fn the_apps_date_locale_reaches_a_calendar_and_a_change_of_it_renders_it_again() {
+  let app = lurq::app::App::new();
+  app.set_date_locale(DateLocale::for_tag("uk"));
+  let value = Signal::new(Some(day(11, 12)));
+  for mounted in [true, false] {
+    app.set_date_locale(DateLocale::for_tag("uk"));
+    let mut stage = in_app(&app, &value, mounted);
+    assert!(stage.paints("Листопад 2026"), "mounted: {mounted}");
+    app.set_date_locale(Arc::new(Roman));
+    stage.pass();
+    assert!(stage.paints("XI 2026"), "mounted: {mounted}");
+    assert!(!stage.paints("Листопад 2026"));
+  }
+}
+
+#[test]
+fn the_calendars_own_locale_wins_over_the_apps() {
+  let app = lurq::app::App::new();
+  app.set_date_locale(DateLocale::for_tag("uk"));
+  let value = Signal::new(Some(day(11, 12)));
+  let shown = value.clone();
+  let stage = roomy(Stage::in_app(app, move |ctx| {
+    Column::new()
+      .padding(10.0)
+      .child(
+        Calendar::new(shown.clone())
+          .today(day(11, 9))
+          .locale(DateLocale::for_tag("fr"))
+          .mount(ctx),
+      )
+      .into()
+  }));
+  assert!(stage.paints("Novembre 2026"));
+}
+
+#[test]
+fn with_nothing_set_it_is_english() {
+  let app = lurq::app::App::new();
+  #[cfg(feature = "i18n")]
+  app.i18n().set_locale("uk");
+  let value = Signal::new(Some(day(11, 12)));
+  let stage = in_app(&app, &value, true);
+  assert!(stage.paints("November 2026"), "whatever the i18n locale is");
+  assert!(stage.paints("Mo"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn an_apps_own_date_text_names_the_days_and_the_buttons() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = single(&value, |calendar| calendar.locale(Roman));
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(
+    said(&mut stage, &cell(11, 12), "a11y_name").as_deref(),
+    Some("Thursday, 12.XI.2026")
+  );
+  assert_eq!(said(&mut stage, "cal-previous", "a11y_name").as_deref(), Some("Back"));
+  assert_eq!(
+    said(&mut stage, "cal-next", "a11y_name").as_deref(),
+    Some("Next month"),
+    "its default"
+  );
 }

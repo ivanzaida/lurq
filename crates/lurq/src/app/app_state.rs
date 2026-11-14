@@ -141,6 +141,8 @@ pub(crate) struct AppShared {
   pub(crate) menu: super::menu::MenuController,
   pub(crate) glyph_engine: Mutex<GlyphEngine>,
   pub(crate) theme: Theme,
+  /// How dates are written and read, the app's choice: [`App::set_date_locale`].
+  pub(crate) dates: crate::core::AppDateText,
   pub(crate) window_opener: WindowOpener,
   #[cfg(feature = "i18n")]
   pub(crate) i18n: I18n,
@@ -170,6 +172,7 @@ impl App {
         menu: super::menu::MenuController::default(),
         glyph_engine: Mutex::new(GlyphEngine::new()),
         theme: Theme::new(),
+        dates: crate::core::AppDateText::new(),
         window_opener: WindowOpener::default(),
         #[cfg(feature = "i18n")]
         i18n: I18n::new(),
@@ -234,6 +237,31 @@ impl App {
 
   pub fn theme(&self) -> &Theme {
     &self.shared.theme
+  }
+
+  /// How every calendar and date picker of the app writes and reads dates, and names its months, its days and its
+  /// controls, where the component is given no `.locale(..)` of its own: a
+  /// [`DateLocale`](crate::core::DateLocale) (`DateLocale::for_tag("uk")`, or one with a style or a format of the
+  /// app's), or the app's own [`DateText`](crate::core::DateText), or an `Arc` of it. English until it is set: the
+  /// system's language and the i18n locale do not change it. A mounted calendar or picker, and one built in a
+  /// component's render, is built again when it changes.
+  ///
+  /// ```
+  /// use lurq::{app::App, core::{DateLocale, DateStyle}};
+  ///
+  /// let app = App::new();
+  /// app.set_date_locale(DateLocale::for_tag("en-GB").with_style(DateStyle::Long));
+  /// ```
+  ///
+  /// An app that writes dates in its i18n locale sets it where it changes that locale:
+  /// `app.set_date_locale(DateLocale::for_tag(tag))`.
+  pub fn set_date_locale(&self, locale: impl crate::core::DateText + 'static) {
+    self.shared.dates.set(crate::core::shared_date_text(locale));
+  }
+
+  /// What [`Self::set_date_locale`] set, English before: read in a render, it renders that again when it changes.
+  pub fn date_locale(&self) -> std::sync::Arc<dyn crate::core::DateText> {
+    self.shared.dates.get()
   }
 
   /// Handle for opening secondary OS windows (see [`WindowOpener`]).

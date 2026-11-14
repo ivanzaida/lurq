@@ -1,9 +1,291 @@
-//! What a calendar takes of a locale: the day weeks start on, the names of months and days, and how a date is
-//! written and read.
+//! Everything of a date's text: the day weeks start on, the names of months and days, how a date is written and read,
+//! and the names of a calendar's controls. [`DateText`] is what a calendar and a date picker ask, [`DateLocale`] the
+//! ready-made answer in seven languages, and an app's own type, backed by anything, another.
 
-use std::sync::Arc;
+use std::{
+  fmt,
+  sync::{Arc, OnceLock},
+};
 
-use super::date::{Date, DateRange, Weekday, YearMonth};
+use parking_lot::RwLock;
+
+use super::{
+  Signal,
+  date::{Date, DateRange, Weekday, YearMonth},
+};
+
+/// What a calendar, a date picker and a date range picker ask of a date's text: the first day of the week, the title
+/// of a month, the head of a weekday's column, what a day is called to what reads the tree, how a date and a range
+/// are written in a field and how what is typed is read back, and what the controls are called.
+///
+/// [`DateLocale`] is the one lurq has, in seven languages, and covers most wishes with its styles and closures
+/// ([`DateLocale::with_style`], [`DateLocale::with_format`]). An app implements this for what lurq does not have:
+/// its own tables, `chrono`, ICU, a catalog of translations. What has a default follows from the methods without
+/// one; the names of the controls are English unless it says otherwise.
+///
+/// ```
+/// use lurq::core::{Date, DateText, Weekday};
+///
+/// // Months in Roman numerals: 12.XI.2026.
+/// struct Roman;
+///
+/// const NUMERALS: [&str; 12] = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+///
+/// impl DateText for Roman {
+///   fn first_day(&self) -> Weekday {
+///     Weekday::Monday
+///   }
+///   fn month_name(&self, month: u8) -> String {
+///     NUMERALS[month as usize - 1].to_owned()
+///   }
+///   fn weekday_name(&self, day: Weekday) -> String {
+///     format!("{day:?}")
+///   }
+///   fn weekday_short(&self, day: Weekday) -> String {
+///     format!("{day:?}")[..2].to_owned()
+///   }
+///   fn format(&self, date: Date) -> String {
+///     format!("{}.{}.{}", date.day(), self.month_name(date.month()), date.year())
+///   }
+///   fn parse(&self, text: &str) -> Option<Date> {
+///     let mut parts = text.trim().split('.');
+///     let day = parts.next()?.parse().ok()?;
+///     let numeral = parts.next()?;
+///     let month = NUMERALS.iter().position(|held| *held == numeral)? as u8 + 1;
+///     Date::new(parts.next()?.parse().ok()?, month, day)
+///   }
+/// }
+///
+/// let day = Date::new(2026, 11, 12).unwrap();
+/// assert_eq!(Roman.format(day), "12.XI.2026");
+/// assert_eq!(Roman.parse("12.XI.2026"), Some(day));
+/// assert_eq!(Roman.day_label(day), "Thursday, 12.XI.2026");
+/// ```
+pub trait DateText: Send + Sync {
+  /// The day a week starts on: the first column of a calendar.
+  fn first_day(&self) -> Weekday;
+
+  /// The days of a week in the order a calendar's columns have them, from the first day.
+  fn week(&self) -> [Weekday; 7] {
+    let first = self.first_day();
+    std::array::from_fn(|index| Weekday::from_monday(first as i64 + index as i64))
+  }
+
+  /// The name of a month (1 to 12) as a heading starts with it: `November`.
+  fn month_name(&self, month: u8) -> String;
+
+  /// The heading of a calendar's month: `November 2026`.
+  fn month_title(&self, month: YearMonth) -> String {
+    format!("{} {}", self.month_name(month.month()), month.year())
+  }
+
+  /// The name of a day of the week: what the head of its column is called to what reads the tree, and how a day's
+  /// name starts. `Thursday`.
+  fn weekday_name(&self, day: Weekday) -> String;
+
+  /// What the head of a weekday's column says: `Th`.
+  fn weekday_short(&self, day: Weekday) -> String;
+
+  /// How a field writes a date: `Nov 12, 2026`.
+  fn format(&self, date: Date) -> String;
+
+  /// How a field writes a range: both dates whole, an en dash between them.
+  fn format_range(&self, range: DateRange) -> String {
+    format!("{} – {}", self.format(range.start()), self.format(range.end()))
+  }
+
+  /// What a day is called to what reads the tree: `Thursday, Nov 12, 2026`.
+  fn day_label(&self, date: Date) -> String {
+    format!("{}, {}", self.weekday_name(date.weekday()), self.format(date))
+  }
+
+  /// The date what is typed holds, `None` where it is none yet: ISO 8601 (`2026-11-12`) unless the app reads more.
+  fn parse(&self, text: &str) -> Option<Date> {
+    text.trim().parse().ok()
+  }
+
+  /// The range what is typed holds: two dates as [`DateText::parse`] reads them, a dash or `to` between them.
+  fn parse_range(&self, text: &str) -> Option<DateRange> {
+    let (first, second) = split_range(text)?;
+    Some(DateRange::new(self.parse(first)?, self.parse(second)?))
+  }
+
+  /// What the button that shows the month before is called: `Previous month`.
+  fn previous_month_label(&self) -> String {
+    "Previous month".to_owned()
+  }
+
+  /// What the button that shows the month after is called: `Next month`.
+  fn next_month_label(&self) -> String {
+    "Next month".to_owned()
+  }
+
+  /// What a date picker's button and panel are called: `Choose date`.
+  fn choose_date_label(&self) -> String {
+    "Choose date".to_owned()
+  }
+
+  /// What a date range picker's button and panel are called: `Choose dates`.
+  fn choose_dates_label(&self) -> String {
+    "Choose dates".to_owned()
+  }
+
+  /// What the button that empties a picker's field is called: `Clear`.
+  fn clear_label(&self) -> String {
+    "Clear".to_owned()
+  }
+}
+
+/// An app's own type shared: what it gives [`App::set_date_locale`](crate::app::App::set_date_locale) and a
+/// component's `.locale(..)` as `Arc::new(..)`, or keeps to hand on.
+impl<T: DateText + ?Sized> DateText for Arc<T> {
+  fn first_day(&self) -> Weekday {
+    (**self).first_day()
+  }
+  fn week(&self) -> [Weekday; 7] {
+    (**self).week()
+  }
+  fn month_name(&self, month: u8) -> String {
+    (**self).month_name(month)
+  }
+  fn month_title(&self, month: YearMonth) -> String {
+    (**self).month_title(month)
+  }
+  fn weekday_name(&self, day: Weekday) -> String {
+    (**self).weekday_name(day)
+  }
+  fn weekday_short(&self, day: Weekday) -> String {
+    (**self).weekday_short(day)
+  }
+  fn format(&self, date: Date) -> String {
+    (**self).format(date)
+  }
+  fn format_range(&self, range: DateRange) -> String {
+    (**self).format_range(range)
+  }
+  fn day_label(&self, date: Date) -> String {
+    (**self).day_label(date)
+  }
+  fn parse(&self, text: &str) -> Option<Date> {
+    (**self).parse(text)
+  }
+  fn parse_range(&self, text: &str) -> Option<DateRange> {
+    (**self).parse_range(text)
+  }
+  fn previous_month_label(&self) -> String {
+    (**self).previous_month_label()
+  }
+  fn next_month_label(&self) -> String {
+    (**self).next_month_label()
+  }
+  fn choose_date_label(&self) -> String {
+    (**self).choose_date_label()
+  }
+  fn choose_dates_label(&self) -> String {
+    (**self).choose_dates_label()
+  }
+  fn clear_label(&self) -> String {
+    (**self).clear_label()
+  }
+}
+
+/// `value` as what a component or the app keeps: an `Arc` of the trait, made once.
+pub(crate) fn shared_date_text(value: impl DateText + 'static) -> Arc<dyn DateText> {
+  Arc::new(value)
+}
+
+/// English, shared: what a component shows where nothing says otherwise.
+pub(crate) fn english_date_text() -> Arc<dyn DateText> {
+  static ENGLISH: OnceLock<Arc<dyn DateText>> = OnceLock::new();
+  ENGLISH.get_or_init(|| Arc::new(DateLocale::english())).clone()
+}
+
+/// The two halves of a range as it is typed: what is before and after a dash or `to`.
+fn split_range(text: &str) -> Option<(&str, &str)> {
+  let text = text.trim();
+  [" – ", " — ", "–", "—", " - ", " to "]
+    .iter()
+    .find_map(|dash| text.split_once(dash))
+}
+
+/// The app's choice of a date's text, which [`App::set_date_locale`](crate::app::App::set_date_locale) makes: read so
+/// that what reads it in a render is rendered again when it changes.
+#[derive(Clone)]
+pub(crate) struct AppDateText {
+  current: Arc<RwLock<Arc<dyn DateText>>>,
+  version: Signal<u64>,
+}
+
+impl AppDateText {
+  pub fn new() -> Self {
+    Self {
+      current: Arc::new(RwLock::new(english_date_text())),
+      version: Signal::new(0),
+    }
+  }
+
+  /// The choice, read so that the render reading it is run again when it changes.
+  pub fn get(&self) -> Arc<dyn DateText> {
+    let _ = self.version.get();
+    self.current.read().clone()
+  }
+
+  pub fn set(&self, text: Arc<dyn DateText>) {
+    *self.current.write() = text;
+    self.version.update(|version| *version = version.wrapping_add(1));
+  }
+}
+
+/// How [`DateLocale`] writes a date in a field, in its locale's order. The least that covers what is asked of a date's
+/// form: its numbers, the month's short or long name, and ISO 8601; anything else is
+/// [`DateLocale::with_format`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DateStyle {
+  /// In numbers, with the locale's separator: `12.11.2026`, `11/12/2026`.
+  Numeric,
+  /// The month by its short name: `Nov 12, 2026`, `12 Nov 2026`.
+  Short,
+  /// The month by its whole name: `November 12, 2026`, `12 November 2026`. The name is the locale's as its table
+  /// has it: a language whose dates take another case of the month (`12 листопада`) gives a table or a format of its
+  /// own.
+  Long,
+  /// ISO 8601, whatever the locale: `2026-11-12`.
+  Iso,
+}
+
+/// How a date is written, an app's own: what [`DateLocale::with_format`] gives.
+pub type DateFormatter = Arc<dyn Fn(Date) -> String + Send + Sync>;
+
+/// How what is typed is read, an app's own: what [`DateLocale::with_parse`] gives.
+pub type DateParser = Arc<dyn Fn(&str) -> Option<Date> + Send + Sync>;
+
+/// What a calendar and a date picker call their controls, in a locale's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DateLabels {
+  pub previous_month: Arc<str>,
+  pub next_month: Arc<str>,
+  pub choose_date: Arc<str>,
+  pub choose_dates: Arc<str>,
+  pub clear: Arc<str>,
+}
+
+impl DateLabels {
+  fn of(words: [&str; 5]) -> Self {
+    let [previous_month, next_month, choose_date, choose_dates, clear] = words.map(Arc::from);
+    Self {
+      previous_month,
+      next_month,
+      choose_date,
+      choose_dates,
+      clear,
+    }
+  }
+
+  /// English: `Previous month`, `Next month`, `Choose date`, `Choose dates`, `Clear`.
+  pub fn english() -> Self {
+    Self::of(["Previous month", "Next month", "Choose date", "Choose dates", "Clear"])
+  }
+}
 
 /// The order a date is written in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -17,7 +299,7 @@ pub enum DateOrder {
 }
 
 /// How a locale writes the dates of a calendar, and what it reads back: the first day of the week, the names of the
-/// months and of the days, and the short form a field shows.
+/// months and of the days, the form a field shows, and the names of the controls. lurq's [`DateText`].
 ///
 /// ```
 /// use lurq::core::{Date, DateLocale, Weekday};
@@ -30,12 +312,20 @@ pub enum DateOrder {
 ///
 /// // A locale of the app's own: English names, weeks from Saturday.
 /// let own = DateLocale::for_tag("en").with_first_day(Weekday::Saturday);
+///
+/// // Another way of writing dates is a style or a closure, not a trait of the app's.
+/// use lurq::core::DateStyle;
+/// assert_eq!(DateLocale::for_tag("en").with_style(DateStyle::Numeric).format(day), "11/12/2026");
+/// assert_eq!(DateLocale::for_tag("en-GB").with_style(DateStyle::Long).format(day), "12 November 2026");
+/// assert_eq!(DateLocale::for_tag("de").with_style(DateStyle::Iso).format(day), "2026-11-12");
+/// let mine = DateLocale::english().with_format(|date| format!("{}/{}", date.day(), date.month()));
+/// assert_eq!(mine.format(day), "12/11");
 /// ```
 ///
 /// lurq knows English (`en`, with weeks from Monday as the design draws them; `en-US` from Sunday; `en-GB` writing
 /// the day first), Ukrainian (`uk`), German (`de`), French (`fr`), Spanish (`es`) and Polish (`pl`); any other tag is
 /// English. Every field is the app's to replace.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct DateLocale {
   /// The tag it was made for: `en`, `uk`.
   pub tag: Arc<str>,
@@ -51,9 +341,58 @@ pub struct DateLocale {
   pub weekdays_short: [Arc<str>; 7],
   /// The order of the day, the month and the year.
   pub order: DateOrder,
-  /// What is between the numbers of a date written in numbers: `.` in `12.11.2026`. `None` where the short form
-  /// writes the month's name: `Nov 12, 2026`.
-  pub separator: Option<char>,
+  /// How a field writes a date: in numbers, by the month's short or long name, or as ISO 8601.
+  pub style: DateStyle,
+  /// What is between the numbers of a date written in numbers: `.` in `12.11.2026`.
+  pub separator: char,
+  /// How a date is written, the app's, in place of [`Self::style`]: [`Self::with_format`].
+  pub formatter: Option<DateFormatter>,
+  /// How what is typed is read, the app's, in place of the locale's: [`Self::with_parse`].
+  pub parser: Option<DateParser>,
+  /// What a calendar and a date picker call their controls.
+  pub labels: DateLabels,
+}
+
+impl fmt::Debug for DateLocale {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("DateLocale")
+      .field("tag", &self.tag)
+      .field("first_day", &self.first_day)
+      .field("order", &self.order)
+      .field("style", &self.style)
+      .field("separator", &self.separator)
+      .field("formatter", &self.formatter.is_some())
+      .field("parser", &self.parser.is_some())
+      .finish_non_exhaustive()
+  }
+}
+
+/// The same tables, form and labels, and the same closures of the app's (the same `Arc`s).
+impl PartialEq for DateLocale {
+  fn eq(&self, other: &Self) -> bool {
+    let same = |a: &Option<DateFormatter>, b: &Option<DateFormatter>| match (a, b) {
+      (None, None) => true,
+      (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+      _ => false,
+    };
+    let same_parser = |a: &Option<DateParser>, b: &Option<DateParser>| match (a, b) {
+      (None, None) => true,
+      (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+      _ => false,
+    };
+    self.tag == other.tag
+      && self.first_day == other.first_day
+      && self.months == other.months
+      && self.months_short == other.months_short
+      && self.weekdays == other.weekdays
+      && self.weekdays_short == other.weekdays_short
+      && self.order == other.order
+      && self.style == other.style
+      && self.separator == other.separator
+      && same(&self.formatter, &other.formatter)
+      && same_parser(&self.parser, &other.parser)
+      && self.labels == other.labels
+  }
 }
 
 fn names<const N: usize>(names: [&str; N]) -> [Arc<str>; N] {
@@ -96,7 +435,11 @@ impl DateLocale {
       ]),
       weekdays_short: names(["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]),
       order: DateOrder::MonthDayYear,
-      separator: None,
+      style: DateStyle::Short,
+      separator: '/',
+      formatter: None,
+      parser: None,
+      labels: DateLabels::english(),
     }
   }
 
@@ -143,7 +486,15 @@ impl DateLocale {
         ]),
         weekdays_short: names(["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]),
         order: DateOrder::DayMonthYear,
-        separator: Some('.'),
+        style: DateStyle::Numeric,
+        separator: '.',
+        labels: DateLabels::of([
+          "Попередній місяць",
+          "Наступний місяць",
+          "Виберіть дату",
+          "Виберіть дати",
+          "Очистити",
+        ]),
         ..Self::english()
       },
       (_, "de") => Self {
@@ -175,7 +526,15 @@ impl DateLocale {
         ]),
         weekdays_short: names(["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]),
         order: DateOrder::DayMonthYear,
-        separator: Some('.'),
+        style: DateStyle::Numeric,
+        separator: '.',
+        labels: DateLabels::of([
+          "Vorheriger Monat",
+          "Nächster Monat",
+          "Datum wählen",
+          "Daten wählen",
+          "Löschen",
+        ]),
         ..Self::english()
       },
       (_, "fr") => Self {
@@ -199,7 +558,15 @@ impl DateLocale {
         weekdays: names(["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]),
         weekdays_short: names(["Lu", "Ma", "Me", "Je", "Ve", "Sa", "Di"]),
         order: DateOrder::DayMonthYear,
-        separator: Some('/'),
+        style: DateStyle::Numeric,
+        separator: '/',
+        labels: DateLabels::of([
+          "Mois précédent",
+          "Mois suivant",
+          "Choisir une date",
+          "Choisir des dates",
+          "Effacer",
+        ]),
         ..Self::english()
       },
       (_, "es") => Self {
@@ -223,7 +590,15 @@ impl DateLocale {
         weekdays: names(["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]),
         weekdays_short: names(["Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do"]),
         order: DateOrder::DayMonthYear,
-        separator: Some('/'),
+        style: DateStyle::Numeric,
+        separator: '/',
+        labels: DateLabels::of([
+          "Mes anterior",
+          "Mes siguiente",
+          "Elegir fecha",
+          "Elegir fechas",
+          "Borrar",
+        ]),
         ..Self::english()
       },
       (_, "pl") => Self {
@@ -255,7 +630,15 @@ impl DateLocale {
         ]),
         weekdays_short: names(["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"]),
         order: DateOrder::DayMonthYear,
-        separator: Some('.'),
+        style: DateStyle::Numeric,
+        separator: '.',
+        labels: DateLabels::of([
+          "Poprzedni miesiąc",
+          "Następny miesiąc",
+          "Wybierz datę",
+          "Wybierz daty",
+          "Wyczyść",
+        ]),
         ..Self::english()
       },
       _ => Self::english(),
@@ -267,6 +650,40 @@ impl DateLocale {
   /// It, with weeks from `first`.
   pub fn with_first_day(mut self, first: Weekday) -> Self {
     self.first_day = first;
+    self
+  }
+
+  /// It, writing dates in `style`, in its order: [`DateStyle::Numeric`] `12.11.2026`, [`DateStyle::Short`] `Nov 12,
+  /// 2026`, [`DateStyle::Long`] `12 November 2026`, [`DateStyle::Iso`] `2026-11-12`. What is typed is read in any of
+  /// them.
+  pub fn with_style(mut self, style: DateStyle) -> Self {
+    self.style = style;
+    self
+  }
+
+  /// It, with `separator` between the numbers of a date written in numbers: `12-11-2026`.
+  pub fn with_separator(mut self, separator: char) -> Self {
+    self.separator = separator;
+    self
+  }
+
+  /// It, writing dates the app's way: a form no style is. A range is written as two whole dates. Give
+  /// [`Self::with_parse`] too where what it writes is not read back by the locale: a field reads what it shows.
+  pub fn with_format(mut self, format: impl Fn(Date) -> String + Send + Sync + 'static) -> Self {
+    self.formatter = Some(Arc::new(format));
+    self
+  }
+
+  /// It, reading what is typed the app's way, in place of the locale's forms and ISO 8601: `None` for what is no date,
+  /// or not yet one.
+  pub fn with_parse(mut self, parse: impl Fn(&str) -> Option<Date> + Send + Sync + 'static) -> Self {
+    self.parser = Some(Arc::new(parse));
+    self
+  }
+
+  /// It, calling a calendar's and a date picker's controls by `labels`.
+  pub fn with_labels(mut self, labels: DateLabels) -> Self {
+    self.labels = labels;
     self
   }
 
@@ -285,26 +702,43 @@ impl DateLocale {
     format!("{} {}", self.month_name(month.month()), month.year())
   }
 
-  /// The short form of a date, which a date picker's field shows: `Nov 12, 2026`, `12.11.2026`.
-  pub fn format(&self, date: Date) -> String {
-    let (day, month, year) = (date.day(), date.month(), date.year());
-    let name = &self.months_short[(month - 1) as usize];
-    match (self.separator, self.order) {
-      (Some(separator), DateOrder::DayMonthYear) => format!("{day:02}{separator}{month:02}{separator}{year:04}"),
-      (Some(separator), DateOrder::MonthDayYear) => format!("{month:02}{separator}{day:02}{separator}{year:04}"),
-      (Some(separator), DateOrder::YearMonthDay) => format!("{year:04}{separator}{month:02}{separator}{day:02}"),
-      (None, DateOrder::MonthDayYear) => format!("{name} {day}, {year}"),
-      (None, DateOrder::DayMonthYear) => format!("{day} {name} {year}"),
-      (None, DateOrder::YearMonthDay) => format!("{year} {name} {day}"),
+  /// The name of a month in a written date, by the style: `Nov`, or `November`. `None` where the style writes numbers.
+  fn written_month(&self, month: u8) -> Option<&str> {
+    let index = (month.clamp(1, 12) - 1) as usize;
+    match self.style {
+      DateStyle::Short => Some(&self.months_short[index]),
+      DateStyle::Long => Some(&self.months[index]),
+      DateStyle::Numeric | DateStyle::Iso => None,
     }
   }
 
-  /// The short form of a range: `Nov 9 – Nov 15, 2026`, the year once where both ends are in it and the month is
-  /// written by name; else both ends whole, between them an en dash.
+  /// The form of a date a date picker's field shows: `Nov 12, 2026`, `12.11.2026`, by its style, or the app's.
+  pub fn format(&self, date: Date) -> String {
+    if let Some(format) = &self.formatter {
+      return format(date);
+    }
+    let (day, month, year) = (date.day(), date.month(), date.year());
+    let separator = self.separator;
+    if self.style == DateStyle::Iso {
+      return date.to_string();
+    }
+    match (self.written_month(month), self.order) {
+      (None, DateOrder::DayMonthYear) => format!("{day:02}{separator}{month:02}{separator}{year:04}"),
+      (None, DateOrder::MonthDayYear) => format!("{month:02}{separator}{day:02}{separator}{year:04}"),
+      (None, DateOrder::YearMonthDay) => format!("{year:04}{separator}{month:02}{separator}{day:02}"),
+      (Some(name), DateOrder::MonthDayYear) => format!("{name} {day}, {year}"),
+      (Some(name), DateOrder::DayMonthYear) => format!("{day} {name} {year}"),
+      (Some(name), DateOrder::YearMonthDay) => format!("{year} {name} {day}"),
+    }
+  }
+
+  /// The form of a range: `Nov 9 – Nov 15, 2026`, the year once where both ends are in it and the month is written by
+  /// name; else both ends whole, between them an en dash.
   pub fn format_range(&self, range: DateRange) -> String {
     let (start, end) = (range.start(), range.end());
-    if self.separator.is_none() && start.year() == end.year() {
-      let name = |date: Date| &self.months_short[(date.month() - 1) as usize];
+    let named = self.formatter.is_none() && self.written_month(1).is_some();
+    if named && start.year() == end.year() {
+      let name = |date: Date| self.written_month(date.month()).unwrap_or_default();
       match self.order {
         DateOrder::MonthDayYear => {
           return format!("{} {} – {}", name(start), start.day(), self.format(end));
@@ -331,6 +765,9 @@ impl DateLocale {
   /// ISO 8601 (`2026-11-12`). A month may be written by its name or the start of it, in the locale's words or in
   /// English. The year has four digits: what is still being typed (`12.11.20`) is no date yet.
   pub fn parse(&self, text: &str) -> Option<Date> {
+    if let Some(parse) = &self.parser {
+      return parse(text);
+    }
     let text = text.trim();
     if let Ok(date) = text.parse::<Date>() {
       return Some(date);
@@ -413,10 +850,7 @@ impl DateLocale {
   /// The range `text` holds: two dates, as [`DateLocale::parse`] reads them, between them a dash or `to`. The year of
   /// the first may be left out where it is the second's: `Nov 9 – Nov 15, 2026`.
   pub fn parse_range(&self, text: &str) -> Option<DateRange> {
-    let text = text.trim();
-    let (first, second) = [" – ", " — ", "–", "—", " - ", " to "]
-      .iter()
-      .find_map(|dash| text.split_once(dash))?;
+    let (first, second) = split_range(text)?;
     let end = self.parse(second)?;
     let start = self.parse(first).or_else(|| {
       let written = match self.order {
@@ -457,6 +891,72 @@ impl Default for DateLocale {
   }
 }
 
+impl DateText for DateLocale {
+  fn first_day(&self) -> Weekday {
+    self.first_day
+  }
+
+  fn week(&self) -> [Weekday; 7] {
+    DateLocale::week(self)
+  }
+
+  fn month_name(&self, month: u8) -> String {
+    DateLocale::month_name(self, month)
+  }
+
+  fn month_title(&self, month: YearMonth) -> String {
+    DateLocale::month_title(self, month)
+  }
+
+  fn weekday_name(&self, day: Weekday) -> String {
+    capitalized(&self.weekdays[day.days_from_monday() as usize])
+  }
+
+  fn weekday_short(&self, day: Weekday) -> String {
+    self.weekdays_short[day.days_from_monday() as usize].to_string()
+  }
+
+  fn format(&self, date: Date) -> String {
+    DateLocale::format(self, date)
+  }
+
+  fn format_range(&self, range: DateRange) -> String {
+    DateLocale::format_range(self, range)
+  }
+
+  fn day_label(&self, date: Date) -> String {
+    DateLocale::day_label(self, date)
+  }
+
+  fn parse(&self, text: &str) -> Option<Date> {
+    DateLocale::parse(self, text)
+  }
+
+  fn parse_range(&self, text: &str) -> Option<DateRange> {
+    DateLocale::parse_range(self, text)
+  }
+
+  fn previous_month_label(&self) -> String {
+    self.labels.previous_month.to_string()
+  }
+
+  fn next_month_label(&self) -> String {
+    self.labels.next_month.to_string()
+  }
+
+  fn choose_date_label(&self) -> String {
+    self.labels.choose_date.to_string()
+  }
+
+  fn choose_dates_label(&self) -> String {
+    self.labels.choose_dates.to_string()
+  }
+
+  fn clear_label(&self) -> String {
+    self.labels.clear.to_string()
+  }
+}
+
 /// `word` with its first letter in capitals.
 fn capitalized(word: &str) -> String {
   let mut characters = word.chars();
@@ -469,6 +969,90 @@ fn capitalized(word: &str) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_style_writes_what_is_asked_of_a_dates_form() {
+    let day = Date::new(2026, 11, 12).unwrap();
+    let style = |tag: &str, style: DateStyle| DateLocale::for_tag(tag).with_style(style).format(day);
+    assert_eq!(style("de", DateStyle::Numeric), "12.11.2026");
+    assert_eq!(style("en", DateStyle::Numeric), "11/12/2026");
+    assert_eq!(style("en", DateStyle::Short), "Nov 12, 2026");
+    assert_eq!(style("en-GB", DateStyle::Long), "12 November 2026");
+    assert_eq!(style("en", DateStyle::Long), "November 12, 2026");
+    assert_eq!(style("uk", DateStyle::Iso), "2026-11-12");
+    assert_eq!(
+      DateLocale::for_tag("en-GB")
+        .with_style(DateStyle::Numeric)
+        .with_separator('-')
+        .format(day),
+      "12-11-2026"
+    );
+    // Whatever the style, each of the forms is read back.
+    let long = DateLocale::for_tag("en-GB").with_style(DateStyle::Long);
+    for text in ["12 November 2026", "12/11/2026", "2026-11-12", "12 Nov 2026"] {
+      assert_eq!(long.parse(text), Some(day), "{text}");
+    }
+    let week = DateRange::new(day, day.add_days(3));
+    assert_eq!(long.format_range(week), "12 November – 15 November 2026");
+  }
+
+  #[test]
+  fn an_apps_own_format_and_parse_are_the_locales() {
+    let day = Date::new(2026, 11, 12).unwrap();
+    let own = DateLocale::for_tag("uk")
+      .with_format(|date| format!("{}·{}·{}", date.day(), date.month(), date.year()))
+      .with_parse(|text| {
+        let mut parts = text.split('·').map(|part| part.trim().parse::<i32>().ok());
+        let (day, month, year) = (parts.next()??, parts.next()??, parts.next()??);
+        Date::new(year, month as u8, day as u8)
+      });
+    assert_eq!(own.format(day), "12·11·2026");
+    assert_eq!(own.parse("12·11·2026"), Some(day));
+    assert_eq!(own.parse("12.11.2026"), None, "the app's reading alone");
+    assert_eq!(
+      own.format_range(DateRange::new(day, day.add_days(1))),
+      "12·11·2026 – 13·11·2026"
+    );
+    // The rest is the locale's.
+    assert_eq!(own.month_title(day.year_month()), "Листопад 2026");
+    assert_eq!(DateText::previous_month_label(&own), "Попередній місяць");
+    assert_eq!(DateText::clear_label(&DateLocale::english()), "Clear");
+  }
+
+  #[test]
+  fn the_traits_defaults_follow_from_its_other_answers() {
+    struct Plain;
+    impl DateText for Plain {
+      fn first_day(&self) -> Weekday {
+        Weekday::Sunday
+      }
+      fn month_name(&self, month: u8) -> String {
+        format!("M{month}")
+      }
+      fn weekday_name(&self, day: Weekday) -> String {
+        format!("{day:?}")
+      }
+      fn weekday_short(&self, day: Weekday) -> String {
+        format!("{day:?}")[..1].to_owned()
+      }
+      fn format(&self, date: Date) -> String {
+        date.to_string()
+      }
+    }
+    let day = Date::new(2026, 11, 12).unwrap();
+    assert_eq!(Plain.week()[0], Weekday::Sunday);
+    assert_eq!(Plain.month_title(day.year_month()), "M11 2026");
+    assert_eq!(Plain.day_label(day), "Thursday, 2026-11-12");
+    assert_eq!(Plain.parse(" 2026-11-12 "), Some(day));
+    assert_eq!(
+      Plain.parse_range("2026-11-12 – 2026-11-15"),
+      Some(DateRange::new(day, day.add_days(3)))
+    );
+    assert_eq!(Plain.next_month_label(), "Next month");
+    // Shared, it answers as it does.
+    let shared: Arc<dyn DateText> = Arc::new(Plain);
+    assert_eq!(shared.month_title(day.year_month()), "M11 2026");
+  }
 
   fn date(year: i32, month: u8, day: u8) -> Date {
     Date::new(year, month, day).unwrap()

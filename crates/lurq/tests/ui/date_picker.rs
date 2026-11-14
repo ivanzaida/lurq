@@ -11,7 +11,7 @@ use lurq::{
     theme::{PaletteColor, ThemePalette},
   },
   components::{Button, Column},
-  core::{Date, DateLocale, Signal},
+  core::{Date, DateLocale, DateStyle, Signal},
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
   ui::{CalendarMemory, DatePicker, DatePickerPart, DatePickerSize, Field},
@@ -516,4 +516,72 @@ fn its_words_can_be_said_otherwise() {
     said(&mut stage, "dp-calendar-next", "a11y_name").as_deref(),
     Some("Далі")
   );
+}
+
+#[test]
+fn an_apps_own_date_text_writes_and_reads_the_field() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = picker(&value, |picker| picker.locale(super::calendar::Roman));
+  assert!(stage.paints("12.XI.2026"));
+  stage.click("dp");
+  type_over(&mut stage, "12.XI.2026".len(), "3.XII.2026");
+  assert_eq!(value.get_untracked(), Some(day(12, 3)));
+  stage.click("dp-trigger");
+  stage.pass();
+  assert!(stage.paints("XII 2026"), "its calendar too");
+}
+
+#[test]
+fn the_apps_date_locale_reaches_a_mounted_picker_and_a_change_of_it_renders_it_again() {
+  let app = lurq::app::App::new();
+  app.set_date_locale(DateLocale::for_tag("uk"));
+  let value = Signal::new(Some(day(11, 12)));
+  let shown = value.clone();
+  let mut stage = Stage::in_app(app.clone(), move |ctx| {
+    Column::new()
+      .padding(10.0)
+      .child(DatePicker::new(shown.clone()).today(day(11, 9)).id("dp").mount(ctx))
+      .into()
+  });
+  assert!(stage.paints("12.11.2026"));
+  app.set_date_locale(DateLocale::english().with_style(DateStyle::Long));
+  stage.pass();
+  assert!(stage.paints("November 12, 2026"));
+  // Its own wins over the app's.
+  let own = value.clone();
+  let stage = Stage::in_app(app, move |ctx| {
+    Column::new()
+      .child(
+        DatePicker::new(own.clone())
+          .locale(DateLocale::for_tag("de"))
+          .id("dp")
+          .mount(ctx),
+      )
+      .into()
+  });
+  assert!(stage.paints("12.11.2026"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn its_locale_names_its_controls_and_its_props_win() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = picker(&value, |picker| {
+    picker.clearable(true).locale(DateLocale::for_tag("uk"))
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(
+    said(&mut stage, "dp-trigger", "a11y_name").as_deref(),
+    Some("Виберіть дату")
+  );
+  assert_eq!(said(&mut stage, "dp-clear", "a11y_name").as_deref(), Some("Очистити"));
+  let mut stage = picker(&value, |picker| {
+    picker.locale(DateLocale::for_tag("uk")).trigger_label("Календар")
+  });
+  assert_eq!(said(&mut stage, "dp-trigger", "a11y_name").as_deref(), Some("Календар"));
 }
