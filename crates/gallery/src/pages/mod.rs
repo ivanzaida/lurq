@@ -721,7 +721,7 @@ pub const PAGES: &[Page] = &[
     path: "/listbox",
     name: "Listbox",
     icon: None,
-    about: "listbox list box option choose chosen select single multiple many range shift ctrl group check keys page typeahead virtual thousands value options follow_focus on_change label invalid disabled full_width density style rules mount",
+    about: "listbox list box option choose chosen select single multiple many range shift ctrl group check keys page typeahead virtual thousands value options optional multiple controlled controlled_optional controlled_multiple follow_focus on_change label invalid disabled full_width density style rules mount",
     group: Group::Data,
     mount: |ctx| ctx.mount::<listbox::ListboxPage>(()),
   },
