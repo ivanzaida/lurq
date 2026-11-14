@@ -45,7 +45,7 @@ fn steps_in_a_row_are_marks_with_titles_and_lines_up_to_the_current_one() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .width(460.0)
-      .child(Steps::new(Signal::new(1usize), ["Account", "Workspace", "Finish"]).id("steps"))
+      .child(Steps::at(1, ["Account", "Workspace", "Finish"]).id("steps"))
       .into()
   });
   let (_, _, width, _) = stage.bounds("steps");
@@ -111,8 +111,8 @@ fn steps_in_a_column_have_a_line_down_from_each_mark_to_the_next() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .child(
-        Steps::new(
-          Signal::new(1usize),
+        Steps::at(
+          1,
           [
             Step::new("Account").description("Name and email"),
             Step::new("Billing").description("Card and address"),
@@ -239,6 +239,37 @@ fn steps_that_are_only_read_take_neither_a_press_nor_the_focus() {
 }
 
 #[test]
+fn steps_shown_at_an_index_are_pressed_by_nothing_and_are_no_stop_of_tab() {
+  let (asked, record) = told();
+  let mut stage = Stage::new(move |_| {
+    let record = record.clone();
+    Row::new()
+      .padding(8.0)
+      .child(
+        Steps::at(2, WIZARD)
+          // Shown, not operated: what would make the steps pressed elsewhere does not.
+          .pressable(true)
+          .ahead(true)
+          .on_change(move |index| record.lock().unwrap().push(index))
+          .id("steps"),
+      )
+      .into()
+  });
+  assert_eq!(
+    stage.fill_color("steps-1-line"),
+    Some(light(PaletteColor::Primary)),
+    "two steps done"
+  );
+  assert!(stage.fill_color("steps-2-marker").is_some(), "the third is current");
+  stage.click("steps-0");
+  stage.click("steps-3");
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(asked.lock().unwrap().is_empty(), "no press is heard");
+  assert!(!stage.has_ring(light(PaletteColor::Ring)), "no step takes the focus");
+}
+
+#[test]
 fn tab_enters_at_the_current_step_and_the_arrows_move_between_the_steps_pressed() {
   let (asked, record) = told();
   let mut stage = Stage::new(move |_| {
@@ -302,8 +333,8 @@ fn a_step_in_error_says_so_in_its_mark_and_its_title() {
     Column::new()
       .width(460.0)
       .child(
-        Steps::new(
-          Signal::new(2usize),
+        Steps::at(
+          2,
           [
             Step::new("Account"),
             Step::new("Billing").invalid(true),
@@ -327,7 +358,7 @@ fn a_step_in_error_says_so_in_its_mark_and_its_title() {
 
 #[test]
 fn disabled_steps_are_dimmed() {
-  let stage = Stage::new(|_| Steps::new(Signal::new(1usize), WIZARD).disabled(true).into());
+  let stage = Stage::new(|_| Steps::at(1, WIZARD).disabled(true).into());
   let theme = stage.app.theme().clone();
   let case = Case::new()
     .state(StepsState::Horizontal, true)
@@ -376,10 +407,7 @@ fn steps_in_a_row_with_descriptions_share_the_width_and_keep_their_lines() {
   ];
   let mut stage = Stage::new(|_| {
     let steps = WIZARD.map(|(title, description)| Step::new(title).description(description));
-    Column::new()
-      .width(493.0)
-      .child(Steps::new(Signal::new(1usize), steps).id("steps"))
-      .into()
+    Column::new().width(493.0).child(Steps::at(1, steps).id("steps")).into()
   });
   let (x, _, width, _) = stage.bounds("steps");
   assert_eq!(width, 493.0);
@@ -425,10 +453,7 @@ fn described_steps(width: f32) -> Stage {
   ];
   Stage::new(move |_| {
     let steps = WIZARD.map(|(title, description)| Step::new(title).description(description));
-    Column::new()
-      .width(width)
-      .child(Steps::new(Signal::new(1usize), steps).id("steps"))
-      .into()
+    Column::new().width(width).child(Steps::at(1, steps).id("steps")).into()
   })
 }
 

@@ -94,7 +94,8 @@ pub type TextareaRenderer = Arc<dyn Fn(TextareaView) -> Element + Send + Sync>;
 /// writes there. It is as high as its text, from the rows it shows at least
 /// to the rows it shows at most ([`Textarea::rows`]); past that its text
 /// scrolls inside it, with a scroll bar of its own. Its edge says its state,
-/// as an input's does.
+/// as an input's does. It is 260 wide, as an input is, unless it is
+/// [`full_width`](Textarea::full_width): in a form it fills its field so.
 pub struct Textarea {
   value: Signal<String>,
   placeholder: Option<Arc<str>>,
@@ -199,8 +200,7 @@ impl Textarea {
     self
   }
 
-  /// Whether the textarea is as wide as what holds it. It is so already, as the design draws it in a form; the
-  /// state is there for a theme that gives the textarea a width of its own.
+  /// Whether the textarea is as wide as what holds it, in place of the design's 260.
   pub fn full_width(mut self, full_width: bool) -> Self {
     self.full_width = full_width;
     self
@@ -403,7 +403,7 @@ impl Themed for Textarea {
   fn recipe() -> Recipe {
     use TextareaPart::{Control, Placeholder, Root};
     let recipe = Recipe::new()
-      .base(Root, |s| s.width(Length::Fill))
+      .base(Root, |s| s.width(260.0))
       .state(TextareaState::FullWidth, Root, |s| s.width(Length::Fill))
       .base(Control, |s| {
         text_box::box_style(s)

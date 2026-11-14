@@ -269,21 +269,15 @@ impl Component for StepsPage {
     let states = Column::new()
       .width(FILL)
       .spacing(28.0)
+      .child(item(Steps::at(0, three), "at the first step: the others to come"))
       .child(item(
-        Steps::new(Signal::new(0), three),
-        "at the first step: the others to come",
-      ))
-      .child(item(
-        Steps::new(Signal::new(1), three),
+        Steps::at(1, three),
         "at the second: the first done, the line to the current one in the primary color",
       ))
+      .child(item(Steps::at(3, three), "past the last: every step done"))
       .child(item(
-        Steps::new(Signal::new(3), three),
-        "past the last: every step done",
-      ))
-      .child(item(
-        Steps::new(
-          Signal::new(1),
+        Steps::at(
+          1,
           [
             Step::new("Account"),
             Step::new("Workspace").invalid(true),
@@ -293,7 +287,7 @@ impl Component for StepsPage {
         "an invalid step: its mark and its title in the destructive color",
       ));
     let column = Row::new().child(
-      Steps::new(Signal::new(2), wizard(true, false))
+      Steps::at(2, wizard(true, false))
         .orientation(Orientation::Vertical)
         .label("Sign up"),
     );
@@ -403,14 +397,14 @@ impl Component for StepsPage {
           self.frame.demo(
             1,
             states,
-            "Steps::new(at.clone(), [..])",
+            "Steps::at(current, [..])",
             &[
               "let steps = [\"Account\", \"Workspace\", \"Finish\"];",
-              "Steps::new(Signal::new(0), steps)",
-              "Steps::new(Signal::new(1), steps)",
-              "Steps::new(Signal::new(3), steps)",
+              "Steps::at(0, steps)",
+              "Steps::at(1, steps)",
+              "Steps::at(3, steps)",
               "",
-              "Steps::new(Signal::new(1), [",
+              "Steps::at(1, [",
               "    Step::new(\"Account\"),",
               "    Step::new(\"Workspace\").invalid(true),",
               "    Step::new(\"Finish\"),",
@@ -427,7 +421,7 @@ impl Component for StepsPage {
             column,
             ".orientation(Orientation::Vertical)",
             &[
-              "Steps::new(Signal::new(2), [",
+              "Steps::at(2, [",
               "    Step::new(\"Account\").description(\"Name and email\"),",
               "    Step::new(\"Billing\").description(\"Card and address\"),",
               "    Step::new(\"Workspace\").description(\"Name and members\"),",
