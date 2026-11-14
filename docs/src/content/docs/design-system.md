@@ -2061,6 +2061,50 @@ InputOtp::new(recovery.clone())
 - The mobile skin of the board (Mobile/OTP Field) is a rule of the theme: `Root` 8 apart, `Cell` 46 by 56 and `radius-lg`, `Value` in the sans type at 22 and semibold, `Caret` 2 by 24.
 - A renderer that draws other cells starts from `view.input()`, the behavior, and lays its own cells over it: `view.characters`, `view.shown(index)` (what a cell shows, its dot where masked), `view.active` (the cell the focus is on, while the code has it), `view.separators`, and `view.cell_part(index, part)` for the style of a part of one cell. `view.cell(index)`, `view.separator()` and `view.cells()` are the default ones. A cell built by `view.cell(index)` is one a click is known to be on.
 
+## Swatch Picker
+
+One color chosen among swatches in a grid: the color of a label, of a highlight, of an event in a calendar.
+
+```rust
+use lurq::{node::color::Color, ui::{Swatch, SwatchPicker}};
+
+// Bound to the app's signal, which a choice sets.
+SwatchPicker::new(color.clone(), ["#EF4444", "#F97316", "#F59E0B", "#22C55E", "#3B82F6", "#A855F7"])
+  .columns(3)
+  .label("Label color");
+
+// The app's own values, each with its color: none chosen until a person chooses.
+SwatchPicker::optional(label.clone(), [
+  Swatch::of(Label::Bug, Color::from_hex("#EF4444")).label("Bug"),
+  Swatch::of(Label::Docs, Color::from_hex("#3B82F6")).label("Docs"),
+]);
+
+// Held by the app, which is told what is chosen and shows what it answers with.
+SwatchPicker::controlled(app.color(), swatches, |color: &Color| app.set_color(*color));
+```
+
+| Builder | |
+| --- | --- |
+| `SwatchPicker::new(value, swatches)` | Bound to a `Signal<T>`: the swatch of its value is the chosen one, and choosing another sets it. `T` is `Color`, or the app's value the swatches carry |
+| `optional(Signal<Option<T>>, swatches)` | The same, holding none until a person chooses: Tab then enters at the first swatch |
+| `controlled(value, swatches, on_change)` | The app holds the value: a choice is told to `on_change`, and the picker shows what the app answers with. It keeps nothing between renders |
+| `on_change(handler)` | Told the value a person chooses (`\|color: &Color\|`, `&T` the compiler checks); not for the swatch chosen already, nor when the app sets the signal. A second handler is called after the first |
+| `swatch(swatch)`, `swatches(swatches)` | More swatches after those given: a `Color`, a hex (`"#EF4444"`, which panics where it is no color), or a `Swatch` |
+| `Swatch::new(color)`, `Swatch::of(value, color)` | A swatch whose value is its color, or the app's `value`; with `label(&str)` (its hex where it has none), `disabled(bool)`, `id`, `key` |
+| `columns(usize)` | How many swatches a row holds: 6, the board's. Up and Down move the focus by as many |
+| `size(ColorSwatchSize)` | The swatches: `Sm` 20, `Md` 24 (the board's), `Lg` 32 |
+| `framed(bool)` | A panel of its own (the default), or the grid alone, for a popover or a picker that frames it |
+| `label(&str)`, `invalid(bool)`, `disabled(bool)` | What it is called to what reads the tree; the panel's edge in `Destructive`; no swatch taking input, each dimmed |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the swatch Tab stops on |
+
+- Exactly one swatch is chosen, ringed in `Foreground`. The grid is one stop of Tab, at the chosen swatch or the first that is not disabled; Left and Right move along a row and on to the next (a [focus group](../focus-navigation/#focus-groups), without going round), Up and Down a row in the same column, Home and End to the first and the last swatch, and a disabled swatch is passed by. A click, Enter or Space chooses; the arrows only move the focus.
+- It is a control a [field](#field) holds: the field names it, judges it invalid and disables it.
+- Each swatch is a [color swatch](#color-swatch)'s anatomy: its parts and states (`ColorSwatchPart`, `ColorSwatchState::Selected`, `Disabled`) are resolved for each, under the picker's rules for `SwatchPickerPart::Swatch`. A color that is not opaque stands over the swatch's checkerboard.
+- Parts: `SwatchPickerPart::Root` (the panel, or the bare grid), `Row` (the room between swatches), `Swatch` (laid over each swatch's root). States: `SwatchPickerState::Framed`, `Invalid`, `Disabled`.
+- In the design the panel is in `Popover` with an edge of 1 in `Border`, the large radius and the medium shadow, padded 10, its rows 6 apart; the swatches are 24, the small radius, 6 apart, each with an edge of 1 in `StatePressed` (the board's black at 8%), the chosen one ringed with 2 in `Foreground` outside it. The board's panel is 196 wide, 2 more than its six swatches and its padding take: the picker is as wide as its rows, 194. The board draws no focus, no disabled swatch and no invalid picker: the focus is the theme's ring on the swatch, a disabled swatch is dimmed, and an invalid picker's edge is in `Destructive`.
+- To what reads the tree it is a `listbox` called by its label, of `option`s called by their labels (or their colors' hex), with `a11y_selected`, and `a11y_disabled` on one that cannot be chosen.
+- A renderer that draws another picker has `view.swatches` (each a `SwatchItem` with its color, label, whether it is chosen or disabled, and its recipe), `view.entry()`, `view.root()` (the grid's focus group with its role) and `view.swatch(index)` (a swatch with its keys and what choosing it does).
+
 ## Checkbox Card
 
 A checkbox whose whole card is pressed, with a title, a description and an icon or a price: the add-ons of a plan, the reports a team is sent.

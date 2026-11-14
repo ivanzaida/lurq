@@ -57,6 +57,7 @@ mod spinner;
 mod splitter;
 mod stage;
 mod steps;
+mod swatch_picker;
 mod switch;
 mod table;
 mod tabs;
