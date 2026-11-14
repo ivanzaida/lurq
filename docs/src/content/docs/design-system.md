@@ -3876,6 +3876,118 @@ DateRangePicker::new(period.clone())
 - The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
 - A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
 
+## Color Picker
+
+A color chosen in an area of saturation and brightness, on a rail of hue and one of alpha, from swatches, or typed as hex, RGB or HSL: the color of a label, of a brush, of a theme's accent.
+
+```rust
+use lurq::{node::color::Color, ui::{ColorFormat, ColorPicker}};
+
+// The board's: the area, the rail of hue, swatches and the hex.
+ColorPicker::new(accent.clone())
+  .swatches(["#3B82F6", "#2DD4BF", "#F59E0B", "#A78BFA", "#F472B6", "#FAFAFA"].map(Color::from_hex))
+  .on_change_end(|color| save(color));
+
+// With a rail of alpha, and the fields of RGB a button switches to hex and HSL.
+ColorPicker::new(overlay.clone())
+  .alpha(true)
+  .format(ColorFormat::Rgb)
+  .formats([ColorFormat::Hex, ColorFormat::Rgb, ColorFormat::Hsl]);
+
+// The color held by the app, told each change.
+ColorPicker::controlled(series, move |color| set_series(color));
+```
+
+| Builder | |
+| --- | --- |
+| `ColorPicker::new(Signal<Color>)` | Bound to the app's color, the engine's `Color`: what it shows, and what a person's change sets |
+| `ColorPicker::controlled(Color, on_change)` | The app holds the color: each change is told, and the picker shows what the app answers with. Two built at the one place in the app's code, in a loop, are told apart by their `id` or `key` |
+| `alpha(bool)` | A rail of alpha over a checkerboard, and the fields say the alpha. Without it the alpha of the color is kept as it is |
+| `format(ColorFormat)` | The fields: `Hex` (the board's, one field), `Rgb` (red, green and blue from 0 to 255) or `Hsl` (hue in degrees, saturation and lightness in percents) |
+| `formats(..)` | The fields a button before them switches between, in order. One or none: no button |
+| `swatch(color)`, `swatches(..)` | Circles of 20 in a row under the rails; a press of one makes the color it, and the one of the color is selected |
+| `on_change(Fn(Color))` | Called with each change a person makes: as a thumb moves, as a key steps, as a swatch is pressed, as a field is committed. Not for what is so already, nor when the app sets the color. Each call adds |
+| `on_change_end(Fn(Color))` | Called once a change is over (a drag let go, a key's step, a swatch's press, a field committed), where the color is another than it was as it began. Each call adds |
+| `bare(bool)` | Without its panel (fill, edge, corners, shadow): what a popover that holds it draws |
+| `label(&str)` | What the picker is called, to what reads the tree: a `group` |
+| `saturation_label`, `brightness_label`, `hue_label`, `alpha_label`, `format_label` | The words the sliders and the switch say to tooling: "Saturation", "Brightness", "Hue", "Alpha", "Format" |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; the area is `{id}-area`, the rails `{id}-hue` and `{id}-alpha`, the hex `{id}-hex`, the swatches `{id}-swatch-0` and on, the switch `{id}-format`, a channel `{id}-r` and the like |
+
+- The area is a slider of two axes: a press or a drag sets saturation across and brightness up, and a drag past its edge keeps the color at the edge. With the focus in it the arrows step by 1%, ten with Shift; PageUp and PageDown step the brightness by 10%; Home and End take the saturation to none and to the whole. The rails are sliders: of hue from 0° to 360° (the true hues, red through yellow, green, cyan, blue and magenta back to red, so that the thumb is at the hue), and of alpha from 0% to 100%; a press or a drag, the arrows by a degree or 1%, ten with Shift, PageUp and PageDown a tenth, Home and End to the ends. A press of the area or a rail gives it the focus, and each is a stop of Tab.
+- The picker keeps, while it is in the tree, the hue and saturation its color last had, which a grey and black do not say: moving through the greys does not lose the hue. It keeps the fields a person switched to, and where a drag began.
+- The field of the hex reads what is typed on Enter and as the focus leaves, in any form a color is written in (`#2563EB`, `2563eb`, `#25e`, `rgb(37, 99, 235)`, `hsl(221 83% 53%)`), and writes the color in capitals, with its alpha where it is not opaque. What is no color takes back the hex. A field of a channel is a bare [number input](#number-input).
+- To what reads the tree the area is a `slider` called "Saturation and brightness" whose `a11y_valuetext` is "Saturation 84%, brightness 92%"; the rails are `slider`s called "Hue" and "Alpha", with `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and `a11y_valuetext` ("Hue 221°", "Alpha 50%").
+- Parts: `ColorPickerPart::Root` (the panel), `Area`, `AreaThumb`, `Hue`, `Alpha`, `Thumb` (a rail's), `Checker` and `CheckerCell` (the checkerboard under the rail of alpha), `Swatches`, `Swatch` (laid over a [color swatch](#color-swatch)'s root), `Fields`, `Input` (the hex), `Format` (the switch), `FieldLabel` (the letter over a channel). States: `ColorPickerState::Alpha`, `Bare`, `Disabled`.
+- In the design the panel is 232 wide in `Popover`, with an edge of 1 in `Border`, the large radius and the medium shadow, 12 of padding and 12 between what it holds. The area is 208 by 120 with the medium radius: the hue, white over it from its start and black over that from its bottom; its circle is 12, a ring of 2 in white. The rail of hue is 10 high and round at its ends. The swatches are circles of 20, 8 apart; the hex is an input 36 high in the mono type. The board draws no thumb on the rail, no rail of alpha, no fields but the hex and no switch: a rail's thumb is a circle of 14 with a ring of 2 in white and the small shadow; the rail of alpha is the rail of hue over the checkerboard of a swatch (squares of 5 in `Background` and `Muted`); a channel's letter is 11 in `MutedForeground` over its number; the switch is a ghost button 36 high in the mono type at 12. The focus of the area and of a rail is the theme's ring around it.
+- The area and the rails are drawn with the engine's linear gradients: a node has one, so the area is three boxes laid one over another (the hue, white to clear across, clear to black down) and the rail of alpha the checkerboard under the color from clear to whole.
+- A renderer that draws another picker has `view.area()`, `view.hue()`, `view.alpha_rail()`, `view.swatches()`, `view.format_button()`, `view.hex_field()` and `view.fields()`, each with its behavior, and `view.hsv` (the color with the hue a grey keeps).
+
+## Color Field
+
+A color typed in a box, or chosen in a [color picker](#color-picker) that opens under it: the color of a label, of a brand, of a chart's series.
+
+```rust
+use lurq::{node::color::Color, ui::{ColorField, Field}};
+
+Field::new("Brand color", ColorField::new(brand.clone()));
+
+// A color or none: emptied, the field holds `None`.
+ColorField::optional(tint.clone()).placeholder("No tint").alpha(true);
+
+// The color held by the app.
+ColorField::controlled(series, move |color: Color| set_series(color));
+```
+
+| Builder | |
+| --- | --- |
+| `ColorField::new(Signal<Color>)` | Bound to the app's color: what the box and its swatch show, and what is typed or chosen sets |
+| `ColorField::optional(Signal<Option<Color>>)` | Bound to a color or none: `None` shows the placeholder, and emptying the field makes it none. Its `on_change` is told an `Option<Color>` |
+| `ColorField::controlled(value, on_change)` | The app holds the value (a `Color` or an `Option<Color>`): each change is told, and the field shows what the app answers with. Two built at the one place in the app's code, in a loop, are told apart by their `id` or `key` |
+| `on_change(Fn(V))` | Called with the value each time a person changes it: typed and committed, chosen in the picker, emptied. Not for what is so already, nor when the app sets it. Each call adds. The field is `ColorField<Color>` or `ColorField<Option<Color>>`, so a handler of another type does not compile |
+| `alpha(bool)`, `format(..)`, `formats(..)`, `swatch(..)`, `swatches(..)` | What the picker that opens has: see [color picker](#color-picker) |
+| `placement(Placement)` | Where the picker opens beside the field: under it at its start (the default), flipped where there is no room |
+| `size(ColorFieldSize)` | An input's: `Sm` 32, `Md` 36, `Lg` 40 high, with a swatch of 20, 24 and 32 |
+| `placeholder(&str)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `full_width`, `label`, `name(..)` | As an [input](#input) has them. Read only, nothing typed is taken and the picker does not open. `full_width` is in place of 180 |
+| `trigger_label(&str)`, `panel_label(&str)` | What the eyedropper and the popover are called to what reads the tree: "Choose color" and "Color" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the box's; the swatch is `{id}-swatch`, the eyedropper `{id}-trigger`, the popover `{id}-panel`, the picker `{id}-picker` |
+
+- What is typed is read on Enter and as the focus leaves, in any form a color is written in, as the picker's hex is: a color is the value and is written again as its hex in capitals, an emptied optional field is none, and anything else takes back the hex. The box keeps what is half typed while it has the focus.
+- The picker opens in a [popover](#popover) under the field from the swatch at its start, the eyedropper at its end, or Down in the box, with the focus in its area; a change in it sets the field's value at once. Escape and a press outside close it, and the focus goes back to the box; Tab from its last field goes on past the field. The field keeps, while it is in the tree, whether its picker is open.
+- The eyedropper opens the picker: picking a color from the screen is beyond the engine for now.
+- To what reads the tree the box is a `combobox` called by its label, which says it opens a `dialog` and whether it is open; the swatch and the eyedropper take no focus.
+- Parts: `ColorFieldPart::Root` (its width), `Control` (the box typed in), `Placeholder`, `Swatch` (laid over a [color swatch](#color-swatch)'s root), `Trigger` (the eyedropper's button), `TriggerIcon`, `Panel` (over the popover's). States: `ColorFieldState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Open`.
+- In the design the field is 180 by 36, an input's box (the `Background` fill in an edge of 1 in `Input`, 6 round), the swatch of its color (24) 6 from its start, its hex 8 after it in the mono type at 13 in `Foreground`, and an eyedropper of 16 in `MutedForeground` 6 from its end. The board draws it at rest only: under the pointer, focused, judged, read only and disabled it is an input; the eyedropper is in a button of 24 with the small radius, on `Highlight` under the pointer; while the picker is open the edge is in `Ring`. The picker opens 4 under it in a popover whose panel is the picker's, 232 wide.
+- A renderer that draws another field has `view.control()`, `view.swatch()`, `view.trigger()`, `view.field()` and `view.panel()`.
+
+## Color Swatch
+
+One color, shown as a small square or circle: a color an app has, a choice among colors, what a color field holds.
+
+```rust
+use lurq::{node::color::Color, ui::{ColorSwatch, ColorSwatchShape, ColorSwatchSize}};
+
+ColorSwatch::new(Color::from_hex("#2563EB")).label("Brand blue");
+// Not opaque: over a checkerboard.
+ColorSwatch::new(Color::from_hex("#2563EB80")).shape(ColorSwatchShape::Round);
+// Pressed: a button.
+ColorSwatch::new(amber).size(ColorSwatchSize::Lg).on_click(move |_| choose(amber));
+```
+
+| Builder | |
+| --- | --- |
+| `ColorSwatch::new(impl Into<Color>)` | A swatch of the color |
+| `size(ColorSwatchSize)` | `Sm` 20, `Md` 24 (the board's), `Lg` 32 square |
+| `shape(ColorSwatchShape)` | `Square` (the small radius, the board's) or `Round` |
+| `selected(bool)` | A ring of 2 in `Foreground` around it: the one chosen |
+| `on_click(handler)` | A click, and Enter and Space while it has the focus: the swatch is then a button, a stop of Tab. Each call adds |
+| `label(&str)` | What it is called, to what reads the tree: its color's hex in capitals where it has none |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- A color that is not opaque stands over a checkerboard of squares of 4, `Background` and `Muted`.
+- To what reads the tree a swatch is an `img` called by its label or its hex; one with `on_click` is a `button`, with `a11y_pressed` where it is selected.
+- Parts: `ColorSwatchPart::Root`, `Checker` (the light squares), `CheckerCell` (the dark squares and their side). States: `ColorSwatchState::Selected`, `Round`, `Pressable`, `Disabled`. Sizes: `ColorSwatchSize`.
+- In the design a swatch is 24 square with the small radius and an edge of 1 in `Border` inside it. The board draws none focused or disabled: the focus is the theme's ring, and a disabled one is dimmed as every control is.
+
 ## List
 
 Rows one under the other: settings, people, files, notifications. A row has a title, a description under it, what stands before it and what stands at its end.

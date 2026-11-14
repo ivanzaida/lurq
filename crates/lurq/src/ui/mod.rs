@@ -31,6 +31,8 @@ mod checkbox;
 mod chip;
 mod choice_card;
 mod collapsible;
+mod color_field;
+mod color_picker;
 mod color_swatch;
 mod combobox;
 mod command_palette;
@@ -144,6 +146,12 @@ pub use choice_card::{
   RadioCardGroup,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
+pub use color_field::{
+  ColorField, ColorFieldPart, ColorFieldRenderer, ColorFieldSize, ColorFieldState, ColorFieldView, FieldColor,
+};
+pub use color_picker::{
+  ColorFormat, ColorPicker, ColorPickerPart, ColorPickerRenderer, ColorPickerState, ColorPickerView,
+};
 pub use color_swatch::{
   ColorSwatch, ColorSwatchPart, ColorSwatchRenderer, ColorSwatchShape, ColorSwatchSize, ColorSwatchState,
   ColorSwatchView,
@@ -384,6 +392,7 @@ inspectable!(
   button::ButtonShape,
   calendar::CalendarChoice,
   choice_card::ChoiceCardKind,
+  color_picker::ColorFormat,
   color_swatch::ColorSwatchShape,
   input_otp::InputOtpKind,
   kbd::KeyPlatform,
