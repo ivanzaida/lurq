@@ -286,7 +286,9 @@ impl ElementRef {
     self.inner.read().unwrap().inert
   }
 
-  /// What [`ElementRefMut::describe`] said of the element.
+  /// What [`ElementRefMut::describe`] said of the element. Read only by
+  /// tooling.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
   pub(crate) fn descriptions(&self) -> Vec<(Arc<str>, Arc<str>)> {
     self.inner.read().unwrap().descriptions.clone()
   }

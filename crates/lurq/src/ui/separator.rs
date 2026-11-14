@@ -226,18 +226,14 @@ impl SeparatorView {
   /// left it: all of it, or half of what the label leaves.
   ///
   /// Beside a label a line across is never shorter than 24: a label longer
-  /// than the room is cut with an ellipsis first. The engine grants a basis
-  /// on top of the free room, and the line gives it back before the label
-  /// gives way.
+  /// than the room is cut with an ellipsis first: the line has a basis of
+  /// 24 and does not shrink.
   pub fn line(&self) -> Element {
     let part = self.part(SeparatorPart::Line);
     match self.orientation {
-      SeparatorOrientation::Horizontal if self.label.is_some() => Row::new()
-        .flex_full(1.0, 1.0, Some(LEAST_LINE))
-        .min_width(Dimension::Px(LEAST_LINE))
-        .shrink_order(-1)
-        .part(&part)
-        .into(),
+      SeparatorOrientation::Horizontal if self.label.is_some() => {
+        Row::new().flex_full(1.0, 0.0, Some(LEAST_LINE)).part(&part).into()
+      }
       SeparatorOrientation::Horizontal => Row::new().flex(1.0).part(&part).into(),
       SeparatorOrientation::Vertical => Column::new().flex(1.0).part(&part).into(),
     }

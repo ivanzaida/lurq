@@ -3379,8 +3379,24 @@ impl LayoutEngine {
       .sum();
 
     let remaining = max_main - total_spacing - non_flex_main;
+    // The bases of the children that wait for room come out of it first, as on the web: a growing child is its
+    // basis and its share of what the bases leave.
+    let bases: f32 = children
+      .iter()
+      .zip(&child_layouts)
+      .filter(|(_, layout)| Arc::ptr_eq(&layout.result, &self.awaiting_room))
+      .filter_map(|(child, _)| child.state_flex().and_then(|params| params.basis))
+      .sum();
+    let free = remaining - bases;
 
-    let mut overflow = LineOverflow::new(FreeRoom { remaining, grow_total }, vertical);
+    let mut overflow = LineOverflow::new(
+      FreeRoom {
+        remaining,
+        free,
+        grow_total,
+      },
+      vertical,
+    );
     for (i, child) in children.iter().enumerate() {
       if !Arc::ptr_eq(&child_layouts[i].result, &self.awaiting_room) {
         continue;
@@ -3404,8 +3420,8 @@ impl LayoutEngine {
         continue;
       }
       let basis_size = params.basis.unwrap_or(0.0);
-      let flex_size = if remaining.is_finite() && remaining > 0.0 && grow_total > 0.0 {
-        basis_size + remaining * (params.grow / grow_total)
+      let flex_size = if free.is_finite() && free > 0.0 && grow_total > 0.0 {
+        basis_size + free * (params.grow / grow_total)
       } else {
         basis_size
       };
@@ -3425,7 +3441,7 @@ impl LayoutEngine {
         }
       };
       let result = self.layout_child_node(glyph_engine, child_overrides, i, child, child_constraints);
-      overflow.add_granted(&result, flex_size, params.basis);
+      overflow.add_granted(&result, flex_size);
       child_layouts[i].result = result;
     }
 
