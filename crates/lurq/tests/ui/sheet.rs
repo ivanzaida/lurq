@@ -9,7 +9,7 @@ use std::{
     Arc,
     atomic::{AtomicUsize, Ordering},
   },
-  time::Duration,
+  time::{Duration, Instant},
 };
 
 use lurq::{
@@ -475,6 +475,16 @@ fn it_slides_in_from_its_edge_and_fades_in_where_motion_is_reduced() {
   }
 }
 
+/// Lets the engine's sheet come up or go down: its timers fire, and its move runs to its end.
+fn settle(stage: &mut Stage) {
+  for later in [1, 2] {
+    stage.pass();
+    stage.tree.tick_timers_at(Instant::now() + Duration::from_secs(later));
+  }
+  stage.pass();
+  stage.pass();
+}
+
 #[test]
 fn a_mounted_sheet_at_the_bottom_is_the_engines_sheet_in_the_boards_look() {
   let open = Signal::new(true);
@@ -485,27 +495,45 @@ fn a_mounted_sheet_at_the_bottom_is_the_engines_sheet_in_the_boards_look() {
       .child(move_goal(held.clone()).id("goal").mount(ctx))
       .into()
   });
-  stage.pass();
-  stage.pass();
-  assert!(stage.paints("Move goal"), "the content is the sheet's");
-  // The engine's panel in the recipe's look: the background's color, round at its top, a line all round.
-  assert_eq!(stage.fill_color("sheet"), Some(light(PaletteColor::Background)));
-  let radius = stage.fill("sheet").unwrap().border_radius.unwrap();
-  assert_eq!(radius.top_left, 12.0);
-  let (_, y, _, height) = stage.bounds("goal");
+  settle(&mut stage);
+  // The engine's panel, which reaches under the window's edge, in the recipe's look: the background's color,
+  // round at its top. It has come up as far as what it holds is high, at the window's bottom.
+  let (_, _, _, height) = stage.bounds("goal");
+  let panel = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Background))
+        && quad.width == 400.0
+        && quad.height > 300.0
+    })
+    .expect("the sheet's panel in the background's color");
   assert!(
-    (y + height - 300.0).abs() < 1.0,
-    "at the bottom, as high as its content: {y} {height}"
+    (panel.y - (300.0 - height)).abs() < 1.0,
+    "up by its content's height: {} {height}",
+    panel.y
   );
-  // The buttons are the sheet's own.
+  assert_eq!(panel.border_radius.unwrap().top_left, 12.0);
+  // What it holds is the sheet's: the handle 8 under the panel's top, the title, the buttons.
+  let handle = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Muted))
+        && (quad.width, quad.height) == (40.0, 4.0)
+    })
+    .expect("the grabber's handle");
+  assert!((handle.y - (panel.y + 8.0)).abs() < 0.5);
+  let title = stage.text_quad("Move goal").expect("the title, in the window");
+  assert!(title.y > panel.y && title.y < 300.0);
   let (submit_x, _, submit_width, _) = stage.bounds("submit");
   assert_eq!((submit_x, submit_width), (20.0, 360.0));
   // A press beside it puts it away, and so does Escape.
   press_at(&mut stage, 200.0, 5.0);
   assert!(!open.get());
+  settle(&mut stage);
   open.set(true);
-  stage.pass();
-  stage.pass();
+  settle(&mut stage);
   stage.key("Escape");
   assert!(!open.get());
 }
