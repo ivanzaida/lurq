@@ -26,7 +26,7 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{KeyboardEvent, MouseEvent, ScrollEvent},
+    events::{DragEvent, KeyboardEvent, MouseButtonMask, MouseEvent, ScrollEvent},
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
@@ -57,6 +57,10 @@ pub enum TablePart {
   HeaderCell,
   /// The arrow of the column the rows are sorted by, and the mark of one that sorts.
   SortIcon,
+  /// What is dragged at the end of a column's header to make it wider or narrower: its width, its cursor.
+  Resizer,
+  /// The line in the resizer, shown under the pointer and while it is dragged.
+  ResizeLine,
   /// One row: its height, its padding, the room between columns, the line under it. What is pressed,
   /// selected and focused.
   Row,
@@ -78,6 +82,8 @@ names!(TablePart {
   Header => "header",
   HeaderCell => "header_cell",
   SortIcon => "sort_icon",
+  Resizer => "resizer",
+  ResizeLine => "resize_line",
   Row => "row",
   Cell => "cell",
   Select => "select",
@@ -270,6 +276,7 @@ pub struct TableColumn<R> {
   align: ColumnAlign,
   sortable: bool,
   pin: ColumnPin,
+  resizable: Option<bool>,
   controls: bool,
   kinds: Vec<Name>,
   content: Content<R>,
@@ -286,6 +293,7 @@ impl<R> Clone for TableColumn<R> {
       align: self.align,
       sortable: self.sortable,
       pin: self.pin,
+      resizable: self.resizable,
       controls: self.controls,
       kinds: self.kinds.clone(),
       content: self.content.clone(),
@@ -306,6 +314,7 @@ impl<R: 'static> TableColumn<R> {
       align: ColumnAlign::Start,
       sortable: false,
       pin: ColumnPin::None,
+      resizable: None,
       controls: false,
       kinds: Vec::new(),
       content: Content::Nothing,
@@ -429,6 +438,14 @@ impl<R: 'static> TableColumn<R> {
     self
   }
 
+  /// Whether a person makes the column wider or narrower, by dragging the end of its header or with Ctrl and
+  /// Left or Right on its header: as the table says unless told ([`Table::resizable`]). Only a mounted table keeps
+  /// the width it is made.
+  pub fn resizable(mut self, resizable: bool) -> Self {
+    self.resizable = Some(resizable);
+    self
+  }
+
   /// Whether its cells hold what is pressed, buttons, a menu, a switch: a press in them is theirs and does
   /// not select or press the row.
   pub fn controls(mut self, controls: bool) -> Self {
@@ -453,6 +470,14 @@ type SortHeard = Arc<dyn Fn(Option<&TableSort>) + Send + Sync>;
 type SelectionHeard<K> = Arc<dyn Fn(&[K]) + Send + Sync>;
 /// What says the count of the footer, given how many rows there are and how many are selected where they are.
 type CountFn = Arc<dyn Fn(usize, Option<usize>) -> String + Send + Sync>;
+/// What is told the width a column is made: its id, and the width.
+type ResizeHeard = Arc<dyn Fn(&str, f32) + Send + Sync>;
+type ResizeLabelFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
+/// The least a column is made by a person, where it says no least of its own.
+const LEAST_COLUMN: f32 = 48.0;
+/// How far Ctrl and Left or Right make a column narrower or wider, and with Shift too.
+const RESIZE_STEP: f32 = 10.0;
+const RESIZE_STEP_SHIFT: f32 = 50.0;
 
 /// The words a table writes itself, each of which the app says otherwise.
 #[derive(Clone)]
@@ -465,6 +490,8 @@ struct Words {
   select_row: Arc<str>,
   /// The footer's count, where the app says it.
   count: Option<CountFn>,
+  /// The name of a column's resizer, given the column's title.
+  resize: Option<ResizeLabelFn>,
 }
 
 impl Default for Words {
@@ -474,6 +501,7 @@ impl Default for Words {
       select_all: Arc::from("Select all"),
       select_row: Arc::from("Select row"),
       count: None,
+      resize: None,
     }
   }
 }
@@ -541,6 +569,11 @@ pub struct Table<R, K = usize> {
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
   on_selection_change: Vec<SelectionHeard<K>>,
   words: Words,
+  resizable: bool,
+  on_column_resize: Vec<ResizeHeard>,
+  on_column_resize_end: Vec<ResizeHeard>,
+  /// The widths a person made the columns, by their ids: what the table's host keeps.
+  resized: Arc<HashMap<Arc<str>, f32>>,
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
@@ -575,6 +608,10 @@ impl<R, K: Clone> Clone for Table<R, K> {
       select: self.select.clone(),
       on_selection_change: self.on_selection_change.clone(),
       words: self.words.clone(),
+      resizable: self.resizable,
+      on_column_resize: self.on_column_resize.clone(),
+      on_column_resize_end: self.on_column_resize_end.clone(),
+      resized: self.resized.clone(),
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
@@ -619,6 +656,10 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       select: None,
       on_selection_change: Vec::new(),
       words: Words::default(),
+      resizable: false,
+      on_column_resize: Vec::new(),
+      on_column_resize_end: Vec::new(),
+      resized: Arc::default(),
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -658,6 +699,10 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       select: None,
       on_selection_change: Vec::new(),
       words: self.words,
+      resizable: self.resizable,
+      on_column_resize: self.on_column_resize,
+      on_column_resize_end: self.on_column_resize_end,
+      resized: self.resized,
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -805,6 +850,35 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// are: "24 rows" and "3 of 24 rows selected" unless told.
   pub fn count_text(mut self, text: impl Fn(usize, Option<usize>) -> String + Send + Sync + 'static) -> Self {
     self.words.count = Some(Arc::new(text));
+    self
+  }
+
+  /// Whether a person makes the columns wider or narrower, each that says nothing of its own
+  /// ([`TableColumn::resizable`]): by dragging the end of a column's header, or with Ctrl and Left or Right on it
+  /// (with Shift, by more). Off unless told. A mounted table keeps the widths it is made; one converted into an
+  /// element has no resizers.
+  pub fn resizable(mut self, resizable: bool) -> Self {
+    self.resizable = resizable;
+    self
+  }
+
+  /// Called with a column's id and its width as a person makes it wider or narrower, at each move; a second
+  /// handler is called after the first.
+  pub fn on_column_resize(mut self, handler: impl Fn(&str, f32) + Send + Sync + 'static) -> Self {
+    self.on_column_resize.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with a column's id and its width when a person has made it wider or narrower: the end of a drag
+  /// that changed it, or a key.
+  pub fn on_column_resize_end(mut self, handler: impl Fn(&str, f32) + Send + Sync + 'static) -> Self {
+    self.on_column_resize_end.push(Arc::new(handler));
+    self
+  }
+
+  /// The name of a column's resizer to what reads the tree, given the column's title: "Resize Name" unless told.
+  pub fn resize_label(mut self, label: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+    self.words.resize = Some(Arc::new(label));
     self
   }
 
@@ -970,6 +1044,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         extra += geometry.padding_end;
       }
       let mut spec = column.track;
+      if let Some(width) = self.resized.get(&column.id) {
+        spec.width = TrackWidth::Px(*width);
+      }
       if let TrackWidth::Px(px) = spec.width {
         spec.width = TrackWidth::Px(px + extra);
       }
@@ -1222,6 +1299,36 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             }
           }) as Arc<dyn Fn() + Send + Sync>
         });
+        let resizable = column.resizable.unwrap_or(self.resizable) && !self.disabled;
+        let resize = window
+          .as_ref()
+          .and_then(|window| window.host.clone())
+          .filter(|_| resizable)
+          .map(|host| {
+            let floor = column.track.min.max(LEAST_COLUMN);
+            Arc::new(ResizeLink {
+              host,
+              column: column_index,
+              id: column.id.clone(),
+              least: floor,
+              most: column.track.max,
+              extra: geometry.gap * f32::from(u8::from(column_index + 1 < columns_count))
+                + if column_index == 0 && sticky && !checkboxes {
+                  geometry.padding_start
+                } else {
+                  0.0
+                }
+                + trail_of(column_index),
+              start: Mutex::new(0.0),
+              on_resize: self.on_column_resize.clone(),
+              on_resize_end: self.on_column_resize_end.clone(),
+              label: self
+                .words
+                .resize
+                .as_ref()
+                .map_or_else(|| format!("Resize {}", column.title), |label| label(&column.title)),
+            })
+          });
         TableHeader {
           column: column_index,
           title: column.title.clone(),
@@ -1241,6 +1348,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           trail: trail_of(column_index),
           recipe: self.resolve(theme, &header_case),
           press,
+          resize,
           id: id_of(&format!("header-{}", column.id)),
         }
       })
@@ -1817,7 +1925,7 @@ impl TableView {
 pub fn in_tracks(built: Option<&[bool]>, cells: impl IntoIterator<Item = (usize, Element)>) -> Vec<Element> {
   let mut placed = Vec::new();
   let mut next = 0;
-  let mut room = |from: usize, to: usize, placed: &mut Vec<Element>| {
+  let room = |from: usize, to: usize, placed: &mut Vec<Element>| {
     if to > from {
       placed.push(Row::new().track_span(to - from).key(format!("columns-{from}")).into());
     }
@@ -1871,6 +1979,7 @@ pub struct TableHeader {
   /// The style of each part of the header, in its case.
   pub recipe: ResolvedRecipe,
   press: Option<Arc<dyn Fn() + Send + Sync>>,
+  resize: Option<Arc<ResizeLink>>,
   id: Option<Arc<str>>,
 }
 
@@ -1926,39 +2035,186 @@ impl TableHeader {
     Some(glyph(&self.part(TablePart::SortIcon), Name::new(name), false))
   }
 
-  /// How the default renderer builds a header: its title and its arrow, pressed to sort where it sorts.
+  /// What is dragged at the end of the header to make the column wider or narrower: `None` for a column that is
+  /// not resized. It is a separator to what reads the tree, with the column's width as its value; the keys that
+  /// resize the column are its header's (Ctrl and Left or Right).
+  pub fn resizer(&self) -> Option<Row> {
+    let link = self.resize.clone()?;
+    let width = link.width();
+    let (start, moved, end) = (link.clone(), link.clone(), link.clone());
+    Some(
+      Row::new()
+        .part(&self.part(TablePart::Resizer))
+        .justify(Justify::Center)
+        .align_items(Alignment::Stretch)
+        .height(Dimension::Pct(100.0))
+        .interaction_group(true)
+        .describe("a11y_role", "separator")
+        .describe("a11y_orientation", "vertical")
+        .describe("a11y_name", link.label.clone())
+        .describe("a11y_valuenow", format!("{}", width.round()))
+        .start_drag_buttons(MouseButtonMask::LEFT)
+        .on_drag_start(move |_: DragEvent| start.begin())
+        .on_drag_move(move |event: DragEvent| moved.drag(event.total_delta_x))
+        .on_drag_end(move |_: DragEvent| end.finish())
+        // A press of it is its own: it does not sort the rows.
+        .on_click(|event: MouseEvent| event.stop_propagation())
+        .child(Row::new().part(&self.part(TablePart::ResizeLine))),
+    )
+  }
+
+  /// How the default renderer builds a header: its title and its arrow, pressed to sort where it sorts, and its
+  /// resizer at its end where the column is resized.
   pub fn render(self) -> Element {
     let part = self.part(TablePart::HeaderCell);
     let title = if self.title_hidden {
       None
     } else {
-      Some(part.text(&self.title).nowrap())
+      Some(
+        part
+          .text(&self.title)
+          .nowrap()
+          .text_overflow(crate::node::node_kind::TextOverflow::Elipsis),
+      )
     };
-    let cell = self.cell();
-    let Some(press) = self.press.clone().filter(|_| self.sortable) else {
-      let mut label = Row::new().align_items(Alignment::Center).part(&part);
-      if let Some(title) = title {
-        label = label.child(title);
+    let resizer = self.resizer();
+    let mut cell = self.cell();
+    let label: Element = match self.press.clone().filter(|_| self.sortable) {
+      None => {
+        let mut label = Row::new()
+          .align_items(Alignment::Center)
+          .min_width(Dimension::Px(0.0))
+          .part(&part);
+        if let Some(title) = title {
+          label = label.child(title);
+        }
+        if let Some(icon) = self.sort_icon() {
+          label = label.child(icon);
+        }
+        // A header that is resized and not sorted is a stop of the header's keys, for Ctrl and Left or Right.
+        if self.resize.is_some() {
+          label = label.tab_index(0).describe("a11y_name", self.title.clone());
+          if let Some(id) = &self.id {
+            label = label.id(id.clone());
+          }
+        }
+        label.into()
       }
-      if let Some(icon) = self.sort_icon() {
-        label = label.child(icon);
+      Some(press) => {
+        let mut button = pressable(&part, false)
+          .align_items(Alignment::Center)
+          .min_width(Dimension::Px(0.0))
+          .describe("a11y_name", format!("Sort by {}", self.title))
+          .on_click(move |_| press());
+        if let Some(title) = title {
+          button = button.child(title);
+        }
+        if let Some(icon) = self.sort_icon() {
+          button = button.child(icon);
+        }
+        if let Some(id) = &self.id {
+          button = button.id(id.clone());
+        }
+        button.into()
       }
+    };
+    let Some(resizer) = resizer else {
       return cell.child(label).into();
     };
-    let mut button = pressable(&part, false)
-      .align_items(Alignment::Center)
-      .describe("a11y_name", format!("Sort by {}", self.title))
-      .on_click(move |_| press());
-    if let Some(title) = title {
-      button = button.child(title);
+    let link = self.resize.clone().expect("a resizer has its link");
+    // The label takes the room the resizer leaves, which stands in the room after the column, on its edge.
+    let half = px(self.part(TablePart::Resizer).rest().width, self.recipe.theme()).unwrap_or(8.0) / 2.0;
+    let after = if self.last { self.trail } else { self.gap };
+    cell = cell
+      .padding_right((after / 2.0 - half).max(0.0))
+      .on_key_down(move |event: KeyboardEvent| {
+        if !event.focus_within || !(event.ctrl || event.meta) || event.alt {
+          return;
+        }
+        let step = if event.shift { RESIZE_STEP_SHIFT } else { RESIZE_STEP };
+        let by = match event.key.as_str() {
+          "ArrowLeft" => -step,
+          "ArrowRight" => step,
+          _ => return,
+        };
+        event.prevent_default();
+        link.step(by);
+      });
+    cell
+      .child(
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(Dimension::Px(0.0))
+          .justify(justify(self.align))
+          .align_items(Alignment::Center)
+          .child(label),
+      )
+      .child(resizer)
+      .into()
+  }
+}
+
+/// A column's resizer and its table's host: what a drag or a key makes the column, and who is told.
+struct ResizeLink {
+  host: Arc<HostLink>,
+  column: usize,
+  id: Arc<str>,
+  /// The least and the most a person makes the column.
+  least: f32,
+  most: f32,
+  /// The room of its track that is not the column's own: the gap after it, and the row's padding it holds.
+  extra: f32,
+  /// The column's width when the drag started.
+  start: Mutex<f32>,
+  on_resize: Vec<ResizeHeard>,
+  on_resize_end: Vec<ResizeHeard>,
+  label: String,
+}
+
+impl ResizeLink {
+  /// The column's width now: its track's, less what of it is not the column's own.
+  fn width(&self) -> f32 {
+    (self.host.track_width(self.column) - self.extra).max(0.0)
+  }
+
+  fn begin(&self) {
+    *self.start.lock() = self.width();
+  }
+
+  fn drag(&self, by: f32) {
+    let start = *self.start.lock();
+    self.set(start + by);
+  }
+
+  fn finish(&self) {
+    let width = self.width();
+    if (width - *self.start.lock()).abs() > 0.01 {
+      for handler in &self.on_resize_end {
+        handler(&self.id, width);
+      }
     }
-    if let Some(icon) = self.sort_icon() {
-      button = button.child(icon);
+  }
+
+  /// A key: narrower or wider by `by`, and that is the end of it.
+  fn step(&self, by: f32) {
+    let before = self.width();
+    let after = self.set(before + by);
+    if (after - before).abs() > 0.01 {
+      for handler in &self.on_resize_end {
+        handler(&self.id, after);
+      }
     }
-    if let Some(id) = &self.id {
-      button = button.id(id.clone());
+  }
+
+  /// Makes the column `width`, between its least and its most: its width now.
+  fn set(&self, width: f32) -> f32 {
+    let width = width.clamp(self.least, self.most.max(self.least));
+    if (width - self.width()).abs() > 0.01 && self.host.resize(&self.id, width) {
+      for handler in &self.on_resize {
+        handler(&self.id, width);
+      }
     }
-    cell.child(button).into()
+    width
   }
 }
 
@@ -2233,6 +2489,33 @@ impl HostLink {
   fn focused(&self, index: usize) {
     *self.state.focused.lock() = Some(index);
   }
+
+  /// How wide the track of the column `column` is now.
+  fn track_width(&self, column: usize) -> f32 {
+    let metrics = *self.state.metrics.lock();
+    let Some(tracks) = self.state.tracks.lock().as_ref().map(|(_, tracks)| tracks.clone()) else {
+      return 0.0;
+    };
+    let viewport = self.state.scroll.viewport_width();
+    let available = (viewport > 0.0).then(|| (viewport - metrics.padding_start - metrics.padding_end).max(0.0));
+    tracks
+      .widths(available, 0.0)
+      .get(column + metrics.lead_tracks)
+      .copied()
+      .unwrap_or(0.0)
+  }
+
+  /// Keeps the column of `id` at `width`, and renders the table again: whether that is another width.
+  fn resize(&self, id: &Arc<str>, width: f32) -> bool {
+    let mut resized = self.state.resized.lock();
+    if resized.get(id).is_some_and(|held| (held - width).abs() < 0.01) {
+      return false;
+    }
+    resized.insert(id.clone(), width);
+    drop(resized);
+    self.state.rebuild();
+    true
+  }
 }
 
 /// The rows of a mounted table as the engine's focus group steps over them: Up and Down, Home and End, PageUp
@@ -2318,6 +2601,8 @@ struct HostState {
   columns_built: Mutex<Option<Arc<Vec<bool>>>>,
   /// The column that has, or last had, the focus: built wherever the rows are scrolled.
   focused_column: Mutex<Option<usize>>,
+  /// The widths a person made the columns, by their ids.
+  resized: Mutex<HashMap<Arc<str>, f32>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -2470,6 +2755,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         built: Mutex::new(Vec::new()),
         columns_built: Mutex::new(None),
         focused_column: Mutex::new(None),
+        resized: Mutex::new(HashMap::new()),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
@@ -2479,8 +2765,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let table = ctx.props::<TableProps<R, K>>().table.lock().clone();
+    let mut table = ctx.props::<TableProps<R, K>>().table.lock().clone();
     let _ = self.state.revision.get();
+    // The widths a person made the columns are the table's.
+    table.resized = Arc::new(self.state.resized.lock().clone());
     let theme = current_theme();
     let state = &self.state;
 
@@ -2631,6 +2919,12 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(SortIcon, |s| s.square(IconSize::Sm))
+      // A column's edge: 8 of room that takes the pointer, a line of 2 in the ring's color under it and while it is
+      // dragged, nothing at rest, as the board draws no line between headers.
+      .base(TablePart::Resizer, |s| s.width(8.0).cursor(CursorIcon::ColResize))
+      .base(TablePart::ResizeLine, |s| s.width(2.0).radius(RadiusSize::Full))
+      .within_hovered(TablePart::ResizeLine, |s| s.background(Ring))
+      .within_pressed(TablePart::ResizeLine, |s| s.background(Ring))
       .state(Sortable, HeaderCell, |s| fading(s.radius(RadiusSize::Sm).cursor(CursorIcon::Pointer)))
       .hovered(HeaderCell, |s| s.foreground(Foreground))
       .focus_visible(HeaderCell, |s| s.focus_ring())

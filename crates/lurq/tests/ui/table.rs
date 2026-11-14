@@ -884,6 +884,63 @@ fn a_mounted_table_of_fifty_columns_builds_the_cells_of_those_in_view_and_the_pi
 }
 
 #[test]
+fn a_resizable_column_is_made_wider_by_a_drag_of_its_edge_and_by_ctrl_and_an_arrow_on_its_header() {
+  let heard: Arc<Mutex<Vec<(String, f32, bool)>>> = Arc::default();
+  let told = heard.clone();
+  let mut stage = window(Stage::new(move |ctx| {
+    let (moved, ended) = (told.clone(), told.clone());
+    Column::new()
+      .size(800.0, 300.0)
+      .child(
+        table(crates())
+          .resizable(true)
+          .on_column_resize(move |id, width| moved.lock().unwrap().push((id.to_owned(), width, false)))
+          .on_column_resize_end(move |id, width| ended.lock().unwrap().push((id.to_owned(), width, true)))
+          .mount(ctx),
+      )
+      .into()
+  }));
+  stage.pass();
+  let title_x = |stage: &Stage, title: &str| texts(stage, title).pop().map(|quad| quad.x).unwrap();
+  let (status, updated) = (title_x(&stage, "Status"), title_x(&stage, "Updated"));
+  let (_, y, ..) = stage.bounds("t");
+  // The edge of the status column is in the room after it, 8 before where the next column starts.
+  let (edge_x, edge_y) = (updated - 8.0, y + 20.0);
+  stage.tree.mouse_move(edge_x, edge_y);
+  stage.tree.mouse_down(edge_x, edge_y, MouseButton::Left);
+  for step in 1..=6 {
+    stage.tree.mouse_move(edge_x + 10.0 * step as f32, edge_y);
+    stage.pass();
+  }
+  stage.tree.mouse_up(edge_x + 60.0, edge_y, MouseButton::Left);
+  stage.pass();
+  // The status is 60 wider; the name, which takes the room the others leave, gave it.
+  let wider = (title_x(&stage, "Updated") - title_x(&stage, "Status")) - (updated - status);
+  assert!(
+    (wider - 60.0).abs() < 1.5,
+    "the column is as much wider as the drag: {wider}"
+  );
+  {
+    let heard = heard.lock().unwrap();
+    let end = heard.iter().filter(|(_, _, end)| *end).collect::<Vec<_>>();
+    assert_eq!(end.len(), 1, "one end: {heard:?}");
+    assert_eq!(end[0].0, "status");
+    assert!((end[0].1 - 180.0).abs() < 1.5, "120 and 60: {}", end[0].1);
+    assert!(heard.iter().any(|(_, _, end)| !end), "told while it moved");
+  }
+
+  // Ctrl and Right on a header: 10 wider.
+  heard.lock().unwrap().clear();
+  stage.click("t-header-name");
+  let before = title_x(&stage, "Status");
+  key_with(&mut stage, "ArrowRight", false, true);
+  stage.pass();
+  assert!((title_x(&stage, "Status") - (before + 10.0)).abs() < 1.5);
+  let heard = heard.lock().unwrap();
+  assert!(heard.iter().any(|(id, _, end)| id == "name" && *end), "{heard:?}");
+}
+
+#[test]
 fn with_no_rows_an_empty_state_stands_under_the_header_and_loading_rows_of_skeletons() {
   let stage = wide(|| table(Vec::new()).into());
   assert!(stage.paints("Name"), "the header stays");
