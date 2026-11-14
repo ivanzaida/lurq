@@ -52,6 +52,36 @@ Translucent colors (`"#000000a6"`, `.opacity(...)`, anti-aliased edges, text, im
 channels, as CSS and design tools do: a `#000000a6` scrim over `#eeeeee` shows `#535353`. Both native backends render
 through a non-sRGB target to get this; the devtools screenshot renderer blends the same way.
 
+
+### Colors
+
+`node::color::Color` is a color of 8-bit red, green, blue and alpha. `Color::from_hex("#2563eb")` and `"#2563eb".into()`
+read a color the app writes in its code and panic on one that is no color; `Color::parse(text)` reads what a person
+typed and gives `None` for what is no color:
+
+```rust
+use lurq::node::color::{Color, Hsv};
+
+let blue = Color::parse("rgb(37 99 235)").unwrap();
+assert_eq!(Color::parse(" #2563eb "), Some(blue));
+assert_eq!(Color::parse("hsl(221deg 83% 53% / 50%)").map(|c| c.a()), Some(128));
+assert_eq!(Color::parse("blue"), None);
+
+assert_eq!(blue.to_hex_upper(), "#2563EB");
+assert_eq!(blue.with_alpha(128).to_rgb_string(), "rgba(37, 99, 235, 0.5)");
+// By hue, saturation and value, and back: what a color picker moves.
+let hsv: Hsv = blue.to_hsv();
+assert_eq!(Color::from(hsv), blue);
+```
+
+| Read and written | |
+| --- | --- |
+| `Color::parse(&str)` | `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (with or without `#`), `rgb(..)`/`rgba(..)` of numbers from 0 to 255 or percents, `hsl(..)`/`hsla(..)` with the hue in degrees, by commas or by spaces with the alpha after `/`, the alpha from 0 to 1 or a percent; case and space around are not read |
+| `to_hex()`, `to_hex_upper()` | `#2563eb`, `#2563EB`; with the alpha (`#2563EB80`) where it is not opaque |
+| `to_rgb_string()`, `to_hsl()` | `rgb(37, 99, 235)`, `rgba(37, 99, 235, 0.5)`; `hsl(..)`, `hsla(..)` |
+| `to_hsv()`, `Color::from(Hsv)` | Hue in degrees from 0 to 360, saturation, value and alpha from 0 to 1. A grey has no hue: it is 0 |
+| `to_hsl_values()`, `Color::from(Hsl)` | Hue, saturation, lightness and alpha, as CSS's `hsl()` has them |
+
 ## Foreground
 
 `.foreground(color)` sets the color of the text in an element and under it, as CSS `color` does. A `Text` that names no
