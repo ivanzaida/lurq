@@ -138,7 +138,7 @@ impl Tree {
       })
       .max()
       .and_then(|layer| host.children().get(layer + 1))
-      .and_then(first_focusable)
+      .and_then(|layer| autofocused(layer).or_else(|| first_focusable(layer)))
   }
 
   /// Remembers what has the focus as the overlays that take it open in this
@@ -213,6 +213,14 @@ fn focus_home(root: &Node, anchor: &OwnedElementRef) -> Option<NodeId> {
 
 fn takes_focus(node: &Node) -> bool {
   node.is_focusable() && !node.is_focus_disabled()
+}
+
+/// The first element marked `autofocus` in `node` that takes the focus.
+fn autofocused(node: &Node) -> Option<NodeId> {
+  if node.is_autofocus() && takes_focus(node) {
+    return Some(node.node_id());
+  }
+  node.children().iter().find_map(autofocused)
 }
 
 fn first_focusable(node: &Node) -> Option<NodeId> {

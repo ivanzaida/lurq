@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
   app::{
-    events::MouseEvent,
+    events::{KeyboardEvent, MouseEvent},
     theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{Column, Modal, Root, Row, ScrollVertical},
@@ -132,12 +132,19 @@ pub struct Dialog {
   close_button: bool,
   dismiss_on_veil: bool,
   dismiss_on_escape: bool,
+  on_dismiss: Option<Dismiss>,
+  alert: bool,
+  name: Option<Arc<str>>,
+  described: Option<Arc<str>>,
   inline: bool,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
+
+/// What runs as the dialog is dismissed.
+type Dismiss = Arc<dyn Fn() + Send + Sync>;
 
 impl Dialog {
   /// A dialog shown while `open` holds `true`.
@@ -153,6 +160,10 @@ impl Dialog {
       close_button: false,
       dismiss_on_veil: true,
       dismiss_on_escape: true,
+      on_dismiss: None,
+      alert: false,
+      name: None,
+      described: None,
       inline: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -236,6 +247,36 @@ impl Dialog {
     self
   }
 
+  /// What runs when the dialog is dismissed, after its signal is set to
+  /// `false`: by a press on the veil, by its close button, or by Escape with
+  /// the focus in it. A button of the app's that closes it does not run it.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss = Some(Arc::new(handler));
+    self
+  }
+
+  /// Whether the dialog asks something that has to be answered before
+  /// anything else: an `alertdialog`, and not a `dialog`, to tooling that
+  /// reads the tree.
+  pub fn alert(mut self, alert: bool) -> Self {
+    self.alert = alert;
+    self
+  }
+
+  /// What the dialog is called to tooling that reads the tree, for one whose
+  /// title is drawn by what it holds and not given to [`Dialog::title`].
+  pub fn named(mut self, name: &str) -> Self {
+    self.name = Some(Arc::from(name));
+    self
+  }
+
+  /// What the dialog is described by to tooling that reads the tree: the
+  /// message under its title.
+  pub fn described(mut self, description: &str) -> Self {
+    self.described = Some(Arc::from(description));
+    self
+  }
+
   /// Draws the panel where the dialog is declared, whether or not it is open,
   /// without the veil and without taking the window: for a gallery, a
   /// screenshot, a test.
@@ -301,6 +342,10 @@ impl Dialog {
       dismiss_on_escape: self.dismiss_on_escape,
       inline: self.inline,
       recipe: theme.resolve::<Dialog>(&case, Some(&self.rules)),
+      on_dismiss: self.on_dismiss,
+      alert: self.alert,
+      name: self.name,
+      described: self.described,
       open: self.open,
       id: self.id,
       key: self.key,
@@ -335,6 +380,10 @@ pub struct DialogView {
   /// The style of each part of this dialog.
   pub recipe: ResolvedRecipe,
   open: Signal<bool>,
+  on_dismiss: Option<Dismiss>,
+  alert: bool,
+  name: Option<Arc<str>>,
+  described: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -360,6 +409,18 @@ impl DialogView {
     move || open.set(false)
   }
 
+  /// What dismisses the dialog: it closes, and what the app gave
+  /// [`Dialog::on_dismiss`] runs. The veil, the close button and Escape do this.
+  pub fn dismisser(&self) -> impl Fn() + Send + Sync + Clone + 'static {
+    let (close, on_dismiss) = (self.closer(), self.on_dismiss.clone());
+    move || {
+      close();
+      if let Some(on_dismiss) = &on_dismiss {
+        on_dismiss();
+      }
+    }
+  }
+
   /// The panel in the style of its part, with nothing in it yet: a dialog to
   /// what reads the tree, called by its title. A press on it goes no further,
   /// so that it never reaches the veil.
@@ -370,12 +431,26 @@ impl DialogView {
       .max_width(Dimension::Pct(100.0))
       .max_height(Dimension::Pct(100.0))
       .on_click(|event: MouseEvent| event.stop_propagation())
-      .describe("a11y_role", "dialog");
-    if let Some(title) = &self.title {
-      panel = panel.describe("a11y_name", title.clone());
+      .describe("a11y_role", if self.alert { "alertdialog" } else { "dialog" });
+    if let Some(name) = self.name.as_ref().or(self.title.as_ref()) {
+      panel = panel.describe("a11y_name", name.clone());
+    }
+    if let Some(description) = &self.described {
+      panel = panel.describe("a11y_description", description.clone());
     }
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
+    }
+    // Escape with the focus in the dialog dismisses it here, where what the app gave `on_dismiss` can run; the
+    // modal's own Escape is off for such a dialog (`modal`).
+    if self.dismiss_on_escape && self.on_dismiss.is_some() {
+      let dismiss = self.dismisser();
+      panel = panel.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && event.key == "Escape" && !event.default_prevented() {
+          event.prevent_default();
+          dismiss();
+        }
+      });
     }
     panel
   }
@@ -406,7 +481,7 @@ impl DialogView {
   /// The button that closes the dialog: a ghost button that is its icon
   /// alone, styled over the theme's button by [`DialogPart::Close`].
   pub fn close(&self) -> Button {
-    let close = self.closer();
+    let close = self.dismisser();
     Button::new("Close")
       .variant(ButtonVariant::Ghost)
       .size(ButtonSize::Sm)
@@ -494,7 +569,7 @@ impl DialogView {
       .part(&self.part(DialogPart::Veil))
       .child(panel);
     if self.dismiss_on_veil {
-      let close = self.closer();
+      let close = self.dismisser();
       veil = veil.on_click(move |_| close());
     }
     if let Some(key) = &self.key {
@@ -511,7 +586,7 @@ impl DialogView {
     Modal::new(self.veil(panel))
       .open(self.open.clone())
       .target(Root)
-      .dismiss_on_escape(self.dismiss_on_escape)
+      .dismiss_on_escape(self.dismiss_on_escape && self.on_dismiss.is_none())
       .takes_focus(true)
       .into()
   }

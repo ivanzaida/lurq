@@ -29,14 +29,17 @@ mod input_otp;
 mod kbd;
 mod mentions;
 mod menu;
+mod message_box;
 mod multi_select;
 mod number_input;
 mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod popconfirm;
 mod popover;
 mod progress;
+mod progress_dialog;
 mod radio;
 mod radio_card;
 mod search_field;
@@ -394,6 +397,30 @@ pub const PAGES: &[Page] = &[
     about: "drawer navigation sidebar side panel push aside region open close width overlay veil",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<drawer::DrawerPage>(()),
+  },
+  Page {
+    path: "/message-box",
+    name: "Message Box",
+    icon: None,
+    about: "message box alert dialog alertdialog confirm question warning error information answer default cancel destructive checkbox ask again detail",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<message_box::MessageBoxPage>(()),
+  },
+  Page {
+    path: "/popconfirm",
+    name: "Popconfirm",
+    icon: None,
+    about: "popconfirm confirm popover question yes no delete destructive anchor inline",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<popconfirm::PopconfirmPage>(()),
+  },
+  Page {
+    path: "/progress-dialog",
+    name: "Progress Dialog",
+    icon: None,
+    about: "progress dialog copy export install work bar percent count status cancel pause details indeterminate",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<progress_dialog::ProgressDialogPage>(()),
   },
   Page {
     path: "/tabs",
