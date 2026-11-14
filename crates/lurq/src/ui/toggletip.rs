@@ -11,22 +11,21 @@ use std::sync::Arc;
 use super::{
   Button, ButtonPart, ButtonShape, ButtonSize, ButtonVariant, LinkPart, TooltipSide, icons, names,
   part_style::{Length, PartAnimation, PartStyle},
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{FADE_IN, FADE_OUT},
   theme::{Themed, current_theme},
-  tip::{Placed, arrow, arrow_size, frame, side_of},
+  tip::{Placed, arrow, arrow_size, frame, side_of, with_offset},
 };
 use crate::{
   app::{
     component::Component,
     ctx::{CollisionStrategy, Ctx, Placement},
-    events::MouseEvent,
     theme::{IconSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, text_style::FontWeight},
-  node::{Element, EventHandler, IntoMouseEventHandler, NodeUpdate, border::Border, dimension::Dimension},
+  node::{Element, NodeUpdate, SpacingValue, border::Border, dimension::Dimension},
 };
 
 /// The parts of a toggletip a recipe styles.
@@ -41,7 +40,7 @@ pub enum ToggletipPart {
   /// The panel: its fill, its text, its link and what it holds, one under another.
   Panel,
   /// Its text.
-  Text,
+  Label,
   /// The link under the text: what it gives the theme's link.
   Link,
   /// The text of the link: what it gives the link's label.
@@ -55,7 +54,7 @@ names!(ToggletipPart {
   Trigger => "trigger",
   TriggerIcon => "trigger-icon",
   Panel => "panel",
-  Text => "text",
+  Label => "label",
   Link => "link",
   LinkLabel => "link-label",
   Arrow => "arrow",
@@ -83,11 +82,14 @@ names!(ToggletipState {
 /// Its button and when the panel shows stay the toggletip's.
 pub type ToggletipRenderer = Arc<dyn Fn(ToggletipView) -> Element + Send + Sync>;
 
+/// What a toggletip calls: a press of its link, a person closing it.
+type Handler = Arc<dyn Fn() + Send + Sync>;
+
 /// A link of a toggletip: its text, and what a press of it does.
 #[derive(Clone)]
 struct TipLink {
   label: Arc<str>,
-  on_click: Vec<EventHandler<MouseEvent>>,
+  on_click: Handler,
 }
 
 /// A toggletip: a tooltip opened by a press, for what must be reachable by a
@@ -99,14 +101,16 @@ struct TipLink {
 ///
 /// fn workspace_help(ctx: &mut Ctx) -> Element {
 ///   Toggletip::new("What is a workspace?")
-///     .content("A workspace holds the projects a team shares.")
-///     .link("Learn more", |_| println!("to the docs"))
+///     .text("A workspace holds the projects a team shares.")
+///     .link("Learn more", || println!("to the docs"))
 ///     .mount(ctx)
 /// }
 /// ```
 ///
-/// A press of the button opens the panel and another closes it; a press
-/// outside it and Escape close it too. The focus stays on the button as it
+/// Its panel is above the button and centered on it unless its placement
+/// says otherwise. A press of the button opens the panel and another closes
+/// it; a press outside it and Escape close it too, and each of the three
+/// tells [`Toggletip::on_dismiss`]. The focus stays on the button as it
 /// opens, and Tab goes from the button into the panel's link and on. To
 /// tooling the button is called by its label and says whether it is
 /// expanded, and the panel is a status, which a screen reader reads as it
@@ -119,37 +123,48 @@ struct TipLink {
 pub struct Toggletip {
   label: Arc<str>,
   icon: Name,
-  content: Option<Arc<str>>,
+  text: Option<Arc<str>>,
   link: Option<TipLink>,
   children: Vec<Element>,
   placement: Placement,
+  offset: Option<SpacingValue>,
+  collision: CollisionStrategy,
   arrow: bool,
-  open: Option<bool>,
+  force_open: Option<bool>,
+  on_dismiss: Vec<Handler>,
+  dismiss_on_escape: bool,
   disabled: bool,
   width: Option<Length>,
   states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
 
 impl Toggletip {
   /// A toggletip whose button is called `label` to tooling, "What is a
-  /// workspace?", with an "i" for its icon, its panel above it, with no arrow.
+  /// workspace?", with an "i" for its icon, its panel above it and centered
+  /// on it (`Placement::Top`), with no arrow.
   pub fn new(label: &str) -> Self {
     Self {
       label: Arc::from(label),
       icon: Name::new(icons::INFO),
-      content: None,
+      text: None,
       link: None,
       children: Vec::new(),
       placement: Placement::Top,
+      offset: None,
+      collision: CollisionStrategy::FlipThenClamp,
       arrow: false,
-      open: None,
+      force_open: None,
+      on_dismiss: Vec::new(),
+      dismiss_on_escape: true,
       disabled: false,
       width: None,
       states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
@@ -162,17 +177,17 @@ impl Toggletip {
   }
 
   /// What the panel says.
-  pub fn content(mut self, content: &str) -> Self {
-    self.content = Some(Arc::from(content));
+  pub fn text(mut self, text: &str) -> Self {
+    self.text = Some(Arc::from(text));
     self
   }
 
   /// A link under the text, "Learn more", with an arrow after it, and what
-  /// its press does.
-  pub fn link(mut self, label: &str, on_click: impl IntoMouseEventHandler) -> Self {
+  /// its press does. A second call takes the place of the first.
+  pub fn link(mut self, label: &str, on_click: impl Fn() + Send + Sync + 'static) -> Self {
     self.link = Some(TipLink {
       label: Arc::from(label),
-      on_click: vec![on_click.into_event_handler()],
+      on_click: Arc::new(on_click),
     });
     self
   }
@@ -190,9 +205,23 @@ impl Toggletip {
   }
 
   /// Which side of the button the panel is on, and which edge of it it lines
-  /// up with: above it and centered by default.
+  /// up with: above it and centered (`Placement::Top`) by default.
   pub fn placement(mut self, placement: Placement) -> Self {
     self.placement = placement;
+    self
+  }
+
+  /// How far the panel stands from the button, in place of what the theme
+  /// gives it (6 in the design's).
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
+    self
+  }
+
+  /// What the panel does where there is no room for it on its side: goes to
+  /// the other side, then is moved into the window, by default.
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = collision;
     self
   }
 
@@ -205,8 +234,22 @@ impl Toggletip {
   /// Shows the panel whatever the button says (`Some(true)`), or never
   /// (`Some(false)`); `None`, as it starts, leaves it to the button. For a
   /// gallery, a test.
-  pub fn open(mut self, open: Option<bool>) -> Self {
-    self.open = open;
+  pub fn force_open(mut self, open: Option<bool>) -> Self {
+    self.force_open = open;
+    self
+  }
+
+  /// What is told after a person closed the panel, by another press of its
+  /// button, a press outside it or Escape. A second handler is called after
+  /// the first.
+  pub fn on_dismiss(mut self, on_dismiss: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(on_dismiss));
+    self
+  }
+
+  /// Whether Escape closes the panel. It does by default.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
     self
   }
 
@@ -244,6 +287,13 @@ impl Toggletip {
     self
   }
 
+  /// Draws its button as it is under the pointer, held down or focused from
+  /// the keyboard, with nothing pointing at it: for a gallery or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
   /// The id of its button. The root of its panel, what shows, is `<id>-panel`.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
@@ -274,18 +324,21 @@ impl Toggletip {
     .state(ToggletipState::Open, open)
     .state(ToggletipState::Arrow, self.arrow)
     .state(ToggletipState::Disabled, self.disabled);
-    // A width given here is under what `style` and `rules` say of the panel.
+    // A width and an offset given here are under what `style` and `rules` say of the panel and the root.
     let mut rules = Recipe::new();
     if let Some(width) = self.width {
       rules = rules.base(ToggletipPart::Panel, |s| s.width(width));
+    }
+    if let Some(offset) = self.offset {
+      rules = with_offset(rules, ToggletipPart::Root, side, offset);
     }
     let rules = rules.extend(&self.rules);
     ToggletipView {
       label: self.label.clone(),
       icon: self.icon,
-      content: self.content.clone(),
+      text: self.text.clone(),
       link: self.link.as_ref().map(|link| link.label.clone()),
-      link_handlers: self.link.as_ref().map(|link| link.on_click.clone()).unwrap_or_default(),
+      link_handler: self.link.as_ref().map(|link| link.on_click.clone()),
       children: self.children.clone(),
       side,
       arrow: self.arrow,
@@ -293,6 +346,7 @@ impl Toggletip {
       disabled: self.disabled,
       aim: 0.0,
       recipe: theme.resolve::<Toggletip>(&case, Some(&rules)),
+      forced: self.forced,
       id: self.id.clone(),
       key: self.key.clone(),
     }
@@ -327,10 +381,11 @@ pub struct ToggletipView {
   pub label: Arc<str>,
   /// The name of the button's icon.
   pub icon: Name,
-  pub content: Option<Arc<str>>,
+  /// What the panel says.
+  pub text: Option<Arc<str>>,
   /// The text of the link, if it has one.
   pub link: Option<Arc<str>>,
-  link_handlers: Vec<EventHandler<MouseEvent>>,
+  link_handler: Option<Handler>,
   /// What the panel holds, under its text and its link.
   pub children: Vec<Element>,
   /// The side of the button the panel is on: the side its placement gives,
@@ -344,6 +399,7 @@ pub struct ToggletipView {
   pub aim: f32,
   /// The style of each part of this toggletip.
   pub recipe: ResolvedRecipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -373,6 +429,7 @@ impl ToggletipView {
       .icon(self.icon)
       .icon_only(true)
       .disabled(self.disabled)
+      .force(self.forced)
       .rules(
         &self
           .recipe
@@ -384,14 +441,15 @@ impl ToggletipView {
   /// The link under the text, with an arrow after it. `None` without one.
   pub fn link(&self) -> Option<super::Link> {
     let label = self.link.as_ref()?;
-    let mut link = super::Link::new(label).icon(icons::ARROW_UP_RIGHT).rules(
+    let mut link = super::Link::new(label).trailing_icon(icons::ARROW_UP_RIGHT).rules(
       &self
         .recipe
         .rules_for(ToggletipPart::Link, LinkPart::Root)
         .extend(&self.recipe.rules_for(ToggletipPart::LinkLabel, LinkPart::Label)),
     );
-    for handler in &self.link_handlers {
-      link = link.on_click(handler.clone());
+    if let Some(handler) = &self.link_handler {
+      let handler = handler.clone();
+      link = link.on_click(move |_| handler());
     }
     Some(link)
   }
@@ -403,15 +461,15 @@ impl ToggletipView {
       .align_items(Alignment::Start)
       .part(&self.part(ToggletipPart::Panel))
       .describe("a11y_role", "status");
-    if let Some(content) = &self.content {
-      let part = self.part(ToggletipPart::Text);
+    if let Some(text) = &self.text {
+      let part = self.part(ToggletipPart::Label);
       let fill = Dimension::Pct(100.0);
       panel = panel.child(
         Column::new()
           .width(fill)
           .min_width(Dimension::Px(0.0))
           .part(&part)
-          .child(part.text(content).width(fill)),
+          .child(part.text(text).width(fill)),
       );
     }
     if let Some(link) = self.link() {
@@ -476,7 +534,7 @@ impl Themed for Toggletip {
   /// the tooltip's, 12 along and 6 out; it fades in and out as the popover.
   fn recipe() -> Recipe {
     use PaletteColor::{Foreground, MutedForeground, Primary, PrimaryForeground};
-    use ToggletipPart::{Arrow, Link, LinkLabel, Panel, Root, Text, Trigger, TriggerIcon};
+    use ToggletipPart::{Arrow, Label, Link, LinkLabel, Panel, Root, Trigger, TriggerIcon};
     use TooltipSide::{Bottom, Left, Right, Top};
     Recipe::new()
       .base(Root, |s| {
@@ -498,7 +556,7 @@ impl Themed for Toggletip {
           .background(Primary)
           .foreground(PrimaryForeground)
       })
-      .base(Text, |s| {
+      .base(Label, |s| {
         s.typography(TypographyStyle::Description)
           .font_size(13.0)
           .line_height(1.4)
@@ -562,7 +620,7 @@ impl Component for ToggletipHost {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let ToggletipProps { tip } = ctx.props::<ToggletipProps>().clone();
     // Reading it subscribes: this renders again when the button, a press outside or Escape turns it.
-    let open = !tip.disabled && tip.open.unwrap_or_else(|| self.open.get());
+    let open = !tip.disabled && tip.force_open.unwrap_or_else(|| self.open.get());
     let side = self.placed.side(tip.placement);
     let mut view = tip.view(&current_theme(), side, open);
     view.aim = self.placed.aim();
@@ -573,9 +631,24 @@ impl Component for ToggletipHost {
     );
 
     let mut trigger = view.trigger();
-    if tip.open.is_none() {
-      let turn = self.open.clone();
-      trigger = trigger.on_click(move |_| turn.update(|open| *open = !*open));
+    // What a person closing it tells, once it is closed.
+    let dismissed = {
+      let handlers = tip.on_dismiss.clone();
+      move || {
+        for handler in &handlers {
+          handler();
+        }
+      }
+    };
+    if tip.force_open.is_none() {
+      let (turn, dismissed) = (self.open.clone(), dismissed.clone());
+      trigger = trigger.on_click(move |_| {
+        let was_open = turn.get_untracked();
+        turn.set(!was_open);
+        if was_open {
+          dismissed();
+        }
+      });
     }
     // The button's own node is the anchor, so the engine knows it for the popup's trigger: a press of it is not
     // a press outside the panel.
@@ -589,16 +662,21 @@ impl Component for ToggletipHost {
     let shown = Toggletip::render_view(view).map_node(|node| node.ref_element(self.shown.clone()));
     let popup = Popup::new(self.anchor.clone(), shown)
       .placement(tip.placement)
-      .collision(CollisionStrategy::FlipThenClamp)
+      .collision(tip.collision)
       // The focus stays on the button as it opens, and Tab goes from the button into the panel's link.
       .tab_after_anchor(true);
-    let popup = match tip.open {
+    let popup = match tip.force_open {
       Some(open) => popup
         .open_when(open && !tip.disabled)
         .dismiss_on_outside_click(false)
         .dismiss_on_escape(false),
       None if tip.disabled => popup.open_when(false),
-      None => popup.open(self.open.clone()),
+      // The runtime turns the signal off on a press outside or Escape, and then tells what a person closing it
+      // tells.
+      None => popup
+        .open(self.open.clone())
+        .dismiss_on_escape(tip.dismiss_on_escape)
+        .on_dismiss(dismissed),
     };
     Row::new().align_items(Alignment::Center).child(trigger).child(popup)
   }

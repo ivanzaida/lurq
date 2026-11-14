@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Checkbox, CheckboxGroup, Choice, Interaction},
+  ui::{Checkbox, CheckboxGroup, Choice, Interaction, Orientation},
 };
 
 use crate::{
@@ -72,11 +72,13 @@ impl CheckboxPage {
           .disabled(disabled)
       }
     };
-    let checkbox = plain().force(self.playground.forced()).on_change(move |next| {
-      set.set(next);
-      unmix.set(false);
-      record(format!("on_change({next})"));
-    });
+    let checkbox = plain()
+      .force(self.playground.forced())
+      .bind(set)
+      .on_change(move |next| {
+        unmix.set(false);
+        record(format!("on_change({next})"));
+      });
 
     let mut code = vec![format!("Checkbox::new({label:?})")];
     for (on, call) in [
@@ -89,8 +91,7 @@ impl CheckboxPage {
         code.push(call.to_owned());
       }
     }
-    code.push("    .checked(sync.get())".to_owned());
-    code.push("    .on_change(move |checked| sync.set(checked))".to_owned());
+    code.push("    .bind(sync)".to_owned());
 
     let mark = if indeterminate {
       "dash"
@@ -234,12 +235,7 @@ impl Component for CheckboxPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let bound = |label: &str, checked: &Signal<bool>| {
-      let set = checked.clone();
-      Checkbox::new(label)
-        .checked(checked.get())
-        .on_change(move |next| set.set(next))
-    };
+    let bound = |label: &str, checked: &Signal<bool>| Checkbox::new(label).bind(checked.clone());
     let says = |checked: &Signal<bool>| {
       if checked.get() {
         "the signal has: true"
@@ -289,10 +285,17 @@ impl Component for CheckboxPage {
         "Some of what it stands for is checked: a dash, whatever `checked` says. A press asks for checked.",
       ),
       (
+        "bind",
+        "Signal<bool>",
+        "",
+        "In place of checked and a handler: checked while the signal is true, which a press turns.",
+      ),
+      (
         "on_change",
         "impl Fn(bool)",
         "",
-        "Called on a press with what the checkbox is to be: checked if it was not, or was indeterminate.",
+        "Called on a press with what the checkbox is to be: checked if it was not, or was indeterminate. Bound, \
+         after the signal is set; not when the app sets it.",
       ),
       (
         "invalid",
@@ -329,8 +332,9 @@ impl Component for CheckboxPage {
         &format!("the signal has: {picked:?}"),
       ))
       .child(item(
-        CheckboxGroup::new(self.days.clone(), [("mon", "Mon"), ("tue", "Tue"), ("wed", "Wed")]).horizontal(true),
-        "horizontal(true)",
+        CheckboxGroup::new(self.days.clone(), [("mon", "Mon"), ("tue", "Tue"), ("wed", "Wed")])
+          .orientation(Orientation::Horizontal),
+        "orientation(Orientation::Horizontal)",
       ));
     self.frame.page(
       ctx,
@@ -353,18 +357,18 @@ impl Component for CheckboxPage {
         ),
         Section::new(
           "Checkbox",
-          "The page holds whether each is checked, in a signal. Tab reaches the box, and Space or Enter presses it.",
+          "The page holds whether each is checked, in a signal the checkbox is bound to. Tab reaches the box, and \
+           Space or Enter presses it.",
           self.frame.demo(
             0,
             live,
-            "Checkbox::new(\"Sync settings\").checked(sync.get()).on_change(..)",
+            "Checkbox::new(\"Sync settings\").bind(sync)",
             &[
               "// sync, reports: Signal<bool>",
-              "let set = sync.clone();",
-              "Checkbox::new(\"Sync settings\")",
-              "    .checked(sync.get())",
-              "    .on_change(move |checked| set.set(checked))",
+              "Checkbox::new(\"Sync settings\").bind(sync)",
+              "Checkbox::new(\"Send crash reports\").bind(reports)",
               "",
+              "// The same, with the app's own handler:",
               "let set = reports.clone();",
               "Checkbox::new(\"Send crash reports\")",
               "    .checked(reports.get())",
@@ -427,7 +431,7 @@ impl Component for CheckboxPage {
         Section::new(
           "A group over a list",
           "CheckboxGroup is bound to a signal of a list: the boxes whose values it has are checked, and a press adds \
-           a value or takes it out. Each box is its own stop of Tab.",
+           a value or takes it out. on_change is told the whole new list. Each box is its own stop of Tab.",
           self.frame.demo(
             3,
             group,
@@ -441,7 +445,8 @@ impl Component for CheckboxPage {
               "])",
               "",
               "// Side by side.",
-              "CheckboxGroup::new(days, [(\"mon\", \"Mon\"), (\"tue\", \"Tue\"), (\"wed\", \"Wed\")]).horizontal(true)",
+              "CheckboxGroup::new(days, [(\"mon\", \"Mon\"), (\"tue\", \"Tue\"), (\"wed\", \"Wed\")])",
+              "    .orientation(Orientation::Horizontal)",
             ],
           ),
         ),

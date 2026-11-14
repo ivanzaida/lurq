@@ -1,7 +1,7 @@
 //! A number input: a number a person types, or steps with the keys and two buttons.
 
 use std::{
-  cell::RefCell,
+  cell::{Cell, RefCell},
   collections::HashMap,
   sync::{Arc, Mutex, Weak},
 };
@@ -47,7 +47,7 @@ pub enum NumberInputPart {
   /// The button that takes a step up.
   Increase,
   /// The line between a button and the number.
-  Divider,
+  Separator,
   /// The glyph of a button.
   Icon,
 }
@@ -59,7 +59,7 @@ names!(NumberInputPart {
   Buttons => "buttons",
   Decrease => "decrease",
   Increase => "increase",
-  Divider => "divider",
+  Separator => "separator",
   Icon => "icon",
 });
 
@@ -293,6 +293,7 @@ enum Bound {
 struct Model {
   bound: Bound,
   on_change: Vec<ChangeHandler>,
+  on_change_end: Vec<ChangeHandler>,
   min: Option<f64>,
   max: Option<f64>,
   step: f64,
@@ -329,6 +330,12 @@ fn told_once(told: Told) -> (Arc<()>, bool) {
     all.insert(told, Arc::downgrade(&alive));
     (alive, true)
   })
+}
+
+thread_local! {
+  /// The value the focused number input had when it took the focus, or when an edit of it was last over: what
+  /// tells whether Enter or the focus leaving ends a change. One input has the focus at a time.
+  static EDIT_START: Cell<Option<Option<f64>>> = const { Cell::new(None) };
 }
 
 thread_local! {
@@ -472,9 +479,30 @@ impl Model {
     matches!((value, self.max), (Some(value), Some(max)) if value >= max)
   }
 
+  /// Tells the handlers of the end of a change of `before` into `after`, where it is one.
+  fn ended(&self, before: Option<f64>, after: Option<f64>) {
+    if before == after {
+      return;
+    }
+    for handler in &self.on_change_end {
+      handler(after);
+    }
+  }
+
+  /// A change that is over at once (a step, Home or End): told as it ends, from what the value was before it. Where
+  /// the input has the focus, what Enter or the focus leaving compares with is the value now.
+  fn step_over(&self, before: Option<f64>, after: Option<f64>) {
+    self.ended(before, after);
+    EDIT_START.with(|start| {
+      if start.get().is_some() {
+        start.set(Some(after));
+      }
+    });
+  }
+
   /// Takes the step of `steps` from what `text` holds, or from the value, writes it and shows it: as it is typed
-  /// where the text was being typed (`editing`), else as it is shown.
-  fn step(&self, text: &Signal<String>, steps: i32, editing: bool) {
+  /// where the text was being typed (`editing`), else as it is shown. Gives the value it took.
+  fn step(&self, text: &Signal<String>, steps: i32, editing: bool) -> f64 {
     let held = text.get_untracked();
     let from = self.format.parse(&held).or_else(|| self.value());
     let value = self.stepped(from, steps);
@@ -487,40 +515,44 @@ impl Model {
     if held != shown {
       text.set(shown);
     }
+    value
   }
 
-  /// Takes the value to the end of the range `value` is, where the range has that end.
-  fn jump(&self, text: &Signal<String>, value: f64) {
+  /// Takes the value to the end of the range `value` is, where the range has that end. Gives the value it took.
+  fn jump(&self, text: &Signal<String>, value: f64) -> f64 {
     let value = self.settle(value);
     self.write(Some(value));
     text.set(self.edit(Some(value)));
+    value
   }
 
   /// Puts what `text` holds right: the number in it rounded, kept in the range and written again, an empty field no
-  /// value (or the value it had, where there is always one), and anything else the value it had.
-  fn commit(&self, text: &Signal<String>, editing: bool) {
+  /// value (or the value it had, where there is always one), and anything else the value it had. Gives the value
+  /// it is then.
+  fn commit(&self, text: &Signal<String>, editing: bool) -> Option<f64> {
     let held = text.get_untracked();
     let shown = |value: Option<f64>| if editing { self.edit(value) } else { self.display(value) };
-    let next = if held.trim().is_empty() {
+    let (value, next) = if held.trim().is_empty() {
       if self.optional() {
         self.write(None);
-        String::new()
+        (None, String::new())
       } else {
-        shown(self.value())
+        (self.value(), shown(self.value()))
       }
     } else {
       match self.format.parse(&held) {
         Some(value) => {
           let value = self.settle(value);
           self.write(Some(value));
-          shown(Some(value))
+          (Some(value), shown(Some(value)))
         }
-        None => shown(self.value()),
+        None => (self.value(), shown(self.value())),
       }
     };
     if held != next {
       text.set(next);
     }
+    value
   }
 }
 
@@ -550,7 +582,9 @@ impl Model {
 /// A wheel turned over it scrolls what it is in and does not change it. Its buttons take a step when pressed, and
 /// another every twentieth of a second while held; they are not stops of Tab, and the one toward an end of the range
 /// the value is at is disabled. To what reads the tree it is a `spinbutton` with its value, its least and its
-/// greatest, and its buttons are "Increase" and "Decrease".
+/// greatest, and its buttons are "Increase" and "Decrease" ([`NumberInput::increase_label`],
+/// [`NumberInput::decrease_label`]). [`NumberInput::on_change`] hears each change as it is made,
+/// [`NumberInput::on_change_end`] the value when Enter, the focus leaving or a step is over.
 pub struct NumberInput {
   model: Model,
   layout: NumberInputLayout,
@@ -561,6 +595,8 @@ pub struct NumberInput {
   rules: Recipe,
   forced: Option<Interaction>,
   precision: Option<usize>,
+  increase_label: Arc<str>,
+  decrease_label: Arc<str>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -578,10 +614,10 @@ impl NumberInput {
     Self::bound(Bound::Optional(value))
   }
 
-  /// A number input that shows `value` and tells each change to the handlers of [`NumberInput::on_change`]: the
-  /// app sets what it shows. `None` is an empty field.
-  pub fn controlled(value: impl Into<Option<f64>>) -> Self {
-    Self::bound(Bound::Controlled(value.into()))
+  /// A number input that shows `value`, held by the app, and tells `on_change` each change a person makes: the app
+  /// sets what it shows. `None` is an empty field.
+  pub fn controlled(value: impl Into<Option<f64>>, on_change: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
+    Self::bound(Bound::Controlled(value.into())).on_change(on_change)
   }
 
   fn bound(bound: Bound) -> Self {
@@ -589,6 +625,7 @@ impl NumberInput {
       model: Model {
         bound,
         on_change: Vec::new(),
+        on_change_end: Vec::new(),
         min: None,
         max: None,
         step: 1.0,
@@ -605,6 +642,8 @@ impl NumberInput {
       rules: Recipe::new(),
       forced: None,
       precision: None,
+      increase_label: Arc::from("Increase"),
+      decrease_label: Arc::from("Decrease"),
       name: None,
       id: None,
       key: None,
@@ -612,20 +651,21 @@ impl NumberInput {
   }
 
   /// The least value. None where it is not given: Home then moves the caret, and a minus can be typed.
-  pub fn min(mut self, min: f64) -> Self {
-    self.model.min = Some(min);
+  pub fn min(mut self, min: impl Into<f64>) -> Self {
+    self.model.min = Some(min.into());
     self
   }
 
   /// The greatest value. None where it is not given: End then moves the caret.
-  pub fn max(mut self, max: f64) -> Self {
-    self.model.max = Some(max);
+  pub fn max(mut self, max: impl Into<f64>) -> Self {
+    self.model.max = Some(max.into());
     self
   }
 
   /// How far apart the values a step takes it to are, from the least: 1 where it is not given. Page Up and Page
   /// Down take ten.
-  pub fn step(mut self, step: f64) -> Self {
+  pub fn step(mut self, step: impl Into<f64>) -> Self {
+    let step = step.into();
     if step.is_finite() && step > 0.0 {
       self.model.step = step;
     }
@@ -706,9 +746,29 @@ impl NumberInput {
     self
   }
 
-  /// Called with the value each time it changes: as a number is typed, stepped, put right or emptied.
+  /// Called with the value each time a person changes it: as a number is typed, stepped, put right or emptied. Not
+  /// called for what is already so. Each call adds a handler.
   pub fn on_change(mut self, handler: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
     self.model.on_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with the value when a change is over, where the value is another than it was: Enter or the focus leaving
+  /// after typing, and each step of a key or a button, Home and End. Each call adds a handler.
+  pub fn on_change_end(mut self, handler: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
+    self.model.on_change_end.push(Arc::new(handler));
+    self
+  }
+
+  /// What the button that steps up is called, to what reads the tree: "Increase" where it is not given.
+  pub fn increase_label(mut self, label: &str) -> Self {
+    self.increase_label = Arc::from(label);
+    self
+  }
+
+  /// What the button that steps down is called, to what reads the tree: "Decrease" where it is not given.
+  pub fn decrease_label(mut self, label: &str) -> Self {
+    self.decrease_label = Arc::from(label);
     self
   }
 
@@ -843,6 +903,8 @@ impl NumberInput {
       recipe: theme.resolve::<NumberInput>(&case, Some(&self.rules)),
       forced: self.forced,
       model,
+      increase_label: self.increase_label,
+      decrease_label: self.decrease_label,
       boxed: self.boxed,
       name: self.name,
       id: self.id,
@@ -909,6 +971,8 @@ pub struct NumberInputView {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   model: Model,
+  increase_label: Arc<str>,
+  decrease_label: Arc<str>,
   boxed: BoxStates,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -963,12 +1027,12 @@ impl NumberInputView {
   /// How far the buttons reach into the box from its start and from its end: the room the number leaves them.
   pub fn buttons_reach(&self) -> (f32, f32) {
     let (inset_start, inset_end) = self.padding_x(NumberInputPart::Buttons);
-    let divider = self.px(self.part(NumberInputPart::Divider).rest().width);
+    let separator = self.px(self.part(NumberInputPart::Separator).rest().width);
     let decrease = self.px(self.part(NumberInputPart::Decrease).rest().width);
     let increase = self.px(self.part(NumberInputPart::Increase).rest().width);
     match self.layout {
-      NumberInputLayout::Split => (inset_start + decrease + divider, increase + divider + inset_end),
-      NumberInputLayout::Stacked => (0.0, increase.max(decrease) + divider + inset_end),
+      NumberInputLayout::Split => (inset_start + decrease + separator, increase + separator + inset_end),
+      NumberInputLayout::Stacked => (0.0, increase.max(decrease) + separator + inset_end),
       NumberInputLayout::Bare => (0.0, 0.0),
     }
   }
@@ -1057,22 +1121,33 @@ impl NumberInputView {
           "PageDown" => Some(-10),
           _ => None,
         };
+        // A step of a key is a change that is over as it is made.
+        let before = keys.value();
         if let Some(steps) = steps {
           event.prevent_default();
-          keys.step(&text, steps, true);
+          let after = keys.step(&text, steps, true);
+          keys.step_over(before, Some(after));
           return;
         }
         match (event.key.as_str(), keys.min, keys.max) {
           ("Home", Some(min), _) => {
             event.prevent_default();
-            keys.jump(&text, min);
+            let after = keys.jump(&text, min);
+            keys.step_over(before, Some(after));
           }
           ("End", _, Some(max)) => {
             event.prevent_default();
-            keys.jump(&text, max);
+            let after = keys.jump(&text, max);
+            keys.step_over(before, Some(after));
           }
-          // The text is put right and Enter goes on to what it does besides: it sends the form.
-          ("Enter", ..) => keys.commit(&text, true),
+          // The text is put right and Enter goes on to what it does besides: it sends the form. What was typed
+          // since the focus came, or since the last change was over, is over.
+          ("Enter", ..) => {
+            let before = EDIT_START.with(Cell::get).unwrap_or(before);
+            let after = keys.commit(&text, true);
+            keys.ended(before, after);
+            EDIT_START.with(|start| start.set(Some(after)));
+          }
           _ => {}
         }
       });
@@ -1082,6 +1157,7 @@ impl NumberInputView {
     let (blur_text, blur_model) = (self.text.clone(), model);
     control = control
       .on_focus(move || {
+        EDIT_START.with(|start| start.set(Some(focus_model.value())));
         let held = focus_text.get_untracked();
         if let Some(value) = focus_model.format.parse(&held) {
           let typed = focus_model.edit(Some(value));
@@ -1091,8 +1167,11 @@ impl NumberInputView {
         }
       })
       .on_blur(move || {
+        let start = EDIT_START.with(Cell::take);
         if !read_only {
-          blur_model.commit(&blur_text, false);
+          let before = start.unwrap_or_else(|| blur_model.value());
+          let after = blur_model.commit(&blur_text, false);
+          blur_model.ended(before, after);
         }
       });
     #[cfg(feature = "form")]
@@ -1107,7 +1186,7 @@ impl NumberInputView {
 
   /// A button that takes `steps` steps, in the style of `part`, with `icon`: pressed and held by the pointer, not a
   /// stop of Tab and not taking the focus, disabled where the input is, where it is read only, and at the end of the
-  /// range it steps toward.
+  /// range it steps toward. Its id is the input's with `-increase` or `-decrease` after it.
   pub fn button(&self, part: NumberInputPart, icon: &'static str, steps: i32) -> Row {
     let style = self.part(part);
     let icon_part = self.part(NumberInputPart::Icon);
@@ -1115,8 +1194,12 @@ impl NumberInputView {
     let at_end = if steps > 0 { self.at_max } else { self.at_min };
     let disabled = self.disabled || self.read_only || at_end;
     let (text, model) = (self.text.clone(), self.model.clone());
-    let name = if steps > 0 { "Increase" } else { "Decrease" };
-    Row::new()
+    let name = if steps > 0 {
+      self.increase_label.clone()
+    } else {
+      self.decrease_label.clone()
+    };
+    let button = Row::new()
       .part(&style)
       .align_items(Alignment::Center)
       .justify(Justify::Center)
@@ -1126,7 +1209,9 @@ impl NumberInputView {
       .repeat_press(true)
       .on_click(move |_| {
         let editing = model.accepts(&text.get_untracked());
-        model.step(&text, steps, editing);
+        let before = model.value();
+        let after = model.step(&text, steps, editing);
+        model.step_over(before, Some(after));
       })
       .describe("a11y_role", "button")
       .describe("a11y_name", name)
@@ -1136,13 +1221,18 @@ impl NumberInputView {
           .part(&icon_part)
           .pointer_events_none()
           .child(Icon::new(icon).size(side).build(self.theme())),
-      )
+      );
+    // Its id is the input's with `-increase` or `-decrease` after it.
+    match &self.id {
+      Some(id) => button.id(format!("{id}-{}", if steps > 0 { "increase" } else { "decrease" })),
+      None => button,
+    }
   }
 
   /// A line between a button and the number. The pointer passes through it.
-  pub fn divider(&self) -> Row {
+  pub fn separator(&self) -> Row {
     Row::new()
-      .part(&self.part(NumberInputPart::Divider))
+      .part(&self.part(NumberInputPart::Separator))
       .pointer_events_none()
   }
 
@@ -1161,13 +1251,13 @@ impl NumberInputView {
       NumberInputLayout::Split => Some(
         row
           .child(self.button(NumberInputPart::Decrease, icons::MINUS, -1))
-          .child(self.divider())
+          .child(self.separator())
           .child(room())
-          .child(self.divider())
+          .child(self.separator())
           .child(self.button(NumberInputPart::Increase, icons::PLUS, 1)),
       ),
       NumberInputLayout::Stacked => Some(
-        row.child(room()).child(self.divider()).child(
+        row.child(room()).child(self.separator()).child(
           Column::new()
             .align_items(Alignment::Stretch)
             .child(self.button(NumberInputPart::Increase, icons::CHEVRON_UP, 1).flex(1.0))
@@ -1210,7 +1300,7 @@ impl Themed for NumberInput {
   /// chevron of 14 up over one down with a line between them, and the number is at the start, 12 in.
   fn recipe() -> Recipe {
     use NumberInputLayout::{Split, Stacked};
-    use NumberInputPart::{Buttons, Control, Decrease, Divider, Icon, Increase, Placeholder, Root};
+    use NumberInputPart::{Buttons, Control, Decrease, Icon, Increase, Placeholder, Root, Separator};
     use PaletteColor::{Foreground, Highlight, HighlightForeground, Input};
     let button = |s: PartStyle| fading(s).width(34.0).foreground(Foreground).cursor(CursorIcon::Pointer);
     let mut recipe = Recipe::new()
@@ -1228,7 +1318,7 @@ impl Themed for NumberInput {
       .base(Buttons, |s| s.padding_x(1.0).padding_y(1.0).radius(RadiusSize::Md))
       .base(Decrease, button)
       .base(Increase, button)
-      .base(Divider, |s| s.width(1.0).background(Input))
+      .base(Separator, |s| s.width(1.0).background(Input))
       .base(Icon, |s| s.square(16.0))
       .hovered(Decrease, |s| s.background(Highlight).foreground(HighlightForeground))
       .hovered(Increase, |s| s.background(Highlight).foreground(HighlightForeground))

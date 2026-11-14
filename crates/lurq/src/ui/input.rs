@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
   app::{
-    events::TextInputEvent,
+    events::{KeyboardEvent, TextInputEvent},
     theme::{ControlSize, IconSize, PaletteColor, Theme, TypographyStyle},
   },
   components::{self, Row, Stack},
@@ -62,7 +62,7 @@ pub enum InputState {
   /// It is as wide as what holds it.
   FullWidth,
   /// It has an icon at its start.
-  WithIcon,
+  Icon,
 }
 
 names!(InputState {
@@ -72,7 +72,7 @@ names!(InputState {
   ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
-  WithIcon => "with_icon",
+  Icon => "icon",
 });
 
 /// What builds an input's nodes: a theme's in place of the default one.
@@ -96,6 +96,7 @@ pub type InputRenderer = Arc<dyn Fn(InputView) -> Element + Send + Sync>;
 /// ring's color under the pointer and, twice as thick, while it is focused;
 /// the destructive, warning or success color where the app says what it
 /// holds is wrong, doubtful or right.
+#[derive(Clone)]
 pub struct Input {
   value: Signal<String>,
   placeholder: Option<Arc<str>>,
@@ -106,10 +107,14 @@ pub struct Input {
   rules: Recipe,
   forced: Option<Interaction>,
   on_input: Vec<EditHandler>,
+  on_submit: Vec<SubmitHandler>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
-  key: Option<Arc<str>>,
+  pub(crate) key: Option<Arc<str>>,
 }
+
+/// What hears Enter in a box: what it holds.
+pub(crate) type SubmitHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Input {
   /// An input bound to `value`: it shows what the signal holds, and what is typed is set on it.
@@ -124,6 +129,7 @@ impl Input {
       rules: Recipe::new(),
       forced: None,
       on_input: Vec::new(),
+      on_submit: Vec::new(),
       name: None,
       id: None,
       key: None,
@@ -139,6 +145,12 @@ impl Input {
   /// A glyph of the theme's set at the start of the box: a search's magnifier.
   pub fn icon(mut self, name: impl Into<Name>) -> Self {
     self.icon = Some(name.into());
+    self
+  }
+
+  /// The icon at the start, or none: for a component made of an input that has an icon of its own.
+  pub(crate) fn with_icon(mut self, icon: Option<Name>) -> Self {
+    self.icon = icon;
     self
   }
 
@@ -208,6 +220,13 @@ impl Input {
     self
   }
 
+  /// Called with what the input holds when Enter is pressed in it, outside a composition and with no modifier: a
+  /// search to run, a name to accept. Enter does nothing else then. A second handler is called after the first.
+  pub fn on_submit(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_submit.push(Arc::new(handler));
+    self
+  }
+
   /// The name the input's value has in the form it is in.
   #[cfg(feature = "form")]
   pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
@@ -263,7 +282,7 @@ impl Input {
       .boxed
       .case(self.states.clone())
       .state(InputState::FullWidth, self.full_width)
-      .state(InputState::WithIcon, self.icon.is_some());
+      .state(InputState::Icon, self.icon.is_some());
     InputView {
       value: self.value,
       placeholder: self.placeholder,
@@ -276,6 +295,7 @@ impl Input {
       forced: self.forced,
       boxed: self.boxed,
       on_input: self.on_input,
+      on_submit: self.on_submit,
       name: self.name,
       id: self.id,
       key: self.key,
@@ -316,6 +336,7 @@ pub struct InputView {
   forced: Option<Interaction>,
   boxed: BoxStates,
   on_input: Vec<EditHandler>,
+  pub(crate) on_submit: Vec<SubmitHandler>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   name: Option<Arc<str>>,
@@ -398,6 +419,18 @@ impl InputView {
     }
     if let Some(key) = &self.key {
       control = control.key(key.clone());
+    }
+    if !self.on_submit.is_empty() {
+      let (value, submit) = (self.value.clone(), self.on_submit.clone());
+      control = control.on_key_down(move |event: KeyboardEvent| {
+        if submits(&event) {
+          event.prevent_default();
+          let held = value.get_untracked();
+          for handler in &submit {
+            handler(&held);
+          }
+        }
+      });
     }
     control
   }
@@ -521,4 +554,14 @@ impl Themed for Input {
     let recipe = text_box::box_sizes(recipe, Control, true);
     text_box::box_rules(recipe, Root, Control, Placeholder)
   }
+}
+
+/// Whether a key event is the Enter that submits a box: in it, outside a composition, with no modifier, and taken by
+/// nothing else yet.
+pub(crate) fn submits(event: &KeyboardEvent) -> bool {
+  event.key == "Enter"
+    && event.focus_within
+    && !event.composing
+    && !(event.ctrl || event.alt || event.meta)
+    && !event.default_prevented()
 }

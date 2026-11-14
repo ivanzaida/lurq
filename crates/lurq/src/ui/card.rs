@@ -26,33 +26,33 @@ pub enum CardPart {
   /// The surface: its fill, its edge, its corners, its shadow. What is
   /// pressed, where the card is.
   Root,
-  /// The padded column of the header and the content, over the footer.
-  Body,
-  /// The heading, and the action at its end.
+  /// The padded column of the header and the body, over the footer.
+  Content,
+  /// The title and the description, and the action at its end.
   Header,
   /// The title and the description, one over the other.
-  Heading,
+  Text,
   /// What the card is about, in a word or a line.
   Title,
   /// More of it, under the title, in the muted color.
   Description,
   /// What the app puts at the end of the header: a button, a menu, a badge.
   Action,
-  /// What the app puts in the card, under the header.
-  Content,
+  /// What the app puts in the card (its `child`), under the header.
+  Body,
   /// The row of buttons at the bottom, at its end, set off by a line.
   Footer,
 }
 
 names!(CardPart {
   Root => "root",
-  Body => "body",
+  Content => "content",
   Header => "header",
-  Heading => "heading",
+  Text => "text",
   Title => "title",
   Description => "description",
   Action => "action",
-  Content => "content",
+  Body => "body",
   Footer => "footer",
 });
 
@@ -64,14 +64,14 @@ pub enum CardState {
   Pressable,
   /// It takes no input.
   Disabled,
-  /// It has a footer under its body, which a line sets off.
-  Footed,
+  /// It has a footer under its content, which a line sets off.
+  Footer,
 }
 
 names!(CardState {
   Pressable => "pressable",
   Disabled => "disabled",
-  Footed => "footed",
+  Footer => "footer",
 });
 
 /// How a card stands off the page.
@@ -142,9 +142,10 @@ pub type CardRenderer = Arc<dyn Fn(CardView) -> Element + Send + Sync>;
 /// the controls in it are each a stop of Tab of their own.
 pub struct Card {
   title: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   description: Option<Arc<str>>,
   action: Option<Element>,
-  content: Vec<Element>,
+  body: Vec<Element>,
   footer: Vec<Element>,
   variant: Name,
   size: Name,
@@ -168,9 +169,10 @@ impl Card {
   pub fn new() -> Self {
     Self {
       title: None,
+      label: None,
       description: None,
       action: None,
-      content: Vec::new(),
+      body: Vec::new(),
       footer: Vec::new(),
       variant: CardVariant::default().into(),
       size: CardSize::default().into(),
@@ -185,9 +187,16 @@ impl Card {
   }
 
   /// What the card is about: "Appearance". It is also what the card is
-  /// called to tooling that reads the tree.
+  /// called to tooling that reads the tree, unless it has a label.
   pub fn title(mut self, title: &str) -> Self {
     self.title = Some(Arc::from(title));
+    self
+  }
+
+  /// What the card is called to tooling that reads the tree, in place of
+  /// its title: the name of a card that has none.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -198,21 +207,22 @@ impl Card {
   }
 
   /// What stands at the end of the header, beside the title: a button, a
-  /// menu, a badge.
+  /// menu, a badge. A card has one: a second call takes the place of the
+  /// first.
   pub fn action(mut self, action: impl Into<Element>) -> Self {
     self.action = Some(action.into());
     self
   }
 
-  /// Adds an element to the content, under the header.
+  /// Adds an element to the body, under the header.
   pub fn child(mut self, child: impl Into<Element>) -> Self {
-    self.content.push(child.into());
+    self.body.push(child.into());
     self
   }
 
-  /// Adds elements to the content.
+  /// Adds elements to the body.
   pub fn children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
-    self.content.extend(children.into_iter().map(Into::into));
+    self.body.extend(children.into_iter().map(Into::into));
     self
   }
 
@@ -236,7 +246,8 @@ impl Card {
     self
   }
 
-  /// A width of its own, in logical pixels, over all the room it is given.
+  /// A width of its own in place of all the room it is given: a number of
+  /// logical pixels, or another [`Length`].
   pub fn width(mut self, width: impl Into<Length>) -> Self {
     let width = width.into();
     self.rules = self.rules.base(CardPart::Root, |s| s.width(width));
@@ -301,8 +312,8 @@ impl Card {
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let pressable = !self.on_click.is_empty();
-    let has_body =
-      self.title.is_some() || self.description.is_some() || self.action.is_some() || !self.content.is_empty();
+    let has_content =
+      self.title.is_some() || self.description.is_some() || self.action.is_some() || !self.body.is_empty();
     let case = Case {
       variant: Some(self.variant),
       size: Some(self.size),
@@ -313,12 +324,13 @@ impl Card {
     // A disabled card is not pressed, so it does not answer the pointer either.
     .state(CardState::Pressable, pressable && !self.disabled)
     .state(CardState::Disabled, self.disabled)
-    .state(CardState::Footed, has_body && !self.footer.is_empty());
+    .state(CardState::Footer, has_content && !self.footer.is_empty());
     let view = CardView {
       title: self.title,
+      label: self.label,
       description: self.description,
       action: self.action,
-      content: self.content,
+      body: self.body,
       footer: self.footer,
       pressable,
       disabled: self.disabled,
@@ -345,11 +357,13 @@ impl From<Card> for Element {
 /// and its behavior ready to be dressed.
 pub struct CardView {
   pub title: Option<Arc<str>>,
+  /// What the card is called to tooling, where the app gave other words than its title.
+  pub label: Option<Arc<str>>,
   pub description: Option<Arc<str>>,
   /// What the app put at the end of the header.
   pub action: Option<Element>,
-  /// What the app put in the content.
-  pub content: Vec<Element>,
+  /// What the app put in the body.
+  pub body: Vec<Element>,
   /// What the app put in the footer.
   pub footer: Vec<Element>,
   /// Whether the card is pressed as a whole.
@@ -385,21 +399,26 @@ impl CardView {
 
   /// The title and the description, one over the other, each as wide as the
   /// room the header leaves it: `None` for a card that has neither.
-  pub fn heading(&self) -> Option<Column> {
+  pub fn text(&self) -> Option<Column> {
     if self.title.is_none() && self.description.is_none() {
       return None;
     }
-    let mut heading = Column::new()
+    let mut text = Column::new()
       .flex(1.0)
       .min_width(Dimension::Px(0.0))
-      .part(&self.part(CardPart::Heading));
+      .part(&self.part(CardPart::Text));
     if let Some(title) = &self.title {
-      heading = heading.child(wrapping(&self.part(CardPart::Title), title));
+      text = text.child(wrapping(&self.part(CardPart::Title), title));
     }
     if let Some(description) = &self.description {
-      heading = heading.child(wrapping(&self.part(CardPart::Description), description));
+      text = text.child(wrapping(&self.part(CardPart::Description), description));
     }
-    Some(heading)
+    Some(text)
+  }
+
+  /// What the card is called to tooling: its label, or its title.
+  fn name(&self) -> Option<Arc<str>> {
+    self.label.clone().or_else(|| self.title.clone())
   }
 
   /// The action, in the style of its part: `None` for a card without one.
@@ -412,21 +431,21 @@ impl CardView {
     Some(self.own_presses(row))
   }
 
-  /// The header: the heading, and the action at its end. `None` for a card
-  /// with neither.
+  /// The header: the title and the description, and the action at its end.
+  /// `None` for a card with neither.
   pub fn header(&mut self) -> Option<Row> {
-    let heading = self.heading();
+    let text = self.text();
     let action = self.action();
-    if heading.is_none() && action.is_none() {
+    if text.is_none() && action.is_none() {
       return None;
     }
     let mut header = Row::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Start)
       .part(&self.part(CardPart::Header));
-    match heading {
-      Some(heading) => header = header.child(heading),
-      // Without a heading the action still stands at the end.
+    match text {
+      Some(text) => header = header.child(text),
+      // Without a title the action still stands at the end.
       None => header = header.justify(Justify::End),
     }
     if let Some(action) = action {
@@ -435,38 +454,38 @@ impl CardView {
     Some(header)
   }
 
-  /// The content: a column with what the app put there. `None` for a card
+  /// The body: a column with what the app put there. `None` for a card
   /// with nothing in it.
-  pub fn content(&mut self) -> Option<Column> {
-    if self.content.is_empty() {
+  pub fn body(&mut self) -> Option<Column> {
+    if self.body.is_empty() {
       return None;
     }
     Some(
       Column::new()
         .width(Dimension::Pct(100.0))
-        .part(&self.part(CardPart::Content))
-        .with_children(std::mem::take(&mut self.content)),
+        .part(&self.part(CardPart::Body))
+        .with_children(std::mem::take(&mut self.body)),
     )
   }
 
-  /// The body: the header over the content, padded. `None` for a card with
+  /// The content: the header over the body, padded. `None` for a card with
   /// neither.
-  pub fn body(&mut self) -> Option<Column> {
+  pub fn content(&mut self) -> Option<Column> {
     let header = self.header();
-    let content = self.content();
-    if header.is_none() && content.is_none() {
+    let body = self.body();
+    if header.is_none() && body.is_none() {
       return None;
     }
-    let mut body = Column::new()
+    let mut content = Column::new()
       .width(Dimension::Pct(100.0))
-      .part(&self.part(CardPart::Body));
+      .part(&self.part(CardPart::Content));
     if let Some(header) = header {
-      body = body.child(header);
+      content = content.child(header);
     }
-    if let Some(content) = content {
-      body = body.child(content);
+    if let Some(body) = body {
+      content = content.child(body);
     }
-    Some(body)
+    Some(content)
   }
 
   /// The footer: a row at the end of the card with what the app put there.
@@ -487,7 +506,7 @@ impl CardView {
   /// The surface of a card that is pressed as a whole, in the style of its
   /// root, with nothing in it yet: a click, Enter and Space press it, Tab
   /// reaches it, and a disabled one takes nothing. It is a button to what
-  /// reads the tree, called by the card's title.
+  /// reads the tree, called by the card's label or its title.
   pub fn pressed_root(&self) -> components::Button {
     let mut root = pressable(&self.part(CardPart::Root), self.disabled)
       .justify(Justify::Start)
@@ -495,8 +514,8 @@ impl CardView {
       // The controls in its action and its footer are stops of Tab of their own, after the card.
       .stops_inside(true)
       .describe("a11y_role", "button");
-    if let Some(title) = &self.title {
-      root = root.describe("a11y_name", title.clone());
+    if let Some(name) = self.name() {
+      root = root.describe("a11y_name", name);
     }
     if !self.disabled {
       for handler in &self.on_click {
@@ -514,13 +533,13 @@ impl CardView {
 
   /// The surface of a card that is read, in the style of its root, with
   /// nothing in it yet: a group to what reads the tree, called by the card's
-  /// title.
+  /// label or its title.
   pub fn read_root(&self) -> Column {
     let mut root = Column::new()
       .part(&self.part(CardPart::Root))
       .describe("a11y_role", "group");
-    if let Some(title) = &self.title {
-      root = root.describe("a11y_name", title.clone());
+    if let Some(name) = self.name() {
+      root = root.describe("a11y_name", name);
     }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
@@ -531,15 +550,15 @@ impl CardView {
     root
   }
 
-  /// How the default renderer builds a card: the body over the footer, on
-  /// the surface.
+  /// How the default renderer builds a card: the content over the footer,
+  /// on the surface.
   pub fn render(mut self) -> Element {
-    let parts: Vec<Element> = [self.body().map(Element::from), self.footer().map(Element::from)]
+    let parts: Vec<Element> = [self.content().map(Element::from), self.footer().map(Element::from)]
       .into_iter()
       .flatten()
       .collect();
     if self.pressable {
-      // What is pressed is a row: the body and the footer are in a column as wide as it.
+      // What is pressed is a row: the content and the footer are in a column as wide as it.
       let column = Column::new()
         .flex(1.0)
         .min_width(Dimension::Px(0.0))
@@ -569,18 +588,18 @@ impl Themed for Card {
   /// The design's card (`pencil/lurq-design-system.pen`, Card and
   /// Card/Simple): a surface as wide as the room it is given, in the card's color with an edge of the
   /// border's color, corners of `radius-xl` and the small shadow. Its header
-  /// and its content are padded 24 with 24 between them; the title is 16/600
+  /// and its body are padded 24 with 24 between them; the title is 16/600
   /// with the description 6 under it in 14 of the muted color, and what is in
-  /// the content is 16 apart. The footer is set off by a line and padded 16
+  /// the body is 16 apart. The footer is set off by a line and padded 16
   /// and 24, its buttons 8 apart at its end. The elevated card has the
   /// medium shadow and no edge, the filled one the muted color and no edge.
   /// A small card is padded 16, with a title of 14 and a description of 13.
   /// A card that is pressed takes an edge of the ring's color and the
   /// medium shadow under the pointer.
   fn recipe() -> Recipe {
-    use CardPart::{Action, Body, Content, Description, Footer, Header, Heading, Root, Title};
+    use CardPart::{Action, Body, Content, Description, Footer, Header, Root, Text, Title};
     use CardSize::Sm;
-    use CardState::{Disabled, Footed, Pressable};
+    use CardState::{Disabled, Pressable};
     use CardVariant::{Elevated, Filled, Outline};
     use PaletteColor::*;
     let edge = |color: PaletteColor| Edge::inside(BorderSize::Sm, color);
@@ -597,9 +616,9 @@ impl Themed for Card {
       .variant(Outline, Root, |s| s.border(edge(PaletteColor::Border)).shadow(ShadowStyle::Sm))
       .variant(Elevated, Root, |s| s.shadow(ShadowStyle::Md))
       .variant(Filled, Root, |s| s.background(Muted))
-      .base(Body, |s| s.padding_x(24.0).padding_y(24.0).gap(24.0))
+      .base(Content, |s| s.padding_x(24.0).padding_y(24.0).gap(24.0))
       .base(Header, |s| s.gap(16.0))
-      .base(Heading, |s| s.gap(6.0))
+      .base(Text, |s| s.gap(6.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(16.0)
@@ -612,15 +631,15 @@ impl Themed for Card {
           .foreground(MutedForeground)
       })
       .base(Action, |s| s.gap(8.0))
-      .base(Content, |s| s.gap(16.0))
+      .base(Body, |s| s.gap(16.0))
       .base(Footer, |s| s.gap(8.0).padding_x(24.0).padding_y(16.0))
-      // The line over the footer is the body's: it is there only where the footer has a body over it.
-      .state(Footed, Body, |s| s.underline(edge(PaletteColor::Border)))
-      .size(Sm, Body, |s| s.padding_x(16.0).padding_y(16.0).gap(16.0))
+      // The line over the footer is the content's: it is there only where the footer has content over it.
+      .state(CardState::Footer, Content, |s| s.underline(edge(PaletteColor::Border)))
+      .size(Sm, Content, |s| s.padding_x(16.0).padding_y(16.0).gap(16.0))
       .size(Sm, Header, |s| s.gap(12.0))
       .size(Sm, Title, |s| s.font_size(14.0))
       .size(Sm, Description, |s| s.font_size(13.0).line_height(1.4))
-      .size(Sm, Content, |s| s.gap(12.0))
+      .size(Sm, Body, |s| s.gap(12.0))
       .size(Sm, Footer, |s| s.padding_x(16.0).padding_y(12.0))
       .state(Pressable, Root, |s| s.cursor(CursorIcon::Pointer))
       .when(when_pressable().hovered(), Root, |s| s.border(edge(Ring)).shadow(ShadowStyle::Md))

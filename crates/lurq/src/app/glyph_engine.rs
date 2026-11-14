@@ -1,5 +1,3 @@
-#[cfg(feature = "perf_profile")]
-use std::time::Instant;
 use std::{
   borrow::Cow,
   collections::{HashMap, hash_map::DefaultHasher},
@@ -15,6 +13,9 @@ use swash::{
   scale::{Render, ScaleContext, Source, StrikeWith},
   zeno::{Angle, Format, Transform as SwashTransform, Vector},
 };
+
+#[cfg(feature = "perf_profile")]
+use crate::time::Instant;
 
 mod cap_height;
 mod carets;
@@ -610,6 +611,20 @@ impl GlyphEngine {
       return;
     }
     self.font_aliases.insert(name.to_owned(), family.to_owned());
+    self.clear_text_caches();
+  }
+
+  /// Names the font `generic` and the empty family draw with; see `App::set_generic_family`.
+  pub(crate) fn set_generic_family(&mut self, generic: crate::layout::text_style::GenericFamily, family: &str) {
+    use crate::layout::text_style::GenericFamily;
+    let db = self.font_system.db_mut();
+    match generic {
+      GenericFamily::Serif => db.set_serif_family(family),
+      GenericFamily::SansSerif => db.set_sans_serif_family(family),
+      GenericFamily::Monospace => db.set_monospace_family(family),
+      GenericFamily::Cursive => db.set_cursive_family(family),
+      GenericFamily::Fantasy => db.set_fantasy_family(family),
+    }
     self.clear_text_caches();
   }
 

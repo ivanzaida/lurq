@@ -231,3 +231,58 @@ fn a_theme_gives_the_switch_another_anatomy_and_it_still_switches() {
   stage.click("switch");
   assert_eq!(*asked.lock().unwrap(), [true]);
 }
+
+#[test]
+fn a_bound_switch_turns_its_signal_and_then_tells_its_handlers() {
+  let on = Signal::new(false);
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (read, told) = (on.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let (seen, told) = (read.clone(), told.clone());
+    Row::new()
+      .padding(8.0)
+      .child(
+        Switch::new("Dark mode")
+          .id("track")
+          .on_change(move |next| told.lock().unwrap().push((next, seen.get_untracked())))
+          .bind(read.clone()),
+      )
+      .into()
+  });
+  stage.click("track");
+  assert!(on.get());
+  assert_eq!(*heard.lock().unwrap(), [(true, true)], "told after the signal is set");
+  stage.pass();
+  assert_eq!(stage.fill_color("track"), Some(light(PaletteColor::Primary)));
+  on.set(false);
+  stage.pass();
+  assert_eq!(stage.fill_color("track"), Some(light(PaletteColor::Input)));
+  assert_eq!(heard.lock().unwrap().len(), 1, "the app's own set tells nobody");
+}
+
+#[test]
+fn an_invalid_switch_and_one_in_a_field_with_an_error_have_the_destructive_edge() {
+  use lurq::ui::Field;
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(Switch::new("Sync").id("plain"))
+      .child(Switch::new("Pause").invalid(true).on(true).id("invalid"))
+      .child(Field::new("Notifications", Switch::new("Notify").id("field")).error("Turn this on to go on."))
+      .into()
+  });
+  let edge = |stage: &mut Stage, id: &str| {
+    stage
+      .border(id)
+      .and_then(|quad| quad.border)
+      .and_then(|border| border.top)
+      .map(|side| side.color)
+  };
+  assert_eq!(edge(&mut stage, "plain"), None, "a switch has no edge of its own");
+  for id in ["invalid", "field"] {
+    assert_eq!(edge(&mut stage, id), Some(light(PaletteColor::Destructive)), "{id}");
+  }
+  // On, it keeps its fill: the edge says it is wrong.
+  assert_eq!(stage.fill_color("invalid"), Some(light(PaletteColor::Primary)));
+}

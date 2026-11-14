@@ -8,8 +8,8 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    Breadcrumb, BreadcrumbStep, Interaction, MenuEntry, MenuItem, Menubar, SegmentedControl, Tab, Tabs, TreeItem,
-    TreeView,
+    Breadcrumb, BreadcrumbStep, Interaction, MenuEntry, MenuItem, Menubar, MenubarMenu, SegmentedControl, Tab, Tabs,
+    TreeItem, TreeView,
   },
 };
 
@@ -71,17 +71,20 @@ fn a_tree_draws_it_on_the_selected_row_else_the_first() {
   let items = || {
     [
       TreeItem::new("src", "src")
-        .element_id("src")
-        .child(TreeItem::new("lib", "lib.rs").element_id("lib")),
-      TreeItem::new("cargo", "Cargo.toml").element_id("cargo"),
-      TreeItem::new("readme", "README.md").element_id("readme"),
+        .id("src")
+        .item(TreeItem::new("lib", "lib.rs").id("lib")),
+      TreeItem::new("cargo", "Cargo.toml").id("cargo"),
+      TreeItem::new("readme", "README.md").id("readme"),
     ]
   };
-  let mut first = stage(move || TreeView::new(items()).force(Some(Interaction::FocusVisible)).into());
+  let mut first = stage(move || {
+    TreeView::new(Signal::new(None), items())
+      .force(Some(Interaction::FocusVisible))
+      .into()
+  });
   ring_on(&mut first, "src");
   let mut chosen = stage(move || {
-    TreeView::new(items())
-      .selected(Signal::new(vec!["cargo"]))
+    TreeView::new(Signal::new(vec!["cargo"]), items())
       .force(Some(Interaction::FocusVisible))
       .into()
   });
@@ -114,9 +117,9 @@ fn a_menubar_draws_it_on_the_first_title() {
   let mut stage = stage(|| {
     Menubar::new(Signal::new(None))
       .id("bar")
-      .menu("File", [MenuEntry::from(MenuItem::new("New"))])
-      .menu("Edit", [MenuEntry::from(MenuItem::new("Undo"))])
-      .menu("View", [MenuEntry::from(MenuItem::new("Zoom"))])
+      .menu(MenubarMenu::new("File", [MenuEntry::from(MenuItem::new("New"))]))
+      .menu(MenubarMenu::new("Edit", [MenuEntry::from(MenuItem::new("Undo"))]))
+      .menu(MenubarMenu::new("View", [MenuEntry::from(MenuItem::new("Zoom"))]))
       .force(Some(Interaction::FocusVisible))
       .into()
   });
@@ -130,7 +133,7 @@ fn a_menubar_draws_it_on_the_first_title() {
 #[test]
 fn a_breadcrumb_draws_it_on_the_first_link() {
   let mut stage = stage(|| {
-    Breadcrumb::new()
+    Breadcrumb::default()
       .step(BreadcrumbStep::new("Settings").id("settings"))
       .step(BreadcrumbStep::new("Appearance").id("appearance"))
       .step(BreadcrumbStep::new("Theme").id("theme"))

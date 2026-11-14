@@ -166,7 +166,7 @@ impl EmptyStatePage {
     if media {
       tree.push("├─ the app's element".to_owned());
     } else if icon.is_some() {
-      tree.push("├─ media   the well".to_owned());
+      tree.push("├─ mark    the well".to_owned());
       tree.push("│  └─ icon".to_owned());
     }
     tree.push("├─ text".to_owned());
@@ -368,7 +368,13 @@ impl Component for EmptyStatePage {
         "title",
         "&str",
         "",
-        "What is empty, in a line. It is what the empty state is called.",
+        "What is empty, in a line. It is what the empty state is called, unless it has a label.",
+      ),
+      (
+        "label",
+        "&str",
+        "the title",
+        "What it is called to what reads the tree.",
       ),
       ("description", "&str", "", "Why, or what to do, under the title."),
       (
@@ -384,10 +390,10 @@ impl Component for EmptyStatePage {
         "An element of the app's in place of the icon and its well.",
       ),
       (
-        "action",
+        "action / actions",
         "impl Into<Element>",
         "",
-        "Something to do under the text; a second one after it. The main one last.",
+        "Adds something to do under the text, after what is there. The main one last.",
       ),
       (
         "size",
@@ -400,6 +406,12 @@ impl Component for EmptyStatePage {
         "bool",
         "by size",
         "An edge around it: the medium size has one, the small and the large none.",
+      ),
+      (
+        "width",
+        "impl Into<Length>",
+        "the room",
+        "A width of its own in place of all of the room it is given.",
       ),
       (
         "height",

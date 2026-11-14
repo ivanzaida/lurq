@@ -1,7 +1,7 @@
 //! The open `Select` menu: building its overlay each pass and the keyboard
 //! defaults of a focused select.
 
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use super::{Tree, clamp_overlay_position, find_node_by_id, overlay_position, resolve_overlay_collision};
 use crate::{
@@ -20,6 +20,7 @@ use crate::{
     radius_value::RadiusValue,
     select_style::SelectOptionState,
   },
+  time::Instant,
 };
 
 /// Minimum option row height when the option part sets none.

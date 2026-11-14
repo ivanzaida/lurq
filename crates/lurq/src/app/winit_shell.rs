@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 #[cfg(target_os = "macos")]
 use winit::platform::macos::EventLoopBuilderExtMacOS;
@@ -30,6 +28,7 @@ use crate::{
     },
   },
   node::{CursorIcon, color::Color},
+  time::{Duration, Instant},
 };
 
 mod cursor;
@@ -53,6 +52,10 @@ mod notched_wheel;
 mod touch;
 #[cfg(test)]
 mod touch_tests;
+#[cfg(target_arch = "wasm32")]
+mod web;
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_wheel;
 
 use file_drag::FileDragShell;
 use frame_pacing::PresentedFrame;
@@ -66,6 +69,8 @@ const WINIT_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
 /// drags and hover restyles; vsync usually paces harder — this guards the
 /// vsync-off case).
 const INTERACTION_PRESENT_INTERVAL: Duration = Duration::from_millis(7);
+/// The pixels a wheel scrolls for one line, which is what winit tells a notch as on a desktop.
+const WHEEL_LINE: f32 = 40.0;
 
 type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
 type PaintFn = Box<dyn FnMut(&Tree, Duration, PassReport)>;
@@ -266,6 +271,9 @@ impl WinitWindow {
     tree.window().attach_shell(waker.clone());
     #[cfg(feature = "mcp")]
     tree.set_mcp_waker(waker.clone());
+    // A paste's text comes from the browser a turn later; see `clipboard::web`.
+    #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
+    crate::clipboard::web::set_waker(waker.clone());
     let secondaries = (0..tree.secondary_window_count())
       .filter_map(|index| {
         tree
@@ -274,6 +282,7 @@ impl WinitWindow {
       })
       .collect();
 
+    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
     let mut handler = WinitHandler {
       app: self.app,
       main: ManagedWindow::new(
@@ -294,9 +303,18 @@ impl WinitWindow {
     #[cfg(target_os = "macos")]
     let _native =
       crate::app::macos_menu::NativeMenu::install(handler.app.shared.menu.clone(), handler.main.tree.window().clone());
-    event_loop.run_app(&mut handler).unwrap();
-    #[cfg(feature = "mcp")]
-    handler.main.tree.shutdown_mcp();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      event_loop.run_app(&mut handler).unwrap();
+      #[cfg(feature = "mcp")]
+      handler.main.tree.shutdown_mcp();
+    }
+    // A page's loop is the browser's: the app is handed to it and `run` returns at once, the window alive.
+    #[cfg(target_arch = "wasm32")]
+    {
+      use winit::platform::web::EventLoopExtWebSys;
+      event_loop.spawn_app(handler);
+    }
   }
 }
 
@@ -324,6 +342,9 @@ struct ManagedWindow {
   last_interaction_present: Instant,
   ime: ime::ImeSync,
   file_drag: FileDragShell,
+  /// Where the wheel turns over the canvas, which winit does not say.
+  #[cfg(target_arch = "wasm32")]
+  wheel_pointer: Option<web::WheelPointer>,
   #[cfg(target_os = "ios")]
   touch: touch::TouchPointer,
   /// The status bar was last asked to be hidden.
@@ -384,6 +405,8 @@ impl ManagedWindow {
       last_interaction_present: Instant::now(),
       ime: ime::ImeSync::default(),
       file_drag: FileDragShell::default(),
+      #[cfg(target_arch = "wasm32")]
+      wheel_pointer: None,
       #[cfg(target_os = "ios")]
       touch: touch::TouchPointer::default(),
       #[cfg(target_os = "ios")]
@@ -461,7 +484,13 @@ impl ManagedWindow {
     } else {
       attrs
     };
+    #[cfg(target_arch = "wasm32")]
+    let attrs = web::window_attributes(attrs);
     let window = event_loop.create_window(attrs).unwrap();
+    #[cfg(target_arch = "wasm32")]
+    {
+      self.wheel_pointer = web::WheelPointer::watch(&window);
+    }
     if let Some(radius) = self.corner_radius {
       set_corner_radius(&window, radius);
       self.tree.window().set_corner_radius(radius);
@@ -1077,10 +1106,18 @@ impl ManagedWindow {
         self.check_redraw();
       }
       WindowEvent::MouseWheel { delta, phase, .. } => {
+        #[cfg(not(target_arch = "wasm32"))]
         let (mut dx, mut dy) = match delta {
-          MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
+          MouseScrollDelta::LineDelta(x, y) => (x * WHEEL_LINE, y * WHEEL_LINE),
           MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
         };
+        // A browser tells a notch as the distance it would scroll a page; see `web_wheel`.
+        #[cfg(target_arch = "wasm32")]
+        let (mut dx, mut dy) = web_wheel::scroll_distance(
+          delta,
+          f64::from(self.tree.scale_factor()),
+          web::scrolls_the_systems_distance(),
+        );
         if self.modifiers.shift_key() && dx == 0.0 {
           dx = dy;
           dy = 0.0;
@@ -1092,6 +1129,15 @@ impl ManagedWindow {
         };
         if phase == TouchPhase::Started {
           self.tree.set_history_swipes(history_swipes::enabled());
+        }
+        // The wheel's own event says where the pointer is, also before it has moved; see `web::WheelPointer`.
+        #[cfg(target_arch = "wasm32")]
+        if let Some(position) = self
+          .wheel_pointer
+          .as_ref()
+          .and_then(|pointer| pointer.take(f64::from(self.tree.scale_factor())))
+        {
+          self.cursor_pos = position;
         }
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         // A mouse's notches are animated; a touchpad's travel moves the content with the fingers.
@@ -1715,7 +1761,7 @@ impl ManagedSecondaryWindow {
       }
       WindowEvent::MouseWheel { delta, phase, .. } => {
         let (mut dx, mut dy) = match delta {
-          MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
+          MouseScrollDelta::LineDelta(x, y) => (x * WHEEL_LINE, y * WHEEL_LINE),
           MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
         };
         if self.modifiers.shift_key() && dx == 0.0 {
@@ -2168,6 +2214,12 @@ fn window_event_name(event: &WindowEvent) -> &'static str {
 }
 
 impl ApplicationHandler for WinitHandler {
+  // A page calls into the app between the loop's turns as well as in them; see `Window::off_loop_waker`.
+  #[cfg(target_arch = "wasm32")]
+  fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: winit::event::StartCause) {
+    crate::app::window::set_in_loop_turn(true);
+  }
+
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     self.main.create_window(event_loop, &mut self.app);
     #[cfg(not(target_os = "ios"))]
@@ -2282,12 +2334,19 @@ impl ApplicationHandler for WinitHandler {
   }
 
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    #[cfg(target_arch = "wasm32")]
+    let _turn = web::TurnEnd;
     let _slow_scope = WinitSlowScope::new("about_to_wait", "main");
     let started_at = Instant::now();
     let stage_started_at = Instant::now();
     #[cfg(target_os = "macos")]
     crate::app::macos_menu::sync();
     self.app.shared.menu.drain(self.main.tree.window());
+    // The text of a paste the browser has answered; see `clipboard::web`.
+    #[cfg(all(target_arch = "wasm32", feature = "clipboard"))]
+    if let Some(text) = crate::clipboard::web::take_pasted() {
+      self.main.tree.paste(crate::app::events::ClipboardContent::text(text));
+    }
     self.main.tick();
     // What the person set for the whole system, read again each turn: it is a few calls, and the loop turns
     // when the app comes back from the settings or from the control centre, where it is changed.
@@ -2488,7 +2547,16 @@ impl ApplicationHandler for WinitHandler {
 fn surface_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
   #[cfg(target_os = "ios")]
   return window.outer_size();
-  #[cfg(not(target_os = "ios"))]
+  // A canvas's size reaches winit from an observer: until it has run, the size is read from the page.
+  #[cfg(target_arch = "wasm32")]
+  {
+    let size = window.inner_size();
+    if size.width == 0 || size.height == 0 {
+      return web::canvas_size(window).unwrap_or(size);
+    }
+    return size;
+  }
+  #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
   window.inner_size()
 }
 

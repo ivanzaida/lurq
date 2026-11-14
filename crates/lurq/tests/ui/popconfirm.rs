@@ -1,23 +1,25 @@
 //! A popconfirm: its panel under what was pressed, its question and its two
 //! buttons where the board has them, where the focus goes, what each button,
-//! Escape and a press outside do, the destructive look, and a theme's rules.
+//! Escape and a press outside do and whom they tell, the destructive look, its
+//! icon, where it stands, drawn in place, and a theme's rules.
 
 use std::sync::{
-  Arc,
+  Arc, Mutex,
   atomic::{AtomicUsize, Ordering},
 };
 
 use lurq::{
   app::{
     App,
-    ctx::Ctx,
+    ctx::{CollisionStrategy, Ctx},
+    events::MouseButton,
     theme::{PaletteColor, ThemePalette},
   },
-  components::{Column, Rect, Row},
+  components::{Column, Placement, Rect, Row},
   core::{ElementRef, Signal},
   layout::quad::QuadContent,
   node::{Element, color::Color},
-  ui::{Button, ButtonVariant, FontFamily, Popconfirm, PopconfirmPart},
+  ui::{Button, ButtonVariant, FontFamily, IconChoice, Popconfirm, PopconfirmPart, icons},
 };
 
 use super::stage::Stage;
@@ -64,7 +66,7 @@ fn delete_file(
   confirmed: impl Fn() + Send + Sync + 'static,
   cancelled: impl Fn() + Send + Sync + 'static,
 ) -> Popconfirm {
-  Popconfirm::new(anchor, open)
+  Popconfirm::new(open, anchor)
     .id("panel")
     .trigger(Button::new("Delete file").variant(ButtonVariant::Outline).id("trigger"))
     .title("Delete this file?")
@@ -118,7 +120,7 @@ fn an_open_popconfirm_is_the_panel_of_the_board_under_what_was_pressed() {
 }
 
 #[test]
-fn the_trigger_opens_it_and_the_focus_goes_to_the_cancel_button() {
+fn the_trigger_opens_it_and_the_focus_goes_to_the_confirm_button() {
   let open = Signal::new(false);
   let (confirmed, confirm) = counter();
   let (cancelled, cancel) = counter();
@@ -128,7 +130,24 @@ fn the_trigger_opens_it_and_the_focus_goes_to_the_cancel_button() {
   }));
   stage.click("trigger");
   assert!(open.get());
-  // Space presses the focused button: the cancel one.
+  // Space presses the focused button: the confirm one.
+  stage.key(" ");
+  assert_eq!((count(&confirmed), count(&cancelled)), (1, 0));
+  assert!(!open.get());
+}
+
+#[test]
+fn where_what_it_confirms_is_destructive_the_focus_goes_to_the_cancel_button() {
+  let open = Signal::new(false);
+  let (confirmed, confirm) = counter();
+  let (cancelled, cancel) = counter();
+  let held = open.clone();
+  let mut stage = Stage::new(page(move |anchor| {
+    delete_file(anchor, held.clone(), confirm.clone(), cancel.clone()).destructive(true)
+  }));
+  stage.click("trigger");
+  assert!(open.get());
+  // Space presses the focused button: the cancel one, the least destructive answer.
   stage.key(" ");
   assert_eq!((count(&confirmed), count(&cancelled)), (0, 1));
   assert!(!open.get());
@@ -217,7 +236,7 @@ fn a_title_and_a_description_too_long_for_a_line_go_on_to_the_next() {
     } else {
       ("Delete?", "Trash.")
     };
-    Popconfirm::new(anchor, Signal::new(true))
+    Popconfirm::new(Signal::new(true), anchor)
       .id("panel")
       .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
       .title(title)
@@ -251,7 +270,7 @@ fn buttons_too_long_to_stand_side_by_side_go_one_under_the_other_inside_the_pane
   const CANCEL: &str = "Keep the file where it is";
   const CONFIRM: &str = "Move it to the trash now";
   let mut stage = Stage::new(page(move |anchor| {
-    Popconfirm::new(anchor, Signal::new(true))
+    Popconfirm::new(Signal::new(true), anchor)
       .id("panel")
       .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
       .title("Delete this file?")
@@ -278,7 +297,7 @@ fn buttons_too_long_to_stand_side_by_side_go_one_under_the_other_inside_the_pane
 fn a_button_too_long_for_the_panel_cuts_its_label_inside_it() {
   const CONFIRM: &str = "Move this file and every other file of its folder to the trash, now and for good";
   let mut stage = Stage::new(page(move |anchor| {
-    Popconfirm::new(anchor, Signal::new(true))
+    Popconfirm::new(Signal::new(true), anchor)
       .id("panel")
       .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
       .title("Delete this file?")
@@ -315,4 +334,200 @@ fn a_button_too_long_for_the_panel_cuts_its_label_inside_it() {
   assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
   assert!(label_x >= fill.x && label_x + label_width <= fill.x + fill.width + 0.5);
   assert!(stage.paints("No"), "the other button is whole");
+}
+
+/// A press of the text `content`: a button's label.
+fn press(stage: &mut Stage, content: &str) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} is painted"));
+  let (x, y) = (quad.x + 2.0, quad.y + 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+}
+
+/// What was told, in order.
+type Told = Arc<Mutex<Vec<&'static str>>>;
+
+/// A handler that writes `what` down in `told`.
+fn tell(told: &Told, what: &'static str) -> impl Fn() + Send + Sync + Clone + 'static {
+  let told = told.clone();
+  move || told.lock().unwrap().push(what)
+}
+
+#[test]
+fn a_button_closes_it_before_its_handler_runs() {
+  let open = Signal::new(true);
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let (held, confirm_saw, cancel_saw) = (open.clone(), seen.clone(), seen.clone());
+  let mut stage = Stage::new(page(move |anchor| {
+    let (on_confirm, on_cancel) = (held.clone(), held.clone());
+    let (confirm_saw, cancel_saw) = (confirm_saw.clone(), cancel_saw.clone());
+    delete_file(
+      anchor,
+      held.clone(),
+      move || confirm_saw.lock().unwrap().push(on_confirm.get()),
+      move || cancel_saw.lock().unwrap().push(on_cancel.get()),
+    )
+  }));
+  press(&mut stage, "Yes");
+  open.set(true);
+  stage.pass();
+  press(&mut stage, "No");
+  assert_eq!(*seen.lock().unwrap(), [false, false], "closed when either handler ran");
+}
+
+#[test]
+fn every_handler_of_on_dismiss_is_told_after_cancel_when_a_person_closes_it_and_not_on_an_answer() {
+  let open = Signal::new(false);
+  let told: Told = Arc::default();
+  let (held, record) = (open.clone(), told.clone());
+  let mut stage = Stage::new(page(move |anchor| {
+    delete_file(anchor, held.clone(), tell(&record, "confirm"), tell(&record, "cancel"))
+      .on_dismiss(tell(&record, "first"))
+      .on_dismiss(tell(&record, "second"))
+  }));
+  stage.click("trigger");
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*told.lock().unwrap(), ["cancel", "first", "second"], "Escape");
+
+  told.lock().unwrap().clear();
+  open.set(true);
+  stage.pass();
+  stage.click("outside");
+  assert!(!open.get());
+  assert_eq!(*told.lock().unwrap(), ["cancel", "first", "second"], "a press outside");
+
+  told.lock().unwrap().clear();
+  open.set(true);
+  stage.pass();
+  press(&mut stage, "No");
+  open.set(true);
+  stage.pass();
+  press(&mut stage, "Yes");
+  assert_eq!(
+    *told.lock().unwrap(),
+    ["cancel", "confirm"],
+    "an answer is no dismissal"
+  );
+}
+
+#[test]
+fn escape_and_a_press_outside_can_each_be_kept_from_cancelling() {
+  let open = Signal::new(false);
+  let (cancelled, cancel) = counter();
+  let held = open.clone();
+  let mut stage = Stage::new(page(move |anchor| {
+    delete_file(anchor, held.clone(), || {}, cancel.clone()).dismiss_on_escape(false)
+  }));
+  stage.click("trigger");
+  stage.key("Escape");
+  assert!(open.get(), "Escape leaves it open");
+  assert_eq!(count(&cancelled), 0);
+  stage.click("outside");
+  assert!(!open.get(), "a press outside still cancels");
+  assert_eq!(count(&cancelled), 1);
+
+  let open = Signal::new(false);
+  let (cancelled, cancel) = counter();
+  let held = open.clone();
+  let mut stage = Stage::new(page(move |anchor| {
+    delete_file(anchor, held.clone(), || {}, cancel.clone()).dismiss_on_outside_press(false)
+  }));
+  stage.click("trigger");
+  stage.click("outside");
+  assert!(open.get(), "a press outside leaves it open");
+  assert_eq!(count(&cancelled), 0);
+  stage.key("Escape");
+  assert!(!open.get(), "Escape still cancels");
+  assert_eq!(count(&cancelled), 1);
+}
+
+#[test]
+fn its_icon_is_the_warning_sign_another_one_or_none() {
+  let title_from_edge = |icon: Option<IconChoice>| {
+    let mut stage = Stage::new(page(move |anchor| {
+      let popconfirm = delete_file(anchor, Signal::new(true), || {}, || {});
+      match icon {
+        Some(icon) => popconfirm.icon(icon),
+        None => popconfirm,
+      }
+    }));
+    let (x, ..) = stage.bounds("panel");
+    stage.text_quad("Delete this file?").unwrap().x - x
+  };
+  let warning = title_from_edge(None);
+  assert!((warning - (12.0 + 16.0 + 8.0)).abs() < 0.5, "after the icon: {warning}");
+  let other = title_from_edge(Some(icons::TRASH.into()));
+  assert!((other - warning).abs() < 0.5, "after another icon: {other}");
+  let none = title_from_edge(Some(None.into()));
+  assert!((none - 12.0).abs() < 0.5, "at the padding, with no icon: {none}");
+}
+
+#[test]
+fn its_width_offset_and_collision_are_its_own() {
+  let mut stage = Stage::new(page(|anchor| {
+    delete_file(anchor, Signal::new(true), || {}, || {})
+      .width(300.0)
+      .offset(10.0)
+  }));
+  let (_, trigger_y, _, trigger_height) = stage.bounds("trigger");
+  let (_, y, width, _) = stage.bounds("panel");
+  assert_eq!((width, y), (300.0, trigger_y + trigger_height + 10.0));
+
+  // Above its trigger there is no room: by default it goes under it, and with no strategy it stays above.
+  let above = |collision: Option<CollisionStrategy>| {
+    let mut stage = Stage::new(page(move |anchor| {
+      let popconfirm = delete_file(anchor, Signal::new(true), || {}, || {}).placement(Placement::TopStart);
+      match collision {
+        Some(collision) => popconfirm.collision(collision),
+        None => popconfirm,
+      }
+    }));
+    let (_, trigger_y, ..) = stage.bounds("trigger");
+    let (_, y, _, height) = stage.bounds("panel");
+    y + height <= trigger_y
+  };
+  assert!(!above(None), "flipped under it");
+  assert!(above(Some(CollisionStrategy::None)), "left above it");
+}
+
+#[test]
+fn an_inline_popconfirm_is_drawn_where_it_is_declared_and_still_answers() {
+  let open = Signal::new(false);
+  let (confirmed, confirm) = counter();
+  let held = open.clone();
+  let mut stage = Stage::new(page(move |anchor| {
+    delete_file(anchor, held.clone(), confirm.clone(), || {}).inline(true)
+  }));
+  assert!(stage.paints("Delete this file?"), "closed, it is drawn");
+  assert!(!stage.paints("Delete file"), "without its trigger");
+  let (x, y, width, _) = stage.bounds("panel");
+  assert_eq!((x, y, width), (20.0, 20.0, 250.0));
+  open.set(true);
+  stage.pass();
+  press(&mut stage, "Yes");
+  assert_eq!(count(&confirmed), 1);
+  assert!(!open.get());
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn its_label_is_what_tooling_calls_it_in_place_of_its_title() {
+  let said = |stage: &mut Stage, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("panel")
+      .and_then(|element| element.description(name))
+  };
+  let mut stage = Stage::new(page(|anchor| delete_file(anchor, Signal::new(true), || {}, || {})));
+  assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("alertdialog"));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Delete this file?"));
+  let mut stage = Stage::new(page(|anchor| {
+    delete_file(anchor, Signal::new(true), || {}, || {}).label("Delete the file")
+  }));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Delete the file"));
 }

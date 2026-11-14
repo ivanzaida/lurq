@@ -726,7 +726,7 @@ app.theme().set_smooth_scroll(false);
 
 - `ScrollState::scroll_x()` and `scroll_y()` are the offset that is drawn, at every step. `ScrollState::scroll_target()` is where the wheel is taking it, and the offset itself when nothing is on its way.
 - An `on_scroll` handler hears the wheel's event once, with its delta, before anything moves, and can prevent the scroll as before. It then hears one event with a zero delta for every step, after the content moved: a handler that reads the offset there reads what is drawn. `on_scroll_reach_top` and `on_scroll_reach_bottom` run when the content gets there, not when the wheel turns. A `VirtualizedList`, sticky elements and whatever else is laid out from the offset follow every step.
-- Only a mouse's notches are animated. A touchpad and a wheel that turns without notches tell their travel in small parts, which move the content with the fingers as before: a delta in pixels, and on Windows and X11 a part of a line. A finger on a touch screen has its own [momentum](../ios/#scrolling). A browser tells every wheel in pixels, so a lurq app that runs in one scrolls a notch at once.
+- Only a mouse's notches are animated. A touchpad and a wheel that turns without notches tell their travel in small parts, which move the content with the fingers as before: a delta in pixels, and on Windows and X11 a part of a line. A finger on a touch screen has its own [momentum](../ios/#scrolling). A browser tells every wheel in pixels, so a lurq app that runs [in one](../web/) scrolls a notch at once.
 - Anything else that scrolls the container stops the animation where the content is, and has its way: `set_scroll`, a scroll queued for the next layout (`set_scroll_pending`, `scroll_to_bottom_pending` and the rest), an element scrolled into view, a drag of the scrollbar's thumb or a press on its track, a touchpad, a finger. Content that keeps its place while what is above it changes, a list that takes rows in above what is shown, keeps it and the animation goes on from there. A notch that takes the content to its end follows the end if the content grows on the way.
 - With [reduced motion](../animation-transforms/#reduced-motion) a notch scrolls at once, and so it does with `Theme::set_smooth_scroll(false)`. Smooth scrolling is on by default. Like reduced motion it is the app's setting and not part of a `ThemeDefinition`.
 - While the content is on its way the window has a running animation: `Tree::has_active_timeline()` is true and the shell draws a frame at every refresh, and none once the content is where it was going.
@@ -916,7 +916,7 @@ Mask glyphs use the normal text shaping and font fallback chain. If the selected
 
 Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys, `Home`, `End`, `Ctrl+A`, `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z`. Hold `Shift` with movement keys to extend the selection; hold `Ctrl` with horizontal movement to jump by words.
 
-With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard.
+With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard. In a browser a paste arrives a turn of the loop after its shortcut, once the browser has answered, and carries text only; see [Web](../web/#the-clipboard).
 
 #### Paste
 
@@ -983,6 +983,15 @@ An unstyled slider takes its fills from the theme: the track `Border`, the thumb
 ```rust
 let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
+```
+
+`.on_change(|low, high| ..)` is told each change a person makes, as it is made: a drag as it moves, a press on the track, a key, a value set by an MCP client. `.on_change_end(|low, high| ..)` is told when such a change is over: the drag let go, the press or the key done. Both are given the low value and the high one; a slider of one value gives its value twice. Neither is told what the app sets on the signal, nor a range or a step that snaps the value. Each call adds a handler.
+
+```rust
+let gain = lurq::core::Signal::new(0.5_f32);
+lurq::components::Slider::new_f32(gain)
+  .on_change(|value, _| println!("now {value}"))
+  .on_change_end(|value, _| println!("settled on {value}"));
 ```
 
 The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; a part's style can have an `.outline(Outline)`, a ring around the part that changes no size; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.

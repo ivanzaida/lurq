@@ -156,12 +156,12 @@ impl Date {
     days_from_civil(self.year, self.month as u32, self.day as u32)
   }
 
-  /// Today where the app runs, by the clock and the zone of the system. Where lurq cannot read the zone, today in
-  /// UTC.
+  /// Today where the app runs, by the clock and the zone of the system, or of the browser on the web. Where lurq
+  /// cannot read the zone, today in UTC.
   pub fn today() -> Self {
     local_today().unwrap_or_else(|| {
-      let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+      let seconds = crate::time::SystemTime::now()
+        .duration_since(crate::time::UNIX_EPOCH)
         .map(|since| since.as_secs() as i64)
         .unwrap_or(0);
       Self::from_unix_days(seconds.div_euclid(86_400))
@@ -534,7 +534,14 @@ fn local_today() -> Option<Date> {
   Date::new(tm[5] + 1900, (tm[4] + 1) as u8, tm[3] as u8)
 }
 
-#[cfg(not(any(windows, all(unix, not(target_arch = "wasm32")))))]
+/// Today by the browser's clock and zone.
+#[cfg(target_arch = "wasm32")]
+fn local_today() -> Option<Date> {
+  let now = js_sys::Date::new_0();
+  Date::new(now.get_full_year() as i32, (now.get_month() + 1) as u8, now.get_date() as u8)
+}
+
+#[cfg(not(any(windows, unix, target_arch = "wasm32")))]
 fn local_today() -> Option<Date> {
   None
 }

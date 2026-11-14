@@ -50,7 +50,7 @@ fn log() -> (
 
 /// The board's context menu on an area of 380 by 280 at 10, 10.
 fn area(open: Signal<bool>, tell: impl Fn(&'static str) -> Box<dyn Fn() + Send + Sync>) -> ContextMenu {
-  ContextMenu::new(Rect::new(380.0, 280.0).id("area"), open)
+  ContextMenu::new(open, Rect::new(380.0, 280.0).id("area"))
     .id("menu")
     .item(
       MenuItem::new("Back")
@@ -150,7 +150,7 @@ fn shift_f10_opens_it_under_the_focused_element_and_the_focus_comes_back() {
   let held = open.clone();
   let mut stage = stage(move |_| {
     placed(
-      ContextMenu::new(Button::new("report.pdf").id("file"), held.clone())
+      ContextMenu::new(held.clone(), Button::new("report.pdf").id("file"))
         .id("menu")
         .item(MenuItem::new("Open").id("open").on_select(tell("open")))
         .item(MenuItem::new("Rename").id("rename").on_select(tell("rename"))),
@@ -205,12 +205,12 @@ fn a_second_secondary_press_moves_it_and_one_context_menu_is_open_at_a_time() {
       .padding(10.0)
       .spacing(20.0)
       .child(
-        ContextMenu::new(Rect::new(380.0, 100.0).id("one"), one.clone())
+        ContextMenu::new(one.clone(), Rect::new(380.0, 100.0).id("one"))
           .id("first")
           .item(MenuItem::new("Copy").on_select(tell("copy"))),
       )
       .child(
-        ContextMenu::new(Rect::new(380.0, 100.0).id("two"), two.clone())
+        ContextMenu::new(two.clone(), Rect::new(380.0, 100.0).id("two"))
           .id("second")
           .item(MenuItem::new("Paste").on_select(tell("paste"))),
       )
@@ -247,7 +247,7 @@ fn the_bar_lays_the_commands_in_a_row_as_the_boards_edit_menu() {
   let held = open.clone();
   let mut stage = stage(move |_| {
     placed(
-      ContextMenu::new(Rect::new(380.0, 280.0).id("area"), held.clone())
+      ContextMenu::new(held.clone(), Rect::new(380.0, 280.0).id("area"))
         .bar(true)
         .id("bar")
         .items(["cut", "copy", "paste"].map(|id| MenuItem::new(&id.to_uppercase()).id(id).on_select(tell(id)))),
@@ -282,4 +282,71 @@ fn a_themes_rules_change_it() {
   let mut stage = stage_in(app, move |_| placed(area(held.clone(), tell.clone())));
   secondary_press(&mut stage, 20.0, 20.0);
   assert_eq!(stage.bounds("menu").2, 300.0);
+}
+
+#[test]
+fn on_dismiss_hears_escape_and_a_press_outside_and_escape_can_be_kept_from_closing_it() {
+  let open = Signal::new(true);
+  let (chosen, tell) = log();
+  let dismissed = Arc::new(Mutex::new(0));
+  let (held, told) = (open.clone(), dismissed.clone());
+  let mut stage = stage(move |_| {
+    let (first, second) = (told.clone(), told.clone());
+    area(held.clone(), tell.clone())
+      .on_dismiss(move || *first.lock().unwrap() += 1)
+      .on_dismiss(move || *second.lock().unwrap() += 10)
+      .into()
+  });
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*dismissed.lock().unwrap(), 11, "both handlers");
+  // A choice is no dismissal.
+  open.set(true);
+  stage.pass();
+  stage.click("reload");
+  assert_eq!(*chosen.lock().unwrap(), ["reload"]);
+  assert_eq!(*dismissed.lock().unwrap(), 11);
+
+  let open = Signal::new(true);
+  let held = open.clone();
+  let mut kept = self::stage(move |_| {
+    ContextMenu::new(held.clone(), Rect::new(380.0, 280.0).id("area"))
+      .dismiss_on_escape(false)
+      .item(MenuItem::new("Back"))
+      .into()
+  });
+  kept.key("Escape");
+  assert!(open.get());
+}
+
+#[test]
+fn an_inline_context_menu_is_its_panel_in_place_of_its_element_with_its_heading() {
+  let (chosen, tell) = log();
+  let open = Signal::new(false);
+  let held = open.clone();
+  let mut stage = stage(move |_| {
+    ContextMenu::new(held.clone(), Rect::new(380.0, 280.0).id("area"))
+      .inline(true)
+      .id("menu")
+      .heading("Page")
+      .item(MenuItem::new("Back").id("back").on_select(tell("back")))
+      .into()
+  });
+  // Drawn though closed, and its element is not.
+  assert!(stage.paints("Page"));
+  assert!(stage.paints("Back"));
+  assert!(stage.tree.get_element_by_id_mut("area").is_none());
+  stage.click("back");
+  assert_eq!(*chosen.lock().unwrap(), ["back"]);
+}
+
+#[test]
+fn offset_is_how_far_its_corner_is_from_the_point_it_was_asked_for() {
+  let open = Signal::new(false);
+  let (_, tell) = log();
+  let held = open.clone();
+  let mut stage = stage(move |_| placed(area(held.clone(), tell.clone()).offset(8.0)));
+  secondary_press(&mut stage, 100.0, 60.0);
+  let (x, y, ..) = stage.bounds("menu");
+  assert_eq!((x, y), (108.0, 68.0), "down and toward the end");
 }

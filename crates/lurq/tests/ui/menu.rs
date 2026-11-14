@@ -63,9 +63,9 @@ fn an_open_menu_is_a_panel_under_its_anchor_with_the_items_the_board_draws() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), true)
+      Menu::controlled(true, anchor.clone(), |_| {})
         .id("menu")
-        .label("Edit")
+        .heading("Edit")
         .item(MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z").id("undo"))
         .separator()
         .item(MenuItem::new("Show grid").checked(true).id("grid"))
@@ -143,7 +143,7 @@ fn a_closed_menu_paints_nothing() {
   let stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), Signal::new(false)).item(MenuItem::new("Rename")),
+      Menu::new(Signal::new(false), anchor.clone()).item(MenuItem::new("Rename")),
     )
   });
   assert!(!stage.paints("Rename"));
@@ -157,7 +157,7 @@ fn choosing_an_item_calls_its_handler_and_closes_the_menu() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), held.clone())
+      Menu::new(held.clone(), anchor.clone())
         .item(MenuItem::new("Rename").id("rename").on_select(tell("rename")))
         .item(MenuItem::new("Redo").disabled(true).id("redo").on_select(tell("redo"))),
     )
@@ -181,7 +181,7 @@ fn escape_and_a_press_outside_close_the_menu() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), held.clone()).item(MenuItem::new("Rename")),
+      Menu::new(held.clone(), anchor.clone()).item(MenuItem::new("Rename")),
     )
   });
   assert!(stage.paints("Rename"));
@@ -206,7 +206,7 @@ fn tab_reaches_the_menu_once_and_the_arrows_move_between_its_items() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), held.clone())
+      Menu::new(held.clone(), anchor.clone())
         .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
         .item(MenuItem::new("Copy").disabled(true).id("copy").on_select(tell("copy")))
         .separator()
@@ -252,8 +252,8 @@ fn a_chosen_radio_item_has_a_dot_at_its_end() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), true)
-        .label("Zoom")
+      Menu::controlled(true, anchor.clone(), |_| {})
+        .heading("Zoom")
         .item(MenuItem::new("50%").radio(false).id("half").on_select(tell("50%")))
         .item(MenuItem::new("100%").radio(true).id("actual"))
         .item(MenuItem::new("Show grid").checked(true)),
@@ -288,13 +288,13 @@ fn a_submenu_opens_beside_its_item_and_choosing_in_it_closes_both() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), held.clone())
+      Menu::new(held.clone(), anchor.clone())
         .style(MenuPart::Panel, |s| s.min_width(160.0))
         .id("menu")
         .item(MenuItem::new("Undo").id("undo"))
         .item(
           MenuItem::new("Export as").id("export").submenu(
-            Menu::new(export.clone(), sub.clone())
+            Menu::new(sub.clone(), export.clone())
               .id("formats")
               .item(MenuItem::new("PNG").id("png").on_select(tell("png")))
               .item(MenuItem::new("SVG")),
@@ -342,7 +342,7 @@ fn an_item_under_the_pointer_is_highlighted() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), true)
+      Menu::controlled(true, anchor.clone(), |_| {})
         .item(MenuItem::new("Profile").id("profile"))
         .item(MenuItem::new("Settings").force(Some(Interaction::Hovered)).id("forced")),
     )
@@ -363,7 +363,8 @@ fn a_destructive_item_is_in_the_destructive_color_and_a_disabled_one_is_dimmed()
   let stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), true).item(MenuItem::new("Log out").icon(icons::SIGN_OUT).destructive(true)),
+      Menu::controlled(true, anchor.clone(), |_| {})
+        .item(MenuItem::new("Log out").icon(icons::SIGN_OUT).destructive(true)),
     )
   });
   assert_eq!(stage.text("Log out"), (light(PaletteColor::Destructive), 14.0));
@@ -387,7 +388,7 @@ fn an_inline_menu_is_drawn_in_place() {
     Column::new()
       .padding(10.0)
       .child(
-        Menu::new(anchor.clone(), false)
+        Menu::controlled(false, anchor.clone(), |_| {})
           .inline(true)
           .id("menu")
           .item(MenuItem::new("Fit to window")),
@@ -417,7 +418,7 @@ fn a_theme_gives_the_item_another_anatomy_and_it_still_closes_the_menu() {
   let mut stage = Stage::in_app(app, move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), held.clone()).item(
+      Menu::new(held.clone(), anchor.clone()).item(
         MenuItem::new("Save")
           .shortcut("Ctrl+S")
           .id("save")
@@ -450,7 +451,7 @@ fn with_button(
         ),
       )
       .child(
-        Menu::new(anchor.clone(), open.clone())
+        Menu::new(open.clone(), anchor.clone())
           .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
           .item(MenuItem::new("Copy").id("copy").on_select(tell("copy")))
           .item(MenuItem::new("Paste").id("paste").on_select(tell("paste"))),
@@ -517,12 +518,12 @@ fn right_opens_a_submenu_at_its_first_item_and_left_or_escape_go_back() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), held.clone())
+      Menu::new(held.clone(), anchor.clone())
         .style(MenuPart::Panel, |s| s.min_width(160.0))
         .item(MenuItem::new("Undo").id("undo"))
         .item(
           MenuItem::new("Export as").id("export").submenu(
-            Menu::new(export.clone(), sub.clone())
+            Menu::new(sub.clone(), export.clone())
               .item(MenuItem::new("PNG").id("png").on_select(tell("png")))
               .item(MenuItem::new("SVG").id("svg")),
           ),
@@ -594,7 +595,7 @@ fn a_menu_is_as_wide_as_its_widest_item_and_never_as_its_window() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), true)
+      Menu::controlled(true, anchor.clone(), |_| {})
         .id("menu")
         .item(MenuItem::new("Undo").id("undo"))
         .item(
@@ -649,7 +650,7 @@ fn the_focus_goes_back_to_what_opened_the_menu_and_not_the_first_button_of_its_a
           ),
       )
       .child(
-        Menu::new(anchor.clone(), held.clone())
+        Menu::new(held.clone(), anchor.clone())
           .placement(Placement::BottomEnd)
           .item(MenuItem::new("Squash and merge").on_select(tell("squash"))),
       )
@@ -693,7 +694,7 @@ fn typing_a_letter_goes_to_the_item_whose_label_starts_with_it() {
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), true)
+      Menu::controlled(true, anchor.clone(), |_| {})
         .item(MenuItem::new("Undo").shortcut("Ctrl+Z").id("undo"))
         .item(MenuItem::new("Redo").disabled(true).id("redo"))
         .separator()
@@ -743,7 +744,7 @@ fn an_items_height_follows_the_density() {
     let mut stage = Stage::in_app(app, move |_| {
       page(
         anchor.clone(),
-        Menu::new(anchor.clone(), true).item(MenuItem::new("Undo").id("undo")),
+        Menu::controlled(true, anchor.clone(), |_| {}).item(MenuItem::new("Undo").id("undo")),
       )
     });
     assert_eq!(stage.bounds("undo").3, height, "{density:?}");
@@ -768,13 +769,13 @@ fn a_submenu_opens_toward_its_chevron_in_a_window_that_lays_its_page_out_at_its_
             .padding_top(20.0)
             .child(Rect::new(120.0, 30.0).id("anchor").ref_element(anchor.clone()))
             .child(
-              Menu::new(anchor.clone(), held.clone())
+              Menu::new(held.clone(), anchor.clone())
                 .id("menu")
-                .label("Edit")
+                .heading("Edit")
                 .item(MenuItem::new("Undo").id("undo").shortcut("Ctrl+Z"))
                 .item(
                   MenuItem::new("Export as").id("export").submenu(
-                    Menu::new(export.clone(), sub.clone())
+                    Menu::new(sub.clone(), export.clone())
                       .id("formats")
                       .item(MenuItem::new("PNG").id("png")),
                   ),
@@ -829,11 +830,11 @@ fn choosing_an_item_of_a_submenu_gives_the_focus_back_to_what_opened_the_menu() 
         ),
       )
       .child(
-        Menu::new(anchor.clone(), held.clone())
+        Menu::new(held.clone(), anchor.clone())
           .item(MenuItem::new("Undo").id("undo"))
           .item(
             MenuItem::new("Export as").id("export").submenu(
-              Menu::new(export.clone(), sub.clone())
+              Menu::new(sub.clone(), export.clone())
                 .item(MenuItem::new("PNG").id("png").on_select(tell("png")))
                 .item(MenuItem::new("SVG").id("svg").on_select(tell("svg"))),
             ),
@@ -874,7 +875,7 @@ fn a_long_label_gives_way_with_an_ellipsis_and_the_shortcut_keeps_its_room_and_i
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
-      Menu::new(anchor.clone(), true)
+      Menu::controlled(true, anchor.clone(), |_| {})
         .id("menu")
         .item(MenuItem::new(LONG).shortcut("Ctrl+Shift+H").id("long"))
         .item(
@@ -943,12 +944,12 @@ fn tab_closes_the_menu_and_its_submenus_and_the_focus_goes_on_from_what_opened_i
       )
       .child(Button::new("After").id("after"))
       .child(
-        Menu::new(anchor.clone(), held.clone())
+        Menu::new(held.clone(), anchor.clone())
           .item(MenuItem::new("Undo").id("undo"))
           .item(
             MenuItem::new("Export as")
               .id("export")
-              .submenu(Menu::new(export.clone(), sub.clone()).item(MenuItem::new("PNG").id("png"))),
+              .submenu(Menu::new(sub.clone(), export.clone()).item(MenuItem::new("PNG").id("png"))),
           ),
       )
       .into()
@@ -1005,7 +1006,7 @@ fn a_menu_hung_from_a_button_with_a_tooltip_takes_the_focus_as_it_opens_from_the
       .padding(40.0)
       .child(lurq::ui::Tooltip::new("Edit the selection").mount(ctx, button))
       .child(
-        Menu::new(anchor.clone(), held.clone())
+        Menu::new(held.clone(), anchor.clone())
           .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
           .item(MenuItem::new("Copy").id("copy").on_select(tell("copy"))),
       )
@@ -1031,4 +1032,237 @@ fn a_menu_hung_from_a_button_with_a_tooltip_takes_the_focus_as_it_opens_from_the
   stage.key("Enter");
   assert_eq!(*chosen.lock().unwrap(), ["copy"]);
   assert_eq!(focused(&stage).as_deref(), Some("button"));
+}
+
+/// A press of the left button at a point of the window, outside every menu of a test's page.
+fn press_outside(stage: &mut Stage) {
+  stage.tree.mouse_move(390.0, 290.0);
+  stage.tree.mouse_down(390.0, 290.0, MouseButton::Left);
+  stage.tree.mouse_up(390.0, 290.0, MouseButton::Left);
+  stage.pass();
+}
+
+#[test]
+fn choosing_an_item_closes_the_menu_and_its_submenu_first_and_then_calls_the_handler() {
+  let (open, exporting) = (Signal::new(true), Signal::new(false));
+  let (anchor, export) = (ElementRef::new(), ElementRef::new());
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let (held, sub, told) = (open.clone(), exporting.clone(), seen.clone());
+  let mut stage = Stage::new(move |_| {
+    let (on_cut, on_png) = (told.clone(), told.clone());
+    let (cut_open, png_open, png_sub) = (held.clone(), held.clone(), sub.clone());
+    page(
+      anchor.clone(),
+      Menu::new(held.clone(), anchor.clone())
+        .item(MenuItem::new("Cut").id("cut").on_select(move || {
+          on_cut.lock().unwrap().push(("cut", cut_open.get_untracked(), false));
+        }))
+        .item(
+          MenuItem::new("Export as")
+            .id("export")
+            .submenu(
+              Menu::new(sub.clone(), export.clone()).item(MenuItem::new("PNG").id("png").on_select(move || {
+                on_png
+                  .lock()
+                  .unwrap()
+                  .push(("png", png_open.get_untracked(), png_sub.get_untracked()));
+              })),
+            ),
+        ),
+    )
+  });
+  // The handler sees the menu closed already: one that opens a dialog keeps the focus the dialog takes.
+  stage.click("cut");
+  assert_eq!(*seen.lock().unwrap(), [("cut", false, false)]);
+  open.set(true);
+  stage.pass();
+  stage.hover("export");
+  assert!(exporting.get());
+  stage.click("png");
+  assert_eq!(
+    seen.lock().unwrap()[1],
+    ("png", false, false),
+    "the submenu and its menu are closed"
+  );
+}
+
+#[test]
+fn on_dismiss_hears_a_person_close_the_menu_and_not_a_choice_or_the_app() {
+  let open = Signal::new(true);
+  let dismissed = Arc::new(Mutex::new(Vec::new()));
+  let (anchor, held, told) = (ElementRef::new(), open.clone(), dismissed.clone());
+  let mut stage = Stage::new(move |_| {
+    let (first, second) = (told.clone(), told.clone());
+    page(
+      anchor.clone(),
+      Menu::new(held.clone(), anchor.clone())
+        .on_dismiss(move || first.lock().unwrap().push("first"))
+        .on_dismiss(move || second.lock().unwrap().push("second"))
+        .item(MenuItem::new("Cut").id("cut")),
+    )
+  });
+  // Escape: both handlers, in order.
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*dismissed.lock().unwrap(), ["first", "second"]);
+  // A press outside.
+  open.set(true);
+  stage.pass();
+  press_outside(&mut stage);
+  assert!(!open.get());
+  assert_eq!(dismissed.lock().unwrap().len(), 4);
+  // A choice and the app closing it are not dismissals.
+  open.set(true);
+  stage.pass();
+  stage.click("cut");
+  assert!(!open.get());
+  open.set(true);
+  stage.pass();
+  open.set(false);
+  stage.pass();
+  assert_eq!(dismissed.lock().unwrap().len(), 4);
+}
+
+#[test]
+fn escape_and_a_press_outside_can_be_kept_from_closing_the_menu() {
+  let open = Signal::new(true);
+  let (anchor, held) = (ElementRef::new(), open.clone());
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(held.clone(), anchor.clone())
+        .dismiss_on_escape(false)
+        .dismiss_on_outside_press(false)
+        .item(MenuItem::new("Cut").id("cut")),
+    )
+  });
+  stage.key("Escape");
+  assert!(open.get(), "Escape");
+  press_outside(&mut stage);
+  assert!(open.get(), "a press outside");
+  assert!(stage.paints("Cut"));
+}
+
+#[test]
+fn a_controlled_menu_shows_what_the_app_answers() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let answer = Signal::new(true);
+  // The app answers a close by keeping it open while `keep` holds.
+  let keep = Arc::new(Mutex::new(true));
+  let (anchor, held, heard, kept) = (ElementRef::new(), answer.clone(), told.clone(), keep.clone());
+  let mut stage = Stage::new(move |_| {
+    let (heard, kept, set) = (heard.clone(), kept.clone(), held.clone());
+    page(
+      anchor.clone(),
+      Menu::controlled(held.get(), anchor.clone(), move |open| {
+        heard.lock().unwrap().push(open);
+        if !*kept.lock().unwrap() {
+          set.set(open);
+        }
+      })
+      .item(MenuItem::new("Cut").id("cut")),
+    )
+  });
+  assert!(stage.paints("Cut"));
+  // Escape asks to close; the app keeps it open, and it stays.
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(*told.lock().unwrap(), [false]);
+  assert!(stage.paints("Cut"), "the app said open");
+  // Now the app follows: a choice closes it.
+  *keep.lock().unwrap() = false;
+  stage.click("cut");
+  stage.pass();
+  assert_eq!(*told.lock().unwrap(), [false, false]);
+  assert!(!answer.get());
+  assert!(!stage.paints("Cut"));
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_menus_label_is_its_name_and_a_heading_is_drawn_over_the_items_after_it() {
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::controlled(true, anchor.clone(), |_| {})
+        .id("menu")
+        .label("Edit")
+        .heading("Zoom")
+        .item(MenuItem::new("Fit")),
+    )
+  });
+  assert!(stage.paints("Zoom"));
+  assert!(!stage.paints("Edit"), "the label is not drawn");
+  let named = stage
+    .tree
+    .get_element_by_id_mut("menu")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(named.as_deref(), Some("Edit"));
+}
+
+#[test]
+fn offset_is_how_far_the_panel_is_from_its_anchor_along_its_side() {
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::controlled(true, anchor.clone(), |_| {})
+        .id("menu")
+        .offset(20.0)
+        .collision(lurq::components::CollisionStrategy::None)
+        .item(MenuItem::new("Fit")),
+    )
+  });
+  // The anchor is 120 by 30 at 20, 20: the panel is under it from its start, 20 down in place of 4.
+  let (x, y, ..) = stage.bounds("menu");
+  assert_eq!((x, y), (20.0, 70.0));
+  // Beside its anchor, it is that far along.
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::controlled(true, anchor.clone(), |_| {})
+        .id("menu")
+        .placement(lurq::components::Placement::RightStart)
+        .offset(10.0)
+        .collision(lurq::components::CollisionStrategy::None)
+        .item(MenuItem::new("Fit")),
+    )
+  });
+  let (x, y, ..) = stage.bounds("menu");
+  assert_eq!((x, y), (20.0 + 120.0 + 10.0, 20.0));
+}
+
+#[test]
+fn a_selected_radio_item_is_in_the_state_selected_and_a_checked_one_in_checked() {
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::controlled(true, anchor.clone(), |_| {})
+        .item(
+          MenuItem::new("100%")
+            .radio(true)
+            .id("zoom")
+            .rules(
+              &lurq::ui::Recipe::new().state(MenuItemState::Selected, MenuItemPart::Root, |s| {
+                s.background(PaletteColor::Destructive)
+              }),
+            ),
+        )
+        .item(
+          MenuItem::new("Grid")
+            .checked(true)
+            .id("grid")
+            .rules(
+              &lurq::ui::Recipe::new().state(MenuItemState::Selected, MenuItemPart::Root, |s| {
+                s.background(PaletteColor::Destructive)
+              }),
+            ),
+        ),
+    )
+  });
+  assert_eq!(stage.fill_color("zoom"), Some(light(PaletteColor::Destructive)));
+  assert_ne!(stage.fill_color("grid"), Some(light(PaletteColor::Destructive)));
 }

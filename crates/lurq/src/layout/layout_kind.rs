@@ -1,7 +1,4 @@
-use std::{
-  sync::{Arc, Mutex},
-  time::{Duration, Instant},
-};
+use std::sync::{Arc, Mutex};
 
 use crate::{
   animation::Easing,
@@ -12,6 +9,7 @@ use crate::{
     },
   },
   node::{dimension::Dimension, spacing_value::SpacingValue},
+  time::{Duration, Instant},
 };
 
 const DEFAULT_FLEX_GROW: f32 = 1.0;
@@ -1294,10 +1292,21 @@ pub enum ShrinkLimit {
   /// `min_width`/`min_height`. The content minimum of a `Row` in a row (or
   /// a `Column` in a column) is its padding and spacing, the natural size of
   /// every child that does not shrink and the limit of every child that does.
-  /// Anything else (text, rect, stack, scroll container, wrapping line, line
-  /// on the other axis) keeps its natural size, like a flex item with CSS
+  /// The content minimum of a line on the other axis (a `Column` in a row)
+  /// is the widest of its children's: a child with an explicit
+  /// `min_width`/`min_height` counts at it, so a text that may wrap says
+  /// `min_width(0.0)`. Anything else (text, rect, stack, scroll container,
+  /// wrapping line) keeps its natural size, like a flex item with CSS
   /// `min-width: auto`.
   Content,
+  /// [`Content`](Self::Content) first, then [`MinSize`](Self::MinSize): the
+  /// child shrinks down to its content minimum while the children of its
+  /// order can take the overflow above their limits, and when they cannot,
+  /// it gives way below it down to its `min_width`/`min_height`, the last
+  /// such child of the order first. Its own line is then laid out as a
+  /// collapsed line: what in it has this limit gives way below its content
+  /// too. Steps whose descriptions wrap before any title is cut.
+  ContentFirst,
   /// Keep the natural size or drop out of the line: a dropped child is laid
   /// out at zero size, takes no spacing, and is neither drawn nor hit.
   /// Nothing inside it is a Tab stop or takes focus, focus inside it is

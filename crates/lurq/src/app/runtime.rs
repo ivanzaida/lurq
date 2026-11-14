@@ -7,7 +7,7 @@ use std::{
     Arc,
     atomic::{AtomicU64, Ordering},
   },
-  time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+  time::Duration,
 };
 
 use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, WindowHandle};
@@ -66,6 +66,7 @@ use crate::{
     },
     transform::Transform2D,
   },
+  time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(all(test, feature = "screenshot", feature = "raster"))]
@@ -826,6 +827,9 @@ pub struct Tree {
   /// A left press that only closed popups (`OutsidePress::Consume`); its
   /// release is swallowed too.
   swallowed_press: Option<MouseButton>,
+  /// What a press's handler asked the focus to go to ([`MouseEvent::focus_key`]): the focus group around the focus
+  /// as it was pressed, and the key. Carried out once the render the press causes is done.
+  pressed_focus_key: Option<(NodeId, Arc<str>)>,
   suppressed_click: Option<SuppressedClick>,
   needs_redraw: bool,
   tree_rebuilt_since_layout: bool,
@@ -1283,6 +1287,7 @@ impl Tree {
       click_press: None,
       press_repeat: None,
       swallowed_press: None,
+      pressed_focus_key: None,
       suppressed_click: None,
       needs_redraw: true,
       tree_rebuilt_since_layout: false,
@@ -2906,7 +2911,7 @@ impl Tree {
       images
     };
     #[cfg(feature = "raster")]
-    let image_frame_time = std::time::Instant::now();
+    let image_frame_time = crate::time::Instant::now();
     #[cfg(feature = "raster")]
     let mut image_sources = Vec::new();
     #[cfg(feature = "raster")]
@@ -3050,16 +3055,33 @@ impl Tree {
           let glyph_clip = expand_text_clip_for_rasterization(scaled_clip);
           if quad.transform.is_identity() {
             // Where the text sits in its box and its glyphs, with their
-            // order and clip: one lookup for a text painted before.
+            // order and clip: one lookup for a text painted before. A text
+            // that wraps into fewer lines painted than laid out (near a
+            // break, the scaled type fits a word more) starts where the
+            // layout put its first line, not lower by half a line.
+            let (align, box_y) = match painted_wrap_offset(
+              &mut glyph_engine,
+              text,
+              style,
+              &scaled_style,
+              quad,
+              max_width,
+              *wrap,
+              *vertical_align,
+              scale,
+            ) {
+              Some(offset) => (crate::layout::text_style::VerticalAlign::LineBox, scaled_y + offset),
+              None => (*vertical_align, scaled_y),
+            };
             glyph_engine.paint_text_into(
               text,
               &scaled_style,
               max_width,
               *wrap,
-              *vertical_align,
+              align,
               scaled_height,
               quad.x * scale,
-              scaled_y,
+              box_y,
               glyph_clip,
               order,
               &mut glyphs,
@@ -4255,7 +4277,7 @@ impl Tree {
     }
     self.apply_reactive_updates_after_event();
     if let Some((group, key)) = keyed_focus {
-      self.focus_keyed_in_group(group, &key);
+      self.focus_keyed_in_group(group, &key, true);
     }
   }
 
@@ -4871,6 +4893,28 @@ impl Tree {
     modifiers: MouseModifiers,
     click_target: Option<NodeId>,
   ) {
+    let control = EventControl::new();
+    self.dispatch_mouse_with_control(x, y, button, kind, modifiers, click_target, control.clone());
+    // A handler asked for an element of the focus group around the focus by its key: found once the render the
+    // press causes is done, in the group the focus was in as it was pressed.
+    if let Some(key) = control.take_focus_key()
+      && let Some(group) = self.focus_group_around_focus()
+    {
+      self.pressed_focus_key = Some((group, key));
+    }
+  }
+
+  #[allow(clippy::too_many_arguments)]
+  fn dispatch_mouse_with_control(
+    &mut self,
+    x: f32,
+    y: f32,
+    button: MouseButton,
+    kind: MouseEventKind,
+    modifiers: MouseModifiers,
+    click_target: Option<NodeId>,
+    control: EventControl,
+  ) {
     let mut evt = MouseEvent {
       x,
       y,
@@ -4887,7 +4931,7 @@ impl Tree {
         crate::app::events::PointerKind::Mouse
       },
       target_id: NodeId::UNASSIGNED,
-      control: EventControl::new(),
+      control,
     };
     let scale = self.scale_factor();
     let text_click_interval = self.double_click_interval.unwrap_or(DOUBLE_CLICK_INTERVAL);
@@ -6897,6 +6941,9 @@ impl Tree {
       self.rebuild_if_dirty();
     }
     self.apply_focus_request();
+    if let Some((group, key)) = self.pressed_focus_key.take() {
+      self.focus_keyed_in_group(group, &key, false);
+    }
     self.refresh_interaction_groups();
   }
 
@@ -8974,6 +9021,7 @@ impl SliderDrag {
 
   fn finish(&self) {
     self.state.clear_drag_ratio();
+    self.state.change_ended();
     for on_finish in &self.on_finish {
       on_finish.call();
     }
@@ -11413,6 +11461,38 @@ fn composite_screenshot_layer(pixels: &mut [u8], layer: &[u8], width: u32, opaci
     let (x, y) = (index as u32 % width, index as u32 / width);
     blend_screenshot_pixel(pixels, width, x, y, [source[0], source[1], source[2], alpha]);
   }
+}
+
+/// The offset of a wrapped text's first line in its painted box where the
+/// paint would wrap it into another number of lines than the layout did: the
+/// layout's offset, scaled. `None` where both agree, or the text does not wrap.
+#[allow(clippy::too_many_arguments)]
+fn painted_wrap_offset(
+  glyph_engine: &mut crate::app::glyph_engine::GlyphEngine,
+  text: &str,
+  style: &crate::layout::text_style::TextStyle,
+  scaled_style: &crate::layout::text_style::TextStyle,
+  quad: &Quad,
+  max_width: f32,
+  wrap: bool,
+  align: crate::layout::text_style::VerticalAlign,
+  scale: f32,
+) -> Option<f32> {
+  if !wrap
+    || quad.width <= 0.0
+    || quad.height <= 0.0
+    || matches!(
+      align,
+      crate::layout::text_style::VerticalAlign::LineBox | crate::layout::text_style::VerticalAlign::Top
+    )
+  {
+    return None;
+  }
+  let laid_out = glyph_engine.text_vertical_align_offset(text, style, quad.width, wrap, align, quad.height) * scale;
+  let painted =
+    glyph_engine.text_vertical_align_offset(text, scaled_style, max_width, wrap, align, quad.height * scale);
+  // A line more or fewer moves a centered text by half a line, at least half the type's size.
+  ((laid_out - painted).abs() > scaled_style.font_size * 0.4).then_some(laid_out)
 }
 
 fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {

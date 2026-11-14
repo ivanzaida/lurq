@@ -15,7 +15,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::glyph,
+  shared::{Orientation, glyph},
   text_box::edge,
   theme::{Themed, current_theme},
 };
@@ -69,6 +69,8 @@ names!(SplitterPart {
 /// keyboard do to its dividers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SplitterState {
+  /// Its panes are side by side, its dividers stand between them.
+  Horizontal,
   /// Its panes are one over the other, its dividers lie across.
   Vertical,
   /// It is drawn as a box of its own: the board's specimen, with a fill, an edge and round corners.
@@ -78,28 +80,21 @@ pub enum SplitterState {
 }
 
 names!(SplitterState {
+  Horizontal => "horizontal",
   Vertical => "vertical",
   Framed => "framed",
   Disabled => "disabled",
 });
 
-/// Which way a splitter lays its panes.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum SplitterOrientation {
-  /// Side by side, the dividers standing between them: a side bar beside an editor.
-  #[default]
-  Horizontal,
-  /// One over the other, the dividers lying between them: an editor over a terminal.
-  Vertical,
-}
+/// Which way a splitter lays its panes: `Horizontal`, side by side, the dividers standing between them (a side bar
+/// beside an editor); `Vertical`, one over the other, the dividers lying between them (an editor over a terminal).
+pub type SplitterOrientation = Orientation;
 
-impl SplitterOrientation {
-  /// The orientation of its dividers, as tooling is told it: a horizontal splitter's dividers stand upright.
-  fn divider(self) -> &'static str {
-    match self {
-      Self::Horizontal => "vertical",
-      Self::Vertical => "horizontal",
-    }
+/// The orientation of a splitter's dividers, as tooling is told it: a horizontal splitter's dividers stand upright.
+fn divider_orientation(orientation: Orientation) -> &'static str {
+  match orientation {
+    Orientation::Horizontal => "vertical",
+    Orientation::Vertical => "horizontal",
   }
 }
 
@@ -124,7 +119,7 @@ enum PaneSize {
 /// ```
 /// use lurq::{components::Text, ui::SplitterPane};
 ///
-/// let files = SplitterPane::new(Text::new("Files")).size(240.0).min(160.0).max(480.0).collapsible(true);
+/// let files = SplitterPane::new(Text::new("Files")).length(240.0).min(160.0).max(480.0).collapsible(true);
 /// let preview = SplitterPane::new(Text::new("Preview")).share(0.3).min(120.0);
 /// // No size: it takes the rest of the room.
 /// let editor = SplitterPane::new(Text::new("Editor")).min(200.0);
@@ -136,7 +131,9 @@ pub struct SplitterPane {
   min: f32,
   max: f32,
   collapsible: bool,
+  disabled: bool,
   label: Option<Arc<str>>,
+  id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
 
@@ -150,14 +147,16 @@ impl SplitterPane {
       min: 0.0,
       max: f32::INFINITY,
       collapsible: false,
+      disabled: false,
       label: None,
+      id: None,
       key: None,
     }
   }
 
   /// How many pixels long the pane is along the splitter to begin with. It keeps them as the splitter grows and
   /// shrinks: a side bar.
-  pub fn size(mut self, px: f32) -> Self {
+  pub fn length(mut self, px: f32) -> Self {
     self.size = Some(PaneSize::Px(px.max(0.0)));
     self
   }
@@ -194,6 +193,19 @@ impl SplitterPane {
     self
   }
 
+  /// Whether the pane keeps its size: no divider beside it moves it, by the pointer or by the keys, and it does
+  /// not close. The splitter still gives it what the window takes from or adds to a pane that takes the rest.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
+  /// The id of the pane's element.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
   /// What tells the pane apart from the others where panes come and go.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
@@ -219,6 +231,8 @@ struct Spec {
   min: f32,
   max: f32,
   collapsible: bool,
+  /// No divider beside it moves it.
+  disabled: bool,
   label: Option<Arc<str>>,
 }
 
@@ -256,7 +270,8 @@ fn specs(panes: &[SplitterPane]) -> Vec<Spec> {
         begin,
         min: pane.min,
         max: pane.max.max(pane.min),
-        collapsible: pane.collapsible && kind != Kind::Rest,
+        collapsible: pane.collapsible && kind != Kind::Rest && !pane.disabled,
+        disabled: pane.disabled,
         label: pane.label.clone(),
       }
     })
@@ -271,16 +286,17 @@ fn specs(panes: &[SplitterPane]) -> Vec<Spec> {
 /// use lurq::{
 ///   components::Text,
 ///   core::Signal,
-///   ui::{Splitter, SplitterPane},
+///   ui::{Orientation, Splitter, SplitterPane},
 /// };
 ///
 /// let layout = Signal::new(Vec::new());
-/// let window = Splitter::horizontal()
-///   .pane(SplitterPane::new(Text::new("Files")).size(240.0).min(160.0).collapsible(true).label("Files"))
+/// let window = Splitter::new()
+///   .pane(SplitterPane::new(Text::new("Files")).length(240.0).min(160.0).collapsible(true).label("Files"))
 ///   .pane(SplitterPane::new(
-///     Splitter::vertical()
+///     Splitter::new()
+///       .orientation(Orientation::Vertical)
 ///       .pane(SplitterPane::new(Text::new("Editor")).min(120.0))
-///       .pane(SplitterPane::new(Text::new("Terminal")).size(160.0).min(80.0).collapsible(true)),
+///       .pane(SplitterPane::new(Text::new("Terminal")).length(160.0).min(80.0).collapsible(true)),
 ///   ))
 ///   .sizes(layout.clone())
 ///   .on_resize_end(|sizes| println!("panes now {sizes:?}"));
@@ -326,20 +342,10 @@ pub struct Splitter {
 }
 
 impl Splitter {
-  /// A splitter of panes side by side.
-  pub fn horizontal() -> Self {
-    Self::new(SplitterOrientation::Horizontal)
-  }
-
-  /// A splitter of panes one over the other.
-  pub fn vertical() -> Self {
-    Self::new(SplitterOrientation::Vertical)
-  }
-
-  /// A splitter of panes laid `orientation`.
-  pub fn new(orientation: SplitterOrientation) -> Self {
+  /// A splitter of panes side by side: [`Splitter::orientation`] lays them one over the other.
+  pub fn new() -> Self {
     Self {
-      orientation,
+      orientation: Orientation::Horizontal,
       panes: Vec::new(),
       sizes: None,
       on_resize: Vec::new(),
@@ -357,6 +363,12 @@ impl Splitter {
       key: None,
       host: None,
     }
+  }
+
+  /// Which way the panes are laid: side by side (`Horizontal`, the default), or one over the other (`Vertical`).
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
+    self
   }
 
   /// Adds a pane after the others, with a divider before it.
@@ -472,7 +484,7 @@ impl Splitter {
   }
 
   /// The splitter as a renderer sees it in `theme`.
-  pub fn view(self, theme: &Theme) -> SplitterView {
+  fn view(self, theme: &Theme) -> SplitterView {
     let case = Case {
       variant: None,
       size: None,
@@ -480,14 +492,20 @@ impl Splitter {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(
-      SplitterState::Vertical,
-      self.orientation == SplitterOrientation::Vertical,
-    )
+    .state(SplitterState::Horizontal, self.orientation == Orientation::Horizontal)
+    .state(SplitterState::Vertical, self.orientation == Orientation::Vertical)
     .state(SplitterState::Framed, self.framed)
     .state(SplitterState::Disabled, self.disabled);
     let specs = specs(&self.panes);
-    let (contents, keys) = self.panes.into_iter().map(|pane| (pane.content, pane.key)).unzip();
+    let mut ids = Vec::with_capacity(self.panes.len());
+    let (contents, keys) = self
+      .panes
+      .into_iter()
+      .map(|pane| {
+        ids.push(pane.id);
+        (pane.content, pane.key)
+      })
+      .unzip();
     SplitterView {
       orientation: self.orientation,
       grip: self.grip,
@@ -497,6 +515,7 @@ impl Splitter {
       specs,
       contents,
       keys,
+      ids,
       sizes: self.sizes.unwrap_or_else(|| Signal::new(Vec::new())),
       on_resize: self.on_resize,
       on_resize_end: self.on_resize_end,
@@ -531,6 +550,12 @@ impl Splitter {
       Some(key) => ctx.mount_keyed::<SplitterHost>(&key, props),
       None => ctx.mount::<SplitterHost>(props),
     }
+  }
+}
+
+impl Default for Splitter {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
@@ -756,6 +781,9 @@ impl Panes {
   /// closed one dragged over half of it opens, where `closes`. `None` where the two cannot both fit.
   fn moved(&self, start: &[f32], index: usize, by: f32, closes: bool) -> Option<Vec<f32>> {
     let (first, second) = (&self.specs[index], &self.specs[index + 1]);
+    if first.disabled || second.disabled {
+      return None;
+    }
     let total = start[index] + start[index + 1];
     let shut = |spec: &Spec, size: f32| closes && spec.collapsible && size < spec.min / 2.0;
     let mut a = start[index] + by;
@@ -793,6 +821,9 @@ impl Panes {
       .into_iter()
       .find(|pane| self.specs[*pane].collapsible)?;
     let other = if pane == index { index + 1 } else { index };
+    if self.specs[other].disabled {
+      return None;
+    }
     let total = start[index] + start[index + 1];
     let mut sizes = start.clone();
     if start[pane] > 0.0 {
@@ -925,6 +956,7 @@ pub struct SplitterView {
   specs: Vec<Spec>,
   contents: Vec<Element>,
   keys: Vec<Option<Arc<str>>>,
+  ids: Vec<Option<Arc<str>>>,
   sizes: Signal<Vec<f32>>,
   on_resize: Vec<SizesHandler>,
   on_resize_end: Vec<SizesHandler>,
@@ -1078,6 +1110,9 @@ impl SplitterView {
       if let Some(key) = &self.keys[index] {
         pane = pane.key(key.clone());
       }
+      if let Some(id) = &self.ids[index] {
+        pane = pane.id(id.clone());
+      }
       below.push(pane.into());
       above.push(
         self
@@ -1148,7 +1183,7 @@ impl SplitterView {
       .child(Row::new().part(&self.part(SplitterPart::Line)))
       .child(Row::new().part(&self.part(SplitterPart::Bar)))
       .describe("a11y_role", "separator")
-      .describe("a11y_orientation", self.orientation.divider());
+      .describe("a11y_orientation", divider_orientation(self.orientation));
     if horizontal {
       handle = handle.offset(back, 0.0);
     } else {

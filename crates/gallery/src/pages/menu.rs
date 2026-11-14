@@ -103,7 +103,7 @@ impl MenuPage {
     let formats = |anchor: ElementRef, open: Signal<bool>, told: &dyn Fn(&str) -> Box<dyn Fn() + Send + Sync>| {
       ["PNG", "SVG", "PDF"]
         .into_iter()
-        .fold(Menu::new(anchor, open), |menu, format| {
+        .fold(Menu::new(open, anchor), |menu, format| {
           menu.item(MenuItem::new(format).on_select(told(format)))
         })
     };
@@ -129,10 +129,10 @@ impl MenuPage {
       }
     };
     let menu = move |anchor: ElementRef, open: Signal<bool>, shaped: MenuItem, undo: MenuItem, delete: MenuItem| {
-      Menu::new(anchor, open)
+      Menu::new(open, anchor)
         .placement(PLACEMENTS[placement].1)
         .inline(inline)
-        .label("Edit")
+        .heading("Edit")
         .item(undo)
         .item(shaped)
         .separator()
@@ -203,21 +203,21 @@ impl MenuPage {
     }
     if submenu {
       item_code.push("            .submenu(".to_owned());
-      item_code.push("                Menu::new(formats_anchor, formats_open)".to_owned());
+      item_code.push("                Menu::new(formats_open, formats_anchor)".to_owned());
       item_code.push("                    .items([\"PNG\", \"SVG\", \"PDF\"].map(MenuItem::new)),".to_owned());
       item_code.push("            ),".to_owned());
     } else {
       item_code.push("            .on_select(|| rename()),".to_owned());
     }
     let mut code = vec!["// open: Signal<bool>, set by a press of the button the menu hangs from".to_owned()];
-    code.push("Menu::new(anchor, open)".to_owned());
+    code.push("Menu::new(open, anchor)".to_owned());
     if placement != 0 {
       code.push(format!("    .placement(Placement::{})", PLACEMENTS[placement].0));
     }
     if inline {
       code.push("    .inline(true)".to_owned());
     }
-    code.push("    .label(\"Edit\")".to_owned());
+    code.push("    .heading(\"Edit\")".to_owned());
     code.push("    .item(MenuItem::new(\"Undo\").icon(icons::UNDO).shortcut(\"Ctrl+Z\"))".to_owned());
     code.push("    .item(".to_owned());
     code.extend(item_code);
@@ -390,8 +390,8 @@ impl Component for MenuPage {
 
     // The board's dropdown, under a button.
     let says = |name: &str| Self::says(&self.account_chosen, name);
-    let account = Menu::new(self.account_anchor.clone(), self.account_open.clone())
-      .label("Workspace")
+    let account = Menu::new(self.account_open.clone(), self.account_anchor.clone())
+      .heading("Workspace")
       .item(
         MenuItem::new("Profile")
           .icon(icons::USER)
@@ -434,7 +434,7 @@ impl Component for MenuPage {
     let (grid, snap) = (self.grid.clone(), self.snap.clone());
     let (show_grid, snap_on) = (grid.get(), snap.get());
     let zoom = |name: &str| Self::says(&self.zoom_chosen, name);
-    let board = Menu::new(ElementRef::new(), true)
+    let board = Menu::controlled(true, ElementRef::new(), |_| {})
       .inline(true)
       .item(MenuItem::new("Undo").shortcut("Ctrl+Z").on_select(zoom("Undo")))
       .item(MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true))
@@ -450,7 +450,7 @@ impl Component for MenuPage {
           .on_select(move || snap.set(!snap_on)),
       )
       .separator()
-      .label("Zoom")
+      .heading("Zoom")
       .items(["Fit to window", "100%"].into_iter().enumerate().map(|(index, name)| {
         let pick = self.zoom.clone();
         MenuItem::new(name)
@@ -460,7 +460,7 @@ impl Component for MenuPage {
       .separator()
       .item(
         MenuItem::new("Export as").submenu(
-          Menu::new(self.export_anchor.clone(), self.export_open.clone())
+          Menu::new(self.export_open.clone(), self.export_anchor.clone())
             .items(["PNG", "SVG", "PDF"].map(|format| MenuItem::new(format).on_select(zoom(format)))),
         ),
       );
@@ -468,7 +468,7 @@ impl Component for MenuPage {
 
     // The split button: the action, and beside it the menu of how to do it.
     let strategy = self.strategy.get().min(STRATEGIES.len() - 1);
-    let mut how = Menu::new(self.merge_anchor.clone(), self.merge_open.clone()).placement(Placement::BottomEnd);
+    let mut how = Menu::new(self.merge_open.clone(), self.merge_anchor.clone()).placement(Placement::BottomEnd);
     for (index, name) in STRATEGIES.iter().enumerate() {
       let pick = self.strategy.clone();
       how = how.item(
@@ -481,10 +481,10 @@ impl Component for MenuPage {
     let split = Column::new()
       .child(
         Row::new().ref_element(self.merge_anchor.clone()).child(
-          ButtonGroup::new()
+          ButtonGroup::new([])
             .variant(ButtonGroupVariant::Primary)
-            .child(Button::new("Merge").on_click(move |_| merged.set(done.to_owned())))
-            .child(
+            .button(Button::new("Merge").on_click(move |_| merged.set(done.to_owned())))
+            .button(
               Button::new("How to merge")
                 .icon(icons::CHEVRON_DOWN)
                 .icon_only(true)
@@ -503,11 +503,18 @@ impl Component for MenuPage {
 
     let rows = [
       (
-        "Menu::new(anchor, open)",
-        "ElementRef, Signal<bool>",
+        "Menu::new(open, anchor)",
+        "Signal<bool>, ElementRef",
         "",
-        "What the menu hangs from, and whether it is open: the app's. Choosing an item, a press outside and \
-         Escape set it to false. A bool holds it open or closed.",
+        "Whether the menu is open, the app's signal, and what it hangs from. Choosing an item, a press outside, \
+         Escape and Tab set it to false.",
+      ),
+      (
+        "Menu::controlled(open, anchor, on_open_change)",
+        "bool, ElementRef, Fn(bool)",
+        "",
+        "A menu the app holds open itself: a person closing it is told with false, and the app's next open is \
+         what is drawn.",
       ),
       (
         "item",
@@ -522,16 +529,48 @@ impl Component for MenuPage {
         "A line that ends one group of items and starts the next.",
       ),
       (
-        "label",
+        "heading",
         "&str",
         "",
-        "A text over the items after it: what they are about.",
+        "A heading over the items after it: what they are about.",
       ),
+      ("label", "&str", "", "The menu's name to what reads the tree."),
       (
         "placement",
         "Placement",
         "BottomStart",
         "Where the panel opens beside its anchor, 4 from it.",
+      ),
+      (
+        "offset",
+        "impl Into<SpacingValue>",
+        "4",
+        "How far the panel is from its anchor, along the side it opens on.",
+      ),
+      (
+        "collision",
+        "CollisionStrategy",
+        "FlipThenClamp",
+        "What the panel does where the window has no room on its side.",
+      ),
+      (
+        "on_dismiss",
+        "Fn()",
+        "",
+        "A person closed it other than by a choice: Escape, a press outside, Tab. Adds.",
+      ),
+      (
+        "on_open_change",
+        "Fn(bool)",
+        "",
+        "Told false when a person closes it, by a choice too. Adds.",
+      ),
+      ("dismiss_on_escape", "bool", "true", "Escape closes it."),
+      (
+        "dismiss_on_outside_press",
+        "bool",
+        "true",
+        "A press outside it closes it.",
       ),
       (
         "inline",
@@ -557,7 +596,7 @@ impl Component for MenuPage {
         "radio",
         "bool",
         "",
-        "One of several of which one is chosen: a dot at the end of the chosen one.",
+        "One of several of which one is selected: a dot at the end of the selected one.",
       ),
       (
         "submenu",
@@ -582,7 +621,7 @@ impl Component for MenuPage {
         "on_select",
         "impl Fn()",
         "",
-        "Called when it is chosen, before its menu closes.",
+        "Called when it is chosen, after its menu closed. Adds.",
       ),
     ];
     let playground = self.play(ctx);
@@ -613,7 +652,7 @@ impl Component for MenuPage {
           self.frame.demo(
             0,
             dropdown,
-            "Menu::new(anchor, open).item(MenuItem::new(\"Profile\"))",
+            "Menu::new(open, anchor).item(MenuItem::new(\"Profile\"))",
             &[
               "// anchor: ElementRef, open: Signal<bool>",
               "let toggle = open.clone();",
@@ -627,8 +666,8 @@ impl Component for MenuPage {
               "            .on_click(move |_| toggle.update(|open| *open = !*open)),",
               "    )",
               "",
-              "Menu::new(anchor, open)",
-              "    .label(\"Workspace\")",
+              "Menu::new(open, anchor)",
+              "    .heading(\"Workspace\")",
               "    .item(MenuItem::new(\"Profile\").icon(icons::USER).shortcut(\"Ctrl+P\").on_select(..))",
               "    .item(MenuItem::new(\"Settings\").icon(icons::SETTINGS).shortcut(\"Ctrl+,\").on_select(..))",
               "    .item(MenuItem::new(\"Keyboard shortcuts\").icon(icons::KEYBOARD).on_select(..))",
@@ -648,21 +687,21 @@ impl Component for MenuPage {
             states,
             ".checked(grid.get())",
             &[
-              "Menu::new(anchor, open)",
+              "Menu::new(open, anchor)",
               "    .item(MenuItem::new(\"Undo\").shortcut(\"Ctrl+Z\"))",
               "    .item(MenuItem::new(\"Redo\").shortcut(\"Ctrl+Y\").disabled(true))",
               "    .separator()",
               "    .item(MenuItem::new(\"Show grid\").checked(grid.get()).on_select(..))",
               "    .item(MenuItem::new(\"Snap to guides\").checked(snap.get()).on_select(..))",
               "    .separator()",
-              "    .label(\"Zoom\")",
+              "    .heading(\"Zoom\")",
               "    .item(MenuItem::new(\"Fit to window\").radio(zoom.get() == 0).on_select(..))",
               "    .item(MenuItem::new(\"100%\").radio(zoom.get() == 1).on_select(..))",
               "    .separator()",
               "    .item(",
               "        MenuItem::new(\"Export as\").submenu(",
               "            // export: ElementRef, exporting: Signal<bool>",
-              "            Menu::new(export, exporting)",
+              "            Menu::new(exporting, export)",
               "                .item(MenuItem::new(\"PNG\").on_select(..))",
               "                .item(MenuItem::new(\"SVG\").on_select(..))",
               "                .item(MenuItem::new(\"PDF\").on_select(..)),",
@@ -682,10 +721,10 @@ impl Component for MenuPage {
             &[
               "// anchor: ElementRef, open: Signal<bool>, strategy: Signal<usize>",
               "Row::new().ref_element(anchor.clone()).child(",
-              "    ButtonGroup::new()",
+              "    ButtonGroup::new([])",
               "        .variant(ButtonGroupVariant::Primary)",
-              "        .child(Button::new(\"Merge\").on_click(..))",
-              "        .child(",
+              "        .button(Button::new(\"Merge\").on_click(..))",
+              "        .button(",
               "            Button::new(\"How to merge\")",
               "                .icon(icons::CHEVRON_DOWN)",
               "                .icon_only(true)",
@@ -693,7 +732,7 @@ impl Component for MenuPage {
               "        ),",
               ")",
               "",
-              "Menu::new(anchor, open)",
+              "Menu::new(open, anchor)",
               "    .placement(Placement::BottomEnd)",
               "    .item(MenuItem::new(\"Create a merge commit\").checked(strategy.get() == 0).on_select(..))",
               "    .item(MenuItem::new(\"Squash and merge\").checked(strategy.get() == 1).on_select(..))",
@@ -706,7 +745,7 @@ impl Component for MenuPage {
           "What a menu and its items are given.",
           props_table(
             &rows,
-            &["Menu::new(anchor, open)", "MenuItem::new(label)"],
+            &["Menu::new(open, anchor)", "MenuItem::new(label)"],
             self.frame.room(),
           ),
         ),

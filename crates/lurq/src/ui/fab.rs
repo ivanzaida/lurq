@@ -37,11 +37,20 @@ names!(FabPart {
 pub enum FabState {
   /// It shows its label beside its icon.
   Extended,
+  /// It takes no input. A button's own rule dims it.
+  Disabled,
+  /// What it started is under way. A button's own rule turns its spinner.
+  Loading,
 }
 
 names!(FabState {
   Extended => "extended",
+  Disabled => "disabled",
+  Loading => "loading",
 });
+
+/// What builds a floating action button's nodes: a theme's in place of the default one.
+pub type FabRenderer = Arc<dyn Fn(Fab) -> Element + Send + Sync>;
 
 /// A floating action button: the one thing a view is for, raised over it.
 /// Compose in a mail app, add in a list.
@@ -65,6 +74,7 @@ pub struct Fab {
   extended: bool,
   disabled: bool,
   loading: bool,
+  states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
   on_click: Vec<EventHandler<crate::app::events::MouseEvent>>,
@@ -82,6 +92,7 @@ impl Fab {
       extended: false,
       disabled: false,
       loading: false,
+      states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
       on_click: Vec::new(),
@@ -119,6 +130,23 @@ impl Fab {
     self
   }
 
+  /// Puts the button in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Lays rules over the theme's recipe for this button: what the component
+  /// it is in says of it in this place.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
   /// Styles one part of this button over what the theme gives it.
   pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
     self.rules = self.rules.base(part, style);
@@ -145,10 +173,15 @@ impl Fab {
   /// Builds the button in `theme`. Converting it into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new()
+    let mut case = Case::new()
       .variant(self.variant)
       .breakpoint(super::current_breakpoint())
-      .state(FabState::Extended, self.extended);
+      .state(FabState::Extended, self.extended)
+      .state(FabState::Disabled, self.disabled)
+      .state(FabState::Loading, self.loading);
+    for state in &self.states {
+      case = case.state(state.clone(), true);
+    }
     let recipe = theme.resolve::<Fab>(&case, Some(&self.rules));
     // What the recipe says of each part is laid over the theme's for that part of a button.
     let rules = recipe
@@ -186,7 +219,7 @@ impl From<Fab> for Element {
 
 impl Themed for Fab {
   const NAME: &'static str = "fab";
-  type Renderer = Arc<dyn Fn(Fab) -> Element + Send + Sync>;
+  type Renderer = FabRenderer;
 
   /// The design's floating action button (`pencil/lurq-design-system.pen`,
   /// FAB): a circle of 48 with an icon of 20 and a shadow under it.

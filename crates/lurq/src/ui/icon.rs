@@ -67,7 +67,9 @@ impl Icon {
     }
   }
 
-  /// The side of the icon: an [`IconSize`], or a number of logical pixels.
+  /// The side of the icon: a step of the theme's icon sizes, an [`IconSize`] (`Md` unless told), or a number of
+  /// logical pixels. It takes a [`Length`], not a size the theme's recipe names as other components' `size` does:
+  /// an icon has no recipe, and the components it is in give it the length their own recipes resolve to.
   pub fn size(mut self, size: impl Into<Length>) -> Self {
     self.size = size.into();
     self

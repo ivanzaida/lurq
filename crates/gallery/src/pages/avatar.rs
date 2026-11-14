@@ -154,7 +154,7 @@ impl AvatarPage {
     };
     let group = move || {
       let group = AvatarGroup::new(PEOPLE.map(Avatar::new)).size(size).label("Reviewers");
-      if max > 0 { group.max(max) } else { group }
+      if max > 0 { group.max_shown(max) } else { group }
     };
     let shown = {
       let (avatar, group) = (avatar.clone(), group.clone());
@@ -195,7 +195,7 @@ impl AvatarPage {
       code.push(format!("    .size(AvatarSize::{size:?})"));
     }
     if max > 0 {
-      code.push(format!("    .max({max})"));
+      code.push(format!("    .max_shown({max})"));
     }
     code.push("    .label(\"Reviewers\")".to_owned());
 
@@ -292,7 +292,7 @@ impl AvatarPage {
           ),
           divider(),
           prop(
-            "group max",
+            "group max_shown",
             "usize",
             self
               .playground
@@ -396,7 +396,9 @@ impl Component for AvatarPage {
     let groups = Column::new()
       .spacing(24.0)
       .child(item(
-        AvatarGroup::new(PEOPLE.map(Avatar::new)).max(3).label("Reviewers"),
+        AvatarGroup::new(PEOPLE.map(Avatar::new))
+          .max_shown(3)
+          .label("Reviewers"),
         "max 3 of 6",
       ))
       .child(item(
@@ -413,7 +415,7 @@ impl Component for AvatarPage {
       .child(item(
         AvatarGroup::new(PEOPLE.map(Avatar::new))
           .size(AvatarSize::Sm)
-          .max(4)
+          .max_shown(4)
           .label("Watching"),
         "24, max 4",
       ));
@@ -425,7 +427,7 @@ impl Component for AvatarPage {
       .overflow_visible()
       .child(
         AvatarGroup::new(PEOPLE.map(Avatar::new))
-          .max(3)
+          .max_shown(3)
           .label("Reviewers")
           .style(AvatarGroupPart::Item, |s| {
             s.border(Border::outside(2.0, PaletteColor::Card))
@@ -475,7 +477,7 @@ impl Component for AvatarPage {
         "The dot at the bottom end: online, away, busy or offline.",
       ),
       (
-        "AvatarGroup::max",
+        "AvatarGroup::max_shown",
         "usize",
         "",
         "The most avatars a group shows; after them it shows how many it leaves out, \"+3\".",
@@ -572,10 +574,10 @@ impl Component for AvatarPage {
           self.frame.demo(
             3,
             groups,
-            "AvatarGroup::new(avatars).max(3)",
+            "AvatarGroup::new(avatars).max_shown(3)",
             &[
               "let people = [\"Ivan Zaida\", \"Anna K.\", \"Mark R.\", \"Ivy Chen\", \"Ivo Kovac\", \"Lena Quinn\"];",
-              "AvatarGroup::new(people.map(Avatar::new)).max(3).label(\"Reviewers\")",
+              "AvatarGroup::new(people.map(Avatar::new)).max_shown(3).label(\"Reviewers\")",
               "",
               "AvatarGroup::new([",
               "    Avatar::new(\"Ivan Zaida\").image(ivan),",
@@ -586,7 +588,7 @@ impl Component for AvatarPage {
               ".size(AvatarSize::Lg)",
               ".label(\"Editors\")",
               "",
-              "AvatarGroup::new(people.map(Avatar::new)).size(AvatarSize::Sm).max(4).label(\"Watching\")",
+              "AvatarGroup::new(people.map(Avatar::new)).size(AvatarSize::Sm).max_shown(4).label(\"Watching\")",
             ],
           ),
         ),
@@ -599,7 +601,7 @@ impl Component for AvatarPage {
             ".style(AvatarGroupPart::Item, ..)",
             &[
               "AvatarGroup::new(people.map(Avatar::new))",
-              "    .max(3)",
+              "    .max_shown(3)",
               "    .label(\"Reviewers\")",
               "    .style(AvatarGroupPart::Item, |s| s.border(Border::outside(2.0, PaletteColor::Card)))",
             ],

@@ -301,11 +301,11 @@ impl Component for AlertPage {
         "variant",
         "AlertVariant",
         "Neutral",
-        "Neutral, Info, Success, Warning, Destructive: the fill, the edge and the icon.",
+        "Neutral, Info, Success, Warning, Destructive, or a theme's: the fill, the edge and the icon.",
       ),
       (
         "icon",
-        "&str | None",
+        "impl Into<IconChoice>",
         "the variant's",
         "An icon of the theme's set in place of the variant's, or none.",
       ),
@@ -313,7 +313,7 @@ impl Component for AlertPage {
         "action",
         "impl Into<Element>",
         "",
-        "At the end, before the close control: a button, a link.",
+        "At the end, before the close control: a button, a link. The one action: a second takes its place.",
       ),
       (
         "child / children",
@@ -325,8 +325,10 @@ impl Component for AlertPage {
         "on_close",
         "impl Fn()",
         "",
-        "Draws the close control and is called on a press of it. The app takes the alert away.",
+        "Draws the close control, which an alert has only once it is given, and is called on a press of it. The \
+         app takes the alert away. A second is called after the first.",
       ),
+      ("label", "&str", "the title", "What it is called to tooling."),
       (
         "role",
         "&str",

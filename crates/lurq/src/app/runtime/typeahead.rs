@@ -13,10 +13,11 @@
 //! An element's label is its `focus_label`, or, for a button with one text
 //! in it, that text.
 
-use std::time::{Duration, Instant};
-
 use super::{NodeKind, Tree, focus_visible, tab_navigation};
-use crate::node::Node;
+use crate::{
+  node::Node,
+  time::{Duration, Instant},
+};
 
 /// How long after a letter the next one goes on the same prefix.
 pub(super) const TYPEAHEAD_WINDOW: Duration = Duration::from_millis(1000);

@@ -269,7 +269,7 @@ impl Component for BannerPage {
       ),
       (
         "icon",
-        "&str | None",
+        "impl Into<IconChoice>",
         "the variant's",
         "The megaphone for Neutral and Info; another icon, or none.",
       ),
@@ -283,19 +283,21 @@ impl Component for BannerPage {
         "action",
         "impl Into<Element>",
         "",
-        "Any element after the text in place of a link: a button.",
+        "Any element after the text in place of a link: a button. The one action: a second, or a link, takes its \
+         place.",
       ),
       (
         "on_close",
         "impl Fn()",
         "",
-        "Draws the close control and is called on a press of it.",
+        "Draws the close control, which a banner has only once it is given, and is called on a press of it. A \
+         second is called after the first.",
       ),
       (
         "open",
         "bool",
         "true",
-        "Whether it is shown. It fades in as it is shown and out as it is taken away.",
+        "Whether it is shown: the app's to say. It fades in as it is shown and out as it is taken away.",
       ),
       (
         "centered",
@@ -315,6 +317,7 @@ impl Component for BannerPage {
         "alert · status",
         "What it is to tooling, as an alert's.",
       ),
+      ("label", "&str", "the text", "What it is called to tooling."),
     ];
     let playground = self.play(ctx);
     self.frame.page(

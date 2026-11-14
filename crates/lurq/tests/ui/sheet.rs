@@ -6,7 +6,7 @@
 
 use std::{
   sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
   },
   time::{Duration, Instant},
@@ -23,7 +23,7 @@ use lurq::{
   core::Signal,
   layout::quad::{Quad, QuadContent},
   node::{Element, color::Color},
-  ui::{Button, ButtonVariant, Sheet, SheetPart, SheetRenderer, SheetSide, SheetSize, SheetView},
+  ui::{Button, ButtonVariant, Interaction, Sheet, SheetPart, SheetRenderer, SheetSide, SheetSize, SheetView},
 };
 
 use super::stage::Stage;
@@ -613,4 +613,127 @@ fn a_title_and_a_description_longer_than_the_panel_go_on_to_more_lines_inside_it
       assert!(quad.height > 24.0, "{side:?}: {text:?} on more lines: {}", quad.height);
     }
   }
+}
+
+/// What a sheet's handlers were told, in order.
+type Heard = Arc<Mutex<Vec<&'static str>>>;
+
+/// `sheet` with two handlers of `on_dismiss`, which say who they are in `heard`.
+fn heard_by(sheet: Sheet, heard: &Heard) -> Sheet {
+  let (first, second) = (heard.clone(), heard.clone());
+  sheet
+    .on_dismiss(move || first.lock().unwrap().push("first"))
+    .on_dismiss(move || second.lock().unwrap().push("second"))
+}
+
+#[test]
+fn a_person_closing_it_runs_every_handler_of_on_dismiss_after_it_closed() {
+  let heard: Heard = Arc::default();
+  let open = Signal::new(true);
+  let (held, told) = (open.clone(), heard.clone());
+  let mut stage = stage(move |_| window(heard_by(edit_profile(held.clone()), &told)));
+  let reopen = |stage: &mut Stage| {
+    open.set(true);
+    stage.pass();
+  };
+
+  // A press on the veil.
+  press_at(&mut stage, 20.0, 150.0);
+  assert!(!open.get());
+  assert_eq!(*heard.lock().unwrap(), ["first", "second"], "a second handler adds");
+
+  // The close button.
+  reopen(&mut stage);
+  let (x, y, width, _) = stage.bounds("panel");
+  press_at(&mut stage, x + width - 20.0 - 8.0, y + 20.0 + 8.0);
+  assert!(!open.get());
+  assert_eq!(heard.lock().unwrap().len(), 4);
+
+  // Escape, with the focus in it.
+  reopen(&mut stage);
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(heard.lock().unwrap().len(), 6);
+
+  // The app closing it is not a person dismissing it.
+  reopen(&mut stage);
+  open.set(false);
+  stage.pass();
+  assert_eq!(heard.lock().unwrap().len(), 6);
+}
+
+#[test]
+fn escape_on_a_mounted_sheet_at_the_bottom_runs_on_dismiss_and_escape_can_be_turned_off() {
+  let heard: Heard = Arc::default();
+  let open = Signal::new(true);
+  let (held, told) = (open.clone(), heard.clone());
+  let mut stage = stage(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(heard_by(move_goal(held.clone()).id("goal"), &told).mount(ctx))
+      .into()
+  });
+  settle(&mut stage);
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*heard.lock().unwrap(), ["first", "second"]);
+
+  let heard: Heard = Arc::default();
+  let open = Signal::new(true);
+  let (held, told) = (open.clone(), heard.clone());
+  let mut kept = self::stage(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        heard_by(move_goal(held.clone()).id("goal"), &told)
+          .dismiss_on_escape(false)
+          .mount(ctx),
+      )
+      .into()
+  });
+  settle(&mut kept);
+  kept.key("Escape");
+  assert!(open.get());
+  assert!(heard.lock().unwrap().is_empty());
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn the_close_button_is_called_close_unless_the_app_says_otherwise() {
+  let said = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  for (label, expected) in [(None, "Close"), (Some("Schließen"), "Schließen")] {
+    let app = App::new();
+    let renderer: SheetRenderer = Arc::new(|view: SheetView| {
+      let panel = view.panel().child(view.close().id("x"));
+      view.modal(panel)
+    });
+    app.theme().set_renderer::<Sheet>(renderer);
+    let open = Signal::new(true);
+    let held = open.clone();
+    let mut stage = stage_in(app, move |_| {
+      let sheet = Sheet::new(held.clone()).close_button(true);
+      window(match label {
+        Some(label) => sheet.close_label(label),
+        None => sheet,
+      })
+    });
+    assert_eq!(said(&mut stage, "x").as_deref(), Some(expected));
+    stage.click("x");
+    assert!(!open.get());
+  }
+}
+
+#[test]
+fn a_forced_focus_draws_the_ring_around_the_close_button() {
+  let ring = |forced: Option<Interaction>| {
+    let stage = stage(move |_| window(edit_profile(Signal::new(false)).inline(true).force(forced)));
+    stage.has_ring(light(PaletteColor::Ring))
+  };
+  assert!(!ring(None));
+  assert!(ring(Some(Interaction::FocusVisible)));
 }

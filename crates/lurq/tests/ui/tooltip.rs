@@ -11,17 +11,17 @@ use lurq::{
   app::{
     App,
     component::Component,
-    ctx::Ctx,
+    ctx::{CollisionStrategy, Ctx},
     theme::{PaletteColor, ThemePalette},
   },
-  components::{Column, Row},
+  components::{Column, Placement, Row},
   core::Signal,
   layout::{
     Alignment,
     quad::{Quad, QuadContent},
   },
   node::{Element, color::Color},
-  ui::{Button, ButtonVariant, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipView},
+  ui::{Button, ButtonVariant, Tooltip, TooltipPart, TooltipRenderer, TooltipView},
 };
 
 use super::stage::Stage;
@@ -82,7 +82,7 @@ fn close(a: f32, b: f32) -> bool {
 
 #[test]
 fn a_tooltip_shows_above_what_it_describes_while_the_pointer_rests_on_it() {
-  let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO));
+  let mut stage = stage(|| Tooltip::new(WORDS).open_delay(Duration::ZERO));
   assert!(!stage.paints(WORDS), "nothing shows at rest");
 
   stage.hover("copy");
@@ -116,7 +116,7 @@ fn after(stage: &mut Stage, later: Duration) {
 
 #[test]
 fn the_tooltip_goes_a_moment_after_the_pointer_leaves() {
-  let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO));
+  let mut stage = stage(|| Tooltip::new(WORDS).open_delay(Duration::ZERO));
   stage.hover("copy");
   assert!(stage.paints(WORDS));
   stage.tree.mouse_move(390.0, 290.0);
@@ -128,7 +128,11 @@ fn the_tooltip_goes_a_moment_after_the_pointer_leaves() {
 
 #[test]
 fn the_pointer_can_be_moved_onto_the_tooltip_and_it_stays() {
-  let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO).side(TooltipSide::Bottom));
+  let mut stage = stage(|| {
+    Tooltip::new(WORDS)
+      .open_delay(Duration::ZERO)
+      .placement(Placement::Bottom)
+  });
   stage.hover("copy");
   let shown = bubble(&stage, WORDS).unwrap();
   stage
@@ -146,14 +150,14 @@ fn the_pointer_can_be_moved_onto_the_tooltip_and_it_stays() {
 
 #[test]
 fn a_disabled_element_shows_its_tooltip() {
-  let mut stage = stage(|| Tooltip::new("Nothing to copy").delay(Duration::ZERO));
+  let mut stage = stage(|| Tooltip::new("Nothing to copy").open_delay(Duration::ZERO));
   let mut disabled = Stage::new(|ctx| {
     Column::new()
       .size(400.0, 300.0)
       .padding(100.0)
       .child(
         Tooltip::new("Nothing to copy")
-          .delay(Duration::ZERO)
+          .open_delay(Duration::ZERO)
           .mount(ctx, copy().disabled(true)),
       )
       .into()
@@ -178,7 +182,7 @@ fn a_disabled_element_that_fills_its_row_still_fills_it() {
         .padding(100.0)
         .child(
           Tooltip::new("Nothing to copy")
-            .delay(Duration::ZERO)
+            .open_delay(Duration::ZERO)
             .mount(ctx, copy().full_width(true).disabled(disabled)),
         )
         .into()
@@ -201,7 +205,7 @@ fn a_disabled_element_stretched_by_what_it_is_in_keeps_its_width_and_shows_its_t
         .align_items(Alignment::Stretch)
         .child(
           Tooltip::new("Nothing to copy")
-            .delay(Duration::ZERO)
+            .open_delay(Duration::ZERO)
             .mount(ctx, copy().disabled(disabled)),
         )
         .into()
@@ -333,7 +337,7 @@ fn the_keyboards_focus_shows_it_at_once_and_escape_puts_it_away() {
 
 #[test]
 fn escape_puts_away_what_the_pointer_showed_until_the_pointer_comes_again() {
-  let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO));
+  let mut stage = stage(|| Tooltip::new(WORDS).open_delay(Duration::ZERO));
   stage.hover("copy");
   stage.key("Escape");
   assert!(!stage.paints(WORDS));
@@ -355,7 +359,7 @@ fn a_press_of_what_it_describes_puts_it_away_and_still_presses_it() {
     Column::new()
       .size(400.0, 300.0)
       .padding(100.0)
-      .child(Tooltip::new(WORDS).delay(Duration::ZERO).mount(ctx, button))
+      .child(Tooltip::new(WORDS).open_delay(Duration::ZERO).mount(ctx, button))
       .into()
   });
   stage.hover("copy");
@@ -367,13 +371,21 @@ fn a_press_of_what_it_describes_puts_it_away_and_still_presses_it() {
 
 #[test]
 fn a_tooltip_on_another_side_stands_6_from_that_side() {
-  let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO).side(TooltipSide::Bottom));
+  let mut stage = stage(|| {
+    Tooltip::new(WORDS)
+      .open_delay(Duration::ZERO)
+      .placement(Placement::Bottom)
+  });
   stage.hover("copy");
   let shown = bubble(&stage, WORDS).unwrap();
   let (_, y, _, height) = stage.bounds("copy");
   assert!(close(shown.y, y + height + 6.0), "6 below the button: {:?}", at(&shown));
 
-  let mut stage = stage_at(|| Tooltip::new(WORDS).delay(Duration::ZERO).side(TooltipSide::Right));
+  let mut stage = stage_at(|| {
+    Tooltip::new(WORDS)
+      .open_delay(Duration::ZERO)
+      .placement(Placement::Right)
+  });
   stage.hover("copy");
   let shown = bubble(&stage, WORDS).unwrap();
   let (x, _, width, _) = stage.bounds("copy");
@@ -397,7 +409,7 @@ fn stage_at(tooltip: impl Fn() -> Tooltip + Send + Sync + 'static) -> Stage {
 
 #[test]
 fn where_there_is_no_room_above_it_is_below() {
-  let mut stage = stage_at(|| Tooltip::new(WORDS).delay(Duration::ZERO).arrow(true));
+  let mut stage = stage_at(|| Tooltip::new(WORDS).open_delay(Duration::ZERO).arrow(true));
   stage.hover("copy");
   let shown = bubble(&stage, WORDS).unwrap();
   let (_, y, _, height) = stage.bounds("copy");
@@ -433,8 +445,8 @@ fn tip(stage: &Stage) -> Option<Quad> {
 fn where_the_window_pushes_the_box_along_the_arrow_still_points_at_the_element() {
   let mut stage = stage_at(|| {
     Tooltip::new("Copy the link to this page")
-      .delay(Duration::ZERO)
-      .side(TooltipSide::Bottom)
+      .open_delay(Duration::ZERO)
+      .placement(Placement::Bottom)
       .arrow(true)
   });
   stage.hover("copy");
@@ -453,7 +465,7 @@ fn where_the_window_pushes_the_box_along_the_arrow_still_points_at_the_element()
 
 #[test]
 fn an_arrow_stands_between_the_box_and_what_it_describes() {
-  let mut stage = stage(|| Tooltip::new(WORDS).delay(Duration::ZERO).arrow(true));
+  let mut stage = stage(|| Tooltip::new(WORDS).open_delay(Duration::ZERO).arrow(true));
   stage.hover("copy");
   let shown = bubble(&stage, WORDS).unwrap();
   let (_, y, ..) = stage.bounds("copy");
@@ -466,7 +478,11 @@ fn an_arrow_stands_between_the_box_and_what_it_describes() {
 
 #[test]
 fn a_shortcut_is_after_the_text_in_another_family_in_10() {
-  let mut stage = stage(|| Tooltip::new("Toggle sidebar").shortcut("Ctrl+B").delay(Duration::ZERO));
+  let mut stage = stage(|| {
+    Tooltip::new("Toggle sidebar")
+      .shortcut("Ctrl+B")
+      .open_delay(Duration::ZERO)
+  });
   stage.hover("copy");
   let (words, keys) = (
     stage.text_quad("Toggle sidebar").unwrap(),
@@ -484,7 +500,7 @@ fn a_shortcut_is_after_the_text_in_another_family_in_10() {
 #[test]
 fn a_long_text_wraps_in_a_box_no_wider_than_200() {
   let long = "Blur radius is in logical pixels and scales with the display.";
-  let mut stage = stage(move || Tooltip::new(long).delay(Duration::ZERO));
+  let mut stage = stage(move || Tooltip::new(long).open_delay(Duration::ZERO));
   stage.hover("copy");
   let shown = bubble(&stage, long)
     .or_else(|| {
@@ -533,8 +549,8 @@ fn a_long_text_wraps_in_a_box_no_wider_than_200() {
 }
 
 #[test]
-fn open_shows_it_with_nothing_on_the_element_and_disabled_never() {
-  let stage = stage(|| Tooltip::new(WORDS).open(Some(true)));
+fn force_open_shows_it_with_nothing_on_the_element_and_disabled_never() {
+  let stage = stage(|| Tooltip::new(WORDS).force_open(Some(true)));
   assert!(stage.paints(WORDS));
 
   let mut stage = stage_disabled();
@@ -543,7 +559,7 @@ fn open_shows_it_with_nothing_on_the_element_and_disabled_never() {
 }
 
 fn stage_disabled() -> Stage {
-  stage(|| Tooltip::new(WORDS).delay(Duration::ZERO).disabled(true))
+  stage(|| Tooltip::new(WORDS).open_delay(Duration::ZERO).disabled(true))
 }
 
 #[test]
@@ -551,12 +567,12 @@ fn a_rule_of_the_theme_changes_the_tooltip() {
   let app = App::new();
   app
     .theme()
-    .patch_recipe::<Tooltip>(|recipe| recipe.base(TooltipPart::Content, |s| s.background(PaletteColor::Destructive)));
+    .patch_recipe::<Tooltip>(|recipe| recipe.base(TooltipPart::Panel, |s| s.background(PaletteColor::Destructive)));
   let mut stage = Stage::in_app(app, |ctx| {
     Column::new()
       .size(400.0, 300.0)
       .padding(100.0)
-      .child(Tooltip::new(WORDS).delay(Duration::ZERO).mount(ctx, copy()))
+      .child(Tooltip::new(WORDS).open_delay(Duration::ZERO).mount(ctx, copy()))
       .into()
   });
   stage.hover("copy");
@@ -570,7 +586,7 @@ fn a_theme_gives_the_tooltip_another_anatomy_and_it_still_shows_when_it_should()
   let renderer: TooltipRenderer = Arc::new(|view: TooltipView| {
     let shouted = view.text.to_uppercase();
     Row::new()
-      .part(&view.part(TooltipPart::Content))
+      .part(&view.part(TooltipPart::Panel))
       .child(view.part(TooltipPart::Label).text(&shouted))
       .into()
   });
@@ -579,7 +595,7 @@ fn a_theme_gives_the_tooltip_another_anatomy_and_it_still_shows_when_it_should()
     Column::new()
       .size(400.0, 300.0)
       .padding(100.0)
-      .child(Tooltip::new(WORDS).delay(Duration::ZERO).mount(ctx, copy()))
+      .child(Tooltip::new(WORDS).open_delay(Duration::ZERO).mount(ctx, copy()))
       .into()
   });
   assert!(!stage.paints("COPY LINK"));
@@ -630,7 +646,7 @@ fn a_tooltip_names_only_what_nothing_else_names_and_describes_it() {
 #[test]
 fn a_long_text_with_a_shortcut_wraps_across_the_box_and_the_shortcut_goes_under_it() {
   let long = "Show or hide the sidebar of the window and every panel docked in it.";
-  let mut stage = stage(move || Tooltip::new(long).shortcut("Ctrl+Shift+B").delay(Duration::ZERO));
+  let mut stage = stage(move || Tooltip::new(long).shortcut("Ctrl+Shift+B").open_delay(Duration::ZERO));
   stage.hover("copy");
   stage.pass();
   let keys = stage.text_quad("Ctrl+Shift+B").expect("the shortcut shows");
@@ -665,4 +681,70 @@ fn a_long_text_with_a_shortcut_wraps_across_the_box_and_the_shortcut_goes_under_
     at(&keys),
     at(&start)
   );
+}
+
+#[test]
+fn a_close_delay_keeps_it_longer_after_the_pointer_leaves() {
+  let mut stage = stage(|| {
+    Tooltip::new(WORDS)
+      .open_delay(Duration::ZERO)
+      .close_delay(Duration::from_millis(400))
+  });
+  stage.hover("copy");
+  assert!(stage.paints(WORDS));
+  stage.tree.mouse_move(390.0, 290.0);
+  stage.pass();
+  after(&mut stage, Duration::from_millis(200));
+  assert!(stage.paints(WORDS), "still there within its close delay");
+  after(&mut stage, Duration::from_millis(500));
+  assert!(!stage.paints(WORDS), "gone after it");
+}
+
+#[test]
+fn an_offset_stands_it_that_far_from_what_it_describes() {
+  let mut stage = stage(|| Tooltip::new(WORDS).open_delay(Duration::ZERO).offset(16.0));
+  stage.hover("copy");
+  let shown = bubble(&stage, WORDS).unwrap();
+  let (x, y, width, _) = stage.bounds("copy");
+  assert!(
+    close(shown.y + shown.height, y - 16.0),
+    "16 above the button: {:?}",
+    at(&shown)
+  );
+  assert!(
+    close(shown.x + shown.width / 2.0, x + width / 2.0),
+    "still centered on it"
+  );
+}
+
+#[test]
+fn a_placement_at_the_start_lines_it_up_with_the_elements_start() {
+  let mut stage = stage(|| {
+    Tooltip::new("Copy the link to this page")
+      .open_delay(Duration::ZERO)
+      .placement(Placement::BottomStart)
+  });
+  stage.hover("copy");
+  let shown = bubble(&stage, "Copy the link to this page").unwrap();
+  let (x, y, _, height) = stage.bounds("copy");
+  assert!(
+    close(shown.x, x),
+    "at the button's start: {:?}, the button at {x}",
+    at(&shown)
+  );
+  assert!(close(shown.y, y + height + 6.0), "6 under it: {:?}", at(&shown));
+}
+
+#[test]
+fn a_collision_that_only_clamps_keeps_it_on_its_own_side() {
+  let mut stage = stage_at(|| {
+    Tooltip::new(WORDS)
+      .open_delay(Duration::ZERO)
+      .collision(CollisionStrategy::Clamp)
+  });
+  stage.hover("copy");
+  let shown = bubble(&stage, WORDS).unwrap();
+  let (_, y, _, height) = stage.bounds("copy");
+  assert!(shown.y >= -0.01, "kept in the window: {:?}", at(&shown));
+  assert!(shown.y < y + height, "not turned to below the button: {:?}", at(&shown));
 }

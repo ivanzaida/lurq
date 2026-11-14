@@ -42,7 +42,7 @@ fn log() -> (Arc<Mutex<Vec<String>>>, impl Fn(&str) + Send + Sync + Clone + 'sta
 
 /// The board's breadcrumb: Settings, Appearance, Theme, each step with an id of its label in lower case.
 fn board() -> Breadcrumb {
-  Breadcrumb::new()
+  Breadcrumb::default()
     .id("way")
     .step(BreadcrumbStep::new("Settings").value("/settings").id("settings"))
     .step(
@@ -62,17 +62,16 @@ fn page(breadcrumb: Breadcrumb) -> Element {
   Column::new().size(400.0, 300.0).padding(20.0).child(breadcrumb).into()
 }
 
-/// Six steps, of which `max_items(3)` shows the first, an ellipsis and the last two.
+/// Six steps, of which `max_shown(3)` shows the first, an ellipsis and the last two.
 fn long(anchor: ElementRef, open: Signal<bool>) -> Breadcrumb {
-  Breadcrumb::new()
-    .id("way")
-    .steps(
-      ["Home", "Projects", "lurq", "crates", "ui", "breadcrumb.rs"]
-        .into_iter()
-        .map(|label| BreadcrumbStep::new(label).id(label.replace('.', "-"))),
-    )
-    .max_items(3)
-    .menu(anchor, open)
+  Breadcrumb::new(
+    ["Home", "Projects", "lurq", "crates", "ui", "breadcrumb.rs"]
+      .into_iter()
+      .map(|label| BreadcrumbStep::new(label).id(label.replace('.', "-"))),
+  )
+  .id("way")
+  .max_shown(3)
+  .menu(open, anchor)
 }
 
 #[test]
@@ -120,7 +119,7 @@ fn a_press_of_a_link_follows_it_and_the_page_is_not_followed() {
   let mut stage = Stage::new(move |_| {
     let counted = counted.clone();
     page(
-      Breadcrumb::new()
+      Breadcrumb::default()
         .step(
           BreadcrumbStep::new("Settings")
             .value("/settings")
@@ -151,7 +150,7 @@ fn a_step_s_value_is_its_label_until_it_is_given_another() {
   let (followed, tell) = log();
   let mut stage = Stage::new(move |_| {
     page(
-      Breadcrumb::new()
+      Breadcrumb::default()
         .step(BreadcrumbStep::new("Settings").id("settings"))
         .step("Theme")
         .on_select(tell.clone()),
@@ -201,24 +200,142 @@ fn a_disabled_breadcrumb_is_dimmed_and_follows_nothing() {
   stage.key("Enter");
   assert!(followed.lock().unwrap().is_empty());
   assert!(!stage.has_ring(light(PaletteColor::Ring)), "no stop of Tab");
-  // The root, which holds every step, is dimmed by the theme's opacity for what is disabled: a layer of what is
-  // in it, so the opacity is the layer's and not a quad's.
+  // Each of what it shows is dimmed by the theme's opacity for what is disabled, so that a step can be dimmed alone:
+  // a layer of what is in it, so the opacity is the layer's and not a quad's.
   let theme = stage.app.theme().clone();
   let case = Case::new().state(BreadcrumbState::Disabled, true);
-  let root = theme
-    .resolve::<Breadcrumb>(&case, None)
-    .part(BreadcrumbPart::Root)
-    .rest();
-  assert_eq!(root.opacity, Some(Opacity::Level(OpacityLevel::Disabled)));
-  let enabled = theme
-    .resolve::<Breadcrumb>(&Case::new(), None)
-    .part(BreadcrumbPart::Root)
-    .rest();
-  assert_eq!(enabled.opacity, None);
+  let disabled = theme.resolve::<Breadcrumb>(&case, None);
+  let enabled = theme.resolve::<Breadcrumb>(&Case::new(), None);
+  for part in [
+    BreadcrumbPart::Link,
+    BreadcrumbPart::Page,
+    BreadcrumbPart::Separator,
+    BreadcrumbPart::Ellipsis,
+  ] {
+    assert_eq!(
+      disabled.part(part).rest().opacity,
+      Some(Opacity::Level(OpacityLevel::Disabled)),
+      "{part:?}"
+    );
+    assert_eq!(enabled.part(part).rest().opacity, None, "{part:?}");
+  }
+  assert_eq!(disabled.part(BreadcrumbPart::Root).rest().opacity, None, "not twice");
 }
 
 #[test]
-fn with_more_steps_than_max_items_it_shows_the_first_an_ellipsis_and_the_last_ones() {
+fn a_disabled_step_is_not_followed_and_tab_passes_it() {
+  let (followed, tell) = log();
+  let mut stage = Stage::new(move |_| {
+    page(
+      Breadcrumb::new([
+        BreadcrumbStep::new("Home").id("home").disabled(true),
+        BreadcrumbStep::new("Settings").id("settings"),
+        BreadcrumbStep::new("Theme").id("theme"),
+      ])
+      .on_select(tell.clone()),
+    )
+  });
+  stage.click("home");
+  assert!(followed.lock().unwrap().is_empty(), "a press of it follows nothing");
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(*followed.lock().unwrap(), ["Settings"], "Tab went past it to Settings");
+}
+
+#[test]
+fn a_disabled_hidden_step_is_a_disabled_item_of_the_menu() {
+  let (followed, tell) = log();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Breadcrumb::new([
+          BreadcrumbStep::new("Home"),
+          BreadcrumbStep::new("Projects").id("projects").disabled(true),
+          BreadcrumbStep::new("lurq").id("lurq"),
+          BreadcrumbStep::new("crates"),
+          BreadcrumbStep::new("ui"),
+        ])
+        .id("way")
+        .max_shown(3)
+        .on_select(tell.clone())
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage.click("way-ellipsis");
+  stage.click("projects");
+  assert!(followed.lock().unwrap().is_empty());
+  stage.click("lurq");
+  assert_eq!(*followed.lock().unwrap(), ["lurq"]);
+}
+
+#[test]
+fn a_mounted_breadcrumb_keeps_the_menu_of_its_hidden_steps() {
+  let (followed, tell) = log();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Breadcrumb::new(["Home", "Projects", "lurq", "crates", "ui", "breadcrumb.rs"])
+          .id("way")
+          .max_shown(3)
+          .on_select(tell.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  assert!(!stage.paints("Projects"));
+  stage.click("way-ellipsis");
+  assert!(
+    stage.paints("Projects"),
+    "the ellipsis opened the menu with no signal of the app's"
+  );
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(*followed.lock().unwrap(), ["lurq"]);
+  stage.pass();
+  assert!(!stage.paints("Projects"), "choosing a step closed it");
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn its_label_and_the_ellipsis_s_name_can_be_said_otherwise() {
+  let mut stage = Stage::new(|_| {
+    page(
+      Breadcrumb::new(["Home", "Projects", "lurq", "ui"])
+        .id("way")
+        .max_shown(3)
+        .label("Pfad")
+        .more_label("Mehr"),
+    )
+  });
+  let said = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(said(&mut stage, "way").as_deref(), Some("Pfad"));
+  assert_eq!(said(&mut stage, "way-ellipsis").as_deref(), Some("Mehr"));
+  let mut plain = Stage::new(|_| {
+    page(
+      Breadcrumb::new(["Home", "Projects", "lurq", "ui"])
+        .id("way")
+        .max_shown(3),
+    )
+  });
+  assert_eq!(said(&mut plain, "way").as_deref(), Some("Breadcrumb"));
+  assert_eq!(
+    said(&mut plain, "way-ellipsis").as_deref(),
+    Some("Show the hidden steps")
+  );
+}
+
+#[test]
+fn with_more_steps_than_max_shown_it_shows_the_first_an_ellipsis_and_the_last_ones() {
   let (anchor, open) = (ElementRef::new(), Signal::new(false));
   let mut stage = Stage::new(move |_| page(long(anchor.clone(), open.clone())));
   for shown in ["Home", "ui", "breadcrumb.rs"] {
@@ -249,13 +366,13 @@ fn with_more_steps_than_max_items_it_shows_the_first_an_ellipsis_and_the_last_on
 }
 
 #[test]
-fn max_items_is_never_fewer_than_the_first_and_the_last() {
+fn max_shown_is_never_fewer_than_the_first_and_the_last() {
   let stage = Stage::new(|_| {
     page(
-      Breadcrumb::new()
+      Breadcrumb::default()
         .steps(["Settings", "Appearance", "Theme"])
-        .max_items(0)
-        .menu(ElementRef::new(), Signal::new(false)),
+        .max_shown(0)
+        .menu(Signal::new(false), ElementRef::new()),
     )
   });
   assert!(stage.paints("Settings") && stage.paints("Theme"));
@@ -263,9 +380,9 @@ fn max_items_is_never_fewer_than_the_first_and_the_last() {
 
   let stage = Stage::new(|_| {
     page(
-      Breadcrumb::new()
+      Breadcrumb::default()
         .steps(["Settings", "Appearance", "Theme"])
-        .max_items(3),
+        .max_shown(3),
     )
   });
   assert!(stage.paints("Appearance"), "no more than three: none hidden");
@@ -327,7 +444,7 @@ fn from_the_keyboard_the_ellipsis_is_a_stop_of_tab_and_its_menu_takes_the_focus(
 fn a_step_has_its_icon_4_before_its_text() {
   let stage = Stage::new(|_| {
     page(
-      Breadcrumb::new()
+      Breadcrumb::default()
         .step(BreadcrumbStep::new("Home").icon(icons::HOME))
         .step("Settings"),
     )

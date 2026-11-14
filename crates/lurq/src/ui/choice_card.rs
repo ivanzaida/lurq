@@ -3,10 +3,13 @@
 use std::sync::Arc;
 
 use super::{
-  CheckboxPart, CheckboxState, RadioPart, RadioState, icons, names,
+  CheckboxPart, CheckboxState, RadioPart, RadioState,
+  checkbox::{Turn, toggling, turning},
+  icons, names,
   part_style::{Length, PartStyle, PartTransition},
+  radio::{RadioSelection, selecting},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Chosen, fading, glyph, pressable},
+  shared::{Orientation, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -53,8 +56,10 @@ names!(ChoiceCardPart {
 /// it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChoiceCardState {
-  /// It is checked, or it is the choice made: its edge is the primary color.
-  Chosen,
+  /// A checkbox card that is checked: its edge is the primary color.
+  Checked,
+  /// A radio card that is the one of several selected: its edge is the primary color.
+  Selected,
   /// What it is part of was answered wrongly, or not at all.
   Invalid,
   /// It takes no input.
@@ -64,7 +69,8 @@ pub enum ChoiceCardState {
 }
 
 names!(ChoiceCardState {
-  Chosen => "chosen",
+  Checked => "checked",
+  Selected => "selected",
   Invalid => "invalid",
   Disabled => "disabled",
   FullWidth => "full_width",
@@ -122,10 +128,14 @@ impl Content {
     self,
     theme: &Theme,
     kind: ChoiceCardKind,
-    chosen: bool,
+    on: bool,
     press: Option<Press>,
     indicator: Case,
   ) -> ChoiceCardView {
+    let (checked, selected) = match kind {
+      ChoiceCardKind::Checkbox => (on, false),
+      ChoiceCardKind::Radio => (false, on),
+    };
     let case = Case {
       variant: None,
       size: None,
@@ -133,7 +143,8 @@ impl Content {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(ChoiceCardState::Chosen, chosen)
+    .state(ChoiceCardState::Checked, checked)
+    .state(ChoiceCardState::Selected, selected)
     .state(ChoiceCardState::Invalid, self.invalid)
     .state(ChoiceCardState::Disabled, self.disabled)
     .state(ChoiceCardState::FullWidth, self.full_width);
@@ -147,7 +158,8 @@ impl Content {
       description: self.description,
       icon: self.icon,
       price: self.price,
-      chosen,
+      checked,
+      selected,
       invalid: self.invalid,
       disabled: self.disabled,
       recipe,
@@ -238,6 +250,7 @@ macro_rules! card_props {
         self
       }
 
+      /// What tells the card apart from those beside it, where two have one title.
       pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
         self.content.key = Some(key.into());
         self
@@ -258,11 +271,15 @@ macro_rules! card_props {
 ///   .on_change(|checked| println!("{checked}"));
 /// let backups = CheckboxCard::new("Backups").description("Every night, kept for 30 days.").price("$4 / month");
 /// let sync = CheckboxCard::new("Sync").icon(icons::REFRESH);
+/// // Bound to the app's signal, which a press turns.
+/// # let reports = lurq::core::Signal::new(true);
+/// let weekly = CheckboxCard::new("Weekly report").bind(reports);
 /// ```
 ///
 /// The card is one stop of Tab, and a click of it or Space presses it: the box in it is drawn and takes no focus
 /// of its own. A checkbox card does not keep whether it is checked: the app says so with [`CheckboxCard::checked`],
-/// and is told of a press with [`CheckboxCard::on_change`]. Cards over one list are a [`CheckboxCardGroup`].
+/// and is told of a press with [`CheckboxCard::on_change`], or binds it to a signal with [`CheckboxCard::bind`].
+/// Cards over one list are a [`CheckboxCardGroup`].
 pub struct CheckboxCard {
   content: Content,
   checked: bool,
@@ -285,7 +302,17 @@ impl CheckboxCard {
     self
   }
 
-  /// Called on a press, with what the card is to be: checked if it was not.
+  /// Checked while `checked` is true, which a press turns. Handlers of [`CheckboxCard::on_change`] are told of a
+  /// press after the signal is set, and not when the app sets it.
+  pub fn bind(self, checked: Signal<bool>) -> Self {
+    let set = checked.clone();
+    let mut bound = self.checked(checked.get());
+    bound.on_change.insert(0, Arc::new(move |next| set.set(next)));
+    bound
+  }
+
+  /// Called on a press, with what the card is to be: checked if it was not. A second handler is called after the
+  /// first.
   pub fn on_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
@@ -331,18 +358,18 @@ impl From<CheckboxCard> for Element {
 /// ```
 /// use lurq::ui::RadioCard;
 ///
-/// let comfortable = RadioCard::new("Comfortable").description("Roomy rows, 36px controls.").chosen(true);
-/// let team = RadioCard::new("Team").price("$12 / month").on_choose(|| println!("team"));
+/// let comfortable = RadioCard::new("Comfortable").description("Roomy rows, 36px controls.").selected(true);
+/// let team = RadioCard::new("Team").price("$12 / month").on_change(|selected| println!("team: {selected}"));
 /// ```
 ///
 /// The card is pressed by a click, and by Space or Enter while it has the focus; the mark in it is drawn and takes
-/// no focus of its own. A radio card does not keep whether it is chosen: the app says so with
-/// [`RadioCard::chosen`], and is told with [`RadioCard::on_choose`] that it was pressed while it was not. Cards that
-/// are one choice are a [`RadioCardGroup`], which the arrow keys move through.
+/// no focus of its own. A radio card does not keep whether it is selected: the app says so with
+/// [`RadioCard::selected`], and is told with [`RadioCard::on_change`], given `true`, that it was pressed while it
+/// was not. Cards that are one choice are a [`RadioCardGroup`], which the arrow keys move through.
 pub struct RadioCard {
   content: Content,
-  chosen: bool,
-  on_choose: Vec<Press>,
+  selected: bool,
+  on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
 }
 
 impl RadioCard {
@@ -350,42 +377,43 @@ impl RadioCard {
   pub fn new(title: &str) -> Self {
     Self {
       content: Content::new(title),
-      chosen: false,
-      on_choose: Vec::new(),
+      selected: false,
+      on_change: Vec::new(),
     }
   }
 
-  /// Whether the card is the choice made: the dot in its mark, and its edge in the primary color.
-  pub fn chosen(mut self, chosen: bool) -> Self {
-    self.chosen = chosen;
+  /// Whether the card is the one of several selected: the dot in its mark, and its edge in the primary color.
+  pub fn selected(mut self, selected: bool) -> Self {
+    self.selected = selected;
     self
   }
 
-  /// Called on a press of the card while it is not chosen: it is to be.
-  pub fn on_choose(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_choose.push(Arc::new(handler));
+  /// Called on a press of the card while it is not selected, with what it is to be: selected, `true`. A press of
+  /// the one selected calls nothing. A second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
     self
   }
 
   /// Builds the card in `theme`. Converting a card into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let handlers = self.on_choose;
-    let press: Option<Press> = (!handlers.is_empty() && !self.chosen).then(|| {
+    let handlers = self.on_change;
+    let press: Option<Press> = (!handlers.is_empty() && !self.selected).then(|| {
       Arc::new(move || {
         for handler in &handlers {
-          handler();
+          handler(true);
         }
       }) as Press
     });
     let content = &self.content;
     let indicator = Case::new()
-      .state(RadioState::Chosen, self.chosen)
+      .state(RadioState::Selected, self.selected)
       .state(RadioState::Invalid, content.invalid)
       .state(RadioState::Disabled, content.disabled);
     let view = self
       .content
-      .view::<super::Radio>(theme, ChoiceCardKind::Radio, self.chosen, press, indicator);
+      .view::<super::Radio>(theme, ChoiceCardKind::Radio, self.selected, press, indicator);
     match theme.renderer::<RadioCard>() {
       Some(renderer) => renderer(view),
       None => view.render(),
@@ -409,8 +437,10 @@ pub struct ChoiceCardView {
   pub description: Option<Arc<str>>,
   pub icon: Option<Name>,
   pub price: Option<Arc<str>>,
-  /// Whether it is checked, or the choice made.
-  pub chosen: bool,
+  /// Whether a checkbox card is checked: false for a radio card.
+  pub checked: bool,
+  /// Whether a radio card is the one selected: false for a checkbox card.
+  pub selected: bool,
   pub invalid: bool,
   pub disabled: bool,
   /// The style of each part of this card.
@@ -446,13 +476,16 @@ impl ChoiceCardView {
       .align_items(Alignment::Start)
       .describe("a11y_role", role)
       .describe("a11y_name", self.title.clone())
-      .describe("a11y_checked", if self.chosen { "true" } else { "false" });
+      .describe(
+        "a11y_checked",
+        if self.checked || self.selected { "true" } else { "false" },
+      );
     if let Some(description) = &self.description {
       root = root.describe("a11y_description", description.clone());
     }
     if self.kind == ChoiceCardKind::Radio {
-      // In a group, which Tab stops at once, the chosen card is where Tab enters.
-      root = root.focus_entry(self.chosen);
+      // In a group, which Tab stops at once, the selected card is where Tab enters.
+      root = root.focus_entry(self.selected);
     }
     if let Some(press) = self.press.clone() {
       root = root.on_click(move |_| press());
@@ -496,7 +529,7 @@ impl ChoiceCardView {
   }
 
   /// The box of a checkbox card with its check while it is checked, or the mark of a radio card with its dot while
-  /// it is chosen: the checkbox's and the radio's own parts, drawn, and not pressed or focused on their own.
+  /// it is selected: the checkbox's and the radio's own parts, drawn, and not pressed or focused on their own.
   pub fn control(&self) -> Element {
     let held = |part: ResolvedPart| {
       Row::new()
@@ -507,7 +540,7 @@ impl ChoiceCardView {
     match self.kind {
       ChoiceCardKind::Checkbox => {
         let mut square = held(self.indicator.part(CheckboxPart::Box));
-        if self.chosen {
+        if self.checked {
           square = square.child(glyph(
             &self.indicator.part(CheckboxPart::Indicator),
             Name::new(icons::CHECK),
@@ -518,7 +551,7 @@ impl ChoiceCardView {
       }
       ChoiceCardKind::Radio => {
         let mut mark = held(self.indicator.part(RadioPart::Mark));
-        if self.chosen {
+        if self.selected {
           mark = mark.child(Row::new().part(&self.indicator.part(RadioPart::Dot)));
         }
         mark.into()
@@ -550,17 +583,16 @@ fn wrapping(part: &ResolvedPart, content: &str) -> Column {
 /// The design's checkbox card and radio card (`pencil/lurq-design-system.pen`, Checkbox Card and Radio Card): 220
 /// wide, padded 16, in the background's color with corners of `radius-lg`. The text is first, the title in 14 and
 /// medium over the description 4 under it in 13 of the muted color, and the box or the mark is 12 after it, at the
-/// top. Not chosen, the edge inside it is 1 of an input's edge; chosen, 2 of the primary color. Under the pointer
-/// the edge of one not chosen is the ring's color; the ring of the focus is around the card. An invalid one is
-/// edged in the destructive color, and a disabled one dimmed.
+/// top. Neither checked nor selected, the edge inside it is 1 of an input's edge; checked or selected, 2 of the
+/// primary color. Under the pointer the edge of one that is neither is the ring's color; the ring of the focus is
+/// around the card. An invalid one is edged in the destructive color, and a disabled one dimmed.
 fn card_recipe() -> Recipe {
   use ChoiceCardPart::{Description, Heading, Icon, Price, Root, Text, Title};
-  use ChoiceCardState::{Chosen, Disabled, FullWidth, Invalid};
+  use ChoiceCardState::{Checked, Disabled, FullWidth, Invalid, Selected};
   use PaletteColor::{Background, Destructive, Foreground, Input, MutedForeground, Primary, Ring};
   let edge = |size: BorderSize, color: PaletteColor| Border::inside(size, color);
-  let chosen = || Selector::new().state(Chosen);
   let invalid = || Selector::new().state(Invalid);
-  Recipe::new()
+  let recipe = Recipe::new()
     .base(Root, |s| {
       fading(
         s.width(220.0)
@@ -597,16 +629,26 @@ fn card_recipe() -> Recipe {
     .state(FullWidth, Root, |s| s.width(Length::Fill))
     .hovered(Root, |s| s.border(edge(BorderSize::Sm, Ring)))
     .focus_visible(Root, |s| s.focus_ring())
-    // The pointer does not take from a card the edge that says it is chosen, or that it is wrong.
-    .state(Chosen, Root, |s| s.border(edge(BorderSize::Md, Primary)))
-    .when(chosen().hovered(), Root, |s| s.border(edge(BorderSize::Md, Primary)))
-    .state(Invalid, Root, |s| s.border(edge(BorderSize::Sm, Destructive)))
-    .when(invalid().hovered(), Root, |s| s.border(edge(BorderSize::Sm, Destructive)))
-    .when(chosen().state(Invalid), Root, |s| {
-      s.border(edge(BorderSize::Md, Destructive))
+    // The pointer does not take from a card the edge that says it is checked or selected, or that it is wrong.
+    .state(Checked, Root, |s| s.border(edge(BorderSize::Md, Primary)))
+    .state(Selected, Root, |s| s.border(edge(BorderSize::Md, Primary)))
+    .when(Selector::new().state(Checked).hovered(), Root, |s| {
+      s.border(edge(BorderSize::Md, Primary))
     })
-    .when(chosen().state(Invalid).hovered(), Root, |s| {
-      s.border(edge(BorderSize::Md, Destructive))
+    .when(Selector::new().state(Selected).hovered(), Root, |s| {
+      s.border(edge(BorderSize::Md, Primary))
+    })
+    .state(Invalid, Root, |s| s.border(edge(BorderSize::Sm, Destructive)))
+    .when(invalid().hovered(), Root, |s| s.border(edge(BorderSize::Sm, Destructive)));
+  [Checked, Selected]
+    .into_iter()
+    .fold(recipe, |recipe, on| {
+      let marked = || Selector::new().state(on).state(Invalid);
+      recipe
+        .when(marked(), Root, |s| s.border(edge(BorderSize::Md, Destructive)))
+        .when(marked().hovered(), Root, |s| {
+          s.border(edge(BorderSize::Md, Destructive))
+        })
     })
     .state(Disabled, Root, |s| {
       s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
@@ -629,8 +671,8 @@ impl Themed for RadioCard {
 
   /// The design's radio card (`pencil/lurq-design-system.pen`, Radio Card), as its checkbox card is: 220 wide,
   /// padded 16, in the background's color with corners of `radius-lg`, the text first and the mark 12 after it at
-  /// the top. Not chosen, the edge inside it is 1 of an input's edge; chosen, 2 of the primary color. Its mark is
-  /// the radio's.
+  /// the top. Not selected, the edge inside it is 1 of an input's edge; selected, 2 of the primary color. Its mark
+  /// is the radio's.
   fn recipe() -> Recipe {
     card_recipe()
   }
@@ -650,24 +692,33 @@ names!(ChoiceCardGroupPart {
   Item => "item",
 });
 
-/// The states of a group of checkbox cards or radio cards a recipe styles.
+/// The states of a group of checkbox cards or radio cards a recipe styles. One of `Horizontal` and `Vertical` is
+/// on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChoiceCardGroupState {
   /// Its cards stand side by side.
   Horizontal,
+  /// Its cards stand one under the other.
+  Vertical,
 }
 
 names!(ChoiceCardGroupState {
   Horizontal => "horizontal",
+  Vertical => "vertical",
 });
 
-/// What a group of cards of either kind is given, and how it lays them out.
+/// What builds a group of checkbox cards' or radio cards' nodes: a theme's in place of the default one.
+pub type ChoiceCardGroupRenderer = Arc<dyn Fn(ChoiceCardGroupView) -> Element + Send + Sync>;
+
+/// What a group of cards of either kind is given.
 struct Group {
   label: Option<Arc<str>>,
-  horizontal: bool,
+  orientation: Orientation,
   invalid: bool,
   disabled: bool,
+  states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -676,10 +727,12 @@ impl Group {
   fn new() -> Self {
     Self {
       label: None,
-      horizontal: false,
+      orientation: Orientation::Vertical,
       invalid: false,
       disabled: false,
+      states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
@@ -687,44 +740,33 @@ impl Group {
 
   /// The group's recipe from the theme's for `C`, and what it says of each card in it.
   fn resolve<C: Themed>(&self, theme: &Theme) -> (ResolvedRecipe, Recipe) {
-    let case = Case::new()
-      .breakpoint(super::current_breakpoint())
-      .state(ChoiceCardGroupState::Horizontal, self.horizontal);
+    let vertical = self.orientation.is_vertical();
+    let case = Case {
+      variant: None,
+      size: None,
+      density: None,
+      breakpoint: super::current_breakpoint(),
+      states: self.states.clone(),
+    }
+    .state(ChoiceCardGroupState::Horizontal, !vertical)
+    .state(ChoiceCardGroupState::Vertical, vertical);
     let recipe = theme.resolve::<C>(&case, Some(&self.rules));
     let item = recipe.rules_for(ChoiceCardGroupPart::Item, ChoiceCardPart::Root);
     (recipe, item)
   }
 
-  /// The cards laid out one under the other, or side by side, as `role` to what reads the tree.
-  fn hold(self, recipe: &ResolvedRecipe, cards: Vec<Element>, role: &'static str, keys: Option<FocusGroup>) -> Element {
-    let root = recipe.part(ChoiceCardGroupPart::Root);
-    let (id, key, label) = (self.id, self.key, self.label);
-    macro_rules! group {
-      ($holder:expr) => {{
-        let mut holder = $holder.part(&root).describe("a11y_role", role);
-        if let Some(keys) = keys {
-          holder = holder.focus_group(keys);
-        }
-        if let Some(label) = label {
-          holder = holder.describe("a11y_name", label);
-        }
-        for card in cards {
-          holder = holder.child(card);
-        }
-        if let Some(id) = id {
-          holder = holder.id(id);
-        }
-        if let Some(key) = key {
-          holder = holder.key(key);
-        }
-        holder.into()
-      }};
-    }
-    if self.horizontal {
-      // Cards side by side are as high as the highest in their line.
-      group!(Row::new().wrap().align_items(Alignment::Stretch))
-    } else {
-      group!(Column::new().align_items(Alignment::Stretch))
+  /// The view of a group of `kind` of `cards`, built.
+  fn view(self, kind: ChoiceCardKind, recipe: ResolvedRecipe, cards: Vec<Element>) -> ChoiceCardGroupView {
+    ChoiceCardGroupView {
+      kind,
+      label: self.label,
+      orientation: self.orientation,
+      invalid: self.invalid,
+      disabled: self.disabled,
+      recipe,
+      cards,
+      id: self.id,
+      key: self.key,
     }
   }
 }
@@ -732,11 +774,11 @@ impl Group {
 /// The props the two groups both have.
 macro_rules! group_props {
   ($group:ident) => {
-    impl $group {
-      /// Whether the cards stand side by side, going on to the next line where there is no room, in place of one
-      /// under the other.
-      pub fn horizontal(mut self, horizontal: bool) -> Self {
-        self.group.horizontal = horizontal;
+    impl<T: Clone + PartialEq + Send + Sync + 'static> $group<T> {
+      /// Which way the cards stand: one under the other, unless told. Side by side they go on to the next line
+      /// where there is no room.
+      pub fn orientation(mut self, orientation: Orientation) -> Self {
+        self.group.orientation = orientation;
         self
       }
 
@@ -759,17 +801,42 @@ macro_rules! group_props {
         self
       }
 
+      /// Puts the group in a state the theme's recipe names, or takes it out.
+      pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+        let state = state.into();
+        self.group.states.retain(|held| *held != state);
+        if on {
+          self.group.states.push(state);
+        }
+        self
+      }
+
       /// Styles one part of this group over what the theme gives it.
       pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
         self.group.rules = self.group.rules.base(part, style);
         self
       }
 
+      /// Lays rules over the theme's recipe for this group: what the component it is in says of it in this place.
+      pub fn rules(mut self, rules: &Recipe) -> Self {
+        self.group.rules = self.group.rules.extend(rules);
+        self
+      }
+
+      /// Draws the card Tab would stop on as it is under the pointer, held down or focused from the keyboard,
+      /// with nothing pointing at it: for a gallery or a test. The other cards are drawn as they are.
+      pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+        self.group.forced = interaction;
+        self
+      }
+
+      /// The id of the group.
       pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
         self.group.id = Some(id.into());
         self
       }
 
+      /// What tells the group apart from those beside it.
       pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
         self.group.key = Some(key.into());
         self
@@ -783,99 +850,130 @@ fn group_recipe() -> Recipe {
   Recipe::new().base(ChoiceCardGroupPart::Root, |s| s.gap(12.0))
 }
 
-/// Radio cards that are one choice: the one whose value the app holds is chosen, and a press of another chooses
+/// Radio cards that are one choice: the one whose value the app holds is selected, and a press of another selects
 /// it.
 ///
 /// ```
 /// use lurq::{core::Signal, ui::{RadioCard, RadioCardGroup}};
 ///
-/// # fn groups(density: Signal<u8>) {
+/// # fn groups(density: Signal<u8>, region: Signal<Option<&'static str>>) {
 /// let density = RadioCardGroup::new(density, [
 ///   (0, RadioCard::new("Comfortable").description("Roomy rows, 36px controls.")),
 ///   (1, RadioCard::new("Compact").description("Dense rows, 28px controls.")),
 ///   (2, RadioCard::new("Spacious").description("For touch.").disabled(true)),
 /// ]);
+/// // Nothing is selected until a region is: a signal of an `Option`.
+/// let regions = RadioCardGroup::new(region, [("eu", RadioCard::new("Europe")), ("us", RadioCard::new("America"))])
+///   .on_change(|region| println!("{region}"));
 /// # }
 /// ```
 ///
-/// Each card is given its value; what the group holds says which is chosen, and the group tells each card what it
-/// says of all of them (invalid, disabled). The group is one stop of Tab, at the chosen card or the first; the arrow
-/// keys move the focus to the next card and choose it, Home and End the first and the last, and a disabled one is
-/// passed by, as in a [`RadioGroup`](super::RadioGroup).
-pub struct RadioCardGroup {
-  cards: Vec<(RadioCard, bool, Press)>,
+/// Each card is given its value; what the group holds says which is selected, and the group tells each card what
+/// it says of all of them (invalid, disabled). The group is one stop of Tab, at the selected card or the first; the
+/// arrow keys move the focus to the next card and select it, Home and End the first and the last, and a disabled
+/// one is passed by, as in a [`RadioGroup`](super::RadioGroup).
+pub struct RadioCardGroup<T> {
+  cards: Vec<(T, RadioCard)>,
+  selected: Option<T>,
+  set: Option<Arc<dyn Fn(T) + Send + Sync>>,
+  on_change: Vec<Arc<dyn Fn(&T) + Send + Sync>>,
   group: Group,
 }
 
-impl RadioCardGroup {
-  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Chosen<T>,
+impl<T: Clone + PartialEq + Send + Sync + 'static> RadioCardGroup<T> {
+  fn of(
+    selected: Option<T>,
+    set: Option<Arc<dyn Fn(T) + Send + Sync>>,
     cards: impl IntoIterator<Item = (T, RadioCard)>,
   ) -> Self {
-    let cards = cards
-      .into_iter()
-      .map(|(value, card)| (card, chosen.has(&value), Arc::new(chosen.picker(value)) as Press))
-      .collect();
     Self {
-      cards,
+      cards: cards.into_iter().collect(),
+      selected,
+      set,
+      on_change: Vec::new(),
       group: Group::new(),
     }
   }
 
-  /// A group of which the card whose value the signal has is chosen. A press of another sets the signal.
-  pub fn new<T>(value: Signal<T>, cards: impl IntoIterator<Item = (T, RadioCard)>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-  {
-    Self::of(Chosen::one(value), cards)
+  /// A group of which the card whose value the signal has is selected: a `Signal<T>`, or a `Signal<Option<T>>` of
+  /// which `None` selects none. A press of another sets the signal.
+  pub fn new(selected: impl Into<RadioSelection<T>>, cards: impl IntoIterator<Item = (T, RadioCard)>) -> Self {
+    let selected = selected.into();
+    Self::of(selected.selected, Some(selected.set), cards)
   }
 
-  /// A group whose choice the app holds: the card of `chosen` is chosen, none if it is `None`, and `choose` is told
-  /// the value of each other one pressed.
-  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Option<T>,
+  /// A group whose choice the app holds: the card of `selected` is selected, none if it is `None`, and `on_change`
+  /// is told the value of each other one pressed. What is drawn is what the app says next.
+  pub fn controlled(
+    selected: Option<T>,
     cards: impl IntoIterator<Item = (T, RadioCard)>,
-    choose: impl Fn(T) + Send + Sync + 'static,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held(chosen.into_iter().collect(), choose), cards)
+    Self::of(selected, None, cards).on_change(on_change)
+  }
+
+  /// Called on a press of a card that is not the one selected, with its value, after the signal the group is
+  /// bound to is set. A press of the one selected calls nothing; that the app sets the signal calls nothing. A
+  /// second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
+    self
   }
 
   /// Builds the group in `theme`. Converting a group into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let (recipe, item) = self.group.resolve::<RadioCardGroup>(theme);
-    let (invalid, disabled) = (self.group.invalid, self.group.disabled);
+    let (recipe, item) = self.group.resolve::<Self>(theme);
+    let (invalid, disabled, forced) = (self.group.invalid, self.group.disabled, self.group.forced);
+    let takes = |card: &RadioCard| !disabled && !card.content.disabled;
+    // What Tab stops on: the selected card, else the first that takes a press.
+    let entry = self
+      .cards
+      .iter()
+      .position(|(value, card)| self.selected.as_ref() == Some(value) && takes(card))
+      .or_else(|| self.cards.iter().position(|(_, card)| takes(card)));
+    let (selected, set, handlers) = (self.selected, self.set, self.on_change);
     let cards = self
       .cards
       .into_iter()
-      .map(|(card, chosen, pick)| {
+      .enumerate()
+      .map(|(index, (value, card))| {
         let (own_invalid, own_disabled) = (card.content.invalid, card.content.disabled);
-        card
-          .chosen(chosen)
+        let on = selected.as_ref() == Some(&value);
+        let mut card = card
+          .selected(on)
           .invalid(invalid || own_invalid)
           .disabled(disabled || own_disabled)
-          .rules(&item)
-          .on_choose(move || pick())
-          .build(theme)
+          .rules(&item);
+        if Some(index) == entry {
+          card = card.force(forced);
+        }
+        if !on {
+          let press = selecting(value, set.clone(), handlers.clone());
+          card = card.on_change(move |_| press());
+        }
+        card.build(theme)
       })
       .collect();
-    // One choice, as a group of radios is: Tab stops in it once, and an arrow key moves the focus and the choice.
-    let keys = FocusGroup::both().activate(true).one_stop(true);
-    self.group.hold(&recipe, cards, "radiogroup", Some(keys))
+    let view = self.group.view(ChoiceCardKind::Radio, recipe, cards);
+    match theme.renderer::<Self>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
   }
 }
 
 group_props!(RadioCardGroup);
 
-impl From<RadioCardGroup> for Element {
-  fn from(group: RadioCardGroup) -> Self {
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<RadioCardGroup<T>> for Element {
+  fn from(group: RadioCardGroup<T>) -> Self {
     group.build(&current_theme())
   }
 }
 
-impl Themed for RadioCardGroup {
+impl<T: Send + Sync + 'static> Themed for RadioCardGroup<T> {
   const NAME: &'static str = "radio_card_group";
-  type Renderer = Arc<dyn Fn(RadioCardGroup) -> Element + Send + Sync>;
+  type Renderer = ChoiceCardGroupRenderer;
 
   /// The design's radio cards: 12 apart, one under the other or side by side.
   fn recipe() -> Recipe {
@@ -887,96 +985,186 @@ impl Themed for RadioCardGroup {
 /// or takes it out.
 ///
 /// ```
-/// use lurq::{core::Signal, ui::{CheckboxCard, CheckboxCardGroup}};
+/// use lurq::{core::Signal, ui::{CheckboxCard, CheckboxCardGroup, Orientation}};
 ///
 /// # fn groups(add_ons: Signal<Vec<&'static str>>) {
 /// let add_ons = CheckboxCardGroup::new(add_ons, [
 ///   ("backups", CheckboxCard::new("Backups").price("$4 / month")),
 ///   ("support", CheckboxCard::new("Priority support").price("$20 / month")),
 /// ])
-/// .horizontal(true);
+/// .orientation(Orientation::Horizontal)
+/// .on_change(|add_ons| println!("{add_ons:?}"));
 /// # }
 /// ```
 ///
 /// Each card is its own stop of Tab, and Space or Enter presses the one the focus is on.
-pub struct CheckboxCardGroup {
-  cards: Vec<(CheckboxCard, bool, Press)>,
+pub struct CheckboxCardGroup<T> {
+  cards: Vec<(T, CheckboxCard)>,
+  checked: Vec<T>,
+  bound: Option<Turn<T>>,
+  on_change: Vec<Arc<dyn Fn(&[T]) + Send + Sync>>,
   group: Group,
 }
 
-impl CheckboxCardGroup {
-  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Chosen<T>,
-    cards: impl IntoIterator<Item = (T, CheckboxCard)>,
-  ) -> Self {
-    let cards = cards
-      .into_iter()
-      .map(|(value, card)| (card, chosen.has(&value), Arc::new(chosen.picker(value)) as Press))
-      .collect();
+impl<T: Clone + PartialEq + Send + Sync + 'static> CheckboxCardGroup<T> {
+  fn of(checked: Vec<T>, bound: Option<Turn<T>>, cards: impl IntoIterator<Item = (T, CheckboxCard)>) -> Self {
     Self {
-      cards,
+      cards: cards.into_iter().collect(),
+      checked,
+      bound,
+      on_change: Vec::new(),
       group: Group::new(),
     }
   }
 
   /// A group of which the cards whose values the signal has are checked. A press adds a value to the signal, or
   /// takes it out.
-  pub fn new<T>(values: Signal<Vec<T>>, cards: impl IntoIterator<Item = (T, CheckboxCard)>) -> Self
+  pub fn new(checked: Signal<Vec<T>>, cards: impl IntoIterator<Item = (T, CheckboxCard)>) -> Self
   where
-    T: Clone + PartialEq + Send + Sync + 'static,
     Vec<T>: SignalValue,
   {
-    Self::of(Chosen::many(values), cards)
+    Self::of(checked.get(), Some(turning(checked)), cards)
   }
 
-  /// A group whose state the app holds: the cards of `checked` are checked, and `press` is told the value of each
-  /// one pressed.
-  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
+  /// A group whose state the app holds: the cards of `checked` are checked, and `on_change` is told the whole new
+  /// set a press asks for: `checked` with the value pressed added, or taken out. What is drawn is what the app says
+  /// next.
+  pub fn controlled(
     checked: impl IntoIterator<Item = T>,
     cards: impl IntoIterator<Item = (T, CheckboxCard)>,
-    press: impl Fn(T) + Send + Sync + 'static,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held(checked.into_iter().collect(), press), cards)
+    Self::of(checked.into_iter().collect(), None, cards).on_change(on_change)
+  }
+
+  /// Called on a press, with the whole new set of values checked, after the signal the group is bound to is set.
+  /// That the app sets the signal calls nothing. A second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
+    self
   }
 
   /// Builds the group in `theme`. Converting a group into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let (recipe, item) = self.group.resolve::<CheckboxCardGroup>(theme);
-    let (invalid, disabled) = (self.group.invalid, self.group.disabled);
+    let (recipe, item) = self.group.resolve::<Self>(theme);
+    let (invalid, disabled, forced) = (self.group.invalid, self.group.disabled, self.group.forced);
+    let entry = self
+      .cards
+      .iter()
+      .position(|(_, card)| !disabled && !card.content.disabled);
+    let (checked, bound, handlers) = (self.checked, self.bound, self.on_change);
     let cards = self
       .cards
       .into_iter()
-      .map(|(card, checked, pick)| {
+      .enumerate()
+      .map(|(index, (value, card))| {
         let (own_invalid, own_disabled) = (card.content.invalid, card.content.disabled);
-        card
-          .checked(checked)
+        let on = checked.contains(&value);
+        let press = toggling(value, &checked, bound.clone(), handlers.clone());
+        let mut card = card
+          .checked(on)
           .invalid(invalid || own_invalid)
           .disabled(disabled || own_disabled)
           .rules(&item)
-          .on_change(move |_| pick())
-          .build(theme)
+          .on_change(move |_| press());
+        if Some(index) == entry {
+          card = card.force(forced);
+        }
+        card.build(theme)
       })
       .collect();
-    self.group.hold(&recipe, cards, "group", None)
+    let view = self.group.view(ChoiceCardKind::Checkbox, recipe, cards);
+    match theme.renderer::<Self>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
   }
 }
 
 group_props!(CheckboxCardGroup);
 
-impl From<CheckboxCardGroup> for Element {
-  fn from(group: CheckboxCardGroup) -> Self {
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<CheckboxCardGroup<T>> for Element {
+  fn from(group: CheckboxCardGroup<T>) -> Self {
     group.build(&current_theme())
   }
 }
 
-impl Themed for CheckboxCardGroup {
+impl<T: Send + Sync + 'static> Themed for CheckboxCardGroup<T> {
   const NAME: &'static str = "checkbox_card_group";
-  type Renderer = Arc<dyn Fn(CheckboxCardGroup) -> Element + Send + Sync>;
+  type Renderer = ChoiceCardGroupRenderer;
 
   /// The design's checkbox cards: 12 apart, one under the other or side by side.
   fn recipe() -> Recipe {
     group_recipe()
+  }
+}
+
+/// A group of checkbox cards or radio cards as a renderer sees it: what it was given, the style of its parts, and
+/// its cards, built with what the group says of each and what a press of each does.
+pub struct ChoiceCardGroupView {
+  /// Which of the two its cards are.
+  pub kind: ChoiceCardKind,
+  pub label: Option<Arc<str>>,
+  pub orientation: Orientation,
+  pub invalid: bool,
+  pub disabled: bool,
+  /// The style of each part of this group.
+  pub recipe: ResolvedRecipe,
+  /// Its cards, in order.
+  pub cards: Vec<Element>,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl ChoiceCardGroupView {
+  /// The style of a part, as this group is to be drawn.
+  pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
+    self.recipe.part(part)
+  }
+
+  pub fn theme(&self) -> &Theme {
+    self.recipe.theme()
+  }
+
+  /// How the default renderer builds a group: its cards one under the other, or side by side and going on to the
+  /// next line, as high as the highest in their line. Radio cards are a radio group to what reads the tree, one
+  /// stop of Tab whose arrow keys move the focus and the choice with it; checkbox cards are a group.
+  pub fn render(self) -> Element {
+    let (role, keys) = match self.kind {
+      // One choice, as a group of radios is: Tab stops in it once, and an arrow key moves the focus and the choice.
+      ChoiceCardKind::Radio => ("radiogroup", Some(FocusGroup::both().activate(true).one_stop(true))),
+      ChoiceCardKind::Checkbox => ("group", None),
+    };
+    let root = self.part(ChoiceCardGroupPart::Root);
+    let (id, key, label, cards) = (self.id, self.key, self.label, self.cards);
+    macro_rules! group {
+      ($holder:expr) => {{
+        let mut holder = $holder.part(&root).describe("a11y_role", role);
+        if let Some(keys) = keys {
+          holder = holder.focus_group(keys);
+        }
+        if let Some(label) = label {
+          holder = holder.describe("a11y_name", label);
+        }
+        for card in cards {
+          holder = holder.child(card);
+        }
+        if let Some(id) = id {
+          holder = holder.id(id);
+        }
+        if let Some(key) = key {
+          holder = holder.key(key);
+        }
+        holder.into()
+      }};
+    }
+    if self.orientation.is_vertical() {
+      group!(Column::new().align_items(Alignment::Stretch))
+    } else {
+      // Cards side by side are as high as the highest in their line.
+      group!(Row::new().wrap().align_items(Alignment::Stretch))
+    }
   }
 }
 
@@ -998,7 +1186,7 @@ impl super::FieldControl for RadioCard {
   }
 }
 
-impl super::FieldControl for CheckboxCardGroup {
+impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for CheckboxCardGroup<T> {
   /// Called by the field's label unless it has a name of its own, every card invalid where the field is, and
   /// disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
@@ -1011,7 +1199,7 @@ impl super::FieldControl for CheckboxCardGroup {
   }
 }
 
-impl super::FieldControl for RadioCardGroup {
+impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for RadioCardGroup<T> {
   /// Called by the field's label unless it has a name of its own, every card invalid where the field is, and
   /// disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {

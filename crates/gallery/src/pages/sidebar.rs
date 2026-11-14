@@ -74,7 +74,7 @@ fn board(props: &Props, record: impl Fn(String) + Clone + Send + Sync + 'static)
     SidebarHeading::new("Ivan Zaida")
       .variant(SidebarHeadingVariant::Account)
       .description("ivan@lurq.dev")
-      .mark(Avatar::new("Ivan Zaida"))
+      .media(Avatar::new("Ivan Zaida"))
       .trailing_icon(icons::MORE_HORIZONTAL)
       .collapsed(collapsed)
   };
@@ -124,7 +124,7 @@ fn board(props: &Props, record: impl Fn(String) + Clone + Send + Sync + 'static)
     .footer(account(false))
     .footer_collapsed(account(true))
     .groups(groups)
-    .collapsed(props.collapsed.clone())
+    .collapsed(props.collapsed.get())
     .open(props.open.clone())
     .narrow(props.narrow)
 }
@@ -237,7 +237,7 @@ impl SidebarPage {
         .push("    .groups([SidebarGroup::new(\"\").items(project), SidebarGroup::new(\"\").items(team)])".to_owned());
     }
     code.push("    .footer(account(false))".to_owned());
-    code.push("    .collapsed(collapsed.clone())".to_owned());
+    code.push("    .collapsed(collapsed.get())".to_owned());
     code.push("    .open(open.clone())".to_owned());
     if props.narrow {
       code.push("    .narrow(true)".to_owned());
@@ -394,7 +394,7 @@ impl Component for SidebarPage {
         "footer",
         "impl Into<Element>",
         "",
-        "What stays at its bottom, with a line over it: who is signed in, the settings.",
+        "What stays at its bottom, with a line over it: who is signed in, the settings. One: a second call takes          the place of the first.",
       ),
       (
         "footer_collapsed",
@@ -412,14 +412,20 @@ impl Component for SidebarPage {
         "item",
         "SidebarItem",
         "",
-        "An item in a group of no label: icon, count, badge, shortcut, selected, disabled, on_select, href, \
-         children.",
+        "An item in a group of no label: icon, count, badge, shortcut, selected, disabled, default_open, \
+         on_select, href, children. items(..) adds several.",
+      ),
+      (
+        "build",
+        "&Theme",
+        "",
+        "The sidebar at rest in that theme, nothing kept: for a gallery or a test. mount(ctx) is what an app uses.",
       ),
       (
         "collapsed",
-        "bool | Signal<bool>",
+        "bool",
         "false",
-        "The rail of the items' icons, 52 wide; its width moves between the two.",
+        "The rail of the items' icons, 52 wide; its width moves between the two. The value of the signal          SidebarTrigger turns.",
       ),
       (
         "open",
@@ -487,13 +493,13 @@ impl Component for SidebarPage {
           self.frame.demo(
             1,
             rail,
-            ".collapsed(collapsed.clone())",
+            ".collapsed(collapsed.get())",
             &[
               "// collapsed: Signal<bool>, which SidebarTrigger turns",
               "Sidebar::new()",
               "    .header_collapsed(SidebarHeading::new(\"lurq\").icon(icons::BOX).collapsed(true))",
               "    .groups(groups)",
-              "    .collapsed(collapsed.clone())",
+              "    .collapsed(collapsed.get())",
               "    .mount(ctx)",
             ],
           ),

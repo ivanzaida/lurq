@@ -9,7 +9,7 @@ use lurq::{
   core::{Date, DateLocale, DateRange, Signal, Weekday, YearMonth},
   layout::Alignment,
   node::Element,
-  ui::{Calendar, CalendarMemory, Kbd},
+  ui::{Calendar, CalendarMemory, Kbd, Picked},
 };
 
 use crate::{
@@ -100,6 +100,47 @@ fn weekend(date: Date) -> bool {
   date.weekday().days_from_monday() >= 5
 }
 
+/// What the playground's panel sets on a calendar of either kind.
+#[derive(Clone, Copy)]
+struct Settings {
+  months: usize,
+  first_day: Option<Weekday>,
+  locale: &'static str,
+  min: bool,
+  blocked: Blocked,
+  week_numbers: bool,
+  outside_days: bool,
+  disabled: bool,
+  today: Date,
+}
+
+/// A calendar of a date or of a range, as the playground's panel makes it.
+fn dressed<V: Picked>(
+  calendar: Calendar<V>,
+  settings: Settings,
+  month: &Signal<YearMonth>,
+  memory: &CalendarMemory,
+) -> Calendar<V> {
+  let mut calendar = calendar
+    .month(month.clone())
+    .months(settings.months)
+    .locale(DateLocale::for_tag(settings.locale))
+    .week_numbers(settings.week_numbers)
+    .outside_days(settings.outside_days)
+    .disabled(settings.disabled)
+    .memory(memory);
+  if let Some(first) = settings.first_day {
+    calendar = calendar.first_day(first);
+  }
+  if settings.min {
+    calendar = calendar.min(settings.today);
+  }
+  if settings.blocked == Blocked::Weekends {
+    calendar = calendar.disabled_days(weekend);
+  }
+  calendar
+}
+
 fn says(date: Option<Date>) -> String {
   match date {
     Some(date) => format!("the signal has: {date}"),
@@ -153,45 +194,43 @@ impl CalendarPage {
       self.disabled.get(),
     );
     let (date, range, month) = (self.date.get(), self.range.get(), self.month.get());
-    let today = Date::today();
-    let plain = {
-      let (date, range, month) = (self.date.clone(), self.range.clone(), self.month.clone());
-      move |memory: &CalendarMemory| {
-        let mut calendar = match mode {
-          Mode::Date => Calendar::new(date.clone()),
-          Mode::Range => Calendar::range(range.clone()),
-        }
-        .month(month.clone())
-        .months(months)
-        .locale(DateLocale::for_tag(locale))
-        .week_numbers(week_numbers)
-        .outside_days(outside_days)
-        .disabled(disabled)
-        .memory(memory);
-        if let Some(first) = first_day {
-          calendar = calendar.first_day(first);
-        }
-        if min {
-          calendar = calendar.min(today);
-        }
-        if blocked == Blocked::Weekends {
-          calendar = calendar.disabled_days(weekend);
-        }
-        calendar
-      }
+    let settings = Settings {
+      months,
+      first_day,
+      locale,
+      min,
+      blocked,
+      week_numbers,
+      outside_days,
+      disabled,
+      today: Date::today(),
     };
-    let (record, record_range) = (self.playground.recorder(), self.playground.recorder());
-    let shown = plain(&self.memory)
-      .on_change(move |date| record(format!("on_change({date})")))
-      .on_range_change(move |range| record_range(format!("on_range_change({range})")));
+    let forced = self.playground.forced();
+    let record = self.playground.recorder();
+    let shown: Element = match mode {
+      Mode::Date => dressed(Calendar::new(self.date.clone()), settings, &self.month, &self.memory)
+        .force(forced)
+        .on_change(move |date: Date| record(format!("on_change({date})")))
+        .into(),
+      Mode::Range => dressed(Calendar::new(self.range.clone()), settings, &self.month, &self.memory)
+        .force(forced)
+        .on_change(move |range: DateRange| record(format!("on_change({range})")))
+        .into(),
+    };
     let detached = CalendarMemory::new();
-    let make: Arc<dyn Fn() -> Element + Send + Sync> = Arc::new(move || plain(&detached).into());
+    let make: Arc<dyn Fn() -> Element + Send + Sync> = {
+      let (date, range, month) = (self.date.clone(), self.range.clone(), self.month.clone());
+      Arc::new(move || match mode {
+        Mode::Date => dressed(Calendar::new(date.clone()), settings, &month, &detached).into(),
+        Mode::Range => dressed(Calendar::new(range.clone()), settings, &month, &detached).into(),
+      })
+    };
 
     let mut code = vec![
       "// value: Signal<Option<Date>>, month: Signal<YearMonth>".to_owned(),
       match mode {
         Mode::Date => "Calendar::new(value.clone())".to_owned(),
-        Mode::Range => "Calendar::range(stay.clone())".to_owned(),
+        Mode::Range => "Calendar::new(stay.clone())".to_owned(),
       },
       "    .month(month.clone())".to_owned(),
     ];
@@ -271,18 +310,15 @@ impl CalendarPage {
         make,
         shown: Shown::of(shown),
         fill: false,
-        forceable: false,
+        forceable: true,
         facts,
-        event: match mode {
-          Mode::Date => "on_change",
-          Mode::Range => "on_range_change",
-        },
+        event: "on_change",
         code,
         tree,
         controls: vec![
           prop(
-            "new / range",
-            "Signal<Option<Date>> / Signal<Option<DateRange>>",
+            "new",
+            "Signal<Option<V>>",
             self.playground.select(0, &MODES, &mode, move |mode| set_mode.set(mode)),
           ),
           prop(
@@ -395,12 +431,12 @@ impl Component for CalendarPage {
       &format!("{} · the month shown: {}", says(self.due.get()), self.shown.get()),
     ));
     let range = items().child(item(
-      Calendar::range(self.stay.clone()).months(2).memory(&self.kept[1]),
+      Calendar::new(self.stay.clone()).months(2).memory(&self.kept[1]),
       &says_range(self.stay.get()),
     ));
     let blocked = items()
       .child(item(
-        Calendar::new(Signal::new(None))
+        Calendar::new(Signal::new(None::<Date>))
           .min(today)
           .max(today.add_months(2))
           .disabled_days(weekend)
@@ -437,7 +473,8 @@ impl Component for CalendarPage {
             .width(FILL)
             .align_items(Alignment::Center)
             .child(Row::new().width(200.0).child(Kbd::new(key)))
-            .child(quiet(does, 13.0)),
+            // What the key does wraps in the room beside the key.
+            .child(Column::new().flex(1.0).child(quiet(does, 13.0))),
         )
       });
     let rows = [
@@ -445,7 +482,13 @@ impl Component for CalendarPage {
         "value",
         "Signal<Option<Date>> / Signal<Option<DateRange>>",
         "",
-        "What is chosen: Calendar::new for a date, Calendar::range for a range chosen with two presses.",
+        "What is chosen, which a choice sets: a date, or a range chosen with two presses.",
+      ),
+      (
+        "controlled",
+        "Option<Date> / Option<DateRange>, Fn",
+        "",
+        "The app's value and what it is told of a choice, which it answers with the value it renders next.",
       ),
       (
         "month",
@@ -493,14 +536,30 @@ impl Component for CalendarPage {
         "true",
         "The days of the months beside in the first and the last week. None with several months.",
       ),
-      ("today", "Date", "system's", "The day marked as today."),
-      ("disabled", "bool", "false", "Half the opacity; it takes no input."),
-      ("on_change", "Fn(Date)", "", "Called when a press chooses a date."),
       (
-        "on_range_change",
-        "Fn(DateRange)",
+        "today",
+        "Date",
+        "system's",
+        "The day marked as today, in the state Current.",
+      ),
+      ("disabled", "bool", "false", "Half the opacity; it takes no input."),
+      (
+        "label",
+        "&str",
         "",
-        "Called when a second press ends a range.",
+        "What the calendar is called to tooling: its panel is then a group.",
+      ),
+      (
+        "previous_label / next_label",
+        "&str",
+        "English",
+        "What the buttons of the heading are called: Previous month, Next month.",
+      ),
+      (
+        "on_change",
+        "Fn(Date) / Fn(DateRange)",
+        "",
+        "Called when a person chooses another date, or ends another range: not for what is chosen already.",
       ),
     ];
     let playground = self.play(ctx);
@@ -547,10 +606,10 @@ impl Component for CalendarPage {
           self.frame.demo(
             1,
             range,
-            "Calendar::range(stay.clone()).months(2)",
+            "Calendar::new(stay.clone()).months(2)",
             &[
               "// stay: Signal<Option<DateRange>>",
-              "Calendar::range(stay.clone())",
+              "Calendar::new(stay.clone())",
               "    .months(2)",
               "    .mount(ctx)",
             ],

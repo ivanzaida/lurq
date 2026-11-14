@@ -15,8 +15,8 @@ use lurq::{
   layout::quad::QuadContent,
   node::color::Color,
   ui::{
-    Button, ButtonSize, ButtonVariant, Case, Interaction, Toast, ToastPart, ToastPosition, ToastRenderer, ToastVariant,
-    ToastView, Toasts, icons,
+    Button, ButtonSize, ButtonVariant, Case, Interaction, Recipe, Toast, ToastPart, ToastPosition, ToastRenderer,
+    ToastVariant, ToastView, Toasts, icons,
   },
 };
 
@@ -56,7 +56,7 @@ fn window(toasts: &Toasts, position: ToastPosition) -> Stage {
   let mut stage = Stage::new(move |ctx| {
     Column::new()
       .size(400.0, 300.0)
-      .child(host.host_at(ctx, position))
+      .child(host.mount_at(ctx, position))
       .into()
   });
   stage.tree.resize(400, 300);
@@ -131,8 +131,8 @@ fn a_toast_is_a_panel_with_its_icon_its_text_and_its_close_control() {
 fn each_variant_has_its_icon_in_its_color() {
   let stage = Stage::new(|_| {
     let mut column = Column::new().spacing(4.0);
-    for variant in [ToastVariant::Info, ToastVariant::Warning, ToastVariant::Error] {
-      column = column.child(Toast::new(variant.as_str()).variant(variant).closable(false));
+    for variant in [ToastVariant::Info, ToastVariant::Warning, ToastVariant::Destructive] {
+      column = column.child(Toast::new(variant.as_str()).variant(variant).close_button(false));
     }
     column.into()
   });
@@ -142,13 +142,16 @@ fn each_variant_has_its_icon_in_its_color() {
     stage.text(&glyph(icons::CLOSE_CIRCLE)).0,
     light(PaletteColor::Destructive)
   );
-  assert!(!stage.paints(&glyph(icons::CLOSE)), "not closable: no close control");
+  assert!(
+    !stage.paints(&glyph(icons::CLOSE)),
+    "close_button(false): no close control"
+  );
 
   // An icon of its own in place of the variant's, or none.
   let stage = Stage::new(|_| {
     Column::new()
       .child(Toast::new("Copied").icon(icons::COPY))
-      .child(Toast::new("Failed").variant(ToastVariant::Error).icon_hidden(true))
+      .child(Toast::new("Failed").variant(ToastVariant::Destructive).icon(None))
       .into()
   });
   assert_eq!(
@@ -282,7 +285,7 @@ fn a_toast_shown_by_a_host_leaves_after_its_duration_or_on_its_close_control() {
   // One that stays until it is closed: Tab reaches its close control from the page.
   toasts.show(
     Toast::new("Could not connect")
-      .variant(ToastVariant::Error)
+      .variant(ToastVariant::Destructive)
       .persistent(true),
   );
   stage.pass();
@@ -392,7 +395,7 @@ fn a_toast_comes_in_and_leaves_by_animations_that_reduced_motion_goes_without() 
   app.theme().set_reduced_motion(Some(true));
   let host = toasts.clone();
   let mut stage = Stage::in_app(app, move |ctx| {
-    Column::new().size(400.0, 300.0).child(host.host(ctx)).into()
+    Column::new().size(400.0, 300.0).child(host.mount(ctx)).into()
   });
   stage.tree.resize(400, 300);
   let id = toasts.show(Toast::new("At once"));
@@ -454,7 +457,7 @@ fn toasts_at_the_top_of_a_window_with_its_own_title_bar_stand_under_it() {
     let mut stage = Stage::new(move |ctx| {
       let page = Column::new()
         .size(400.0, 300.0)
-        .child(host.host_at(ctx, ToastPosition::TopLeft));
+        .child(host.mount_at(ctx, ToastPosition::TopLeft));
       if chrome {
         WindowChrome::new()
           .mode(WindowChromeMode::AlwaysCustom)
@@ -540,7 +543,7 @@ fn a_theme_restyles_a_part_or_gives_the_toast_another_anatomy() {
 
   // The variant is what the recipe is resolved for.
   let theme = stage.app.theme().clone();
-  let case = Case::new().variant(ToastVariant::Error);
+  let case = Case::new().variant(ToastVariant::Destructive);
   let icon = theme.resolve::<Toast>(&case, None).part(ToastPart::Icon).rest();
   assert!(icon.foreground.is_some());
 }
@@ -667,4 +670,46 @@ fn a_description_too_long_for_its_line_goes_on_to_the_next() {
   }
   assert!(lines.len() >= 2 || lines[0].height > 30.0, "on two lines");
   assert_eq!(width, 360.0);
+}
+
+/// A variant is a name: one a theme adds reaches the recipe, and a toast of it has no icon of its own, as a neutral
+/// one has none.
+#[test]
+fn a_variant_a_theme_adds_reaches_the_recipe_with_no_icon() {
+  let brand = Recipe::new().variant("brand", ToastPart::Root, |s| s.background(PaletteColor::Secondary));
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .child(
+        Toast::new("Brand")
+          .variant("brand")
+          .rules(&brand)
+          .close_button(false)
+          .id("toast"),
+      )
+      .into()
+  });
+  assert_eq!(stage.fill_color("toast"), Some(light(PaletteColor::Secondary)));
+  for icon in [icons::INFO, icons::CHECK_CIRCLE, icons::WARNING, icons::CLOSE_CIRCLE] {
+    assert!(!stage.paints(&glyph(icon)), "no icon of its own: {icon}");
+  }
+}
+
+/// `label` is what a toast is called to tooling, in place of its title.
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn a_label_is_what_a_toast_is_called_to_tooling() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(Toast::new("Settings saved").label("Saved").id("labelled"))
+      .child(Toast::new("Link copied").id("plain"))
+      .into()
+  });
+  let mut said = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(said("labelled").as_deref(), Some("Saved"));
+  assert_eq!(said("plain").as_deref(), Some("Link copied"));
 }

@@ -11,8 +11,9 @@ use super::{
 };
 use crate::{
   animation::Transition,
-  app::theme::{MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+  app::theme::{BorderSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Row},
+  core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::{CursorIcon, Element, dimension::Dimension},
 };
@@ -43,12 +44,15 @@ names!(SwitchPart {
 pub enum SwitchState {
   /// It is on.
   On,
+  /// What it holds is wrong: a form says so.
+  Invalid,
   /// It takes no input.
   Disabled,
 }
 
 names!(SwitchState {
   On => "on",
+  Invalid => "invalid",
   Disabled => "disabled",
 });
 
@@ -64,15 +68,20 @@ pub type SwitchRenderer = Arc<dyn Fn(SwitchView) -> Element + Send + Sync>;
 /// let dark = Switch::new("Dark mode").on(true).on_change(|on| println!("dark: {on}"));
 /// // The track alone, where a row of settings has the text already: its label is still what it is called.
 /// let sync = Switch::new("Sync in background").label_hidden(true);
+/// // Bound to the app's signal, which a press turns.
+/// # let paused = lurq::core::Signal::new(false);
+/// let pause = Switch::new("Pause notifications").bind(paused);
 /// ```
 ///
 /// A switch does not keep whether it is on: the app says so with
-/// [`Switch::on`], and is told of a press with [`Switch::on_change`]. A press
-/// of its label is a press of the switch.
+/// [`Switch::on`], and is told of a press with [`Switch::on_change`], or binds
+/// it to a signal with [`Switch::bind`]. A press of its label is a press of
+/// the switch.
 pub struct Switch {
   label: Arc<str>,
   label_hidden: bool,
   on: bool,
+  invalid: bool,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -89,6 +98,7 @@ impl Switch {
       label: Arc::from(label),
       label_hidden: false,
       on: false,
+      invalid: false,
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -111,6 +121,21 @@ impl Switch {
     self
   }
 
+  /// On while `on` is true, which a press turns. Handlers of [`Switch::on_change`] are told of a press after the
+  /// signal is set, and not when the app sets it.
+  pub fn bind(self, on: Signal<bool>) -> Self {
+    let set = on.clone();
+    let mut bound = self.on(on.get());
+    bound.on_change.insert(0, Arc::new(move |next| set.set(next)));
+    bound
+  }
+
+  /// Whether what the switch holds is wrong, where a field says so: its track is edged in the destructive color.
+  pub fn invalid(mut self, invalid: bool) -> Self {
+    self.invalid = invalid;
+    self
+  }
+
   /// Whether the switch takes no input.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
@@ -127,7 +152,8 @@ impl Switch {
     self
   }
 
-  /// Called on a press, with what the switch is to be: on if it was off.
+  /// Called on a press, with what the switch is to be: on if it was off. A second handler is called after the
+  /// first.
   pub fn on_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
@@ -159,6 +185,7 @@ impl Switch {
     self
   }
 
+  /// What tells the switch apart from those beside it, where two have one label.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
@@ -175,11 +202,13 @@ impl Switch {
       states: self.states.clone(),
     }
     .state(SwitchState::On, self.on)
+    .state(SwitchState::Invalid, self.invalid)
     .state(SwitchState::Disabled, self.disabled);
     let view = SwitchView {
       label: self.label,
       label_hidden: self.label_hidden,
       on: self.on,
+      invalid: self.invalid,
       disabled: self.disabled,
       recipe: theme.resolve::<Switch>(&case, Some(&self.rules)),
       forced: self.forced,
@@ -206,6 +235,7 @@ pub struct SwitchView {
   pub label: Arc<str>,
   pub label_hidden: bool,
   pub on: bool,
+  pub invalid: bool,
   pub disabled: bool,
   /// The style of each part of this switch.
   pub recipe: ResolvedRecipe,
@@ -317,7 +347,9 @@ impl Themed for Switch {
   /// The design's switch (`pencil/lurq-design-system.pen`, Switch): a track
   /// of 36 by 20, round, in the color of an input's edge, with a thumb of 16
   /// in the background's color 2 from its edge; the track is in the primary
-  /// color while it is on. Its label is 8 beside it, in the body's type.
+  /// color while it is on. Its label is 8 beside it, in the body's type. The
+  /// board draws no invalid switch: an invalid one has the edge of 1 inside
+  /// its track in the destructive color, as an invalid checkbox's box has.
   fn recipe() -> Recipe {
     use PaletteColor::*;
     use SwitchPart::{Label, Root, Thumb, Track};
@@ -344,6 +376,9 @@ impl Themed for Switch {
       })
       .focus_visible(Track, |s| s.focus_ring())
       .state(SwitchState::On, Track, |s| s.background(Primary))
+      .state(SwitchState::Invalid, Track, |s| {
+        s.border(crate::node::border::Border::inside(BorderSize::Sm, Destructive))
+      })
       .state(SwitchState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .state(SwitchState::Disabled, Track, |s| s.cursor(CursorIcon::Default))
       .state(SwitchState::Disabled, Label, |s| s.cursor(CursorIcon::Default))
@@ -351,12 +386,13 @@ impl Themed for Switch {
 }
 
 impl super::FieldControl for Switch {
-  /// Called by the field's label where its own is hidden, since the label a person reads is then the field's, and
-  /// disabled where the field is. A switch has no judgment.
+  /// Called by the field's label where its own is hidden, since the label a person reads is then the field's;
+  /// invalid where the field is, and disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
     if self.label_hidden {
       self.label = field.label.clone();
     }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
     self.disabled |= field.disabled;
     self.into()
   }

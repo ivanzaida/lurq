@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Field, Icon, Input, Interaction, Select, SelectPart, SelectSize, SelectState, icons},
+  ui::{Field, Icon, Input, Interaction, Orientation, Select, SelectPart, SelectSize, SelectState, icons},
 };
 
 use crate::{
@@ -75,6 +75,7 @@ pub struct SelectPage {
   warning: Signal<bool>,
   valid: Signal<bool>,
   disabled: Signal<bool>,
+  read_only: Signal<bool>,
   full_width: Signal<bool>,
   theme: Signal<String>,
   zone: Signal<String>,
@@ -93,6 +94,7 @@ impl SelectPage {
       ("invalid", self.invalid.get()),
       ("warning", self.warning.get()),
       ("valid", self.valid.get()),
+      ("read_only", self.read_only.get()),
       ("disabled", self.disabled.get()),
       ("full_width", self.full_width.get()),
     ];
@@ -107,11 +109,15 @@ impl SelectPage {
           .invalid(set[0])
           .warning(set[1])
           .valid(set[2])
-          .disabled(set[3])
-          .full_width(set[4])
+          .read_only(set[3])
+          .disabled(set[4])
+          .full_width(set[5])
       }
     };
-    let shown = make().force(self.playground.forced());
+    let record = self.playground.recorder();
+    let shown = make()
+      .on_change(move |value: &String| record(format!("on_change({value:?})")))
+      .force(self.playground.forced());
 
     let mut code = vec![
       "// theme: Signal<String>".to_owned(),
@@ -141,7 +147,7 @@ impl SelectPage {
       format!("trigger      {}", self.playground.measured()),
       format!("├─ value     {height} px high   {shows}"),
       "└─ chevron   16 × 16 px".to_owned(),
-      "menu         4 under it   items of 32, the chosen one checked".to_owned(),
+      "panel        4 under it   items of 32, the chosen one checked".to_owned(),
     ];
 
     let sizes: Vec<(&str, usize)> = SIZES.iter().enumerate().map(|(index, size)| (size.1, index)).collect();
@@ -153,6 +159,7 @@ impl SelectPage {
         self.warning.clone(),
         self.valid.clone(),
         self.disabled.clone(),
+        self.read_only.clone(),
         self.full_width.clone(),
       ];
       move || {
@@ -177,7 +184,7 @@ impl SelectPage {
         fill: on("full_width"),
         forceable: true,
         facts: format!("{size_name} · radius 6"),
-        event: "value",
+        event: "on_change",
         code,
         tree,
         controls: vec![
@@ -201,6 +208,7 @@ impl SelectPage {
           flag("invalid", &self.invalid),
           flag("warning", &self.warning),
           flag("valid", &self.valid),
+          flag("read_only", &self.read_only),
           flag("disabled", &self.disabled),
           flag("full_width", &self.full_width),
         ],
@@ -217,7 +225,6 @@ impl Component for SelectPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 1);
     let value = ctx.signal(String::new());
-    playground.watch(ctx, &value, |value| format!("value = {value:?}"));
     Self {
       frame: Frame::new(ctx),
       playground,
@@ -228,6 +235,7 @@ impl Component for SelectPage {
       warning: ctx.signal(false),
       valid: ctx.signal(false),
       disabled: ctx.signal(false),
+      read_only: ctx.signal(false),
       full_width: ctx.signal(false),
       theme: ctx.signal("system".to_owned()),
       zone: ctx.signal(String::new()),
@@ -316,7 +324,9 @@ impl Component for SelectPage {
     let form = Column::new()
       .width(420.0)
       .spacing(16.0)
-      .child(Field::new("Display name", Input::new(self.name.clone()).full_width(true)).horizontal(true))
+      .child(
+        Field::new("Display name", Input::new(self.name.clone()).full_width(true)).orientation(Orientation::Horizontal),
+      )
       .child(
         Field::new(
           "Update channel",
@@ -330,7 +340,7 @@ impl Component for SelectPage {
           )
           .full_width(true),
         )
-        .horizontal(true),
+        .orientation(Orientation::Horizontal),
       );
 
     let rows = [
@@ -338,7 +348,22 @@ impl Component for SelectPage {
         "value",
         "Signal<T>",
         "",
-        "What the select is bound to: the option with its value is chosen, and choosing another sets it.",
+        "What the select is bound to: the option with its value is chosen, and choosing another sets it. \
+         Select::optional binds a Signal<Option<T>>, whose None is no option's.",
+      ),
+      (
+        "controlled",
+        "(T, options, Fn(&T))",
+        "",
+        "Select::controlled: the app holds the value. A choice is told, and the trigger shows what the app answers \
+         with.",
+      ),
+      (
+        "on_change",
+        "Fn(&T)",
+        "",
+        "Called with the new value when a person chooses: not when the app sets it, and not for the option chosen \
+         already.",
       ),
       (
         "options",
@@ -369,6 +394,12 @@ impl Component for SelectPage {
         "bool",
         "false",
         "Half the opacity on the muted fill; it does not open, and Tab passes it by.",
+      ),
+      (
+        "read_only",
+        "bool",
+        "false",
+        "What is chosen is read and not changed: the list does not open. The muted fill in the border's color.",
       ),
       (
         "full_width",
@@ -555,13 +586,13 @@ impl Component for SelectPage {
           self.frame.demo(
             4,
             form,
-            "Field::new(\"Update channel\", select).horizontal(true)",
+            "Field::new(\"Update channel\", select).orientation(Orientation::Horizontal)",
             &[
               "// name, channel: Signal<String>",
               "Column::new()",
               "    .width(420.0)",
               "    .spacing(16.0)",
-              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).horizontal(true))",
+              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).orientation(Orientation::Horizontal))",
               "    .child(",
               "        Field::new(",
               "            \"Update channel\",",
@@ -572,7 +603,7 @@ impl Component for SelectPage {
               "            ])",
               "            .full_width(true),",
               "        )",
-              "        .horizontal(true),",
+              "        .orientation(Orientation::Horizontal),",
               "    )",
             ],
           ),

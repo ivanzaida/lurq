@@ -181,8 +181,12 @@ impl TogglePlay {
 
 const LINK_ICONS: [(&str, Option<&str>, &str); 3] = [
   ("None", None, ""),
-  ("External", Some(icons::ARROW_UP_RIGHT), "    .external()"),
-  ("Arrow right", Some(icons::ARROW_RIGHT), "    .icon(icons::ARROW_RIGHT)"),
+  ("External", Some(icons::ARROW_UP_RIGHT), "    .external(true)"),
+  (
+    "Arrow right",
+    Some(icons::ARROW_RIGHT),
+    "    .trailing_icon(icons::ARROW_RIGHT)",
+  ),
 ];
 
 pub struct LinkPlay {
@@ -209,9 +213,10 @@ impl LinkPlay {
       let label = label.clone();
       move || {
         let link = Link::new(&label).disabled(disabled);
-        match LINK_ICONS[icon].1 {
-          Some(name) => link.icon(name),
-          None => link,
+        match (icon, LINK_ICONS[icon].1) {
+          (1, _) => link.external(true),
+          (_, Some(name)) => link.trailing_icon(name),
+          _ => link,
         }
       }
     };
@@ -262,7 +267,7 @@ impl LinkPlay {
         controls: vec![
           prop("label", "&str", field(&self.label)),
           prop(
-            "icon",
+            "trailing_icon",
             "impl Into<Name>",
             self.playground.select(0, &glyphs, &icon, move |index| pick.set(index)),
           ),
@@ -324,9 +329,9 @@ impl SegmentedPlay {
         choice
       }
     });
-    let control = SegmentedControl::controlled(chosen, choices, move |index: usize| {
-      set.set(index);
-      record(format!("chosen: {}", VIEWS[index].0));
+    let control = SegmentedControl::controlled(chosen, choices, move |index: &usize| {
+      set.set(*index);
+      record(format!("on_change: {}", VIEWS[*index].0));
     })
     .size(SIZES[size].0)
     .full_width(full_width)
@@ -382,7 +387,7 @@ impl SegmentedPlay {
               choice
             }
           });
-          SegmentedControl::controlled(chosen, choices, |_: usize| {})
+          SegmentedControl::controlled(chosen, choices, |_: &usize| {})
             .size(SIZES[size].0)
             .full_width(full_width)
             .disabled(disabled)
@@ -392,7 +397,7 @@ impl SegmentedPlay {
         fill: full_width,
         forceable: true,
         facts: format!("chosen: {}", VIEWS[chosen].0),
-        event: "chosen",
+        event: "on_change",
         code,
         tree,
         controls: vec![
@@ -450,18 +455,18 @@ impl ButtonGroupPlay {
     let (variant, size) = (self.variant.get(), self.size.get());
     let (buttons, disabled) = (self.more.get().min(2) + 2, self.disabled.get());
     let record = self.playground.recorder();
-    let mut group = ButtonGroup::new()
+    let mut group = ButtonGroup::new([])
       .variant(GROUP_VARIANTS[variant].0)
       .size(SIZES[size].0);
     for unit in UNITS.into_iter().take(buttons) {
       let record = record.clone();
-      group = group.child(
+      group = group.button(
         Button::new(unit)
           .disabled(disabled)
           .on_click(move |_| record(format!("on_click: {unit}"))),
       );
     }
-    let mut code = vec!["ButtonGroup::new()".to_owned()];
+    let mut code = vec!["ButtonGroup::new([])".to_owned()];
     if variant != 0 {
       code.push(format!(
         "    .variant(ButtonGroupVariant::{})",
@@ -471,7 +476,7 @@ impl ButtonGroupPlay {
     code.extend(size_line(size));
     for unit in UNITS.into_iter().take(buttons) {
       code.push(format!(
-        "    .child(Button::new({unit:?}){}.on_click(..))",
+        "    .button(Button::new({unit:?}){}.on_click(..))",
         if disabled { ".disabled(true)" } else { "" }
       ));
     }
@@ -507,11 +512,11 @@ impl ButtonGroupPlay {
       Spec {
         title: "Button Group",
         make: Arc::new(move || {
-          let mut group = ButtonGroup::new()
+          let mut group = ButtonGroup::new([])
             .variant(GROUP_VARIANTS[variant].0)
             .size(SIZES[size].0);
           for unit in UNITS.into_iter().take(buttons) {
-            group = group.child(Button::new(unit).disabled(disabled));
+            group = group.button(Button::new(unit).disabled(disabled));
           }
           group.into()
         }),
@@ -601,19 +606,15 @@ impl ToggleGroupPlay {
       .iter()
       .enumerate()
       .map(|(index, (label, glyph, _))| Choice::new(index, label).icon(*glyph).icon_only(icon_only));
-    let group = ToggleGroup::controlled(on.clone(), choices, move |index: usize| {
-      if multiple {
-        many.update(|on| match on.iter().position(|held| *held == index) {
-          Some(at) => {
-            on.remove(at);
-          }
-          None => on.push(index),
-        });
-      } else {
-        one.set(index);
-      }
-      record(format!("pressed: {}", MARKS[index].0));
-    })
+    let group = if multiple {
+      ToggleGroup::multiple(many, choices).on_change(move |on: &[usize]| {
+        let names: Vec<&str> = on.iter().map(|index| MARKS[*index].0).collect();
+        record(format!("on_change: [{}]", names.join(", ")));
+      })
+    } else {
+      ToggleGroup::new(one, choices).on_change(move |index: &usize| record(format!("on_change: {}", MARKS[*index].0)))
+    }
+    .label("Marks")
     .size(SIZES[size].0)
     .disabled(disabled);
 
@@ -630,10 +631,16 @@ impl ToggleGroupPlay {
       ));
     }
     code.push("])".to_owned());
+    code.push("    .label(\"Marks\")".to_owned());
     code.extend(size_line(size));
     if disabled {
       code.push("    .disabled(true)".to_owned());
     }
+    code.push(if multiple {
+      "    .on_change(|marks: &[Mark]| save(marks))".to_owned()
+    } else {
+      "    .on_change(|mark: &Mark| save(mark))".to_owned()
+    });
     let mut tree = vec![format!("root      {}   a line around", self.playground.measured())];
     for (index, (label, ..)) in MARKS.iter().enumerate() {
       let last = index + 1 == MARKS.len();
@@ -671,10 +678,15 @@ impl ToggleGroupPlay {
               .iter()
               .enumerate()
               .map(|(index, (label, glyph, _))| Choice::new(index, label).icon(*glyph).icon_only(icon_only));
-            ToggleGroup::controlled(on.clone(), choices, |_: usize| {})
-              .size(SIZES[size].0)
-              .disabled(disabled)
-              .into()
+            if multiple {
+              ToggleGroup::controlled_multiple(on.clone(), choices, |_: &[usize]| {})
+            } else {
+              ToggleGroup::controlled(on[0], choices, |_: &usize| {})
+            }
+            .label("Marks")
+            .size(SIZES[size].0)
+            .disabled(disabled)
+            .into()
           })
         },
         shown: Shown::of(group),
@@ -685,7 +697,7 @@ impl ToggleGroupPlay {
         } else {
           format!("on: {}", names.join(", "))
         },
-        event: "pressed",
+        event: "on_change",
         code,
         tree,
         controls: vec![

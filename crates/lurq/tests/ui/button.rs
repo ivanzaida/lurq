@@ -601,3 +601,53 @@ fn a_button_narrower_than_its_label_cuts_it_and_keeps_its_padding_and_its_icon()
   let save = stage.text_quad("Save").expect("Save whole");
   assert!((stage.bounds("save").2 - (save.width + 32.0)).abs() < 0.5);
 }
+
+#[cfg(feature = "form")]
+mod submitting {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  use lurq::{
+    app::{component::Component, ctx::Ctx},
+    components::{Column, FormHandle, FormOptions},
+    node::Element,
+    ui::Button,
+  };
+
+  use super::Stage;
+
+  static SUBMITTED: AtomicUsize = AtomicUsize::new(0);
+
+  struct Form {
+    form: FormHandle,
+  }
+
+  impl Component for Form {
+    type Props = ();
+
+    fn create(ctx: &mut Ctx) -> Self {
+      let form = ctx.form(FormOptions::new().field("name", "")).on_submit(|_| {
+        SUBMITTED.fetch_add(1, Ordering::SeqCst);
+      });
+      Self { form }
+    }
+
+    fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+      ctx.form_view(self.form.clone(), |_| {
+        Column::new()
+          .padding(20.0)
+          .spacing(8.0)
+          .child(Button::new("Save").submit(true).id("save"))
+          .child(Button::new("Preview").submit(false).id("preview"))
+      })
+    }
+  }
+
+  #[test]
+  fn the_button_that_submits_is_the_one_told_so() {
+    let mut stage = Stage::new(|ctx| ctx.mount::<Form>(()));
+    stage.click("preview");
+    assert_eq!(SUBMITTED.load(Ordering::SeqCst), 0, "submit(false) submits nothing");
+    stage.click("save");
+    assert_eq!(SUBMITTED.load(Ordering::SeqCst), 1);
+  }
+}

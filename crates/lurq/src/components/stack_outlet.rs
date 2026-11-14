@@ -21,7 +21,7 @@ use std::{
     Arc,
     atomic::{AtomicBool, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::Mutex;
@@ -47,6 +47,7 @@ use crate::{
     Navigator, StackEntry,
     route_match::{OutletDepth, RouteMatch, RouterMatches, StackState},
   },
+  time::Instant,
 };
 
 /// How a [`StackOutlet`]'s screens and bar move. The values it starts with were set by eye beside the

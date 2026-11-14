@@ -81,7 +81,9 @@ impl PaginationPage {
       }
     };
     let record = self.playground.recorder();
-    let pagination = plain().on_change(move |to| record(format!("on_change({to})")));
+    let pagination = plain()
+      .force(self.playground.forced())
+      .on_change(move |to| record(format!("on_change({to})")));
 
     let mut code = vec![
       "// page: Signal<usize>, from 1".to_owned(),
@@ -137,7 +139,7 @@ impl PaginationPage {
         make: Arc::new(move || plain().into()),
         shown: Shown::of(pagination),
         fill: false,
-        forceable: false,
+        forceable: true,
         facts: format!("page {current} of {pages}"),
         event: "on_change",
         code,
@@ -299,10 +301,34 @@ impl Component for PaginationPage {
          holds it.",
       ),
       (
-        "summary",
+        "summary_text",
         "&str",
         "",
         "What is said of where the list is, in place of its own: in another language.",
+      ),
+      (
+        "previous_label",
+        "&str",
+        "\"Previous page\"",
+        "What the button of the page before is called.",
+      ),
+      (
+        "next_label",
+        "&str",
+        "\"Next page\"",
+        "What the button of the page after is called.",
+      ),
+      (
+        "page_label",
+        "&str",
+        "\"Page\"",
+        "The word before the number in a page's name: \"Page 3\".",
+      ),
+      (
+        "force",
+        "Option<Interaction>",
+        "",
+        "Draws the first button that takes input as under the pointer or focused: for a gallery or a test.",
       ),
       (
         "label",

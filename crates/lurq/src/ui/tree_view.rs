@@ -16,7 +16,7 @@ use super::{
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   selection::{ListSelection, Pick},
-  shared::{fading, glyph, pressable},
+  shared::{IconChoice, fading, glyph, pressable},
   spinner::{Spinner, SpinnerPart},
   theme::{Themed, current_theme},
 };
@@ -85,14 +85,14 @@ pub enum TreeViewState {
   /// The row is selected.
   Selected,
   /// The row is open: what it holds is shown under it.
-  Expanded,
+  Open,
   /// The row takes no input.
   Disabled,
 }
 
 names!(TreeViewState {
   Selected => "selected",
-  Expanded => "expanded",
+  Open => "open",
   Disabled => "disabled",
 });
 
@@ -100,20 +100,20 @@ names!(TreeViewState {
 pub type TreeViewRenderer = Arc<dyn Fn(TreeViewView) -> Element + Send + Sync>;
 
 /// One thing in a tree: a folder, a file, a group of settings. It is told
-/// apart by its `id`, which the tree's open and selected rows are named by.
+/// apart by its `value`, which the tree's open and selected rows are named by.
 ///
 /// ```
 /// use lurq::ui::{TreeItem, icons};
 ///
 /// let src = TreeItem::folder("src", "src")
-///   .child(TreeItem::file("src/lib.rs", "lib.rs"))
-///   .child(TreeItem::file("src/main.rs", "main.rs").disabled(true));
+///   .item(TreeItem::file("src/lib.rs", "lib.rs"))
+///   .item(TreeItem::file("src/main.rs", "main.rs").disabled(true));
 /// // Children the app brings when the row is first opened.
 /// let remote = TreeItem::new("origin", "origin").icon(icons::BRANCH).lazy(true);
 /// ```
 #[derive(Clone)]
 pub struct TreeItem<T> {
-  id: T,
+  value: T,
   label: Arc<str>,
   icon: Option<Name>,
   open_icon: Option<Name>,
@@ -121,15 +121,16 @@ pub struct TreeItem<T> {
   trailing_on_hover: bool,
   disabled: bool,
   lazy: bool,
-  children: Vec<TreeItem<T>>,
-  element_id: Option<Arc<str>>,
+  items: Vec<TreeItem<T>>,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl<T> TreeItem<T> {
-  /// An item of `id` that says `label`, with no icon.
-  pub fn new(id: T, label: &str) -> Self {
+  /// An item of `value` that says `label`, with no icon.
+  pub fn new(value: T, label: &str) -> Self {
     Self {
-      id,
+      value,
       label: Arc::from(label),
       icon: None,
       open_icon: None,
@@ -137,30 +138,35 @@ impl<T> TreeItem<T> {
       trailing_on_hover: false,
       disabled: false,
       lazy: false,
-      children: Vec::new(),
-      element_id: None,
+      items: Vec::new(),
+      id: None,
+      key: None,
     }
   }
 
   /// A folder: an item with the icon of a folder, and of an open one while it is open.
-  pub fn folder(id: T, label: &str) -> Self {
-    Self::new(id, label).icon(icons::FOLDER).open_icon(icons::FOLDER_OPEN)
+  pub fn folder(value: T, label: &str) -> Self {
+    Self::new(value, label)
+      .icon(icons::FOLDER)
+      .open_icon(icons::FOLDER_OPEN)
   }
 
   /// A file: an item with the icon of a file.
-  pub fn file(id: T, label: &str) -> Self {
-    Self::new(id, label).icon(icons::FILE)
+  pub fn file(value: T, label: &str) -> Self {
+    Self::new(value, label).icon(icons::FILE)
   }
 
-  /// The icon before the label, by its name in the theme's set.
-  pub fn icon(mut self, name: impl Into<Name>) -> Self {
-    self.icon = Some(name.into());
+  /// The icon before the label, by its name in the theme's set; `None` for none, in place of a folder's or a
+  /// file's.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.icon = icon.into().0;
     self
   }
 
-  /// The icon before the label while the item is open, in place of its [`icon`](Self::icon).
-  pub fn open_icon(mut self, name: impl Into<Name>) -> Self {
-    self.open_icon = Some(name.into());
+  /// The icon before the label while the item is open, in place of its [`icon`](Self::icon); `None` for the same
+  /// icon open and closed.
+  pub fn open_icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.open_icon = icon.into().0;
     self
   }
 
@@ -185,35 +191,42 @@ impl<T> TreeItem<T> {
   }
 
   /// Whether the item has children the app has not brought yet: it opens as a folder does, and while it is
-  /// open with no children its chevron is a spinner. The app is told it opened (`TreeView::on_expand`) and
+  /// open with no children its chevron is a spinner. The app is told it opened (`TreeView::on_open_change`) and
   /// gives it its children, or makes it not lazy where it has none.
   pub fn lazy(mut self, lazy: bool) -> Self {
     self.lazy = lazy;
     self
   }
 
-  /// An item inside this one.
-  pub fn child(mut self, item: TreeItem<T>) -> Self {
-    self.children.push(item);
+  /// An item inside this one, after those it holds already.
+  pub fn item(mut self, item: TreeItem<T>) -> Self {
+    self.items.push(item);
     self
   }
 
-  /// Items inside this one.
-  pub fn children(mut self, items: impl IntoIterator<Item = TreeItem<T>>) -> Self {
-    self.children.extend(items);
+  /// Items inside this one, after those it holds already.
+  pub fn items(mut self, items: impl IntoIterator<Item = TreeItem<T>>) -> Self {
+    self.items.extend(items);
     self
   }
 
   /// The id of the row's element: what is pressed and focused.
-  pub fn element_id(mut self, id: impl Into<Arc<str>>) -> Self {
-    self.element_id = Some(id.into());
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// What the row is told apart by among the rows, in place of where it is among its siblings: a row that keeps
+  /// it keeps its node, and its focus, as rows are put in or taken out before it.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 }
 
 /// What a tree's selection reads and writes: a signal of one row,
 /// `Signal<Option<T>>`, or of any number, `Signal<Vec<T>>`, which
-/// [`TreeView::selected`] takes either of.
+/// [`TreeView::new`] takes either of.
 pub struct TreeSelection<T> {
   read: Arc<dyn Fn() -> Vec<T> + Send + Sync>,
   write: Arc<dyn Fn(Vec<T>) + Send + Sync>,
@@ -249,6 +262,8 @@ where
 }
 
 type Told<T> = Arc<dyn Fn(&T) + Send + Sync>;
+type ToldAll<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
+type ToldOpen<T> = Arc<dyn Fn(&T, bool) + Send + Sync>;
 
 /// Things inside things, one level under the other: the files of a
 /// project in their folders, the layers of a scene, the settings of an app
@@ -258,30 +273,33 @@ type Told<T> = Arc<dyn Fn(&T) + Send + Sync>;
 /// use lurq::{core::Signal, ui::{TreeItem, TreeView}};
 ///
 /// # fn files(open: Signal<Vec<&'static str>>, selected: Signal<Option<&'static str>>) {
-/// let tree = TreeView::new([
-///   TreeItem::folder("crates", "crates").child(
+/// let tree = TreeView::new(selected, [
+///   TreeItem::folder("crates", "crates").item(
 ///     TreeItem::folder("lurq", "lurq")
-///       .child(TreeItem::file("lib.rs", "lib.rs"))
-///       .child(TreeItem::file("theme.rs", "theme.rs")),
+///       .item(TreeItem::file("lib.rs", "lib.rs"))
+///       .item(TreeItem::file("theme.rs", "theme.rs")),
 ///   ),
 ///   TreeItem::file("Cargo.toml", "Cargo.toml"),
 /// ])
 /// .label("Files")
-/// .expanded(open)
-/// .selected(selected)
+/// .open(open)
 /// .on_activate(|file| println!("open {file}"));
+/// // The selection held by the app, which is told each new one.
+/// let held = TreeView::controlled(["Cargo.toml"], [TreeItem::file("Cargo.toml", "Cargo.toml")], |chosen| {
+///   println!("{chosen:?}")
+/// });
 /// # }
 /// ```
 ///
 /// What is open and what is selected are the app's: a signal the tree reads
-/// and writes ([`expanded`](Self::expanded), [`selected`](Self::selected)), or
-/// what the app says with a handler it is told by
-/// ([`expanded_ids`](Self::expanded_ids), [`selected_ids`](Self::selected_ids)).
+/// and writes ([`new`](Self::new), [`open`](Self::open)), or what the app says
+/// with a handler it is told by ([`controlled`](Self::controlled),
+/// [`open_ids`](Self::open_ids)).
 /// The rows are one flat list of what is shown: what a closed row holds is
 /// not built, and it opens and closes at once.
 ///
-/// A press of a row selects it, a press of its chevron opens or closes it,
-/// and a double press activates it. The tree is one stop of Tab, at the
+/// A click of a row selects it, a press of its chevron opens or closes it,
+/// and a double click activates it. The tree is one stop of Tab, at the
 /// selected row or the first. Up and Down move through the rows that are
 /// shown, Home and End to the first and the last; Right opens a closed row and
 /// goes into an open one; Left closes an open row and goes out of a closed one
@@ -304,9 +322,9 @@ pub struct TreeView<T> {
   guides: bool,
   disabled: bool,
   label: Option<Arc<str>>,
-  on_select: Vec<Told<T>>,
+  on_change: Vec<ToldAll<T>>,
   on_activate: Vec<Told<T>>,
-  on_expand: Vec<Told<T>>,
+  on_open_change: Vec<ToldOpen<T>>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -315,8 +333,35 @@ pub struct TreeView<T> {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
-  /// A tree of `items`, each with what it holds: none open and none selected until the app says.
-  pub fn new(items: impl IntoIterator<Item = TreeItem<T>>) -> Self {
+  /// A tree of `items`, each with what it holds, whose selection is bound to `selection`: a `Signal<Option<T>>`
+  /// of one row, or a `Signal<Vec<T>>` of any number with [`multiple`](Self::multiple). The last of a `Vec` is
+  /// where a range selected with Shift starts. None is open until the app says.
+  pub fn new(selection: impl Into<TreeSelection<T>>, items: impl IntoIterator<Item = TreeItem<T>>) -> Self {
+    let selection = selection.into();
+    let mut tree = Self::of(items);
+    tree.selected = (selection.read)();
+    tree.select = Some(selection.write);
+    tree.holds_many = selection.many;
+    tree
+  }
+
+  /// A tree of `items` whose selection the app holds: the rows of `selected`, and `on_change` is told what is to be
+  /// selected after each press or key that changes it, and shows what the app then gives. The last is where a
+  /// range selected with Shift starts.
+  pub fn controlled(
+    selected: impl IntoIterator<Item = T>,
+    items: impl IntoIterator<Item = TreeItem<T>>,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
+  ) -> Self {
+    let mut tree = Self::of(items);
+    tree.selected = selected.into_iter().collect();
+    // The app's handler is told by `on_change`, with the handlers that hear the change.
+    tree.select = Some(Arc::new(|_| {}));
+    tree.holds_many = true;
+    tree.on_change(on_change)
+  }
+
+  fn of(items: impl IntoIterator<Item = TreeItem<T>>) -> Self {
     Self {
       items: items.into_iter().collect(),
       open: Vec::new(),
@@ -328,9 +373,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
       guides: false,
       disabled: false,
       label: None,
-      on_select: Vec::new(),
+      on_change: Vec::new(),
       on_activate: Vec::new(),
-      on_expand: Vec::new(),
+      on_open_change: Vec::new(),
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -339,8 +384,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     }
   }
 
-  /// The rows that are open: those whose ids the signal has. Opening a row adds it, closing one takes it out.
-  pub fn expanded(mut self, open: Signal<Vec<T>>) -> Self
+  /// The rows that are open: those whose values the signal has. Opening a row adds it, closing one takes it out.
+  pub fn open(mut self, open: Signal<Vec<T>>) -> Self
   where
     Vec<T>: SignalValue,
   {
@@ -358,36 +403,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
 
   /// The rows that are open, as the app holds them: those of `open`, and `toggle` is told of each row a press
   /// or a key asks to open (`true`) or to close.
-  pub fn expanded_ids(
+  pub fn open_ids(
     mut self,
     open: impl IntoIterator<Item = T>,
     toggle: impl Fn(&T, bool) + Send + Sync + 'static,
   ) -> Self {
     self.open = open.into_iter().collect();
     self.toggle = Some(Arc::new(toggle));
-    self
-  }
-
-  /// What is selected: a `Signal<Option<T>>` of one row, or a `Signal<Vec<T>>` of any number with
-  /// [`multiple`](Self::multiple). The last of a `Vec` is where a range selected with Shift starts.
-  pub fn selected(mut self, selection: impl Into<TreeSelection<T>>) -> Self {
-    let selection = selection.into();
-    self.selected = (selection.read)();
-    self.select = Some(selection.write);
-    self.holds_many = selection.many;
-    self
-  }
-
-  /// What is selected, as the app holds it: the rows of `selected`, and `change` is told what is to be
-  /// selected after each press or key that changes it. The last is where a range selected with Shift starts.
-  pub fn selected_ids(
-    mut self,
-    selected: impl IntoIterator<Item = T>,
-    change: impl Fn(Vec<T>) + Send + Sync + 'static,
-  ) -> Self {
-    self.selected = selected.into_iter().collect();
-    self.select = Some(Arc::new(change));
-    self.holds_many = true;
     self
   }
 
@@ -416,9 +438,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     self
   }
 
-  /// Called with the row a press or Space selects.
-  pub fn on_select(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
-    self.on_select.push(Arc::new(handler));
+  /// Called with what is selected after a click, Space, a key with Shift or Ctrl+A changed it: the whole new
+  /// selection, of one row where the tree holds one. Not called for a row that was selected already, nor when the
+  /// app sets the selection.
+  pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
     self
   }
 
@@ -428,9 +452,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     self
   }
 
-  /// Called with each row as it is opened, by a press or a key: where a lazy item's children are brought.
-  pub fn on_expand(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
-    self.on_expand.push(Arc::new(handler));
+  /// Called with each row a press or a key opens (`true`) or closes: where a lazy item's children are brought as
+  /// it opens.
+  pub fn on_open_change(mut self, handler: impl Fn(&T, bool) + Send + Sync + 'static) -> Self {
+    self.on_open_change.push(Arc::new(handler));
     self
   }
 
@@ -499,14 +524,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     };
     // A row is in one of eight cases: each is resolved once, however many rows there are.
     let mut recipes: HashMap<(bool, bool, bool), ResolvedRecipe> = HashMap::new();
-    let mut recipe = |selected: bool, expanded: bool, disabled: bool| {
+    let mut recipe = |selected: bool, open: bool, disabled: bool| {
       recipes
-        .entry((selected, expanded, disabled))
+        .entry((selected, open, disabled))
         .or_insert_with(|| {
           let case = base
             .clone()
             .state(TreeViewState::Selected, selected)
-            .state(TreeViewState::Expanded, expanded)
+            .state(TreeViewState::Open, open)
             .state(TreeViewState::Disabled, disabled);
           theme.resolve::<TreeView<T>>(&case, Some(&self.rules))
         })
@@ -517,21 +542,35 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     flatten(&self.items, 1, "", &self.open, self.disabled, &mut flat);
 
     let multiple = self.multiple && self.holds_many;
+    // What writes a new selection tells the handlers of the change too, what a tree of one row holds of it.
+    let write = self.select.clone().map(|write| {
+      let (told, many) = (self.on_change.clone(), self.holds_many);
+      Arc::new(move |next: Vec<T>| {
+        let held: Vec<T> = if many {
+          next.clone()
+        } else {
+          next.last().cloned().into_iter().collect()
+        };
+        write(next);
+        for handler in &told {
+          handler(&held);
+        }
+      }) as Arc<dyn Fn(Vec<T>) + Send + Sync>
+    });
     let model = Arc::new(Model {
       selection: ListSelection::new(
-        flat.iter().map(|row| row.id.clone()).collect(),
+        flat.iter().map(|row| row.value.clone()).collect(),
         flat.iter().map(|row| !row.disabled).collect(),
         self.selected.clone(),
         multiple,
-        self.select.clone(),
+        write,
       ),
-      on_select: self.on_select.clone(),
       on_activate: self.on_activate.clone(),
       page,
     });
     let entry = flat
       .iter()
-      .position(|row| !row.disabled && self.selected.contains(&row.id));
+      .position(|row| !row.disabled && self.selected.contains(&row.value));
     // The forced interaction is drawn on the row Tab would stop on alone, as it can only be: the entry, else
     // the first row that is not disabled.
     let forced_at = entry.or_else(|| flat.iter().position(|row| !row.disabled));
@@ -541,18 +580,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
       .into_iter()
       .enumerate()
       .map(|(index, row)| {
-        let selected = self.selected.contains(&row.id);
+        let selected = self.selected.contains(&row.value);
         let toggle = (row.opens && !row.disabled)
           .then(|| self.toggle.clone())
           .flatten()
           .map(|write| {
-            let (id, on_expand) = (row.id.clone(), self.on_expand.clone());
+            let (value, told) = (row.value.clone(), self.on_open_change.clone());
             Arc::new(move |open: bool| {
-              write(&id, open);
-              if open {
-                for handler in &on_expand {
-                  handler(&id);
-                }
+              write(&value, open);
+              for handler in &told {
+                handler(&value, open);
               }
             }) as Arc<dyn Fn(bool) + Send + Sync>
           });
@@ -572,10 +609,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
               Arc::new(move |reach| model.extend(index, reach))
             },
             activate: {
-              let (toggle, expanded) = (toggle.clone(), row.expanded);
+              let (toggle, open) = (toggle.clone(), row.open);
               Arc::new(move || {
                 if let Some(toggle) = &toggle {
-                  toggle(!expanded);
+                  toggle(!open);
                 }
                 model.activate(index);
               })
@@ -586,15 +623,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
           label: row.label,
           level: row.level,
           opens: row.opens,
-          expanded: row.expanded,
+          open: row.open,
           loading: row.loading,
           selected,
           disabled: row.disabled,
-          icon: if row.expanded {
-            row.open_icon.or(row.icon)
-          } else {
-            row.icon
-          },
+          icon: if row.open { row.open_icon.or(row.icon) } else { row.icon },
           trailing: row.trailing,
           trailing_on_hover: row.trailing_on_hover,
           position: (row.position, row.siblings),
@@ -602,12 +635,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
           entry: entry == Some(index),
           index,
           multiple,
-          recipe: recipe(selected, row.expanded, row.disabled),
+          recipe: recipe(selected, row.open, row.disabled),
           forced: self.forced.filter(|_| forced_at == Some(index)),
           toggle,
           actions,
           row: None,
-          id: row.element_id,
+          id: row.id,
+          key: row.app_key,
         }
       })
       .collect();
@@ -633,7 +667,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> From<TreeView<T>> for Element
 
 /// A row as the tree lays it out: an item that is shown, with where it is.
 struct Flat<T> {
-  id: T,
+  value: T,
   label: Arc<str>,
   icon: Option<Name>,
   open_icon: Option<Name>,
@@ -641,13 +675,15 @@ struct Flat<T> {
   trailing_on_hover: bool,
   disabled: bool,
   opens: bool,
-  expanded: bool,
+  open: bool,
   loading: bool,
   level: u32,
   position: usize,
   siblings: usize,
-  element_id: Option<Arc<str>>,
-  /// Where it is among the items, from the top: `0/2/1`.
+  id: Option<Arc<str>>,
+  /// The key the app gave it.
+  app_key: Option<Arc<str>>,
+  /// Where it is among the items, from the top: `0/2/1`, or the key the app gave it.
   key: String,
 }
 
@@ -662,17 +698,17 @@ fn flatten<T: Clone + PartialEq>(
 ) {
   let siblings = items.len();
   for (position, item) in items.iter().enumerate() {
-    let opens = item.lazy || !item.children.is_empty();
-    let expanded = opens && open.contains(&item.id);
+    let opens = item.lazy || !item.items.is_empty();
+    let is_open = opens && open.contains(&item.value);
     let row_disabled = disabled || item.disabled;
-    let key = if parent.is_empty() {
-      position.to_string()
-    } else {
-      format!("{parent}/{position}")
+    let key = match &item.key {
+      Some(key) => key.to_string(),
+      None if parent.is_empty() => position.to_string(),
+      None => format!("{parent}/{position}"),
     };
     out.push(Flat {
-      loading: expanded && item.lazy && item.children.is_empty(),
-      id: item.id.clone(),
+      loading: is_open && item.lazy && item.items.is_empty(),
+      value: item.value.clone(),
       label: item.label.clone(),
       icon: item.icon,
       open_icon: item.open_icon,
@@ -680,15 +716,16 @@ fn flatten<T: Clone + PartialEq>(
       trailing_on_hover: item.trailing_on_hover,
       disabled: row_disabled,
       opens,
-      expanded,
+      open: is_open,
       level,
       position: position + 1,
       siblings,
-      element_id: item.element_id.clone(),
+      id: item.id.clone(),
+      app_key: item.key.clone(),
       key: key.clone(),
     });
-    if expanded {
-      flatten(&item.children, level + 1, &key, open, disabled, out);
+    if is_open {
+      flatten(&item.items, level + 1, &key, open, disabled, out);
     }
   }
 }
@@ -707,7 +744,6 @@ enum Reach {
 /// The shown rows and what is selected of them, which every row's behavior reads.
 struct Model<T> {
   selection: ListSelection<T>,
-  on_select: Vec<Told<T>>,
   on_activate: Vec<Told<T>>,
   /// How many rows PageUp and PageDown move by, in a tree in a virtual list.
   page: Option<Page>,
@@ -719,9 +755,6 @@ type Page = Arc<dyn Fn() -> usize + Send + Sync>;
 impl<T: Clone + PartialEq> Model<T> {
   fn pick(&self, index: usize, pick: Pick) {
     self.selection.pick(index, pick);
-    for handler in &self.on_select {
-      handler(self.selection.id(index));
-    }
   }
 
   /// Shift with a key on the row `from`: the rows from the anchor to where the focus goes. The tree steps the
@@ -852,7 +885,7 @@ pub struct TreeRow {
   /// Whether it opens: it has children, or the app brings them.
   pub opens: bool,
   /// Whether it is open.
-  pub expanded: bool,
+  pub open: bool,
   /// Whether it is open and its children are on their way.
   pub loading: bool,
   pub selected: bool,
@@ -880,6 +913,7 @@ pub struct TreeRow {
   /// Which row of the group's rows it is, in a tree in a virtual list.
   row: Option<usize>,
   id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl TreeRow {
@@ -918,13 +952,13 @@ impl TreeRow {
       row = row.focus_row(index);
     }
     if self.opens {
-      row = row.describe("a11y_expanded", flag(self.expanded));
+      row = row.describe("a11y_expanded", flag(self.open));
     }
     if self.loading {
       row = row.describe("a11y_busy", "true");
     }
     if let Some(toggle) = self.toggle.clone() {
-      row = row.focus_expanded(self.expanded, move |open| toggle(open));
+      row = row.focus_expanded(self.open, move |open| toggle(open));
     }
     if let Some(actions) = self.actions.clone() {
       let multiple = self.multiple;
@@ -977,6 +1011,9 @@ impl TreeRow {
     if let Some(id) = &self.id {
       row = row.id(id.clone());
     }
+    if let Some(key) = &self.key {
+      row = row.key(key.clone());
+    }
     row
   }
 
@@ -1020,14 +1057,14 @@ impl TreeRow {
     if !self.opens {
       return Row::new().part(&part).into();
     }
-    let name = if self.expanded {
+    let name = if self.open {
       icons::CHEVRON_DOWN
     } else {
       icons::CHEVRON_RIGHT
     };
     let mut chevron = Row::new().child(glyph(&part, Name::new(name), false));
     if let Some(toggle) = self.toggle.clone() {
-      let open = !self.expanded;
+      let open = !self.open;
       // The press is the chevron's, as the button goes down: it does not select the row as well, and is not the
       // first of a double press of the row.
       chevron = chevron.on_mouse_down(move |event: MouseEvent| {
@@ -1169,8 +1206,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
   /// use lurq::{app::ctx::Ctx, core::Signal, node::Element, ui::{TreeItem, TreeView, TreeViewPart}};
   ///
   /// # fn files(ctx: &mut Ctx, items: Vec<TreeItem<u32>>, open: Signal<Vec<u32>>) -> Element {
-  /// TreeView::new(items)
-  ///   .expanded(open)
+  /// TreeView::new(Signal::new(None), items)
+  ///   .open(open)
   ///   .style(TreeViewPart::Root, |s| s.height(480.0))
   ///   .mount(ctx)
   /// # }
@@ -1308,7 +1345,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Component for TreeViewHost<T>
       keys: keys.clone(),
       labels: view.rows.iter().map(|row| row.label.clone()).collect(),
       levels: view.rows.iter().map(|row| row.level).collect(),
-      expanded: view.rows.iter().map(|row| row.opens.then_some(row.expanded)).collect(),
+      expanded: view.rows.iter().map(|row| row.opens.then_some(row.open)).collect(),
       enabled: view.rows.iter().map(|row| !row.disabled).collect(),
       toggles: view.rows.iter().map(|row| row.toggle.clone()).collect(),
       step,

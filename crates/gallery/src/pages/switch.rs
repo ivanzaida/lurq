@@ -41,6 +41,7 @@ pub struct SwitchPage {
   label: Signal<String>,
   on: Signal<bool>,
   label_hidden: Signal<bool>,
+  invalid: Signal<bool>,
   disabled: Signal<bool>,
   dark: Signal<bool>,
   motion: Signal<bool>,
@@ -52,26 +53,34 @@ impl SwitchPage {
   /// The playground: the switch as the panel's props make it.
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (label, on) = (self.label.get(), self.on.get());
-    let (label_hidden, disabled) = (self.label_hidden.get(), self.disabled.get());
+    let (label_hidden, invalid, disabled) = (self.label_hidden.get(), self.invalid.get(), self.disabled.get());
     let (record, set) = (self.playground.recorder(), self.on.clone());
     let plain = {
       let label = label.clone();
-      move || Switch::new(&label).on(on).label_hidden(label_hidden).disabled(disabled)
+      move || {
+        Switch::new(&label)
+          .on(on)
+          .label_hidden(label_hidden)
+          .invalid(invalid)
+          .disabled(disabled)
+      }
     };
-    let switch = plain().force(self.playground.forced()).on_change(move |next| {
-      set.set(next);
-      record(format!("on_change({next})"));
-    });
+    let switch = plain()
+      .force(self.playground.forced())
+      .bind(set)
+      .on_change(move |next| record(format!("on_change({next})")));
 
     let mut code = vec![format!("Switch::new({label:?})")];
     if label_hidden {
       code.push("    .label_hidden(true)".to_owned());
     }
+    if invalid {
+      code.push("    .invalid(true)".to_owned());
+    }
     if disabled {
       code.push("    .disabled(true)".to_owned());
     }
-    code.push("    .on(dark.get())".to_owned());
-    code.push("    .on_change(move |on| dark.set(on))".to_owned());
+    code.push("    .bind(dark)".to_owned());
 
     let mut tree = vec![
       format!("root      {}", self.playground.measured()),
@@ -91,7 +100,12 @@ impl SwitchPage {
     }
 
     let to_label = self.label.clone();
-    let flags = [self.on.clone(), self.label_hidden.clone(), self.disabled.clone()];
+    let flags = [
+      self.on.clone(),
+      self.label_hidden.clone(),
+      self.invalid.clone(),
+      self.disabled.clone(),
+    ];
     self.playground.card(
       ctx,
       Spec {
@@ -109,9 +123,10 @@ impl SwitchPage {
           divider(),
           flag("on", &self.on),
           flag("label_hidden", &self.label_hidden),
+          flag("invalid", &self.invalid),
           flag("disabled", &self.disabled),
         ],
-        changed: [on, label_hidden, disabled]
+        changed: [on, label_hidden, invalid, disabled]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -161,6 +176,7 @@ impl Component for SwitchPage {
       label: ctx.signal("Dark mode".to_owned()),
       on: ctx.signal(false),
       label_hidden: ctx.signal(false),
+      invalid: ctx.signal(false),
       disabled: ctx.signal(false),
       dark: ctx.signal(true),
       motion: ctx.signal(false),
@@ -170,10 +186,7 @@ impl Component for SwitchPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let bound = |label: &str, on: &Signal<bool>| {
-      let set = on.clone();
-      Switch::new(label).on(on.get()).on_change(move |next| set.set(next))
-    };
+    let bound = |label: &str, on: &Signal<bool>| Switch::new(label).bind(on.clone());
     let says = |on: &Signal<bool>| {
       if on.get() {
         "the signal has: true"
@@ -191,6 +204,7 @@ impl Component for SwitchPage {
         Switch::new("Focused").force(Some(Interaction::FocusVisible)),
         "focus-visible",
       ))
+      .child(item(Switch::new("Invalid").invalid(true), "invalid"))
       .child(item(Switch::new("Disabled").disabled(true), "disabled"))
       .child(item(
         Switch::new("Disabled, on").on(true).disabled(true),
@@ -229,10 +243,23 @@ impl Component for SwitchPage {
         "Whether it is on. The switch does not keep it: the app says so.",
       ),
       (
+        "bind",
+        "Signal<bool>",
+        "",
+        "In place of on and a handler: on while the signal is true, which a press turns.",
+      ),
+      (
         "on_change",
         "impl Fn(bool)",
         "",
-        "Called on a press with what the switch is to be: on if it was off.",
+        "Called on a press with what the switch is to be: on if it was off. Bound, after the signal is set; not \
+         when the app sets it.",
+      ),
+      (
+        "invalid",
+        "bool",
+        "false",
+        "What it holds is wrong, where a field says so: the track is edged in the destructive color.",
       ),
       (
         "label_hidden",
@@ -269,18 +296,18 @@ impl Component for SwitchPage {
         ),
         Section::new(
           "Switch",
-          "The page holds whether each is on, in a signal. Tab reaches the track, and Space or Enter presses it.",
+          "The page holds whether each is on, in a signal the switch is bound to. Tab reaches the track, and Space \
+           or Enter presses it.",
           self.frame.demo(
             0,
             live,
-            "Switch::new(\"Dark mode\").on(dark.get()).on_change(..)",
+            "Switch::new(\"Dark mode\").bind(dark)",
             &[
               "// dark, motion: Signal<bool>",
-              "let set = dark.clone();",
-              "Switch::new(\"Dark mode\")",
-              "    .on(dark.get())",
-              "    .on_change(move |on| set.set(on))",
+              "Switch::new(\"Dark mode\").bind(dark)",
+              "Switch::new(\"Reduce motion\").bind(motion)",
               "",
+              "// The same, with the app's own handler:",
               "let set = motion.clone();",
               "Switch::new(\"Reduce motion\")",
               "    .on(motion.get())",
@@ -291,7 +318,8 @@ impl Component for SwitchPage {
         Section::new(
           "States",
           "Off the track is the color of an input's edge, on it is the primary color. The ring of the focus is the \
-           track's, and a disabled switch is dimmed with its label.",
+           track's, an invalid switch has its track edged in the destructive color, and a disabled switch is dimmed \
+           with its label.",
           self.frame.demo(
             1,
             states,
@@ -303,6 +331,7 @@ impl Component for SwitchPage {
               "// Drawn focused from the keyboard with nothing focused: for a gallery, a test.",
               "Switch::new(\"Focused\").force(Some(Interaction::FocusVisible))",
               "",
+              "Switch::new(\"Invalid\").invalid(true)",
               "Switch::new(\"Disabled\").disabled(true)",
               "Switch::new(\"Disabled, on\").on(true).disabled(true)",
             ],

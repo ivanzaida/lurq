@@ -331,19 +331,37 @@ pub struct FieldError {
   /// What the field is called: its label.
   pub label: Arc<str>,
   /// What is wrong with what it holds, as its field says it.
-  pub message: Arc<str>,
+  pub error: Arc<str>,
   /// What a press of the line focuses: the first element that takes the focus under the one the ref is on.
   pub focus: Option<ElementRef>,
+  /// The id of the line's element.
+  pub id: Option<Arc<str>>,
+  /// The key of the line's element.
+  pub key: Option<Arc<str>>,
 }
 
 impl FieldError {
-  /// The error `message` of the field called `label`.
-  pub fn new(label: &str, message: &str) -> Self {
+  /// The `error` of the field called `label`: what its field says of it.
+  pub fn new(label: &str, error: &str) -> Self {
     Self {
       label: Arc::from(label),
-      message: Arc::from(message),
+      error: Arc::from(error),
       focus: None,
+      id: None,
+      key: None,
     }
+  }
+
+  /// The id of the line's element.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// The key of the line's element, for the engine to tell it from the others as errors come and go.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
   }
 
   /// A press of the line focuses `field`: the first element that takes the focus under the one the ref is on. A
@@ -362,25 +380,25 @@ pub enum ErrorSummaryPart {
   /// The icon at its start.
   Icon,
   /// The title over the lines.
-  Body,
+  Text,
   /// How many fields are wrong.
   Title,
-  /// One line: the bullet and the message. What is pressed, where it focuses its field.
+  /// One line: the bullet and the error. What is pressed, where it focuses its field.
   Item,
-  /// The dot before a message.
+  /// The dot before an error.
   Bullet,
   /// What is wrong.
-  Message,
+  Error,
 }
 
 names!(ErrorSummaryPart {
   Root => "root",
   Icon => "icon",
-  Body => "body",
+  Text => "text",
   Title => "title",
   Item => "item",
   Bullet => "bullet",
-  Message => "message",
+  Error => "error",
 });
 
 /// The states of an error summary a recipe styles.
@@ -482,6 +500,18 @@ impl ErrorSummary {
       }
     }
     Self::new(errors)
+  }
+
+  /// Adds a line after the others.
+  pub fn error(mut self, error: FieldError) -> Self {
+    self.errors.push(error);
+    self
+  }
+
+  /// Adds lines after the others.
+  pub fn errors(mut self, errors: impl IntoIterator<Item = FieldError>) -> Self {
+    self.errors.extend(errors);
+    self
   }
 
   /// The title in words of the app's own, in place of the count: in another language.
@@ -603,21 +633,33 @@ impl ErrorSummaryView {
     )
   }
 
-  /// The line of one error: the bullet and the message. Where the error focuses a field, the line is pressed and
-  /// focused, and is a link to what reads the tree, called by the field's label and the message.
+  /// The line of one error: the bullet and the error. Where the error focuses a field, the line is pressed and
+  /// focused, and is a link to what reads the tree, called by the field's label and the error.
   pub fn item(&self, error: &FieldError) -> Element {
+    let line = self.line(error);
+    let line = match &error.id {
+      Some(id) => line.id(id.clone()),
+      None => line,
+    };
+    match &error.key {
+      Some(key) => line.key(key.clone()),
+      None => line,
+    }
+  }
+
+  fn line(&self, error: &FieldError) -> Element {
     let part = self.part(ErrorSummaryPart::Item);
     let bullet = Row::new().part(&self.part(ErrorSummaryPart::Bullet));
-    let message = self.part(ErrorSummaryPart::Message);
+    let message = self.part(ErrorSummaryPart::Error);
     match &error.focus {
       Some(field) => pressable(&part, false)
         .justify(Justify::Start)
         .align_items(Alignment::Center)
         .describe("a11y_role", "link")
-        .describe("a11y_name", format!("{}: {}", error.label, error.message))
+        .describe("a11y_name", format!("{}: {}", error.label, error.error))
         .focuses(field)
         .child(bullet)
-        .child(wrapping(&message, &error.message).flex(1.0))
+        .child(wrapping(&message, &error.error).flex(1.0))
         .into(),
       // A line that goes nowhere is read: it is not underlined under the pointer, nor shows it can be pressed.
       None => {
@@ -625,7 +667,7 @@ impl ErrorSummaryView {
         let mut text = Column::new()
           .flex(1.0)
           .min_width(Dimension::Px(0.0))
-          .child(message.text(&error.message).width(fill));
+          .child(message.text(&error.error).width(fill));
         if let Some(color) = message.rest().foreground {
           text = text.foreground(color);
         }
@@ -641,14 +683,14 @@ impl ErrorSummaryView {
   }
 
   /// The title over the lines.
-  pub fn body(&self) -> Column {
+  pub fn text(&self) -> Column {
     let mut body = Column::new()
       .flex(1.0)
       .min_width(Dimension::Px(0.0))
       .align_items(Alignment::Stretch)
       // The ring of the focus of a line reaches past it.
       .overflow_visible()
-      .part(&self.part(ErrorSummaryPart::Body))
+      .part(&self.part(ErrorSummaryPart::Text))
       .child(wrapping(&self.part(ErrorSummaryPart::Title), &self.title));
     for error in &self.errors {
       body = body.child(self.item(error));
@@ -669,7 +711,7 @@ impl ErrorSummaryView {
       .describe("a11y_role", "alert")
       .describe("a11y_name", self.title.clone())
       .child(self.icon())
-      .child(self.body());
+      .child(self.text());
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -690,7 +732,7 @@ impl Themed for ErrorSummary {
   /// destructive color, and under it, 6 apart, a line for each error, a dot of 4 in the destructive color 8 before
   /// its message in 13 of the foreground. A line is underlined under the pointer.
   fn recipe() -> Recipe {
-    use ErrorSummaryPart::{Body, Bullet, Icon, Item, Message, Root, Title};
+    use ErrorSummaryPart::{Bullet, Error, Icon, Item, Root, Text, Title};
     use PaletteColor::{Destructive, DestructiveMuted, Foreground};
     Recipe::new()
       .base(Root, |s| {
@@ -704,7 +746,7 @@ impl Themed for ErrorSummary {
           .foreground(Foreground)
       })
       .base(Icon, |s| s.square(IconSize::Md).foreground(Destructive))
-      .base(Body, |s| s.gap(6.0))
+      .base(Text, |s| s.gap(6.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Label)
           .weight(FontWeight::SemiBold)
@@ -716,12 +758,12 @@ impl Themed for ErrorSummary {
       .base(Bullet, |s| {
         s.square(4.0).radius(RadiusSize::Full).background(Destructive)
       })
-      .base(Message, |s| {
+      .base(Error, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)
           .foreground(Foreground)
       })
-      .hovered(Message, |s| s.underline(Border::inside(1.0, Foreground)))
+      .hovered(Error, |s| s.underline(Border::inside(1.0, Foreground)))
       .focus_visible(Item, |s| s.focus_ring())
       .state(ErrorSummaryState::FullWidth, Root, |s| s.width(Length::Fill))
   }

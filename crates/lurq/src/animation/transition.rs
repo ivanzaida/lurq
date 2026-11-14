@@ -1,6 +1,6 @@
 use std::{
   collections::{HashMap, HashSet},
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use super::{
@@ -10,7 +10,7 @@ use super::{
     AnimatableProperty, AnimatableValue, TargetTheme, clear_overrides, property_accessors, read_target, write_property,
   },
 };
-use crate::{app::theme::Theme, core::NodeId};
+use crate::{app::theme::Theme, core::NodeId, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TransitionProperty {

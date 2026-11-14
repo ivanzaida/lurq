@@ -1,6 +1,11 @@
 //! What the components of the button family are built from.
 
-use std::sync::Arc;
+use std::{
+  any::{Any, TypeId},
+  sync::Arc,
+};
+
+use parking_lot::Mutex;
 
 use super::{
   icon::Icon,
@@ -195,12 +200,58 @@ impl<T, L: AsRef<str>> From<(T, L)> for Choice<T> {
   }
 }
 
+/// What hears the value of a group change, kept without the type of its values: a group is one type whatever it
+/// chooses between, so its `on_change` is told `&T` (a group of one) or `&[T]` (of any number) through this.
+#[derive(Clone, Default)]
+pub(crate) struct Changes {
+  handlers: Arc<Mutex<Vec<Box<dyn Any + Send + Sync>>>>,
+  /// What the handlers are told, and its name, where the group knows it.
+  told: Option<(TypeId, &'static str)>,
+}
+
+impl Changes {
+  fn of<V: ?Sized + 'static>() -> Self {
+    Self {
+      handlers: Arc::default(),
+      told: Some((TypeId::of::<V>(), std::any::type_name::<V>())),
+    }
+  }
+
+  /// Adds `handler`, after those there are. It must be told what the group is told: a handler of another type
+  /// would never be called, and is a mistake.
+  pub(crate) fn add<V: ?Sized + 'static>(&self, handler: impl Fn(&V) + Send + Sync + 'static) {
+    if let Some((told, name)) = self.told {
+      assert!(
+        TypeId::of::<V>() == told,
+        "on_change of this group is told a `&{name}`, not a `&{}`",
+        std::any::type_name::<V>()
+      );
+    }
+    let handler: Arc<dyn Fn(&V) + Send + Sync> = Arc::new(handler);
+    self.handlers.lock().push(Box::new(handler));
+  }
+
+  /// Tells every handler `value`, in the order they were added.
+  pub(crate) fn tell<V: ?Sized + 'static>(&self, value: &V) {
+    let handlers: Vec<Arc<dyn Fn(&V) + Send + Sync>> = self
+      .handlers
+      .lock()
+      .iter()
+      .filter_map(|handler| handler.downcast_ref::<Arc<dyn Fn(&V) + Send + Sync>>().cloned())
+      .collect();
+    for handler in handlers {
+      handler(value);
+    }
+  }
+}
+
 /// What a group of choices reads and writes: which of them are chosen, and
 /// what choosing one does.
 #[derive(Clone)]
 pub(crate) struct Chosen<T> {
   has: Arc<dyn Fn(&T) -> bool + Send + Sync>,
   pick: Arc<dyn Fn(T) + Send + Sync>,
+  changes: Changes,
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T> {
@@ -210,13 +261,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T> {
     T: SignalValue,
   {
     let read = signal.clone();
+    let changes = Changes::of::<T>();
+    let told = changes.clone();
     Self {
       has: Arc::new(move |value| read.get() == *value),
       pick: Arc::new(move |value| {
-        if signal.get() != value {
-          signal.set(value);
+        if signal.get_untracked() != value {
+          signal.set(value.clone());
+          told.tell(&value);
         }
       }),
+      changes,
     }
   }
 
@@ -226,16 +281,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T> {
     Vec<T>: SignalValue,
   {
     let read = signal.clone();
+    let changes = Changes::of::<[T]>();
+    let told = changes.clone();
     Self {
       has: Arc::new(move |value| read.get().contains(value)),
       pick: Arc::new(move |value| {
-        signal.update(|chosen| match chosen.iter().position(|held| *held == value) {
-          Some(index) => {
-            chosen.remove(index);
-          }
-          None => chosen.push(value),
-        })
+        let mut now = signal.get_untracked();
+        toggled(&mut now, value);
+        signal.set(now.clone());
+        told.tell(now.as_slice());
       }),
+      changes,
     }
   }
 
@@ -244,13 +300,65 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T> {
     Self {
       has: Arc::new(move |value| chosen.contains(value)),
       pick: Arc::new(pick),
+      changes: Changes::default(),
     }
+  }
+
+  /// The app holds the one chosen, `value`: a press of another tells `on_change` the value it is to be, and a
+  /// press of the chosen one tells nothing.
+  pub(crate) fn held_one(value: T, on_change: impl Fn(&T) + Send + Sync + 'static) -> Self {
+    let changes = Changes::of::<T>();
+    changes.add(on_change);
+    let (read, told) = (value.clone(), changes.clone());
+    Self {
+      has: Arc::new(move |held| *held == read),
+      pick: Arc::new(move |picked| {
+        if picked != value {
+          told.tell(&picked);
+        }
+      }),
+      changes,
+    }
+  }
+
+  /// The app holds the chosen, `values`: a press tells `on_change` the whole set it is to be, with the value
+  /// pressed added, or taken out.
+  pub(crate) fn held_many(values: Vec<T>, on_change: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+    let changes = Changes::of::<[T]>();
+    changes.add(on_change);
+    let (read, told) = (values.clone(), changes.clone());
+    Self {
+      has: Arc::new(move |held| read.contains(held)),
+      pick: Arc::new(move |picked| {
+        let mut now = values.clone();
+        toggled(&mut now, picked);
+        told.tell(now.as_slice());
+      }),
+      changes,
+    }
+  }
+
+  /// What hears the value change: where a group's `on_change` adds its handlers.
+  pub(crate) fn changes(&self) -> Changes {
+    self.changes.clone()
   }
 
   pub(crate) fn has(&self, value: &T) -> bool {
     (self.has)(value)
   }
+}
 
+/// `chosen` with `value` added, or taken out where it is there.
+fn toggled<T: PartialEq>(chosen: &mut Vec<T>, value: T) {
+  match chosen.iter().position(|held| *held == value) {
+    Some(index) => {
+      chosen.remove(index);
+    }
+    None => chosen.push(value),
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T> {
   /// What a press of the choice `value` does.
   pub(crate) fn picker(&self, value: T) -> impl Fn() + Send + Sync + 'static {
     let pick = self.pick.clone();

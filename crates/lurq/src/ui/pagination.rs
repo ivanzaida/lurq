@@ -6,7 +6,7 @@ use super::{
   button::{Button, ButtonPart, ButtonVariant},
   icons, names,
   part_style::Length,
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   select::{Select, SelectPart},
   shared::glyph,
   theme::{Themed, current_theme},
@@ -26,10 +26,9 @@ pub enum PaginationPart {
   Root,
   /// The row of buttons, previous, the pages and next, that the arrow keys move along.
   Nav,
-  /// What the pagination says of each of its buttons: laid over the theme's recipe for a button's root.
+  /// What the pagination says of each of its buttons: laid over the theme's recipe for a button's root. The
+  /// button of the current page is in [`PaginationState::Current`].
   Item,
-  /// What it says of the button of the current page, over [`PaginationPart::Item`].
-  Current,
   /// The box that stands where pages are left out.
   Ellipsis,
   /// The glyph in it: its side and its color.
@@ -46,7 +45,6 @@ names!(PaginationPart {
   Root => "root",
   Nav => "nav",
   Item => "item",
-  Current => "current",
   Ellipsis => "ellipsis",
   EllipsisIcon => "ellipsis_icon",
   Summary => "summary",
@@ -63,12 +61,15 @@ pub enum PaginationState {
   PageSize,
   /// It takes no input.
   Disabled,
+  /// Of an item: it is the button of the current page.
+  Current,
 }
 
 names!(PaginationState {
   Compact => "compact",
   PageSize => "page_size",
   Disabled => "disabled",
+  Current => "current",
 });
 
 /// One of what a pagination draws between previous and next.
@@ -124,10 +125,14 @@ pub struct Pagination {
   compact: bool,
   disabled: bool,
   label: Arc<str>,
-  summary: Option<Arc<str>>,
+  summary_text: Option<Arc<str>>,
+  previous_label: Arc<str>,
+  next_label: Arc<str>,
+  page_label: Arc<str>,
   page_size: Option<(Arc<str>, Select)>,
   states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -143,10 +148,14 @@ impl Pagination {
       compact: false,
       disabled: false,
       label: Arc::from("Pagination"),
-      summary: None,
+      summary_text: None,
+      previous_label: Arc::from("Previous page"),
+      next_label: Arc::from("Next page"),
+      page_label: Arc::from("Page"),
       page_size: None,
       states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
@@ -175,9 +184,9 @@ impl Pagination {
   }
 
   /// A pagination whose page the app holds: `current` is the current one,
-  /// counted from 1, and `go` is told the page each press is for.
-  pub fn controlled(current: usize, pages: usize, go: impl Fn(usize) + Send + Sync + 'static) -> Self {
-    Self::of(current, pages, Arc::new(go))
+  /// counted from 1, and `on_change` is told the page each press is for.
+  pub fn controlled(current: usize, pages: usize, on_change: impl Fn(usize) + Send + Sync + 'static) -> Self {
+    Self::of(current, pages, Arc::new(on_change))
   }
 
   /// The pages are those of `total` items, `page_size` to a page: in place of
@@ -218,8 +227,26 @@ impl Pagination {
   /// What it says of where the list is, in place of its own "1–20 of 284"
   /// or "Page 3 of 12": in another language, or of other things. Said in the
   /// compact form, and in the full form too once it is given.
-  pub fn summary(mut self, summary: &str) -> Self {
-    self.summary = Some(Arc::from(summary));
+  pub fn summary_text(mut self, text: &str) -> Self {
+    self.summary_text = Some(Arc::from(text));
+    self
+  }
+
+  /// What the button of the page before is called: "Previous page" unless told otherwise.
+  pub fn previous_label(mut self, label: &str) -> Self {
+    self.previous_label = Arc::from(label);
+    self
+  }
+
+  /// What the button of the page after is called: "Next page" unless told otherwise.
+  pub fn next_label(mut self, label: &str) -> Self {
+    self.next_label = Arc::from(label);
+    self
+  }
+
+  /// The word before the number in the name of a page's button: "Page", of "Page 3", unless told otherwise.
+  pub fn page_label(mut self, label: &str) -> Self {
+    self.page_label = Arc::from(label);
     self
   }
 
@@ -257,6 +284,14 @@ impl Pagination {
   /// Lays rules over the theme's recipe for this pagination.
   pub fn rules(mut self, rules: &Recipe) -> Self {
     self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// Draws the button Tab would stop on first that takes input (previous, or the first page that is not the
+  /// current one) as it is under the pointer, held down or focused from the keyboard, with nothing pointing at it:
+  /// for a gallery or a test. The other buttons are drawn as they are.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
     self
   }
 
@@ -320,7 +355,7 @@ impl Pagination {
     } else {
       self.current.clamp(1, self.pages)
     };
-    let summary = self.summary.clone().unwrap_or_else(|| {
+    let summary = self.summary_text.clone().unwrap_or_else(|| {
       Arc::from(match self.items {
         Some((total, page_size)) if current > 0 => {
           let first = (current - 1) * page_size + 1;
@@ -338,8 +373,14 @@ impl Pagination {
       disabled: self.disabled,
       label: self.label,
       summary,
-      summarized: self.compact || self.summary.is_some(),
+      summarized: self.compact || self.summary_text.is_some(),
       recipe: theme.resolve::<Pagination>(&case, Some(&self.rules)),
+      current_recipe: theme
+        .resolve::<Pagination>(&case.clone().state(PaginationState::Current, true), Some(&self.rules)),
+      previous_label: self.previous_label,
+      next_label: self.next_label,
+      page_label: self.page_label,
+      forced: self.forced,
       page_size: self.page_size,
       go: self.go,
       id: self.id,
@@ -376,6 +417,13 @@ pub struct PaginationView {
   pub summarized: bool,
   /// The style of each part of this pagination.
   pub recipe: ResolvedRecipe,
+  /// The style of the parts of the current page's button.
+  current_recipe: ResolvedRecipe,
+  /// What the buttons of the page before and after are called, and the word before a page's number.
+  pub previous_label: Arc<str>,
+  pub next_label: Arc<str>,
+  pub page_label: Arc<str>,
+  forced: Option<Interaction>,
   page_size: Option<(Arc<str>, Select)>,
   go: Vec<Go>,
   id: Option<Arc<str>>,
@@ -395,13 +443,13 @@ impl PaginationView {
   /// A button of the pagination: in the style the pagination gives it, its
   /// id after the pagination's, and a press that goes to `to`.
   fn item(&self, button: Button, name: &str, to: Option<usize>, current: bool) -> Button {
-    let mut rules = self.recipe.rules_for(PaginationPart::Item, ButtonPart::Root);
-    if current {
-      rules = rules.extend(&self.recipe.rules_for(PaginationPart::Current, ButtonPart::Root));
-    }
+    let recipe = if current { &self.current_recipe } else { &self.recipe };
+    let rules = recipe.rules_for(PaginationPart::Item, ButtonPart::Root);
+    let forced = self.forced.filter(|_| self.entry().as_deref() == Some(name));
     let mut button = button
       .rules(&rules)
       .disabled(self.disabled || (to.is_none() && !current))
+      .force(forced)
       .key(name.to_owned());
     if let Some(id) = &self.id {
       button = button.id(format!("{id}-{name}"));
@@ -417,11 +465,31 @@ impl PaginationView {
     button
   }
 
+  /// The name, in the view's ids and keys, of the button Tab would stop on first that takes input: `previous`, or
+  /// `page-3` for the first page shown that is not the current one, or `next`. None while it is disabled.
+  pub fn entry(&self) -> Option<String> {
+    if self.disabled {
+      return None;
+    }
+    if self.current > 1 {
+      return Some("previous".to_owned());
+    }
+    let page = (!self.compact)
+      .then(|| {
+        self.shown.iter().find_map(|item| match item {
+          PageItem::Page(page) if *page != self.current => Some(format!("page-{page}")),
+          _ => None,
+        })
+      })
+      .flatten();
+    page.or_else(|| (self.current < self.pages).then(|| "next".to_owned()))
+  }
+
   /// The button that goes to the page before, disabled on the first.
   pub fn previous(&self) -> Element {
     self.step(
       icons::CHEVRON_LEFT,
-      "Previous page",
+      &self.previous_label,
       "previous",
       self.current.checked_sub(1).filter(|to| *to >= 1),
     )
@@ -431,7 +499,7 @@ impl PaginationView {
   pub fn next(&self) -> Element {
     self.step(
       icons::CHEVRON_RIGHT,
-      "Next page",
+      &self.next_label,
       "next",
       Some(self.current + 1).filter(|to| *to <= self.pages),
     )
@@ -449,7 +517,7 @@ impl PaginationView {
   }
 
   /// The button of the page `page`, counted from 1: with an edge where it is the current one, which a press
-  /// goes nowhere from. It is called "Page 3" to what reads the tree.
+  /// goes nowhere from. It is called "Page 3" to what reads the tree, after its [`page_label`](Pagination::page_label).
   pub fn page(&self, page: usize) -> Element {
     let current = page == self.current;
     let variant = if current {
@@ -459,7 +527,7 @@ impl PaginationView {
     };
     let button = Button::new(&page.to_string()).variant(variant);
     let to = (!current).then_some(page);
-    let name: Arc<str> = Arc::from(format!("Page {page}"));
+    let name: Arc<str> = Arc::from(format!("{} {page}", self.page_label));
     self
       .item(button, &format!("page-{page}"), to, current)
       .build(self.theme())

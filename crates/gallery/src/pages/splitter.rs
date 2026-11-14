@@ -10,7 +10,7 @@ use lurq::{
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Button, ButtonSize, ButtonVariant, Interaction, Splitter, SplitterOrientation, SplitterPane},
+  ui::{Button, ButtonSize, ButtonVariant, Interaction, Orientation, Splitter, SplitterPane},
 };
 
 use crate::{
@@ -30,9 +30,9 @@ fn label(name: &str) -> Element {
 }
 
 /// The orientations, the least sizes and the most sizes of the side pane the playground offers.
-const ORIENTATIONS: [(&str, SplitterOrientation); 2] = [
-  ("Horizontal", SplitterOrientation::Horizontal),
-  ("Vertical", SplitterOrientation::Vertical),
+const ORIENTATIONS: [(&str, Orientation); 2] = [
+  ("Horizontal", Orientation::Horizontal),
+  ("Vertical", Orientation::Vertical),
 ];
 const MINS: [(&str, i32); 3] = [("80", 80), ("120", 120), ("0", 0)];
 const MAXES: [(&str, i32); 3] = [("320", 320), ("240", 240), ("none", 0)];
@@ -50,7 +50,7 @@ fn room(splitter: impl Into<Element>, height: f32) -> Column {
 pub struct SplitterPage {
   frame: Frame,
   playground: Playground,
-  orientation: Signal<SplitterOrientation>,
+  orientation: Signal<Orientation>,
   min: Signal<i32>,
   max: Signal<i32>,
   collapsible: Signal<bool>,
@@ -71,7 +71,7 @@ impl SplitterPage {
     let (grip, framed, disabled) = (self.grip.get(), self.framed.get(), self.disabled.get());
     move || {
       let mut side = SplitterPane::new(label("Files"))
-        .size(180.0)
+        .length(180.0)
         .min(min as f32)
         .collapsible(collapsible)
         .label("Files");
@@ -80,8 +80,8 @@ impl SplitterPage {
       }
       let middle = if nested {
         let across = match orientation {
-          SplitterOrientation::Horizontal => Splitter::vertical(),
-          SplitterOrientation::Vertical => Splitter::horizontal(),
+          Orientation::Horizontal => Splitter::new().orientation(Orientation::Vertical),
+          Orientation::Vertical => Splitter::new(),
         };
         SplitterPane::new(
           across
@@ -90,7 +90,7 @@ impl SplitterPage {
             .pane(SplitterPane::new(label("Editor")).min(60.0).label("Editor"))
             .pane(
               SplitterPane::new(label("Terminal"))
-                .size(90.0)
+                .length(90.0)
                 .min(60.0)
                 .collapsible(true)
                 .label("Terminal"),
@@ -100,7 +100,8 @@ impl SplitterPage {
       } else {
         SplitterPane::new(label("Editor")).min(120.0).label("Editor")
       };
-      Splitter::new(orientation)
+      Splitter::new()
+        .orientation(orientation)
         .grip(grip)
         .framed(framed)
         .disabled(disabled)
@@ -121,7 +122,7 @@ impl SplitterPage {
     let (min, max) = (self.min.get(), self.max.get());
     let (collapsible, nested) = (self.collapsible.get(), self.nested.get());
     let (grip, framed, disabled) = (self.grip.get(), self.framed.get(), self.disabled.get());
-    let vertical = orientation == SplitterOrientation::Vertical;
+    let vertical = orientation == Orientation::Vertical;
     let plain = self.plain();
     let record = self.playground.recorder();
     // A change of a prop lays the panes out again from what they are given.
@@ -135,10 +136,10 @@ impl SplitterPage {
       })
       .mount(ctx);
 
-    let mut code = vec![format!(
-      "Splitter::{}()",
-      if vertical { "vertical" } else { "horizontal" }
-    )];
+    let mut code = vec!["Splitter::new()".to_owned()];
+    if vertical {
+      code.push("    .orientation(Orientation::Vertical)".to_owned());
+    }
     if grip {
       code.push("    .grip(true)".to_owned());
     }
@@ -148,7 +149,7 @@ impl SplitterPage {
     if disabled {
       code.push("    .disabled(true)".to_owned());
     }
-    let mut side = format!("    .pane(SplitterPane::new(files).size(180.0).min({min}.0)");
+    let mut side = format!("    .pane(SplitterPane::new(files).length(180.0).min({min}.0)");
     if max > 0 {
       side.push_str(&format!(".max({max}.0)"));
     }
@@ -159,12 +160,16 @@ impl SplitterPage {
     code.push(side);
     if nested {
       code.push("    .pane(SplitterPane::new(".to_owned());
-      code.push(format!(
-        "        Splitter::{}()",
-        if vertical { "horizontal" } else { "vertical" }
-      ));
+      code.push(
+        if vertical {
+          "        Splitter::new()"
+        } else {
+          "        Splitter::new().orientation(Orientation::Vertical)"
+        }
+        .to_owned(),
+      );
       code.push("            .pane(SplitterPane::new(editor).min(60.0))".to_owned());
-      code.push("            .pane(SplitterPane::new(terminal).size(90.0).min(60.0).collapsible(true)),".to_owned());
+      code.push("            .pane(SplitterPane::new(terminal).length(90.0).min(60.0).collapsible(true)),".to_owned());
       code.push("    ).min(120.0))".to_owned());
     } else {
       code.push("    .pane(SplitterPane::new(editor).min(120.0))".to_owned());
@@ -200,7 +205,7 @@ impl SplitterPage {
     let reset = {
       let (orientation, min, max) = (self.orientation.clone(), self.min.clone(), self.max.clone());
       Arc::new(move || {
-        orientation.set(SplitterOrientation::Horizontal);
+        orientation.set(Orientation::Horizontal);
         min.set(80);
         max.set(320);
         for flag in &flags {
@@ -227,7 +232,7 @@ impl SplitterPage {
         controls: vec![
           prop(
             "orientation",
-            "SplitterOrientation",
+            "Orientation",
             self
               .playground
               .select(0, &ORIENTATIONS, &orientation, move |orientation| {
@@ -271,11 +276,11 @@ impl SplitterPage {
 
   /// A window's panes: a side bar that closes, an editor over a terminal, and an outline; the page keeps the layout.
   fn window(&self, ctx: &mut Ctx) -> Element {
-    let splitter = Splitter::horizontal()
+    let splitter = Splitter::new()
       .sizes(self.layout.clone())
       .pane(
         SplitterPane::new(label("Explorer"))
-          .size(200.0)
+          .length(200.0)
           .min(140.0)
           .max(360.0)
           .collapsible(true)
@@ -283,12 +288,13 @@ impl SplitterPage {
       )
       .pane(
         SplitterPane::new(
-          Splitter::vertical()
+          Splitter::new()
+            .orientation(Orientation::Vertical)
             .key("window-editor")
             .pane(SplitterPane::new(label("lib.rs")).min(80.0).label("Editor"))
             .pane(
               SplitterPane::new(label("Terminal"))
-                .size(110.0)
+                .length(110.0)
                 .min(60.0)
                 .collapsible(true)
                 .label("Terminal"),
@@ -331,15 +337,16 @@ impl SplitterPage {
 
   /// The board's Resizable: a box with a side bar, and an editor over a terminal, with a grip on each divider.
   fn resizable(ctx: &mut Ctx) -> Element {
-    let splitter = Splitter::horizontal()
+    let splitter = Splitter::new()
       .grip(true)
       .framed(true)
-      .pane(SplitterPane::new(label("Sidebar")).size(140.0).min(100.0))
+      .pane(SplitterPane::new(label("Sidebar")).length(140.0).min(100.0))
       .pane(SplitterPane::new(
-        Splitter::vertical()
+        Splitter::new()
+          .orientation(Orientation::Vertical)
           .grip(true)
           .pane(SplitterPane::new(label("Editor")).min(60.0))
-          .pane(SplitterPane::new(label("Terminal")).size(60.0).min(40.0)),
+          .pane(SplitterPane::new(label("Terminal")).length(60.0).min(40.0)),
       ))
       .mount(ctx);
     Row::new()
@@ -364,7 +371,7 @@ impl SplitterPage {
             .height(84.0)
             .align_items(Alignment::Stretch)
             .child(
-              Splitter::horizontal()
+              Splitter::new()
                 .framed(true)
                 .force(interaction)
                 .pane(SplitterPane::new(label("A")))
@@ -392,7 +399,7 @@ impl Component for SplitterPage {
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 3),
-      orientation: ctx.signal(SplitterOrientation::Horizontal),
+      orientation: ctx.signal(Orientation::Horizontal),
       min: ctx.signal(80),
       max: ctx.signal(320),
       collapsible: ctx.signal(false),
@@ -408,10 +415,10 @@ impl Component for SplitterPage {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let rows = [
       (
-        "horizontal / vertical",
-        "Splitter",
-        "",
-        "Panes side by side, or one over the other. Splitter::new(orientation) takes it as a value.",
+        "orientation",
+        "Orientation",
+        "Horizontal",
+        "Panes side by side, or one over the other (Vertical).",
       ),
       (
         "pane",
@@ -453,7 +460,7 @@ impl Component for SplitterPage {
       ),
       ("disabled", "bool", "false", "The dividers take no input."),
       (
-        "SplitterPane::size",
+        "SplitterPane::length",
         "f32",
         "",
         "Pixels to begin with, kept as the splitter grows and shrinks.",
@@ -483,6 +490,18 @@ impl Component for SplitterPage {
         "",
         "What the pane is called; the divider after it is called so to tooling.",
       ),
+      (
+        "SplitterPane::disabled",
+        "bool",
+        "false",
+        "The pane keeps its size: no divider beside it moves it, and it does not close.",
+      ),
+      (
+        "SplitterPane::id / key",
+        "",
+        "",
+        "The id of the pane's element, and what tells it apart from the others.",
+      ),
     ];
     let playground = self.play(ctx);
     let window = self.window(ctx);
@@ -494,7 +513,7 @@ impl Component for SplitterPage {
         title: "Splitter",
         description: "Panes that share a room by the dividers between them, which a person drags: the side bar, \
                       the editor and the terminal of a window.",
-        import: Some("use lurq::ui::{Splitter, SplitterPane};"),
+        import: Some("use lurq::ui::{Orientation, Splitter, SplitterPane};"),
         status: Some("Beta"),
         since: Some("0.62"),
         source: file!(),
@@ -518,14 +537,14 @@ impl Component for SplitterPage {
             ".sizes(layout.clone())",
             &[
               "// layout: Signal<Vec<f32>>, saved with the window",
-              "Splitter::horizontal()",
+              "Splitter::new()",
               "    .sizes(layout.clone())",
-              "    .pane(SplitterPane::new(explorer).size(200.0).min(140.0).max(360.0).collapsible(true))",
+              "    .pane(SplitterPane::new(explorer).length(200.0).min(140.0).max(360.0).collapsible(true))",
               "    .pane(",
               "        SplitterPane::new(",
-              "            Splitter::vertical()",
+              "            Splitter::new().orientation(Orientation::Vertical)",
               "                .pane(SplitterPane::new(editor).min(80.0))",
-              "                .pane(SplitterPane::new(terminal).size(110.0).min(60.0).collapsible(true))",
+              "                .pane(SplitterPane::new(terminal).length(110.0).min(60.0).collapsible(true))",
               "                .mount(ctx),",
               "        )",
               "        .min(200.0),",
@@ -543,15 +562,15 @@ impl Component for SplitterPage {
             resizable,
             ".grip(true)",
             &[
-              "Splitter::horizontal()",
+              "Splitter::new()",
               "    .grip(true)",
               "    .framed(true)",
-              "    .pane(SplitterPane::new(sidebar).size(140.0).min(100.0))",
+              "    .pane(SplitterPane::new(sidebar).length(140.0).min(100.0))",
               "    .pane(SplitterPane::new(",
-              "        Splitter::vertical()",
+              "        Splitter::new().orientation(Orientation::Vertical)",
               "            .grip(true)",
               "            .pane(SplitterPane::new(editor).min(60.0))",
-              "            .pane(SplitterPane::new(terminal).size(60.0).min(40.0)),",
+              "            .pane(SplitterPane::new(terminal).length(60.0).min(40.0)),",
               "    ))",
               "    .mount(ctx)",
             ],
@@ -566,7 +585,7 @@ impl Component for SplitterPage {
             Self::states(),
             ".force(Some(Interaction::Hovered))",
             &[
-              "Splitter::horizontal()",
+              "Splitter::new()",
               "    .framed(true)",
               "    .pane(SplitterPane::new(a))",
               "    .pane(SplitterPane::new(b).share(0.5))",

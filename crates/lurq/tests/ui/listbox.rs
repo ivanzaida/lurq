@@ -8,13 +8,13 @@ use lurq::{
   app::{
     App,
     events::MouseButton,
-    theme::{PaletteColor, ThemePalette},
+    theme::{Density, PaletteColor, ThemePalette},
   },
   components::{Column, Row, SelectOption},
   core::Signal,
   layout::{quad::QuadContent, text_style::FontWeight},
   node::color::Color,
-  ui::{Button, Choice, Listbox, ListboxPart, ListboxRenderer, ListboxView},
+  ui::{Button, Choice, Interaction, Listbox, ListboxPart, ListboxRenderer, ListboxView},
 };
 
 use super::stage::Stage;
@@ -483,4 +483,164 @@ fn of_thousands_shift_with_the_keys_and_ctrl_a_choose_options_that_are_not_built
   assert_eq!(chosen.get(), [4999]);
   key_with(&mut stage, "a", false, true);
   assert_eq!(chosen.get().len(), 5000);
+}
+
+/// Bound to a `Signal<Option<T>>`, nothing is chosen while it is `None`, and a press chooses: the signal is set and
+/// `on_change` is told.
+#[test]
+fn bound_to_an_option_nothing_is_chosen_until_a_press_chooses() {
+  let chosen: Signal<Option<Id>> = Signal::new(None);
+  let told: Arc<Mutex<Vec<Vec<Id>>>> = Arc::default();
+  let (scene, heard) = (chosen.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    Column::new()
+      .child(
+        Listbox::new(scene.clone(), renderers())
+          .on_change(move |next| heard.lock().unwrap().push(next.to_vec()))
+          .id("box"),
+      )
+      .into()
+  });
+  // A chosen option's label is at 500: none is.
+  for label in ["wgpu", "DirectX 12", "Metal", "Vulkan"] {
+    assert_eq!(weight_of(&stage, label), FontWeight::Normal, "nothing chosen");
+  }
+  stage.click("box-1");
+  assert_eq!(chosen.get(), Some("dx12"));
+  assert_eq!(*told.lock().unwrap(), [vec!["dx12"]]);
+  assert_eq!(weight_of(&stage, "DirectX 12"), FontWeight::Medium);
+}
+
+/// Held by the app, a press tells `on_change` what it would choose, and the listbox shows what the app holds: what
+/// it answers with, not what was pressed. A press of what is chosen tells nothing.
+#[test]
+fn held_by_the_app_a_press_tells_and_the_listbox_shows_what_the_app_answers() {
+  let held: Signal<Option<Id>> = Signal::new(Some("wgpu"));
+  let told: Arc<Mutex<Vec<Vec<Id>>>> = Arc::default();
+  let answer = Arc::new(std::sync::atomic::AtomicBool::new(false));
+  let (scene, heard, answering) = (held.clone(), told.clone(), answer.clone());
+  let mut stage = Stage::new(move |_| {
+    let (heard, answering, write) = (heard.clone(), answering.clone(), scene.clone());
+    Column::new()
+      .child(
+        Listbox::controlled(scene.get(), renderers(), move |next| {
+          heard.lock().unwrap().push(next.to_vec());
+          if answering.load(std::sync::atomic::Ordering::Relaxed) {
+            write.set(next.last().copied());
+          }
+        })
+        .id("box"),
+      )
+      .into()
+  });
+  // The app does not take the choice: what it holds stays chosen (its label at 500).
+  stage.click("box-2");
+  assert_eq!(*told.lock().unwrap(), [vec!["metal"]]);
+  assert_eq!(weight_of(&stage, "wgpu"), FontWeight::Medium);
+  assert_eq!(weight_of(&stage, "Metal"), FontWeight::Normal);
+  // A press of what is chosen tells nothing.
+  stage.click("box-0");
+  assert_eq!(told.lock().unwrap().len(), 1);
+  // The app takes it: what it answers with is chosen.
+  answer.store(true, std::sync::atomic::Ordering::Relaxed);
+  stage.click("box-2");
+  assert_eq!(held.get(), Some("metal"));
+  assert_eq!(weight_of(&stage, "Metal"), FontWeight::Medium);
+  assert_eq!(weight_of(&stage, "wgpu"), FontWeight::Normal);
+}
+
+/// `on_change` is a person's: the app setting the signal tells nothing.
+#[test]
+fn the_app_setting_the_signal_tells_on_change_nothing() {
+  let (chosen, told) = (Signal::new("wgpu"), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = one(&chosen, &told, true);
+  chosen.set("metal");
+  stage.pass();
+  assert_eq!(weight_of(&stage, "Metal"), FontWeight::Medium);
+  assert!(told.lock().unwrap().is_empty());
+}
+
+/// An option with a detail is as high as its two lines need: 16 higher than one of one line at every density, as a
+/// list's row with a description is, its two lines inside it with room over and under them.
+#[test]
+fn an_option_with_a_detail_is_16_higher_at_every_density() {
+  for (density, one, two) in [
+    (Density::Compact, 24.0, 40.0),
+    (Density::Default, 32.0, 48.0),
+    (Density::Comfortable, 40.0, 56.0),
+    (Density::Touch, 44.0, 60.0),
+  ] {
+    let mut stage = Stage::new(move |_| {
+      Column::new()
+        .child(
+          Listbox::new(
+            Signal::new("plain"),
+            [
+              SelectOption::new("plain", "Plain"),
+              SelectOption::new("detailed", "Detailed").detail("A second line under it"),
+            ],
+          )
+          .density(density)
+          .id("box"),
+        )
+        .into()
+    });
+    assert_eq!(stage.bounds("box-0").3, one, "{density:?}");
+    let (_, y, _, height) = stage.bounds("box-1");
+    assert_eq!(height, two, "{density:?}");
+    let label = stage.text_quad("Detailed").unwrap();
+    let detail = stage.text_quad("A second line under it").unwrap();
+    assert!(label.y >= y + 4.0, "{density:?}: room over the label");
+    assert!(
+      detail.y >= label.y + label.height - 0.5,
+      "{density:?}: the detail under the label"
+    );
+    assert!(
+      detail.y + detail.height <= y + height - 4.0,
+      "{density:?}: room under the detail"
+    );
+  }
+}
+
+/// A disabled option is drawn as nothing presses it, even where the listbox is drawn as held down.
+#[test]
+fn a_disabled_option_has_no_veil_under_a_forced_press() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Listbox::new(Signal::new("wgpu"), renderers())
+          .force(Some(Interaction::Pressed))
+          .id("box"),
+      )
+      .into()
+  });
+  let veil = |stage: &mut Stage, id: &str| {
+    let (x, y, width, height) = stage.bounds(id);
+    stage.quads().into_iter().any(|quad| {
+      matches!(&quad.content, QuadContent::BoxShadow(shadow) if shadow.inset)
+        && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
+    })
+  };
+  assert!(veil(&mut stage, "box-1"), "an option that takes input is veiled");
+  assert!(!veil(&mut stage, "box-3"), "the disabled one is not");
+}
+
+/// A disabled option says so to tooling.
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn a_disabled_option_says_it_is_disabled() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(Listbox::new(Signal::new("wgpu"), renderers()).id("box"))
+      .into()
+  });
+  let mut said = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_disabled"))
+  };
+  assert_eq!(said("box-3").as_deref(), Some("true"));
+  assert_eq!(said("box-1"), None);
 }

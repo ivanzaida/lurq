@@ -31,7 +31,7 @@ A year, a month and a day of the Gregorian calendar, years 1 to 9999 (`Date::MIN
 
 | `Date` | |
 | --- | --- |
-| `today()` | Today, by the clock and the zone of the system. In the browser, and wherever lurq cannot read the zone, today in UTC |
+| `today()` | Today, by the clock and the zone of the system, or of the browser on the web. Wherever lurq cannot read the zone, today in UTC |
 | `year()`, `month()`, `day()` | Its parts. The month is 1 to 12 |
 | `weekday()`, `ordinal()` | Its day of the week, and its day of the year, from 1 |
 | `add_days(n)`, `add_months(n)`, `add_years(n)` | A day after it, or before it where `n` is negative. A month after 31 January is the last day of February |

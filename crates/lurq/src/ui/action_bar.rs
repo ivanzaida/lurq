@@ -9,7 +9,7 @@ use super::{
   button::{Button, ButtonPart, ButtonVariant},
   icons, names,
   part_style::{Length, PartAnimation},
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   separator::{Separator, SeparatorPart},
   theme::{Themed, current_theme},
 };
@@ -36,9 +36,9 @@ const ENTER_FROM_ABOVE: KeyframesId = KeyframesId::new(0xFF12);
 const LEAVE_DOWNWARD: KeyframesId = KeyframesId::new(0xFF13);
 const LEAVE_UPWARD: KeyframesId = KeyframesId::new(0xFF14);
 
-/// Where the bar stands over what it acts on: the variant of its recipe.
+/// The edge of what it acts on that the bar stands at: the variant of its recipe.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ActionBarPlacement {
+pub enum ActionBarSide {
   /// At the bottom, in the middle; it comes up from the edge and goes back down.
   #[default]
   Bottom,
@@ -46,7 +46,7 @@ pub enum ActionBarPlacement {
   Top,
 }
 
-names!(ActionBarPlacement {
+names!(ActionBarSide {
   Bottom => "bottom",
   Top => "top",
 });
@@ -146,14 +146,17 @@ pub struct ActionBarAction {
 #[derive(Clone)]
 pub struct ActionBar {
   count: usize,
-  text: Option<Arc<str>>,
+  count_text: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   actions: Vec<ActionBarAction>,
-  on_clear: Option<Arc<dyn Fn() + Send + Sync>>,
-  placement: ActionBarPlacement,
+  on_clear: Vec<Arc<dyn Fn() + Send + Sync>>,
+  side: ActionBarSide,
   escape_clears: bool,
   clear_label: Arc<str>,
   return_focus: Option<ElementRef>,
+  states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -163,27 +166,37 @@ impl ActionBar {
   pub fn new(count: usize) -> Self {
     Self {
       count,
-      text: None,
+      count_text: None,
+      label: None,
       actions: Vec::new(),
-      on_clear: None,
-      placement: ActionBarPlacement::default(),
+      on_clear: Vec::new(),
+      side: ActionBarSide::default(),
       escape_clears: false,
       clear_label: Arc::from("Clear selection"),
       return_focus: None,
+      states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
   }
 
   /// What the bar says of the selection, in place of "3 selected": "3 files".
-  pub fn text(mut self, text: &str) -> Self {
-    self.text = Some(Arc::from(text));
+  pub fn count_text(mut self, text: &str) -> Self {
+    self.count_text = Some(Arc::from(text));
     self
   }
 
-  /// An action on what is selected, after the ones the bar has: a button,
-  /// which the bar makes a ghost one of its size.
+  /// What the bar is called to what reads the tree, in place of what it says
+  /// of the selection: "Actions on 3 files".
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Adds an action on what is selected, after the ones the bar has: a
+  /// button, which the bar makes a ghost one of its size. A bar has several.
   pub fn action(mut self, button: Button) -> Self {
     self.actions.push(ActionBarAction {
       button,
@@ -192,7 +205,12 @@ impl ActionBar {
     self
   }
 
-  /// An action that destroys what is selected: drawn in the destructive color.
+  /// Adds actions on what is selected, after the ones the bar has.
+  pub fn actions(self, buttons: impl IntoIterator<Item = Button>) -> Self {
+    buttons.into_iter().fold(self, Self::action)
+  }
+
+  /// Adds an action that destroys what is selected: drawn in the destructive color.
   pub fn destructive_action(mut self, button: Button) -> Self {
     self.actions.push(ActionBarAction {
       button,
@@ -201,11 +219,17 @@ impl ActionBar {
     self
   }
 
-  /// What clearing the selection does: the button at the end of the bar,
-  /// and Escape where [`escape_clears`](Self::escape_clears). Without it the
-  /// bar has no clear button.
+  /// Adds actions that destroy what is selected, after the ones the bar has.
+  pub fn destructive_actions(self, buttons: impl IntoIterator<Item = Button>) -> Self {
+    buttons.into_iter().fold(self, Self::destructive_action)
+  }
+
+  /// What clearing the selection does, after the handlers there are: the
+  /// button at the end of the bar, and Escape where
+  /// [`escape_clears`](Self::escape_clears). Without one the bar has no clear
+  /// button.
   pub fn on_clear(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_clear = Some(Arc::new(handler));
+    self.on_clear.push(Arc::new(handler));
     self
   }
 
@@ -215,9 +239,9 @@ impl ActionBar {
     self
   }
 
-  /// Where the bar stands over what it acts on: at the bottom, or the top.
-  pub fn placement(mut self, placement: ActionBarPlacement) -> Self {
-    self.placement = placement;
+  /// The edge of what it acts on that the bar stands at: the bottom, or the top.
+  pub fn side(mut self, side: ActionBarSide) -> Self {
+    self.side = side;
     self
   }
 
@@ -250,6 +274,24 @@ impl ActionBar {
     self
   }
 
+  /// Puts the bar in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Draws the clear button as it is under the pointer, held down or focused
+  /// from the keyboard, with nothing pointing at it: for a gallery or a test.
+  /// An action is forced with its own `force`.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
   /// The id of the bar. Its clear button has this id with `-clear` after it.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
@@ -277,21 +319,36 @@ impl ActionBar {
   /// Builds the bar in `theme`. Converting a bar into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new()
-      .variant(self.placement)
+    let mut case = Case::new()
+      .variant(self.side)
       .breakpoint(super::current_breakpoint())
       .state(ActionBarState::Empty, self.count == 0);
+    for state in &self.states {
+      case = case.state(state.clone(), true);
+    }
+    let count_text = self
+      .count_text
+      .unwrap_or_else(|| Arc::from(format!("{} selected", self.count)));
+    // Every handler of `on_clear`, in order, as one.
+    let on_clear = (!self.on_clear.is_empty()).then(|| {
+      let handlers = self.on_clear;
+      Arc::new(move || {
+        for handler in &handlers {
+          handler();
+        }
+      }) as Arc<dyn Fn() + Send + Sync>
+    });
     let view = ActionBarView {
       count: self.count,
-      text: self
-        .text
-        .unwrap_or_else(|| Arc::from(format!("{} selected", self.count))),
+      label: self.label.unwrap_or_else(|| count_text.clone()),
+      count_text,
       actions: self.actions,
-      on_clear: self.on_clear,
-      placement: self.placement,
+      on_clear,
+      side: self.side,
       escape_clears: self.escape_clears,
       clear_label: self.clear_label,
       recipe: theme.resolve::<ActionBar>(&case, Some(&self.rules)),
+      forced: self.forced,
       id: self.id,
       key: self.key,
     };
@@ -371,14 +428,18 @@ impl Component for ActionBarHost {
 pub struct ActionBarView {
   pub count: usize,
   /// What it says of the selection: "3 selected".
-  pub text: Arc<str>,
+  pub count_text: Arc<str>,
+  /// What it is called to what reads the tree: its label, or what it says.
+  pub label: Arc<str>,
   pub actions: Vec<ActionBarAction>,
+  /// Every handler of `on_clear`, in order, as one.
   pub on_clear: Option<Arc<dyn Fn() + Send + Sync>>,
-  pub placement: ActionBarPlacement,
+  pub side: ActionBarSide,
   pub escape_clears: bool,
   pub clear_label: Arc<str>,
   /// The style of each part of this bar.
   pub recipe: ResolvedRecipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -409,7 +470,7 @@ impl ActionBarView {
       .min_width(0.0)
       .child(
         part
-          .text(&self.text)
+          .text(&self.count_text)
           .nowrap()
           .text_overflow(TextOverflow::Elipsis)
           .part(&part),
@@ -448,6 +509,7 @@ impl ActionBarView {
       .icon_only(true)
       .variant(ButtonVariant::Ghost)
       .rules(&rules)
+      .force(self.forced)
       .on_click(move |_| clear());
     if let Some(id) = &self.id {
       button = button.id(format!("{id}-clear"));
@@ -465,7 +527,7 @@ impl ActionBarView {
       .focus_group(FocusGroup::horizontal().one_stop(true))
       .key("action-bar")
       .describe("a11y_role", "toolbar")
-      .describe("a11y_name", self.text.clone())
+      .describe("a11y_name", self.label.clone())
       .describe("a11y_orientation", "horizontal")
       .child(self.count());
     if !self.actions.is_empty() {
@@ -487,9 +549,9 @@ impl ActionBarView {
   /// acts on, and in it the bar while something is selected. The room keeps
   /// the bar while it leaves.
   pub fn render(mut self) -> Element {
-    let justify = match self.placement {
-      ActionBarPlacement::Bottom => Justify::End,
-      ActionBarPlacement::Top => Justify::Start,
+    let justify = match self.side {
+      ActionBarSide::Bottom => Justify::End,
+      ActionBarSide::Top => Justify::Start,
     };
     let mut root = Column::new()
       .part(&self.part(ActionBarPart::Root))
@@ -554,7 +616,7 @@ impl Themed for ActionBar {
           .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
           .shadow(ShadowStyle::Lg)
       })
-      .variant(ActionBarPlacement::Bottom, Bar, |s| {
+      .variant(ActionBarSide::Bottom, Bar, |s| {
         s.enter(PartAnimation::new(
           ENTER_FROM_BELOW,
           MotionDuration::Base,
@@ -566,7 +628,7 @@ impl Themed for ActionBar {
           MotionEasing::Exit,
         ))
       })
-      .variant(ActionBarPlacement::Top, Bar, |s| {
+      .variant(ActionBarSide::Top, Bar, |s| {
         s.enter(PartAnimation::new(
           ENTER_FROM_ABOVE,
           MotionDuration::Base,

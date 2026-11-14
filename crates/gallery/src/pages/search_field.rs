@@ -300,6 +300,18 @@ impl Component for SearchFieldPage {
         "\"Clear search\"",
         "What the clear button is called to tooling, in another language.",
       ),
+      (
+        "clearable",
+        "bool",
+        "true",
+        "The clear button while it holds something, and Escape that empties it.",
+      ),
+      (
+        "icon",
+        "impl Into<IconChoice>",
+        "search",
+        "The icon before the text, or None for none.",
+      ),
       ("size", "InputSize", "Md", "Sm 32, Md 36, Lg 40 high, as an input."),
       (
         "invalid / warning / valid",

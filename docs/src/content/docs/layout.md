@@ -231,7 +231,7 @@ Column::new()
 | Track | Width |
 |-------|-------|
 | `TrackSpec::px(120.0)` | A length in logical pixels. |
-| `TrackSpec::share(1.0)` | A share of the room the other tracks and the gaps leave, as a grid's `Fr`. Where the room is not known (a row as wide as its content), as wide as its content. |
+| `TrackSpec::share(1.0)` | A share of the room the other tracks and the gaps leave, as a grid's `Fr`. Where the room is not known (a row as wide as its content, what scrolls sideways before it is stretched), at its least: what is in it does not widen it. |
 | `TrackSpec::content()` | As wide as the widest of its cells that has been measured. |
 
 - `.min(px)` and `.max(px)` hold a track between a least and a most. The shares split what is left between theirs; where
@@ -394,11 +394,30 @@ factor in a single-line `Row` or `Column`.
 | `MinSize`     | Down to its `min_width`/`min_height`, 0 without one (the default)                                     |
 | `Content`     | Down to its content minimum, never below an explicit `min_width`/`min_height`                         |
 | `Drop`        | Not at all: it keeps its natural size, or is dropped (zero size, no spacing, not drawn and not hit)   |
+| `ContentFirst`| Down to its content minimum while its order can take the overflow, then below it to its `min_width`, the last first |
 
 The content minimum of a `Row` in a row (or a `Column` in a column) is its padding and spacing, the natural size of
-every child that does not shrink, and the limit of every child that does (a droppable child counts as gone). Anything
-else (text, rects, stacks, scroll containers, wrapping rows, lines on the other axis) keeps its natural size, like a
-flex item with CSS `min-width: auto`. Within one order, droppable children are dropped, last first, only while the
+every child that does not shrink, and the limit of every child that does (a droppable child counts as gone). The
+content minimum of a line on the other axis (a `Column` in a row) is the widest of its children's, where a child with
+a `min_width`/`min_height` of its own counts at it: a text that may wrap says `min_width(0.0)`. Anything else (text,
+rects, stacks, scroll containers, wrapping rows) keeps its natural size, like a flex item with CSS `min-width: auto`.
+
+`ContentFirst` is for what has a part to keep and a part to give: a step whose description wraps before its title is
+cut. The children of an order keep to their content minimum while they can take the overflow above it; when they
+cannot, the last of them gives way below it, then the one before, each down to its `min_width`. A child that gives way
+lays its own line out as collapsed, so what in it has `ContentFirst` gives way below its content too.
+
+```rust
+use lurq::{components::{Column, Spacer}, layout::layout_kind::ShrinkLimit};
+
+// A title of 60 that keeps its width over a description that may wrap to nothing.
+Column::new()
+  .flex_shrink(1.0)
+  .shrink_limit(ShrinkLimit::ContentFirst)
+  .min_width(0.0)
+  .child(Spacer::new().size(60.0, 16.0))
+  .child(Spacer::new().size(150.0, 32.0).min_width(0.0));
+``` Within one order, droppable children are dropped, last first, only while the
 shrinking children of that order cannot absorb the rest of the overflow. This holds for the line that gives way, not
 inside a shrinking item of it: an item whose row holds droppable children drops them all at once when it collapses
 (see below). A dropped child stays mounted and keeps its

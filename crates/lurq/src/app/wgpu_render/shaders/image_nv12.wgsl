@@ -1,3 +1,7 @@
+// A branch on a value of the instance (a stroke, a mode) is the same for every fragment of a quad, which the
+// browser's compiler cannot tell: it takes the derivatives under such a branch for an error. naga does not check.
+diagnostic(off, derivative_uniformity);
+
 struct Globals {
     viewport:     vec4<f32>,
     clip_rect:    vec4<f32>,

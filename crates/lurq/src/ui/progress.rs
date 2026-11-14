@@ -215,6 +215,7 @@ pub struct Progress {
   variant: Name,
   size: Name,
   label: Option<Arc<str>>,
+  label_hidden: bool,
   show_value: bool,
   top_bar: bool,
   width: Option<Length>,
@@ -243,6 +244,7 @@ impl Progress {
       variant: ProgressVariant::default().into(),
       size: ProgressSize::default().into(),
       label: None,
+      label_hidden: false,
       show_value: false,
       top_bar: false,
       width: None,
@@ -283,9 +285,16 @@ impl Progress {
     self
   }
 
+  /// Whether the label is said to tooling and not drawn: a bar whose work the text beside it already says.
+  pub fn label_hidden(mut self, hidden: bool) -> Self {
+    self.label_hidden = hidden;
+    self
+  }
+
   /// Whether the value is said over the end of the rail: as a percentage, or
   /// as [`Progress::format`] says it. A progress that does not know how far it
-  /// is says none.
+  /// is says none. Off unless told, as the design's bar draws none; a
+  /// [`RingProgress`] says its value unless told, as the design's ring does.
   pub fn show_value(mut self, show: bool) -> Self {
     self.show_value = show;
     self
@@ -363,6 +372,7 @@ impl Progress {
     .state(ProgressState::TopBar, self.top_bar);
     let view = ProgressView {
       label: self.label,
+      label_hidden: self.label_hidden,
       show_value: self.show_value,
       variant: self.variant,
       size: self.size,
@@ -390,6 +400,8 @@ impl From<Progress> for Element {
 /// parts, and its parts ready to be put together.
 pub struct ProgressView {
   pub label: Option<Arc<str>>,
+  /// Whether the label is said to tooling and not drawn.
+  pub label_hidden: bool,
   pub show_value: bool,
   pub variant: Name,
   pub size: Name,
@@ -450,7 +462,8 @@ impl ProgressView {
   /// `None` where there is neither.
   pub fn header(&self) -> Option<Row> {
     let value = self.show_value.then(|| self.value_text()).flatten();
-    if self.label.is_none() && value.is_none() {
+    let shown = self.label.as_ref().filter(|_| !self.label_hidden);
+    if shown.is_none() && value.is_none() {
       return None;
     }
     let label = self.part(ProgressPart::Label);
@@ -460,7 +473,7 @@ impl ProgressView {
       .flex_full(1.0, 1.0, Some(0.0))
       .min_width(Dimension::Px(0.0))
       .part(&label);
-    if let Some(text) = &self.label {
+    if let Some(text) = shown {
       start = start.child(label.text(text).nowrap().text_overflow(TextOverflow::Elipsis));
     }
     let mut header = Row::new()
@@ -712,7 +725,7 @@ impl RingProgress {
   }
 
   /// Whether the value is said in the middle: as a percentage, or as [`RingProgress::format`] says it. It is
-  /// unless told otherwise.
+  /// unless told otherwise, as the design's ring says it; a [`Progress`] bar says none unless told.
   pub fn show_value(mut self, show: bool) -> Self {
     self.show_value = show;
     self

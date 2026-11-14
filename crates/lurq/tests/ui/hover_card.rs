@@ -11,7 +11,7 @@ use std::{
 use lurq::{
   app::{
     App,
-    ctx::Ctx,
+    ctx::{CollisionStrategy, Ctx},
     theme::{PaletteColor, ShadowStyle, Theme, ThemePalette},
   },
   components::{Column, Placement, Row},
@@ -49,7 +49,7 @@ fn card() -> HoverCard {
   HoverCard::new()
     .title(NAME)
     .description(LINE)
-    .fact(icons::CALENDAR_DAYS, JOINED)
+    .fact(JOINED, icons::CALENDAR_DAYS)
     .id("card")
 }
 
@@ -155,7 +155,7 @@ fn it_opens_under_what_the_pointer_rests_on_after_its_delay() {
 
 #[test]
 fn its_text_is_as_the_board_draws_it() {
-  let mut stage = stage(|| card().open(Some(true)));
+  let mut stage = stage(|| card().force_open(Some(true)));
   stage.pass();
   let shown = panel(&stage).unwrap();
   let (name, line, joined) = (
@@ -180,7 +180,7 @@ fn media_stands_12_before_the_text() {
   let mut stage = stage(|| {
     card()
       .media(Row::new().size(40.0, 40.0).background(PaletteColor::Muted).id("avatar"))
-      .open(Some(true))
+      .force_open(Some(true))
   });
   stage.pass();
   let shown = panel(&stage).unwrap();
@@ -324,7 +324,7 @@ fn painted_center(quad: &Quad) -> (f32, f32) {
 
 #[test]
 fn its_arrow_with_its_edge_stands_between_the_panel_and_the_button() {
-  let mut stage = stage(|| card().arrow(true).open(Some(true)));
+  let mut stage = stage(|| card().arrow(true).force_open(Some(true)));
   stage.pass();
   let shown = panel(&stage).unwrap();
   let (x, y, width, height) = stage.bounds("author");
@@ -350,7 +350,7 @@ fn its_arrow_with_its_edge_stands_between_the_panel_and_the_button() {
 
 #[test]
 fn where_there_is_no_room_under_it_it_is_above_and_its_arrow_turns() {
-  let mut stage = stage_at(230.0, || card().arrow(true).open(Some(true)));
+  let mut stage = stage_at(230.0, || card().arrow(true).force_open(Some(true)));
   // An overlay is kept in the window, not in the root: the stage's window is 800 by 600 unless it is made the
   // scene's size, and under a button 230 down a window of 600 has room for the card.
   stage.tree.resize(400, 300);
@@ -398,7 +398,7 @@ fn a_rule_of_the_theme_changes_the_card() {
       .size(400.0, 300.0)
       .padding_top(40.0)
       .align_items(Alignment::Center)
-      .child(card().open(Some(true)).mount(ctx, author()))
+      .child(card().force_open(Some(true)).mount(ctx, author()))
       .into()
   });
   stage.pass();
@@ -442,7 +442,7 @@ fn placed_at_the_start_it_lines_up_with_the_buttons_start() {
       .child(
         card()
           .placement(Placement::BottomStart)
-          .open(Some(true))
+          .force_open(Some(true))
           .mount(ctx, author()),
       )
       .into()
@@ -451,4 +451,99 @@ fn placed_at_the_start_it_lines_up_with_the_buttons_start() {
   let shown = panel(&stage).unwrap();
   let (x, ..) = stage.bounds("author");
   assert!(close(shown.x, x), "{} and {x}", shown.x);
+}
+
+/// Where the text of the card's fact `JOINED` starts, from the panel's start, with the card `card` makes.
+fn fact_start(card: impl Fn() -> HoverCard + Send + Sync + 'static) -> f32 {
+  let mut stage = stage(move || card().force_open(Some(true)));
+  stage.pass();
+  let shown = panel(&stage).unwrap();
+  stage.text_quad(JOINED).unwrap().x - shown.x
+}
+
+#[test]
+fn a_fact_is_its_text_and_its_icon_or_none_and_facts_adds_several() {
+  let with_icon = fact_start(|| HoverCard::new().title(NAME).fact(JOINED, icons::CALENDAR_DAYS));
+  let without = fact_start(|| HoverCard::new().title(NAME).fact(JOINED, None));
+  assert!(
+    close(without, 16.0),
+    "with no icon its text is at the panel's padding: {without}"
+  );
+  assert!(
+    close(with_icon, 16.0 + 14.0 + 6.0),
+    "an icon of 14 and 6 before its text: {with_icon}"
+  );
+
+  let mut stage = stage(|| {
+    HoverCard::new()
+      .title(NAME)
+      .facts([(JOINED, icons::CALENDAR_DAYS), ("2.4 MB", icons::FILE)])
+      .force_open(Some(true))
+  });
+  stage.pass();
+  let (joined, size) = (stage.text_quad(JOINED).unwrap(), stage.text_quad("2.4 MB").unwrap());
+  assert!(close(joined.y, size.y), "in one row");
+  assert!(size.x > joined.x + joined.width, "in the order given");
+}
+
+#[test]
+fn its_label_is_what_tooling_calls_it_and_its_title_where_it_has_none() {
+  let app = App::new();
+  let renderer: HoverCardRenderer = Arc::new(|view: HoverCardView| {
+    Row::new()
+      .part(&view.part(HoverCardPart::Panel))
+      .child(
+        view
+          .part(HoverCardPart::Title)
+          .text(&format!("called {}", view.label.as_deref().unwrap_or("nothing"))),
+      )
+      .into()
+  });
+  app.theme().set_renderer::<HoverCard>(renderer);
+  let mut stage = Stage::in_app(app, |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding_top(40.0)
+      .spacing(120.0)
+      .align_items(Alignment::Center)
+      .child(HoverCard::new().title(NAME).force_open(Some(true)).mount(ctx, author()))
+      .child(
+        HoverCard::new()
+          .title(NAME)
+          .label("The author of lurq")
+          .force_open(Some(true))
+          .mount(ctx, Button::new("Other").id("other")),
+      )
+      .into()
+  });
+  stage.pass();
+  assert!(stage.paints("called @lurq"), "by its title");
+  assert!(stage.paints("called The author of lurq"), "by its label");
+}
+
+#[test]
+fn an_offset_stands_it_that_far_from_what_it_is_about() {
+  let mut stage = stage(|| card().offset(20.0).force_open(Some(true)));
+  stage.pass();
+  let shown = panel(&stage).unwrap();
+  let (_, y, _, height) = stage.bounds("author");
+  assert!(close(shown.y, y + height + 20.0), "20 under the button: {}", shown.y);
+}
+
+#[test]
+fn a_collision_that_only_clamps_keeps_it_on_its_own_side() {
+  let mut stage = stage_at(230.0, || {
+    card().collision(CollisionStrategy::Clamp).force_open(Some(true))
+  });
+  stage.tree.resize(400, 300);
+  stage.pass();
+  stage.pass();
+  let shown = panel(&stage).unwrap();
+  let (_, y, ..) = stage.bounds("author");
+  assert!(
+    shown.y + shown.height > y,
+    "not turned to above the button: {:?}",
+    (shown.y, shown.height)
+  );
+  assert!(shown.y + shown.height <= 300.0 + 0.5, "kept in the window");
 }

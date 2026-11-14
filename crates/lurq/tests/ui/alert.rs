@@ -25,7 +25,7 @@ use lurq::{
   node::color::Color,
   ui::{
     Alert, AlertPart, AlertRenderer, AlertVariant, AlertView, Banner, BannerPart, Button, ButtonSize, ButtonVariant,
-    Callout, CalloutPart, CalloutRenderer, CalloutView, Link, icons,
+    Callout, CalloutPart, CalloutRenderer, CalloutView, Link, Name, Recipe, icons,
   },
 };
 
@@ -730,10 +730,118 @@ fn a_callout_is_a_note_to_tooling_and_a_theme_changes_it() {
         Callout::new("Ruled")
           .id("callout")
           .style(CalloutPart::Root, |s| s.background(PaletteColor::Secondary))
-          .style(CalloutPart::Text, |s| s.font_size(18.0)),
+          .style(CalloutPart::Label, |s| s.font_size(18.0)),
       )
       .into()
   });
   assert_eq!(stage.fill_color("callout"), Some(light(PaletteColor::Secondary)));
   assert_eq!(stage.text("Ruled").1, 18.0);
+}
+
+/// A variant is a name: one a theme adds reaches the recipe, and an alert, a banner and a callout of it have the
+/// neutral one's icon (and an alert and a banner its role).
+#[test]
+fn a_variant_a_theme_adds_reaches_the_recipe_with_the_neutral_icon() {
+  let brand = Recipe::new().variant("brand", AlertPart::Root, |s| s.background(PaletteColor::Secondary));
+  let roles = Arc::new(Mutex::new(Vec::new()));
+  let seen = roles.clone();
+  let app = App::new();
+  let renderer: AlertRenderer = Arc::new(move |view: AlertView| {
+    seen
+      .lock()
+      .unwrap()
+      .push((view.variant, view.role.to_string(), view.icon));
+    view.render()
+  });
+  app.theme().set_renderer::<Alert>(renderer);
+  let mut stage = Stage::in_app(app, move |_| {
+    Column::new()
+      .width(360.0)
+      .child(Alert::new("Brand").variant("brand").rules(&brand).id("alert"))
+      .child(Banner::new("Brand banner").variant("brand").id("banner"))
+      .child(Callout::new("Brand callout").variant("brand").id("callout"))
+      .into()
+  });
+  assert_eq!(stage.fill_color("alert"), Some(light(PaletteColor::Secondary)));
+  let (variant, role, icon) = roles.lock().unwrap().last().cloned().unwrap();
+  assert_eq!(variant, Name::new("brand"));
+  assert_eq!(role, "status");
+  assert_eq!(icon, Some(Name::new(icons::INFO)), "the neutral one's icon");
+  // The banner's neutral icon is the megaphone, the callout's the information sign.
+  assert!(stage.paints(&glyph(icons::MEGAPHONE)));
+  assert_eq!(
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == glyph(icons::INFO)))
+      .count(),
+    2,
+    "the alert's and the callout's"
+  );
+}
+
+/// An alert and a banner have no close control until they are given `on_close`, and one once they are.
+#[test]
+fn an_alert_and_a_banner_have_a_close_control_once_they_are_given_on_close() {
+  let closed = Arc::new(AtomicUsize::new(0));
+  let (alert_closed, banner_closed) = (closed.clone(), closed.clone());
+  let plain = Stage::new(|_| {
+    Column::new()
+      .width(360.0)
+      .child(Alert::new("Saved"))
+      .child(Banner::new("Saved"))
+      .into()
+  });
+  assert!(!plain.paints(&glyph(icons::CLOSE)));
+  let mut closing = Stage::new(move |_| {
+    let (alert_closed, banner_closed) = (alert_closed.clone(), banner_closed.clone());
+    Column::new()
+      .width(360.0)
+      .child(Alert::new("Saved").on_close(move || {
+        alert_closed.fetch_add(1, Ordering::Relaxed);
+      }))
+      .child(Banner::new("Saved").on_close(move || {
+        banner_closed.fetch_add(10, Ordering::Relaxed);
+      }))
+      .into()
+  });
+  let closes: Vec<Quad> = closing
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == glyph(icons::CLOSE)))
+    .collect();
+  assert_eq!(closes.len(), 2);
+  for close in &closes {
+    let (x, y) = (close.x + close.width / 2.0, close.y + close.height / 2.0);
+    closing.tree.mouse_move(x, y);
+    closing.tree.mouse_down(x, y, MouseButton::Left);
+    closing.tree.mouse_up(x, y, MouseButton::Left);
+    closing.pass();
+  }
+  assert_eq!(closed.load(Ordering::Relaxed), 11);
+}
+
+/// `label` is what an alert, a banner and a callout are called to tooling, in place of their title or text.
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn a_label_is_what_a_message_is_called_to_tooling() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(360.0)
+      .child(Alert::new("Could not save").label("Save failed").id("alert"))
+      .child(Alert::new("Saved").id("plain"))
+      .child(Banner::new("lurq 0.61 is available").label("Update").id("banner"))
+      .child(Callout::new("Use blur.").title("Tip").label("Blur tip").id("callout"))
+      .into()
+  });
+  let mut said = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(said("alert").as_deref(), Some("Save failed"));
+  assert_eq!(said("plain").as_deref(), Some("Saved"));
+  assert_eq!(said("banner").as_deref(), Some("Update"));
+  assert_eq!(said("callout").as_deref(), Some("Blur tip"));
 }

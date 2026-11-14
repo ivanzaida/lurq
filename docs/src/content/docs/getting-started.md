@@ -30,6 +30,16 @@ cargo run -p demo -- --renderer dx12
 
 The demo manifest already enables its UI and renderer features. Its default renderer is `wgpu`; pass `--renderer wgpu` or `--renderer dx12` to choose explicitly. Add `--features perf_profile` for frame timings or `--features mcp` for the demo's MCP integration.
 
+## In A Browser
+
+The same app builds for `wasm32-unknown-unknown` and runs as a page, drawn to a canvas through WebGPU or WebGL2. The gallery of the design system (`crates/gallery`) is the example:
+
+```powershell
+python scripts/gallery-web.py --serve
+```
+
+It needs the `wasm32-unknown-unknown` target and wasm-bindgen's CLI. [Web](../web/) has the setup, what `main` does in a browser, and what a page does differently from a desktop.
+
 ## Feature Flags
 
 `lurq` has no default features. Optional subsystems are enabled explicitly:
@@ -39,6 +49,7 @@ The demo manifest already enables its UI and renderer features. Its default rend
 | `winit` | The `WinitWindow` shell and desktop event loop integration. |
 | `render` | Shared render data types. Usually enabled through `wgpu` or `dx12`. |
 | `wgpu` | WGPU render engine. |
+| `webgl` | In a browser without WebGPU, the WGPU render engine draws through WebGL2; see [Web](../web/). Changes nothing outside a browser. |
 | `dx12` | DirectX 12 render engine on Windows. |
 | `raster` | Raw RGBA/native image transport, `Image`, `StreamingImage`, and `Video`; no image codecs. |
 | `canvas` | Persistent Canvas 2D, including gradients and effects; enables `raster` and `render`. |

@@ -7,13 +7,14 @@ use std::sync::Arc;
 use lurq::{
   app::{component::Component, ctx::Ctx, theme::Density},
   components::{Column, Row},
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
   ui::{
-    Avatar, AvatarSize, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Choice, EmptyState, EmptyStateSize,
-    InputSize, Interaction, Length, Pagination, SearchField, SearchFieldPart, Table, TableColumn, TablePart, TableSort,
-    Tag, TagVariant, ToggleGroup, Toolbar, ToolbarItem, ToolbarPart, icons,
+    Avatar, AvatarSize, Badge, BadgeVariant, Button, ButtonPart, ButtonSize, ButtonVariant, Choice, EmptyState,
+    EmptyStateSize, InputSize, Interaction, Length, Menu, MenuItem, Pagination, SearchField, SearchFieldPart,
+    SortDirection, Table, TableColumn, TablePart, TableSort, Tag, TagPart, TagVariant, ToggleGroup, ToggleGroupPart,
+    Toolbar, ToolbarItem, ToolbarPart, icons,
   },
 };
 
@@ -166,6 +167,32 @@ fn board_columns() -> Vec<TableColumn<Krate>> {
   ]
 }
 
+/// A filter that is set, as the bar draws it: 26 high, its text 12, with its remove button.
+fn tag(text: &str) -> Tag {
+  Tag::new(text)
+    .variant(TagVariant::Info)
+    .on_remove(|| {})
+    .style(TagPart::Root, |s| s.height(26.0))
+    .style(TagPart::Label, |s| s.font_size(12.0))
+}
+
+/// The board's columns of its tables of 420 (Table/Empty, Table/Loading): the name in the room left, the status
+/// and when it changed 90 each.
+fn narrow_columns() -> Vec<TableColumn<Krate>> {
+  vec![
+    TableColumn::new("name", "Name")
+      .text(|row: &Krate| row.name.to_owned())
+      .mono(true),
+    TableColumn::new("status", "Status")
+      .width(90.0)
+      .cell(|row: &Krate| row.status.badge()),
+    TableColumn::new("updated", "Updated")
+      .width(90.0)
+      .muted(true)
+      .text(|row: &Krate| row.updated.to_owned()),
+  ]
+}
+
 /// The rows of `rows` in the order `sort` asks for.
 fn sorted(columns: &[TableColumn<Krate>], mut rows: Vec<Krate>, sort: &Option<TableSort>) -> Vec<Krate> {
   if let Some(sort) = sort {
@@ -207,6 +234,10 @@ pub struct TablePage {
   page: Signal<usize>,
   sort: Signal<Option<TableSort>>,
   tall_selected: Signal<Vec<&'static str>>,
+  board_selected: Signal<Vec<&'static str>>,
+  /// The Columns menu of the bar: its anchor, whether it is open, and whether the status and the time show.
+  columns_menu: (ElementRef, Signal<bool>),
+  shown_columns: Signal<(bool, bool)>,
   many: Arc<Vec<Krate>>,
   many_selected: Signal<Vec<&'static str>>,
   search: Signal<String>,
@@ -224,6 +255,9 @@ impl TablePage {
     );
     let (density_name, density) = DENSITIES[self.density.get().min(DENSITIES.len() - 1)];
     let (fixed_height, form) = (self.fixed_height.get(), self.form.get().min(FORMS.len() - 1));
+    // With no height of its own the table is as high as its rows: five of the loosest, with the footer, keep
+    // within the stage's 382.
+    let rows = if fixed_height { 8 } else { 5 };
     let (sort, selected) = (self.played_sort.get(), self.played_selected.get());
     let record = self.playground.recorder();
     let recorded: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record.clone());
@@ -238,7 +272,7 @@ impl TablePage {
         }
         let rows = match form {
           1 => Vec::new(),
-          _ => sorted(&columns, crates(8), &sort),
+          _ => sorted(&columns, crates(rows), &sort),
         };
         let mut table = Table::new(columns, rows)
           .row_key(|row: &Krate| row.name)
@@ -260,16 +294,16 @@ impl TablePage {
     let (table, sort_now, selected_now) = build(Some(recorded));
     let mut shown = table
       .force(self.playground.forced())
-      .sorted_by(sort_now.clone(), move |next| {
-        sorted_to(format!("on_sort({next:?})"));
+      .sort_controlled(sort_now.clone(), move |next| {
+        sorted_to(format!("on_sort_change({next:?})"));
         set_sort.set(next);
       })
       .on_row_click(move |key| clicked(format!("on_row_click({key:?})")))
       .on_row_activate(move |key| activated(format!("on_row_activate({key:?})")));
     if selection > 0 {
       shown = shown
-        .selected_keys(selected_now.clone(), move |next| {
-          changed(format!("select({next:?})"));
+        .selected_controlled(selected_now.clone(), move |next| {
+          changed(format!("on_selection_change({next:?})"));
           set_selected.set(next);
         })
         .checkboxes(selection == 1);
@@ -279,9 +313,9 @@ impl TablePage {
       let build = build.clone();
       move || {
         let (table, sort, selected) = build(None);
-        let mut table = table.sorted_by(sort, |_| {});
+        let mut table = table.sort_controlled(sort, |_| {});
         if selection > 0 {
-          table = table.selected_keys(selected, |_| {}).checkboxes(selection == 1);
+          table = table.selected_controlled(selected, |_| {}).checkboxes(selection == 1);
         }
         table.into()
       }
@@ -388,15 +422,22 @@ impl TablePage {
         fill: true,
         forceable: true,
         facts: format!(
-          "{} rows, {} selected{}",
-          if form == 1 { 0 } else { 8 },
+          "{} selected{}",
           selected.len(),
           match &sort {
-            Some(sort) => format!(", sorted by {} {:?}", sort.column, sort.direction).to_lowercase(),
+            Some(sort) => format!(
+              " · {} {}",
+              sort.column,
+              if sort.direction == SortDirection::Ascending {
+                "↑"
+              } else {
+                "↓"
+              }
+            ),
             None => String::new(),
           }
         ),
-        event: "on_sort / select / on_row_click",
+        event: "on_sort_change / on_selection_change",
         code,
         tree,
         controls: vec![
@@ -456,6 +497,37 @@ impl TablePage {
     )
   }
 
+  /// The Columns button of the bar and its menu, which shows or hides the status and the time.
+  fn columns_button(&self) -> Element {
+    let (anchor, open) = self.columns_menu.clone();
+    let (status, updated) = self.shown_columns.get();
+    let (to_status, to_updated) = (self.shown_columns.clone(), self.shown_columns.clone());
+    let menu = Menu::new(open.clone(), anchor.clone())
+      .item(
+        MenuItem::new("Status")
+          .checked(status)
+          .on_select(move || to_status.update(|shown| shown.0 = !shown.0)),
+      )
+      .item(
+        MenuItem::new("Updated")
+          .checked(updated)
+          .on_select(move || to_updated.update(|shown| shown.1 = !shown.1)),
+      );
+    Row::new()
+      .overflow_visible()
+      .ref_element(anchor)
+      .child(
+        Button::new("Columns")
+          .trailing_icon(icons::CHEVRON_DOWN)
+          .variant(ButtonVariant::Outline)
+          // The board's is 30 high, padded 14 before its label and 10 after its chevron.
+          .style(ButtonPart::Root, |s| s.height(30.0).padding_start(14.0).padding_end(10.0))
+          .on_click(move |_| open.update(|open| *open = !*open)),
+      )
+      .child(menu)
+      .into()
+  }
+
   /// The board's Table Toolbar over a table whose density it sets: a search field, the filters that are set,
   /// Filter, and at the end the density, the columns and Export.
   fn with_bar(&self, ctx: &mut Ctx) -> Element {
@@ -474,7 +546,7 @@ impl TablePage {
           .gap(8.0)
           .radius(lurq::app::theme::RadiusSize::Lg)
       })
-      .child(
+      .item(
         ToolbarItem::element(
           SearchField::new(self.search.clone())
             .placeholder("Filter crates")
@@ -483,32 +555,41 @@ impl TablePage {
         )
         .stays(true),
       )
-      .child(ToolbarItem::element(
-        Tag::new("Status: Passing").variant(TagVariant::Info).on_remove(|| {}),
-      ))
-      .child(
+      .item(ToolbarItem::element(tag("Status: Passing")))
+      .item(ToolbarItem::element(tag("Kind: Rust")))
+      .item(
         ToolbarItem::from(
           Button::new("Filter")
             .icon(icons::PLUS)
             .variant(ButtonVariant::Outline)
-            .size(ButtonSize::Xs),
+            .size(ButtonSize::Xs)
+            // The board's is 26 high, its icon and its text 12, padded 8.
+            .style(ButtonPart::Root, |s| s.height(26.0).padding_x(8.0).gap(4.0))
+            .style(ButtonPart::Icon, |s| s.square(12.0))
+            .style(ButtonPart::Label, |s| s.font_size(12.0)),
         )
         .as_given(true),
       )
-      .child(Toolbar::spacer())
-      .child(ToggleGroup::new(
-        self.bar_density.clone(),
-        [
-          Choice::new(4u8, "Compact").icon(icons::ROWS_4).icon_only(true),
-          Choice::new(3u8, "Default").icon(icons::ROWS_3).icon_only(true),
-          Choice::new(2u8, "Comfortable").icon(icons::ROWS_2).icon_only(true),
-        ],
-      ))
-      .child(
+      .item(Toolbar::spacer())
+      .item(
+        ToggleGroup::new(
+          self.bar_density.clone(),
+          [
+            Choice::new(2u8, "Comfortable").icon(icons::ROWS_2).icon_only(true),
+            Choice::new(3u8, "Default").icon(icons::ROWS_3).icon_only(true),
+            Choice::new(4u8, "Compact").icon(icons::ROWS_4).icon_only(true),
+          ],
+        )
+        // The board's cells are 30 with icons of 14.
+        .style(ToggleGroupPart::Item, |s| s.square(30.0)),
+      )
+      .item(ToolbarItem::element(self.columns_button()))
+      .item(
         ToolbarItem::from(
           Button::new("Export")
             .icon(icons::DOWNLOAD)
-            .variant(ButtonVariant::Outline),
+            .variant(ButtonVariant::Outline)
+            .style(ButtonPart::Root, |s| s.height(30.0).padding_x(10.0)),
         )
         .as_given(true),
       )
@@ -519,7 +600,16 @@ impl TablePage {
       .filter(|row| row.name.contains(query.as_str()))
       .collect();
     let search = self.search.clone();
-    let table = Table::new(board_columns(), rows)
+    let (status, updated) = self.shown_columns.get();
+    let shown: Vec<TableColumn<Krate>> = board_columns()
+      .into_iter()
+      .filter(|column| match column.id() {
+        "status" => status,
+        "updated" => updated,
+        _ => true,
+      })
+      .collect();
+    let table = Table::new(shown, rows)
       .row_key(|row: &Krate| row.name)
       .density(density)
       .empty(
@@ -567,6 +657,9 @@ impl Component for TablePage {
       page: ctx.signal(1),
       sort: ctx.signal(None),
       tall_selected: ctx.signal(Vec::new()),
+      board_selected: ctx.signal(vec!["crates/lurq_macros"]),
+      columns_menu: (ElementRef::new(), ctx.signal(false)),
+      shown_columns: ctx.signal((true, true)),
       many: many(),
       many_selected: ctx.signal(Vec::new()),
       search: ctx.signal(String::new()),
@@ -578,6 +671,8 @@ impl Component for TablePage {
     let board = Table::new(board_columns(), crates(3))
       .row_key(|row: &Krate| row.name)
       .label("Crates")
+      .selected(self.board_selected.clone())
+      .checkboxes(false)
       .style(TablePart::Root, |s| s.width(640.0));
 
     let grid_columns = vec![
@@ -629,7 +724,7 @@ impl Component for TablePage {
       .height(360.0)
       .mount(ctx);
 
-    let empty = Table::new(board_columns(), Vec::new())
+    let empty = Table::new(narrow_columns(), Vec::new())
       .row_key(|row: &Krate| row.name)
       .empty(
         EmptyState::new("No crates match “blurr”")
@@ -643,7 +738,7 @@ impl Component for TablePage {
           ),
       )
       .style(TablePart::Root, |s| s.width(420.0));
-    let loading = Table::new(board_columns(), crates(3))
+    let loading = Table::new(narrow_columns(), crates(3))
       .row_key(|row: &Krate| row.name)
       .loading(true)
       .style(TablePart::Root, |s| s.width(420.0));
@@ -655,9 +750,9 @@ impl Component for TablePage {
       .child(item(loading, "loading: skeletons where the rows will be"));
 
     let state = |forced: Option<Interaction>| {
-      Table::new(board_columns(), crates(2))
+      Table::new(narrow_columns(), crates(2))
         .row_key(|row: &Krate| row.name)
-        .selected_keys(["crates/lurq_macros"], |_| {})
+        .selected_controlled(["crates/lurq_macros"], |_| {})
         .checkboxes(false)
         .force(forced)
         .style(TablePart::Root, |s| s.width(420.0))
@@ -699,13 +794,13 @@ impl Component for TablePage {
         "Signal<Option<TableSort>>",
         "none",
         "What the rows are sorted by: a press of a sortable header sets it to ascending, descending, none. \
-         `sorted_by(sort, change)` is the same held by the app; `TableSort::sort` sorts rows by a column.",
+         `sort_controlled(sort, on_change)` is the same held by the app; `TableSort::sort` sorts rows by a column.",
       ),
       (
         "selected",
         "Signal<Vec<K>>",
         "none",
-        "The rows selected, with a column of checkboxes. `selected_keys(keys, change)` is the same held by the app.",
+        "The rows selected, with a column of checkboxes. `selected_controlled(keys, on_change)` is the same held by the app.",
       ),
       (
         "checkboxes",
@@ -729,7 +824,19 @@ impl Component for TablePage {
         "empty",
         "impl Into<Element>",
         "No rows",
-        "What stands under the header where there are no rows.",
+        "What stands under the header where there are no rows; empty_text(..) says it in other words.",
+      ),
+      (
+        "on_sort_change / on_selection_change",
+        "impl Fn(Option<&TableSort>) / impl Fn(&[K])",
+        "",
+        "Told the new sort, and the whole new selection where it changed, bound or not.",
+      ),
+      (
+        "select_all_label / select_row_label / count_text",
+        "&str / impl Fn(usize, Option<usize>) -> String",
+        "English",
+        "The words the table writes itself: its checkboxes' names, the footer's count.",
       ),
       (
         "loading",
@@ -805,6 +912,9 @@ impl Component for TablePage {
               "], rows)",
               ".row_key(|row| row.name)",
               ".label(\"Crates\")",
+              "// A row selected by a press of it, on the highlight, as the board draws crates/lurq_macros.",
+              ".selected(selected)",
+              ".checkboxes(false)",
             ],
           ),
         ),
@@ -913,10 +1023,14 @@ impl Component for TablePage {
             &[
               "// query: Signal<String>, density: Signal<u8>",
               "Toolbar::new()",
-              "    .child(ToolbarItem::element(SearchField::new(query).placeholder(\"Filter crates\")).stays(true))",
-              "    .child(ToolbarItem::element(Tag::new(\"Status: Passing\").variant(TagVariant::Info)))",
-              "    .child(Toolbar::spacer())",
-              "    .child(ToggleGroup::new(density, [/* rows-4, rows-3, rows-2 */]))",
+              "    .item(ToolbarItem::element(SearchField::new(query).placeholder(\"Filter crates\")).stays(true))",
+              "    .item(ToolbarItem::element(Tag::new(\"Status: Passing\").variant(TagVariant::Info)))",
+              "    .item(ToolbarItem::element(Tag::new(\"Kind: Rust\").variant(TagVariant::Info)))",
+              "    .item(ToolbarItem::from(Button::new(\"Filter\").icon(icons::PLUS)).as_given(true))",
+              "    .item(Toolbar::spacer())",
+              "    .item(ToggleGroup::new(density, [/* rows-2, rows-3, rows-4 */]))",
+              "    .item(ToolbarItem::element(columns_menu_button))",
+              "    .item(ToolbarItem::from(Button::new(\"Export\").icon(icons::DOWNLOAD)).as_given(true))",
               "    .mount(ctx)",
               "Table::new(columns, filtered).density(Density::Compact)",
             ],
@@ -932,7 +1046,7 @@ impl Component for TablePage {
             ".force(Some(Interaction::FocusVisible))",
             &[
               "Table::new(columns, rows)",
-              "    .selected_keys([\"crates/lurq_macros\"], |_| {})",
+              "    .selected_controlled([\"crates/lurq_macros\"], |_| {})",
               "    .checkboxes(false)",
               "",
               "// Drawn as under the pointer or focused, with nothing pointing at it: for a gallery, a test.",

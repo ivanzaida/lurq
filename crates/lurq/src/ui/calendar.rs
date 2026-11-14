@@ -1,14 +1,15 @@
 //! A calendar: a month of days a person chooses a date from, or a range of dates.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use parking_lot::Mutex;
 
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
+  date_picker::Picked,
   icons, names,
   part_style::PartStyle,
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::fading,
   theme::{Themed, current_theme},
 };
@@ -79,8 +80,8 @@ pub enum CalendarState {
   Bare,
   /// The day is the chosen one, or an end of the chosen range.
   Selected,
-  /// The day is today.
-  Today,
+  /// The day is today: the current one, as `a11y_current` says it.
+  Current,
   /// The day is of the month before or after the one it is shown in.
   Outside,
   /// The day cannot be chosen: before the least date, after the greatest, or one the app says is not to be.
@@ -97,7 +98,7 @@ names!(CalendarState {
   Disabled => "disabled",
   Bare => "bare",
   Selected => "selected",
-  Today => "today",
+  Current => "current",
   Outside => "outside",
   Unavailable => "unavailable",
   RangeStart => "range_start",
@@ -250,10 +251,19 @@ pub(crate) struct Kept {
 ///
 /// // A range, two months side by side, weekends not to be chosen.
 /// let stay = Signal::new(None::<DateRange>);
-/// let booking = Calendar::range(stay.clone())
+/// let booking = Calendar::new(stay.clone())
 ///   .months(2)
 ///   .disabled_days(|date| date.weekday().days_from_monday() >= 5)
 ///   .mount(ctx);
+///
+/// // The app holds the date and answers a choice: here it takes only dates after the 1st.
+/// let held = due.get();
+/// let answer = due.clone();
+/// let asked = Calendar::controlled(held, move |date: Date| {
+///   if date.day() > 1 {
+///     answer.set(Some(date));
+///   }
+/// });
 /// # }
 /// ```
 ///
@@ -264,8 +274,9 @@ pub(crate) struct Kept {
 /// element with neither, it keeps nothing: its buttons show no other month unless the app gives it the month, and a
 /// range is shown only once it is chosen.
 ///
-/// A range is chosen with two presses: the first starts it, the pointer and the keys show where it would end, and the
-/// second ends it, before or after the first.
+/// Bound to a `Signal<Option<DateRange>>` it is a `Calendar<DateRange>`, and a range is chosen with two presses: the
+/// first starts it, the pointer and the keys show where it would end, and the second ends it, before or after the
+/// first.
 ///
 /// To the keyboard the days are one stop of Tab, at the chosen day, today or the first of the month. Left and Right
 /// go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and, with Shift, a
@@ -275,7 +286,7 @@ pub(crate) struct Kept {
 /// To tooling the days of each month are a `grid` called by its month, of `gridcell`s that say whether they are
 /// chosen (`a11y_selected`), today (`a11y_current`) and not to be chosen (`a11y_disabled`).
 #[derive(Clone)]
-pub struct Calendar {
+pub struct Calendar<V: Picked = Date> {
   pub(crate) selection: Selection,
   pub(crate) month: Option<Signal<YearMonth>>,
   pub(crate) min: Option<Date>,
@@ -288,8 +299,15 @@ pub struct Calendar {
   pub(crate) outside_days: bool,
   pub(crate) today: Option<Date>,
   pub(crate) disabled: bool,
-  on_change: Vec<Arc<dyn Fn(Date) + Send + Sync>>,
-  on_range_change: Vec<Arc<dyn Fn(DateRange) + Send + Sync>>,
+  on_change: Vec<Arc<dyn Fn(CalendarChoice) + Send + Sync>>,
+  /// Told of every choice, of what is chosen already too: a date picker's, which closes its panel.
+  pub(crate) on_choose: Vec<Arc<dyn Fn(CalendarChoice) + Send + Sync>>,
+  /// Whether a choice is only told, and the app answers with the value: `controlled`, and a date picker's.
+  pub(crate) controlled: bool,
+  label: Option<Arc<str>>,
+  previous_label: Option<Arc<str>>,
+  next_label: Option<Arc<str>>,
+  forced: Option<Interaction>,
   /// Where a date picker keeps what the calendar keeps.
   pub(crate) kept: Option<Kept>,
   pub(crate) memory: Option<CalendarMemory>,
@@ -300,10 +318,11 @@ pub struct Calendar {
   rules: Recipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  value: PhantomData<fn() -> V>,
 }
 
-impl Calendar {
-  fn with(selection: Selection) -> Self {
+impl<V: Picked> Calendar<V> {
+  pub(crate) fn with(selection: Selection) -> Self {
     Self {
       selection,
       month: None,
@@ -318,7 +337,12 @@ impl Calendar {
       today: None,
       disabled: false,
       on_change: Vec::new(),
-      on_range_change: Vec::new(),
+      on_choose: Vec::new(),
+      controlled: false,
+      label: None,
+      previous_label: None,
+      next_label: None,
+      forced: None,
       kept: None,
       memory: None,
       autofocus: false,
@@ -327,17 +351,22 @@ impl Calendar {
       rules: Recipe::new(),
       id: None,
       key: None,
+      value: PhantomData,
     }
   }
 
-  /// A calendar a date is chosen from: `value`'s, none to begin with where it holds none.
-  pub fn new(value: Signal<Option<Date>>) -> Self {
-    Self::with(Selection::Single(value))
+  /// A calendar bound to `value`, which a choice sets: of a `Signal<Option<Date>>` a date is chosen with one press,
+  /// of a `Signal<Option<DateRange>>` a range with two. None is chosen to begin with where it holds none.
+  pub fn new(value: Signal<Option<V>>) -> Self {
+    V::calendar(value)
   }
 
-  /// A calendar a range of dates is chosen from, with two presses: `value`'s.
-  pub fn range(value: Signal<Option<DateRange>>) -> Self {
-    Self::with(Selection::Range(value))
+  /// A calendar that shows `value` and tells `on_change` of a choice, which it does not set: the app answers with the
+  /// value it renders it with next, and what was pressed is not shown chosen until it does.
+  pub fn controlled(value: Option<V>, on_change: impl Fn(V) + Send + Sync + 'static) -> Self {
+    let mut calendar = Self::new(Signal::new(value));
+    calendar.controlled = true;
+    calendar.on_change(on_change)
   }
 
   /// The month the calendar shows, the app's: the first of them where it shows several. The buttons of its heading
@@ -409,15 +438,42 @@ impl Calendar {
     self
   }
 
-  /// Called when a press chooses a date, with it. The value is set already.
-  pub fn on_change(mut self, handler: impl Fn(Date) + Send + Sync + 'static) -> Self {
-    self.on_change.push(Arc::new(handler));
+  /// Called when a person chooses another value, with it: a press or Enter on a day, or for a range the second
+  /// press, which ends it. Bound to a signal, the value is set already. Not called for what is chosen already, nor
+  /// when the app sets the value. A second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(V) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(move |choice: CalendarChoice| {
+      if let Some(value) = V::from_choice(choice) {
+        handler(value);
+      }
+    }));
     self
   }
 
-  /// Called when a second press ends a range, with it. The value is set already.
-  pub fn on_range_change(mut self, handler: impl Fn(DateRange) + Send + Sync + 'static) -> Self {
-    self.on_range_change.push(Arc::new(handler));
+  /// What the calendar is called to what reads the tree: its panel, which is then a `group`. Each month is a `grid`
+  /// called by its month whatever this says.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// What the button that shows the month before is called to what reads the tree: "Previous month" in English.
+  pub fn previous_label(mut self, label: &str) -> Self {
+    self.previous_label = Some(Arc::from(label));
+    self
+  }
+
+  /// What the button that shows the month after is called to what reads the tree: "Next month" in English.
+  pub fn next_label(mut self, label: &str) -> Self {
+    self.next_label = Some(Arc::from(label));
+    self
+  }
+
+  /// Draws the day Tab would enter at (the chosen one, today, or the first of the month) as it is under the pointer,
+  /// held down or focused from the keyboard, with nothing pointing at it: for a gallery or a test. The other days and
+  /// the buttons are drawn as they are.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
     self
   }
 
@@ -468,7 +524,7 @@ impl Calendar {
   /// where the range would end, and names its months and days in the app's locale.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<CalendarHost>(CalendarProps { calendar: self });
+    let mut element = ctx.mount::<CalendarHost<V>>(CalendarProps { calendar: self });
     if let Some(key) = key {
       element = element.key(key);
     }
@@ -600,10 +656,15 @@ impl Calendar {
         unavailable: self.unavailable,
         first_day,
         on_change: self.on_change,
-        on_range_change: self.on_range_change,
+        on_choose: self.on_choose,
+        controlled: self.controlled,
       },
       locale,
       autofocus: self.autofocus,
+      label: self.label,
+      previous_label: self.previous_label,
+      next_label: self.next_label,
+      forced: self.forced,
       rules: self.rules,
       id: self.id,
       key: self.key,
@@ -611,8 +672,8 @@ impl Calendar {
   }
 }
 
-impl From<Calendar> for Element {
-  fn from(calendar: Calendar) -> Self {
+impl<V: Picked> From<Calendar<V>> for Element {
+  fn from(calendar: Calendar<V>) -> Self {
     calendar.build(&current_theme())
   }
 }
@@ -637,8 +698,9 @@ struct Model {
   max: Option<Date>,
   unavailable: Option<Arc<dyn Fn(Date) -> bool + Send + Sync>>,
   first_day: Weekday,
-  on_change: Vec<Arc<dyn Fn(Date) + Send + Sync>>,
-  on_range_change: Vec<Arc<dyn Fn(DateRange) + Send + Sync>>,
+  on_change: Vec<Arc<dyn Fn(CalendarChoice) + Send + Sync>>,
+  on_choose: Vec<Arc<dyn Fn(CalendarChoice) + Send + Sync>>,
+  controlled: bool,
 }
 
 impl Model {
@@ -649,35 +711,45 @@ impl Model {
       && self.unavailable.as_ref().is_none_or(|unavailable| !unavailable(date))
   }
 
-  /// Chooses `date`: the date, or an end of the range.
+  /// Chooses `date`: the date, or an end of the range. What is chosen already is chosen again for a picker, which
+  /// closes, and changes nothing.
   fn choose(&self, date: Date) {
     if !self.available(date) {
       return;
     }
-    match &self.selection {
+    let (choice, changed) = match &self.selection {
       Selection::Single(value) => {
-        if value.get_untracked() != Some(date) {
+        let changed = value.get_untracked() != Some(date);
+        if changed && !self.controlled {
           value.set(Some(date));
         }
-        for handler in &self.on_change {
-          handler(date);
-        }
+        (CalendarChoice::Date(Some(date)), changed)
       }
       Selection::Range(value) => match self.draft.get_untracked() {
         None => {
           self.draft.set(Some(date));
           self.hover.set(Some(date));
+          return;
         }
         Some(start) => {
           let range = DateRange::new(start, date);
           self.draft.set(None);
           self.hover.set(None);
-          value.set(Some(range));
-          for handler in &self.on_range_change {
-            handler(range);
+          let changed = value.get_untracked() != Some(range);
+          if changed && !self.controlled {
+            value.set(Some(range));
           }
+          (CalendarChoice::Range(Some(range)), changed)
         }
       },
+    };
+    for handler in &self.on_choose {
+      handler(choice);
+    }
+    if changed {
+      for handler in &self.on_change {
+        handler(choice);
+      }
     }
   }
 
@@ -752,6 +824,10 @@ pub struct CalendarView {
   case: Case,
   model: Model,
   autofocus: bool,
+  label: Option<Arc<str>>,
+  previous_label: Option<Arc<str>>,
+  next_label: Option<Arc<str>>,
+  forced: Option<Interaction>,
   rules: Recipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -788,7 +864,7 @@ impl CalendarView {
       states.push(CalendarState::Outside);
     }
     if date == self.today {
-      states.push(CalendarState::Today);
+      states.push(CalendarState::Current);
     }
     if !self.available(date) {
       states.push(CalendarState::Unavailable);
@@ -853,9 +929,17 @@ impl CalendarView {
   /// icon, called by what it does. Disabled where that month is out of the range.
   pub fn nav(&self, by: i32) -> Element {
     let (label, icon, suffix) = if by < 0 {
-      ("Previous month", icons::CHEVRON_LEFT, "previous")
+      (
+        self.previous_label.as_deref().unwrap_or("Previous month"),
+        icons::CHEVRON_LEFT,
+        "previous",
+      )
     } else {
-      ("Next month", icons::CHEVRON_RIGHT, "next")
+      (
+        self.next_label.as_deref().unwrap_or("Next month"),
+        icons::CHEVRON_RIGHT,
+        "next",
+      )
     };
     let first = self.months[0];
     let last = self.months[self.months.len() - 1];
@@ -953,7 +1037,8 @@ impl CalendarView {
     }
     let states = self.day_states(date, outside);
     let recipe = self.day_recipe(&states);
-    let part = recipe.part(CalendarPart::Day);
+    let entry = !outside && date == self.entry();
+    let part = recipe.part(CalendarPart::Day).forced(self.forced.filter(|_| entry));
     let available = self.available(date);
     let selected = states.contains(&CalendarState::Selected) || states.contains(&CalendarState::InRange);
     let mut day = components::Button::empty()
@@ -998,10 +1083,12 @@ impl CalendarView {
     if available && !self.disabled {
       let (press, enter, focus) = (self.model.clone(), self.model.clone(), self.model.clone());
       day = day
-        .on_click(move |_: MouseEvent| {
+        .on_click(move |event: MouseEvent| {
           press.choose(date);
           if outside {
+            // The day pressed is gone with the month it was beside: the focus goes to the day in its own month.
             press.show(date);
+            event.focus_key(day_key(date));
           }
         })
         .on_mouse_enter(move || enter.point(date))
@@ -1106,6 +1193,11 @@ impl CalendarView {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(CalendarPart::Root));
+    if let Some(label) = &self.label {
+      panel = panel
+        .describe("a11y_role", "group")
+        .describe("a11y_name", label.clone());
+    }
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
@@ -1121,7 +1213,7 @@ impl CalendarView {
   }
 }
 
-impl Themed for Calendar {
+impl<V: Picked> Themed for Calendar<V> {
   const NAME: &'static str = "calendar";
   type Renderer = CalendarRenderer;
 
@@ -1137,7 +1229,7 @@ impl Themed for Calendar {
   /// between them are on the highlight with no radius, so that they make one band (Date Range Picker).
   fn recipe() -> Recipe {
     use CalendarPart::{Day, Grid, Header, Months, Nav, NavIcon, Root, Title, WeekNumber, Weekday};
-    use CalendarState::{Bare, Disabled, InRange, Outside, Selected, Today, Unavailable};
+    use CalendarState::{Bare, Current, Disabled, InRange, Outside, Selected, Unavailable};
     use PaletteColor::{
       Border as Edge, Foreground, Highlight, HighlightForeground, Input, MutedForeground, Popover, PopoverForeground,
       Primary, PrimaryForeground,
@@ -1193,7 +1285,9 @@ impl Themed for Calendar {
       })
       .hovered(Day, |s| s.background(Highlight).foreground(HighlightForeground))
       .focus_visible(Day, |s| s.focus_ring())
-      .state(Today, Day, |s| s.background(Highlight).foreground(HighlightForeground))
+      .state(Current, Day, |s| {
+        s.background(Highlight).foreground(HighlightForeground)
+      })
       .state(Outside, Day, |s| s.foreground(MutedForeground).opacity(0.5))
       .state(Unavailable, Day, |s| {
         s.foreground(MutedForeground).opacity(0.5).cursor(CursorIcon::Default)
@@ -1227,36 +1321,38 @@ impl Themed for Calendar {
 
 /// A calendar.
 #[derive(Clone)]
-struct CalendarProps {
-  calendar: Calendar,
+struct CalendarProps<V: Picked> {
+  calendar: Calendar<V>,
 }
 
 /// The calendar is built anew by every render of what holds it, so props are never the same as before.
-impl PartialEq for CalendarProps {
+impl<V: Picked> PartialEq for CalendarProps<V> {
   fn eq(&self, _: &Self) -> bool {
     false
   }
 }
 
 #[cfg(feature = "devtools")]
-impl crate::app::component::DevtoolsInspectable for CalendarProps {}
+impl<V: Picked> crate::app::component::DevtoolsInspectable for CalendarProps<V> {}
 
 /// What a mounted calendar keeps between renders.
-struct CalendarHost {
+struct CalendarHost<V: Picked> {
   memory: CalendarMemory,
+  value: PhantomData<fn() -> V>,
 }
 
-impl Component for CalendarHost {
-  type Props = CalendarProps;
+impl<V: Picked> Component for CalendarHost<V> {
+  type Props = CalendarProps<V>;
 
   fn create(_ctx: &mut Ctx) -> Self {
     Self {
       memory: CalendarMemory::new(),
+      value: PhantomData,
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let mut calendar = ctx.props::<CalendarProps>().calendar.clone();
+    let mut calendar = ctx.props::<CalendarProps<V>>().calendar.clone();
     if calendar.memory.is_none() {
       calendar.memory = Some(self.memory.clone());
     }
@@ -1268,7 +1364,7 @@ impl Component for CalendarHost {
 }
 
 /// Shows the month of what is chosen where it changed from outside since the last render, `last`, and is not shown.
-pub(crate) fn follow(last: &Mutex<Option<CalendarChoice>>, calendar: &Calendar, month: &MonthSource) {
+pub(crate) fn follow<V: Picked>(last: &Mutex<Option<CalendarChoice>>, calendar: &Calendar<V>, month: &MonthSource) {
   let chosen = calendar.chosen_untracked();
   let changed = {
     let mut last = last.lock();

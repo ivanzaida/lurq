@@ -2887,6 +2887,14 @@ impl Node {
     self
   }
 
+  /// Makes the select read only: its value is shown, its list does not open, and nothing is committed.
+  pub(crate) fn select_read_only(self, read_only: bool) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_read_only(read_only);
+    }
+    self
+  }
+
   pub fn select_on_change(self, on_change: SelectChangeCallback) -> Self {
     if let Some(state) = self.select_state() {
       state.set_on_change(on_change);
@@ -5501,6 +5509,24 @@ impl Node {
     offset
   }
 
+  /// The `min_width`/`min_height` the node was given, through logical
+  /// wrappers: `None` where it was given none.
+  pub(crate) fn explicit_min_main_size(&self, vertical: bool) -> Option<f32> {
+    if let Some(frame) = self.state_frame() {
+      let size = if vertical { frame.min_height } else { frame.min_width };
+      if let Some(size) = size {
+        return Some(size.to_px());
+      }
+    }
+    match &self.layout_kind {
+      LayoutKind::LogicalModifier => self
+        .children
+        .first()
+        .and_then(|child| child.explicit_min_main_size(vertical)),
+      _ => None,
+    }
+  }
+
   pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {
     if let Some(frame) = self.state_frame() {
       let size = if vertical { frame.min_height } else { frame.min_width };
@@ -5759,6 +5785,8 @@ impl Node {
       && self.rare_style.column_tracks == old.rare_style.column_tracks
       && self.rare_style.measured_tracks == old.rare_style.measured_tracks
       && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
+      // A node that sticks is placed again by the scroll container above it, which its layout says.
+      && self.rare_style.sticky == old.rare_style.sticky
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }

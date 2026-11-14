@@ -10,7 +10,7 @@ use lurq::{
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
   node::Element,
-  ui::{Interaction, Tab, Tabs, TabsOrientation, TabsOverflow, TabsVariant, icons},
+  ui::{Interaction, Tab, Tabs, TabsOrientation, TabsVariant, icons},
 };
 
 use crate::{
@@ -84,7 +84,6 @@ pub struct TabsPage {
   filter: Signal<usize>,
   side: Signal<usize>,
   canvas: Signal<usize>,
-  overflow: TabsOverflow,
 }
 
 impl TabsPage {
@@ -118,8 +117,8 @@ impl TabsPage {
     };
     let (record, set) = (self.playground.recorder(), self.selected.clone());
     let shown = Tabs::controlled(selected, tabs(), move |index| {
-      set.set(index);
-      record(format!("select({index})"));
+      set.set(*index);
+      record(format!("on_change({index})"));
     })
     .variant(variant)
     .orientation(orientation)
@@ -160,6 +159,7 @@ impl TabsPage {
     if manual {
       code.push("    .manual(true)".to_owned());
     }
+    code.push("    .on_change(|index| /* the tab a person selected */)".to_owned());
 
     let list = match variant {
       TabsVariant::Default => "muted rail · radius 8 · padded 3",
@@ -208,7 +208,7 @@ impl TabsPage {
         fill: true,
         forceable: true,
         facts: format!("{variant_name} · {orientation_name}"),
-        event: "select",
+        event: "on_change",
         code,
         tree,
         controls: vec![
@@ -276,7 +276,6 @@ impl Component for TabsPage {
       filter: ctx.signal(0),
       side: ctx.signal(0),
       canvas: ctx.signal(1),
-      overflow: TabsOverflow::new(ctx.signal(false)),
     }
   }
 
@@ -390,7 +389,8 @@ impl Component for TabsPage {
         OVERFLOWING.iter().enumerate().map(|(index, label)| (index, *label)),
       )
       .variant(TabsVariant::Line)
-      .overflow(self.overflow.clone()),
+      .overflow(true)
+      .mount(ctx),
     );
 
     let rows = [
@@ -399,7 +399,14 @@ impl Component for TabsPage {
         "Signal<T>",
         "",
         "Which tab is selected: the one with the signal's value. Selecting another sets it. Tabs::controlled takes \
-         the value and a handler in its place.",
+         the value and an on_change in its place.",
+      ),
+      (
+        "on_change",
+        "impl Fn(&T)",
+        "",
+        "Told the value of the tab a person selects, after the signal is set: not what the app sets, nor a press of \
+         the selected tab. A second one is called after the first.",
       ),
       (
         "tabs",
@@ -429,9 +436,23 @@ impl Component for TabsPage {
       ("label", "&str", "", "What the list is called, to what reads the tree."),
       (
         "overflow",
-        "TabsOverflow",
-        "",
-        "The list scrolls between two scroll buttons, with a menu of every tab at its end.",
+        "bool",
+        "false",
+        "The list scrolls between two scroll buttons, with a menu of every tab at its end. Mounted tabs \
+         (`mount(ctx)`) keep where it is scrolled and whether the menu is open.",
+      ),
+      (
+        "more_label",
+        "&str",
+        "\"More\"",
+        "What the More button of the overflowing form says, and its name. Unless told otherwise it is called \
+         \"More tabs\".",
+      ),
+      (
+        "scroll_back_label / scroll_on_label",
+        "&str",
+        "\"Scroll back\" / \"Scroll on\"",
+        "The names of the scroll buttons of the overflowing form.",
       ),
     ];
     let playground = self.play(ctx);
@@ -549,13 +570,14 @@ impl Component for TabsPage {
           self.frame.demo(
             4,
             overflowing,
-            ".overflow(TabsOverflow::new(open))",
+            ".overflow(true).mount(ctx)",
             &[
-              "// In create: overflow: TabsOverflow::new(ctx.signal(false))",
               "// canvas: Signal<usize>",
               "Tabs::new(canvas, [(0, \"Canvas\"), (1, \"Layout\"), (2, \"Text\"), ..])",
               "    .variant(TabsVariant::Line)",
-              "    .overflow(overflow.clone())",
+              "    .overflow(true)",
+              "    // Kept between renders: where the list is scrolled, whether the menu is open.",
+              "    .mount(ctx)",
             ],
           ),
         ),

@@ -95,13 +95,19 @@ impl DateRangePickerPage {
         if with_presets { presets(picker) } else { picker }
       }
     };
-    let record = self.playground.recorder();
+    let (record, record_open, record_dismiss) = (
+      self.playground.recorder(),
+      self.playground.recorder(),
+      self.playground.recorder(),
+    );
     let shown = plain(&self.memory)
       .force(self.playground.forced())
       .on_change(move |range| match range {
         Some(range) => record(format!("on_change(Some({range}))")),
         None => record("on_change(None)".to_owned()),
-      });
+      })
+      .on_open_change(move |open| record_open(format!("on_open_change({open})")))
+      .on_dismiss(move || record_dismiss("on_dismiss()".to_owned()));
     let detached = CalendarMemory::new();
     let make: Arc<dyn Fn() -> Element + Send + Sync> = Arc::new(move || plain(&detached).into());
 
@@ -278,10 +284,16 @@ impl Component for DateRangePickerPage {
         "How many months the calendar shows side by side.",
       ),
       (
-        "preset",
-        "(&str, DateRange)",
+        "controlled",
+        "Option<DateRange>, Fn(Option<DateRange>)",
         "",
-        "A range offered beside the calendar under a label; a press chooses it and closes the calendar.",
+        "The app's range and what it is told of an edit or a choice, which it answers with the range it renders next.",
+      ),
+      (
+        "preset / presets",
+        "(&str, DateRange) / [(&str, DateRange)]",
+        "",
+        "Ranges offered beside the calendar under a label; a press chooses one and closes the calendar.",
       ),
       (
         "format / parse",
@@ -315,10 +327,34 @@ impl Component for DateRangePickerPage {
         "As a date picker's.",
       ),
       (
+        "placement / offset / collision / inline",
+        "Placement / SpacingValue / CollisionStrategy / bool",
+        "BottomStart / 4 / FlipThenClamp / false",
+        "Where the calendar opens, as a date picker's does, or in place under the field.",
+      ),
+      (
+        "trigger_label / clear_label / panel_label",
+        "&str",
+        "English",
+        "What the button, the cross and the panel are called to tooling: Choose dates, Clear, Choose dates.",
+      ),
+      (
         "on_change",
         "Fn(Option<DateRange>)",
         "",
-        "Called with the range each time it changes.",
+        "Called when a person changes the range, after a choice closed the calendar: not for the range it holds.",
+      ),
+      (
+        "on_input / on_submit",
+        "Fn(&TextInputEvent) / Fn(Option<DateRange>)",
+        "",
+        "Called before an edit of the text, which it may refuse, and on Enter with the range it holds.",
+      ),
+      (
+        "on_open_change / on_dismiss",
+        "Fn(bool) / Fn()",
+        "",
+        "Called when the calendar opens or closes, and when Escape or a press outside closed it.",
       ),
     ];
     let playground = self.play(ctx);

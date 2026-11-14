@@ -49,7 +49,7 @@ fn formatting(pressed: &Arc<AtomicUsize>) -> Toolbar {
   Toolbar::new()
     .label("Formatting")
     .id("bar")
-    .child(
+    .item(
       ToolbarItem::from(
         Toggle::new("Bold")
           .icon(icons::BOLD)
@@ -59,17 +59,17 @@ fn formatting(pressed: &Arc<AtomicUsize>) -> Toolbar {
       )
       .shortcut("Ctrl+B"),
     )
-    .child(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).id("italic"))
-    .child(
+    .item(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).id("italic"))
+    .item(
       Toggle::new("Underline")
         .icon(icons::UNDERLINE)
         .icon_only(true)
         .id("underline"),
     )
-    .child(Toolbar::separator())
-    .child(tool("List", icons::LIST, pressed))
-    .child(tool("Link", icons::LINK, pressed))
-    .child(tool("Image", icons::IMAGE, pressed))
+    .item(Toolbar::separator())
+    .item(tool("List", icons::LIST, pressed))
+    .item(tool("Link", icons::LINK, pressed))
+    .item(tool("Image", icons::IMAGE, pressed))
 }
 
 /// `toolbar` in a column `width` wide, in a window of 400 by 300.
@@ -159,15 +159,15 @@ fn a_press_does_what_the_control_does_and_a_disabled_one_takes_nothing() {
     let told = told.clone();
     Toolbar::new()
       .id("bar")
-      .child(
+      .item(
         Toggle::new("Italic")
           .icon(icons::ITALIC)
           .icon_only(true)
           .id("italic")
           .on_change(move |on| told.lock().unwrap().push(on)),
       )
-      .child(tool("Link", icons::LINK, &held))
-      .child(tool("Image", icons::IMAGE, &held).disabled(true))
+      .item(tool("Link", icons::LINK, &held))
+      .item(tool("Image", icons::IMAGE, &held).disabled(true))
   });
   stage.click("italic");
   assert_eq!(*turned.lock().unwrap(), [true]);
@@ -242,7 +242,7 @@ fn letters(pressed: &Arc<Mutex<Vec<&'static str>>>) -> Toolbar {
     ("E", icons::LINK),
   ] {
     let pressed = pressed.clone();
-    bar = bar.child(
+    bar = bar.item(
       ToolbarItem::from(
         Button::new(letter)
           .icon(icon)
@@ -253,7 +253,7 @@ fn letters(pressed: &Arc<Mutex<Vec<&'static str>>>) -> Toolbar {
       .shortcut(&format!("Ctrl+{letter}")),
     );
   }
-  bar.child(Toggle::new("F").icon(icons::IMAGE).icon_only(true).id("f"))
+  bar.item(Toggle::new("F").icon(icons::IMAGE).icon_only(true).id("f"))
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn a_control_that_stays_never_goes_into_the_menu() {
   let held = pressed.clone();
   let mut stage = stage(200.0, move || {
     letters(&held)
-      .child(ToolbarItem::from(Button::new("Search").icon(icons::SEARCH).icon_only(true).id("search")).stays(true))
+      .item(ToolbarItem::from(Button::new("Search").icon(icons::SEARCH).icon_only(true).id("search")).stays(true))
   });
   assert_eq!(stage.bounds("search").2, 32.0, "it stays");
   assert_eq!(stage.bounds("d").2, 0.0, "the others go first");
@@ -349,9 +349,9 @@ fn a_toggle_in_the_menu_is_checked_and_choosing_it_turns_it() {
     Toolbar::new()
       .id("bar")
       .overflow(true)
-      .child(Button::new("Undo").icon(icons::UNDO).icon_only(true).id("undo"))
-      .child(Toolbar::separator())
-      .child(
+      .item(Button::new("Undo").icon(icons::UNDO).icon_only(true).id("undo"))
+      .item(Toolbar::separator())
+      .item(
         Toggle::new("Bold")
           .icon(icons::BOLD)
           .icon_only(true)
@@ -359,7 +359,7 @@ fn a_toggle_in_the_menu_is_checked_and_choosing_it_turns_it() {
           .id("bold")
           .on_change(move |on| told.lock().unwrap().push(on)),
       )
-      .child(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).id("italic"))
+      .item(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).id("italic"))
   });
   assert_eq!(stage.bounds("bold").2, 0.0, "in the menu");
   stage.click("bar-more");
@@ -377,13 +377,13 @@ fn a_select_or_field_stays_unless_it_has_an_item_to_stand_for_it() {
     Toolbar::new()
       .id("bar")
       .overflow(true)
-      .child(ToolbarItem::element(Row::new().id("field").size(60.0, 32.0)))
-      .child(ToolbarItem::element(Row::new().id("columns").size(60.0, 32.0)).in_menu(
+      .item(ToolbarItem::element(Row::new().id("field").size(60.0, 32.0)))
+      .item(ToolbarItem::element(Row::new().id("columns").size(60.0, 32.0)).in_menu(
         ToolbarCommand::new("Columns").id("columns").on_select(move || {
           told.fetch_add(1, Ordering::SeqCst);
         }),
       ))
-      .child(Button::new("Export").id("export"))
+      .item(Button::new("Export").id("export"))
   });
   assert_eq!(stage.bounds("field").2, 60.0, "a field stays");
   assert_eq!(stage.bounds("columns").2, 0.0, "one with an item goes");
@@ -401,16 +401,16 @@ fn a_labelled_group_has_its_label_under_it_and_goes_into_the_menu_whole_under_it
       .id("bar")
       .variant(ToolbarVariant::Plain)
       .overflow(true)
-      .child(
+      .item(
         ToolbarGroup::new()
           .label("Clipboard")
-          .child(Button::new("Paste").icon(icons::PASTE).id("paste"))
-          .child(Button::new("Cut").icon(icons::CUT).id("cut")),
+          .item(Button::new("Paste").icon(icons::PASTE).id("paste"))
+          .item(Button::new("Cut").icon(icons::CUT).id("cut")),
       )
-      .child(
+      .item(
         ToolbarGroup::new()
           .label("Format")
-          .child(tool("Strike", icons::STRIKETHROUGH, &held)),
+          .item(tool("Strike", icons::STRIKETHROUGH, &held)),
       )
   });
   let label = stage.text_quad("Clipboard").expect("the label");
@@ -425,15 +425,15 @@ fn a_labelled_group_has_its_label_under_it_and_goes_into_the_menu_whole_under_it
     Toolbar::new()
       .id("bar")
       .overflow(true)
-      .child(
+      .item(
         ToolbarGroup::new()
           .label("Clipboard")
-          .child(Button::new("Paste").icon(icons::PASTE).id("paste")),
+          .item(Button::new("Paste").icon(icons::PASTE).id("paste")),
       )
-      .child(
+      .item(
         ToolbarGroup::new()
           .label("Format")
-          .child(tool("Strike", icons::STRIKETHROUGH, &held)),
+          .item(tool("Strike", icons::STRIKETHROUGH, &held)),
       )
   });
   assert_eq!(narrow.bounds("strike").2, 0.0);
@@ -448,9 +448,9 @@ fn the_spacer_pushes_what_follows_to_the_end() {
   let mut stage = stage(360.0, || {
     Toolbar::new()
       .id("bar")
-      .child(Button::new("Undo").icon(icons::UNDO).icon_only(true).id("undo"))
-      .child(Toolbar::spacer())
-      .child(Button::new("Share").id("share"))
+      .item(Button::new("Undo").icon(icons::UNDO).icon_only(true).id("undo"))
+      .item(Toolbar::spacer())
+      .item(Button::new("Share").id("share"))
   });
   let (x, _, width, _) = stage.bounds("bar");
   let (share_x, _, share_width, _) = stage.bounds("share");
@@ -529,4 +529,82 @@ fn a_theme_gives_the_bar_another_anatomy() {
   let (_, bold_y, ..) = stage.bounds("bold");
   let (_, italic_y, ..) = stage.bounds("italic");
   assert!(italic_y > bold_y, "down a column");
+}
+
+#[test]
+fn a_disabled_bar_takes_nothing_and_its_menu_and_more_neither() {
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let held = pressed.clone();
+  let mut stage = stage(200.0, move || letters(&held).disabled(true).more_label("Other tools"));
+  stage.click("a");
+  assert!(pressed.lock().unwrap().is_empty(), "a button of a disabled bar");
+  stage.click("bar-more");
+  assert!(!stage.paints("Ctrl+E"), "More of a disabled bar opens nothing");
+}
+
+#[test]
+fn more_is_called_by_its_label_in_its_tooltip() {
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let held = pressed.clone();
+  let mut stage = stage(200.0, move || letters(&held).more_label("Other tools"));
+  stage.key("Tab");
+  stage.key("End");
+  assert_eq!(focused(&stage).as_deref(), Some("bar-more"));
+  assert!(stage.paints("Other tools"), "the tooltip says the label");
+  assert!(!stage.paints("More"));
+}
+
+#[test]
+fn a_command_runs_every_handler_it_is_given_in_order() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let held = told.clone();
+  let mut stage = stage(120.0, move || {
+    let (first, second) = (held.clone(), held.clone());
+    Toolbar::new()
+      .id("bar")
+      .overflow(true)
+      .item(Button::new("Undo").icon(icons::UNDO).icon_only(true).id("undo"))
+      .item(Button::new("Redo").icon(icons::REDO).icon_only(true).id("redo"))
+      .item(
+        ToolbarItem::element(Text::new("Columns of the table")).in_menu(
+          ToolbarCommand::new("Columns")
+            .id("columns")
+            .on_select(move || first.lock().unwrap().push("first"))
+            .on_select(move || second.lock().unwrap().push("second")),
+        ),
+      )
+  });
+  stage.click("bar-more");
+  stage.click("columns-item");
+  assert_eq!(*told.lock().unwrap(), ["first", "second"]);
+}
+
+#[test]
+fn a_state_of_the_themes_recipe_and_a_forced_more_button() {
+  let app = App::new();
+  app.theme().patch_recipe::<Toolbar>(|recipe| {
+    recipe.state("loud", ToolbarPart::Root, |s| s.background(PaletteColor::Destructive))
+  });
+  let pressed = Arc::new(Mutex::new(Vec::new()));
+  let held = pressed.clone();
+  let mut stage = Stage::in_app(app, move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Column::new().width(200.0).child(
+          letters(&held)
+            .state("loud", true)
+            .force(Some(lurq::ui::Interaction::Hovered))
+            .mount(ctx),
+        ),
+      )
+      .into()
+  });
+  assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Destructive)));
+  assert_eq!(
+    stage.fill_color("bar-more"),
+    Some(light(PaletteColor::Highlight)),
+    "More as under the pointer"
+  );
 }

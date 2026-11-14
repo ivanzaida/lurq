@@ -437,7 +437,7 @@ impl Playground {
         },
         Tab::new(2, "Layout tree"),
       ],
-      move |index| tab.set(index),
+      move |index| tab.set(*index),
     )
     .variant(TabsVariant::Line)
     .label("What the stage shows");

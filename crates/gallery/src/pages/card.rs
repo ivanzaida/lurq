@@ -188,7 +188,7 @@ impl CardPage {
       if pressable { " · pressed" } else { "" }
     )];
     tree.push(format!(
-      "{} body     padded {padding}",
+      "{} content  padded {padding}",
       if footer { "├─" } else { "└─" }
     ));
     let bar = if footer { "│" } else { " " };
@@ -204,7 +204,7 @@ impl CardPage {
         if action { " · action" } else { "" }
       ));
     }
-    tree.push(format!("{bar}  └─ content"));
+    tree.push(format!("{bar}  └─ body"));
     if footer {
       tree.push("└─ footer   Cancel · Save, under a line".to_owned());
     }
@@ -319,7 +319,7 @@ impl CardPage {
       .style(CardPart::Root, |s| {
         s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none())
       })
-      .style(CardPart::Body, |s| s.padding_x(14.0).padding_y(14.0))
+      .style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))
       .child(
         Row::new()
           .width(FILL)
@@ -357,8 +357,8 @@ impl CardPage {
   fn stat_card() -> Card {
     Card::new()
       .width(200.0)
-      .style(CardPart::Body, |s| s.padding_x(20.0).padding_y(20.0))
-      .style(CardPart::Content, |s| s.gap(8.0))
+      .style(CardPart::Content, |s| s.padding_x(20.0).padding_y(20.0))
+      .style(CardPart::Body, |s| s.gap(8.0))
       .child(text("Frames per second", 13.0, FontWeight::Normal).color(PaletteColor::MutedForeground))
       .child(text("144", 28.0, FontWeight::SemiBold))
       .child(
@@ -450,7 +450,13 @@ impl Component for CardPage {
         "title",
         "&str",
         "",
-        "What the card is about, 16/600. It is what the card is called, and wraps in the width the card has.",
+        "What the card is about, 16/600. It is what the card is called unless it has a label, and wraps in its width.",
+      ),
+      (
+        "label",
+        "&str",
+        "the title",
+        "What the card is called to what reads the tree.",
       ),
       (
         "description",
@@ -462,13 +468,13 @@ impl Component for CardPage {
         "action",
         "impl Into<Element>",
         "",
-        "At the end of the header, beside the title: a button, a menu, a badge.",
+        "At the end of the header, beside the title: a button, a menu, a badge. A second takes its place.",
       ),
       (
         "child / children",
         "impl Into<Element>",
         "",
-        "The content, under the header, 16 apart.",
+        "Added to the body, under the header, 16 apart.",
       ),
       (
         "footer",
@@ -490,7 +496,7 @@ impl Component for CardPage {
       ),
       (
         "width",
-        "f32",
+        "impl Into<Length>",
         "",
         "A width of its own. Without one the card is as wide as the room it is given.",
       ),
@@ -600,18 +606,18 @@ impl Component for CardPage {
           self.frame.demo(
             3,
             composed,
-            ".style(CardPart::Body, |s| s.padding_x(14.0).padding_y(14.0))",
+            ".style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))",
             &[
               "Card::new()",
               "    .width(340.0)",
               "    .style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))",
-              "    .style(CardPart::Body, |s| s.padding_x(14.0).padding_y(14.0))",
+              "    .style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))",
               "    .child(Row::new().child(icon).child(text).child(select))",
               "",
               "Card::new()",
               "    .width(200.0)",
-              "    .style(CardPart::Body, |s| s.padding_x(20.0).padding_y(20.0))",
-              "    .style(CardPart::Content, |s| s.gap(8.0))",
+              "    .style(CardPart::Content, |s| s.padding_x(20.0).padding_y(20.0))",
+              "    .style(CardPart::Body, |s| s.gap(8.0))",
               "    .child(label)",
               "    .child(value)",
               "    .child(delta)",

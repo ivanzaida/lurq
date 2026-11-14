@@ -45,7 +45,7 @@ fn steps_in_a_row_are_marks_with_titles_and_lines_up_to_the_current_one() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .width(460.0)
-      .child(Steps::new(1, ["Account", "Workspace", "Finish"]).id("steps"))
+      .child(Steps::new(Signal::new(1usize), ["Account", "Workspace", "Finish"]).id("steps"))
       .into()
   });
   let (_, _, width, _) = stage.bounds("steps");
@@ -112,7 +112,7 @@ fn steps_in_a_column_have_a_line_down_from_each_mark_to_the_next() {
     Column::new()
       .child(
         Steps::new(
-          1,
+          Signal::new(1usize),
           [
             Step::new("Account").description("Name and email"),
             Step::new("Billing").description("Card and address"),
@@ -163,9 +163,8 @@ fn a_press_goes_back_to_a_step_done_and_not_on_to_one_to_come() {
   let (asked, record) = told();
   let mut stage = Stage::new(move |_| {
     let record = record.clone();
-    Steps::new(2, WIZARD)
+    Steps::controlled(2, WIZARD, move |index| record.lock().unwrap().push(index))
       .id("steps")
-      .on_select(move |index| record.lock().unwrap().push(index))
       .into()
   });
   for index in 0..4 {
@@ -181,10 +180,9 @@ fn a_press_goes_back_to_a_step_done_and_not_on_to_one_to_come() {
   let (asked, record) = told();
   let mut stage = Stage::new(move |_| {
     let record = record.clone();
-    Steps::new(2, WIZARD)
+    Steps::controlled(2, WIZARD, move |index| record.lock().unwrap().push(index))
       .id("steps")
       .ahead(true)
-      .on_select(move |index| record.lock().unwrap().push(index))
       .into()
   });
   stage.click("steps-3");
@@ -195,10 +193,9 @@ fn a_press_goes_back_to_a_step_done_and_not_on_to_one_to_come() {
   let (asked, record) = told();
   let mut stage = Stage::new(move |_| {
     let record = record.clone();
-    Steps::new(2, WIZARD)
+    Steps::controlled(2, WIZARD, move |index| record.lock().unwrap().push(index))
       .id("steps")
       .disabled(true)
-      .on_select(move |index| record.lock().unwrap().push(index))
       .into()
   });
   stage.click("steps-0");
@@ -214,7 +211,7 @@ fn a_press_sets_the_signal_of_the_current_step() {
   let bound = at.clone();
   // In a column: four steps in a row of 400 cut their titles to keep a line between them.
   let mut stage = Stage::new(move |_| {
-    Steps::new(&bound, WIZARD)
+    Steps::new(bound.clone(), WIZARD)
       .orientation(StepsOrientation::Vertical)
       .id("steps")
       .pressable(true)
@@ -234,7 +231,7 @@ fn a_press_sets_the_signal_of_the_current_step() {
 fn steps_that_are_only_read_take_neither_a_press_nor_the_focus() {
   let at = Signal::new(2usize);
   let bound = at.clone();
-  let mut stage = Stage::new(move |_| Steps::new(&bound, WIZARD).id("steps").into());
+  let mut stage = Stage::new(move |_| Steps::new(bound.clone(), WIZARD).id("steps").into());
   stage.click("steps-0");
   stage.key("Tab");
   assert_eq!(at.get(), 2);
@@ -248,11 +245,7 @@ fn tab_enters_at_the_current_step_and_the_arrows_move_between_the_steps_pressed(
     let record = record.clone();
     Row::new()
       .padding(8.0)
-      .child(
-        Steps::new(2, WIZARD)
-          .id("steps")
-          .on_select(move |index| record.lock().unwrap().push(index)),
-      )
+      .child(Steps::controlled(2, WIZARD, move |index| record.lock().unwrap().push(index)).id("steps"))
       .into()
   });
   stage.key("Tab");
@@ -275,9 +268,8 @@ fn tab_enters_at_the_current_step_and_the_arrows_move_between_the_steps_pressed(
     Row::new()
       .padding(8.0)
       .child(
-        Steps::new(2, WIZARD)
-          .orientation(StepsOrientation::Vertical)
-          .on_select(move |index| record.lock().unwrap().push(index)),
+        Steps::controlled(2, WIZARD, move |index| record.lock().unwrap().push(index))
+          .orientation(StepsOrientation::Vertical),
       )
       .into()
   });
@@ -294,7 +286,7 @@ fn a_forced_focus_rings_the_step_tab_would_enter_at() {
     Row::new()
       .padding(8.0)
       .child(
-        Steps::new(1, WIZARD)
+        Steps::new(Signal::new(1usize), WIZARD)
           .pressable(true)
           .force(Some(Interaction::FocusVisible)),
       )
@@ -311,10 +303,10 @@ fn a_step_in_error_says_so_in_its_mark_and_its_title() {
       .width(460.0)
       .child(
         Steps::new(
-          2,
+          Signal::new(2usize),
           [
             Step::new("Account"),
-            Step::new("Billing").error(true),
+            Step::new("Billing").invalid(true),
             Step::new("Workspace").icon(icons::USER),
             Step::new("Finish"),
           ],
@@ -335,10 +327,10 @@ fn a_step_in_error_says_so_in_its_mark_and_its_title() {
 
 #[test]
 fn disabled_steps_are_dimmed() {
-  let stage = Stage::new(|_| Steps::new(1, WIZARD).disabled(true).into());
+  let stage = Stage::new(|_| Steps::new(Signal::new(1usize), WIZARD).disabled(true).into());
   let theme = stage.app.theme().clone();
   let case = Case::new()
-    .variant(StepsOrientation::Horizontal)
+    .state(StepsState::Horizontal, true)
     .state(StepsState::Disabled, true);
   let root = theme.resolve::<Steps>(&case, None).part(StepsPart::Root).rest();
   assert_eq!(root.opacity, Some(Opacity::Level(OpacityLevel::Disabled)));
@@ -360,10 +352,11 @@ fn a_theme_gives_steps_another_anatomy_and_they_still_select() {
   app.theme().set_renderer::<Steps>(renderer);
   let mut stage = Stage::in_app(app, move |_| {
     let record = record.clone();
-    Steps::new(1, ["Account", "Billing", "Finish"])
-      .id("steps")
-      .on_select(move |index| record.lock().unwrap().push(index))
-      .into()
+    Steps::controlled(1, ["Account", "Billing", "Finish"], move |index| {
+      record.lock().unwrap().push(index)
+    })
+    .id("steps")
+    .into()
   });
   assert!(stage.paints("Step 1 of 3, Account, done"));
   assert!(stage.paints("Step 2 of 3, Billing, current"));
@@ -385,7 +378,7 @@ fn steps_in_a_row_with_descriptions_share_the_width_and_keep_their_lines() {
     let steps = WIZARD.map(|(title, description)| Step::new(title).description(description));
     Column::new()
       .width(493.0)
-      .child(Steps::new(1, steps).id("steps"))
+      .child(Steps::new(Signal::new(1usize), steps).id("steps"))
       .into()
   });
   let (x, _, width, _) = stage.bounds("steps");
@@ -420,4 +413,134 @@ fn steps_in_a_row_with_descriptions_share_the_width_and_keep_their_lines() {
     description.height
   );
   assert!(title.x + title.width <= step_x + step_width + 0.5);
+}
+
+/// The playground's four steps with their descriptions, `width` wide.
+fn described_steps(width: f32) -> Stage {
+  const WIZARD: [(&str, &str); 4] = [
+    ("Account", "Name and email"),
+    ("Billing", "Card and address"),
+    ("Workspace", "Name and members"),
+    ("Finish", "Review and confirm"),
+  ];
+  Stage::new(move |_| {
+    let steps = WIZARD.map(|(title, description)| Step::new(title).description(description));
+    Column::new()
+      .width(width)
+      .child(Steps::new(Signal::new(1usize), steps).id("steps"))
+      .into()
+  })
+}
+
+#[test]
+fn a_title_is_cut_only_once_every_description_has_wrapped_as_far_as_it_can() {
+  // In 493 the descriptions wrap and every title is whole, the lines at their least.
+  let stage = described_steps(493.0);
+  for title in ["Account", "Billing", "Workspace", "Finish"] {
+    assert!(stage.paints(title), "{title:?} is whole in 493");
+  }
+  // In 400 the titles cannot all be whole: the last step gives way first, and the others keep theirs.
+  let mut narrow = described_steps(400.0);
+  let (x, _, width, _) = narrow.bounds("steps");
+  for index in 0..4 {
+    let (step_x, _, step_width, _) = narrow.bounds(&format!("steps-{index}"));
+    assert!(step_x + step_width <= x + width + 0.5, "step {index} in the room");
+  }
+  for title in ["Account", "Billing", "Workspace"] {
+    assert!(narrow.paints(title), "{title:?} is whole in 400");
+  }
+  assert!(!narrow.paints("Finish"), "the last title is cut");
+}
+
+#[test]
+fn the_descriptions_of_steps_in_a_row_start_on_one_line() {
+  const DESCRIPTIONS: [&str; 4] = [
+    "Name and email",
+    "Card and address",
+    "Name and members",
+    "Review and confirm",
+  ];
+  for width in [440.0, 470.0, 493.0, 520.0, 560.0] {
+    let stage = described_steps(width);
+    let tops: Vec<f32> = DESCRIPTIONS
+      .iter()
+      .map(|description| stage.cut_text_quad(description).unwrap().y)
+      .collect();
+    assert!(
+      tops.iter().all(|top| (top - tops[0]).abs() < 0.5),
+      "in {width}: {tops:?}"
+    );
+  }
+}
+
+#[test]
+fn on_change_hears_a_person_change_the_step_and_not_the_app() {
+  let at = Signal::new(2usize);
+  let (asked, record) = told();
+  let (again, second) = told();
+  let bound = at.clone();
+  let mut stage = Stage::new(move |_| {
+    let (record, second) = (record.clone(), second.clone());
+    Steps::new(bound.clone(), WIZARD)
+      .id("steps")
+      .on_change(move |index| record.lock().unwrap().push(index))
+      .on_change(move |index| second.lock().unwrap().push(index))
+      .into()
+  });
+  stage.click("steps-0");
+  assert_eq!(at.get(), 0, "the press sets the signal");
+  assert_eq!(*asked.lock().unwrap(), [0], "with the new step");
+  assert_eq!(*again.lock().unwrap(), [0], "a second handler is called too");
+  at.set(3);
+  stage.pass();
+  assert_eq!(*asked.lock().unwrap(), [0], "not when the app sets it");
+}
+
+#[test]
+fn controlled_steps_show_what_the_app_answers_with() {
+  let (asked, record) = told();
+  // The app answers every press by staying where it is.
+  let mut stage = Stage::new(move |_| {
+    let record = record.clone();
+    Steps::controlled(2, WIZARD, move |index| record.lock().unwrap().push(index))
+      .id("steps")
+      .into()
+  });
+  stage.click("steps-0");
+  stage.pass();
+  assert_eq!(*asked.lock().unwrap(), [0]);
+  assert_eq!(
+    stage.fill_color("steps-1-marker"),
+    Some(light(PaletteColor::Primary)),
+    "the second step is still done: the app kept the third current"
+  );
+}
+
+#[test]
+fn a_disabled_step_is_not_pressed_and_is_dimmed_and_a_step_has_its_own_id() {
+  let (asked, record) = told();
+  let mut stage = Stage::new(move |_| {
+    let record = record.clone();
+    Steps::controlled(
+      2,
+      [
+        Step::new("Account").disabled(true).id("account").key("account"),
+        Step::new("Billing"),
+        Step::new("Workspace"),
+      ],
+      move |index| record.lock().unwrap().push(index),
+    )
+    .id("steps")
+    .into()
+  });
+  stage.click("account");
+  stage.click("steps-1");
+  assert_eq!(*asked.lock().unwrap(), [1], "the disabled step takes no press");
+  let theme = stage.app.theme().clone();
+  let case = Case::new()
+    .state(StepsState::Horizontal, true)
+    .state(StepsState::Done, true)
+    .state(StepsState::Disabled, true);
+  let step = theme.resolve::<Steps>(&case, None).part(StepsPart::Step).rest();
+  assert_eq!(step.opacity, Some(Opacity::Level(OpacityLevel::Disabled)));
 }

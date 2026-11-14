@@ -12,7 +12,8 @@ use super::{
 };
 use crate::{
   app::{
-    ctx::Placement,
+    component::Component,
+    ctx::{Ctx, Placement},
     theme::{IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::Row,
@@ -59,7 +60,7 @@ names!(BreadcrumbPart {
 pub enum BreadcrumbState {
   /// Some steps are hidden behind the ellipsis.
   Collapsed,
-  /// It takes no input.
+  /// It takes no input, or, of a step, the step is not followed.
   Disabled,
 }
 
@@ -112,14 +113,17 @@ type ValueHandler = Arc<dyn Fn(&str) + Send + Sync>;
 ///
 /// let home = BreadcrumbStep::new("Home").icon(icons::HOME).value("/").on_select(|| println!("home"));
 /// let plain: BreadcrumbStep = "Settings".into();
+/// let closed = BreadcrumbStep::new("Archive").disabled(true);
 /// ```
 #[derive(Clone)]
 pub struct BreadcrumbStep {
   label: Arc<str>,
   value: Arc<str>,
   icon: Option<Name>,
+  disabled: bool,
   on_select: Vec<Handler>,
   id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl BreadcrumbStep {
@@ -130,8 +134,10 @@ impl BreadcrumbStep {
       value: label.clone(),
       label,
       icon: None,
+      disabled: false,
       on_select: Vec::new(),
       id: None,
+      key: None,
     }
   }
 
@@ -148,6 +154,14 @@ impl BreadcrumbStep {
     self
   }
 
+  /// Whether the step is not followed: it is dimmed, not a stop of Tab, and its
+  /// item in the menu of the hidden steps is disabled. A place one may not go to
+  /// from here.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
   /// Called when the step is followed: a click of it, Enter or Space while it
   /// is focused, or choosing it in the menu of the hidden steps. The last step
   /// is the page one is on, and is not followed.
@@ -160,6 +174,12 @@ impl BreadcrumbStep {
   /// last one. A hidden step's item in the menu has it.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
+    self
+  }
+
+  /// What tells the step apart from the others where two have one label: the key of what is pressed.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 
@@ -192,20 +212,24 @@ impl From<&str> for BreadcrumbStep {
 ///   ui::{Breadcrumb, BreadcrumbStep, icons},
 /// };
 ///
-/// # fn build(anchor: ElementRef, open: Signal<bool>) {
-/// let way = Breadcrumb::new()
-///   .step(BreadcrumbStep::new("Home").icon(icons::HOME).value("/"))
-///   .step(BreadcrumbStep::new("Settings").value("/settings"))
-///   .step(BreadcrumbStep::new("Appearance").value("/settings/appearance"))
-///   .step("Theme")
-///   .on_select(|route| println!("go to {route}"));
+/// # fn build(ctx: &mut lurq::app::ctx::Ctx, open: Signal<bool>, anchor: ElementRef) {
+/// let way = Breadcrumb::new([
+///   BreadcrumbStep::new("Home").icon(icons::HOME).value("/"),
+///   BreadcrumbStep::new("Settings").value("/settings"),
+///   BreadcrumbStep::new("Appearance").value("/settings/appearance"),
+/// ])
+/// .step("Theme")
+/// .on_select(|route| println!("go to {route}"));
 ///
 /// // With more than three steps, the first, an ellipsis and the last two; the ellipsis opens a menu of the
-/// // others, hung from `anchor` while `open` is.
-/// let short = Breadcrumb::new()
-///   .steps(["Home", "Projects", "lurq", "crates", "ui", "breadcrumb.rs"])
-///   .max_items(3)
-///   .menu(anchor, open);
+/// // others, which the mounted breadcrumb keeps.
+/// let short = Breadcrumb::new(["Home", "Projects", "lurq", "crates", "ui", "breadcrumb.rs"])
+///   .max_shown(3)
+///   .mount(ctx);
+/// // The same, with the menu's signal the app's, and what it hangs from.
+/// let held = Breadcrumb::new(["Home", "Projects", "lurq", "crates", "ui", "breadcrumb.rs"])
+///   .max_shown(3)
+///   .menu(open, anchor);
 /// # }
 /// ```
 ///
@@ -213,18 +237,23 @@ impl From<&str> for BreadcrumbStep {
 /// the links are stops of Tab in their order, and the page is not. Following
 /// a step calls its own handler and the breadcrumb's, told its value; where
 /// it goes is the app's. The whole is a navigation called "Breadcrumb" to
-/// what reads the tree, and the last step is its current page.
+/// what reads the tree ([`label`](Breadcrumb::label)), and the last step is
+/// its current page.
 ///
-/// With more steps than [`max_items`](Breadcrumb::max_items), the breadcrumb
+/// With more steps than [`max_shown`](Breadcrumb::max_shown), the breadcrumb
 /// shows the first, an ellipsis and the last ones, and the ellipsis opens a
-/// [`Menu`] of the steps it hides. What the menu hangs from and whether it is
-/// open are the app's ([`menu`](Breadcrumb::menu)), as for any menu.
+/// [`Menu`] of the steps it hides. A mounted breadcrumb
+/// ([`mount`](Breadcrumb::mount)) keeps whether the menu is open and what it
+/// hangs from; one built on its own opens it only where the app gives it a
+/// signal and an anchor ([`menu`](Breadcrumb::menu)).
 #[derive(Clone)]
 pub struct Breadcrumb {
   steps: Vec<BreadcrumbStep>,
-  max_items: Option<usize>,
+  max_shown: Option<usize>,
   separator: BreadcrumbSeparator,
   menu: Option<(ElementRef, Signal<bool>)>,
+  label: Arc<str>,
+  more_label: Arc<str>,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -236,18 +265,21 @@ pub struct Breadcrumb {
 
 impl Default for Breadcrumb {
   fn default() -> Self {
-    Self::new()
+    Self::new(Vec::<BreadcrumbStep>::new())
   }
 }
 
 impl Breadcrumb {
-  /// A breadcrumb with no steps yet.
-  pub fn new() -> Self {
+  /// A breadcrumb of `steps`, in order: the last is the page one is on. A step is a [`BreadcrumbStep`], or the
+  /// text of one.
+  pub fn new<S: Into<BreadcrumbStep>>(steps: impl IntoIterator<Item = S>) -> Self {
     Self {
-      steps: Vec::new(),
-      max_items: None,
+      steps: steps.into_iter().map(Into::into).collect(),
+      max_shown: None,
       separator: BreadcrumbSeparator::default(),
       menu: None,
+      label: Arc::from("Breadcrumb"),
+      more_label: Arc::from("Show the hidden steps"),
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -273,8 +305,20 @@ impl Breadcrumb {
   /// The most steps shown: with more, the first, an ellipsis and the last
   /// `max - 1`. Never fewer than two, the first and the last; all of them
   /// without it.
-  pub fn max_items(mut self, max: usize) -> Self {
-    self.max_items = Some(max);
+  pub fn max_shown(mut self, max: usize) -> Self {
+    self.max_shown = Some(max);
+    self
+  }
+
+  /// What the breadcrumb is called to what reads the tree: "Breadcrumb" unless told otherwise.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Arc::from(label);
+    self
+  }
+
+  /// What the ellipsis is called to what reads the tree: "Show the hidden steps" unless told otherwise.
+  pub fn more_label(mut self, label: &str) -> Self {
+    self.more_label = Arc::from(label);
     self
   }
 
@@ -284,12 +328,13 @@ impl Breadcrumb {
     self
   }
 
-  /// What the menu of the hidden steps hangs from, and whether it is open:
-  /// the app's `Signal<bool>`, which a press of the ellipsis turns, and
-  /// choosing a step, a press outside and Escape set to `false`. Without it
-  /// the ellipsis opens nothing. The anchor is the ellipsis's own: the app
-  /// keeps it so that the menu stays the same menu while it is open.
-  pub fn menu(mut self, anchor: ElementRef, open: Signal<bool>) -> Self {
+  /// Whether the menu of the hidden steps is open, and what it hangs from: the
+  /// app's `Signal<bool>`, which a press of the ellipsis turns, and choosing a
+  /// step, a press outside and Escape set to `false`. The anchor is the
+  /// ellipsis's own: the app keeps it so that the menu stays the same menu
+  /// while it is open. A mounted breadcrumb keeps its own where it is not
+  /// given them; one built on its own without them opens nothing.
+  pub fn menu(mut self, open: Signal<bool>, anchor: ElementRef) -> Self {
     self.menu = Some((anchor, open));
     self
   }
@@ -348,10 +393,19 @@ impl Breadcrumb {
     self
   }
 
+  /// Puts the breadcrumb where it goes, keeping whether the menu of the hidden
+  /// steps is open and what it hangs from, where the app gives it neither
+  /// ([`menu`](Breadcrumb::menu)).
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    ctx.mount::<BreadcrumbHost>(BreadcrumbProps { breadcrumb: self })
+  }
+
   /// Builds the breadcrumb in `theme`. Converting a breadcrumb into an
-  /// element does this in the theme of what is being rendered.
+  /// element does this in the theme of what is being rendered. Its ellipsis
+  /// opens the menu of the hidden steps where it is given a signal and an
+  /// anchor ([`menu`](Breadcrumb::menu)), or mounted.
   pub fn build(self, theme: &Theme) -> Element {
-    let hidden = hidden(self.steps.len(), self.max_items);
+    let hidden = hidden(self.steps.len(), self.max_shown);
     let case = Case {
       variant: None,
       size: None,
@@ -359,14 +413,20 @@ impl Breadcrumb {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(BreadcrumbState::Collapsed, hidden.is_some())
-    .state(BreadcrumbState::Disabled, self.disabled);
+    .state(BreadcrumbState::Collapsed, hidden.is_some());
+    // A disabled step is drawn in the state of a disabled breadcrumb, alone.
+    let disabled = case.clone().state(BreadcrumbState::Disabled, true);
+    let disabled = theme.resolve::<Breadcrumb>(&disabled, Some(&self.rules));
+    let case = case.state(BreadcrumbState::Disabled, self.disabled);
     let view = BreadcrumbView {
       steps: self.steps,
       hidden,
       separator: self.separator,
       disabled: self.disabled,
       recipe: theme.resolve::<Breadcrumb>(&case, Some(&self.rules)),
+      disabled_recipe: disabled,
+      label: self.label,
+      more_label: self.more_label,
       forced: self.forced,
       menu: self.menu,
       on_select: self.on_select,
@@ -382,6 +442,48 @@ impl Breadcrumb {
 
 impl From<Breadcrumb> for Element {
   fn from(breadcrumb: Breadcrumb) -> Self {
+    breadcrumb.build(&current_theme())
+  }
+}
+
+/// A breadcrumb, mounted.
+#[derive(Clone)]
+struct BreadcrumbProps {
+  breadcrumb: Breadcrumb,
+}
+
+/// The breadcrumb is built anew by every render of what holds it, so props are never the same as before.
+impl PartialEq for BreadcrumbProps {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for BreadcrumbProps {}
+
+/// What a mounted breadcrumb keeps between renders: whether the menu of the hidden steps is open and what it hangs
+/// from.
+struct BreadcrumbHost {
+  anchor: ElementRef,
+  open: Signal<bool>,
+}
+
+impl Component for BreadcrumbHost {
+  type Props = BreadcrumbProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      anchor: ElementRef::new(),
+      open: ctx.signal(false),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let mut breadcrumb = ctx.props::<BreadcrumbProps>().breadcrumb.clone();
+    if breadcrumb.menu.is_none() {
+      breadcrumb.menu = Some((self.anchor.clone(), self.open.clone()));
+    }
     breadcrumb.build(&current_theme())
   }
 }
@@ -404,6 +506,12 @@ pub struct BreadcrumbView {
   pub disabled: bool,
   /// The style of each part of this breadcrumb.
   pub recipe: ResolvedRecipe,
+  /// The style of the parts of a step that is disabled.
+  disabled_recipe: ResolvedRecipe,
+  /// What the whole is called.
+  pub label: Arc<str>,
+  /// What the ellipsis is called.
+  pub more_label: Arc<str>,
   forced: Option<Interaction>,
   menu: Option<(ElementRef, Signal<bool>)>,
   on_select: Vec<ValueHandler>,
@@ -417,20 +525,34 @@ impl BreadcrumbView {
     self.recipe.part(part)
   }
 
-  /// The style of a part of the step at `index`: in the interaction forced where it is the link Tab stops on
-  /// first.
+  /// The style of a part of the step at `index`: disabled where the step is, and in the interaction forced where it
+  /// is the link Tab stops on first.
   pub fn step_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
     let forced = self.forced.filter(|_| self.entry() == Some(index));
-    self.recipe.part(part).forced(forced)
+    let recipe = if self.is_disabled(index) {
+      &self.disabled_recipe
+    } else {
+      &self.recipe
+    };
+    recipe.part(part).forced(forced)
   }
 
-  /// The step whose link Tab stops on first: the first shown, unless it is the page one is on. None while
-  /// disabled.
+  /// Whether the step at `index` takes no input: it is disabled, or the whole breadcrumb is.
+  pub fn is_disabled(&self, index: usize) -> bool {
+    self.disabled || self.steps.get(index).is_some_and(|step| step.disabled)
+  }
+
+  /// The step whose link Tab stops on first: the first shown, unless it is the page one is on or disabled. None
+  /// while the breadcrumb is disabled.
   pub fn entry(&self) -> Option<usize> {
     if self.disabled {
       return None;
     }
-    self.shown().first().copied().filter(|&index| !self.is_current(index))
+    self
+      .shown()
+      .first()
+      .copied()
+      .filter(|&index| !self.is_current(index) && !self.is_disabled(index))
   }
 
   pub fn theme(&self) -> &Theme {
@@ -450,10 +572,11 @@ impl BreadcrumbView {
   }
 
   /// What following the step at `index` does: its own handlers, then the
-  /// breadcrumb's with its value. `None` for the page, and while disabled.
+  /// breadcrumb's with its value. `None` for the page, and while the step or the
+  /// whole is disabled.
   pub fn follow(&self, index: usize) -> Option<impl Fn() + Send + Sync + Clone + 'static> {
     let step = self.steps.get(index)?;
-    if self.disabled || self.is_current(index) {
+    if self.is_disabled(index) || self.is_current(index) {
       return None;
     }
     let (own, told, value) = (step.on_select.clone(), self.on_select.clone(), step.value.clone());
@@ -468,7 +591,7 @@ impl BreadcrumbView {
   }
 
   /// The root in the style of its part, with nothing in it yet: a row that
-  /// is a navigation called "Breadcrumb" to what reads the tree.
+  /// is a navigation called by its label to what reads the tree.
   pub fn root(&self) -> Row {
     // The ring of a focused link stands out of its box: the row does not clip it.
     let mut root = Row::new()
@@ -476,7 +599,7 @@ impl BreadcrumbView {
       .overflow_visible()
       .part(&self.part(BreadcrumbPart::Root))
       .describe("a11y_role", "navigation")
-      .describe("a11y_name", "Breadcrumb");
+      .describe("a11y_name", self.label.clone());
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -497,7 +620,7 @@ impl BreadcrumbView {
   pub fn step(&self, index: usize) -> Element {
     let step = &self.steps[index];
     if self.is_current(index) {
-      let part = self.part(BreadcrumbPart::Page);
+      let part = self.step_part(index, BreadcrumbPart::Page);
       let mut page = Row::new()
         .align_items(Alignment::Center)
         .part(&part)
@@ -513,7 +636,7 @@ impl BreadcrumbView {
       return page.into();
     }
     let part = self.step_part(index, BreadcrumbPart::Link);
-    let mut link = pressable(&part, self.disabled)
+    let mut link = pressable(&part, self.is_disabled(index))
       .describe("a11y_role", "link")
       .describe("a11y_name", step.label.clone());
     if let Some(follow) = self.follow(index) {
@@ -525,6 +648,9 @@ impl BreadcrumbView {
     link = link.child(part.text(&step.label).nowrap());
     if let Some(id) = &step.id {
       link = link.id(id.clone());
+    }
+    if let Some(key) = &step.key {
+      link = link.key(key.clone());
     }
     link.into()
   }
@@ -551,10 +677,10 @@ impl BreadcrumbView {
 
   /// The menu of the hidden steps: an item for each, which follows it.
   fn hidden_menu(&self, anchor: ElementRef, open: Signal<bool>) -> Menu {
-    let mut menu = Menu::new(anchor, open).placement(Placement::BottomStart);
+    let mut menu = Menu::new(open, anchor).placement(Placement::BottomStart);
     for index in self.hidden.clone().unwrap_or(0..0) {
       let step = &self.steps[index];
-      let mut item = MenuItem::new(&step.label).disabled(self.disabled);
+      let mut item = MenuItem::new(&step.label).disabled(self.is_disabled(index));
       if let Some(icon) = &step.icon {
         item = item.icon(icon.clone());
       }
@@ -581,7 +707,7 @@ impl BreadcrumbView {
     let expanded = open.as_ref().is_some_and(|open| open.get());
     let mut button = pressable(&part, self.disabled)
       .ref_element(anchor.clone())
-      .describe("a11y_name", "Show the hidden steps")
+      .describe("a11y_name", self.more_label.clone())
       .describe("a11y_haspopup", "menu")
       .describe("a11y_expanded", if expanded { "true" } else { "false" })
       .child(glyph(
@@ -679,8 +805,14 @@ impl Themed for Breadcrumb {
       .pressed(Ellipsis, |s| s.veil(StatePressed))
       .focus_visible(Ellipsis, |s| s.focus_ring())
       .base(EllipsisIcon, |s| s.square(IconSize::Md))
-      .state(BreadcrumbState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
-      .state(BreadcrumbState::Disabled, Link, |s| s.cursor(CursorIcon::Default))
-      .state(BreadcrumbState::Disabled, Ellipsis, |s| s.cursor(CursorIcon::Default))
+      // Dimmed part by part, so that a disabled step is dimmed alone: what a disabled breadcrumb shows is the same.
+      .state(BreadcrumbState::Disabled, Link, |s| {
+        s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
+      })
+      .state(BreadcrumbState::Disabled, Page, |s| s.opacity(OpacityLevel::Disabled))
+      .state(BreadcrumbState::Disabled, Separator, |s| s.opacity(OpacityLevel::Disabled))
+      .state(BreadcrumbState::Disabled, Ellipsis, |s| {
+        s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
+      })
   }
 }

@@ -1,8 +1,11 @@
-//! A popover: its panel beside its anchor, its header and its body, where it
-//! is on each side, what closes it, its trigger, where the focus goes, its
-//! fade, and a theme's other panel.
+//! A popover: its panel beside its anchor, its text and its body, where it
+//! is on each side, what closes it and whom it tells, its trigger, where the
+//! focus goes, its fade, drawn in place, and a theme's other panel.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::{
@@ -54,7 +57,7 @@ fn page(
 
 /// The popover of the design: the title, the description, and something 36 high to hold.
 fn dimensions(anchor: ElementRef, open: Signal<bool>) -> Popover {
-  Popover::new(anchor, open)
+  Popover::new(open, anchor)
     .id("panel")
     .title("Dimensions")
     .description("Set the size of the layer.")
@@ -118,22 +121,22 @@ fn an_open_popover_is_the_panel_of_the_design_under_its_anchor() {
 }
 
 #[test]
-fn the_header_and_the_body_are_spaced_as_the_design_has_them() {
+fn the_text_and_the_body_are_spaced_as_the_design_has_them() {
   let theme = Theme::new();
   let recipe = theme.resolve::<Popover>(&Case::new(), None);
   let gap = |part: PopoverPart| recipe.part(part).rest().gap;
-  assert_eq!(gap(PopoverPart::Root), Some(SpacingValue::from(14.0)));
-  assert_eq!(gap(PopoverPart::Header), Some(SpacingValue::from(4.0)));
+  assert_eq!(gap(PopoverPart::Panel), Some(SpacingValue::from(14.0)));
+  assert_eq!(gap(PopoverPart::Text), Some(SpacingValue::from(4.0)));
   assert_eq!(gap(PopoverPart::Body), Some(SpacingValue::from(14.0)));
   assert_eq!(
-    recipe.part(PopoverPart::Root).rest().shadow,
+    recipe.part(PopoverPart::Panel).rest().shadow,
     Some(BoxShadowValue::from(ShadowStyle::Md))
   );
 
   // Without a title or a description, what it holds is at the top of the panel.
   let open = Signal::new(true);
   let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, |anchor, open| {
-    Popover::new(anchor, open)
+    Popover::new(open, anchor)
       .id("panel")
       .child(Row::new().height(36.0).id("content"))
   }));
@@ -182,7 +185,7 @@ fn a_popover_is_on_the_side_it_is_placed_on() {
   // Over the anchor, its bottom 4 from the anchor's top.
   let open = Signal::new(true);
   let mut stage = Stage::new(page((20.0, 200.0), 120.0, &open, |anchor, open| {
-    Popover::new(anchor, open)
+    Popover::new(open, anchor)
       .id("panel")
       .title("Above")
       .placement(Placement::TopStart)
@@ -193,7 +196,7 @@ fn a_popover_is_on_the_side_it_is_placed_on() {
 
   // Beside it, 4 from its end, at its top.
   let mut stage = Stage::new(page((20.0, 20.0), 60.0, &open, |anchor, open| {
-    Popover::new(anchor, open)
+    Popover::new(open, anchor)
       .id("panel")
       .title("Beside")
       .placement(Placement::RightStart)
@@ -203,7 +206,7 @@ fn a_popover_is_on_the_side_it_is_placed_on() {
 
   // A width and an offset of its own.
   let mut stage = Stage::new(page((20.0, 20.0), 60.0, &open, |anchor, open| {
-    Popover::new(anchor, open)
+    Popover::new(open, anchor)
       .id("panel")
       .title("Wide")
       .width(340.0)
@@ -269,14 +272,14 @@ fn two_with_triggers(first: &Signal<bool>, second: &Signal<bool>) -> Stage {
         Row::new()
           .spacing(120.0)
           .child(
-            Popover::new(first_anchor.clone(), first.clone())
+            Popover::new(first.clone(), first_anchor.clone())
               .id("first-panel")
               .trigger(Button::new("First").id("first"))
               .title("First")
               .child(Button::new("Apply").id("apply")),
           )
           .child(
-            Popover::new(second_anchor.clone(), second.clone())
+            Popover::new(second.clone(), second_anchor.clone())
               .id("second-panel")
               .trigger(Button::new("Second").id("second"))
               .title("Second"),
@@ -351,7 +354,7 @@ fn it_fades_in_over_the_base_duration_and_out_over_the_fast_one() {
   let theme = Theme::new();
   let root = theme
     .resolve::<Popover>(&Case::new(), None)
-    .part(PopoverPart::Root)
+    .part(PopoverPart::Panel)
     .rest();
   let enter = root.enter.expect("an animation as it opens");
   assert_eq!(enter.keyframes, FADE_IN);
@@ -409,7 +412,7 @@ fn a_title_and_a_description_longer_than_the_panel_go_on_to_more_lines_inside_it
   const DESCRIPTION: &str = "Set the size of the layer; what it holds keeps its place against the edges.";
   let open = Signal::new(true);
   let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, |anchor, open| {
-    Popover::new(anchor, open)
+    Popover::new(open, anchor)
       .id("panel")
       .title(TITLE)
       .description(DESCRIPTION)
@@ -426,4 +429,87 @@ fn a_title_and_a_description_longer_than_the_panel_go_on_to_more_lines_inside_it
     );
     assert!(quad.height > 24.0, "{text:?} on more lines: {}", quad.height);
   }
+}
+
+#[test]
+fn every_handler_of_on_dismiss_is_told_when_a_person_closes_it_and_not_when_the_app_does() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let open = Signal::new(true);
+  let held = told.clone();
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, move |anchor, open| {
+    let (first, second) = (held.clone(), held.clone());
+    dimensions(anchor, open)
+      .on_dismiss(move || first.lock().unwrap().push("first"))
+      .on_dismiss(move || second.lock().unwrap().push("second"))
+  }));
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*told.lock().unwrap(), ["first", "second"], "the second after the first");
+
+  open.set(true);
+  stage.pass();
+  stage.click("outside");
+  assert!(!open.get());
+  assert_eq!(told.lock().unwrap().len(), 4, "a press outside tells both too");
+
+  open.set(true);
+  stage.pass();
+  open.set(false);
+  stage.pass();
+  assert_eq!(told.lock().unwrap().len(), 4, "the app closing it tells no one");
+}
+
+#[test]
+fn escape_and_a_press_outside_can_each_be_kept_from_closing_it() {
+  let open = Signal::new(true);
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, |anchor, open| {
+    dimensions(anchor, open).dismiss_on_escape(false)
+  }));
+  stage.key("Escape");
+  assert!(open.get(), "Escape leaves it open");
+  stage.click("outside");
+  assert!(!open.get(), "a press outside still closes it");
+
+  let open = Signal::new(true);
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, |anchor, open| {
+    dimensions(anchor, open).dismiss_on_outside_press(false)
+  }));
+  stage.click("outside");
+  assert!(open.get(), "a press outside leaves it open");
+  stage.key("Escape");
+  assert!(!open.get(), "Escape still closes it");
+}
+
+#[test]
+fn an_inline_popover_is_drawn_where_it_is_declared_open_or_not() {
+  let open = Signal::new(false);
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, |anchor, open| {
+    dimensions(anchor, open).inline(true)
+  }));
+  assert!(stage.paints("Dimensions"), "closed, it is drawn");
+  // In the row, after the anchor, and not under it.
+  let (x, y, width, _) = stage.bounds("panel");
+  assert_eq!((x, y, width), (20.0 + 120.0, 20.0, 292.0));
+  stage.key("Escape");
+  stage.pass();
+  assert!(stage.paints("Dimensions"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn its_label_is_what_tooling_calls_it_in_place_of_its_title() {
+  let said = |stage: &mut Stage, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("panel")
+      .and_then(|element| element.description(name))
+  };
+  let open = Signal::new(true);
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, dimensions));
+  assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("dialog"));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Dimensions"));
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, |anchor, open| {
+    dimensions(anchor, open).label("Size of the layer")
+  }));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Size of the layer"));
 }

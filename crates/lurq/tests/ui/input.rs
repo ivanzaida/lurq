@@ -16,7 +16,7 @@ use lurq::{
   node::color::Color,
   ui::{
     Case, Field, Input, InputOtp, InputPart, InputRenderer, InputSize, InputState, InputView, Interaction, Opacity,
-    Switch, icons,
+    Orientation, Switch, icons,
   },
 };
 
@@ -440,7 +440,7 @@ fn a_horizontal_field_has_its_label_in_a_column_of_110_beside_the_control() {
             .full_width(true)
             .id("zone"),
         )
-        .horizontal(true)
+        .orientation(Orientation::Horizontal)
         .id("field"),
       )
       .into()
@@ -630,7 +630,10 @@ fn a_press_of_the_label_reaches_any_focusable_control() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .padding(8.0)
-      .child(Field::new("Notifications", Switch::new("Pause notifications").id("pause")).horizontal(true))
+      .child(
+        Field::new("Notifications", Switch::new("Pause notifications").id("pause"))
+          .orientation(Orientation::Horizontal),
+      )
       .into()
   });
   press_text(&mut stage, "Notifications");
@@ -711,12 +714,12 @@ fn beside_the_label_a_control_wider_than_the_room_the_label_leaves_widens_the_fi
       .child(
         Field::new("Panel", Row::new().width(250.0).height(36.0).id("wide"))
           .description(DESCRIPTION)
-          .horizontal(true)
+          .orientation(Orientation::Horizontal)
           .id("field"),
       )
       .child(
         Field::new("Notifications", Switch::new("Pause notifications"))
-          .horizontal(true)
+          .orientation(Orientation::Horizontal)
           .id("narrow"),
       )
       .into()
@@ -751,7 +754,10 @@ fn beside_the_label_a_control_lower_than_an_input_is_level_with_it() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .padding(8.0)
-      .child(Field::new("Notifications", Switch::new("Pause notifications").id("pause")).horizontal(true))
+      .child(
+        Field::new("Notifications", Switch::new("Pause notifications").id("pause"))
+          .orientation(Orientation::Horizontal),
+      )
       .into()
   });
   let label = stage.text_quad("Notifications").unwrap();

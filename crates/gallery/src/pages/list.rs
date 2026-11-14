@@ -120,12 +120,12 @@ impl ListPage {
       move |live: bool| -> List {
         let mut list = List::new()
           .density(density)
-          .dividers(dividers)
+          .separators(dividers)
           .contained(contained)
           .label("Settings")
           .style(ListPart::Root, |s| s.width(340.0));
         if contained {
-          list = list.header("Network");
+          list = list.title("Network");
         }
         // The lines start under the text where an icon or an avatar is before it.
         if dividers && leading != 0 {
@@ -176,7 +176,7 @@ impl ListPage {
           };
           if pressed && live {
             let (set, record) = (set.clone(), record.clone());
-            row = row.on_click(move || {
+            row = row.on_click(move |_| {
               set.update(|held| match leading {
                 // A radio: this one alone.
                 4 => *held = vec![index],
@@ -190,7 +190,7 @@ impl ListPage {
               record(format!("on_click({title:?})"));
             });
           } else if pressed {
-            row = row.on_click(|| {});
+            row = row.on_click(|_| {});
           }
           list = list.item(row);
         }
@@ -209,10 +209,10 @@ impl ListPage {
     }
     if contained {
       code.push("    .contained(true)".to_owned());
-      code.push("    .header(\"Network\")".to_owned());
+      code.push("    .title(\"Network\")".to_owned());
     }
     if dividers {
-      code.push("    .dividers(true)".to_owned());
+      code.push("    .separators(true)".to_owned());
       if leading != 0 {
         code.push(format!(
           "    .inset({})",
@@ -244,7 +244,7 @@ impl ListPage {
       code.push("            .chevron(true)".to_owned());
     }
     if pressed {
-      code.push("            .on_click(|| /* open the setting */),".to_owned());
+      code.push("            .on_click(|_| /* open the setting */),".to_owned());
     }
     code.push("    )".to_owned());
     code.push("    .item(ListItem::new(\"Bluetooth\")..)".to_owned());
@@ -337,7 +337,7 @@ impl ListPage {
           flag("description", &self.description),
           flag("chevron", &self.chevron),
           flag("on_click", &self.pressed),
-          flag("dividers", &self.dividers),
+          flag("separators", &self.dividers),
           flag("contained", &self.contained),
           flag("a selected row", &self.selected),
           flag("a disabled row", &self.disabled),
@@ -399,16 +399,16 @@ impl Component for ListPage {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let recent = List::new()
       .contained(true)
-      .header("Recent")
+      .title("Recent")
       .action(Button::new("Clear").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))
-      .item(ListItem::new("theme.md").chevron(true).on_click(|| {}))
-      .item(ListItem::new("blur.md").chevron(true).on_click(|| {}))
-      .item(ListItem::new("canvas.md").chevron(true).on_click(|| {}))
+      .item(ListItem::new("theme.md").chevron(true).on_click(|_| {}))
+      .item(ListItem::new("blur.md").chevron(true).on_click(|_| {}))
+      .item(ListItem::new("canvas.md").chevron(true).on_click(|_| {}))
       .style(ListPart::Root, |s| s.width(240.0));
 
     let (dark, set_dark) = (self.dark.get(), self.dark.clone());
     let settings = List::new()
-      .dividers(true)
+      .separators(true)
       .label("Startup")
       .item(
         ListItem::new("Open at login")
@@ -425,9 +425,9 @@ impl Component for ListPage {
           .description("The language of menus and messages.")
           .value("English")
           .chevron(true)
-          .on_click(|| {}),
+          .on_click(|_| {}),
       )
-      .item(ListItem::new("New window").shortcut("Mod+Shift+N").on_click(|| {}))
+      .item(ListItem::new("New window").shortcut("Mod+Shift+N").on_click(|_| {}))
       .style(ListPart::Root, |s| s.width(420.0));
 
     let (wifi, set_wifi) = (self.wifi.get(), self.wifi.clone());
@@ -441,14 +441,14 @@ impl Component for ListPage {
           .icon(icons::WIFI)
           .value("Home")
           .chevron(true)
-          .on_click(|| {}),
+          .on_click(|_| {}),
       )
       .item(
         ListItem::new("Bluetooth")
           .icon(icons::BLUETOOTH)
           .value("On")
           .chevron(true)
-          .on_click(|| {}),
+          .on_click(|_| {}),
       )
       .item(
         ListItem::new("Airplane mode").icon(icons::AIRPLANE).trailing(
@@ -471,7 +471,7 @@ impl Component for ListPage {
             .meta("1h")
             .selected(selected)
             .disabled(disabled)
-            .on_click(|| {})
+            .on_click(|_| {})
             .force(forced),
         )
         .style(ListPart::Root, |s| s.width(300.0))
@@ -502,7 +502,7 @@ impl Component for ListPage {
       ),
       (
         "on_click",
-        "impl Fn()",
+        "impl Fn(MouseEvent)",
         "",
         "What a press of the row does: the row is pressed, a stop of Tab, and a button to tooling. A row without \
          it answers no pointer.",
@@ -533,23 +533,24 @@ impl Component for ListPage {
         "The rows, one under the other: 2 apart, or touching with a line between each two.",
       ),
       (
-        "dividers / inset",
+        "separators / inset",
         "bool / f32",
         "false / 0",
         "A line between each two rows, and how far from the start it starts.",
       ),
       (
-        "contained / header / action",
+        "contained / title / action",
         "bool / &str / Element",
         "false",
-        "The rows in a box, touching, under a header with a title in capitals and an action.",
+        "The rows in a box, touching, under a header with a title in capitals and an action: the one, a second \
+         takes its place.",
       ),
       (
         "style / rules",
         "ListItemPart / ListPart",
         "",
         "Root, Leading, Icon, Content, Title, Description, Trailing, Value, Meta, Chevron; Root, Header, \
-         HeaderTitle, HeaderAction, Items, Divider.",
+         Title, Action, Items, Separator.",
       ),
     ];
     let playground = self.play(ctx);
@@ -600,15 +601,15 @@ impl Component for ListPage {
           self.frame.demo(
             1,
             recent,
-            "List::new().contained(true).header(\"Recent\")",
+            "List::new().contained(true).title(\"Recent\")",
             &[
               "List::new()",
               "    .contained(true)",
-              "    .header(\"Recent\")",
+              "    .title(\"Recent\")",
               "    .action(Button::new(\"Clear\").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))",
-              "    .item(ListItem::new(\"theme.md\").chevron(true).on_click(|| /* open it */))",
-              "    .item(ListItem::new(\"blur.md\").chevron(true).on_click(|| /* open it */))",
-              "    .item(ListItem::new(\"canvas.md\").chevron(true).on_click(|| /* open it */))",
+              "    .item(ListItem::new(\"theme.md\").chevron(true).on_click(|_| /* open it */))",
+              "    .item(ListItem::new(\"blur.md\").chevron(true).on_click(|_| /* open it */))",
+              "    .item(ListItem::new(\"canvas.md\").chevron(true).on_click(|_| /* open it */))",
             ],
           ),
         ),
@@ -622,7 +623,7 @@ impl Component for ListPage {
             "ListItem::new(title).trailing(Switch::new(title))",
             &[
               "List::new()",
-              "    .dividers(true)",
+              "    .separators(true)",
               "    .item(",
               "        ListItem::new(\"Open at login\")",
               "            .description(\"Start lurq when you sign in to this computer.\")",
@@ -666,7 +667,7 @@ impl Component for ListPage {
               "    .description(\"Bumped wgpu to 26.0\")",
               "    .leading(Avatar::new(\"Dependabot\"))",
               "    .meta(\"1h\")",
-              "    .on_click(|| {})",
+              "    .on_click(|_| {})",
               "",
               "// Drawn as under the pointer or focused, with nothing pointing at it: for a gallery, a test.",
               "    .force(Some(Interaction::FocusVisible))",

@@ -350,6 +350,9 @@ impl Component for CoverageRoot {
 }
 
 fn assert_viewport_covered(snapshot: &crate::support::RenderSnapshot, scroll_y: f32, label: &str) {
+  // What scrolls is drawn on a whole device pixel: the rows are where the rounded offset puts them, and a row
+  // the rounding moved wholly out of the view is not painted.
+  let scroll_y = scroll_y.round();
   let first = (scroll_y / COVERAGE_ROW_H).floor() as usize;
   let last = ((((scroll_y + COVERAGE_VIEW_H) / COVERAGE_ROW_H).ceil() as usize).min(COVERAGE_ROWS)).saturating_sub(1);
   for id in first..=last {
@@ -357,7 +360,8 @@ fn assert_viewport_covered(snapshot: &crate::support::RenderSnapshot, scroll_y: 
     let found = snapshot
       .rects
       .iter()
-      .any(|rect| rect.color == coverage_color(id) && (rect.y - expected_y).abs() < 0.5);
+      // What scrolls is drawn on a whole device pixel: up to half a pixel from where the offset says.
+      .any(|rect| rect.color == coverage_color(id) && (rect.y - expected_y).abs() <= 0.5);
     assert!(
       found,
       "{label}: row {id} not painted at y={expected_y:.1} (scroll_y={scroll_y:.1})"

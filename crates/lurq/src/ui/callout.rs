@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{
   AlertVariant,
-  alert::{AlertIcon, shown_icon, wrapping},
+  alert::{IconChoice, shown_icon, wrapping},
   names,
   part_style::Length,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
@@ -26,24 +26,24 @@ pub enum CalloutPart {
   /// The icon of its variant: at the start, or before the title where it
   /// has a bar.
   Icon,
-  /// The icon and the title side by side, over the content, where it has a
-  /// bar and a title.
-  Heading,
-  /// The title, the text and what the app put in it, one over the other.
-  Content,
+  /// The icon and the title side by side, over the text, where it has a bar
+  /// and a title.
+  Header,
+  /// The title, what it says and what the app put in it, one over the other.
+  Text,
   /// What it is, in a word: "Note", "Tip".
   Title,
   /// What it says.
-  Text,
+  Label,
 }
 
 names!(CalloutPart {
   Root => "root",
   Icon => "icon",
-  Heading => "heading",
-  Content => "content",
-  Title => "title",
+  Header => "header",
   Text => "text",
+  Title => "title",
+  Label => "label",
 });
 
 /// The states of a callout a recipe styles.
@@ -52,12 +52,12 @@ pub enum CalloutState {
   /// It has a bar along its start, as a note of a document has.
   Bar,
   /// It has a title.
-  Titled,
+  Title,
 }
 
 names!(CalloutState {
   Bar => "bar",
-  Titled => "titled",
+  Title => "title",
 });
 
 /// What builds a callout's nodes: a theme's in place of the default one.
@@ -80,15 +80,21 @@ pub type CalloutRenderer = Arc<dyn Fn(CalloutView) -> Element + Send + Sync>;
 /// ```
 ///
 /// It is read, and is no stop of Tab: a `note` to tooling that reads the
-/// tree, called by its title where it has one.
+/// tree, called by its label, or by its title where it has one.
+///
+/// What it says is its one sentence, given to [`Callout::new`], and its title
+/// is the word over it: "Tip", "Note". An alert and a toast are the other way
+/// round, a title and a description under it, as a message about something
+/// that happened is.
 pub struct Callout {
   text: Arc<str>,
   title: Option<Arc<str>>,
-  content: Vec<Element>,
-  variant: AlertVariant,
-  icon: Option<AlertIcon>,
+  body: Vec<Element>,
+  variant: Name,
+  icon: Option<IconChoice>,
   bar: bool,
   role: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -102,11 +108,12 @@ impl Callout {
     Self {
       text: Arc::from(text),
       title: None,
-      content: Vec::new(),
-      variant: AlertVariant::Neutral,
+      body: Vec::new(),
+      variant: AlertVariant::Neutral.into(),
       icon: None,
       bar: false,
       role: None,
+      label: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -122,23 +129,25 @@ impl Callout {
 
   /// Adds an element under the text: a link, a list, a row of code.
   pub fn child(mut self, child: impl Into<Element>) -> Self {
-    self.content.push(child.into());
+    self.body.push(child.into());
     self
   }
 
   /// Adds elements under the text.
   pub fn children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
-    self.content.extend(children.into_iter().map(Into::into));
+    self.body.extend(children.into_iter().map(Into::into));
     self
   }
 
-  pub fn variant(mut self, variant: AlertVariant) -> Self {
-    self.variant = variant;
+  /// Its tone: an [`AlertVariant`], or a variant a theme adds, which has the
+  /// neutral one's icon.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
     self
   }
 
   /// An icon of the theme's set in place of the variant's, or none: `icon(None)`.
-  pub fn icon(mut self, icon: impl Into<AlertIcon>) -> Self {
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
     self.icon = Some(icon.into());
     self
   }
@@ -147,6 +156,12 @@ impl Callout {
   /// in that color with the icon before it, as a note of a document has.
   pub fn bar(mut self, bar: bool) -> Self {
     self.bar = bar;
+    self
+  }
+
+  /// What it is called to tooling that reads the tree, in place of its title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -192,23 +207,26 @@ impl Callout {
   /// Builds the callout in `theme`. Converting a callout into an element
   /// does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    // A variant a theme adds has the neutral one's icon.
+    let tone = AlertVariant::named(self.variant).unwrap_or_default();
     let case = Case {
-      variant: Some(self.variant.into()),
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: current_breakpoint(),
       states: self.states.clone(),
     }
     .state(CalloutState::Bar, self.bar)
-    .state(CalloutState::Titled, self.title.is_some());
+    .state(CalloutState::Title, self.title.is_some());
     let view = CalloutView {
       text: self.text,
       title: self.title,
-      content: self.content,
+      body: self.body,
       variant: self.variant,
-      icon: shown_icon(self.icon, self.variant.icon()),
+      icon: shown_icon(self.icon, tone.icon()),
       bar: self.bar,
       role: self.role.unwrap_or_else(|| Arc::from("note")),
+      label: self.label,
       recipe: theme.resolve::<Callout>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -232,13 +250,16 @@ pub struct CalloutView {
   pub text: Arc<str>,
   pub title: Option<Arc<str>>,
   /// What the app put under the text.
-  pub content: Vec<Element>,
-  pub variant: AlertVariant,
+  pub body: Vec<Element>,
+  /// Its tone: an [`AlertVariant`]'s name, or a theme's.
+  pub variant: Name,
   /// The icon it shows, by its name in the theme's set: the variant's, the one it was given, or none.
   pub icon: Option<Name>,
   pub bar: bool,
   /// What it is to tooling that reads the tree: a `note`, or what the app said.
   pub role: Arc<str>,
+  /// What it is called to tooling, where that is not its title.
+  pub label: Option<Arc<str>>,
   /// The style of each part of this callout.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -267,39 +288,39 @@ impl CalloutView {
   }
 
   /// The icon and the title side by side: what a callout with a bar and a
-  /// title has over its content.
-  pub fn heading(&self) -> Option<Row> {
+  /// title has over its text.
+  pub fn header(&self) -> Option<Row> {
     let title = self.title()?;
-    let mut heading = Row::new()
+    let mut header = Row::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Center)
-      .part(&self.part(CalloutPart::Heading));
+      .part(&self.part(CalloutPart::Header));
     if let Some(icon) = self.icon() {
-      heading = heading.child(icon);
+      header = header.child(icon);
     }
-    Some(heading.child(title.flex(1.0).min_width(Dimension::Px(0.0))))
+    Some(header.child(title.flex(1.0).min_width(Dimension::Px(0.0))))
   }
 
-  /// The text, and what the app put under it, one over the other: with the
-  /// title over them where `titled`.
-  pub fn content(&mut self, titled: bool) -> Column {
-    let mut content = Column::new()
+  /// What it says, and what the app put under it, one over the other: with
+  /// the title over them where `titled`.
+  pub fn text(&mut self, titled: bool) -> Column {
+    let mut text = Column::new()
       .flex(1.0)
       .min_width(Dimension::Px(0.0))
-      .part(&self.part(CalloutPart::Content));
+      .part(&self.part(CalloutPart::Text));
     if titled && let Some(title) = self.title() {
-      content = content.child(title);
+      text = text.child(title);
     }
     if !self.text.is_empty() {
-      content = content.child(wrapping(&self.part(CalloutPart::Text), &self.text));
+      text = text.child(wrapping(&self.part(CalloutPart::Label), &self.text));
     }
-    content.with_children(std::mem::take(&mut self.content))
+    text.with_children(std::mem::take(&mut self.body))
   }
 
   /// How the default renderer builds a callout: the icon at the start and
-  /// the content beside it, or, with a bar and a title, the heading over the
-  /// content. It is what its role says to what reads the tree, called by its
-  /// title.
+  /// the text beside it, or, with a bar and a title, the header over the
+  /// text. It is what its role says to what reads the tree, called by its
+  /// label or its title.
   pub fn render(mut self) -> Element {
     // The root is a row or a column: each is given the root's style, role, name, id and key alike.
     macro_rules! dressed {
@@ -307,8 +328,8 @@ impl CalloutView {
         let mut root = $root
           .part(&self.part(CalloutPart::Root))
           .describe("a11y_role", self.role.clone());
-        if let Some(title) = &self.title {
-          root = root.describe("a11y_name", title.clone());
+        if let Some(name) = self.label.as_ref().or(self.title.as_ref()) {
+          root = root.describe("a11y_name", name.clone());
         }
         if let Some(id) = &self.id {
           root = root.id(id.clone());
@@ -319,18 +340,18 @@ impl CalloutView {
         Element::from(root)
       }};
     }
-    match self.heading().filter(|_| self.bar) {
-      Some(heading) => {
-        let content = self.content(false).flex(0.0).width(Dimension::Pct(100.0));
-        dressed!(Column::new().child(heading).child(content))
+    match self.header().filter(|_| self.bar) {
+      Some(header) => {
+        let text = self.text(false).flex(0.0).width(Dimension::Pct(100.0));
+        dressed!(Column::new().child(header).child(text))
       }
       None => {
         let mut row = Row::new().align_items(Alignment::Start);
         if let Some(icon) = self.icon() {
           row = row.child(icon);
         }
-        let content = self.content(true);
-        dressed!(row.child(content))
+        let text = self.text(true);
+        dressed!(row.child(text))
       }
     }
   }
@@ -351,7 +372,7 @@ impl Themed for Callout {
   /// color, the text of 14 4 under them.
   fn recipe() -> Recipe {
     use CalloutPart as P;
-    use CalloutState::{Bar, Titled};
+    use CalloutState::{Bar, Title};
     let mut recipe = Recipe::new()
       .base(P::Root, |s| {
         s.width(Length::Fill)
@@ -366,24 +387,24 @@ impl Themed for Callout {
         s.square(Length::Icon(IconSize::Md))
           .foreground(PaletteColor::Foreground)
       })
-      .base(P::Heading, |s| s.gap(8.0))
-      .base(P::Content, |s| s.gap(4.0))
+      .base(P::Header, |s| s.gap(8.0))
+      .base(P::Text, |s| s.gap(4.0))
       .base(P::Title, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)
           .weight(FontWeight::SemiBold)
           .foreground(PaletteColor::Foreground)
       })
-      .base(P::Text, |s| {
+      .base(P::Label, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)
           .line_height(1.5)
           .foreground(PaletteColor::Foreground)
       })
       .state(Bar, P::Root, |s| s.corners(0.0, RadiusSize::Md, RadiusSize::Md, 0.0))
-      .when(Selector::new().state(Bar).state(Titled), P::Root, |s| s.gap(4.0))
+      .when(Selector::new().state(Bar).state(Title), P::Root, |s| s.gap(4.0))
       .state(Bar, P::Title, |s| s.font_size(14.0))
-      .state(Bar, P::Text, |s| s.font_size(14.0));
+      .state(Bar, P::Label, |s| s.font_size(14.0));
     for variant in AlertVariant::all().iter().copied() {
       let barred = || Selector::new().variant(variant).state(Bar);
       recipe = recipe

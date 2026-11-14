@@ -75,35 +75,33 @@ impl Shape {
   /// A workspace of crates, as an editor's side bar shows it.
   fn project(self) -> Vec<TreeItem<Id>> {
     let mut items = vec![
-      self.folder("crates", "crates").children([
-        self.folder("crates/lurq", "lurq").children([
-          self.folder("crates/lurq/src", "src").children([
+      self.folder("crates", "crates").items([
+        self.folder("crates/lurq", "lurq").items([
+          self.folder("crates/lurq/src", "src").items([
             self.file("crates/lurq/src/lib.rs", "lib.rs"),
             self.file("crates/lurq/src/theme.rs", "theme.rs"),
             self
               .folder("crates/lurq/src/ui", "ui")
-              .child(self.file("crates/lurq/src/ui/tree_view.rs", "tree_view.rs"))
-              .child(self.file("crates/lurq/src/ui/menu.rs", "menu.rs")),
+              .item(self.file("crates/lurq/src/ui/tree_view.rs", "tree_view.rs"))
+              .item(self.file("crates/lurq/src/ui/menu.rs", "menu.rs")),
           ]),
           self.file("crates/lurq/Cargo.toml", "Cargo.toml"),
         ]),
         self
           .folder("crates/gallery", "gallery")
-          .child(self.file("crates/gallery/main.rs", "main.rs"))
-          .child(self.file("crates/gallery/shell.rs", "shell.rs")),
+          .item(self.file("crates/gallery/main.rs", "main.rs"))
+          .item(self.file("crates/gallery/shell.rs", "shell.rs")),
         self
           .folder("crates/demo", "demo")
           .disabled(self.disabled)
-          .child(self.file("crates/demo/main.rs", "main.rs")),
+          .item(self.file("crates/demo/main.rs", "main.rs")),
       ]),
-      self
-        .folder("docs", "docs")
-        .child(self.file("docs/index.md", "index.md")),
+      self.folder("docs", "docs").item(self.file("docs/index.md", "index.md")),
     ];
     if self.lazy {
       let mut registry = self.folder("registry", "registry").lazy(true);
       if self.loaded {
-        registry = registry.children([
+        registry = registry.items([
           self.file("registry/wgpu", "wgpu"),
           self.file("registry/winit", "winit"),
           self.file("registry/cosmic-text", "cosmic-text"),
@@ -120,12 +118,12 @@ impl Shape {
 /// The board's file tree.
 fn board() -> Vec<TreeItem<Id>> {
   vec![
-    TreeItem::folder("crates", "crates").children([
-      TreeItem::folder("lurq", "lurq").children([
+    TreeItem::folder("crates", "crates").items([
+      TreeItem::folder("lurq", "lurq").items([
         TreeItem::file("lib.rs", "lib.rs"),
         TreeItem::file("theme.rs", "theme.rs"),
       ]),
-      TreeItem::folder("demo", "demo").child(TreeItem::file("main.rs", "main.rs")),
+      TreeItem::folder("demo", "demo").item(TreeItem::file("main.rs", "main.rs")),
     ]),
     TreeItem::file("Cargo.toml", "Cargo.toml"),
   ]
@@ -175,55 +173,51 @@ impl TreeViewPage {
       action: self.action.get(),
     };
     let (open, selected) = (self.played_open.get(), self.played_selected.get());
-    // The app holds what is open and what is selected, so that each change is counted: `expanded` and
-    // `selected` are this with the signal set for it.
+    // The app holds what is open and what is selected, so that each change is counted: `new(signal, ..)` and
+    // `open(signal)` are this with the signal set for it.
     let record = self.playground.recorder();
     let (set_open, set_selected) = (self.played_open.clone(), self.played_selected.clone());
-    let (toggled, changed, chosen, activated, expanded) =
-      (record.clone(), record.clone(), record.clone(), record.clone(), record);
+    let (toggled, changed, activated, opened) = (record.clone(), record.clone(), record.clone(), record);
     let load = self.play_load.clone();
-    let shown = TreeView::new(shape.project())
-      .label("Files")
-      .multiple(multiple)
-      .guides(guides)
-      .force(self.playground.forced())
-      .expanded_ids(open.clone(), move |id, opened| {
-        set_open.update(|held| {
-          held.retain(|row| row != id);
-          if opened {
-            held.push(id);
-          }
-        });
-        toggled(format!("toggle({id:?}, {opened})"));
-      })
-      .selected_ids(selected.clone(), move |next| {
-        // One at a time, the page keeps the last, as a `Signal<Option<_>>` would.
-        let next = if multiple {
-          next
-        } else {
-          next.into_iter().last().into_iter().collect()
-        };
-        changed(format!("select({next:?})"));
-        set_selected.set(next);
-      })
-      .on_select(move |id| chosen(format!("on_select({id:?})")))
-      .on_activate(move |id| activated(format!("on_activate({id:?})")))
-      .on_expand(move |id| {
-        if *id == "registry" {
-          load.restart();
+    let shown = TreeView::controlled(selected.clone(), shape.project(), move |next| {
+      // One at a time, the page keeps the last, as a `Signal<Option<_>>` would.
+      let next: Vec<Id> = if multiple {
+        next.to_vec()
+      } else {
+        next.last().copied().into_iter().collect()
+      };
+      changed(format!("on_change({next:?})"));
+      set_selected.set(next);
+    })
+    .label("Files")
+    .multiple(multiple)
+    .guides(guides)
+    .force(self.playground.forced())
+    .open_ids(open.clone(), move |id, opened| {
+      set_open.update(|held| {
+        held.retain(|row| row != id);
+        if opened {
+          held.push(id);
         }
-        expanded(format!("on_expand({id:?})"));
-      })
-      .style(TreeViewPart::Root, |s| s.width(260.0));
+      });
+      toggled(format!("toggle({id:?}, {opened})"));
+    })
+    .on_activate(move |id| activated(format!("on_activate({id:?})")))
+    .on_open_change(move |id, open| {
+      if *id == "registry" && open {
+        load.restart();
+      }
+      opened(format!("on_open_change({id:?}, {open})"));
+    })
+    .style(TreeViewPart::Root, |s| s.width(260.0));
 
     let make = {
       let (open, selected) = (open.clone(), selected.clone());
       move || {
-        TreeView::new(shape.project())
+        TreeView::controlled(selected.clone(), shape.project(), |_| {})
           .multiple(multiple)
           .guides(guides)
-          .expanded_ids(open.clone(), |_, _| {})
-          .selected_ids(selected.clone(), |_| {})
+          .open_ids(open.clone(), |_, _| {})
           .style(TreeViewPart::Root, |s| s.width(260.0))
           .into()
       }
@@ -236,24 +230,24 @@ impl TreeViewPage {
       } else {
         "// selected: Signal<Option<&str>>".to_owned()
       },
-      "TreeView::new([".to_owned(),
+      "TreeView::new(selected, [".to_owned(),
     ];
     let (folder, file) = if shape.icons {
       ("TreeItem::folder", "TreeItem::file")
     } else {
       ("TreeItem::new", "TreeItem::new")
     };
-    code.push(format!("    {folder}(\"crates\", \"crates\").children(["));
-    code.push(format!("        {folder}(\"crates/lurq\", \"lurq\").children([..]),"));
+    code.push(format!("    {folder}(\"crates\", \"crates\").items(["));
+    code.push(format!("        {folder}(\"crates/lurq\", \"lurq\").items([..]),"));
     code.push(format!(
-      "        {folder}(\"crates/gallery\", \"gallery\").children([..]),"
+      "        {folder}(\"crates/gallery\", \"gallery\").items([..]),"
     ));
     code.push(format!(
-      "        {folder}(\"crates/demo\", \"demo\"){}.children([..]),",
+      "        {folder}(\"crates/demo\", \"demo\"){}.items([..]),",
       if shape.disabled { ".disabled(true)" } else { "" }
     ));
     code.push("    ]),".to_owned());
-    code.push(format!("    {folder}(\"docs\", \"docs\").children([..]),"));
+    code.push(format!("    {folder}(\"docs\", \"docs\").items([..]),"));
     if shape.lazy {
       code.push(format!("    {folder}(\"registry\", \"registry\").lazy(true),"));
     }
@@ -261,8 +255,7 @@ impl TreeViewPage {
     code.push(format!("    {file}(\"README.md\", \"README.md\"),"));
     code.push("])".to_owned());
     code.push(".label(\"Files\")".to_owned());
-    code.push(".expanded(open)".to_owned());
-    code.push(".selected(selected)".to_owned());
+    code.push(".open(open)".to_owned());
     if multiple {
       code.push(".multiple(true)".to_owned());
     }
@@ -270,7 +263,7 @@ impl TreeViewPage {
       code.push(".guides(true)".to_owned());
     }
     if shape.lazy {
-      code.push(".on_expand(|id| /* bring the children of `id` */)".to_owned());
+      code.push(".on_open_change(|id, open| /* bring the children of `id` */)".to_owned());
     }
     if shape.action {
       code.push("// each folder: .trailing(new_file_button).trailing_on_hover(true)".to_owned());
@@ -393,51 +386,54 @@ impl Component for TreeViewPage {
       loaded: false,
       action: false,
     };
-    let files = TreeView::new(board())
+    let files = TreeView::new(self.selected.clone(), board())
       .label("Files")
-      .expanded(self.open.clone())
-      .selected(self.selected.clone())
+      .open(self.open.clone())
       .style(TreeViewPart::Root, |s| s.width(WIDE));
-    let many = TreeView::new(plain.project())
+    let many = TreeView::new(self.many.clone(), plain.project())
       .label("Files")
-      .expanded(self.many_open.clone())
-      .selected(self.many.clone())
+      .open(self.many_open.clone())
       .multiple(true)
       .style(TreeViewPart::Root, |s| s.width(260.0));
     let load = self.load.clone();
-    let lazy = TreeView::new(
+    let lazy = TreeView::controlled(
+      [],
       Shape {
         lazy: true,
         loaded: self.loaded.get(),
         ..plain
       }
       .project(),
+      |_| {},
     )
     .label("Files")
-    .expanded(self.lazy_open.clone())
-    .on_expand(move |id| {
-      if *id == "registry" {
+    .open(self.lazy_open.clone())
+    .on_open_change(move |id, open| {
+      if *id == "registry" && open {
         load.restart();
       }
     })
     .style(TreeViewPart::Root, |s| s.width(260.0));
     let big = ctx.mount::<BigTree>(());
-    let hover = TreeView::new(Shape { action: true, ..plain }.project())
+    let hover = TreeView::controlled([], Shape { action: true, ..plain }.project(), |_| {})
       .label("Files")
-      .expanded(self.hover_open.clone())
+      .open(self.hover_open.clone())
       .style(TreeViewPart::Root, |s| s.width(260.0));
-    let guides = TreeView::new(plain.project())
+    let guides = TreeView::controlled([], plain.project(), |_| {})
       .label("Files")
-      .expanded(self.guide_open.clone())
+      .open(self.guide_open.clone())
       .guides(true)
       .style(TreeViewPart::Root, |s| s.width(260.0));
     let state = |forced: Option<Interaction>, selected: Option<Id>| {
-      TreeView::new([
-        TreeItem::folder("src", "src"),
-        TreeItem::file("lib.rs", "lib.rs").trailing(Badge::new("2")),
-        TreeItem::file("main.rs", "main.rs").disabled(true),
-      ])
-      .selected_ids(selected, |_| {})
+      TreeView::controlled(
+        selected,
+        [
+          TreeItem::folder("src", "src"),
+          TreeItem::file("lib.rs", "lib.rs").trailing(Badge::new("2")),
+          TreeItem::file("main.rs", "main.rs").disabled(true),
+        ],
+        |_| {},
+      )
       .force(forced)
       .style(TreeViewPart::Root, |s| s.width(180.0))
     };
@@ -455,24 +451,25 @@ impl Component for TreeViewPage {
 
     let rows = [
       (
+        "selection",
+        "Signal<Option<T>> / Signal<Vec<T>>",
+        "",
+        "What is selected, the first argument of `new`. `controlled(selected, items, on_change)` is the same held \
+         by the app.",
+      ),
+      (
         "items",
         "impl IntoIterator<Item = TreeItem<T>>",
         "",
-        "The rows at the top, each with what it holds: `TreeItem::new(id, label)`, or `folder` and `file` with \
-         their icons; `icon`, `open_icon`, `trailing`, `disabled`, `children`, `lazy`.",
+        "The rows at the top, each with what it holds: `TreeItem::new(value, label)`, or `folder` and `file` with \
+         their icons; `icon`, `open_icon`, `trailing`, `disabled`, `item` and `items`, `lazy`, `id`, `key`.",
       ),
       (
-        "expanded",
+        "open",
         "Signal<Vec<T>>",
         "none",
-        "The rows that are open. Opening a row adds it, closing one takes it out. `expanded_ids(ids, toggle)` is \
-         the same held by the app.",
-      ),
-      (
-        "selected",
-        "Signal<Option<T>> / Signal<Vec<T>>",
-        "none",
-        "What is selected. `selected_ids(ids, change)` is the same held by the app.",
+        "The rows that are open. Opening a row adds it, closing one takes it out. `open_ids(ids, toggle)` is the \
+         same held by the app.",
       ),
       (
         "multiple",
@@ -499,10 +496,10 @@ impl Component for TreeViewPage {
         "What the tree is called, to what reads the window's tree.",
       ),
       (
-        "on_select",
-        "impl Fn(&T)",
+        "on_change",
+        "impl Fn(&[T])",
         "",
-        "Told of the row a press or Space selects.",
+        "Told the new selection after a click, Space, Shift with a key or Ctrl+A changed it.",
       ),
       (
         "on_activate",
@@ -511,10 +508,10 @@ impl Component for TreeViewPage {
         "Told of the row a double press or Enter activates. A row that opens opens or closes as well.",
       ),
       (
-        "on_expand",
-        "impl Fn(&T)",
+        "on_open_change",
+        "impl Fn(&T, bool)",
         "",
-        "Told of each row as it opens: where a lazy row's children are brought.",
+        "Told of each row a press or a key opens or closes: where a lazy row's children are brought.",
       ),
       (
         "style / rules",
@@ -552,22 +549,21 @@ impl Component for TreeViewPage {
           self.frame.demo(
             0,
             files,
-            "TreeView::new(items).expanded(open).selected(selected)",
+            "TreeView::new(selected, items).open(open)",
             &[
               "// open: Signal<Vec<&str>>, selected: Signal<Option<&str>>",
-              "TreeView::new([",
-              "    TreeItem::folder(\"crates\", \"crates\").children([",
-              "        TreeItem::folder(\"lurq\", \"lurq\").children([",
+              "TreeView::new(selected, [",
+              "    TreeItem::folder(\"crates\", \"crates\").items([",
+              "        TreeItem::folder(\"lurq\", \"lurq\").items([",
               "            TreeItem::file(\"lib.rs\", \"lib.rs\"),",
               "            TreeItem::file(\"theme.rs\", \"theme.rs\"),",
               "        ]),",
-              "        TreeItem::folder(\"demo\", \"demo\").child(TreeItem::file(\"main.rs\", \"main.rs\")),",
+              "        TreeItem::folder(\"demo\", \"demo\").item(TreeItem::file(\"main.rs\", \"main.rs\")),",
               "    ]),",
               "    TreeItem::file(\"Cargo.toml\", \"Cargo.toml\"),",
               "])",
               ".label(\"Files\")",
-              ".expanded(open)",
-              ".selected(selected)",
+              ".open(open)",
             ],
           ),
         ),
@@ -579,12 +575,11 @@ impl Component for TreeViewPage {
           self.frame.demo(
             1,
             many,
-            ".selected(many).multiple(true)",
+            "TreeView::new(many, project).multiple(true)",
             &[
               "// open, many: Signal<Vec<&str>>",
-              "TreeView::new(project)",
-              "    .expanded(open)",
-              "    .selected(many)",
+              "TreeView::new(many, project)",
+              "    .open(open)",
               "    .multiple(true)",
             ],
           ),
@@ -592,7 +587,7 @@ impl Component for TreeViewPage {
         Section::new(
           "Children that come later",
           "A lazy row opens as a folder does, with a spinner in place of its chevron until the app gives it its \
-           children: here a second after `on_expand` is told.",
+           children: here a second after `on_open_change` is told it opened.",
           self.frame.demo(
             2,
             lazy,
@@ -601,11 +596,11 @@ impl Component for TreeViewPage {
               "// loaded: Signal<bool>, set when the crates of the registry come",
               "let mut registry = TreeItem::folder(\"registry\", \"registry\").lazy(true);",
               "if loaded.get() {",
-              "    registry = registry.children(crates);",
+              "    registry = registry.items(crates);",
               "}",
-              "TreeView::new([.., registry])",
-              "    .expanded(open)",
-              "    .on_expand(|id| if *id == \"registry\" { /* fetch them */ })",
+              "TreeView::new(selected, [.., registry])",
+              "    .open(open)",
+              "    .on_open_change(|id, open| if open && *id == \"registry\" { /* fetch them */ })",
             ],
           ),
         ),
@@ -617,7 +612,7 @@ impl Component for TreeViewPage {
             3,
             guides,
             ".guides(true)",
-            &["TreeView::new(project).expanded(open).guides(true)"],
+            &["TreeView::new(selected, project).open(open).guides(true)"],
           ),
         ),
         Section::new(
@@ -626,15 +621,14 @@ impl Component for TreeViewPage {
           self.frame.demo(
             5,
             big,
-            "TreeView::new(items).mount(ctx)",
+            "TreeView::new(selected, items).mount(ctx)",
             &[
               "// open, selected: Signal<Vec<u32>>",
-              "TreeView::new((0..100).map(|i| {",
+              "TreeView::new(selected, (0..100).map(|i| {",
               "    TreeItem::folder(i * 1000, &format!(\"Folder {i}\"))",
-              "        .children((0..100).map(|j| TreeItem::file(i * 1000 + j + 1, &format!(\"file {i}.{j}\"))))",
+              "        .items((0..100).map(|j| TreeItem::file(i * 1000 + j + 1, &format!(\"file {i}.{j}\"))))",
               "}))",
-              ".expanded(open)",
-              ".selected(selected)",
+              ".open(open)",
               ".multiple(true)",
               ".style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))",
               ".mount(ctx)",
@@ -671,7 +665,7 @@ impl Component for TreeViewPage {
             states,
             ".force(Some(Interaction::FocusVisible))",
             &[
-              "TreeView::new([",
+              "TreeView::new(selected, [",
               "    TreeItem::folder(\"src\", \"src\"),",
               "    TreeItem::file(\"lib.rs\", \"lib.rs\").trailing(Badge::new(\"2\")),",
               "    TreeItem::file(\"main.rs\", \"main.rs\").disabled(true),",
@@ -685,7 +679,7 @@ impl Component for TreeViewPage {
         Section::new(
           "Props",
           "What a tree is given.",
-          props_table(&rows, &["items"], self.frame.room()),
+          props_table(&rows, &["selection", "items"], self.frame.room()),
         ),
       ],
     )
@@ -710,13 +704,15 @@ impl Component for BigTree {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    TreeView::new((0..100u32).map(|i| {
-      TreeItem::folder(i * 1000, &format!("Folder {i}"))
-        .children((0..100u32).map(move |j| TreeItem::file(i * 1000 + j + 1, &format!("file {i}.{j}"))))
-    }))
+    TreeView::new(
+      self.selected.clone(),
+      (0..100u32).map(|i| {
+        TreeItem::folder(i * 1000, &format!("Folder {i}"))
+          .items((0..100u32).map(move |j| TreeItem::file(i * 1000 + j + 1, &format!("file {i}.{j}"))))
+      }),
+    )
     .label("Ten thousand files")
-    .expanded(self.open.clone())
-    .selected(self.selected.clone())
+    .open(self.open.clone())
     .multiple(true)
     .style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))
     .mount(ctx)

@@ -50,12 +50,15 @@ fn single(value: &Signal<Option<Date>>, make: impl Fn(Calendar) -> Calendar + Se
 }
 
 /// A calendar of a range, mounted.
-fn range(value: &Signal<Option<DateRange>>, make: impl Fn(Calendar) -> Calendar + Send + Sync + 'static) -> Stage {
+fn range(
+  value: &Signal<Option<DateRange>>,
+  make: impl Fn(Calendar<DateRange>) -> Calendar<DateRange> + Send + Sync + 'static,
+) -> Stage {
   let value = value.clone();
   roomy(Stage::new(move |ctx| {
     Column::new()
       .padding(10.0)
-      .child(make(Calendar::range(value.clone()).today(day(11, 9)).id("cal")).mount(ctx))
+      .child(make(Calendar::new(value.clone()).today(day(11, 9)).id("cal")).mount(ctx))
       .into()
   }))
 }
@@ -271,7 +274,7 @@ fn a_range_is_two_presses_and_the_pointer_shows_where_it_would_end() {
   let heard = told.clone();
   let mut stage = range(&value, move |calendar| {
     let heard = heard.clone();
-    calendar.on_range_change(move |range| heard.lock().unwrap().push(range))
+    calendar.on_change(move |range| heard.lock().unwrap().push(range))
   });
   stage.click(&cell(11, 15));
   assert_eq!(value.get_untracked(), None, "one press is no range yet");
@@ -410,4 +413,154 @@ fn a_themes_rules_and_renderer_change_it() {
   stage.bounds("own");
   assert!(stage.paints("November 2026"));
   assert!(!stage.paints("Mo"));
+}
+
+#[test]
+fn a_press_of_the_chosen_day_tells_nothing() {
+  let value = Signal::new(Some(day(11, 12)));
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let heard = told.clone();
+  let mut stage = single(&value, move |calendar| {
+    let heard = heard.clone();
+    calendar.on_change(move |date: Date| heard.lock().unwrap().push(date))
+  });
+  stage.click(&cell(11, 12));
+  assert!(told.lock().unwrap().is_empty(), "the 12th is chosen already");
+  stage.click(&cell(11, 20));
+  stage.click(&cell(11, 20));
+  assert_eq!(*told.lock().unwrap(), vec![day(11, 20)]);
+  // The app setting the value tells nothing.
+  value.set(Some(day(11, 3)));
+  stage.pass();
+  assert_eq!(*told.lock().unwrap(), vec![day(11, 20)]);
+}
+
+#[test]
+fn a_range_is_told_to_on_change_and_the_same_range_is_not() {
+  let week = DateRange::new(day(11, 9), day(11, 15));
+  let value = Signal::new(Some(week));
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (first, second) = (told.clone(), told.clone());
+  let mut stage = range(&value, move |calendar| {
+    let (first, second) = (first.clone(), second.clone());
+    calendar
+      .on_change(move |range: DateRange| first.lock().unwrap().push(("first", range)))
+      .on_change(move |range: DateRange| second.lock().unwrap().push(("second", range)))
+  });
+  stage.click(&cell(11, 15));
+  stage.click(&cell(11, 9));
+  assert!(told.lock().unwrap().is_empty(), "the range chosen already");
+  stage.click(&cell(11, 10));
+  stage.click(&cell(11, 12));
+  let next = DateRange::new(day(11, 10), day(11, 12));
+  assert_eq!(value.get_untracked(), Some(next));
+  assert_eq!(*told.lock().unwrap(), vec![("first", next), ("second", next)]);
+}
+
+#[test]
+fn a_controlled_calendar_shows_what_the_app_answers() {
+  // The app holds the date and takes any but the 20th.
+  let held = Signal::new(Some(day(11, 12)));
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (app, heard) = (held.clone(), told.clone());
+  let mut stage = roomy(Stage::new(move |_| {
+    let (answer, heard) = (app.clone(), heard.clone());
+    Column::new()
+      .padding(10.0)
+      .child(
+        Calendar::controlled(app.get(), move |date: Date| {
+          heard.lock().unwrap().push(date);
+          if date.day() != 20 {
+            answer.set(Some(date));
+          }
+        })
+        .today(day(11, 9))
+        .id("cal"),
+      )
+      .into()
+  }));
+  stage.click(&cell(11, 20));
+  assert_eq!(*told.lock().unwrap(), vec![day(11, 20)]);
+  assert_eq!(held.get_untracked(), Some(day(11, 12)));
+  assert_eq!(
+    stage.fill_color(&cell(11, 20)),
+    Some(light(PaletteColor::Highlight)),
+    "hovered, not chosen"
+  );
+  assert_eq!(stage.fill_color(&cell(11, 12)), Some(light(PaletteColor::Primary)));
+  stage.click(&cell(11, 18));
+  assert_eq!(held.get_untracked(), Some(day(11, 18)));
+  assert_eq!(stage.fill_color(&cell(11, 18)), Some(light(PaletteColor::Primary)));
+  assert_eq!(stage.fill_color(&cell(11, 12)), None);
+}
+
+#[test]
+fn force_draws_the_day_tab_enters_at() {
+  // Nothing chosen and today not shown: Tab would enter at the 1st of December.
+  let value = Signal::new(None);
+  let month = Signal::new(YearMonth::new(2026, 12).unwrap());
+  let mut stage = single(&value, move |calendar| {
+    calendar
+      .month(month.clone())
+      .force(Some(lurq::ui::Interaction::Hovered))
+  });
+  assert_eq!(stage.fill_color(&cell(12, 1)), Some(light(PaletteColor::Highlight)));
+  assert_eq!(stage.fill_color(&cell(12, 2)), None);
+}
+
+#[test]
+fn today_is_the_current_day() {
+  let value = Signal::new(Some(day(11, 12)));
+  let rules = Recipe::new().state(lurq::ui::CalendarState::Current, CalendarPart::Day, |s| {
+    s.background(PaletteColor::Destructive)
+  });
+  let mut stage = single(&value, move |calendar| calendar.rules(&rules));
+  assert_eq!(stage.fill_color(&cell(11, 9)), Some(light(PaletteColor::Destructive)));
+  assert_eq!(stage.fill_color(&cell(11, 10)), None);
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn its_words_can_be_said_otherwise() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = single(&value, |calendar| {
+    calendar
+      .label("Due date")
+      .previous_label("Попередній місяць")
+      .next_label("Наступний місяць")
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said(&mut stage, "cal", "a11y_role").as_deref(), Some("group"));
+  assert_eq!(said(&mut stage, "cal", "a11y_name").as_deref(), Some("Due date"));
+  assert_eq!(
+    said(&mut stage, "cal-previous", "a11y_name").as_deref(),
+    Some("Попередній місяць")
+  );
+  assert_eq!(
+    said(&mut stage, "cal-next", "a11y_name").as_deref(),
+    Some("Наступний місяць")
+  );
+}
+
+#[test]
+fn a_press_of_a_day_of_the_month_beside_keeps_the_focus_on_it() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = single(&value, |calendar| calendar);
+  // The 28th of October is in the first week of November.
+  stage.click(&cell(10, 28));
+  assert_eq!(value.get_untracked(), Some(day(10, 28)));
+  assert!(stage.paints("October 2026"));
+  assert_eq!(
+    focused(&stage),
+    Some(cell(10, 28)),
+    "the day chosen, in the month now shown"
+  );
+  // The keys go on from it.
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage), Some(cell(10, 29)));
 }

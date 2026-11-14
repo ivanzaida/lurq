@@ -2,11 +2,12 @@
 //! perf overlay's samples and continuous images. A frame is due when the timeline next draws something else, at
 //! most one per display refresh, and never while the window cannot be seen.
 
-use std::time::{Duration, Instant};
-
 use winit::{event::WindowEvent, window::Window};
 
-use crate::app::Tree;
+use crate::{
+  app::Tree,
+  time::{Duration, Instant},
+};
 
 /// A refresh at 60 Hz, for a window whose display reports no rate.
 const FALLBACK_REFRESH_INTERVAL: Duration = Duration::from_nanos(16_666_667);

@@ -1,9 +1,8 @@
-use std::time::{Duration, Instant};
-
 use crate::{
   animation::Easing,
   app::theme::{PaletteColor, ThemePalette},
   node::color::Color,
+  time::{Duration, Instant},
 };
 
 const DEFAULT_SCROLLBAR_WIDTH: f32 = 8.0;

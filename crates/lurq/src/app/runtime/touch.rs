@@ -6,14 +6,13 @@
 //! finger lifts. Momentum that reaches an end carries the content past it and the same spring brings it back.
 //! Both are a scroll view of the platform's: `UIScrollView` on iOS.
 
-use std::time::{Duration, Instant};
-
 use super::{Tree, find_node_by_id, hit_test_tree, scrollbar_hit_at, trim_hits_to_scrollbar};
 use crate::{
   app::events::ScrollPhase,
   core::NodeId,
   layout::layout_kind::{ScrollDirection, ScrollState},
   node::{node::Node, node_kind::NodeKind},
+  time::{Duration, Instant},
 };
 
 /// How much of a finger's travel past an end the content follows at first; `UIScrollView`'s constant.

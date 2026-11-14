@@ -17,13 +17,12 @@
 //! ([`Tree::has_active_timeline`], [`Tree::next_timeline_change`]): a shell paces their frames as it does a
 //! transition's, and asks for none once the content is where it was going.
 
-use std::time::Instant;
-
 use super::{Tree, find_node_by_id, find_scroll_node_id_by_state, mark_scroll_layout_dirty};
 use crate::{
   app::{events::ScrollPhase, theme::Theme},
   core::NodeId,
   layout::layout_kind::ScrollState,
+  time::Instant,
 };
 
 /// A scroll container a wheel left on its way.

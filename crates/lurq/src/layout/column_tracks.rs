@@ -9,8 +9,10 @@
 //!
 //! **Widths.** A track is a length in pixels, a share of the room the others
 //! and the gaps leave, or as wide as its content, each between a least and a
-//! most. The content of a track is measured by what holds the rows
-//! (`.measures_column_tracks(&tracks)`): when it is laid out it measures the
+//! most. A row laid out with no room known (in what scrolls sideways, before
+//! what holds it stretches it) has its shares at their least, so that a share
+//! takes the room there is and not the width of what is in it. The content of a track is measured by what holds the
+//! rows (`.measures_column_tracks(&tracks)`): when it is laid out it measures the
 //! cells of the rows in it, and keeps the widest a track has had, so that a
 //! column does not narrow as the rows in it change while they scroll. The
 //! rows that are not built are not measured: a table of thousands of rows
@@ -31,7 +33,8 @@ pub enum TrackWidth {
   Px(f32),
   /// A share of the room the other tracks and the gaps leave: two tracks of
   /// `Share(1.0)` and `Share(2.0)` split it one to two. Where the room is not
-  /// known (a row as wide as its content), as wide as its content.
+  /// known (a row as wide as its content), as narrow as its least: what is in
+  /// it does not widen it, and a row that is stretched gives it the room.
   Share(f32),
   /// As wide as the widest of its cells that has been laid out.
   Content,
@@ -81,9 +84,9 @@ impl TrackSpec {
     self
   }
 
-  /// Whether what is in it decides its width anywhere: a track in pixels never.
+  /// Whether what is in it decides its width: only a track as wide as its content.
   fn measured(&self) -> bool {
-    !matches!(self.width, TrackWidth::Px(_))
+    matches!(self.width, TrackWidth::Content)
   }
 
   fn clamp(&self, width: f32) -> f32 {
@@ -197,7 +200,8 @@ impl ColumnTracks {
 /// The widths of `specs` whose cells measured `content`, in `available`
 /// where it is known, `gap` apart. A track in pixels and one sized by its
 /// content keep their widths; the tracks with a share split what is left
-/// between their least and their most. Where the tracks do not fit, nothing
+/// between their least and their most, and are at their least where the room
+/// is not known. Where the tracks do not fit, nothing
 /// gives way below its least: the row is wider than its room.
 pub(crate) fn resolve_tracks(specs: &[TrackSpec], content: &[f32], available: Option<f32>, gap: f32) -> Vec<f32> {
   let measured = |index: usize| content.get(index).copied().unwrap_or(0.0);
@@ -214,7 +218,9 @@ pub(crate) fn resolve_tracks(specs: &[TrackSpec], content: &[f32], available: Op
     .enumerate()
     .map(|(index, spec)| match spec.width {
       TrackWidth::Px(px) => spec.clamp(px),
-      TrackWidth::Content | TrackWidth::Share(_) => spec.clamp(measured(index)),
+      TrackWidth::Content => spec.clamp(measured(index)),
+      // A share takes the room there is: with none known, its least.
+      TrackWidth::Share(_) => spec.clamp(0.0),
     })
     .collect();
   let Some(available) = available else {
@@ -281,11 +287,11 @@ mod tests {
   }
 
   #[test]
-  fn where_the_room_is_not_known_a_share_is_as_wide_as_its_content() {
+  fn where_the_room_is_not_known_a_share_is_at_its_least_whatever_is_in_it() {
     let specs = [TrackSpec::share(1.0).min(80.0), TrackSpec::share(1.0)];
     let widths = resolve_tracks(&specs, &[40.0, 150.0], None, 16.0);
 
-    assert_eq!(widths, [80.0, 150.0]);
+    assert_eq!(widths, [80.0, 0.0]);
   }
 
   #[test]
@@ -297,7 +303,7 @@ mod tests {
   #[test]
   fn a_track_keeps_the_widest_cell_it_has_had() {
     let tracks = ColumnTracks::new([TrackSpec::content(), TrackSpec::px(40.0), TrackSpec::share(1.0)]);
-    assert!(tracks.measures(0) && !tracks.measures(1) && tracks.measures(2));
+    assert!(tracks.measures(0) && !tracks.measures(1) && !tracks.measures(2));
 
     assert!(tracks.record(&[90.0, 0.0, 10.0]));
     assert!(!tracks.record(&[60.0, 0.0, 10.0]), "narrower cells widen nothing");

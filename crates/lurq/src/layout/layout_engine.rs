@@ -1,10 +1,10 @@
-#[cfg(feature = "perf_profile")]
-use std::time::{Duration, Instant};
 use std::{
   cell::{Cell, RefCell},
   sync::Arc,
 };
 
+#[cfg(feature = "perf_profile")]
+use crate::time::{Duration, Instant};
 use crate::{
   app::{
     ctx::{ModalSpec, OverlaySpec},
@@ -292,9 +292,9 @@ pub(crate) struct LayoutEngine {
   /// Where the focused text input was last painted (`text_input_quads`).
   text_input_frame: Cell<Option<text_input_quads::TextInputFrame>>,
   /// The time of the frame being painted (`begin_scrollbar_frame`).
-  scrollbar_frame_at: Cell<std::time::Instant>,
+  scrollbar_frame_at: Cell<crate::time::Instant>,
   /// When a bar painted in this frame next changes (`take_scrollbar_change`).
-  scrollbar_change_at: Cell<Option<std::time::Instant>>,
+  scrollbar_change_at: Cell<Option<crate::time::Instant>>,
   /// The theme the values below were copied from, and its version then
   /// (`set_theme`). `None` until a theme is set: the values are the defaults.
   theme_seen: RefCell<Option<(Theme, u64)>>,
@@ -605,7 +605,7 @@ impl LayoutEngine {
       native_text_selection: Cell::new(false),
       native_selection_rects: RefCell::new(Vec::new()),
       text_input_frame: Cell::new(None),
-      scrollbar_frame_at: Cell::new(std::time::Instant::now()),
+      scrollbar_frame_at: Cell::new(crate::time::Instant::now()),
       scrollbar_change_at: Cell::new(None),
       theme_seen: RefCell::new(None),
       theme_scopes: RefCell::new(Vec::new()),

@@ -73,10 +73,10 @@ pub enum TokenInputState {
   FullWidth,
   /// Its text wraps onto as many rows as it needs, between the rows it is given.
   Multiline,
-  /// The token is under the pointer.
-  TokenHovered,
-  /// The selection covers all of the token.
-  TokenSelected,
+  /// The token is under the pointer: a token's own state, resolved on its parts.
+  Hovered,
+  /// The selection covers all of the token: a token's own state, resolved on its parts.
+  Selected,
 }
 
 names!(TokenInputState {
@@ -87,8 +87,8 @@ names!(TokenInputState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Multiline => "multiline",
-  TokenHovered => "token_hovered",
-  TokenSelected => "token_selected",
+  Hovered => "hovered",
+  Selected => "selected",
 });
 
 /// The variant of a token that a [`Mentions`](super::Mentions) chose: in the type of the text around it, in the
@@ -182,12 +182,12 @@ type DressToken = Arc<dyn Fn(&str, Token) -> Token + Send + Sync>;
 #[derive(Clone)]
 struct ListOf {
   items: Signal<Vec<String>>,
-  draft: Option<Signal<String>>,
+  query: Option<Signal<String>>,
   rules: Rules,
   commit_on_blur: bool,
   dress: Option<DressToken>,
   on_change: Vec<ListHandler>,
-  on_draft: Vec<DraftHandler>,
+  on_query: Vec<DraftHandler>,
   /// What puts the caret at the end of the text the list is kept as.
   controller: TextInputController,
   /// Keeps the text the list is kept as while the input is in the tree.
@@ -211,13 +211,13 @@ impl ListOf {
         handler(&items);
       }
     }
-    if let Some(held) = &self.draft
+    if let Some(held) = &self.query
       && held.get_untracked() != draft
     {
       held.set(draft.to_owned());
     }
     if draft != draft_was {
-      for handler in &self.on_draft {
+      for handler in &self.on_query {
         handler(draft);
       }
     }
@@ -273,13 +273,13 @@ impl ListOf {
 /// let template = Signal::new("Hello {{name}}, your order shipped.".to_owned());
 /// let prompt = TokenInput::new(template)
 ///   .rows(2, 6)
-///   .tokens(|text| text.match_indices("{{name}}").map(|(at, name)| Token::new(at..at + name.len()).removable(false)).collect());
+///   .find_tokens(|text| text.match_indices("{{name}}").map(|(at, name)| Token::new(at..at + name.len()).removable(false)).collect());
 /// ```
 ///
 /// It holds one of two things. [`TokenInput::list`] holds a list, `Signal<Vec<String>>`: each item is a token, and
 /// what is typed is the draft, which is no part of the list until Enter or a separator makes an item of it. Tags,
 /// recipients. [`TokenInput::new`] holds text, `Signal<String>`, in which the function given to
-/// [`TokenInput::tokens`] finds the tokens again in every render, so an edit that changes a token's text makes it
+/// [`TokenInput::find_tokens`] finds the tokens again in every render, so an edit that changes a token's text makes it
 /// what the function then says of it: variables in a template, where the text around the tokens is the value too.
 /// The text is what is copied, pasted, undone, sent with a form and read by tooling, which sees a `textbox` whose
 /// value is the text with each token as its own words.
@@ -288,7 +288,7 @@ impl ListOf {
 /// [`Textarea`](super::Textarea), with its sizes and judgments. A token is drawn by the recipe's
 /// [`TokenInputPart::Token`], [`TokenInputPart::TokenLabel`] and [`TokenInputPart::TokenIcon`], in the colors
 /// of a [`Tag`](super::Tag) of its variant; under the pointer and covered by the selection it takes the looks of
-/// [`TokenInputState::TokenHovered`] and [`TokenInputState::TokenSelected`]. A click on a token's cross takes it
+/// [`TokenInputState::Hovered`] and [`TokenInputState::Selected`]. A click on a token's cross takes it
 /// away, as an edit through [`TokenInput::on_input`] that undo brings back.
 pub struct TokenInput {
   value: Signal<String>,
@@ -333,7 +333,7 @@ impl TokenInput {
   /// A token input over a list: each item of `items` is a token, and a person adds to the list by typing an item
   /// and Enter, or one of the [`TokenInput::separators`], and takes from it by a token's cross or by Backspace.
   /// What is typed and is no item yet is the draft: it is not in the list, it is the text after the tokens, and
-  /// [`TokenInput::draft`] gives the app a signal of it. A paste of several items adds each. What is typed with the
+  /// [`TokenInput::query`] gives the app a signal of it. A paste of several items adds each. What is typed with the
   /// caret among the tokens goes to the draft, which is always after them.
   ///
   /// The input keeps the text it edits itself, for as long as it is in the tree: a list the app sets is shown as
@@ -343,7 +343,7 @@ impl TokenInput {
     let mut input = Self::new(text);
     input.list = Some(ListOf {
       items,
-      draft: None,
+      query: None,
       rules: Rules {
         separators: vec![','],
         unique: false,
@@ -351,7 +351,7 @@ impl TokenInput {
       commit_on_blur: false,
       dress: None,
       on_change: Vec::new(),
-      on_draft: Vec::new(),
+      on_query: Vec::new(),
       controller,
       alive,
     });
@@ -375,11 +375,12 @@ impl TokenInput {
     self
   }
 
-  /// The signal that holds what is typed and is no item yet, of a list: the app reads it for suggestions, and
-  /// what the app sets on it is what the input shows after its tokens.
-  pub fn draft(mut self, draft: Signal<String>) -> Self {
+  /// The signal that holds the draft, what is typed and is no item yet, of a list: the query the app reads for
+  /// suggestions, as a [`Combobox`](super::Combobox)'s is. What the app sets on it is what the input shows after
+  /// its tokens.
+  pub fn query(mut self, query: Signal<String>) -> Self {
     if let Some(list) = &mut self.list {
-      list.draft = Some(draft);
+      list.query = Some(query);
     }
     self
   }
@@ -394,7 +395,7 @@ impl TokenInput {
 
   /// How the token of each item of a list is dressed: called with the item and its token, for a variant by what
   /// the item is, or a token without a cross.
-  pub fn token(mut self, dress: impl Fn(&str, Token) -> Token + Send + Sync + 'static) -> Self {
+  pub fn dress_token(mut self, dress: impl Fn(&str, Token) -> Token + Send + Sync + 'static) -> Self {
     if let Some(list) = &mut self.list {
       list.dress = Some(Arc::new(dress));
     }
@@ -409,10 +410,11 @@ impl TokenInput {
     self
   }
 
-  /// Called with the draft when a person changed it: what is typed and is no item yet. Of a list.
-  pub fn on_draft(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+  /// Called with the draft when a person changed it: what is typed and is no item yet, the query for
+  /// suggestions. Of a list.
+  pub fn on_query(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
     if let Some(list) = &mut self.list {
-      list.on_draft.push(Arc::new(handler));
+      list.on_query.push(Arc::new(handler));
     }
     self
   }
@@ -420,7 +422,7 @@ impl TokenInput {
   /// How the app finds the tokens in the text: called with the text in every render. A list's tokens are its
   /// items, and this is not asked. Tokens that overlap one
   /// before them, that hold a line break or that are not on the text's characters are left out.
-  pub fn tokens(mut self, find: impl Fn(&str) -> Vec<Token> + Send + Sync + 'static) -> Self {
+  pub fn find_tokens(mut self, find: impl Fn(&str) -> Vec<Token> + Send + Sync + 'static) -> Self {
     self.find = Some(Arc::new(find));
     self
   }
@@ -499,7 +501,7 @@ impl TokenInput {
 
   /// Called before an edit is made, with what the input will hold: a handler may refuse it
   /// ([`TextInputEvent::prevent_default`]). Taking a token away by its cross is an edit too. Over a list the text
-  /// of the event is the one the input keeps the list as: [`TokenInput::on_change`] and [`TokenInput::on_draft`]
+  /// of the event is the one the input keeps the list as: [`TokenInput::on_change`] and [`TokenInput::on_query`]
   /// say what a person did there.
   pub fn on_input(mut self, handler: impl Fn(&TextInputEvent) + Send + Sync + 'static) -> Self {
     self.on_input.push(Arc::new(handler));
@@ -568,8 +570,8 @@ impl TokenInput {
     // A list is shown as the app holds it: its items, then the draft the app holds or the one that is typed.
     if let Some(list) = &self.list {
       let held = self.value.get_untracked();
-      let draft = match &list.draft {
-        Some(draft) => draft.get(),
+      let draft = match &list.query {
+        Some(query) => query.get(),
         None => token_list::parse(&held).1,
       };
       let text = token_list::encode(&list.items.get(), &draft);
@@ -811,14 +813,8 @@ impl TokenInputView {
           Some((_, _, style)) => style.clone(),
           None => {
             let rest = self.token_style(&self.token_recipe(token.variant, &[]), cross);
-            let hovered = self.token_style(
-              &self.token_recipe(token.variant, &[TokenInputState::TokenHovered]),
-              cross,
-            );
-            let selected = self.token_style(
-              &self.token_recipe(token.variant, &[TokenInputState::TokenSelected]),
-              cross,
-            );
+            let hovered = self.token_style(&self.token_recipe(token.variant, &[TokenInputState::Hovered]), cross);
+            let selected = self.token_style(&self.token_recipe(token.variant, &[TokenInputState::Selected]), cross);
             let style = rest.hovered(hovered).selected(selected);
             looks.push((token.variant, cross, style.clone()));
             style
@@ -1015,13 +1011,13 @@ impl Themed for TokenInput {
         .when(selector, TokenLabel, |s| s.line_height(token_line))
     });
     let recipe = recipe
-      .state(TokenInputState::TokenHovered, Token, |s| s.background(SecondaryHover))
-      .state(TokenInputState::TokenHovered, TokenIcon, |s| s.foreground(Foreground))
-      .state(TokenInputState::TokenSelected, Token, |s| s.background(Primary))
-      .state(TokenInputState::TokenSelected, TokenLabel, |s| {
+      .state(TokenInputState::Hovered, Token, |s| s.background(SecondaryHover))
+      .state(TokenInputState::Hovered, TokenIcon, |s| s.foreground(Foreground))
+      .state(TokenInputState::Selected, Token, |s| s.background(Primary))
+      .state(TokenInputState::Selected, TokenLabel, |s| {
         s.foreground(PrimaryForeground)
       })
-      .state(TokenInputState::TokenSelected, TokenIcon, |s| {
+      .state(TokenInputState::Selected, TokenIcon, |s| {
         s.foreground(PrimaryForeground)
       });
     // A token of a color keeps its fill and ink under the pointer; in a selection it is in the primary color, as
@@ -1034,7 +1030,7 @@ impl Themed for TokenInput {
       (Name::new(MENTION), InfoMuted, Info),
     ];
     let recipe = colors.into_iter().fold(recipe, |recipe, (variant, fill, ink)| {
-      let hovered = Selector::new().variant(variant).state(TokenInputState::TokenHovered);
+      let hovered = Selector::new().variant(variant).state(TokenInputState::Hovered);
       recipe
         .variant(variant, Token, |s| s.background(fill.clone()))
         .variant(variant, TokenLabel, |s| s.foreground(ink.clone()))

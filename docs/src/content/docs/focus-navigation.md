@@ -208,12 +208,12 @@ Row::new()
   .child(
     Column::new()
       .child(title("File", &file, &file_open, &edit_open))
-      .child(Menu::new(file.clone(), file_open.clone()).item(MenuItem::new("New")).item(MenuItem::new("Open"))),
+      .child(Menu::new(file_open.clone(), file.clone()).item(MenuItem::new("New")).item(MenuItem::new("Open"))),
   )
   .child(
     Column::new()
       .child(title("Edit", &edit, &edit_open, &file_open))
-      .child(Menu::new(edit.clone(), edit_open.clone()).item(MenuItem::new("Undo")).item(MenuItem::new("Redo"))),
+      .child(Menu::new(edit_open.clone(), edit.clone()).item(MenuItem::new("Undo")).item(MenuItem::new("Redo"))),
   );
 ```
 
