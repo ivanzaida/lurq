@@ -380,6 +380,14 @@ macro_rules! impl_into_node {
       /// Measures the cells of the rows in the element that lay their children out in `tracks`, its children
       /// and the children of those: what holds the rows of a table. A track sized by its content is as wide as
       /// the widest of them. See [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      /// How many tracks of the row of [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks) it is in the
+      /// element takes, from the one it would take: as wide as those tracks and the gaps between them. One room
+      /// for the columns a table does not build where they are out of view, in place of a cell for each.
+      pub fn track_span(mut self, span: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::track_span(node, span));
+        self
+      }
+
       pub fn measures_column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::measures_column_tracks(node, tracks.clone()));
         self

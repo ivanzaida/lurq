@@ -241,6 +241,9 @@ Column::new()
 - What measures the tracks measures the rows that are its children and the rows in those, three deep, before it lays
   them out, and a track keeps the widest cell it has had, so a column does not narrow as rows scroll by. Only rows that
   are built are measured: in a list of thousands that builds those in view, a column is as wide as what has been seen.
+- `.track_span(n)` on a child of a row makes it take `n` tracks, as wide as they are with the gaps between them,
+  and what comes after it starts in the track after them. A table whose columns are out of view stands one such room
+  for them in place of a cell each; a room is not measured.
 - A list is a handle: clones are the same list, and two lists are equal only where they are the same. A row whose list
   is another than before is laid out again, so columns that change are a new list.
 
