@@ -9,7 +9,7 @@ use lurq::{
   core::{Date, DateLocale, Signal},
   layout::Alignment,
   node::Element,
-  ui::{CalendarMemory, DatePicker, Field, InputSize, Interaction, Kbd},
+  ui::{CalendarMemory, DatePicker, DatePickerSize, Field, Interaction, Kbd},
 };
 
 use crate::{
@@ -31,7 +31,11 @@ fn items() -> Row {
   Row::new().width(FILL).spacing(28.0).wrap().align_items(Alignment::End)
 }
 
-const SIZES: [(&str, InputSize); 3] = [("Sm", InputSize::Sm), ("Md", InputSize::Md), ("Lg", InputSize::Lg)];
+const SIZES: [(&str, DatePickerSize); 3] = [
+  ("Sm", DatePickerSize::Sm),
+  ("Md", DatePickerSize::Md),
+  ("Lg", DatePickerSize::Lg),
+];
 const LOCALES: [(&str, &str); 5] = [
   ("en", "en"),
   ("en-US", "en-US"),
@@ -88,7 +92,7 @@ pub struct DatePickerPage {
   playground: Playground,
   value: Signal<Option<Date>>,
   placeholder: Signal<String>,
-  size: Signal<InputSize>,
+  size: Signal<DatePickerSize>,
   locale: Signal<&'static str>,
   min: Signal<bool>,
   blocked: Signal<bool>,
@@ -145,13 +149,19 @@ impl DatePickerPage {
         picker
       }
     };
-    let record = self.playground.recorder();
+    let (record, record_open, record_dismiss, record_submit) = (
+      self.playground.recorder(),
+      self.playground.recorder(),
+      self.playground.recorder(),
+      self.playground.recorder(),
+    );
+    let said = |date: Option<Date>| date.map_or("None".to_owned(), |date| format!("Some({date})"));
     let shown = plain(&self.memory)
       .force(self.playground.forced())
-      .on_change(move |date| match date {
-        Some(date) => record(format!("on_change(Some({date}))")),
-        None => record("on_change(None)".to_owned()),
-      });
+      .on_change(move |date| record(format!("on_change({})", said(date))))
+      .on_submit(move |date| record_submit(format!("on_submit({})", said(date))))
+      .on_open_change(move |open| record_open(format!("on_open_change({open})")))
+      .on_dismiss(move || record_dismiss("on_dismiss()".to_owned()));
     let detached = CalendarMemory::new();
     let make: Arc<dyn Fn() -> Element + Send + Sync> = Arc::new(move || plain(&detached).into());
 
@@ -160,9 +170,9 @@ impl DatePickerPage {
       "DatePicker::new(due.clone())".to_owned(),
       format!("    .placeholder({placeholder:?})"),
     ];
-    if size != InputSize::Md {
+    if size != DatePickerSize::Md {
       code.push(format!(
-        "    .size(InputSize::{})",
+        "    .size(DatePickerSize::{})",
         SIZES.iter().find(|(_, held)| *held == size).unwrap().0
       ));
     }
@@ -245,7 +255,7 @@ impl DatePickerPage {
           prop("placeholder", "&str", field(&self.placeholder)),
           prop(
             "size",
-            "InputSize",
+            "DatePickerSize",
             self.playground.select(0, &SIZES, &size, move |size| set_size.set(size)),
           ),
           prop(
@@ -276,7 +286,7 @@ impl DatePickerPage {
         ],
         changed: [
           placeholder != "Pick a date",
-          size != InputSize::Md,
+          size != DatePickerSize::Md,
           locale != "en",
           min,
           blocked,
@@ -292,7 +302,7 @@ impl DatePickerPage {
         reset: Arc::new(move || {
           to.0.set(Some(Date::today()));
           to.1.set("Pick a date".to_owned());
-          to.2.set(InputSize::Md);
+          to.2.set(DatePickerSize::Md);
           to.3.set("en");
           to.4.set(false);
           to.5.set(false);
@@ -314,7 +324,7 @@ impl Component for DatePickerPage {
       playground: Playground::new(ctx, 4),
       value: ctx.signal(Some(Date::today())),
       placeholder: ctx.signal("Pick a date".to_owned()),
-      size: ctx.signal(InputSize::Md),
+      size: ctx.signal(DatePickerSize::Md),
       locale: ctx.signal("en"),
       min: ctx.signal(false),
       blocked: ctx.signal(false),
@@ -361,7 +371,7 @@ impl Component for DatePickerPage {
     let sizes = items()
       .child(item(
         DatePicker::new(Signal::new(Some(today)))
-          .size(InputSize::Sm)
+          .size(DatePickerSize::Sm)
           .memory(&self.kept[3]),
         "Sm · 32",
       ))
@@ -371,7 +381,7 @@ impl Component for DatePickerPage {
       ))
       .child(item(
         DatePicker::new(Signal::new(Some(today)))
-          .size(InputSize::Lg)
+          .size(DatePickerSize::Lg)
           .memory(&self.kept[5]),
         "Lg · 40",
       ));
@@ -440,7 +450,18 @@ impl Component for DatePickerPage {
          keeps one of its own.",
       ),
       ("placeholder", "&str", "", "What the field says while it is empty."),
-      ("size", "InputSize", "Md", "The height of the field: 32, 36 or 40."),
+      (
+        "controlled",
+        "Option<Date>, Fn(Option<Date>)",
+        "",
+        "The app's date and what it is told of an edit or a choice, which it answers with the date it renders next.",
+      ),
+      (
+        "size",
+        "DatePickerSize",
+        "Md",
+        "The height of the field, an input's: 32, 36 or 40.",
+      ),
       (
         "format / parse",
         "Fn(Date) -> String / Fn(&str) -> Option<Date>",
@@ -479,6 +500,18 @@ impl Component for DatePickerPage {
         "Whether the calendar is open, where the app holds it.",
       ),
       (
+        "placement / offset / collision",
+        "Placement / SpacingValue / CollisionStrategy",
+        "BottomStart / 4 / FlipThenClamp",
+        "Where the calendar opens beside the field, how far from it, and where it goes with no room.",
+      ),
+      (
+        "inline",
+        "bool",
+        "false",
+        "The panel drawn in place under the field, open or not: for a page that holds a calendar.",
+      ),
+      (
         "month",
         "Signal<YearMonth>",
         "kept",
@@ -504,10 +537,41 @@ impl Component for DatePickerPage {
         "What it is called to tooling. A field gives it its label.",
       ),
       (
+        "trigger_label / clear_label / panel_label",
+        "&str",
+        "English",
+        "What the button, the cross and the panel are called to tooling: Choose date, Clear, Choose date.",
+      ),
+      (
+        "previous_label / next_label",
+        "&str",
+        "English",
+        "What the calendar's buttons are called: Previous month, Next month.",
+      ),
+      ("name", "&str", "", "The name of its value in the form it is in."),
+      (
         "on_change",
         "Fn(Option<Date>)",
         "",
-        "Called with the date each time it changes.",
+        "Called when a person changes the date, after a choice closed the calendar: not for the date it holds.",
+      ),
+      (
+        "on_input",
+        "Fn(&TextInputEvent)",
+        "",
+        "Called before an edit of the text, which it may refuse.",
+      ),
+      (
+        "on_submit",
+        "Fn(Option<Date>)",
+        "",
+        "Called on Enter, once the text is put right, with the date it holds.",
+      ),
+      (
+        "on_open_change / on_dismiss",
+        "Fn(bool) / Fn()",
+        "",
+        "Called when the calendar opens or closes, and when Escape or a press outside closed it.",
       ),
     ];
     let playground = self.play(ctx);
@@ -570,11 +634,11 @@ impl Component for DatePickerPage {
           self.frame.demo(
             2,
             sizes,
-            ".size(InputSize::Sm)",
+            ".size(DatePickerSize::Sm)",
             &[
-              "DatePicker::new(value.clone()).size(InputSize::Sm)",
+              "DatePicker::new(value.clone()).size(DatePickerSize::Sm)",
               "DatePicker::new(value.clone())",
-              "DatePicker::new(value.clone()).size(InputSize::Lg)",
+              "DatePicker::new(value.clone()).size(DatePickerSize::Lg)",
             ],
           ),
         ),

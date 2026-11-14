@@ -3550,11 +3550,15 @@ Calendar::new(due.clone()).min(Date::today()).mount(ctx);
 // The month shown in a signal of the app's: it is not the value.
 Calendar::new(due.clone()).month(shown.clone()).mount(ctx);
 
-// A range with two presses, two months side by side, weekends not to be chosen.
-Calendar::range(stay.clone())
+// stay: Signal<Option<DateRange>>: a range with two presses, two months side by side, weekends not to be chosen.
+Calendar::new(stay.clone())
   .months(2)
   .disabled_days(|date| date.weekday().days_from_monday() >= 5)
+  .on_change(|range: DateRange| println!("{range}"))
   .mount(ctx);
+
+// The app holds the date and answers a choice.
+Calendar::controlled(self.due.get(), move |date: Date| due.set(Some(date)));
 
 // What it keeps, kept by the app in a field of its component, made once: for a calendar built without ctx.
 Calendar::new(due.clone()).memory(&self.memory);
@@ -3562,7 +3566,8 @@ Calendar::new(due.clone()).memory(&self.memory);
 
 | Builder | |
 | --- | --- |
-| `new(Signal<Option<Date>>)`, `range(Signal<Option<DateRange>>)` | What is chosen: a date, or a range chosen with two presses |
+| `new(Signal<Option<Date>>)`, `new(Signal<Option<DateRange>>)` | What is chosen, which a choice sets: a date (a `Calendar`), or a range chosen with two presses (a `Calendar<DateRange>`) |
+| `controlled(Option<V>, Fn(V))` | The app's value, and what it is told of a choice, which the calendar does not set: the app answers with the value it renders it with next |
 | `month(Signal<YearMonth>)` | The month shown, the first where there are several: not the value. The heading's buttons and the keys set it |
 | `memory(&CalendarMemory)` | What the calendar keeps between renders, the app's: the month it shows where the app gives none, a range's first press and where it would end |
 | `mount(ctx)` | The calendar with a memory of its own, in the app's locale (`App::i18n`) |
@@ -3572,16 +3577,18 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `locale(DateLocale)`, `first_day(Weekday)` | The names of months and days and the first day of the week, in place of the app's locale's |
 | `week_numbers(bool)` | The ISO 8601 week number before each week |
 | `outside_days(bool)` | The days of the months before and after in the first and the last week; on, as the design draws them, and none with several months |
-| `today(Date)` | The day marked as today, in place of the system's |
+| `today(Date)` | The day marked as today (the state `Current`), in place of the system's |
 | `disabled(bool)` | It takes no input |
-| `on_change(Fn(Date))`, `on_range_change(Fn(DateRange))` | Told of a choice, the value set already |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Each day has the id with the date after it: `due-2026-11-12`; the buttons `-previous` and `-next` |
+| `label(&str)` | What the calendar is called to tooling: its panel is then a `group`. Each month is a `grid` called by its month whatever it says |
+| `previous_label(&str)`, `next_label(&str)` | What the buttons of the heading are called: "Previous month" and "Next month" in English |
+| `on_change(Fn(Date))`, `on_change(Fn(DateRange))` | Told of another date chosen, or another range ended, with it; bound to a signal, the value is set already. Not for what is chosen already, nor for the app setting the value. A second handler is called after the first |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the id with the date after it: `due-2026-11-12`; the buttons `-previous` and `-next` |
 
 - The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `CalendarMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
 - A range: the first press starts it, the pointer and the keys show where it would end, and the second ends it, before the first or after it. Its ends are chosen days, and the days between are one band.
 - The days are one stop of Tab, at the chosen day, today or the first of the month; the buttons of the heading are stops of their own before them. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and with Shift a year: into the month before or after, which is then shown, and kept between the least and the greatest date. A day that cannot be chosen takes the focus too and says so: the keys pass no day by. Enter and Space choose. The keys are the days' own, through the engine's `KeyboardEvent::focus_key`.
 - To what reads the tree each month is a `grid` called by its month (`November 2026`), of `row`s of `gridcell`s called by their day (`Thursday, Nov 12, 2026`) that say `a11y_selected`, `a11y_current` (`date`, for today) and `a11y_disabled`; the names of the days are `columnheader`s.
-- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Today`, `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`.
+- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Current` (today), `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`.
 - In the design the panel is 248 wide, on `Popover` with an edge of 1 in `Border`, `radius-lg` and 12 of padding; the heading is 32 high, the month in the body's type at 500 between two outline buttons of 28 (`radius-md`, edge in `Input`, chevrons of 16 in `MutedForeground`), 8 over the days. A day is 32 square with `radius-md`, its number at 13; the names of the days are at 12 in `MutedForeground`; the rows are 8 apart. Today and a day under the pointer are on `Highlight` (the board's `accent`); the chosen day is on `Primary`, its number in `PrimaryForeground` at 500. A day of the month beside, and one that cannot be chosen, is in `MutedForeground` at half opacity. The days between a range's ends are on `Highlight` with no radius.
 - A theme's renderer is given `CalendarView`: `view.months`, `view.chosen`, `view.draft`, `view.hover`, `view.shown_range()`, `view.day_states(date, outside)`, `view.day_recipe(states)`, `view.entry()`, and the pieces `nav(by)`, `header(index)`, `headers()`, `weekdays()`, `day(date, month)`, `week(days, month)`, `grid(index)`, `grids()`, `panel()` and `render()`.
 
@@ -3604,27 +3611,38 @@ Field::new("Due date", DatePicker::new(due.clone()).min(Date::today()).memory(&s
 
 // Written and read the app's way.
 DatePicker::new(due.clone()).format(|date| date.to_string()).parse(|text| text.parse().ok());
+
+// The app holds the date and answers what is typed or chosen.
+DatePicker::controlled(self.due.get(), move |date| due.set(date));
 ```
 
 | Builder | |
 | --- | --- |
 | `new(Signal<Option<Date>>)` | The date the field holds |
+| `controlled(Option<Date>, Fn(Option<Date>))` | The app's date, and what it is told of an edit or a choice, which the picker does not set: the field shows what the app holds until it answers |
 | `memory(&CalendarMemory)`, `mount(ctx)` | What it keeps between renders (whether the calendar is open, the field it opens under, the month shown): the app's, or its own where it is mounted |
 | `open(Signal<bool>)`, `month(Signal<YearMonth>)` | Whether the calendar is open and the month it shows, where the app holds them |
+| `placement(Placement)`, `offset(..)`, `collision(CollisionStrategy)` | Where the calendar opens beside the field (`BottomStart`), how far from it, and where it goes with no room, as a [popover](#popover)'s |
+| `inline(bool)` | The panel drawn in place under the field, open or not, taking no focus: for a gallery, a test, a page that holds a calendar |
 | `placeholder(&str)` | What the field says while it is empty |
 | `format(Fn(Date) -> String)`, `parse(Fn(&str) -> Option<Date>)` | How the field writes the date and reads what is typed, in place of the locale's |
 | `locale(DateLocale)` | How dates are written and read, and the calendar's names and first day |
 | `min`, `max`, `disabled_days`, `first_day`, `week_numbers`, `today` | As the calendar's: what cannot be chosen cannot be typed either |
 | `clearable(bool)` | A button at the end of the field that empties it while it holds a date |
-| `size(InputSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `name` | As an [input](#input)'s. A read-only picker opens no calendar |
-| `on_change(Fn(Option<Date>))` | Told of each change, by typing, a choice or the button that empties it |
+| `size(DatePickerSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `name` | As an [input](#input)'s; `DatePickerSize` is `TextBoxSize`. A read-only picker opens no calendar |
+| `trigger_label(&str)`, `clear_label(&str)`, `panel_label(&str)` | What the button, the cross and the panel are called to tooling: "Choose date", "Clear", "Choose date" in English |
+| `previous_label(&str)`, `next_label(&str)` | What the calendar's buttons are called |
+| `on_change(Fn(Option<Date>))` | Told of another date, by typing, a choice or the button that empties it; a choice closes the calendar first. Not for the date it holds, nor for the app setting it |
+| `on_input(Fn(&TextInputEvent))` | Told of an edit of the text before it is made, which it may refuse: what is refused is not read |
+| `on_submit(Fn(Option<Date>))` | Told of Enter, once the text is put right, with the date it holds |
+| `on_open_change(Fn(bool))`, `on_dismiss(Fn())` | Told of the calendar opening and closing, and of Escape or a press outside closing it |
 | `state`, `style`, `rules`, `force`, `id`, `key` | As an input has them. `id` is the field's; the button has it with `-trigger`, the cross `-clear`, the panel `-panel`, the calendar `-calendar` |
 
 - What is typed is read as it is typed, in the locale's short form (`Nov 12, 2026`), in its numbers (`11/12/2026`, `12.11.2026`) or as ISO 8601, a month by its name or the start of it in the locale's words or in English: a date that can be chosen is the value at once, and the field keeps what is half typed while it has the focus. The year has four digits, so `Nov 12, 20` is no date yet. When the focus leaves the field, or on Enter, the text is written again as the picker writes the value; an emptied field is no date, and anything else takes back the date it had.
 - The calendar opens in a [popover](#popover) under the field, from the button at its start or from Down in the field, with the focus on the chosen day, today or the first of the month. A choice closes it and the focus goes back to the field, as Escape and a press outside do.
 - To what reads the tree the field is a `combobox` that says `a11y_haspopup` `dialog` and `a11y_expanded`, as the date picker of the ARIA patterns is; the panel is a `dialog` called "Choose date". The button that opens it and the cross that empties it are pressed by the pointer and take no focus.
 - In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A picker in a field keeps what it keeps in a `CalendarMemory`, since a field is given the picker's builder.
-- Parts: `DatePickerPart::Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's root), and a range picker's `Presets` and `Preset`. The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Disabled`, `FullWidth`, and the input's judgment, size and read only.
+- Parts: `DatePickerPart::Control` (rules over the input's box), `Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's root), and a range picker's `Presets`, `Preset` and `Separator` (rules over the line beside them). The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, and the input's size.
 - In the design the field is the input, 260 by 36, with a calendar's glyph of 16 in `MutedForeground` 12 from its start and the date 8 after it in the body's type. The glyph is in a button of 24 with `radius-sm`, on `Highlight` under the pointer. The calendar opens 4 under the field, in the popover's panel with no padding of its own, as wide as the calendar.
 - A theme's renderer is given `DatePickerView` (`PickerView<Date>`): `view.text`, `view.value`, `view.open`, and the pieces `control()`, `trigger()`, `clear()`, `field()`, `calendar()`, `panel()` and `render()`.
 
@@ -3650,10 +3668,10 @@ DateRangePicker::new(period.clone())
 
 | Builder | |
 | --- | --- |
-| `new(Signal<Option<DateRange>>)` | The range the field holds |
+| `new(Signal<Option<DateRange>>)`, `controlled(Option<DateRange>, Fn(Option<DateRange>))` | The range the field holds: bound to a signal, or the app's |
 | `months(n)` | How many months the calendar shows side by side: one as the design draws it, or two |
-| `preset(label, DateRange)` | A range offered beside the calendar; a press chooses it and closes the calendar. The one chosen is on the secondary fill |
-| everything else | As a [date picker](#date-picker)'s, over a range: `format(Fn(DateRange) -> String)`, `parse(Fn(&str) -> Option<DateRange>)`, `on_change(Fn(Option<DateRange>))` |
+| `preset(label, DateRange)`, `presets([(label, DateRange)])` | Ranges offered beside the calendar, after those offered already; a press chooses one and closes the calendar. The one chosen is on the secondary fill |
+| everything else | As a [date picker](#date-picker)'s, over a range: `format(Fn(DateRange) -> String)`, `parse(Fn(&str) -> Option<DateRange>)`, `on_change(Fn(Option<DateRange>))`, `on_submit(Fn(Option<DateRange>))`; the button and the panel are called "Choose dates" |
 
 - The range is in one field, as the design draws it: `Nov 9 – Nov 15, 2026`, the year once where both ends are in it. What is typed is read as two dates in any form the locale reads, with a dash or `to` between them; the year of the first may be left out where it is the second's.
 - In the calendar the first press starts the range, the pointer and the keys show where it would end, and the second press ends it and closes the calendar. Escape or a press outside drops a range half chosen. Neither end may be a day that cannot be chosen.
