@@ -26,6 +26,12 @@ pub enum HourCycle {
   H12,
 }
 
+impl crate::app::component::DevtoolsInspectable for HourCycle {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 /// A time of day: hours 0 to 23, minutes and seconds 0 to 59.
 ///
 /// ```

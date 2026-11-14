@@ -21,7 +21,7 @@ use crate::{
     events::KeyboardEvent,
     theme::{ControlSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{self, Row},
+  components::Row,
   core::{Date, DateOrder, DateSegment, DateText, DayPeriod, HourCycle, Signal, Time, YearMonth},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, FocusGroup, RadiusValue},
@@ -848,7 +848,7 @@ impl SegmentFieldView {
     if let Some((name, value)) = &self.name {
       // What a form reads: the value in ISO 8601, in a text input no one sees or reaches.
       root = root.child(
-        components::TextInput::new(Signal::new(value.clone()))
+        crate::components::TextInput::new(Signal::new(value.clone()))
           .name(name.clone())
           .focusable(false)
           .width(0.0)
