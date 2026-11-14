@@ -167,6 +167,42 @@ fn what_is_in_a_group_of_none_in_a_one_stop_group_is_a_stop_of_its_own() {
 }
 
 #[test]
+fn what_is_in_a_group_of_none_in_a_stop_of_a_one_stop_group_stays_with_that_stop() {
+  // The rows of a table, each a stop with stops inside it, a button in a cell of its own beside the row's keys.
+  let row = |id: &str, button: &str| {
+    Button::new(id)
+      .id(id.to_owned())
+      .tab_index(0)
+      .stops_inside(true)
+      .child(Row::new().focus_group(FocusGroup::none()).child(stop(button)))
+  };
+  let mut tree = headless(
+    Column::new()
+      .child(stop("before"))
+      .child(
+        Column::new()
+          .focus_group(FocusGroup::vertical().one_stop(true))
+          .child(row("row-1", "open-1"))
+          .child(row("row-2", "open-2")),
+      )
+      .child(stop("after")),
+  );
+  tab(&mut tree);
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("row-1"), "the group's one stop");
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("open-1"), "into the row's button");
+  tab(&mut tree);
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("after"),
+    "and on out of the group: the other row's button is no stop of its own"
+  );
+  shift_tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("open-1"));
+}
+
+#[test]
 fn a_group_whose_choice_follows_its_focus_presses_what_the_focus_moves_to() {
   let pressed = Arc::new(Mutex::new(Vec::new()));
   let pick = |id: &'static str| {
