@@ -81,6 +81,8 @@ pub enum ListboxState {
   Chosen,
   /// Of an option: it cannot be chosen.
   OptionDisabled,
+  /// Of an option: it has a detail under its label, and is as high as its two lines need.
+  Detail,
   /// The listbox takes no input.
   Disabled,
   /// What is chosen is wrong, or nothing is and something has to be: its edge is in the destructive color.
@@ -94,6 +96,7 @@ pub enum ListboxState {
 names!(ListboxState {
   Chosen => "chosen",
   OptionDisabled => "option_disabled",
+  Detail => "detail",
   Disabled => "disabled",
   Invalid => "invalid",
   Multiple => "multiple",
@@ -103,9 +106,10 @@ names!(ListboxState {
 /// What builds a listbox's nodes: a theme's in place of the default one.
 pub type ListboxRenderer = Arc<dyn Fn(ListboxView) -> Element + Send + Sync>;
 
-/// What a listbox reads and writes: a signal of one value, `Signal<T>`, of which one option is chosen, or of any
-/// number, `Signal<Vec<T>>`, which [`Listbox::new`] takes either of, as [`Select`](super::Select) and
-/// [`MultiSelect`](super::MultiSelect) take them.
+/// What a listbox reads and writes: a signal of one value, `Signal<T>`, of which one option is chosen; of one or
+/// none, `Signal<Option<T>>`, of which nothing is chosen until an option is; or of any number, `Signal<Vec<T>>`.
+/// [`Listbox::new`] takes any of them, as [`Select`](super::Select) and [`MultiSelect`](super::MultiSelect) take
+/// theirs.
 pub struct ListboxValue<T> {
   read: Arc<dyn Fn() -> Vec<T> + Send + Sync>,
   write: Arc<dyn Fn(Vec<T>) + Send + Sync>,
@@ -126,6 +130,47 @@ impl<T: Clone + PartialEq + Send + Sync + SignalValue + 'static> From<Signal<T>>
       }),
       many: false,
     }
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<Signal<Option<T>>> for ListboxValue<T>
+where
+  Option<T>: SignalValue,
+{
+  fn from(signal: Signal<Option<T>>) -> Self {
+    let read = signal.clone();
+    Self {
+      read: Arc::new(move || read.get().into_iter().collect()),
+      write: Arc::new(move |chosen: Vec<T>| {
+        let value = chosen.into_iter().last();
+        if value.is_some() && signal.get() != value {
+          signal.set(value);
+        }
+      }),
+      many: false,
+    }
+  }
+}
+
+/// What a listbox the app holds shows chosen ([`Listbox::controlled`]): `Option<T>` of one, which may be none, or
+/// `Vec<T>` of any number.
+pub struct ListboxChosen<T> {
+  values: Vec<T>,
+  many: bool,
+}
+
+impl<T> From<Option<T>> for ListboxChosen<T> {
+  fn from(value: Option<T>) -> Self {
+    Self {
+      values: value.into_iter().collect(),
+      many: false,
+    }
+  }
+}
+
+impl<T> From<Vec<T>> for ListboxChosen<T> {
+  fn from(values: Vec<T>) -> Self {
+    Self { values, many: true }
   }
 }
 
@@ -200,8 +245,8 @@ pub struct Listbox<T> {
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
   /// A listbox of `options` bound to `value`: a `Signal<T>` of which the option of its value is chosen, and
-  /// choosing another sets it; or a `Signal<Vec<T>>` of which the options of its values are, and choosing one adds
-  /// it or takes it out.
+  /// choosing another sets it; a `Signal<Option<T>>` the same, of which none is chosen while it is `None`; or a
+  /// `Signal<Vec<T>>` of which the options of its values are, and choosing one adds it or takes it out.
   pub fn new(value: impl Into<ListboxValue<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
     let value = value.into();
     Self {
@@ -225,6 +270,24 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     }
   }
 
+  /// A listbox whose choice the app holds: what `chosen` has is chosen (`Option<T>` of one, `Vec<T>` of any
+  /// number), and `on_change` is told what a press or a key would choose. It shows what the app answers with, the
+  /// next time it is built: a choice the app does not take is not shown.
+  pub fn controlled(
+    chosen: impl Into<ListboxChosen<T>>,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
+  ) -> Self {
+    let chosen = chosen.into();
+    let values = chosen.values;
+    let value = ListboxValue {
+      read: Arc::new(move || values.clone()),
+      write: Arc::new(|_| {}),
+      many: chosen.many,
+    };
+    Self::new(value, options).on_change(on_change)
+  }
+
   /// Of a listbox of one, whether the choice follows the focus: the arrows choose as they move, as in a radio
   /// group. It does unless told otherwise; without it the arrows move the focus alone, and Space, Enter or a press
   /// choose.
@@ -233,7 +296,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     self
   }
 
-  /// Called with what is chosen after each press or key that changes it, after the signal is set.
+  /// Called with what is chosen after each press or key that changes it, after the signal is set: the whole new set,
+  /// of one for a listbox of one. It is not called for what is already so (a press of the chosen option), nor when
+  /// the app sets the signal. A second handler is called after the first.
   pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
@@ -333,18 +398,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     .state(ListboxState::Disabled, self.disabled)
     .state(ListboxState::Invalid, self.invalid)
     .state(ListboxState::FullWidth, self.full_width);
-    let resolve = |chosen: bool, disabled: bool| {
+    let resolve = |chosen: bool, disabled: bool, detail: bool| {
       let case = base
         .clone()
         .state(ListboxState::Chosen, chosen)
-        .state(ListboxState::OptionDisabled, disabled);
+        .state(ListboxState::OptionDisabled, disabled)
+        .state(ListboxState::Detail, detail);
       theme.resolve::<Listbox<T>>(&case, Some(&self.rules))
     };
-    // An option is in one of four cases: each is resolved once, however many options there are.
-    let cases = [
-      [resolve(false, false), resolve(false, true)],
-      [resolve(true, false), resolve(true, true)],
-    ];
+    // An option is in one of eight cases: each is resolved once, however many options there are.
+    let cases = [false, true]
+      .map(|chosen| [false, true].map(|disabled| [false, true].map(|detail| resolve(chosen, disabled, detail))));
 
     let many = self.many;
     let ids: Vec<T> = self.options.iter().map(|option| option.value().clone()).collect();
@@ -386,7 +450,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
       .map(|(index, option)| {
         let is_chosen = chosen.contains(option.value());
         let disabled = !enabled[index];
-        let recipe = cases[usize::from(is_chosen)][usize::from(option.is_disabled())].clone();
+        let recipe = cases[usize::from(is_chosen)][usize::from(option.is_disabled())]
+          [usize::from(option.detail_text().is_some())]
+        .clone();
         let state = SelectAdornmentState {
           selected: is_chosen,
           disabled,
@@ -439,7 +505,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
       disabled: self.disabled,
       label: self.label.clone(),
       description: self.description.clone(),
-      recipe: cases[0][0].clone(),
+      recipe: cases[0][0][0].clone(),
       id: self.id.clone(),
       key: self.key.clone(),
     }
@@ -598,8 +664,13 @@ pub struct ListboxOption {
 
 impl ListboxOption {
   /// The style of a part, as this option is to be drawn.
+  /// The style of a part, as this option is to be drawn: a disabled one as nothing points at it or presses it,
+  /// whatever the listbox is forced to.
   pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
-    self.recipe.part(part).forced(self.forced)
+    self
+      .recipe
+      .part(part)
+      .forced(if self.disabled { None } else { self.forced })
   }
 
   pub fn theme(&self) -> &Theme {
@@ -637,6 +708,9 @@ impl ListboxOption {
       .focus_entry(self.entry);
     if let Some(row) = self.row {
       option = option.focus_row(row);
+    }
+    if self.disabled {
+      option = option.describe("a11y_disabled", "true");
     }
     if let Some(detail) = &self.detail {
       option = option.describe("a11y_description", detail.clone());
@@ -732,6 +806,7 @@ impl<T: Send + Sync + 'static> Themed for Listbox<T> {
   fn recipe() -> Recipe {
     use ListboxPart::{Check, Content, Detail, Group, Hint, Label, Leading, Option, Root, Trailing};
     use ListboxState::{Chosen, Disabled, FullWidth, Invalid, OptionDisabled};
+    let detail = ListboxState::Detail;
     use PaletteColor::{Background, Destructive, Foreground, Highlight, Muted, MutedForeground, Ring, StatePressed};
     let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
     Recipe::new()
@@ -758,6 +833,11 @@ impl<T: Send + Sync + 'static> Themed for Listbox<T> {
       .density(Density::Compact, Option, |s| s.height(24.0))
       .density(Density::Comfortable, Option, |s| s.height(40.0))
       .density(Density::Touch, Option, |s| s.height(44.0))
+      // With a detail under its label: 16 higher at every density, as a list's row with a description is.
+      .state(detail, Option, |s| s.height(48.0))
+      .when(Selector::new().density(Density::Compact).state(detail), Option, |s| s.height(40.0))
+      .when(Selector::new().density(Density::Comfortable).state(detail), Option, |s| s.height(56.0))
+      .when(Selector::new().density(Density::Touch).state(detail), Option, |s| s.height(60.0))
       .hovered(Option, |s| s.background(Muted))
       .pressed(Option, |s| s.veil(StatePressed))
       .focus_visible(Option, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
@@ -925,6 +1005,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Component for ListboxHost<T> 
       option.row = Some(index);
     }
     let (step, group) = option_steps(&view);
+    let plain = px_height(&view.part(ListboxPart::Option), &theme).unwrap_or(32.0);
     *self.rows.data.lock().unwrap() = RowsData {
       labels: view.options.iter().map(|option| option.label.clone()).collect(),
       enabled: view.options.iter().map(|option| !option.disabled).collect(),
@@ -946,6 +1027,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Component for ListboxHost<T> 
         .map(|(index, option)| OptionItem {
           index,
           grouped: option.group.as_ref().is_some_and(|label| !label.is_empty()),
+          // An option with a detail is higher than one of one line.
+          taller: px_height(&option.part(ListboxPart::Option), &theme).map_or(0.0, |height| (height - plain).max(0.0)),
           generation,
         })
         .collect(),
@@ -959,7 +1042,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Component for ListboxHost<T> 
       .with_scroll_state(self.rows.scroll.clone())
       .reveal_key(self.rows.reveal_key.get().or(entry))
       .reveal_request(self.rows.reveal_request.get())
-      .estimate_height(move |item: &OptionItem| if item.grouped { step + group } else { step })
+      .estimate_height(move |item: &OptionItem| step + item.taller + if item.grouped { group } else { 0.0 })
       .width(Dimension::Pct(100.0))
       .flex(1.0)
       .mount_keyed::<ListboxOptionHost, _, _, _>(
@@ -987,16 +1070,7 @@ fn option_steps(view: &ListboxView) -> (f32, f32) {
   let theme = view.theme();
   let spacing = theme.spacing();
   let px = |value: Option<&SpacingValue>| value.map(|value| value.resolve(&spacing, 0.0)).unwrap_or(0.0);
-  let option = view
-    .part(ListboxPart::Option)
-    .rest()
-    .height
-    .and_then(|height| height.resolve(theme))
-    .and_then(|height| match height {
-      Dimension::Px(px) => Some(px),
-      _ => None,
-    })
-    .unwrap_or(32.0);
+  let option = px_height(&view.part(ListboxPart::Option), theme).unwrap_or(32.0);
   let content = view.part(ListboxPart::Content).rest();
   let group = view.part(ListboxPart::Group).rest();
   // A line of its text, as the type sets it: about half as high again as the letters.
@@ -1007,11 +1081,21 @@ fn option_steps(view: &ListboxView) -> (f32, f32) {
   )
 }
 
-/// An option of the virtual list: which of the options, from which render, and whether a group's label is over it.
+/// The height a part's recipe gives it in pixels, where it gives one.
+fn px_height(part: &ResolvedPart, theme: &Theme) -> Option<f32> {
+  match part.rest().height?.resolve(theme)? {
+    Dimension::Px(px) => Some(px),
+    _ => None,
+  }
+}
+
+/// An option of the virtual list: which of the options, from which render, whether a group's label is over it, and
+/// how much higher than an option of one line it is.
 #[derive(Clone, PartialEq)]
 struct OptionItem {
   index: usize,
   grouped: bool,
+  taller: f32,
   generation: u64,
 }
 

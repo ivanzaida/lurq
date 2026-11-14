@@ -10,7 +10,8 @@ use std::sync::{
 use lurq::{
   app::{
     App,
-    theme::{Density, PaletteColor, ThemePalette},
+    events::{MouseButton, MouseEvent},
+    theme::{Density, PaletteColor, Theme, ThemePalette},
   },
   components::{Column, Row, Text},
   core::Signal,
@@ -20,7 +21,10 @@ use lurq::{
   },
   node::color::Color,
   router::{RouterHandle, Routes},
-  ui::{Avatar, List, ListItem, ListItemPart, ListItemRenderer, ListItemView, ListPart, Switch, icons},
+  ui::{
+    Avatar, Case, List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, Switch,
+    Themed, icons,
+  },
 };
 
 use super::stage::Stage;
@@ -188,7 +192,7 @@ fn a_pressed_row_is_a_stop_of_tab_and_one_that_is_not_is_passed_by() {
     let counted = counted.clone();
     List::new()
       .item(ListItem::new("Plain").id("plain"))
-      .item(ListItem::new("Pressed").id("pressed").on_click(move || {
+      .item(ListItem::new("Pressed").id("pressed").on_click(move |_| {
         counted.fetch_add(1, Ordering::Relaxed);
       }))
       .item(ListItem::new("Dark mode").trailing(Switch::new("Dark mode").label_hidden(true).id("switch")))
@@ -219,10 +223,10 @@ fn a_pressed_row_is_a_stop_of_tab_and_one_that_is_not_is_passed_by() {
 fn the_arrows_move_between_the_rows_that_are_pressed() {
   let mut stage = stage_of(|| {
     List::new()
-      .item(ListItem::new("Alpha").id("alpha").on_click(|| {}))
-      .item(ListItem::new("Beta").id("beta").on_click(|| {}))
-      .item(ListItem::new("Gamma").id("gamma").on_click(|| {}).disabled(true))
-      .item(ListItem::new("Delta").id("delta").on_click(|| {}))
+      .item(ListItem::new("Alpha").id("alpha").on_click(|_| {}))
+      .item(ListItem::new("Beta").id("beta").on_click(|_| {}))
+      .item(ListItem::new("Gamma").id("gamma").on_click(|_| {}).disabled(true))
+      .item(ListItem::new("Delta").id("delta").on_click(|_| {}))
   });
   stage.key("Tab");
   assert_eq!(focused(&stage).as_deref(), Some("alpha"));
@@ -246,11 +250,11 @@ fn a_selected_row_is_highlighted_a_pressed_one_veiled_and_a_disabled_one_takes_n
         ListItem::new("Disabled")
           .disabled(true)
           .id("disabled")
-          .on_click(move || {
+          .on_click(move |_| {
             counted.fetch_add(1, Ordering::Relaxed);
           }),
       )
-      .item(ListItem::new("Hovered").on_click(|| {}).id("hovered"))
+      .item(ListItem::new("Hovered").on_click(|_| {}).id("hovered"))
   });
   assert_eq!(stage.fill_color("selected"), Some(light(PaletteColor::Highlight)));
   stage.click("disabled");
@@ -272,7 +276,7 @@ fn a_checkbox_or_a_radio_before_the_text_is_the_row_s_own() {
       ListItem::new("Backups")
         .checkbox(on)
         .id("row")
-        .on_click(move || held.set(!on)),
+        .on_click(move |_| held.set(!on)),
     )
   });
   assert!(texts(&stage, CHECK).is_empty());
@@ -285,7 +289,7 @@ fn a_checkbox_or_a_radio_before_the_text_is_the_row_s_own() {
 fn the_lines_between_rows_start_at_the_inset_and_none_is_under_the_last() {
   let mut stage = stage_of(|| {
     List::new()
-      .dividers(true)
+      .separators(true)
       .inset(60.0)
       .id("list")
       .item(ListItem::new("Wi-Fi").id("a"))
@@ -303,8 +307,13 @@ fn the_lines_between_rows_start_at_the_inset_and_none_is_under_the_last() {
     .collect();
   assert_eq!(lines.len(), 2, "between each two rows");
   assert!((lines[0].x - (x + 60.0)).abs() < 0.5, "{}", lines[0].x - x);
-  assert!((lines[0].y - (a_y + a_height)).abs() < 0.5);
-  assert!((b_y - (a_y + a_height + 1.0)).abs() < 0.5, "rows touch the line");
+  // The line is inside the row over it, along its bottom, as the board draws it: it adds no height.
+  assert!(
+    (lines[0].y + lines[0].height - (a_y + a_height)).abs() < 0.5,
+    "{}",
+    lines[0].y - a_y
+  );
+  assert!((b_y - (a_y + a_height)).abs() < 0.5, "rows touch each other");
 }
 
 #[test]
@@ -315,7 +324,7 @@ fn a_contained_list_is_a_box_with_a_header_and_rows_that_touch() {
       .child(
         List::new()
           .contained(true)
-          .header("Recent")
+          .title("Recent")
           .action(Text::new("Clear"))
           .id("list")
           .style(ListPart::Root, |s| s.width(240.0))
@@ -329,8 +338,8 @@ fn a_contained_list_is_a_box_with_a_header_and_rows_that_touch() {
   assert_eq!(width, 240.0);
   assert_eq!(
     height,
-    32.0 + 36.0 * 3.0 + 2.0,
-    "a header of 32, rows of 36 and a line between each two"
+    32.0 + 36.0 * 3.0,
+    "a header of 32 and rows of 36, the line between each two inside the row over it: the board's 140"
   );
   assert!(stage.border("list").is_some(), "an edge round it");
   assert!(stage.paints("RECENT"), "the header in capitals");
@@ -339,6 +348,18 @@ fn a_contained_list_is_a_box_with_a_header_and_rows_that_touch() {
   assert!((stage.bounds("a").1 - (top + 32.0)).abs() < 1.0);
   assert_eq!(stage.text("theme.md").1, 13.0);
   assert_eq!(texts(&stage, CHEVRON_RIGHT).len(), 3);
+  // A contained row's text is 8 from its chevron, where a row of a plain list has 12.
+  let theme = Theme::new();
+  let gap = |contained: bool| {
+    ListItem::recipe()
+      .resolve(&Case::new().state(ListItemState::Contained, contained), &theme)
+      .part(ListItemPart::Root)
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&theme.spacing(), 0.0))
+  };
+  assert_eq!(gap(true), Some(8.0));
+  assert_eq!(gap(false), Some(12.0));
 }
 
 #[test]
@@ -386,7 +407,7 @@ fn a_renderer_sees_what_the_row_was_given() {
   app.theme().set_renderer::<ListItem>(renderer);
   let mut stage = Stage::in_app(app, |_| {
     Column::new()
-      .child(ListItem::new("Wi-Fi").value("Home").on_click(|| {}))
+      .child(ListItem::new("Wi-Fi").value("Home").on_click(|_| {}))
       .into()
   });
   assert_eq!(stage.bounds("other").2, 10.0);
@@ -419,8 +440,9 @@ fn rows_tell_tooling_what_they_are() {
       .label("Settings")
       .id("list")
       .item(ListItem::new("Plain").id("plain"))
-      .item(ListItem::new("Pressed").on_click(|| {}).id("pressed"))
-      .item(ListItem::new("Backups").checkbox(true).on_click(|| {}).id("check"))
+      .item(ListItem::new("Pressed").on_click(|_| {}).id("pressed"))
+      .item(ListItem::new("Backups").checkbox(true).on_click(|_| {}).id("check"))
+      .item(ListItem::new("Locked").disabled(true).on_click(|_| {}).id("locked"))
   });
   let mut said = |id: &str, name: &str| {
     stage
@@ -431,7 +453,37 @@ fn rows_tell_tooling_what_they_are() {
   assert_eq!(said("list", "a11y_role").as_deref(), Some("list"));
   assert_eq!(said("list", "a11y_name").as_deref(), Some("Settings"));
   assert_eq!(said("plain", "a11y_role").as_deref(), Some("listitem"));
+  assert_eq!(
+    said("locked", "a11y_disabled").as_deref(),
+    Some("true"),
+    "a disabled row says so"
+  );
+  assert_eq!(said("pressed", "a11y_disabled"), None);
   assert_eq!(said("pressed", "a11y_role").as_deref(), Some("button"));
   assert_eq!(said("check", "a11y_role").as_deref(), Some("checkbox"));
   assert_eq!(said("check", "a11y_checked").as_deref(), Some("true"));
+}
+
+/// A row's `on_click` is given the press: what it was pressed with, and from where.
+#[test]
+fn a_rows_on_click_is_given_the_press() {
+  let pressed: Arc<std::sync::Mutex<Vec<(bool, bool)>>> = Arc::default();
+  let heard = pressed.clone();
+  let mut stage = stage_of(move || {
+    let heard = heard.clone();
+    List::new().item(ListItem::new("Open").id("row").on_click(move |event: MouseEvent| {
+      heard.lock().unwrap().push((event.shift, event.from_keyboard));
+    }))
+  });
+  let (x, y) = stage.center("row");
+  stage.tree.mouse_move(x, y);
+  stage
+    .tree
+    .mouse_down_with_modifiers(x, y, MouseButton::Left, true, false, false);
+  stage
+    .tree
+    .mouse_up_with_modifiers(x, y, MouseButton::Left, true, false, false);
+  stage.pass();
+  stage.key("Enter");
+  assert_eq!(*pressed.lock().unwrap(), [(true, false), (false, true)]);
 }

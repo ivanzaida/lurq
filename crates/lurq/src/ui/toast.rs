@@ -15,7 +15,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::{fading, glyph, pressable},
+  shared::{IconChoice, fading, glyph, pressable},
   theme::{Themed, current_breakpoint, current_theme},
 };
 use crate::{
@@ -98,33 +98,38 @@ pub enum ToastVariant {
   /// A message with no icon of its own: "Link copied".
   #[default]
   Neutral,
-  /// Something was done: "Settings saved".
-  Success,
   /// Something to know: "A new version is ready".
   Info,
+  /// Something was done: "Settings saved".
+  Success,
   /// Something was done, with a catch: "Saved, but not synced".
   Warning,
   /// Something could not be done: "Could not connect".
-  Error,
+  Destructive,
 }
 
 names!(ToastVariant {
   Neutral => "neutral",
-  Success => "success",
   Info => "info",
+  Success => "success",
   Warning => "warning",
-  Error => "error",
+  Destructive => "destructive",
 });
 
 impl ToastVariant {
+  /// The variant called `name`, where it is one of these: a variant a theme adds is none of them.
+  pub fn named(name: Name) -> Option<Self> {
+    Self::all().iter().copied().find(|variant| Name::from(*variant) == name)
+  }
+
   /// The icon of the variant in the theme's set: none for a neutral toast.
   pub fn icon(self) -> Option<&'static str> {
     match self {
       Self::Neutral => None,
-      Self::Success => Some(icons::CHECK_CIRCLE),
       Self::Info => Some(icons::INFO),
+      Self::Success => Some(icons::CHECK_CIRCLE),
       Self::Warning => Some(icons::WARNING),
-      Self::Error => Some(icons::CLOSE_CIRCLE),
+      Self::Destructive => Some(icons::CLOSE_CIRCLE),
     }
   }
 }
@@ -249,16 +254,17 @@ pub type ToastRenderer = Arc<dyn Fn(ToastView) -> Element + Send + Sync>;
 ///
 /// A toast is a panel like any other component, and can be put anywhere. To
 /// show one from anywhere and have it leave by itself, send it to a
-/// [`Toasts`]: `toasts.show(saved)`.
+/// [`Toasts`]: `toasts.show(saved)`. It has a close control unless it is told
+/// [`close_button(false)`](Toast::close_button).
 #[derive(Clone)]
 pub struct Toast {
   title: Arc<str>,
   description: Option<Arc<str>>,
-  variant: ToastVariant,
-  icon: Option<Name>,
-  icon_hidden: bool,
+  variant: Name,
+  icon: Option<IconChoice>,
   action: Option<ToastAction>,
-  closable: bool,
+  close_button: bool,
+  label: Option<Arc<str>>,
   timer: bool,
   duration: Duration,
   persistent: bool,
@@ -278,11 +284,11 @@ impl Toast {
     Self {
       title: Arc::from(title),
       description: None,
-      variant: ToastVariant::Neutral,
+      variant: ToastVariant::Neutral.into(),
       icon: None,
-      icon_hidden: false,
       action: None,
-      closable: true,
+      close_button: true,
+      label: None,
       timer: false,
       duration: TOAST_DURATION,
       persistent: false,
@@ -302,33 +308,36 @@ impl Toast {
     self
   }
 
-  pub fn variant(mut self, variant: ToastVariant) -> Self {
-    self.variant = variant;
+  /// Its tone: a [`ToastVariant`], or a variant a theme adds, which has no icon of its own.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
     self
   }
 
-  /// An icon of the theme's set in place of the variant's: what a neutral toast has none of.
-  pub fn icon(mut self, name: impl Into<Name>) -> Self {
-    self.icon = Some(name.into());
-    self
-  }
-
-  /// Whether the toast has no icon, whatever its variant.
-  pub fn icon_hidden(mut self, hidden: bool) -> Self {
-    self.icon_hidden = hidden;
+  /// An icon of the theme's set in place of the variant's, which a neutral toast has none of, or none:
+  /// `icon(None)`.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.icon = Some(icon.into());
     self
   }
 
   /// What can be done about it, before the close control: a [`Button`] or a [`Link`]. A toast shown by a
-  /// [`Toasts`] leaves when it is pressed.
+  /// [`Toasts`] leaves when it is pressed. It is the one action: a second takes its place.
   pub fn action(mut self, action: impl Into<ToastAction>) -> Self {
     self.action = Some(action.into());
     self
   }
 
-  /// Whether the toast has its close control. It has by default.
-  pub fn closable(mut self, closable: bool) -> Self {
-    self.closable = closable;
+  /// Whether the toast has its close control. It has unless told otherwise: what a toast is for is to be
+  /// closed or to leave.
+  pub fn close_button(mut self, close_button: bool) -> Self {
+    self.close_button = close_button;
+    self
+  }
+
+  /// What it is called to tooling that reads the tree, in place of its title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -360,7 +369,8 @@ impl Toast {
     self
   }
 
-  /// Called on a press of its close control. A toast shown by a [`Toasts`] leaves then too.
+  /// Called on a press of its close control. A toast shown by a [`Toasts`] leaves then too. A second handler is
+  /// called after the first.
   pub fn on_close(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_close.push(Arc::new(handler));
     self
@@ -406,17 +416,19 @@ impl Toast {
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let case = Case {
-      variant: Some(self.variant.into()),
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: current_breakpoint(),
       states: self.states.clone(),
     }
     .state(ToastState::Action, self.action.is_some());
-    let icon = match (self.icon_hidden, self.icon) {
-      (true, _) => None,
-      (false, Some(icon)) => Some(icon),
-      (false, None) => self.variant.icon().map(Name::new),
+    // A variant a theme adds has no icon of its own, as a neutral one has none.
+    let icon = match self.icon {
+      Some(IconChoice(icon)) => icon,
+      None => ToastVariant::named(self.variant)
+        .and_then(ToastVariant::icon)
+        .map(Name::new),
     };
     let view = ToastView {
       title: self.title,
@@ -424,7 +436,8 @@ impl Toast {
       variant: self.variant,
       icon,
       action: self.action,
-      closable: self.closable,
+      close_button: self.close_button,
+      label: self.label,
       timer: self.timer,
       recipe: theme.resolve::<Toast>(&case, Some(&self.rules)),
       forced: self.forced,
@@ -451,11 +464,15 @@ impl From<Toast> for Element {
 pub struct ToastView {
   pub title: Arc<str>,
   pub description: Option<Arc<str>>,
-  pub variant: ToastVariant,
-  /// The icon it shows, by its name in the theme's set: the variant's, or the one it was given.
+  /// Its tone: a [`ToastVariant`]'s name, or a theme's.
+  pub variant: Name,
+  /// The icon it shows, by its name in the theme's set: the variant's, the one it was given, or none.
   pub icon: Option<Name>,
   pub action: Option<ToastAction>,
-  pub closable: bool,
+  /// Whether it has its close control.
+  pub close_button: bool,
+  /// What it is called to tooling, where that is not its title.
+  pub label: Option<Arc<str>>,
   pub timer: bool,
   /// The style of each part of this toast.
   pub recipe: ResolvedRecipe,
@@ -573,13 +590,13 @@ impl ToastView {
     if let Some(action) = self.action() {
       content = content.child(action);
     }
-    if self.closable {
+    if self.close_button {
       content = content.child(self.close());
     }
     let mut root = Column::new()
       .part(&self.part(ToastPart::Root))
       .describe("a11y_role", "status")
-      .describe("a11y_name", self.title.clone())
+      .describe("a11y_name", self.label.clone().unwrap_or_else(|| self.title.clone()))
       .child(content);
     if self.timer {
       root = root.child(self.timer());
@@ -677,10 +694,10 @@ impl Themed for Toast {
       .base(P::BehindFar, |s| behind(s, 312.0, 0.5))
       .state(ToastState::Action, P::Content, |s| s.padding_y(14.0).padding_end(12.0))
       .state(ToastState::Action, P::Text, |s| s.gap(2.0))
-      .variant(ToastVariant::Success, P::Icon, |s| s.foreground(Success))
       .variant(ToastVariant::Info, P::Icon, |s| s.foreground(Info))
+      .variant(ToastVariant::Success, P::Icon, |s| s.foreground(Success))
       .variant(ToastVariant::Warning, P::Icon, |s| s.foreground(Warning))
-      .variant(ToastVariant::Error, P::Icon, |s| s.foreground(Destructive))
+      .variant(ToastVariant::Destructive, P::Icon, |s| s.foreground(Destructive))
   }
 }
 
@@ -734,7 +751,7 @@ impl DevtoolsInspectable for Shown {}
 ///         toasts.show(Toast::new("Settings saved").variant(ToastVariant::Success));
 ///       }))
 ///       // Last, so that its layer is over every other.
-///       .child(self.toasts.host(ctx))
+///       .child(self.toasts.mount(ctx))
 ///   }
 /// }
 /// ```
@@ -812,14 +829,14 @@ impl Toasts {
     self.shown.with(Vec::is_empty)
   }
 
-  /// What draws the toasts at the bottom right of the window. The app's root
-  /// renders it once, as its last child, so that its layer is over every other.
-  pub fn host(&self, ctx: &mut Ctx) -> Element {
-    self.host_at(ctx, ToastPosition::default())
+  /// What draws the toasts at the bottom right of the window, and keeps their timers and the pointer on them.
+  /// The app's root mounts it once, as its last child, so that its layer is over every other.
+  pub fn mount(&self, ctx: &mut Ctx) -> Element {
+    self.mount_at(ctx, ToastPosition::default())
   }
 
-  /// What draws the toasts at `position` in the window.
-  pub fn host_at(&self, ctx: &mut Ctx, position: ToastPosition) -> Element {
+  /// What draws the toasts at `position` in the window: [`mount`](Self::mount) in another corner.
+  pub fn mount_at(&self, ctx: &mut Ctx, position: ToastPosition) -> Element {
     ctx.mount::<ToastHost>(ToastHostProps {
       toasts: self.clone(),
       position,

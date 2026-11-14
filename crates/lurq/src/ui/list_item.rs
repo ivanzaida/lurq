@@ -16,10 +16,16 @@ use super::{
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+  app::{
+    events::MouseEvent,
+    theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+  },
   components::{Column, Row},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, border::Border, dimension::Dimension, outline::Outline},
+  node::{
+    CursorIcon, Element, EventHandler, FocusGroup, IntoMouseEventHandler, border::Border, dimension::Dimension,
+    outline::Outline,
+  },
 };
 
 /// The parts of a list item a recipe styles.
@@ -70,9 +76,9 @@ pub enum ListItemState {
   /// The row is pressed: it does something, or goes somewhere. A row that is not answers no pointer.
   Pressable,
   /// The row has a description under its title.
-  TwoLine,
+  Description,
   /// What is before the text is the row's icon.
-  WithIcon,
+  Icon,
   /// The row is in a contained list: rows that touch, in a box.
   Contained,
 }
@@ -81,8 +87,8 @@ names!(ListItemState {
   Selected => "selected",
   Disabled => "disabled",
   Pressable => "pressable",
-  TwoLine => "two_line",
-  WithIcon => "with_icon",
+  Description => "description",
+  Icon => "icon",
   Contained => "contained",
 });
 
@@ -97,7 +103,8 @@ enum Lead {
   Radio(bool),
 }
 
-type Handler = Arc<dyn Fn() + Send + Sync>;
+/// What a press of a row does, given the press.
+type Press = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
 
 /// One row of a list: a title, a description under it, what stands before it (an avatar, an icon, a checkbox) and
 /// what stands after it (a value, a time, a switch, a chevron). A setting, a person, a file, a notification.
@@ -105,7 +112,7 @@ type Handler = Arc<dyn Fn() + Send + Sync>;
 /// ```
 /// use lurq::ui::{Avatar, ListItem, Switch, icons};
 ///
-/// let wifi = ListItem::new("Wi-Fi").icon(icons::WIFI).value("Home").chevron(true).on_click(|| println!("Wi-Fi"));
+/// let wifi = ListItem::new("Wi-Fi").icon(icons::WIFI).value("Home").chevron(true).on_click(|_| println!("Wi-Fi"));
 /// let ivan = ListItem::new("Ivan Zaida")
 ///   .description("Pushed 3 commits to feat/node-blur")
 ///   .leading(Avatar::new("Ivan Zaida"))
@@ -128,7 +135,7 @@ pub struct ListItem {
   chevron: bool,
   selected: bool,
   disabled: bool,
-  on_click: Vec<Handler>,
+  on_click: Vec<EventHandler<MouseEvent>>,
   href: Option<Arc<str>>,
   density: Option<Density>,
   states: Vec<Name>,
@@ -237,9 +244,10 @@ impl ListItem {
     self
   }
 
-  /// What a press of the row does: the row is pressed, a stop of Tab, and a button to what reads the tree.
-  pub fn on_click(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_click.push(Arc::new(handler));
+  /// What a press of the row does, given the press: the row is pressed, a stop of Tab, and a button to what reads
+  /// the tree. A second handler is called after the first.
+  pub fn on_click(mut self, handler: impl IntoMouseEventHandler) -> Self {
+    self.on_click.push(handler.into_event_handler());
     self
   }
 
@@ -309,8 +317,8 @@ impl ListItem {
     .state(ListItemState::Selected, self.selected)
     .state(ListItemState::Disabled, self.disabled)
     .state(ListItemState::Pressable, pressable)
-    .state(ListItemState::TwoLine, self.description.is_some())
-    .state(ListItemState::WithIcon, matches!(self.lead, Some(Lead::Icon(_))));
+    .state(ListItemState::Description, self.description.is_some())
+    .state(ListItemState::Icon, matches!(self.lead, Some(Lead::Icon(_))));
     let indicator = match &self.lead {
       Some(Lead::Checkbox(checked)) => Some(
         theme.resolve::<super::Checkbox>(
@@ -345,6 +353,11 @@ impl ListItem {
       link: self.href.is_some(),
       recipe: theme.resolve::<ListItem>(&case, Some(&self.rules)),
       indicator,
+      toggle: match &self.lead {
+        Some(Lead::Checkbox(on)) => Some(("checkbox", *on)),
+        Some(Lead::Radio(on)) => Some(("radio", *on)),
+        _ => None,
+      },
       lead: self.lead,
       trailing: self.trailing,
       forced: self.forced,
@@ -360,16 +373,16 @@ impl ListItem {
 
   /// What a press of the row does: its handlers, then its path in the router around it. `None` for a row that is
   /// not pressed.
-  fn press(&self) -> Option<Handler> {
+  fn press(&self) -> Option<Press> {
     if self.on_click.is_empty() && self.href.is_none() {
       return None;
     }
     let handlers = self.on_click.clone();
     #[cfg(feature = "router")]
     let go = self.href.clone().zip(crate::router::current_navigator());
-    Some(Arc::new(move || {
+    Some(Arc::new(move |event: &MouseEvent| {
       for handler in &handlers {
-        handler();
+        handler.call(event);
       }
       #[cfg(feature = "router")]
       if let Some((path, navigator)) = &go {
@@ -403,10 +416,13 @@ pub struct ListItemView {
   pub recipe: ResolvedRecipe,
   /// The style of the checkbox or the radio before the text, where the row has one: their own recipe's parts.
   pub indicator: Option<ResolvedRecipe>,
+  /// What the row is to tooling where it is a checkbox or a radio, and whether it is checked: kept apart from what
+  /// stands before the text, which `leading` takes.
+  toggle: Option<(&'static str, bool)>,
   lead: Option<Lead>,
   trailing: Option<Element>,
   forced: Option<Interaction>,
-  press: Option<Handler>,
+  press: Option<Press>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -441,6 +457,9 @@ impl ListItemView {
       if self.selected {
         row = row.describe("a11y_selected", "true");
       }
+      if self.disabled {
+        row = row.describe("a11y_disabled", "true");
+      }
       if let Some(id) = &self.id {
         row = row.id(id.clone());
       }
@@ -449,11 +468,10 @@ impl ListItemView {
       }
       return row.with_children(children).into();
     };
-    let role = match &self.lead {
-      Some(Lead::Checkbox(_)) => "checkbox",
-      Some(Lead::Radio(_)) => "radio",
-      _ if self.link => "link",
-      _ => "button",
+    let role = match self.toggle {
+      Some((role, _)) => role,
+      None if self.link => "link",
+      None => "button",
     };
     let mut row = pressable(&part, self.disabled)
       .justify(Justify::Start)
@@ -461,14 +479,17 @@ impl ListItemView {
       .describe("a11y_role", role)
       .describe("a11y_name", self.title.clone())
       .focus_label(self.title.clone())
-      .on_click(move |_| press());
+      .on_click(move |event: MouseEvent| press(&event));
     if let Some(description) = &self.description {
       row = row.describe("a11y_description", description.clone());
     }
-    match &self.lead {
-      Some(Lead::Checkbox(on) | Lead::Radio(on)) => row = row.describe("a11y_checked", flag(*on)),
-      _ if self.selected => row = row.describe("a11y_selected", "true"),
-      _ => {}
+    match self.toggle {
+      Some((_, on)) => row = row.describe("a11y_checked", flag(on)),
+      None if self.selected => row = row.describe("a11y_selected", "true"),
+      None => {}
+    }
+    if self.disabled {
+      row = row.describe("a11y_disabled", "true");
     }
     if let Some(id) = &self.id {
       row = row.id(id.clone());
@@ -613,9 +634,10 @@ impl Themed for ListItem {
   /// ring inside it, and a disabled row is faded.
   fn recipe() -> Recipe {
     use ListItemPart::{Chevron, Content, Description, Icon, Leading, Meta, Root, Title, Trailing, Value};
-    use ListItemState::{Contained, Disabled, Pressable, Selected, TwoLine, WithIcon};
+    use ListItemState::{Contained, Disabled, Pressable, Selected};
+    let (two_lines, with_icon) = (ListItemState::Description, ListItemState::Icon);
     use PaletteColor::{Foreground, Highlight, Muted, MutedForeground, Ring, StateHover, StatePressed};
-    let two_line = |density: Density| Selector::new().density(density).state(TwoLine);
+    let two_line = |density: Density| Selector::new().density(density).state(two_lines);
     Recipe::new()
       .base(Root, |s| {
         fading(
@@ -631,7 +653,7 @@ impl Themed for ListItem {
       .density(Density::Touch, Root, |s| s.min_height(56.0).padding_x(16.0))
       // Two lines: 52 at the default, 16 more than one line at every density, the text 6 from the edges at least
       // (4 at the compact density).
-      .state(TwoLine, Root, |s| s.min_height(52.0).padding_y(6.0))
+      .state(two_lines, Root, |s| s.min_height(52.0).padding_y(6.0))
       // At the compact density two lines of text and 6 over and under them are more than 44: the room is 4.
       .when(two_line(Density::Compact), Root, |s| s.min_height(44.0).padding_y(4.0))
       .when(two_line(Density::Comfortable), Root, |s| s.min_height(60.0))
@@ -643,17 +665,17 @@ impl Themed for ListItem {
       .focus_visible(Root, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .state(Selected, Root, |s| s.background(Highlight))
       .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default))
-      // The contained list's rows: 36, square, touching.
-      .state(Contained, Root, |s| s.radius(0.0))
+      // The contained list's rows: 36, square, touching, their text 8 from what is at their end.
+      .state(Contained, Root, |s| s.radius(0.0).gap(8.0))
       .base(Leading, |s| s.gap(0.0))
       .base(Icon, |s| s.square(IconSize::Md).foreground(MutedForeground))
-      .when(Selector::new().density(Density::Touch).state(WithIcon), Leading, |s| {
+      .when(Selector::new().density(Density::Touch).state(with_icon), Leading, |s| {
         s.square(32.0).radius(RadiusSize::Lg).background(Muted)
       })
       .density(Density::Touch, Icon, |s| s.square(18.0).foreground(Foreground))
       .base(Content, |s| s.gap(2.0))
       .base(Title, |s| s.typography(TypographyStyle::Body).font_size(14.0))
-      .state(TwoLine, Title, |s| s.weight(FontWeight::Medium))
+      .state(two_lines, Title, |s| s.weight(FontWeight::Medium))
       .state(Contained, Title, |s| s.font_size(13.0))
       .density(Density::Touch, Title, |s| s.font_size(16.0))
       .base(Description, |s| {
@@ -687,22 +709,22 @@ pub enum ListPart {
   /// The bar over the rows of a contained list, with its title and its action.
   Header,
   /// What the header says.
-  HeaderTitle,
+  Title,
   /// What the app puts at the header's end: a button.
-  HeaderAction,
+  Action,
   /// The rows, one under the other: the room between them.
   Items,
   /// What holds the line between two rows: its padding at the start is the inset the line starts at.
-  Divider,
+  Separator,
 }
 
 names!(ListPart {
   Root => "root",
   Header => "header",
-  HeaderTitle => "header-title",
-  HeaderAction => "header-action",
+  Title => "title",
+  Action => "action",
   Items => "items",
-  Divider => "divider",
+  Separator => "separator",
 });
 
 /// The states of a list a recipe styles.
@@ -711,12 +733,12 @@ pub enum ListState {
   /// A contained list: its rows in a box, touching, with a line between each two, under a header.
   Contained,
   /// A line between each two rows.
-  Divided,
+  Separator,
 }
 
 names!(ListState {
   Contained => "contained",
-  Divided => "divided",
+  Separator => "separator",
 });
 
 /// What builds a list's nodes: a theme's in place of the default one.
@@ -730,12 +752,12 @@ pub type ListRenderer = Arc<dyn Fn(ListView) -> Element + Send + Sync>;
 ///
 /// let recent = List::new()
 ///   .contained(true)
-///   .header("Recent")
+///   .title("Recent")
 ///   .action(Button::new("Clear").variant("ghost").size("sm"))
-///   .item(ListItem::new("theme.md").chevron(true).on_click(|| println!("theme.md")))
-///   .item(ListItem::new("blur.md").chevron(true).on_click(|| println!("blur.md")));
+///   .item(ListItem::new("theme.md").chevron(true).on_click(|_| println!("theme.md")))
+///   .item(ListItem::new("blur.md").chevron(true).on_click(|_| println!("blur.md")));
 /// let settings = List::new()
-///   .dividers(true)
+///   .separators(true)
 ///   .inset(48.0)
 ///   .item(ListItem::new("Wi-Fi").icon(icons::WIFI).value("Home").chevron(true))
 ///   .item(ListItem::new("Bluetooth").icon(icons::BLUETOOTH).value("On").chevron(true));
@@ -746,10 +768,10 @@ pub type ListRenderer = Arc<dyn Fn(ListView) -> Element + Send + Sync>;
 /// one row or many are chosen is a [`Listbox`](super::Listbox).
 pub struct List {
   items: Vec<ListItem>,
-  header: Option<Arc<str>>,
+  title: Option<Arc<str>>,
   action: Option<Element>,
   contained: bool,
-  dividers: Option<bool>,
+  separators: Option<bool>,
   inset: f32,
   label: Option<Arc<str>>,
   density: Option<Density>,
@@ -771,10 +793,10 @@ impl List {
   pub fn new() -> Self {
     Self {
       items: Vec::new(),
-      header: None,
+      title: None,
       action: None,
       contained: false,
-      dividers: None,
+      separators: None,
       inset: 0.0,
       label: None,
       density: None,
@@ -805,20 +827,21 @@ impl List {
   }
 
   /// What the header over the rows says, in a contained list. It is written in capitals, as the board's is.
-  pub fn header(mut self, title: &str) -> Self {
-    self.header = Some(Arc::from(title));
+  pub fn title(mut self, title: &str) -> Self {
+    self.title = Some(Arc::from(title));
     self
   }
 
-  /// What stands at the end of the header: a button that acts on the list.
+  /// What stands at the end of the header: a button that acts on the list. It is the one action: a second takes
+  /// its place.
   pub fn action(mut self, action: impl Into<Element>) -> Self {
     self.action = Some(action.into());
     self
   }
 
   /// Whether a line runs between each two rows. A contained list has them unless told otherwise.
-  pub fn dividers(mut self, dividers: bool) -> Self {
-    self.dividers = Some(dividers);
+  pub fn separators(mut self, separators: bool) -> Self {
+    self.separators = Some(separators);
     self
   }
 
@@ -829,7 +852,7 @@ impl List {
     self
   }
 
-  /// What the list is called, to what reads the tree. It draws nothing; a contained list is called by its header.
+  /// What the list is called, to what reads the tree. It draws nothing; a contained list is called by its title.
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
     self
@@ -884,7 +907,7 @@ impl List {
   /// Builds the list in `theme`. Converting a list into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let divided = self.dividers.unwrap_or(self.contained);
+    let separators = self.separators.unwrap_or(self.contained);
     let case = Case {
       variant: None,
       size: None,
@@ -893,7 +916,7 @@ impl List {
       states: self.states.clone(),
     }
     .state(ListState::Contained, self.contained)
-    .state(ListState::Divided, divided);
+    .state(ListState::Separator, separators);
     let (contained, density, forced) = (self.contained, self.density, self.forced);
     let items = self
       .items
@@ -911,10 +934,10 @@ impl List {
       .collect();
     let view = ListView {
       items,
-      header: self.header,
+      title: self.title,
       action: self.action,
       contained,
-      divided,
+      separators,
       inset: self.inset,
       label: self.label,
       recipe: theme.resolve::<List>(&case, Some(&self.rules)),
@@ -939,10 +962,10 @@ pub struct ListView {
   /// The rows, built, in order.
   pub items: Vec<Element>,
   /// What the header of a contained list says.
-  pub header: Option<Arc<str>>,
+  pub title: Option<Arc<str>>,
   pub contained: bool,
   /// Whether a line runs between each two rows.
-  pub divided: bool,
+  pub separators: bool,
   /// How far from the start the lines start.
   pub inset: f32,
   pub label: Option<Arc<str>>,
@@ -969,7 +992,7 @@ impl ListView {
       .align_items(Alignment::Stretch)
       .describe("a11y_role", "list")
       .part(&self.part(ListPart::Root));
-    if let Some(name) = self.label.as_ref().or(self.header.as_ref()) {
+    if let Some(name) = self.label.as_ref().or(self.title.as_ref()) {
       root = root.describe("a11y_name", name.clone());
     }
     if let Some(id) = &self.id {
@@ -983,42 +1006,47 @@ impl ListView {
 
   /// The bar over the rows of a contained list, with its title and its action: `None` for a list with neither.
   pub fn header(&mut self) -> Option<Row> {
-    if self.header.is_none() && self.action.is_none() {
+    if self.title.is_none() && self.action.is_none() {
       return None;
     }
     let mut header = Row::new()
       .align_items(Alignment::Center)
       .part(&self.part(ListPart::Header));
-    let title = self.part(ListPart::HeaderTitle);
+    let title = self.part(ListPart::Title);
     header = header.child(
       Column::new()
         .flex(1.0)
         .min_width(Dimension::Px(0.0))
         .part(&title)
-        .child(
-          title
-            .text(&self.header.as_deref().unwrap_or("").to_uppercase())
-            .nowrap(),
-        ),
+        .child(title.text(&self.title.as_deref().unwrap_or("").to_uppercase()).nowrap()),
     );
     if let Some(action) = self.action.take() {
       header = header.child(
         Row::new()
           .align_items(Alignment::Center)
-          .part(&self.part(ListPart::HeaderAction))
+          .part(&self.part(ListPart::Action))
           .child(action),
       );
     }
     Some(header)
   }
 
-  /// The line between two rows, from the list's inset to its end.
-  pub fn divider(&self) -> Column {
+  /// The line between two rows, from the list's inset to its end: it takes no room of its own, and is drawn along
+  /// the bottom of the row over it, inside it, as the board draws a row's line.
+  pub fn separator(&self) -> Column {
     Column::new()
       .align_items(Alignment::Stretch)
-      .part(&self.part(ListPart::Divider))
+      .height(Dimension::Px(0.0))
+      .overflow_visible()
+      .part(&self.part(ListPart::Separator))
       .padding_left(self.inset)
-      .child(Separator::horizontal().build(self.theme()))
+      .child(
+        Column::new()
+          .align_items(Alignment::Stretch)
+          .overflow_visible()
+          .offset_by_size(0.0, -1.0)
+          .child(Separator::horizontal().build(self.theme())),
+      )
   }
 
   /// The rows one under the other, with a line between each two where the list has them. The rows that are pressed
@@ -1032,8 +1060,8 @@ impl ListView {
       .part(&self.part(ListPart::Items));
     for (index, item) in items.into_iter().enumerate() {
       column = column.child(item);
-      if self.divided && index + 1 < count {
-        column = column.child(self.divider());
+      if self.separators && index + 1 < count {
+        column = column.child(self.separator());
       }
     }
     column
@@ -1061,8 +1089,8 @@ impl Themed for List {
   /// and the large radius, clipping its rows; its header is 32 high on the muted fill, 12 in from its sides, with a
   /// line of 1 under it, its title the mono type at 11 in the muted color, 1 apart.
   fn recipe() -> Recipe {
-    use ListPart::{Header, HeaderAction, HeaderTitle, Items, Root};
-    use ListState::{Contained, Divided};
+    use ListPart::{Action, Header, Items, Root, Title};
+    use ListState::{Contained, Separator};
     use PaletteColor::{Background, Border as Line, Muted, MutedForeground};
     Recipe::new()
       .base(Root, |s| s.foreground(PaletteColor::Foreground))
@@ -1072,7 +1100,7 @@ impl Themed for List {
           .radius(RadiusSize::Lg)
       })
       .base(Items, |s| s.gap(2.0))
-      .state(Divided, Items, |s| s.gap(0.0))
+      .state(Separator, Items, |s| s.gap(0.0))
       .base(Header, |s| {
         s.height(32.0)
           .padding_x(12.0)
@@ -1080,12 +1108,12 @@ impl Themed for List {
           .background(Muted)
           .underline(Border::inside(BorderSize::Sm, Line))
       })
-      .base(HeaderTitle, |s| {
+      .base(Title, |s| {
         s.font_family(FontFamily::Mono)
           .font_size(11.0)
           .letter_spacing(1.0)
           .foreground(MutedForeground)
       })
-      .base(HeaderAction, |s| s.gap(4.0))
+      .base(Action, |s| s.gap(4.0))
   }
 }

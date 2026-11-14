@@ -368,9 +368,16 @@ impl Component for ListboxPage {
     let rows = [
       (
         "value",
-        "Signal<T> / Signal<Vec<T>>",
+        "Signal<T> / Signal<Option<T>> / Signal<Vec<T>>",
         "",
-        "What is chosen: the option of the value, or those of the values. Choosing sets it.",
+        "What is chosen: the option of the value (none while it is `None`), or those of the values. Choosing sets \
+         it.",
+      ),
+      (
+        "controlled",
+        "(Option<T> / Vec<T>, options, impl Fn(&[T]))",
+        "",
+        "In place of `new`: the app holds what is chosen, and is told what a press or a key would choose.",
       ),
       (
         "options",
@@ -389,7 +396,8 @@ impl Component for ListboxPage {
         "on_change",
         "impl Fn(&[T])",
         "",
-        "Told what is chosen after each press or key that changes it.",
+        "Told the whole new choice after each press or key that changes it, and not for what is already chosen. A \
+         second is called after the first.",
       ),
       ("label", "&str", "", "What the listbox is called, to tooling."),
       (

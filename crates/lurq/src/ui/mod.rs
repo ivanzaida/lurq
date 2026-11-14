@@ -107,7 +107,7 @@ pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, 
 pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarState, ActionBarView,
 };
-pub use alert::{Alert, AlertIcon, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
+pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupView, AvatarPart, AvatarPresence,
   AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,
@@ -144,7 +144,9 @@ pub use command_palette::{
   CommandPaletteView, matches_every_word,
 };
 pub use context_menu::{ContextMenu, ContextMenuPart, ContextMenuRenderer, ContextMenuState, ContextMenuView};
-pub use data_list::{DataList, DataListItem, DataListPart, DataListRenderer, DataListState, DataListView};
+pub use data_list::{
+  DataList, DataListItem, DataListOrientation, DataListPart, DataListRenderer, DataListState, DataListView,
+};
 pub use date_picker::{
   DatePicker, DatePickerPart, DatePickerRenderer, DatePickerSize, DatePickerState, DatePickerView, Picked, PickerRenderer, PickerView,
 };
@@ -178,7 +180,9 @@ pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,
 };
-pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxValue, ListboxView};
+pub use listbox::{
+  Listbox, ListboxChosen, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxValue, ListboxView,
+};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsState,
   MentionsView,

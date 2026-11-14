@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::{
-  names,
+  Orientation, names,
   part_style::PartStyle,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
   theme::{Themed, current_theme},
@@ -38,17 +38,23 @@ names!(DataListPart {
 /// The states of a data list a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DataListState {
+  /// Each term beside its value: one of `Horizontal` and `Vertical` is on.
+  Horizontal,
   /// Each term over its value, in place of beside it.
   Vertical,
   /// Of an item, a term or a value: a line runs under it, as under every item but the last. One over the other,
   /// the line is the item's; side by side, its term's and its value's, which meet.
-  Divided,
+  Separator,
 }
 
 names!(DataListState {
+  Horizontal => "horizontal",
   Vertical => "vertical",
-  Divided => "divided",
+  Separator => "separator",
 });
+
+/// Which way a data list's terms stand to their values: [`Orientation`], beside them or over them.
+pub type DataListOrientation = Orientation;
 
 /// What builds a data list's nodes: a theme's in place of the default one.
 pub type DataListRenderer = Arc<dyn Fn(DataListView) -> Element + Send + Sync>;
@@ -63,7 +69,7 @@ enum Shown {
 /// properties of a file.
 ///
 /// ```
-/// use lurq::ui::{Badge, DataList};
+/// use lurq::ui::{Badge, DataList, Orientation};
 ///
 /// let about = DataList::new()
 ///   .text("Version", "0.60.0")
@@ -71,7 +77,7 @@ enum Shown {
 ///   .text("License", "MIT")
 ///   .item("Status", Badge::new("Stable").variant("success"));
 /// // Each term over its value, for a narrow column.
-/// let narrow = DataList::new().vertical(true).text("Version", "0.60.0");
+/// let narrow = DataList::new().orientation(Orientation::Vertical).text("Version", "0.60.0");
 /// ```
 ///
 /// Side by side, the terms are in one column as wide as the widest of them, and the values in the column of the
@@ -79,7 +85,7 @@ enum Shown {
 /// value its definition.
 pub struct DataList {
   items: Vec<(Arc<str>, Shown)>,
-  vertical: bool,
+  orientation: Orientation,
   label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
@@ -98,7 +104,7 @@ impl DataList {
   pub fn new() -> Self {
     Self {
       items: Vec::new(),
-      vertical: false,
+      orientation: Orientation::Horizontal,
       label: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -113,15 +119,32 @@ impl DataList {
     self
   }
 
+  /// Items of `(term, value)`, each as [`item`](Self::item) adds it.
+  pub fn items<'a, V: Into<Element>>(mut self, items: impl IntoIterator<Item = (&'a str, V)>) -> Self {
+    for (term, value) in items {
+      self = self.item(term, value);
+    }
+    self
+  }
+
   /// An item whose value is a text, in the value's type.
   pub fn text(mut self, term: &str, value: &str) -> Self {
     self.items.push((Arc::from(term), Shown::Text(Arc::from(value))));
     self
   }
 
-  /// Whether each term is over its value, in place of beside it: for a narrow column.
-  pub fn vertical(mut self, vertical: bool) -> Self {
-    self.vertical = vertical;
+  /// Items whose values are texts, each as [`text`](Self::text) adds it.
+  pub fn texts<'a>(mut self, items: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+    for (term, value) in items {
+      self = self.text(term, value);
+    }
+    self
+  }
+
+  /// Which way each term stands to its value: beside it (`Horizontal`, unless told otherwise), or over it
+  /// (`Vertical`), for a narrow column.
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
     self
   }
 
@@ -174,7 +197,8 @@ impl DataList {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(DataListState::Vertical, self.vertical);
+    .state(DataListState::Horizontal, !self.orientation.is_vertical())
+    .state(DataListState::Vertical, self.orientation.is_vertical());
     let view = DataListView {
       items: self
         .items
@@ -191,10 +215,10 @@ impl DataList {
           },
         })
         .collect(),
-      vertical: self.vertical,
+      orientation: self.orientation,
       label: self.label,
       recipe: theme.resolve::<DataList>(&case, Some(&self.rules)),
-      divided: theme.resolve::<DataList>(&case.state(DataListState::Divided, true), Some(&self.rules)),
+      separator: theme.resolve::<DataList>(&case.state(DataListState::Separator, true), Some(&self.rules)),
       id: self.id,
       key: self.key,
     };
@@ -223,13 +247,13 @@ pub struct DataListItem {
 /// A data list as a renderer sees it: its items, and the style of its parts.
 pub struct DataListView {
   pub items: Vec<DataListItem>,
-  /// Whether each term is over its value.
-  pub vertical: bool,
+  /// Which way each term stands to its value.
+  pub orientation: Orientation,
   pub label: Option<Arc<str>>,
   /// The style of each part, with no line under it: of the last item.
   pub recipe: ResolvedRecipe,
   /// The style of each part with a line under it: of every item but the last.
-  pub divided: ResolvedRecipe,
+  pub separator: ResolvedRecipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -280,7 +304,7 @@ impl DataListView {
   }
 
   fn of(&self, lined: bool) -> &ResolvedRecipe {
-    if lined { &self.divided } else { &self.recipe }
+    if lined { &self.separator } else { &self.recipe }
   }
 
   /// How the default renderer builds a data list: side by side, a grid of two columns, the terms' as wide as the
@@ -289,7 +313,7 @@ impl DataListView {
     let items = std::mem::take(&mut self.items);
     let count = items.len();
     let root_part = self.part(DataListPart::Root);
-    if self.vertical {
+    if self.orientation.is_vertical() {
       let mut root = Column::new().align_items(Alignment::Stretch).part(&root_part);
       for (index, mut item) in items.into_iter().enumerate() {
         let lined = index + 1 < count;
@@ -348,7 +372,7 @@ impl Themed for DataList {
   /// draw, the term is 12 and 2 over its value.
   fn recipe() -> Recipe {
     use DataListPart::{Item, Root, Term, Value};
-    use DataListState::{Divided, Vertical};
+    use DataListState::{Separator, Vertical};
     use PaletteColor::{Foreground, MutedForeground};
     let line = || Border::inside(BorderSize::Sm, PaletteColor::Border);
     Recipe::new()
@@ -367,11 +391,11 @@ impl Themed for DataList {
           .font_size(13.0)
           .foreground(Foreground)
       })
-      .state(Divided, Term, |s| s.underline(line()))
-      .state(Divided, Value, |s| s.underline(line()))
+      .state(Separator, Term, |s| s.underline(line()))
+      .state(Separator, Value, |s| s.underline(line()))
       // One over the other: the item holds the room and the line, the term is 12 and 2 over its value.
       .state(Vertical, Item, |s| s.padding_y(10.0).gap(2.0))
-      .state(Divided, Item, |s| s.underline(line()))
+      .state(Separator, Item, |s| s.underline(line()))
       .state(Vertical, Term, |s| s.padding_y(0.0).padding_end(0.0).font_size(12.0))
       .state(Vertical, Value, |s| s.padding_y(0.0))
   }
