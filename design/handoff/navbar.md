@@ -41,8 +41,8 @@ Navbar::new()
   )
   .item(NavItem::new("Components").href("/components"))
   .item(NavItem::new("Blog").href("/blog"))
-  .end(SearchField::new(query.clone()).placeholder("Search").size(TextBoxSize::Sm))
-  .end(account) // an Avatar that opens a Menu
+  .trailing(SearchField::new(query.clone()).placeholder("Search").size(TextBoxSize::Sm))
+  .trailing(account) // an Avatar that opens a Menu
   .sticky(true)
   .mount(ctx)
 ```
@@ -51,7 +51,7 @@ Navbar::new()
 | --- | --- |
 | `brand(element)` | What stands at its start: a `NavbarBrand` (a mark beside a name, pressed where it has `on_select`), or an element of the app's |
 | `item(NavItem)`, `items(..)` | A link after the others; one with a `panel` opens a panel of links, as in a [navigation menu](#navigation-menu) |
-| `end(element)` | What stands at its end, after what stands there: a [search field](#search-field), a [button](#button), an [avatar](#avatar) with its [menu](#menu) |
+| `trailing(element)` | What stands after the links, after what stands there: a [search field](#search-field), a [button](#button), an [avatar](#avatar) with its [menu](#menu) |
 | `sticky(bool)` | It stays at the top of the page that scrolls it |
 | `open(signal)`, `on_open_change(handler)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`; and what hears it change. Without a signal the bar keeps its own |
 | `menu_open(signal)`, `on_menu_open_change(handler)` | On a narrow window, whether the links are open over the page; and what hears the menu button turn it |
@@ -61,11 +61,11 @@ Navbar::new()
 
 - It is mounted (`mount(ctx)`): its links are a mounted navigation menu, and on a narrow window a mounted [sidebar](#sidebar). Converted into an element on its own it is drawn with what the signals it is given say, for a gallery or a test.
 - Its links are a [navigation menu](#navigation-menu) in its links variant: each a stop of Tab, the page shown (`NavItem::current`) in the foreground and the others in the muted foreground, brought forward under the pointer. One with a panel opens it under the bar by a press, under the pointer after a moment, and with Enter, Space and Down, with all a navigation menu does.
-- On a window narrower than the `md` breakpoint (or where `narrow(true)` says) the links go behind a ghost button of the `menu` icon at the bar's start, called "Open menu", into a `Sidebar` over the page, which slides in from the start over a veil: each link an item, the page shown selected, an item with a panel a group of its links under its name. Choosing one closes it, as Escape and a press on the veil do. The brand and what stands at the end stay in the bar.
+- On a window narrower than the `md` breakpoint (or where `narrow(true)` says) the links go behind a ghost button of the `menu` icon at the bar's start, called "Menu" (`menu_label`), into a `Sidebar` over the page, which slides in from the start over a veil: each link an item, the page shown selected, an item with a panel a group of its links under its name. Choosing one closes it, as Escape and a press on the veil do. The brand and what stands at the end stay in the bar.
 - In the design the bar is 56 tall in `Background`, with a line of 1 in `Border` along its bottom, padded 16 at its sides with 24 between what it holds. The brand is a mark of 20 in `Foreground` 8 before its name in 16/600; the links are 20 apart in 13/500; what stands at the end is 24 apart. On a narrow window it is padded 8 with 8 between what it holds.
-- Parts: `NavbarPart::Root`, `Brand`, `BrandMark`, `BrandName`, `Links` (the room of the links, which takes what the bar has to spare), `End`. States: `NavbarState::Narrow`, `Sticky`, `Interactive` (the brand is pressed). How its links look is the navigation menu's recipe, in its `Links` variant: a theme restyles them there, into the board's tablet tab bar, say (a bar on `Muted` with the full radius, its items 36 tall and round, the page shown on `Background` with a shadow).
+- Parts: `NavbarPart::Root`, `Brand`, `BrandMark`, `BrandName`, `Links` (the room of the links, which takes what the bar has to spare), `Trailing`. States: `NavbarState::Narrow`, `Sticky`, `Interactive` (the brand is pressed). How its links look is the navigation menu's recipe, in its `Links` variant: a theme restyles them there, into the board's tablet tab bar, say (a bar on `Muted` with the full radius, its items 36 tall and round, the page shown on `Background` with a shadow).
 - To what reads the tree the bar is a `navigation` called by its label, its links `link`s (the page shown with `a11y_current` `page`) or `button`s that open a panel, and the menu button a `button` with `a11y_expanded` and `a11y_controls` naming the links over the page.
-- A renderer for `Navbar` gets a `NavbarView`: `view.root()` is the bar with its style and its role; `brand`, `links`, `end`, `menu_button` and `drawer` are what it holds, built, to put in it. `view.render()` builds the bar.
+- A renderer for `Navbar` gets a `NavbarView`: `view.root()` is the bar with its style and its role; `brand`, `links`, `trailing`, `menu_button` and `drawer` are what it holds, built, to put in it. `view.render()` builds the bar.
 
 ## Navigation Menu
 
@@ -95,7 +95,7 @@ NavigationMenu::new()
 | `item(NavItem)`, `items(..)` | An item after the others |
 | `open(signal)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`, which a press, the pointer and the keys set, and Escape, a press outside, a choice and the pointer going clear set to `None`. Without one the menu keeps its own |
 | `on_open_change(handler)` | What hears a panel open, another take its place, or the open one close |
-| `variant(NavigationMenuVariant)` | `Menu`, the board's: each item a box lit under the pointer and while its panel is open. `Links`: the text alone, as a navbar has it |
+| `variant(impl Into<Name>)` | `Menu`, the board's: each item a box lit under the pointer and while its panel is open. `Links`: the text alone, as a navbar has it |
 | `open_delay(..)`, `close_delay(..)` | How long the pointer rests on an item before its panel opens (the theme's base duration), and how long a panel stays after the pointer has left it and its item (the slow one) |
 | `disabled(bool)`, `label(&str)` | No item can be pressed; what the navigation region is called to tooling, "Main" unless told |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the row's; its items are `{id}-0` and on unless they have ids of their own, each panel `{id}-0-panel`, its links `{id}-0-0` and on |

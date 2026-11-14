@@ -14,8 +14,8 @@ use lurq::{
   layout::quad::{Quad, QuadContent},
   node::color::Color,
   ui::{
-    Case, Choice, Interaction, Opacity, Radio, RadioGroup, RadioGroupPart, RadioPart, RadioRenderer, RadioState,
-    RadioView,
+    Case, Choice, Interaction, Opacity, Orientation, Radio, RadioGroup, RadioGroupPart, RadioPart, RadioRenderer,
+    RadioState, RadioView,
   },
 };
 
@@ -82,28 +82,28 @@ fn press_at(stage: &mut Stage, quad: &Quad) {
 }
 
 #[test]
-fn a_radio_is_a_round_mark_with_a_dot_while_it_is_chosen() {
+fn a_radio_is_a_round_mark_with_a_dot_while_it_is_selected() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .padding(8.0)
       .spacing(12.0)
       .child(Radio::new("Compact").id("not"))
-      .child(Radio::new("Comfortable").chosen(true).id("chosen"))
+      .child(Radio::new("Comfortable").selected(true).id("selected"))
       .into()
   });
-  for id in ["not", "chosen"] {
+  for id in ["not", "selected"] {
     let (_, _, width, height) = stage.bounds(id);
     assert_eq!((width, height), (16.0, 16.0), "{id}");
     assert_eq!(stage.fill_color(id), Some(light(PaletteColor::Background)), "{id}");
     let fill = stage.fill(id).unwrap();
     assert!(fill.border_radius.is_some_and(|radius| radius.top_left >= 8.0), "round");
   }
-  // Not chosen, its edge is an input's and it holds nothing; chosen, its edge and its dot are the primary color.
+  // Not selected, its edge is an input's and it holds nothing; selected, its edge and its dot are the primary color.
   assert_eq!(edge(&mut stage, "not"), (1.0, light(PaletteColor::Input)));
   assert!(squares_in(&mut stage, "not", 8.0).is_empty());
-  assert_eq!(edge(&mut stage, "chosen"), (1.0, light(PaletteColor::Primary)));
-  let (x, y, ..) = stage.bounds("chosen");
-  let dots = squares_in(&mut stage, "chosen", 8.0);
+  assert_eq!(edge(&mut stage, "selected"), (1.0, light(PaletteColor::Primary)));
+  let (x, y, ..) = stage.bounds("selected");
+  let dots = squares_in(&mut stage, "selected", 8.0);
   assert_eq!(dots.len(), 1, "one dot");
   assert_eq!((dots[0].x - x, dots[0].y - y), (4.0, 4.0), "in the middle");
   assert_eq!(color_of(&dots[0]), light(PaletteColor::Primary));
@@ -119,38 +119,38 @@ fn a_radio_is_a_round_mark_with_a_dot_while_it_is_chosen() {
 }
 
 #[test]
-fn a_press_of_a_radio_not_chosen_chooses_it_and_of_one_chosen_does_nothing() {
+fn a_press_of_a_radio_not_selected_selects_it_and_of_one_selected_does_nothing() {
   let asked = Arc::new(Mutex::new(Vec::new()));
   let told = asked.clone();
   let mut stage = Stage::new(move |_| {
     let tell = |name: &'static str| {
       let told = told.clone();
-      move || told.lock().unwrap().push(name)
+      move |_: bool| told.lock().unwrap().push(name)
     };
     Column::new()
       .padding(8.0)
       .spacing(12.0)
-      .child(Radio::new("Compact").id("not").on_choose(tell("not")))
+      .child(Radio::new("Compact").id("not").on_change(tell("not")))
       .child(
         Radio::new("Comfortable")
-          .chosen(true)
-          .id("chosen")
-          .on_choose(tell("chosen")),
+          .selected(true)
+          .id("selected")
+          .on_change(tell("selected")),
       )
       .child(
         Radio::new("Managed")
           .disabled(true)
           .id("disabled")
-          .on_choose(tell("disabled")),
+          .on_change(tell("disabled")),
       )
-      .child(Radio::new("Spacious").id("last").on_choose(tell("last")))
+      .child(Radio::new("Spacious").id("last").on_change(tell("last")))
       .into()
   });
   // The keyboard presses the mark: Tab reaches the first radio, Space presses it. The ring is the mark's.
   stage.key("Tab");
   assert!(stage.has_ring(light(PaletteColor::Ring)));
   stage.key(" ");
-  // The second is chosen already: Enter on it tells nobody. The third is disabled: Tab passes it by.
+  // The second is selected already: Enter on it tells nobody. The third is disabled: Tab passes it by.
   stage.key("Tab");
   stage.key("Enter");
   stage.key("Tab");
@@ -159,7 +159,7 @@ fn a_press_of_a_radio_not_chosen_chooses_it_and_of_one_chosen_does_nothing() {
   asked.lock().unwrap().clear();
 
   stage.click("not");
-  stage.click("chosen");
+  stage.click("selected");
   stage.click("disabled");
   assert_eq!(*asked.lock().unwrap(), ["not"]);
 
@@ -176,7 +176,7 @@ fn a_radio_with_its_label_hidden_is_its_mark_alone() {
   let mut stage = Stage::new(|_| {
     Row::new()
       .padding(8.0)
-      .child(Radio::new("Compact").chosen(true).label_hidden(true).id("radio"))
+      .child(Radio::new("Compact").selected(true).label_hidden(true).id("radio"))
       .into()
   });
   assert!(!stage.paints("Compact"));
@@ -191,7 +191,7 @@ fn an_invalid_radio_has_the_destructive_edge_and_a_disabled_one_is_dimmed() {
       .padding(8.0)
       .spacing(12.0)
       .child(Radio::new("Invalid").invalid(true).id("invalid"))
-      .child(Radio::new("Managed").chosen(true).disabled(true))
+      .child(Radio::new("Managed").selected(true).disabled(true))
       .into()
   });
   assert_eq!(edge(&mut stage, "invalid"), (1.0, light(PaletteColor::Destructive)));
@@ -217,9 +217,9 @@ fn a_forced_focus_draws_the_ring_with_nothing_pointing_at_it() {
 }
 
 #[test]
-fn a_group_is_its_radios_one_under_the_other_and_chooses_by_its_signal() {
-  let chosen = Signal::new(0u8);
-  let read = chosen.clone();
+fn a_group_is_its_radios_one_under_the_other_and_selects_by_its_signal() {
+  let selected = Signal::new(0u8);
+  let read = selected.clone();
   let mut stage = Stage::new(move |_| {
     Row::new()
       .padding(8.0)
@@ -245,24 +245,24 @@ fn a_group_is_its_radios_one_under_the_other_and_chooses_by_its_signal() {
   let (comfortable, compact) = (mark_of(&stage, "Comfortable"), mark_of(&stage, "Compact"));
   assert!((compact.y - comfortable.y - (first.height.max(16.0) + 12.0)).abs() < 0.01);
 
-  // From the keyboard, with nothing focused yet: Tab comes into the group at the chosen radio, and an arrow
-  // key moves the focus to the next and chooses it. From the last it goes to the first.
+  // From the keyboard, with nothing focused yet: Tab comes into the group at the selected radio, and an arrow
+  // key moves the focus to the next and selects it. From the last it goes to the first.
   stage.key("Tab");
   stage.key("ArrowDown");
-  assert_eq!(chosen.get(), 1);
+  assert_eq!(selected.get(), 1);
   stage.key("ArrowRight");
   stage.key("ArrowDown");
-  assert_eq!(chosen.get(), 0, "past the last is the first");
+  assert_eq!(selected.get(), 0, "past the last is the first");
   stage.key("ArrowUp");
-  assert_eq!(chosen.get(), 2);
+  assert_eq!(selected.get(), 2);
   stage.key("Home");
   stage.key("ArrowDown");
-  assert_eq!(chosen.get(), 1);
+  assert_eq!(selected.get(), 1);
 
   // A press of another sets the signal, and the group is drawn again.
   let spacious = mark_of(&stage, "Spacious");
   press_at(&mut stage, &spacious);
-  assert_eq!(chosen.get(), 2);
+  assert_eq!(selected.get(), 2);
   assert!(dot(&mut stage, "Spacious"));
   assert!(!dot(&mut stage, "Comfortable"));
 }
@@ -283,11 +283,11 @@ fn a_controlled_group_tells_the_app_and_a_disabled_choice_takes_nothing() {
           Choice::new("team", "Team"),
           Choice::new("enterprise", "Enterprise").disabled(true),
         ],
-        move |plan| plans.lock().unwrap().push(plan),
+        move |plan: &&str| plans.lock().unwrap().push(*plan),
       ))
       .child(
-        RadioGroup::controlled(None, [("a", "Apples"), ("b", "Pears")], move |fruit| {
-          all.lock().unwrap().push(fruit)
+        RadioGroup::controlled(None, [("a", "Apples"), ("b", "Pears")], move |fruit: &&str| {
+          all.lock().unwrap().push(*fruit)
         })
         .disabled(true),
       )
@@ -297,7 +297,7 @@ fn a_controlled_group_tells_the_app_and_a_disabled_choice_takes_nothing() {
     let mark = mark_of(&stage, label);
     press_at(&mut stage, &mark);
   }
-  // The chosen one, the disabled one and the disabled group tell nothing.
+  // The selected one, the disabled one and the disabled group tell nothing.
   assert_eq!(*asked.lock().unwrap(), ["team"]);
 }
 
@@ -323,7 +323,7 @@ fn a_theme_gives_the_radio_another_anatomy_and_a_group_other_room() {
   let app = App::new();
   // A radio that says what it is in words inside its mark: other nodes, the same behavior.
   let renderer: RadioRenderer = Arc::new(|view: RadioView| {
-    let word = if view.chosen { "YES" } else { "NO" };
+    let word = if view.selected { "YES" } else { "NO" };
     view.mark().child(view.part(RadioPart::Label).text(word)).into()
   });
   app.theme().set_renderer::<Radio>(renderer);
@@ -334,7 +334,7 @@ fn a_theme_gives_the_radio_another_anatomy_and_a_group_other_room() {
       .child(
         Radio::new("Compact")
           .id("radio")
-          .on_choose(move || told.lock().unwrap().push(())),
+          .on_change(move |_| told.lock().unwrap().push(())),
       )
       .into()
   });
@@ -360,9 +360,9 @@ fn a_group_styled_by_the_app_has_other_room_between_its_radios() {
 }
 
 #[test]
-fn tab_stops_once_in_a_group_at_the_chosen_radio() {
-  let chosen = Signal::new(1u8);
-  let read = chosen.clone();
+fn tab_stops_once_in_a_group_at_the_selected_radio() {
+  let selected = Signal::new(1u8);
+  let read = selected.clone();
   let pressed = Arc::new(Mutex::new(Vec::new()));
   let told = pressed.clone();
   let mut stage = Stage::new(move |_| {
@@ -370,7 +370,7 @@ fn tab_stops_once_in_a_group_at_the_chosen_radio() {
     Column::new()
       .padding(8.0)
       .spacing(12.0)
-      .child(Radio::new("Before").on_choose(move || before.lock().unwrap().push("before")))
+      .child(Radio::new("Before").on_change(move |_| before.lock().unwrap().push("before")))
       .child(RadioGroup::new(
         read.clone(),
         [
@@ -380,7 +380,7 @@ fn tab_stops_once_in_a_group_at_the_chosen_radio() {
           Choice::new(3, "Roomy"),
         ],
       ))
-      .child(Radio::new("After").on_choose(move || after.lock().unwrap().push("after")))
+      .child(Radio::new("After").on_change(move |_| after.lock().unwrap().push("after")))
       .into()
   });
   // The first Tab is on the radio before the group, the second in the group, the third after it.
@@ -389,15 +389,15 @@ fn tab_stops_once_in_a_group_at_the_chosen_radio() {
   stage.key("Tab");
   stage.key(" ");
   assert_eq!(*pressed.lock().unwrap(), ["after"]);
-  assert_eq!(chosen.get(), 1, "passing through the group chose nothing");
+  assert_eq!(selected.get(), 1, "passing through the group selected nothing");
 
-  // Back in the group the focus is on the chosen radio: the next arrow passes the disabled one by.
+  // Back in the group the focus is on the selected radio: the next arrow passes the disabled one by.
   stage
     .tree
     .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
   stage.pass();
   stage.key("ArrowDown");
-  assert_eq!(chosen.get(), 3);
+  assert_eq!(selected.get(), 3);
 }
 
 #[test]
@@ -405,7 +405,10 @@ fn a_group_in_a_row_has_its_radios_side_by_side() {
   let mut stage = Stage::new(|_| {
     Row::new()
       .padding(8.0)
-      .child(RadioGroup::controlled(Some(0u8), [(0u8, "Day"), (1, "Week"), (2, "Month")], |_| {}).horizontal(true))
+      .child(
+        RadioGroup::controlled(Some(0u8), [(0u8, "Day"), (1, "Week"), (2, "Month")], |_| {})
+          .orientation(Orientation::Horizontal),
+      )
       .into()
   });
   let (day, week, month) = (
@@ -417,4 +420,154 @@ fn a_group_in_a_row_has_its_radios_side_by_side() {
   // 24 from the end of one label to the mark of the next.
   let label = stage.text_quad("Day").unwrap();
   assert!((week.x - (label.x + label.width) - 24.0).abs() < 0.01);
+}
+
+/// Whether the radio labelled `label` has its dot: it is the one selected.
+fn has_dot(stage: &mut Stage, label: &str) -> bool {
+  let mark = mark_of(stage, label);
+  stage
+    .quads()
+    .iter()
+    .any(|quad| (quad.width, quad.x - mark.x, quad.y - mark.y) == (8.0, 4.0, 4.0) && color_of(quad).a() > 0)
+}
+
+#[test]
+fn a_lone_radio_is_told_it_is_to_be_selected() {
+  let asked = Arc::new(Mutex::new(Vec::new()));
+  let told = asked.clone();
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Row::new()
+      .padding(8.0)
+      .child(
+        Radio::new("Compact")
+          .id("radio")
+          .on_change(move |selected| told.lock().unwrap().push(selected)),
+      )
+      .into()
+  });
+  stage.click("radio");
+  assert_eq!(*asked.lock().unwrap(), [true]);
+}
+
+#[test]
+fn a_group_tells_its_handlers_the_value_selected_after_its_signal_and_not_what_the_app_sets() {
+  let selected = Signal::new(0u8);
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (read, told) = (selected.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let (seen, told) = (read.clone(), told.clone());
+    Row::new()
+      .padding(8.0)
+      .child(
+        RadioGroup::new(read.clone(), [(0u8, "Comfortable"), (1, "Compact")])
+          .on_change(move |value| told.lock().unwrap().push((*value, seen.get_untracked()))),
+      )
+      .into()
+  });
+  let compact = mark_of(&stage, "Compact");
+  press_at(&mut stage, &compact);
+  assert_eq!(*heard.lock().unwrap(), [(1, 1)], "the value, after the signal is set");
+  // A press of the one selected tells nobody; nor does the app setting the signal.
+  let compact = mark_of(&stage, "Compact");
+  press_at(&mut stage, &compact);
+  selected.set(0);
+  stage.pass();
+  assert_eq!(heard.lock().unwrap().len(), 1);
+  assert!(has_dot(&mut stage, "Comfortable"));
+}
+
+#[test]
+fn a_group_bound_to_an_option_selects_none_until_a_press() {
+  let plan: Signal<Option<&'static str>> = Signal::new(None);
+  let read = plan.clone();
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(RadioGroup::new(read.clone(), [("free", "Free"), ("team", "Team")]))
+      .into()
+  });
+  assert!(
+    !has_dot(&mut stage, "Free") && !has_dot(&mut stage, "Team"),
+    "none is selected"
+  );
+  // Tab comes into the group at the first, which an arrow key passes on from.
+  stage.key("Tab");
+  stage.key("ArrowDown");
+  assert_eq!(plan.get(), Some("team"));
+  assert!(has_dot(&mut stage, "Team"));
+}
+
+#[test]
+fn a_group_the_app_holds_shows_what_the_app_answers() {
+  // The app holds the choice and refuses Week: a press of it is told, and Day stays selected.
+  let held = Signal::new(Some(0u8));
+  let asked = Arc::new(Mutex::new(Vec::new()));
+  let (read, told) = (held.clone(), asked.clone());
+  let mut stage = Stage::new(move |_| {
+    let (set, told) = (read.clone(), told.clone());
+    Row::new()
+      .padding(8.0)
+      .child(RadioGroup::controlled(
+        read.get(),
+        [(0u8, "Day"), (1, "Week"), (2, "Month")],
+        move |value| {
+          told.lock().unwrap().push(*value);
+          if *value != 1 {
+            set.set(Some(*value));
+          }
+        },
+      ))
+      .into()
+  });
+  let week = mark_of(&stage, "Week");
+  press_at(&mut stage, &week);
+  stage.pass();
+  assert_eq!(*asked.lock().unwrap(), [1]);
+  assert!(
+    has_dot(&mut stage, "Day") && !has_dot(&mut stage, "Week"),
+    "what the app holds"
+  );
+  let month = mark_of(&stage, "Month");
+  press_at(&mut stage, &month);
+  stage.pass();
+  assert!(has_dot(&mut stage, "Month"));
+}
+
+#[test]
+fn a_group_has_its_states_its_rules_and_a_forced_radio() {
+  use lurq::ui::Recipe;
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .padding(8.0)
+      .child(
+        RadioGroup::controlled(Some(1u8), [(0u8, "Yes"), (1, "No")], |_| {})
+          .state("roomy", true)
+          .rules(&Recipe::new().state("roomy", RadioGroupPart::Root, |s| s.gap(30.0)))
+          .force(Some(Interaction::FocusVisible)),
+      )
+      .into()
+  });
+  // One under the other unless told, with the room the app's rule gives.
+  let (yes, no) = (mark_of(&stage, "Yes"), mark_of(&stage, "No"));
+  let row = stage.text_quad("Yes").unwrap().height.max(16.0);
+  assert_eq!(no.y - yes.y, row + 30.0);
+  // The forced focus is on the radio Tab would stop on: the one selected.
+  stage.pass();
+  assert!(stage.has_ring(light(PaletteColor::Ring)));
+  let ring = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if color.a() == 0)
+        && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Ring))
+    })
+    .map(|quad| quad.y)
+    .collect::<Vec<_>>();
+  assert!(
+    !ring.is_empty() && ring.iter().all(|y| (y - no.y).abs() < (y - yes.y).abs()),
+    "{ring:?} around No at {}, not Yes at {}",
+    no.y,
+    yes.y
+  );
 }

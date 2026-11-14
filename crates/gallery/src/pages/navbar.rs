@@ -127,7 +127,7 @@ fn navbar(props: &Props, record: impl Fn(String) + Clone + Send + Sync + 'static
     bar = bar.item(item);
   }
   if props.search {
-    bar = bar.end(
+    bar = bar.trailing(
       Row::new().width(200.0).child(
         SearchField::new(props.query.clone())
           .placeholder("Search")
@@ -137,7 +137,7 @@ fn navbar(props: &Props, record: impl Fn(String) + Clone + Send + Sync + 'static
     );
   }
   if props.avatar {
-    bar = bar.end(account(props, record.clone()));
+    bar = bar.trailing(account(props, record.clone()));
   }
   let told = record.clone();
   bar
@@ -245,12 +245,12 @@ impl NavbarPage {
     }
     if props.search {
       code.push(
-        "    .end(Row::new().width(200.0).child(SearchField::new(query).placeholder(\"Search\").size(TextBoxSize::Sm).full_width(true)))"
+        "    .trailing(Row::new().width(200.0).child(SearchField::new(query).placeholder(\"Search\").size(TextBoxSize::Sm).full_width(true)))"
           .to_owned(),
       );
     }
     if props.avatar {
-      code.push("    .end(account) // an Avatar that opens a Menu".to_owned());
+      code.push("    .trailing(account) // an Avatar that opens a Menu".to_owned());
     }
     if props.sticky {
       code.push("    .sticky(true)".to_owned());
@@ -268,8 +268,8 @@ impl NavbarPage {
       ),
       "├─ brand    mark 20 · name 16/600".to_owned(),
       "├─ links    NavigationMenu, links variant · 20 apart · 13/500".to_owned(),
-      "└─ end      search · avatar · 24 apart".to_owned(),
-      "narrow: menu button · brand · end, the links in a Sidebar over the page".to_owned(),
+      "└─ trailing search · avatar · 24 apart".to_owned(),
+      "narrow: menu button · brand · trailing, the links in a Sidebar over the page".to_owned(),
     ];
 
     let choices: Vec<(&str, usize)> = LINKS.iter().enumerate().map(|(index, name)| (*name, index)).collect();
@@ -405,8 +405,8 @@ impl Component for NavbarPage {
         "brand",
         "impl Into<Element>",
         "",
-        "What stands at its start: a NavbarBrand (a mark beside a name, pressed where it has on_select), or an \
-         element of the app's.",
+        "What stands at its start: a NavbarBrand (an icon or its media beside a name, pressed where it has \
+         on_select), or an element of the app's.",
       ),
       (
         "item",
@@ -416,10 +416,10 @@ impl Component for NavbarPage {
          opens a panel of links.",
       ),
       (
-        "end",
+        "trailing",
         "impl Into<Element>",
         "",
-        "What stands at its end, after what stands there: a SearchField, a Button, an Avatar with its Menu.",
+        "What stands after the links, after what stands there: a SearchField, a Button, an Avatar with its Menu.",
       ),
       (
         "sticky",
@@ -464,6 +464,12 @@ impl Component for NavbarPage {
         "What the navigation region is called to tooling.",
       ),
       (
+        "menu_label",
+        "&str",
+        "\"Menu\"",
+        "What the menu button of the narrow form is called to tooling: whether the links are open it says on its own.",
+      ),
+      (
         "id",
         "impl Into<Arc<str>>",
         "",
@@ -499,7 +505,7 @@ impl Component for NavbarPage {
           self.frame.demo(
             0,
             site,
-            "Navbar::new().brand(..).item(..).end(..)",
+            "Navbar::new().brand(..).item(..).trailing(..)",
             &[
               "// menu_open: Signal<bool>; query: Signal<String>; account: an Avatar that opens a Menu",
               "Navbar::new()",
@@ -513,8 +519,8 @@ impl Component for NavbarPage {
               "    ))",
               "    .item(NavItem::new(\"Components\").on_select(..))",
               "    .item(NavItem::new(\"Blog\").on_select(..))",
-              "    .end(Row::new().width(200.0).child(SearchField::new(query).placeholder(\"Search\").size(TextBoxSize::Sm).full_width(true)))",
-              "    .end(account)",
+              "    .trailing(Row::new().width(200.0).child(SearchField::new(query).placeholder(\"Search\").size(TextBoxSize::Sm).full_width(true)))",
+              "    .trailing(account)",
               "    .menu_open(menu_open.clone())",
               "    .narrow(false)",
               "    .mount(ctx)",
@@ -537,7 +543,7 @@ impl Component for NavbarPage {
               "    .item(NavItem::new(\"Docs\").current(true).panel(docs))",
               "    .item(NavItem::new(\"Components\").on_select(..))",
               "    .item(NavItem::new(\"Blog\").on_select(..))",
-              "    .end(account)",
+              "    .trailing(account)",
               "    .menu_open(menu_open.clone())",
               "    .narrow(true)",
               "    .mount(ctx)",

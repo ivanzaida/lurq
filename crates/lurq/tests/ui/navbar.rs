@@ -50,7 +50,7 @@ fn board_with(on_blog: impl Fn() + Send + Sync + 'static) -> Navbar {
     )
     .item(NavItem::new("Components").id("components"))
     .item(NavItem::new("Blog").id("blog").on_select(on_blog))
-    .end(Avatar::new("Ivan Zaida").id("avatar"))
+    .trailing(Avatar::new("Ivan Zaida").id("avatar"))
 }
 
 /// A window of 800 by 500 with the bar 760 wide at its top and a button under it.
@@ -248,6 +248,14 @@ fn tooling_reads_a_navigation_of_links() {
     said(&mut narrow, "bar-menu", "a11y_controls").as_deref(),
     Some("bar-drawer")
   );
+  // The menu button has one name, open or not: whether the links are open it says on its own.
+  assert_eq!(said(&mut narrow, "bar-menu", "a11y_name").as_deref(), Some("Menu"));
+  narrow.click("bar-menu");
+  narrow.pass();
+  assert_eq!(said(&mut narrow, "bar-menu", "a11y_name").as_deref(), Some("Menu"));
+  assert_eq!(said(&mut narrow, "bar-menu", "a11y_expanded").as_deref(), Some("true"));
+  let mut named = stage(|| board().narrow(true).menu_label("Site menu"));
+  assert_eq!(said(&mut named, "bar-menu", "a11y_name").as_deref(), Some("Site menu"));
 }
 
 #[test]
@@ -260,4 +268,22 @@ fn a_theme_restyles_its_parts() {
   let (.., height) = stage.bounds("bar");
   assert_eq!(height, 64.0);
   assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Muted)));
+}
+
+#[test]
+fn a_brand_shows_its_media_in_place_of_an_icon() {
+  let mut stage = stage(|| {
+    Navbar::new()
+      .id("bar")
+      .brand(NavbarBrand::new("lurq").media(Row::new().size(24.0, 24.0).id("logo")))
+      .narrow(false)
+  });
+  let (logo_x, _, logo_width, _) = stage.bounds("logo");
+  let (bar_x, ..) = stage.bounds("bar");
+  assert_eq!(logo_x - bar_x, 16.0, "at the start, in the bar's padding");
+  let name = stage.text_quad("lurq").unwrap();
+  assert!(
+    (name.x - (logo_x + logo_width) - 8.0).abs() < 0.5,
+    "the name 8 after it"
+  );
 }

@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{CheckboxCard, CheckboxCardGroup, Interaction, icons},
+  ui::{CheckboxCard, CheckboxCardGroup, Interaction, Orientation, icons},
 };
 
 use crate::{
@@ -49,6 +49,8 @@ pub struct CheckboxCardPage {
   disabled: Signal<bool>,
   full_width: Signal<bool>,
   add_ons: Signal<Vec<&'static str>>,
+  /// What the app holds of the cards one under the other.
+  reports: Signal<Vec<&'static str>>,
 }
 
 impl CheckboxCardPage {
@@ -78,10 +80,10 @@ impl CheckboxCardPage {
       }
     };
     let (record, set) = (self.playground.recorder(), self.checked.clone());
-    let card = plain().force(self.playground.forced()).on_change(move |checked| {
-      set.set(checked);
-      record(format!("on_change: {checked}"));
-    });
+    let card = plain()
+      .force(self.playground.forced())
+      .bind(set)
+      .on_change(move |checked| record(format!("on_change: {checked}")));
     let make = {
       let plain = plain.clone();
       move || plain().into()
@@ -97,7 +99,6 @@ impl CheckboxCardPage {
     if price {
       code.push("    .price(\"$4\")".to_owned());
     }
-    code.push(format!("    .checked({checked})"));
     if invalid {
       code.push("    .invalid(true)".to_owned());
     }
@@ -107,7 +108,7 @@ impl CheckboxCardPage {
     if full_width {
       code.push("    .full_width(true)".to_owned());
     }
-    code.push("    .on_change(|checked| analytics.set(checked))".to_owned());
+    code.push("    .bind(analytics)".to_owned());
 
     let mut tree = vec![format!(
       "root          {}   padded 16 · radius-lg · edge {}",
@@ -200,6 +201,7 @@ impl Component for CheckboxCardPage {
       disabled: ctx.signal(false),
       full_width: ctx.signal(false),
       add_ons: ctx.signal(vec!["backups"]),
+      reports: ctx.signal(vec!["crash"]),
     }
   }
 
@@ -248,12 +250,13 @@ impl Component for CheckboxCardPage {
           ),
         ],
       )
-      .horizontal(true),
+      .orientation(Orientation::Horizontal),
       &format!("the signal has: {add_ons:?}"),
     ));
+    let (reports, set_reports) = (self.reports.get(), self.reports.clone());
     let column = items().child(item(
       Column::new().width(320.0).child(CheckboxCardGroup::controlled(
-        ["crash"],
+        reports.clone(),
         [
           (
             "crash",
@@ -268,9 +271,9 @@ impl Component for CheckboxCardPage {
               .full_width(true),
           ),
         ],
-        |_| {},
+        move |next| set_reports.set(next.to_vec()),
       )),
-      "one under the other, as wide as what holds them",
+      &format!("the app holds: {reports:?}"),
     ));
     let card_rows = [
       (
@@ -294,10 +297,16 @@ impl Component for CheckboxCardPage {
         "Whether it is checked: the box checked and the edge of 2 in the primary color. The app holds it.",
       ),
       (
+        "bind",
+        "Signal<bool>",
+        "",
+        "In place of checked and a handler: checked while the signal is true, which a press turns.",
+      ),
+      (
         "on_change",
         "impl Fn(bool)",
         "",
-        "Called on a press of the card or Space on it, with what it is to be.",
+        "Called on a press of the card or Space on it, with what it is to be. Bound, after the signal is set.",
       ),
       (
         "invalid",
@@ -320,7 +329,7 @@ impl Component for CheckboxCardPage {
     ];
     let group_rows = [
       (
-        "values",
+        "checked",
         "Signal<Vec<T>>",
         "",
         "CheckboxCardGroup::new: the cards whose values the signal has are checked; a press adds or takes out.",
@@ -333,15 +342,27 @@ impl Component for CheckboxCardPage {
       ),
       (
         "controlled",
-        "impl IntoIterator<T>, impl Fn(T)",
+        "impl IntoIterator<T>, impl Fn(&[T])",
         "",
-        "In place of a signal: the app holds what is checked and is told each value pressed.",
+        "In place of a signal: the app holds what is checked and is told the whole new set a press asks for.",
       ),
       (
-        "horizontal",
-        "bool",
-        "false",
-        "Side by side, 12 apart, going on to the next line where there is no room.",
+        "on_change",
+        "impl Fn(&[T])",
+        "",
+        "Called on a press with the whole new set checked, after the signal is set.",
+      ),
+      (
+        "orientation",
+        "Orientation",
+        "Vertical",
+        "Horizontal: side by side, 12 apart, going on to the next line where there is no room.",
+      ),
+      (
+        "label",
+        "&str",
+        "",
+        "What the group is called to tooling. It draws nothing: a field or a fieldset gives it its label.",
       ),
       (
         "invalid",
@@ -364,7 +385,7 @@ impl Component for CheckboxCardPage {
         title: "Checkbox Card",
         description: "A checkbox whose whole card is pressed, with a title, a description and an icon or a price: \
                       the add-ons of a plan, the reports a team is sent.",
-        import: Some("use lurq::ui::{CheckboxCard, CheckboxCardGroup};"),
+        import: Some("use lurq::ui::{CheckboxCard, CheckboxCardGroup, Orientation};"),
         status: Some("Stable"),
         since: Some("0.62"),
         source: file!(),
@@ -414,22 +435,25 @@ impl Component for CheckboxCardPage {
               "    (\"support\", CheckboxCard::new(\"Priority support\").icon(icons::MAIL).price(\"$20\")),",
               "    (\"seats\", CheckboxCard::new(\"Extra seats\").icon(icons::USERS).price(\"$30\").disabled(true)),",
               "])",
-              ".horizontal(true)",
+              ".orientation(Orientation::Horizontal)",
             ],
           ),
         ),
         Section::new(
           "One under another",
-          "Cards that fill a column: each is as wide as what holds it.",
+          "Cards that fill a column: each is as wide as what holds it. The app holds what is checked, and is told \
+           the whole new set a press asks for.",
           self.frame.demo(
             2,
             column,
             ".full_width(true)",
             &[
-              "Column::new().width(320.0).child(CheckboxCardGroup::controlled([\"crash\"], [",
+              "// reports: Signal<Vec<&'static str>>",
+              "let set = reports.clone();",
+              "Column::new().width(320.0).child(CheckboxCardGroup::controlled(reports.get(), [",
               "    (\"crash\", CheckboxCard::new(\"Crash reports\").full_width(true)),",
               "    (\"usage\", CheckboxCard::new(\"Usage data\").full_width(true)),",
-              "], |value| toggle(value)))",
+              "], move |next| set.set(next.to_vec())))",
             ],
           ),
         ),
@@ -441,7 +465,7 @@ impl Component for CheckboxCardPage {
         Section::new(
           "CheckboxCardGroup props",
           "What a group is given.",
-          props_table(&group_rows, &["values", "cards"], self.frame.room()),
+          props_table(&group_rows, &["checked", "cards"], self.frame.room()),
         ),
       ],
     )

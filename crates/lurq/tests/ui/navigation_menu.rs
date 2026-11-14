@@ -518,3 +518,29 @@ fn a_theme_restyles_its_parts_and_builds_it_anew() {
       .any(|quad| rect_color(quad) == Some(light(PaletteColor::Popover)))
   );
 }
+
+#[test]
+fn choosing_a_link_closes_the_panel_before_its_handler_runs() {
+  // The menu says it closed, and then the link's handler runs: a handler that opens a dialog keeps its focus.
+  let (mut stage, open, log) = scene_with(|log| {
+    let heard = log.clone();
+    board(log).on_open_change(move |open| {
+      if open.is_none() {
+        heard.lock().unwrap().push("closed");
+      }
+    })
+  });
+  stage.click("nav-0");
+  assert_eq!(open.get(), Some(0));
+  stage.click("nav-0-0");
+  assert_eq!(*log.lock().unwrap(), vec!["closed", "start"]);
+}
+
+#[test]
+fn a_variant_is_named_as_the_theme_names_it() {
+  // The links variant by its name in the recipe, as a theme's own variant would be given.
+  let (mut stage, ..) = scene_with(|log| board(log).variant("links"));
+  let (_, _, _, height) = stage.bounds("nav-0");
+  assert_eq!(height, 32.0, "the links variant's item");
+  assert_eq!(stage.fill_color("nav-0"), None);
+}

@@ -511,24 +511,30 @@ A setting that is on or off and takes effect at once: dark mode, sync in the bac
 ```rust
 use lurq::ui::Switch;
 
-Switch::new("Dark mode")
-  .on(dark.get())
-  .on_change(move |on| dark.set(on));
+// Bound to the app's signal, which a press turns.
+Switch::new("Dark mode").bind(dark.clone());
+
+// The app holds it, and is told of a press.
+Switch::new("Reduce motion")
+  .on(motion.get())
+  .on_change(move |on| motion.set(on));
 
 // The track alone, in a row of settings that has the text already.
-Switch::new("Sync in background").label_hidden(true).on(sync.get());
+Switch::new("Sync in background").label_hidden(true).bind(sync.clone());
 ```
 
 | Builder | |
 | --- | --- |
 | `on(bool)` | Whether it is on. The switch does not keep it: the app says so |
-| `on_change(handler)` | Called on a press with what the switch is to be: on if it was off |
+| `bind(Signal<bool>)` | On while the signal is true, which a press turns: `on` and a handler that sets the signal |
+| `on_change(handler)` | Called on a press with what the switch is to be: on if it was off. Bound, it is called after the signal is set, and not when the app sets it. A second handler is called after the first |
+| `invalid(bool)` | What it holds is wrong, where a field says so: the track is edged in the destructive color |
 | `label_hidden(bool)` | The track alone. The label is still what the switch is called |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the track |
 
 - A press of the track or of the label asks for the other state. Tab reaches the track, Space and Enter press it, and the focus ring is the track's.
-- Parts: `SwitchPart::Root` (the track and the label, side by side), `Track` (what is pressed), `Thumb`, `Label`. States: `SwitchState::On`, `Disabled`.
-- In the design the track is 36 by 20 and round, in the `Input` color and in `Primary` while it is on; the thumb is 16, in `Background`, 2 from the edge; the label is 8 beside the track in the body's type. A disabled switch is dimmed with its label.
+- Parts: `SwitchPart::Root` (the track and the label, side by side), `Track` (what is pressed), `Thumb`, `Label`. States: `SwitchState::On`, `Invalid`, `Disabled`.
+- In the design the track is 36 by 20 and round, in the `Input` color and in `Primary` while it is on; the thumb is 16, in `Background`, 2 from the edge; the label is 8 beside the track in the body's type. A disabled switch is dimmed with its label. The board draws no invalid switch: an invalid one has an edge of 1 inside its track in `Destructive`, as an invalid checkbox's box has. A [field](#field) with an error makes its switch invalid.
 - The thumb slides: the default renderer moves it by an offset, how far is `SwitchView::travel()` (the track's width less its padding and the thumb), and the recipe gives the thumb a transition of `Transition::offset_x()` over the theme's fast duration. A theme with reduced motion moves it at once.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the track is a `switch` called by its label, with `a11y_checked` saying whether it is on.
 - A renderer that draws another switch starts from `view.track()`, the behavior with the track's style, and puts in it what it likes; `view.thumb()` is the default thumb.
@@ -667,6 +673,10 @@ A choice that is made or not, among others a form takes at once: send crash repo
 ```rust
 use lurq::ui::Checkbox;
 
+// Bound to the app's signal, which a press turns.
+Checkbox::new("Keep me signed in").bind(signed_in.clone());
+
+// The app holds it, and is told of a press.
 Checkbox::new("Send crash reports")
   .checked(reports.get())
   .on_change(move |checked| reports.set(checked));
@@ -683,8 +693,9 @@ Checkbox::new("Select blur.rs").label_hidden(true).checked(row.get());
 | Builder | |
 | --- | --- |
 | `checked(bool)` | Whether it is checked. The checkbox does not keep it: the app says so |
+| `bind(Signal<bool>)` | Checked while the signal is true, which a press turns: `checked` and a handler that sets the signal |
 | `indeterminate(bool)` | Some of what it stands for is checked: a dash, whatever `checked` says |
-| `on_change(handler)` | Called on a press with what the checkbox is to be: checked if it was not, or was indeterminate |
+| `on_change(handler)` | Called on a press with what the checkbox is to be: checked if it was not, or was indeterminate. Bound, it is called after the signal is set, and not when the app sets it. A second handler is called after the first |
 | `invalid(bool)` | What it holds is wrong: the box is edged in the destructive color |
 | `label_hidden(bool)` | The box alone. The label is still what the checkbox is called |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
@@ -694,7 +705,7 @@ Checkbox::new("Select blur.rs").label_hidden(true).checked(row.get());
 - In the design the box is 16 with the small radius, on the `Background` with an inner edge of 1 in `Input`; checked or indeterminate it is filled and edged in `Primary`, with the theme's `check` or `minus` icon of 12 (`IconSize::Xs`) in `PrimaryForeground`. An invalid box is edged in `Destructive`, checked or not. A disabled checkbox is dimmed with its label, and its box is `Muted` while it is empty. The label is 8 beside the box in the body's type.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `checkbox` called by its label, with `a11y_checked` `true`, `false` or `mixed`.
 - A renderer that draws another checkbox starts from `view.control()`, the behavior with the box's style, and puts in it what it likes; `view.indicator()` is the default mark, `None` while the checkbox is empty.
-- `CheckboxGroup` is checkboxes over one list: `CheckboxGroup::new(signal, choices)` with a `Signal<Vec<T>>` checks the boxes whose values the signal has, and a press adds a value or takes it out; `CheckboxGroup::controlled(checked, choices, press)` leaves the list to the app. `horizontal(bool)`, `invalid(bool)` and `disabled(bool)` are for the whole group, and `Choice::disabled` takes one box out. Each box stays its own stop of Tab. Its parts are `CheckboxGroupPart::Root` (12 apart, or 24 side by side in the state `CheckboxGroupState::Horizontal`) and `Item`, laid over each checkbox's root.
+- `CheckboxGroup<T>` is checkboxes over one list: `CheckboxGroup::new(signal, choices)` with a `Signal<Vec<T>>` checks the boxes whose values the signal has, and a press adds a value or takes it out; `CheckboxGroup::controlled(checked, choices, on_change)` leaves the list to the app, which is told the whole new set a press asks for (`&[T]`: `checked` with the value pressed added, or taken out) and draws what it says next. `on_change(&[T])` is told the whole new set after a press, bound or not, after the signal is set. `orientation(Orientation)` (`Vertical` unless told; `Horizontal` side by side, going on to the next line), `label(&str)` (its name to tooling: it draws nothing, a field gives it its label), `invalid(bool)` and `disabled(bool)` are for the whole group, and `Choice::disabled` takes one box out; `state`, `style`, `rules`, `force` (the first box that is not disabled), `id` and `key` are as a checkbox's. Each box stays its own stop of Tab. Its parts are `CheckboxGroupPart::Root` (12 apart, or 24 side by side) and `Item`, laid over each checkbox's root; its states `CheckboxGroupState::Horizontal` and `Vertical`, one of which is on. A theme's renderer gets a `CheckboxGroupView`: its checkboxes built, in `view.checkboxes`, and `view.render()`.
 - `lurq::components::Checkbox` is the engine's node, which keeps its value in a `Signal` and draws its mark from an image; `lurq::ui::Checkbox` is the design system's and does not use it.
 
 ## Radio
@@ -705,51 +716,57 @@ account. `RadioGroup` is the choice; `Radio` is one radio, for a layout a group 
 ```rust
 use lurq::ui::{Choice, Radio, RadioGroup};
 
-// The radio whose value the signal has is chosen; a press of another sets it.
+// The radio whose value the signal has is selected; a press of another sets it.
 RadioGroup::new(density, [(Density::Comfortable, "Comfortable"), (Density::Compact, "Compact")]);
 
-// A choice that cannot be made, and a group the app holds the choice of: none until one is pressed.
-RadioGroup::new(plan, [Choice::new("free", "Free"), Choice::new("enterprise", "Enterprise").disabled(true)]);
+// A choice that cannot be made, in a group with nothing selected until a press: a `Signal<Option<T>>`.
+RadioGroup::new(plan, [Choice::new("free", "Free"), Choice::new("enterprise", "Enterprise").disabled(true)])
+  .on_change(|plan| println!("{plan}"));
+
+// The app holds the choice, and answers each press of another.
 let set = answer.clone();
-RadioGroup::controlled(answer.get(), [(true, "Yes"), (false, "No")], move |yes| set.set(Some(yes)))
+RadioGroup::controlled(answer.get(), [(true, "Yes"), (false, "No")], move |yes| set.set(Some(*yes)))
   .invalid(answer.get().is_none());
 
 // One radio alone.
-Radio::new("Compact").chosen(true).on_choose(|| println!("compact"));
+Radio::new("Compact").selected(true).on_change(|selected| println!("compact: {selected}"));
 ```
 
-| `RadioGroup` | |
+| `RadioGroup<T>` | |
 | --- | --- |
-| `new(signal, choices)` | The radio whose value the signal has is chosen, and a press of another sets the signal |
-| `controlled(Option<T>, choices, handler)` | The app holds the choice: none while it is `None`; the handler is told the value of each radio pressed that was not chosen |
-| `horizontal(bool)` | The radios side by side, going on to the next line where there is no room |
+| `new(signal, choices)` | The radio whose value the signal has is selected, and a press of another sets the signal: a `Signal<T>`, or a `Signal<Option<T>>` of which `None` selects none |
+| `controlled(Option<T>, choices, on_change)` | The app holds the choice: none while it is `None`; `on_change` is told the value of each radio pressed that was not selected, and what is drawn is what the app says next |
+| `on_change(handler)` | Called with `&T`, the value of a radio pressed that was not the one selected, after the signal is set. A press of the one selected calls nothing, nor does the app setting the signal. A second handler is called after the first |
+| `orientation(Orientation)` | `Vertical` unless told; `Horizontal`, the radios side by side, going on to the next line where there is no room |
+| `label(&str)` | What the group is called to tooling. It draws nothing: a [field](#field) gives it its label |
 | `invalid(bool)` | Every radio's edge in the destructive color: the choice was made wrongly, or not at all |
 | `disabled(bool)` | The whole group takes no input. `Choice::disabled` takes one choice out |
-| `style(part, ..)`, `id`, `key` | As a [toggle group](#toggle-group) has them |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the radio Tab would stop on |
 
 | `Radio` | |
 | --- | --- |
-| `chosen(bool)` | Whether it is the choice made. The radio does not keep it: the app says so |
-| `on_choose(handler)` | Called on a press while the radio is not chosen |
+| `selected(bool)` | Whether it is the one of several selected. The radio does not keep it: the app says so |
+| `on_change(handler)` | Called with `true` on a press while the radio is not selected. A press of the one selected calls nothing |
 | `label_hidden(bool)` | The mark alone. The label is still what the radio is called |
 | `invalid(bool)` | The edge in the destructive color |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the mark |
 
-- A press of the mark or of the label chooses the radio; a press of the one chosen does nothing, so a choice
-  once made is not taken back. A group is one stop of Tab, at the chosen radio or the first; the arrow keys
-  move the focus to the next radio and choose it, Home and End the first and the last, and a disabled one is
+- A press of the mark or of the label selects the radio; a press of the one selected does nothing, so a choice
+  once made is not taken back. A group is one stop of Tab, at the selected radio or the first; the arrow keys
+  move the focus to the next radio and select it, Home and End the first and the last, and a disabled one is
   passed by. A radio on its own is a stop of Tab that Space and Enter press. The focus ring is the mark's.
 - Parts: `RadioPart::Root` (the mark and the label, side by side), `Mark` (what is pressed), `Dot`, `Label`.
-  States: `RadioState::Chosen`, `Invalid`, `Disabled`. A group's parts: `RadioGroupPart::Root` (the radios
-  one under the other, 12 apart) and `Item`, laid over the theme's recipe for each radio's root; its state
-  `RadioGroupState::Horizontal` (side by side, 24 apart).
-- In the design the mark is 16 and round, in `Background` with an edge of 1 inside it in `Input`; chosen, the
+  States: `RadioState::Selected`, `Invalid`, `Disabled`. A group's parts: `RadioGroupPart::Root` (the radios
+  one under the other, 12 apart) and `Item`, laid over the theme's recipe for each radio's root; its states
+  `RadioGroupState::Vertical` and `Horizontal` (side by side, 24 apart), one of which is on. A theme's
+  renderer of a group gets a `RadioGroupView`: its radios built, in `view.radios`, and `view.render()`.
+- In the design the mark is 16 and round, in `Background` with an edge of 1 inside it in `Input`; selected, the
   edge is `Primary` and a dot of 8 in `Primary` is in its middle. The edge of an invalid one is
   `Destructive`. The label is 8 beside the mark in the body's type, and a group's radios are 12 apart. A
   disabled radio is dimmed with its label.
 - A choice's icon is not drawn: a radio is its mark and its label.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the mark is a `radio` called by its label, with
-  `a11y_checked` saying whether it is chosen, and a group is a `radiogroup`.
+  `a11y_checked` saying whether it is selected, and a group is a `radiogroup`.
 - A renderer that draws another radio starts from `view.mark()`, the behavior with the mark's style, and puts
   in it what it likes; `view.dot()` is the default dot.
 
@@ -1959,19 +1976,18 @@ InputOtp::new(recovery.clone())
 A checkbox whose whole card is pressed, with a title, a description and an icon or a price: the add-ons of a plan, the reports a team is sent.
 
 ```rust
-use lurq::ui::{CheckboxCard, CheckboxCardGroup, icons};
+use lurq::ui::{CheckboxCard, CheckboxCardGroup, Orientation, icons};
 
-CheckboxCard::new("Analytics")
-  .description("Share anonymous usage data.")
-  .checked(analytics.get())
-  .on_change(move |checked| analytics.set(checked));
+// Bound to the app's signal, which a press turns.
+CheckboxCard::new("Analytics").description("Share anonymous usage data.").bind(analytics.clone());
 
 // Cards over one list: those whose values the signal has are checked.
 CheckboxCardGroup::new(add_ons, [
   ("backups", CheckboxCard::new("Backups").icon(icons::SHIELD).price("$4")),
   ("support", CheckboxCard::new("Priority support").icon(icons::MAIL).price("$20")),
 ])
-.horizontal(true);
+.orientation(Orientation::Horizontal)
+.on_change(|add_ons| println!("{add_ons:?}"));
 ```
 
 | Builder | |
@@ -1979,23 +1995,26 @@ CheckboxCardGroup::new(add_ons, [
 | `description(&str)` | More of it, under the title in the muted color; what the card is described by to tooling |
 | `icon(name)`, `price(&str)` | An icon of 20 before the text; what the choice costs, at the end of the title |
 | `checked(bool)` | Whether it is checked. The card does not keep it: the app says so |
-| `on_change(handler)` | Called on a press with what the card is to be: checked if it was not |
+| `bind(Signal<bool>)` | Checked while the signal is true, which a press turns: `checked` and a handler that sets the signal |
+| `on_change(handler)` | Called on a press with what the card is to be: checked if it was not. Bound, it is called after the signal is set, and not when the app sets it |
 | `invalid(bool)`, `full_width(bool)` | The edge in the destructive color; as wide as what holds it in place of 220 |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the card |
 
-| `CheckboxCardGroup` | |
+| `CheckboxCardGroup<T>` | |
 | --- | --- |
 | `new(Signal<Vec<T>>, [(T, CheckboxCard)])` | The cards whose values the signal has are checked; a press adds a value or takes it out |
-| `controlled(checked, [(T, CheckboxCard)], press)` | The app holds what is checked and is told each value pressed |
-| `horizontal(bool)` | Side by side, 12 apart and as high as the highest, going on to the next line where there is no room |
-| `label(&str)`, `invalid(bool)`, `disabled(bool)`, `style(..)`, `id`, `key` | What the group is called to tooling; every card invalid or disabled |
+| `controlled(checked, [(T, CheckboxCard)], on_change)` | The app holds what is checked and is told the whole new set a press asks for (`&[T]`); what is drawn is what it says next |
+| `on_change(handler)` | Called with the whole new set checked (`&[T]`) after a press, after the signal is set |
+| `orientation(Orientation)` | `Vertical` unless told; `Horizontal`, side by side, 12 apart and as high as the highest, going on to the next line where there is no room |
+| `label(&str)`, `invalid(bool)`, `disabled(bool)` | What the group is called to tooling; every card invalid or disabled |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the card Tab would stop on |
 
 - The card is what is pressed: a click anywhere on it, or Space or Enter while it has the focus. It is the one stop of Tab and the ring of the focus is around it; the box in it is drawn and takes no focus of its own. In a group each card is its own stop.
-- Parts: `ChoiceCardPart::Root` (what is pressed), `Icon`, `Text`, `Heading` (the title and the price), `Title`, `Price`, `Description`. States: `ChoiceCardState::Chosen`, `Invalid`, `Disabled`, `FullWidth`. The box is the checkbox's own `CheckboxPart::Box` and `Indicator`, resolved from the theme's checkbox recipe: a theme that restyles a checkbox restyles the card's box. A group's parts are `ChoiceCardGroupPart::Root` and `Item` (laid over each card's root), its state `ChoiceCardGroupState::Horizontal`.
+- Parts: `ChoiceCardPart::Root` (what is pressed), `Icon`, `Text`, `Heading` (the title and the price), `Title`, `Price`, `Description`. States: `ChoiceCardState::Checked` (a checkbox card), `Selected` (a radio card), `Invalid`, `Disabled`, `FullWidth`. The box is the checkbox's own `CheckboxPart::Box` and `Indicator`, resolved from the theme's checkbox recipe: a theme that restyles a checkbox restyles the card's box. A group's parts are `ChoiceCardGroupPart::Root` and `Item` (laid over each card's root), its states `ChoiceCardGroupState::Horizontal` and `Vertical`, one of which is on. A theme's renderer of either group gets a `ChoiceCardGroupView`: its cards built, in `view.cards`, `view.kind`, and `view.render()`.
 - In the design the card is 220 wide, padded 16, in `Background` with the large radius; the text first, the title in 14 and medium over the description 4 under it in 13 of `MutedForeground`, and the box 12 after it at the top. Not checked its edge is 1 of `Input`; checked, 2 of `Primary`. Under the pointer the edge of a card not checked is `Ring`; an invalid card is edged in `Destructive`; a disabled one is dimmed.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the card is a `checkbox` called by its title, described by its description, with `a11y_checked` saying whether it is checked; a group is a `group`.
 - In a [field](#field) a card is invalid where the field is and disabled where the field is, and keeps its title as its name; a group takes the field's label as its name unless it has one.
-- A renderer that draws another card is given a `ChoiceCardView`: `view.root()` is the behavior with the root's style, `view.text()`, `view.icon()` and `view.control()` the default parts. The same renderer type serves the radio card; `view.kind` says which it is.
+- A renderer that draws another card is given a `ChoiceCardView`: `view.root()` is the behavior with the root's style, `view.text()`, `view.icon()` and `view.control()` the default parts; `view.checked` says whether a checkbox card is checked. The same renderer type serves the radio card, whose `view.selected` says whether it is selected; `view.kind` says which it is.
 
 ## Radio Card
 
@@ -2010,26 +2029,30 @@ RadioCardGroup::new(density, [
   (Density::Touch, RadioCard::new("Spacious").description("For touch.").disabled(true)),
 ]);
 
-// One card alone: the app says whether it is chosen and is told when it is pressed.
-RadioCard::new("Team").price("$12").chosen(plan.get() == Plan::Team).on_choose(move || plan.set(Plan::Team));
+// One card alone: the app says whether it is selected and is told when it is pressed.
+RadioCard::new("Team")
+  .price("$12")
+  .selected(plan.get() == Plan::Team)
+  .on_change(move |_| plan.set(Plan::Team));
 ```
 
 | Builder | |
 | --- | --- |
 | `description(&str)`, `icon(name)`, `price(&str)` | As a [checkbox card](#checkbox-card) has them |
-| `chosen(bool)` | Whether it is the choice made: the dot in its mark. The card does not keep it |
-| `on_choose(handler)` | Called on a press while the card is not chosen. A press of the one chosen does nothing |
+| `selected(bool)` | Whether it is the one of several selected: the dot in its mark. The card does not keep it |
+| `on_change(handler)` | Called with `true` on a press while the card is not selected. A press of the one selected calls nothing |
 | `invalid(bool)`, `full_width(bool)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a checkbox card has them |
 
-| `RadioCardGroup` | |
+| `RadioCardGroup<T>` | |
 | --- | --- |
-| `new(Signal<T>, [(T, RadioCard)])` | The card whose value the signal has is chosen; a press of another sets the signal |
-| `controlled(Option<T>, [(T, RadioCard)], choose)` | The app holds the choice, none while it is `None`, and is told each value pressed |
-| `horizontal(bool)`, `label(&str)`, `invalid(bool)`, `disabled(bool)`, `style(..)`, `id`, `key` | As a checkbox card group has them |
+| `new(signal, [(T, RadioCard)])` | The card whose value the signal has is selected; a press of another sets the signal: a `Signal<T>`, or a `Signal<Option<T>>` of which `None` selects none |
+| `controlled(Option<T>, [(T, RadioCard)], on_change)` | The app holds the choice, none while it is `None`, and is told the value (`&T`) of each other card pressed; what is drawn is what it says next |
+| `on_change(handler)` | Called with `&T`, the value of a card pressed that was not the one selected, after the signal is set |
+| `orientation(Orientation)`, `label(&str)`, `invalid(bool)`, `disabled(bool)`, `state(..)`, `style(..)`, `rules(..)`, `force(..)`, `id`, `key` | As a checkbox card group has them |
 
-- A group is one stop of Tab, at the chosen card or the first. The arrow keys move the focus to the next card and choose it, Home and End the first and the last, and a disabled card is passed by: the focus group of a [radio group](#radio), `FocusGroup::both().activate(true).one_stop(true)`.
+- A group is one stop of Tab, at the selected card or the first. The arrow keys move the focus to the next card and select it, Home and End the first and the last, and a disabled card is passed by: the focus group of a [radio group](#radio), `FocusGroup::both().activate(true).one_stop(true)`.
 - Parts and states are a checkbox card's (`ChoiceCardPart`, `ChoiceCardState`); its mark is the radio's own `RadioPart::Mark` and `Dot`, from the theme's radio recipe.
-- In the design it is a checkbox card with the radio's mark of 16 in place of the box: not chosen, an edge of 1 of `Input`; chosen, 2 of `Primary`, with the dot of 8 in the mark.
+- In the design it is a checkbox card with the radio's mark of 16 in place of the box: not selected, an edge of 1 of `Input`; selected, 2 of `Primary`, with the dot of 8 in the mark.
 - To what reads the tree the card is a `radio` called by its title, described by its description, with `a11y_checked`; a group is a `radiogroup`.
 
 ## Fieldset
@@ -3378,7 +3401,7 @@ TreeView::new(items)
 
 ## Navbar
 
-The way round a site or an app along the top of its window: the brand at its start, its links, and a search, actions and who is signed in at its end.
+The way round a site or an app along the top of its window: the brand at its start, its links, and a search, actions and who is signed in after them.
 
 ```rust
 use lurq::ui::{Avatar, NavItem, NavLink, NavPanel, Navbar, NavbarBrand, SearchField, TextBoxSize, icons};
@@ -3396,31 +3419,32 @@ Navbar::new()
   )
   .item(NavItem::new("Components").href("/components"))
   .item(NavItem::new("Blog").href("/blog"))
-  .end(SearchField::new(query.clone()).placeholder("Search").size(TextBoxSize::Sm))
-  .end(account) // an Avatar that opens a Menu
+  .trailing(SearchField::new(query.clone()).placeholder("Search").size(TextBoxSize::Sm))
+  .trailing(account) // an Avatar that opens a Menu
   .sticky(true)
   .mount(ctx)
 ```
 
 | `Navbar` | |
 | --- | --- |
-| `brand(element)` | What stands at its start: a `NavbarBrand` (a mark beside a name, pressed where it has `on_select`), or an element of the app's |
+| `brand(element)` | What stands at its start: a `NavbarBrand` (an `icon(name)` or the app's `media(element)`, a logo, beside a name, pressed where it has `on_select`; with `state`, `style`, `rules`, `force`, `id` and `key`), or an element of the app's |
 | `item(NavItem)`, `items(..)` | A link after the others; one with a `panel` opens a panel of links, as in a [navigation menu](#navigation-menu) |
-| `end(element)` | What stands at its end, after what stands there: a [search field](#search-field), a [button](#button), an [avatar](#avatar) with its [menu](#menu) |
+| `trailing(element)` | What stands after the links, after what stands there: a [search field](#search-field), a [button](#button), an [avatar](#avatar) with its [menu](#menu) |
 | `sticky(bool)` | It stays at the top of the page that scrolls it |
 | `open(signal)`, `on_open_change(handler)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`; and what hears it change. Without a signal the bar keeps its own |
 | `menu_open(signal)`, `on_menu_open_change(handler)` | On a narrow window, whether the links are open over the page; and what hears the menu button turn it |
 | `narrow(bool)` | Whether its links are behind the menu button, whatever the window's width: they are below the `md` breakpoint unless told |
 | `label(&str)` | What the navigation region is called to tooling: "Main" unless told |
+| `menu_label(&str)` | What the menu button of a narrow window is called to tooling: "Menu" unless told. Whether the links are open it says with `a11y_expanded` |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the bar's; its links are `{id}-links` (the items `{id}-links-0` and on, a panel `{id}-links-0-panel`), the menu button `{id}-menu`, the links over the page `{id}-drawer` |
 
 - It is mounted (`mount(ctx)`): its links are a mounted navigation menu, and on a narrow window a mounted [sidebar](#sidebar). Converted into an element on its own it is drawn with what the signals it is given say, for a gallery or a test.
 - Its links are a [navigation menu](#navigation-menu) in its links variant: each a stop of Tab, the page shown (`NavItem::current`) in the foreground and the others in the muted foreground, brought forward under the pointer. One with a panel opens it under the bar by a press, under the pointer after a moment, and with Enter, Space and Down, with all a navigation menu does.
-- On a window narrower than the `md` breakpoint (or where `narrow(true)` says) the links go behind a ghost button of the `menu` icon at the bar's start, called "Open menu", into a `Sidebar` over the page, which slides in from the start over a veil: each link an item, the page shown selected, an item with a panel a group of its links under its name. Choosing one closes it, as Escape and a press on the veil do. The brand and what stands at the end stay in the bar.
-- In the design the bar is 56 tall in `Background`, with a line of 1 in `Border` along its bottom, padded 16 at its sides with 24 between what it holds. The brand is a mark of 20 in `Foreground` 8 before its name in 16/600; the links are 20 apart in 13/500; what stands at the end is 24 apart. On a narrow window it is padded 8 with 8 between what it holds.
-- Parts: `NavbarPart::Root`, `Brand`, `BrandMark`, `BrandName`, `Links` (the room of the links, which takes what the bar has to spare), `End`. States: `NavbarState::Narrow`, `Sticky`, `Interactive` (the brand is pressed). How its links look is the navigation menu's recipe, in its `Links` variant: a theme restyles them there, into the board's tablet tab bar, say (a bar on `Muted` with the full radius, its items 36 tall and round, the page shown on `Background` with a shadow).
+- On a window narrower than the `md` breakpoint (or where `narrow(true)` says) the links go behind a ghost button of the `menu` icon at the bar's start, called "Menu" (`menu_label`), into a `Sidebar` over the page, which slides in from the start over a veil: each link an item, the page shown selected, an item with a panel a group of its links under its name. Choosing one closes it, as Escape and a press on the veil do. The brand and what stands after the links stay in the bar.
+- In the design the bar is 56 tall in `Background`, with a line of 1 in `Border` along its bottom, padded 16 at its sides with 24 between what it holds. The brand is a mark of 20 in `Foreground` 8 before its name in 16/600; the links are 20 apart in 13/500; what stands after them is 24 apart. On a narrow window it is padded 8 with 8 between what it holds.
+- Parts: `NavbarPart::Root`, `Brand`, `BrandMark`, `BrandName`, `Links` (the room of the links, which takes what the bar has to spare), `Trailing`. States: `NavbarState::Narrow`, `Sticky`, `Interactive` (the brand is pressed). How its links look is the navigation menu's recipe, in its `Links` variant: a theme restyles them there, into the board's tablet tab bar, say (a bar on `Muted` with the full radius, its items 36 tall and round, the page shown on `Background` with a shadow).
 - To what reads the tree the bar is a `navigation` called by its label, its links `link`s (the page shown with `a11y_current` `page`) or `button`s that open a panel, and the menu button a `button` with `a11y_expanded` and `a11y_controls` naming the links over the page.
-- A renderer for `Navbar` gets a `NavbarView`: `view.root()` is the bar with its style and its role; `brand`, `links`, `end`, `menu_button` and `drawer` are what it holds, built, to put in it. `view.render()` builds the bar.
+- A renderer for `Navbar` gets a `NavbarView`: `view.root()` is the bar with its style and its role; `brand`, `links`, `trailing`, `menu_button` and `drawer` are what it holds, built, to put in it. `view.render()` builds the bar.
 
 ## Navigation Menu
 
@@ -3450,19 +3474,19 @@ NavigationMenu::new()
 | `item(NavItem)`, `items(..)` | An item after the others |
 | `open(signal)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`, which a press, the pointer and the keys set, and Escape, a press outside, a choice and the pointer going clear set to `None`. Without one the menu keeps its own |
 | `on_open_change(handler)` | What hears a panel open, another take its place, or the open one close |
-| `variant(NavigationMenuVariant)` | `Menu`, the board's: each item a box lit under the pointer and while its panel is open. `Links`: the text alone, as a navbar has it |
+| `variant(impl Into<Name>)` | A `NavigationMenuVariant`, or a variant a theme's recipe names. `Menu`, the board's: each item a box lit under the pointer and while its panel is open. `Links`: the text alone, as a navbar has it |
 | `open_delay(..)`, `close_delay(..)` | How long the pointer rests on an item before its panel opens (the theme's base duration), and how long a panel stays after the pointer has left it and its item (the slow one) |
 | `disabled(bool)`, `label(&str)` | No item can be pressed; what the navigation region is called to tooling, "Main" unless told |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the row's; its items are `{id}-0` and on unless they have ids of their own, each panel `{id}-0-panel`, its links `{id}-0-0` and on |
 
 | `NavItem`, `NavPanel`, `NavLink` | |
 | --- | --- |
-| `NavItem::new(label)` | A link: `href(path)` (the router's), `on_select(handler)`, `current(bool)`, `icon(name)`, `disabled(bool)`, `id`. With `panel(NavPanel)` it opens a panel in place of going somewhere, and has a chevron |
+| `NavItem::new(label)` | A link: `href(path)` (the router's), `on_select(handler)`, `current(bool)`, `icon(name)`, `disabled(bool)`, `id`, `key`. With `panel(NavPanel)` it opens a panel in place of going somewhere, and has a chevron |
 | `NavPanel::new()` | `link(NavLink)`, `links(..)`; `columns(n)`, the first filled first (one unless told); `featured(element)`, a column of its own before the links: a [card](#card) |
-| `NavLink::new(title)` | `description(&str)` under its title, `icon(name)` at its start, `href(path)`, `on_select(handler)`, `current(bool)`, `disabled(bool)`, `id` |
+| `NavLink::new(title)` | `description(&str)` under its title, `icon(name)` at its start, `href(path)`, `on_select(handler)`, `current(bool)`, `disabled(bool)`, `id`, `key` |
 
 - It is mounted (`mount(ctx)`): it keeps the timers of its delays, where the pointer is and how the open panel was opened. Converted into an element on its own it opens its panels by a press and the keys, from the signal `open` gives.
-- The pointer: a press of an item with a panel opens the panel, and a press again closes it; resting on the item opens it after the open delay (a press that follows keeps it). One panel is open at a time, and with one open the pointer coming onto another item opens that one at once. The panel stays while the pointer is on the item, on the panel or crossing the 6 between them, and closes when it has left them for the close delay; a press outside it closes it and goes on to what it is on. Choosing a link runs it, goes to its path and closes the panel.
+- The pointer: a press of an item with a panel opens the panel, and a press again closes it; resting on the item opens it after the open delay (a press that follows keeps it). One panel is open at a time, and with one open the pointer coming onto another item opens that one at once. The panel stays while the pointer is on the item, on the panel or crossing the 6 between them, and closes when it has left them for the close delay; a press outside it closes it and goes on to what it is on. Choosing a link closes the panel first, and then runs it and goes to its path: a handler that opens a dialog keeps its focus.
 - The keyboard: each item is a stop of Tab, as links on a page are, and Left and Right move between the items as well. Enter, Space and Down open an item's panel with the focus on its first link (Down on an item whose panel the pointer opened takes the focus into it); Up and Down go through the panel's links, column after column; Left and Right close it and go to the item beside it, opening that one's panel where it has one and only focusing a link, which is not followed; Escape closes it with the focus back on its item. Tab goes from an item into its open panel and from its last link on to what follows the item, closing the panel; the focus leaving the item and the panel closes it. Alt does nothing to it.
 - Under the pointer, focused from the keyboard, or with its panel open, an item is filled with `Highlight`, the board's `accent`; the page shown, or an item whose panel holds it, is on `Muted`. In the design an item is 36 tall, padded 12 with the medium radius, its text 13/500 in `Foreground`, and an item with a panel has a chevron of 14 in `MutedForeground` 6 after it, up while its panel is open; the items are 4 apart. The panel opens 6 under its item, from its start, in `Popover` with an edge of 1 in `Border`, the large radius and the medium shadow, padded 8 with 8 between its columns, each 208 wide; it fades in over the theme's base duration and out over the fast one. A link is padded 12 with the medium radius, its title 14/500 over its description 13 in `MutedForeground`, 4 apart and 1.4 high, an icon of 16 in `MutedForeground` 12 before them; it is lit with `Highlight` under the pointer and focused. In the `Links` variant an item is its text alone, 32 tall, 20 apart, in `MutedForeground`, in `Foreground` under the pointer, while its panel is open and where it is the page shown, with the focus ring around it; its panel opens 18 under it, 6 past the edge of a navbar.
 - The engine's part is `FocusGroup::panel_row(true)`, which the row has: a [row of menus](#menubar) whose elements are links as well as buttons. Left and Right in an open panel that nothing in it takes close it and focus the element beside it, asking it to open where it says it opens and closes (`focus_expanded(open, toggle)`), and press nothing; Alt is a menubar's, not its.
