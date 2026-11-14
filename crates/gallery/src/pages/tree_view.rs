@@ -12,7 +12,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Badge, Interaction, TreeItem, TreeView, TreeViewPart},
+  ui::{Badge, Button, ButtonSize, ButtonVariant, Interaction, TreeItem, TreeView, TreeViewPart, icons},
 };
 
 use crate::{
@@ -30,21 +30,37 @@ const WIDE: f32 = 220.0;
 const LOADING: Duration = Duration::from_millis(1200);
 
 /// What the playground's tree holds: `icons` with a folder's and a file's icons, `disabled` with the demo
-/// crate's row disabled, `lazy` with a registry whose crates come when it is first opened, there once `loaded`.
+/// crate's row disabled, `lazy` with a registry whose crates come when it is first opened, there once `loaded`,
+/// `action` with a button to add a file at the end of each folder's row, shown while the row is pointed at.
 #[derive(Clone, Copy)]
 struct Shape {
   icons: bool,
   disabled: bool,
   lazy: bool,
   loaded: bool,
+  action: bool,
+}
+
+/// The button at the end of a folder's row that adds a file to it.
+fn new_file() -> Button {
+  Button::new("New file")
+    .icon(icons::PLUS)
+    .icon_only(true)
+    .variant(ButtonVariant::Ghost)
+    .size(ButtonSize::Xs)
 }
 
 impl Shape {
   fn folder(self, id: Id, label: &str) -> TreeItem<Id> {
-    if self.icons {
+    let folder = if self.icons {
       TreeItem::folder(id, label)
     } else {
       TreeItem::new(id, label)
+    };
+    if self.action {
+      folder.trailing(new_file()).trailing_on_hover(true)
+    } else {
+      folder
     }
   }
 
@@ -130,6 +146,7 @@ pub struct TreeViewPage {
   icons: Signal<bool>,
   guides: Signal<bool>,
   lazy: Signal<bool>,
+  action: Signal<bool>,
   disabled: Signal<bool>,
   played_open: Signal<Vec<Id>>,
   played_selected: Signal<Vec<Id>>,
@@ -143,6 +160,7 @@ pub struct TreeViewPage {
   loaded: Signal<bool>,
   load: Timeout,
   guide_open: Signal<Vec<Id>>,
+  hover_open: Signal<Vec<Id>>,
 }
 
 impl TreeViewPage {
@@ -154,6 +172,7 @@ impl TreeViewPage {
       disabled: self.disabled.get(),
       lazy: self.lazy.get(),
       loaded: self.played_loaded.get(),
+      action: self.action.get(),
     };
     let (open, selected) = (self.played_open.get(), self.played_selected.get());
     // The app holds what is open and what is selected, so that each change is counted: `expanded` and
@@ -253,6 +272,9 @@ impl TreeViewPage {
     if shape.lazy {
       code.push(".on_expand(|id| /* bring the children of `id` */)".to_owned());
     }
+    if shape.action {
+      code.push("// each folder: .trailing(new_file_button).trailing_on_hover(true)".to_owned());
+    }
     code.push(".on_activate(|id| /* open the file */)".to_owned());
 
     let tree = vec![
@@ -281,6 +303,7 @@ impl TreeViewPage {
       self.guides.clone(),
       self.lazy.clone(),
       self.disabled.clone(),
+      self.action.clone(),
     ];
     let (icons, reset_open, reset_selected, reset_loaded) = (
       self.icons.clone(),
@@ -307,8 +330,9 @@ impl TreeViewPage {
           flag("guides", &self.guides),
           flag("lazy children", &self.lazy),
           flag("a disabled row", &self.disabled),
+          flag("an action on hover", &self.action),
         ],
-        changed: [multiple, !shape.icons, guides, shape.lazy, shape.disabled]
+        changed: [multiple, !shape.icons, guides, shape.lazy, shape.disabled, shape.action]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -343,6 +367,7 @@ impl Component for TreeViewPage {
       icons: ctx.signal(true),
       guides: ctx.signal(false),
       lazy: ctx.signal(false),
+      action: ctx.signal(false),
       disabled: ctx.signal(false),
       played_open: ctx.signal(vec!["crates", "crates/lurq"]),
       played_selected: ctx.signal(Vec::new()),
@@ -356,6 +381,7 @@ impl Component for TreeViewPage {
       loaded,
       load,
       guide_open: ctx.signal(vec!["crates", "crates/lurq", "crates/lurq/src", "crates/lurq/src/ui"]),
+      hover_open: ctx.signal(vec!["crates", "crates/lurq"]),
     }
   }
 
@@ -365,6 +391,7 @@ impl Component for TreeViewPage {
       disabled: false,
       lazy: false,
       loaded: false,
+      action: false,
     };
     let files = TreeView::new(board())
       .label("Files")
@@ -394,6 +421,11 @@ impl Component for TreeViewPage {
       }
     })
     .style(TreeViewPart::Root, |s| s.width(260.0));
+    let big = ctx.mount::<BigTree>(());
+    let hover = TreeView::new(Shape { action: true, ..plain }.project())
+      .label("Files")
+      .expanded(self.hover_open.clone())
+      .style(TreeViewPart::Root, |s| s.width(260.0));
     let guides = TreeView::new(plain.project())
       .label("Files")
       .expanded(self.guide_open.clone())
@@ -589,6 +621,47 @@ impl Component for TreeViewPage {
           ),
         ),
         Section::new(
+          "Ten thousand rows",
+          "A hundred folders of a hundred files, every folder open: `mount(ctx)` puts the rows in the engine's            virtual list, which builds those near the view. The keys reach every row, built or not: End goes to the            last, a letter to the next row it starts, PageDown a view down, Left from a file to its folder however            far up, Shift with them and Ctrl+A select over all of them.",
+          self.frame.demo(
+            5,
+            big,
+            "TreeView::new(items).mount(ctx)",
+            &[
+              "// open, selected: Signal<Vec<u32>>",
+              "TreeView::new((0..100).map(|i| {",
+              "    TreeItem::folder(i * 1000, &format!(\"Folder {i}\"))",
+              "        .children((0..100).map(|j| TreeItem::file(i * 1000 + j + 1, &format!(\"file {i}.{j}\"))))",
+              "}))",
+              ".expanded(open)",
+              ".selected(selected)",
+              ".multiple(true)",
+              ".style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))",
+              ".mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "An action on hover",
+          "What an item marks with `trailing_on_hover` stands at the row's end only while the pointer is on the row            or the focus is in it, and always under a finger: the button that adds a file to a folder.",
+          self.frame.demo(
+            6,
+            hover,
+            ".trailing(button).trailing_on_hover(true)",
+            &[
+              "TreeItem::folder(\"src\", \"src\")",
+              "    .trailing(",
+              "        Button::new(\"New file\")",
+              "            .icon(icons::PLUS)",
+              "            .icon_only(true)",
+              "            .variant(ButtonVariant::Ghost)",
+              "            .size(ButtonSize::Xs),",
+              "    )",
+              "    .trailing_on_hover(true)",
+            ],
+          ),
+        ),
+        Section::new(
           "States",
           "The board draws a row at rest and a selected one. Under the pointer and held down a row is veiled, the \
            focus from the keyboard is a ring inside the row, and a disabled row is dimmed and passed by. What the \
@@ -616,5 +689,36 @@ impl Component for TreeViewPage {
         ),
       ],
     )
+  }
+}
+
+/// A hundred folders of a hundred files, in a component of its own so that the page's other signals do not build
+/// its ten thousand items again.
+struct BigTree {
+  open: Signal<Vec<u32>>,
+  selected: Signal<Vec<u32>>,
+}
+
+impl Component for BigTree {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      open: ctx.signal((0..100).map(|i| i * 1000).collect()),
+      selected: ctx.signal(Vec::new()),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    TreeView::new((0..100u32).map(|i| {
+      TreeItem::folder(i * 1000, &format!("Folder {i}"))
+        .children((0..100u32).map(move |j| TreeItem::file(i * 1000 + j + 1, &format!("file {i}.{j}"))))
+    }))
+    .label("Ten thousand files")
+    .expanded(self.open.clone())
+    .selected(self.selected.clone())
+    .multiple(true)
+    .style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))
+    .mount(ctx)
   }
 }

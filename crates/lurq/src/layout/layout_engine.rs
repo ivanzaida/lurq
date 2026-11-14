@@ -4570,6 +4570,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.state_styles.focus_visible.is_none()
     && node.state_styles.drag_over.is_none()
     && node.state_styles.disabled.is_none()
+    && node.state_styles.within.is_none()
     && node.effective_opacity() == DEFAULT_QUAD_OPACITY
     && node.effective_blur() == 0.0
     && node.effective_backdrop_blur() == 0.0
