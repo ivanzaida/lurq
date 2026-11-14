@@ -1,11 +1,13 @@
 //! A table: rows of the same things in columns, which line up whatever is in a cell.
 
 use std::{
+  cell::Cell,
   cmp::Ordering,
   collections::{HashMap, HashSet},
   hash::Hash,
   marker::PhantomData,
   sync::Arc,
+  time::Instant,
 };
 
 use parking_lot::Mutex;
@@ -25,6 +27,7 @@ use crate::{
     component::Component,
     ctx::Ctx,
     events::{KeyboardEvent, MouseEvent, ScrollEvent},
+    runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Column, Row, ScrollBoth},
@@ -1864,8 +1867,16 @@ impl TableRow {
       row = row.describe("a11y_selected", if self.selected { "true" } else { "false" });
     }
     if let Some(actions) = self.actions.clone() {
+      // A press selects at once, and a second press of the row soon after at the same place activates it. The
+      // row has no `on_dblclick`: the engine holds back the click of an element that has one, and the focus with
+      // it, until it knows it is not the first of a double press.
       let press = actions.clone();
+      let index = self.index;
       row = row.on_click(move |event: MouseEvent| {
+        if second_press(index, &event) {
+          (press.activate)();
+          return;
+        }
         if press.selectable {
           let pick = if event.shift {
             Pick::Range
@@ -1879,8 +1890,6 @@ impl TableRow {
         }
         (press.click)();
       });
-      let activate = actions.clone();
-      row = row.on_dblclick(move |_| (activate.activate)());
       let element = self.element.clone();
       row = row.on_key_down(move |event: KeyboardEvent| {
         // A key on a button in the row is the button's.
@@ -1947,6 +1956,28 @@ impl TableRow {
     let cells = std::mem::take(&mut self.cells);
     row.with_children(cells.into_iter().map(TableCell::render)).into()
   }
+}
+
+thread_local! {
+  /// The last plain press of a row: which row, when and where. A second one of it soon after at the same place,
+  /// as the engine counts a double press, activates it.
+  static LAST_PRESS: Cell<Option<(usize, Instant, (f32, f32))>> = const { Cell::new(None) };
+}
+
+/// Whether a press of the row `index` is the second of a double press: then the next is a first again. A press
+/// with Shift, Ctrl or the system key, or from the keyboard, changes the selection and is never one.
+fn second_press(index: usize, event: &MouseEvent) -> bool {
+  let plain = !(event.from_keyboard || event.shift || event.ctrl || event.meta || event.alt);
+  let now = Instant::now();
+  let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
+  LAST_PRESS.with(|last| {
+    let second = plain
+      && last
+        .get()
+        .is_some_and(|(row, at, place)| row == index && now.duration_since(at) <= DOUBLE_CLICK_INTERVAL && near(place));
+    last.set((plain && !second).then_some((index, now, (event.x, event.y))));
+    second
+  })
 }
 
 /// What a mounted table's rows tell its host: where the focus is.

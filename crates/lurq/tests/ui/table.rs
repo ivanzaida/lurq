@@ -383,6 +383,31 @@ fn a_press_of_a_checkbox_adds_its_row_and_the_headers_selects_every_row_or_none(
 }
 
 #[test]
+fn a_press_selects_and_focuses_at_once_and_a_second_press_soon_after_activates() {
+  let (mut stage, selected, told) = selecting(&[]);
+  stage.click("t-row-1");
+  assert_eq!(
+    selected.get(),
+    ["crates/lurq_macros"],
+    "selected at the press, not after a wait"
+  );
+  assert_eq!(focused(&stage).as_deref(), Some("t-row-1"));
+  assert!(told.activated.lock().unwrap().is_empty());
+
+  stage.click("t-row-1");
+  assert_eq!(
+    *told.activated.lock().unwrap(),
+    ["crates/lurq_macros"],
+    "the double press activates"
+  );
+  assert_eq!(selected.get(), ["crates/lurq_macros"], "and leaves the selection");
+
+  // A third press is the first of another.
+  stage.click("t-row-1");
+  assert_eq!(told.activated.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn the_rows_are_one_stop_of_tab_the_arrows_move_space_selects_and_enter_activates() {
   let (mut stage, selected, told) = selecting(&[]);
   // The header's checkbox is a stop, then the rows.
