@@ -12,6 +12,7 @@ mod family;
 mod icon;
 mod input;
 mod menu;
+mod number_input;
 mod pagination;
 mod popover;
 mod progress;

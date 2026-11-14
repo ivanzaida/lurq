@@ -17,6 +17,7 @@ mod family_play;
 mod icons;
 mod input;
 mod menu;
+mod number_input;
 mod overview;
 mod pagination;
 mod popover;
@@ -238,6 +239,14 @@ pub const PAGES: &[Page] = &[
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/number-input",
+    name: "Number Input",
+    icon: None,
+    about: "number input numeric stepper spin button quantity price min max step precision format prefix suffix",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<number_input::NumberInputPage>(()),
   },
   Page {
     path: "/tooltip",

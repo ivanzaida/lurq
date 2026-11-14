@@ -5,6 +5,18 @@ impl TextInputState {
     if Arc::ptr_eq(&self.inner, &old.inner) {
       return;
     }
+    // An input that keeps its text while focused and is bound to another signal by this render takes the text it
+    // showed into the new signal: what is being typed is the input's until it is left.
+    let carried = {
+      let old_inner = old.inner.lock();
+      (old_inner.focused && self.inner.lock().keeps_text_while_focused && !self.same_value(old))
+        .then(|| old.value.get_untracked())
+    };
+    if let Some(text) = carried
+      && self.value.get_untracked() != text
+    {
+      self.value.set(text);
+    }
     let old_inner = old.inner.lock();
     let old_caret = old_inner.caret;
     let old_affinity = old_inner.token_affinity.clone();

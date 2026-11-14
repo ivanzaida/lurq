@@ -877,6 +877,9 @@ pub struct EventHandlers {
   /// What a click of the node focuses: the first node that takes the focus under the element the ref is on, as
   /// [`Ctx::focus`](crate::app::ctx::Ctx::focus) finds it. What a label does for its control.
   pub focuses: Option<CoreElementRef>,
+  /// A press of the primary button runs the node's `on_click` handlers at once, and again while the button is held
+  /// over it; its release clicks nothing more. See `app/runtime/press_repeat.rs`.
+  pub press_repeats: bool,
 }
 
 /// The styles few nodes set, behind one guard: a guard holds a watch handle

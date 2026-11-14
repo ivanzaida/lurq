@@ -79,6 +79,11 @@ impl Tree {
     });
   }
 
+  /// Where the pointer last was, in physical pixels; `None` while it is outside the window.
+  pub(super) fn pointer_position(&self) -> Option<(f32, f32)> {
+    self.pointer.map(|pointer| (pointer.x, pointer.y))
+  }
+
   /// Hit-tests the hover again at the pointer's last position against the
   /// last layout. Does nothing while the pointer is outside the window or a
   /// drag holds it. Returns whether the hovered nodes changed.

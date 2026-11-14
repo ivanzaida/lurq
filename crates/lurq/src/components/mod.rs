@@ -1125,6 +1125,15 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether a press of the element repeats while it is held, as the buttons that step a number do: the
+      /// press of the primary button runs the element's `on_click` handlers at once, and again while the button
+      /// stays down over the element, first after 400 ms and then every 50 ms. The release clicks nothing more,
+      /// and what the element `focuses` is focused at the press. Enter and Space on a focused one click it once.
+      pub fn repeat_press(mut self, repeats: bool) -> Self {
+        self.update_node(|node| node.events.press_repeats = repeats);
+        self
+      }
+
       pub fn interactive(mut self, state: $crate::node::interaction_state::InteractionState) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::interactive(node, state));
         self

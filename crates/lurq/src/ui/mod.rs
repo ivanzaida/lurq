@@ -33,6 +33,7 @@ pub mod icons;
 mod input;
 mod link;
 mod menu;
+mod number_input;
 mod pagination;
 mod part_style;
 mod popover;
@@ -89,6 +90,10 @@ pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
+};
+pub use number_input::{
+  NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
+  NumberInputState, NumberInputView,
 };
 pub use pagination::{PageItem, Pagination, PaginationPart, PaginationRenderer, PaginationState, PaginationView};
 pub use part_style::{

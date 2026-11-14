@@ -279,13 +279,23 @@ pub(crate) type EditHandler = Arc<dyn Fn(&TextInputEvent) + Send + Sync>;
 /// the tree, called by its label and saying whether it is invalid and read only. A read-only one refuses every
 /// edit, and its handlers are not called; the others are called with each edit before it is made.
 pub(crate) fn text_box(control: TextInput, states: &BoxStates, handlers: Vec<EditHandler>) -> TextInput {
+  text_box_as(control, states, handlers, "textbox")
+}
+
+/// [`text_box`], saying to what reads the tree that it is a `role` in place of a `textbox`: a `spinbutton`.
+pub(crate) fn text_box_as(
+  control: TextInput,
+  states: &BoxStates,
+  handlers: Vec<EditHandler>,
+  role: &'static str,
+) -> TextInput {
   let invalid = states.judgment() == Some(Judgment::Invalid);
   let mut control = control
     // A text input is a stop of Tab only in a form or with an index of its own; a control of the design system is
     // one wherever it is.
     .tab_index(0)
     .disabled(states.disabled)
-    .describe("a11y_role", "textbox")
+    .describe("a11y_role", role)
     .describe("a11y_invalid", if invalid { "true" } else { "false" });
   if states.read_only {
     control = control.describe("a11y_readonly", "true");
