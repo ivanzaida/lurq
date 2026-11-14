@@ -153,5 +153,8 @@
   "share-nodes": "E097",
   "eye-off": "E098",
   "help-circle": "E099",
-  "star-fill": "E09A"
+  "star-fill": "E09A",
+  "list-check": "E09B",
+  "list-media": "E09C",
+  "list-pairs": "E09D"
 }

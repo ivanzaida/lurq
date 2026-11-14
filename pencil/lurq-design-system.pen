@@ -116300,7 +116300,7 @@
                           "fill": "$foreground",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "152 glyphs; every icon in this file is a lurq glyph",
+                          "content": "155 glyphs; every icon in this file is a lurq glyph",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
                           "fontWeight": "normal"
@@ -126380,6 +126380,324 @@
                         },
                         {
                           "type": "frame",
+                          "id": "M7ihu",
+                          "name": "Row / list-media",
+                          "width": "fill_container",
+                          "height": 40,
+                          "stroke": "$border",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "gap": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "xh8Hc",
+                              "name": "Lucide name",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 182,
+                              "content": "layout-list",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "LxevW",
+                              "name": "Arrow",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 16,
+                              "content": "→",
+                              "textAlign": "center",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "yioai",
+                              "name": "Icon/list-media",
+                              "reusable": true,
+                              "width": 24,
+                              "height": 24,
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "CYmQa",
+                                  "name": "Glyph",
+                                  "geometry": "M4 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z m0 11h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z m10-10h7m-7 5h7m-7 6h7m-7 5h7",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": "fill_container",
+                                  "height": "fill_container",
+                                  "stroke": "$foreground",
+                                  "strokeWidth": 2,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                }
+                              ]
+                            },
+                            {
+                              "id": "l0BTJ",
+                              "type": "ref",
+                              "ref": "yioai",
+                              "name": "list-media 16",
+                              "width": 16,
+                              "height": 16,
+                              "descendants": {
+                                "CYmQa": {
+                                  "strokeWidth": 1.33
+                                }
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "fBcGZ",
+                              "name": "lurq name",
+                              "fill": "$foreground",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "list-media",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "Mi5Rc",
+                              "name": "Uses",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 40,
+                              "content": "0",
+                              "textAlign": "right",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "R7mbZL",
+                          "name": "Row / list-check",
+                          "width": "fill_container",
+                          "height": 40,
+                          "stroke": "$border",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "gap": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "x2ul4",
+                              "name": "Lucide name",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 182,
+                              "content": "list-check",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "MFvV7",
+                              "name": "Arrow",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 16,
+                              "content": "→",
+                              "textAlign": "center",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "sRjEX",
+                              "name": "Icon/list-check",
+                              "reusable": true,
+                              "width": 24,
+                              "height": 24,
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "jFqYn",
+                                  "name": "Glyph",
+                                  "geometry": "M3 6h13m-13 6h13m-13 6h8m4 0l2 2 4-4",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": "fill_container",
+                                  "height": "fill_container",
+                                  "stroke": "$foreground",
+                                  "strokeWidth": 2,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                }
+                              ]
+                            },
+                            {
+                              "id": "lgtsK",
+                              "type": "ref",
+                              "ref": "sRjEX",
+                              "name": "list-check 16",
+                              "width": 16,
+                              "height": 16,
+                              "descendants": {
+                                "jFqYn": {
+                                  "strokeWidth": 1.33
+                                }
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "Qw5kq",
+                              "name": "lurq name",
+                              "fill": "$foreground",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "list-check",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "sipv5",
+                              "name": "Uses",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 40,
+                              "content": "0",
+                              "textAlign": "right",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "zkXVH",
+                          "name": "Row / list-pairs",
+                          "width": "fill_container",
+                          "height": 40,
+                          "stroke": "$border",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "gap": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "O0txrq",
+                              "name": "Lucide name",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 182,
+                              "content": "lurq's own",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "u8KWcE",
+                              "name": "Arrow",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 16,
+                              "content": "→",
+                              "textAlign": "center",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Uk93w",
+                              "name": "Icon/list-pairs",
+                              "reusable": true,
+                              "width": 24,
+                              "height": 24,
+                              "children": [
+                                {
+                                  "type": "path",
+                                  "id": "m4nzIx",
+                                  "name": "Glyph",
+                                  "geometry": "M3 6h4m4 0h10m-18 6h4m4 0h10m-18 6h4m4 0h10",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    24,
+                                    24
+                                  ],
+                                  "width": "fill_container",
+                                  "height": "fill_container",
+                                  "stroke": "$foreground",
+                                  "strokeWidth": 2,
+                                  "strokeLinejoin": "round",
+                                  "strokeLinecap": "round"
+                                }
+                              ]
+                            },
+                            {
+                              "id": "NbYaH",
+                              "type": "ref",
+                              "ref": "Uk93w",
+                              "name": "list-pairs 16",
+                              "width": 16,
+                              "height": 16,
+                              "descendants": {
+                                "m4nzIx": {
+                                  "strokeWidth": 1.33
+                                }
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "id": "QZDqF",
+                              "name": "lurq name",
+                              "fill": "$foreground",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "list-pairs",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "P0WOd",
+                              "name": "Uses",
+                              "fill": "$muted-foreground",
+                              "textGrowth": "fixed-width",
+                              "width": 40,
+                              "content": "0",
+                              "textAlign": "right",
+                              "fontFamily": "$font-mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
                           "id": "Rrhe6",
                           "name": "Row / grip",
                           "width": "fill_container",
@@ -136226,7 +136544,7 @@
                           "fill": "$foreground",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "152 glyphs; every icon in this file is a lurq glyph",
+                          "content": "155 glyphs; every icon in this file is a lurq glyph",
                           "fontFamily": "$font-sans",
                           "fontSize": 13,
                           "fontWeight": "normal"

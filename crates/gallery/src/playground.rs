@@ -406,16 +406,21 @@ impl Playground {
           .align_items(Alignment::Center)
           .justify(Justify::SpaceBetween)
           .foreground(PaletteColor::MutedForeground)
-          .child(mono(&measured, 12.0))
+          .spacing(16.0)
+          .child(mono(&measured, 12.0).nowrap().flex_shrink(0.0))
           .child(if spec.event.is_empty() {
             // A component that is read and not operated has nothing to count.
             Row::new()
           } else {
+            // The names of the handlers give way to the size, which is what the line is for.
             Row::new()
               .spacing(6.0)
+              .min_width(0.0)
+              .flex_shrink(1.0)
               .align_items(Alignment::Center)
               .child(icon(icons::HAND_POINTER, 14.0))
-              .child(mono(&format!("{} × {}", spec.event, self.count.get()), 12.0))
+              .child(mono(spec.event, 12.0).nowrap().flex_shrink(1.0))
+              .child(mono(&format!("× {}", self.count.get()), 12.0).nowrap().flex_shrink(0.0))
           }),
       )
   }

@@ -162,6 +162,9 @@ pub const SHARE_NODES: &str = "share-nodes";
 pub const EYE_OFF: &str = "eye-off";
 pub const HELP_CIRCLE: &str = "help-circle";
 pub const STAR_FILL: &str = "star-fill";
+pub const LIST_CHECK: &str = "list-check";
+pub const LIST_MEDIA: &str = "list-media";
+pub const LIST_PAIRS: &str = "list-pairs";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -320,4 +323,7 @@ pub const ALL: &[(&str, char)] = &[
   (EYE_OFF, '\u{E098}'),
   (HELP_CIRCLE, '\u{E099}'),
   (STAR_FILL, '\u{E09A}'),
+  (LIST_CHECK, '\u{E09B}'),
+  (LIST_MEDIA, '\u{E09C}'),
+  (LIST_PAIRS, '\u{E09D}'),
 ];

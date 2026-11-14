@@ -839,7 +839,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/list",
     name: "List",
-    icon: None,
+    icon: Some("list-media"),
     about: "list item row settings person avatar icon title description subtitle value meta time chevron switch divider inset contained header density touch mobile ist tem new on_click href selected disabled items dividers action style rules",
     group: Group::Data,
     mount: |ctx| ctx.mount::<list::ListPage>(()),
@@ -847,7 +847,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/listbox",
     name: "Listbox",
-    icon: None,
+    icon: Some("list-check"),
     about: "listbox list box option choose chosen select single multiple many range shift ctrl group check keys page typeahead virtual thousands value options optional multiple controlled controlled_optional controlled_multiple follow_focus on_change label invalid disabled full_width density style rules mount",
     group: Group::Data,
     mount: |ctx| ctx.mount::<listbox::ListboxPage>(()),
@@ -855,7 +855,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/data-list",
     name: "Data List",
-    icon: None,
+    icon: Some("list-pairs"),
     about: "data list description list term definition value key details properties metadata dl text item vertical label style rules",
     group: Group::Data,
     mount: |ctx| ctx.mount::<data_list::DataListPage>(()),
