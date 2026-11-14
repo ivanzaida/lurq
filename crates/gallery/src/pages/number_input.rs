@@ -15,14 +15,14 @@ use lurq::{
   layout::{Alignment, text_style::FontWeight},
   node::{Element, border::Border},
   ui::{
-    Field, FontFamily, Interaction, NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputSize,
-    Recipe,
+    Field, FontFamily, Interaction, Kbd, NumberFormat, NumberInput, NumberInputLayout, NumberInputPart,
+    NumberInputSize, Recipe,
   },
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, keys, props_table, quiet},
+  kit::{FILL, props_table, quiet},
   playground::{Playground, Spec, divider, flag, prop},
 };
 
@@ -495,7 +495,7 @@ impl Component for NumberInputPage {
           Row::new()
             .width(FILL)
             .align_items(Alignment::Center)
-            .child(Row::new().width(140.0).child(keys(key)))
+            .child(Row::new().width(140.0).child(Kbd::new(key)))
             .child(quiet(does, 13.0)),
         )
       });

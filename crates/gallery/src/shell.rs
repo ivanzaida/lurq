@@ -20,11 +20,11 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
-  ui::{Badge, BadgePart, BadgeVariant, Button, ButtonVariant, FontFamily, SegmentedControl, icons},
+  ui::{Badge, BadgePart, BadgeVariant, Button, ButtonVariant, FontFamily, Kbd, KeyPlatform, SegmentedControl, icons},
 };
 
 use crate::{
-  kit::{FILL, icon, keys, mono, overline, popover, row_height, segmented, select, text},
+  kit::{FILL, icon, mono, overline, popover, row_height, segmented, select, text},
   pages::{Group, PAGES, page_at},
 };
 
@@ -69,11 +69,6 @@ impl Shell {
       motion: ctx.signal(0),
     }
   }
-}
-
-/// The chord that goes to the search, as it is written on the platform.
-fn find_chord() -> &'static str {
-  if cfg!(target_os = "macos") { "⌘ K" } else { "Ctrl K" }
 }
 
 /// The title bar of the gallery's window, drawn by the gallery from the
@@ -204,7 +199,7 @@ fn search_field(theme: &Theme, state: &Shell, roomy: bool) -> Row {
     );
   // The keys that go to it are said where there is room to say them.
   if roomy {
-    field = field.child(keys(find_chord()));
+    field = field.child(Kbd::shortcut("Mod+K").platform(KeyPlatform::current()));
   }
   if focused {
     field = field.outline(theme.focus_ring().outline());

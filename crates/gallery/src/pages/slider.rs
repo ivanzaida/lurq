@@ -10,12 +10,12 @@ use lurq::{
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Interaction, Length, RangeSlider, Slider, SliderOrientation, SliderPart},
+  ui::{Interaction, Kbd, Length, RangeSlider, Slider, SliderOrientation, SliderPart},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, keys, props_table, quiet},
+  kit::{FILL, props_table, quiet},
   playground::{Playground, Spec, divider, field, flag, prop},
 };
 
@@ -55,7 +55,7 @@ const KEYS: [(&str, &str); 8] = [
     "To the next stop. A range slider is two: its low thumb, then its high one.",
   ),
   (
-    "Shift Tab",
+    "Shift+Tab",
     "Back: a range slider's high thumb first, then its low one.",
   ),
 ];
@@ -266,7 +266,7 @@ impl Component for SliderPage {
         let chord = key
           .split("  ")
           .fold(Row::new().width(140.0).spacing(6.0), |chord, key| {
-            chord.child(keys(key))
+            chord.child(Kbd::shortcut(key))
           });
         list.child(
           Row::new()

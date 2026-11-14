@@ -67,18 +67,6 @@ pub fn icon(name: &str, size: f32) -> Icon {
   Icon::new(name).size(size)
 }
 
-/// A key or a chord of keys, as it is on a keyboard: `Ctrl K`.
-pub fn keys(chord: &str) -> Row {
-  Row::new()
-    .align_items(Alignment::Center)
-    .height(20.0)
-    .padding_horizontal(6.0)
-    .rounded(RadiusSize::Sm)
-    .background(PaletteColor::Muted)
-    .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
-    .child(mono(chord, 11.0).color(PaletteColor::MutedForeground))
-}
-
 /// The panel of a popup: a menu, the settings.
 pub fn popover() -> Column {
   Column::new()

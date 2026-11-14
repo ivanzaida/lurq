@@ -10,12 +10,12 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Pagination, Select},
+  ui::{Kbd, Pagination, Select},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, keys, props_table, quiet},
+  kit::{FILL, props_table, quiet},
   playground::{Playground, Spec, divider, flag, prop},
 };
 
@@ -49,7 +49,7 @@ const KEYS: [(&str, &str); 5] = [
   ),
   ("Home  End", "To the first button that takes input, or the last."),
   ("Enter  Space", "To the page of the button."),
-  ("Shift Tab", "Back to the button before."),
+  ("Shift+Tab", "Back to the button before."),
 ];
 
 pub struct PaginationPage {
@@ -247,7 +247,7 @@ impl Component for PaginationPage {
         let chord = key
           .split("  ")
           .fold(Row::new().width(140.0).spacing(6.0), |chord, key| {
-            chord.child(keys(key))
+            chord.child(Kbd::shortcut(key))
           });
         list.child(
           Row::new()
