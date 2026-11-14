@@ -13,6 +13,7 @@ use lurq::{
   },
   components::Column,
   core::Signal,
+  layout::{Constraints, Size, quad::QuadContent},
   node::{Element, color::Color},
   ui::{Button, CommandItem, CommandPalette, CommandPalettePart, icons},
 };
@@ -24,7 +25,8 @@ fn light(role: PaletteColor) -> Color {
 }
 
 /// A window of 600 by 400 with `content` in it: the palette's layer covers the window, and a scene with a layer
-/// has a root of the window's size.
+/// has a root of the window's size. The window lays out what it holds at its own size, as a window does, in place of
+/// the stage's 400 by 300.
 fn stage(scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Stage {
   stage_in(App::new(), scene)
 }
@@ -34,6 +36,9 @@ fn stage_in(app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'stati
     Column::new().size(600.0, 400.0).child(scene(ctx)).into()
   });
   stage.tree.resize(600, 400);
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(600.0, 400.0))));
   stage.pass();
   stage
 }
@@ -91,11 +96,18 @@ fn palette(open: Signal<bool>, tell: impl Fn(&'static str) -> Box<dyn Fn() + Sen
     )
 }
 
-/// The rows filled with the highlight.
+/// The rows shown that are filled with the highlight.
 fn highlighted(stage: &mut Stage) -> Vec<&'static str> {
   ["dark", "devtools", "window", "keys", "out"]
     .into_iter()
-    .filter(|id| stage.fill_color(id) == Some(light(PaletteColor::Highlight)))
+    .filter(|id| {
+      let shown = stage
+        .tree
+        .get_element_by_id_mut(id)
+        .and_then(|element| element.bounds())
+        .is_some_and(|rect| rect.width > 0.0);
+      shown && stage.fill_color(id) == Some(light(PaletteColor::Highlight))
+    })
     .collect()
 }
 
@@ -132,6 +144,17 @@ fn an_open_palette_is_the_boards_panel_near_the_top_of_the_window() {
   assert_eq!(stage.text("Esc"), (light(PaletteColor::MutedForeground), 11.0));
   let esc = stage.text_quad("Esc").unwrap();
   assert!(esc.x + esc.width < x + width - 14.0 && esc.x + esc.width > x + width - 14.0 - 12.0);
+  // The key is a Kbd's: a box of 20 on the muted fill around its text.
+  let key = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(quad.content, QuadContent::Rect { color, .. } if color == light(PaletteColor::Muted))
+        && quad.x < esc.x
+        && quad.x + quad.width > esc.x + esc.width
+    })
+    .expect("the key's box");
+  assert_eq!(key.height, 20.0);
   // The first group's label is 12 in the muted color, over the first row: a row is 32 tall, 4 in from the panel,
   // and the first one is highlighted.
   assert_eq!(stage.text("Suggestions"), (light(PaletteColor::MutedForeground), 12.0));
@@ -273,14 +296,18 @@ fn a_press_on_the_veil_closes_it_and_a_press_on_the_panel_does_not() {
   let (_, tell) = log();
   let held = open.clone();
   let mut stage = stage(move |_| palette(held.clone(), tell.clone()).into());
-  let (x, y, ..) = stage.bounds("palette");
-  for (px, py) in [(x + 20.0, y + 20.0), (10.0, 390.0)] {
+  let press = |stage: &mut Stage, px: f32, py: f32| {
     stage.tree.mouse_move(px, py);
     stage.tree.mouse_down(px, py, MouseButton::Left);
     stage.tree.mouse_up(px, py, MouseButton::Left);
     stage.pass();
-  }
-  assert!(!open.get());
+  };
+  let (x, y, ..) = stage.bounds("palette");
+  press(&mut stage, x + 20.0, y + 20.0);
+  assert!(open.get(), "a press on the panel goes no further");
+  // Low in the window and beside the panel: the veil.
+  press(&mut stage, 10.0, 390.0);
+  assert!(!open.get(), "a press on the veil closes it");
 }
 
 #[test]
