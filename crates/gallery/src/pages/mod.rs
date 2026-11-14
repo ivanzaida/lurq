@@ -21,6 +21,7 @@ mod icons;
 mod input;
 mod input_otp;
 mod input_group;
+mod mentions;
 mod menu;
 mod number_input;
 mod multi_select;
@@ -43,6 +44,7 @@ mod tabs;
 mod tag;
 mod textarea;
 mod toast;
+mod token_input;
 mod tokens;
 mod tooltip;
 
@@ -328,6 +330,22 @@ pub const PAGES: &[Page] = &[
     about: "multi select multiple choose several tags tokens chips checkbox list filter max shown clear",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<multi_select::MultiSelectPage>(()),
+  },
+  Page {
+    path: "/token-input",
+    name: "Token Input",
+    icon: None,
+    about: "token input tags chips tag list recipients variables template tokens remove backspace",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<token_input::TokenInputPage>(()),
+  },
+  Page {
+    path: "/mentions",
+    name: "Mentions",
+    icon: None,
+    about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
   },
   Page {
     path: "/tooltip",

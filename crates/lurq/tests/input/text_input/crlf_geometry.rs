@@ -25,6 +25,7 @@ fn config(raw: &str, width: f32, padding: f32) -> InputConfig {
         padding,
         fill: None,
         lines: Default::default(),
+        chip: Default::default(),
       })
       .collect(),
   }

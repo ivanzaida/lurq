@@ -46,6 +46,38 @@ pub(crate) struct TokenStyle {
   pub(crate) fill: Option<(Color, f32)>,
   /// Lines under and through the range's text, in its color.
   pub(crate) lines: TextLines,
+  /// What a token has besides its fill: its own room at its end, its height, its edge and its icon.
+  pub(crate) chip: TokenChip,
+}
+
+impl TokenStyle {
+  /// The room after the range's text: its padding, or the chip's own.
+  pub(crate) fn padding_end(&self) -> f32 {
+    self.chip.padding_end.unwrap_or(self.padding)
+  }
+}
+
+/// What an input token has besides the fill of a styled range. A range with the default has none of it.
+#[derive(Clone, Default, PartialEq)]
+pub(crate) struct TokenChip {
+  /// The room after the text, in place of the padding: the end's own, and the icon's with its gap.
+  pub(crate) padding_end: Option<f32>,
+  /// The height of the fill, in place of its line's.
+  pub(crate) height: Option<f32>,
+  /// A line inside the fill: its width and color.
+  pub(crate) border: Option<(f32, Color)>,
+  pub(crate) icon: Option<TokenIcon>,
+}
+
+/// An icon at the end of a token, drawn in the room its padding keeps for it.
+#[derive(Clone, PartialEq)]
+pub(crate) struct TokenIcon {
+  /// The glyph's text, family, size and color.
+  pub(crate) style: TextStyle,
+  pub(crate) glyph: char,
+  pub(crate) size: f32,
+  /// The room from the icon to the end of the fill.
+  pub(crate) inset: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -89,6 +121,8 @@ pub(crate) struct InputFragment {
   pub(crate) height: f32,
   pub(crate) color: Color,
   pub(crate) radius: f32,
+  /// The token's fill the rectangle is, with its edge; `None` for a line under or through text.
+  pub(crate) token: Option<(usize, Option<(f32, Color)>)>,
   row: usize,
 }
 

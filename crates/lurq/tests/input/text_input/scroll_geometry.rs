@@ -21,6 +21,7 @@ fn config(source: &str, wrap: bool) -> InputConfig {
       padding: 3.0,
       fill: None,
       lines: Default::default(),
+      chip: Default::default(),
     }],
   }
 }

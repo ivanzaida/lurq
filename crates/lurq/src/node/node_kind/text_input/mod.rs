@@ -37,6 +37,10 @@ struct TextInputInner {
   tokens: Option<crate::components::InputTokens>,
   token_layout: Option<Arc<crate::layout::layout_engine::input_token_layout::TokenLayout>>,
   token_affinity: Option<TokenAffinity>,
+  /// The token the pointer is on, where its style has a look for it.
+  hovered_token: Option<usize>,
+  /// Whether the pointer is on the icon of a token that a click takes away.
+  token_icon_hovered: bool,
   placeholder: Option<String>,
   last_value: String,
   caret: usize,
@@ -121,6 +125,8 @@ impl TextInputState {
         tokens: None,
         token_layout: None,
         token_affinity: None,
+        hovered_token: None,
+        token_icon_hovered: false,
         placeholder: None,
         last_value: initial_value,
         caret,

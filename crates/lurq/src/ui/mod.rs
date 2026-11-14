@@ -37,6 +37,7 @@ mod input;
 mod input_otp;
 mod input_group;
 mod link;
+mod mentions;
 mod menu;
 mod number_input;
 mod multi_select;
@@ -65,6 +66,7 @@ pub(crate) mod theme;
 mod toast;
 mod toggle;
 mod toggle_group;
+mod token_input;
 mod tooltip;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
@@ -110,6 +112,10 @@ pub use input_otp::{
 };
 pub use input_group::{InputAddon, InputGroup, InputGroupPart, InputGroupState, InputGroupView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
+pub use mentions::{
+  MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsState,
+  MentionsView,
+};
 pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
@@ -174,6 +180,9 @@ pub use toast::{
 };
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
 pub use toggle_group::{ToggleGroup, ToggleGroupPart};
+pub use token_input::{
+  MENTION, Token, TokenInput, TokenInputPart, TokenInputRenderer, TokenInputSize, TokenInputState, TokenInputView,
+};
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
 };
