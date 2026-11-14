@@ -235,6 +235,7 @@ pub struct Sheet {
   detents: Vec<SheetDetent>,
   detent: Option<Signal<usize>>,
   scroll: Option<ScrollState>,
+  body_scrolls: bool,
   inline: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -261,6 +262,7 @@ impl Sheet {
       detents: Vec::new(),
       detent: None,
       scroll: None,
+      body_scrolls: true,
       inline: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -373,6 +375,16 @@ impl Sheet {
     self
   }
 
+  /// Whether the body scrolls. It does unless told otherwise; one that does
+  /// not is laid out in the room the panel has for it, at the start and the
+  /// end the panel's height less the header and the footer, for what holds a
+  /// scroll of its own with something that stays beside it: a sidebar with
+  /// its header and its footer.
+  pub fn body_scrolls(mut self, scrolls: bool) -> Self {
+    self.body_scrolls = scrolls;
+    self
+  }
+
   /// Draws the panel where the sheet is declared, whether or not it is open,
   /// without the veil and without taking the window: for a gallery, a
   /// screenshot, a test.
@@ -444,6 +456,7 @@ impl Sheet {
       detents: self.detents,
       detent: self.detent,
       scroll: self.scroll,
+      body_scrolls: self.body_scrolls,
       id: self.id,
       key: self.key,
     }
@@ -502,6 +515,7 @@ pub struct SheetView {
   detents: Vec<SheetDetent>,
   detent: Option<Signal<usize>>,
   scroll: Option<ScrollState>,
+  body_scrolls: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -650,8 +664,9 @@ impl SheetView {
   /// the header and the footer. At the start and the end it takes the room
   /// they leave, so that the footer stands at the panel's bottom; at the top
   /// and the bottom it is as high as what is in it while that fits, and
-  /// gives way and scrolls when it does not. `None` for a sheet with nothing
-  /// in it.
+  /// gives way and scrolls when it does not. A body that does not scroll
+  /// ([`Sheet::body_scrolls`]) is laid out in that room as it is. `None` for a
+  /// sheet with nothing in it.
   pub fn body(&mut self) -> Option<Element> {
     if self.body.is_empty() {
       return None;
@@ -660,6 +675,10 @@ impl SheetView {
       .width(Dimension::Pct(100.0))
       .part(&self.part(SheetPart::Body))
       .with_children(std::mem::take(&mut self.body));
+    if !self.body_scrolls {
+      let grow = if self.side.is_side() { 1.0 } else { 0.0 };
+      return Some(body.align_items(Alignment::Stretch).flex_full(grow, 1.0, None).into());
+    }
     let mut scroll = ScrollVertical::new(body);
     if let Some(state) = &self.scroll {
       scroll = scroll.with_scroll_state(state.clone());

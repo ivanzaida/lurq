@@ -220,6 +220,31 @@ fn a_drawer_over_the_page_is_a_sheet_at_its_edge() {
 }
 
 #[test]
+fn a_drawer_that_does_not_scroll_lays_what_it_holds_out_at_its_height() {
+  // What holds a scroll of its own with something that stays at its bottom: the bar stays at the drawer's foot.
+  let held = |open: Signal<bool>, overlay: bool| {
+    Drawer::new(open).id("drawer").scroll(false).overlay(overlay).child(
+      Column::new()
+        .id("held")
+        .height(lurq::node::dimension::Dimension::Pct(100.0))
+        .child(Column::new().flex(1.0))
+        .child(Column::new().id("bar").height(20.0)),
+    )
+  };
+  for overlay in [false, true] {
+    let open = Signal::new(true);
+    let mut stage = stage(move |_| layout(held(open.clone(), overlay), SheetSide::Start));
+    assert_eq!(
+      stage.bounds("held").3,
+      300.0,
+      "as high as the drawer, over the page: {overlay}"
+    );
+    let (_, y, _, height) = stage.bounds("bar");
+    assert_eq!(y + height, 300.0, "at its foot, over the page: {overlay}");
+  }
+}
+
+#[test]
 fn a_theme_restyles_the_panel() {
   let app = App::new();
   app
