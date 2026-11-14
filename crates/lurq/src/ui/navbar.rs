@@ -495,6 +495,8 @@ impl Navbar {
         }
         // An item that opens a panel goes nowhere itself.
         if item.panel.is_none() {
+          // A sidebar's item goes to a path only where the app has a router.
+          #[cfg(feature = "router")]
           if let Some(href) = &item.href {
             link = link.href(href);
           }
@@ -568,6 +570,7 @@ fn sidebar_link(link: &NavLink) -> SidebarItem {
   if let Some(icon) = link.icon {
     item = item.icon(icon);
   }
+  #[cfg(feature = "router")]
   if let Some(href) = &link.href {
     item = item.href(href);
   }

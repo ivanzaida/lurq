@@ -253,6 +253,7 @@ Added:
 
 Fixes:
 
+- lurq compiles without the `router` feature again: `ui::Navbar` gave its links' paths to a sidebar's items with no router to go to them.
 - A `ui::Table`'s cells are as high as their row. A first column that stays covered only the line of its text, so a taller cell that scrolled under it (a badge) showed over and under the name.
 - What a scroll container holds is drawn on a whole device pixel. A text is painted on whole device pixels and a box where it is, so at a scale that is no whole number (150%) a scroll offset of half a device pixel moved every label a pixel against its box, and back at the next step of the wheel: the text of a field jumped as its page scrolled. The scroll's own offset is as it was given.
 - A `ui::Table`'s titles and the header's checkbox stand in the middle of the header's height, and the skeletons of its loading rows in the middle of theirs; they stood at the top edge.

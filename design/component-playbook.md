@@ -340,9 +340,12 @@ an alias.
   anchor finds the first.
 - **A session that moves another component's code** (a selection model shared by the tree and the listbox) merges
   the base first and often: the other session is changing that code too.
-- **The checks of a session are three**: `cargo check -p lurq --features form,router --tests`,
+- **The checks of a session are four**: `cargo check -p lurq` with no features (what is behind `router` or `form`
+  is used only behind it: a navbar's link could not go to a path without a router, and the library did not
+  compile without the feature), `cargo check -p lurq --features form,router --tests`,
   `cargo check -p gallery --features mcp` and `cargo check -p gallery --features devtools`. A value kept in a
-  signal is `DevtoolsInspectable` with the third.
+  signal is `DevtoolsInspectable` with the last. At the merge the ui tests run with `mcp` too: the tests of what
+  tooling reads (roles, names, `a11y_checked`) are behind it.
 - **What a batch may use now**: `FocusGroup::pages`, `shift_extends`, `panel_row`; `ColumnTracks` and
   `ScrollBoth::fill_width`; `KeyboardEvent::focus_key`; `core::Date`, `YearMonth`, `DateRange`, `DateLocale`;
   `Recipe::row_density`; `ui::Navbar`, `ui::NavigationMenu`, `ui::Table`, `ui::List`, `ui::ListItem`,
