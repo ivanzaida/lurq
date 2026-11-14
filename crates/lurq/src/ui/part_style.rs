@@ -283,6 +283,10 @@ pub struct PartStyle {
   pub underline: Option<Border>,
   /// A line along the start side of the part: what marks the chosen tab of a list that runs down.
   pub start_line: Option<Border>,
+  /// A line along the end side of the part: the edge of a panel at the window's start, toward the page.
+  pub end_line: Option<Border>,
+  /// A line along the top of the part: the edge of a panel at the window's bottom, toward the page.
+  pub top_line: Option<Border>,
   pub radius: Option<ThemedBorderRadius>,
   pub shadow: Option<BoxShadowValue>,
   /// A color laid over the part's background and under its content: the
@@ -349,6 +353,20 @@ impl PartStyle {
   /// side: the mark of the chosen tab of a list that runs down.
   pub fn start_line(mut self, line: Border) -> Self {
     self.start_line = Some(line);
+    self
+  }
+
+  /// A line along the end side of the part, in place of a border on every
+  /// side: the edge of a sheet at the window's start.
+  pub fn end_line(mut self, line: Border) -> Self {
+    self.end_line = Some(line);
+    self
+  }
+
+  /// A line along the top of the part, in place of a border on every side:
+  /// the edge of a drawer at the bottom of a layout.
+  pub fn top_line(mut self, line: Border) -> Self {
+    self.top_line = Some(line);
     self
   }
 
@@ -547,6 +565,8 @@ impl PartStyle {
       && self.border.is_none()
       && self.underline.is_none()
       && self.start_line.is_none()
+      && self.end_line.is_none()
+      && self.top_line.is_none()
       && self.radius.is_none()
       && self.shadow.is_none()
       && self.veil.is_none()
@@ -583,6 +603,8 @@ impl PartStyle {
       border,
       underline,
       start_line,
+      end_line,
+      top_line,
       radius,
       shadow,
       veil,
@@ -631,6 +653,12 @@ impl PartStyle {
     }
     if let Some(line) = &self.start_line {
       NodeUpdate::border_left(node, line.clone());
+    }
+    if let Some(line) = &self.end_line {
+      NodeUpdate::border_right(node, line.clone());
+    }
+    if let Some(line) = &self.top_line {
+      NodeUpdate::border_top(node, line.clone());
     }
     if let Some(radius) = self.radius {
       NodeUpdate::corner_radius_top_left(node, radius.top_left);
@@ -754,6 +782,14 @@ impl PartStyle {
     }
     if let Some(line) = &self.start_line {
       style = style.border_left(line.clone());
+      any = true;
+    }
+    if let Some(line) = &self.end_line {
+      style = style.border_right(line.clone());
+      any = true;
+    }
+    if let Some(line) = &self.top_line {
+      style = style.border_top(line.clone());
       any = true;
     }
     if let Some(radius) = self.radius {

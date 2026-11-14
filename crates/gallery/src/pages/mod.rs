@@ -18,6 +18,7 @@ mod checkbox_card;
 mod combobox;
 mod dialog;
 mod empty_state;
+mod drawer;
 mod family;
 mod family_play;
 mod fieldset;
@@ -41,6 +42,7 @@ mod radio_card;
 mod search_field;
 mod select;
 mod separator;
+mod sheet;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -376,6 +378,22 @@ pub const PAGES: &[Page] = &[
     about: "card surface panel tile header title description action content footer outline elevated filled pressed interactive settings stat",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<card::CardPage>(()),
+  },
+  Page {
+    path: "/sheet",
+    name: "Sheet",
+    icon: None,
+    about: "sheet side panel edge slide start end top bottom drawer grabber veil scrim modal dialog detent drag",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<sheet::SheetPage>(()),
+  },
+  Page {
+    path: "/drawer",
+    name: "Drawer",
+    icon: None,
+    about: "drawer navigation sidebar side panel push aside region open close width overlay veil",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<drawer::DrawerPage>(()),
   },
   Page {
     path: "/tabs",

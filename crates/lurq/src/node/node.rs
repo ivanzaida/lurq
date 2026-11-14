@@ -5255,15 +5255,28 @@ impl Node {
   /// either axis applied.
   /// How far a node of `size` is moved from where its parent laid it out: its `offset`, and the shares of
   /// its own size it is moved by.
+  ///
+  /// A keyframe or a transition that runs an offset in percent moves the node by that share of its own size: a
+  /// panel that slides in from beyond the window's edge, whatever its size.
   pub(crate) fn offset_for_size(&self, size: crate::layout::Size) -> Option<Offset> {
     let offset = self.offset_position();
-    match self.offset_by_size {
-      Some((x, y)) => {
-        let offset = offset.unwrap_or_default();
-        Some(Offset::new(offset.x + x * size.width, offset.y + y * size.height))
-      }
-      None => offset,
+    let share = |prop| match self.animation_override(prop) {
+      Some(crate::animation::AnimatableValue::Percent(share)) => Some(share / 100.0),
+      _ => None,
+    };
+    let (moved_x, moved_y) = (
+      share(crate::animation::AnimatableProperty::OffsetX),
+      share(crate::animation::AnimatableProperty::OffsetY),
+    );
+    if self.offset_by_size.is_none() && moved_x.is_none() && moved_y.is_none() {
+      return offset;
     }
+    let (x, y) = self.offset_by_size.unwrap_or_default();
+    let offset = offset.unwrap_or_default();
+    Some(Offset::new(
+      offset.x + (x + moved_x.unwrap_or_default()) * size.width,
+      offset.y + (y + moved_y.unwrap_or_default()) * size.height,
+    ))
   }
 
   pub(crate) fn offset_position(&self) -> Option<Offset> {
