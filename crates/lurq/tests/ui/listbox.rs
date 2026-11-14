@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::{quad::QuadContent, text_style::FontWeight},
   node::color::Color,
-  ui::{Choice, Listbox, ListboxPart, ListboxRenderer, ListboxView},
+  ui::{Button, Choice, Listbox, ListboxPart, ListboxRenderer, ListboxView},
 };
 
 use super::stage::Stage;
@@ -76,7 +76,8 @@ fn press_with(stage: &mut Stage, id: &str, shift: bool, ctrl: bool) {
   stage.pass();
 }
 
-/// A stage of the board's listbox of one, bound to `chosen`, telling `told` what it chose.
+/// A stage of the board's listbox of one, bound to `chosen`, telling `told` what it chose, with a button after it
+/// for Tab to go on to.
 fn one(chosen: &Signal<Id>, told: &Arc<Mutex<Vec<Vec<Id>>>>, follow: bool) -> Stage {
   let (chosen, told) = (chosen.clone(), told.clone());
   Stage::new(move |_| {
@@ -90,6 +91,7 @@ fn one(chosen: &Signal<Id>, told: &Arc<Mutex<Vec<Vec<Id>>>>, follow: bool) -> St
           .on_change(move |next| told.lock().unwrap().push(next.to_vec()))
           .id("box"),
       )
+      .child(Button::new("After").id("after"))
       .into()
   })
 }
@@ -171,9 +173,9 @@ fn of_one_a_press_chooses_and_the_choice_follows_the_keys() {
   assert_eq!(chosen.get(), "wgpu");
   stage.key("m");
   assert_eq!(chosen.get(), "metal", "a letter chooses too");
-  // Tab leaves it: it is one stop.
+  // Tab leaves it for what is after it: it is one stop.
   stage.key("Tab");
-  assert_ne!(focused(&stage).as_deref().map(|id| id.starts_with("box-")), Some(true));
+  assert_eq!(focused(&stage).as_deref(), Some("after"));
 }
 
 #[test]

@@ -1499,9 +1499,10 @@ impl TableView {
       .align_items(Alignment::Stretch)
       .describe("a11y_role", "rowgroup");
     let (Some(window), Some(focus_rows)) = (self.window, self.focus_rows.clone()) else {
-      // Every row is built: the group steps over the rows themselves.
+      // Every row is built: the group steps over the rows themselves, PageUp and PageDown by what the table's
+      // scroll shows.
       return body
-        .focus_group(group)
+        .focus_group(group.pages(true))
         .with_children(rows.into_iter().map(TableRow::render));
     };
     // A mounted table builds the rows around its view: the group steps over all of them, and a row it goes to

@@ -629,9 +629,11 @@ impl Themed for ListItem {
       .density(Density::Compact, Root, |s| s.min_height(28.0))
       .density(Density::Comfortable, Root, |s| s.min_height(44.0))
       .density(Density::Touch, Root, |s| s.min_height(56.0).padding_x(16.0))
-      // Two lines: 52 at the default, 16 more than one line at every density, the text 6 from the edges at least.
+      // Two lines: 52 at the default, 16 more than one line at every density, the text 6 from the edges at least
+      // (4 at the compact density).
       .state(TwoLine, Root, |s| s.min_height(52.0).padding_y(6.0))
-      .when(two_line(Density::Compact), Root, |s| s.min_height(44.0))
+      // At the compact density two lines of text and 6 over and under them are more than 44: the room is 4.
+      .when(two_line(Density::Compact), Root, |s| s.min_height(44.0).padding_y(4.0))
       .when(two_line(Density::Comfortable), Root, |s| s.min_height(60.0))
       .when(two_line(Density::Touch), Root, |s| s.min_height(72.0))
       .state(Pressable, Root, |s| s.cursor(CursorIcon::Pointer))

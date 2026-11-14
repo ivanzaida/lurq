@@ -103,6 +103,8 @@ Row::new()
 | `menu_row(bool)` | The group is a row of menus, as the File, Edit and View of a menubar: each of its elements opens a menu hung from it. With one of those menus open, Left and Right go to the menu beside it, and Alt reaches the row from anywhere. See [a row of menus](#a-row-of-menus) |
 | `panel_row(bool)` | The group is a row of panels, as a site's navigation menu: a row of menus whose elements are links as well as buttons that open a panel. Left and Right from an open panel focus the element beside it and open its panel, pressing no link, and Alt is not its. See [a row of panels](#a-row-of-panels) |
 | `nested(bool)` | The group is a tree: Right and Left open, close and go between levels, and `*` opens the elements beside the focused one. Its elements say their level with `.focus_level(n)` and whether they are open with `.focus_expanded(open, toggle)`. See [a nested list](#a-nested-list) |
+| `pages(bool)` | In a vertical group, PageUp and PageDown move the focus by a page: to the farthest element no more than the height of the scroll the group is in away, and at least one on. A group in no scroll is one page: the keys go to its ends. See [pages and ranges](#pages-and-ranges) |
+| `shift_extends(bool)` | A key that moves the focus with Shift held presses what it moves to with Shift, as a press of the pointer with Shift would: in a list of which any number are selected, Shift with the arrows, Home, End and the page keys selects a range. See [pages and ranges](#pages-and-ranges) |
 | `FocusGroup::none()` | No key moves the focus within it, and what is in it is out of the group around it: that group's arrows pass it by, and do nothing while the focus is in it. For what a group holds beside what its keys move between, as the content of an accordion's open item is between two headers |
 
 - The keys move between what Tab would stop at inside the element (a `tab_index` of `0` or more, or a control of a form), in the order of the tree; a disabled or dropped one is passed by. Home and End go to the first and the last.
@@ -140,6 +142,43 @@ let week = Row::new()
   .child(day(1))
   .child(day(2));
 ```
+
+### Pages And Ranges
+
+A list in a scroll, a listbox or a table's rows, moves by pages with `pages(true)`, and one of which any number are selected extends its selection with Shift and the keys with `shift_extends(true)`. Neither counts rows of its own: the group moves the focus, and the row it moves to is pressed as the pointer would press it.
+
+```rust
+use lurq::{
+  app::events::MouseEvent,
+  components::{Button, Column, ScrollVertical},
+  node::FocusGroup,
+};
+
+// One stop; Up, Down, Home, End, PageUp and PageDown through the rows; Shift with them a range.
+let rows = Column::new()
+  .focus_group(
+    FocusGroup::vertical()
+      .one_stop(true)
+      .wrap(false)
+      .pages(true)
+      .shift_extends(true),
+  )
+  .with_children((0..200).map(|row| {
+    Button::new(&format!("Row {row}"))
+      .tab_index(0)
+      .on_click(move |event: MouseEvent| {
+        // event.shift: from where the selection started to this row; event.ctrl: this row in or out;
+        // event.from_keyboard: Space, which adds or takes out the focused row.
+        let _ = (row, event.shift, event.ctrl, event.from_keyboard);
+      })
+  }));
+let list = ScrollVertical::new(rows).max_height(320.0);
+```
+
+- A page is what the innermost scroll that runs down around the focused element shows: PageDown goes to the farthest element whose top is no more than the scroll's height below the focused one's, or to the next one where even that is farther. It does not go round.
+- With `shift_extends`, the press after a move with Shift is a click with Shift held, from the keyboard: the element's `on_click` reads `event.shift` and selects from where the selection started to it. Without Shift a key only moves the focus, unless the group `activate`s, where the choice follows the focus; a letter of typeahead presses too in a group that `activate`s.
+- `ui::Listbox` and `ui::TreeView` select this way, with one model: a plain press selects one row alone, Ctrl (Cmd) with a press adds or takes out one, Shift with a press or a key selects from the last selected row to it and keeps that row last, so that the next range starts there, Space adds or takes out the focused row, and Ctrl+A selects every row that takes input. A disabled row is passed by and never selected. What is selected is the app's: a `Vec` whose last item is where a range starts.
+- In a group of [rows a list builds in part](#rows-a-list-builds-in-part) both hold as well: the row the keys move to is pressed once it is built and focused.
 
 ### A Row Of Menus
 
@@ -312,7 +351,8 @@ Column::new()
 
 - Up, Down, Home, End, PageUp and PageDown, the keys of a nested group, and typeahead go to any row. A row that is built has the focus at once; one that is not is asked for with `reveal`, and has the focus after the layout that has it.
 - Keys pressed while a row is awaited go on from that row, not from the row that had the focus: holding Down runs down the list. A press of the pointer, Tab and a focus the app asks for (`Ctx::focus`) end the wait.
-- PageUp and PageDown are a group's only where it has rows; a group that builds every one of its elements leaves them to what scrolls.
+- PageUp and PageDown are a group's only where it has rows or [pages](#pages-and-ranges); a group with neither leaves them to what scrolls.
+- In a group that `activate`s, or that has `shift_extends` and Shift is held, the row the keys or a letter move to is pressed as well, as an element of a group that builds every one is: at once where it is built, and otherwise once the layout that has it has focused it. `Listbox::mount(ctx)` chooses that way over thousands of options.
 - The group is known by its `Arc`: give the same one at every render, as a component that keeps it in a field does.
 
 ## Tab Scope
