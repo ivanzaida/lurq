@@ -70,6 +70,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod radio;
+mod rating;
 mod recipe;
 mod search_field;
 mod segmented;
@@ -240,6 +241,10 @@ pub use progress_dialog::{
 pub use radio::{
   Radio, RadioGroup, RadioGroupPart, RadioGroupRenderer, RadioGroupState, RadioGroupView, RadioPart, RadioRenderer,
   RadioSelection, RadioState, RadioView,
+};
+pub use rating::{
+  Rating, RatingPart, RatingPrecision, RatingRenderer, RatingSize, RatingState, RatingValue, RatingValueText,
+  RatingView,
 };
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
