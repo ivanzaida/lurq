@@ -54,7 +54,7 @@ impl Component for Form {
           "Sync",
           Switch::new("Sync in background").label_hidden(true).on(true).id("sync"),
         )
-        .horizontal(true),
+        .orientation(lurq::ui::Orientation::Horizontal),
       )
   }
 }
