@@ -887,6 +887,9 @@ pub struct Tree {
   /// The anchor of each overlay host layer after the page, in host order;
   /// `None` for a select menu or a modal over the page.
   overlay_layer_anchors: Vec<Option<OwnedElementRef>>,
+  /// For each layer of `overlay_layer_anchors` whose overlay takes the focus, the layer its anchor is in (counted
+  /// from 1, as the host's children after the page are), where that is a layer: a submenu's is its menu's.
+  overlay_layer_parents: Vec<Option<usize>>,
   /// The anchors of the open overlays that take the focus, as the last layout had them: what tells an
   /// overlay that opens or closes from one that stays open.
   overlay_focus_movers: Vec<OwnedElementRef>,
@@ -905,6 +908,11 @@ pub struct Tree {
   modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
   /// The modals that take the focus among the layers the last pass built.
   built_focus_modals: Vec<NodeId>,
+  /// The open modals (dialogs, not the window's chrome), by the node that declares each, in the order they opened:
+  /// the one opened last is stacked over the others whatever their order in the tree. See [`modal_focus`].
+  modal_open_order: Vec<NodeId>,
+  /// The open modals met by the pass being built, to forget those that closed.
+  modals_met: Vec<NodeId>,
   /// The arrow keys moved the focus in a group that follows the pointer, and took the hover away with it: the
   /// hover stays away, under a pointer that holds still, until the pointer moves.
   hover_held_by_keys: bool,
@@ -1320,12 +1328,15 @@ impl Tree {
       canvas_registry: Vec::new(),
       overlay_dismiss_entries: Vec::new(),
       overlay_layer_anchors: Vec::new(),
+      overlay_layer_parents: Vec::new(),
       overlay_focus_movers: Vec::new(),
       overlay_focus_entry: None,
       overlay_focus_returns: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
       built_focus_modals: Vec::new(),
+      modal_open_order: Vec::new(),
+      modals_met: Vec::new(),
       hover_held_by_keys: false,
       typeahead: None,
       alt_alone: false,
@@ -7399,10 +7410,12 @@ impl Tree {
       old_parts.free_ids(&self.id_gen);
       self.overlay_dismiss_entries.clear();
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_parents.clear();
       self.overlay_focus_movers.clear();
       self.overlay_focus_entry = None;
       self.overlay_layer_origins.clear();
       self.built_focus_modals.clear();
+      self.modal_open_order.clear();
       self.overlay_focus_returns.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
@@ -7414,6 +7427,8 @@ impl Tree {
     // the chrome itself lays over the window, its title bar and its overlays, has all of the window.
     let title_bar = self.window.handle().title_bar_inset().min(viewport.height);
     let mut layers = OverlayLayers::default();
+    self.modals_met.clear();
+    self.stack_modals_in_open_order(&mut base_overlay_index.overlays);
     let mut overlays = build_overlays_from_layout_index(
       &base_overlay_index,
       viewport,
@@ -7445,13 +7460,16 @@ impl Tree {
         Vec::new()
       } else {
         let overlay = &overlays[overlay_index];
+        // Laid out at the size the host gives it, as it is drawn: a menu's items are as wide as the menu, and a
+        // submenu hung from one is placed by the item as it is drawn.
+        let layer_constraints = LayoutEngine::absolute_child_constraints(overlay, constraints);
         let (_overlay_layout, mut overlay_layout_index) = crate::app::profiler::producer::layout_compute(
           #[cfg(feature = "perf_profile")]
           &mut self.profiling,
           || {
             self
               .layout_engine
-              .compute_with_overlay_index(glyph_engine, overlay, constraints, theme_changed)
+              .compute_with_overlay_index(glyph_engine, overlay, layer_constraints, theme_changed)
           },
         );
         let (origin_x, origin_y) = match overlay.position() {
@@ -7460,6 +7478,7 @@ impl Tree {
         };
         translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
         dropdown_anchors.append(&mut overlay_layout_index.dropdown_anchors);
+        self.stack_modals_in_open_order(&mut overlay_layout_index.overlays);
         let nested_entries_start = layers.dismiss_entries.len();
         let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
@@ -7499,6 +7518,7 @@ impl Tree {
     }
 
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
+    self.forget_closed_modals();
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
@@ -7515,6 +7535,7 @@ impl Tree {
       // Overlays hidden with their anchor are still dismissed.
       self.overlay_dismiss_entries = layers.dismiss_entries;
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_parents.clear();
       self.dropdown_anchors.clear();
       return focus_return;
     }
@@ -7546,6 +7567,7 @@ impl Tree {
     self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
+    self.overlay_layer_parents = self.focus_layer_parents();
     self.overlay_layer_origins = layers.origins;
     self.dropdown_anchors = dropdown_anchors;
     focus_return

@@ -3856,12 +3856,7 @@ impl LayoutEngine {
         Position::Absolute { width, height, .. } => {
           let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
           let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
-          let positioned_constraints = Constraints {
-            min_width: resolved_width.unwrap_or(0.0),
-            max_width: resolved_width.unwrap_or(child_constraints.max_width),
-            min_height: resolved_height.unwrap_or(0.0),
-            max_height: resolved_height.unwrap_or(child_constraints.max_height),
-          };
+          let positioned_constraints = Self::absolute_child_constraints(child, constraints);
           let mut result = self.layout_child_node(glyph_engine, child_overrides, index, child, positioned_constraints);
           if let Some(width) = resolved_width {
             Arc::make_mut(&mut result).size.width = width;
@@ -4121,6 +4116,24 @@ impl LayoutEngine {
         constraints.min_width = w;
         constraints.max_width = w;
       }
+    }
+  }
+
+  /// The constraints a stack lays out its absolutely positioned `child` with, under its own `constraints`: the
+  /// child's width and height where it names them, and the stack's room where it does not. What lays out an
+  /// overlay host's layer on its own gives it these, so that it is as wide as the host draws it.
+  pub(crate) fn absolute_child_constraints(child: &Node, constraints: Constraints) -> Constraints {
+    let loose = constraints.loosen_width().loosen_height();
+    let Position::Absolute { width, height, .. } = child.position() else {
+      return loose;
+    };
+    let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
+    let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
+    Constraints {
+      min_width: resolved_width.unwrap_or(0.0),
+      max_width: resolved_width.unwrap_or(loose.max_width),
+      min_height: resolved_height.unwrap_or(0.0),
+      max_height: resolved_height.unwrap_or(loose.max_height),
     }
   }
 

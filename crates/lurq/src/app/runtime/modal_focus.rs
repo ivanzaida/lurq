@@ -7,8 +7,14 @@
 //! A modal is told from another between passes by the node that declares it.
 //! The focus goes back only when it was lost with the modal: one the app or a
 //! press has put somewhere else that is still there stays there.
+//!
+//! Modals are stacked in the order they opened, as a browser's top layer
+//! holds them: one opened over another is over it, takes the pointer, Tab and
+//! Escape from it, whatever their order in the tree. An app's search declared
+//! in its shell before the page opens over a dialog of the page.
 
 use super::{FocusTarget, Tree, find_path_by_id, tab_navigation};
+use crate::{app::ctx::ModalLayer, layout::layout_engine::OverlayLayoutRecord};
 
 impl Tree {
   /// Gives the focus back from the modals that closed since the last pass,
@@ -49,6 +55,56 @@ impl Tree {
         self.focus_node(target);
       }
     }
+  }
+
+  /// Puts the modals among `records`, the layers of one layout in the order of the tree, in the order they
+  /// opened; the other layers keep their places. A modal that opened in this pass goes over those open before
+  /// it, and among those opened together the order of the tree holds.
+  pub(super) fn stack_modals_in_open_order(&mut self, records: &mut Vec<OverlayLayoutRecord>) {
+    let mut slots = Vec::new();
+    for (slot, record) in records.iter().enumerate() {
+      if let OverlayLayoutRecord::Modal { origin, spec, .. } = record
+        && spec.layer == ModalLayer::Dialog
+      {
+        if let Some(origin) = *origin {
+          self.modals_met.push(origin);
+          if !self.modal_open_order.contains(&origin) {
+            self.modal_open_order.push(origin);
+          }
+        }
+        slots.push(slot);
+      }
+    }
+    if slots.len() < 2 {
+      return;
+    }
+    let rank = |record: &OverlayLayoutRecord| {
+      match record {
+        OverlayLayoutRecord::Modal {
+          origin: Some(origin), ..
+        } => self.modal_open_order.iter().position(|open| open == origin),
+        _ => None,
+      }
+      .unwrap_or(usize::MAX)
+    };
+    let mut stacked = slots.clone();
+    // Stable: those of one rank keep the order of the tree.
+    stacked.sort_by_key(|&slot| rank(&records[slot]));
+    if stacked == slots {
+      return;
+    }
+    let mut taken: Vec<Option<OverlayLayoutRecord>> = std::mem::take(records).into_iter().map(Some).collect();
+    let modals: Vec<OverlayLayoutRecord> = stacked.iter().filter_map(|&slot| taken[slot].take()).collect();
+    for (&slot, modal) in slots.iter().zip(modals) {
+      taken[slot] = Some(modal);
+    }
+    *records = taken.into_iter().flatten().collect();
+  }
+
+  /// Forgets the order of the modals the pass just built did not meet: they closed.
+  pub(super) fn forget_closed_modals(&mut self) {
+    let met = std::mem::take(&mut self.modals_met);
+    self.modal_open_order.retain(|open| met.contains(open));
   }
 
   /// Whether the focused node is still in the tree.

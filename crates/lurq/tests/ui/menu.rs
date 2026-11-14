@@ -221,8 +221,9 @@ fn tab_reaches_the_menu_once_and_the_arrows_move_between_its_items() {
       .collect::<Vec<_>>()
   };
   assert!(highlighted(&mut stage).is_empty(), "at rest an item has no fill");
-  // Tab reaches the menu at its first item, which the keyboard's focus highlights: the board's accent.
-  stage.key("Tab");
+  // The menu put the focus on its first item as it opened; a key shows it there, in the board's accent. Tab would
+  // close the menu.
+  stage.key("Home");
   assert_eq!(highlighted(&mut stage), ["cut"]);
   // Down passes the disabled item and the separator by; Up goes back; End and Home go to the ends.
   stage.key("ArrowDown");
@@ -529,7 +530,7 @@ fn right_opens_a_submenu_at_its_first_item_and_left_or_escape_go_back() {
     )
   });
   let lit = |stage: &mut Stage, id: &str| stage.fill_color(id) == Some(light(PaletteColor::Highlight));
-  stage.key("Tab");
+  // The focus is on the first item, where the menu put it as it opened.
   stage.key("ArrowDown");
   assert!(lit(&mut stage, "export"));
   // Right on an item with a submenu opens it, with the focus on its first item.
@@ -725,4 +726,241 @@ fn typing_a_letter_goes_to_the_item_whose_label_starts_with_it() {
   assert_eq!(lit(&mut stage), ["copy"]);
   stage.key("Enter");
   assert_eq!(*chosen.lock().unwrap(), ["copy"]);
+}
+
+#[test]
+fn a_submenu_opens_toward_its_chevron_in_a_window_that_lays_its_page_out_at_its_own_size() {
+  let (open, exporting) = (Signal::new(false), Signal::new(false));
+  let (anchor, export) = (ElementRef::new(), ElementRef::new());
+  let (held, sub) = (open.clone(), exporting.clone());
+  let mut stage = Stage::new(move |_| {
+    // A window of 900 with the anchor in a narrow scroll view at its start, a side bar: the menu runs past the
+    // scroll view, and the submenu has all the window's room beside it.
+    Row::new()
+      .size(900.0, 300.0)
+      .child(
+        lurq::components::ScrollBoth::new(
+          Column::new()
+            .width(260.0)
+            .padding_left(120.0)
+            .padding_top(20.0)
+            .child(Rect::new(120.0, 30.0).id("anchor").ref_element(anchor.clone()))
+            .child(
+              Menu::new(anchor.clone(), held.clone())
+                .id("menu")
+                .label("Edit")
+                .item(MenuItem::new("Undo").id("undo").shortcut("Ctrl+Z"))
+                .item(
+                  MenuItem::new("Export as").id("export").submenu(
+                    Menu::new(export.clone(), sub.clone())
+                      .id("formats")
+                      .item(MenuItem::new("PNG").id("png")),
+                  ),
+                )
+                .separator()
+                .item(MenuItem::new("Delete").destructive(true)),
+            ),
+        )
+        .size(260.0, 300.0),
+      )
+      .into()
+  });
+  // A window lays its page out at its own size, as the stage's loose 400 by 300 does not: a layer laid out on its
+  // own at that size had its items as wide as the window, and the submenu, placed by its item, no room beside it.
+  stage.tree.resize(900, 300);
+  stage
+    .tree
+    .set_layout_constraints_override(Some(lurq::layout::Constraints::tight(lurq::layout::Size::new(
+      900.0, 300.0,
+    ))));
+  stage.pass();
+  open.set(true);
+  stage.pass();
+  stage.hover("export");
+  assert!(exporting.get());
+  let (mx, _, mw, _) = stage.bounds("menu");
+  let (sx, ..) = stage.bounds("formats");
+  assert!(mx + mw > 260.0, "the menu runs past the scroll view: {mx} {mw}");
+  assert_eq!(
+    sx,
+    mx + mw + 4.0,
+    "the submenu is beside the menu on the side of its chevron"
+  );
+}
+
+#[test]
+fn choosing_an_item_of_a_submenu_gives_the_focus_back_to_what_opened_the_menu() {
+  let (chosen, tell) = log();
+  let (open, exporting) = (Signal::new(false), Signal::new(false));
+  let (anchor, export) = (ElementRef::new(), ElementRef::new());
+  let (held, sub) = (open.clone(), exporting.clone());
+  let mut stage = Stage::new(move |_| {
+    let toggle = held.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new().ref_element(anchor.clone()).child(
+          Button::new("Edit")
+            .id("button")
+            .on_click(move |_| toggle.update(|open| *open = !*open)),
+        ),
+      )
+      .child(
+        Menu::new(anchor.clone(), held.clone())
+          .item(MenuItem::new("Undo").id("undo"))
+          .item(
+            MenuItem::new("Export as").id("export").submenu(
+              Menu::new(export.clone(), sub.clone())
+                .item(MenuItem::new("PNG").id("png").on_select(tell("png")))
+                .item(MenuItem::new("SVG").id("svg").on_select(tell("svg"))),
+            ),
+          ),
+      )
+      .into()
+  });
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  // From the keyboard.
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.key("ArrowDown");
+  stage.key("ArrowRight");
+  assert!(exporting.get());
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["png"]);
+  assert!(!exporting.get() && !open.get());
+  assert_eq!(focused(&stage).as_deref(), Some("button"));
+  // By the pointer.
+  stage.click("button");
+  stage.hover("export");
+  assert!(exporting.get());
+  stage.click("svg");
+  assert_eq!(*chosen.lock().unwrap(), ["png", "svg"]);
+  assert!(!exporting.get() && !open.get());
+  assert_eq!(focused(&stage).as_deref(), Some("button"));
+}
+
+#[test]
+fn a_long_label_gives_way_with_an_ellipsis_and_the_shortcut_keeps_its_room_and_its_gap() {
+  const LONG: &str = "Show the hidden files of every folder of the workspace and of the folders that are in them too";
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::new(anchor.clone(), true)
+        .id("menu")
+        .item(MenuItem::new(LONG).shortcut("Ctrl+Shift+H").id("long"))
+        .item(
+          MenuItem::new("Undo")
+            .shortcut("Ctrl+Alt+Shift+Meta+Z, then Ctrl+Y")
+            .id("keys"),
+        ),
+    )
+  });
+  // The panel stays in the window.
+  let (mx, _, mw, _) = stage.bounds("menu");
+  assert!(mx >= 0.0 && mx + mw <= 400.0, "{mx} {mw}");
+  let texts: Vec<(String, f32, f32)> = stage
+    .quads()
+    .into_iter()
+    .filter_map(|quad| match &quad.content {
+      QuadContent::Text { text, .. } => Some((text.to_string(), quad.x, quad.width)),
+      _ => None,
+    })
+    .collect();
+  let find = |start: &str| {
+    texts
+      .iter()
+      .find(|(text, ..)| text.starts_with(start))
+      .unwrap_or_else(|| panic!("no text {start:?} in {texts:?}"))
+      .clone()
+  };
+  for (item, label, keys) in [("long", "Show the", "Ctrl+Shift+H"), ("keys", "Undo", "Ctrl+Alt")] {
+    let (x, _, width, _) = stage.bounds(item);
+    let (label_text, label_x, label_width) = find(label);
+    let (keys_text, keys_x, keys_width) = find(keys);
+    // The shortcut is whole, 8 from the item's end.
+    assert!(
+      (x + width - 8.0 - (keys_x + keys_width)).abs() < 0.5,
+      "{item}: the shortcut {keys_text:?} ends at {} in an item that ends at {}",
+      keys_x + keys_width,
+      x + width
+    );
+    // The label ends 8 or more before it.
+    assert!(
+      label_x + label_width <= keys_x - 8.0 + 0.5,
+      "{item}: the label {label_text:?} ends at {}, the shortcut starts at {keys_x}",
+      label_x + label_width
+    );
+  }
+  // The long label gives way with an ellipsis.
+  assert!(find("Show the").0.ends_with('…'), "{:?}", find("Show the").0);
+}
+
+#[test]
+fn tab_closes_the_menu_and_its_submenus_and_the_focus_goes_on_from_what_opened_it() {
+  let (open, exporting) = (Signal::new(false), Signal::new(false));
+  let (anchor, export) = (ElementRef::new(), ElementRef::new());
+  let (held, sub) = (open.clone(), exporting.clone());
+  let mut stage = Stage::new(move |_| {
+    let toggle = held.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new().ref_element(anchor.clone()).child(
+          Button::new("Edit")
+            .id("button")
+            .on_click(move |_| toggle.update(|open| *open = !*open)),
+        ),
+      )
+      .child(Button::new("After").id("after"))
+      .child(
+        Menu::new(anchor.clone(), held.clone())
+          .item(MenuItem::new("Undo").id("undo"))
+          .item(
+            MenuItem::new("Export as")
+              .id("export")
+              .submenu(Menu::new(export.clone(), sub.clone()).item(MenuItem::new("PNG").id("png"))),
+          ),
+      )
+      .into()
+  });
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(open.get());
+  stage.key("Tab");
+  assert!(!open.get(), "Tab closes the menu");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("after"),
+    "and goes on from the button that opened it"
+  );
+  // From a submenu, both close.
+  stage
+    .tree
+    .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage
+    .tree
+    .key_up("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("button"));
+  stage.key("Enter");
+  stage.key("ArrowDown");
+  stage.key("ArrowRight");
+  assert!(exporting.get());
+  stage.key("Tab");
+  assert!(!open.get() && !exporting.get());
+  assert_eq!(focused(&stage).as_deref(), Some("after"));
 }

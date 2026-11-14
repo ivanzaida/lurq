@@ -1,6 +1,11 @@
 //! The gallery's shell: its own title bar, the header across the top, the
 //! sidebar with the pages, and the page beside it.
 
+use std::sync::{
+  Arc,
+  atomic::{AtomicBool, Ordering},
+};
+
 use lurq::{
   app::{
     ctx::Ctx,
@@ -45,6 +50,10 @@ pub struct Shell {
   /// Whether the sidebar is its rail, and whether it is open over the page on a narrow window.
   collapsed: Signal<bool>,
   sidebar_open: Signal<bool>,
+  /// The page's own scroll, its main content: where the focus goes when the search has gone to a page.
+  page: ElementRef,
+  /// The search has gone to a page, and the focus is to go to it once it is built.
+  focus_page: Arc<AtomicBool>,
 }
 
 /// Whether motion is reduced: as the system says, or as the app does.
@@ -62,6 +71,8 @@ impl Shell {
       motion: ctx.signal(0),
       collapsed: ctx.signal(false),
       sidebar_open: ctx.signal(false),
+      page: ElementRef::new(),
+      focus_page: Arc::new(AtomicBool::new(false)),
     }
   }
 }
@@ -111,6 +122,11 @@ pub fn title_bar() -> ChromeTitleBar {
 pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
   let current = page_at(&ctx.route_path()).path;
   let find = state.search_open.clone();
+  // The search went to this page: what it found has the focus, and the next Tab goes on from its start. Asked for
+  // here, by the render that builds the page, so that the page asked for is the new one.
+  if state.focus_page.swap(false, Ordering::SeqCst) {
+    ctx.focus(&state.page);
+  }
   // What is behind the cards is the theme's canvas. A card, the header and a control are surfaces on it, so each
   // stands out from what it is on.
   Column::new()
@@ -135,7 +151,13 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
         .child(
           // Each page has a scroll of its own: a page opened from another starts at its top, wherever the
           // one before it was scrolled to.
-          ScrollVertical::new(Outlet::mount(ctx)).key(current).flex(1.0),
+          // It takes the focus but is no stop of Tab.
+          ScrollVertical::new(Outlet::mount(ctx))
+            .key(current)
+            .flex(1.0)
+            .ref_element(state.page.clone())
+            .tab_index(-1)
+            .describe("a11y_role", "main"),
         ),
     )
     .into()
@@ -195,6 +217,7 @@ fn search_field(state: &Shell, roomy: bool) -> Row {
 /// and by what it is about. Running one goes to it.
 fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
   let navigator = ctx.navigator();
+  let focus_page = state.focus_page.clone();
   let mut palette = CommandPalette::new(state.search_open.clone())
     .placeholder("Search components and props…")
     .empty("No page for that.")
@@ -208,8 +231,11 @@ fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
         command = command.icon(name);
       }
       if let Some(navigator) = navigator.clone() {
-        let path = page.path;
-        command = command.on_select(move || navigator.push(path));
+        let (path, focus_page) = (page.path, focus_page.clone());
+        command = command.on_select(move || {
+          focus_page.store(true, Ordering::SeqCst);
+          navigator.push(path);
+        });
       }
       command
     });

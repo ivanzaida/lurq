@@ -397,3 +397,63 @@ fn a_themes_rules_change_it() {
   assert_eq!((x, width), (50.0, 500.0));
   assert_eq!(stage.fill_color("palette"), Some(light(PaletteColor::Muted)));
 }
+
+#[test]
+fn a_palette_opened_over_an_open_dialog_takes_the_focus_and_the_keys_and_gives_them_back_to_the_dialog() {
+  // The palette is declared before the dialog, as an app's shell declares its search before the page: opened last,
+  // it is over the dialog all the same.
+  let (search, dialog) = (Signal::new(false), Signal::new(true));
+  let (ran, tell) = log();
+  let (held_search, held_dialog) = (search.clone(), dialog.clone());
+  let mut stage = stage(move |_| {
+    let close = held_dialog.clone();
+    let tell = tell.clone();
+    Column::new()
+      .child(palette(held_search.clone(), tell.clone()))
+      .child(
+        lurq::ui::Dialog::new(held_dialog.clone())
+          .title("Delete workspace?")
+          .footer(Button::new("Cancel").id("cancel").on_click(move |_| close.set(false)))
+          .footer(Button::new("Delete").id("delete").on_click({
+            let tell = tell("delete");
+            move |_| tell()
+          })),
+      )
+      .into()
+  });
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  assert_eq!(focused(&stage).as_deref(), Some("cancel"));
+  search.set(true);
+  stage.pass();
+  // What is typed goes to the palette's input, and the pointer reaches its rows.
+  type_in(&mut stage, "dev");
+  assert!(!stage.paints("New window"));
+  assert!(stage.paints("Open DevTools"));
+  stage.click("devtools");
+  assert_eq!(*ran.lock().unwrap(), ["devtools"]);
+  assert!(!search.get(), "running a command closes the palette");
+  assert!(dialog.get());
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("cancel"),
+    "the focus is back in the dialog"
+  );
+  // Escape is the palette's while it is open: the first clears, the second closes it, and the dialog stays.
+  search.set(true);
+  stage.pass();
+  type_in(&mut stage, "dev");
+  stage.key("Escape");
+  assert!(search.get() && dialog.get());
+  stage.key("Escape");
+  assert!(!search.get());
+  assert!(dialog.get(), "Escape closed the palette, not the dialog under it");
+  assert_eq!(focused(&stage).as_deref(), Some("cancel"));
+  // And the dialog's own Escape, once the palette is gone.
+  stage.key("Escape");
+  assert!(!dialog.get());
+}
