@@ -128,6 +128,7 @@ mod touch_pointer_tests;
 #[cfg(test)]
 mod touch_tests;
 mod typeahead;
+mod wheel_scroll;
 
 use overlay_layers::{HiddenDismiss, OverlayLayers};
 use selected_text_lines::{SelectedTextFragment, join_selected_text};
@@ -774,6 +775,11 @@ pub struct Tree {
   dragging_scroll: Option<ScrollDrag>,
   /// The middle-button autoscroll under way (`middle_button_autoscroll`).
   autoscroll: Option<autoscroll::Autoscroll>,
+  /// The scroll containers a mouse's wheel left on their way ([`Tree::wheel`]).
+  wheel_scrolls: Vec<wheel_scroll::WheelScroll>,
+  /// Whether a notch of the wheel is animated, as the theme said at the last pass: it is not with motion
+  /// reduced or the theme's `smooth_scroll` off.
+  wheel_motion: bool,
   dragging_slider: Option<SliderDrag>,
   dragging_text_selection: Option<TextSelectionDrag>,
   /// Where the selection in the selectable texts started, which a Shift
@@ -1249,6 +1255,8 @@ impl Tree {
       active_path: Vec::new(),
       dragging_scroll: None,
       autoscroll: None,
+      wheel_scrolls: Vec::new(),
+      wheel_motion: true,
       dragging_slider: None,
       dragging_text_selection: None,
       selectable_text_anchor: None,
@@ -1738,7 +1746,8 @@ impl Tree {
     timers.into_iter().chain(self.next_press_repeat()).min()
   }
 
-  /// Whether any animation or transition is currently running. While true the
+  /// Whether any animation or transition is currently running, a mouse
+  /// wheel's scroll on its way among them ([`Tree::wheel`]). While true the
   /// shell asks for a frame at each [`Tree::next_timeline_change`] and the
   /// runtime recomputes layout on each of them, so this staying `true` on an
   /// idle screen is a bug (stale runs for unmounted nodes are pruned at the end
@@ -1749,6 +1758,8 @@ impl Tree {
       || self.animation_engine.has_active
       || !self.leaving_layers.is_empty()
       || !self.leaving_children.is_empty()
+      // A wheel's scroll on its way is an animation of the offset.
+      || self.wheel_scrolling()
   }
 
   /// When the running animations and transitions next draw something else, as of the last pass: the end of a
@@ -1773,7 +1784,12 @@ impl Tree {
       .chain(&self.leaving_children)
       .map(|layer| layer.until)
       .min();
-    transition.into_iter().chain(animation).chain(layer_dropped).min()
+    transition
+      .into_iter()
+      .chain(animation)
+      .chain(layer_dropped)
+      .chain(self.next_wheel_scroll_step())
+      .min()
   }
 
   pub(crate) fn has_continuous_redraw_image(&self) -> bool {
@@ -2743,6 +2759,7 @@ impl Tree {
     let _layout_start = profile_scope!();
     #[cfg(feature = "perf_profile")]
     let _layout_phase = self.profiling.context.phase(crate::app::profiler::Phase::LayoutUpdate);
+    self.tick_wheel_scrolls(app.theme());
     let mut layout_updated = self.update_layout(app);
     // A scroll-into-view request moved a container: lay out again so this
     // frame already shows the element where it was revealed.
@@ -4114,7 +4131,16 @@ impl Tree {
     }
   }
 
+  /// A wheel or swipe event at a point, in physical pixels, with a delta in logical pixels: of a touchpad, a
+  /// precise wheel or a finger. The scroll containers under the point move by it at once. A mouse's notches
+  /// go to [`wheel`](Self::wheel), which animates them; a scroll it left on its way in a container this
+  /// scrolls stops, and the content moves from where it is drawn.
   pub fn scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
+    self.scroll_event(x, y, delta_x, delta_y, phase, false);
+  }
+
+  /// [`scroll`](Self::scroll), or with `animated` [`wheel`](Self::wheel).
+  fn scroll_event(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase, animated: bool) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Scroll);
     // A wheel turns under a pointer, which is then there. A finger's scroll comes from where the finger
@@ -4123,7 +4149,7 @@ impl Tree {
       self.track_pointer(x, y);
     }
     self.lay_out_rebuilt_for_input();
-    let horizontal_taken = self.dispatch_scroll(x, y, delta_x, delta_y, phase);
+    let horizontal_taken = self.dispatch_scroll(x, y, delta_x, delta_y, phase, animated);
     let scale = self.scale_factor();
     self.recognize_history_swipe(
       (x / scale, y / scale),
@@ -6195,9 +6221,18 @@ impl Tree {
     self.reset_text_input_caret_blink();
   }
 
-  /// Delivers a wheel or swipe event and scrolls the containers under the pointer. `true` when its horizontal part was
-  /// taken: a handler prevented its default, or a scroll container moved sideways with it.
-  fn dispatch_scroll(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) -> bool {
+  /// Delivers a wheel or swipe event and scrolls the containers under the pointer: at once, or with `animated`
+  /// over the frames that follow ([`Tree::wheel`]). `true` when its horizontal part was taken: a handler
+  /// prevented its default, or a scroll container moved sideways with it.
+  fn dispatch_scroll(
+    &mut self,
+    x: f32,
+    y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    phase: ScrollPhase,
+    animated: bool,
+  ) -> bool {
     let mut evt = ScrollEvent {
       x,
       y,
@@ -6218,6 +6253,7 @@ impl Tree {
     evt.y = ly;
 
     let gesture_dy = self.wheel_gesture_vertical(lx, ly, evt.delta_y);
+    let now = self.now();
     let root = match &self.root {
       Some(r) => r,
       None => return false,
@@ -6246,7 +6282,7 @@ impl Tree {
       hits = scroll_hits(root, result, lx, ly, &self.layout_engine.radii());
     }
     let scroll_delta_can_be_consumed =
-      scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y, gesture_dy);
+      scroll_delta_can_be_consumed_by_hits(&hits, evt.delta_x, evt.delta_y, gesture_dy, animated);
     // When the delta targets a scroll container that cannot move (edge-clamped
     // or non-overflowing), suppress scroll events entirely; handlers on hits
     // without a matching scroll container still receive wheel events.
@@ -6308,6 +6344,9 @@ impl Tree {
     //
     // A finger's scroll has its own targets, the gesture's taker and what is inside it
     // (`touch_scroll_begin`), and what one of them could not take goes on to the next.
+    //
+    // A mouse's notch, animated, says where its container is going, and what a container takes is decided
+    // on that: one on its way to its end is at its end.
     let one_container_per_axis = !self.touch_scroll_latched;
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
@@ -6322,7 +6361,13 @@ impl Tree {
 
         let previous_scroll_y = state.scroll_y();
         let previous_max_scroll_y = (state.content_height() - state.viewport_height()).max(0.0);
-        let (overflow_dx, overflow_dy) = state.scroll_by_with_overflow(dx, dy);
+        let (overflow_dx, overflow_dy) = if animated {
+          let overflow = state.wheel_by_with_overflow(dx, dy, now);
+          Self::wheel_turned(&mut self.wheel_scrolls, node.node_id(), &state, (evt.x, evt.y), now);
+          overflow
+        } else {
+          state.scroll_by_with_overflow(dx, dy)
+        };
         if overflow_dx != dx || overflow_dy != dy {
           node.layout_cache.mark_local_dirty();
           for (hit_node, _) in &hits {
@@ -6629,7 +6674,8 @@ impl Tree {
     {
       return false;
     }
-    if self.perf_overlay_enabled || self.autoscroll.is_some() {
+    // A wheel's scroll on its way moves the content with the pass, its last step included.
+    if self.perf_overlay_enabled || self.autoscroll.is_some() || !self.wheel_scrolls.is_empty() {
       return false;
     }
     #[cfg(feature = "devtools")]
@@ -7097,8 +7143,9 @@ impl Tree {
   }
 
   /// Ticks animations and transitions at `now` in every pass instead of at the moment the pass runs, and reads
-  /// the wheel's axis lock ([`WHEEL_AXIS_LOCK_WINDOW`]) at `now` too, until set back to `None`. For tests that
-  /// drive time explicitly; a shell paces its frames on the wall clock.
+  /// the wheel's axis lock ([`WHEEL_AXIS_LOCK_WINDOW`]) at `now` too, until set back to `None`. A mouse wheel's
+  /// scroll ([`Tree::wheel`]) starts at `now` and is stepped at it. For tests that drive time explicitly; a
+  /// shell paces its frames on the wall clock.
   #[doc(hidden)]
   pub fn set_animation_clock(&mut self, now: Option<Instant>) {
     self.animation_clock = now;
@@ -8845,6 +8892,7 @@ fn scroll_delta_can_be_consumed_by_hits(
   delta_x: f32,
   delta_y: f32,
   gesture_dy: f32,
+  animated: bool,
 ) -> bool {
   let remaining_dx = -delta_x;
   let remaining_dy = -delta_y;
@@ -8858,8 +8906,8 @@ fn scroll_delta_can_be_consumed_by_hits(
       continue;
     };
     let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy, gesture_dy);
-    if scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, dx)
-      || scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, dy)
+    if scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, dx, animated)
+      || scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, dy, animated)
     {
       return true;
     }
@@ -8912,25 +8960,32 @@ fn scroll_handlers_present_for_phase(hits: &[(&Node, HitRect)], phase: ScrollPha
   })
 }
 
-fn scroll_axis_delta_can_be_consumed(state: &ScrollState, axis: ScrollAxis, delta: f32) -> bool {
+/// Whether `state` can scroll by `delta` along `axis`: from where it is drawn, or for a delta that is
+/// `animated` from where it is going ([`ScrollState::scroll_target`]).
+fn scroll_axis_delta_can_be_consumed(state: &ScrollState, axis: ScrollAxis, delta: f32, animated: bool) -> bool {
   if delta == 0.0 {
     return false;
   }
 
+  let (scroll_x, scroll_y) = if animated {
+    state.scroll_target()
+  } else {
+    (state.scroll_x(), state.scroll_y())
+  };
   match axis {
     ScrollAxis::Horizontal => {
       let overflow = state.content_width() - state.viewport_width();
       let max_scroll_x = overflow.max(0.0);
       (overflow == 0.0 && delta > 0.0 && state.equal_overflow_scroll_probe_enabled())
-        || (overflow > 0.0 && delta > 0.0 && state.scroll_x() < max_scroll_x)
-        || (delta < 0.0 && state.scroll_x() > 0.0)
+        || (overflow > 0.0 && delta > 0.0 && scroll_x < max_scroll_x)
+        || (delta < 0.0 && scroll_x > 0.0)
     }
     ScrollAxis::Vertical => {
       let overflow = state.content_height() - state.viewport_height();
       let max_scroll_y = overflow.max(0.0);
       (overflow == 0.0 && delta > 0.0 && state.equal_overflow_scroll_probe_enabled())
-        || (overflow > 0.0 && delta > 0.0 && state.scroll_y() < max_scroll_y)
-        || (delta < 0.0 && state.scroll_y() > 0.0)
+        || (overflow > 0.0 && delta > 0.0 && scroll_y < max_scroll_y)
+        || (delta < 0.0 && scroll_y > 0.0)
     }
   }
 }

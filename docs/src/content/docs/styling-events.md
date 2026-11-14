@@ -711,6 +711,27 @@ Where a scrollbar takes the pointer, a press reaches no content underneath: none
 
 The default movement of a wheel or a trackpad scrolls one container on each axis, the innermost under the pointer that can still move that way: see [Scroll containers inside one another](../layout/#scroll-containers-inside-one-another).
 
+### The mouse wheel
+
+A notch of a mouse's wheel scrolls 40 logical pixels. The content is not drawn there in the next frame: it is animated there over 150 ms, fast at first and slowing into its place, as a browser scrolls a page. A notch that comes while the content is on its way adds to where it is going, so a wheel that is spun covers as much as it did before and stops as soon after its last notch as after one; a notch the other way turns the content round at once.
+
+```rust
+// Where the content is drawn now, and where the wheel is taking it.
+let drawn = state.scroll_y();
+let (_, going_to) = state.scroll_target();
+
+// A notch scrolls at once, in every window that draws with this theme.
+app.theme().set_smooth_scroll(false);
+```
+
+- `ScrollState::scroll_x()` and `scroll_y()` are the offset that is drawn, at every step. `ScrollState::scroll_target()` is where the wheel is taking it, and the offset itself when nothing is on its way.
+- An `on_scroll` handler hears the wheel's event once, with its delta, before anything moves, and can prevent the scroll as before. It then hears one event with a zero delta for every step, after the content moved: a handler that reads the offset there reads what is drawn. `on_scroll_reach_top` and `on_scroll_reach_bottom` run when the content gets there, not when the wheel turns. A `VirtualizedList`, sticky elements and whatever else is laid out from the offset follow every step.
+- Only a mouse's notches are animated. A touchpad and a wheel that turns without notches tell their travel in small parts, which move the content with the fingers as before: a delta in pixels, and on Windows and X11 a part of a line. A finger on a touch screen has its own [momentum](../ios/#scrolling). A browser tells every wheel in pixels, so a lurq app that runs [in one](../web/) scrolls a notch at once.
+- Anything else that scrolls the container stops the animation where the content is, and has its way: `set_scroll`, a scroll queued for the next layout (`set_scroll_pending`, `scroll_to_bottom_pending` and the rest), an element scrolled into view, a drag of the scrollbar's thumb or a press on its track, a touchpad, a finger. Content that keeps its place while what is above it changes, a list that takes rows in above what is shown, keeps it and the animation goes on from there. A notch that takes the content to its end follows the end if the content grows on the way.
+- With [reduced motion](../animation-transforms/#reduced-motion) a notch scrolls at once, and so it does with `Theme::set_smooth_scroll(false)`. Smooth scrolling is on by default. Like reduced motion it is the app's setting and not part of a `ThemeDefinition`.
+- While the content is on its way the window has a running animation: `Tree::has_active_timeline()` is true and the shell draws a frame at every refresh, and none once the content is where it was going.
+- Synthetic input's `wheel` ([`SyntheticInput::wheel`](../ctx/#synthetic-input), the MCP server's [`wheel`](../mcp/)) is a mouse's wheel and is animated too. A test that drives a `Tree` itself calls `Tree::wheel` for a notch and `Tree::scroll` for a touchpad's delta, which moves the content at once.
+
 Scroll handlers run before the default scroll movement. Call `prevent_default()` to observe a wheel/scroll event without moving the scroll container:
 
 ```rust

@@ -47,6 +47,7 @@ mod loop_wait;
 #[cfg(test)]
 mod loop_wait_tests;
 mod native_resize;
+mod notched_wheel;
 #[cfg(any(target_os = "ios", test))]
 mod touch;
 #[cfg(test)]
@@ -1138,9 +1139,13 @@ impl ManagedWindow {
         {
           self.cursor_pos = position;
         }
-        self
-          .tree
-          .scroll(self.cursor_pos.0 as f32, self.cursor_pos.1 as f32, dx, dy, scroll_phase);
+        let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+        // A mouse's notches are animated; a touchpad's travel moves the content with the fingers.
+        if notched_wheel::is_notched(delta) {
+          self.tree.wheel(x, y, dx, dy, scroll_phase);
+        } else {
+          self.tree.scroll(x, y, dx, dy, scroll_phase);
+        }
         self.apply_cursor();
         self.check_redraw();
       }
@@ -1771,7 +1776,13 @@ impl ManagedSecondaryWindow {
         if phase == TouchPhase::Started {
           tree.set_history_swipes(history_swipes::enabled());
         }
-        tree.scroll(self.cursor_pos.0 as f32, self.cursor_pos.1 as f32, dx, dy, scroll_phase);
+        let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
+        // A mouse's notches are animated; a touchpad's travel moves the content with the fingers.
+        if notched_wheel::is_notched(delta) {
+          tree.wheel(x, y, dx, dy, scroll_phase);
+        } else {
+          tree.scroll(x, y, dx, dy, scroll_phase);
+        }
         self.apply_cursor(tree);
         self.check_redraw(tree);
       }

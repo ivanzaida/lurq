@@ -454,6 +454,80 @@ fn virtualized_list_keeps_viewport_covered_while_wheel_scrolling() {
   }
 }
 
+/// A mouse's notches are animated (`Tree::wheel`): the offset moves a step with every frame and no wheel event
+/// comes with it, so the list builds its rows from the steps. Every frame on the way shows all its rows, and
+/// the list ends where the notches sent it.
+#[test]
+fn virtualized_list_keeps_viewport_covered_while_a_notch_is_animated() {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  let scroll_state = Arc::new(ScrollState::new());
+  tree.mount_root::<CoverageRoot>(
+    &mut app,
+    (
+      (0..COVERAGE_ROWS)
+        .map(|id| RowData {
+          id,
+          height: COVERAGE_ROW_H,
+        })
+        .collect(),
+      Shared(scroll_state.clone()),
+    ),
+  );
+  tree.resize(1000, 800);
+  let start = std::time::Instant::now();
+  let mut at = 0;
+  tree.set_animation_clock(Some(start));
+  for _ in 0..3 {
+    crate::support::render_pass_with_app(&mut tree, &mut app);
+  }
+
+  // Notches in logical pixels: one, a spin, a spin that throws the list far, and back up.
+  let spins: &[&[f32]] = &[
+    &[-40.0],
+    &[-40.0, -40.0, -40.0, -40.0],
+    &[-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0],
+    &[-2000.0],
+    &[40.0, 40.0],
+    &[3000.0],
+  ];
+  let mut expected = 0.0_f32;
+  for (spin, notches) in spins.iter().enumerate() {
+    for notch in notches.iter() {
+      tree.wheel(450.0, 350.0, 0.0, *notch, ScrollPhase::Scroll);
+      expected = (expected - notch).max(0.0);
+      // A frame between two notches, as a wheel that is spun gives.
+      at += 8;
+      tree.set_animation_clock(Some(start + std::time::Duration::from_millis(at)));
+      let snapshot = crate::support::render_pass_with_app(&mut tree, &mut app);
+      assert_viewport_covered(
+        &snapshot,
+        scroll_state.scroll_y().round(),
+        &format!("spin {spin} at {at} ms"),
+      );
+    }
+    let mut frames = 0;
+    while tree.needs_redraw() || tree.has_active_timeline() {
+      at += 8;
+      frames += 1;
+      assert!(frames < 100, "spin {spin} never comes to rest");
+      tree.set_animation_clock(Some(start + std::time::Duration::from_millis(at)));
+      let snapshot = crate::support::render_pass_with_app(&mut tree, &mut app);
+      assert_viewport_covered(
+        &snapshot,
+        scroll_state.scroll_y().round(),
+        &format!("spin {spin} at {at} ms"),
+      );
+    }
+    assert!(frames > 4, "spin {spin} is animated");
+    assert_eq!(
+      scroll_state.scroll_y(),
+      expected,
+      "spin {spin} ends where its notches sent it"
+    );
+  }
+}
+
 #[test]
 fn virtualized_list_keeps_viewport_covered_during_scrollbar_drag() {
   let mut tree = Tree::new();

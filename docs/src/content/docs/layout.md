@@ -655,6 +655,10 @@ vertical event, as a [code block](../resources-media/#code-blocks) does.
 
 `on_scroll_reach_top` and `on_scroll_reach_bottom` run on the container that moved.
 
+A notch of a mouse's wheel is [animated](../styling-events/#the-mouse-wheel), and which container takes it is decided on
+where each is going, not on where it is drawn: over a list that is still on its way to its end the next notch scrolls
+the page, as it would had the list been drawn there at once.
+
 A finger's scroll is a gesture with one container for all of it, chosen where the finger lands: see
 [iOS](../ios/#scrolling).
 

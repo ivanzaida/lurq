@@ -481,7 +481,8 @@ window.inject_inputs(SyntheticInput::text("hello"));
 ```
 
 `SyntheticInput` provides constructors for mouse moves, presses, releases, clicks, wheel scrolls, key presses, and text
-entry, plus `with_modifiers` for shift/ctrl/alt/meta combinations.
+entry, plus `with_modifiers` for shift/ctrl/alt/meta combinations. A wheel scroll is a notch of a mouse's wheel and is
+[animated](../styling-events/#the-mouse-wheel) as one: the content is where it was sent some frames later.
 
 ## Slot Children
 

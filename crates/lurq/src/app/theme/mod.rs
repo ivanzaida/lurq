@@ -112,6 +112,8 @@ struct ThemeInner {
   reduced_motion: Option<bool>,
   /// What the system asks for, as the shell last read it.
   system_reduced_motion: bool,
+  /// See [`Theme::set_smooth_scroll`].
+  smooth_scroll: bool,
   version: u64,
 }
 
@@ -196,6 +198,7 @@ impl Theme {
         form: definition.form,
         reduced_motion: None,
         system_reduced_motion: false,
+        smooth_scroll: true,
         version: 0,
       })),
       version_signal: Signal::new(0),
@@ -223,8 +226,8 @@ impl Theme {
   }
 
   /// Gives the theme the look of `definition`, all of it at once: components that read the theme render
-  /// once. What a person or the system set stays: the appearance the theme is in, the text scale, bold text
-  /// and reduced motion.
+  /// once. What a person or the system set stays: the appearance the theme is in, the text scale, bold text,
+  /// reduced motion and smooth scrolling.
   ///
   /// ```
   /// use lurq::app::theme::{Theme, ThemeDefinition};
@@ -897,6 +900,22 @@ impl Theme {
   pub fn set_reduced_motion(&self, reduced: Option<bool>) {
     if self.inner.read().unwrap().reduced_motion != reduced {
       self.mutate_inner(|inner| inner.reduced_motion = reduced);
+    }
+  }
+
+  /// Whether a notch of a mouse's wheel scrolls smoothly: the content is animated to where the notch sends it
+  /// instead of drawn there in the next frame. It does unless [`Self::set_smooth_scroll`] turned it off, and
+  /// never while motion is reduced ([`Self::reduced_motion`]).
+  pub fn smooth_scroll(&self) -> bool {
+    self.inner.read().unwrap().smooth_scroll
+  }
+
+  /// Turns the animation of a mouse's wheel on or off, in every scroll container of the windows that draw
+  /// with this theme. On by default. As reduced motion, it is the app's or the person's, not part of a
+  /// [`ThemeDefinition`], and stays when one is applied.
+  pub fn set_smooth_scroll(&self, smooth: bool) {
+    if self.inner.read().unwrap().smooth_scroll != smooth {
+      self.mutate_inner(|inner| inner.smooth_scroll = smooth);
     }
   }
 

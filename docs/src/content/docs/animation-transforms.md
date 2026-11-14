@@ -95,6 +95,7 @@ app.theme().set_reduced_motion(Some(true));
   blur, radii and border widths.
 - Keyframe animations are the app's and are not changed. Read `ctx.reduced_motion()`, which renders the component again
   when the setting changes, to hold back one that moves or to show a fade in its place.
+- A notch of a mouse's wheel scrolls at once, where it is otherwise [animated](../styling-events/#the-mouse-wheel).
 - Linux and other platforms have no setting every desktop shares, so lurq reads none there: motion is reduced only when
   the app says so with `set_reduced_motion`.
 - A tree without a window, as in a test, never reads the system: its motion does not depend on the machine.

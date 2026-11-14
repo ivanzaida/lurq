@@ -97,6 +97,9 @@ impl Component for Reply {
 /// until it finishes.
 fn serve<T: Send + 'static>(props: Props, agent: impl FnOnce(Client) -> T + Send + 'static) -> T {
   let mut app = App::new();
+  // This window draws a frame for a call and none between two: a wheel scrolls at once here, as it did before
+  // a notch was animated. `lurq_wait` after an animated wheel is checked in `mcp::tools::wheel_tests`.
+  app.theme().set_smooth_scroll(false);
   let mut tree = Tree::new();
   tree.resize(600, 300);
   tree.mount_root::<Reply>(&mut app, props);
