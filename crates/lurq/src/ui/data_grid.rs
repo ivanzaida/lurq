@@ -11,7 +11,9 @@ use std::{hash::Hash, sync::Arc};
 
 use super::{
   Interaction, Length, Name, PartStyle, Recipe,
-  table::{CellEdit, CellRange, ColumnLayout, GroupKey, Table, TableColumn, TableSort},
+  table::{
+    CellEdit, CellRange, ColumnLayout, ColumnMenuLabels, GroupKey, SummaryLabels, Table, TableColumn, TableSort,
+  },
 };
 use crate::{
   app::{ctx::Ctx, theme::Density},
@@ -261,6 +263,34 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// is called after the first.
   pub fn on_open_change(self, handler: impl Fn(&GroupKey, bool) + Send + Sync + 'static) -> Self {
     self.with(|table| table.add_on_open_change(handler))
+  }
+
+  /// The words of each column's menu: English unless told ([`ColumnMenuLabels`]).
+  pub fn column_menu_labels(self, labels: ColumnMenuLabels) -> Self {
+    self.with(|table| table.set_column_menu_labels(labels))
+  }
+
+  /// The name of a column's menu trigger to what reads the tree, given the column's title: "Name column menu"
+  /// unless told.
+  pub fn menu_trigger_label(self, label: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+    self.with(|table| table.set_menu_trigger_label(label))
+  }
+
+  /// The name of a group's row to what reads the tree, given the title of the column grouped by, the group's value
+  /// and how many rows it holds: "Status: Passing, 3 rows" unless told.
+  pub fn group_label(self, label: impl Fn(&str, &str, usize) -> String + Send + Sync + 'static) -> Self {
+    self.with(|table| table.set_group_label(label))
+  }
+
+  /// The words of the summary rows: what a sum, an average, a count, the least and the most say before their
+  /// value, and what a summary row is called. English unless told ([`SummaryLabels`]).
+  pub fn summary_labels(self, labels: SummaryLabels) -> Self {
+    self.with(|table| table.set_summary_labels(labels))
+  }
+
+  /// The mark of the header of the rows' numbers: "#" unless told. What it is called is the select-all label's.
+  pub fn row_numbers_label(self, label: &str) -> Self {
+    self.with(|table| table.set_row_numbers_label(label))
   }
 
   /// Whether the grid has a column of its rows' numbers at its start, which stays there while the rows scroll

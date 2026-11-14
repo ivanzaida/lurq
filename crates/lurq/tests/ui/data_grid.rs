@@ -1543,3 +1543,60 @@ fn ten_thousand_rows_are_numbered_to_their_last() {
   let (_, _, width, _) = stage.bounds("g-row-9999-number");
   assert!(quad.width < width, "its column is as wide as the widest number");
 }
+
+#[test]
+fn the_words_of_the_menu_the_groups_the_summary_and_the_numbers_are_said_otherwise() {
+  use lurq::ui::{ColumnMenuLabels, SummaryKind, SummaryLabels};
+  let open = Signal::new(vec![GroupKey::new(["Passing"])]);
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(summed(SummaryKind::Sum), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .height(460.0)
+          .group_by(["status"])
+          .open(open.clone())
+          .row_numbers(true)
+          .row_numbers_label("№")
+          .column_menu_labels(ColumnMenuLabels {
+            hide: "Сховати".into(),
+            ..ColumnMenuLabels::default()
+          })
+          .menu_trigger_label(|title| format!("Меню {title}"))
+          .group_label(|title, value, count| format!("{title} {value} ({count})"))
+          .summary_labels(SummaryLabels {
+            sum: "Разом".into(),
+            ..SummaryLabels::default()
+          })
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("№"), "the numbers' mark");
+  assert!(stage.paints("Разом") && !stage.paints("Sum"), "the summary's word");
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  assert!(
+    stage.paints("Сховати") && stage.paints("Pin to start"),
+    "the menu's, the rest English"
+  );
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  {
+    let mut said = |id: &str| {
+      stage
+        .tree
+        .get_element_by_id_mut(id)
+        .and_then(|element| element.description("a11y_name"))
+    };
+    assert_eq!(said("g-header-name-menu").as_deref(), Some("Меню Name"));
+    assert_eq!(said("g-group-1").as_deref(), Some("Status Passing (2)"));
+  }
+}

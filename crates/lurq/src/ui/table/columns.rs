@@ -216,6 +216,9 @@ pub(super) struct ColumnMenuLink {
   pub move_to: Told<Option<usize>>,
   /// The column's place among those shown.
   pub place: usize,
+  /// What the menu's items say, and what its trigger is called.
+  pub labels: Arc<ColumnMenuLabels>,
+  pub trigger_label: String,
 }
 
 impl HostState {
@@ -236,5 +239,48 @@ impl HostState {
       .into_iter()
       .find(|(_, middle)| x < *middle)
       .map(|(column, _)| column)
+  }
+}
+
+/// The words of a column's menu, each the app says otherwise: English unless told.
+///
+/// ```
+/// use lurq::ui::ColumnMenuLabels;
+///
+/// let labels = ColumnMenuLabels {
+///   sort_ascending: "Сортувати за зростанням".into(),
+///   sort_descending: "Сортувати за спаданням".into(),
+///   ..ColumnMenuLabels::default()
+/// };
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ColumnMenuLabels {
+  pub sort_ascending: String,
+  pub sort_descending: String,
+  pub clear_sort: String,
+  pub pin_start: String,
+  pub pin_end: String,
+  pub unpin: String,
+  pub size_to_fit: String,
+  pub hide: String,
+  /// The menu of the columns to show or hide.
+  pub columns: String,
+  pub show_all: String,
+}
+
+impl Default for ColumnMenuLabels {
+  fn default() -> Self {
+    Self {
+      sort_ascending: "Sort ascending".into(),
+      sort_descending: "Sort descending".into(),
+      clear_sort: "Clear sort".into(),
+      pin_start: "Pin to start".into(),
+      pin_end: "Pin to end".into(),
+      unpin: "Unpin".into(),
+      size_to_fit: "Size to fit".into(),
+      hide: "Hide column".into(),
+      columns: "Columns".into(),
+      show_all: "Show all columns".into(),
+    }
   }
 }

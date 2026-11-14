@@ -200,6 +200,8 @@ pub struct TableGroup {
   pub(super) element: ElementRef,
   pub(super) grid: bool,
   pub(super) indent: f32,
+  /// What it is called to what reads the tree: its column, its value and its count.
+  pub(super) name: String,
   pub(super) id: Option<Arc<str>>,
 }
 
@@ -230,13 +232,7 @@ impl TableGroup {
     );
     let label = self.part(TablePart::GroupLabel);
     let count = self.part(TablePart::GroupCount);
-    let name = format!(
-      "{}: {}, {} {}",
-      self.title,
-      self.value(),
-      self.count,
-      if self.count == 1 { "row" } else { "rows" }
-    );
+    let name = self.name.clone();
     let element = self.element.clone();
     let mut row = pressable(&part, false)
       .justify(Justify::Start)
