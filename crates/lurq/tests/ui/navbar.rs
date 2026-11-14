@@ -50,7 +50,7 @@ fn board_with(on_blog: impl Fn() + Send + Sync + 'static) -> Navbar {
     )
     .item(NavItem::new("Components").id("components"))
     .item(NavItem::new("Blog").id("blog").on_select(on_blog))
-    .end(Avatar::new("Ivan Zaida").id("avatar"))
+    .trailing(Avatar::new("Ivan Zaida").id("avatar"))
 }
 
 /// A window of 800 by 500 with the bar 760 wide at its top and a button under it.
@@ -197,32 +197,6 @@ fn on_a_narrow_window_the_links_are_behind_the_menu_button() {
   assert!(!menu_open.get(), "choosing a link closes it");
 }
 
-#[test]
-fn a_sticky_bar_stays_at_the_top_of_what_scrolls() {
-  let mut stage = Stage::new(|ctx| {
-    ScrollVertical::new(
-      Column::new()
-        .width(380.0)
-        .child(
-          Navbar::new()
-            .id("bar")
-            .narrow(true)
-            .sticky(true)
-            .brand(NavbarBrand::new("lurq"))
-            .mount(ctx),
-        )
-        .child(Row::new().size(380.0, 900.0)),
-    )
-    .size(380.0, 280.0)
-    .into()
-  });
-  let (_, top, ..) = stage.bounds("bar");
-  stage.tree.scroll(150.0, 150.0, 0.0, -200.0, ScrollPhase::Scroll);
-  stage.pass();
-  let name = stage.text_quad("lurq").expect("the brand is painted");
-  assert!(name.y >= top && name.y < top + 56.0, "at the top still: {}", name.y);
-}
-
 #[cfg(feature = "mcp")]
 #[test]
 fn tooling_reads_a_navigation_of_links() {
@@ -248,6 +222,14 @@ fn tooling_reads_a_navigation_of_links() {
     said(&mut narrow, "bar-menu", "a11y_controls").as_deref(),
     Some("bar-drawer")
   );
+  // The menu button has one name, open or not: whether the links are open it says on its own.
+  assert_eq!(said(&mut narrow, "bar-menu", "a11y_name").as_deref(), Some("Menu"));
+  narrow.click("bar-menu");
+  narrow.pass();
+  assert_eq!(said(&mut narrow, "bar-menu", "a11y_name").as_deref(), Some("Menu"));
+  assert_eq!(said(&mut narrow, "bar-menu", "a11y_expanded").as_deref(), Some("true"));
+  let mut named = stage(|| board().narrow(true).menu_label("Site menu"));
+  assert_eq!(said(&mut named, "bar-menu", "a11y_name").as_deref(), Some("Site menu"));
 }
 
 #[test]
@@ -260,4 +242,152 @@ fn a_theme_restyles_its_parts() {
   let (.., height) = stage.bounds("bar");
   assert_eq!(height, 64.0);
   assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Muted)));
+}
+
+#[test]
+fn a_brand_shows_its_media_in_place_of_an_icon() {
+  let mut stage = stage(|| {
+    Navbar::new()
+      .id("bar")
+      .brand(NavbarBrand::new("lurq").media(Row::new().size(24.0, 24.0).id("logo")))
+      .narrow(false)
+  });
+  let (logo_x, _, logo_width, _) = stage.bounds("logo");
+  let (bar_x, ..) = stage.bounds("bar");
+  assert_eq!(logo_x - bar_x, 16.0, "at the start, in the bar's padding");
+  let name = stage.text_quad("lurq").unwrap();
+  assert!(
+    (name.x - (logo_x + logo_width) - 8.0).abs() < 0.5,
+    "the name 8 after it"
+  );
+}
+
+#[test]
+fn links_that_do_not_fit_give_way_in_their_own_room_and_never_run_under_what_follows_them() {
+  let mut stage = Stage::new(|ctx: &mut Ctx| -> Element {
+    Column::new()
+      .size(480.0, 300.0)
+      .child(
+        Column::new().width(480.0).child(
+          board()
+            .narrow(false)
+            .trailing(Row::new().size(200.0, 32.0).id("search"))
+            .mount(ctx),
+        ),
+      )
+      .into()
+  });
+  stage.tree.resize(480, 300);
+  stage.pass();
+  // What follows the links starts with the board's avatar.
+  let search = stage.bounds("avatar").0.min(stage.bounds("search").0);
+  for label in ["Docs", "Components", "Blog"] {
+    for quad in stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == label))
+    {
+      let right = if quad.clip.active {
+        (quad.x + quad.width).min(quad.clip.x + quad.clip.width)
+      } else {
+        quad.x + quad.width
+      };
+      assert!(
+        right <= search + 0.5,
+        "{label} is drawn to {right}, under what starts at {search}"
+      );
+    }
+  }
+}
+
+#[test]
+fn a_sticky_bar_is_at_the_top_after_the_page_has_scrolled_under_it() {
+  for wide in [false, true] {
+    let mut stage = Stage::new(move |ctx| {
+      ScrollVertical::new(
+        Column::new()
+          .width(380.0)
+          .child(board().narrow(wide).sticky(true).mount(ctx))
+          .child(Row::new().size(380.0, 40.0).id("first"))
+          .child(Row::new().size(380.0, 900.0)),
+      )
+      .size(380.0, 280.0)
+      .into()
+    });
+    stage.tree.resize(400, 300);
+    stage.pass();
+    let (_, top, ..) = stage.bounds("bar");
+    let (_, first, ..) = stage.bounds("first");
+    stage.tree.mouse_move(150.0, 150.0);
+    stage.tree.scroll(150.0, 150.0, 0.0, -200.0, ScrollPhase::Scroll);
+    stage.pass();
+    let (_, scrolled, ..) = stage.bounds("first");
+    assert!(scrolled < first - 100.0, "the page scrolled: {first} to {scrolled}");
+    let name = stage.text_quad("lurq").expect("the brand is painted");
+    assert!(
+      name.y >= top && name.y < top + 56.0,
+      "the bar is at the top still: its brand at {}",
+      name.y
+    );
+    let (_, bar, ..) = stage.bounds("bar");
+    assert!((bar - top).abs() < 0.5, "the bar at {bar}, the top at {top}");
+  }
+}
+
+#[test]
+fn a_bar_made_sticky_once_it_is_shown_sticks() {
+  // The playground turns `sticky` on in a bar already laid out: what it was laid out as must not keep it from
+  // sticking.
+  let on = Signal::new(false);
+  let read = on.clone();
+  let mut stage = Stage::new(move |ctx| {
+    ScrollVertical::new(
+      Column::new()
+        .width(380.0)
+        .child(board().narrow(false).sticky(read.get()).mount(ctx))
+        .child(Row::new().size(380.0, 40.0).id("first"))
+        .child(Row::new().size(380.0, 900.0)),
+    )
+    .size(380.0, 280.0)
+    .into()
+  });
+  stage.tree.resize(400, 300);
+  stage.pass();
+  let (_, top, ..) = stage.bounds("bar");
+  on.set(true);
+  stage.pass();
+  let (_, first, ..) = stage.bounds("first");
+  stage.tree.mouse_move(150.0, 150.0);
+  stage.tree.scroll(150.0, 150.0, 0.0, -200.0, ScrollPhase::Scroll);
+  stage.pass();
+  let (_, scrolled, ..) = stage.bounds("first");
+  assert!(scrolled < first - 100.0, "the page scrolled: {first} to {scrolled}");
+  let name = stage
+    .text_quad("lurq")
+    .expect("the brand is painted: the bar is at the top");
+  assert!(name.y >= top && name.y < top + 56.0, "the brand at {}", name.y);
+}
+
+#[test]
+fn over_the_page_a_link_after_a_panel_stands_beside_its_item_and_not_among_its_links() {
+  let menu_open = Signal::new(true);
+  let held = menu_open.clone();
+  let stage = stage(move || board().narrow(true).menu_open(held.clone()));
+  let quad = |label: &str| stage.text_quad(label).unwrap_or_else(|| panic!("{label} is painted"));
+  let (docs, start, components, blog) = (quad("Docs"), quad("Getting started"), quad("Components"), quad("Blog"));
+  // Docs is an item as Components and Blog are (its text after the chevron that opens it), and its links are
+  // under it, in from where the items stand.
+  assert!(
+    docs.x > components.x,
+    "Docs, an item with its chevron: {} / {}",
+    docs.x,
+    components.x
+  );
+  assert!(
+    start.y > docs.y && start.x > components.x + 8.0,
+    "Getting started in from the items: {}",
+    start.x
+  );
+  assert_eq!(blog.x, components.x, "Components and Blog stand where the items do");
+  assert!(components.y > start.y);
 }

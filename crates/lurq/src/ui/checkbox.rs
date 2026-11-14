@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Choice, Chosen, fading, glyph, pressable},
+  shared::{Choice, Orientation, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -67,6 +67,9 @@ pub type CheckboxRenderer = Arc<dyn Fn(CheckboxView) -> Element + Send + Sync>;
 /// use lurq::ui::Checkbox;
 ///
 /// let reports = Checkbox::new("Send crash reports").checked(true).on_change(|checked| println!("{checked}"));
+/// // Bound to the app's signal, which a press turns.
+/// # let signed_in = lurq::core::Signal::new(false);
+/// let keep = Checkbox::new("Keep me signed in").bind(signed_in);
 /// // The box over a list of which some are picked: a press of it picks them all.
 /// let all = Checkbox::new("Select all").indeterminate(true);
 /// // The box alone, in a row of a table: its label is still what it is called.
@@ -75,7 +78,8 @@ pub type CheckboxRenderer = Arc<dyn Fn(CheckboxView) -> Element + Send + Sync>;
 ///
 /// A checkbox does not keep whether it is checked: the app says so with
 /// [`Checkbox::checked`], and is told of a press with
-/// [`Checkbox::on_change`]. A press of its label is a press of the checkbox.
+/// [`Checkbox::on_change`], or binds it to a signal with [`Checkbox::bind`].
+/// A press of its label is a press of the checkbox.
 pub struct Checkbox {
   label: Arc<str>,
   label_hidden: bool,
@@ -122,6 +126,15 @@ impl Checkbox {
     self
   }
 
+  /// Checked while `checked` is true, which a press turns. Handlers of [`Checkbox::on_change`] are told of a press
+  /// after the signal is set, and not when the app sets it.
+  pub fn bind(self, checked: Signal<bool>) -> Self {
+    let set = checked.clone();
+    let mut bound = self.checked(checked.get());
+    bound.on_change.insert(0, Arc::new(move |next| set.set(next)));
+    bound
+  }
+
   /// Whether the checkbox is neither checked nor not: some of what it
   /// stands for is checked. It is drawn with a dash, whatever
   /// [`Checkbox::checked`] says, and a press of it asks for checked.
@@ -153,7 +166,7 @@ impl Checkbox {
   }
 
   /// Called on a press, with what the checkbox is to be: checked if it was
-  /// not, or if it was indeterminate.
+  /// not, or if it was indeterminate. A second handler is called after the first.
   pub fn on_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
@@ -185,6 +198,7 @@ impl Checkbox {
     self
   }
 
+  /// What tells the checkbox apart from those beside it, where two have one label.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
@@ -402,77 +416,120 @@ names!(CheckboxGroupPart {
   Item => "item",
 });
 
-/// The states of a group of checkboxes a recipe styles.
+/// The states of a group of checkboxes a recipe styles. One of `Horizontal` and `Vertical` is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CheckboxGroupState {
   /// Its checkboxes stand side by side.
   Horizontal,
+  /// Its checkboxes stand one under the other.
+  Vertical,
 }
 
 names!(CheckboxGroupState {
   Horizontal => "horizontal",
+  Vertical => "vertical",
 });
 
-/// One checkbox of a group, with what a press of it does.
-struct GroupItem {
-  label: Arc<str>,
-  disabled: bool,
-  checked: bool,
-  pick: Arc<dyn Fn() + Send + Sync>,
+/// The set `checked` with `value` taken out where it is in it, and put at its end where it is not.
+pub(crate) fn toggled<T: PartialEq>(mut checked: Vec<T>, value: T) -> Vec<T> {
+  match checked.iter().position(|held| *held == value) {
+    Some(index) => {
+      checked.remove(index);
+    }
+    None => checked.push(value),
+  }
+  checked
 }
+
+/// What turns a value in the signal a group of any number is bound to, and gives the new set.
+pub(crate) type Turn<T> = Arc<dyn Fn(T) -> Vec<T> + Send + Sync>;
+
+/// What turns a value in `signal`: takes it out where the signal has it, puts it at the end where it does not.
+pub(crate) fn turning<T: Clone + PartialEq + Send + Sync + 'static>(signal: Signal<Vec<T>>) -> Turn<T>
+where
+  Vec<T>: SignalValue,
+{
+  Arc::new(move |value| {
+    signal.update(|held| *held = toggled(std::mem::take(held), value));
+    signal.get_untracked()
+  })
+}
+
+/// What a press of a choice of a group of any number does: the signal the group is bound to is set to the new set,
+/// and then every handler is told the whole new set. A group the app holds tells the set it would be.
+pub(crate) fn toggling<T: Clone + PartialEq + Send + Sync + 'static>(
+  value: T,
+  checked: &[T],
+  bound: Option<Turn<T>>,
+  handlers: Vec<Arc<dyn Fn(&[T]) + Send + Sync>>,
+) -> impl Fn() + Send + Sync + 'static {
+  let checked = checked.to_vec();
+  move || {
+    let next = match &bound {
+      Some(turn) => turn(value.clone()),
+      None => toggled(checked.clone(), value.clone()),
+    };
+    for handler in &handlers {
+      handler(&next);
+    }
+  }
+}
+
+/// What builds a group of checkboxes' nodes: a theme's in place of the default one.
+pub type CheckboxGroupRenderer = Arc<dyn Fn(CheckboxGroupView) -> Element + Send + Sync>;
 
 /// Checkboxes over one list: those whose values the app holds are checked,
 /// and a press of one adds its value or takes it out.
 ///
 /// ```
-/// use lurq::{core::Signal, ui::{CheckboxGroup, Choice}};
+/// use lurq::{core::Signal, ui::{CheckboxGroup, Choice, Orientation}};
 ///
 /// # fn groups(days: Signal<Vec<u8>>) {
-/// let days = CheckboxGroup::new(days, [(1, "Monday"), (2, "Tuesday"), (3, "Wednesday")]);
-/// // A choice that cannot be made is drawn, dimmed, and takes nothing.
+/// let days = CheckboxGroup::new(days, [(1, "Monday"), (2, "Tuesday"), (3, "Wednesday")])
+///   .orientation(Orientation::Horizontal)
+///   .on_change(|days| println!("{days:?}"));
+/// // The app holds it, and is told the whole new set. A choice that cannot be made is drawn, dimmed, and takes
+/// // nothing.
 /// let scopes = CheckboxGroup::controlled(["read"], [
 ///   Choice::new("read", "Read"),
 ///   Choice::new("write", "Write"),
 ///   Choice::new("admin", "Admin").disabled(true),
-/// ], |scope| println!("{scope} was pressed"));
+/// ], |scopes| println!("{scopes:?}"));
 /// # }
 /// ```
 ///
 /// Each checkbox is its own stop of Tab, and Space or Enter presses the one
 /// the focus is on. A choice's icon is not drawn.
-pub struct CheckboxGroup {
-  items: Vec<GroupItem>,
+pub struct CheckboxGroup<T> {
+  choices: Vec<Choice<T>>,
+  checked: Vec<T>,
+  bound: Option<Turn<T>>,
+  on_change: Vec<Arc<dyn Fn(&[T]) + Send + Sync>>,
   label: Option<Arc<str>>,
-  horizontal: bool,
+  orientation: Orientation,
   invalid: bool,
   disabled: bool,
+  states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
 
-impl CheckboxGroup {
-  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Chosen<T>,
-    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-  ) -> Self {
-    let items = choices
-      .into_iter()
-      .map(Into::into)
-      .map(|choice: Choice<T>| GroupItem {
-        checked: chosen.has(&choice.value),
-        pick: Arc::new(chosen.picker(choice.value)),
-        label: choice.label,
-        disabled: choice.disabled,
-      })
-      .collect();
+impl<T: Clone + PartialEq + Send + Sync + 'static> CheckboxGroup<T> {
+  fn of(checked: Vec<T>, bound: Option<Turn<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self {
     Self {
-      items,
+      choices: choices.into_iter().map(Into::into).collect(),
+      checked,
+      bound,
+      on_change: Vec::new(),
       label: None,
-      horizontal: false,
+      orientation: Orientation::Vertical,
       invalid: false,
       disabled: false,
+      states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
@@ -480,28 +537,35 @@ impl CheckboxGroup {
 
   /// A group of which the checkboxes whose values the signal has are
   /// checked. A press adds a value to the signal, or takes it out.
-  pub fn new<T>(values: Signal<Vec<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
+  pub fn new(checked: Signal<Vec<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
   where
-    T: Clone + PartialEq + Send + Sync + 'static,
     Vec<T>: SignalValue,
   {
-    Self::of(Chosen::many(values), choices)
+    Self::of(checked.get(), Some(turning(checked)), choices)
   }
 
   /// A group whose state the app holds: the checkboxes of `checked` are
-  /// checked, and `press` is told the value of each one pressed.
-  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
+  /// checked, and `on_change` is told the whole new set a press asks for: `checked` with the value pressed added,
+  /// or taken out. What is drawn is what the app says next.
+  pub fn controlled(
     checked: impl IntoIterator<Item = T>,
     choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-    press: impl Fn(T) + Send + Sync + 'static,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held(checked.into_iter().collect(), press), choices)
+    Self::of(checked.into_iter().collect(), None, choices).on_change(on_change)
   }
 
-  /// Whether the checkboxes stand side by side, going on to the next line
-  /// where there is no room, in place of one under the other.
-  pub fn horizontal(mut self, horizontal: bool) -> Self {
-    self.horizontal = horizontal;
+  /// Called on a press, with the whole new set of values checked, after the signal the group is bound to is set.
+  /// That the app sets the signal calls nothing. A second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Which way the checkboxes stand: one under the other, unless told. Side by side they go on to the next line
+  /// where there is no room.
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
     self
   }
 
@@ -523,17 +587,42 @@ impl CheckboxGroup {
     self
   }
 
+  /// Puts the group in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
   /// Styles one part of this group over what the theme gives it.
   pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
     self.rules = self.rules.base(part, style);
     self
   }
 
+  /// Lays rules over the theme's recipe for this group: what the component it is in says of it in this place.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// Draws the first checkbox that is not disabled as it is under the pointer, held down or focused from the
+  /// keyboard, with nothing pointing at it: for a gallery or a test. The other checkboxes are drawn as they are.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
+  /// The id of the group.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
   }
 
+  /// What tells the group apart from those beside it.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
@@ -542,34 +631,104 @@ impl CheckboxGroup {
   /// Builds the group in `theme`. Converting a group into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new()
-      .breakpoint(super::current_breakpoint())
-      .state(CheckboxGroupState::Horizontal, self.horizontal);
-    let recipe = theme.resolve::<CheckboxGroup>(&case, Some(&self.rules));
+    let case = Case {
+      variant: None,
+      size: None,
+      density: None,
+      breakpoint: super::current_breakpoint(),
+      states: self.states.clone(),
+    }
+    .state(CheckboxGroupState::Horizontal, !self.orientation.is_vertical())
+    .state(CheckboxGroupState::Vertical, self.orientation.is_vertical());
+    let recipe = theme.resolve::<Self>(&case, Some(&self.rules));
     let item = recipe.rules_for(CheckboxGroupPart::Item, CheckboxPart::Root);
-    let boxes: Vec<Element> = self
-      .items
-      .into_iter()
-      .map(|choice| {
-        let pick = choice.pick;
-        Checkbox::new(&choice.label)
-          .checked(choice.checked)
+    let entry = self
+      .choices
+      .iter()
+      .position(|choice| !self.disabled && !choice.disabled);
+    let checkboxes = self
+      .choices
+      .iter()
+      .enumerate()
+      .map(|(index, choice)| {
+        let press = toggling(
+          choice.value.clone(),
+          &self.checked,
+          self.bound.clone(),
+          self.on_change.clone(),
+        );
+        let mut checkbox = Checkbox::new(&choice.label)
+          .checked(self.checked.contains(&choice.value))
           .invalid(self.invalid)
           .disabled(self.disabled || choice.disabled)
           .rules(&item)
-          .on_change(move |_| pick())
-          .build(theme)
+          .on_change(move |_| press());
+        if Some(index) == entry {
+          checkbox = checkbox.force(self.forced);
+        }
+        checkbox.build(theme)
       })
       .collect();
-    let root = recipe.part(CheckboxGroupPart::Root);
-    let (id, key, label) = (self.id, self.key, self.label);
+    let view = CheckboxGroupView {
+      label: self.label,
+      orientation: self.orientation,
+      invalid: self.invalid,
+      disabled: self.disabled,
+      recipe,
+      checkboxes,
+      id: self.id,
+      key: self.key,
+    };
+    match theme.renderer::<Self>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<CheckboxGroup<T>> for Element {
+  fn from(group: CheckboxGroup<T>) -> Self {
+    group.build(&current_theme())
+  }
+}
+
+/// A group of checkboxes as a renderer sees it: what it was given, the style of its parts, and its checkboxes,
+/// built with what the group says of each and what a press of each does.
+pub struct CheckboxGroupView {
+  pub label: Option<Arc<str>>,
+  pub orientation: Orientation,
+  pub invalid: bool,
+  pub disabled: bool,
+  /// The style of each part of this group.
+  pub recipe: ResolvedRecipe,
+  /// Its checkboxes, in order.
+  pub checkboxes: Vec<Element>,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
+}
+
+impl CheckboxGroupView {
+  /// The style of a part, as this group is to be drawn.
+  pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
+    self.recipe.part(part)
+  }
+
+  pub fn theme(&self) -> &Theme {
+    self.recipe.theme()
+  }
+
+  /// How the default renderer builds a group: its checkboxes one under the other, or side by side and going on to
+  /// the next line. It is a group to what reads the tree, called by its label.
+  pub fn render(self) -> Element {
+    let root = self.part(CheckboxGroupPart::Root);
+    let (id, key, label, checkboxes) = (self.id, self.key, self.label, self.checkboxes);
     macro_rules! group {
       ($holder:expr) => {{
         let mut holder = $holder.part(&root).describe("a11y_role", "group");
         if let Some(label) = label {
           holder = holder.describe("a11y_name", label);
         }
-        for checkbox in boxes {
+        for checkbox in checkboxes {
           holder = holder.child(checkbox);
         }
         if let Some(id) = id {
@@ -581,23 +740,17 @@ impl CheckboxGroup {
         holder.into()
       }};
     }
-    if self.horizontal {
-      group!(Row::new().wrap().align_items(Alignment::Center))
-    } else {
+    if self.orientation.is_vertical() {
       group!(Column::new())
+    } else {
+      group!(Row::new().wrap().align_items(Alignment::Center))
     }
   }
 }
 
-impl From<CheckboxGroup> for Element {
-  fn from(group: CheckboxGroup) -> Self {
-    group.build(&current_theme())
-  }
-}
-
-impl Themed for CheckboxGroup {
+impl<T: Send + Sync + 'static> Themed for CheckboxGroup<T> {
   const NAME: &'static str = "checkbox_group";
-  type Renderer = Arc<dyn Fn(CheckboxGroup) -> Element + Send + Sync>;
+  type Renderer = CheckboxGroupRenderer;
 
   /// The design's checkboxes (`pencil/lurq-design-system.pen`, Toggles): one
   /// under the other, 12 apart, as its radios are.
@@ -623,7 +776,7 @@ impl super::FieldControl for Checkbox {
   }
 }
 
-impl super::FieldControl for CheckboxGroup {
+impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for CheckboxGroup<T> {
   /// Called by the field's label unless it has a name of its own, every box invalid where the field is, and
   /// disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {

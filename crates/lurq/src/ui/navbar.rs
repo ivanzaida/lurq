@@ -14,7 +14,7 @@ use super::{
   part_style::PartStyle,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{fading, glyph, pressable},
-  sidebar::{Sidebar, SidebarGroup, SidebarItem},
+  sidebar::{Sidebar, SidebarItem},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -39,14 +39,14 @@ pub enum NavbarPart {
   Root,
   /// The brand at the start: its mark beside its name, and what is pressed where it goes somewhere.
   Brand,
-  /// The mark of the brand: an icon of the theme's set.
+  /// The mark of the brand: an icon of the theme's set, or the element its media is.
   BrandMark,
   /// The name of the brand.
   BrandName,
   /// The room of the links, which takes what the bar has to spare.
   Links,
-  /// What stands at the end: a search, actions, an avatar with its menu.
-  End,
+  /// What stands after the links: a search, actions, an avatar with its menu.
+  Trailing,
 }
 
 names!(NavbarPart {
@@ -55,7 +55,7 @@ names!(NavbarPart {
   BrandMark => "brand-mark",
   BrandName => "brand-name",
   Links => "links",
-  End => "end",
+  Trailing => "trailing",
 });
 
 /// The states of a navbar a recipe styles.
@@ -96,10 +96,13 @@ fn window_is_narrow() -> bool {
 pub struct NavbarBrand {
   name: Arc<str>,
   icon: Option<Name>,
-  mark: Option<Element>,
+  media: Option<Element>,
   on_select: Vec<Handler>,
+  states: Vec<Name>,
+  rules: Recipe,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl NavbarBrand {
@@ -108,10 +111,13 @@ impl NavbarBrand {
     Self {
       name: Arc::from(name),
       icon: None,
-      mark: None,
+      media: None,
       on_select: Vec::new(),
+      states: Vec::new(),
+      rules: Recipe::new(),
       forced: None,
       id: None,
+      key: None,
     }
   }
 
@@ -121,9 +127,9 @@ impl NavbarBrand {
     self
   }
 
-  /// An element of the app's as its mark, in place of an icon: a logo.
-  pub fn mark(mut self, mark: impl Into<Element>) -> Self {
-    self.mark = Some(mark.into());
+  /// A picture of the app's as its mark, in place of an icon: a logo.
+  pub fn media(mut self, media: impl Into<Element>) -> Self {
+    self.media = Some(media.into());
     self
   }
 
@@ -133,24 +139,60 @@ impl NavbarBrand {
     self
   }
 
+  /// Puts the brand in a state the theme's recipe for a navbar names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Styles one part of the brand over what the theme's recipe for a navbar gives it.
+  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.rules = self.rules.base(part, style);
+    self
+  }
+
+  /// Lays rules over the theme's recipe for a navbar, for the brand alone.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
   /// Draws it as it is under the pointer, held down or focused from the keyboard: for a gallery or a test.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
   }
 
+  /// The id of the brand: what is pressed, where it is.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
   }
 
+  /// What tells the brand apart from what stands beside it.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
+  }
+
   /// Builds the brand in `theme`, in the parts of a navbar.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case::new().state(NavbarState::Interactive, !self.on_select.is_empty());
-    let recipe = theme.resolve::<Navbar>(&case, None);
+    let case = Case {
+      variant: None,
+      size: None,
+      density: None,
+      breakpoint: super::current_breakpoint(),
+      states: self.states.clone(),
+    }
+    .state(NavbarState::Interactive, !self.on_select.is_empty());
+    let recipe = theme.resolve::<Navbar>(&case, Some(&self.rules));
     let part = |name: NavbarPart| recipe.part(name).forced(self.forced);
-    let mark = match (self.mark, self.icon) {
-      (Some(mark), _) => Some(mark),
+    let mark = match (self.media, self.icon) {
+      (Some(media), _) => Some(media),
       (None, Some(icon)) => Some(glyph(&part(NavbarPart::BrandMark), icon, false)),
       (None, None) => None,
     };
@@ -164,6 +206,9 @@ impl NavbarBrand {
         .child(name);
       if let Some(id) = self.id {
         brand = brand.id(id);
+      }
+      if let Some(key) = self.key {
+        brand = brand.key(key);
       }
       return brand.into();
     }
@@ -181,6 +226,9 @@ impl NavbarBrand {
       .child(name);
     if let Some(id) = self.id {
       brand = brand.id(id);
+    }
+    if let Some(key) = self.key {
+      brand = brand.key(key);
     }
     brand.into()
   }
@@ -213,7 +261,7 @@ impl From<NavbarBrand> for Element {
 ///         .panel(NavPanel::new().link(NavLink::new("Getting started").href("/docs"))),
 ///     )
 ///     .item(NavItem::new("Blog").href("/blog"))
-///     .end(Avatar::new("Ivan Zaida"))
+///     .trailing(Avatar::new("Ivan Zaida"))
 ///     .mount(ctx)
 /// }
 /// ```
@@ -221,7 +269,7 @@ impl From<NavbarBrand> for Element {
 /// Its links are a [`NavigationMenu`] in its links variant: each a stop of Tab, the page shown in the foreground,
 /// one with a panel opening it under itself by a press, under the pointer after a moment, and with Enter, Space and
 /// Down. On a window narrower than the `md` breakpoint (or wherever [`Navbar::narrow`] says) they go behind a menu
-/// button at the bar's start, into a [`Sidebar`] over the page: an item with a panel is a group of its links there,
+/// button at the bar's start, into a [`Sidebar`] over the page: an item with a panel holds its links there,
 /// and choosing one closes it. [`Navbar::sticky`] keeps the bar at the top while the page under it scrolls.
 ///
 /// To tooling the bar is a navigation region called by its label, its links links (the page shown the current
@@ -229,9 +277,10 @@ impl From<NavbarBrand> for Element {
 #[derive(Clone)]
 pub struct Navbar {
   label: Arc<str>,
+  menu_label: Arc<str>,
   brand: Option<Element>,
   items: Vec<NavItem>,
-  end: Vec<Element>,
+  trailing: Vec<Element>,
   sticky: bool,
   open: Option<Signal<Option<usize>>>,
   on_open_change: Vec<OpenHandler>,
@@ -256,9 +305,10 @@ impl Navbar {
   pub fn new() -> Self {
     Self {
       label: Arc::from("Main"),
+      menu_label: Arc::from("Menu"),
       brand: None,
       items: Vec::new(),
-      end: Vec::new(),
+      trailing: Vec::new(),
       sticky: false,
       open: None,
       on_open_change: Vec::new(),
@@ -276,6 +326,13 @@ impl Navbar {
   /// What it is called to tooling that reads the tree: "Main". "Main" unless told otherwise.
   pub fn label(mut self, label: &str) -> Self {
     self.label = Arc::from(label);
+    self
+  }
+
+  /// What the button that opens the links over the page on a narrow window is called to tooling: "Menu" unless
+  /// told. Whether the links are open it says on its own.
+  pub fn menu_label(mut self, label: &str) -> Self {
+    self.menu_label = Arc::from(label);
     self
   }
 
@@ -297,10 +354,10 @@ impl Navbar {
     self
   }
 
-  /// What stands at its end, after what stands there already: a [`SearchField`](super::SearchField), a
+  /// What stands after the links, after what stands there already: a [`SearchField`](super::SearchField), a
   /// [`Button`], an [`Avatar`](super::Avatar) with its [`Menu`](super::Menu).
-  pub fn end(mut self, end: impl Into<Element>) -> Self {
-    self.end.push(end.into());
+  pub fn trailing(mut self, element: impl Into<Element>) -> Self {
+    self.trailing.push(element.into());
     self
   }
 
@@ -411,34 +468,42 @@ impl Navbar {
     menu
   }
 
-  /// The links over the page: a sidebar of the items, an item with a panel a group of its links.
+  /// The links over the page: a sidebar of the items, an item with a panel an item that holds its links.
   fn drawer(&self, open: &Signal<bool>) -> Sidebar {
     let mut sidebar = Sidebar::new().label(&self.label).narrow(true).open(open.clone());
     for item in &self.items {
-      match &item.panel {
-        Some(panel) => {
-          let group = SidebarGroup::new(&item.label).items(panel.links.iter().map(sidebar_link));
-          sidebar = sidebar.group(group);
+      // An item with a panel holds its links, open: they stand in from it, and the items after it beside it, as
+      // they do in the bar. A group of them would end under its last link, with the items after it read as its own.
+      let mut link = match &item.panel {
+        Some(panel) => SidebarItem::new(&item.label)
+          .disabled(item.disabled)
+          .open(true)
+          .children(panel.links.iter().map(sidebar_link)),
+        None => SidebarItem::new(&item.label)
+          .selected(item.current)
+          .disabled(item.disabled),
+      };
+      {
+        if let Some(icon) = item.icon {
+          link = link.icon(icon);
         }
-        None => {
-          let mut link = SidebarItem::new(&item.label)
-            .selected(item.current)
-            .disabled(item.disabled);
-          if let Some(icon) = item.icon {
-            link = link.icon(icon);
-          }
+        if let Some(id) = &item.id {
+          link = link.id(id.clone());
+        }
+        if let Some(key) = &item.key {
+          link = link.key(key.clone());
+        }
+        // An item that opens a panel goes nowhere itself.
+        if item.panel.is_none() {
           if let Some(href) = &item.href {
             link = link.href(href);
-          }
-          if let Some(id) = &item.id {
-            link = link.id(id.clone());
           }
           let handlers = item.on_select.clone();
           if !handlers.is_empty() {
             link = link.on_select(move || handlers.iter().for_each(|handler| handler()));
           }
-          sidebar = sidebar.item(link);
         }
+        sidebar = sidebar.item(link);
       }
     }
     if let Some(id) = &self.id {
@@ -450,7 +515,7 @@ impl Navbar {
   /// The button that opens the links over the page and closes them: a ghost button of the `menu` icon.
   fn menu_button(&self, open: &Signal<bool>, theme: &Theme) -> Element {
     let (shown, turned) = (open.get(), open.clone());
-    let mut button = Button::new(if shown { "Close menu" } else { "Open menu" })
+    let mut button = Button::new(&self.menu_label)
       .variant(ButtonVariant::Ghost)
       .icon(if shown { icons::CLOSE } else { icons::MENU })
       .icon_only(true)
@@ -508,6 +573,9 @@ fn sidebar_link(link: &NavLink) -> SidebarItem {
   }
   if let Some(id) = &link.id {
     item = item.id(id.clone());
+  }
+  if let Some(key) = &link.key {
+    item = item.key(key.clone());
   }
   let handlers = link.on_select.clone();
   if !handlers.is_empty() {
@@ -602,7 +670,7 @@ fn build(
     label: navbar.label.clone(),
     brand: navbar.brand,
     links,
-    end: navbar.end,
+    trailing: navbar.trailing,
     menu_button,
     drawer,
     narrow,
@@ -625,8 +693,8 @@ pub struct NavbarView {
   pub brand: Option<Element>,
   /// Its links, a navigation menu, where the window is wide.
   pub links: Option<Element>,
-  /// What stands at its end, in order.
-  pub end: Vec<Element>,
+  /// What stands after the links, in order.
+  pub trailing: Vec<Element>,
   /// The button that opens the links over the page, where the window is narrow.
   pub menu_button: Option<Element>,
   /// The links over the page, where the window is narrow: a sidebar, which takes no room in the bar.
@@ -682,22 +750,26 @@ impl NavbarView {
     if let Some(brand) = self.brand.take() {
       root = root.child(brand);
     }
+    // The links take the room the bar has to spare, and no more: where they do not fit they are cut at its end,
+    // and never run under what follows them.
     root = root.child(
       Row::new()
         .flex(1.0)
+        .min_width(0.0)
         .align_items(Alignment::Center)
-        .overflow_visible()
+        .clip()
         .part(&self.part(NavbarPart::Links))
         .with_children(self.links.take()),
     );
-    let end = std::mem::take(&mut self.end);
-    if !end.is_empty() {
+    let trailing = std::mem::take(&mut self.trailing);
+    if !trailing.is_empty() {
       root = root.child(
         Row::new()
+          .flex_shrink(0.0)
           .align_items(Alignment::Center)
           .overflow_visible()
-          .part(&self.part(NavbarPart::End))
-          .with_children(end),
+          .part(&self.part(NavbarPart::Trailing))
+          .with_children(trailing),
       );
     }
     if let Some(drawer) = self.drawer.take() {
@@ -741,6 +813,6 @@ impl Themed for Navbar {
           .weight(FontWeight::SemiBold)
           .foreground(Foreground)
       })
-      .base(End, |s| s.gap(24.0))
+      .base(Trailing, |s| s.gap(24.0))
   }
 }

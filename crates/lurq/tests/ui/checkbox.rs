@@ -307,3 +307,160 @@ fn a_group_of_checkboxes_is_bound_to_a_list() {
   stage.key(" ");
   assert_eq!(days.get(), Vec::<u8>::new());
 }
+
+#[test]
+fn a_bound_checkbox_turns_its_signal_and_then_tells_its_handlers() {
+  use lurq::core::Signal;
+  let checked = Signal::new(false);
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (read, told) = (checked.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let (seen, told) = (read.clone(), told.clone());
+    Row::new()
+      .padding(8.0)
+      .child(
+        // A handler given before the signal is still told after the signal is set.
+        Checkbox::new("Keep me signed in")
+          .id("box")
+          .on_change(move |next| told.lock().unwrap().push((next, seen.get_untracked())))
+          .bind(read.clone()),
+      )
+      .into()
+  });
+  assert_eq!(stage.fill_color("box"), Some(light(PaletteColor::Background)));
+  stage.click("box");
+  assert!(checked.get());
+  assert_eq!(*heard.lock().unwrap(), [(true, true)]);
+  stage.pass();
+  assert_eq!(stage.fill_color("box"), Some(light(PaletteColor::Primary)));
+  // The app sets the signal: the box is drawn as it says, and no handler is told.
+  checked.set(false);
+  stage.pass();
+  assert_eq!(stage.fill_color("box"), Some(light(PaletteColor::Background)));
+  assert_eq!(heard.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_group_tells_its_handlers_the_whole_new_set_and_not_what_the_app_sets() {
+  use lurq::{
+    core::Signal,
+    ui::{CheckboxGroup, Choice},
+  };
+  let days = Signal::new(vec![2u8]);
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (read, told) = (days.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        CheckboxGroup::new(read.clone(), [Choice::new(1u8, "Monday"), Choice::new(2, "Tuesday")])
+          .on_change(move |days: &[u8]| told.lock().unwrap().push(days.to_vec())),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(days.get(), [2, 1]);
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(days.get(), [1]);
+  assert_eq!(
+    *heard.lock().unwrap(),
+    [vec![2, 1], vec![1]],
+    "the whole set, after the signal"
+  );
+  days.set(vec![1, 2]);
+  stage.pass();
+  assert_eq!(heard.lock().unwrap().len(), 2, "the app's own set tells nobody");
+}
+
+#[test]
+fn a_group_the_app_holds_shows_what_the_app_answers() {
+  use lurq::{
+    core::Signal,
+    ui::{CheckboxGroup, Choice},
+  };
+  // The app holds the set, and takes only a set of at most one: a second box pressed is refused.
+  let held = Signal::new(vec!["read"]);
+  let asked = Arc::new(Mutex::new(Vec::new()));
+  let (read, told) = (held.clone(), asked.clone());
+  let mut stage = Stage::new(move |_| {
+    let (set, told) = (read.clone(), told.clone());
+    Column::new()
+      .padding(8.0)
+      .child(CheckboxGroup::controlled(
+        read.get(),
+        [Choice::new("read", "Read"), Choice::new("write", "Write")],
+        move |next: &[&'static str]| {
+          told.lock().unwrap().push(next.to_vec());
+          if next.len() <= 1 {
+            set.set(next.to_vec());
+          }
+        },
+      ))
+      .into()
+  });
+  let boxes = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| {
+        quad.width == 16.0
+          && matches!(quad.content, QuadContent::Rect { color, .. } if color == light(PaletteColor::Primary))
+      })
+      .count()
+  };
+  assert_eq!(boxes(&stage), 1);
+  // Write pressed asks for both: the app refuses, and one box is still checked.
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key(" ");
+  assert_eq!(*asked.lock().unwrap(), [vec!["read", "write"]]);
+  stage.pass();
+  assert_eq!(boxes(&stage), 1, "what the app holds, not what was pressed");
+  assert_eq!(held.get(), ["read"]);
+  // Read pressed asks for none: the app takes it.
+  stage
+    .tree
+    .key_down("Tab".to_owned(), "Tab".to_owned(), true, false, false);
+  stage.pass();
+  stage.key(" ");
+  stage.pass();
+  assert_eq!(held.get(), Vec::<&str>::new());
+  assert_eq!(boxes(&stage), 0);
+}
+
+#[test]
+fn a_group_has_an_orientation_its_states_and_its_rules() {
+  use lurq::ui::{CheckboxGroup, CheckboxGroupPart, Choice, Orientation, Recipe};
+  let stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(40.0)
+      .child(CheckboxGroup::controlled(
+        Vec::<u8>::new(),
+        [Choice::new(1u8, "One"), Choice::new(2, "Two")],
+        |_| {},
+      ))
+      .child(
+        CheckboxGroup::controlled(Vec::<u8>::new(), [Choice::new(3u8, "Three"), Choice::new(4, "Four")], |_| {})
+          .orientation(Orientation::Horizontal)
+          // The app's state, which its own rule styles, and the rules of what holds the group.
+          .state("roomy", true)
+          .rules(&Recipe::new().state("roomy", CheckboxGroupPart::Root, |s| s.gap(40.0)))
+          .force(Some(Interaction::FocusVisible)),
+      )
+      .into()
+  });
+  let quad = |label: &str| stage.text_quad(label).unwrap();
+  // One under the other unless told: the vertical state.
+  assert_eq!(quad("One").x, quad("Two").x);
+  assert!(quad("Two").y > quad("One").y);
+  // Side by side, with the room the app's rule gives in place of 24.
+  assert_eq!(quad("Three").y, quad("Four").y);
+  let gap = quad("Four").x - 16.0 - 8.0 - (quad("Three").x + quad("Three").width);
+  assert!((gap - 40.0).abs() < 0.01, "{gap}");
+  // A forced focus draws the ring of the first box.
+  assert!(stage.has_ring(light(PaletteColor::Ring)));
+}

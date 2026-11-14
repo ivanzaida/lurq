@@ -1,6 +1,6 @@
-//! A checkbox card and a radio card: the card with its text and its box or mark where the board has them, chosen
-//! and not, under the pointer and focused, what a press and the keyboard do, the groups of them, a field that
-//! judges one, and a theme's rule and renderer.
+//! A checkbox card and a radio card: the card with its text and its box or mark where the board has them, checked
+//! or selected and not, under the pointer and focused, what a press and the keyboard do, the groups of them, a field
+//! that judges one, and a theme's rule and renderer.
 
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +15,7 @@ use lurq::{
   node::color::Color,
   ui::{
     Case, CheckboxCard, CheckboxCardGroup, ChoiceCardPart, ChoiceCardRenderer, ChoiceCardState, ChoiceCardView, Field,
-    Interaction, Opacity, RadioCard, RadioCardGroup, icons,
+    Interaction, Opacity, Orientation, RadioCard, RadioCardGroup, icons,
   },
 };
 
@@ -209,7 +209,7 @@ fn a_press_or_space_turns_a_checkbox_card_and_a_disabled_one_takes_nothing() {
 }
 
 #[test]
-fn under_the_pointer_a_card_not_chosen_takes_the_rings_edge_and_a_chosen_one_keeps_its_own() {
+fn under_the_pointer_a_card_not_checked_takes_the_rings_edge_and_a_checked_one_keeps_its_own() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .padding(8.0)
@@ -237,7 +237,12 @@ fn an_invalid_card_has_the_destructive_edge_and_a_forced_focus_draws_the_ring() 
       .padding(8.0)
       .spacing(12.0)
       .child(RadioCard::new("Invalid").invalid(true).id("invalid"))
-      .child(RadioCard::new("Chosen, invalid").chosen(true).invalid(true).id("both"))
+      .child(
+        RadioCard::new("Selected, invalid")
+          .selected(true)
+          .invalid(true)
+          .id("both"),
+      )
       .into()
   });
   assert_eq!(edge(&mut stage, "invalid"), (1.0, light(PaletteColor::Destructive)));
@@ -259,7 +264,7 @@ fn an_invalid_card_has_the_destructive_edge_and_a_forced_focus_draws_the_ring() 
 }
 
 #[test]
-fn a_radio_card_is_the_radios_mark_with_a_dot_while_it_is_chosen() {
+fn a_radio_card_is_the_radios_mark_with_a_dot_while_it_is_selected() {
   let (asked, told) = log();
   let mut stage = Stage::new(move |_| {
     let (one, two) = (told.clone(), told.clone());
@@ -269,28 +274,28 @@ fn a_radio_card_is_the_radios_mark_with_a_dot_while_it_is_chosen() {
       .child(
         RadioCard::new("Comfortable")
           .description("Roomy rows, 36px controls.")
-          .chosen(true)
-          .id("chosen")
-          .on_choose(move || one.lock().unwrap().push("chosen".to_owned())),
+          .selected(true)
+          .id("selected")
+          .on_change(move |_| one.lock().unwrap().push("selected".to_owned())),
       )
       .child(
         RadioCard::new("Compact")
           .id("not")
-          .on_choose(move || two.lock().unwrap().push("not".to_owned())),
+          .on_change(move |_| two.lock().unwrap().push("not".to_owned())),
       )
       .into()
   });
-  assert_eq!(edge(&mut stage, "chosen"), (2.0, light(PaletteColor::Primary)));
+  assert_eq!(edge(&mut stage, "selected"), (2.0, light(PaletteColor::Primary)));
   assert_eq!(edge(&mut stage, "not"), (1.0, light(PaletteColor::Input)));
-  let mark = indicator(&mut stage, "chosen");
+  let mark = indicator(&mut stage, "selected");
   assert!(mark.border_radius.is_some_and(|radius| radius.top_left >= 8.0), "round");
-  assert!(has_dot(&mut stage, "chosen"));
+  assert!(has_dot(&mut stage, "selected"));
   assert!(!has_dot(&mut stage, "not"));
-  let (x, y, width, _) = stage.bounds("chosen");
+  let (x, y, width, _) = stage.bounds("selected");
   assert_eq!((x + width - (mark.x + 16.0), mark.y - y), (16.0, 16.0));
 
-  // A press of the one chosen tells nobody; of the other, it is to be chosen.
-  stage.click("chosen");
+  // A press of the one selected tells nobody; of the other, it is to be selected.
+  stage.click("selected");
   stage.click("not");
   assert_eq!(*asked.lock().unwrap(), ["not"]);
 }
@@ -325,8 +330,8 @@ fn an_icon_stands_before_the_text_and_a_price_at_the_end_of_the_title() {
 
 #[test]
 fn a_group_of_radio_cards_is_one_stop_and_the_arrows_move_the_choice() {
-  let chosen = Signal::new(0u8);
-  let read = chosen.clone();
+  let selected = Signal::new(0u8);
+  let read = selected.clone();
   let mut stage = Stage::new(move |_| {
     Column::new()
       .padding(8.0)
@@ -351,19 +356,19 @@ fn a_group_of_radio_cards_is_one_stop_and_the_arrows_move_the_choice() {
 
   stage.key("Tab");
   stage.key("ArrowDown");
-  assert_eq!(chosen.get(), 1);
+  assert_eq!(selected.get(), 1);
   stage.key("ArrowDown");
-  assert_eq!(chosen.get(), 3, "the disabled card is passed by");
+  assert_eq!(selected.get(), 3, "the disabled card is passed by");
   stage.key("Home");
   stage.key("ArrowDown");
-  assert_eq!(chosen.get(), 1, "Home went to the first");
+  assert_eq!(selected.get(), 1, "Home went to the first");
 
   stage.click("d");
-  assert_eq!(chosen.get(), 3);
+  assert_eq!(selected.get(), 3);
   assert!(has_dot(&mut stage, "d"));
   assert!(!has_dot(&mut stage, "b"));
   stage.click("c");
-  assert_eq!(chosen.get(), 3, "a disabled card takes nothing");
+  assert_eq!(selected.get(), 3, "a disabled card takes nothing");
 }
 
 #[test]
@@ -384,9 +389,9 @@ fn radio_cards_side_by_side_and_a_controlled_group_that_is_invalid() {
               RadioCard::new("Team").description("For a few people.").id("team"),
             ),
           ],
-          move |plan| told.lock().unwrap().push(plan.to_owned()),
+          move |plan: &&str| told.lock().unwrap().push((*plan).to_owned()),
         )
-        .horizontal(true)
+        .orientation(Orientation::Horizontal)
         .invalid(true),
       )
       .into()
@@ -440,7 +445,7 @@ fn a_field_with_an_error_makes_its_card_invalid_and_a_disabled_field_disables_it
           "Plan",
           RadioCard::new("Team")
             .id("plan")
-            .on_choose(move || told.lock().unwrap().push("plan".to_owned())),
+            .on_change(move |_| told.lock().unwrap().push("plan".to_owned())),
         )
         .disabled(true),
       )
@@ -487,4 +492,120 @@ fn a_rule_and_a_renderer_of_a_theme_change_it() {
   assert!(squares_in(&mut stage, "card", 16.0).is_empty(), "no box");
   stage.click("card");
   assert_eq!(*asked.lock().unwrap(), ["true"]);
+}
+
+#[test]
+fn a_bound_checkbox_card_turns_its_signal_and_then_tells_its_handlers() {
+  let checked = Signal::new(false);
+  let (asked, told) = log();
+  let read = checked.clone();
+  let mut stage = Stage::new(move |_| {
+    let (seen, told) = (read.clone(), told.clone());
+    Row::new()
+      .padding(8.0)
+      .child(
+        CheckboxCard::new("Weekly report")
+          .id("card")
+          .on_change(move |next| told.lock().unwrap().push(format!("{next} {}", seen.get_untracked())))
+          .bind(read.clone()),
+      )
+      .into()
+  });
+  stage.click("card");
+  assert!(checked.get());
+  assert_eq!(*asked.lock().unwrap(), ["true true"], "told after the signal is set");
+  stage.pass();
+  assert_eq!(edge(&mut stage, "card"), (2.0, light(PaletteColor::Primary)));
+  checked.set(false);
+  stage.pass();
+  // The pointer is still on it: the edge of one not checked under the pointer.
+  assert_eq!(edge(&mut stage, "card"), (1.0, light(PaletteColor::Ring)));
+  assert_eq!(asked.lock().unwrap().len(), 1, "the app's own set tells nobody");
+}
+
+#[test]
+fn the_groups_tell_their_handlers_the_new_value_and_the_new_set() {
+  let (plan, add_ons) = (Signal::new(None::<&'static str>), Signal::new(vec!["backups"]));
+  let (asked, told) = log();
+  let (plans, held) = (plan.clone(), add_ons.clone());
+  let mut stage = Stage::new(move |_| {
+    let (one, many) = (told.clone(), told.clone());
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(
+        RadioCardGroup::new(
+          plans.clone(),
+          [
+            ("free", RadioCard::new("Free").id("free")),
+            ("team", RadioCard::new("Team").id("team")),
+          ],
+        )
+        .on_change(move |plan| one.lock().unwrap().push(format!("plan {plan}"))),
+      )
+      .child(
+        CheckboxCardGroup::new(
+          held.clone(),
+          [
+            ("backups", CheckboxCard::new("Backups").id("backups")),
+            ("support", CheckboxCard::new("Support").id("support")),
+          ],
+        )
+        .on_change(move |add_ons: &[&str]| many.lock().unwrap().push(format!("add-ons {add_ons:?}"))),
+      )
+      .into()
+  });
+  // Bound to an Option, none is selected until a press.
+  assert!(!has_dot(&mut stage, "free") && !has_dot(&mut stage, "team"));
+  stage.click("team");
+  assert_eq!(plan.get(), Some("team"));
+  stage.click("team");
+  stage.click("support");
+  assert_eq!(add_ons.get(), ["backups", "support"]);
+  assert_eq!(
+    *asked.lock().unwrap(),
+    ["plan team", "add-ons [\"backups\", \"support\"]"],
+    "the one selected again tells nobody; a set is told whole"
+  );
+}
+
+#[test]
+fn a_group_the_app_holds_shows_what_the_app_answers_and_a_forced_card() {
+  let held = Signal::new(vec!["crash"]);
+  let read = held.clone();
+  let mut stage = Stage::new(move |_| {
+    let set = read.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        CheckboxCardGroup::controlled(
+          read.get(),
+          [
+            ("crash", CheckboxCard::new("Crash reports").id("crash")),
+            ("usage", CheckboxCard::new("Usage data").id("usage")),
+          ],
+          // The app keeps crash reports on, whatever is pressed.
+          move |next: &[&'static str]| {
+            if next.contains(&"crash") {
+              set.set(next.to_vec());
+            }
+          },
+        )
+        .force(Some(Interaction::FocusVisible)),
+      )
+      .into()
+  });
+  stage.click("crash");
+  stage.pass();
+  assert_eq!(
+    edge(&mut stage, "crash"),
+    (2.0, light(PaletteColor::Primary)),
+    "the app refused"
+  );
+  stage.click("usage");
+  stage.pass();
+  assert_eq!(held.get(), ["crash", "usage"]);
+  assert_eq!(edge(&mut stage, "usage"), (2.0, light(PaletteColor::Primary)));
+  // The forced focus is the first card's.
+  assert!(stage.has_ring(light(PaletteColor::Ring)));
 }

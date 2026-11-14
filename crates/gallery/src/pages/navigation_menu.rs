@@ -343,8 +343,8 @@ impl Component for NavigationMenuPage {
         "item",
         "NavItem",
         "",
-        "An item after the others: NavItem::new(label) with href or on_select, current, icon, disabled, and \
-         panel(NavPanel) for one that opens a panel of links.",
+        "An item after the others: NavItem::new(label) with href or on_select, current, icon, disabled, id, key, \
+         and panel(NavPanel) for one that opens a panel of links.",
       ),
       (
         "NavPanel",
@@ -355,9 +355,9 @@ impl Component for NavigationMenuPage {
       ),
       (
         "NavLink",
-        "title, description, icon, href, on_select, current, disabled",
+        "title, description, icon, href, on_select, current, disabled, id, key",
         "",
-        "A link of a panel. Choosing it runs it, goes to its path and closes the panel.",
+        "A link of a panel. Choosing it closes the panel, then runs it and goes to its path.",
       ),
       (
         "open",
@@ -373,7 +373,7 @@ impl Component for NavigationMenuPage {
       ),
       (
         "variant",
-        "NavigationMenuVariant",
+        "impl Into<Name>",
         "Menu",
         "Menu: each item a box lit under the pointer. Links: the text alone, as a navbar has it.",
       ),

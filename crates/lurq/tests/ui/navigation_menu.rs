@@ -424,6 +424,17 @@ fn the_links_variant_is_the_text_alone_with_the_page_shown_brought_forward() {
   let label = stage.text_quad("Docs").unwrap();
   assert!(close(label.x, x0), "no padding");
   assert!(close(x1 - (x0 + w0), 20.0), "20 apart: {}", x1 - (x0 + w0));
+  // The chevron of 14 is 6 after the text, as in the menu variant.
+  let chevron = stage
+    .quads()
+    .into_iter()
+    .find(|quad| quad.x > label.x + label.width && quad.x < x0 + w0 && close(quad.width, 14.0))
+    .expect("the chevron");
+  assert!(
+    close(chevron.x - (label.x + label.width), 6.0),
+    "{}",
+    chevron.x - (label.x + label.width)
+  );
   assert_eq!(stage.text("Blog").0, light(PaletteColor::MutedForeground));
   assert_eq!(stage.text("About").0, light(PaletteColor::Foreground), "the page shown");
   stage.click("nav-0");
@@ -517,4 +528,53 @@ fn a_theme_restyles_its_parts_and_builds_it_anew() {
       .iter()
       .any(|quad| rect_color(quad) == Some(light(PaletteColor::Popover)))
   );
+}
+
+#[test]
+fn choosing_a_link_closes_the_panel_before_its_handler_runs() {
+  // The menu says it closed, and then the link's handler runs: a handler that opens a dialog keeps its focus.
+  let (mut stage, open, log) = scene_with(|log| {
+    let heard = log.clone();
+    board(log).on_open_change(move |open| {
+      if open.is_none() {
+        heard.lock().unwrap().push("closed");
+      }
+    })
+  });
+  stage.click("nav-0");
+  assert_eq!(open.get(), Some(0));
+  stage.click("nav-0-0");
+  assert_eq!(*log.lock().unwrap(), vec!["closed", "start"]);
+}
+
+#[test]
+fn a_variant_is_named_as_the_theme_names_it() {
+  // The links variant by its name in the recipe, as a theme's own variant would be given.
+  let (mut stage, ..) = scene_with(|log| board(log).variant("links"));
+  let (_, _, _, height) = stage.bounds("nav-0");
+  assert_eq!(height, 32.0, "the links variant's item");
+  assert_eq!(stage.fill_color("nav-0"), None);
+}
+
+#[test]
+fn the_panels_shadow_is_drawn_whole_around_it() {
+  let (mut stage, ..) = scene();
+  stage.click("nav-0");
+  stage.pass();
+  let (x, y, width, height) = stage.bounds("nav-0-panel");
+  let shadows: Vec<Quad> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(quad.content, QuadContent::BoxShadow(_)) && (quad.x, quad.y) == (x, y))
+    .collect();
+  assert!(!shadows.is_empty(), "the panel has its shadow");
+  // The medium shadow reaches past the panel's edges: what is drawn of it is not cut at the panel's box.
+  for shadow in &shadows {
+    let clip = shadow.clip;
+    assert!(
+      !clip.active
+        || (clip.x <= x - 4.0 && clip.y + clip.height >= y + height + 8.0 && clip.x + clip.width >= x + width + 4.0),
+      "the shadow is cut at {clip:?}, the panel is {x} {y} {width} {height}"
+    );
+  }
 }

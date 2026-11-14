@@ -332,7 +332,7 @@ impl ListItem {
       Some(Lead::Radio(chosen)) => Some(
         theme.resolve::<super::Radio>(
           &Case::new()
-            .state(RadioState::Chosen, *chosen)
+            .state(RadioState::Selected, *chosen)
             .state(RadioState::Disabled, self.disabled)
             .breakpoint(super::current_breakpoint()),
           None,

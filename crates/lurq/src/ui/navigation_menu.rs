@@ -156,6 +156,7 @@ pub struct NavLink {
   pub(crate) current: bool,
   pub(crate) disabled: bool,
   pub(crate) id: Option<Arc<str>>,
+  pub(crate) key: Option<Arc<str>>,
 }
 
 impl NavLink {
@@ -170,6 +171,7 @@ impl NavLink {
       current: false,
       disabled: false,
       id: None,
+      key: None,
     }
   }
 
@@ -191,7 +193,7 @@ impl NavLink {
     self
   }
 
-  /// What choosing it does, beside going to its path. Choosing it closes its panel.
+  /// What choosing it does, beside going to its path. Choosing it closes its panel first, and then calls this.
   pub fn on_select(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_select.push(Arc::new(handler));
     self
@@ -209,8 +211,15 @@ impl NavLink {
     self
   }
 
+  /// The id of the link: what is pressed.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
+    self
+  }
+
+  /// What tells the link apart from those beside it, where two have one title.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 }
@@ -293,6 +302,7 @@ pub struct NavItem {
   pub(crate) disabled: bool,
   pub(crate) panel: Option<NavPanel>,
   pub(crate) id: Option<Arc<str>>,
+  pub(crate) key: Option<Arc<str>>,
 }
 
 impl NavItem {
@@ -307,6 +317,7 @@ impl NavItem {
       disabled: false,
       panel: None,
       id: None,
+      key: None,
     }
   }
 
@@ -346,8 +357,15 @@ impl NavItem {
     self
   }
 
+  /// The id of the item: what is pressed. Its panel is `{id}-panel`.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
+    self
+  }
+
+  /// What tells the item apart from those beside it, where two have one label.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 
@@ -405,7 +423,7 @@ pub struct NavigationMenu {
   pub(crate) items: Vec<NavItem>,
   pub(crate) open: Option<Signal<Option<usize>>>,
   pub(crate) on_open_change: Vec<OpenHandler>,
-  pub(crate) variant: NavigationMenuVariant,
+  pub(crate) variant: Name,
   pub(crate) open_delay: TransitionDuration,
   pub(crate) close_delay: TransitionDuration,
   pub(crate) disabled: bool,
@@ -432,7 +450,7 @@ impl NavigationMenu {
       items: Vec::new(),
       open: None,
       on_open_change: Vec::new(),
-      variant: NavigationMenuVariant::Menu,
+      variant: Name::from(NavigationMenuVariant::Menu),
       open_delay: TransitionDuration::Role(MotionDuration::Base),
       close_delay: TransitionDuration::Role(MotionDuration::Slow),
       disabled: false,
@@ -477,8 +495,9 @@ impl NavigationMenu {
     self
   }
 
-  pub fn variant(mut self, variant: NavigationMenuVariant) -> Self {
-    self.variant = variant;
+  /// How its items look: a [`NavigationMenuVariant`], or a variant a theme's recipe names. `Menu` unless told.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
     self
   }
 
@@ -935,7 +954,7 @@ fn build(
     }
   }
   let case = Case {
-    variant: Some(Name::from(menu.variant)),
+    variant: Some(menu.variant.clone()),
     size: None,
     density: None,
     breakpoint: super::current_breakpoint(),
@@ -1073,6 +1092,8 @@ impl NavigationMenuView {
     let _ = href;
     let shared = self.shared.clone();
     move |_: MouseEvent| {
+      // The panel closes first, so that a handler that opens a dialog does not have its focus taken back by it.
+      shared.close();
       for handler in &handlers {
         handler();
       }
@@ -1080,7 +1101,6 @@ impl NavigationMenuView {
       if let Some((path, navigator)) = &go {
         navigator.push(path.to_string());
       }
-      shared.close();
     }
   }
 
@@ -1100,6 +1120,9 @@ impl NavigationMenuView {
       .focus_label(item.label.clone());
     if let Some(id) = self.item_id(index) {
       button = button.id(id);
+    }
+    if let Some(key) = &item.key {
+      button = button.key(key.clone());
     }
     if item.panel.is_none() {
       button = button.describe("a11y_role", "link");
@@ -1257,6 +1280,9 @@ impl NavigationMenuView {
     if let Some(id) = id {
       button = button.id(id);
     }
+    if let Some(key) = &link.key {
+      button = button.key(key.clone());
+    }
     if !link.disabled {
       button = button.on_click(self.choose(&link.on_select, link.href.as_ref()));
     }
@@ -1337,6 +1363,8 @@ impl NavigationMenuView {
     let kept = self.shared.kept(index)?;
     let mut viewport = Column::new()
       .align_items(Alignment::Start)
+      // The panel's shadow falls past the room it is in.
+      .overflow_visible()
       .part(&self.part(NavigationMenuPart::Viewport))
       .child(content);
     if let Some(timers) = &self.timers {
@@ -1496,7 +1524,7 @@ impl Themed for NavigationMenu {
       .when(links(), Item, |s| {
         s.height(32.0)
           .padding_x(0.0)
-          .gap(4.0)
+          .gap(6.0)
           .radius(RadiusSize::Sm)
           .foreground(MutedForeground)
       })
