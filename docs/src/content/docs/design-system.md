@@ -856,8 +856,8 @@ use lurq::{
   ui::{Button, ButtonVariant, Field, Input, Popover},
 };
 
-// anchor: ElementRef, open: Signal<bool>, width: Signal<String>
-Popover::new(anchor.clone(), open.clone())
+// open: Signal<bool>, anchor: ElementRef, width: Signal<String>
+Popover::new(open.clone(), anchor.clone())
   .trigger(Button::new("Dimensions").variant(ButtonVariant::Outline))
   .title("Dimensions")
   .description("Set the size of the layer.")
@@ -867,14 +867,18 @@ Popover::new(anchor.clone(), open.clone())
 
 | Builder | |
 | --- | --- |
-| `new(anchor, open)` | The element it is shown beside, and the app's `Signal<bool>` of whether it is shown |
+| `new(open, anchor)` | The app's `Signal<bool>` of whether it is shown, and the element it is shown beside |
 | `trigger(..)` | The button that opens and closes it: put before it, given the anchor, and pressed to turn the signal |
-| `title(&str)`, `description(&str)` | The header: what it is about, and under it what it is for. Without either there is no header |
+| `title(&str)`, `description(&str)` | The text: what it is about, and under it what it is for. Without either there is no text |
 | `child(..)`, `children(..)` | What it holds, one under another, as wide as the panel |
 | `placement(Placement)` | The side of the anchor it is on and the edge it lines up with. `BottomStart` by default |
 | `width(..)` | How wide the panel is, over the recipe's 292 |
-| `offset(..)` | How far it is from the anchor, along the side it is on: `SpacingSize::Xs` (4) by default |
+| `offset(x, y)` | How far it is moved, across and down, from where its placement puts it, as `Popup::offset` takes it. By default `SpacingSize::Xs` (4) away from the anchor, along the side it is on |
 | `collision(CollisionStrategy)` | What it does where there is no room on its side: `FlipThenClamp` by default |
+| `label(&str)`, `described(&str)`, `alert(bool)` | What tooling calls it (its title by default), what it is described by, and whether it is an `alertdialog` |
+| `on_dismiss(Fn())` | Runs after a person closed it by a press outside or Escape, not when the app sets the signal. Each handler given runs, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape, and a press outside it and its anchor, close it: both `true` by default |
+| `inline(bool)` | Draws the panel where it is declared, open or not, without its trigger and not over the window: for a gallery, a screenshot, a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
 
 - A title or a description longer than the panel wraps inside it.
@@ -884,10 +888,10 @@ Popover::new(anchor.clone(), open.clone())
 - The anchor is kept from one render to the next (a field of the component, `ctx.element_ref()`): one made anew in each render is not the one the focus goes back to.
 - It fades in over the theme's `Base` duration in the `Enter` curve, and out over `Fast` in the `Exit` curve (`PartStyle::enter`, `PartStyle::exit` on the root, `FADE_IN` and `FADE_OUT`). A fade is not movement, so reduced motion leaves it.
 - A theme given to a subtree reaches a popover declared in it.
-- Parts: `PopoverPart::Root` (the panel), `Header` (the title over the description), `Title`, `Description`, `Body` (what it holds). It has no states of its own.
-- In the design the panel is 292 wide in `Popover` and `PopoverForeground`, with an edge of 1 in `Border`, the `Lg` radius and the `Md` shadow, 16 of padding and 14 between the header and the body. The title is in the body's type at medium weight, the description in 13 and `MutedForeground`, 4 under it; what the body holds is 14 apart.
-- To what reads the tree the panel is a `dialog` called by its title.
-- A renderer builds the panel alone: where it is shown, when, its trigger and its focus stay the popover's. It starts from `view.panel()`, the panel with its style and nothing in it, and has `view.header()` and `view.children`.
+- Parts: `PopoverPart::Panel` (the panel), `Text` (the title over the description), `Title`, `Description`, `Body` (what it holds). It has no states of its own.
+- In the design the panel is 292 wide in `Popover` and `PopoverForeground`, with an edge of 1 in `Border`, the `Lg` radius and the `Md` shadow, 16 of padding and 14 between the text and the body. The title is in the body's type at medium weight, the description in 13 and `MutedForeground`, 4 under it; what the body holds is 14 apart.
+- To what reads the tree the panel is a `dialog` called by its label or its title.
+- A renderer builds the panel alone: where it is shown, when, its trigger and its focus stay the popover's. It starts from `view.panel()`, the panel with its style and nothing in it, and has `view.text()` and `view.children`.
 
 ## Menu
 
@@ -2621,7 +2625,7 @@ A question in a small panel hung from what was pressed, answered by one of two b
 ```rust
 use lurq::ui::{Button, ButtonVariant, Popconfirm};
 
-Popconfirm::new(anchor.clone(), open.clone())
+Popconfirm::new(open.clone(), anchor.clone())
   .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
   .title("Delete this file?")
   .description("It will be moved to the trash.")
@@ -2632,22 +2636,27 @@ Popconfirm::new(anchor.clone(), open.clone())
 
 | Builder | |
 | --- | --- |
-| `Popconfirm::new(anchor, Signal<bool>)` | Hung from `anchor`, shown while the signal holds `true`. Keep the anchor from one render to the next, as for a [popover](#popover) |
+| `Popconfirm::new(Signal<bool>, anchor)` | Shown while the signal holds `true`, hung from `anchor`. Keep the anchor from one render to the next, as for a [popover](#popover) |
 | `trigger(element)` | A button that asks: it is the anchor, and a press of it turns the signal |
 | `title(&str)`, `description(&str)` | The question, and more of it in the muted color |
-| `icon(&str)` | An icon of the theme's set before the title, in place of the warning sign |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set before the title, in place of the warning sign, or `None` for no icon |
 | `confirm(&str, handler)`, `cancel(&str, handler)` | The two buttons: their labels ("Yes" and "No" when not given) and what each runs after it closes the popconfirm. Escape and a press outside run the cancel one |
-| `destructive(bool)` | The confirm button and the icon in the destructive color |
-| `placement(Placement)`, `offset(..)` | Where it is beside its anchor: under it at its start, 4 from it, by default |
+| `destructive(bool)` | The confirm button and the icon in the destructive color, and the focus on the cancel button as it opens |
+| `placement(Placement)`, `offset(x, y)`, `collision(CollisionStrategy)` | Where it is beside its anchor, as a [popover](#popover) has them: under it at its start, 4 from it, by default |
+| `width(..)` | How wide the panel is, over the recipe's 250 |
+| `label(&str)` | What tooling calls it: its title by default |
+| `on_dismiss(Fn())` | Runs after a person closed it by Escape or a press outside, after what the cancel button runs; not on a press of either button, nor when the app sets the signal. Each handler given runs, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape, and a press outside it and its anchor, close it and cancel: both `true` by default |
+| `inline(bool)` | Draws the panel where it is declared, open or not, without its trigger: for a gallery, a screenshot, a test. Its buttons still answer |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of the panel |
 
-- The title and the description wrap. Buttons too long to stand side by side go one under the other, the confirm button under the cancel one, both at the end. A button's label is not cut: a label wider than the panel runs past it.
-- It is a [popover](#popover): kept in the window, gone to the other side where there is no room, the focus back on the anchor as it closes. As it opens the focus goes to the cancel button, so that Enter or Space does not confirm what was not read.
-- Escape and a press outside close it and run what the cancel button runs.
-- Parts: `PopconfirmPart::Panel` and `Body` (laid over the popover's root and body), `Content`, `Message`, `Icon`, `Text`, `Title`, `Description`, `Actions`, `CancelButton`, `CancelLabel`, `ConfirmButton`, `ConfirmLabel`. States: `PopconfirmState::Destructive`.
-- In the design the panel is 250 wide, padded 12 with 12 between the message and the buttons, in the popover's colors, edge, large radius and medium shadow; the icon is the warning sign of 16 in `Warning`, 8 before the title of 13/500 over the description of 12 in `MutedForeground`, 2 apart; the buttons are 28 high, padded 10, their labels 13, 8 apart at the end.
-- To what reads the tree it is an `alertdialog` called by its title and described by its description.
-- A theme's renderer builds what the panel holds from `PopconfirmView` (`message()`, `cancel()`, `confirm()`, `actions()`, `content()` with Escape, `confirmer()`, `canceller()`); where the panel is shown, and when, stays the popover's.
+- The title and the description wrap. Buttons too long to stand side by side go one under the other, the confirm button under the cancel one, both at the end. A button's label wider than the panel is cut with an ellipsis inside it.
+- It is a [popover](#popover): kept in the window, gone to the other side where there is no room, the focus back on the anchor as it closes. As it opens the focus goes to the confirm button; where it is destructive, to the cancel button, the least destructive answer, so that Enter or Space does not remove what was not read. A message box puts the focus by the same rule.
+- Escape and a press outside close it and run what the cancel button runs, then what `on_dismiss` was given. A button closes it before its handler runs.
+- Parts: `PopconfirmPart::Panel` and `Body` (laid over the popover's panel and body), `Content`, `Header` (the row of the icon and the text), `Icon`, `Text`, `Title`, `Description`, `Footer` (the row of the buttons), `CancelButton`, `CancelLabel`, `ConfirmButton`, `ConfirmLabel`. States: `PopconfirmState::Destructive`.
+- In the design the panel is 250 wide, padded 12 with 12 between the header and the buttons, in the popover's colors, edge, large radius and medium shadow; the icon is the warning sign of 16 in `Warning`, 8 before the title of 13/500 over the description of 12 in `MutedForeground`, 2 apart; the buttons are 28 high, padded 10, their labels 13, 8 apart at the end.
+- To what reads the tree it is an `alertdialog` called by its label or its title and described by its description.
+- A theme's renderer builds what the panel holds from `PopconfirmView` (`header()`, `cancel()`, `confirm()`, `footer()`, `content()` with Escape, `confirmer()`, `canceller()`, `dismisser()`); where the panel is shown, and when, stays the popover's.
 
 ## Progress Dialog
 
@@ -3644,7 +3653,7 @@ DatePicker::new(due.clone()).format(|date| date.to_string()).parse(|text| text.p
 - The calendar opens in a [popover](#popover) under the field, from the button at its start or from Down in the field, with the focus on the chosen day, today or the first of the month. A choice closes it and the focus goes back to the field, as Escape and a press outside do.
 - To what reads the tree the field is a `combobox` that says `a11y_haspopup` `dialog` and `a11y_expanded`, as the date picker of the ARIA patterns is; the panel is a `dialog` called "Choose date". The button that opens it and the cross that empties it are pressed by the pointer and take no focus.
 - In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A picker in a field keeps what it keeps in a `CalendarMemory`, since a field is given the picker's builder.
-- Parts: `DatePickerPart::Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's root), and a range picker's `Presets` and `Preset`. The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Disabled`, `FullWidth`, and the input's judgment, size and read only.
+- Parts: `DatePickerPart::Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's panel), and a range picker's `Presets` and `Preset`. The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Disabled`, `FullWidth`, and the input's judgment, size and read only.
 - In the design the field is the input, 260 by 36, with a calendar's glyph of 16 in `MutedForeground` 12 from its start and the date 8 after it in the body's type. The glyph is in a button of 24 with `radius-sm`, on `Highlight` under the pointer. The calendar opens 4 under the field, in the popover's panel with no padding of its own, as wide as the calendar.
 - A theme's renderer is given `DatePickerView` (`PickerView<Date>`): `view.text`, `view.value`, `view.open`, and the pieces `control()`, `trigger()`, `clear()`, `field()`, `calendar()`, `panel()` and `render()`.
 
