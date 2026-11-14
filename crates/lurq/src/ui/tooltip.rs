@@ -417,6 +417,9 @@ impl TooltipView {
     }
     content = content.child(words);
     if let Some(keys) = &self.shortcut {
+      // A text too long to have the shortcut beside it wraps across the box, and the shortcut goes under it:
+      // beside it the text would be squeezed into what the shortcut leaves.
+      content = content.wrap();
       let part = self.part(TooltipPart::Shortcut);
       content = content.child(
         Row::new()

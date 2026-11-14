@@ -402,3 +402,28 @@ fn tab_goes_through_an_open_popover_right_after_its_trigger() {
   );
   assert!(first.get(), "moving through it leaves it open");
 }
+
+#[test]
+fn a_title_and_a_description_longer_than_the_panel_go_on_to_more_lines_inside_it() {
+  const TITLE: &str = "Dimensions of the layer and of everything it holds";
+  const DESCRIPTION: &str = "Set the size of the layer; what it holds keeps its place against the edges.";
+  let open = Signal::new(true);
+  let mut stage = Stage::new(page((20.0, 20.0), 120.0, &open, |anchor, open| {
+    Popover::new(anchor, open)
+      .id("panel")
+      .title(TITLE)
+      .description(DESCRIPTION)
+      .child(Row::new().height(36.0).id("content"))
+  }));
+  let (x, _, width, _) = stage.bounds("panel");
+  for text in [TITLE, DESCRIPTION] {
+    let quad = stage.text_quad(text).unwrap();
+    assert!(
+      quad.x + quad.width <= x + width - 15.5,
+      "{text:?} inside the padding: {} in {}",
+      quad.x + quad.width,
+      x + width
+    );
+    assert!(quad.height > 24.0, "{text:?} on more lines: {}", quad.height);
+  }
+}

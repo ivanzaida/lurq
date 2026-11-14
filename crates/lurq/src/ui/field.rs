@@ -14,7 +14,7 @@ use crate::{
   components::{Column, Row, Stack},
   core::ElementRef,
   layout::{Alignment, text_style::FontWeight},
-  node::Element,
+  node::{Element, dimension::Dimension},
 };
 
 /// What a field tells the control it holds.
@@ -451,10 +451,16 @@ impl FieldView {
     label
   }
 
-  /// What is under the control, where there is something.
+  /// What is under the control, where there is something: as wide as the
+  /// field, a longer one going on to the next line.
   pub fn description(&self) -> Option<Row> {
     let description = self.description.as_ref()?;
-    Some(self.text(FieldPart::Description, description))
+    let part = self.part(FieldPart::Description);
+    Some(
+      Row::new()
+        .part(&part)
+        .child(part.text(description).width(Dimension::Pct(100.0))),
+    )
   }
 
   /// How the default renderer builds a field: the label, the control and the
@@ -464,13 +470,38 @@ impl FieldView {
     let description = self.description();
     let root_part = self.part(FieldPart::Root);
     let body_part = self.part(FieldPart::Body);
+    // A control that fills the field (`full_width`), or a component, which may fill it from inside, is held at the
+    // field's width. Any other keeps its own, and the field is at least as wide as it: as wide as the recipe says,
+    // or wider for a wider control, with the label and the description as wide as the recipe says.
+    let fills =
+      matches!(self.control.node.frame.width, Some(Dimension::Pct(_))) || self.control.node.component_key().is_some();
+    let least = match root_part.rest().width.and_then(|width| width.resolve(self.theme())) {
+      Some(Dimension::Px(width)) if !fills && !self.horizontal => Some(width),
+      _ => None,
+    };
+    let (label, description) = match least {
+      Some(width) => (
+        label.width(Dimension::Px(width)),
+        description.map(|description| description.width(Dimension::Px(width))),
+      ),
+      None => (label, description),
+    };
     // The control keeps its own width: a row the width of the field holds it. The row carries a ref made anew in
     // each build, and a key, so that the new ref does not make it another node to the engine and its control
     // keeps the focus and what is typed in it.
-    let control = Row::new()
+    let beside = self
+      .horizontal
+      .then(|| self.part(FieldPart::Label).rest().height)
+      .flatten()
+      .and_then(|height| height.resolve(self.theme()));
+    let mut control = Row::new()
       .key("control")
       .ref_element(self.focus.clone())
       .child(self.control);
+    // Beside the label a control lower than an input stands in the middle of the label's height, level with it.
+    if let Some(height) = beside {
+      control = control.min_height(height).align_items(Alignment::Center);
+    }
     let (id, key) = (self.id, self.key);
     macro_rules! named {
       ($node:expr) => {{
@@ -501,11 +532,15 @@ impl FieldView {
           .child(body)
       )
     } else {
-      let mut root = Column::new()
-        .align_items(Alignment::Stretch)
-        .part(&root_part)
-        .child(label)
-        .child(control);
+      let mut root = Column::new().align_items(Alignment::Stretch).part(&root_part);
+      if let Some(width) = least {
+        // Not stretched by what holds it either: as wide as the wider of the recipe's width and the control.
+        root = root
+          .width(Dimension::Auto)
+          .min_width(Dimension::Px(width))
+          .align(Alignment::Start);
+      }
+      let mut root = root.child(label).child(control);
       if let Some(description) = description {
         root = root.child(description);
       }

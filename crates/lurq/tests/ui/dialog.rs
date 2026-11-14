@@ -429,3 +429,35 @@ fn an_inline_dialog_is_its_panel_where_it_is_declared() {
   assert!(stage.paints("Delete workspace?"));
   assert!(veils(&stage, light(PaletteColor::Scrim)).is_empty());
 }
+
+#[test]
+fn a_title_and_a_description_longer_than_the_panel_go_on_to_more_lines_inside_it() {
+  // The board's description (`IV2H5`), on two lines in 360.
+  const TITLE: &str = "Delete the workspace and every window layout and setting stored for it?";
+  const DESCRIPTION: &str =
+    "This removes every window layout and setting stored for this workspace. It cannot be undone.";
+  for close_button in [false, true] {
+    let open = Signal::new(true);
+    let mut stage = stage(move |_| {
+      window(
+        Dialog::new(open.clone())
+          .id("dialog")
+          .title(TITLE)
+          .description(DESCRIPTION)
+          .close_button(close_button),
+      )
+    });
+    let (x, _, width, _) = stage.bounds("dialog");
+    for text in [TITLE, DESCRIPTION] {
+      let quad = stage.text_quad(text).unwrap();
+      assert!((quad.x - (x + 24.0)).abs() < 0.5, "{text:?} at the padding: {}", quad.x);
+      assert!(
+        quad.x + quad.width <= x + width - 24.0 + 0.5,
+        "{text:?} inside the padding: {} in {}",
+        quad.x + quad.width,
+        x + width
+      );
+      assert!(quad.height > 30.0, "{text:?} on more lines: {}", quad.height);
+    }
+  }
+}

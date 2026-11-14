@@ -121,3 +121,23 @@ fn a_rule_changes_its_color_and_an_inset_is_its_padding() {
   assert_eq!(lines.len(), 1);
   assert_eq!((lines[0].x, lines[0].width), (16.0, 208.0));
 }
+
+#[test]
+fn a_label_longer_than_the_room_is_cut_with_an_ellipsis_and_keeps_a_line_on_either_side() {
+  const LABEL: &str = "or continue with an account of another provider you have used before";
+  let stage = Stage::new(|_| {
+    Column::new()
+      .width(240.0)
+      .child(Separator::horizontal().label(LABEL).id("or"))
+      .into()
+  });
+  let label = stage.cut_text_quad(LABEL).expect("the label is painted");
+  let lines = fills(&stage, light(PaletteColor::Border));
+  assert_eq!(lines.len(), 2, "a line on either side");
+  for line in &lines {
+    assert!(line.width >= 24.0 - 0.5, "a line of 24 at least: {}", line.width);
+  }
+  assert!(label.x >= lines[0].x + lines[0].width + 8.0 - 0.5);
+  assert!(label.x + label.width <= lines[1].x - 8.0 + 0.5);
+  assert!((lines[1].x + lines[1].width - 240.0).abs() < 0.5);
+}

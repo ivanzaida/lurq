@@ -447,8 +447,11 @@ impl PasswordInputView {
     } else {
       let spacing = self.part(PasswordInputPart::Mask).rest().text.letter_spacing;
       let control = control.mask();
+      // The dots are spaced, and not the placeholder: its own style again after the spacing, which sets both.
       match spacing {
-        Some(spacing) => control.letter_spacing(spacing),
+        Some(spacing) => control
+          .letter_spacing(spacing)
+          .placeholder_style(self.input.placeholder_style()),
         None => control,
       }
     };
