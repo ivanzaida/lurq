@@ -40,7 +40,8 @@ fn surface(name: &str, fill: PaletteColor, ink: PaletteColor) -> Column {
 
 /// A swatch of one role, with its name and its color in the palette the theme is in.
 fn swatch(role: PaletteColor, palette: &ThemePalette) -> Column {
-  let name = role.as_str().to_owned();
+  // A name breaks after an underscore where it does not fit its swatch (a larger text size), not inside a word.
+  let name = role.as_str().replace('_', "_\u{200B}");
   let hex = palette.get(&role).to_hex();
   Column::new()
     .spacing(4.0)
