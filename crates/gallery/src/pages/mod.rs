@@ -11,9 +11,11 @@ mod breadcrumb;
 mod button;
 mod card;
 mod checkbox;
+mod checkbox_card;
 mod dialog;
 mod family;
 mod family_play;
+mod fieldset;
 mod icons;
 mod input;
 mod menu;
@@ -22,6 +24,7 @@ mod pagination;
 mod popover;
 mod progress;
 mod radio;
+mod radio_card;
 mod select;
 mod separator;
 mod skeleton;
@@ -238,6 +241,30 @@ pub const PAGES: &[Page] = &[
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/checkbox-card",
+    name: "Checkbox Card",
+    icon: None,
+    about: "checkbox card choice tile option add-on plan price icon description checked group",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<checkbox_card::CheckboxCardPage>(()),
+  },
+  Page {
+    path: "/radio-card",
+    name: "Radio Card",
+    icon: None,
+    about: "radio card choice tile option plan price icon description chosen group exclusive",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<radio_card::RadioCardPage>(()),
+  },
+  Page {
+    path: "/fieldset",
+    name: "Fieldset",
+    icon: None,
+    about: "fieldset legend group fields disabled form error summary errors alert attention link focus",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<fieldset::FieldsetPage>(()),
   },
   Page {
     path: "/tooltip",

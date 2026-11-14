@@ -24,10 +24,12 @@ mod button_group;
 mod card;
 mod checkbox;
 mod chip;
+mod choice_card;
 mod collapsible;
 mod dialog;
 mod fab;
 mod field;
+mod fieldset;
 mod icon;
 pub mod icons;
 mod input;
@@ -79,10 +81,18 @@ pub use checkbox::{
   CheckboxView,
 };
 pub use chip::{Chip, ChipGroup, ChipGroupPart, ChipPart, ChipRenderer, ChipState, ChipView};
+pub use choice_card::{
+  CheckboxCard, CheckboxCardGroup, ChoiceCardGroupPart, ChoiceCardGroupState, ChoiceCardKind, ChoiceCardPart,
+  ChoiceCardRenderer, ChoiceCardState, ChoiceCardView, RadioCard, RadioCardGroup,
+};
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
+pub use fieldset::{
+  ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
+  FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
+};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};

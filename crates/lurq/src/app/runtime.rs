@@ -4432,7 +4432,7 @@ impl Tree {
     let Some(focused) = self.focused_node else {
       return false;
     };
-    let (_kind, click) = {
+    let (_kind, click, focuses) = {
       let Some(root) = &self.root else {
         return false;
       };
@@ -4447,12 +4447,18 @@ impl Tree {
       let Some(kind) = node.button_kind_value() else {
         return false;
       };
-      (kind, node.events.on_click.clone())
+      (kind, node.events.on_click.clone(), node.events.focuses.clone())
     };
 
     let event = modifiers.keyboard_click(focused);
     for handler in click {
       handler.call(&event);
+    }
+    // A button that names another element (`focuses`) gives the focus on when the keyboard presses it, as a click does.
+    if let Some(target) = focuses
+      && let Some(ctx) = &self.root_ctx
+    {
+      ctx.focus(&target);
     }
 
     #[cfg(feature = "form")]
@@ -5290,12 +5296,13 @@ impl Tree {
         builtin_needs_redraw = true;
       }
       // A click of a label focuses what it names (`focuses`), unless something under the pointer takes the focus
-      // itself: a request, as `Ctx::focus` makes, which is applied once the click is handled.
+      // itself and names nothing: a request, as `Ctx::focus` makes, which is applied once the click is handled. A
+      // node that takes the focus and names another (a link of an error summary to its field) gives it on.
       if is_left_click
         && let Some(target) = hits
           .iter()
-          .take_while(|(node, _)| !node.is_focusable())
-          .find_map(|(node, _)| node.events.focuses.as_ref())
+          .find(|(node, _)| node.is_focusable() || node.events.focuses.is_some())
+          .and_then(|(node, _)| node.events.focuses.as_ref())
         && let Some(ctx) = &self.root_ctx
       {
         ctx.focus(target);
