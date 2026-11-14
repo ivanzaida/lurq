@@ -11,6 +11,7 @@ mod calendar;
 mod card;
 mod checkbox;
 mod choice_card;
+mod color_swatch;
 mod collapsible;
 mod combobox;
 mod command_palette;

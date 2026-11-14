@@ -31,6 +31,7 @@ mod checkbox;
 mod chip;
 mod choice_card;
 mod collapsible;
+mod color_swatch;
 mod combobox;
 mod command_palette;
 mod context_menu;
@@ -143,6 +144,10 @@ pub use choice_card::{
   RadioCardGroup,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
+pub use color_swatch::{
+  ColorSwatch, ColorSwatchPart, ColorSwatchRenderer, ColorSwatchShape, ColorSwatchSize, ColorSwatchState,
+  ColorSwatchView,
+};
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use command_palette::{
   CommandFilter, CommandItem, CommandPalette, CommandPalettePart, CommandPaletteRenderer, CommandPaletteState,
@@ -188,9 +193,7 @@ pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,
 };
-pub use listbox::{
-  Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView,
-};
+pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
   MentionsState, MentionsView,
@@ -381,6 +384,7 @@ inspectable!(
   button::ButtonShape,
   calendar::CalendarChoice,
   choice_card::ChoiceCardKind,
+  color_swatch::ColorSwatchShape,
   input_otp::InputOtpKind,
   kbd::KeyPlatform,
   message_box::MessageBoxRole,
