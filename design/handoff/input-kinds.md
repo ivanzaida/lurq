@@ -29,6 +29,9 @@ Files: `crates/lurq/src/ui/password_input.rs`, `search_field.rs`, `input_group.r
   - `InputView::text_start` and `InputView::icon` read the control's padding at its start (`padding_start` over
     `padding_x`), not `padding_x` alone. Nothing changes for `Input`, whose recipe gives `padding_x` only; the search
     field pads its start 10 and its end 8.
+- The icon font: `design/icons/svg/eye-off.svg` (new), `design/icons/codepoints.json` (`eye-off` at U+E098),
+  `crates/lurq/assets/lurq-icons.ttf` and `crates/lurq/src/ui/icons.rs` (`icons::EYE_OFF`), rebuilt with
+  `python scripts/build-icon-font.py`. No other glyph changed.
 - `crates/lurq/src/ui/text_box.rs`: `BoxStates::role`, what the box is to tooling in place of `textbox` (the search
   field's `searchbox`).
 
@@ -70,7 +73,7 @@ PasswordInput::new(chosen.clone())
 - Tab reaches the input and then the eye, which Space and Enter press. To tooling the eye is a `button` called "Show password" or "Hide password", with `a11y_pressed`.
 - Masked, the password is not copied or cut, the platform's keyboard keeps it out of its suggestions, and tooling (`lurq_snapshot`, `lurq_set_value` of the MCP server) reads only its dots and `masked=true`. Shown, it is what the screen shows, to tooling too. Shown or not it holds a password to the platform (`ContentKind::Password`, or `NewPassword`), which may offer to fill it in.
 - Parts: `PasswordInputPart::Root` (the input, the meter and its message, one under another), `Mask` (the room between the dots), `Toggle` (the eye), `Strength` (the meter), `Bar` (a bar the strength does not reach), `Filled` (one it does), `Message`. States: `PasswordInputState::Revealed`, `Disabled`, `FullWidth`, and the strength by its name (`weak`, `fair`, `good`, `strong`). The box, its text and its placeholder are the input's parts, styled by the theme's recipe for an input or `input_rules`.
-- In the design the dots are 1 apart; the eye is 16 in `MutedForeground`, 12 from the end of the box and 8 after the text, in `Foreground` under the pointer and while the password is shown. The meter is 8 under the box: four bars 4 high and 4 apart, round, in `Input` where the strength does not reach and in its color where it does, `Destructive` for weak, `Warning` for fair, `Success` for good and strong; the message is 8 under it in a caption's type in the same color.
+- In the design the dots are 1 apart; the eye is 16 in `MutedForeground`, 12 from the end of the box and 8 after the text, in `Foreground` under the pointer; while the password is shown it is an eye with a line through it (`icons::EYE_OFF`), in `Foreground`. The meter is 8 under the box: four bars 4 high and 4 apart, round, in `Input` where the strength does not reach and in its color where it does, `Destructive` for weak, `Warning` for fair, `Success` for good and strong; the message is 8 under it in a caption's type in the same color.
 - A renderer that draws another password input has `view.input` (the input's view: `render_with_end` is crate-private, so it lays the eye over `view.control()` itself), `view.control()` (the masked text input with room at its end), `view.toggle()`, `view.strength_meter()` and `view.message()`.
 
 ## Search Field
@@ -97,7 +100,7 @@ SearchField::new(query.clone())
 | `placeholder`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `on_input`, `name` | As an [input](#input) has them |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control |
 
-- While it holds something a clear button is at its end, which empties it and puts the caret back in it; Escape does the same while the focus is in it, and keeps the focus there. Escape in an empty field does what it does in any input. A read-only or disabled field has no clear button, and Escape does not empty it.
+- While it holds something a clear button is at its end, which empties it and takes no focus, so the caret stays in it; Escape does the same while the focus is in it, and keeps the focus there. Escape in an empty field does what it does in any input. A read-only or disabled field has no clear button, and Escape does not empty it.
 - The clear button is no stop of Tab: from the keyboard Escape does what it does. The hint shows while the field is empty; the field does not bind the key, which the app does and focuses the field on (`ctx.focus`).
 - To tooling the field is a `searchbox` and its button a `button` called "Clear search".
 - Parts: `SearchFieldPart::Root` and `Control` (what the field says of the input's root and box: its width, its padding), `End` (what is at the end of the box), `Clear`, `Shortcut` (the hint). States: `SearchFieldState::Filled`, `FullWidth`. The box, its text, its placeholder and its icon are the input's parts.
@@ -149,9 +152,9 @@ InputGroup::new(Input::new(site.clone())).before(Select::new(scheme.clone(), [("
 - **The search field is not an input with three props.** It has a clear button, a hint, keys and another role to tooling, so it is a builder of its own over `Input`, with the search icon as the input's own icon.
 - **The reveal is the app's**, as the brief asked: `reveal(bool)` with `on_reveal`, or `bind_reveal(Signal<bool>)` (as `Chip::bind`). A builder keeps nothing. The eye is drawn only where something hears it: an eye that does nothing would be a dead button.
 - **Shown, the password is readable to tooling.** The board draws only the masked password and says nothing of one shown; shown, it is on the screen, so it is what the screen shows. The input keeps `ContentKind::Password` while shown, so the platform still treats it as a password. Masked, the engine's text input now copies and cuts nothing (the change above), which a native password field does not either.
-- **The eye is the same glyph shown or hidden**, in `Foreground` while the password is shown: the icon set has no eye with a line through it (under "Not done").
+- **Shown, the eye has a line through it** (`icons::EYE_OFF`), in `Foreground`. The board has no `Icon/eye-off` and is not edited by a session, so the glyph's source is `design/icons/svg/eye-off.svg`, made by hand: the outlines of `eye.svg` with the diagonal stroke of `close.svg` lengthened from 3,3 to 21,21, the same weight (2) and the same round ends, wound as the eye's outer edge so that where they cross stays filled. `python scripts/build-icon-font.py` builds the font from the sources, and `--from-board` keeps a source the board does not have and names it. The glyph is to be drawn on the board later as `Icon/eye-off`; `--from-board` then replaces this source with the board's export.
 - **The strength is the app's judgment**, four steps: weak 1 bar destructive, fair 2 warning, good 3 success, strong 4 success. The board draws one sample, three bars in success under "Strong password"; a meter whose strongest step fills three of four bars would never be full, so strong fills four. The message is under the meter, as the board draws it, and is the meter's, not a field's description.
-- **The clear button is no stop of Tab**: Escape empties the field from the keyboard, and the button exists only while there is text. A press of it puts the caret back in the field (`.focuses`).
+- **The clear button is no stop of Tab**: Escape empties the field from the keyboard, and the button exists only while there is text. A press of it takes no focus (`focusable(false)`), so a press does not take the focus out of the field it was typed in.
 - **The hint is laid over the end of the box before it is laid out**, so the box keeps room for it by its characters at 0.6 of the size of its type, a mono cell, and its padding. It shows only while the field is empty, so only a long placeholder could run under it.
 - **Enter submits and keeps the focus** where the app listens for it (`on_submit`); without a handler Enter does what it does in any input (submits a form, leaves the input). Escape that empties the field keeps the focus; Escape in an empty field leaves it.
 - **The group's edge is the box's**, painted over its parts, and the input in it has none, so the line between the input and an addon is the addon's separator, as on the board. The focus ring, an outline, is drawn at the end of its scope, over the box's edge and the neighbours: the focused part's ring is whole.
@@ -160,11 +163,9 @@ InputGroup::new(Input::new(site.clone())).before(Select::new(scheme.clone(), [("
 
 ## Not done
 
-- **An eye with a line through it while the password is shown.** Neither the board nor the icon font has one. Smallest change: draw `Icon/eye-off` on the board beside `Icon/eye` (`N1JL9T`), run `python scripts/build-icon-font.py --from-board`, add `icons::EYE_OFF`, and in `PasswordInputView::toggle` take `icons::EYE_OFF` while `revealed`.
-
 ## Differs from the board
 
-- Shown, the eye is the same glyph in `Foreground`; the board draws no shown state (under "Not done").
+- Shown, the eye has a line through it, a glyph the board does not have yet (under "Decided"); the board draws no shown state.
 - The board's meter shows three bars under "Strong password"; lurq's strong fills four, and good three. The destructive and warning colors of a weak and a fair password are lurq's: the board draws only success.
 - The board draws the shortcut as a `Kbd` component; lurq's is a part of the search field with the Kbd's numbers. There is no `ui::Kbd`.
 - The board's input groups have text addons only; the icon, button and select addons, the edge under the pointer and the edge of a judgment are lurq's, in the input's colors.
