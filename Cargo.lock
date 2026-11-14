@@ -1996,6 +1996,7 @@ dependencies = [
  "pulldown-cmark",
  "raw-window-handle",
  "redb",
+ "regex",
  "rfd",
  "rmcp",
  "serde_json",

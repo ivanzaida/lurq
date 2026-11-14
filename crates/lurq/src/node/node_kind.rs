@@ -597,6 +597,17 @@ impl TextState {
       .collect()
   }
 
+  /// The parts of the lines that bytes `range` of `value` cover, in logical
+  /// pixels in the text's box: where a range is drawn, to scroll it into view.
+  pub(crate) fn range_lines(&self, value: &str, range: std::ops::Range<usize>) -> Vec<TextSelectionRange> {
+    let start = clamp_to_char_boundary(value, range.start);
+    let end = clamp_to_char_boundary(value, range.end);
+    if start >= end {
+      return Vec::new();
+    }
+    self.inner.lock().unwrap().line_ranges(value, start, end)
+  }
+
   /// Writes what laying the text out under one set of constraints produced:
   /// the string to draw instead of the content, whether the renderer wraps,
   /// and, for selectable text, the carets of the painted layout (`None`

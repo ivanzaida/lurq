@@ -36,6 +36,7 @@ mod file_upload;
 mod find_bar;
 mod floating_panel;
 mod forced_on_one_item;
+mod highlight;
 mod hover_card;
 mod icon;
 mod input;

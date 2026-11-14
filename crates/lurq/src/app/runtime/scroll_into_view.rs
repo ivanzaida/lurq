@@ -37,6 +37,10 @@ impl Tree {
       .root_ctx
       .as_ref()
       .and_then(|ctx| ctx.take_scroll_into_view_request());
+    let range = self
+      .root_ctx
+      .as_ref()
+      .and_then(|ctx| ctx.take_scroll_range_into_view_request());
     let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
       return false;
     };
@@ -44,6 +48,17 @@ impl Tree {
     let mut scrolled = false;
     for node_id in targets {
       scrolled |= scroll_into_view(root, layout, node_id);
+    }
+    // A range of a text: the lines it covers, where the text is laid out now.
+    if let Some((element, range)) = range
+      && let Some(node_id) = node_with_ref(root, &element)
+    {
+      let engine = &self.layout_engine;
+      scrolled |= scroll_part_into_view(root, layout, node_id, |node, result| {
+        engine
+          .text_range_rect(node, result, range.clone())
+          .map(|(x, y, width, height)| Rect { x, y, width, height })
+      });
     }
     scrolled
   }
@@ -64,9 +79,33 @@ fn node_with_ref(node: &Node, element: &OwnedElementRef) -> Option<NodeId> {
 /// Scrolls every scroll container around `node_id` just enough to show the
 /// node, innermost first. Returns whether any container moved.
 pub(super) fn scroll_into_view(root: &Node, layout: &LayoutResult, node_id: NodeId) -> bool {
+  scroll_part_into_view(root, layout, node_id, |_, _| None)
+}
+
+/// Scrolls every scroll container around `node_id` just enough to show the
+/// part of the node `part` gives, in the node's box (the lines of a range of
+/// a text); the whole node where it gives none. Returns whether any
+/// container moved; nothing moves where `part` finds nothing in a node that
+/// has it.
+fn scroll_part_into_view(
+  root: &Node,
+  layout: &LayoutResult,
+  node_id: NodeId,
+  part: impl Fn(&Node, &LayoutResult) -> Option<Rect>,
+) -> bool {
   let mut containers = Vec::new();
-  let Some(mut target) = find_rect(root, layout, (0.0, 0.0), node_id, &mut containers) else {
+  let mut found = None;
+  let Some(whole) = find_rect(root, layout, (0.0, 0.0), node_id, &mut containers, &mut found) else {
     return false;
+  };
+  let mut target = match found.and_then(|(node, result)| part(node, result)) {
+    Some(inner) => Rect {
+      x: whole.x + inner.x,
+      y: whole.y + inner.y,
+      width: inner.width,
+      height: inner.height,
+    },
+    None => whole,
   };
   let mut scrolled = false;
   for container in containers.iter().rev() {
@@ -148,6 +187,7 @@ fn find_rect<'n>(
   origin: (f32, f32),
   node_id: NodeId,
   containers: &mut Vec<ScrollContainer<'n>>,
+  found: &mut Option<(&'n Node, &'n LayoutResult)>,
 ) -> Option<Rect> {
   // A dropped subtree is not drawn: there is nothing to scroll to.
   if layout.dropped {
@@ -160,6 +200,7 @@ fn find_rect<'n>(
     height: layout.size.height,
   };
   if node.node_id() == node_id {
+    *found = Some((node, layout));
     return Some(rect);
   }
   let scroll = match node.layout_kind() {
@@ -177,8 +218,8 @@ fn find_rect<'n>(
   };
   for (child, child_layout) in node.children().iter().zip(&layout.children) {
     let child_origin = (origin.0 + child_layout.offset.x, origin.1 + child_layout.offset.y);
-    if let Some(found) = find_rect(child, &child_layout.result, child_origin, node_id, containers) {
-      return Some(found);
+    if let Some(rect) = find_rect(child, &child_layout.result, child_origin, node_id, containers, found) {
+      return Some(rect);
     }
   }
   if scroll {

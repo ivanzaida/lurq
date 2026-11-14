@@ -247,3 +247,88 @@ fn highlights_set_on_a_text_laid_out_without_them_are_drawn_and_clear() {
   fixture.highlights.set(Vec::new());
   assert!(fills(&fixture.pass(), current()).is_empty(), "cleared");
 }
+
+#[test]
+fn padding_reaches_past_the_words_and_a_border_edges_the_fill() {
+  let edge = Color::from_hex("#b45309");
+  let mut app = probe_app();
+  let mut tree = Tree::new();
+  tree.set_root(Text::styled("aaaa", probe_style()).highlights(vec![
+    TextHighlight::new(1..3, current()).padding(3.0, 1.0).border(2.0, edge),
+  ]));
+  let snapshot = render_pass_with_app(&mut tree, &mut app);
+  let x = text_x(&mut tree);
+  let rects = fills(&snapshot, current());
+  assert_eq!(rects.len(), 1, "{rects:?}");
+  assert_near(rects[0].x - x, CELL - 3.0, "the fill starts 3 before the range");
+  assert_near(rects[0].width, 2.0 * CELL + 6.0, "and ends 3 after it");
+  // The edge is drawn over the fill, at its bounds, 2 on every side.
+  let edged = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.stroke_color == edge)
+    .expect("an edge");
+  assert_eq!(edged.stroke, [2.0; 4]);
+  assert_eq!((edged.x, edged.width), (rects[0].x, rects[0].width));
+  // The text is where it was: the padding moves no glyph.
+  let plain = render_pass_with_app(
+    &mut {
+      let mut tree = Tree::new();
+      tree.set_root(Text::styled("aaaa", probe_style()));
+      tree
+    },
+    &mut app,
+  );
+  let first = |snapshot: &RenderSnapshot| snapshot.glyphs.iter().map(|glyph| glyph.x).fold(f32::MAX, f32::min);
+  assert_near(first(&snapshot), first(&plain), "the first glyph");
+}
+
+thread_local! {
+  static REVEAL: RefCell<Option<(lurq::core::ElementRef, lurq::layout::layout_kind::ScrollState)>> =
+    const { RefCell::new(None) };
+}
+
+/// Ten words a line each in a scroller two lines high, which asks for the ninth word to be shown.
+struct Revealing;
+
+impl Component for Revealing {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (text, state) = REVEAL.with(|slot| slot.borrow().clone().expect("the test installed them"));
+    ctx.scroll_range_into_view(&text, 40..44);
+    lurq::components::ScrollVertical::new(
+      // A range is drawn where the text keeps its carets: a highlighted or a selectable text.
+      Text::styled(&"aaaa ".repeat(10), probe_style())
+        .width(30.0)
+        .highlights(vec![TextHighlight::new(40..44, current())])
+        .ref_element(text),
+    )
+    .with_scroll_state(state)
+    .size(40.0, 24.0)
+  }
+}
+
+#[test]
+fn a_range_of_a_text_is_scrolled_into_view_by_its_own_lines() {
+  let text = lurq::core::ElementRef::new();
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  REVEAL.with(|slot| *slot.borrow_mut() = Some((text.clone(), state.clone())));
+  let mut app = probe_app();
+  let mut tree = Tree::new();
+  tree.mount_root::<Revealing>(&mut app, ());
+  render_pass_with_app(&mut tree, &mut app);
+  render_pass_with_app(&mut tree, &mut app);
+  // The ninth word is the ninth line: it ends at the bottom of the scroller, and the text as a whole does not.
+  let line = text.height() / 10.0;
+  assert!(line > 0.0, "the text is laid out");
+  assert_near(
+    state.scroll_y(),
+    9.0 * line - 24.0,
+    "the ninth line at the bottom of the view",
+  );
+}

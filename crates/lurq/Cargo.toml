@@ -52,6 +52,8 @@ perf_profile = []
 # application installs so profiling sessions report allocations per frame.
 counting_allocator = ["perf_profile"]
 router = []
+# `ui::find_matches` takes a regular expression where its options say so (`FindOptions::regex`).
+regex = ["dep:regex"]
 # Embeddable MCP server: lets an AI agent drive and inspect a running lurq app
 # (screenshot, read the element tree, click/type, navigate). Off by default;
 # nothing listens unless the app also calls `Tree::enable_mcp`.
@@ -89,6 +91,8 @@ unicode-linebreak = { version = "0.1.5", optional = true }
 unicode-segmentation = "1.12"
 raw-window-handle = "0.6"
 redb = { version = "4.1.0", optional = true }
+# Regular expressions in `ui::find_matches`, the search of a find bar's text.
+regex = { version = "1.13", optional = true }
 swash = "0.2.10"
 # The TrueType interpreter under swash, driven directly for grid-fitted fonts: swash's own
 # scaler drops every hint along x. Kept at the version swash resolves to.

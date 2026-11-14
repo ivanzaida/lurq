@@ -202,6 +202,8 @@ pub enum ToolbarPart {
   Stack,
   /// The end of the bar while some controls do not fit: the line and the More button.
   More,
+  /// What the bar says of the More button, after `Item`: laid over a button's root.
+  MoreButton,
 }
 
 names!(ToolbarPart {
@@ -215,6 +217,7 @@ names!(ToolbarPart {
   GroupLabel => "group_label",
   Stack => "stack",
   More => "more",
+  MoreButton => "more_button",
 });
 
 /// The states of a toolbar a recipe styles.
@@ -470,6 +473,8 @@ pub struct Toolbar {
   more_label: Arc<str>,
   more_icon: Name,
   secondary: Vec<ToolbarCommand>,
+  /// Whether its controls stand at its top, where they are centered across it.
+  top: bool,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -495,6 +500,7 @@ impl Toolbar {
       more_label: Arc::from("More"),
       more_icon: Name::from(icons::MORE_HORIZONTAL),
       secondary: Vec::new(),
+      top: false,
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -557,6 +563,13 @@ impl Toolbar {
   /// What the More button is called, in its tooltip and to what reads the tree: "More" by default.
   pub fn more_label(mut self, label: &str) -> Self {
     self.more_label = Arc::from(label);
+    self
+  }
+
+  /// Puts the controls at the top of the bar, where they are centered across
+  /// it: a command bar's, whose chevron is level with its large commands.
+  pub(crate) fn top(mut self, top: bool) -> Self {
+    self.top = top;
     self
   }
 
@@ -668,6 +681,7 @@ impl Toolbar {
       dropped_signal: Signal::new(Vec::new()),
       open: Signal::new(false),
       anchor: ElementRef::new(),
+      top: bar.top,
       id: bar.id,
     };
     let mut element = match theme.renderer::<Toolbar>() {
@@ -712,6 +726,7 @@ impl Toolbar {
       more_label: self.more_label,
       more_icon: self.more_icon,
       secondary: secondary_of(self.secondary, self.disabled),
+      top: self.top,
       disabled: self.disabled,
       states,
       rules: self.rules,
@@ -999,6 +1014,7 @@ struct Prepared {
   more_label: Arc<str>,
   more_icon: Name,
   secondary: Vec<ToolbarCommand>,
+  top: bool,
   disabled: bool,
   /// The states the app put the bar in, and `Disabled` where it is.
   states: Vec<Name>,
@@ -1129,7 +1145,11 @@ impl Component for ToolbarHost {
         .size(bar.size)
         .disabled(bar.disabled)
         .force(bar.forced)
-        .rules(&recipe.rules_for(ToolbarPart::Item, ButtonPart::Root))
+        .rules(
+          &recipe
+            .rules_for(ToolbarPart::Item, ButtonPart::Root)
+            .extend(&recipe.rules_for(ToolbarPart::MoreButton, ButtonPart::Root)),
+        )
         .on_click({
           let open = self.open.clone();
           move |_| open.update(|open| *open = !*open)
@@ -1165,6 +1185,7 @@ impl Component for ToolbarHost {
       dropped_signal: self.dropped.clone(),
       open: self.open.clone(),
       anchor: self.anchor.clone(),
+      top: bar.top,
       id: bar.id.clone(),
     };
     match theme.renderer::<Toolbar>() {
@@ -1195,6 +1216,7 @@ pub struct ToolbarView {
   dropped_signal: Signal<Vec<bool>>,
   open: Signal<bool>,
   anchor: ElementRef,
+  top: bool,
   id: Option<Arc<str>>,
 }
 
@@ -1323,9 +1345,10 @@ impl ToolbarView {
   /// stop of Tab, whose arrow keys move between its controls, and a toolbar
   /// to what reads the tree.
   pub fn render(mut self) -> Element {
+    let across = if self.top { Alignment::Start } else { Alignment::Center };
     let mut root = Row::new()
       .part(&self.part(ToolbarPart::Root))
-      .align_items(Alignment::Center)
+      .align_items(across)
       .focus_group(FocusGroup::horizontal().one_stop(true))
       .describe("a11y_role", "toolbar")
       .describe("a11y_name", self.label.clone().unwrap_or_default())

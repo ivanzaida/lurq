@@ -269,11 +269,15 @@ fn what_does_not_fit_goes_behind_the_chevron_a_group_whole_under_its_label() {
   assert!(stage.bounds("paste").2 > 0.0, "Clipboard stayed");
   // The chevron is at the far end of the bar, the room of what went the spacer's.
   let (bar_x, _, bar_width, _) = stage.bounds("cb-bar");
-  let (more_x, _, more_width, _) = stage.bounds("cb-bar-more");
+  let (more_x, more_y, more_width, more_height) = stage.bounds("cb-bar-more");
   assert!(
     close(more_x + more_width, bar_x + bar_width - 4.0),
     "at the end, inside the padding"
   );
+  // The chevron is as high as a row of large commands, as the board draws it.
+  assert_eq!((more_width, more_height), (28.0, 52.0));
+  let (_, paste_y, ..) = stage.bounds("paste");
+  assert!(close(more_y, paste_y), "level with Paste");
   stage.click("cb-bar-more");
   assert!(stage.paints("View"), "under its label in the menu");
   stage.click("zoom-in-item");

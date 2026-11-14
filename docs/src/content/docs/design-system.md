@@ -3579,7 +3579,7 @@ A `ToolbarCommand` is an item of the menu: `ToolbarCommand::new(label)` with `ic
 - It is one stop of Tab: Tab enters it at the control the focus last left (the first, the first time), and leaves it at once. Left and Right move between its controls, the toggles of a group in it among them; Home and End go to the first and the last; a disabled one is passed by. A field or a select in it keeps its own keys while it is focused.
 - With `overflow`, a control that does not fit drops out of the bar whole, the last first, and the More button (`more-horizontal`, after a line) appears at the end. Enter or Space on it opens its menu with the focus on its first item, and Escape gives the focus back to More; the menu has an item for each control that went, in the order of the bar: its label, its icon, its shortcut, a check for a toggle (each toggle of a group, after a line), and its press. A labelled group goes whole, under its label. A select or a field stays unless it has `in_menu`. The bar learns what went from the layout (the engine's `ShrinkLimit::Drop` and `drop_marker`), and its menu follows it a pass later.
 - A labelled group has its line at its end, and no line of the bar stands beside it; the last group of the bar, or the last before its spacer, has none. No line stands between the spacer and More. A [command bar](#command-bar) is a toolbar of labelled groups under tabs.
-- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `Stack`, `More`. States: `ToolbarState::Disabled`, `Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
+- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `Stack`, `More`, `MoreButton` (laid over the More button's root, after `Item`). States: `ToolbarState::Disabled`, `Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
 - In the design the bar is padded 4, its controls 2 apart; a button is a ghost one of 32 with an icon of 16; a toggle that is on has the fill of what is picked out; a line of 20 in the border's color stands between two groups with 4 on either side. On a surface it has the background's fill, an edge of 1 in the border's color and the middle radius. A group of a command bar is padded 10 with a line at its end and its label of 10 in the muted foreground under it. A focused control has its ring inside it, where the bar does not cut it off.
 - To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
 - A renderer that draws another bar gets a `ToolbarView`: `view.slot(index)` is a control as the bar lays it out (dropping when it does not fit), `view.more()` the More button with its menu, `view.menu()` the menu alone, `view.dropped` which slots went.
@@ -4077,8 +4077,8 @@ CommandBar::new(tab.clone(), [
 
 - What a command bar is that a toolbar is not, as the board draws it: tabs over the commands, each tab a set of its own; groups with a label under each and a line at the end of each, where a toolbar has lines between groups; large commands, the icon over the label, beside stacks of two small ones; and the overflow behind a chevron at the end, a group whole under its label. All of that but the tabs is the toolbar's: `ToolbarItem::stack`, a labelled `ToolbarGroup`, `Toolbar::more_icon` and `Toolbar::secondary_command`.
 - Tab stops in the tabs once and in the commands once. Left and Right select the next tab and move between the commands; a disabled one is passed by. What does not fit goes into the menu the last first, a labelled group whole under its label and a toggle checked; a stack goes whole.
-- Parts: `CommandBarPart::Root`, `Tabs`, `Tab`, `TabLabel` (laid over the tabs' list, tab and label), `Bar` (laid over the toolbar's root); `CommandBarCommandPart::Root`, `Body`, `Icon`, `Label`. A command's states: `CommandBarCommandState::Large`, `On`, `Disabled`.
-- In the design the bar is a frame of the background's color with an edge of 1 and the large radius. The tabs are a row 32 high in the muted fill over a line of 1, padded 8, 2 apart; a tab is padded 12, its label 13 in the muted foreground, the selected one 600 in the foreground and underlined with 2. The commands are padded 8 and 4; a group is padded 10, its commands 4 apart, its label of 10 in the muted foreground 4 under them, and a line of 1 at its end but the last's. A small command is 24 high, padded 8, its icon of 14 and its label of 12 6 apart; a large one 56 by 52, its icon of 20 over its label of 11; a toggle of its icon alone is 28. Under the pointer and while on a command has the fill of what is picked out.
+- Parts: `CommandBarPart::Root`, `Tabs`, `Tab`, `TabLabel` (laid over the tabs' list, tab and label), `Bar` (laid over the toolbar's root), `More` (laid over the toolbar's More button); `CommandBarCommandPart::Root`, `Body`, `Icon`, `Label`. A command's states: `CommandBarCommandState::Large`, `On`, `Disabled`.
+- In the design the bar is a frame of the background's color with an edge of 1 and the large radius. The tabs are a row 32 high in the muted fill over a line of 1, padded 8, 2 apart; a tab is padded 12, its label 13 in the muted foreground, the selected one 600 in the foreground and underlined with 2. The commands are padded 8 and 4; a group is padded 10, its commands 4 apart, its label of 10 in the muted foreground 4 under them, and a line of 1 at its end but the last's. A small command is 24 high, padded 8, its icon of 14 and its label of 12 6 apart; a large one 56 by 52, its icon of 20 over its label of 11; a toggle of its icon alone is 28. At the far end the chevron is 28 by 52, level with the large commands. Under the pointer and while on a command has the fill of what is picked out.
 - To what reads the tree it is a `group` called by its label, which holds a `tablist` and a `toolbar` called by the selected tab; a toggled command says `a11y_pressed`.
 - A renderer that draws another bar gets a `CommandBarView`: its `tabs` and its `bar`, built.
 
@@ -4136,6 +4136,7 @@ view.on_key_down(move |event: KeyboardEvent| {
 | `disabled(bool)` | Its controls take no input. State: `FindBarState::Disabled` |
 | `label`, `placeholder`, `replace_placeholder` | What the bar and its field are called, "Find", and what the fields show: "Find", "Replace" |
 | `previous_label`, `next_label`, `close_label`, `match_case_label`, `whole_word_label`, `regex_label`, `replace_label`, `replace_all_label`, `toggle_replace_label` | What its controls are called to what reads the tree |
+| `match_case_text`, `whole_word_text`, `regex_text` | What its options show: "Aa", "ab" and ".*" |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws its buttons. Its field has the id with `-field` after it; its buttons `-previous`, `-next`, `-close`, `-toggle-replace`, `-replace`, `-replace-all`; its options `-match-case`, `-whole-word`, `-regex`; the replace field `-replace-field` |
 
 - It is as large as the room it is given and takes no press itself: put it over the view it searches, in a `Stack`. The bar hangs 8 from the top and the end of that room, 440 wide or as wide as the room, comes down into place as it opens and goes back up as it closes.
@@ -4143,7 +4144,40 @@ view.on_key_down(move |event: KeyboardEvent| {
 - Parts: `FindBarPart::Root`, `Bar`, `FindRow`, `ReplaceRow`, `Field` (laid over an input's box), `Options`, `Option`, `OptionOn`, `Count`, `Button`, `ButtonIcon` (laid over a button's root and icon), `Pad`. States: `FindBarState::Closed`, `NoMatches`, `Expandable`, `Replacing`, `Disabled`.
 - In the design the bar is of the popover's color with an edge of 1, the large radius and the large shadow, padded 6, its rows 6 apart and their controls 4 apart. The field is an input 28 high with its text of 13, padded 8 before it and 3 after the options, which are 22 square with a glyph of 11 in the muted foreground; one that is on has the fill of what is picked out, an edge in an input's color and its glyph in the foreground. The count is 11 in the muted foreground, padded 6, in the destructive color where nothing matches. The buttons are ghost ones 24 square with icons of 14. The replace row is indented 28 under a bar that has the chevron and ends 52 before the end.
 - To what reads the tree it is a `search` called by its label; each option says `a11y_pressed`, the chevron `a11y_expanded`, and the count is `a11y_live` polite.
+- The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight), every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
+
+## Highlight
+
+A text with marks on ranges of it: the matches of a search, one of them the current one.
+
+```rust
+use lurq::ui::{FindOptions, Highlight, find_matches};
+
+let options = FindOptions { match_case: case.get(), whole_word: whole.get(), regex: regex.get() };
+let found = find_matches(&document, &query.get(), options).unwrap_or_default();
+let current = (!found.is_empty()).then(|| current.get().min(found.len() - 1));
+Highlight::new(&document).marks(found).current(current).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `Highlight::new(&str)` | The text, with no marks yet |
+| `mark(Range<usize>)`, `marks(..)` | A mark on a range of the text, in bytes, after the ones it has |
+| `current(Option<usize>)` | Which mark is the current one, by its index: drawn stronger |
+| `mount(ctx)` | Puts it in the tree of `ctx`'s component, which brings the current mark into view each time it changes (`Ctx::scroll_range_into_view`), and not as the text is first shown. `build(theme)` and `From<Highlight> for Element` draw it with nothing kept |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them; the id is the text's |
+
+| `find_matches(text, query, FindOptions) -> Result<Vec<Range<usize>>, FindError>` | |
+| --- | --- |
+| `FindOptions::match_case` | The case of the query's letters counts; without it they match whatever their case, of any script |
+| `FindOptions::whole_word` | A match has no letter, digit or `_` right before or after it |
+| `FindOptions::regex` | The query is a regular expression, with lurq's `regex` feature: `FindError::InvalidPattern` for one that is not, `FindError::RegexUnavailable` without the feature. A match of no length is passed over |
+
+- The marks are the text's highlights (`Text::highlights`, see [Text Styling](../dsl/#text-styling)): they follow their words as the text wraps, a mark over the end of a line goes on at the start of the next, and the text is shaped and laid out as without them. Nothing searches for the app unless it calls `find_matches`: it keeps the query, the matches and the current one.
+- Parts: `HighlightPart::Root` (the text's type and color), `Mark`, `Current` (in place of `Mark`: its fill, its radius, its padding and its edge).
+- In the design (`Highlight`) the text is 14 in the foreground and a mark is on the muted warning fill, of a radius of 2, reaching 3 past its words and 1 above and below. The board draws no current mark: it is the mark with an edge of 2 in the warning color, which reads in both appearances where a fill of the warning color would not under the text's own color. The board's mark sets its words in 500; a highlight does not change how its text is shaped, so they keep the text's weight.
+- A renderer that draws another highlight gets a `HighlightView`: `fill(range, part)` is a mark as a `TextHighlight` in a part's style, `fills()` every one.
 
 ## Tree View
 

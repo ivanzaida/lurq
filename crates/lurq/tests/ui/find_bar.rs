@@ -155,6 +155,24 @@ fn it_opens_with_the_focus_in_its_field_where_enter_goes_on_and_shift_enter_back
 }
 
 #[test]
+fn the_options_show_what_the_app_says() {
+  let log = Log::default();
+  let (stage, _) = stage(&log, |bar| {
+    bar
+      .match_case(Signal::new(false))
+      .whole_word(Signal::new(false))
+      .regex(Signal::new(false))
+      .match_case_text("Cc")
+      .whole_word_text("W")
+      .regex_text("Re")
+  });
+  for text in ["Cc", "W", "Re"] {
+    assert!(stage.paints(text), "{text}");
+  }
+  assert!(!stage.paints("Aa") && !stage.paints(".*"));
+}
+
+#[test]
 fn the_count_says_what_the_app_gives_it() {
   let log = Log::default();
   let (mut none, query) = stage(&log, |bar| bar.matches(0, 0));

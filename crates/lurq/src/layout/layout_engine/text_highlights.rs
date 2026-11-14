@@ -9,10 +9,58 @@ use crate::{
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
   },
-  node::{border::BorderRadius, node::Node, node_kind::NodeKind, transform::Transform2D},
+  node::{
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
+    node::Node,
+    node_kind::{NodeKind, TextState},
+    transform::Transform2D,
+  },
 };
 
 impl LayoutEngine {
+  /// The text a highlight of `node` is in: its state, its value, and the
+  /// height of one of its lines. `None` for a node that is not text.
+  fn highlighted_text<'n>(&self, node: &'n Node) -> Option<(&'n TextState, String, f32)> {
+    match node.node_kind() {
+      NodeKind::Text { state, style, .. } => {
+        let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
+        Some((
+          state,
+          node.text_content().unwrap_or_default().to_owned(),
+          style.font_size * style.line_height,
+        ))
+      }
+      #[cfg(feature = "markdown")]
+      NodeKind::RichText { state, spans, .. } => Some((
+        state,
+        node.rich_text_value().unwrap_or_default(),
+        spans
+          .first()
+          .map_or(16.0, |span| span.style.font_size * span.style.line_height),
+      )),
+      _ => None,
+    }
+  }
+
+  /// Where bytes `range` of the text `node` are drawn, in its box: from the
+  /// start of the first line they cover to the end of the last, as one
+  /// rectangle. `None` where the node is not text or the range is empty.
+  pub(crate) fn text_range_rect(
+    &self,
+    node: &Node,
+    result: &LayoutResult,
+    range: std::ops::Range<usize>,
+  ) -> Option<(f32, f32, f32, f32)> {
+    let (state, value, line_height) = self.highlighted_text(node)?;
+    let lines = state.range_lines(&value, range);
+    let height = line_height.min(result.size.height).max(1.0);
+    let left = lines.iter().map(|line| line.x).reduce(f32::min)?;
+    let right = lines.iter().map(|line| line.x + line.width).reduce(f32::max)?;
+    let top = lines.iter().map(|line| line.y).reduce(f32::min)?;
+    let bottom = lines.iter().map(|line| line.y + height).reduce(f32::max)?;
+    Some((left, top, right - left, bottom - top))
+  }
+
   #[allow(clippy::too_many_arguments)]
   pub(super) fn push_text_highlights(
     &self,
@@ -24,24 +72,8 @@ impl LayoutEngine {
     opacity: f32,
     quads: &mut Vec<Quad>,
   ) {
-    let (state, value, line_height) = match node.node_kind() {
-      NodeKind::Text { state, style, .. } => {
-        let style = style.resolve(&self.typography.borrow(), &self.palette.borrow());
-        (
-          state,
-          node.text_content().unwrap_or_default().to_owned(),
-          style.font_size * style.line_height,
-        )
-      }
-      #[cfg(feature = "markdown")]
-      NodeKind::RichText { state, spans, .. } => (
-        state,
-        node.rich_text_value().unwrap_or_default(),
-        spans
-          .first()
-          .map_or(16.0, |span| span.style.font_size * span.style.line_height),
-      ),
-      _ => return,
+    let Some((state, value, line_height)) = self.highlighted_text(node) else {
+      return;
     };
     let highlights = state.highlight_ranges(&value);
     if highlights.is_empty() {
@@ -56,6 +88,23 @@ impl LayoutEngine {
         continue;
       };
       let radius = highlight.drawn_radius();
+      let (pad_x, pad_y) = highlight.drawn_padding();
+      // The line around the fill, inside it, on every side.
+      let border = highlight.border.and_then(|(width, color)| {
+        let color = color.resolve(&palette)?;
+        let side = ResolvedBorder {
+          width: if width.is_finite() { width.max(0.0) } else { 0.0 },
+          color,
+          placement: BorderPlacement::Inside,
+          dash: [0.0, 0.0],
+        };
+        (side.width > 0.0).then_some(ResolvedBorders {
+          top: Some(side),
+          right: Some(side),
+          bottom: Some(side),
+          left: Some(side),
+        })
+      });
       // A rich text's presentation spans (a link's isolate marks) are not
       // its text: a highlight leaves them out, as a selection does.
       #[cfg(feature = "markdown")]
@@ -67,6 +116,7 @@ impl LayoutEngine {
       #[cfg(not(feature = "markdown"))]
       let pieces = lines.into_iter().map(|line| (line.x, line.y, line.width));
       for (x, y, width) in pieces {
+        let (x, y, width, height) = (x - pad_x, y - pad_y, width + 2.0 * pad_x, height + 2.0 * pad_y);
         let (x, y, transform, transform_origin) = transformed_quad_frame(origin.0 + x, origin.1 + y, transform);
         quads.push(Quad {
           x,
@@ -78,7 +128,7 @@ impl LayoutEngine {
           transform_origin,
           content: QuadContent::Rect { color, gradient: None },
           border_radius: (radius > 0.0).then(|| BorderRadius::all(radius).clamped_to_rect(width, height)),
-          border: None,
+          border,
           clip,
         });
       }
