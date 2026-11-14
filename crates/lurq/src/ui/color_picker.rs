@@ -11,7 +11,8 @@ use std::{
 
 use super::{
   color_swatch::{self, ColorSwatch, ColorSwatchPart, ColorSwatchShape, ColorSwatchSize},
-  names,
+  icon::Icon,
+  icons, names,
   number_input::{NumberInput, NumberInputLayout},
   part_style::{FontFamily, Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -22,10 +23,11 @@ use super::{
 use crate::{
   app::{
     events::{DragEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent},
-    theme::{ControlSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme},
+    theme::{ControlSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme},
   },
   components::{self, Column, Row, Stack},
   core::{ElementRef, Signal},
+  eyedropper::EyeDropper,
   layout::{Alignment, StackAlignment, text_style::FontWeight},
   node::{
     BoxShadowValue, CursorIcon, Element, Gradient,
@@ -66,6 +68,10 @@ pub enum ColorPickerPart {
   Format,
   /// The letter over a field of a channel: R, G, B, A; H, S, L.
   FieldLabel,
+  /// The button at the end of the fields that picks a color from the screen, where the platform can.
+  Eyedropper,
+  /// Its glyph.
+  EyedropperIcon,
 }
 
 names!(ColorPickerPart {
@@ -83,6 +89,8 @@ names!(ColorPickerPart {
   Input => "input",
   Format => "format",
   FieldLabel => "field_label",
+  Eyedropper => "eyedropper",
+  EyedropperIcon => "eyedropper_icon",
 });
 
 /// The states of a color picker a recipe styles, besides what the pointer and the keyboard do to it.
@@ -139,6 +147,7 @@ struct Words {
   hue: Arc<str>,
   alpha: Arc<str>,
   format: Arc<str>,
+  eyedropper: Arc<str>,
 }
 
 impl Default for Words {
@@ -149,6 +158,7 @@ impl Default for Words {
       hue: Arc::from("Hue"),
       alpha: Arc::from("Alpha"),
       format: Arc::from("Format"),
+      eyedropper: Arc::from("Pick a color from the screen"),
     }
   }
 }
@@ -205,6 +215,7 @@ pub struct ColorPicker {
   label: Option<Arc<str>>,
   disabled: bool,
   bare: bool,
+  eyedropper: bool,
   words: Words,
   on_change: Vec<Told>,
   on_change_end: Vec<Told>,
@@ -243,6 +254,7 @@ impl ColorPicker {
       label: None,
       disabled: false,
       bare: false,
+      eyedropper: true,
       words: Words::default(),
       on_change: Vec::new(),
       on_change_end: Vec::new(),
@@ -252,6 +264,20 @@ impl ColorPicker {
       id: None,
       key: None,
     }
+  }
+
+  /// Whether the button that picks a color from the screen stands at the end of the fields, where the platform can
+  /// pick ([`EyeDropper::is_supported`](crate::eyedropper::EyeDropper::is_supported)); it is never shown where it
+  /// cannot. On by default.
+  pub fn eyedropper(mut self, eyedropper: bool) -> Self {
+    self.eyedropper = eyedropper;
+    self
+  }
+
+  /// What the eyedropper is called, to what reads the tree. "Pick a color from the screen".
+  pub fn eyedropper_label(mut self, label: &str) -> Self {
+    self.words.eyedropper = Arc::from(label);
+    self
   }
 
   /// What a picker built by a component of its own is kept by across renders, in place of its signal or its place in
@@ -412,7 +438,6 @@ impl ColorPicker {
       Bound::Controlled(value) => *value,
     };
     let kept = kept(binding, value, self.format);
-    let hsv = kept.shown(value);
     let format = kept.format.get();
     let case = Case {
       variant: None,
@@ -430,6 +455,19 @@ impl ColorPicker {
       on_change: self.on_change,
       on_change_end: self.on_change_end,
     };
+    // A color picked from the screen is a person's change: begun and over at once. Read so that a pick that ends
+    // renders the picker again.
+    let value = match kept.picked.get() {
+      Some(color) => {
+        kept.picked.set(None);
+        if !self.disabled {
+          model.step(|model| model.set_color(color));
+        }
+        model.current()
+      }
+      None => value,
+    };
+    let hsv = kept.shown(value);
     let view = ColorPickerView {
       color: value,
       hsv,
@@ -439,6 +477,7 @@ impl ColorPicker {
       swatches: self.swatches,
       label: self.label,
       disabled: self.disabled,
+      eyedropper: self.eyedropper && EyeDropper::is_supported(),
       recipe: theme.resolve::<ColorPicker>(&case, Some(&self.rules)),
       words: self.words,
       model,
@@ -479,6 +518,8 @@ struct Kept {
   area: ElementRef,
   hue: ElementRef,
   alpha: ElementRef,
+  /// A color picked from the screen, given by the pick's thread and taken by the next build.
+  picked: Signal<Option<Color>>,
 }
 
 impl Kept {
@@ -531,6 +572,7 @@ fn kept(binding: usize, value: Color, format: ColorFormat) -> Arc<Kept> {
       area: ElementRef::new(),
       hue: ElementRef::new(),
       alpha: ElementRef::new(),
+      picked: Signal::new(None),
     });
     all.insert(binding, Arc::downgrade(&kept));
     kept
@@ -726,6 +768,8 @@ pub struct ColorPickerView {
   pub swatches: Vec<Color>,
   pub label: Option<Arc<str>>,
   pub disabled: bool,
+  /// Whether the eyedropper is shown: asked for, and the platform picks colors from the screen.
+  pub eyedropper: bool,
   /// The style of each part of the picker.
   pub recipe: ResolvedRecipe,
   words: Words,
@@ -825,23 +869,14 @@ impl ColorPickerView {
       v: 1.0,
       a: 1.0,
     });
+    // One picture, the blend of its four corners, in one box with one edge: boxes stacked under the area's round
+    // corners would each be cut by it on their own, and the hue under the black would show at the edge.
     let white = Color::new(255, 255, 255, 255);
     let black = Color::new(0, 0, 0, 255);
-    let field = Stack::new()
-      .stack_align(StackAlignment::TopStart)
+    let field = Row::new()
       .part(&part)
       .size(width, height)
-      .child(Row::new().size(width, height).background(hue))
-      .child(
-        Row::new()
-          .size(width, height)
-          .background_gradient(Gradient::linear(90.0, [white, white.with_alpha(0)])),
-      )
-      .child(
-        Row::new()
-          .size(width, height)
-          .background_gradient(Gradient::linear(180.0, [black.with_alpha(0), black])),
-      );
+      .background_gradient(Gradient::corners(white, hue, black, black));
     let circle = Row::new()
       .part(&thumb)
       .offset(
@@ -1041,6 +1076,42 @@ impl ColorPickerView {
     Some(button.into())
   }
 
+  /// The button that picks a color from the screen, where the platform can and it is not hidden: the picker stays as
+  /// it is while the person picks, and the color picked is a change of theirs (`on_change` and `on_change_end`).
+  pub fn eyedropper(&self) -> Option<Element> {
+    if !self.eyedropper {
+      return None;
+    }
+    let part = self.part(ColorPickerPart::Eyedropper);
+    let icon = self.part(ColorPickerPart::EyedropperIcon);
+    let side = icon.rest().width.unwrap_or(Length::Icon(IconSize::Md));
+    let mut button = pressable(&part, self.disabled)
+      .flex_shrink(0.0)
+      .align_items(Alignment::Center)
+      .describe("a11y_role", "button")
+      .describe("a11y_name", self.words.eyedropper.clone())
+      .child(
+        Row::new()
+          .part(&icon)
+          .child(Icon::new(icons::EYEDROPPER).size(side).build(self.theme())),
+      );
+    if !self.disabled {
+      let (picked, theme) = (self.model.kept.picked.clone(), self.theme().clone());
+      button = button.on_click(move |_| {
+        let picked = picked.clone();
+        EyeDropper::new().theme(&theme).pick_then(move |answer| {
+          if let Ok(Some(color)) = answer {
+            picked.set(Some(color));
+          }
+        });
+      });
+    }
+    if let Some(id) = self.sub_id("eyedropper") {
+      button = button.id(id);
+    }
+    Some(button.into())
+  }
+
   /// The field of the hex: what is typed is read on Enter and as the focus leaves, in any form a color is written in;
   /// what is no color takes back the color's hex.
   pub fn hex_field(&self) -> Element {
@@ -1175,6 +1246,9 @@ impl ColorPickerView {
         model.set(Hsv { a: a / 100.0, ..hsv })
       }));
     }
+    if let Some(eyedropper) = self.eyedropper() {
+      row = row.child(eyedropper);
+    }
     row.into()
   }
 
@@ -1295,6 +1369,19 @@ impl Themed for ColorPicker {
       .hovered(Format, |s| s.background(Highlight).foreground(Foreground))
       .focus_visible(Format, |s| s.focus_ring())
       .base(FieldLabel, |s| s.font_size(11.0).foreground(MutedForeground))
+      .base(Eyedropper, |s| {
+        fading(s)
+          .square(ControlSize::Md)
+          .radius(RadiusSize::Md)
+          .foreground(MutedForeground)
+          .cursor(CursorIcon::Pointer)
+      })
+      .base(EyedropperIcon, |s| s.square(Length::Icon(IconSize::Md)))
+      .hovered(Eyedropper, |s| s.background(Highlight).foreground(Foreground))
+      .focus_visible(Eyedropper, |s| s.focus_ring())
+      .state(ColorPickerState::Disabled, Eyedropper, |s| {
+        s.cursor(CursorIcon::Default)
+      })
       .focus_visible(Area, |s| s.focus_ring())
       .focus_visible(Hue, |s| s.focus_ring())
       .focus_visible(Alpha, |s| s.focus_ring())

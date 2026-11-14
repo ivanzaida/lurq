@@ -44,6 +44,8 @@ pub mod events;
 )]
 pub(crate) mod frame_capture;
 #[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
+mod gradient_readback_tests;
+#[cfg(all(test, windows, feature = "screenshot", any(feature = "wgpu", feature = "dx12")))]
 mod glyph_batch_readback_tests;
 pub(crate) mod glyph_engine;
 pub(crate) mod hit_test;

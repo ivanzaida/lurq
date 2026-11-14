@@ -29,6 +29,7 @@ use crate::{
   },
   components::{self, Row, Stack},
   core::{ElementRef, Signal, SignalValue},
+  eyedropper::EyeDropper,
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, HitTestBehavior, color::Color, dimension::Dimension},
 };
@@ -149,6 +150,7 @@ enum Bound<V: FieldColor> {
 #[derive(Clone)]
 struct Words {
   trigger: Arc<str>,
+  swatch: Arc<str>,
   panel: Arc<str>,
 }
 
@@ -173,11 +175,12 @@ struct Words {
 /// The field does not keep its color: the app's signal does, or the app's own value ([`ColorField::controlled`]). What
 /// is typed is read on Enter and as the focus leaves, in any form a color is written in (`#2563EB`, `2563eb`, `#25e`,
 /// `rgb(37, 99, 235)`, `hsl(221 83% 53%)`); what is no color takes back the color's hex, and an emptied optional
-/// field is none. The picker opens in a popover under the field from the swatch at its start, the eyedropper at its
-/// end, or Down in the box, with the focus in its area; Escape and a press outside close it, and the focus goes back
-/// to the box. It keeps, while it is in the tree, whether its picker is open.
+/// field is none. The picker opens in a popover under the field from the swatch at its start or Down in the box, with
+/// the focus in its area; Escape and a press outside close it, and the focus goes back to the box. It keeps, while it
+/// is in the tree, whether its picker is open.
 ///
-/// The eyedropper opens the picker: picking a color from the screen is not something lurq can do yet.
+/// The eyedropper at the box's end picks a color from anywhere on the screen
+/// ([`EyeDropper`](crate::eyedropper::EyeDropper)), where the platform can; where it cannot, there is none.
 pub struct ColorField<V: FieldColor = Color> {
   bound: Bound<V>,
   binding: usize,
@@ -190,6 +193,7 @@ pub struct ColorField<V: FieldColor = Color> {
   formats: Vec<ColorFormat>,
   swatches: Vec<Color>,
   placement: Placement,
+  eyedropper: bool,
   words: Words,
   on_change: Vec<Arc<dyn Fn(V) + Send + Sync>>,
   name: Option<Arc<str>>,
@@ -240,8 +244,10 @@ impl<V: FieldColor> ColorField<V> {
       formats: Vec::new(),
       swatches: Vec::new(),
       placement: Placement::BottomStart,
+      eyedropper: true,
       words: Words {
-        trigger: Arc::from("Choose color"),
+        trigger: Arc::from("Pick a color from the screen"),
+        swatch: Arc::from("Choose color"),
         panel: Arc::from("Color"),
       },
       on_change: Vec::new(),
@@ -344,9 +350,23 @@ impl<V: FieldColor> ColorField<V> {
     self
   }
 
-  /// What the eyedropper at the box's end is called, to what reads the tree. "Choose color".
+  /// Whether the eyedropper stands at the box's end, where the platform picks colors from the screen
+  /// ([`EyeDropper::is_supported`](crate::eyedropper::EyeDropper::is_supported)); it is never shown where it cannot.
+  /// On by default. The swatch at the box's start and Down open the picker either way.
+  pub fn eyedropper(mut self, eyedropper: bool) -> Self {
+    self.eyedropper = eyedropper;
+    self
+  }
+
+  /// What the eyedropper at the box's end is called, to what reads the tree. "Pick a color from the screen".
   pub fn trigger_label(mut self, label: &str) -> Self {
     self.words.trigger = Arc::from(label);
+    self
+  }
+
+  /// What the swatch at the box's start, which opens the picker, is called to what reads the tree. "Choose color".
+  pub fn swatch_label(mut self, label: &str) -> Self {
+    self.words.swatch = Arc::from(label);
     self
   }
 
@@ -423,6 +443,26 @@ impl<V: FieldColor> ColorField<V> {
       Bound::Controlled(value) => *value,
     };
     let open = kept.open.get() && !self.boxed.disabled && !self.boxed.read_only;
+    let bound = self.bound.clone();
+    let actions = Model {
+      bound: self.bound,
+      on_change: self.on_change,
+    }
+    .actions();
+    // A color picked from the screen is a person's change. Read so that a pick that ends renders the field again.
+    let value = match kept.picked.get() {
+      Some(color) => {
+        kept.picked.set(None);
+        if !self.boxed.disabled && !self.boxed.read_only {
+          (actions.choose)(color);
+        }
+        match &bound {
+          Bound::Value(signal) => signal.get_untracked(),
+          Bound::Controlled(value) => *value,
+        }
+      }
+      None => value,
+    };
     let case = self
       .boxed
       .case(self.states.clone())
@@ -441,14 +481,11 @@ impl<V: FieldColor> ColorField<V> {
       formats: self.formats,
       swatches: self.swatches,
       placement: self.placement,
+      eyedropper: self.eyedropper && EyeDropper::is_supported(),
       recipe: theme.resolve::<ColorField>(&case, Some(&self.rules)),
       words: self.words,
       text: Signal::new(value.color().map(display).unwrap_or_default()),
-      actions: Model {
-        bound: self.bound,
-        on_change: self.on_change,
-      }
-      .actions(),
+      actions,
       kept,
       binding,
       boxed: self.boxed,
@@ -496,6 +533,8 @@ fn controlled_binding(at: &'static Location<'static>, name: Option<&str>) -> usi
 struct Kept {
   open: Signal<bool>,
   anchor: ElementRef,
+  /// A color picked from the screen, given by the pick's thread and taken by the next build.
+  picked: Signal<Option<Color>>,
 }
 
 thread_local! {
@@ -514,6 +553,7 @@ fn kept(binding: usize) -> Arc<Kept> {
     let kept = Arc::new(Kept {
       open: Signal::new(false),
       anchor: ElementRef::new(),
+      picked: Signal::new(None),
     });
     all.insert(binding, Arc::downgrade(&kept));
     kept
@@ -612,6 +652,8 @@ pub struct ColorFieldView {
   pub formats: Vec<ColorFormat>,
   pub swatches: Vec<Color>,
   pub placement: Placement,
+  /// Whether the eyedropper is shown: asked for, and the platform picks colors from the screen.
+  pub eyedropper: bool,
   /// The style of each part of the field.
   pub recipe: ResolvedRecipe,
   words: Words,
@@ -726,7 +768,7 @@ impl ColorFieldView {
     let mut swatch = components::Button::empty()
       .focusable(false)
       .disabled(self.disabled || self.read_only)
-      .describe("a11y_name", self.words.trigger.clone())
+      .describe("a11y_name", self.words.swatch.clone())
       .describe("a11y_haspopup", "dialog")
       .child(inner)
       .on_click(move |_: MouseEvent| kept.toggle());
@@ -736,12 +778,17 @@ impl ColorFieldView {
     swatch.into()
   }
 
-  /// The eyedropper at the box's end: it opens and closes the picker, and takes no focus.
-  pub fn trigger(&self) -> Element {
+  /// The eyedropper at the box's end, where the platform picks colors from the screen and it is not hidden: it starts a
+  /// pick, and the color picked is the field's, as a person's change. It takes no focus; the picker, open or not,
+  /// stays as it is while the person picks.
+  pub fn trigger(&self) -> Option<Element> {
+    if !self.eyedropper {
+      return None;
+    }
     let part = self.part(ColorFieldPart::Trigger);
     let icon = self.part(ColorFieldPart::TriggerIcon);
     let side = icon.rest().width.unwrap_or(Length::Icon(IconSize::Md));
-    let kept = self.kept.clone();
+    let (picked, theme) = (self.kept.picked.clone(), self.theme().clone());
     let mut trigger = components::Button::empty()
       .justify(Justify::Center)
       .align_items(Alignment::Center)
@@ -749,18 +796,23 @@ impl ColorFieldView {
       .focusable(false)
       .disabled(self.disabled || self.read_only)
       .describe("a11y_name", self.words.trigger.clone())
-      .describe("a11y_haspopup", "dialog")
-      .describe("a11y_expanded", if self.open { "true" } else { "false" })
       .child(
         Row::new()
           .part(&icon)
           .child(Icon::new(icons::EYEDROPPER).size(side).build(self.theme())),
       )
-      .on_click(move |_: MouseEvent| kept.toggle());
+      .on_click(move |_: MouseEvent| {
+        let picked = picked.clone();
+        EyeDropper::new().theme(&theme).pick_then(move |answer| {
+          if let Ok(Some(color)) = answer {
+            picked.set(Some(color));
+          }
+        });
+      });
     if let Some(id) = self.sub_id("trigger") {
       trigger = trigger.id(id);
     }
-    trigger.into()
+    Some(trigger.into())
   }
 
   /// The field: the box, the swatch over its start and the eyedropper over its end. What the picker opens under.
@@ -771,7 +823,12 @@ impl ColorFieldView {
       ColorSwatchSize::Md => 24.0,
       ColorSwatchSize::Lg => 32.0,
     };
-    let trigger_side = self.px(self.part(ColorFieldPart::Trigger).rest().width);
+    let trigger = self.trigger();
+    let trigger_side = if trigger.is_some() {
+      self.px(self.part(ColorFieldPart::Trigger).rest().width)
+    } else {
+      0.0
+    };
     // The swatch and the eyedropper stand 6 from the box's edges, the text 8 after the swatch.
     let edge = 6.0;
     Stack::new()
@@ -788,12 +845,16 @@ impl ColorFieldView {
         Row::new()
           .width(Dimension::Pct(100.0))
           .padding_left(edge)
-          .padding_right(edge - (trigger_side - 16.0) / 2.0)
+          .padding_right(if trigger_side > 0.0 {
+            edge - (trigger_side - 16.0) / 2.0
+          } else {
+            edge
+          })
           .align_items(Alignment::Center)
           .justify(Justify::SpaceBetween)
           .hit_test(HitTestBehavior::ContentOnly)
           .child(self.swatch())
-          .child(self.trigger()),
+          .with_children(trigger),
       )
   }
 
@@ -808,6 +869,8 @@ impl ColorFieldView {
       .format(self.format)
       .formats(self.formats.clone())
       .swatches(self.swatches.clone())
+      // The field's own eyedropper is beside the picker.
+      .eyedropper(false)
       .disabled(self.disabled);
     if let Some(id) = self.sub_id("picker") {
       picker = picker.id(id);

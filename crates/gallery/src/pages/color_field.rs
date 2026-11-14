@@ -338,10 +338,16 @@ impl Component for ColorFieldPage {
         "Where the picker opens beside the field.",
       ),
       (
-        "label / trigger_label / panel_label",
+        "eyedropper",
+        "bool",
+        "true",
+        "The eyedropper at the box's end, which picks a color from the screen: shown where the platform can pick.",
+      ),
+      (
+        "label / trigger_label / swatch_label / panel_label",
         "&str",
         "",
-        "What the box, the eyedropper and the popover are called, to what reads the tree.",
+        "What the box, the eyedropper, the swatch and the popover are called, to what reads the tree.",
       ),
       (
         "name",
@@ -396,14 +402,15 @@ impl Component for ColorFieldPage {
         Section::new(
           "Playground",
           "Every prop of ColorField is a control on the right. The field on the stage is live: type a color and \
-           press Enter, or open the picker with the eyedropper, the swatch or Down.",
+           press Enter, open the picker with the swatch or Down, or pick a color from the screen with the \
+           eyedropper.",
           playground,
         ),
         Section::new(
           "Color field",
           "The board's field: the swatch of its color, its hex and an eyedropper. What is typed is read on Enter and \
-           as the focus leaves, as hex, rgb() or hsl(); what is no color takes back the hex. The eyedropper opens the \
-           picker.",
+           as the focus leaves, as hex, rgb() or hsl(); what is no color takes back the hex. The eyedropper picks a \
+           color from anywhere on the screen: a loupe follows the pointer, a press takes the color, Escape gives up.",
           self.frame.demo(
             0,
             board,

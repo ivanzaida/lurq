@@ -157,6 +157,28 @@ copy_image_to_clipboard(width, height, &rgba);
 
 In a browser a page writes the clipboard at once and reads it only by waiting: `copy_to_clipboard` writes the system clipboard, the reading functions return what the page copied last, and only text crosses. A paste shortcut does read the system clipboard. See [Web](../web/#the-clipboard).
 
+## A Color From The Screen
+
+`lurq::eyedropper::EyeDropper` lets a person pick a color from anywhere on the screen: another app's window, a picture, the app itself. The pick runs off the loop, and its future does not borrow the window, so it is what a `ctx.future_action` runs, as the [file dialog](../styling-events/#files-a-person-gives) is:
+
+```rust
+use lurq::eyedropper::EyeDropper;
+
+let window = ctx.window();
+let pick = ctx.future_action(move |()| EyeDropper::new().pick(&window));
+// In a handler: `pick.run(())`. `pick.state()` then holds `Ok(Some(color))`, `Ok(None)` where the person
+// gave up, or `Err(Unsupported)` where the platform has no picking.
+```
+
+While it picks, the pointer is a cross and a loupe follows it: the pixels around the pointer magnified, the one taken outlined in the middle, its hex beside it, in the popover colors of the theme given with `.theme(&theme)`. A press takes the color; Escape, the right button or another window taken to the front gives up. The arrow keys move the pointer by a pixel, by ten with Shift, and Enter or Space take the color, for the pixel a hand cannot hit.
+
+| Platform | |
+| --- | --- |
+| Windows | A thread of its own with the platform's means, as PowerToys' color picker and a browser's eyedropper do: a window over every monitor, all but transparent, takes the pointer and the keys, and a small one draws the loupe. Both are kept out of what is read of the screen (`WDA_EXCLUDEFROMCAPTURE`), so the pixels under the pointer are read live with GDI as it moves; before Windows 10 2004 the screen is read once as the pick starts. The thread is aware of each monitor's scale, so the pixel taken is the physical one under the pointer at 150% and across monitors of different scales, and the loupe is as large on each |
+| macOS, Linux, iOS, a browser | Not yet: `EyeDropper::is_supported()` is false and `pick` gives `Err(Unsupported)` at once |
+
+`EyeDropper::is_supported()` is what a component asks before it shows an eyedropper; the [color picker](../design-system/#color-picker) and the [color field](../design-system/#color-field) show theirs only where it is true. A test, or a tool driving the app, sets `EyeDropper::stand_in(|| Ok(Some(color)))`, which answers the picks of its thread until the guard it gives is dropped. Setting `LURQ_EYEDROPPER_SNAPSHOT` in the environment takes the way of a system that cannot keep the windows out of a capture: to check it, and to see the loupe in a screenshot.
+
 ## Resource Images
 
 With `image` and `resources`, let the runtime load files relative to the resource root.

@@ -285,6 +285,12 @@ impl Component for ColorPickerPage {
         "The fields a button before them switches between.",
       ),
       (
+        "eyedropper",
+        "bool",
+        "true",
+        "The button at the end of the fields that picks a color from the screen: shown where the platform can pick.",
+      ),
+      (
         "swatch / swatches",
         "impl Into<Color>",
         "",

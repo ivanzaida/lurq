@@ -82,6 +82,8 @@ assert_eq!(Color::from(hsv), blue);
 | `to_hsv()`, `Color::from(Hsv)` | Hue in degrees from 0 to 360, saturation, value and alpha from 0 to 1. A grey has no hue: it is 0 |
 | `to_hsl_values()`, `Color::from(Hsl)` | Hue, saturation, lightness and alpha, as CSS's `hsl()` has them |
 
+A plane of colors, as a picker's area of saturation and brightness, is one box filled with `Gradient::corners(white, hue, black, black)`: see [Four corners](#four-corners).
+
 ## Foreground
 
 `.foreground(color)` sets the color of the text in an element and under it, as CSS `color` does. A `Text` that names no
@@ -255,13 +257,14 @@ Rect::new(240.0, 120.0)
   .background_gradient(Gradient::linear(135.0, ["#ff0080", "#7928ca"]))
 ```
 
-Three kinds are supported on both the wgpu and dx12 backends:
+Four kinds are supported on both the wgpu and dx12 backends:
 
 | Constructor | Description |
 | --- | --- |
 | `Gradient::linear(angle_deg, stops)` | Linear gradient. `angle_deg` follows CSS: `0` points up, increasing clockwise (`90` is to the right). The line is sized so `0%`/`100%` reach the box corners. |
 | `Gradient::radial(stops)` | Radial gradient, farthest-corner. Defaults to an ellipse fitted to the box; call `.circle()` for a circle. |
 | `Gradient::conic(from_deg, stops)` | Conic gradient sweeping clockwise from `from_deg` at the top. |
+| `Gradient::corners(top_left, top_right, bottom_right, bottom_left)` | The blend of four colors, one at each corner of the box: a point is the mix of the top two across and of the bottom two, mixed down (bilinear), in the colors' sRGB values, as a picture is written. See [Four corners](#four-corners). |
 
 ### Color Stops
 
@@ -296,6 +299,22 @@ Gradient::conic(45.0, ["#f43f5e", "#8b5cf6", "#06b6d4", "#f43f5e"]);
 ```
 
 `.center(x, y)` moves the radial/conic origin; coordinates are normalized `0.0..=1.0` within the element (default `(0.5, 0.5)`).
+
+### Four Corners
+
+`Gradient::corners` fills a box with the blend of the colors at its corners: the area of a color picker is white, the hue, black and black, so a point of it at saturation `s` and brightness `v` is `v · mix(white, hue, s)`.
+
+```rust
+use lurq::{components::Row, node::{Gradient, color::Color}};
+
+let hue = Color::from_hex("#2563EB");
+Row::new()
+  .size(208.0, 120.0)
+  .rounded(6.0)
+  .background_gradient(Gradient::corners("#fff", hue, "#000", "#000"));
+```
+
+Draw a picture of several fills as one box, with one such fill, rather than boxes stacked under one rounded clip. Each stacked box is cut by the clip on its own, with an edge of its own: where the edge covers a pixel by half, the top box lets half of what is under it through, and that one half of what is under it in turn, so the lowest box shows at the rounded edge (a rim of the hue around the black corners of a picker's area, before it was one box). A translucent fill over an opaque one (a rail of alpha over its checkerboard) lets the lower one through at the edge by `a · c · (1 − c)` of the difference between it and what is behind, where `c` is the edge's cover and `a` the upper fill's alpha: a rim of the lower one's color, which shows only where that color differs from the panel's.
 
 ## Box Shadows
 
