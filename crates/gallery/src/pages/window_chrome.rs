@@ -4,12 +4,15 @@
 use std::sync::Arc;
 
 use lurq::{
-  app::{component::Component, ctx::Ctx},
+  app::{component::Component, ctx::Ctx, theme::PaletteColor},
   components::{Column, Row},
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
-  node::Element,
-  ui::{MenuEntry, MenuItem, Menubar, MenubarMenu, WindowChrome, WindowChromeState, WindowControls, WindowPlatform},
+  node::{Element, border::Border, color::Color},
+  ui::{
+    MenuEntry, MenuItem, Menubar, MenubarMenu, MenubarPart, WindowChrome, WindowChromeState, WindowControls,
+    WindowPlatform, WindowTab, WindowTabs, icons,
+  },
 };
 
 use crate::{
@@ -41,10 +44,29 @@ fn window(chrome: WindowChrome) -> Element {
   Column::new().width(FILL).max_width(560.0).child(chrome).into()
 }
 
-/// An app's menus: File, Edit and View.
+/// The board's tabs: blur.rs selected, theme.rs with changes not saved, canvas.rs, and the add button.
+fn files(selected: &Signal<u32>) -> WindowTabs<u32> {
+  WindowTabs::new(
+    selected.clone(),
+    [
+      WindowTab::new(1, "blur.rs").icon(icons::FILE_CODE),
+      WindowTab::new(2, "theme.rs").icon(icons::FILE_CODE).dirty(true),
+      WindowTab::new(3, "canvas.rs").icon(icons::FILE_CODE),
+    ],
+  )
+  .label("Open files")
+  .on_add(|| {})
+}
+
+/// An app's menus: File, Edit and View, on the title bar's own fill: the bar of the menubar has none and no edge.
 fn menus(open: &Signal<Option<usize>>) -> Menubar {
   Menubar::new(open.clone())
     .label("Application")
+    .style(MenubarPart::Bar, |s| {
+      s.background(Color::new(0, 0, 0, 0))
+        .border(Border::inside(0.0, PaletteColor::Border))
+        .padding_x(0.0)
+    })
     .menu(MenubarMenu::new(
       "File",
       [
@@ -68,6 +90,10 @@ pub struct WindowChromePage {
   title: Signal<String>,
   icon: Signal<bool>,
   menubar: Signal<bool>,
+  tabs: Signal<bool>,
+  /// The tab selected in the playground's bar, and in the section's.
+  play_file: Signal<u32>,
+  files_file: Signal<u32>,
   inactive: Signal<bool>,
   maximized: Signal<bool>,
   minimizable: Signal<bool>,
@@ -82,7 +108,8 @@ impl WindowChromePage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let platform = self.platform.get();
     let title = self.title.get();
-    let (icon, menubar) = (self.icon.get(), self.menubar.get());
+    let (icon, menubar, tabs) = (self.icon.get(), self.menubar.get(), self.tabs.get());
+    let file = self.play_file.clone();
     let (inactive, maximized) = (self.inactive.get(), self.maximized.get());
     let (minimizable, maximizable) = (self.minimizable.get(), self.maximizable.get());
     let record = self.playground.recorder();
@@ -104,6 +131,9 @@ impl WindowChromePage {
         }
         if menubar {
           chrome = chrome.leading(menus(&menus_open));
+        }
+        if tabs {
+          chrome = chrome.tabs(files(&file));
         }
         chrome
       }
@@ -128,6 +158,11 @@ impl WindowChromePage {
     }
     if menubar {
       code.push("    .leading(Menubar::new(open).menu(MenubarMenu::new(\"File\", [..])) /* Edit, View */)".to_owned());
+    }
+    if tabs {
+      code.push(
+        "    .tabs(WindowTabs::new(file, [WindowTab::new(1, \"blur.rs\"), ..]).on_add(new_file).mount(ctx))".to_owned(),
+      );
     }
     if !minimizable || !maximizable {
       let mut controls = "    .controls(WindowControls::new()".to_owned();
@@ -159,7 +194,12 @@ impl WindowChromePage {
     let reset = {
       let (platform, title) = (self.platform.clone(), self.title.clone());
       let on = [self.icon.clone(), self.minimizable.clone(), self.maximizable.clone()];
-      let off = [self.menubar.clone(), self.inactive.clone(), self.maximized.clone()];
+      let off = [
+        self.menubar.clone(),
+        self.tabs.clone(),
+        self.inactive.clone(),
+        self.maximized.clone(),
+      ];
       Arc::new(move || {
         platform.set(WindowPlatform::Windows);
         title.set("lurq demo".to_owned());
@@ -199,6 +239,7 @@ impl WindowChromePage {
           divider(),
           flag("icon", &self.icon),
           flag("menubar", &self.menubar),
+          flag("tabs", &self.tabs),
           flag("inactive", &self.inactive),
           flag("maximized", &self.maximized),
           flag("minimizable", &self.minimizable),
@@ -209,6 +250,7 @@ impl WindowChromePage {
           title != "lurq demo",
           !icon,
           menubar,
+          tabs,
           inactive,
           maximized,
           !minimizable,
@@ -233,6 +275,24 @@ impl WindowChromePage {
             .title("lurq demo")
             .content(content(80.0)),
         )),
+      );
+    }
+    column.into()
+  }
+
+  /// The four platforms' bars with tabs, at the board's width of 640.
+  fn tabbed(selected: &Signal<u32>) -> Element {
+    let mut column = Column::new().spacing(16.0);
+    for (name, platform) in PLATFORMS {
+      column = column.child(
+        Column::new().spacing(8.0).child(quiet(name, 12.0)).child(
+          Column::new().width(FILL).max_width(640.0).child(
+            WindowChrome::new()
+              .platform(platform)
+              .tabs(files(selected))
+              .content(content(90.0)),
+          ),
+        ),
       );
     }
     column.into()
@@ -285,6 +345,9 @@ impl Component for WindowChromePage {
       title: ctx.signal("lurq demo".to_owned()),
       icon: ctx.signal(true),
       menubar: ctx.signal(false),
+      tabs: ctx.signal(false),
+      play_file: ctx.signal(1),
+      files_file: ctx.signal(1),
       inactive: ctx.signal(false),
       maximized: ctx.signal(false),
       minimizable: ctx.signal(true),
@@ -436,12 +499,38 @@ impl Component for WindowChromePage {
               "    .title(\"Untitled — Notes\")",
               "    .leading(",
               "        Menubar::new(open)",
+              "            .style(MenubarPart::Bar, |s| s.background(Color::new(0, 0, 0, 0)).border(Border::inside(0.0, PaletteColor::Border)).padding_x(0.0))",
               "            .menu(MenubarMenu::new(\"File\", [..]))",
               "            .menu(MenubarMenu::new(\"Edit\", [..]))",
               "            .menu(MenubarMenu::new(\"View\", [..])),",
               "    )",
               "    .content(document)",
               "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Tabs in the bar",
+          "The bar with tabs: higher, with no title and no line under it, the tabs on its bottom edge so that the \
+           selected one runs into the content. The room the tabs leave still drags the window, and a press on a \
+           tab is the tab's.",
+          self.frame.demo(
+            3,
+            Self::tabbed(&self.files_file),
+            "WindowChrome::new().tabs(WindowTabs::new(file, tabs))",
+            &[
+              "WindowChrome::new()",
+              "    .platform(platform)",
+              "    .tabs(",
+              "        WindowTabs::new(file, [",
+              "            WindowTab::new(1, \"blur.rs\").icon(icons::FILE_CODE),",
+              "            WindowTab::new(2, \"theme.rs\").icon(icons::FILE_CODE).dirty(true),",
+              "            WindowTab::new(3, \"canvas.rs\").icon(icons::FILE_CODE),",
+              "        ])",
+              "        .on_add(new_file)",
+              "        .mount(ctx),",
+              "    )",
+              "    .content(document)",
             ],
           ),
         ),

@@ -1113,6 +1113,60 @@ mod tests {
     }
   }
 
+  /// The same window with tabs in its bar.
+  struct Tabbed;
+
+  impl Component for Tabbed {
+    type Props = ();
+
+    fn create(_ctx: &mut Ctx) -> Self {
+      Self
+    }
+
+    fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+      let selected = ctx.signal(1_u32);
+      let tabs = super::super::WindowTabs::new(
+        selected,
+        [
+          super::super::WindowTab::new(1, "blur.rs").id("blur"),
+          super::super::WindowTab::new(2, "theme.rs").id("theme"),
+        ],
+      )
+      .mount(ctx);
+      WindowChrome::new()
+        .platform(WindowPlatform::Windows)
+        .mode(WindowChromeMode::AlwaysCustom)
+        .id("bar")
+        .tabs(tabs)
+        .content(Rect::new(800.0, 560.0))
+        .mount(ctx)
+    }
+  }
+
+  #[test]
+  fn a_press_on_a_tab_is_the_tabs_and_the_room_they_leave_drags_the_window() {
+    let mut app = App::new();
+    let mut tree = Tree::new();
+    tree.resize(800, 600);
+    tree.mount_root::<Tabbed>(&mut app, ());
+    tree.pass_headless(&mut app);
+    tree.pass_headless(&mut app);
+    let _ = tree.window().take_commands();
+    let (x, y) = centre(&mut tree, "theme");
+    // The tab stands on the bar's bottom edge, 40 high.
+    let tab = tree
+      .get_element_by_id_mut("theme")
+      .and_then(|element| element.bounds())
+      .unwrap();
+    assert_eq!(tab.y + tab.height, 40.0);
+    let commands = press(&mut tree, &mut app, x, y, MouseButton::Left);
+    // The press selected the tab, which renders the window again (the headless window keeps the decorations the
+    // engine's chrome asks it to drop, so it asks again); it dragged nothing.
+    assert!(!commands.contains(&WindowCommand::StartDrag), "{commands:?}");
+    let commands = press(&mut tree, &mut app, 600.0, 20.0, MouseButton::Left);
+    assert!(commands.contains(&WindowCommand::StartDrag), "{commands:?}");
+  }
+
   fn window() -> (Tree, App) {
     let mut app = App::new();
     let mut tree = Tree::new();
@@ -1175,7 +1229,8 @@ mod tests {
     );
     // What the app put in the bar is its own: a press there drags nothing.
     let (x, y) = centre(&mut tree, "menus");
-    assert!(press(&mut tree, &mut app, x, y, MouseButton::Left).is_empty());
+    let commands = press(&mut tree, &mut app, x, y, MouseButton::Left);
+    assert!(commands.is_empty(), "{commands:?}");
   }
 
   #[test]
