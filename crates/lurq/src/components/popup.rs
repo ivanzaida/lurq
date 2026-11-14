@@ -84,6 +84,14 @@ impl Popup {
     self
   }
 
+  /// Whether Tab goes through the popup right after its anchor while the
+  /// focus stays where it is as it opens: see
+  /// [`Overlay::tab_after_anchor`](crate::app::ctx::Overlay::tab_after_anchor). Off by default.
+  pub fn tab_after_anchor(mut self, tab: bool) -> Self {
+    self.overlay = self.overlay.tab_after_anchor(tab);
+    self
+  }
+
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.overlay = self.overlay.dismiss_on_escape(dismiss);
     self

@@ -125,6 +125,13 @@ impl Link {
     self
   }
 
+  /// Lays rules over the theme's recipe for this link: what the component it
+  /// is in says of the link in this place, under the pointer too.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
   /// Draws the link as it is under the pointer, held down or focused from
   /// the keyboard, with nothing pointing at it: for a gallery or a test.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {

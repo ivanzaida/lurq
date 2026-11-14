@@ -22,6 +22,7 @@ mod drawer;
 mod family;
 mod family_play;
 mod fieldset;
+mod hover_card;
 mod icons;
 mod input;
 mod input_group;
@@ -53,8 +54,10 @@ mod steps;
 mod switch;
 mod tabs;
 mod tag;
+mod teaching_tip;
 mod textarea;
 mod toast;
+mod toggletip;
 mod token_input;
 mod tokens;
 mod tooltip;
@@ -421,6 +424,30 @@ pub const PAGES: &[Page] = &[
     about: "progress dialog copy export install work bar percent count status cancel pause details indeterminate",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<progress_dialog::ProgressDialogPage>(()),
+  },
+  Page {
+    path: "/hover-card",
+    name: "Hover Card",
+    icon: None,
+    about: "hover card preview profile person link file details popover delay pointer rest focus tab arrow",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<hover_card::HoverCardPage>(()),
+  },
+  Page {
+    path: "/toggletip",
+    name: "Toggletip",
+    icon: None,
+    about: "toggletip info help question button press tooltip status screen reader touch link learn more",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<toggletip::ToggletipPage>(()),
+  },
+  Page {
+    path: "/teaching-tip",
+    name: "Teaching Tip",
+    icon: None,
+    about: "teaching tip coach mark onboarding tour step next back guide callout feature discovery arrow",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
   },
   Page {
     path: "/tabs",

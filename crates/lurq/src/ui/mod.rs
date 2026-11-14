@@ -36,6 +36,7 @@ mod drawer;
 mod fab;
 mod field;
 mod fieldset;
+mod hover_card;
 mod icon;
 pub mod icons;
 mod input;
@@ -71,12 +72,15 @@ mod steps;
 mod switch;
 mod tabs;
 mod tag;
+mod teaching_tip;
 mod text_box;
 mod textarea;
 pub(crate) mod theme;
+mod tip;
 mod toast;
 mod toggle;
 mod toggle_group;
+mod toggletip;
 mod token_input;
 mod tooltip;
 
@@ -121,6 +125,7 @@ pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
   FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
 };
+pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use input_group::{InputAddon, InputGroup, InputGroupPart, InputGroupState, InputGroupView};
@@ -204,6 +209,10 @@ pub use tabs::{
   Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
 };
 pub use tag::{Tag, TagPart, TagRenderer, TagSize, TagState, TagVariant, TagView};
+pub use teaching_tip::{
+  TeachingTip, TeachingTipPart, TeachingTipRenderer, TeachingTipState, TeachingTipVariant, TeachingTipView, Tour,
+  TourStep,
+};
 pub use text_box::{Judgment, TextBoxSize, TextBoxState};
 pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
@@ -217,6 +226,7 @@ pub use toast::{
 };
 pub use toggle::{Toggle, TogglePart, ToggleRenderer, ToggleState, ToggleView};
 pub use toggle_group::{ToggleGroup, ToggleGroupPart};
+pub use toggletip::{Toggletip, ToggletipPart, ToggletipRenderer, ToggletipState, ToggletipView};
 pub use token_input::{
   MENTION, Token, TokenInput, TokenInputPart, TokenInputRenderer, TokenInputSize, TokenInputState, TokenInputView,
 };
