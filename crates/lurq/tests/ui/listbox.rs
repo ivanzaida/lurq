@@ -8,13 +8,13 @@ use lurq::{
   app::{
     App,
     events::MouseButton,
-    theme::{PaletteColor, ThemePalette},
+    theme::{Density, PaletteColor, ThemePalette},
   },
   components::{Column, Row, SelectOption},
   core::Signal,
   layout::{quad::QuadContent, text_style::FontWeight},
   node::color::Color,
-  ui::{Button, Choice, Listbox, ListboxPart, ListboxRenderer, ListboxView},
+  ui::{Button, Choice, Interaction, Listbox, ListboxPart, ListboxRenderer, ListboxView},
 };
 
 use super::stage::Stage;
@@ -559,4 +559,88 @@ fn the_app_setting_the_signal_tells_on_change_nothing() {
   stage.pass();
   assert_eq!(weight_of(&stage, "Metal"), FontWeight::Medium);
   assert!(told.lock().unwrap().is_empty());
+}
+
+/// An option with a detail is as high as its two lines need: 16 higher than one of one line at every density, as a
+/// list's row with a description is, its two lines inside it with room over and under them.
+#[test]
+fn an_option_with_a_detail_is_16_higher_at_every_density() {
+  for (density, one, two) in [
+    (Density::Compact, 24.0, 40.0),
+    (Density::Default, 32.0, 48.0),
+    (Density::Comfortable, 40.0, 56.0),
+    (Density::Touch, 44.0, 60.0),
+  ] {
+    let mut stage = Stage::new(move |_| {
+      Column::new()
+        .child(
+          Listbox::new(
+            Signal::new("plain"),
+            [
+              SelectOption::new("plain", "Plain"),
+              SelectOption::new("detailed", "Detailed").detail("A second line under it"),
+            ],
+          )
+          .density(density)
+          .id("box"),
+        )
+        .into()
+    });
+    assert_eq!(stage.bounds("box-0").3, one, "{density:?}");
+    let (_, y, _, height) = stage.bounds("box-1");
+    assert_eq!(height, two, "{density:?}");
+    let label = stage.text_quad("Detailed").unwrap();
+    let detail = stage.text_quad("A second line under it").unwrap();
+    assert!(label.y >= y + 4.0, "{density:?}: room over the label");
+    assert!(
+      detail.y >= label.y + label.height - 0.5,
+      "{density:?}: the detail under the label"
+    );
+    assert!(
+      detail.y + detail.height <= y + height - 4.0,
+      "{density:?}: room under the detail"
+    );
+  }
+}
+
+/// A disabled option is drawn as nothing presses it, even where the listbox is drawn as held down.
+#[test]
+fn a_disabled_option_has_no_veil_under_a_forced_press() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Listbox::new(Signal::new("wgpu"), renderers())
+          .force(Some(Interaction::Pressed))
+          .id("box"),
+      )
+      .into()
+  });
+  let veil = |stage: &mut Stage, id: &str| {
+    let (x, y, width, height) = stage.bounds(id);
+    stage.quads().into_iter().any(|quad| {
+      matches!(&quad.content, QuadContent::BoxShadow(shadow) if shadow.inset)
+        && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
+    })
+  };
+  assert!(veil(&mut stage, "box-1"), "an option that takes input is veiled");
+  assert!(!veil(&mut stage, "box-3"), "the disabled one is not");
+}
+
+/// A disabled option says so to tooling.
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn a_disabled_option_says_it_is_disabled() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(Listbox::new(Signal::new("wgpu"), renderers()).id("box"))
+      .into()
+  });
+  let mut said = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_disabled"))
+  };
+  assert_eq!(said("box-3").as_deref(), Some("true"));
+  assert_eq!(said("box-1"), None);
 }

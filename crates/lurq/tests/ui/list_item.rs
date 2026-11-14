@@ -11,7 +11,7 @@ use lurq::{
   app::{
     App,
     events::{MouseButton, MouseEvent},
-    theme::{Density, PaletteColor, ThemePalette},
+    theme::{Density, PaletteColor, Theme, ThemePalette},
   },
   components::{Column, Row, Text},
   core::Signal,
@@ -21,7 +21,10 @@ use lurq::{
   },
   node::color::Color,
   router::{RouterHandle, Routes},
-  ui::{Avatar, List, ListItem, ListItemPart, ListItemRenderer, ListItemView, ListPart, Switch, icons},
+  ui::{
+    Avatar, Case, List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, Switch,
+    Themed, icons,
+  },
 };
 
 use super::stage::Stage;
@@ -304,8 +307,13 @@ fn the_lines_between_rows_start_at_the_inset_and_none_is_under_the_last() {
     .collect();
   assert_eq!(lines.len(), 2, "between each two rows");
   assert!((lines[0].x - (x + 60.0)).abs() < 0.5, "{}", lines[0].x - x);
-  assert!((lines[0].y - (a_y + a_height)).abs() < 0.5);
-  assert!((b_y - (a_y + a_height + 1.0)).abs() < 0.5, "rows touch the line");
+  // The line is inside the row over it, along its bottom, as the board draws it: it adds no height.
+  assert!(
+    (lines[0].y + lines[0].height - (a_y + a_height)).abs() < 0.5,
+    "{}",
+    lines[0].y - a_y
+  );
+  assert!((b_y - (a_y + a_height)).abs() < 0.5, "rows touch each other");
 }
 
 #[test]
@@ -330,8 +338,8 @@ fn a_contained_list_is_a_box_with_a_header_and_rows_that_touch() {
   assert_eq!(width, 240.0);
   assert_eq!(
     height,
-    32.0 + 36.0 * 3.0 + 2.0,
-    "a header of 32, rows of 36 and a line between each two"
+    32.0 + 36.0 * 3.0,
+    "a header of 32 and rows of 36, the line between each two inside the row over it: the board's 140"
   );
   assert!(stage.border("list").is_some(), "an edge round it");
   assert!(stage.paints("RECENT"), "the header in capitals");
@@ -340,6 +348,18 @@ fn a_contained_list_is_a_box_with_a_header_and_rows_that_touch() {
   assert!((stage.bounds("a").1 - (top + 32.0)).abs() < 1.0);
   assert_eq!(stage.text("theme.md").1, 13.0);
   assert_eq!(texts(&stage, CHEVRON_RIGHT).len(), 3);
+  // A contained row's text is 8 from its chevron, where a row of a plain list has 12.
+  let theme = Theme::new();
+  let gap = |contained: bool| {
+    ListItem::recipe()
+      .resolve(&Case::new().state(ListItemState::Contained, contained), &theme)
+      .part(ListItemPart::Root)
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&theme.spacing(), 0.0))
+  };
+  assert_eq!(gap(true), Some(8.0));
+  assert_eq!(gap(false), Some(12.0));
 }
 
 #[test]
@@ -422,6 +442,7 @@ fn rows_tell_tooling_what_they_are() {
       .item(ListItem::new("Plain").id("plain"))
       .item(ListItem::new("Pressed").on_click(|_| {}).id("pressed"))
       .item(ListItem::new("Backups").checkbox(true).on_click(|_| {}).id("check"))
+      .item(ListItem::new("Locked").disabled(true).on_click(|_| {}).id("locked"))
   });
   let mut said = |id: &str, name: &str| {
     stage
@@ -432,6 +453,12 @@ fn rows_tell_tooling_what_they_are() {
   assert_eq!(said("list", "a11y_role").as_deref(), Some("list"));
   assert_eq!(said("list", "a11y_name").as_deref(), Some("Settings"));
   assert_eq!(said("plain", "a11y_role").as_deref(), Some("listitem"));
+  assert_eq!(
+    said("locked", "a11y_disabled").as_deref(),
+    Some("true"),
+    "a disabled row says so"
+  );
+  assert_eq!(said("pressed", "a11y_disabled"), None);
   assert_eq!(said("pressed", "a11y_role").as_deref(), Some("button"));
   assert_eq!(said("check", "a11y_role").as_deref(), Some("checkbox"));
   assert_eq!(said("check", "a11y_checked").as_deref(), Some("true"));

@@ -353,6 +353,11 @@ impl ListItem {
       link: self.href.is_some(),
       recipe: theme.resolve::<ListItem>(&case, Some(&self.rules)),
       indicator,
+      toggle: match &self.lead {
+        Some(Lead::Checkbox(on)) => Some(("checkbox", *on)),
+        Some(Lead::Radio(on)) => Some(("radio", *on)),
+        _ => None,
+      },
       lead: self.lead,
       trailing: self.trailing,
       forced: self.forced,
@@ -411,6 +416,9 @@ pub struct ListItemView {
   pub recipe: ResolvedRecipe,
   /// The style of the checkbox or the radio before the text, where the row has one: their own recipe's parts.
   pub indicator: Option<ResolvedRecipe>,
+  /// What the row is to tooling where it is a checkbox or a radio, and whether it is checked: kept apart from what
+  /// stands before the text, which `leading` takes.
+  toggle: Option<(&'static str, bool)>,
   lead: Option<Lead>,
   trailing: Option<Element>,
   forced: Option<Interaction>,
@@ -449,6 +457,9 @@ impl ListItemView {
       if self.selected {
         row = row.describe("a11y_selected", "true");
       }
+      if self.disabled {
+        row = row.describe("a11y_disabled", "true");
+      }
       if let Some(id) = &self.id {
         row = row.id(id.clone());
       }
@@ -457,11 +468,10 @@ impl ListItemView {
       }
       return row.with_children(children).into();
     };
-    let role = match &self.lead {
-      Some(Lead::Checkbox(_)) => "checkbox",
-      Some(Lead::Radio(_)) => "radio",
-      _ if self.link => "link",
-      _ => "button",
+    let role = match self.toggle {
+      Some((role, _)) => role,
+      None if self.link => "link",
+      None => "button",
     };
     let mut row = pressable(&part, self.disabled)
       .justify(Justify::Start)
@@ -473,10 +483,13 @@ impl ListItemView {
     if let Some(description) = &self.description {
       row = row.describe("a11y_description", description.clone());
     }
-    match &self.lead {
-      Some(Lead::Checkbox(on) | Lead::Radio(on)) => row = row.describe("a11y_checked", flag(*on)),
-      _ if self.selected => row = row.describe("a11y_selected", "true"),
-      _ => {}
+    match self.toggle {
+      Some((_, on)) => row = row.describe("a11y_checked", flag(on)),
+      None if self.selected => row = row.describe("a11y_selected", "true"),
+      None => {}
+    }
+    if self.disabled {
+      row = row.describe("a11y_disabled", "true");
     }
     if let Some(id) = &self.id {
       row = row.id(id.clone());
@@ -652,8 +665,8 @@ impl Themed for ListItem {
       .focus_visible(Root, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .state(Selected, Root, |s| s.background(Highlight))
       .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default))
-      // The contained list's rows: 36, square, touching.
-      .state(Contained, Root, |s| s.radius(0.0))
+      // The contained list's rows: 36, square, touching, their text 8 from what is at their end.
+      .state(Contained, Root, |s| s.radius(0.0).gap(8.0))
       .base(Leading, |s| s.gap(0.0))
       .base(Icon, |s| s.square(IconSize::Md).foreground(MutedForeground))
       .when(Selector::new().density(Density::Touch).state(with_icon), Leading, |s| {
@@ -1018,13 +1031,22 @@ impl ListView {
     Some(header)
   }
 
-  /// The line between two rows, from the list's inset to its end.
+  /// The line between two rows, from the list's inset to its end: it takes no room of its own, and is drawn along
+  /// the bottom of the row over it, inside it, as the board draws a row's line.
   pub fn separator(&self) -> Column {
     Column::new()
       .align_items(Alignment::Stretch)
+      .height(Dimension::Px(0.0))
+      .overflow_visible()
       .part(&self.part(ListPart::Separator))
       .padding_left(self.inset)
-      .child(Separator::horizontal().build(self.theme()))
+      .child(
+        Column::new()
+          .align_items(Alignment::Stretch)
+          .overflow_visible()
+          .offset_by_size(0.0, -1.0)
+          .child(Separator::horizontal().build(self.theme())),
+      )
   }
 
   /// The rows one under the other, with a line between each two where the list has them. The rows that are pressed
