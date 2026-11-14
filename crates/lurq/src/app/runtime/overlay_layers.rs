@@ -32,6 +32,9 @@ pub(super) struct OverlayLayers {
   /// The anchor of each layer built, in the order the host stacks them;
   /// `None` for a select menu or a modal.
   pub(super) anchors: Vec<Option<OwnedElementRef>>,
+  /// Whether each layer built, in the same order, is an overlay that takes the focus (`Overlay::takes_focus`):
+  /// what tells it from another layer on the same anchor, a tooltip's beside a menu's.
+  pub(super) takes_focus: Vec<bool>,
   /// The node that declares each layer built, in the same order, where it
   /// has an id.
   pub(super) origins: Vec<Option<NodeId>>,
@@ -168,7 +171,8 @@ impl Tree {
   }
 
   /// The first element that takes the focus in the topmost layer of the overlay host whose overlay takes the
-  /// focus and opened in this pass: where the focus goes. `layers` are the layers as the host stacks them.
+  /// focus and opened in this pass: where the focus goes. `layers` are the layers as the host stacks them. Of the
+  /// layers on one anchor it is the one that takes the focus, not a tooltip's on the same element.
   pub(super) fn opened_overlay_focus(&self, layers: &OverlayLayers) -> Option<NodeId> {
     let host = self.root.as_ref()?;
     layers
@@ -179,7 +183,8 @@ impl Tree {
         layers
           .anchors
           .iter()
-          .position(|anchor| anchor.as_ref().is_some_and(|anchor| anchor.same_handle(mover)))
+          .zip(&layers.takes_focus)
+          .rposition(|(anchor, takes)| *takes && anchor.as_ref().is_some_and(|anchor| anchor.same_handle(mover)))
       })
       .max()
       .and_then(|layer| host.children().get(layer + 1))

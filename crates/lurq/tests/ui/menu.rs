@@ -986,3 +986,49 @@ fn tab_closes_the_menu_and_its_submenus_and_the_focus_goes_on_from_what_opened_i
   assert!(!open.get() && !exporting.get());
   assert_eq!(focused(&stage).as_deref(), Some("after"));
 }
+
+#[test]
+fn a_menu_hung_from_a_button_with_a_tooltip_takes_the_focus_as_it_opens_from_the_keyboard() {
+  let (chosen, tell) = log();
+  let open = Signal::new(false);
+  let (anchor, held) = (ElementRef::new(), open.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let toggle = held.clone();
+    // The button is the tooltip's anchor and the menu's: two layers hang from one element.
+    let button = lurq::components::Button::new("Edit")
+      .id("button")
+      .tab_index(0)
+      .ref_element(anchor.clone())
+      .on_click(move |_| toggle.update(|open| *open = !*open));
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(40.0)
+      .child(lurq::ui::Tooltip::new("Edit the selection").mount(ctx, button))
+      .child(
+        Menu::new(anchor.clone(), held.clone())
+          .item(MenuItem::new("Cut").id("cut").on_select(tell("cut")))
+          .item(MenuItem::new("Copy").id("copy").on_select(tell("copy"))),
+      )
+      .into()
+  });
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  // Tab shows the tooltip at once, and Enter opens the menu with the tooltip's layer still on the button.
+  stage.key("Tab");
+  assert!(stage.paints("Edit the selection"));
+  stage.key("Enter");
+  assert!(open.get());
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("cut"),
+    "the menu's first item has the focus"
+  );
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(*chosen.lock().unwrap(), ["copy"]);
+  assert_eq!(focused(&stage).as_deref(), Some("button"));
+}

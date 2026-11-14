@@ -8305,6 +8305,7 @@ fn build_overlays_from_layout_index(
         set_overlay_reuse_key(&mut menu, reuse_key.as_deref());
         overlays.push(menu);
         layers.anchors.push(None);
+        layers.takes_focus.push(false);
         layers.origins.push(origin);
         layers.placings.push(None);
       }
@@ -8349,6 +8350,7 @@ fn build_overlays_from_layout_index(
         let outside_press = spec.outside_press;
         let dismiss_on_escape = spec.dismiss_on_escape;
         let on_dismiss = spec.on_dismiss.clone();
+        let takes_focus = spec.takes_focus;
         let (mut overlay, bounds, placing) = build_overlay_node(
           spec,
           anchor,
@@ -8378,6 +8380,7 @@ fn build_overlays_from_layout_index(
         }
         overlays.push(overlay);
         layers.anchors.push(Some(layer_anchor));
+        layers.takes_focus.push(takes_focus);
         layers.origins.push(origin);
         layers.placings.push(Some(placing));
       }
@@ -8435,6 +8438,7 @@ fn build_overlays_from_layout_index(
         }
         overlays.push(modal);
         layers.anchors.push(owner);
+        layers.takes_focus.push(false);
         layers.origins.push(origin);
         layers.placings.push(None);
       }
