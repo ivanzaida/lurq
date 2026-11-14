@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The rows of the playground: a title, its description, its icon, its value and its time.
@@ -310,7 +310,7 @@ impl ListPage {
       Spec {
         title: "List",
         make: Arc::new(make),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: true,
         facts: format!("{} rows", ROWS.len()),
