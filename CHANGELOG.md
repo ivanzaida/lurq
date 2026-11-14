@@ -201,6 +201,7 @@ Added:
 
 Fixes:
 
+- A node made sticky (`.sticky(..)`) after it was laid out sticks. Its layout was kept from before, which said it did not, so a bar turned sticky in a page already shown scrolled away with the page.
 - With the `devtools` feature, a value of the design system goes in a signal: every variant, size and state name, and its shapes, orientations and positions (`AvatarShape`, `ToastPosition`, `Placement`, `SliderOrientation` and the rest) are `DevtoolsInspectable`. An app that kept an `AvatarSize` in a signal did not compile with DevTools on, and neither did `ui::Combobox` itself.
 - A token of a text input in its selected look is drawn over the selection's highlight. The highlight was painted over the chip, so a selected token of a `TokenInput` was a white label on the pale selection between strips of the chip's own fill. A token the selection covers that has no selected look keeps the highlight over it.
 - The caret at the end of an atomic token of a text input stands past its chip, and the one at its start before it. It stood where the token's text ends, inside the chip, between the label and the cross of a `TokenInput`'s token. A token the caret goes into is as it was.

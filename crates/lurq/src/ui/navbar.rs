@@ -14,7 +14,7 @@ use super::{
   part_style::PartStyle,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{fading, glyph, pressable},
-  sidebar::{Sidebar, SidebarGroup, SidebarItem},
+  sidebar::{Sidebar, SidebarItem},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -269,7 +269,7 @@ impl From<NavbarBrand> for Element {
 /// Its links are a [`NavigationMenu`] in its links variant: each a stop of Tab, the page shown in the foreground,
 /// one with a panel opening it under itself by a press, under the pointer after a moment, and with Enter, Space and
 /// Down. On a window narrower than the `md` breakpoint (or wherever [`Navbar::narrow`] says) they go behind a menu
-/// button at the bar's start, into a [`Sidebar`] over the page: an item with a panel is a group of its links there,
+/// button at the bar's start, into a [`Sidebar`] over the page: an item with a panel holds its links there,
 /// and choosing one closes it. [`Navbar::sticky`] keeps the bar at the top while the page under it scrolls.
 ///
 /// To tooling the bar is a navigation region called by its label, its links links (the page shown the current
@@ -468,37 +468,42 @@ impl Navbar {
     menu
   }
 
-  /// The links over the page: a sidebar of the items, an item with a panel a group of its links.
+  /// The links over the page: a sidebar of the items, an item with a panel an item that holds its links.
   fn drawer(&self, open: &Signal<bool>) -> Sidebar {
     let mut sidebar = Sidebar::new().label(&self.label).narrow(true).open(open.clone());
     for item in &self.items {
-      match &item.panel {
-        Some(panel) => {
-          let group = SidebarGroup::new(&item.label).items(panel.links.iter().map(sidebar_link));
-          sidebar = sidebar.group(group);
+      // An item with a panel holds its links, open: they stand in from it, and the items after it beside it, as
+      // they do in the bar. A group of them would end under its last link, with the items after it read as its own.
+      let mut link = match &item.panel {
+        Some(panel) => SidebarItem::new(&item.label)
+          .disabled(item.disabled)
+          .open(true)
+          .children(panel.links.iter().map(sidebar_link)),
+        None => SidebarItem::new(&item.label)
+          .selected(item.current)
+          .disabled(item.disabled),
+      };
+      {
+        if let Some(icon) = item.icon {
+          link = link.icon(icon);
         }
-        None => {
-          let mut link = SidebarItem::new(&item.label)
-            .selected(item.current)
-            .disabled(item.disabled);
-          if let Some(icon) = item.icon {
-            link = link.icon(icon);
-          }
+        if let Some(id) = &item.id {
+          link = link.id(id.clone());
+        }
+        if let Some(key) = &item.key {
+          link = link.key(key.clone());
+        }
+        // An item that opens a panel goes nowhere itself.
+        if item.panel.is_none() {
           if let Some(href) = &item.href {
             link = link.href(href);
-          }
-          if let Some(id) = &item.id {
-            link = link.id(id.clone());
-          }
-          if let Some(key) = &item.key {
-            link = link.key(key.clone());
           }
           let handlers = item.on_select.clone();
           if !handlers.is_empty() {
             link = link.on_select(move || handlers.iter().for_each(|handler| handler()));
           }
-          sidebar = sidebar.item(link);
         }
+        sidebar = sidebar.item(link);
       }
     }
     if let Some(id) = &self.id {
@@ -745,11 +750,14 @@ impl NavbarView {
     if let Some(brand) = self.brand.take() {
       root = root.child(brand);
     }
+    // The links take the room the bar has to spare, and no more: where they do not fit they are cut at its end,
+    // and never run under what follows them.
     root = root.child(
       Row::new()
         .flex(1.0)
+        .min_width(0.0)
         .align_items(Alignment::Center)
-        .overflow_visible()
+        .clip()
         .part(&self.part(NavbarPart::Links))
         .with_children(self.links.take()),
     );
@@ -757,6 +765,7 @@ impl NavbarView {
     if !trailing.is_empty() {
       root = root.child(
         Row::new()
+          .flex_shrink(0.0)
           .align_items(Alignment::Center)
           .overflow_visible()
           .part(&self.part(NavbarPart::Trailing))

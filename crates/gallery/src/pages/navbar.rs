@@ -290,13 +290,8 @@ impl NavbarPage {
       ),
     ];
     let resets = (
-      [self.narrow.clone(), self.sticky.clone()],
-      [
-        self.brand.clone(),
-        self.panel.clone(),
-        self.search.clone(),
-        self.avatar.clone(),
-      ],
+      [self.narrow.clone(), self.sticky.clone(), self.search.clone()],
+      [self.brand.clone(), self.panel.clone(), self.avatar.clone()],
       self.current.clone(),
     );
     let make_props = Props {
@@ -333,7 +328,7 @@ impl NavbarPage {
           props.sticky,
           !props.brand,
           !props.panel,
-          !props.search,
+          props.search,
           !props.avatar,
           props.current.get() != 0,
         ]
@@ -378,7 +373,9 @@ impl Component for NavbarPage {
       sticky: ctx.signal(false),
       brand: ctx.signal(true),
       panel: ctx.signal(true),
-      search: ctx.signal(true),
+      // Off at first: the board's bar with its search of 200 is wider than the stage. The section of a site's
+      // header has it.
+      search: ctx.signal(false),
       avatar: ctx.signal(true),
       current: ctx.signal(0),
       query: ctx.signal(String::new()),
@@ -530,7 +527,7 @@ impl Component for NavbarPage {
         Section::new(
           "On a narrow window",
           "Below the md breakpoint the links go behind the menu button at the bar's start, into a sidebar over the \
-           page: an item with a panel is a group of its links there, and choosing one closes it.",
+           page: an item with a panel holds its links there, and choosing one closes it.",
           self.frame.demo(
             1,
             phone,

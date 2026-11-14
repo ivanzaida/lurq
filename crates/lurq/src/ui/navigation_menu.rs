@@ -1363,6 +1363,8 @@ impl NavigationMenuView {
     let kept = self.shared.kept(index)?;
     let mut viewport = Column::new()
       .align_items(Alignment::Start)
+      // The panel's shadow falls past the room it is in.
+      .overflow_visible()
       .part(&self.part(NavigationMenuPart::Viewport))
       .child(content);
     if let Some(timers) = &self.timers {
@@ -1522,7 +1524,7 @@ impl Themed for NavigationMenu {
       .when(links(), Item, |s| {
         s.height(32.0)
           .padding_x(0.0)
-          .gap(4.0)
+          .gap(6.0)
           .radius(RadiusSize::Sm)
           .foreground(MutedForeground)
       })

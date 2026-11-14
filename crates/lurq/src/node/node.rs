@@ -5759,6 +5759,8 @@ impl Node {
       && self.rare_style.column_tracks == old.rare_style.column_tracks
       && self.rare_style.measured_tracks == old.rare_style.measured_tracks
       && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
+      // A node that sticks is placed again by the scroll container above it, which its layout says.
+      && self.rare_style.sticky == old.rare_style.sticky
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }
