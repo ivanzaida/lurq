@@ -1600,3 +1600,65 @@ fn the_words_of_the_menu_the_groups_the_summary_and_the_numbers_are_said_otherwi
     assert_eq!(said("g-group-1").as_deref(), Some("Status Passing (2)"));
   }
 }
+
+#[test]
+fn a_summary_is_computed_when_what_it_is_computed_from_changes_not_at_each_render() {
+  use lurq::app::events::ScrollPhase;
+  let computed = Arc::new(Mutex::new(0_usize));
+  let rows = Signal::new(many_files(60));
+  let open = Signal::new(vec![GroupKey::new(["Building"]), GroupKey::new(["Passing"])]);
+  let (counted, given) = (computed.clone(), rows.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let counted = counted.clone();
+    let mut columns = columns();
+    columns[0] = columns[0].clone().summary_text(move |rows: &[&File]| {
+      *counted.lock().unwrap() += 1;
+      format!("{} files", rows.len())
+    });
+    columns[2] = columns[2].clone().summary(lurq::ui::SummaryKind::Sum);
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns, given.get())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .height(400.0)
+          .group_by(["status"])
+          .open(open.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  let first = *computed.lock().unwrap();
+  assert!(first >= 2, "the grid's summary and a group's: {first}");
+
+  // A scroll, the pointer over a row and the focus moving render the grid again and compute nothing.
+  let (_, y, ..) = stage.bounds("g");
+  stage.tree.scroll(300.0, y + 200.0, 0.0, -300.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  stage.tree.mouse_move(300.0, y + 150.0);
+  stage.pass();
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "ArrowDown");
+  assert_eq!(*computed.lock().unwrap(), first, "nothing computed again");
+
+  // A row the app changes: the summaries in view are computed again, once each.
+  let mut changed = rows.get();
+  changed[0].size = 1000.0;
+  rows.set(changed);
+  stage.pass();
+  stage.pass();
+  let after = *computed.lock().unwrap();
+  assert_eq!(after, first * 2, "each summary computed again for the change, once");
+  stage.pass();
+  stage.pass();
+  assert_eq!(*computed.lock().unwrap(), after, "and once");
+}

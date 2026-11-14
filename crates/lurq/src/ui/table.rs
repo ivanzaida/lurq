@@ -38,7 +38,7 @@ pub use groups::{GroupKey, TableGroup};
 use groups::{Lines, Shown};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
-use summary::{Summary, summarize, summary_content};
+use summary::{Said, Summary, SummaryKey, summarize, summary_content};
 pub use summary::{SummaryKind, SummaryLabels, TableSummary};
 
 use crate::{
@@ -1724,7 +1724,52 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     // The summary rows: one at the end of each group open, built where it is in view, and the grid's at its bottom.
     let summary_recipe = row_recipe(false, false);
     let summary_fill = summary_recipe.part(TablePart::Summary).rest().background;
-    let summary_of = |rows: &[&R], id: Option<Arc<str>>, position: Option<usize>| TableSummary {
+    // What each summary says is kept by a mounted grid while what it is computed from is the same: a render that
+    // only scrolls, hovers or moves the focus computes none.
+    let summary_host = window
+      .as_ref()
+      .and_then(|window| window.host.as_ref())
+      .map(|host| host.state.clone());
+    let mut held: HashMap<SummaryKey, Arc<Vec<Said>>> = summary_host
+      .as_ref()
+      .map(|host| std::mem::take(&mut *host.summaries.lock()))
+      .unwrap_or_default();
+    let mut kept: HashMap<SummaryKey, Arc<Vec<Said>>> = HashMap::new();
+    let summary_columns: Vec<(Arc<str>, Option<SummaryKind>)> = self
+      .columns
+      .iter()
+      .filter_map(|column| {
+        let kind = match column.summary.as_ref()? {
+          Summary::Kind(kind) => Some(*kind),
+          Summary::Text(_) => None,
+        };
+        Some((column.id.clone(), kind))
+      })
+      .collect();
+    let grouping_ids: Vec<Arc<str>> = self.grouping.iter().map(|column| column.id.clone()).collect();
+    let rows_seen = (Arc::as_ptr(&self.rows) as *const () as usize, self.rows.len());
+    // A group's rows by their places, or every row.
+    let mut values_of = |group: Option<&GroupKey>, places: Option<&[usize]>| -> Arc<Vec<Said>> {
+      let key = SummaryKey {
+        rows: rows_seen,
+        columns: summary_columns.clone(),
+        grouping: grouping_ids.clone(),
+        group: group.map(|group| group.values.clone()),
+      };
+      let values = held
+        .remove(&key)
+        .or_else(|| kept.get(&key).cloned())
+        .unwrap_or_else(|| {
+          let rows: Vec<&R> = match places {
+            Some(places) => places.iter().map(|index| &self.rows[*index]).collect(),
+            None => self.rows.iter().collect(),
+          };
+          Arc::new(self.columns.iter().map(|column| summarize(column, &rows)).collect())
+        });
+      kept.insert(key, values.clone());
+      values
+    };
+    let summary_of = |values: &[Said], id: Option<Arc<str>>, position: Option<usize>| TableSummary {
       position,
       cells: self
         .columns
@@ -1733,7 +1778,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         .filter(|(column_index, _)| built(*column_index))
         .map(|(column_index, column)| TableCell {
           column: column_index,
-          content: summary_content(&summary_recipe, summarize(column, rows, &self.words.summary)),
+          content: summary_content(&summary_recipe, &values[column_index], &self.words.summary),
           grid: None,
           part: summary_recipe.part(TablePart::Cell),
           align: column.align,
@@ -1762,24 +1807,36 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       name: self.words.summary.row.clone(),
       id,
     };
+    // Every open group's summary is computed with the others, built or not, so a scroll that brings one into view
+    // finds it.
+    if self.summarized() {
+      for line in lines.groups.iter().filter(|line| line.open) {
+        values_of(Some(&line.key), Some(&line.rows));
+      }
+    }
     let summaries: Vec<TableSummary> = shown
       .iter()
       .filter_map(|&position| {
         let Shown::Summary(group) = lines.lines[position] else {
           return None;
         };
-        let rows: Vec<&R> = lines.groups[group]
-          .rows
-          .iter()
-          .map(|index| &self.rows[*index])
-          .collect();
-        Some(summary_of(&rows, id_of(&format!("summary-{position}")), Some(position)))
+        let line = &lines.groups[group];
+        let values = values_of(Some(&line.key), Some(&line.rows));
+        Some(summary_of(
+          &values,
+          id_of(&format!("summary-{position}")),
+          Some(position),
+        ))
       })
       .collect();
     let summary = (self.summarized() && count > 0 && !self.loading).then(|| {
-      let rows: Vec<&R> = self.rows.iter().collect();
-      summary_of(&rows, id_of("summary"), None)
+      let values = values_of(None, None);
+      summary_of(&values, id_of("summary"), None)
     });
+    drop(values_of);
+    if let Some(host) = &summary_host {
+      *host.summaries.lock() = kept;
+    }
     let rows = shown
       .iter()
       .filter_map(|&position| lines.rank_at(position).map(|rank| (position, rank)))
@@ -4595,6 +4652,8 @@ struct HostState {
   submenu_anchor: ElementRef,
   /// Where each header built is, by its column, and a column dragged by its header: from where to before which.
   header_refs: Mutex<HashMap<usize, ElementRef>>,
+  /// What each summary row said, by what it was computed from: kept while that is the same.
+  summaries: Mutex<HashMap<SummaryKey, Arc<Vec<Said>>>>,
   header_drop: Mutex<Option<(usize, Option<usize>)>>,
   /// The lines shown, and what opens or closes the group of one: the engine's nested group asks it.
   lines: Mutex<Arc<Lines>>,
@@ -4772,6 +4831,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         submenu_open: ctx.signal(false),
         submenu_anchor: ElementRef::new(),
         header_refs: Mutex::new(HashMap::new()),
+        summaries: Mutex::new(HashMap::new()),
         header_drop: Mutex::new(None),
         lines: Mutex::new(Arc::new(Lines::default())),
         group_toggle: Mutex::new(None),
