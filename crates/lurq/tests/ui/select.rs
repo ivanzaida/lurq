@@ -322,7 +322,7 @@ fn a_value_no_option_has_shows_the_placeholder_and_a_disabled_option_is_dimmed_a
   let item = stage
     .app
     .theme()
-    .resolve::<Select>(&Case::new().state(SelectState::ItemDisabled, true), None)
+    .resolve::<Select>(&Case::new().state(SelectState::Disabled, true), None)
     .part(SelectPart::Item)
     .rest();
   assert_eq!(item.opacity, Some(Opacity::Value(0.45)));
@@ -547,4 +547,118 @@ fn the_options_follow_the_density_and_the_box_keeps_its_size() {
       light_item.1 - system.1
     );
   }
+}
+
+#[test]
+fn on_change_is_told_a_persons_choice_and_not_what_the_app_sets_or_what_is_chosen_already() {
+  let value = Signal::new("light".to_owned());
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let tell = told.clone();
+  let mut stage = page(&value, move |select| {
+    let tell = tell.clone();
+    select.on_change(move |theme: &String| tell.lock().unwrap().push(theme.clone()))
+  });
+  stage.click("select");
+  let dark = middle_of(&stage, "Dark");
+  press_at(&mut stage, dark);
+  assert_eq!(value.get(), "dark");
+  assert_eq!(*told.lock().unwrap(), ["dark"], "told the new value");
+
+  // What is chosen already is no change.
+  stage.click("select");
+  let dark = middle_of(&stage, "Dark");
+  press_at(&mut stage, dark);
+  assert_eq!(told.lock().unwrap().len(), 1);
+
+  // Nor is what the app sets.
+  value.set("system".to_owned());
+  stage.pass();
+  assert!(stage.paints("System"));
+  assert_eq!(told.lock().unwrap().len(), 1);
+}
+
+#[test]
+#[should_panic(expected = "Select::on_change")]
+fn a_handler_of_another_type_than_the_values_panics() {
+  let _ = Select::new(Signal::new("light".to_owned()), themes()).on_change(|_: &u32| {});
+}
+
+#[test]
+fn a_controlled_select_tells_a_choice_and_shows_what_the_app_answers_with() {
+  // The app holds the theme, and answers "dark" with "system": it does not have a dark theme yet.
+  let held = Signal::new("light".to_owned());
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let (value, tell) = (held.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let (answer, tell) = (value.clone(), tell.clone());
+    window()
+      .padding(8.0)
+      .child(
+        Select::controlled(value.get(), themes(), move |theme: &String| {
+          tell.lock().unwrap().push(theme.clone());
+          answer.set(if theme == "dark" {
+            "system".to_owned()
+          } else {
+            theme.clone()
+          });
+        })
+        .id("select"),
+      )
+      .into()
+  });
+  assert!(stage.paints("Light"));
+  stage.click("select");
+  let dark = middle_of(&stage, "Dark");
+  press_at(&mut stage, dark);
+  assert_eq!(*told.lock().unwrap(), ["dark"]);
+  assert_eq!(held.get(), "system");
+  assert!(
+    stage.paints("System") && !stage.paints("Dark"),
+    "the app's answer, not what was pressed"
+  );
+
+  // The app's answer is chosen, and the select keeps the focus across the renders it causes.
+  stage.key("ArrowDown");
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(*told.lock().unwrap(), ["dark", "light"]);
+  assert!(stage.paints("Light"));
+  assert_eq!(focused(&stage).as_deref(), Some("select"));
+}
+
+#[test]
+fn an_optional_select_holds_none_as_its_placeholder_and_a_choice_as_some() {
+  let value: Signal<Option<String>> = Signal::new(None);
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    window()
+      .padding(8.0)
+      .child(
+        Select::optional(bound.clone(), themes())
+          .placeholder("Select theme")
+          .id("select"),
+      )
+      .into()
+  });
+  assert!(stage.paints("Select theme"));
+  stage.click("select");
+  let light_item = middle_of(&stage, "Light");
+  press_at(&mut stage, light_item);
+  assert_eq!(value.get().as_deref(), Some("light"));
+  assert!(stage.paints("Light"));
+}
+
+#[test]
+fn a_read_only_select_shows_its_value_on_the_muted_fill_and_does_not_open() {
+  let value = Signal::new("light".to_owned());
+  let mut stage = page(&value, |select| select.read_only(true));
+  assert_eq!(stage.fill_color("select"), Some(light(PaletteColor::Muted)));
+  assert_eq!(edge(&mut stage, "select").1, light(PaletteColor::Border));
+  stage.click("select");
+  assert!(!stage.paints("Dark"), "a press does not open the list");
+  assert_eq!(focused(&stage).as_deref(), Some("select"), "it keeps the focus");
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert!(!stage.paints("Dark"), "nor do the keys");
+  assert_eq!(value.get(), "light");
 }

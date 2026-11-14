@@ -184,8 +184,8 @@ pub use listbox::{
   Listbox, ListboxChosen, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxValue, ListboxView,
 };
 pub use mentions::{
-  MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsState,
-  MentionsView,
+  MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
+  MentionsState, MentionsView,
 };
 pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
@@ -196,7 +196,9 @@ pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState,
   MessageBoxView,
 };
-pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
+pub use multi_select::{
+  MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectSize, MultiSelectState, MultiSelectView,
+};
 pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, NavbarView};
 pub use navigation_menu::{
   NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
@@ -250,7 +252,9 @@ pub use skeleton::{
   SKELETON_PULSE, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation,
   SkeletonPart, SkeletonRenderer, SkeletonShape, SkeletonView,
 };
-pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
+pub use slider::{
+  RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
+};
 pub(crate) use spinner::keyframes as spinner_keyframes;
 pub use spinner::{
   LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,

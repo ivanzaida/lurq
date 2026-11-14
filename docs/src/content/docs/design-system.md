@@ -763,8 +763,12 @@ use lurq::ui::{RangeSlider, Slider, SliderOrientation};
 // volume: Signal<i32>
 Slider::new(volume.clone()).label("Volume");
 
-// A fraction, in steps of a twentieth.
-Slider::new_f32(opacity.clone()).step(0.05).label("Opacity");
+// opacity: Signal<f32>: a fraction, in steps of a twentieth.
+Slider::new(opacity.clone()).step(0.05).label("Opacity");
+
+// The app holds the value; told each change, and of the end of a drag.
+Slider::controlled(volume, move |value| set_volume(value))
+  .on_change_end(move |value| save(value));
 
 // From 10 to 50 in steps of 5.
 Slider::new(size.clone()).min(10).max(50).step(5);
@@ -778,10 +782,13 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 
 | Builder | |
 | --- | --- |
-| `Slider::new(Signal<i32>)`, `Slider::new_f32(Signal<f32>)` | The value it is bound to: whole numbers, from 0 to 100 in steps of 1, or fractions, from 0 to 1 in steps of a hundredth |
-| `RangeSlider::new(Signal<(i32, i32)>)`, `RangeSlider::new_f32(Signal<(f32, f32)>)` | The two values a range slider is bound to, the low one first, in the same ranges and steps |
+| `Slider::new(Signal<T>)` | The value it is bound to, `T` a `SliderNumber`: `i32`, whole numbers from 0 to 100 in steps of 1, or `f32`, fractions from 0 to 1 in steps of a hundredth |
+| `Slider::controlled(value, on_change)` | The app holds the value, an `i32` or an `f32`: the slider shows it, tells `on_change` what a person makes it, and shows what the app answers with. A drag goes on over the renders the answers make |
+| `RangeSlider::new(Signal<(T, T)>)`, `RangeSlider::controlled((low, high), on_change)` | The two values of a range slider, the low one first, in the same ranges and steps |
+| `on_change(Fn(f64))` | Each change a person makes, as it is made: a drag as it moves, a press on the track, a key. Not what the app sets, nor a new range or step that snaps the value. A range slider's is `Fn((f64, f64))`, the two values. Each call adds |
+| `on_change_end(Fn(f64))` | The value when a change is over: the drag let go, the press on the track or the key's step made. A range slider's is told the two. Each call adds |
 | `min(v)`, `max(v)`, `step(v)` | The least value, the greatest and how far apart the values are, from the least. Any number: `min(10)`, `step(0.25)` |
-| `orientation(SliderOrientation)` | `Horizontal`, or `Vertical`: 16 wide and 140 high, the least value at the bottom |
+| `orientation(SliderOrientation)` | `Horizontal`, or `Vertical`: 16 wide and 140 high, the least value at the bottom. `SliderOrientation` is `ui::Orientation` |
 | `length(f32)` | How long the slider is along its track: its width across, its height up |
 | `label(&str)` | What the slider is called, to what reads the tree. The slider shows no text: the field it is in does |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the slider's node |
@@ -789,11 +796,11 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 - It is the engine's [`Slider`](../styling-events/#slider-styling) dressed by the recipe: a drag of the thumb, a press on the track and the keys set the signal, snapped to the step and kept in the range. Tab reaches it wherever it is (`tab_index(0)`), and the focus ring is the thumb's. A vertical slider is dragged along its height, and the up and down arrows move it.
 - The keys: the arrows a step (right and up toward the greatest value), Page Up and Page Down a tenth of the range in whole steps and at least one, Home and End to the least and the greatest. The [engine's slider keys](../styling-events/#slider-keys) are the same for a vertical slider and for each thumb of a range slider.
 - A range slider is the engine's slider with two thumbs. A press on the track moves the nearer thumb, a drag the thumb it began on, and neither passes the other, by the pointer or the keys. Each thumb is a stop of Tab, the low one first; the keys move the one focused, and the ring is around it. In a form it is `FormRangeSliderInput` (see [Forms](../forms/)).
-- Parts: `SliderPart::Root` (the slider's node: its size, its cursor, its opacity), `Track`, `Range` (the track from its start to the thumb, or between a range slider's thumbs), `Thumb` (both of a range slider's). States: `SliderState::Disabled`, `Vertical`, `Range`. A range slider is drawn by the slider's recipe and renderer in the state `Range`, so a theme that restyles the slider restyles it too, and `rules.state(SliderState::Range, ..)` styles it alone.
-- In the design the slider is 240 by 16; the track is 4 high and round, in `Secondary`; the range is `Primary`; the thumb is 16, round, in `Background` with an edge of 1.5 in `Primary` inside it. The vertical one is 16 by 140, its track 4 wide and as high as it. A disabled slider is dimmed. `style(SliderPart::Root, |s| s.width(Length::Fill))` makes it as wide as what holds it.
-- The engine paints the track, the range and the thumb, not nodes: of their style it takes the width and the height in pixels, the fill, the corners, the border and the outline (`focus_ring()` too), at rest, under the pointer (`hovered`), and for the thumb focused from the keyboard (`focus_visible`). An opacity, a shadow or a transition of one of those three parts is not painted. On a vertical slider a part's width is its thickness.
+- Parts: `SliderPart::Root` (the slider's node: its size, its cursor, its opacity), `Track`, `Fill` (the track from its start to the thumb, or between a range slider's thumbs), `Thumb` (both of a range slider's). States: `SliderState::Disabled`, `Horizontal` or `Vertical` (one of them is on), `Range`. A range slider is drawn by the slider's recipe and renderer in the state `Range`, so a theme that restyles the slider restyles it too, and `rules.state(SliderState::Range, ..)` styles it alone.
+- In the design the slider is 240 by 16; the track is 4 high and round, in `Secondary`; the fill is `Primary`; the thumb is 16, round, in `Background` with an edge of 1.5 in `Primary` inside it. The vertical one is 16 by 140, its track 4 wide and as high as it. A disabled slider is dimmed. `style(SliderPart::Root, |s| s.width(Length::Fill))` makes it as wide as what holds it.
+- The engine paints the track, the fill and the thumb, not nodes: of their style it takes the width and the height in pixels, the fill, the corners, the border and the outline (`focus_ring()` too), at rest, under the pointer (`hovered`), and for the thumb focused from the keyboard (`focus_visible`). An opacity, a shadow or a transition of one of those three parts is not painted. On a vertical slider a part's width is its thickness.
 - To what reads the tree (`lurq_snapshot` of the MCP server) it is a `slider` called by its label; a range slider's value is `low,high`.
-- A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value (or the two) with its orientation, the root's style and the length, and `view.dressed(slider)` gives it the recipe's track, range and thumbs. `view.value()` reads the value, `view.values()` a range slider's two, and `view.is_range()` tells which it is.
+- A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value (or the two) with its orientation, the root's style and the length, and `view.dressed(slider)` gives it the recipe's track, fill and thumbs. `view.value()` reads the value, `view.values()` a range slider's two, and `view.is_range()` tells which it is.
 
 ## Select
 
@@ -824,13 +831,20 @@ Select::new(platform.clone(), [
   SelectOption::new("linux".to_owned(), "Linux"),
   SelectOption::new("ios".to_owned(), "iOS").group("Mobile").hint("beta"),
 ]);
+
+// Held by the app: it is told of a choice, and the trigger shows what it answers with.
+Select::controlled(rows, [(10, "10"), (20, "20"), (50, "50")], move |rows| set_rows(*rows));
 ```
 
 | Builder | |
 | --- | --- |
 | `new(Signal<T>, options)` | What it is bound to, and its options: `(value, label)` pairs or `SelectOption`s (`detail`, a second line; `hint`, a note at its end; `leading` and `trailing`, an element before and after the label, which the closed select shows for the chosen option, and `leading_with` and `trailing_with` for one built for the state of its row, as an [icon](#icon) in the color of the label is; `group(label)`, the group it starts; `disabled`). The option whose value the signal has is chosen; choosing another sets the signal |
+| `optional(Signal<Option<T>>, options)` | Bound to a value that may be none: `None` is no option's, and the trigger shows the placeholder |
+| `controlled(value, options, on_change)` | The app holds the value: a choice is told to `on_change`, and the trigger shows what the app answers with. Two built at one place in the app's code, in a loop, are told apart by their `id` or `key` |
+| `on_change(Fn(&T))` | Called with the new value when a person chooses: not when the app sets the signal, and not for the option chosen already. The handler names the type of the value, `on_change(\|theme: &String\| ..)`, `&Option<T>` of an optional one; a handler of another type panics. A second handler is called after the first |
 | `placeholder(&str)` | What the trigger says while no option is chosen |
-| `size(SelectSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15: an input's sizes |
+| `size(SelectSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15: an input's sizes. `SelectSize` is `TextBoxSize` |
+| `read_only(bool)` | What is chosen is read and not changed: the list does not open. It keeps the focus; the trigger is on `Muted` in an edge of `Border`, as a read only input is |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what is chosen: the edge and the ring in the destructive, warning or success color. One is shown, in that order, as an input shows them |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `label(&str)` | What it is called, to what reads the tree. The field it is in shows its label |
@@ -839,10 +853,10 @@ Select::new(platform.clone(), [
 
 - It is the engine's [`Select`](../styling-events/#select) dressed by the recipe, not a second one: a press, or Enter, Space and the arrows from the keyboard, open the list under it (over it where there is no room); the arrows, Home, End and the first letters move through it, skipping disabled options and the groups' labels; Enter or a press chooses, and Escape closes. Tab closes it too and goes on to the next stop, as from a closed select. Tab reaches it wherever it is (`tab_index(0)`); a disabled one does not open and Tab passes it by.
 - It stands beside an [input](#input): the same box, sizes, edge, ring and judgments. The ring is a line of 2 inside the box in `Ring`, shown from the keyboard and while the list is open.
-- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Menu` (the panel: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `Disabled`, `FullWidth`, and of an item `Chosen` and `ItemDisabled`. Sizes: `SelectSize::Sm`, `Md`, `Lg`.
+- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Panel` (the panel of the list: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts (`Item`, `Check`). Sizes: `SelectSize::Sm`, `Md`, `Lg`.
 - In the design the trigger is 260 by 36, `Background` in an edge of 1 in the `Input` color, `radius-md`, the text 12 from the edge in the body's type, the placeholder and a chevron of 16 in `MutedForeground`, 8 apart; `Ring` under the pointer; `Destructive`, `Warning` or `Success` for a judgment, under the pointer, in the focus and open too; disabled is half opaque on `Muted`. The list is 4 under it and as wide, on `Popover` in an edge of `Border`, `radius-lg`, with the theme's middle shadow and 4 of padding. An item is 32 high, its text 8 in, `radius-sm`, in the body's type, on `Highlight` under the pointer or the keys; the chosen one has a check of 16 in `Foreground` at its end, 8 after the label; a disabled one is at 0.45. A hint is 11 in the mono type in `MutedForeground`. A group's label is 11, semibold, in `MutedForeground`, in line with the items' text; a line of 1 in `Border` is between groups, 4 from each.
 - Its options follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch, the steps of a row of 36 (28, 36, 44, 48). The trigger is a control and keeps its size.
-- The engine paints the trigger, the panel and the rows itself, from its `SelectStyle`, not from nodes the recipe styles: of the trigger it takes the fill, the edge, the corners, the shadow, the ring and the padding, at rest, `hovered`, `focus_visible` and in the state `Open`; of an item, the fill, edge, corners, padding, height (at least), type, color and opacity, at rest, `hovered` and in the states `Chosen` and `ItemDisabled`; of a group's label, its padding, fill, type and color; of the separator, its fill, height and padding. A transition is not painted.
+- The engine paints the trigger, the panel and the rows itself, from its `SelectStyle`, not from nodes the recipe styles: of the trigger it takes the fill, the edge, the corners, the shadow, the ring and the padding, at rest, `hovered`, `focus_visible` and in the state `Open`; of an item, the fill, edge, corners, padding, height (at least), type, color and opacity, at rest, `hovered` and in the states `Selected` and `Disabled`; of a group's label, its padding, fill, type and color; of the separator, its fill, height and padding. A transition is not painted.
 - To what reads the tree (`lurq_snapshot` of the MCP server) it is a `combobox`, called by its label where it has one.
 - A renderer that draws another select starts from `view.select_style()`, the engine's `SelectStyle` the recipe makes, changes what it likes (another chevron, a menu as wide as its widest option), and builds it with `view.select(style)`, the engine's select bound to the value with the trigger's size, opacity and cursor.
 
@@ -1888,7 +1902,7 @@ A number a person types or steps: a quantity, a price, a size in pixels.
 use lurq::ui::{NumberFormat, NumberInput, NumberInputLayout};
 
 // A number there always is, between 1 and 99.
-NumberInput::new(quantity.clone()).min(1.0).max(99.0).label("Quantity");
+NumberInput::new(quantity.clone()).min(1).max(99).label("Quantity");
 
 // A price with two decimals, its thousands set apart, the buttons stacked at the end.
 NumberInput::new(price.clone())
@@ -1901,24 +1915,26 @@ NumberInput::new(price.clone())
 // A number that may be left out: an emptied field is None, not 0.
 NumberInput::optional(limit.clone()).placeholder("No limit");
 
-// The app's own value, told back.
-NumberInput::controlled(seats.get()).on_change(move |value| seats.set(value));
+// The app's own value, told back; and saved when Enter, the focus leaving or a step ends a change.
+NumberInput::controlled(seats.get(), move |value| seats.set(value)).on_change_end(move |value| save(value));
 ```
 
 | Builder | |
 | --- | --- |
 | `NumberInput::new(Signal<f64>)` | Bound to a number there always is: an emptied field takes back the number it had when it is left |
 | `NumberInput::optional(Signal<Option<f64>>)` | Bound to a number that may be none: an emptied field sets `None` |
-| `NumberInput::controlled(Option<f64>)` | Shows what the app gives it and tells each change to `on_change` |
-| `min(f64)`, `max(f64)` | The ends of the range, where it has them. With no least value a minus can be typed and Home moves the caret; with no greatest End does |
-| `step(f64)` | How far apart the values a step takes it to are, from the least (from 0 with none): 1 when not given |
+| `NumberInput::controlled(Option<f64>, on_change)` | The app holds the value: it shows it, tells `on_change` each change a person makes, and shows what the app answers with |
+| `min(v)`, `max(v)` | The ends of the range, where it has them, any number (`impl Into<f64>`). With no least value a minus can be typed and Home moves the caret; with no greatest End does |
+| `step(v)` | How far apart the values a step takes it to are, from the least (from 0 with none): 1 when not given |
 | `precision(usize)` | How many decimals the value keeps and shows: as many as the step has when not given. With none no decimal separator is taken |
 | `format(NumberFormat)` | How the number is written out of the focus: `prefix`, `suffix`, `grouping`, `separators(decimal, group)`, or `NumberFormat::custom(format, parse)`, the app's own |
 | `layout(NumberInputLayout)` | `Split` (the board's: a minus at the start, a plus at the end, the number in the middle), `Stacked` (a chevron up over one down at the end, the number at the start), `Bare` (no buttons) |
 | `size(NumberInputSize)` | `Sm` 32, `Md` 36, `Lg` 40 high, the type 13, 14, 15 |
 | `placeholder(&str)` | What an empty input says |
 | `invalid`, `warning`, `valid`, `read_only` | As an [input](#input) has them. A read-only one is focused and selected, and its keys and buttons change nothing |
-| `on_change(Fn(Option<f64>))` | Called with the value each time it changes |
+| `on_change(Fn(Option<f64>))` | Called with the value each time a person changes it: as it is typed, stepped, put right or emptied. Each call adds |
+| `on_change_end(Fn(Option<f64>))` | Called with the value when a change is over, where it is another than before: Enter or the focus leaving after typing, each step of a key or a button, Home and End. Each call adds |
+| `increase_label(&str)`, `decrease_label(&str)` | What the buttons are called to what reads the tree: "Increase" and "Decrease" when not given |
 | `name(..)` | The name of its text in a form's data. A form's number is bound with `NumberInput::new(form.number("seats"))` |
 | `label`, `full_width`, `disabled`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an [input](#input) has them. `id` is the id of the box that is typed in |
 
@@ -1926,11 +1942,11 @@ NumberInput::controlled(seats.get()).on_change(move |value| seats.set(value));
 - In the focus the number is typed plain, with the decimal separator and nothing around it; out of it, it is written in the format. A locale's decimal separator is the format's: `NumberFormat::new().separators(',', '.')`.
 - Up and Down take a step, Page Up and Page Down ten, Home and End go to the least and the greatest value where the range has them. A step from a value between two steps goes to the next one; from an empty field it goes to 0, or to the end of the range nearer to it. A wheel over the input scrolls what it is in and leaves the number as it is.
 - The buttons take a step when pressed, and while held another after 400 ms and then every 50 ms. They are not stops of Tab and take no focus: a press leaves the focus on the number being typed. The one toward an end of the range the value is at is disabled and dimmed (states `AtMin`, `AtMax`).
-- Parts: `NumberInputPart::Root` (its width), `Control` (the box that is typed in, which holds the ring of the focus), `Placeholder`, `Buttons` (what holds the buttons over the box: its inset and corners), `Decrease`, `Increase`, `Divider` (the line between a button and the number), `Icon`. Variants: `NumberInputLayout`. States: `NumberInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `AtMin`, `AtMax`.
+- Parts: `NumberInputPart::Root` (its width), `Control` (the box that is typed in, which holds the ring of the focus), `Placeholder`, `Buttons` (what holds the buttons over the box: its inset and corners), `Decrease`, `Increase`, `Separator` (the line between a button and the number), `Icon`. Variants: `NumberInputLayout`. States: `NumberInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `AtMin`, `AtMax`.
 - In the design the box is 132 by 36, an input's box (the `Background` fill in an edge of 1 in `Input`, 6 round), its number in the middle in the mono type at 14 in `Foreground`. The minus and the plus are 36 wide at the ends, each with a line of 1 in `Input` between it and the number, their glyphs 16; under the pointer a button is in `Highlight`. The ring's color under the pointer, a line of 2 inside the box in the focus, and the judgments' colors are the input's.
-- The board's mobile quantity stepper is the number input restyled: rules make the `Control` 44 high, round, in `Secondary` with no edge, the number in the sans type at 16, semibold; the `Buttons` with no inset and round; `Decrease` and `Increase` 44 wide; the `Divider` 0 wide; the `Icon` 20. The gallery's page has them.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `spinbutton` called by its label, with `a11y_valuenow`, `a11y_valuetext` (as it is written), `a11y_valuemin` and `a11y_valuemax`; the buttons are `button`s called "Increase" and "Decrease", with `a11y_disabled` at an end of the range.
-- A renderer that draws another number input has `view.control()` (the box with all of its typing, keys and putting right), `view.button(part, icon, steps)`, `view.divider()`, `view.buttons()` (laid over the box as the layout has them) and `view.buttons_reach()` (how far they reach in from each end).
+- The board's mobile quantity stepper is the number input restyled: rules make the `Control` 44 high, round, in `Secondary` with no edge, the number in the sans type at 16, semibold; the `Buttons` with no inset and round; `Decrease` and `Increase` 44 wide; the `Separator` 0 wide; the `Icon` 20. The gallery's page has them.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `spinbutton` called by its label, with `a11y_valuenow`, `a11y_valuetext` (as it is written), `a11y_valuemin` and `a11y_valuemax`; the buttons are `button`s called "Increase" and "Decrease" (or their labels), with `a11y_disabled` at an end of the range, their ids the input's with `-increase` and `-decrease` after it.
+- A renderer that draws another number input has `view.control()` (the box with all of its typing, keys and putting right), `view.button(part, icon, steps)`, `view.separator()`, `view.buttons()` (laid over the box as the layout has them) and `view.buttons_reach()` (how far they reach in from each end).
 
 ## Input OTP
 
@@ -1963,13 +1979,16 @@ InputOtp::new(recovery.clone())
 | `kind(InputOtpKind)` | `Digits` (the default) or `Alphanumeric`. Anything else typed or pasted is not taken |
 | `uppercase(bool)` | A letter is taken as a capital |
 | `mask(bool)` | A dot for each character in place of it, as a PIN is shown |
-| `on_complete(handler)` | Called with the code when an edit fills its last cell |
+| `on_change(impl Fn(&str))` | Called with the code when a person changes it: a character typed, pasted or deleted. Not when the app sets the signal |
+| `on_complete(handler)` | Called with the code when an edit fills its last cell. A second handler is called after the first, as every `on_*` is |
 | `size(InputOtpSize)` | `Sm`, `Md`, `Lg`: cells of 32 by 36, 36 by 40, 40 by 44, with type of 14, 16, 18 |
 | `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name` | As an [input](#input) has them; `name` is the whole code's in its form |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the input under the cells |
 
 - To a person it is one field. Tab puts the focus on the first empty cell. Typing fills the cell that has the focus and goes on to the next; typing on a filled cell replaces its character. Past the end of a full code what is typed goes nowhere, until a key or a click puts the focus back on a cell: the last cell is not typed over, and `on_complete` is called once as the code fills. Ctrl+A (Cmd+A) selects the whole code: Backspace or Delete then clears it, and a character typed starts it again. Backspace empties the cell that has the focus, or, on an empty one, goes back and empties the one before; Delete empties it and stays. Left and Right move, no further than the first empty cell; Home and End go to the first cell and to the first empty one. A click puts the focus on the cell clicked, or on the first empty one where that is before it.
 - A code has no gaps: emptying a cell before the last filled one moves the cells after it up.
+- It is a text input, which is always bound to a signal: it has no `controlled` form. `kind` says what the code is
+  made of, not a tone: it is not a `variant`.
 - A value the app sets is taken as typing takes it: what is not of the code's kind is dropped, letters are made capitals where it says, and no more than its cells are kept, and the signal is set to what is left.
 - A paste of a whole code, or more, fills every cell from the first; a shorter one fills the cells from the one that has the focus. What the code does not take of it (spaces, dashes) is dropped, so `123-456` is `123456`.
 - To a form, to tooling and to the platform it is one text input: under the cells is the engine's `TextInput`, bound to the code, which draws nothing of its own. It is the one stop of Tab, the one `textbox` to what reads the tree (`lurq_snapshot` of the MCP server), called by its label, with the code as its value, and the one value of its form under its `name`. It says it holds a `ContentKind::OneTimeCode`, so a phone offers the code from a message that just came, and asks for the digits keyboard where the code is of digits. A masked code is a masked input.
@@ -2134,22 +2153,32 @@ Combobox::new(framework.clone(), [
 
 // Options an app fetches as a person types: it keeps all it was given.
 Combobox::new(country.clone(), fetched.get().iter().map(|name| (name.clone(), name.as_str())).collect::<Vec<_>>())
-  .on_input(move |typed| fetched.set(search(typed)))
+  .on_query(move |typed| fetched.set(search(typed)))
   .filter(|_, _| true)
   .loading(searching.get());
 
 // A value that is no option's: what is typed becomes the value of a combobox of String.
 Combobox::new(label.clone(), [SelectOption::new("bug".to_owned(), "bug")]).allow_custom(true);
+
+// One that may hold none, with a cross that takes it away, and Enter that submits what is typed.
+Combobox::optional(assignee.clone(), people)
+  .clearable(true)
+  .on_submit(|typed| search(typed));
 ```
 
 | Builder | |
 | --- | --- |
 | `Combobox::new(value, options)` | Bound to a `Signal<T>`: the option with its value is chosen, and choosing another sets it. The options are a [select](#select)'s: `(value, label)` or `SelectOption`s with a detail, a hint, elements before and after the label, a group they start, or disabled |
+| `optional(Signal<Option<T>>, options)`, `controlled(value, options, on_change)` | As a [select](#select)'s: a value that may be none; a value the app holds, whose answer the box shows |
+| `on_change(Fn(&T))` | Called with the new value when a person chooses an option, keeps a value of their own (`allow_custom`) or clears it: not when the app sets the signal, and not for what is chosen already. Its handler names the type of the value, as a select's does |
+| `on_submit(Fn(&str))` | Called on Enter with what the box holds, where Enter chooses nothing: the list is closed, or nothing in it is highlighted |
+| `clearable(bool)` | A cross at the end of the box, while something is chosen or typed, that takes the value and what is typed away: `None` of an optional combobox, the empty text of a combobox of `String`. One of a value that cannot be none has no cross. `clear_label(&str)` is what tooling calls it, "Clear" |
+| `read_only(bool)` | What is chosen is read and not changed: the list does not open, what is typed is not taken, and there is no cross |
 | `placeholder(&str)` | What the box says while nothing is typed |
 | `filter(Fn(&str, &str) -> bool)` | Which options are shown while something is typed, given the label and what is typed. By default the labels that contain it, without regard to case |
-| `on_input(Fn(&str))` | Called with what the box will hold at each edit: for an app that fetches its options |
+| `on_query(Fn(&str))` | Called with what the box will hold at each edit: for an app that fetches its options |
 | `loading(bool)` | The list ends in a row with a spinner, "Loading results…" (`loading_text(&str)` says otherwise) |
-| `empty(&str)` | What the list says while what is typed leaves no option: "No results" |
+| `empty_text(&str)` | What the list says while what is typed leaves no option: "No results" |
 | `allow_custom(bool)` | What is typed may be no option's: typing highlights nothing, and Enter or leaving keeps it. A label of an option, in any case, chooses the option; anything else becomes the value of a combobox of `String` |
 | `query(Signal<String>)` | Where the app keeps what is typed, to read or set it. Without one the combobox keeps it while it is in the tree, one for each signal of a value |
 | `size(ComboboxSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15 |
@@ -2160,11 +2189,11 @@ Combobox::new(label.clone(), [SelectOption::new("bug".to_owned(), "bug")]).allow
 - The box is a select's with a text input in it, which keeps the focus the whole time. A press anywhere on the box focuses the input and opens the list; typing opens it too and filters it, with the first option that can be chosen highlighted. Down and Up move the highlight, which a row shows as it shows the pointer; Enter chooses; Escape closes the list and a second Escape clears what was typed; Tab chooses nothing, closes the list and goes on.
 - Choosing puts the option's label in the box. While the box shows the chosen label the list opens whole; what is typed otherwise filters it. When the focus leaves, what was typed goes back to the chosen label, unless custom values are allowed. A group keeps its label over the first of its options that what is typed leaves.
 - It is a control a [field](#field) holds (`FieldControl`): the field names it, judges it and disables it.
-- Parts: `ComboboxPart::Trigger` (the box), `Value` (what is typed), `Placeholder`, `Chevron`, `Menu` (the panel of the list), `Item`, `Check`, `Detail`, `Hint`, `Group`, `Separator` (a select's, by the same names), `Status` (the row of no results or of loading) and `Spinner`. States: `ComboboxState::Open`, `Invalid`, `Warning`, `Valid`, `Disabled`, `FullWidth`, and of an item `Chosen` and `ItemDisabled`.
+- Parts: `ComboboxPart::Trigger` (the box), `Value` (what is typed), `Placeholder`, `Chevron`, `Panel` (the panel of the list), `Item`, `Check`, `Detail`, `Hint`, `Group`, `Separator` (a select's, by the same names), `Status` (the row of no results or of loading), `Spinner`, and `Clear` and `ClearIcon` (the cross of `clearable`). States: `ComboboxState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts.
 - In the design the box is a select's: 260 by 36, `Background` in an edge of 1 in `Input`, 6 round, its text 12 in, the placeholder in `MutedForeground`, two chevrons of 16 at its end; the ring's color under the pointer and a line of 2 inside it while the focus is in it or the list is open. The list is a select's: 4 under the box on `Popover`, 8 round, items of 32 on `Highlight` under the pointer or the keys, the chosen one with a check of 16 at its end. The status row is 32 high, 8 in, in `MutedForeground` at 13, its spinner 16 in `Foreground`.
 - Its options and the row that says there are none or that more are loading follow the [density](../theme/#density) as a select's do; the box is a control and keeps its size.
 - It is the engine's `Select` in its combobox mode (`Select::combobox`): one implementation of the list, its rows, groups, checks and adornments with the select's. To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `combobox` with `expanded` while its list is open, the input in it a `textbox` called by the combobox's label, and the list a `listbox` of `option`s with `a11y_selected`, which says in `a11y_activedescendant` which option the keys are on.
-- A renderer that draws another combobox has `view.select_style()`, `view.input()` (the text input, with what leaving it does), `view.chevron()`, `view.status()`, `view.query()`, `view.shown()` (the labels the list shows) and `view.select(style, trigger)`, which builds the combobox and calls `trigger` with a `SelectTriggerState` whose `input` is the input to place.
+- A renderer that draws another combobox has `view.select_style()`, `view.input()` (the text input, with what leaving it and Enter do), `view.clear()`, `view.chevron()`, `view.status()`, `view.query()`, `view.shown()` (the labels the list shows) and `view.select(style, trigger)`, which builds the combobox and calls `trigger` with a `SelectTriggerState` whose `input` is the input to place.
 
 ## Multi Select
 
@@ -2181,27 +2210,31 @@ MultiSelect::new(languages.clone(), [
 ])
 .placeholder("Select languages")
 .max_shown(3)
-.clearable(true);
+.clearable(true)
+.on_change(|languages: &[String]| save(languages));
 ```
 
 | Builder | |
 | --- | --- |
 | `MultiSelect::new(value, options)` | Bound to a `Signal<Vec<T>>`: the options with its values are chosen, shown as tags in the order they were chosen; choosing one adds its value, or takes it out. The options are a select's |
+| `controlled(values, options, on_change)` | The app holds the values: a change is told to `on_change` with the whole new set, and the box shows what the app answers with |
+| `on_change(Fn(&[T]))` | Called with the whole new set when a person chooses an option, takes one back or away, or clears them: not when the app sets the signal. Its handler names the type of the values, `on_change(\|languages: &[String]\| ..)` |
+| `read_only(bool)` | What is chosen is read and not changed: the list does not open, what is typed is not taken, the tags have no cross and there is no clear control |
 | `placeholder(&str)` | What the box says while nothing is chosen and nothing is typed |
 | `max_shown(usize)` | How many tags the box shows: the rest are one tag that counts them, "+3" |
-| `clearable(bool)` | A cross at the end of the box, while something is chosen, that takes every value away |
-| `filter(..)`, `on_input(..)`, `loading(bool)`, `loading_text(&str)`, `empty(&str)`, `query(..)` | As a [combobox](#combobox) has them |
-| `size(ComboboxSize)` | `Sm` 32, `Md` 36, `Lg` 40 high at least, with tags of 20, 24, 28 |
+| `clearable(bool)` | A cross at the end of the box, while something is chosen, that takes every value away. `clear_label(&str)` is what tooling calls it, "Clear" |
+| `filter(..)`, `on_query(..)`, `loading(bool)`, `loading_text(&str)`, `empty_text(&str)`, `query(..)` | As a [combobox](#combobox) has them |
+| `size(MultiSelectSize)` | `Sm` 32, `Md` 36, `Lg` 40 high at least, with tags of 20, 24, 28 |
 | `invalid`, `warning`, `valid`, `disabled`, `full_width`, `label`, `name`, `state`, `style`, `rules`, `force`, `id`, `key` | As a combobox has them. A disabled one keeps its tags and takes none away; `full_width` is in place of 280 |
 
 - The box holds the chosen values as tags ([tag](#tag)s with `pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
 - Typing opens the list and filters it; Down and Up move the highlight; Enter or a press chooses an option or takes it back, and the list stays open while one chooses; a choice clears what was typed, and the list shows every option again. A tag's cross takes its value away, and so does Backspace in the empty input, the last one's. Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared when the focus leaves. A press of a tag or of the clear control does not open the list.
 - The input is the one stop of Tab, as a [token input](#token-input)'s is: the tags are reached from it. With nothing typed, Left goes onto the last tag, drawn as its cross is when focused, and on to the ones before; Right goes back towards the input; Backspace or Delete takes away the tag the arrows are on, and they stay on the tag that takes its place. Typing leaves the tags.
 - It is a control a [field](#field) holds.
-- Parts: a combobox's, by the same names, and `MultiSelectPart::Check` (the box before a chosen option), `CheckIcon`, `Unchecked` (the box before one that is not), `Tags` (the lines of the tags and the input: its gap), `Tag` and `TagLabel` (what is laid over a tag's root and label), `Clear` and `ClearIcon`. Its states and sizes are a combobox's (`ComboboxState`, `ComboboxSize`).
+- Parts: a combobox's, by the same names, and `MultiSelectPart::Check` (the box before a chosen option), `CheckIcon`, `Unchecked` (the box before one that is not), `Tags` (the lines of the tags and the input: its gap), `Tag` and `TagLabel` (what is laid over a tag's root and label), `Clear` and `ClearIcon`. Its states and sizes are a combobox's: `MultiSelectState` is `ComboboxState`, `MultiSelectSize` is `ComboboxSize`.
 - In the design the box is a select's, 280 wide and at least 36 high, padded 6 at its start, 10 at its end and 6 over and under, a chevron down of 16 at its end. A tag is 24 high on `Secondary`, 4 round, padded 8 before its text of 13 in `SecondaryForeground` and 6 after its cross of 12 in `MutedForeground`; the tags are 6 apart, across and down, and what is typed keeps 48 on their line. The list is a select's, with a box of 16 before each option, 8 before its label, 4 round: `Background` in an edge of `Input`, and, chosen, `Primary` with a check of 12 in `PrimaryForeground`.
 - Its options follow the [density](../theme/#density) as a select's do.
-- It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear".
+- It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
 
 ## Token Input
@@ -2224,7 +2257,7 @@ TokenInput::list(tags.clone())
 // template: Signal<String>
 TokenInput::new(template.clone())
   .rows(2, 6)
-  .tokens(|text| {
+  .find_tokens(|text| {
     text
       .match_indices("{{name}}")
       .map(|(at, name)| Token::new(at..at + name.len()).variant(TagVariant::Info).removable(false))
@@ -2236,14 +2269,14 @@ TokenInput::new(template.clone())
 | --- | --- |
 | `list(Signal<Vec<String>>)` | A list: each item is a token. What is typed is the draft, which is no part of the list until it is made an item. What the app sets on the list is shown |
 | `separators(chars)` | The characters that make an item of the draft, as Enter does: a comma by default. A pasted list is split at them, at line breaks and at tabs; an item cannot hold one |
-| `draft(Signal<String>)` | What is typed and is no item yet: read for suggestions, and what the app sets on it is what the input shows after its tokens |
+| `query(Signal<String>)` | The draft, what is typed and is no item yet: the query read for suggestions, as a [combobox](#combobox)'s is, and what the app sets on it is what the input shows after its tokens |
 | `unique(bool)` | An item the list already has is not added again; what was typed is dropped |
 | `commit_on_blur(bool)` | The draft becomes an item when the focus leaves, in place of staying typed |
-| `token(impl Fn(&str, Token) -> Token)` | Dresses the token of each item of a list: a variant by what the item is, or no cross |
+| `dress_token(impl Fn(&str, Token) -> Token)` | Dresses the token of each item of a list: a variant by what the item is, or no cross |
 | `on_change(impl Fn(&[String]))` | Called with the list when a person changed it: an item made of the draft, pasted, or taken away |
-| `on_draft(impl Fn(&str))` | Called with the draft when a person changed it |
+| `on_query(impl Fn(&str))` | Called with the draft, the query, when a person changed it; not when the app sets `query` |
 | `new(Signal<String>)` | A text, tokens and all, where the text around the tokens is the value too; what is typed is set on it, and what the app sets on it is shown |
-| `tokens(impl Fn(&str) -> Vec<Token>)` | How the app finds its tokens in a text, called in every render. Tokens that overlap one before them, hold a line break or are not on characters are left out. Not asked over a list |
+| `find_tokens(impl Fn(&str) -> Vec<Token>)` | How the app finds its tokens in a text, called in every render. Tokens that overlap one before them, hold a line break or are not on characters are left out. Not asked over a list |
 | `Token::new(range)` | A token over a byte range of the text: atomic and removable by default |
 | `Token::variant(name)` | A `TagVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), `MENTION`, or a variant the theme's recipe names |
 | `Token::removable(bool)` | The cross at its end, which a click takes it away by |
@@ -2263,7 +2296,7 @@ TokenInput::new(template.clone())
   else; the draft is the text after the tokens, and it is in no item until Enter or a separator makes one of it,
   trimmed. A token's cross takes its item out of the list; Backspace right after a token selects it and the next takes
   it out. What is typed with the caret among the tokens goes to the draft, which is always after them, and typing over
-  a selected token replaces it with a draft. `on_change` hears the list and `on_draft` the draft; `on_input` still
+  a selected token replaces it with a draft. `on_change` hears the list and `on_query` the draft; `on_input` still
   hears every edit, with the text the input keeps the list as.
 - The input keeps that text itself, for as long as it is in the tree, by the signal of the list: each item with a
   narrow space (U+2005) after it, which is the room between two tokens and where a row wraps, then the draft. It is
@@ -2282,8 +2315,10 @@ TokenInput::new(template.clone())
   `Placeholder`, `Token` (fill, edge, radius, height, the room before the text and after the cross, and the gap
   between them), `TokenLabel` (the token's type and color), `TokenIcon` (the cross: its side and color). States:
   `TokenInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Multiline`, and a token's own
-  `TokenHovered` and `TokenSelected`. A token's parts are resolved with its variant and its state as the case, so a
-  recipe styles a variant's tokens with `.variant(..)` and their looks with `.state(TokenInputState::TokenHovered, ..)`.
+  `Hovered` and `Selected`. A token's parts are resolved with its variant and its state as the case, so a recipe
+  styles a variant's tokens with `.variant(..)` and their looks with `.state(TokenInputState::Hovered, ..)`.
+- It is a text input in both forms, always bound to a signal: it has no `controlled` form. A `Token` is a range of
+  the text, not an element: it has no `id` or `key`.
 - In the design the box is 260 by 36, an input's, padded 6 at its sides. A token is 24 high, `Secondary`, `radius-sm`,
   8 before its text and 6 after its cross; its text is 13 in `SecondaryForeground` and its cross 12 in
   `MutedForeground`, 4 after the text. A colored variant is in the muted fill of its color with its text and cross in
@@ -2319,17 +2354,19 @@ Mentions::new(comment.clone(), &mentions)
 | --- | --- |
 | `new(Signal<String>, &MentionsController)` | The text, and what the field keeps between renders: the app keeps both |
 | `trigger(char, options)` | What a character at the start of a word offers: a `Vec<Mention>`, narrowed to the offers whose label or text has what is typed after it (without regard to case), or a function of what is typed. At most 8 are shown |
-| `Mention::new(label)` | An offer: `text(&str)` is what it puts in the field (the trigger and the label by default), `avatar(Avatar)` or `icon(name)` before its label |
+| `Mention::new(label)` | An offer: `text(&str)` is what it puts in the field (the trigger and the label by default), `avatar(Avatar)` or `icon(name)` before its label; `disabled(bool)` shows it dimmed and leaves it to no choice, `id` and `key` are its row's |
 | `on_mention(handler)` | Called with the text of an offer as it is chosen |
-| `tokens(..)` | Other tokens of the app's in the text, as a [token input](#token-input) finds them |
+| `find_tokens(..)` | Other tokens of the app's in the text, as a [token input](#token-input) finds them |
 | `rows(min, max)` | 2 and 8 unless told |
 | `full_width(bool)` | As wide as what holds it, in place of 280 |
 | `input_rules(&recipe)` | Rules laid over the token input it is |
-| `placeholder`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name`, `on_input`, `state`, `style`, `rules`, `force`, `id`, `key` | As a token input has them |
+| `size(MentionsSize)` | An input's sizes (`MentionsSize` is `TextBoxSize`): the type of its text and mentions, 13, 14 or 15 |
+| `placeholder`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name`, `on_input`, `state`, `style`, `rules`, `force`, `id`, `key` | As a token input has them |
 
 - Typing a trigger at the start of the text or after a space opens the list under it while it offers something. Up and
   Down move the offer that Enter (or Tab) chooses, a click chooses one, the pointer moves the active one, and Escape
-  puts the list away while the caret stays in that word, so that Enter is a new line again. The keys stay in the
+  puts the list away while the caret stays in that word, so that Enter is a new line again. A disabled offer is
+  passed by: Up and Down go over it, the pointer does not light it, and a click on it chooses nothing. The keys stay in the
   field the whole time: the list takes no focus, and a press on it does not blur the field.
 - Choosing puts the offer's text and a space in place of the trigger and what was typed, as one edit through
   `on_input`. From then on that text is a mention wherever it stands as a word of its own: a token of the variant
@@ -2341,8 +2378,10 @@ Mentions::new(comment.clone(), &mentions)
   offer's text, with `a11y_haspopup` `listbox` and `a11y_expanded`; the list is a `listbox` of `option`s, the active
   one `a11y_selected`.
 - Parts: `MentionsPart::Root`, `Control` (laid over the token input's control: its padding, line and least height),
-  `List`, `Option`, `OptionAvatar`, `OptionIcon`, `OptionLabel`; the mentions themselves are the token input's parts in
-  the variant `MENTION`. States: `MentionsState::Open`, `Active` (an offer's own).
+  `Panel` (the list that floats under the trigger), `Item`, `ItemAvatar`, `ItemIcon`, `ItemLabel`; the mentions
+  themselves are the token input's parts in the variant `MENTION`. States: `MentionsState::Open`, and an offer's own
+  `Highlighted` (the one Enter chooses) and `Disabled`.
+- A renderer that draws another field has `view.control()`, `view.item(index, offer)` and `view.panel()`.
 - In the design the box is 280 wide and at least 64 high, padded 12 across and 8 down, its text 14 with lines of 1.5.
   The list hangs 4 under the trigger: 220 wide, `Popover`, `radius-lg`, an edge of 1 in `Border`, the medium shadow,
   padded 4. An offer is 36 high, padded 8, `radius-sm`, an avatar of 24 (or an icon of 16 in `MutedForeground`) 8
@@ -3352,9 +3391,9 @@ Things inside things, one level under the other: the files of a project in their
 use lurq::ui::{TreeItem, TreeView};
 
 // open: Signal<Vec<&str>>, selected: Signal<Option<&str>>
-TreeView::new([
-  TreeItem::folder("crates", "crates").children([
-    TreeItem::folder("lurq", "lurq").children([
+TreeView::new(selected, [
+  TreeItem::folder("crates", "crates").items([
+    TreeItem::folder("lurq", "lurq").items([
       TreeItem::file("lib.rs", "lib.rs"),
       TreeItem::file("theme.rs", "theme.rs"),
     ]),
@@ -3362,12 +3401,14 @@ TreeView::new([
   TreeItem::file("Cargo.toml", "Cargo.toml"),
 ])
 .label("Files")
-.expanded(open)
-.selected(selected)
+.open(open)
 .on_activate(|file| open_file(file));
 
 // Any number selected, with Ctrl and Shift.
-TreeView::new(project).expanded(open).selected(many).multiple(true);
+TreeView::new(many, project).open(open).multiple(true);
+
+// The selection held by the app, which is told each new one.
+TreeView::controlled(app.selected(), project, |next| app.select(next));
 
 // Children the app brings when the row is first opened.
 TreeItem::folder("registry", "registry").lazy(true);
@@ -3376,32 +3417,31 @@ TreeItem::folder("registry", "registry").lazy(true);
 TreeItem::folder("src", "src").trailing(new_file_button).trailing_on_hover(true);
 
 // Ten thousand rows: in the engine's virtual list, which builds those in view.
-TreeView::new(items)
-  .expanded(open)
+TreeView::new(selected, items)
+  .open(open)
   .style(TreeViewPart::Root, |s| s.height(480.0))
   .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
-| `new(items)` | The rows at the top, each a `TreeItem<T>` with what it holds. `T` is what rows are told apart by: a path, an id |
-| `TreeItem::new(id, label)`, `folder(id, label)`, `file(id, label)` | A row; a folder has the icons of a folder and of an open one, a file the icon of a file |
-| `TreeItem::icon(name)`, `open_icon(name)` | The icon before the label, and another while the row is open |
+| `new(selection, items)` | The rows at the top, each a `TreeItem<T>` with what it holds, and what is selected: a `Signal<Option<T>>` of one row, or a `Signal<Vec<T>>` of any number with `multiple`. `T` is what rows are told apart by: a path, an id |
+| `controlled(selected, items, on_change)` | The selection held by the app: the rows of `selected`, and `on_change(&next)` is told what is to be selected; the tree shows what the app gives back |
+| `TreeItem::new(value, label)`, `folder(value, label)`, `file(value, label)` | A row; a folder has the icons of a folder and of an open one, a file the icon of a file |
+| `TreeItem::icon(icon)`, `open_icon(icon)` | The icon before the label, and another while the row is open: a name, or `None` for none in place of a folder's or a file's |
 | `TreeItem::trailing(element)` | What stands at the row's end: a count, a badge |
 | `TreeItem::trailing_on_hover(bool)` | What stands at the row's end shows only while the row is pointed at or the focus is in it, and always at the touch density: an action |
-| `TreeItem::children(items)`, `child(item)` | What the row holds |
+| `TreeItem::items(items)`, `item(item)` | What the row holds |
 | `TreeItem::lazy(bool)` | It has children the app brings when it is first opened: it opens as a folder does, with a spinner in place of its chevron while it is open with none |
-| `TreeItem::disabled(bool)`, `element_id(id)` | A row that takes nothing; the id of the row's element |
-| `expanded(Signal<Vec<T>>)` | The rows that are open. Opening a row adds it, closing one takes it out |
-| `expanded_ids(ids, toggle)` | The same held by the app: `toggle(&id, open)` is told of each row a press or a key asks to open or close |
-| `selected(signal)` | What is selected: a `Signal<Option<T>>`, or a `Signal<Vec<T>>` with `multiple` |
-| `selected_ids(ids, change)` | The same held by the app: `change(next)` is told what is to be selected |
+| `TreeItem::disabled(bool)`, `id(id)`, `key(key)` | A row that takes nothing; the id of the row's element; what the row is told apart by among the rows in place of its place, which keeps its node and its focus in a virtual list as rows are put in before it |
+| `open(Signal<Vec<T>>)` | The rows that are open. Opening a row adds it, closing one takes it out |
+| `open_ids(ids, toggle)` | The same held by the app: `toggle(&value, open)` is told of each row a press or a key asks to open or close |
 | `multiple(bool)` | Any number selected, with Ctrl and Shift as a list of files has them |
 | `guides(bool)` | A line down each level, under the chevron of the row it is in |
 | `label(&str)` | What the tree is called, to what reads the tree. It draws nothing |
-| `on_select(handler)` | Told of the row a press or Space selects |
-| `on_activate(handler)` | Told of the row a double press or Enter activates: open the file. A row that opens opens or closes as well |
-| `on_expand(handler)` | Told of each row as it opens: where a lazy row's children are brought |
+| `on_change(handler)` | Told the whole new selection (`&[T]`, of one row where the tree holds one) after a click, Space, Shift with a key or Ctrl+A changed it; not for what was selected already, nor when the app sets it |
+| `on_activate(handler)` | Told of the row a double click or Enter activates: open the file. A row that opens opens or closes as well |
+| `on_open_change(handler)` | Told of each row a press or a key opens or closes, `(&value, open)`: where a lazy row's children are brought |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root; `force` draws the row Tab stops on so, the first selected, else the first that is not disabled |
 | `mount(ctx)` | In place of converting it: the tree in the engine's virtual list, for thousands of rows. Give it a height |
 
@@ -3412,7 +3452,7 @@ TreeView::new(items)
 - `mount(ctx)` puts the rows in the engine's virtual list, which builds the rows near its view: a tree of ten thousand rows costs about one screen of them. The keys still reach every row: the tree gives its rows to its focus group ([`FocusRows`](../focus-navigation/#focus-groups)), so Up, Down, Home, End, PageUp and PageDown (a view of rows), Right, Left, `*` and typeahead go to any row, the list builds and shows the row they go to, and the focus goes to it once it is built. Shift with them and Ctrl+A select over every row. The list fills the tree, which is given a height; its rows are drawn by `TreeRow::render`, so a theme's rules reach them and its renderer of the whole tree does not.
 - What an item marks with `trailing_on_hover` is in a `Reveal` part, hidden at rest and shown `within` the row: each row is an interaction group (`interaction_group`), lit while the pointer is on it or the focus is in it. At the touch density, where nothing points, it always shows.
 - To what reads the tree it is a `tree` (`a11y_multiselectable` with `multiple`) of `treeitem`s, each with `a11y_level`, `a11y_posinset` and `a11y_setsize` among the rows of its level in its row, `a11y_selected`, `a11y_expanded` where it opens and `a11y_busy` while its children are on their way.
-- Parts: `TreeViewPart::Root` (the rows, one under the other), `Row` (what is pressed, selected and focused), `Indent` (one step of a row's indent, for each level it is in), `Guide` (the line in a step), `Content` (what a row holds after its indent), `Chevron` (also the room of one in a row that does not open, and the spinner's), `Icon`, `Label`, `Trailing`, `Reveal` (around what is at the end of a row marked to show it on hover). States of a row: `TreeViewState::Selected`, `Expanded`, `Disabled`.
+- Parts: `TreeViewPart::Root` (the rows, one under the other), `Row` (what is pressed, selected and focused), `Indent` (one step of a row's indent, for each level it is in), `Guide` (the line in a step), `Content` (what a row holds after its indent), `Chevron` (also the room of one in a row that does not open, and the spinner's), `Icon`, `Label`, `Trailing`, `Reveal` (around what is at the end of a row marked to show it on hover). States of a row: `TreeViewState::Selected`, `Open`, `Disabled`.
 - In the design a row is 28 high, 2 under the one before, with `radius-sm` and 8 at each side; each level moves it in by 16. It holds a chevron of 14 in `MutedForeground` (right while it is closed, down while it is open), an icon of 16 in `MutedForeground` and its label in the body's type at 13, 6 apart. The selected row is on `Highlight`, its label at 500 and its icon in `Foreground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. A guide is a line of 1 in `Border` under the middle of the chevron of the row it is in, as high as a row and the room under it. What is at a row's end is 12 in `MutedForeground`.
 - A row follows the [density](../theme/#density): 20, 28 (the design's), 36 and 40 high at compact, default, comfortable and touch, its guide with it.
 - A theme's renderer is given `TreeViewView`: `view.rows` (each a `TreeRow` with its label, level, position, whether it opens, is open, is loading, is selected, is disabled, its icon and what is at its end), `view.root()` (the column with the keys and its role) and, on each row, `row.button()` (the behavior with the row's style), `row.indent()`, `row.chevron()`, `row.icon()`, `row.label()` and `row.render()`. It is set for `TreeView<T>` of any `T`: `theme.set_renderer::<TreeView<String>>(..)` draws trees of every id.

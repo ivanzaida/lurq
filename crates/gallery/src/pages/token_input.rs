@@ -66,7 +66,7 @@ fn items() -> Row {
 /// The tags of a list typed with spaces: each word with a space after it is a token.
 fn tags(value: Signal<String>) -> TokenInput {
   TokenInput::new(value)
-    .tokens(|text| Token::separated(text, ' '))
+    .find_tokens(|text| Token::separated(text, ' '))
     .placeholder("Add tag")
 }
 
@@ -135,11 +135,11 @@ impl TokenInputPage {
       let set: Vec<bool> = flags.iter().map(|(_, set)| *set).collect();
       move || {
         let mut input = TokenInput::list(items.clone())
-          .draft(draft.clone())
+          .query(draft.clone())
           .separators([separator])
           .unique(unique)
           .commit_on_blur(commit_on_blur)
-          .token(move |_, token| token.variant(variant).removable(removable))
+          .dress_token(move |_, token| token.variant(variant).removable(removable))
           .placeholder(&placeholder)
           .size(size)
           .invalid(set[0])
@@ -161,7 +161,7 @@ impl TokenInputPage {
     let input = plain()
       .force(self.playground.forced())
       .on_change(move |items| changed(format!("on_change({items:?})")))
-      .on_draft(move |draft| typed(format!("on_draft({draft:?})")));
+      .on_query(move |draft| typed(format!("on_query({draft:?})")));
 
     let mut code = vec![
       "// tags: Signal<Vec<String>>".to_owned(),
@@ -178,10 +178,10 @@ impl TokenInputPage {
     }
     match (variant != TagVariant::Neutral, removable) {
       (false, true) => {}
-      (true, true) => code.push(format!("    .token(|_, token| token.variant({variant_code}))")),
-      (false, false) => code.push("    .token(|_, token| token.removable(false))".to_owned()),
+      (true, true) => code.push(format!("    .dress_token(|_, token| token.variant({variant_code}))")),
+      (false, false) => code.push("    .dress_token(|_, token| token.removable(false))".to_owned()),
       (true, false) => code.push(format!(
-        "    .token(|_, token| token.variant({variant_code}).removable(false))"
+        "    .dress_token(|_, token| token.variant({variant_code}).removable(false))"
       )),
     }
     code.push(format!("    .placeholder({placeholder:?})"));
@@ -359,7 +359,7 @@ impl Component for TokenInputPage {
     let mut variants = items();
     for (name, variant, _) in VARIANTS {
       variants = variants.child(item(
-        TokenInput::new(Signal::new(format!("{name} "))).tokens(move |text| {
+        TokenInput::new(Signal::new(format!("{name} "))).find_tokens(move |text| {
           Token::separated(text, ' ')
             .into_iter()
             .map(|token| token.variant(variant))
@@ -369,7 +369,7 @@ impl Component for TokenInputPage {
       ));
     }
     variants = variants.child(item(
-      TokenInput::new(Signal::new("pinned ".to_owned())).tokens(|text| {
+      TokenInput::new(Signal::new("pinned ".to_owned())).find_tokens(|text| {
         Token::separated(text, ' ')
           .into_iter()
           .map(|token| token.removable(false))
@@ -398,7 +398,7 @@ impl Component for TokenInputPage {
     let template = items().child(
       Column::new().width(420.0).child(
         TokenInput::new(self.template.clone())
-          .tokens(variables)
+          .find_tokens(variables)
           .rows(2, 6)
           .full_width(true),
       ),
@@ -411,7 +411,7 @@ impl Component for TokenInputPage {
           .separators([',', ';', ' '])
           .unique(true)
           .commit_on_blur(true)
-          .token(|address, token| {
+          .dress_token(|address, token| {
             if address.contains('@') {
               token
             } else {
@@ -444,10 +444,10 @@ impl Component for TokenInputPage {
         "The characters that make an item of the draft, as Enter does. A pasted list is split at them.",
       ),
       (
-        "draft",
+        "query",
         "Signal<String>",
         "",
-        "What is typed and is no item yet: read it for suggestions, set it to change what the input shows.",
+        "The draft, what is typed and is no item yet: read it for suggestions, set it to change what the input shows.",
       ),
       (
         "unique",
@@ -462,7 +462,7 @@ impl Component for TokenInputPage {
         "The draft becomes an item when the focus leaves, in place of staying typed.",
       ),
       (
-        "token",
+        "dress_token",
         "impl Fn(&str, Token) -> Token",
         "",
         "Dresses the token of each item of a list: a variant by what the item is, or no cross.",
@@ -474,10 +474,10 @@ impl Component for TokenInputPage {
         "Called with the list when a person changed it: an item made, pasted or taken away.",
       ),
       (
-        "on_draft",
+        "on_query",
         "impl Fn(&str)",
         "",
-        "Called with the draft when a person changed it.",
+        "Called with the draft, the query for suggestions, when a person changed it.",
       ),
       (
         "TokenInput::new",
@@ -486,7 +486,7 @@ impl Component for TokenInputPage {
         "Text with tokens in it, where the text around them is the value too: a template with variables.",
       ),
       (
-        "tokens",
+        "find_tokens",
         "impl Fn(&str) -> Vec<Token>",
         "",
         "How the app finds its tokens in a text, called in every render.",
@@ -619,7 +619,7 @@ impl Component for TokenInputPage {
             variants,
             "Token::new(range).variant(TagVariant::Info)",
             &[
-              "TokenInput::new(value.clone()).tokens(|text| {",
+              "TokenInput::new(value.clone()).find_tokens(|text| {",
               "    Token::separated(text, ' ')",
               "        .into_iter()",
               "        .map(|token| token.variant(TagVariant::Success))",
@@ -676,7 +676,7 @@ impl Component for TokenInputPage {
             &[
               "// template: Signal<String>",
               "TokenInput::new(template.clone())",
-              "    .tokens(variables) // {{name}}: Token::new(range).variant(TagVariant::Info).removable(false)",
+              "    .find_tokens(variables) // {{name}}: Token::new(range).variant(TagVariant::Info).removable(false)",
               "    .rows(2, 6)",
               "    .full_width(true)",
             ],
@@ -700,7 +700,7 @@ impl Component for TokenInputPage {
               "        .separators([',', ';', ' '])",
               "        .unique(true)",
               "        .commit_on_blur(true)",
-              "        .token(|address, token| {",
+              "        .dress_token(|address, token| {",
               "            if address.contains('@') { token } else { token.variant(TagVariant::Destructive) }",
               "        })",
               "        .placeholder(\"name@example.com\")",

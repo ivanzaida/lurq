@@ -3,6 +3,8 @@
 use std::{
   any::Any,
   collections::HashMap,
+  hash::{DefaultHasher, Hash, Hasher},
+  panic::Location,
   sync::{Arc, LazyLock, Mutex, Weak},
 };
 
@@ -13,6 +15,7 @@ use super::{
   part_style::{Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   select::{self, engine_style, px},
+  shared::{fading, pressable},
   spinner::Spinner,
   text_box::{self, BoxStates, EditHandler, Judgment, TextBoxSize},
   theme::{Themed, current_theme},
@@ -20,13 +23,16 @@ use super::{
 use crate::{
   app::{
     ctx::OutsidePress,
-    events::{KeyboardEvent, TextInputEvent},
+    events::{KeyboardEvent, MouseEvent, TextInputEvent},
     theme::{IconSize, PaletteColor, Theme},
   },
   components::{self, Row, SelectOption, SelectTriggerState},
   core::{Signal, SignalValue},
   layout::Alignment,
-  node::{CursorIcon, Element, NodeUpdate, SelectStyle, dimension::Dimension},
+  node::{
+    CursorIcon, Element, NodeUpdate, SelectStyle, dimension::Dimension, node_kind::SelectChangeCallback,
+    select_state::WeakSelectState,
+  },
 };
 
 /// The parts of a combobox a recipe styles. Those it shares with a select have a select's names, and the engine draws
@@ -44,7 +50,7 @@ pub enum ComboboxPart {
   Chevron,
   /// The panel of the open list: its fill, edge, corners, shadow and padding. Its gap is the room between the box
   /// and it; its height is the most it is, past which it scrolls.
-  Menu,
+  Panel,
   /// An option of the open list: its height, padding, corners, type and color. Under the pointer or the keys it is
   /// `hovered`. Its gap is the room between its label and the check.
   Item,
@@ -64,6 +70,11 @@ pub enum ComboboxPart {
   Status,
   /// The spinner of the status row while more options are loading: its color.
   Spinner,
+  /// What takes the value and what is typed away, at the end of the box ([`Combobox::clearable`]): its side, its
+  /// corners and its color.
+  Clear,
+  /// The cross in it: its side.
+  ClearIcon,
 }
 
 names!(ComboboxPart {
@@ -71,7 +82,7 @@ names!(ComboboxPart {
   Value => "value",
   Placeholder => "placeholder",
   Chevron => "chevron",
-  Menu => "menu",
+  Panel => "panel",
   Item => "item",
   Check => "check",
   Detail => "detail",
@@ -80,6 +91,8 @@ names!(ComboboxPart {
   Separator => "separator",
   Status => "status",
   Spinner => "spinner",
+  Clear => "clear",
+  ClearIcon => "clear_icon",
 });
 
 /// The sizes of a combobox: the heights of the theme's controls, as an input and a select have them.
@@ -97,14 +110,14 @@ pub enum ComboboxState {
   Warning,
   /// What is chosen was checked and is right: its edge is in the success color.
   Valid,
-  /// It takes no input.
+  /// What is chosen can be read and not changed: its list does not open, and what is typed is not taken.
+  ReadOnly,
+  /// It takes no input. Of an item, resolved on its parts: it cannot be chosen ([`SelectOption::disabled`]).
   Disabled,
   /// It is as wide as what holds it.
   FullWidth,
-  /// Of an item: it is the chosen one. Its rules are for `Item` and `Check`.
-  Chosen,
-  /// Of an item: it cannot be chosen ([`SelectOption::disabled`]).
-  ItemDisabled,
+  /// Of an item, resolved on its parts: it is the one chosen. Its rules are for `Item` and `Check`.
+  Selected,
 }
 
 names!(ComboboxState {
@@ -112,10 +125,10 @@ names!(ComboboxState {
   Invalid => "invalid",
   Warning => "warning",
   Valid => "valid",
+  ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
-  Chosen => "chosen",
-  ItemDisabled => "item_disabled",
+  Selected => "selected",
 });
 
 /// What builds a combobox's nodes: a theme's in place of the default one.
@@ -137,12 +150,49 @@ pub(crate) struct Engine {
   pub trigger: Arc<dyn Fn(SelectTriggerState) -> Element + Send + Sync>,
   pub status: Option<Element>,
   pub free_text: bool,
+  /// Whether the list opens and takes a choice: not where what is chosen is read only.
+  pub read_only: bool,
 }
 
-/// What a combobox or a multi select chooses from and what it holds, whatever the type of its values.
+/// A handler of a change of the value, of the value's type, out of sight of the builder that holds it: an
+/// `Arc<dyn Fn(&T) + Send + Sync>` of a single value, an `Arc<dyn Fn(&[T]) + Send + Sync>` of several.
+pub(crate) type AnyHandler = Box<dyn Any + Send + Sync>;
+
+/// What a select, a combobox or a multi select the app holds the value of (`controlled`) is across renders: where
+/// in the app's code it is built and its id or key, out of the range of the ids of signals.
+fn controlled_binding(at: &'static Location<'static>, name: Option<&str>) -> usize {
+  let mut hasher = DefaultHasher::new();
+  (at.file(), at.line(), at.column(), name).hash(&mut hasher);
+  (hasher.finish() as usize) | (1 << (usize::BITS - 1))
+}
+
+/// The value of none of a single value of type `T` where a value of it can be none without an `Option`: the empty
+/// text of a `String`.
+fn empty_text<T: Clone + 'static>() -> Option<T> {
+  (&String::new() as &dyn Any).downcast_ref::<T>().cloned()
+}
+
+/// The engine's select `select` with its choices made through `on_change`, its identity across renders `binding`,
+/// and read only where it says.
+fn wired(select: Element, binding: usize, read_only: bool, on_change: SelectChangeCallback) -> Element {
+  let node = select
+    .into_node()
+    .select_on_change(on_change)
+    .select_binding(binding)
+    .select_read_only(read_only);
+  Element::from_node(node)
+}
+
+/// What a select, a combobox or a multi select chooses from and what it holds, whatever the type of its values.
 pub(crate) trait Choices: Send + Sync {
-  /// The id of the signal it is bound to: what it is across renders.
+  /// What it is across renders: the id of the signal it is bound to, or, held by the app, where it is built.
   fn binding(&self) -> usize;
+  /// The id or key of the component: the binding of a controlled one is made with it too, so that two built at the
+  /// one place in the app's code are told apart.
+  fn name(&mut self, name: Option<&str>);
+  /// Adds a handler of a change of the value. `owner` names the builder, for the panic of a handler whose value is
+  /// of another type than its own.
+  fn on_change(&mut self, handler: AnyHandler, owner: &str);
   /// The label of each option, in order.
   fn labels(&self) -> Vec<Arc<str>>;
   /// Where each option is in the groups: the group it is in, by the index of the option that starts it, and its
@@ -159,10 +209,14 @@ pub(crate) trait Choices: Send + Sync {
   fn choose(&self, index: usize);
   /// Takes an option out of what several hold.
   fn unchoose(&self, index: usize);
-  /// Takes everything out of what several hold.
+  /// Takes the value away: of several, all of it; of a single one, where it can be none ([`Choices::can_clear`]).
   fn clear(&self);
-  /// The engine's select of the options `shown`, bound to the value.
-  fn build(&self, shown: &[usize], engine: Engine) -> Element;
+  /// Whether the value can be taken away: a single one's only where it can be none.
+  fn can_clear(&self) -> bool;
+  /// The engine's select of the options `shown`, as a combobox: what `engine` says.
+  fn build(self: Arc<Self>, shown: &[usize], engine: Engine) -> Element;
+  /// The engine's select of every option, in `style`, as a plain select.
+  fn build_plain(self: Arc<Self>, style: SelectStyle, placeholder: Option<Arc<str>>, read_only: bool) -> Element;
 }
 
 /// The options of `options` at `shown`, each that comes first of its group in them starting it.
@@ -229,8 +283,65 @@ where
 
 /// A single value and the options it is one of.
 pub(crate) struct One<T: SignalValue> {
-  pub value: Signal<T>,
-  pub options: Vec<SelectOption<T>>,
+  /// The app's signal, or, of a value the app holds, one of this build that holds it.
+  value: Signal<T>,
+  options: Vec<SelectOption<T>>,
+  /// Where in the app's code a controlled one is built; `None` for one bound to the app's signal, which it sets.
+  at: Option<&'static Location<'static>>,
+  binding: usize,
+  /// The value of none, where the value can be none: `None` of an optional one, the empty text of a `String`.
+  empty: Option<T>,
+  told: Vec<Arc<dyn Fn(&T) + Send + Sync>>,
+}
+
+impl<T> One<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+{
+  /// Bound to the app's signal: a choice sets it.
+  pub(crate) fn bound(value: Signal<T>, options: Vec<SelectOption<T>>) -> Self {
+    Self {
+      binding: value.id(),
+      value,
+      options,
+      at: None,
+      empty: empty_text(),
+      told: Vec::new(),
+    }
+  }
+
+  /// The app's value, built at `at` in its code: a choice is told, and what the app answers with is shown.
+  pub(crate) fn controlled(value: T, options: Vec<SelectOption<T>>, at: &'static Location<'static>) -> Self {
+    Self {
+      value: Signal::new(value),
+      options,
+      at: Some(at),
+      binding: controlled_binding(at, None),
+      empty: empty_text(),
+      told: Vec::new(),
+    }
+  }
+
+  /// Whose value of none is `empty`: an optional one's `None`.
+  pub(crate) fn with_empty(mut self, empty: T) -> Self {
+    self.empty = Some(empty);
+    self
+  }
+
+  /// Makes `next` the value, where it is another: sets the app's signal of one bound to it, and tells the handlers.
+  fn set(&self, next: T) {
+    if self.value.get_untracked() == next {
+      return;
+    }
+    match self.at {
+      None => self.value.set(next.clone()),
+      // The app answers: what the box shows of the value is what it answers with, whatever was chosen.
+      Some(_) => forget_shown(self.binding),
+    }
+    for handler in &self.told {
+      handler(&next);
+    }
+  }
 }
 
 impl<T> Choices for One<T>
@@ -239,7 +350,20 @@ where
   Vec<T>: SignalValue,
 {
   fn binding(&self) -> usize {
-    self.value.id()
+    self.binding
+  }
+
+  fn name(&mut self, name: Option<&str>) {
+    if let Some(at) = self.at {
+      self.binding = controlled_binding(at, name);
+    }
+  }
+
+  fn on_change(&mut self, handler: AnyHandler, owner: &str) {
+    match handler.downcast::<Arc<dyn Fn(&T) + Send + Sync>>() {
+      Ok(handler) => self.told.push(*handler),
+      Err(_) => panic!("{owner}::on_change: the handler takes a value of another type than the {owner}'s"),
+    }
   }
 
   fn labels(&self) -> Vec<Arc<str>> {
@@ -274,11 +398,9 @@ where
   }
 
   fn set_custom(&self, text: &str) -> bool {
-    match (&self.value as &dyn Any).downcast_ref::<Signal<String>>() {
+    match (&text.to_owned() as &dyn Any).downcast_ref::<T>() {
       Some(value) => {
-        if value.get_untracked() != text {
-          value.set(text.to_owned());
-        }
+        self.set(value.clone());
         true
       }
       None => false,
@@ -286,20 +408,54 @@ where
   }
 
   fn choose(&self, index: usize) {
-    if let Some(option) = self.options.get(index).filter(|option| !option.is_disabled())
-      && self.value.get_untracked() != *option.value()
-    {
-      self.value.set(option.value().clone());
+    if let Some(option) = self.options.get(index).filter(|option| !option.is_disabled()) {
+      self.set(option.value().clone());
     }
   }
 
   fn unchoose(&self, _index: usize) {}
 
-  fn clear(&self) {}
+  fn clear(&self) {
+    if let Some(empty) = &self.empty {
+      self.set(empty.clone());
+    }
+  }
 
-  fn build(&self, shown: &[usize], engine: Engine) -> Element {
+  fn can_clear(&self) -> bool {
+    self.empty.is_some()
+  }
+
+  fn build(self: Arc<Self>, shown: &[usize], engine: Engine) -> Element {
     let options = shown_options(&self.options, &self.groups(), shown);
-    dress(components::Select::new(self.value.clone()).options(options), engine).into()
+    let read_only = engine.read_only;
+    let select = dress(components::Select::new(self.value.clone()).options(options), engine);
+    let (me, shown) = (self.clone(), shown.to_vec());
+    wired(
+      select.into(),
+      self.binding,
+      read_only,
+      Arc::new(move |index| {
+        if let Some(option) = shown.get(index) {
+          me.choose(*option);
+        }
+      }),
+    )
+  }
+
+  fn build_plain(self: Arc<Self>, style: SelectStyle, placeholder: Option<Arc<str>>, read_only: bool) -> Element {
+    let mut select = components::Select::new(self.value.clone())
+      .options(self.options.clone())
+      .style(style);
+    if let Some(placeholder) = placeholder {
+      select = select.placeholder(placeholder);
+    }
+    let me = self.clone();
+    wired(
+      select.into(),
+      self.binding,
+      read_only,
+      Arc::new(move |index| me.choose(index)),
+    )
   }
 }
 
@@ -308,8 +464,55 @@ pub(crate) struct Many<T>
 where
   Vec<T>: SignalValue,
 {
-  pub value: Signal<Vec<T>>,
-  pub options: Vec<SelectOption<T>>,
+  /// The app's signal, or, of values the app holds, one of this build that holds them.
+  value: Signal<Vec<T>>,
+  options: Vec<SelectOption<T>>,
+  /// Where in the app's code a controlled one is built; `None` for one bound to the app's signal, which it sets.
+  at: Option<&'static Location<'static>>,
+  binding: usize,
+  told: Vec<Arc<dyn Fn(&[T]) + Send + Sync>>,
+}
+
+impl<T> Many<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Vec<T>: SignalValue,
+{
+  /// Bound to the app's signal: a choice sets it.
+  pub(crate) fn bound(value: Signal<Vec<T>>, options: Vec<SelectOption<T>>) -> Self {
+    Self {
+      binding: value.id(),
+      value,
+      options,
+      at: None,
+      told: Vec::new(),
+    }
+  }
+
+  /// The app's values, built at `at` in its code: a choice is told, and what the app answers with is shown.
+  pub(crate) fn controlled(values: Vec<T>, options: Vec<SelectOption<T>>, at: &'static Location<'static>) -> Self {
+    Self {
+      value: Signal::new(values),
+      options,
+      at: Some(at),
+      binding: controlled_binding(at, None),
+      told: Vec::new(),
+    }
+  }
+
+  /// Makes `next` the values, where they are others: sets the app's signal of one bound to it, and tells the
+  /// handlers the whole of them.
+  fn set(&self, next: Vec<T>) {
+    if self.value.get_untracked() == next {
+      return;
+    }
+    if self.at.is_none() {
+      self.value.set(next.clone());
+    }
+    for handler in &self.told {
+      handler(&next);
+    }
+  }
 }
 
 impl<T> Choices for Many<T>
@@ -318,7 +521,20 @@ where
   Vec<T>: SignalValue,
 {
   fn binding(&self) -> usize {
-    self.value.id()
+    self.binding
+  }
+
+  fn name(&mut self, name: Option<&str>) {
+    if let Some(at) = self.at {
+      self.binding = controlled_binding(at, name);
+    }
+  }
+
+  fn on_change(&mut self, handler: AnyHandler, owner: &str) {
+    match handler.downcast::<Arc<dyn Fn(&[T]) + Send + Sync>>() {
+      Ok(handler) => self.told.push(*handler),
+      Err(_) => panic!("{owner}::on_change: the handler takes values of another type than the {owner}'s"),
+    }
   }
 
   fn labels(&self) -> Vec<Arc<str>> {
@@ -353,35 +569,83 @@ where
 
   fn choose(&self, index: usize) {
     if let Some(option) = self.options.get(index).filter(|option| !option.is_disabled()) {
-      let value = option.value().clone();
-      self.value.update(|chosen| {
-        if !chosen.contains(&value) {
-          chosen.push(value);
-        }
-      });
+      let mut next = self.value.get_untracked();
+      if !next.contains(option.value()) {
+        next.push(option.value().clone());
+      }
+      self.set(next);
     }
   }
 
   fn unchoose(&self, index: usize) {
     if let Some(option) = self.options.get(index) {
-      let value = option.value().clone();
-      self.value.update(|chosen| chosen.retain(|held| *held != value));
+      let mut next = self.value.get_untracked();
+      next.retain(|held| held != option.value());
+      self.set(next);
     }
   }
 
   fn clear(&self) {
-    if !self.value.get_untracked().is_empty() {
-      self.value.set(Vec::new());
-    }
+    self.set(Vec::new());
   }
 
-  fn build(&self, shown: &[usize], engine: Engine) -> Element {
+  fn can_clear(&self) -> bool {
+    true
+  }
+
+  fn build(self: Arc<Self>, shown: &[usize], engine: Engine) -> Element {
     let options = shown_options(&self.options, &self.groups(), shown);
-    dress(
+    let read_only = engine.read_only;
+    let select = dress(
       components::Select::multiple(self.value.clone()).options(options),
       engine,
+    );
+    let (me, shown) = (self.clone(), shown.to_vec());
+    wired(
+      select.into(),
+      self.binding,
+      read_only,
+      Arc::new(move |index| {
+        if let Some(&option) = shown.get(index) {
+          me.toggle(option);
+        }
+      }),
     )
-    .into()
+  }
+
+  fn build_plain(self: Arc<Self>, style: SelectStyle, placeholder: Option<Arc<str>>, read_only: bool) -> Element {
+    let mut select = components::Select::multiple(self.value.clone())
+      .options(self.options.clone())
+      .style(style);
+    if let Some(placeholder) = placeholder {
+      select = select.placeholder(placeholder);
+    }
+    let me = self.clone();
+    wired(
+      select.into(),
+      self.binding,
+      read_only,
+      Arc::new(move |index| me.toggle(index)),
+    )
+  }
+}
+
+impl<T> Many<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Vec<T>: SignalValue,
+{
+  /// The option at `index` in what is held, or out of it.
+  fn toggle(&self, index: usize) {
+    let held = self
+      .options
+      .get(index)
+      .is_some_and(|option| self.value.get_untracked().contains(option.value()));
+    if held {
+      self.unchoose(index);
+    } else {
+      self.choose(index);
+    }
   }
 }
 
@@ -429,6 +693,14 @@ pub(crate) fn typed(binding: usize, shown: Option<&str>) -> (Signal<String>, Arc
   (query, alive)
 }
 
+/// Makes the next build of the combobox bound to `binding` put what the box shows of the value in what is typed:
+/// the app holds the value, and the box shows what it answers with.
+fn forget_shown(binding: usize) {
+  if let Some(typed) = TYPED.lock().unwrap().get_mut(&binding) {
+    typed.shown = None;
+  }
+}
+
 /// The options shown while `query` is typed: all of them while it is nothing or what the box shows of the value,
 /// else those `filter` keeps.
 pub(crate) fn filtered(labels: &[Arc<str>], query: &str, shown: Option<&str>, filter: &Filter) -> Vec<usize> {
@@ -450,18 +722,22 @@ pub(crate) fn filtered(labels: &[Arc<str>], query: &str, shown: Option<&str>, fi
 /// // What is typed and is no option's label is kept: a value of `String` becomes it.
 /// let tag = Signal::new(String::new());
 /// let free = Combobox::new(tag, [SelectOption::new("rust".to_owned(), "Rust")]).allow_custom(true);
+/// // Held by the app: it is told of a choice, and the box shows what it answers with.
+/// let held = Combobox::controlled("gpui", [("lurq", "lurq"), ("gpui", "GPUI")], |framework| {
+///   println!("{framework}")
+/// });
 /// ```
 ///
 /// It is the engine's [`Select`](crate::components::Select) as a combobox ([`Select::combobox`]
 /// (crate::components::Select::combobox)), in the design's dress: the box of a select with a text input in it, which
-/// keeps the focus while the list is open. Typing opens the list and filters it, with the first option that matches
-/// highlighted; Down and Up move the highlight, which a row shows as it shows the pointer, Enter chooses, Escape closes
-/// the list and a second Escape clears what was typed, and Tab chooses nothing and goes on. Choosing puts the option's
-/// label in the box, and the list opens whole again until something else is typed. When the focus leaves, what was
-/// typed goes back to the chosen option's label, unless custom values are allowed. The options are a select's: a
-/// detail, a hint, elements before and after the label, groups, disabled.
+/// keeps the focus while the list is open. [`Combobox::on_change`] hears a choice. Typing opens the list and filters
+/// it, with the first option that matches highlighted; Down and Up move the highlight, which a row shows as it shows
+/// the pointer, Enter chooses, Escape closes the list and a second Escape clears what was typed, and Tab chooses
+/// nothing and goes on. Choosing puts the option's label in the box, and the list opens whole again until something
+/// else is typed. When the focus leaves, what was typed goes back to the chosen option's label, unless custom values
+/// are allowed. The options are a select's: a detail, a hint, elements before and after the label, groups, disabled.
 pub struct Combobox {
-  choices: Arc<dyn Choices>,
+  choices: Box<dyn Choices>,
   placeholder: Option<Arc<str>>,
   boxed: BoxStates,
   full_width: bool,
@@ -469,16 +745,22 @@ pub struct Combobox {
   rules: Recipe,
   forced: Option<Interaction>,
   filter: Filter,
-  on_input: Vec<EditHandler>,
+  on_query: Vec<EditHandler>,
+  on_submit: Vec<SubmitHandler>,
   loading: bool,
-  empty: Arc<str>,
+  empty_text: Arc<str>,
   loading_text: Arc<str>,
   allow_custom: bool,
+  clearable: bool,
+  clear_label: Arc<str>,
   query: Option<Signal<String>>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
+
+/// What is told of Enter in a combobox: what the box holds.
+pub(crate) type SubmitHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Combobox {
   /// A combobox of `options` bound to `value`: the option whose value the signal has is chosen, and choosing another
@@ -488,9 +770,44 @@ impl Combobox {
     T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
     Vec<T>: SignalValue,
   {
+    Self::of(Box::new(One::bound(
+      value,
+      options.into_iter().map(Into::into).collect(),
+    )))
+  }
+
+  /// A combobox bound to `value`, which may hold no value: `None` is no option's, and the box shows its placeholder;
+  /// [`Combobox::clearable`] takes the value away.
+  pub fn optional<T>(value: Signal<Option<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
+  where
+    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    Option<T>: SignalValue,
+    Vec<Option<T>>: SignalValue,
+  {
+    let options = options.into_iter().map(|option| option.into().map(Some)).collect();
+    Self::of(Box::new(One::bound(value, options).with_empty(None)))
+  }
+
+  /// A combobox of the app's `value`, which the app holds: a choice is told to `on_change`, and the box shows what
+  /// the app answers with. Two built at the one place in the app's code, in a loop, are told apart by their `id` or
+  /// `key`.
+  #[track_caller]
+  pub fn controlled<T>(
+    value: T,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
+  ) -> Self
+  where
+    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    Vec<T>: SignalValue,
+  {
     let options = options.into_iter().map(Into::into).collect();
+    Self::of(Box::new(One::controlled(value, options, Location::caller()))).on_change(on_change)
+  }
+
+  fn of(choices: Box<dyn Choices>) -> Self {
     Self {
-      choices: Arc::new(One { value, options }),
+      choices,
       placeholder: None,
       boxed: BoxStates::default(),
       full_width: false,
@@ -498,16 +815,29 @@ impl Combobox {
       rules: Recipe::new(),
       forced: None,
       filter: Arc::new(contains),
-      on_input: Vec::new(),
+      on_query: Vec::new(),
+      on_submit: Vec::new(),
       loading: false,
-      empty: Arc::from("No results"),
+      empty_text: Arc::from("No results"),
       loading_text: Arc::from("Loading results…"),
       allow_custom: false,
+      clearable: false,
+      clear_label: Arc::from("Clear"),
       query: None,
       name: None,
       id: None,
       key: None,
     }
+  }
+
+  /// Called with the new value when a person chooses an option, or keeps a value of its own
+  /// ([`Combobox::allow_custom`]), or clears it: not when the app sets the signal, and not for what is chosen
+  /// already. The handler takes the type of the value: `on_change(|framework: &&str| ..)` of a combobox of `&str`,
+  /// `&Option<T>` of an [`optional`](Combobox::optional) one; a handler of another type panics here.
+  pub fn on_change<T: 'static>(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
+    let handler: Arc<dyn Fn(&T) + Send + Sync> = Arc::new(handler);
+    self.choices.on_change(Box::new(handler), "Combobox");
+    self
   }
 
   /// What the box says while nothing is typed.
@@ -547,6 +877,13 @@ impl Combobox {
     self
   }
 
+  /// Whether what is chosen can be read and not changed: the list does not open, what is typed is not taken, and
+  /// there is no clear control. It keeps the focus and is read by what reads the tree.
+  pub fn read_only(mut self, read_only: bool) -> Self {
+    self.boxed.read_only = read_only;
+    self
+  }
+
   /// Whether the combobox takes no input.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.boxed.disabled = disabled;
@@ -568,10 +905,17 @@ impl Combobox {
 
   /// Called with what the box will hold at each edit: for an app that fetches its options as a person types. Its
   /// options then are what it fetched, which it may show all of with a `filter` that keeps every one.
-  pub fn on_input(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+  pub fn on_query(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
     self
-      .on_input
+      .on_query
       .push(Arc::new(move |event: &TextInputEvent| handler(event.new_value())));
+    self
+  }
+
+  /// Called on Enter with what the box holds, where Enter chooses nothing: the list is closed, or nothing in it is
+  /// highlighted. Enter on a highlighted option chooses it and submits nothing.
+  pub fn on_submit(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_submit.push(Arc::new(handler));
     self
   }
 
@@ -582,8 +926,8 @@ impl Combobox {
   }
 
   /// What the list says while what is typed leaves no option: "No results" unless it is told otherwise.
-  pub fn empty(mut self, empty: &str) -> Self {
-    self.empty = Arc::from(empty);
+  pub fn empty_text(mut self, text: &str) -> Self {
+    self.empty_text = Arc::from(text);
     self
   }
 
@@ -595,9 +939,23 @@ impl Combobox {
 
   /// Whether what is typed may be no option's label. Typing then highlights nothing, and Enter, or the focus
   /// leaving, keeps what was typed: an option whose label it is, without regard to case, is chosen, and anything
-  /// else becomes the value of a combobox of `String`. The app hears it as it is typed ([`Combobox::on_input`]).
+  /// else becomes the value of a combobox of `String`. The app hears it as it is typed ([`Combobox::on_query`]).
   pub fn allow_custom(mut self, allow: bool) -> Self {
     self.allow_custom = allow;
+    self
+  }
+
+  /// A cross at the end of the box, while something is chosen, that takes the value and what is typed away: the
+  /// value is `None` of an [`optional`](Combobox::optional) combobox and the empty text of a combobox of `String`.
+  /// A combobox of a value that cannot be none has no cross.
+  pub fn clearable(mut self, clearable: bool) -> Self {
+    self.clearable = clearable;
+    self
+  }
+
+  /// What the clear control is called to what reads the tree: "Clear" unless it is told otherwise.
+  pub fn clear_label(mut self, label: &str) -> Self {
+    self.clear_label = Arc::from(label);
     self
   }
 
@@ -662,17 +1020,20 @@ impl Combobox {
       .boxed
       .case(self.states.clone())
       .state(ComboboxState::FullWidth, self.full_width);
-    let labels = self.choices.labels();
-    let chosen = self.choices.chosen();
+    let mut choices = self.choices;
+    choices.name(self.id.as_deref().or(self.key.as_deref()));
+    let choices: Arc<dyn Choices> = Arc::from(choices);
+    let labels = choices.labels();
+    let chosen = choices.chosen();
     // What the box shows of the value: the chosen option's label, or a value of its own that was typed and kept.
     let shown = match chosen.first() {
       Some(index) => labels.get(*index).map(|label| label.to_string()),
-      None => self.choices.custom(),
+      None => choices.custom(),
     }
     .unwrap_or_default();
     let (query, alive) = match self.query {
       Some(query) => (query, Arc::new(())),
-      None => typed(self.choices.binding(), Some(&shown)),
+      None => typed(choices.binding(), Some(&shown)),
     };
     let typed_now = query.get();
     let shown_options = filtered(&labels, &typed_now, Some(&shown), &self.filter);
@@ -686,14 +1047,18 @@ impl Combobox {
       case,
       rules: self.rules,
       forced: self.forced,
-      choices: self.choices,
+      clearable: self.clearable && choices.can_clear(),
+      clear_label: self.clear_label,
+      choices,
       labels,
       shown_text: shown,
       shown: shown_options,
       query,
       alive,
-      on_input: self.on_input,
-      empty: self.empty,
+      on_query: self.on_query,
+      on_submit: self.on_submit,
+      opened: Arc::new(Mutex::new(None)),
+      empty_text: self.empty_text,
       loading_text: self.loading_text,
       allow_custom: self.allow_custom,
       boxed: self.boxed,
@@ -744,10 +1109,15 @@ pub struct ComboboxView {
   shown: Vec<usize>,
   query: Signal<String>,
   alive: Arc<()>,
-  on_input: Vec<EditHandler>,
-  empty: Arc<str>,
+  on_query: Vec<EditHandler>,
+  on_submit: Vec<SubmitHandler>,
+  /// The engine's select once it is built: whether its list is open, for what Enter does.
+  opened: Arc<Mutex<Option<WeakSelectState>>>,
+  empty_text: Arc<str>,
   loading_text: Arc<str>,
   allow_custom: bool,
+  clearable: bool,
+  clear_label: Arc<str>,
   boxed: BoxStates,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -807,7 +1177,7 @@ impl ComboboxView {
       .placeholder_style(text_box::ink(theme, &placeholder))
       .min_width(0.0)
       .flex(1.0);
-    let mut control = text_box::text_box(control, &self.boxed, self.on_input.clone());
+    let mut control = text_box::text_box(control, &self.boxed, self.on_query.clone());
     if let Some(placeholder) = &self.placeholder {
       control = control.placeholder(placeholder);
     }
@@ -824,7 +1194,51 @@ impl ComboboxView {
         }
       });
     }
+    if !self.on_submit.is_empty() {
+      let (submit, query, opened) = (self.on_submit.clone(), self.query.clone(), self.opened.clone());
+      control = control.on_key_down(move |event: KeyboardEvent| {
+        let plain = !event.ctrl && !event.alt && !event.meta && !event.shift;
+        if !event.focus_within || event.composing || !plain || event.key != "Enter" {
+          return;
+        }
+        // Enter on a highlighted option of the open list chooses it: the engine does that after the handlers.
+        let chooses = opened
+          .lock()
+          .unwrap()
+          .as_ref()
+          .and_then(WeakSelectState::upgrade)
+          .is_some_and(|state| state.is_open() && state.highlighted().is_some());
+        if !chooses {
+          let text = query.get_untracked();
+          for handler in &submit {
+            handler(&text);
+          }
+        }
+      });
+    }
     control
+  }
+
+  /// The cross at the end of the box that takes the value and what is typed away, while something is chosen and the
+  /// combobox is clearable. It is called "Clear" to what reads the tree, or its `clear_label`.
+  pub fn clear(&self) -> Option<Element> {
+    if !self.clearable || self.boxed.read_only || (self.shown_text.is_empty() && self.query.get().is_empty()) {
+      return None;
+    }
+    let (choices, query) = (self.choices.clone(), self.query.clone());
+    Some(clear_control(
+      &self.part(ComboboxPart::Clear),
+      &self.part(ComboboxPart::ClearIcon),
+      self.theme(),
+      self.disabled,
+      &self.clear_label,
+      move || {
+        choices.clear();
+        if !query.get_untracked().is_empty() {
+          query.set(String::new());
+        }
+      },
+    ))
   }
 
   /// What leaving the box does to what was typed: it goes back to what the box shows of the value, or, where custom
@@ -886,7 +1300,7 @@ impl ComboboxView {
       self.loading,
       self.shown.is_empty(),
       &self.loading_text,
-      &self.empty,
+      &self.empty_text,
     )
   }
 
@@ -905,8 +1319,11 @@ impl ComboboxView {
       trigger: Arc::new(trigger),
       status: self.status(),
       free_text: self.allow_custom,
+      read_only: self.boxed.read_only,
     };
-    let select = self.choices.build(&self.shown, engine);
+    let node = self.choices.clone().build(&self.shown, engine).into_node();
+    *self.opened.lock().unwrap() = node.clone_select_state().map(|state| state.downgrade());
+    let select = Element::from_node(node);
     finish(
       select,
       &self.part(ComboboxPart::Trigger).rest(),
@@ -922,11 +1339,12 @@ impl ComboboxView {
     )
   }
 
-  /// How the default renderer builds a combobox: the input and the chevron in the box of a select.
+  /// How the default renderer builds a combobox: the input, the clear control where it has one, and the chevron in
+  /// the box of a select.
   pub fn render(self) -> Element {
     let style = self.select_style();
     let gap = self.part(ComboboxPart::Trigger).rest().gap;
-    let chevron = Mutex::new(Some(self.chevron()));
+    let end = Mutex::new(Some((self.clear(), self.chevron())));
     self.select(style, move |state| {
       let mut row = Row::new().width(Dimension::Pct(100.0)).align_items(Alignment::Center);
       if let Some(gap) = gap {
@@ -935,7 +1353,10 @@ impl ComboboxView {
       if let Some(input) = state.input {
         row = row.child(input);
       }
-      if let Some(chevron) = chevron.lock().unwrap().take() {
+      if let Some((clear, chevron)) = end.lock().unwrap().take() {
+        if let Some(clear) = clear {
+          row = row.child(clear);
+        }
         row = row.child(chevron);
       }
       row.into()
@@ -1018,6 +1439,56 @@ pub(crate) fn status_row(
   Some(row.child(part.text(text).nowrap()).into())
 }
 
+/// What is pressed in the box without opening its list: a press of a tag's cross takes the tag away, and one of the
+/// clear control clears, and neither reaches the select, which a press opens.
+pub(crate) fn apart(element: Element) -> Element {
+  Row::new()
+    .flex_shrink(0.0)
+    .overflow_visible()
+    .on_mouse_down(|event: MouseEvent| event.stop_propagation())
+    .child(element)
+    .into()
+}
+
+/// The cross at the end of a box that takes what it holds away: in the style of `part` and of `icon` for its cross,
+/// a `button` called `label` to what reads the tree, pressed apart from the select.
+pub(crate) fn clear_control(
+  part: &ResolvedPart,
+  icon: &ResolvedPart,
+  theme: &Theme,
+  disabled: bool,
+  label: &Arc<str>,
+  clear: impl Fn() + Send + Sync + 'static,
+) -> Element {
+  let side = icon.rest().width.unwrap_or(Length::Icon(IconSize::Sm));
+  let mut control = pressable(part, disabled)
+    .describe("a11y_role", "button")
+    .describe("a11y_name", label.clone())
+    .flex_shrink(0.0)
+    .child(Icon::new(icons::CLOSE).size(side).build(theme));
+  if !disabled {
+    control = control.on_click(move |_| clear());
+  }
+  apart(control.into())
+}
+
+/// The rules of the clear control a combobox and a multi select have, by the names of their parts: 16 square, 3
+/// round, in the muted foreground and the foreground under the pointer, its cross 12.
+pub(crate) fn clear_rules(recipe: Recipe) -> Recipe {
+  recipe
+    .base(ComboboxPart::Clear, |s| {
+      fading(
+        s.square(16.0)
+          .radius(3.0)
+          .foreground(PaletteColor::MutedForeground)
+          .cursor(CursorIcon::Pointer),
+      )
+    })
+    .base(ComboboxPart::ClearIcon, |s| s.square(12.0))
+    .hovered(ComboboxPart::Clear, |s| s.foreground(PaletteColor::Foreground))
+    .focus_visible(ComboboxPart::Clear, |s| s.focus_ring())
+}
+
 /// The rules of the list a combobox and a multi select add to a select's: the status row, 32 high, 8 from the edge
 /// of the list, in the muted foreground at 13, the spinner 8 before its text in the foreground.
 pub(crate) fn status_rules(recipe: Recipe) -> Recipe {
@@ -1048,10 +1519,10 @@ impl Themed for Combobox {
   /// color, 8 round, with the middle shadow and 4 of padding; an item is 32 high, 8 in, 4 round, on the highlight
   /// under the pointer or the keys, the chosen one with a check of 16 at its end. After the options, a row of 32 in
   /// the muted foreground at 13 says there are none, or, with a spinner of 16 in the foreground 8 before it, that
-  /// more are loading.
+  /// more are loading. The cross that clears is 16, in the muted foreground, the foreground under the pointer.
   fn recipe() -> Recipe {
     let recipe = <select::Select as Themed>::recipe().base(ComboboxPart::Trigger, |s| s.cursor(CursorIcon::Text));
-    status_rules(recipe)
+    clear_rules(status_rules(recipe))
   }
 }
 

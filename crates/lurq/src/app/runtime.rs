@@ -8949,6 +8949,7 @@ impl SliderDrag {
 
   fn finish(&self) {
     self.state.clear_drag_ratio();
+    self.state.change_ended();
     for on_finish in &self.on_finish {
       on_finish.call();
     }

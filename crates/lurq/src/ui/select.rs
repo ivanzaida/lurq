@@ -1,19 +1,21 @@
 //! A select: one value chosen from a list that opens under a trigger, bound to a signal.
 
-use std::sync::Arc;
+use std::{panic::Location, sync::Arc};
 
 use super::{
+  combobox::{Choices, One},
   icon::Icon,
   icons, names,
   part_style::{FontFamily, Length, Opacity, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  text_box::TextBoxSize,
   theme::{Themed, current_theme},
 };
 use crate::{
   app::theme::{
     BorderSize, ControlSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle,
   },
-  components::{self, SelectOption},
+  components::SelectOption,
   core::{Signal, SignalValue},
   layout::text_style::{FontWeight, TextStyle},
   node::{
@@ -39,7 +41,7 @@ pub enum SelectPart {
   Chevron,
   /// The panel of the open list: its fill, edge, corners, shadow and padding. Its gap is the room between the trigger
   /// and it; its height is the most it is, past which it scrolls.
-  Menu,
+  Panel,
   /// An option of the open list: its height, padding, corners, type and color. Under the pointer or the keys it is
   /// `hovered`. Its gap is the room between its label and the check.
   Item,
@@ -61,7 +63,7 @@ names!(SelectPart {
   Value => "value",
   Placeholder => "placeholder",
   Chevron => "chevron",
-  Menu => "menu",
+  Panel => "panel",
   Item => "item",
   Check => "check",
   Detail => "detail",
@@ -70,23 +72,9 @@ names!(SelectPart {
   Separator => "separator",
 });
 
-/// The sizes of a select: the heights of the theme's controls, as an input has them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum SelectSize {
-  /// 32 high, its text 13.
-  Sm,
-  /// 36 high, its text 14.
-  #[default]
-  Md,
-  /// 40 high, its text 15.
-  Lg,
-}
-
-names!(SelectSize {
-  Sm => "sm",
-  Md => "md",
-  Lg => "lg",
-});
+/// The sizes of a select: the heights of the theme's controls, as an input has them: `Sm` 32 with text of 13, `Md`
+/// 36 with text of 14, `Lg` 40 with text of 15.
+pub type SelectSize = TextBoxSize;
 
 /// The states of a select a recipe styles, besides what the pointer and the
 /// keyboard do to it.
@@ -100,14 +88,14 @@ pub enum SelectState {
   Warning,
   /// What is chosen was checked and is right: its edge is in the success color.
   Valid,
-  /// It takes no input.
+  /// What is chosen can be read and not changed: its list does not open. The muted fill in the border's color.
+  ReadOnly,
+  /// It takes no input. Of an item, resolved on its parts: it cannot be chosen ([`SelectOption::disabled`]).
   Disabled,
   /// It is as wide as what holds it.
   FullWidth,
-  /// Of an item: it is the chosen one. Its rules are for `Item` and `Check`.
-  Chosen,
-  /// Of an item: it cannot be chosen ([`SelectOption::disabled`]).
-  ItemDisabled,
+  /// Of an item, resolved on its parts: it is the one chosen. Its rules are for `Item` and `Check`.
+  Selected,
 }
 
 names!(SelectState {
@@ -115,19 +103,14 @@ names!(SelectState {
   Invalid => "invalid",
   Warning => "warning",
   Valid => "valid",
+  ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
-  Chosen => "chosen",
-  ItemDisabled => "item_disabled",
+  Selected => "selected",
 });
 
 /// What builds a select's nodes: a theme's in place of the default one.
 pub type SelectRenderer = Arc<dyn Fn(SelectView) -> Element + Send + Sync>;
-
-/// The engine's select bound to the value and its options, built with a style
-/// and a placeholder: what does not depend on the type of the value is done to
-/// the element it returns.
-type Make = Box<dyn FnOnce(SelectStyle, Option<Arc<str>>) -> Element>;
 
 /// A select: one value chosen from a list that opens under a trigger. A time
 /// zone, a theme, a page size.
@@ -145,24 +128,27 @@ type Make = Box<dyn FnOnce(SelectStyle, Option<Arc<str>>) -> Element>;
 /// ])
 /// .placeholder("Select a time zone")
 /// .invalid(true);
+/// // Held by the app: it is told of a choice, and the trigger shows what it answers with.
+/// let size = Select::controlled(20, [(10, "10"), (20, "20"), (50, "50")], |rows| println!("{rows} a page"));
 /// ```
 ///
 /// It is the engine's [`Select`](crate::components::Select) in the design's
 /// dress: a press or Enter, Space and the arrow keys open its list, the arrows
 /// and the first letters move through it, and a press or Enter sets the
 /// signal to the option's value and closes it. What the app sets on the signal
-/// is what it shows. It stands beside an [`Input`](super::Input) in a form: the
+/// is what it shows; [`Select::on_change`] hears a choice. It stands beside an [`Input`](super::Input) in a form: the
 /// same box, the same sizes, the same ring, and the same judgments of what it
 /// holds (`invalid`, `warning`, `valid`). An option can start a group, which
 /// the list draws with its label over it and a line above it.
 pub struct Select {
-  make: Make,
+  choices: Box<dyn Choices>,
   placeholder: Option<Arc<str>>,
   label: Option<Arc<str>>,
   size: Name,
   invalid: bool,
   warning: bool,
   valid: bool,
+  read_only: bool,
   disabled: bool,
   full_width: bool,
   states: Vec<Name>,
@@ -183,22 +169,51 @@ impl Select {
     T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
     Vec<T>: SignalValue,
   {
-    let options: Vec<SelectOption<T>> = options.into_iter().map(Into::into).collect();
-    let make: Make = Box::new(move |style, placeholder| {
-      let mut select = components::Select::new(value).options(options).style(style);
-      if let Some(placeholder) = placeholder {
-        select = select.placeholder(placeholder);
-      }
-      select.into()
-    });
+    Self::of(Box::new(One::bound(
+      value,
+      options.into_iter().map(Into::into).collect(),
+    )))
+  }
+
+  /// A select bound to `value`, which may hold no value: `None` is no option's, and the trigger shows the
+  /// placeholder.
+  pub fn optional<T>(value: Signal<Option<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
+  where
+    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    Option<T>: SignalValue,
+    Vec<Option<T>>: SignalValue,
+  {
+    let options = options.into_iter().map(|option| option.into().map(Some)).collect();
+    Self::of(Box::new(One::bound(value, options).with_empty(None)))
+  }
+
+  /// A select of the app's `value`, which the app holds: a choice is told to `on_change`, and the trigger shows what
+  /// the app answers with. Two built at the one place in the app's code, in a loop, are told apart by their `id` or
+  /// `key`.
+  #[track_caller]
+  pub fn controlled<T>(
+    value: T,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
+  ) -> Self
+  where
+    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    Vec<T>: SignalValue,
+  {
+    let options = options.into_iter().map(Into::into).collect();
+    Self::of(Box::new(One::controlled(value, options, Location::caller()))).on_change(on_change)
+  }
+
+  fn of(choices: Box<dyn Choices>) -> Self {
     Self {
-      make,
+      choices,
       placeholder: None,
       label: None,
       size: SelectSize::default().into(),
       invalid: false,
       warning: false,
       valid: false,
+      read_only: false,
       disabled: false,
       full_width: false,
       states: Vec::new(),
@@ -208,6 +223,15 @@ impl Select {
       id: None,
       key: None,
     }
+  }
+
+  /// Called with the new value when a person chooses an option: not when the app sets the signal, and not for the
+  /// option chosen already. The handler takes the type of the value: `on_change(|theme: &&str| ..)` of a select
+  /// of `&str`, `&Option<T>` of an [`optional`](Select::optional) one; a handler of another type panics here.
+  pub fn on_change<T: 'static>(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
+    let handler: Arc<dyn Fn(&T) + Send + Sync> = Arc::new(handler);
+    self.choices.on_change(Box::new(handler), "Select");
+    self
   }
 
   /// What the trigger says while no option is chosen.
@@ -244,6 +268,13 @@ impl Select {
   /// Whether what is chosen was checked and is right.
   pub fn valid(mut self, valid: bool) -> Self {
     self.valid = valid;
+    self
+  }
+
+  /// Whether what is chosen can be read and not changed: the list does not open. It keeps the focus and is read by
+  /// what reads the tree; the trigger is on the muted fill in the border's color.
+  pub fn read_only(mut self, read_only: bool) -> Self {
+    self.read_only = read_only;
     self
   }
 
@@ -326,18 +357,22 @@ impl Select {
     .state(SelectState::Invalid, invalid)
     .state(SelectState::Warning, warning)
     .state(SelectState::Valid, valid)
+    .state(SelectState::ReadOnly, self.read_only)
     .state(SelectState::Disabled, self.disabled)
     .state(SelectState::FullWidth, self.full_width);
+    let mut choices = self.choices;
+    choices.name(self.id.as_deref().or(self.key.as_deref()));
     let view = SelectView {
       placeholder: self.placeholder,
       label: self.label,
       invalid,
+      read_only: self.read_only,
       disabled: self.disabled,
       recipe: theme.resolve::<Select>(&case, Some(&self.rules)),
       case,
       rules: self.rules,
       forced: self.forced,
-      make: self.make,
+      choices: Arc::from(choices),
       name: self.name,
       id: self.id,
       key: self.key,
@@ -363,13 +398,15 @@ pub struct SelectView {
   pub label: Option<Arc<str>>,
   /// Whether what is chosen is wrong, as the select shows it.
   pub invalid: bool,
+  /// Whether what is chosen can be read and not changed.
+  pub read_only: bool,
   pub disabled: bool,
   /// The style of each part of this select.
   pub recipe: ResolvedRecipe,
   case: Case,
   rules: Recipe,
   forced: Option<Interaction>,
-  make: Make,
+  choices: Arc<dyn Choices>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   name: Option<Arc<str>>,
@@ -410,7 +447,11 @@ impl SelectView {
   pub fn select(self, style: SelectStyle) -> Element {
     let theme = self.theme().clone();
     let trigger = self.part(SelectPart::Trigger).rest();
-    let mut node = (self.make)(style, self.placeholder.clone()).into_node();
+    let mut node = self
+      .choices
+      .clone()
+      .build_plain(style, self.placeholder.clone(), self.read_only)
+      .into_node();
     if let Some(width) = trigger.width.and_then(|width| width.resolve(&theme)) {
       NodeUpdate::width(&mut node, width);
     }
@@ -429,6 +470,9 @@ impl SelectView {
     NodeUpdate::disabled(&mut node, self.disabled);
     if let Some(label) = &self.label {
       NodeUpdate::describe(&mut node, Arc::from("a11y_name"), label.clone());
+    }
+    if self.read_only {
+      NodeUpdate::describe(&mut node, Arc::from("a11y_readonly"), Arc::from("true"));
     }
     #[cfg(feature = "form")]
     if let Some(name) = &self.name {
@@ -472,7 +516,7 @@ pub(crate) fn engine_style(
   forced: Option<Interaction>,
   in_state: &dyn Fn(Name) -> ResolvedRecipe,
 ) -> SelectStyle {
-  use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Menu, Placeholder, Separator, Trigger, Value};
+  use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Panel, Placeholder, Separator, Trigger, Value};
   let theme = recipe.theme();
   let trigger = recipe.part(Trigger).forced(forced);
   let rest = trigger.rest();
@@ -508,7 +552,7 @@ pub(crate) fn engine_style(
   }
 
   // The list is not forced: a forced interaction is the trigger's.
-  let menu = recipe.part(Menu).rest();
+  let menu = recipe.part(Panel).rest();
   style = style
     // Its height is the most it is, which the engine says apart: not the least the panel is.
     .menu(engine_part(&PartStyle { height: None, ..menu.clone() }, theme))
@@ -518,12 +562,12 @@ pub(crate) fn engine_style(
   }
 
   let item = recipe.part(Item);
-  let chosen = in_state(SelectState::Chosen.into()).part(Item);
+  let chosen = in_state(SelectState::Selected.into()).part(Item);
   style = style
     .option(engine_part(&item.rest(), theme))
     .option_selected(engine_part(&chosen.rest(), theme))
     .option_disabled(engine_part(
-      &in_state(SelectState::ItemDisabled.into()).part(Item).rest(),
+      &in_state(SelectState::Disabled.into()).part(Item).rest(),
       theme,
     ))
     .option_detail(engine_part(&recipe.part(Detail).rest(), theme))
@@ -541,7 +585,7 @@ pub(crate) fn engine_style(
     style = style.checkmark_gap(gap).option_adornment_gap(gap);
   }
 
-  let check = in_state(SelectState::Chosen.into()).part(Check).rest();
+  let check = in_state(SelectState::Selected.into()).part(Check).rest();
   style = style
     .checkmark(icon(icons::CHECK, &check, theme))
     .checkmark_position(SelectCheckmarkPosition::Trailing)
@@ -648,7 +692,8 @@ impl Themed for Select {
   /// its chevron of 16 in the muted foreground. Under the pointer its edge is
   /// the ring's color; focused from the keyboard and open it has a line of 2
   /// inside the box in that color; the destructive, warning and success
-  /// colors for what is chosen, as an input has them. A disabled one is half opaque on the muted fill. Small is 32 with
+  /// colors for what is chosen, as an input has them. A read only one is on the muted fill in an edge of the border's
+  /// color, as a read only input is. A disabled one is half opaque on the muted fill. Small is 32 with
   /// text of 13, large 40 with text of 15. The list is 4 under it on the popover's
   /// fill, in an edge of 1 in the border's color, 8 round, with the theme's
   /// middle shadow and 4 of padding; an item is 32 high, 8 from the edge of
@@ -661,7 +706,7 @@ impl Themed for Select {
     use PaletteColor::{
       Background, Destructive, Foreground, Highlight, Muted, MutedForeground, Popover, Ring, Success,
     };
-    use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Menu, Placeholder, Separator, Trigger};
+    use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Panel, Placeholder, Separator, Trigger};
     let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
     // The focus is a line of 2 inside the box, over its edge, as an input's is: an outline, so that the edge under
     // the pointer does not take it away.
@@ -681,7 +726,7 @@ impl Themed for Select {
       })
       .base(Placeholder, |s| s.foreground(MutedForeground))
       .base(Chevron, |s| s.square(IconSize::Md).foreground(MutedForeground))
-      .base(Menu, |s| {
+      .base(Panel, |s| {
         s.gap(4.0)
           .padding_x(4.0)
           .padding_y(4.0)
@@ -728,10 +773,16 @@ impl Themed for Select {
       .focus_visible(Trigger, |s| s.outline(ring(Ring)))
       .state(SelectState::Open, Trigger, |s| s.outline(ring(Ring)))
       .hovered(Item, |s| s.background(Highlight))
-      .state(SelectState::ItemDisabled, Item, |s| s.opacity(0.45))
+      // An item that cannot be chosen: its own state, resolved on its part.
+      .state(SelectState::Disabled, Item, |s| s.opacity(0.45))
       .size(SelectSize::Sm, Trigger, |s| s.height(ControlSize::Sm).font_size(13.0))
       .size(SelectSize::Lg, Trigger, |s| s.height(ControlSize::Lg).font_size(15.0))
       .state(SelectState::FullWidth, Trigger, |s| s.width(Length::Fill))
+      .state(SelectState::ReadOnly, Trigger, |s| {
+        s.background(Muted)
+          .border(edge(PaletteColor::Border))
+          .cursor(CursorIcon::Default)
+      })
       .state(SelectState::Disabled, Trigger, |s| {
         s.background(Muted)
           .opacity(OpacityLevel::Disabled)

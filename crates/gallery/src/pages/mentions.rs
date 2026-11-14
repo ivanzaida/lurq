@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Avatar, Field, Interaction, Mention, Mentions, MentionsController, TokenInputSize, icons},
+  ui::{Avatar, Field, Interaction, Mention, Mentions, MentionsController, MentionsSize, icons},
 };
 
 use crate::{
@@ -22,10 +22,10 @@ use crate::{
 const WIDTH: f32 = 280.0;
 
 /// The sizes, how the code names them, and the type of each.
-const SIZES: [(TokenInputSize, &str, &str, f32); 3] = [
-  (TokenInputSize::Sm, "sm", "TokenInputSize::Sm", 13.0),
-  (TokenInputSize::Md, "md", "TokenInputSize::Md", 14.0),
-  (TokenInputSize::Lg, "lg", "TokenInputSize::Lg", 15.0),
+const SIZES: [(MentionsSize, &str, &str, f32); 3] = [
+  (MentionsSize::Sm, "sm", "MentionsSize::Sm", 13.0),
+  (MentionsSize::Md, "md", "MentionsSize::Md", 14.0),
+  (MentionsSize::Lg, "lg", "MentionsSize::Lg", 15.0),
 ];
 
 /// The people the board offers, and a few more.
@@ -168,7 +168,7 @@ impl MentionsPage {
     if !name.is_empty() {
       code.push(format!("    .label({name:?})"));
     }
-    if size != TokenInputSize::Md {
+    if size != MentionsSize::Md {
       code.push(format!("    .size({size_code})"));
     }
     for (flag, set) in flags {
@@ -226,7 +226,7 @@ impl MentionsPage {
           prop("label", "&str", field(&self.label)),
           prop(
             "size",
-            "TokenInputSize",
+            "MentionsSize",
             segmented_fill(&sizes, &self.size.get(), move |index| choose_size.set(index)),
           ),
           flag("trigger('@', people)", &self.at),
@@ -243,7 +243,7 @@ impl MentionsPage {
           !held.is_empty(),
           placeholder != "Write a comment",
           !name.is_empty(),
-          size != TokenInputSize::Md,
+          size != MentionsSize::Md,
           !at,
           !hash,
         ]
@@ -373,9 +373,9 @@ impl Component for MentionsPage {
       ),
       (
         "Mention",
-        "label, text, avatar, icon",
+        "label, text, avatar, icon, disabled, id, key",
         "",
-        "An offer: its label in the list, its avatar or icon, and the text it puts in the field.",
+        "An offer: its label in the list, its avatar or icon, and the text it puts in the field; a disabled one is shown and not chosen.",
       ),
       (
         "on_mention",
@@ -384,7 +384,7 @@ impl Component for MentionsPage {
         "Called with the text of an offer as it is chosen.",
       ),
       (
-        "tokens",
+        "find_tokens",
         "impl Fn(&str) -> Vec<Token>",
         "",
         "Other tokens of the app's in the text, besides the mentions.",
@@ -398,7 +398,7 @@ impl Component for MentionsPage {
       ("placeholder", "&str", "", "What it shows while it holds nothing."),
       (
         "size",
-        "TokenInputSize",
+        "MentionsSize",
         "Md",
         "The type of its text and mentions: 13, 14 or 15.",
       ),
