@@ -1,6 +1,8 @@
 //! Which wheel events are a mouse's notches. A notch is animated ([`Tree::wheel`](crate::app::Tree::wheel)); the
 //! travel of a touchpad or of a precise wheel moves the content with the fingers
 //! ([`Tree::scroll`](crate::app::Tree::scroll)), and animating it would fall behind them.
+//!
+//! A browser tells a mouse's wheel in pixels too: there `web_wheel::is_notched` says which events are a mouse's.
 
 use winit::event::MouseScrollDelta;
 

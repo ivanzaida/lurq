@@ -278,9 +278,16 @@ With the `clipboard` feature:
 - The wheel scrolls what is under the pointer, also on a page that has just loaded under a pointer at rest.
   A notch scrolls as far as it does in the desktop app, not as far as the browser would scroll a page of its
   own: a browser tells a notch as about a hundred pixels, which the shell counts back into notches. On macOS
-  the browser's distance is the system's and is taken as it is. A notch scrolls at once: a browser tells a
-  mouse's wheel and a touchpad the same way, so the desktop's [animation of a notch](../styling-events/#the-mouse-wheel)
-  is not run here.
+  the browser's distance is the system's and is taken as it is.
+- A notch of a mouse's wheel is [animated](../styling-events/#the-mouse-wheel) as in the desktop app. A browser
+  tells a mouse's wheel and a touchpad the same way, in pixels, so the shell takes for a mouse's what comes to a
+  whole number of notches, give or take a tenth, along one axis alone. On Windows, Chrome and Edge tell a
+  notch as 100 pixels at every display scale and Firefox as six lines of the page's font, 102 or 108 pixels
+  with the default one; each scrolls 40 logical pixels. Anything else is a touchpad's travel and moves the
+  content at once, as on the desktop. So does a notch the browser tells as another distance: on a page
+  Chrome or Edge has zoomed (80 pixels a notch at 125%), on a system set to scroll other than three lines a
+  notch, in Firefox on a page whose root font is much larger, and on macOS, where a notch is the distance the
+  system made of it and nothing tells it from a touchpad's.
 
 ### Shaders
 
