@@ -20,6 +20,7 @@ mod checkbox_card;
 mod color_field;
 mod color_picker;
 mod combobox;
+mod command_bar;
 mod command_palette;
 mod context_menu;
 mod data_grid;
@@ -36,6 +37,7 @@ mod family;
 mod family_play;
 mod fieldset;
 mod file_upload;
+mod find_bar;
 mod hover_card;
 mod icons;
 mod input;
@@ -919,6 +921,22 @@ pub const PAGES: &[Page] = &[
     about: "window tabs tab strip title bar titlebar browser editor files open close add new tab plus unsaved dot reorder drag detach tear off move ctrl tab ctrl w shortcuts keyboard WindowTab WindowTabs on_change on_close on_add on_reorder on_detach close_button add_label close_label disabled label mount indow abs",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<window_tabs::WindowTabsPage>(()),
+  },
+  Page {
+    path: "/command-bar",
+    name: "Command Bar",
+    icon: Some("layers"),
+    about: "command bar commandbar ribbon tabs groups group label clipboard format insert view paste cut copy large small stack toggle on secondary more chevron overflow menu toolbar editor file manager window CommandBarTab CommandBarCommand on_change on_select controlled disabled label more_label",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<command_bar::CommandBarPage>(()),
+  },
+  Page {
+    path: "/find-bar",
+    name: "Find Bar",
+    icon: Some("search"),
+    about: "find bar findbar search find in page replace replace all match case whole word regex regular expression count matches next previous f3 enter escape ctrl+f query on_query on_next on_previous on_replace on_replace_all on_dismiss return_focus open count_text",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<find_bar::FindBarPage>(()),
   },
 ];
 

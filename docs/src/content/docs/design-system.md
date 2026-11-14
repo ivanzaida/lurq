@@ -3510,6 +3510,8 @@ Toolbar::new()
 | `overflow(bool)` | Where the bar is narrower than its controls, those that do not fit go into a menu behind a More button at its end, the last first. Without it they are cut off |
 | `label(&str)` | What the bar is called, to what reads the tree |
 | `more_label(&str)` | What the More button is called, in its tooltip and to what reads the tree: "More" |
+| `more_icon(name)` | The icon of the More button: `more-horizontal` by default, a command bar's chevron |
+| `secondary_command(ToolbarCommand)`, `secondary_commands(..)` | A command that is never in the bar, only in the menu of More, after what did not fit; with one, More is always there |
 | `disabled(bool)` | Its buttons, toggles and groups of toggles are disabled, and so are the items of its menu and More; an element given as it is is the app's to disable. State: `ToolbarState::Disabled` |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the More button; a control is forced with its own. The More button has the id with `-more` after it, its menu `-menu` |
 
@@ -3519,13 +3521,15 @@ Toolbar::new()
 | `stays(bool)` | The control never goes into the menu |
 | `as_given(bool)` | The button or toggle keeps its own variant, size and style over the bar's: the outline Export of a table's bar |
 | `ToolbarItem::element(el)`, `in_menu(ToolbarCommand)` | Any element: it stays in the bar unless it has a command to stand for it in the menu |
+| `ToolbarItem::stack(items)` | Controls one over another in one place of the bar, 2 apart: a command bar's Cut over Copy. It goes into the menu whole |
 
 A `ToolbarCommand` is an item of the menu: `ToolbarCommand::new(label)` with `icon`, `checked` (a tick, as a menu item's), `disabled`, `on_select` (each one adds, called in order), `id` and `key`.
 
 - The bar gives its buttons its size and makes them ghost ones, and its toggles its size, unless an item is `as_given`. A button or toggle that is its icon alone is called by its label and has a tooltip (below it) of its label and its shortcut.
 - It is one stop of Tab: Tab enters it at the control the focus last left (the first, the first time), and leaves it at once. Left and Right move between its controls, the toggles of a group in it among them; Home and End go to the first and the last; a disabled one is passed by. A field or a select in it keeps its own keys while it is focused.
 - With `overflow`, a control that does not fit drops out of the bar whole, the last first, and the More button (`more-horizontal`, after a line) appears at the end. Enter or Space on it opens its menu with the focus on its first item, and Escape gives the focus back to More; the menu has an item for each control that went, in the order of the bar: its label, its icon, its shortcut, a check for a toggle (each toggle of a group, after a line), and its press. A labelled group goes whole, under its label. A select or a field stays unless it has `in_menu`. The bar learns what went from the layout (the engine's `ShrinkLimit::Drop` and `drop_marker`), and its menu follows it a pass later.
-- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `More`. States: `ToolbarState::Disabled`, `Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
+- A labelled group has its line at its end, and no line of the bar stands beside it; the last group of the bar, or the last before its spacer, has none. No line stands between the spacer and More. A [command bar](#command-bar) is a toolbar of labelled groups under tabs.
+- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `Stack`, `More`. States: `ToolbarState::Disabled`, `Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
 - In the design the bar is padded 4, its controls 2 apart; a button is a ghost one of 32 with an icon of 16; a toggle that is on has the fill of what is picked out; a line of 20 in the border's color stands between two groups with 4 on either side. On a surface it has the background's fill, an edge of 1 in the border's color and the middle radius. A group of a command bar is padded 10 with a line at its end and its label of 10 in the muted foreground under it. A focused control has its ring inside it, where the bar does not cut it off.
 - To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
 - A renderer that draws another bar gets a `ToolbarView`: `view.slot(index)` is a control as the bar lays it out (dropping when it does not fit), `view.more()` the More button with its menu, `view.menu()` the menu alone, `view.dropped` which slots went.
@@ -3887,6 +3891,128 @@ WindowTabs::controlled(1, [(1, "blur.rs"), (2, "theme.rs")], |id| show(*id));
 - In a title bar the strip sits on the bar's bottom edge, and the bar has no line under it, so the selected tab runs into the content.
 - To what reads the tree the list is a `tablist` with the strip's `label`, each tab a `tab` with `a11y_selected`, and its close button is named by `close_label` and the tab's label.
 - A renderer that draws other window tabs is given the view: `view.part(..)`, `view.tab_part(index, ..)`, `view.tab(index)`, `view.close(index)`, `view.separator()`, `view.add()`, `view.list()`, and `view.render()` the default.
+
+## Command Bar
+
+The tabs of a window's commands over the commands of the selected one, in groups with a label under each: the ribbon of an editor or a file manager. It is a `Tabs` over a `Toolbar`: the groups, the overflow, the focus group and the menu are the toolbar's.
+
+```rust
+use lurq::ui::{CommandBar, CommandBarCommand, CommandBarTab, Toggle, ToolbarCommand, ToolbarGroup, ToolbarItem, icons};
+
+let clipboard = ToolbarGroup::new()
+  .label("Clipboard")
+  .item(CommandBarCommand::new("Paste").icon(icons::PASTE).large(true).on_select(paste))
+  .item(ToolbarItem::stack([
+    CommandBarCommand::new("Cut").icon(icons::CUT).on_select(cut),
+    CommandBarCommand::new("Copy").icon(icons::COPY).on_select(copy),
+  ]));
+let format = ToolbarGroup::new()
+  .label("Format")
+  .item(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold.get())).shortcut("Ctrl+B"));
+let insert = ToolbarGroup::new()
+  .label("Insert")
+  .item(CommandBarCommand::new("Table").icon(icons::TABLE).large(true).on(table.get()).on_change(set_table));
+
+CommandBar::new(tab.clone(), [
+  CommandBarTab::new("home", "Home")
+    .item(clipboard)
+    .item(format)
+    .item(insert)
+    .secondary_command(ToolbarCommand::new("Customize").on_select(customize)),
+  CommandBarTab::new("view", "View").item(view),
+])
+.mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `CommandBar::new(Signal<T>, tabs)`, `controlled(value, tabs, on_change)` | A bar whose selected tab is the signal's value, or the app's value, told the value of each other tab a person selects. `CommandBar<T = ()>` is generic over the tabs' values |
+| `on_change(handler)` | Called with the value of a tab a person selects, after the signal is set. Each one adds |
+| `CommandBarTab::new(value, label)` | A tab, with `item(impl Into<ToolbarItem>)` and `items(..)`: what its bar holds while it is selected, as a toolbar has it (labelled `ToolbarGroup`s, `ToolbarItem::stack`, commands, toggles, a select), `disabled`, `id` and `key` |
+| `CommandBarTab::secondary_command(ToolbarCommand)`, `secondary_commands(..)` | A command that is never in the bar, only in the menu behind the chevron, after what did not fit; with one the chevron is always there |
+| `label(&str)` | What the bar is called to what reads the tree: "Commands". The row of its commands is called by the selected tab |
+| `more_label(&str)` | What the chevron at the end is called, in its tooltip and to what reads the tree: "More commands" |
+| `disabled(bool)` | Its tabs and its commands take no input, the items of its menu too. State: `CommandBarState::Disabled` |
+| `mount(ctx)` | Puts the bar in the tree of `ctx`'s component: its tabs and its toolbar keep what they keep. `build(theme)` and `From<CommandBar> for Element` draw it once with nothing kept: what does not fit is cut off |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the chevron; a command is forced with its own. The tabs have the id with `-tabs` after it, the row of commands `-bar`, the chevron `-bar-more` and its menu `-bar-menu` |
+
+| `CommandBarCommand` | |
+| --- | --- |
+| `new(&str)`, `icon(name)` | A command: its icon and its label, 24 high |
+| `large(bool)` | Its icon of 20 over its label of 11, 56 by 52: what a person reaches for first in a group. State: `CommandBarCommandState::Large` |
+| `on(bool)`, `on_change(Fn(bool))` | It is a toggle, picked out while on, and a press tells `on_change` the other value. State: `On` |
+| `on_select(handler)` | What running it does: a press, Enter or Space, or its item in the menu. Each one adds |
+| `disabled(bool)`, `state`, `style`, `rules`, `force`, `id`, `key` | As a button has them; its item in the menu has the id with `-item` after it |
+
+- What a command bar is that a toolbar is not, as the board draws it: tabs over the commands, each tab a set of its own; groups with a label under each and a line at the end of each, where a toolbar has lines between groups; large commands, the icon over the label, beside stacks of two small ones; and the overflow behind a chevron at the end, a group whole under its label. All of that but the tabs is the toolbar's: `ToolbarItem::stack`, a labelled `ToolbarGroup`, `Toolbar::more_icon` and `Toolbar::secondary_command`.
+- Tab stops in the tabs once and in the commands once. Left and Right select the next tab and move between the commands; a disabled one is passed by. What does not fit goes into the menu the last first, a labelled group whole under its label and a toggle checked; a stack goes whole.
+- Parts: `CommandBarPart::Root`, `Tabs`, `Tab`, `TabLabel` (laid over the tabs' list, tab and label), `Bar` (laid over the toolbar's root); `CommandBarCommandPart::Root`, `Body`, `Icon`, `Label`. A command's states: `CommandBarCommandState::Large`, `On`, `Disabled`.
+- In the design the bar is a frame of the background's color with an edge of 1 and the large radius. The tabs are a row 32 high in the muted fill over a line of 1, padded 8, 2 apart; a tab is padded 12, its label 13 in the muted foreground, the selected one 600 in the foreground and underlined with 2. The commands are padded 8 and 4; a group is padded 10, its commands 4 apart, its label of 10 in the muted foreground 4 under them, and a line of 1 at its end but the last's. A small command is 24 high, padded 8, its icon of 14 and its label of 12 6 apart; a large one 56 by 52, its icon of 20 over its label of 11; a toggle of its icon alone is 28. Under the pointer and while on a command has the fill of what is picked out.
+- To what reads the tree it is a `group` called by its label, which holds a `tablist` and a `toolbar` called by the selected tab; a toggled command says `a11y_pressed`.
+- A renderer that draws another bar gets a `CommandBarView`: its `tabs` and its `bar`, built.
+
+## Find Bar
+
+The search of what a view shows, hung from the top of the view over its content: the field, the count, the next and the previous match, the options of the search, and a row that replaces.
+
+```rust
+use lurq::{components::Stack, ui::FindBar};
+
+Stack::new()
+  .child(editor)
+  .child(
+    FindBar::new(query.clone())
+      .open(find_open.clone())
+      .matches(current, total)
+      .match_case(case.clone())
+      .whole_word(whole.clone())
+      .regex(regex.clone())
+      .replace(with.clone())
+      .replace_open(replacing.clone())
+      .on_query(move |text| search(text))
+      .on_next(next)
+      .on_previous(previous)
+      .on_replace(move |text| replace_current(text))
+      .on_replace_all(move |text| replace_every(text))
+      .return_focus(editor_ref.clone())
+      .mount(ctx),
+  );
+
+// Ctrl+F is the app's to bind: a key handler over the view opens the bar.
+view.on_key_down(move |event: KeyboardEvent| {
+  if event.ctrl && event.key.eq_ignore_ascii_case("f") {
+    event.prevent_default();
+    find_open.set(true);
+  }
+});
+```
+
+| Builder | |
+| --- | --- |
+| `FindBar::new(Signal<String>)` | The bar of what is typed in the signal: the app finds it and gives the bar the count |
+| `on_query(handler)` | Called after each edit of the field, with what it holds |
+| `on_next(handler)`, `on_previous(handler)` | Going to the next match and the one before: Enter and Shift+Enter in the field, F3 and Shift+F3 in the bar, the arrow buttons |
+| `matches(current, total)` | The current match, from 1 (0 where none is), and how many there are: "3 of 12", "No results" for none. Without it the bar says nothing of the count |
+| `count_text(Fn(usize, usize) -> String)` | What it says of the count in place of "3 of 12" |
+| `match_case(Signal<bool>)`, `whole_word(..)`, `regex(..)` | An option of the search in the field, "Aa", "ab" and ".*", shown where it is given. Each has `_controlled(on, on_change)` and `on_<option>_change(handler)`, as a second value of a component has them |
+| `replace(Signal<String>)` | What the matches are replaced with: the replace row under the field, with its buttons |
+| `replace_open(Signal<bool>)` | Whether the replace row is shown: the chevron before the field shows it and hides it. Without it the row is always there |
+| `on_replace(handler)`, `on_replace_all(handler)` | Told the replace text: its buttons, and Enter in the replace field for the current one |
+| `open(Signal<bool>)` | Whether the bar is shown: Escape and the close button set it to false. Without it the bar is always there |
+| `on_dismiss(handler)`, `on_open_change(handler)` | Called when a person closes it, after the signal is set |
+| `return_focus(ElementRef)` | Where the focus goes as the bar closes with the focus in it: the view it searched |
+| `mount(ctx)` | Puts the bar in the tree of `ctx`'s component, which puts the focus in its field as it opens (as its `open` signal turns true, or as it is first rendered where it has none: a bar open from the start leaves the focus where it is) and where `return_focus` says as it closes. `build(theme)` and `From<FindBar> for Element` draw it with nothing kept |
+| `disabled(bool)` | Its controls take no input. State: `FindBarState::Disabled` |
+| `label`, `placeholder`, `replace_placeholder` | What the bar and its field are called, "Find", and what the fields show: "Find", "Replace" |
+| `previous_label`, `next_label`, `close_label`, `match_case_label`, `whole_word_label`, `regex_label`, `replace_label`, `replace_all_label`, `toggle_replace_label` | What its controls are called to what reads the tree |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws its buttons. Its field has the id with `-field` after it; its buttons `-previous`, `-next`, `-close`, `-toggle-replace`, `-replace`, `-replace-all`; its options `-match-case`, `-whole-word`, `-regex`; the replace field `-replace-field` |
+
+- It is as large as the room it is given and takes no press itself: put it over the view it searches, in a `Stack`. The bar hangs 8 from the top and the end of that room, 440 wide or as wide as the room, comes down into place as it opens and goes back up as it closes.
+- The keys act where the focus is in the bar: Enter, Shift+Enter, F3, Shift+F3, Escape. The app binds what opens it (Ctrl+F) and F3 elsewhere.
+- Parts: `FindBarPart::Root`, `Bar`, `FindRow`, `ReplaceRow`, `Field` (laid over an input's box), `Options`, `Option`, `OptionOn`, `Count`, `Button`, `ButtonIcon` (laid over a button's root and icon), `Pad`. States: `FindBarState::Closed`, `NoMatches`, `Expandable`, `Replacing`, `Disabled`.
+- In the design the bar is of the popover's color with an edge of 1, the large radius and the large shadow, padded 6, its rows 6 apart and their controls 4 apart. The field is an input 28 high with its text of 13, padded 8 before it and 3 after the options, which are 22 square with a glyph of 11 in the muted foreground; one that is on has the fill of what is picked out, an edge in an input's color and its glyph in the foreground. The count is 11 in the muted foreground, padded 6, in the destructive color where nothing matches. The buttons are ghost ones 24 square with icons of 14. The replace row is indented 28 under a bar that has the chevron and ends 52 before the end.
+- To what reads the tree it is a `search` called by its label; each option says `a11y_pressed`, the chevron `a11y_expanded`, and the count is `a11y_live` polite.
+- A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
 
 ## Tree View
 

@@ -613,7 +613,7 @@ impl Component for ToolbarPage {
         Section::new(
           "A command bar",
           "Labelled groups under tabs: each group has its label under it and a line at its end, and goes into the \
-           menu whole, under its label.",
+           menu whole, under its label. The Command Bar page builds this with ui::CommandBar.",
           self.frame.demo(
             4,
             command_bar,

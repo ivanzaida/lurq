@@ -198,6 +198,8 @@ pub enum ToolbarPart {
   GroupItems,
   /// The label under a group.
   GroupLabel,
+  /// Controls one over another in one place of the bar.
+  Stack,
   /// The end of the bar while some controls do not fit: the line and the More button.
   More,
 }
@@ -211,6 +213,7 @@ names!(ToolbarPart {
   Group => "group",
   GroupItems => "group_items",
   GroupLabel => "group_label",
+  Stack => "stack",
   More => "more",
 });
 
@@ -245,7 +248,15 @@ enum Kind {
   Separator,
   Spacer,
   Group(ToolbarGroup),
+  /// Controls one over another in one place of the bar: a command bar's two small commands.
+  Stack(Vec<ToolbarItem>),
+  /// A control of another component's that the bar builds in its theme, told whether the bar takes no input: a
+  /// command of a command bar.
+  Made(Box<Made>),
 }
+
+/// What builds a control the bar cannot read: its element in the bar's theme, and what stands for it in the menu.
+pub(crate) type Made = dyn FnOnce(&Theme, bool) -> (Element, ToolbarCommand);
 
 /// One thing of a toolbar: a control, the line between two groups, the room
 /// that pushes what follows to the end, a group.
@@ -284,6 +295,19 @@ impl ToolbarItem {
     Self::of(Kind::Element(element.into(), None))
   }
 
+  /// Controls one over another in one place of the bar, which goes into the
+  /// menu whole where it does not fit: a command bar's two small commands, Cut
+  /// over Copy.
+  pub fn stack<I: Into<ToolbarItem>>(items: impl IntoIterator<Item = I>) -> Self {
+    Self::of(Kind::Stack(items.into_iter().map(Into::into).collect()))
+  }
+
+  /// A control another component builds in the bar's theme, told whether the
+  /// bar takes no input, with what stands for it in the menu.
+  pub(crate) fn made(make: impl FnOnce(&Theme, bool) -> (Element, ToolbarCommand) + 'static) -> Self {
+    Self::of(Kind::Made(Box::new(make)))
+  }
+
   /// The keys that do what the control does, shown in its tooltip and beside its item in the menu: "Ctrl+B".
   pub fn shortcut(mut self, keys: &str) -> Self {
     self.shortcut = Some(Arc::from(keys));
@@ -304,6 +328,11 @@ impl ToolbarItem {
   pub fn as_given(mut self, as_given: bool) -> Self {
     self.as_given = as_given;
     self
+  }
+
+  /// Whether it is the room that pushes what follows to the end of the bar.
+  pub(crate) fn is_spacer(&self) -> bool {
+    matches!(self.kind, Kind::Spacer)
   }
 
   /// What stands for an element (a select, a field) in the menu of what does
@@ -439,6 +468,8 @@ pub struct Toolbar {
   overflow: bool,
   label: Option<Arc<str>>,
   more_label: Arc<str>,
+  more_icon: Name,
+  secondary: Vec<ToolbarCommand>,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -462,6 +493,8 @@ impl Toolbar {
       overflow: false,
       label: None,
       more_label: Arc::from("More"),
+      more_icon: Name::from(icons::MORE_HORIZONTAL),
+      secondary: Vec::new(),
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -524,6 +557,27 @@ impl Toolbar {
   /// What the More button is called, in its tooltip and to what reads the tree: "More" by default.
   pub fn more_label(mut self, label: &str) -> Self {
     self.more_label = Arc::from(label);
+    self
+  }
+
+  /// A command that is never in the bar, only in the menu of its More button,
+  /// after what did not fit: a command a person seldom needs ("Settings",
+  /// "Customize"). With one, the More button is always there.
+  pub fn secondary_command(mut self, command: ToolbarCommand) -> Self {
+    self.secondary.push(command);
+    self
+  }
+
+  /// Commands that are only in the menu, after the ones the bar has.
+  pub fn secondary_commands(mut self, commands: impl IntoIterator<Item = ToolbarCommand>) -> Self {
+    self.secondary.extend(commands);
+    self
+  }
+
+  /// The icon of the More button, by its name in the theme's set: three dots
+  /// by default, a command bar's chevron.
+  pub fn more_icon(mut self, icon: impl Into<Name>) -> Self {
+    self.more_icon = icon.into();
     self
   }
 
@@ -596,28 +650,20 @@ impl Toolbar {
   pub fn build(self, theme: &Theme) -> Element {
     let (bar, key) = self.prepare(theme);
     let count = bar.slots.len();
+    let recipe = resolve(theme, bar.variant, bar.size, &bar.rules, &bar.states, false);
     let view = ToolbarView {
       shown: bar
         .slots
         .iter()
-        .map(|slot| match &slot.label {
-          Some(label) if !slot.parts.is_empty() => {
-            let recipe = resolve(theme, bar.variant, bar.size, &bar.rules, &bar.states, false);
-            labelled(
-              &recipe,
-              label,
-              slot.parts.iter().map(|part| part.element.clone()).collect(),
-            )
-          }
-          _ => slot.element.clone(),
-        })
+        .map(|slot| compose(&recipe, slot, &mut |part| part.element.clone()))
         .collect(),
       slots: bar.slots,
       dropped: vec![false; count],
       more: None,
       overflow: false,
+      secondary: bar.secondary,
       label: bar.label,
-      recipe: resolve(theme, bar.variant, bar.size, &bar.rules, &bar.states, false),
+      recipe,
       refs: (0..count).map(|_| ElementRef::new()).collect(),
       dropped_signal: Signal::new(Vec::new()),
       open: Signal::new(false),
@@ -652,6 +698,11 @@ impl Toolbar {
       };
       prepare(item, &place, &mut slots, &mut separated, index + 1 < count);
     }
+    // A labelled group's line stands between it and what follows: the spacer and the end of the bar are not that.
+    for index in 0..slots.len() {
+      let line = slots.get(index + 1).is_some_and(|next| !next.spacer);
+      slots[index].line_after = line;
+    }
     let bar = Prepared {
       slots,
       variant: self.variant,
@@ -659,6 +710,8 @@ impl Toolbar {
       overflow: self.overflow,
       label: self.label,
       more_label: self.more_label,
+      more_icon: self.more_icon,
+      secondary: secondary_of(self.secondary, self.disabled),
       disabled: self.disabled,
       states,
       rules: self.rules,
@@ -667,6 +720,14 @@ impl Toolbar {
     };
     (bar, self.key)
   }
+}
+
+/// The commands only in the menu, each disabled where the bar is.
+fn secondary_of(commands: Vec<ToolbarCommand>, disabled: bool) -> Vec<ToolbarCommand> {
+  commands
+    .into_iter()
+    .map(|command| if disabled { command.disabled(true) } else { command })
+    .collect()
 }
 
 impl From<Toolbar> for Element {
@@ -720,8 +781,13 @@ pub struct ToolbarSlot {
   pub shortcut: Option<Arc<str>>,
   /// Whether it is its icon alone: it has a tooltip of its label and shortcut.
   pub tooltip: bool,
-  /// The controls of a labelled group, which `element` stands empty for: they are drawn over its label.
+  /// The controls of a labelled group or a stack, which `element` stands empty
+  /// for: a group's are drawn over its label, a stack's one over another.
   pub parts: Vec<ToolbarSlot>,
+  /// Whether its parts stand one over another.
+  pub stack: bool,
+  /// Whether a labelled group draws the line at its end: where something but the spacer follows it.
+  pub line_after: bool,
 }
 
 /// Turns `item` into the slots of the bar, after `slots`: a line that ends a
@@ -741,6 +807,8 @@ fn prepare(item: ToolbarItem, place: &Place, slots: &mut Vec<ToolbarSlot>, separ
       shortcut: shortcut.clone(),
       tooltip,
       parts: Vec::new(),
+      stack: false,
+      line_after: false,
     };
   match item.kind {
     Kind::Button(button) => {
@@ -806,15 +874,40 @@ fn prepare(item: ToolbarItem, place: &Place, slots: &mut Vec<ToolbarSlot>, separ
       let made = slot(separated, element, stand_in.into_iter().collect(), stays, false);
       slots.push(made);
     }
+    Kind::Made(make) => {
+      let (element, command) = make(theme, place.disabled);
+      let made = slot(separated, element, vec![command], item.stays.unwrap_or(false), false);
+      slots.push(made);
+    }
     Kind::Separator => *separated = !slots.is_empty(),
     Kind::Spacer => {
       let mut made = slot(separated, Element::new(), Vec::new(), true, false);
       made.spacer = true;
       slots.push(made);
     }
+    Kind::Stack(items) => {
+      let mut inner_slots = Vec::new();
+      let mut inner_separated = false;
+      for inner in items {
+        prepare(inner, place, &mut inner_slots, &mut inner_separated, false);
+      }
+      let commands = inner_slots
+        .iter()
+        .flat_map(|inner| inner.commands.iter().cloned())
+        .collect();
+      let stays = inner_slots.iter().all(|inner| inner.stays);
+      let mut made = slot(separated, Element::new(), commands, item.stays.unwrap_or(stays), false);
+      made.stack = true;
+      made.parts = inner_slots;
+      slots.push(made);
+    }
     Kind::Group(group) => {
-      // A group stands apart from what is before it and from what follows.
-      if !slots.is_empty() {
+      // A group stands apart from what is before it and from what follows. A
+      // labelled group's line is at its end: no other stands after it, nor
+      // between it and the labelled group before it.
+      let labelled = group.label.is_some();
+      let after_labelled = slots.last().is_some_and(|last| last.label.is_some());
+      if !slots.is_empty() && !(labelled && after_labelled) {
         *separated = true;
       }
       match group.label {
@@ -842,15 +935,36 @@ fn prepare(item: ToolbarItem, place: &Place, slots: &mut Vec<ToolbarSlot>, separ
           slots.push(made);
         }
       }
-      if more_follow {
+      if more_follow && !labelled {
         *separated = true;
       }
     }
   }
 }
 
-/// A labelled group of the bar: its controls in a row over its label.
-fn labelled(recipe: &ResolvedRecipe, label: &str, controls: Vec<Element>) -> Element {
+/// A slot of the bar as it is drawn: a labelled group's controls over its
+/// label, a stack's one over another, each control as `show` makes it.
+fn compose(recipe: &ResolvedRecipe, slot: &ToolbarSlot, show: &mut dyn FnMut(&ToolbarSlot) -> Element) -> Element {
+  match &slot.label {
+    Some(label) if !slot.parts.is_empty() => {
+      let parts = slot.parts.iter().map(|part| compose(recipe, part, show)).collect();
+      labelled(recipe, label, parts, slot.line_after)
+    }
+    _ if slot.stack => slot
+      .parts
+      .iter()
+      .fold(
+        Column::new().part(&recipe.part(ToolbarPart::Stack)).overflow_visible(),
+        |column, part| column.child(compose(recipe, part, show)),
+      )
+      .into(),
+    _ => show(slot),
+  }
+}
+
+/// A labelled group of the bar: its controls in a row over its label, and
+/// the line at its end where `line` says.
+fn labelled(recipe: &ResolvedRecipe, label: &str, controls: Vec<Element>, line: bool) -> Element {
   let part = recipe.part(ToolbarPart::GroupLabel);
   let mut row = Row::new()
     .part(&recipe.part(ToolbarPart::GroupItems))
@@ -859,13 +973,18 @@ fn labelled(recipe: &ResolvedRecipe, label: &str, controls: Vec<Element>) -> Ele
   for control in controls {
     row = row.child(control);
   }
-  Column::new()
+  let mut group: Element = Column::new()
     .part(&recipe.part(ToolbarPart::Group))
     .align_items(Alignment::Center)
     .overflow_visible()
     .child(row)
     .child(part.text(label).nowrap().part(&part))
-    .into()
+    .into();
+  if !line {
+    // The last group of the bar, or the last before its spacer: no line stands after it.
+    NodeUpdate::border_right(&mut *group.node, Border::inside(0.0, PaletteColor::Border));
+  }
+  group
 }
 
 /// What the host of a toolbar is given: the bar as it was prepared in the
@@ -878,6 +997,8 @@ struct Prepared {
   overflow: bool,
   label: Option<Arc<str>>,
   more_label: Arc<str>,
+  more_icon: Name,
+  secondary: Vec<ToolbarCommand>,
   disabled: bool,
   /// The states the app put the bar in, and `Disabled` where it is.
   states: Vec<Name>,
@@ -956,7 +1077,7 @@ impl Component for ToolbarHost {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let ToolbarProps { bar } = ctx.props::<ToolbarProps>().clone();
+    let ToolbarProps { mut bar } = ctx.props::<ToolbarProps>().clone();
     let theme = current_theme();
     let count = bar.slots.len();
     let dropped: Vec<bool> = {
@@ -966,6 +1087,11 @@ impl Component for ToolbarHost {
         .collect()
     };
     let overflowing = dropped.iter().any(|dropped| *dropped);
+    // A labelled group's line stands before what is shown after it: none before the menu of what went.
+    for index in 0..count {
+      let next = (index + 1..count).find(|next| !dropped[*next]);
+      bar.slots[index].line_after = next.is_some_and(|next| !bar.slots[next].spacer);
+    }
     let recipe = resolve(&theme, bar.variant, bar.size, &bar.rules, &bar.states, overflowing);
     let refs = {
       let mut refs = self.refs.lock();
@@ -992,18 +1118,12 @@ impl Component for ToolbarHost {
         }
         element
       };
-      let element = match &slot.label {
-        Some(label) if !slot.parts.is_empty() => {
-          let parts = slot.parts.iter().map(&mut show).collect();
-          labelled(&recipe, label, parts)
-        }
-        _ => show(slot),
-      };
+      let element = compose(&recipe, slot, &mut show);
       shown.push(element);
     }
-    let more = if bar.overflow {
+    let more = if bar.overflow || !bar.secondary.is_empty() {
       let mut button = Button::new(&bar.more_label)
-        .icon(icons::MORE_HORIZONTAL)
+        .icon(bar.more_icon)
         .icon_only(true)
         .variant(ButtonVariant::Ghost)
         .size(bar.size)
@@ -1038,6 +1158,7 @@ impl Component for ToolbarHost {
       shown,
       more,
       overflow: bar.overflow,
+      secondary: bar.secondary.clone(),
       label: bar.label.clone(),
       recipe,
       refs,
@@ -1065,6 +1186,8 @@ pub struct ToolbarView {
   /// The More button, with its tooltip, for a bar that overflows.
   more: Option<Element>,
   pub overflow: bool,
+  /// The commands only in the menu, after what did not fit.
+  pub secondary: Vec<ToolbarCommand>,
   pub label: Option<Arc<str>>,
   /// The style of each part of this toolbar.
   pub recipe: ResolvedRecipe,
@@ -1118,6 +1241,7 @@ impl ToolbarView {
       let reference = self.refs[index].clone();
       let (dropped, open) = (self.dropped_signal.clone(), self.open.clone());
       let count = self.slots.len();
+      let always = !self.secondary.is_empty();
       // A dropped slot is laid out at no size: that is how the bar learns which are in the menu.
       reference.observe_rect(move |rect| {
         let now = rect.width <= 0.0 && rect.height <= 0.0;
@@ -1127,7 +1251,7 @@ impl ToolbarView {
             dropped[index] = now;
           });
           // With everything back in the bar the More button is gone, and its menu with it.
-          if !dropped.get_untracked().contains(&true) {
+          if !always && !dropped.get_untracked().contains(&true) {
             put(&open, false);
           }
         }
@@ -1168,24 +1292,30 @@ impl ToolbarView {
       }
       any = true;
     }
+    if any && !self.secondary.is_empty() {
+      menu = menu.separator();
+    }
+    for command in &self.secondary {
+      menu = menu.item(command.item(None));
+    }
     menu
   }
 
   /// The end of the bar while some controls do not fit: a line, the More
-  /// button, and the menu it opens. The line drops it whole while all fit.
+  /// button, and the menu it opens. The line drops it whole while all fit,
+  /// unless the bar has commands that are only in the menu. No line stands
+  /// between the spacer and the button.
   pub fn more(&mut self) -> Option<Element> {
     let button = self.more.take()?;
-    Some(
-      Row::new()
-        .part(&self.part(ToolbarPart::More))
-        .align_items(Alignment::Center)
-        .overflow_visible()
-        .drop_marker(true)
-        .child(self.separator())
-        .child(button)
-        .child(self.menu())
-        .into(),
-    )
+    let mut row = Row::new()
+      .part(&self.part(ToolbarPart::More))
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .drop_marker(self.secondary.is_empty());
+    if !self.slots.last().is_some_and(|slot| slot.spacer) {
+      row = row.child(self.separator());
+    }
+    Some(row.child(button).child(self.menu()).into())
   }
 
   /// How the default renderer builds a toolbar: the bar, its slots in a
@@ -1228,7 +1358,7 @@ impl Themed for Toolbar {
   /// A focused control has its ring inside it, where the bar does not cut it off.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, MutedForeground, Popover, PopoverForeground, Ring};
-    use ToolbarPart::{Group, GroupItems, GroupLabel, Item, More, Root, Separator, Slot};
+    use ToolbarPart::{Group, GroupItems, GroupLabel, Item, More, Root, Separator, Slot, Stack};
     use ToolbarVariant::{Floating, Surface};
     let edge = || Border::inside(BorderSize::Sm, PaletteColor::Border);
     Recipe::new()
@@ -1249,6 +1379,7 @@ impl Themed for Toolbar {
       .base(More, |s| s.gap(2.0))
       .base(Group, |s| s.padding_x(10.0).gap(4.0).end_line(edge()))
       .base(GroupItems, |s| s.gap(4.0))
+      .base(Stack, |s| s.gap(2.0))
       .base(GroupLabel, |s| {
         s.typography(TypographyStyle::Caption)
           .font_size(10.0)

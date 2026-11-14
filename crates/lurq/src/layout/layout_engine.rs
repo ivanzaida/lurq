@@ -71,7 +71,7 @@ mod text_layout_output;
 mod theme_scope;
 mod track_layout;
 
-use flex_shrink::{FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_line};
+use flex_shrink::{DroppedRoom, FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_line};
 pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
@@ -3559,6 +3559,19 @@ impl LayoutEngine {
       },
       &mut child_layouts,
       child_overrides,
+    );
+    self.grow_into_dropped_room(
+      glyph_engine,
+      children,
+      &mut child_layouts,
+      child_overrides,
+      &collapsed,
+      DroppedRoom {
+        constraints,
+        max_main,
+        spacing,
+        vertical,
+      },
     );
 
     // Dropped children take no spacing.

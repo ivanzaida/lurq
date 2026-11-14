@@ -452,7 +452,8 @@ its order still cannot absorb the overflow with every shrinking child at its flo
 the next order shrinks at all. A child already narrower than `size` drops without shrinking; a negative or NaN `size`
 counts as 0. Within one order, children with `Drop` are dropped first, then those with `shrink_drop_below`, each last
 first, and either kind counts as gone in an ancestor's content minimum. With `ShrinkLimit::Drop` the size has no
-effect.
+effect. What a dropped child leaves beyond the overflow goes to the line's growing children, by their factors: a
+`Spacer` with `flex(1.0)` before a button keeps the button at the end of the line as children before it drop.
 
 ```rust
 // The request words trim to 100 px, then drop so the count stays whole.

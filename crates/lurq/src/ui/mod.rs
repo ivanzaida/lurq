@@ -35,6 +35,7 @@ mod color_field;
 mod color_picker;
 mod color_swatch;
 mod combobox;
+mod command_bar;
 mod command_palette;
 mod context_menu;
 mod data_grid;
@@ -51,6 +52,7 @@ mod fab;
 mod field;
 mod fieldset;
 mod file_upload;
+mod find_bar;
 mod hover_card;
 mod icon;
 pub mod icons;
@@ -172,6 +174,10 @@ pub use color_swatch::{
   ColorSwatchView,
 };
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
+pub use command_bar::{
+  CommandBar, CommandBarCommand, CommandBarCommandPart, CommandBarCommandRenderer, CommandBarCommandState,
+  CommandBarCommandView, CommandBarPart, CommandBarRenderer, CommandBarState, CommandBarTab, CommandBarView,
+};
 pub use command_palette::{
   CommandFilter, CommandItem, CommandPalette, CommandPalettePart, CommandPaletteRenderer, CommandPaletteState,
   CommandPaletteView, matches_every_word,
@@ -211,6 +217,7 @@ pub use fieldset::{
 pub use file_upload::{
   FileUpload, FileUploadPart, FileUploadRenderer, FileUploadState, FileUploadView, UploadFile, UploadState,
 };
+pub use find_bar::{FindBar, FindBarPart, FindBarRenderer, FindBarState, FindBarView};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
