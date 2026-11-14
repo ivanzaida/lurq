@@ -1,7 +1,8 @@
-//! A key's handler moving the focus within its focus group to an element by its key
-//! ([`KeyboardEvent::focus_key`](crate::app::events::KeyboardEvent::focus_key)), once the render the key causes is
-//! done: for a group whose elements the app reaches by what it knows of them, as a calendar reaches the day a week
-//! on, which may be in the month the key shows next.
+//! A key's or a press's handler moving the focus within its focus group to an element by its key
+//! ([`KeyboardEvent::focus_key`](crate::app::events::KeyboardEvent::focus_key),
+//! [`MouseEvent::focus_key`](crate::app::events::MouseEvent::focus_key)), once the render the event causes is done:
+//! for a group whose elements the app reaches by what it knows of them, as a calendar reaches the day a week on,
+//! which may be in the month the key shows next.
 
 use std::sync::Arc;
 
@@ -26,9 +27,10 @@ impl Tree {
     found
   }
 
-  /// Moves the focus to the stop of the group `group` whose key is `key`, from the keyboard, and scrolls it into
-  /// view. Nothing moves where the group or the stop is not there.
-  pub(super) fn focus_keyed_in_group(&mut self, group: NodeId, key: &Arc<str>) {
+  /// Moves the focus to the stop of the group `group` whose key is `key`, and scrolls it into view: from the keyboard
+  /// where `keyboard` says so, so that it shows its ring, else as the input that asked left the focus. Nothing moves
+  /// where the group or the stop is not there.
+  pub(super) fn focus_keyed_in_group(&mut self, group: NodeId, key: &Arc<str>, keyboard: bool) {
     let Some(root) = self.root.as_ref() else {
       return;
     };
@@ -44,7 +46,9 @@ impl Tree {
     else {
       return;
     };
-    self.set_input_modality(focus_visible::InputModality::Keyboard);
+    if keyboard {
+      self.set_input_modality(focus_visible::InputModality::Keyboard);
+    }
     if self.focused_node != Some(target.input_id) {
       self.focus_node(target);
     }

@@ -546,3 +546,21 @@ fn its_words_can_be_said_otherwise() {
     Some("Наступний місяць")
   );
 }
+
+#[test]
+fn a_press_of_a_day_of_the_month_beside_keeps_the_focus_on_it() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = single(&value, |calendar| calendar);
+  // The 28th of October is in the first week of November.
+  stage.click(&cell(10, 28));
+  assert_eq!(value.get_untracked(), Some(day(10, 28)));
+  assert!(stage.paints("October 2026"));
+  assert_eq!(
+    focused(&stage),
+    Some(cell(10, 28)),
+    "the day chosen, in the month now shown"
+  );
+  // The keys go on from it.
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage), Some(cell(10, 29)));
+}

@@ -1083,10 +1083,12 @@ impl CalendarView {
     if available && !self.disabled {
       let (press, enter, focus) = (self.model.clone(), self.model.clone(), self.model.clone());
       day = day
-        .on_click(move |_: MouseEvent| {
+        .on_click(move |event: MouseEvent| {
           press.choose(date);
           if outside {
+            // The day pressed is gone with the month it was beside: the focus goes to the day in its own month.
             press.show(date);
+            event.focus_key(day_key(date));
           }
         })
         .on_mouse_enter(move || enter.point(date))

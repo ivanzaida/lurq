@@ -318,7 +318,7 @@ impl CalendarPage {
         controls: vec![
           prop(
             "new",
-            "Signal<Option<Date>> / Signal<Option<DateRange>>",
+            "Signal<Option<V>>",
             self.playground.select(0, &MODES, &mode, move |mode| set_mode.set(mode)),
           ),
           prop(
@@ -473,7 +473,8 @@ impl Component for CalendarPage {
             .width(FILL)
             .align_items(Alignment::Center)
             .child(Row::new().width(200.0).child(Kbd::new(key)))
-            .child(quiet(does, 13.0)),
+            // What the key does wraps in the room beside the key.
+            .child(Column::new().flex(1.0).child(quiet(does, 13.0))),
         )
       });
     let rows = [
