@@ -13,11 +13,14 @@ use std::{
 use lurq::{
   app::{
     App,
-    theme::{PaletteColor, ThemePalette},
+    theme::{MotionDuration, MotionEasing, PaletteColor, ThemePalette},
   },
   components::{Column, Stack, Text},
   node::color::Color,
-  ui::{ActionBar, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarView, Button, icons},
+  ui::{
+    ActionBar, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarView, Button, FADE_IN, PartAnimation,
+    icons,
+  },
 };
 
 use super::stage::Stage;
@@ -50,12 +53,32 @@ fn bar(count: usize, cleared: &Arc<AtomicUsize>, moved: &Arc<AtomicUsize>) -> Ac
     })
 }
 
-/// `bar` over a list that fills the window of 400 by 300.
+/// `bar` over a list that fills the window of 600 by 300, where the bar has room for all of it.
 fn stage(make: impl Fn() -> ActionBar + Send + Sync + 'static) -> Stage {
-  Stage::new(move |_| {
+  stage_in(App::new(), make)
+}
+
+/// `bar` over the list in an app whose bar fades in where it stands: the toast's keyframes it moves in with run on
+/// the process's clock, so where it is while it moves depends on when a test reads it.
+fn still(make: impl Fn() -> ActionBar + Send + Sync + 'static) -> Stage {
+  let app = App::new();
+  app.theme().patch_recipe::<ActionBar>(|recipe| {
+    recipe
+      .variant(ActionBarPlacement::Bottom, ActionBarPart::Bar, |s| {
+        s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+      })
+      .variant(ActionBarPlacement::Top, ActionBarPart::Bar, |s| {
+        s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+      })
+  });
+  stage_in(app, make)
+}
+
+fn stage_in(app: App, make: impl Fn() -> ActionBar + Send + Sync + 'static) -> Stage {
+  Stage::in_app(app, move |_| {
     Stack::new()
-      .size(400.0, 300.0)
-      .child(Column::new().id("list").size(400.0, 300.0).child(Text::new("Rows")))
+      .size(600.0, 300.0)
+      .child(Column::new().id("list").size(600.0, 300.0).child(Text::new("Rows")))
       .child(make())
       .into()
   })
@@ -65,11 +88,11 @@ fn stage(make: impl Fn() -> ActionBar + Send + Sync + 'static) -> Stage {
 fn the_bar_is_44_high_round_and_floating_16_over_the_bottom_in_the_middle() {
   let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
   let (c, m) = (cleared.clone(), moved.clone());
-  let mut stage = stage(move || bar(3, &c, &m));
+  let mut stage = still(move || bar(3, &c, &m));
   let (x, y, width, height) = stage.bounds("bar");
   assert_eq!(height, 44.0);
   assert!(close(y + height, 300.0 - 16.0), "16 over the bottom");
-  assert!(close(x + width / 2.0, 200.0), "in the middle");
+  assert!(close(x + width / 2.0, 300.0), "in the middle");
   assert_eq!(stage.fill_color("bar"), Some(light(PaletteColor::Popover)));
   let edge = stage
     .border("bar")
@@ -98,7 +121,7 @@ fn the_bar_is_44_high_round_and_floating_16_over_the_bottom_in_the_middle() {
 #[test]
 fn at_the_top_it_stands_16_under_the_top() {
   let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-  let mut stage = stage(move || bar(2, &cleared, &moved).placement(ActionBarPlacement::Top));
+  let mut stage = still(move || bar(2, &cleared, &moved).placement(ActionBarPlacement::Top));
   let (_, y, ..) = stage.bounds("bar");
   assert!(close(y, 16.0));
   assert!(stage.paints("2 selected"));
@@ -121,7 +144,7 @@ fn nothing_selected_shows_no_bar_and_what_it_says_can_be_another_text() {
 fn its_actions_act_its_clear_button_clears_and_escape_clears_where_the_app_says() {
   let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
   let (c, m) = (cleared.clone(), moved.clone());
-  let mut stage = stage(move || bar(3, &c, &m));
+  let mut stage = still(move || bar(3, &c, &m));
   stage.click("move");
   assert_eq!(moved.load(Ordering::SeqCst), 1);
   stage.click("bar-clear");
@@ -134,7 +157,7 @@ fn its_actions_act_its_clear_button_clears_and_escape_clears_where_the_app_says(
   );
 
   let (c, m) = (cleared.clone(), moved.clone());
-  let mut escaping = self::stage(move || bar(3, &c, &m).escape_clears(true));
+  let mut escaping = still(move || bar(3, &c, &m).escape_clears(true));
   escaping.key("Escape");
   assert_eq!(cleared.load(Ordering::SeqCst), 2);
 }
@@ -143,7 +166,7 @@ fn its_actions_act_its_clear_button_clears_and_escape_clears_where_the_app_says(
 fn the_bar_is_one_stop_whose_arrows_move_between_its_buttons() {
   let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
   let (c, m) = (cleared.clone(), moved.clone());
-  let mut stage = stage(move || bar(3, &c, &m));
+  let mut stage = still(move || bar(3, &c, &m));
   stage.key("Tab");
   let focused = |stage: &Stage| {
     stage
