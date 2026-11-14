@@ -14,7 +14,7 @@ use lurq::{
     quad::{Quad, QuadContent},
   },
   node::color::Color,
-  ui::{CellEditor, CellRange, CellValue, ColumnLayout, DataGrid, TableColumn, TableSort},
+  ui::{CellEditor, CellRange, CellValue, ColumnLayout, DataGrid, GroupKey, TableColumn, TableSort},
 };
 
 use super::stage::Stage;
@@ -1155,4 +1155,184 @@ fn a_grid_without_a_layout_keeps_its_own_and_a_menu_can_be_turned_off() {
   });
   stage.pass();
   assert!(texts(&stage, MORE).is_empty(), "no trigger");
+}
+
+/// The board's files and three more, grouped by `by`, the groups open bound to `open`.
+fn grouped(
+  by: &'static [&'static str],
+  open: Signal<Vec<GroupKey>>,
+  told: Arc<Mutex<Vec<(Vec<String>, bool)>>>,
+) -> Stage {
+  let mut stage = Stage::new(move |ctx| {
+    let mut rows = files();
+    rows.extend(
+      [
+        ("mesh.rs", 2, 5.0, true),
+        ("path.rs", 1, 3.0, true),
+        ("text.rs", 0, 8.0, false),
+      ]
+      .map(|(name, status, size, shared)| File {
+        name: name.to_owned(),
+        status,
+        size,
+        shared,
+      }),
+    );
+    let told = told.clone();
+    Column::new()
+      .size(700.0, 500.0)
+      .child(
+        DataGrid::new(columns(), rows)
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .group_by(by.iter().copied())
+          .open(open.clone())
+          .on_open_change(move |key, open| told.lock().unwrap().push((key.values.clone(), open)))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage
+}
+
+#[test]
+fn rows_grouped_by_a_column_show_a_row_for_each_group_with_its_value_and_count_and_a_closed_group_builds_none() {
+  let (open, told) = (Signal::new(vec![GroupKey::new(["Passing"])]), Arc::default());
+  let mut stage = grouped(&["status"], open.clone(), told);
+  // Building (blur.rs, text.rs) closed, Passing (canvas.rs, theme.rs, path.rs) open, Failed (mesh.rs) closed.
+  assert!(stage.paints("Building") && stage.paints("Failed"));
+  assert!(
+    stage.paints("canvas.rs") && stage.paints("path.rs"),
+    "the open group's rows"
+  );
+  assert!(
+    !stage.paints("blur.rs") && !stage.paints("mesh.rs"),
+    "a closed group's are not built"
+  );
+  assert!(stage.paints("3"), "the count of Passing");
+  let (_, building_y, ..) = stage.bounds("g-group-0");
+  let (_, passing_y, ..) = stage.bounds("g-group-1");
+  let (_, first_y, ..) = stage.bounds("g-row-1");
+  assert!(
+    building_y < passing_y && passing_y < first_y,
+    "the group's row, then its rows"
+  );
+  assert_eq!(stage.bounds("g-group-0").3, 44.0, "as high as a row");
+}
+
+#[test]
+fn a_press_enter_right_and_left_open_and_close_a_group_and_the_app_is_told() {
+  let (open, told): (_, Arc<Mutex<Vec<(Vec<String>, bool)>>>) = (Signal::new(Vec::new()), Arc::default());
+  let mut stage = grouped(&["status"], open.clone(), told.clone());
+  stage.click("g-group-0");
+  stage.pass();
+  assert_eq!(open.get(), [GroupKey::new(["Building"])]);
+  assert!(stage.paints("blur.rs"), "its rows are built");
+  stage.click("g-group-0");
+  stage.pass();
+  assert!(open.get().is_empty());
+
+  // From the keyboard: the group's rows are the stops of the rows, Right opens, Left closes, Enter turns.
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("g-group-0"));
+  key(&mut stage, "ArrowRight");
+  assert_eq!(open.get(), [GroupKey::new(["Building"])]);
+  key(&mut stage, "ArrowLeft");
+  assert!(open.get().is_empty());
+  key(&mut stage, "ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("g-group-1"), "the next group");
+  key(&mut stage, "Enter");
+  assert_eq!(open.get(), [GroupKey::new(["Passing"])]);
+  key(&mut stage, "ArrowDown");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("g-cell-1-0"),
+    "into the group's first row"
+  );
+  assert_eq!(
+    *told.lock().unwrap(),
+    [
+      (vec!["Building".to_owned()], true),
+      (vec!["Building".to_owned()], false),
+      (vec!["Building".to_owned()], true),
+      (vec!["Building".to_owned()], false),
+      (vec!["Passing".to_owned()], true),
+    ]
+  );
+}
+
+#[test]
+fn grouping_by_two_columns_nests_the_second_in_the_first() {
+  let open = Signal::new(vec![GroupKey::new(["Passing"]), GroupKey::new(["Passing", "true"])]);
+  let mut stage = grouped(&["status", "shared"], open, Arc::default());
+  // Building, Passing ⟶ false (canvas.rs, theme.rs) closed, true (path.rs) open, Failed.
+  assert!(stage.paints("path.rs"));
+  assert!(!stage.paints("canvas.rs"));
+  let (passing_x, ..) = stage.bounds("g-group-1");
+  let nested = texts(&stage, "true").pop().expect("the nested group's value");
+  // The group's value, not the status of a row in it, which is further on.
+  let passing = texts(&stage, "Passing")
+    .into_iter()
+    .min_by(|a, b| a.x.total_cmp(&b.x))
+    .expect("the group's value");
+  assert!(nested.x > passing.x, "the nested group is indented");
+  assert!(passing.x > passing_x);
+}
+
+#[test]
+fn ten_thousand_rows_grouped_build_the_groups_and_the_rows_in_view_only() {
+  let rows: Arc<Vec<File>> = Arc::new(
+    (0..10_000)
+      .map(|index| File {
+        name: format!("file {index}"),
+        status: index % 3,
+        size: index as f64,
+        shared: false,
+      })
+      .collect(),
+  );
+  let open = Signal::new(vec![GroupKey::new(["Passing"])]);
+  let bound = open.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        DataGrid::new_shared(columns(), rows.clone())
+          .id("g")
+          .height(300.0)
+          .group_by(["status"])
+          .open(bound.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.pass();
+  let rows = stage
+    .quads()
+    .iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.starts_with("file ")))
+    .count();
+  assert!(rows < 40, "a screen of rows: {rows}");
+  assert!(stage.paints("3334"), "Passing's count");
+  // Ctrl+End goes to the last row of the open group, which is scrolled to and built.
+  key(&mut stage, "Tab");
+  key(&mut stage, "Tab");
+  key(&mut stage, "ArrowDown");
+  key(&mut stage, "ArrowDown");
+  assert!(
+    focused(&stage).is_some_and(|id| id.starts_with("g-cell-")),
+    "a cell of Passing's first row"
+  );
+  modified(&mut stage, "End", false, true);
+  stage.pass();
+  assert!(stage.paints("file 9997"), "Passing's last row");
 }

@@ -231,7 +231,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   /// What a cell says as text, as a copy takes it: the value its editor edits, which a paste reads back, or its
   /// column's text, or nothing for a cell the app builds.
   fn cell_text(&self, row: usize, column: usize) -> String {
-    let Some(values) = self.rows.get(row) else {
+    let Some(values) = self.row(row) else {
       return String::new();
     };
     if let Some(editor) = self.editors.get(column).and_then(|(_, editor)| editor.as_ref()) {
@@ -255,7 +255,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
 
   /// The value a cell has now, as its editor edits it.
   fn value_now(&self, row: usize, column: usize) -> Option<CellValue> {
-    let (values, editor) = (self.rows.get(row)?, self.editor(column)?);
+    let (values, editor) = (self.row(row)?, self.editor(column)?);
     Some(match &editor.kind {
       EditorKind::Text(text) => CellValue::Text(text(values)),
       EditorKind::Number(number) => CellValue::Number(number(values)),
@@ -278,7 +278,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   pub(super) fn copy_cells(&self, at: (usize, usize), cut: bool) -> String {
     let span = self.target(at);
     let ((top, bottom), (start, end)) = (span.rows(), span.columns());
-    let rows: Vec<Vec<String>> = (top..=bottom.min(self.rows.len().saturating_sub(1)))
+    let rows: Vec<Vec<String>> = (top..=bottom.min(self.keys.len().saturating_sub(1)))
       .map(|row| (start..=end).map(|column| self.cell_text(row, column)).collect())
       .collect();
     if cut {
@@ -294,7 +294,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
     let block = from_tsv(text);
     let span = self.target(at);
     let (top, start) = (span.rows().0, span.columns().0);
-    let (rows, columns) = (self.rows.len(), self.editors.len());
+    let (rows, columns) = (self.keys.len(), self.editors.len());
     let one = block.len() == 1 && block[0].len() == 1;
     let (height, width) = if one {
       (span.rows().1 - top + 1, span.columns().1 - start + 1)
@@ -334,7 +334,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   pub(super) fn clear_cells(&self, at: (usize, usize)) {
     let span = self.target(at);
     let ((top, bottom), (start, end)) = (span.rows(), span.columns());
-    for row in top..=bottom.min(self.rows.len().saturating_sub(1)) {
+    for row in top..=bottom.min(self.keys.len().saturating_sub(1)) {
       for column in start..=end {
         let Some(editor) = self.editor(column) else {
           continue;

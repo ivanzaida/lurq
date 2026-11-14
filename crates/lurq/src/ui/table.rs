@@ -28,10 +28,13 @@ use super::{
   theme::{Themed, current_theme},
 };
 mod columns;
+mod groups;
 mod range;
 
 pub use columns::{ColumnLayout, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
+pub use groups::{GroupKey, TableGroup};
+use groups::{Lines, Shown};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
 
@@ -79,6 +82,14 @@ pub enum TablePart {
   MenuTrigger,
   /// Where a column dragged by its header goes: a line at the start of a header, or the end of the last.
   DropLine,
+  /// A group's row, where the rows are grouped by a column's value: what is pressed to open and close it.
+  GroupRow,
+  /// The chevron of a group's row, which points down while it is open.
+  Chevron,
+  /// The value of a group's row.
+  GroupLabel,
+  /// How many rows a group holds.
+  GroupCount,
   /// One row: its height, its padding, the room between columns, the line under it. What is pressed,
   /// selected and focused.
   Row,
@@ -106,6 +117,10 @@ names!(TablePart {
   ResizeLine => "resize_line",
   MenuTrigger => "menu_trigger",
   DropLine => "drop_line",
+  GroupRow => "group_row",
+  Chevron => "chevron",
+  GroupLabel => "group_label",
+  GroupCount => "group_count",
   Row => "row",
   Cell => "cell",
   Select => "select",
@@ -532,6 +547,9 @@ type RangeHeard<K> = Arc<dyn Fn(Option<&CellRange<K>>) + Send + Sync>;
 /// What asks for the columns to be arranged another way, and what is told it.
 type LayoutWrite = Arc<dyn Fn(ColumnLayout) + Send + Sync>;
 type LayoutHeard = Arc<dyn Fn(&ColumnLayout) + Send + Sync>;
+/// What asks for other groups to be open, and what is told a group opened or closed.
+type OpenWrite = Arc<dyn Fn(Vec<GroupKey>) + Send + Sync>;
+type OpenHeard = Arc<dyn Fn(&GroupKey, bool) + Send + Sync>;
 /// What says the count of the footer, given how many rows there are and how many are selected where they are.
 type CountFn = Arc<dyn Fn(usize, Option<usize>) -> String + Send + Sync>;
 /// What is told the width a column is made: its id, and the width.
@@ -655,6 +673,13 @@ pub struct Table<R, K = usize> {
   /// Every column of a mounted grid in its layout, shown or not, with its title: what its menus list, and what
   /// a change of the arrangement starts from.
   arranged: Option<Arc<(ColumnLayout, Vec<(Arc<str>, Arc<str>)>)>>,
+  /// The columns the rows are grouped by, the groups open, what asks for others and who is told; the columns
+  /// themselves, which may be hidden.
+  group_by: Vec<Arc<str>>,
+  open_groups: Vec<GroupKey>,
+  write_open: Option<OpenWrite>,
+  on_open_change: Vec<OpenHeard>,
+  grouping: Vec<TableColumn<R>>,
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
@@ -704,6 +729,11 @@ impl<R, K: Clone> Clone for Table<R, K> {
       on_column_layout_change: self.on_column_layout_change.clone(),
       column_menu: self.column_menu,
       arranged: self.arranged.clone(),
+      group_by: self.group_by.clone(),
+      open_groups: self.open_groups.clone(),
+      write_open: self.write_open.clone(),
+      on_open_change: self.on_open_change.clone(),
+      grouping: self.grouping.clone(),
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
@@ -763,6 +793,11 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_column_layout_change: Vec::new(),
       column_menu: false,
       arranged: None,
+      group_by: Vec::new(),
+      open_groups: Vec::new(),
+      write_open: None,
+      on_open_change: Vec::new(),
+      grouping: Vec::new(),
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -817,6 +852,11 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_column_layout_change: self.on_column_layout_change,
       column_menu: self.column_menu,
       arranged: None,
+      group_by: self.group_by,
+      open_groups: self.open_groups,
+      write_open: self.write_open,
+      on_open_change: self.on_open_change,
+      grouping: self.grouping,
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -1088,7 +1128,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
   /// Builds the table in `theme` with every row. Converting a table into an element does this in the theme of
   /// what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
+  pub fn build(mut self, theme: &Theme) -> Element {
+    self.find_grouping();
     let tracks = ColumnTracks::new(self.track_specs(theme));
     let view = self.view(theme, tracks, None);
     match theme.renderer::<Table<R, K>>() {
@@ -1132,6 +1173,71 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   pub(super) fn add_on_column_layout_change(mut self, handler: impl Fn(&ColumnLayout) + Send + Sync + 'static) -> Self {
     self.on_column_layout_change.push(Arc::new(handler));
     self
+  }
+
+  pub(super) fn set_group_by(mut self, columns: Vec<Arc<str>>) -> Self {
+    self.group_by = columns;
+    self
+  }
+
+  pub(super) fn set_open_groups(mut self, open: Vec<GroupKey>, write: OpenWrite) -> Self {
+    self.open_groups = open;
+    self.write_open = Some(write);
+    self
+  }
+
+  pub(super) fn add_on_open_change(mut self, handler: impl Fn(&GroupKey, bool) + Send + Sync + 'static) -> Self {
+    self.on_open_change.push(Arc::new(handler));
+    self
+  }
+
+  /// The columns the rows are grouped by, found among all of them: before a grid's arrangement hides any.
+  fn find_grouping(&mut self) {
+    self.grouping = self
+      .group_by
+      .iter()
+      .filter_map(|id| self.columns.iter().find(|column| &column.id == id).cloned())
+      .collect();
+  }
+
+  /// The lines the table shows: its rows, or its rows grouped by the values of its grouping's columns, with the
+  /// rows of the closed groups out.
+  fn lines(&self) -> Lines {
+    if self.grouping.is_empty() {
+      return Lines::flat(self.rows.len());
+    }
+    let ids: Vec<Arc<str>> = self.grouping.iter().map(|column| column.id.clone()).collect();
+    let open: HashSet<&GroupKey> = self.open_groups.iter().collect();
+    Lines::grouped(
+      self.rows.len(),
+      &ids,
+      &|row, level| column_text(&self.grouping[level], &self.rows[row]),
+      &|key| open.contains(key),
+    )
+  }
+
+  /// Opens or closes the group `key`: asks for the groups open with it in or out, and tells every handler.
+  fn group_toggle(&self) -> Arc<dyn Fn(&GroupKey, bool) + Send + Sync> {
+    let (now, write, heard) = (
+      self.open_groups.clone(),
+      self.write_open.clone(),
+      self.on_open_change.clone(),
+    );
+    Arc::new(move |key: &GroupKey, open: bool| {
+      if now.contains(key) == open {
+        return;
+      }
+      let mut next: Vec<GroupKey> = now.iter().filter(|held| *held != key).cloned().collect();
+      if open {
+        next.push(key.clone());
+      }
+      if let Some(write) = &write {
+        write(next);
+      }
+      for handler in &heard {
+        handler(key, open);
+      }
+    })
   }
 
   pub(super) fn set_column_menu(mut self, menu: bool) -> Self {
@@ -1314,6 +1420,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         .map(|(index, row)| (self.key_of)(index, row))
         .collect(),
     );
+    // The lines shown: the rows, or the groups and the rows of the open ones. A row's rank is its place among the
+    // rows shown, which the cells of a grid are reckoned by.
+    let lines: Arc<Lines> = match window.as_ref() {
+      Some(window) => window.lines.clone(),
+      None => Arc::new(self.lines()),
+    };
+    let grouped = !lines.groups.is_empty() || !self.grouping.is_empty();
+    let ranked: Arc<Vec<K>> = if grouped {
+      Arc::new(lines.order.iter().map(|index| keys[*index].clone()).collect())
+    } else {
+      keys.clone()
+    };
     let model = Arc::new(Model {
       keys: keys.clone(),
       selected: self.selected.clone(),
@@ -1371,7 +1489,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let span = grid_host
       .as_ref()
       .and(self.cell_range.as_ref())
-      .and_then(|range| span_of(range, &keys, &ids));
+      .and_then(|range| span_of(range, &ranked, &ids));
     let grid_model: Option<Arc<dyn GridCells>> = grid_host.as_ref().map(|host| {
       Arc::new(GridModel {
         host: host.clone(),
@@ -1390,7 +1508,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             .collect(),
         ),
         rows: self.rows.clone(),
-        keys: keys.clone(),
+        keys: ranked.clone(),
+        lines: lines.clone(),
         editors: Arc::new(
           self
             .columns
@@ -1409,24 +1528,78 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       .and_then(|host| *host.focused_column.lock())
       .unwrap_or(0);
     let held_now: HashSet<&K> = self.selected.iter().collect();
+    // The lines built, by their positions.
     let shown: Vec<usize> = match &window {
       _ if self.loading => Vec::new(),
       Some(window) => window.indices.clone(),
-      None => (0..count).collect(),
+      None => (0..lines.lines.len()).collect(),
     };
     let entry = window
       .as_ref()
-      .and_then(|window| window.focused.filter(|index| shown.contains(index)))
-      .or_else(|| shown.iter().copied().find(|index| held_now.contains(&keys[*index])))
+      .and_then(|window| window.focused.filter(|position| shown.contains(position)))
+      .or_else(|| {
+        shown.iter().copied().find(|position| {
+          lines
+            .rank_at(*position)
+            .is_some_and(|rank| held_now.contains(&keys[lines.order[rank]]))
+        })
+      })
       .or_else(|| shown.first().copied());
+    let line_count = lines.lines.len();
     let id_of = |what: &str| self.id.as_ref().map(|id| Arc::<str>::from(format!("{id}-{what}")));
 
+    // The groups' rows built, each opened and closed through the app's groups.
+    let toggle = self.group_toggle();
+    if let Some(host) = window.as_ref().and_then(|window| window.host.as_ref()) {
+      let (toggle, lines) = (toggle.clone(), lines.clone());
+      *host.state.group_toggle.lock() = Some(Arc::new(move |group: usize, open: bool| {
+        if let Some(line) = lines.groups.get(group) {
+          toggle(&line.key, open);
+        }
+      }));
+    }
+    let group_recipe = row_recipe(false, false);
+    let indent = geometry.padding_start;
+    let groups: Vec<TableGroup> = shown
+      .iter()
+      .filter_map(|&position| {
+        let Shown::Group(group) = lines.lines[position] else {
+          return None;
+        };
+        let line = &lines.groups[group];
+        let title = self
+          .grouping
+          .iter()
+          .find(|column| column.id == line.column)
+          .map_or_else(|| line.column.clone(), |column| column.title.clone());
+        let (toggle, key) = (toggle.clone(), line.key.clone());
+        Some(TableGroup {
+          position,
+          key: line.key.clone(),
+          title,
+          count: line.count,
+          open: line.open,
+          entry: entry == Some(position),
+          recipe: group_recipe.clone(),
+          toggle: Arc::new(move |open| toggle(&key, open)),
+          element: window
+            .as_ref()
+            .and_then(|window| window.refs.get(&position).cloned())
+            .unwrap_or_default(),
+          grid: grid_model.is_some(),
+          indent: indent + (line.key.level() - 1) as f32 * 20.0,
+          id: id_of(&format!("group-{position}")),
+        })
+      })
+      .collect();
     let rows = shown
       .iter()
-      .map(|&index| {
+      .filter_map(|&position| lines.rank_at(position).map(|rank| (position, rank)))
+      .map(|(position, rank)| {
+        let index = lines.order[rank];
         let row = &self.rows[index];
         let selected = selectable && held_now.contains(&keys[index]);
-        let last = index + 1 == count && !footer;
+        let last = position + 1 == line_count && !footer;
         let recipe = row_recipe(selected, last);
         // A cell that stays covers what scrolls under it, in the row's fill, or the table's.
         let stuck_fill: BackgroundColor = recipe
@@ -1441,7 +1614,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .enumerate()
           .filter(|(column_index, _)| built(*column_index))
           .map(|(column_index, column)| {
-            let mark = span.and_then(|span| span.mark(index, column_index));
+            let mark = span.and_then(|span| span.mark(rank, column_index));
             let part = cell_recipe(column_index, selected, mark)
               .part(TablePart::Cell)
               .forced(self.forced);
@@ -1462,7 +1635,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             };
             let grid = grid_model.as_ref().map(|grid| {
               let editable = !self.read_only && !self.disabled && column.editor.is_some();
-              let being_edited = editing.filter(|editing| (editing.row, editing.column) == (index, column_index));
+              let being_edited = editing.filter(|editing| (editing.row, editing.column) == (rank, column_index));
               let editor = being_edited.and_then(|editing| {
                 let host = grid_host.as_ref()?;
                 let editor = column.editor.as_ref()?;
@@ -1503,16 +1676,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 Some(editor_in(&part, built, choice, grid.clone(), ref_).into())
               });
               GridCell {
-                row: index,
+                row: rank,
+                position,
                 editable,
-                selected: span.is_some_and(|span| span.anchor != span.extent && span.contains(index, column_index)),
+                selected: span.is_some_and(|span| span.anchor != span.extent && span.contains(rank, column_index)),
                 editor,
-                entry: entry == Some(index) && column_index == focused_column.min(self.columns.len().saturating_sub(1)),
+                entry: entry == Some(position)
+                  && column_index == focused_column.min(self.columns.len().saturating_sub(1)),
                 column_index: column_index + 1 + usize::from(checkboxes),
                 checkbox: column.editor.as_ref().is_some_and(CellEditor::is_checkbox),
                 element: window
                   .as_ref()
-                  .and_then(|window| window.cell_refs.get(&(index, column_index)).cloned())
+                  .and_then(|window| window.cell_refs.get(&(rank, column_index)).cloned())
                   .unwrap_or_default(),
                 grid: grid.clone(),
                 id: id_of(&format!("cell-{index}-{column_index}")),
@@ -1547,6 +1722,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         });
         TableRow {
           index,
+          position,
           selected,
           disabled: self.disabled,
           name,
@@ -1555,7 +1731,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           pinned_start: sticky,
           pinned_end: end_pins > 0,
           lead_fill: sticky.then(|| stuck_fill.clone()),
-          entry: entry == Some(index),
+          entry: entry == Some(position),
           recipe,
           forced: self.forced,
           tracks: tracks.clone(),
@@ -1567,7 +1743,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           host: window.as_ref().and_then(|window| window.host.clone()),
           element: window
             .as_ref()
-            .and_then(|window| window.refs.get(&index).cloned())
+            .and_then(|window| window.refs.get(&position).cloned())
             .unwrap_or_default(),
           id: id_of(&format!("row-{index}")),
         }
@@ -1809,7 +1985,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
     let body_window = window.as_ref().map(|window| BodyWindow {
       row_height: window.row_height,
-      count,
+      count: line_count,
     });
     let empty = (count == 0 && !self.loading).then(|| {
       self.empty.clone().unwrap_or_else(|| {
@@ -1823,6 +1999,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     TableView {
       headers,
       rows,
+      groups,
+      grouped,
       selectable,
       checkboxes,
       grid: grid_model.is_some(),
@@ -1868,6 +2046,24 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> From<Table<R, K>> for Element {
   fn from(table: Table<R, K>) -> Self {
     table.build(&current_theme())
+  }
+}
+
+/// What a column says of a row as text: its text, or the value its editor edits, or nothing for a cell the app
+/// builds. What the rows are grouped by.
+fn column_text<R>(column: &TableColumn<R>, row: &R) -> String {
+  if let Content::Text(text) = &column.content {
+    return text(row);
+  }
+  match column.editor.as_ref().map(|editor| &editor.kind) {
+    Some(EditorKind::Text(text)) => text(row),
+    Some(EditorKind::Number(number)) => number(row).to_string(),
+    Some(EditorKind::Choice(choices, chosen)) => choices
+      .get(chosen(row))
+      .map(|choice| choice.to_string())
+      .unwrap_or_default(),
+    Some(EditorKind::Checkbox(checked)) => checked(row).to_string(),
+    None => String::new(),
   }
 }
 
@@ -2045,6 +2241,8 @@ struct Window {
   host: Option<Arc<HostLink>>,
   /// The rows as the body's focus group steps over them, built or not.
   rows: Arc<dyn FocusRows>,
+  /// The lines the table shows: its rows, or its groups and the rows of the open ones.
+  lines: Arc<Lines>,
   on_scroll: Option<Arc<dyn Fn(ScrollEvent) + Send + Sync>>,
 }
 
@@ -2063,6 +2261,10 @@ pub struct TableView {
   pub headers: Vec<TableHeader>,
   /// The rows built, in order: every row, or those of a mounted table in view and around it.
   pub rows: Vec<TableRow>,
+  /// The groups' rows built, where the rows are grouped: each says its place among the lines, as a row does.
+  pub groups: Vec<TableGroup>,
+  /// Whether the rows are grouped: the body is a nested list, Right opening a group and Left closing it.
+  pub grouped: bool,
   /// Whether its rows are selected.
   pub selectable: bool,
   /// Whether it has the column of checkboxes.
@@ -2218,8 +2420,18 @@ impl TableView {
   /// The rows built in their column, one stop of Tab that the arrow keys move through, with the room of the
   /// rows a mounted table does not build before and after them.
   pub fn body(&mut self) -> Column {
-    let rows = std::mem::take(&mut self.rows);
-    let group = FocusGroup::vertical().one_stop(true).wrap(false);
+    // The rows and the groups' rows in the order of their lines.
+    let mut lines: Vec<(usize, Element)> = std::mem::take(&mut self.rows)
+      .into_iter()
+      .map(|row| (row.position, row.render()))
+      .chain(
+        std::mem::take(&mut self.groups)
+          .into_iter()
+          .map(|group| (group.position, group.render())),
+      )
+      .collect();
+    lines.sort_by_key(|(position, _)| *position);
+    let group = FocusGroup::vertical().one_stop(true).wrap(false).nested(self.grouped);
     let mut body = Column::new()
       .align_items(Alignment::Stretch)
       .describe("a11y_role", "rowgroup");
@@ -2228,7 +2440,7 @@ impl TableView {
       // scroll shows.
       return body
         .focus_group(group.pages(true))
-        .with_children(rows.into_iter().map(TableRow::render));
+        .with_children(lines.into_iter().map(|(_, line)| line));
     };
     // A mounted table builds the rows around its view: the group steps over all of them, and a row it goes to
     // that is not built is revealed and focused once it is.
@@ -2239,12 +2451,12 @@ impl TableView {
         .key(format!("before-{before}"))
     };
     let mut next = 0;
-    for row in rows {
-      if row.index > next {
-        body = body.child(spacer(row.index, row.index - next));
+    for (position, line) in lines {
+      if position > next {
+        body = body.child(spacer(position, position - next));
       }
-      next = row.index + 1;
-      body = body.child(row.render());
+      next = position + 1;
+      body = body.child(line);
     }
     if window.count > next {
       body = body.child(spacer(window.count, window.count - next));
@@ -2993,6 +3205,8 @@ impl TableCell {
 pub struct TableRow {
   /// Its place among the rows, from 0.
   pub index: usize,
+  /// Its line among the lines shown, the groups' rows counted: its place where the rows are not grouped.
+  pub position: usize,
   pub selected: bool,
   pub disabled: bool,
   /// What it is called to what reads the tree: the text of its first column, where that is text.
@@ -3046,7 +3260,7 @@ impl TableRow {
       .stops_inside(true)
       .ref_element(self.element.clone())
       .describe("a11y_role", "row")
-      .describe("a11y_rowindex", (self.index + 2).to_string())
+      .describe("a11y_rowindex", (self.position + 2).to_string())
       // A row is the same element wherever the rows built around it start.
       .key(format!("row-{}", self.index));
     if self.grid {
@@ -3055,7 +3269,7 @@ impl TableRow {
     } else {
       row = row.focus_entry(self.entry);
       if self.host.is_some() {
-        row = row.focus_row(self.index);
+        row = row.focus_row(self.position);
       }
     }
     if self.pinned_start {
@@ -3117,8 +3331,8 @@ impl TableRow {
         }
       });
       if let Some(host) = &self.host {
-        let (host, index) = (host.clone(), self.index);
-        row = row.on_focus(move || host.focused(index));
+        let (host, position) = (host.clone(), self.position);
+        row = row.on_focus(move || host.focused(position));
       }
     }
     if let Some(id) = &self.id {
@@ -3368,7 +3582,9 @@ struct GridModel<R, K> {
   /// The text of each column, where it is a text: what a copy takes of a cell that is not edited.
   texts: Arc<Vec<Option<TextFn<R>>>>,
   rows: Arc<Vec<R>>,
+  /// The keys of the rows shown, by their ranks, and the lines they are on.
   keys: Arc<Vec<K>>,
+  lines: Arc<Lines>,
   /// The id and the editor of each column, where it is edited.
   editors: Arc<Vec<(Arc<str>, Option<CellEditor<R>>)>>,
   on_edit: Vec<EditHeard<K>>,
@@ -3411,20 +3627,37 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   fn aim(&self, aim: FocusAim) {
     *self.host.pending_focus.lock() = Some(aim);
     if let FocusAim::Cell(row, column) = aim {
-      *self.host.focused.lock() = Some(row);
+      *self.host.focused.lock() = Some(self.position(row));
       *self.host.focused_column.lock() = Some(column);
     }
     self.host.rebuild();
+  }
+
+  /// The row shown at `rank`.
+  fn row(&self, rank: usize) -> Option<&R> {
+    self.rows.get(*self.lines.order.get(rank)?)
+  }
+
+  /// The line of the row shown at `rank`.
+  fn position(&self, rank: usize) -> usize {
+    self.lines.position_of_rank.get(rank).copied().unwrap_or(rank)
+  }
+
+  /// The cell that has the focus, where it is a cell: its rank and its column.
+  fn focused_cell(&self) -> Option<(usize, usize)> {
+    let position = (*self.host.focused.lock())?;
+    Some((self.lines.rank_at(position)?, (*self.host.focused_column.lock())?))
   }
 }
 
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> GridCells for GridModel<R, K> {
   fn focused(&self, row: usize, column: usize) {
+    let position = self.position(row);
     let before = (*self.host.focused.lock(), *self.host.focused_column.lock());
-    *self.host.focused.lock() = Some(row);
+    *self.host.focused.lock() = Some(position);
     *self.host.focused_column.lock() = Some(column);
     // The focus moved to another cell: the range is gone, and the cell is where the next one starts.
-    if before != (Some(row), Some(column)) {
+    if before != (Some(position), Some(column)) {
       self.write_span(None);
     }
     let editing = *self.host.editing.lock();
@@ -3441,7 +3674,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   }
 
   fn start(&self, row: usize, column: usize, typed: Option<String>) {
-    let (Some(editor), Some(values)) = (self.editor(column), self.rows.get(row)) else {
+    let (Some(editor), Some(values)) = (self.editor(column), self.row(row)) else {
       return;
     };
     match &editor.kind {
@@ -3466,7 +3699,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   }
 
   fn toggle(&self, row: usize, column: usize) {
-    let (Some(editor), Some(values)) = (self.editor(column), self.rows.get(row)) else {
+    let (Some(editor), Some(values)) = (self.editor(column), self.row(row)) else {
       return;
     };
     if let EditorKind::Checkbox(checked) = &editor.kind {
@@ -3495,7 +3728,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
     let columns = self.editors.len();
     let target = match step {
       GridStep::Stay => (row, column),
-      GridStep::Down if row + 1 < self.rows.len() => (row + 1, column),
+      GridStep::Down if row + 1 < self.keys.len() => (row + 1, column),
       GridStep::On if column + 1 < columns => (row, column + 1),
       GridStep::Back if column > 0 => (row, column - 1),
       _ => (row, column),
@@ -3511,7 +3744,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   }
 
   fn move_to(&self, row: usize, column: usize) -> bool {
-    if row >= self.rows.len() || column >= self.editors.len() {
+    if row >= self.keys.len() || column >= self.editors.len() {
       return false;
     }
     self.aim(FocusAim::Cell(row, column));
@@ -3519,7 +3752,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   }
 
   fn select(&self, row: usize, pick: Pick) {
-    self.model.pick(row, pick);
+    if let Some(index) = self.lines.order.get(row) {
+      self.model.pick(*index, pick);
+    }
   }
 
   fn activate(&self, row: usize) {
@@ -3531,7 +3766,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   }
 
   fn size(&self) -> (usize, usize) {
-    (self.rows.len(), self.editors.len())
+    (self.keys.len(), self.editors.len())
   }
 
   fn click(&self, row: usize) {
@@ -3547,12 +3782,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   }
 
   fn extend(&self, from: Option<(usize, usize)>, to: (usize, usize)) {
-    let focused = (*self.host.focused.lock()).zip(*self.host.focused_column.lock());
-    let anchor = self.span.map(|span| span.anchor).or(from).or(focused).unwrap_or(to);
+    let anchor = self
+      .span
+      .map(|span| span.anchor)
+      .or(from)
+      .or_else(|| self.focused_cell())
+      .unwrap_or(to);
     let span = Span { anchor, extent: to };
     // A range of one cell is the focused cell alone.
     self.write_span((anchor != to).then_some(span));
-    self.host.reveal_cell(to.0, to.1);
+    self.host.reveal_cell(self.position(to.0), to.1);
   }
 
   fn clear_range(&self) -> bool {
@@ -3566,8 +3805,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
     if rows == 0 || columns == 0 {
       return;
     }
-    let focused = (*self.host.focused.lock()).zip(*self.host.focused_column.lock());
-    let anchor = focused.unwrap_or((0, 0));
+    let anchor = self.focused_cell().unwrap_or((0, 0));
     // The focus stays where it is, at a corner of the range.
     let extent = (
       if anchor.0 == 0 { rows - 1 } else { 0 },
@@ -3626,8 +3864,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
 /// What a cell of a grid is and does, as a renderer sees it beside the cell's own: where it is, whether it is
 /// edited or being edited, and what its keys and presses do.
 pub struct GridCell {
-  /// The row it is in, from 0.
+  /// The row it is in: its place among the rows shown, from 0.
   pub row: usize,
+  /// The row's line among the lines shown, the groups' rows counted.
+  pub position: usize,
   /// Whether a person edits it: its column has an editor and the grid is not read only.
   pub editable: bool,
   /// Whether it is in the range of cells selected.
@@ -3673,14 +3913,14 @@ impl GridCell {
     let checkbox = self.checkbox;
     let mut cell = cell
       .tab_index(0)
-      .focus_row(row)
+      .focus_row(self.position)
       .focus_column(column)
       .focus_entry(self.entry)
       .ref_element(self.element.clone())
       .describe("a11y_role", "gridcell")
       .describe("a11y_colindex", self.column_index.to_string())
       .describe("a11y_readonly", if editable { "false" } else { "true" })
-      .describe("a11y_rowindex", (row + 2).to_string())
+      .describe("a11y_rowindex", (self.position + 2).to_string())
       .on_focus({
         let grid = grid.clone();
         move || grid.focused(row, column)
@@ -3937,6 +4177,29 @@ impl FocusRows for HostState {
     !self.metrics.lock().disabled
   }
 
+  fn level(&self, row: usize) -> u32 {
+    self.lines.lock().level(row)
+  }
+
+  fn expanded(&self, row: usize) -> Option<bool> {
+    let lines = self.lines.lock();
+    match lines.lines.get(row)? {
+      Shown::Group(group) => Some(lines.groups[*group].open),
+      Shown::Row(_) => None,
+    }
+  }
+
+  fn set_expanded(&self, row: usize, open: bool) {
+    let group = match self.lines.lock().lines.get(row) {
+      Some(Shown::Group(group)) => *group,
+      _ => return,
+    };
+    let toggle = self.group_toggle.lock().clone();
+    if let Some(toggle) = toggle {
+      toggle(group, open);
+    }
+  }
+
   /// The rows the view holds under the header, less one, so that the row a page goes from stays in view.
   fn page(&self) -> usize {
     let metrics = *self.metrics.lock();
@@ -4029,6 +4292,9 @@ struct HostState {
   /// Where each header built is, by its column, and a column dragged by its header: from where to before which.
   header_refs: Mutex<HashMap<usize, ElementRef>>,
   header_drop: Mutex<Option<(usize, Option<usize>)>>,
+  /// The lines shown, and what opens or closes the group of one: the engine's nested group asks it.
+  lines: Mutex<Arc<Lines>>,
+  group_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -4171,6 +4437,8 @@ struct TableHost<R, K> {
   own_range: Arc<Mutex<Option<CellRange<K>>>>,
   /// The arrangement of a grid's columns whose app holds none.
   own_layout: Arc<Mutex<Option<ColumnLayout>>>,
+  /// The groups open of a table whose app holds none.
+  own_open: Arc<Mutex<Vec<GroupKey>>>,
   _marker: PhantomData<fn() -> R>,
 }
 
@@ -4201,12 +4469,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         submenu_anchor: ElementRef::new(),
         header_refs: Mutex::new(HashMap::new()),
         header_drop: Mutex::new(None),
+        lines: Mutex::new(Arc::new(Lines::default())),
+        group_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
       }),
       own_range: Arc::new(Mutex::new(None)),
       own_layout: Arc::new(Mutex::new(None)),
+      own_open: Arc::new(Mutex::new(Vec::new())),
       _marker: PhantomData,
     }
   }
@@ -4225,6 +4496,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         state.rebuild();
       }));
     }
+    // The groups a table whose app holds none keeps open itself.
+    if !table.group_by.is_empty() && table.write_open.is_none() {
+      table.open_groups = self.own_open.lock().clone();
+      let (own, state) = (self.own_open.clone(), self.state.clone());
+      table.write_open = Some(Arc::new(move |next| {
+        *own.lock() = next;
+        state.rebuild();
+      }));
+    }
+    table.find_grouping();
     // A grid's columns as a person arranged them: in their order, the hidden ones out, their widths and pins.
     if table.grid {
       if table.write_column_layout.is_none() {
@@ -4268,7 +4549,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     let recipe = table.resolve(&theme, &table.case());
     let row_height = px(recipe.part(TablePart::Row).rest().height, &theme).unwrap_or(0.0);
     let header_height = px(recipe.part(TablePart::Header).rest().height, &theme).unwrap_or(0.0);
-    let count = table.rows.len();
+    // The lines shown are what the window is reckoned in: the rows, or the groups and the rows of the open ones.
+    let lines = Arc::new(table.lines());
+    *state.lines.lock() = lines.clone();
+    let count = lines.lines.len();
     let geometry = Geometry::of(&recipe);
     let pins = table.pins();
     let lead_tracks = usize::from(table.with_checkboxes());
@@ -4300,15 +4584,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       }
       *state.built.lock() = indices.clone();
       let refs: HashMap<usize, ElementRef> = indices.iter().map(|index| (*index, ElementRef::new())).collect();
-      // A grid's cells have refs of their own, which the focus is sent to.
+      // A grid's cells have refs of their own, by the rank of their row, which the focus is sent to.
       let cell_refs: HashMap<(usize, usize), ElementRef> = if table.grid {
         let built = |column: usize| columns_built.as_ref().is_none_or(|built| built[column]);
         indices
           .iter()
+          .filter_map(|position| lines.rank_at(*position))
           .flat_map(|row| {
             (0..table.columns.len())
               .filter(|column| built(*column))
-              .map(move |column| ((*row, column), ElementRef::new()))
+              .map(move |column| ((row, column), ElementRef::new()))
           })
           .collect()
       } else {
@@ -4328,7 +4613,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
             *state.pending_focus.lock() = None;
           }
           // A row not built yet is scrolled to; the focus goes to it once it is.
-          None if !indices.contains(&row) => state.reveal(row),
+          None
+            if lines
+              .position_of_rank
+              .get(row)
+              .is_some_and(|position| !indices.contains(position)) =>
+          {
+            state.reveal(lines.position_of_rank[row])
+          }
           None => *state.pending_focus.lock() = None,
         },
         None => {}
@@ -4364,6 +4656,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         columns: columns_built,
         host: Some(Arc::new(HostLink { state: state.clone() })),
         rows: state.clone(),
+        lines: lines.clone(),
         on_scroll: Some(on_scroll),
       }
     });
@@ -4509,6 +4802,34 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       })
       .when(Selector::new().state(TableState::Pinned).within().hovered(), Select, |s| s.veil(StateHover))
       .when(Selector::new().state(TableState::Pinned).within().pressed(), Select, |s| s.veil(StatePressed))
+      // A group's row: as high as a row, on the muted fill, its chevron muted, its value 13/500 in the foreground
+      // and its count mono 12 muted after it.
+      .base(TablePart::GroupRow, |s| {
+        fading(
+          s.height(44.0)
+            .background(Muted)
+            .underline(line())
+            .cursor(CursorIcon::Pointer),
+        )
+      })
+      .hovered(TablePart::GroupRow, |s| s.veil(StateHover))
+      .pressed(TablePart::GroupRow, |s| s.veil(StatePressed))
+      .focus_visible(TablePart::GroupRow, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
+      .base(TablePart::Chevron, |s| s.square(IconSize::Sm).foreground(MutedForeground))
+      .base(TablePart::GroupLabel, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(13.0)
+          .weight(FontWeight::Medium)
+          .foreground(Foreground)
+      })
+      .base(TablePart::GroupCount, |s| {
+        s.font_family(FontFamily::Mono)
+          .font_size(12.0)
+          .foreground(MutedForeground)
+      })
+      .density(Density::Compact, TablePart::GroupRow, |s| s.height(Density::Default))
+      .density(Density::Comfortable, TablePart::GroupRow, |s| s.height(52.0))
+      .density(Density::Touch, TablePart::GroupRow, |s| s.height(52.0))
       .base(Empty, |s| s.width(Length::Fill))
       .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {
