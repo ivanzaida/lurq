@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use lurq::{
   app::{
     App,
-    events::MouseButton,
+    events::{MouseButton, TextInputEvent},
     theme::{OpacityLevel, PaletteColor, ThemePalette},
   },
   components::{Column, Row},
@@ -139,7 +139,7 @@ fn tab_reaches_it_and_what_is_typed_goes_into_the_signal() {
     column(
       Textarea::new(bound.clone())
         .id("note")
-        .on_change(move |text| heard.lock().unwrap().push(text.to_owned())),
+        .on_input(move |event: &TextInputEvent| heard.lock().unwrap().push(event.new_value.clone())),
     )
     .into()
   });
@@ -234,7 +234,7 @@ fn a_theme_restyles_it_and_gives_it_another_anatomy() {
   let app = App::new();
   app
     .theme()
-    .patch_recipe::<Textarea>(|recipe| recipe.base(TextareaPart::Root, |s| s.background(PaletteColor::Card)));
+    .patch_recipe::<Textarea>(|recipe| recipe.base(TextareaPart::Control, |s| s.background(PaletteColor::Card)));
   // A textarea with a count of its characters under it: other nodes around the same input.
   let renderer: TextareaRenderer = Arc::new(|view: TextareaView| {
     let count = format!("{} characters", view.value.get().chars().count());
@@ -335,7 +335,7 @@ fn a_read_only_textarea_is_focused_and_refuses_a_typed_character() {
     column(
       Textarea::new(bound.clone())
         .read_only(true)
-        .on_change(move |text| heard.lock().unwrap().push(text.to_owned()))
+        .on_input(move |event: &TextInputEvent| heard.lock().unwrap().push(event.new_value.clone()))
         .id("terms"),
     )
     .into()
@@ -459,4 +459,62 @@ fn a_field_calls_its_textarea_by_its_label() {
   });
   let names = names.lock().unwrap();
   assert_eq!(names[..2], [Some("Bio".to_owned()), Some("Private notes".to_owned())]);
+}
+
+#[test]
+fn on_input_hears_an_edit_before_it_is_made_and_may_refuse_it() {
+  let value = Signal::new(String::new());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    column(
+      Textarea::new(bound.clone())
+        .id("note")
+        // No digits: the edit that would put one in is refused.
+        .on_input(|event: &TextInputEvent| {
+          if event.new_value.chars().any(|c| c.is_ascii_digit()) {
+            event.prevent_default();
+          }
+        }),
+    )
+    .into()
+  });
+  stage.key("Tab");
+  stage.key("a");
+  stage.key("1");
+  stage.key("b");
+  assert_eq!(value.get(), "ab");
+}
+
+#[test]
+fn a_named_textarea_gives_its_text_to_the_form_and_full_width_is_a_state() {
+  use lurq::components::{Form, FormHandle, FormOptions, FormProps, FormValues};
+  let submitted = Arc::new(Mutex::new(None::<FormValues>));
+  let held = submitted.clone();
+  let mut stage = Stage::new(move |_| {
+    let held = held.clone();
+    Form::element(
+      FormProps::new(FormHandle::new(FormOptions::new()).on_submit(move |values| {
+        *held.lock().unwrap() = Some(values);
+      })),
+      Column::new()
+        .child(Textarea::new(Signal::new("Likes Rust.".to_owned())).name("bio"))
+        .child(
+          lurq::ui::Input::new(Signal::new("Ivan".to_owned()))
+            .name("who")
+            .id("who"),
+        ),
+    )
+  });
+  stage.key("Tab");
+  stage.key("Tab");
+  stage.key("Enter");
+  let values = submitted.lock().unwrap().clone().expect("the form is submitted");
+  assert_eq!(values.get_string("bio"), Some("Likes Rust."));
+
+  let theme = lurq::app::theme::Theme::new();
+  let root = theme
+    .resolve::<Textarea>(&Case::new().state(TextareaState::FullWidth, true), None)
+    .part(TextareaPart::Root)
+    .rest();
+  assert_eq!(root.width, Some(lurq::ui::Length::Fill));
 }

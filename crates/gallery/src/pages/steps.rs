@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Button, ButtonVariant, Step, Steps, StepsOrientation},
+  ui::{Button, ButtonVariant, Orientation, Step, Steps},
 };
 
 use crate::{
@@ -36,18 +36,18 @@ const CURRENTS: [(&str, usize); 5] = [
 ];
 
 /// The ways the playground's steps can run.
-const ORIENTATIONS: [(&str, StepsOrientation); 2] = [
-  ("Horizontal", StepsOrientation::Horizontal),
-  ("Vertical", StepsOrientation::Vertical),
+const ORIENTATIONS: [(&str, Orientation); 2] = [
+  ("Horizontal", Orientation::Horizontal),
+  ("Vertical", Orientation::Vertical),
 ];
 
-/// The wizard's steps, with their descriptions or without, and the second in error or not.
+/// The wizard's steps, with their descriptions or without, and the second invalid or not.
 fn wizard(described: bool, error: bool) -> Vec<Step> {
   WIZARD
     .iter()
     .enumerate()
     .map(|(index, (title, description))| {
-      let step = Step::new(title).error(error && index == 1);
+      let step = Step::new(title).invalid(error && index == 1);
       if described { step.description(description) } else { step }
     })
     .collect()
@@ -66,7 +66,7 @@ pub struct StepsPage {
   frame: Frame,
   playground: Playground,
   current: Signal<usize>,
-  orientation: Signal<StepsOrientation>,
+  orientation: Signal<Orientation>,
   described: Signal<bool>,
   error: Signal<bool>,
   pressable: Signal<bool>,
@@ -81,11 +81,11 @@ impl StepsPage {
     let (current, orientation) = (self.current.get(), self.orientation.get());
     let (described, error) = (self.described.get(), self.error.get());
     let (pressable, ahead, disabled) = (self.pressable.get(), self.ahead.get(), self.disabled.get());
-    let vertical = orientation == StepsOrientation::Vertical;
+    let vertical = orientation == Orientation::Vertical;
     let plain = {
       let bound = self.current.clone();
       move || {
-        Steps::new(&bound, wizard(described, error))
+        Steps::new(bound.clone(), wizard(described, error))
           .orientation(orientation)
           .pressable(pressable)
           .ahead(ahead)
@@ -96,27 +96,27 @@ impl StepsPage {
     let record = self.playground.recorder();
     let steps = plain()
       .force(self.playground.forced())
-      .on_select(move |index| record(format!("on_select({index})")));
+      .on_change(move |index| record(format!("on_change({index})")));
     // A handler makes the steps that are done pressable: the playground gives one only where they are.
     let shown: Element = if pressable { steps.into() } else { plain().into() };
 
-    let mut code = vec!["// at: Signal<usize>".to_owned(), "Steps::new(&at, [".to_owned()];
+    let mut code = vec!["// at: Signal<usize>".to_owned(), "Steps::new(at.clone(), [".to_owned()];
     for (index, (title, description)) in WIZARD.iter().enumerate() {
       let mut step = format!("    Step::new({title:?})");
       if described {
         step.push_str(&format!(".description({description:?})"));
       }
       if error && index == 1 {
-        step.push_str(".error(true)");
+        step.push_str(".invalid(true)");
       }
       code.push(format!("{step},"));
     }
     code.push("])".to_owned());
     if vertical {
-      code.push("    .orientation(StepsOrientation::Vertical)".to_owned());
+      code.push("    .orientation(Orientation::Vertical)".to_owned());
     }
     if pressable {
-      code.push("    .on_select(|index| println!(\"back to {index}\"))".to_owned());
+      code.push("    .on_change(|index| println!(\"back to {index}\"))".to_owned());
     }
     if ahead {
       code.push("    .ahead(true)".to_owned());
@@ -168,13 +168,13 @@ impl StepsPage {
         fill: !vertical,
         forceable: pressable,
         facts: format!("current {shown_current}"),
-        event: "on_select",
+        event: "on_change",
         code,
         tree,
         controls: vec![
           prop(
             "current",
-            "impl Into<CurrentStep>",
+            "Signal<usize>",
             self
               .playground
               .select(0, &CURRENTS, &current.min(WIZARD.len()), move |index| {
@@ -183,7 +183,7 @@ impl StepsPage {
           ),
           prop(
             "orientation",
-            "StepsOrientation",
+            "Orientation",
             self
               .playground
               .select(1, &ORIENTATIONS, &orientation, move |orientation| {
@@ -192,8 +192,8 @@ impl StepsPage {
           ),
           divider(),
           flag("description", &self.described),
-          flag("error", &self.error),
-          flag("on_select", &self.pressable),
+          flag("invalid", &self.error),
+          flag("on_change", &self.pressable),
           flag("ahead", &self.ahead),
           flag("disabled", &self.disabled),
         ],
@@ -203,7 +203,7 @@ impl StepsPage {
           .count(),
         reset: Arc::new(move || {
           to_current.set(1);
-          to_orientation.set(StepsOrientation::Horizontal);
+          to_orientation.set(Orientation::Horizontal);
           for flag in &reset_flags {
             flag.set(false);
           }
@@ -221,7 +221,7 @@ impl StepsPage {
       .width(FILL)
       .spacing(24.0)
       .child(
-        Steps::new(&self.at, wizard(false, false))
+        Steps::new(self.at.clone(), wizard(false, false))
           .label("Sign up")
           .pressable(true),
       )
@@ -254,7 +254,7 @@ impl Component for StepsPage {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 2),
       current: ctx.signal(1),
-      orientation: ctx.signal(StepsOrientation::Horizontal),
+      orientation: ctx.signal(Orientation::Horizontal),
       described: ctx.signal(false),
       error: ctx.signal(false),
       pressable: ctx.signal(false),
@@ -269,53 +269,66 @@ impl Component for StepsPage {
     let states = Column::new()
       .width(FILL)
       .spacing(28.0)
-      .child(item(Steps::new(0, three), "at the first step: the others to come"))
       .child(item(
-        Steps::new(1, three),
+        Steps::new(Signal::new(0), three),
+        "at the first step: the others to come",
+      ))
+      .child(item(
+        Steps::new(Signal::new(1), three),
         "at the second: the first done, the line to the current one in the primary color",
       ))
-      .child(item(Steps::new(3, three), "past the last: every step done"))
+      .child(item(
+        Steps::new(Signal::new(3), three),
+        "past the last: every step done",
+      ))
       .child(item(
         Steps::new(
-          1,
+          Signal::new(1),
           [
             Step::new("Account"),
-            Step::new("Workspace").error(true),
+            Step::new("Workspace").invalid(true),
             Step::new("Finish"),
           ],
         ),
-        "a step in error: its mark and its title in the destructive color",
+        "an invalid step: its mark and its title in the destructive color",
       ));
     let column = Row::new().child(
-      Steps::new(2, wizard(true, false))
-        .orientation(StepsOrientation::Vertical)
+      Steps::new(Signal::new(2), wizard(true, false))
+        .orientation(Orientation::Vertical)
         .label("Sign up"),
     );
     let rows = [
       (
-        "current",
-        "impl Into<CurrentStep>",
+        "new(current, steps)",
+        "Signal<usize>",
         "",
-        "The index of the current step, from 0, or a Signal<usize> that a press sets. Past the last, every step is \
-         done.",
+        "The index of the current step, from 0, in a signal that a press sets. Past the last, every step is done.",
+      ),
+      (
+        "controlled(current, steps, on_change)",
+        "usize, .., impl Fn(usize)",
+        "",
+        "The index held by the app, which answers a press itself: what is drawn is what it answers with.",
       ),
       (
         "steps",
         "impl IntoIterator<Item = impl Into<Step>>",
         "",
-        "The steps in order: a title each, or a Step with a description, an icon in place of its number, an error.",
+        "The steps in order: a title each, or a Step with a description, an icon in place of its number, invalid, \
+         disabled, an id and a key.",
       ),
       (
         "orientation",
-        "StepsOrientation",
+        "Orientation",
         "Horizontal",
         "In a row, a line between each step and the next; in a column, a line down from each mark.",
       ),
       (
-        "on_select",
+        "on_change",
         "impl Fn(usize)",
         "",
-        "Called with the index of a step pressed. Makes the steps that are done pressable.",
+        "Called with the index of the step a person made current, not when the app sets it. Makes the steps that \
+         are done pressable.",
       ),
       (
         "pressable",
@@ -353,7 +366,7 @@ impl Component for StepsPage {
       vec![
         Section::new(
           "Playground",
-          "Every prop of Steps is a control on the right. With on_select on, a press of a step that is done goes \
+          "Every prop of Steps is a control on the right. With on_change on, a press of a step that is done goes \
            back to it, and Tab and the arrow keys move between the steps that are pressed.",
           playground,
         ),
@@ -364,10 +377,10 @@ impl Component for StepsPage {
           self.frame.demo(
             0,
             self.wizard(),
-            "Steps::new(&at, [..]).pressable(true)",
+            "Steps::new(at.clone(), [..]).pressable(true)",
             &[
               "// at: Signal<usize>",
-              "Steps::new(&at, [\"Account\", \"Billing\", \"Workspace\", \"Finish\"])",
+              "Steps::new(at.clone(), [\"Account\", \"Billing\", \"Workspace\", \"Finish\"])",
               "    .label(\"Sign up\")",
               "    .pressable(true)",
               "",
@@ -386,20 +399,20 @@ impl Component for StepsPage {
         Section::new(
           "States",
           "A step is done, current or to come by where it stands from the current one. A step done has a check in \
-           its mark; a step in error has a cross, whatever else it is.",
+           its mark; a step that is invalid has a cross, whatever else it is.",
           self.frame.demo(
             1,
             states,
-            "Steps::new(1, [..])",
+            "Steps::new(at.clone(), [..])",
             &[
               "let steps = [\"Account\", \"Workspace\", \"Finish\"];",
-              "Steps::new(0, steps)",
-              "Steps::new(1, steps)",
-              "Steps::new(3, steps)",
+              "Steps::new(Signal::new(0), steps)",
+              "Steps::new(Signal::new(1), steps)",
+              "Steps::new(Signal::new(3), steps)",
               "",
-              "Steps::new(1, [",
+              "Steps::new(Signal::new(1), [",
               "    Step::new(\"Account\"),",
-              "    Step::new(\"Workspace\").error(true),",
+              "    Step::new(\"Workspace\").invalid(true),",
               "    Step::new(\"Finish\"),",
               "])",
             ],
@@ -412,15 +425,15 @@ impl Component for StepsPage {
           self.frame.demo(
             2,
             column,
-            ".orientation(StepsOrientation::Vertical)",
+            ".orientation(Orientation::Vertical)",
             &[
-              "Steps::new(2, [",
+              "Steps::new(Signal::new(2), [",
               "    Step::new(\"Account\").description(\"Name and email\"),",
               "    Step::new(\"Billing\").description(\"Card and address\"),",
               "    Step::new(\"Workspace\").description(\"Name and members\"),",
               "    Step::new(\"Finish\").description(\"Review and confirm\"),",
               "])",
-              ".orientation(StepsOrientation::Vertical)",
+              ".orientation(Orientation::Vertical)",
               ".label(\"Sign up\")",
             ],
           ),

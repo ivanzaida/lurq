@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{ComboboxSize, ComboboxState, Field, Input, Interaction, MultiSelect, MultiSelectPart},
+  ui::{ComboboxSize, ComboboxState, Field, Input, Interaction, MultiSelect, MultiSelectPart, Orientation},
 };
 
 use crate::{
@@ -347,7 +347,9 @@ impl Component for MultiSelectPage {
     let form = Column::new()
       .width(440.0)
       .spacing(16.0)
-      .child(Field::new("Display name", Input::new(self.name.clone()).full_width(true)).horizontal(true))
+      .child(
+        Field::new("Display name", Input::new(self.name.clone()).full_width(true)).orientation(Orientation::Horizontal),
+      )
       .child(
         Field::new(
           "Topics",
@@ -363,7 +365,7 @@ impl Component for MultiSelectPage {
           .placeholder("Select topics")
           .full_width(true),
         )
-        .horizontal(true)
+        .orientation(Orientation::Horizontal)
         .invalid(self.topics.get().is_empty()),
       );
 
@@ -603,13 +605,13 @@ impl Component for MultiSelectPage {
           self.frame.demo(
             5,
             form,
-            "Field::new(\"Topics\", multi_select).horizontal(true)",
+            "Field::new(\"Topics\", multi_select).orientation(Orientation::Horizontal)",
             &[
               "// name: Signal<String>, topics: Signal<Vec<String>>",
               "Column::new()",
               "    .width(440.0)",
               "    .spacing(16.0)",
-              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).horizontal(true))",
+              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).orientation(Orientation::Horizontal))",
               "    .child(",
               "        Field::new(",
               "            \"Topics\",",
@@ -622,7 +624,7 @@ impl Component for MultiSelectPage {
               "            .placeholder(\"Select topics\")",
               "            .full_width(true),",
               "        )",
-              "        .horizontal(true)",
+              "        .orientation(Orientation::Horizontal)",
               "        .invalid(topics.get().is_empty()),",
               "    )",
             ],

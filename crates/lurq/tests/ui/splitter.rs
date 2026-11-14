@@ -18,7 +18,7 @@ use lurq::{
   core::Signal,
   layout::quad::{Quad, QuadContent},
   node::{CursorIcon, color::Color, dimension::Dimension},
-  ui::{Splitter, SplitterPane, SplitterPart},
+  ui::{Orientation, Splitter, SplitterPane, SplitterPart},
 };
 
 use super::stage::Stage;
@@ -37,11 +37,11 @@ fn content(id: &str) -> Column {
 /// A splitter of the stage's whole room: a side bar of 120 between 80 and 240 that closes, an editor that takes the
 /// rest, and a preview of a quarter.
 fn three() -> Splitter {
-  Splitter::horizontal()
+  Splitter::new()
     .id("s")
     .pane(
       SplitterPane::new(content("a"))
-        .size(120.0)
+        .length(120.0)
         .min(80.0)
         .max(240.0)
         .collapsible(true)
@@ -125,9 +125,9 @@ fn a_drag_moves_the_divider_and_holds_the_pointer_and_its_cursor() {
     let (renders, sizes) = (renders.clone(), sizes.clone());
     move |_| {
       renders.fetch_add(1, Ordering::Relaxed);
-      Splitter::horizontal()
+      Splitter::new()
         .sizes(sizes.clone())
-        .pane(SplitterPane::new(content("a")).size(120.0).min(80.0).max(240.0))
+        .pane(SplitterPane::new(content("a")).length(120.0).min(80.0).max(240.0))
         .pane(SplitterPane::new(content("b").cursor(CursorIcon::Text)))
         .into()
     }
@@ -265,9 +265,10 @@ fn the_keys_move_a_divider_focused_from_the_keyboard() {
 #[test]
 fn a_vertical_splitter_lays_its_panes_one_over_the_other() {
   let mut stage = Stage::new(|_| {
-    Splitter::vertical()
+    Splitter::new()
+      .orientation(Orientation::Vertical)
       .pane(SplitterPane::new(content("top")).min(40.0))
-      .pane(SplitterPane::new(content("bottom")).size(100.0).min(40.0))
+      .pane(SplitterPane::new(content("bottom")).length(100.0).min(40.0))
       .into()
   });
   assert_eq!(stage.bounds("top"), (0.0, 0.0, 400.0, 199.0));
@@ -293,13 +294,14 @@ fn a_vertical_splitter_lays_its_panes_one_over_the_other() {
 #[test]
 fn splitters_nest_one_orientation_in_the_other() {
   let mut stage = Stage::new(|_| {
-    Splitter::horizontal()
-      .pane(SplitterPane::new(content("side")).size(100.0))
+    Splitter::new()
+      .pane(SplitterPane::new(content("side")).length(100.0))
       .pane(SplitterPane::new(
-        Splitter::vertical()
+        Splitter::new()
+          .orientation(Orientation::Vertical)
           .id("inner")
           .pane(SplitterPane::new(content("editor")))
-          .pane(SplitterPane::new(content("terminal")).size(80.0)),
+          .pane(SplitterPane::new(content("terminal")).length(80.0)),
       ))
       .into()
   });
@@ -374,8 +376,8 @@ fn the_window_shrinking_keeps_a_pane_at_its_least() {
         .width(room.get())
         .height(300.0)
         .child(
-          Splitter::horizontal()
-            .pane(SplitterPane::new(content("a")).size(200.0).min(100.0))
+          Splitter::new()
+            .pane(SplitterPane::new(content("a")).length(200.0).min(100.0))
             .pane(SplitterPane::new(content("b")).min(150.0)),
         )
         .into()
@@ -434,12 +436,12 @@ fn nothing_in_a_closed_pane_is_a_stop_of_tab() {
     let pressed = pressed.clone();
     move |_| {
       let pressed = pressed.clone();
-      Splitter::horizontal()
+      Splitter::new()
         .pane(
           SplitterPane::new(lurq::ui::Button::new("Inside").on_click(move |_| {
             pressed.fetch_add(1, Ordering::Relaxed);
           }))
-          .size(120.0)
+          .length(120.0)
           .min(80.0)
           .collapsible(true),
         )
@@ -494,4 +496,45 @@ fn a_divider_tells_tooling_where_it_is_as_it_moves() {
     Some("190"),
     "and moved by a key"
   );
+}
+
+#[test]
+fn a_disabled_pane_keeps_its_size_and_the_other_dividers_still_move() {
+  let mut stage = Stage::new(|_| {
+    Splitter::new()
+      .id("s")
+      .pane(
+        SplitterPane::new(content("a"))
+          .length(120.0)
+          .min(80.0)
+          .collapsible(true)
+          .disabled(true)
+          .id("pane-a"),
+      )
+      .pane(SplitterPane::new(content("b")).min(60.0))
+      .pane(SplitterPane::new(content("c")).share(0.25).min(50.0))
+      .into()
+  });
+  // The divider after the disabled pane does not move it, by the pointer or by the keys.
+  drag(&mut stage, 120.5, 150.0, 200.5);
+  assert_eq!(width(&mut stage, "a"), 120.0);
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  stage.key("Enter");
+  assert_eq!(width(&mut stage, "a"), 120.0, "nor closes it");
+  // The divider between the two others still moves.
+  drag(&mut stage, 299.5, 150.0, 279.5);
+  assert!((width(&mut stage, "c") - 120.0).abs() < 0.01);
+  // The pane's element has its id.
+  assert_eq!(stage.bounds("pane-a").2, 120.0);
+}
+
+#[test]
+fn the_orientation_is_a_state_of_the_recipe() {
+  use lurq::ui::{Case, SplitterState};
+  let theme = lurq::app::theme::Theme::new();
+  let across = theme.resolve::<Splitter>(&Case::new().state(SplitterState::Horizontal, true), None);
+  let down = theme.resolve::<Splitter>(&Case::new().state(SplitterState::Vertical, true), None);
+  assert_eq!(across.part(SplitterPart::Handle).rest().width, Some(12.0.into()));
+  assert_eq!(down.part(SplitterPart::Handle).rest().height, Some(12.0.into()));
 }

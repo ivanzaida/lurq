@@ -171,7 +171,7 @@ impl PasswordInputPage {
     ];
     if let Some(strength) = strength {
       tree.push(format!("├─ strength 4 bars, {} filled", strength.bars()));
-      tree.push(format!("└─ message  {:?}", strength.message()));
+      tree.push(format!("└─ message  {:?}", strength.text()));
     }
 
     let strengths: Vec<(&str, usize)> = STRENGTHS
@@ -304,7 +304,7 @@ impl Component for PasswordInputPage {
     ] {
       strengths = strengths.child(item(
         showing("hunter2").strength(Some(strength)),
-        &format!("{} · {} of 4", strength.message(), strength.bars()),
+        &format!("{} · {} of 4", strength.text(), strength.bars()),
       ));
     }
     let states = items()
@@ -353,12 +353,18 @@ impl Component for PasswordInputPage {
         "on_reveal",
         "impl Fn(bool)",
         "",
-        "Called on a press of the eye with whether to show it. The eye is drawn where something hears it.",
+        "Called on a press of the eye with whether to show it.",
       ),
       (
-        "reveal_labels",
-        "&str, &str",
-        "\"Show password\", \"Hide password\"",
+        "reveal_button",
+        "bool",
+        "true",
+        "The eye at the end of the box. With no signal and no handler, mount(ctx) keeps whether it shows.",
+      ),
+      (
+        "show_label / hide_label",
+        "&str",
+        "\"Show password\" / \"Hide password\"",
         "What the eye is called to tooling, in another language.",
       ),
       (
@@ -368,7 +374,7 @@ impl Component for PasswordInputPage {
         "The meter under the input: 1 to 4 bars, destructive, warning or success.",
       ),
       (
-        "strength_message",
+        "strength_text",
         "&str",
         "",
         "What the meter says, in place of \"Strong password\" and the others.",

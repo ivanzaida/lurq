@@ -197,11 +197,44 @@ fn a_disabled_password_input_takes_no_press_of_its_eye() {
 }
 
 #[test]
-fn without_anything_to_hear_it_there_is_no_eye() {
+fn a_mounted_password_input_turns_its_eye_with_nothing_to_hear_it() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        PasswordInput::new(Signal::new("hunter2".to_owned()))
+          .id("password")
+          .mount(ctx),
+      )
+      .into()
+  });
+  assert!(
+    !painted(&stage).iter().any(|text| text.contains("hunter2")),
+    "masked at first"
+  );
+  let (x, y) = eye(&mut stage, "password");
+  press_at(&mut stage, x, y);
+  assert!(
+    painted(&stage).iter().any(|text| text.contains("hunter2")),
+    "the eye showed it, kept by the mounted input"
+  );
+  press_at(&mut stage, x, y);
+  assert!(
+    !painted(&stage).iter().any(|text| text.contains("hunter2")),
+    "and hid it again"
+  );
+}
+
+#[test]
+fn without_its_reveal_button_there_is_no_eye() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .padding(8.0)
-      .child(PasswordInput::new(Signal::new("hunter2".to_owned())).id("password"))
+      .child(
+        PasswordInput::new(Signal::new("hunter2".to_owned()))
+          .reveal_button(false)
+          .id("password"),
+      )
       .into()
   });
   let (x, _, width, _) = stage.bounds("password");
@@ -259,7 +292,7 @@ fn a_weak_password_is_one_bar_in_the_destructive_color_and_a_message_of_the_app(
       .child(
         PasswordInput::new(Signal::new("abc".to_owned()))
           .strength(Some(PasswordStrength::Weak))
-          .strength_message("Too short"),
+          .strength_text("Too short"),
       )
       .into()
   });
@@ -424,8 +457,8 @@ fn a_group_is_one_box_with_its_addons_on_the_muted_fill_and_a_line_between() {
       .padding(8.0)
       .child(
         InputGroup::new(Input::new(Signal::new("lurq".to_owned())).id("site"))
-          .before("https://")
-          .after(".com")
+          .leading("https://")
+          .trailing(".com")
           .id("group"),
       )
       .into()
@@ -467,7 +500,7 @@ fn the_input_of_a_group_types_and_is_focused_with_its_own_ring() {
   let mut stage = Stage::new(move |_| {
     Column::new()
       .padding(8.0)
-      .child(InputGroup::new(Input::new(bound.clone()).id("site")).before("https://"))
+      .child(InputGroup::new(Input::new(bound.clone()).id("site")).leading("https://"))
       .into()
   });
   stage.key("Tab");
@@ -487,8 +520,8 @@ fn a_button_after_the_input_is_round_where_the_box_is_and_is_pressed() {
       .padding(8.0)
       .child(
         InputGroup::new(Input::new(Signal::new(String::new())).placeholder("Email"))
-          .before(InputAddon::icon(icons::MAIL))
-          .after(
+          .leading(InputAddon::icon(icons::MAIL))
+          .trailing(
             Button::new("Invite")
               .id("invite")
               .on_click(move |_| *told.lock().unwrap() += 1),
@@ -525,7 +558,7 @@ fn a_disabled_group_takes_nothing() {
       .padding(8.0)
       .child(
         InputGroup::new(Input::new(Signal::new(String::new())).id("site"))
-          .after(Button::new("Go").id("go").on_click(move |_| *told.lock().unwrap() += 1))
+          .trailing(Button::new("Go").id("go").on_click(move |_| *told.lock().unwrap() += 1))
           .disabled(true),
       )
       .into()
@@ -545,7 +578,7 @@ fn the_edge_of_the_group_says_what_its_input_holds() {
         Field::new(
           "Site",
           InputGroup::new(Input::new(Signal::new("lurq".to_owned())))
-            .before("https://")
+            .leading("https://")
             .id("group"),
         )
         .error("Taken."),
@@ -564,7 +597,7 @@ fn a_theme_changes_the_addons() {
   let stage = Stage::in_app(app, |_| {
     Row::new()
       .padding(8.0)
-      .child(InputGroup::new(Input::new(Signal::new(String::new()))).before("https://"))
+      .child(InputGroup::new(Input::new(Signal::new(String::new()))).leading("https://"))
       .into()
   });
   assert!(!fills(&stage, light(PaletteColor::Primary)).is_empty());
@@ -634,4 +667,78 @@ fn the_placeholder_of_a_masked_password_is_set_as_any_placeholder_and_only_the_d
     _ => None,
   });
   assert_eq!(dots, Some(1.0), "the dots keep their spacing");
+}
+
+#[test]
+fn enter_in_an_input_submits_what_it_holds_to_every_handler() {
+  let value = Signal::new(String::new());
+  let (first, second) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+  let (bound, one, two) = (value.clone(), first.clone(), second.clone());
+  let mut stage = Stage::new(move |_| {
+    let (one, two) = (one.clone(), two.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        Input::new(bound.clone())
+          .id("name")
+          .on_submit(move |text| one.lock().unwrap().push(text.to_owned()))
+          .on_submit(move |text| two.lock().unwrap().push(text.to_owned())),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("I");
+  stage.key("v");
+  stage.key("Enter");
+  assert_eq!(*first.lock().unwrap(), ["Iv"]);
+  assert_eq!(*second.lock().unwrap(), ["Iv"], "a second handler is called too");
+  assert_eq!(value.get(), "Iv", "Enter puts nothing in a line");
+}
+
+#[test]
+fn a_search_field_that_is_not_clearable_has_no_clear_button_and_escape_keeps_it() {
+  let value = Signal::new("lurq".to_owned());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(SearchField::new(bound.clone()).clearable(false).icon(None).id("search"))
+      .into()
+  });
+  let close = icon_glyph(icons::CLOSE_CIRCLE);
+  assert!(!stage.paints(&close), "no clear button");
+  assert!(!stage.paints(&icon_glyph(icons::SEARCH)), "no icon: icon(None)");
+  stage.key("Tab");
+  stage.key("Escape");
+  assert_eq!(value.get(), "lurq");
+}
+
+/// The glyph of a named icon of lurq's font.
+fn icon_glyph(name: &str) -> String {
+  icons::ALL
+    .iter()
+    .find_map(|(known, glyph)| (*known == name).then(|| glyph.to_string()))
+    .unwrap_or_else(|| panic!("lurq's font has no icon {name:?}"))
+}
+
+#[test]
+fn an_input_group_says_of_its_input_what_an_input_takes() {
+  let value = Signal::new("lurq".to_owned());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        InputGroup::new(Input::new(bound.clone()).id("site"))
+          .leading("https://")
+          .trailing(".com")
+          .label("Site")
+          .read_only(true),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("site"), "still a stop of Tab");
+  stage.key("x");
+  assert_eq!(value.get(), "lurq", "read only");
 }

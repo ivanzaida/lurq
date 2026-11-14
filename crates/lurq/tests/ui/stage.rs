@@ -196,7 +196,7 @@ impl Stage {
   pub fn cut_text_quad(&self, content: &str) -> Option<Quad> {
     self.quads().into_iter().find(|quad| {
       matches!(&quad.content, QuadContent::Text { text, .. }
-        if text == content || text.strip_suffix('…').is_some_and(|start| content.starts_with(start.trim_end())))
+        if text == content || text.strip_suffix('…').is_some_and(|start| !start.trim_end().is_empty() && content.starts_with(start.trim_end())))
     })
   }
 

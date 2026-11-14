@@ -10,7 +10,8 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify},
   node::Element,
   ui::{
-    Button, ButtonVariant, CheckboxCard, CheckboxCardGroup, ErrorSummary, Field, FieldError, Fieldset, Input, Switch,
+    Button, ButtonVariant, CheckboxCard, CheckboxCardGroup, ErrorSummary, Field, FieldError, Fieldset, Input,
+    Orientation, Switch,
   },
 };
 
@@ -41,7 +42,7 @@ fn profile(
       )
       .optional(true),
     )
-    .field(Field::new("Time zone", Input::new(zone.clone()).full_width(true)).horizontal(true))
+    .field(Field::new("Time zone", Input::new(zone.clone()).full_width(true)).orientation(Orientation::Horizontal))
     .child(
       Row::new()
         .width(FILL)
@@ -117,7 +118,7 @@ impl FieldsetPage {
       [
         "    .field(Field::new(\"Display name\", Input::new(name).full_width(true)).required(true))",
         "    .field(Field::new(\"Bio\", Input::new(bio).full_width(true)).optional(true))",
-        "    .field(Field::new(\"Time zone\", Input::new(zone).full_width(true)).horizontal(true))",
+        "    .field(Field::new(\"Time zone\", Input::new(zone).full_width(true)).orientation(Orientation::Horizontal))",
         "    .child(Row::new().spacing(8.0).justify(Justify::End)",
         "        .child(Button::new(\"Reset\").variant(ButtonVariant::Outline))",
         "        .child(Button::new(\"Save profile\")))",

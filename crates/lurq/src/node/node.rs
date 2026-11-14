@@ -5509,6 +5509,24 @@ impl Node {
     offset
   }
 
+  /// The `min_width`/`min_height` the node was given, through logical
+  /// wrappers: `None` where it was given none.
+  pub(crate) fn explicit_min_main_size(&self, vertical: bool) -> Option<f32> {
+    if let Some(frame) = self.state_frame() {
+      let size = if vertical { frame.min_height } else { frame.min_width };
+      if let Some(size) = size {
+        return Some(size.to_px());
+      }
+    }
+    match &self.layout_kind {
+      LayoutKind::LogicalModifier => self
+        .children
+        .first()
+        .and_then(|child| child.explicit_min_main_size(vertical)),
+      _ => None,
+    }
+  }
+
   pub(crate) fn min_main_size(&self, vertical: bool) -> f32 {
     if let Some(frame) = self.state_frame() {
       let size = if vertical { frame.min_height } else { frame.min_width };

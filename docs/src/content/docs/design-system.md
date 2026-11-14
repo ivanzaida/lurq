@@ -570,11 +570,12 @@ Input::new(email.clone()).invalid(!email_ok);
 | `read_only(bool)` | It is focused, selected and copied, and every edit is refused |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent`; `prevent_default()` refuses it |
+| `on_submit(Fn(&str))` | Called with what it holds when Enter is pressed in it, with no modifier and outside a composition. A second handler is called after the first |
 | `name(..)` | The name of its value in a form (feature `form`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control, the box that is typed in |
 
 - It is the engine's `TextInput`, single line, dressed by the recipe: the control *is* the box, so that the ring of its focus is drawn on it. A text input is focus-visible however it was focused, so a click shows the ring too. Tab reaches it wherever it is (`tab_index(0)`).
-- Parts: `InputPart::Root` (the place it takes: its width, and the room between the icon and the text), `Control` (the box: edge, fill, height, the type of the value), `Placeholder` (laid over the control's type), `Icon`. States: `InputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `WithIcon`. Sizes: `InputSize::Sm`, `Md`, `Lg` (`InputSize` is `TextBoxSize`, which a textarea has too).
+- Parts: `InputPart::Root` (the place it takes: its width, and the room between the icon and the text), `Control` (the box: edge, fill, height, the type of the value), `Placeholder` (laid over the control's type), `Icon`. States: `InputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Icon`. Sizes: `InputSize::Sm`, `Md`, `Lg` (`InputSize` is `TextBoxSize`, which a textarea has too).
 - In the design the box is 260 by 36, `Background` in an edge of 1 in the `Input` color, `radius-md`, the text 12 from the edge in the body's type, the placeholder in `MutedForeground`. The edge is the only signal of its state: `Ring` under the pointer, a line of 2 in `Ring` inside the box in the focus (an outline, so that the edge under the pointer does not take it away), `Destructive`, `Warning`, `Success` for a judgment (which keeps its color under the pointer and in the focus). Disabled is half opaque on `Muted`; read only is on `Muted` in the `Border` color. The icon is 16 in `MutedForeground` (in `Success` while it is valid), 8 before the text.
 - In a [field](#field) it is called by the field's label unless it has a `label` of its own, it is judged as the field is unless the app judged the input itself, and it is disabled where the field is.
 - A text input does not take the foreground of its node, so the renderer names the color of the value and of the placeholder from the parts' foregrounds (`InputView::value_style()`, `placeholder_style()`).
@@ -587,7 +588,7 @@ Input::new(email.clone()).invalid(!email_ok);
 A control with what it is called above it, and under it what it is for or what is wrong with what it holds. The field finishes its control: the label names it, a press of the label focuses it, and an input in a field with an error is invalid without being told.
 
 ```rust
-use lurq::ui::{Field, Input, Switch, Textarea};
+use lurq::ui::{Field, Input, Orientation, Switch, Textarea};
 
 Field::new("Display name", Input::new(name.clone()).full_width(true))
   .description("Shown in the title bar.")
@@ -600,7 +601,7 @@ Field::new("Email", Input::new(email.clone()).full_width(true))
 Field::new("What happened", Textarea::new(story.clone())).warning(true);
 
 // Any element is a control; the label beside it, where a form lines its labels up.
-Field::new("Notifications", Switch::new("Pause notifications")).horizontal(true);
+Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal);
 ```
 
 | Builder | |
@@ -612,7 +613,7 @@ Field::new("Notifications", Switch::new("Pause notifications")).horizontal(true)
 | `disabled(bool)` | Its control takes no input, and a press of its label focuses nothing |
 | `required(bool)` | A `*` after the label |
 | `optional(bool)`, `optional_text(&str)` | "Optional" after the label, or the app's own words. A required field shows none |
-| `horizontal(bool)` | The label in a column of 110 beside the control and its description |
+| `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
 
@@ -659,12 +660,14 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
 | `size(TextareaSize)` | The type of an input's sizes: `Sm` 13, `Md` 14 (the default), `Lg` 15, each with a line of 1.5. A row is that high |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: the edge in the destructive, warning or success color. One is shown, in that order |
 | `read_only(bool)` | It is focused, selected and copied, and every edit is refused |
-| `on_change(handler)` | Called on every edit with the text it holds once the edit applies. A read-only one makes no edit |
+| `on_input(handler)` | Called before an edit with the `TextInputEvent` (`new_value` is what it will hold); `prevent_default()` refuses it. A read-only one makes no edit |
+| `full_width(bool)` | As wide as what holds it, which it is already, as the design draws it in a form: the state `FullWidth` is for a theme that gives it a width of its own |
+| `name(..)` | The name of its text in a form (feature `form`) |
 | `label(&str)` | What it is called, to what reads the tree. It draws nothing: a [field](#field) gives it its own label |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - It is the engine's multiline `TextInput`: as high as its text between its rows, its own scroll bar past them, Enter a new line. Tab reaches it wherever it is, as every control of the design system; a disabled one is passed by and takes no click. A read-only one is a stop of Tab and refuses every edit.
-- Parts: `TextareaPart::Root` (the box, which is the text input), `Text` (the type and color of what it holds), `Placeholder` (laid over the text's type). States: `TextareaState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`. Sizes: `TextareaSize::Sm`, `Md`, `Lg` (`TextareaSize` is `TextBoxSize`, an input's sizes).
+- Parts: `TextareaPart::Root` (the place it takes: its width, and its opacity while disabled), `Control` (the box, which is the text input: its edge, fill and padding, and the type and color of what it holds, as an input's control), `Placeholder` (laid over the control's type). States: `TextareaState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`. Sizes: `TextareaSize::Sm`, `Md`, `Lg` (`TextareaSize` is `TextBoxSize`, an input's sizes).
 - In the design the box is as wide as its room, in `Background` with an edge of 1 in `Input`, the medium radius, padded 12 across and 8 down; its text is in the body's type with a line of 1.5, in `Foreground`, and the placeholder in `MutedForeground`. Under the pointer the edge is `Ring`; focused, a ring of 2 is drawn inside the box, over the edge. Invalid, warning and valid, the edge and the ring are `Destructive`, `Warning` and `Success`. Read only, it is on `Muted` in the `Border` color, as a read-only input. Disabled, it is at the theme's disabled opacity on `Muted`. Small, its text is 13; large, 15; the padding stays.
 - In a [field](#field) it is called by the field's label unless it has a `label` of its own, it is judged as the field is unless the app judged it itself, it is disabled where the field is, and a press of the label focuses it.
 - A text input draws in its own text style and does not take the foreground of what it is in, so the `Text` and `Placeholder` parts' foregrounds are resolved to colors of the theme when the textarea is built (`TextareaView::text_style`, `placeholder_style`).
@@ -1387,40 +1390,44 @@ Pagination::controlled(current, 12, move |to| go(to));
 The stages of a process in order, with one current: those before it are done, those after it are to come.
 
 ```rust
-use lurq::ui::{Step, Steps, StepsOrientation};
+use lurq::ui::{Orientation, Step, Steps};
 
-// Read, not operated: the app moves the current step itself.
-Steps::new(1, ["Account", "Workspace", "Finish"]);
+// Read, not operated: the app moves the current step itself. at: Signal<usize>.
+Steps::new(at.clone(), ["Account", "Workspace", "Finish"]);
 
-// A wizard that lets a person go back to a step that is done. at: Signal<usize>, which a press sets.
-Steps::new(&at, [
+// A wizard that lets a person go back to a step that is done: a press sets the signal.
+Steps::new(at.clone(), [
   Step::new("Account").description("Name and email"),
-  Step::new("Billing").description("Card and address").error(billing_failed),
+  Step::new("Billing").description("Card and address").invalid(billing_failed),
   Step::new("Finish"),
 ])
-.orientation(StepsOrientation::Vertical)
+.orientation(Orientation::Vertical)
 .label("Sign up")
-.on_select(|index| println!("back to step {index}"));
+.on_change(|index| println!("back to step {index}"));
+
+// The current step held by the app, which answers a press itself.
+Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 ```
 
 | Builder | |
 | --- | --- |
-| `Steps::new(current, steps)` | `current` is the index of the current step, from 0, or a `Signal<usize>` (or `&Signal<usize>`) that a press of a step sets. Past the last step every step is done. A step is a `&str`, a `String` or a `Step` |
-| `orientation(StepsOrientation)` | `Horizontal` (the default): in a row, a line between each step and the next. `Vertical`: in a column, a line down from each step's mark to the next |
-| `on_select(Fn(usize))` | Called with the index of a step pressed, after a signal given as `current` is set. Makes the steps that are done pressable |
+| `Steps::new(current, steps)` | `current` is a `Signal<usize>` that holds the index of the current step, from 0, and that a press of a step sets. Past the last step every step is done. A step is a `&str`, a `String` or a `Step` |
+| `Steps::controlled(current, steps, on_change)` | The index held by the app: a press tells `on_change`, and the steps show what the app answers with |
+| `orientation(Orientation)` | `Horizontal` (the default): in a row, a line between each step and the next. `Vertical`: in a column, a line down from each step's mark to the next. `StepsOrientation` is a name of `ui::Orientation` |
+| `on_change(Fn(usize))` | Called with the index of the step a person made current, after a signal given to `new` is set; not when the app sets it. Makes the steps that are done pressable. A second handler is called after the first |
 | `pressable(bool)` | Makes the steps that are done pressable with no handler: for steps bound to a signal |
 | `ahead(bool)` | Where steps are pressed, a step to come is pressed too: a process whose steps can be taken in any order |
 | `label(&str)` | What the list of steps is called to what reads the tree |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the step Tab would enter at in the state. With an `id`, each step has the id `<id>-<index>`, its mark `<id>-<index>-marker`, and the line after it `<id>-<index>-line` |
-| `Step::new(title)` | A step. `description(&str)` a line under the title, `icon(name)` an icon of the theme's set in place of its number until it is done, `error(bool)` that it has gone wrong |
+| `Step::new(title)` | A step. `description(&str)` a line under the title, `icon(name)` an icon of the theme's set in place of its number until it is done, `invalid(bool)` that it has gone wrong, `disabled(bool)` that it takes no press and is dimmed, `id` the id of its element in place of `<id>-<index>`, `key` |
 
-- In a row the steps share the width: where they do not fit, a step gives way before the lines, which are never shorter than 24. A title that does not fit is cut with an ellipsis, a description wraps under it.
-- Steps are read, not operated, unless the app says they are pressed (`on_select` or `pressable`). Then a step that is done is pressed to go back to it, and a step to come only with `ahead(true)`; the current step selects nothing. The steps are one stop of Tab, entered at the current step (at the last one pressed where every step is done); the arrow keys of the orientation, Home and End move between the current step and those that are pressed, and Space and Enter press. Steps that are only read take no press and no focus.
-- Parts: `StepsPart::Root` (the steps and the lines), `Step` (a step: what is pressed and focused), `Marker` (its round mark), `Number`, `Icon` (the check, the cross, or the step's own icon), `Body` (the title and the description), `Title`, `Description`, `Rail` (in a column, the mark with the line down from it), `Connector` (what holds a line) and `Line`. Each step's parts are styled in that step's states: `StepsState::Done`, `Current` or `Upcoming`, and `Error`, `Pressable`; the whole has `Disabled`. The orientation is the recipe's variant (`StepsOrientation::Horizontal`, `Vertical`).
-- In the design the mark is 24 and round: in `Primary` with a check of 14 in `PrimaryForeground` once the step is done, in `Primary` with its number (12, medium) while it is current, and with a 1 px edge in `Input` and the number in `MutedForeground` while it is to come. The title is 8 beside the mark in the label's type (13, medium), `Foreground`, and `MutedForeground` while the step is to come. A line of 1 runs from 12 after one step to 12 before the next, in `Primary` up to the current step and in `Border` after it; in a row the lines share what the steps leave of the width. A description is under the title in the caption's 12, `MutedForeground`. A step in error has a cross on `Destructive` and its title in `Destructive`, whatever else it is.
+- In a row the steps share the width: where they do not fit, a step gives way before the lines, which are never shorter than 24. The descriptions wrap first, each step down to its title; only when every step is at its title is a title cut with an ellipsis, the last step's first (`ShrinkLimit::ContentFirst`).
+- Steps are read, not operated, unless the app says they are pressed (`on_change`, `controlled` or `pressable`). Then a step that is done is pressed to go back to it, and a step to come only with `ahead(true)`; the current step and a disabled one change nothing. The steps are one stop of Tab, entered at the current step (at the last one pressed where every step is done); the arrow keys of the orientation, Home and End move between the current step and those that are pressed, and Space and Enter press. Steps that are only read take no press and no focus.
+- Parts: `StepsPart::Root` (the steps and the lines), `Step` (a step: what is pressed and focused), `Marker` (its round mark), `Number`, `Icon` (the check, the cross, or the step's own icon), `Text` (the title and the description), `Title`, `Description`, `Rail` (in a column, the mark with the line down from it), `Connector` (what holds a line) and `Line`. Each step's parts are styled in that step's states: `StepsState::Done`, `Current` or `Upcoming`, and `Invalid`, `Pressable` and `Disabled` (that step alone); the whole has `Disabled`. The orientation is the state `StepsState::Horizontal` or `Vertical`.
+- In the design the mark is 24 and round: in `Primary` with a check of 14 in `PrimaryForeground` once the step is done, in `Primary` with its number (12, medium) while it is current, and with a 1 px edge in `Input` and the number in `MutedForeground` while it is to come. The title is 8 beside the mark in the label's type (13, medium), `Foreground`, and `MutedForeground` while the step is to come. A line of 1 runs from 12 after one step to 12 before the next, in `Primary` up to the current step and in `Border` after it; in a row the lines share what the steps leave of the width. A description is under the title in the caption's 12, `MutedForeground`. An invalid step has a cross on `Destructive` and its title in `Destructive`, whatever else it is.
 - A pressed step has a veil of `StateHover` under the pointer and of `StatePressed` held down; the ring of the focus is around the step, which is padded 4 for it. Disabled steps are dimmed and take nothing.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is in error); the current step has `a11y_current` `step`.
-- A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.body(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is invalid); the current step has `a11y_current` `step`.
+- A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.text(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
 
 ## Badge
 
@@ -1842,21 +1849,23 @@ PasswordInput::new(chosen.clone())
 | `PasswordInput::new(value)` | A password input bound to a `Signal<String>`: what is typed is set on it |
 | `reveal(bool)`, `on_reveal(Fn(bool))` | Whether the password is shown as it is; called on a press of the eye with whether it is to be shown |
 | `bind_reveal(Signal<bool>)` | Shown while the signal is true, which the eye turns |
-| `reveal_labels(show, hide)` | What the eye is called to tooling, in place of "Show password" and "Hide password" |
+| `reveal_button(bool)` | The eye at the end of the box: there unless the app says not |
+| `show_label(&str)`, `hide_label(&str)` | What the eye is called to tooling, in place of "Show password" and "Hide password" |
+| `mount(ctx)` | The input mounted where it is declared: with no `bind_reveal` and no `on_reveal`, it keeps whether the password is shown, and the eye turns it |
 | `strength(Option<PasswordStrength>)` | The meter under the input: `Weak`, `Fair`, `Good`, `Strong` fill 1 to 4 of its bars |
-| `strength_message(&str)` | What the meter says, in place of "Weak password" to "Strong password" |
+| `strength_text(&str)` | What the meter says, in place of "Weak password" to "Strong password" (`PasswordStrength::text`) |
 | `new_password(bool)` | The password is being chosen, not entered: the platform may offer a strong one |
 | `input_rules(&recipe)` | Rules over the theme's recipe for the input it is made of |
 | `placeholder`, `icon`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `on_input`, `name` | As an [input](#input) has them |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control |
 
 - While the password is masked the dots are 1 apart; the placeholder is set as any placeholder, with no spacing of its own.
-- It is an [input](#input) in every other way: its box, its sizes, its judgments, a field's label. The reveal is the app's, as a switch's state is: a `bool` and a handler, or a `Signal<bool>` bound with `bind_reveal`. The eye is drawn where something hears it.
+- It is an [input](#input) in every other way: its box, its sizes, its judgments, a field's label. Whether the password is shown is kept by a `Signal<bool>` bound with `bind_reveal`, by the app with `reveal` and `on_reveal`, or, with neither, by the input mounted with `mount(ctx)`. The eye is drawn unless `reveal_button(false)`; converted into an element with neither a signal nor a handler, the input is its still form, and the eye turns nothing.
 - Tab reaches the input and then the eye, which Space and Enter press. To tooling the eye is a `button` called "Show password" or "Hide password", with `a11y_pressed`.
 - Masked, the password is not copied or cut, the platform's keyboard keeps it out of its suggestions, and tooling (`lurq_snapshot`, `lurq_set_value` of the MCP server) reads only its dots and `masked=true`. Shown, it is what the screen shows, to tooling too. Shown or not it holds a password to the platform (`ContentKind::Password`, or `NewPassword`), which may offer to fill it in.
-- Parts: `PasswordInputPart::Root` (the input, the meter and its message, one under another), `Mask` (the room between the dots), `Toggle` (the eye), `Strength` (the meter), `Bar` (a bar the strength does not reach), `Filled` (one it does), `Message`. States: `PasswordInputState::Revealed`, `Disabled`, `FullWidth`, and the strength by its name (`weak`, `fair`, `good`, `strong`). The box, its text and its placeholder are the input's parts, styled by the theme's recipe for an input or `input_rules`.
+- Parts: `PasswordInputPart::Root` (the input, the meter and its message, one under another), `Mask` (the room between the dots), `Toggle` (the eye), `Strength` (the meter), `Bar` (a bar the strength does not reach), `Fill` (one it does), `Description` (what the meter says). States: `PasswordInputState::Revealed`, `Disabled`, `FullWidth`, and the strength by its name (`weak`, `fair`, `good`, `strong`). The box, its text and its placeholder are the input's parts, styled by the theme's recipe for an input or `input_rules`.
 - In the design the dots are 1 apart; the eye is 16 in `MutedForeground`, 12 from the end of the box and 8 after the text, in `Foreground` under the pointer; while the password is shown it is an eye with a line through it (`icons::EYE_OFF`), in `Foreground`. The meter is 8 under the box: four bars 4 high and 4 apart, round, in `Input` where the strength does not reach and in its color where it does, `Destructive` for weak, `Warning` for fair, `Success` for good and strong; the message is 8 under it in a caption's type in the same color.
-- A renderer that draws another password input has `view.input` (the input's view: `render_with_end` is crate-private, so it lays the eye over `view.control()` itself), `view.control()` (the masked text input with room at its end), `view.toggle()`, `view.strength_meter()` and `view.message()`.
+- A renderer that draws another password input has `view.input` (the input's view: `render_with_end` is crate-private, so it lays the eye over `view.control()` itself), `view.control()` (the masked text input with room at its end), `view.toggle()`, `view.strength_meter()` and `view.description()`.
 
 ## Search Field
 
@@ -1878,6 +1887,8 @@ SearchField::new(query.clone())
 | `shortcut(&str)` | The key that reaches the field, at its end while it is empty: `/`, `Ctrl K`. The app binds the key |
 | `on_submit(Fn(&str))` | Called on Enter with what the field holds. The focus stays in the field |
 | `clear_label(&str)` | What the clear button is called to tooling, in place of "Clear search" |
+| `clearable(bool)` | The clear button while it holds something, and Escape that empties it: on unless the app says not |
+| `icon(impl Into<IconChoice>)` | The icon before the text in place of the search icon, or `None` for none |
 | `input_rules(&recipe)` | Rules over the theme's recipe for the input it is made of |
 | `placeholder`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `on_input`, `name` | As an [input](#input) has them |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control |
@@ -1886,7 +1897,7 @@ SearchField::new(query.clone())
 - While it holds something a clear button is at its end, which empties it and takes no focus, so the caret stays in it; Escape does the same while the focus is in it, and keeps the focus there. Escape in an empty field does what it does in any input. A read-only or disabled field has no clear button, and Escape does not empty it.
 - The clear button is no stop of Tab: from the keyboard Escape does what it does. The hint shows while the field is empty; the field does not bind the key, which the app does and focuses the field on (`ctx.focus`).
 - To tooling the field is a `searchbox` and its button a `button` called "Clear search".
-- Parts: `SearchFieldPart::Root` and `Control` (what the field says of the input's root and box: its width, its padding), `End` (what is at the end of the box), `Clear`, `Shortcut` (the hint). States: `SearchFieldState::Filled`, `FullWidth`. The box, its text, its placeholder and its icon are the input's parts.
+- Parts: `SearchFieldPart::Root` and `Control` (what the field says of the input's root and box: its width, its padding), `Trailing` (what is at the end of the box), `Clear`, `Shortcut` (the hint). States: `SearchFieldState::Filled`, `FullWidth`. The box, its text, its placeholder and its icon are the input's parts.
 - In the design the field is 280 by 36, padded 10 at its start and 8 at its end; the search icon is 16 in `MutedForeground`, 8 before the text. The clear button is a circled cross of 16 in `MutedForeground`, `Foreground` under the pointer. The hint is 20 high, padded 6, 4 round on `Muted` in an edge of 1 in `Border`, in the mono type of 11 in `MutedForeground`.
 - The field renders again as it fills and empties, to show the clear button or the hint: it reads its signal as it is built.
 - A renderer that draws another search field has `view.input`, `view.control()` (the text input with its keys and room at its end), `view.clear()` and `view.shortcut()`.
@@ -1898,19 +1909,20 @@ An input joined with what stands before and after it into one box: a scheme, a d
 ```rust
 use lurq::ui::{Button, ButtonVariant, Input, InputAddon, InputGroup, Select, icons};
 
-InputGroup::new(Input::new(site.clone())).before("https://").after(".com");
+InputGroup::new(Input::new(site.clone())).leading("https://").trailing(".com");
 
 InputGroup::new(Input::new(email.clone()).placeholder("Email"))
-  .before(InputAddon::icon(icons::MAIL))
-  .after(Button::new("Invite").variant(ButtonVariant::Ghost).on_click(invite));
+  .leading(InputAddon::icon(icons::MAIL))
+  .trailing(Button::new("Invite").variant(ButtonVariant::Ghost).on_click(invite));
 
-InputGroup::new(Input::new(site.clone())).before(Select::new(scheme.clone(), [("https", "https://"), ("http", "http://")]));
+InputGroup::new(Input::new(site.clone())).leading(Select::new(scheme.clone(), [("https", "https://"), ("http", "http://")]));
 ```
 
 | Builder | |
 | --- | --- |
 | `InputGroup::new(input)` | A group around an [input](#input), which keeps its own value, handlers and id |
-| `before(addon)`, `after(addon)` | What stands before and after the input, in order: a text (`&str`), `InputAddon::icon(name)`, a `Button`, a `Select` |
+| `leading(addon)`, `trailing(addon)` | What stands before and after the input, in order: a text (`&str`), `InputAddon::icon(name)`, a `Button`, a `Select` |
+| `label(&str)`, `read_only(bool)`, `name(..)`, `on_submit(..)`, `force(..)` | Said of the input in the group, as an input has them |
 | `size(InputSize)` | The input's, and each button's and select's in the group |
 | `invalid`, `warning`, `valid`, `disabled`, `full_width`, `on_input` | The input's judgment and the box's edge; nothing in a disabled group takes input; 280 wide or as wide as what holds it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
@@ -2154,16 +2166,17 @@ ErrorSummary::form(&form, [("name", "Display name", &name_field), ("email", "Ema
 | Builder | |
 | --- | --- |
 | `new(errors)` | A line for each `FieldError`, in the order given. With none the summary draws nothing |
-| `FieldError::new(label, message)` | The field's label and what is wrong with it. The line shows the message |
+| `FieldError::new(label, error)` | The field's label and what is wrong with it, as its field says it. The line shows the error. `id` and `key` are the line's |
+| `error(FieldError)`, `errors(..)` | Adds lines after those it has |
 | `FieldError::focuses(&ElementRef)` | A press of the line, or Enter or Space on it, focuses the first control under the ref |
 | `form(&FormHandle, [(name, label, &ElementRef)])` | The form's errors once a submit was attempted: a line for each listed field that has one, in their order, then one for each other field with an error, called by its name and focusing nothing. It reads them as signals: what renders it renders again when they change |
 | `title(&str)` | The title in the app's own words, in place of "2 fields need attention" |
 | `full_width(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a fieldset has them; `force` draws every line as under the pointer or focused |
 
 - A line that focuses a field is a stop of Tab, underlined under the pointer, with the ring of the focus around it. One that focuses nothing is read and not pressed.
-- Parts: `ErrorSummaryPart::Root`, `Icon`, `Body` (the title over the lines), `Title`, `Item` (a line), `Bullet`, `Message`. State: `ErrorSummaryState::FullWidth`.
+- Parts: `ErrorSummaryPart::Root`, `Icon`, `Text` (the title over the lines), `Title`, `Item` (a line), `Bullet`, `Error`. State: `ErrorSummaryState::FullWidth`.
 - In the design the summary is 400 wide, padded 12 and 14, in `DestructiveMuted` with an edge of 1 of `Destructive` inside it and the medium radius. The alert icon of 16 in `Destructive` is 10 before the body; the title is 13 and semibold in `Destructive`, and the lines are 6 apart under it, a dot of 4 in `Destructive` 8 before each message in 13 of `Foreground`.
-- To what reads the tree it is an `alert` called by its title; each line is a `link` called by the field's label and its message.
+- To what reads the tree it is an `alert` called by its title; each line is a `link` called by the field's label and its error.
 - A line focuses its field through `.focuses(&ElementRef)`, which a button has: a click of it or Enter or Space on it focuses the target. A ref on a column around a `Field` will do: the control is the first thing under it that takes the focus.
 
 ## Combobox
@@ -3392,16 +3405,17 @@ Stack::new()
 Panes that share a room by the dividers between them, which a person drags: the side bar, the editor and the terminal of a window.
 
 ```rust
-use lurq::ui::{Splitter, SplitterPane};
+use lurq::ui::{Orientation, Splitter, SplitterPane};
 
 // layout: Signal<Vec<f32>>, saved with the window.
-Splitter::horizontal()
+Splitter::new()
   .sizes(layout.clone())
-  .pane(SplitterPane::new(files).size(240.0).min(160.0).max(480.0).collapsible(true).label("Files"))
+  .pane(SplitterPane::new(files).length(240.0).min(160.0).max(480.0).collapsible(true).label("Files"))
   .pane(SplitterPane::new(
-    Splitter::vertical()
+    Splitter::new()
+      .orientation(Orientation::Vertical)
       .pane(SplitterPane::new(editor).min(120.0))
-      .pane(SplitterPane::new(terminal).size(160.0).min(80.0).collapsible(true))
+      .pane(SplitterPane::new(terminal).length(160.0).min(80.0).collapsible(true))
       .mount(ctx),
   ))
   .pane(SplitterPane::new(outline).share(0.2).min(100.0))
@@ -3409,18 +3423,19 @@ Splitter::horizontal()
   .mount(ctx);
 
 // The board's Resizable: a grip on each divider, in a box of its own.
-Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
+Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 ```
 
 | Builder | |
 | --- | --- |
-| `Splitter::horizontal()`, `vertical()`, `new(orientation)` | Panes side by side, or one over the other |
+| `Splitter::new()`, `orientation(Orientation)` | Panes side by side (`Horizontal`, the default), or one over the other (`Vertical`). `SplitterOrientation` is a name of `ui::Orientation` |
 | `pane(SplitterPane)`, `panes(..)` | A pane after the others, with a divider before it |
 | `SplitterPane::new(content)` | A pane holding `content`, laid out in its whole width from its top: a height of `Dimension::Pct(100.0)` fills it |
-| `SplitterPane::size(px)`, `share(0..1)` | How large it is to begin with: pixels it keeps as the splitter grows and shrinks, or a share it keeps. A pane with neither takes the rest; where all have one, the last does |
+| `SplitterPane::length(px)`, `share(0..1)` | How large it is to begin with: pixels it keeps as the splitter grows and shrinks, or a share it keeps. A pane with neither takes the rest; where all have one, the last does |
 | `SplitterPane::min(px)`, `max(px)` | The least and the most it is |
 | `SplitterPane::collapsible(bool)` | It closes when a divider is dragged under half its least size, and opens by a drag back, a double press on the divider or Enter. The pane that takes the rest does not close |
-| `SplitterPane::label(&str)`, `key(..)` | What it is called: the divider after it is called so to tooling |
+| `SplitterPane::label(&str)`, `id(..)`, `key(..)` | What it is called: the divider after it is called so to tooling. The id of the pane's element, and what tells it apart where panes come and go |
+| `SplitterPane::disabled(bool)` | It keeps its size: no divider beside it moves it, by the pointer or the keys, and it does not close |
 | `sizes(Signal<Vec<f32>>)` | The sizes of the panes, the app's: pixels along the splitter as a divider last left them, 0 for a closed pane, written as a divider moves and once it is first laid out |
 | `on_resize(handler)` | Called with the sizes each time a divider moves: while it is dragged, and for each key |
 | `on_resize_end(handler)` | Called with the sizes once a divider has moved: let go after a drag, or moved by a key, a double press or Enter |
@@ -3436,7 +3451,7 @@ Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
 - The panes say what gives way when the window grows or shrinks: one of pixels keeps them, one of a share keeps its share, and the pane given no size takes the rest. No open pane is made smaller than its least size while there is room: where the rest would be, the panes nearest it give way down to theirs.
 - Converted into an element, a splitter keeps its sizes while what holds it does not render again, unless it is given `sizes`; mounted, it keeps them, and an app that sets `sizes` from outside (to restore a layout) sees the panes take them. Pixels set from a saved layout are the pane's pixels, and a pane of a share takes the share its pixels were of the room they were saved in.
 - A drag renders nothing again while it moves: the panes are resized by sizes their element refs are given (`ElementRefMut::set_size`), and what is in them is only laid out again at the next pass. Nor does letting it go: tooling reads where it stands from the divider at once (`ElementRefMut::describe`).
-- Parts: `SplitterPart::Root`, `Pane`, `Handle` (the room around a divider's line that takes the pointer and the focus), `Line`, `Bar` (the wider line under the pointer, dragged and focused), `Grip`, `GripIcon`. States: `SplitterState::Vertical`, `Framed`, `Disabled`.
+- Parts: `SplitterPart::Root`, `Pane`, `Handle` (the room around a divider's line that takes the pointer and the focus), `Line`, `Bar` (the wider line under the pointer, dragged and focused), `Grip`, `GripIcon`. States: `SplitterState::Horizontal` or `Vertical`, `Framed`, `Disabled`.
 - In the design a divider is a line of 1 in the `Border` color; under the pointer and focused from the keyboard it is 3 wide in `Ring`, and dragged in `Primary`. The room that takes the pointer is 12 across the line, over the edges of the panes beside it. The grip is 12 by 20 (20 by 12 across a vertical splitter), round by the small radius, in `Border`, with a grip icon of 10 in `Foreground`. Framed, the splitter has the `Background` fill, an edge of 1 in `Border` and the large radius.
 - To what reads the tree a divider is a `separator` that can be focused, with `a11y_orientation` (that of its line), `a11y_valuenow` (the pixels of the pane before it), `a11y_valuemin`, `a11y_valuemax` (where it has a most) and the name of the pane before it, or the splitter's `label`. `a11y_valuenow` follows the divider as it is dragged and moved by the keys.
 - Splitters nest, one orientation in the other: a pane holds a splitter of its own.

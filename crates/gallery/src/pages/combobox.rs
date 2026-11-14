@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Combobox, ComboboxSize, ComboboxState, Field, Input, Interaction},
+  ui::{Combobox, ComboboxSize, ComboboxState, Field, Input, Interaction, Orientation},
 };
 
 use crate::{
@@ -398,7 +398,9 @@ impl Component for ComboboxPage {
     let form = Column::new()
       .width(420.0)
       .spacing(16.0)
-      .child(Field::new("Display name", Input::new(self.name.clone()).full_width(true)).horizontal(true))
+      .child(
+        Field::new("Display name", Input::new(self.name.clone()).full_width(true)).orientation(Orientation::Horizontal),
+      )
       .child(
         Field::new(
           "Editor",
@@ -413,7 +415,7 @@ impl Component for ComboboxPage {
           )
           .full_width(true),
         )
-        .horizontal(true),
+        .orientation(Orientation::Horizontal),
       );
 
     let rows = [
@@ -727,13 +729,13 @@ impl Component for ComboboxPage {
           self.frame.demo(
             7,
             form,
-            "Field::new(\"Editor\", combobox).horizontal(true)",
+            "Field::new(\"Editor\", combobox).orientation(Orientation::Horizontal)",
             &[
               "// name, editor: Signal<String>",
               "Column::new()",
               "    .width(420.0)",
               "    .spacing(16.0)",
-              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).horizontal(true))",
+              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).orientation(Orientation::Horizontal))",
               "    .child(",
               "        Field::new(",
               "            \"Editor\",",
@@ -745,7 +747,7 @@ impl Component for ComboboxPage {
               "            ])",
               "            .full_width(true),",
               "        )",
-              "        .horizontal(true),",
+              "        .orientation(Orientation::Horizontal),",
               "    )",
             ],
           ),

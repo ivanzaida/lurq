@@ -6,6 +6,7 @@ use super::{
   Button, ButtonGroup, Fab, Link, Toggle, names,
   part_style::{Length, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  shared::Orientation,
   text_box::Judgment,
   theme::{Themed, current_theme},
 };
@@ -155,6 +156,8 @@ pub enum FieldState {
   Valid,
   /// Its label is beside its control, not above it.
   Horizontal,
+  /// Its label is above its control.
+  Vertical,
   /// It is as wide as what holds it.
   FullWidth,
   /// It takes no input: its control is disabled.
@@ -166,6 +169,7 @@ names!(FieldState {
   Warning => "warning",
   Valid => "valid",
   Horizontal => "horizontal",
+  Vertical => "vertical",
   FullWidth => "full_width",
   Disabled => "disabled",
 });
@@ -204,7 +208,7 @@ pub struct Field {
   disabled: bool,
   required: bool,
   optional: Option<Arc<str>>,
-  horizontal: bool,
+  orientation: Orientation,
   full_width: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -227,7 +231,7 @@ impl Field {
       disabled: false,
       required: false,
       optional: None,
-      horizontal: false,
+      orientation: Orientation::Vertical,
       full_width: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -290,9 +294,10 @@ impl Field {
     self
   }
 
-  /// Whether the label is beside the control, in a column of its own, and not above it.
-  pub fn horizontal(mut self, horizontal: bool) -> Self {
-    self.horizontal = horizontal;
+  /// Where the label is: above the control (`Vertical`, the default), or beside it in a column of its own
+  /// (`Horizontal`).
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
     self
   }
 
@@ -353,7 +358,8 @@ impl Field {
     .state(FieldState::Invalid, invalid)
     .state(FieldState::Warning, warning)
     .state(FieldState::Valid, valid)
-    .state(FieldState::Horizontal, self.horizontal)
+    .state(FieldState::Horizontal, self.orientation == Orientation::Horizontal)
+    .state(FieldState::Vertical, self.orientation == Orientation::Vertical)
     .state(FieldState::FullWidth, self.full_width)
     .state(FieldState::Disabled, self.disabled);
     let judgment = Judgment::of(invalid, warning, valid);
@@ -376,7 +382,7 @@ impl Field {
       description,
       required: self.required,
       optional: self.optional.filter(|_| !self.required),
-      horizontal: self.horizontal,
+      orientation: self.orientation,
       recipe: theme.resolve::<Field>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -409,7 +415,8 @@ pub struct FieldView {
   pub required: bool,
   /// The words of the mark of a field that may be left empty, where it has the mark.
   pub optional: Option<Arc<str>>,
-  pub horizontal: bool,
+  /// Where the label is: above the control, or beside it.
+  pub orientation: Orientation,
   /// The style of each part of this field.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -484,7 +491,7 @@ impl FieldView {
     // The room of the label and of what is under it: the field's width, or beside the label what the label's
     // column and the gap leave of it.
     let room = least.and_then(|width| {
-      if !self.horizontal {
+      if self.orientation != Orientation::Horizontal {
         return Some(width);
       }
       let label_width = px(self.part(FieldPart::Label).rest().width)?;
@@ -497,7 +504,7 @@ impl FieldView {
     });
     let (label, description) = match room {
       Some(width) => (
-        if self.horizontal {
+        if self.orientation == Orientation::Horizontal {
           label
         } else {
           label.width(Dimension::Px(width))
@@ -509,8 +516,7 @@ impl FieldView {
     // The control keeps its own width: a row the width of the field holds it. The row carries a ref made anew in
     // each build, and a key, so that the new ref does not make it another node to the engine and its control
     // keeps the focus and what is typed in it.
-    let beside = self
-      .horizontal
+    let beside = (self.orientation == Orientation::Horizontal)
       .then(|| self.part(FieldPart::Label).rest().height)
       .flatten()
       .and_then(|height| height.resolve(self.theme()));
@@ -535,7 +541,7 @@ impl FieldView {
         node.into()
       }};
     }
-    if self.horizontal {
+    if self.orientation == Orientation::Horizontal {
       let mut body = Column::new().align_items(Alignment::Stretch).part(&body_part);
       let mut root = Row::new().align_items(Alignment::Start).part(&root_part);
       match (least, room) {
