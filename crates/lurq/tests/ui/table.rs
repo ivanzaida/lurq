@@ -591,6 +591,98 @@ fn columns_pinned_at_both_ends_stay_while_the_ones_between_scroll_under_them() {
   );
 }
 
+/// A table 240 high of thirty rows whose columns are `wide` across, the size pinned at the end.
+fn pinned_at_the_end(wide: f32) -> Stage {
+  let rows = many(30);
+  wide_stage(move || {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(wide)
+        .text(|row: &Crate| row.name.to_owned()),
+      TableColumn::new("status", "Status")
+        .width(120.0)
+        .text(|row: &Crate| row.status.to_owned()),
+      TableColumn::new("size", "Size")
+        .width(90.0)
+        .pin(ColumnPin::End)
+        .text(|row: &Crate| format!("{} KB", row.size)),
+    ];
+    Table::new_shared(columns, rows.clone()).id("t").height(240.0).into()
+  })
+}
+
+fn wide_stage(scene: impl Fn() -> Element + Send + Sync + 'static) -> Stage {
+  wide(scene)
+}
+
+#[test]
+fn no_thumb_lies_over_a_column_pinned_at_the_end() {
+  let mut stage = pinned_at_the_end(700.0);
+  let (x, y, width, height) = stage.bounds("t");
+  // The size's column stays at the end: 90, and the row's padding of 16 it holds, before the box's edge.
+  let pinned_start = x + width - 1.0 - 16.0 - 90.0;
+  for scrolled in [false, true] {
+    if scrolled {
+      stage
+        .tree
+        .scroll(x + 200.0, y + 120.0, -10_000.0, -10_000.0, ScrollPhase::Scroll);
+      stage.pass();
+    }
+    let bars = thumbs(&stage, (x, y, width, height));
+    assert_eq!(bars.len(), 2, "both bars: {}", bars.len());
+    for bar in &bars {
+      assert!(
+        bar.x + bar.width <= pinned_start + 0.5,
+        "a thumb over the pinned column (scrolled {scrolled}): ends at {}",
+        bar.x + bar.width - x
+      );
+    }
+  }
+}
+
+#[test]
+fn the_bar_across_has_a_strip_of_its_own_under_the_rows_while_they_are_wider_than_the_view() {
+  let mut stage = pinned_at_the_end(700.0);
+  let (x, y, width, height) = stage.bounds("t");
+  stage
+    .tree
+    .scroll(x + 200.0, y + 120.0, 0.0, -10_000.0, ScrollPhase::Scroll);
+  stage.pass();
+  let across = thumbs(&stage, (x, y, width, height))
+    .into_iter()
+    .find(|quad| quad.width > quad.height)
+    .expect("the bar across");
+  let (_, last_y, _, last_height) = stage.bounds("t-row-29");
+  assert!(
+    last_y + last_height <= across.y + 0.5,
+    "the last row ends over the bar: {} against {}",
+    last_y + last_height - y,
+    across.y - y
+  );
+}
+
+#[test]
+fn a_table_whose_columns_fit_has_no_strip_under_its_rows() {
+  let mut stage = pinned_at_the_end(200.0);
+  let (x, y, width, height) = stage.bounds("t");
+  stage
+    .tree
+    .scroll(x + 200.0, y + 120.0, 0.0, -10_000.0, ScrollPhase::Scroll);
+  stage.pass();
+  assert!(
+    thumbs(&stage, (x, y, width, height))
+      .iter()
+      .all(|quad| quad.height > quad.width),
+    "no bar across"
+  );
+  let (_, last_y, _, last_height) = stage.bounds("t-row-29");
+  assert!(
+    (last_y + last_height - (y + height - 1.0)).abs() < 1.01,
+    "the last row at the box's bottom: {}",
+    y + height - (last_y + last_height)
+  );
+}
+
 #[test]
 fn the_bars_run_beside_the_rows_and_not_over_the_header_or_a_first_column_that_stays() {
   let rows = many(30);

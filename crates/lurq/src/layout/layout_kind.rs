@@ -248,6 +248,12 @@ struct ScrollStateInner {
   /// for a container whose bars keep clear of it (`scrollbars_clear_of_sticky`). Nothing for one that does not.
   bar_clear_x: f32,
   bar_clear_y: f32,
+  /// The same at the right and the bottom edges: what sticks there, which the bars end before.
+  bar_clear_end_x: f32,
+  bar_clear_end_y: f32,
+  /// Whether the bar across has a lane of its own under the content now (`reserve_bar_across`): the viewport
+  /// ends above it, so the bar down needs no room of the corner kept from it.
+  reserved_across: bool,
   /// Which ways the container scrolls, told at each layout: where it scrolls both and both bars are there, each
   /// track ends before the other's lane, so that the two keep out of the corner where they meet.
   scrolls: (bool, bool),
@@ -331,12 +337,26 @@ impl ScrollState {
 /// where the container asks, clear of what sticks at the start: it runs beside what scrolls, and its thumb is the
 /// share of that which shows. `None` where there is no track.
 fn bar_track(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle) -> Option<(f32, f32, f32)> {
-  let (viewport, content, clear) = match axis {
-    ScrollAxis::Horizontal => (inner.viewport_width, inner.content_width, inner.bar_clear_x),
-    ScrollAxis::Vertical => (inner.viewport_height, inner.content_height, inner.bar_clear_y),
+  let (viewport, content, clear, clear_end) = match axis {
+    ScrollAxis::Horizontal => (
+      inner.viewport_width,
+      inner.content_width,
+      inner.bar_clear_x,
+      inner.bar_clear_end_x,
+    ),
+    ScrollAxis::Vertical => (
+      inner.viewport_height,
+      inner.content_height,
+      inner.bar_clear_y,
+      inner.bar_clear_end_y,
+    ),
   };
   // What sticks never takes the whole viewport from the bar.
-  let clear = if clear < viewport { clear } else { 0.0 };
+  let (clear, clear_end) = if clear + clear_end < viewport {
+    (clear, clear_end)
+  } else {
+    (0.0, 0.0)
+  };
   // Where the bar across is there too, the track ends before its lane: the corner is no bar's.
   let (other_scrolls, other_content, other_viewport) = match axis {
     ScrollAxis::Horizontal => (inner.scrolls.1, inner.content_height, inner.viewport_height),
@@ -347,20 +367,36 @@ fn bar_track(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle)
     ScrollBarVisibility::Always => true,
     _ => other_content > other_viewport,
   };
-  let corner = if other_scrolls && other_shows {
+  // A bar across in a lane of its own is under the viewport already: the bar down ends where the viewport does.
+  let other_reserved = axis == ScrollAxis::Vertical && inner.reserved_across;
+  let corner = if other_scrolls && other_shows && !other_reserved {
     style.width + style.resolved_edge_inset()
   } else {
     0.0
   };
   let start = clear + style.resolved_end_inset();
-  let track = viewport - clear - style.resolved_end_inset() * 2.0 - corner;
+  let track = viewport - clear - clear_end - style.resolved_end_inset() * 2.0 - corner;
   if track <= 0.0 {
     return None;
   }
-  let ratio = (viewport - clear) / (content - clear).max(1.0);
+  let ratio = (viewport - clear - clear_end) / (content - clear - clear_end).max(1.0);
   let travel = thumb_travel(track, style);
   let thumb = (travel * ratio).max(style.min_thumb_length).min(travel);
   Some((start, track, thumb))
+}
+
+/// How far in from the far edge of its container the bar of `axis` stands: before what sticks at the right (for
+/// the bar down) or the bottom (for the bar across), where its container keeps its bars clear of that. A bar in a
+/// lane of its own stands in it, past the viewport and what sticks in it.
+fn bar_end_shift(inner: &ScrollStateInner, axis: ScrollAxis, style: &ScrollBarStyle) -> f32 {
+  let reserved = style.placement == crate::layout::scrollbar::ScrollBarPlacement::Reserved;
+  match axis {
+    ScrollAxis::Vertical if !reserved && inner.bar_clear_end_x < inner.viewport_width => inner.bar_clear_end_x,
+    ScrollAxis::Horizontal if !reserved && !inner.reserved_across && inner.bar_clear_end_y < inner.viewport_height => {
+      inner.bar_clear_end_y
+    }
+    _ => 0.0,
+  }
 }
 
 /// How far along a track of `track` its thumb may go: the track less the thumb's inset at each end. The thumb's
@@ -407,6 +443,9 @@ impl ScrollState {
         bar_clear_x: 0.0,
         scrolls: (false, false),
         bar_clear_y: 0.0,
+        bar_clear_end_x: 0.0,
+        bar_clear_end_y: 0.0,
+        reserved_across: false,
         layout_viewport_y: 0.0,
         pass_start: None,
         thumb_hovered: false,
@@ -1019,7 +1058,10 @@ impl ScrollState {
 
   pub fn thumb_rect(&self, style: &crate::layout::scrollbar::ScrollBarStyle) -> (f32, f32, f32, f32) {
     let inner = self.inner.lock().unwrap();
-    let track_x = inner.viewport_abs_x + inner.viewport_width - style.width - style.resolved_edge_inset();
+    let track_x = inner.viewport_abs_x + inner.viewport_width
+      - style.width
+      - style.resolved_edge_inset()
+      - bar_end_shift(&inner, ScrollAxis::Vertical, style);
     let (start, track_height, thumb_height) =
       bar_track(&inner, ScrollAxis::Vertical, style).unwrap_or((style.resolved_end_inset(), 0.0, 0.0));
     let track_y = inner.viewport_abs_y + start;
@@ -1070,7 +1112,10 @@ impl ScrollState {
       ScrollAxis::Horizontal => {
         let (start, track_width, thumb_width) = bar_track(&inner, ScrollAxis::Horizontal, style)?;
         let track_x = inner.viewport_abs_x + start;
-        let track_y = inner.viewport_abs_y + inner.container_height - style.width - style.resolved_edge_inset();
+        let track_y = inner.viewport_abs_y + inner.container_height
+          - style.width
+          - style.resolved_edge_inset()
+          - bar_end_shift(&inner, ScrollAxis::Horizontal, style);
         let track_height = style.width;
         if track_height <= 0.0 {
           return None;
@@ -1099,7 +1144,10 @@ impl ScrollState {
       }
       ScrollAxis::Vertical => {
         let (start, track_height, thumb_height) = bar_track(&inner, ScrollAxis::Vertical, style)?;
-        let track_x = inner.viewport_abs_x + inner.container_width - style.width - style.resolved_edge_inset();
+        let track_x = inner.viewport_abs_x + inner.container_width
+          - style.width
+          - style.resolved_edge_inset()
+          - bar_end_shift(&inner, ScrollAxis::Vertical, style);
         let track_y = inner.viewport_abs_y + start;
         let track_width = style.width;
         if track_width <= 0.0 {
@@ -1186,15 +1234,22 @@ impl ScrollState {
   /// How far in from the viewport's left and top edges its bars start: the reach of what sticks at those
   /// edges, measured at each layout of a container whose bars keep clear of it, and nothing for one whose bars
   /// do not.
+  /// Tells the state whether its bar across has a lane of its own under the content now.
+  pub(crate) fn set_reserved_across(&self, reserved: bool) {
+    self.inner.lock().unwrap().reserved_across = reserved;
+  }
+
   /// Tells the state which ways its container scrolls, across and down.
   pub(crate) fn set_scrolls(&self, across: bool, down: bool) {
     self.inner.lock().unwrap().scrolls = (across, down);
   }
 
-  pub(crate) fn set_bar_clearance(&self, x: f32, y: f32) {
+  pub(crate) fn set_bar_clearance(&self, x: f32, y: f32, end_x: f32, end_y: f32) {
     let mut inner = self.inner.lock().unwrap();
     inner.bar_clear_x = x.max(0.0);
     inner.bar_clear_y = y.max(0.0);
+    inner.bar_clear_end_x = end_x.max(0.0);
+    inner.bar_clear_end_y = end_y.max(0.0);
   }
 
   /// Record one measurement of the scroll container. A layout pass can

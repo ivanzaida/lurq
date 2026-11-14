@@ -2039,6 +2039,9 @@ impl TableView {
     let mut scroll = ScrollBoth::new(content)
       .fill_width(true)
       .scrollbars_clear_of_sticky(true)
+      // The bar across stands in a strip of its own under the rows while they are wider than the view: no row
+      // is ever under it, and a table whose columns fit has no strip.
+      .reserve_bar_across(true)
       .part(&self.part(TablePart::Scroll));
     if let Some(empty) = empty {
       let mut root = self.root().child(scroll.flex_full(0.0, 1.0, None));
