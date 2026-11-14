@@ -176,6 +176,8 @@ pub struct SheetProps {
   scroll: Option<ScrollState>,
   /// What makes the content, for a sheet whose content is made in it ([`Sheet::mount_with`]).
   content: Option<SheetContent>,
+  /// What a person putting the sheet away calls, in order: see [`SheetProps::on_dismiss`].
+  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl PartialEq for SheetProps {
@@ -203,6 +205,12 @@ impl PartialEq for SheetProps {
         (Some(a), Some(b)) => Arc::ptr_eq(a, b),
         _ => false,
       }
+      && self.on_dismiss.len() == other.on_dismiss.len()
+      && self
+        .on_dismiss
+        .iter()
+        .zip(&other.on_dismiss)
+        .all(|(a, b)| Arc::ptr_eq(a, b))
   }
 }
 
@@ -225,6 +233,7 @@ impl SheetProps {
       dress: None,
       scroll: None,
       content: None,
+      on_dismiss: Vec::new(),
     }
   }
 
@@ -274,6 +283,14 @@ impl SheetProps {
   /// shadow. The sheet still says how much of the backdrop shows and where the panel is.
   pub fn dress(mut self, dress: impl Fn(SheetNode, Column) -> Column + Send + Sync + 'static) -> Self {
     self.dress = Some(Arc::new(dress));
+    self
+  }
+
+  /// What runs after a person put the sheet away, its signal set to `false` first: a finger dragging it down
+  /// and away, a tap beside it, Escape wherever the focus is. Not when the app clears the signal. A second
+  /// handler is called after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(handler));
     self
   }
 
@@ -625,10 +642,13 @@ impl Component for Sheet {
       .opacity(style.dim * up)
       .transition(Transition::opacity().duration(pace).easing(curve))
       .on_click({
-        let (open, dismissable) = (props.open.clone(), props.dismissable);
+        let (open, dismissable, told) = (props.open.clone(), props.dismissable, props.on_dismiss.clone());
         move |_| {
           if dismissable {
             open.set(false);
+            for handler in &told {
+              handler();
+            }
           }
         }
       });
@@ -691,6 +711,7 @@ impl Component for Sheet {
         let (state, drag, changed) = (self.state.clone(), self.drag.clone(), self.changed.clone());
         let (open, detent, settle) = (props.open.clone(), detent.clone(), self.settle.clone());
         let (told, found, dismissable) = (props.scroll.clone(), self.scroll.clone(), props.dismissable);
+        let dismissed = props.on_dismiss.clone();
         move |event: PanEvent| {
           let mut state = state.lock();
           match event.phase {
@@ -764,7 +785,12 @@ impl Component for Sheet {
               match goes.0 {
                 Some(index) if index != at => detent.set(index),
                 Some(_) => changed.update(|version| *version += 1),
-                None => open.set(false),
+                None => {
+                  open.set(false);
+                  for handler in &dismissed {
+                    handler();
+                  }
+                }
               }
             }
           }
@@ -781,7 +807,17 @@ impl Component for Sheet {
       .target(Root)
       .takes_focus(props.takes_focus);
     modal = if props.escape.unwrap_or(props.dismissable) {
-      modal.dismisses(props.open.clone())
+      let told = props.on_dismiss.clone();
+      let modal = modal.dismisses(props.open.clone());
+      if told.is_empty() {
+        modal
+      } else {
+        modal.on_dismiss(move || {
+          for handler in &told {
+            handler();
+          }
+        })
+      }
     } else {
       modal.dismiss_on_escape(false)
     };

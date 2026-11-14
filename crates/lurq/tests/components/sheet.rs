@@ -1,6 +1,12 @@
 //! A `Sheet`: content that comes up from the bottom of the window, stands at its heights and goes down.
 
-use std::time::{Duration, Instant};
+use std::{
+  sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  },
+  time::{Duration, Instant},
+};
 
 use lurq::{
   app::{
@@ -27,6 +33,8 @@ struct Setup {
   detent: Signal<usize>,
   detents: Vec<SheetDetent>,
   dismissable: bool,
+  /// How many times a person put the sheet away.
+  dismissed: Arc<AtomicUsize>,
 }
 
 impl PartialEq for Setup {
@@ -50,12 +58,16 @@ impl Component for Page {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let setup = ctx.props::<Setup>().clone();
+    let dismissed = setup.dismissed.clone();
     let sheet = Sheet::mount(
       ctx,
       SheetProps::new(setup.open)
         .detents(setup.detents)
         .detent(setup.detent)
         .dismissable(setup.dismissable)
+        .on_dismiss(move || {
+          dismissed.fetch_add(1, Ordering::SeqCst);
+        })
         .style(SheetStyle::new().background(SHEET)),
       Column::new()
         .child(Text::new("in the sheet"))
@@ -89,12 +101,13 @@ struct Stage {
   tree: Tree,
   open: Signal<bool>,
   detent: Signal<usize>,
+  dismissed: Arc<AtomicUsize>,
   ahead: u64,
 }
 
 impl Stage {
   fn new(detents: &[SheetDetent], dismissable: bool) -> Self {
-    let (open, detent) = (Signal::new(false), Signal::new(0));
+    let (open, detent, dismissed) = (Signal::new(false), Signal::new(0), Arc::new(AtomicUsize::new(0)));
     let mut app = App::new();
     let mut tree = Tree::new();
     tree.resize(400, 800);
@@ -105,6 +118,7 @@ impl Stage {
         detent: detent.clone(),
         detents: detents.to_vec(),
         dismissable,
+        dismissed: dismissed.clone(),
       },
     );
     run_pass(&mut tree);
@@ -112,6 +126,7 @@ impl Stage {
       tree,
       open,
       detent,
+      dismissed,
       ahead: 0,
     }
   }
@@ -406,6 +421,7 @@ fn inside_a_sheet_that_makes_its_content_there_is_nothing_of_the_window_to_keep_
       detent: Signal::new(0),
       detents: vec![SheetDetent::Medium],
       dismissable: true,
+      dismissed: Arc::new(AtomicUsize::new(0)),
     },
   );
   for _ in 0..3 {
@@ -420,4 +436,40 @@ fn inside_a_sheet_that_makes_its_content_there_is_nothing_of_the_window_to_keep_
   };
   assert!(shows(&mut tree, "outside 62 34"));
   assert!(shows(&mut tree, "inside 0 0"));
+}
+
+#[test]
+fn a_person_putting_the_sheet_away_is_told_and_the_app_closing_it_is_not() {
+  let mut stage = Stage::new(&[SheetDetent::Medium], true);
+  let told = |stage: &Stage| stage.dismissed.load(Ordering::SeqCst);
+  // A finger drags it down and away.
+  stage.open.set(true);
+  stage.settle();
+  stage.drag(300.0);
+  assert!(!stage.open.get_untracked());
+  assert_eq!(told(&stage), 1, "the drag");
+  // A tap beside it.
+  stage.open.set(true);
+  stage.settle();
+  pointer_click(&mut stage.tree, 200.0, 100.0, MouseButton::Left);
+  stage.settle();
+  assert!(!stage.open.get_untracked());
+  assert_eq!(told(&stage), 2, "the tap");
+  // Escape, with the focus nowhere in it.
+  stage.open.set(true);
+  stage.settle();
+  stage
+    .tree
+    .key_down("Escape".to_owned(), "Escape".to_owned(), false, false, false);
+  stage.settle();
+  assert!(!stage.open.get_untracked());
+  assert_eq!(told(&stage), 3, "Escape");
+  // A drag that lets it go back, and the app clearing it, are no dismissals.
+  stage.open.set(true);
+  stage.settle();
+  stage.drag(80.0);
+  assert!(stage.open.get_untracked());
+  stage.open.set(false);
+  stage.settle();
+  assert_eq!(told(&stage), 3);
 }

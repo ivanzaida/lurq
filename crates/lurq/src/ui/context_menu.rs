@@ -471,10 +471,6 @@ impl ContextMenuView {
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
-    let close: Closer = {
-      let open = self.open.clone();
-      Arc::new(move || open.set(false))
-    };
     let dismissed = {
       let handlers = self.on_dismiss.clone();
       move || {
@@ -482,6 +478,13 @@ impl ContextMenuView {
           handler();
         }
       }
+    };
+    let close = Closer {
+      close: {
+        let open = self.open.clone();
+        Arc::new(move || open.set(false))
+      },
+      dismissed: Arc::new(dismissed.clone()),
     };
     for entry in std::mem::take(&mut self.entries) {
       panel = match entry {

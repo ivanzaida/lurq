@@ -612,3 +612,28 @@ fn a_forced_focus_draws_the_ring_around_the_close_button() {
   assert!(!ring(None));
   assert!(ring(Some(Interaction::FocusVisible)));
 }
+
+#[test]
+fn escape_with_the_focus_outside_the_dialog_runs_on_dismiss_and_the_app_closing_it_does_not() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let open = Signal::new(false);
+  let (held, told) = (open.clone(), heard.clone());
+  let mut stage = stage(move |_| {
+    let told = told.clone();
+    window(delete_workspace(held.clone()).on_dismiss(move || told.lock().unwrap().push("dismissed")))
+  });
+  open.set(true);
+  stage.pass();
+  stage.tree.get_element_by_id_mut("cancel").unwrap().blur();
+  stage.pass();
+  assert!(stage.tree.focused_element().is_none());
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*heard.lock().unwrap(), ["dismissed"]);
+  // The app closing it tells nothing.
+  open.set(true);
+  stage.pass();
+  open.set(false);
+  stage.pass();
+  assert_eq!(heard.lock().unwrap().len(), 1);
+}
