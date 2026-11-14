@@ -91,6 +91,7 @@ mod tokens;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod window_tabs;
 mod year_picker;
 
 /// A group of the side bar.
@@ -874,6 +875,14 @@ pub const PAGES: &[Page] = &[
     about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse horizontal vertical sizes on_resize on_resize_end step large_step framed disabled plitter ane size share min max collapsible label",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),
+  },
+  Page {
+    path: "/window-tabs",
+    name: "Window Tabs",
+    icon: Some("window"),
+    about: "window tabs tab strip title bar titlebar browser editor files open close add new tab plus unsaved dot reorder drag detach tear off move ctrl tab ctrl w shortcuts keyboard WindowTab WindowTabs on_change on_close on_add on_reorder on_detach close_button add_label close_label disabled label mount indow abs",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<window_tabs::WindowTabsPage>(()),
   },
 ];
 

@@ -116,6 +116,7 @@ mod token_list;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod window_tabs;
 mod year_picker;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
@@ -375,6 +376,9 @@ pub use tooltip::{
 pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
   TreeViewView,
+};
+pub use window_tabs::{
+  WindowTab, WindowTabEntry, WindowTabs, WindowTabsPart, WindowTabsRenderer, WindowTabsState, WindowTabsView,
 };
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
