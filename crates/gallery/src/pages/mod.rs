@@ -20,6 +20,7 @@ mod checkbox_card;
 mod color_field;
 mod color_picker;
 mod combobox;
+mod command_bar;
 mod command_palette;
 mod context_menu;
 mod data_grid;
@@ -35,6 +36,7 @@ mod family;
 mod family_play;
 mod fieldset;
 mod file_upload;
+mod find_bar;
 mod hover_card;
 mod icons;
 mod input;
@@ -79,11 +81,11 @@ mod switch;
 mod table;
 mod tabs;
 mod tag;
-mod timeline;
 mod teaching_tip;
 mod textarea;
 mod time_field;
 mod time_picker;
+mod timeline;
 mod toast;
 mod toggletip;
 mod token_input;
@@ -874,6 +876,22 @@ pub const PAGES: &[Page] = &[
     about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse horizontal vertical sizes on_resize on_resize_end step large_step framed disabled plitter ane size share min max collapsible label",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),
+  },
+  Page {
+    path: "/command-bar",
+    name: "Command Bar",
+    icon: Some("layers"),
+    about: "command bar commandbar ribbon tabs groups group label clipboard format insert view paste cut copy large small stack toggle on secondary more chevron overflow menu toolbar editor file manager window CommandBarTab CommandBarCommand on_change on_select controlled disabled label more_label",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<command_bar::CommandBarPage>(()),
+  },
+  Page {
+    path: "/find-bar",
+    name: "Find Bar",
+    icon: Some("search"),
+    about: "find bar findbar search find in page replace replace all match case whole word regex regular expression count matches next previous f3 enter escape ctrl+f query on_query on_next on_previous on_replace on_replace_all on_dismiss return_focus open count_text",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<find_bar::FindBarPage>(()),
   },
 ];
 
