@@ -432,7 +432,7 @@ zero-size rect at its place in the line, where the next child starts. Devtools a
 What gives way whole only accumulates as a line narrows: a child dropped at one width is dropped at every narrower
 one. A dropped child frees its whole size and spacing, which can be more than the line needed; the rest goes back to
 children that only trimmed (labels, spacers), never to a child that dropped, so the line stays filled without bringing
-anything back. The same holds one line down. A shrinking item whose own row holds droppable children (a `Drop` or
+anything back. Where the line has a growing child (a spacer between two groups), what a drop freed beyond the need is that child's, as free room is: the group after the spacer stays at the end of the line. The same holds one line down. A shrinking item whose own row holds droppable children (a `Drop` or
 `shrink_drop_below` child, or such an item nested in it) keeps its natural size until its line needs it to give way.
 It then collapses, after the children of its order that drop, as a whole step like a drop: its row drops every one of
 them (and collapses every such item in it) at once, so it holds its padding, its other children at their natural size

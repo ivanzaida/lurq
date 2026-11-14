@@ -43,6 +43,7 @@ mod date_field;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
+mod document_tabs;
 mod drawer;
 mod drop_zone;
 mod empty_state;
@@ -93,6 +94,7 @@ mod skeleton;
 mod slider;
 mod spinner;
 mod splitter;
+mod status_bar;
 mod steps;
 mod swatch_picker;
 mod switch;
@@ -194,6 +196,10 @@ pub use date_picker::{
 };
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
+pub use document_tabs::{
+  DocumentTab, DocumentTabEntry, DocumentTabs, DocumentTabsPart, DocumentTabsRenderer, DocumentTabsState,
+  DocumentTabsView,
+};
 pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use drop_zone::{
   DropZone, DropZonePart, DropZoneRenderer, DropZoneState, DropZoneView, RejectReason, RejectedFile,
@@ -327,6 +333,10 @@ pub use spinner::{
 };
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
+};
+pub use status_bar::{
+  StatusBar, StatusBarPart, StatusBarRenderer, StatusBarState, StatusBarVariant, StatusBarView, StatusEntry, StatusItem,
+  StatusItemVariant, StatusRegion,
 };
 pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView};
 pub use swatch_picker::{

@@ -56,6 +56,9 @@ struct Stop {
   /// The stop the stop is in: a button that has stops inside it (`stops_inside`), a row of a table holding its
   /// own buttons.
   owner: Option<NodeId>,
+  /// The depth of the one-stop focus group the stop is out of, where it is in a `FocusGroup::none()` in that group:
+  /// the new tab button beside the tabs. That group keeps it as a stop of its own.
+  apart: Option<usize>,
 }
 
 struct Walk<'a> {
@@ -74,6 +77,8 @@ struct Walk<'a> {
   pending: Vec<&'a Node>,
   /// The stop the walk is in, where it is in a button that has stops inside it.
   owner: Option<NodeId>,
+  /// The depth of the one-stop focus group the walk is out of, in a `FocusGroup::none()` in it.
+  apart: Option<usize>,
   /// Where Tab goes on from while nothing has the focus.
   start: Option<StartPoint>,
   /// The orders `start` is at, where the walk met it: the first a stop has to have for Tab to go to it, and
@@ -212,6 +217,7 @@ fn next_stop<'a>(
     in_one_stop: 0,
     pending: Vec::new(),
     owner: None,
+    apart: None,
     start: if focused.is_none() { start } else { None },
     start_bounds: None,
   };
@@ -359,6 +365,7 @@ fn visit_node<'a>(
       entry: node.is_focus_entry(),
       autofocus: node.is_autofocus(),
       owner: walk.owner,
+      apart: walk.apart,
     });
     // A button's content is part of the button, not separate stops, unless the button says otherwise.
     if node.button_kind_value().is_some() && !node.has_stops_inside() {
@@ -375,10 +382,17 @@ fn visit_node<'a>(
   if one_stop {
     walk.in_one_stop += 1;
   }
+  // What is in a group of none inside a one-stop group is out of that group: its stops are its own.
+  let apart = walk.apart;
+  if walk.in_one_stop > 0 && node.focus_group_value().is_some_and(|group| group.is_none()) {
+    walk.apart = Some(walk.in_one_stop);
+  }
   for child in node.children() {
     collect_stops(child, dropped, focus_event_id, in_form, walk);
   }
+  walk.apart = apart;
   walk.owner = owner;
+  let depth = walk.in_one_stop;
   if one_stop {
     walk.in_one_stop -= 1;
   }
@@ -389,8 +403,8 @@ fn visit_node<'a>(
   if one_stop && walk.stops.len() > first_inside + 1 {
     let inside = &walk.stops[first_inside..];
     let is_inside = |id: NodeId| inside.iter().any(|stop| stop.target.input_id == id);
-    let kept = inside
-      .iter()
+    let ours = || inside.iter().filter(|stop| stop.apart != Some(depth));
+    let kept = ours()
       .find(|stop| walk.focused == Some(stop.target.input_id))
       .map(|stop| {
         stop
@@ -398,12 +412,21 @@ fn visit_node<'a>(
           .filter(|owner| is_inside(*owner))
           .unwrap_or(stop.target.input_id)
       })
-      .or_else(|| inside.iter().find(|stop| stop.entry).map(|stop| stop.target.input_id))
-      .unwrap_or(inside[0].target.input_id);
+      .or_else(|| ours().find(|stop| stop.entry).map(|stop| stop.target.input_id))
+      .or_else(|| ours().next().map(|stop| stop.target.input_id));
     let held: Vec<Stop> = walk
       .stops
       .drain(first_inside..)
-      .filter(|stop| stop.target.input_id == kept || stop.owner == Some(kept))
+      .filter(|stop| {
+        stop.apart == Some(depth) || kept.is_some_and(|kept| stop.target.input_id == kept || stop.owner == Some(kept))
+      })
+      .map(|mut stop| {
+        // Out of this group, it is in the groups around it as any stop is.
+        if stop.apart == Some(depth) {
+          stop.apart = None;
+        }
+        stop
+      })
       .collect();
     walk.stops.extend(held);
   }

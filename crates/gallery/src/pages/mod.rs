@@ -28,6 +28,7 @@ mod date_field;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
+mod document_tabs;
 mod drawer;
 mod drop_zone;
 mod empty_state;
@@ -73,6 +74,7 @@ mod skeleton;
 mod slider;
 mod spinner;
 mod splitter;
+mod status_bar;
 mod steps;
 mod swatch_picker;
 mod switch;
@@ -874,6 +876,22 @@ pub const PAGES: &[Page] = &[
     about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse horizontal vertical sizes on_resize on_resize_end step large_step framed disabled plitter ane size share min max collapsible label",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),
+  },
+  Page {
+    path: "/document-tabs",
+    name: "Document Tabs",
+    icon: Some("file-code"),
+    about: "document tabs editor files open documents tab bar close dirty unsaved pinned pin preview reorder drag move overflow more menu context menu new tab add middle click ctrl+w new optional controlled controlled_optional tab tabs on_change on_close on_reorder on_add on_keep context_menu label close_label add_label more_label disabled mount DocumentTab",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<document_tabs::DocumentTabsPage>(()),
+  },
+  Page {
+    path: "/status-bar",
+    name: "Status Bar",
+    icon: Some("pulse"),
+    about: "status bar statusbar window bottom branch errors warnings progress indexing line column encoding language notifications items leading trailing variant tone priority drops_first tooltip on_select icon icon_only label mount StatusItem StatusRegion",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<status_bar::StatusBarPage>(()),
   },
 ];
 

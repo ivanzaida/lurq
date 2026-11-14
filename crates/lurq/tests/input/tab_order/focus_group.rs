@@ -122,6 +122,51 @@ fn tab_stops_once_in_a_group_that_is_one_stop() {
 }
 
 #[test]
+fn what_is_in_a_group_of_none_in_a_one_stop_group_is_a_stop_of_its_own() {
+  // The tabs of a bar and the new tab button after them, in the one line.
+  let mut tree = headless(
+    Column::new()
+      .child(stop("before"))
+      .child(
+        Row::new()
+          .focus_group(FocusGroup::horizontal().one_stop(true))
+          .child(stop("one"))
+          .child(stop("two").focus_entry(true))
+          .child(Row::new().focus_group(FocusGroup::none()).child(stop("add"))),
+      )
+      .child(stop("after")),
+  );
+  tab(&mut tree);
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("two"), "the group's one stop");
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("add"), "then what is out of it");
+  key(&mut tree, "ArrowLeft");
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("add"),
+    "which the group's arrows do not move from"
+  );
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("after"));
+  shift_tab(&mut tree);
+  shift_tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("two"));
+  key(&mut tree, "ArrowRight");
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("one"),
+    "the arrows pass it by, round to the first"
+  );
+  tab(&mut tree);
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("add"),
+    "Tab goes on from where the focus is"
+  );
+}
+
+#[test]
 fn a_group_whose_choice_follows_its_focus_presses_what_the_focus_moves_to() {
   let pressed = Arc::new(Mutex::new(Vec::new()));
   let pick = |id: &'static str| {
