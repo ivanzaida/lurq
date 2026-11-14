@@ -157,7 +157,6 @@ pub(crate) enum NodeKind {
     style: TextStyleSource,
     transform_mode: TextTransformMode,
   },
-  #[cfg(feature = "markdown")]
   RichText {
     state: TextState,
     spans: Vec<crate::layout::quad::RichTextSpan>,
@@ -235,7 +234,6 @@ impl NodeKind {
       Self::Empty | Self::Text { .. } | Self::TextInput { .. } => false,
       #[cfg(feature = "canvas")]
       Self::Canvas { .. } => false,
-      #[cfg(feature = "markdown")]
       Self::RichText { .. } => false,
       #[cfg(feature = "raster")]
       Self::Image { .. } | Self::Video { .. } => false,

@@ -27,7 +27,11 @@ use crate::{
   },
   components::TextHighlight,
   core::ElementRef,
-  node::{BackgroundColor, Element, TextColor, border::Border},
+  layout::{
+    quad::RichTextSpan,
+    text_style::{FontWeight, TextStyle},
+  },
+  node::{BackgroundColor, Element, Node, NodeUpdate, TextColor, border::Border},
 };
 
 /// The parts of a highlight a recipe styles.
@@ -35,9 +39,10 @@ use crate::{
 pub enum HighlightPart {
   /// The text: its type and its color.
   Root,
-  /// A mark on a range: its fill, its radius, how far it reaches past its words.
+  /// A mark on a range: its fill, its radius, how far it reaches past its
+  /// words, and the weight of its words.
   Mark,
-  /// The current mark, in place of `Mark`: its fill and its edge.
+  /// The current mark, in place of `Mark`: its fill, its edge, its words' weight.
   Current,
 }
 
@@ -63,15 +68,24 @@ pub type HighlightRenderer = Arc<dyn Fn(HighlightView) -> Element + Send + Sync>
 ///
 /// The ranges are in bytes of the text, and the current one is an index into
 /// them; the marks follow their words as the text wraps, and a mark over the
-/// end of a line goes on at the start of the next. The text is shaped and
-/// laid out as without the marks. Mounted ([`mount`](Self::mount)), the
-/// highlight brings its current mark into view each time it changes: as a
-/// find bar goes to the next match and as what is searched for changes.
+/// end of a line goes on at the start of the next. A mark's words are of the
+/// weight the board gives them, 500, so a mark in a sentence stands out as
+/// the board draws it ("Results for **backdrop blur** in docs").
+///
+/// A find in a text keeps the text's weight ([`keep_weight`](Self::keep_weight)):
+/// heavier words are wider, so the text would wrap again under the reader's
+/// eyes as each letter of the query is typed and the marks move. With it the
+/// text is shaped and laid out as without the marks.
+///
+/// Mounted ([`mount`](Self::mount)), the highlight brings its current mark
+/// into view each time it changes: as a find bar goes to the next match and
+/// as what is searched for changes.
 #[derive(Clone)]
 pub struct Highlight {
   text: Arc<str>,
   marks: Vec<Range<usize>>,
   current: Option<usize>,
+  keep_weight: bool,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -85,6 +99,7 @@ impl Highlight {
       text: Arc::from(text),
       marks: Vec::new(),
       current: None,
+      keep_weight: false,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -108,6 +123,14 @@ impl Highlight {
   /// and brought into view where the highlight is mounted. `None` for none.
   pub fn current(mut self, current: Option<usize>) -> Self {
     self.current = current;
+    self
+  }
+
+  /// Whether the marks' words keep the text's weight, whatever the recipe
+  /// gives a mark: the find in a text, which must not wrap again as the
+  /// query is typed. The board's weight, 500, by default.
+  pub fn keep_weight(mut self, keep: bool) -> Self {
+    self.keep_weight = keep;
     self
   }
 
@@ -176,6 +199,7 @@ impl Highlight {
       text: self.text,
       marks: self.marks,
       current: self.current,
+      keep_weight: self.keep_weight,
       recipe: theme.resolve::<Highlight>(&case, Some(&self.rules)),
       text_ref,
       id: self.id,
@@ -255,6 +279,8 @@ pub struct HighlightView {
   pub text: Arc<str>,
   pub marks: Vec<Range<usize>>,
   pub current: Option<usize>,
+  /// Whether the marks' words keep the text's weight.
+  pub keep_weight: bool,
   /// The style of each part of this highlight.
   pub recipe: ResolvedRecipe,
   text_ref: Option<ElementRef>,
@@ -322,10 +348,89 @@ impl HighlightView {
       .collect()
   }
 
+  /// The weight of the words of the mark at `index`, where it is another
+  /// than the text's: the part's, unless the marks keep the text's weight.
+  fn weight_of(&self, index: usize, text: FontWeight) -> Option<FontWeight> {
+    if self.keep_weight {
+      return None;
+    }
+    let part = if Some(index) == self.current {
+      HighlightPart::Current
+    } else {
+      HighlightPart::Mark
+    };
+    self.part(part).rest().text.weight.filter(|weight| *weight != text)
+  }
+
+  /// The text in runs: the words of each mark in its weight, the rest in the
+  /// text's style. `None` where no mark's weight is another than the text's.
+  pub fn runs(&self, style: &TextStyle) -> Option<Vec<RichTextSpan>> {
+    let mut marks: Vec<(Range<usize>, FontWeight)> = self
+      .marks
+      .iter()
+      .enumerate()
+      .filter_map(|(index, range)| Some((range.clone(), self.weight_of(index, style.weight)?)))
+      .filter(|(range, _)| {
+        range.start < range.end
+          && range.end <= self.text.len()
+          && self.text.is_char_boundary(range.start)
+          && self.text.is_char_boundary(range.end)
+      })
+      .collect();
+    if marks.is_empty() {
+      return None;
+    }
+    marks.sort_by_key(|(range, _)| range.start);
+    let run = |text: &str, weight: FontWeight| RichTextSpan {
+      text: text.to_owned(),
+      style: TextStyle {
+        weight,
+        ..style.clone()
+      },
+    };
+    let mut runs = Vec::new();
+    let mut at = 0;
+    for (range, weight) in marks {
+      // Marks that overlap: the later one starts where the earlier ended.
+      let start = range.start.max(at);
+      if start >= range.end {
+        continue;
+      }
+      if at < start {
+        runs.push(run(&self.text[at..start], style.weight));
+      }
+      runs.push(run(&self.text[start..range.end], weight));
+      at = range.end;
+    }
+    if at < self.text.len() {
+      runs.push(run(&self.text[at..], style.weight));
+    }
+    Some(runs)
+  }
+
   /// How the default renderer builds a highlight: the text, in the style of
-  /// its root, with the marks' fills behind it.
+  /// its root, with the marks' fills behind it; where a mark's words are of
+  /// another weight, the text in runs, the fills behind the runs as they are
+  /// laid out.
   pub fn render(self) -> Element {
     let part = self.part(HighlightPart::Root);
+    let style = part.rest().text.resolve(self.theme());
+    if let Some(runs) = self.runs(&style) {
+      let mut node = Node::rich_text(runs);
+      part.apply(&mut node);
+      node.set_text_highlights(self.fills());
+      if let Some(reference) = &self.text_ref {
+        NodeUpdate::ref_element(&mut node, reference.clone());
+      }
+      if let Some(id) = &self.id {
+        node = node.id(id.clone());
+      }
+      let mut element = Element::from_node(node);
+      if let Some(key) = &self.key {
+        element = element.key(key.clone());
+      }
+      return element;
+    }
     let mut text = part.text(&self.text).part(&part).highlights(self.fills());
     if let Some(reference) = &self.text_ref {
       text = text.ref_element(reference.clone());
@@ -347,14 +452,20 @@ impl Themed for Highlight {
 
   /// The design's highlight (`pencil/lurq-design-system.pen`, Highlight):
   /// a text of 14 in the foreground, a mark on the muted warning fill of the
-  /// small radius 2, reaching 3 past its words and 1 above and below. The
-  /// board draws no current mark: it is the mark with an edge of 2 in the
-  /// warning color, which reads in both appearances where a fill of the
-  /// warning color would not under the text's own color.
+  /// small radius 2, reaching 3 past its words and 1 above and below, its
+  /// words 500. The board draws no current mark: it is the mark with an edge
+  /// of 2 in the warning color, which reads in both appearances where a fill
+  /// of the warning color would not under the text's own color.
   fn recipe() -> Recipe {
     use HighlightPart::{Current, Mark, Root};
     use PaletteColor::{Foreground, Warning, WarningMuted};
-    let mark = |s: super::PartStyle| s.background(WarningMuted).radius(2.0).padding_x(3.0).padding_y(1.0);
+    let mark = |s: super::PartStyle| {
+      s.background(WarningMuted)
+        .radius(2.0)
+        .padding_x(3.0)
+        .padding_y(1.0)
+        .weight(FontWeight::Medium)
+    };
     Recipe::new()
       .base(Root, |s| s.typography(TypographyStyle::Body).foreground(Foreground))
       .base(Mark, mark)

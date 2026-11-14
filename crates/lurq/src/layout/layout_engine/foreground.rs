@@ -4,7 +4,10 @@
 
 use super::LayoutEngine;
 use crate::{
-  layout::text_style::TextStyle,
+  layout::{
+    quad::RichTextSpan,
+    text_style::{DEFAULT_TEXT_COLOR, TextStyle},
+  },
   node::{color::Color, node::Node, node_kind::TextStyleSource},
 };
 
@@ -32,6 +35,18 @@ impl LayoutEngine {
 
   pub(super) fn leave_foreground_scope(&self, previous: Option<Color>) {
     self.foreground.set(previous);
+  }
+
+  /// A rich text's spans as painted: a span that keeps the default text
+  /// color names none, and is drawn in the inherited foreground, as a text's
+  /// style is.
+  pub(super) fn painted_spans(&self, mut spans: Vec<RichTextSpan>) -> Vec<RichTextSpan> {
+    if let Some(foreground) = self.foreground.get() {
+      for span in spans.iter_mut().filter(|span| span.style.color == DEFAULT_TEXT_COLOR) {
+        span.style.color = foreground;
+      }
+    }
+    spans
   }
 
   /// The style a text is painted in: its own, in the inherited foreground

@@ -30,7 +30,6 @@ impl LayoutEngine {
           style.font_size * style.line_height,
         ))
       }
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, spans, .. } => Some((
         state,
         node.rich_text_value().unwrap_or_default(),

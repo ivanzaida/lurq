@@ -1061,7 +1061,6 @@ impl GlyphEngine {
   /// glyphs on screen in every span's own font. Built in the shaping that
   /// makes the layout; a layout shaped without them is shaped once more the
   /// first time they are asked for.
-  #[cfg(feature = "markdown")]
   pub(crate) fn rich_text_caret_positions(
     &mut self,
     spans: &[RichTextSpan],

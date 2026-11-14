@@ -88,15 +88,16 @@ impl Search {
     (self.current(total).map_or(0, |at| at + 1), total)
   }
 
-  /// The text with every match marked while the bar is open, the current one stronger.
+  /// The text with every match marked while the bar is open, the current one stronger. A find keeps the text's
+  /// weight: words of the board's 500 would be wider, and the text would wrap again as each letter is typed.
   fn text(&self) -> Highlight {
     let doc = self.doc.get();
     if !self.open.get() {
-      return Highlight::new(&doc);
+      return Highlight::new(&doc).keep_weight(true);
     }
     let found = self.found();
     let current = self.current(found.len());
-    Highlight::new(&doc).marks(found).current(current)
+    Highlight::new(&doc).marks(found).current(current).keep_weight(true)
   }
 
   /// The bar over the page's text, telling `record` what it did. Replacing changes the text.
@@ -235,7 +236,7 @@ impl FindBarPage {
     let text = if count == 0 {
       self.search.text()
     } else {
-      Highlight::new(&self.search.doc.get())
+      Highlight::new(&self.search.doc.get()).keep_weight(true)
     }
     .mount(ctx);
     let open = self.search.open.clone();
@@ -359,6 +360,22 @@ impl FindBarPage {
       .mount(ctx);
     let text = self.editor.text().mount(ctx);
     view(&self.editor, bar, text, 300.0, &self.editor_text)
+  }
+
+  /// The board's Highlight in a sentence, and the same marks keeping the text's weight, light over dark.
+  fn marks() -> Element {
+    let sentence = "Results for backdrop blur in docs";
+    let line = "The blur of a backdrop is a blur of what is behind it: backdrop blur.";
+    let found = find_matches(line, "backdrop blur", FindOptions::default()).unwrap_or_default();
+    Column::new()
+      .spacing(14.0)
+      .child(Highlight::new(sentence).mark(12..25))
+      .child(quiet("a mark: 500", 12.0))
+      .child(Highlight::new(line).marks(found.clone()).current(Some(0)))
+      .child(quiet("the current mark, at 500", 12.0))
+      .child(Highlight::new(line).marks(found).current(Some(0)).keep_weight(true))
+      .child(quiet("keep_weight(true): the find in a text", 12.0))
+      .into()
   }
 
   /// The bar's buttons and options at rest and in each interaction, and a search that finds nothing.
@@ -564,11 +581,26 @@ impl Component for FindBarPage {
           ),
         ),
         Section::new(
+          "A mark in a sentence",
+          "The board's Highlight: the words a search found, in a sentence that says so, at 500 on the muted \
+           warning fill. A find in a text keeps the text's weight, as the playground and the editor above do.",
+          self.frame.demo(
+            1,
+            Self::marks(),
+            "Highlight::new(text).mark(range)",
+            &[
+              "Highlight::new(\"Results for backdrop blur in docs\").mark(12..25)",
+              "// A find in a text, which must not wrap again as the query is typed:",
+              "Highlight::new(document).marks(found).current(current).keep_weight(true)",
+            ],
+          ),
+        ),
+        Section::new(
           "States",
           "Its buttons and options at rest, under the pointer and focused from the keyboard, and a search that \
            finds nothing: the count in the destructive color.",
           self.frame.demo(
-            1,
+            2,
             self.states(),
             ".force(Some(Interaction::Hovered))",
             &["FindBar::new(query).matches(0, 0)"],

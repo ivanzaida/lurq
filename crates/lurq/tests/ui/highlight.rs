@@ -1,20 +1,30 @@
-//! A highlight: its marks and its current one against the board, a mark
-//! over the end of a line, the current mark brought into view as it changes,
-//! and the ranges `find_matches` finds under a find bar's options.
+//! A highlight: its marks and its current one against the board, their
+//! words at the board's weight or the text's, a mark over the end of a line,
+//! the current mark brought into view as it changes, and the ranges
+//! `find_matches` finds under a find bar's options.
 
 use lurq::{
-  app::theme::{PaletteColor, ThemePalette},
+  app::{
+    App,
+    theme::{PaletteColor, ThemePalette},
+  },
   components::{Column, ScrollVertical},
   core::Signal,
   layout::{
     layout_kind::ScrollState,
-    quad::{Quad, QuadContent},
+    quad::{Quad, QuadContent, RichTextSpan},
+    text_style::FontWeight,
   },
   node::color::Color,
-  ui::{FindError, FindOptions, Highlight, find_matches},
+  ui::{FindError, FindOptions, Highlight, HighlightPart, find_matches},
 };
 
 use super::stage::Stage;
+
+/// A face whose "a" is as wide as its weight says, at 400 and at 500.
+const PROBE: &str = "Lurq Weight Probe";
+const REGULAR: &[u8] = include_bytes!("../assets/weight_probe/LurqWeightProbe-Regular.ttf");
+const MEDIUM: &[u8] = include_bytes!("../assets/weight_probe/LurqWeightProbe-Medium.ttf");
 
 fn light(role: PaletteColor) -> Color {
   ThemePalette::light().get(role)
@@ -63,8 +73,90 @@ fn every_mark_is_on_the_muted_warning_fill_and_the_current_one_has_an_edge() {
   // The board's mark: radius 2, and 3 past its words on either side.
   let radius = marks[0].border_radius.expect("round").top_left;
   assert_eq!(radius, 2.0);
-  let (color, size) = stage.text("the cat and the hat and the bat");
-  assert_eq!((color, size), (light(PaletteColor::Foreground), 14.0));
+}
+
+/// The runs the text is drawn in, where it is drawn in runs.
+fn runs(stage: &Stage) -> Option<Vec<RichTextSpan>> {
+  stage.quads().into_iter().find_map(|quad| match quad.content {
+    QuadContent::RichText { spans, .. } => Some(spans),
+    _ => None,
+  })
+}
+
+/// The left and right of the fills in `color`, in order.
+fn spans_of(stage: &Stage, color: Color) -> Vec<(f32, f32)> {
+  let mut quads = fills(stage, color);
+  quads.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
+  quads.iter().map(|quad| (quad.x, quad.x + quad.width)).collect()
+}
+
+#[test]
+fn a_marks_words_are_the_boards_500_in_the_texts_foreground() {
+  let stage = Stage::new(|_| Highlight::new("Results for backdrop blur in docs").mark(12..25).into());
+  let runs = runs(&stage).expect("the text in runs");
+  let texts: Vec<&str> = runs.iter().map(|run| run.text.as_str()).collect();
+  assert_eq!(texts, ["Results for ", "backdrop blur", " in docs"]);
+  assert_eq!(runs[1].style.weight, FontWeight::Medium, "the mark's words are 500");
+  assert_eq!(runs[0].style.weight, FontWeight::Normal, "the rest is the text's");
+  for run in &runs {
+    assert_eq!(
+      run.style.color,
+      light(PaletteColor::Foreground),
+      "{:?} in the foreground",
+      run.text
+    );
+    assert_eq!(run.style.font_size, 14.0);
+  }
+  assert_eq!(fills(&stage, light(PaletteColor::WarningMuted)).len(), 1);
+}
+
+#[test]
+fn keep_weight_draws_the_text_as_one_run_and_marks_it_as_it_is() {
+  // The probe face draws "a" 500 units wide at 400 and 550 at 500: a word of four is 28 or 30.8 at 14.
+  let text = "aaaa aaaa aaaa";
+  let probe = |keep: bool| {
+    let mut app = App::new();
+    app.install_fonts([REGULAR.to_vec(), MEDIUM.to_vec()], std::iter::empty::<(&str, &str)>());
+    Stage::in_app(app, move |_| {
+      Highlight::new(text)
+        .mark(5..9)
+        .keep_weight(keep)
+        .style(HighlightPart::Root, |s| s.font_family(PROBE))
+        .into()
+    })
+  };
+  let (heavy, kept) = (probe(false), probe(true));
+  assert!(runs(&kept).is_none(), "one text, shaped as without the marks");
+  assert_eq!(kept.text(text).1, 14.0);
+  assert_eq!(runs(&heavy).expect("in runs")[1].style.weight, FontWeight::Medium);
+  // The fill is behind the words as they are laid out: under the heavier word, as wide as it is at 500.
+  let muted = light(PaletteColor::WarningMuted);
+  let (heavy_fill, kept_fill) = (spans_of(&heavy, muted)[0], spans_of(&kept, muted)[0]);
+  let (heavy_width, kept_width) = (heavy_fill.1 - heavy_fill.0, kept_fill.1 - kept_fill.0);
+  assert!(
+    (heavy_width - kept_width - 2.8).abs() < 1.0,
+    "the 500 word is 2.8 wider: {heavy_fill:?} {kept_fill:?}"
+  );
+  assert!(
+    (heavy_fill.0 - kept_fill.0).abs() < 0.5,
+    "both start after the same word"
+  );
+}
+
+#[test]
+fn a_heavier_mark_over_the_end_of_a_line_is_filled_on_each_line_it_is_laid_out_on() {
+  let text = "one two three four five six seven";
+  let at = text.find("three four").unwrap();
+  let stage = Stage::new(move |_| {
+    Column::new()
+      .width(60.0)
+      .child(Highlight::new(text).mark(at..at + "three four".len()))
+      .into()
+  });
+  assert!(runs(&stage).is_some(), "in runs, the mark at 500");
+  let marks = fills(&stage, light(PaletteColor::WarningMuted));
+  assert_eq!(marks.len(), 2, "a fill on each line");
+  assert!(marks[1].y > marks[0].y);
 }
 
 #[test]
