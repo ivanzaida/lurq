@@ -123,19 +123,29 @@ fn said(number: f64) -> String {
   }
 }
 
-/// What the column says of `rows`: its label (a kind's) and its value.
-pub(super) fn summarize<R>(
-  column: &TableColumn<R>,
-  rows: &[&R],
-  labels: &SummaryLabels,
-) -> Option<(Option<String>, String)> {
+/// What a column says of the rows it sums up: the kind it computed, where it is one, and its value.
+pub(super) type Said = Option<(Option<SummaryKind>, String)>;
+
+/// What a summary is computed from, which it is computed again only when it changes: the rows the app gave (the
+/// same list, or another), the columns that say a summary and what they say, the columns grouped by and the group.
+/// A scroll, the pointer and the focus change none of it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct SummaryKey {
+  pub rows: (usize, usize),
+  pub columns: Vec<(Arc<str>, Option<SummaryKind>)>,
+  pub grouping: Vec<Arc<str>>,
+  pub group: Option<Vec<String>>,
+}
+
+/// What the column says of `rows`: the kind it computed, and its value.
+pub(super) fn summarize<R>(column: &TableColumn<R>, rows: &[&R]) -> Said {
   let summary = column.summary.as_ref()?;
   let kind = match summary {
     Summary::Text(text) => return Some((None, text(rows))),
     Summary::Kind(kind) => *kind,
   };
   if kind == SummaryKind::Count {
-    return Some((Some(labels.of(kind).to_owned()), rows.len().to_string()));
+    return Some((Some(kind), rows.len().to_string()));
   }
   let numbers: Vec<f64> = rows.iter().filter_map(|row| number_of(column, row)).collect();
   let value = match kind {
@@ -146,7 +156,7 @@ pub(super) fn summarize<R>(
     SummaryKind::Max => said(numbers.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
     SummaryKind::Count => unreachable!("counted above"),
   };
-  Some((Some(labels.of(kind).to_owned()), value))
+  Some((Some(kind), value))
 }
 
 /// A summary row as a renderer sees it: its cells in the tracks of the columns, at the bottom of the grid where it
@@ -235,15 +245,15 @@ impl TableSummary {
 }
 
 /// What a summary cell holds: its label muted, then its value.
-pub(super) fn summary_content(recipe: &ResolvedRecipe, said: Option<(Option<String>, String)>) -> Element {
-  let Some((label, value)) = said else {
+pub(super) fn summary_content(recipe: &ResolvedRecipe, said: &Said, labels: &SummaryLabels) -> Element {
+  let Some((kind, value)) = said else {
     return Row::new().into();
   };
   let mut content = Row::new().align_items(Alignment::Center).spacing(6.0);
-  if let Some(label) = label {
-    content = content.child(recipe.part(TablePart::SummaryLabel).text(&label).nowrap());
+  if let Some(kind) = kind {
+    content = content.child(recipe.part(TablePart::SummaryLabel).text(labels.of(*kind)).nowrap());
   }
   content
-    .child(recipe.part(TablePart::SummaryValue).text(&value).nowrap())
+    .child(recipe.part(TablePart::SummaryValue).text(value).nowrap())
     .into()
 }
