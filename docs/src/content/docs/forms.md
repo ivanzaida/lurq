@@ -330,6 +330,10 @@ On submit the form collects all named input values, updates the corresponding fi
 
 For custom submit plumbing, `FormProps::on_submit_data(...)` receives raw `FormData` from the runtime.
 
+An element that is no engine control (a control of the design system made of rows and texts) gives the form a value
+with `.form_value(Some(text))` beside its `.name(..)`: a shortcut recorder named `palette` gives `Ctrl+Shift+P`.
+`.form_value(None)` gives nothing. A text input, a checkbox, a slider and a select give their own.
+
 ## Async Submit
 
 Use `ctx.future_action` with `FormProps::submit_action(...)` when a form should submit to an async operation. The form validates first, sets `submitting` while the action is pending, blocks duplicate submits, and maps rejected `FormErrors` back into field errors.

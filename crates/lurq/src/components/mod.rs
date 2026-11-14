@@ -1239,6 +1239,17 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// While the element is in the tree it takes every key of the window before anything else does: its own
+      /// `on_key_down` and `on_key_up` handlers alone are told of a key (with `focus_within` true), and nothing the
+      /// window does with a key is done: no Tab, Enter or Escape, no arrows of a focus group, no Alt of a row of
+      /// menus, no typing in an input, no handler of another element, and no accelerator of the app's menu. It lets
+      /// go when it is built with `false` or leaves the tree. What records a shortcut, while it records. Where two
+      /// capture at once, the first in the order of the tree takes the keys.
+      pub fn captures_keys(mut self, captures: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::captures_keys(node, captures));
+        self
+      }
+
       /// HTML `tabindex`. Inside a form, controls are in the Tab order
       /// without one; outside a form, only elements with `tab_index(0)` or
       /// higher are. Positive values come first in ascending order, then `0`
@@ -1337,6 +1348,15 @@ macro_rules! impl_into_node {
       #[cfg(feature = "form")]
       pub fn name(mut self, name: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::name(node, name));
+        self
+      }
+
+      /// What the element gives the form it is in under its [`name`](Self::name), where it is no engine control
+      /// that gives its own (a text input gives its text, a checkbox `on`): a control of the design system made of
+      /// plain elements, as a shortcut recorder gives `Ctrl+Shift+P`. `None` gives nothing.
+      #[cfg(feature = "form")]
+      pub fn form_value(mut self, value: Option<std::sync::Arc<str>>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::form_value(node, value));
         self
       }
 

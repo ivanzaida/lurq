@@ -53,8 +53,12 @@ unsafe extern "C-unwind" fn send_event(app: &NSApplication, selector: Sel, event
   if kind == NSEventType::KeyDown {
     // Ask the native menu exactly once, before winit/tree shortcuts. AppKit's
     // default sendEvent receives only unhandled events. Suppress the matching up
-    // event too (winit otherwise forwards Command key-up explicitly).
-    if let Some(menu) = app.mainMenu() {
+    // event too (winit otherwise forwards Command key-up explicitly). While an
+    // element takes every key (`captures_keys`), the menu is not asked: the key
+    // is the element's, a shortcut being recorded included.
+    if !crate::app::runtime::key_capture::keys_captured()
+      && let Some(menu) = app.mainMenu()
+    {
       if menu.performKeyEquivalent(event) {
         STATE.with(|s| {
           s.borrow_mut().as_mut().unwrap().consumed.insert(event.keyCode());

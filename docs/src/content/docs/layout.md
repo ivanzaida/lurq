@@ -151,6 +151,11 @@ Stack layout:
 
 Absolute children do not contribute to stack size.
 
+A size in percent of an absolute child (`Dimension::Pct`) is a share of what the stack is laid out in. Where that
+leaves a side unbounded (a stack as high as its content, in a column that scrolls), it is a share of the stack as its
+other children make it, as CSS sizes an absolutely positioned box by its container: a layer over what a stack holds,
+`.absolute(0.0, 0.0, Dimension::Pct(100.0), Dimension::Pct(100.0))`, is as large as that.
+
 ### Grid
 
 `Grid` lays its children out in the cells of columns and rows, as CSS grid does.

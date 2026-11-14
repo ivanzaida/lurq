@@ -3959,6 +3959,31 @@ impl LayoutEngine {
       });
     let size = constraints.constrain(Size::new(max_width, max_height));
 
+    // A share of the stack that its constraints left unbounded is a share of the stack as its other children make
+    // it, as an absolutely placed box's is of its container's: a layer over what a stack holds, as high as that.
+    let unbounded = (!constraints.max_width.is_finite(), !constraints.max_height.is_finite());
+    if unbounded.0 || unbounded.1 {
+      let laid_out = Constraints::loose(size);
+      for (index, (layout, child)) in child_layouts.iter_mut().zip(children.iter()).enumerate() {
+        let Position::Absolute { width, height, .. } = child.position() else {
+          continue;
+        };
+        let share = |dimension: Option<Dimension>| matches!(dimension, Some(Dimension::Pct(_)));
+        if !((unbounded.0 && share(width)) || (unbounded.1 && share(height))) {
+          continue;
+        }
+        let positioned_constraints = Self::absolute_child_constraints(child, laid_out);
+        let mut result = self.layout_child_node(glyph_engine, child_overrides, index, child, positioned_constraints);
+        if let Some(width) = width.and_then(|width| Self::resolve_dimension(width, size.width)) {
+          Arc::make_mut(&mut result).size.width = width;
+        }
+        if let Some(height) = height.and_then(|height| Self::resolve_dimension(height, size.height)) {
+          Arc::make_mut(&mut result).size.height = height;
+        }
+        layout.result = result;
+      }
+    }
+
     for (layout, child) in child_layouts.iter_mut().zip(children.iter()) {
       layout.offset = match child.position() {
         Position::Absolute { x, y, .. } => Self::apply_relative_position(child, Offset::new(x, y), layout.result.size),

@@ -90,6 +90,7 @@ mod inline_link_copy_tests;
 mod inline_link_keys;
 mod input_token_paint;
 mod interaction_groups;
+pub(crate) mod key_capture;
 mod key_scroll;
 mod keyed_focus;
 mod leaving_layers;
@@ -937,6 +938,8 @@ pub struct Tree {
   /// Alt is down and nothing else was pressed since: its release puts the focus on a row of menus. See
   /// [`menu_row`].
   alt_alone: bool,
+  /// Whether an element of the tree takes every key: see [`key_capture`].
+  keys_captured: bool,
   /// What had the focus before Alt alone put it on a row of menus, which Alt alone again gives it back to.
   menu_row_return: Option<FocusTarget>,
   /// The closed layers the overlay host still draws, while their exit
@@ -1360,6 +1363,7 @@ impl Tree {
       hover_held_by_keys: false,
       typeahead: None,
       alt_alone: false,
+      keys_captured: false,
       menu_row_return: None,
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
@@ -4177,6 +4181,9 @@ impl Tree {
 
   fn dispatch_key_down(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     self.rebuild_if_dirty();
+    if self.dispatch_captured_key(true, &key, &code, shift, ctrl, alt, meta) {
+      return;
+    }
     if (key == "Escape" || code == "Escape") && self.end_autoscroll() {
       // Esc ends the autoscroll and does nothing else; the release that
       // follows clicks nothing.
@@ -4298,6 +4305,9 @@ impl Tree {
 
   fn dispatch_key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool, meta: bool) {
     self.rebuild_if_dirty();
+    if self.dispatch_captured_key(false, &key, &code, shift, ctrl, alt, meta) {
+      return;
+    }
     let composing = self.is_composition_key_up(&key, &code);
     let mut evt = KeyboardEvent {
       key,
@@ -6909,6 +6919,14 @@ impl Tree {
   }
 
   fn rebuild_if_dirty(&mut self) {
+    if self.flush_dirty() {
+      // What was built may take every key now, or no longer.
+      self.note_key_capture();
+    }
+  }
+
+  /// Builds again what is dirty, until nothing is or the passes run out. Returns whether anything was built.
+  fn flush_dirty(&mut self) -> bool {
     const MAX_REACTIVE_FLUSH_PASSES: usize = 8;
 
     for pass in 0..MAX_REACTIVE_FLUSH_PASSES {
@@ -6922,9 +6940,9 @@ impl Tree {
           "[lurq:reactivity] dirty flush settled passes={}",
           pass
         );
-        return;
+        return true;
       } else {
-        return;
+        return false;
       }
     }
 
@@ -6936,6 +6954,7 @@ impl Tree {
       );
       self.needs_redraw = true;
     }
+    true
   }
 
   /// Lays out what was rebuilt since the last layout, before a press, a
@@ -9435,6 +9454,7 @@ fn distance_squared(a: (f32, f32), b: (f32, f32)) -> f32 {
 
 impl Drop for Tree {
   fn drop(&mut self) {
+    self.set_key_capture(false);
     self.clear_focus();
     #[cfg(feature = "canvas")]
     if let Some(root) = &self.root {
@@ -12345,7 +12365,12 @@ fn collect_form_data(node: &Node, data: &mut crate::node::FormData) {
           data.append(name, label.to_string());
         }
       }
-      _ => {}
+      // An element that is no engine control gives what it says it holds.
+      _ => {
+        if let Some(value) = node.form_value() {
+          data.append(name, value.to_string());
+        }
+      }
     }
   }
 

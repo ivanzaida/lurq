@@ -644,6 +644,34 @@ TextInput::new(value)
   })
 ```
 
+### Taking Every Key
+
+An element built with `.captures_keys(true)` takes every key of the window while it is in the tree, before anything
+else does: its own `on_key_down` and `on_key_up` handlers alone are told of a key, with `focus_within` true, and
+nothing the window does with a key is done. Tab moves no focus, Enter presses no button, Escape closes no popup, a
+focus group's arrows and a row of menus' Alt do nothing, nothing is typed into an input, no other element's handler
+runs, and on a Mac the accelerators of the app's menu are not asked first. It lets go when it is built with `false`
+or leaves the tree. It is what records a shortcut ([`ui::ShortcutRecorder`](../design-system/#shortcut-recorder)),
+while it records.
+
+```rust
+use lurq::app::{Accelerator, events::KeyboardEvent};
+
+// recording: Signal<bool>, shortcut: Signal<Option<Accelerator>>
+Row::new()
+  .tab_index(0)
+  .captures_keys(recording.get())
+  .on_key_down(move |event: KeyboardEvent| {
+    if let Some(pressed) = Accelerator::from_key_event(&event) {
+      shortcut.set(Some(pressed));
+      recording.set(false);
+    }
+  })
+```
+
+- An element that is disabled or inert, or in one that is, captures nothing.
+- Where two capture at once, the first in the order of the tree takes the keys.
+
 ## Text Selection
 
 Plain text is not selectable by default. Opt in with `.selectable(true)`:
