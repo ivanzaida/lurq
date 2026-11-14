@@ -208,9 +208,16 @@ an alias.
   it is `default_open(bool)`; one that forces what a pointer would open is `force_open(Option<bool>)`. What hears
   it change is `on_open_change(bool)`.
 - **A person closed it**: `on_dismiss` for a panel the app opens (Dialog, Sheet, Drawer, Popover, Menu,
-  ContextMenu, CommandPalette, TeachingTip, Toggletip): Escape, a press outside, its close button. `on_close` for a
-  message in the flow whose close control was pressed (Alert, Banner, Toast, Tag has `on_remove`). An action of
-  its own keeps its name (`on_cancel`, `on_clear`).
+  ContextMenu, CommandPalette, TeachingTip, Toggletip): Escape, a press outside, Tab out of a menu, its close
+  button; not a choice or an answer. `on_open_change(open)` hears every change a person makes, a choice too, and
+  is called after `on_dismiss`; a component with several panels tells which is open (`Option<usize>`). Neither is
+  called when the app sets the signal. A panel every close of which is an answer (a message box) has no
+  `on_dismiss`. `on_close` is for a message in the flow whose close control was pressed (Alert, Banner, Toast, Tag
+  has `on_remove`). An action of its own keeps its name (`on_cancel`, `on_clear`).
+- **What a press outside does**: `dismiss_on_veil(bool)` where there is a veil, `dismiss_on_outside_press(bool)`
+  where there is none.
+- **Where the focus goes in a question**: on the confirming answer, or on Cancel where the confirming answer is
+  destructive.
 - **Has a close control**: `close_button(bool)`. A message shows it once `on_close` is given. `clearable(bool)`
   is the control that empties a field.
 - **The accessible name: `label(&str)`**, on every component that is a thing to tooling. Never `named`. Where
@@ -224,13 +231,18 @@ an alias.
   How far it is from its anchor, along the side it is on, is `offset(impl Into<SpacingValue>)`, the theme's
   spacing; a shift across that side is `cross_offset(..)`. Never a pair of pixels.
 - **Words lurq writes itself**: every one can be said otherwise: `<control>_label(&str)` for the name of a
-  control (`close_label`, `clear_label`, `more_label`, `previous_label`), `<thing>_text(&str)` for a sentence
-  (`empty_text`, `loading_text`, `optional_text`). One method for one string.
+  control (`close_label`, `clear_label`, `more_label`, `previous_label`), `<thing>_text(&str)` for a sentence or a
+  word a part draws (`empty_text`, `loading_text`, `separator_text`). One method for one string, also where the
+  word shown and the name read are two, or the name follows a state. A sentence with numbers in it takes a
+  function: `count_text(Fn(rows, selected) -> String)`. A component's default name ("Main") is set with `label`.
+- **A handler of a list told which item**: `on_select(Fn(&Id))` on the list (a breadcrumb told the step followed),
+  beside each item's own `on_select(Fn())`.
 - **What it holds**: a list in the constructor where the component is its items (`Tabs::new(value, tabs)`,
   `ButtonGroup::new(buttons)`), and `noun(item)` with `nouns(items)` to add to it (`item`/`items`, `step`/`steps`,
   `pane`/`panes`); every singular has its plural. `child`/`children` are for free `impl Into<Element>` content only.
 - **Before and after**: `icon` is before the text; `trailing_icon` after it. An element is `leading(..)` and
-  `trailing(..)`. A picture or a mark a component is given is `media(..)`.
+  `trailing(..)`, which also name what stands at the ends of a bar. A picture or a mark a component is given
+  is `media(..)`.
 - **At most N shown: `max_shown`**. `max` is the greatest value of a number.
 - **Which way: `orientation(Orientation)`** with `ui::Orientation`, of which `SliderOrientation`,
   `TabsOrientation` and the rest are aliases. No `horizontal(bool)`. Its states are `Horizontal` and `Vertical`,
@@ -238,7 +250,10 @@ an alias.
 
 **Types and order**
 
-- **The signal is the first argument of `new`**: `Popover::new(open, anchor)`, `Menu::new(open, anchor)`.
+- **The signal is the first argument of `new`** where the component cannot be without it:
+  `Popover::new(open, anchor)`, `Menu::new(open, anchor)`. A signal the component can keep for itself is a builder
+  method (`Sidebar::open(signal)`, `Navbar::open(signal)`). Whether a panel is open is not a value in the sense of
+  "bound and not": an overlay needs no `controlled` form.
 - **Bound and not: `new(signal, ..)` and `controlled(value, .., on_change)`**, on every component that holds a
   value but a text input, which is always a signal. No type that is "a signal or a value". A component bound to
   `Signal<T>` of one of several is bound to `Signal<Option<T>>` too where nothing chosen is a state it has.
@@ -247,9 +262,21 @@ an alias.
   (`Tabs<T = ()>`, `resolve::<Tabs>`): `on_change(|value: &T| ..)` of another type does not compile. No builder
   erases the type and checks a handler against it at run time. A component that holds another one (an input
   group's select, a toolbar's) is generic too or takes it as an element.
-- **One of several and any number of them**: bound, `new(Signal<T>, ..)` and `multiple(Signal<Vec<T>>, ..)`;
-  not bound, `controlled(value, .., on_change: Fn(&T))` and `controlled_multiple(values, .., on_change: Fn(&[T]))`.
-- **Every `on_*` adds**: a second handler is called after the first, never in its place.
+- **The type parameter is the value the component holds**: `Select<T>`, `Select<Option<T>>`, `ToggleGroup<T, [T]>`,
+  `Calendar<DateRange>`, and `on_change(Fn(&V))` is told that value: one, one or none, or the whole new set. The
+  forms: bound, `new(Signal<T>, ..)`, `optional(Signal<Option<T>>, ..)` and `multiple(Signal<Vec<T>>, ..)`; not
+  bound, `controlled(value, .., on_change)`, `controlled_optional(..)` and `controlled_multiple(..)`. A component
+  that has one form only (a group of checkboxes is always any number) calls it `new` and `controlled`.
+- **A second value of a component is named**: `sort(signal)`, `sort_controlled(value, on_sort_change)`,
+  `on_sort_change(..)`; the first keeps the plain words.
+- **Bound, the signal is set first and the handlers are called after**, so a handler that reads the signal sees
+  the new value. No handler is called when the app sets the signal, nor for a press that changes nothing.
+  `on_change_end` is called only where the value changed between the start and the end of the gesture.
+- **A component shown and not operated** (the steps of a wizard the app drives) has a form that takes the value
+  alone and tells nothing; it is not `new(Signal::new(..))`.
+- **Every `on_*` adds**: a second handler is called after the first, never in its place. The app's handlers
+  are called before the component acts on the event; what a handler refuses (`prevent_default`) the component
+  does not act on.
 - **`action(..)` sets the one action** (a second call takes its place); `actions(..)`/`action` of a component
   that has several adds, and that component's docs say so. A button made of a label and a handler is
   `button(label, handler)`.
@@ -257,7 +284,8 @@ an alias.
   does not have its focus taken back by the closing panel.
 - **`size(impl Into<Name>)`** with the component's own `XSize`; a component that has another's sizes names an
   alias (`ToggleSize = ButtonSize`, `SelectSize = TextBoxSize`). The default is `Md` unless the board draws
-  another, and the default is always a step of the enum. A length is `length`, `width`, `height`, not `size`.
+  another; where the board's default is no step (a dialog of 420), the docs say so. A length is `length`, `width`,
+  `height`, not `size`; `Icon::size` is a length, since an icon has no recipe. A shape is `shape(XShape)`.
 - **`width` and `height` take `impl Into<Length>`.** A number of a value (`min`, `max`, `step`) takes
   `impl Into<f64>`. A text takes `&str`.
 - **`icon(impl Into<Name>)`.** A component with an icon of its own takes `impl Into<IconChoice>`
@@ -268,8 +296,10 @@ an alias.
 
 **What every one of a kind has**
 
-- **Every themed builder**: `style(part, ..)`, `rules(&recipe)`, `state(name, on)`, `force(..)`, `id(..)`,
-  `key(..)`. Every builder of an item: `id`, `key`, `disabled`.
+- **Every themed builder**: `style(part, ..)`, `rules(&recipe)`, `state(name, on)`, `id(..)`, `key(..)`, and
+  `force(..)` where something in it is pressed or takes the focus: a component of items draws it on the item Tab
+  would stop on. Every builder of an item that is an element: `id`, `key`, `disabled` (a column, a token of a
+  text and a panel of links are not).
 - **Every typed control**: `label`, `placeholder` where it has one, `size`, `invalid`, `warning`, `valid`,
   `read_only`, `disabled`, `full_width`, `name` (with `form`), and is a `FieldControl`.
 - **Every choice control**: the value and `on_change`, `bind(Signal<bool>)` for one bound to a signal, `label`,
@@ -284,10 +314,15 @@ an alias.
   what is pressed to open is `Trigger`.
 - `Header` is the row at the top that holds the text and a close control; `Text` the column of `Title` and
   `Description`; `Body` where `child(..)` goes; `Footer` the row of actions.
-- A text of one line is `Label`. A line between things is `Separator`. What says "this opens" is `Chevron`. The
-  rail of a value is `Track` and its filled part `Fill`.
+- A leaf text is `Label`, on one line or wrapping. A line between things is `Separator`. What says "this opens"
+  is `Chevron`, with what it opens before it where a component has several (`DetailChevron`). The well an icon
+  stands in is `Mark`. The group of buttons in a `Footer` that holds more than buttons is `Actions`. The rail of a
+  value is `Track` and its filled part `Fill`. A part's name in a recipe is snake case.
 - A state that says the component has a part is the noun of the part (`Icon`, `Description`, `Footer`), not a
-  participle. An item's own state is resolved on the item's part (`Disabled`), not on the root (`ItemDisabled`).
+  participle; a state that is a look or a mode keeps its word (`Framed`, `Bordered`, `Masked`). An item's own state
+  is resolved on the item's part (`Disabled`), not on the root (`ItemDisabled`); where the component's own state of
+  that name reaches the item's part too, the item's has a word of its own (`Unavailable`, `OptionDisabled`).
+- A component that wraps another lists the inner one's states it shows in its own enum.
 
 ## What the eighth batch and the QA pass taught
 
