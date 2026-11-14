@@ -21,6 +21,10 @@ Files: `crates/lurq/src/ui/choice_card.rs`, `crates/lurq/src/ui/fieldset.rs`, `c
   focuses its target after its `on_click` handlers run, as a click does. This is what makes the lines of an
   `ErrorSummary` links that the keyboard follows: a builder has no `Ctx` to focus a field from a handler.
 - `crates/lurq/src/components/mod.rs`: the doc of `focuses` says both.
+- `crates/lurq/src/layout/layout_engine.rs`, `layout_flex_wrap`: a wrapping row or column with
+  `align_items(Alignment::Stretch)` makes each item of a line as high (as wide) as the highest of that line, as CSS
+  stretches a wrapping flex line. It ignored `Stretch` and laid each item out at its own height, so radio cards side
+  by side were not one height. Nothing else in lurq wraps with `Stretch`.
 
 Tests of these: `a_press_or_the_keyboard_on_a_line_focuses_its_field` and
 `a_summary_of_a_form_lists_its_errors_once_a_submit_was_attempted` in `tests/ui/fieldset.rs`.

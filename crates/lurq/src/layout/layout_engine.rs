@@ -3685,6 +3685,35 @@ impl LayoutEngine {
         })
         .fold(0.0_f32, f32::max);
 
+      // Stretched, each item of a line is as high (or, in a column, as wide) as the highest of its line, as CSS
+      // stretches the items of a wrapping flex line.
+      if matches!(align, Alignment::Stretch) {
+        for (j, layout) in line.iter_mut().enumerate() {
+          let r = &layout.result;
+          let child_cross = if vertical { r.size.width } else { r.size.height };
+          if child_cross >= line_cross {
+            continue;
+          }
+          let c = if vertical {
+            Constraints {
+              min_width: line_cross,
+              max_width: line_cross,
+              min_height: r.size.height,
+              max_height: r.size.height,
+            }
+          } else {
+            Constraints {
+              min_width: r.size.width,
+              max_width: r.size.width,
+              min_height: line_cross,
+              max_height: line_cross,
+            }
+          };
+          let index = line_start + j;
+          layout.result = self.layout_child_node(glyph_engine, child_overrides, index, &children[index], c);
+        }
+      }
+
       let children_main: f32 = line
         .iter()
         .map(|layout| main_size(&layout.result, vertical))
