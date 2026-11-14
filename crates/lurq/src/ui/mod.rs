@@ -34,13 +34,13 @@ mod fieldset;
 mod icon;
 pub mod icons;
 mod input;
-mod input_otp;
 mod input_group;
+mod input_otp;
 mod link;
 mod mentions;
 mod menu;
-mod number_input;
 mod multi_select;
+mod number_input;
 mod pagination;
 mod part_style;
 mod password_input;
@@ -105,12 +105,12 @@ pub use fieldset::{
 };
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
+pub use input_group::{InputAddon, InputGroup, InputGroupPart, InputGroupState, InputGroupView};
 pub(crate) use input_otp::keyframes as input_otp_keyframes;
 pub use input_otp::{
   INPUT_OTP_CARET_BLINK, INPUT_OTP_CARET_PERIOD, InputOtp, InputOtpKind, InputOtpPart, InputOtpRenderer, InputOtpSize,
   InputOtpState, InputOtpView,
 };
-pub use input_group::{InputAddon, InputGroup, InputGroupPart, InputGroupState, InputGroupView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsState,
@@ -120,11 +120,11 @@ pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
+pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
   NumberInputState, NumberInputView,
 };
-pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
 pub use pagination::{PageItem, Pagination, PaginationPart, PaginationRenderer, PaginationState, PaginationView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
