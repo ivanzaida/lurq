@@ -552,3 +552,52 @@ fn an_empty_label_with_an_icon_is_a_square_as_an_icon_alone_is() {
   assert_eq!((width, height), (36.0, 36.0), "no gap and no padding of a label");
   assert_eq!(stage.bounds("alone").2, 36.0);
 }
+
+/// The text painted that starts with `start`, and its box.
+fn painted(stage: &Stage, start: &str) -> Option<(String, f32, f32)> {
+  use lurq::layout::quad::QuadContent;
+  stage.quads().into_iter().find_map(|quad| match &quad.content {
+    QuadContent::Text { text, .. } if text.starts_with(start) => Some((text.clone(), quad.x, quad.width)),
+    _ => None,
+  })
+}
+
+#[test]
+fn a_button_narrower_than_its_label_cuts_it_and_keeps_its_padding_and_its_icon() {
+  const LONG: &str = "Send the report and open the application again";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(160.0)
+          .child(Button::new(LONG).icon(icons::SEND).id("long"))
+          .child(Button::new(LONG).full_width(true).id("full")),
+      )
+      .child(Button::new("Save").id("save"))
+      .into()
+  });
+  let (room_x, _, room_width, _) = stage.bounds("room");
+  for id in ["long", "full"] {
+    let (x, _, width, height) = stage.bounds(id);
+    assert!(
+      x >= room_x && x + width <= room_x + room_width + 0.5,
+      "{id} is in its room: {x} {width}"
+    );
+    assert_eq!(height, 36.0);
+  }
+  // The label is cut with an ellipsis inside the padding of 16; the icon is whole before it.
+  let (text, label_x, label_width) = painted(&stage, "Send the").expect("the label is painted");
+  assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
+  let (x, _, width, _) = stage.bounds("long");
+  assert!(label_x + label_width <= x + width - 16.0 + 0.5, "inside its padding");
+  assert!(
+    label_x >= x + 16.0 + 16.0 + 8.0 - 0.5,
+    "after the padding, the icon and the gap"
+  );
+  // A button with room is as wide as its label: 16, the label, 16.
+  let save = stage.text_quad("Save").expect("Save whole");
+  assert!((stage.bounds("save").2 - (save.width + 32.0)).abs() < 0.5);
+}

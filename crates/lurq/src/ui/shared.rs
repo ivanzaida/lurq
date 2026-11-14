@@ -10,7 +10,7 @@ use super::{
 use crate::{
   animation::{KeyframesId, Transition},
   app::theme::{IconSize, MotionDuration},
-  components::{self, Row},
+  components::{self, Row, TextOverflow},
   core::{Signal, SignalValue},
   layout::layout_kind::Justify,
   node::Element,
@@ -49,6 +49,17 @@ pub(crate) fn pressable(part: &ResolvedPart, disabled: bool) -> components::Butt
     .tab_index(0)
     .disabled(disabled)
     .part(part)
+}
+
+/// `text` on one line in the style of `part`, which gives way first where
+/// what holds it is narrower than it and is cut with an ellipsis: the label
+/// of a button, which keeps its padding and its icon in a room too small.
+pub(crate) fn one_line(part: &ResolvedPart, text: &str) -> Element {
+  Row::new()
+    .flex_shrink(1.0)
+    .min_width(0.0)
+    .child(part.text(text).nowrap().text_overflow(TextOverflow::Elipsis).part(part))
+    .into()
 }
 
 /// An icon of the theme's set in the style of `part`, at the side the recipe gives that part.

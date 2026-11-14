@@ -497,6 +497,15 @@ impl ButtonView {
         root = root.on_click(handler.clone());
       }
     }
+    // A room narrower than the button: it gives way down to its padding, its icon and the gap, and its label is
+    // cut. It is never wider than what holds it, a line of a row that wraps included, where nothing shrinks. An
+    // icon alone keeps its square.
+    if !self.icon_only {
+      root = root
+        .flex_shrink(1.0)
+        .shrink_limit(crate::layout::layout_kind::ShrinkLimit::Content)
+        .max_width(crate::node::dimension::Dimension::Pct(100.0));
+    }
     // A button that is an icon alone draws no label, and is still called by it.
     if self.icon_only && !self.label.is_empty() {
       root = root.describe("a11y_name", self.label.clone());
@@ -514,7 +523,7 @@ impl ButtonView {
   pub fn description(&self) -> Option<Element> {
     let description = self.description.as_ref()?;
     let part = self.part(ButtonPart::Description);
-    Some(part.text(description).nowrap().part(&part).into())
+    Some(super::shared::one_line(&part, description))
   }
 
   /// The button's text, in the typography of its label. A theme's renderer
@@ -526,8 +535,9 @@ impl ButtonView {
     {
       return renderer(self);
     }
+    // Where the button is narrower than its label, the label gives way and is cut: the padding and the icon stay.
     let part = self.part(ButtonPart::Label);
-    part.text(&self.label).nowrap().part(&part).into()
+    super::shared::one_line(&part, &self.label)
   }
 
   /// An icon of the theme's set as this button draws one: in the style of
