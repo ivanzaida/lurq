@@ -10,7 +10,7 @@ use std::sync::{
 use lurq::{
   app::{
     App,
-    ctx::Ctx,
+    ctx::{CollisionStrategy, Ctx},
     theme::{PaletteColor, ThemePalette},
   },
   components::{Column, Rect, Row},
@@ -19,7 +19,7 @@ use lurq::{
     quad::{Quad, QuadContent},
   },
   node::{Element, color::Color},
-  ui::{Toggletip, ToggletipPart, ToggletipRenderer, ToggletipView},
+  ui::{Interaction, Toggletip, ToggletipPart, ToggletipRenderer, ToggletipView},
 };
 
 use super::stage::Stage;
@@ -45,8 +45,8 @@ fn close(a: f32, b: f32) -> bool {
 fn tip(followed: &Arc<AtomicUsize>) -> Toggletip {
   let followed = followed.clone();
   Toggletip::new("What is a logical pixel?")
-    .content(SAYS)
-    .link("Learn more", move |_| {
+    .text(SAYS)
+    .link("Learn more", move || {
       followed.fetch_add(1, Ordering::SeqCst);
     })
     .id("help")
@@ -177,10 +177,10 @@ fn the_focus_stays_on_its_button_and_tab_goes_into_the_panel_then_escape_brings_
 fn its_arrow_points_down_at_the_button() {
   let mut stage = stage(|| {
     Toggletip::new("Help")
-      .content(SAYS)
+      .text(SAYS)
       .arrow(true)
       .id("help")
-      .open(Some(true))
+      .force_open(Some(true))
   });
   stage.pass();
   let (bx, by, bwidth, _) = stage.bounds("help");
@@ -210,7 +210,7 @@ fn its_arrow_points_down_at_the_button() {
 
 #[test]
 fn a_disabled_one_does_not_open() {
-  let mut stage = stage(|| Toggletip::new("Help").content(SAYS).id("help").disabled(true));
+  let mut stage = stage(|| Toggletip::new("Help").text(SAYS).id("help").disabled(true));
   stage.click("help");
   assert!(says(&stage).is_none());
 }
@@ -226,7 +226,7 @@ fn a_rule_of_the_theme_changes_the_panel() {
       .size(400.0, 300.0)
       .padding_top(150.0)
       .align_items(Alignment::Center)
-      .child(Toggletip::new("Help").content(SAYS).open(Some(true)).mount(ctx))
+      .child(Toggletip::new("Help").text(SAYS).force_open(Some(true)).mount(ctx))
       .into()
   });
   stage.pass();
@@ -242,10 +242,10 @@ fn a_rule_of_the_theme_changes_the_panel() {
 fn a_theme_gives_the_panel_another_anatomy_and_the_button_still_opens_it() {
   let app = App::new();
   let renderer: ToggletipRenderer = Arc::new(|view: ToggletipView| {
-    let shouted = view.content.as_deref().unwrap_or_default().to_uppercase();
+    let shouted = view.text.as_deref().unwrap_or_default().to_uppercase();
     Row::new()
       .part(&view.part(ToggletipPart::Panel))
-      .child(view.part(ToggletipPart::Text).text(&shouted))
+      .child(view.part(ToggletipPart::Label).text(&shouted))
       .into()
   });
   app.theme().set_renderer::<Toggletip>(renderer);
@@ -254,10 +254,133 @@ fn a_theme_gives_the_panel_another_anatomy_and_the_button_still_opens_it() {
       .size(400.0, 300.0)
       .padding_top(150.0)
       .align_items(Alignment::Center)
-      .child(Toggletip::new("Help").content("Crisp").id("help").mount(ctx))
+      .child(Toggletip::new("Help").text("Crisp").id("help").mount(ctx))
       .into()
   });
   assert!(!stage.paints("CRISP"));
   stage.click("help");
   assert!(stage.paints("CRISP"));
+}
+
+#[test]
+fn on_dismiss_is_told_of_each_way_a_person_closes_it_and_every_handler_is() {
+  let (first, second) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  let mut stage = {
+    let (first, second) = (first.clone(), second.clone());
+    stage(move || {
+      let (first, second) = (first.clone(), second.clone());
+      Toggletip::new("Help")
+        .text(SAYS)
+        .id("help")
+        .on_dismiss(move || {
+          first.fetch_add(1, Ordering::SeqCst);
+        })
+        .on_dismiss(move || {
+          second.fetch_add(1, Ordering::SeqCst);
+        })
+    })
+  };
+  let told = |count: &Arc<AtomicUsize>| count.load(Ordering::SeqCst);
+
+  stage.click("help");
+  assert!(says(&stage).is_some());
+  assert_eq!(told(&first), 0, "opening it is no dismissal");
+  stage.click("help");
+  stage.pass();
+  assert!(says(&stage).is_none());
+  assert_eq!(told(&first), 1, "another press of its button");
+
+  stage.click("help");
+  stage.click("outside");
+  stage.pass();
+  assert!(says(&stage).is_none());
+  assert_eq!(told(&first), 2, "a press outside it");
+
+  stage.click("help");
+  stage.key("Escape");
+  stage.pass();
+  assert!(says(&stage).is_none());
+  assert_eq!(told(&first), 3, "Escape");
+  assert_eq!(told(&second), 3, "the second handler after the first, not in its place");
+}
+
+#[test]
+fn without_dismiss_on_escape_escape_leaves_it_open() {
+  let mut stage = stage(|| Toggletip::new("Help").text(SAYS).id("help").dismiss_on_escape(false));
+  stage.click("help");
+  stage.key("Escape");
+  stage.pass();
+  assert!(says(&stage).is_some(), "Escape does not close it");
+  stage.click("help");
+  stage.pass();
+  assert!(says(&stage).is_none(), "its button still does");
+}
+
+#[test]
+fn an_offset_stands_the_panel_that_far_from_the_button() {
+  let mut stage = stage(|| {
+    Toggletip::new("Help")
+      .text(SAYS)
+      .id("help")
+      .offset(16.0)
+      .force_open(Some(true))
+  });
+  stage.pass();
+  let (_, by, ..) = stage.bounds("help");
+  let panel = stage
+    .quads()
+    .into_iter()
+    .find(|quad| rect_color(quad) == Some(light(PaletteColor::Primary)) && close(quad.width, 230.0))
+    .expect("the panel");
+  assert!(close(panel.y + panel.height, by - 16.0), "16 above the button");
+}
+
+#[test]
+fn a_collision_that_only_clamps_keeps_the_panel_on_its_own_side() {
+  let at_top = |collision: CollisionStrategy| {
+    Stage::new(move |ctx: &mut Ctx| -> Element {
+      Column::new()
+        .size(400.0, 300.0)
+        .padding_top(4.0)
+        .align_items(Alignment::Center)
+        .child(
+          Toggletip::new("Help")
+            .text(SAYS)
+            .id("help")
+            .collision(collision)
+            .force_open(Some(true))
+            .mount(ctx),
+        )
+        .into()
+    })
+  };
+  let below = |stage: &mut Stage| {
+    stage.pass();
+    let (_, by, _, bheight) = stage.bounds("help");
+    let panel = stage
+      .quads()
+      .into_iter()
+      .find(|quad| rect_color(quad) == Some(light(PaletteColor::Primary)) && close(quad.width, 230.0))
+      .expect("the panel");
+    panel.y >= by + bheight
+  };
+  assert!(
+    below(&mut at_top(CollisionStrategy::FlipThenClamp)),
+    "no room above: it goes below"
+  );
+  assert!(
+    !below(&mut at_top(CollisionStrategy::Clamp)),
+    "it stays on its side, moved into the window"
+  );
+}
+
+#[test]
+fn force_draws_its_button_focused_with_nothing_on_it() {
+  let forced = stage(|| Toggletip::new("Help").text(SAYS).force(Some(Interaction::FocusVisible)));
+  assert!(
+    forced.has_ring(light(PaletteColor::Ring)),
+    "the focus ring of its button"
+  );
+  let rest = stage(|| Toggletip::new("Help").text(SAYS));
+  assert!(!rest.has_ring(light(PaletteColor::Ring)));
 }

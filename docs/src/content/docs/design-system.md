@@ -1005,14 +1005,17 @@ Dialog::new(terms_open.clone())
 A short text beside an element while the pointer rests on it or the keyboard's focus is on it: what an icon button does, and the keys that do it too.
 
 ```rust
-use lurq::ui::{Button, ButtonVariant, Tooltip, TooltipSide};
+use lurq::{
+  components::Placement,
+  ui::{Button, ButtonVariant, Tooltip},
+};
 
 // In a component's render: a tooltip is mounted on the element it describes, and returns that element.
 let copy = Button::new("Copy").variant(ButtonVariant::Ghost).icon("copy").icon_only(true);
 let copy = Tooltip::new("Copy").shortcut("Ctrl+C").mount(ctx, copy);
 
 let zoom = Button::new("Zoom in").icon("zoom-in").icon_only(true);
-let zoom = Tooltip::new("Zoom in").side(TooltipSide::Bottom).arrow(true).mount(ctx, zoom);
+let zoom = Tooltip::new("Zoom in").placement(Placement::Bottom).arrow(true).mount(ctx, zoom);
 
 // A disabled button shows its tooltip too: it can say why it is disabled.
 let export = Button::new("Export").disabled(true);
@@ -1023,26 +1026,28 @@ let export = Tooltip::new("Nothing to export yet").mount(ctx, export);
 | --- | --- |
 | `mount(ctx, element)` | Puts the tooltip on the element it describes and returns that element |
 | `shortcut(&str)` | The keys of a shortcut, after the text in a chip of their own |
-| `side(TooltipSide)` | `Top` (the default), `Bottom`, `Left` or `Right` of the element, centered on it |
+| `placement(Placement)` | The side of the element it is on and the edge it lines up with: `Top`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far it stands from the element in place of the theme's 6, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle from the box to the element |
-| `delay(Duration)` | How long the pointer rests before it shows: `TOOLTIP_DELAY`, 500 ms, unless this says otherwise |
-| `open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never: for a gallery, a test, a tour |
+| `open_delay(..)`, `close_delay(..)` | A `MotionDuration` of the theme's or a `Duration`: how long the pointer rests before it shows (`TOOLTIP_DELAY`, 500 ms) and how long it stays after the pointer left (100 ms) |
+| `force_open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never: for a gallery, a test, a tour |
 | `disabled(bool)` | It never shows, and the element is as it would be without it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of what shows |
 
 - A text too long to have its shortcut beside it wraps across the box, no wider than 200, and the shortcut goes under it.
-- It shows after the pointer has rested on the element for its delay, and at once within `TOOLTIP_SKIP_DELAY` (300 ms) of the pointer leaving another: along a toolbar each button's shows at once, and the one before goes, so one tooltip of the pointer shows at a time.
+- It shows after the pointer has rested on the element for its open delay, and at once within `TOOLTIP_SKIP_DELAY` (300 ms) of the pointer leaving another: along a toolbar each button's shows at once, and the one before goes, so one tooltip of the pointer shows at a time.
 - Focus from the keyboard shows it at once: the focus of the element or of anything in it (a row with a button in it), read by `ElementRef::focus_visible_within()`.
-- The pointer can be moved onto the tooltip to read it: it goes 100 ms after the pointer has left both the element and the tooltip. It also goes when the focus leaves, when the element is pressed, and on Escape; after a press or Escape it stays away until the pointer comes again, or until both the pointer and the focus have left.
+- The pointer can be moved onto the tooltip to read it: it goes its close delay, 100 ms, after the pointer has left both the element and the tooltip. It also goes when the focus leaves, when the element is pressed, and on Escape; after a press or Escape it stays away until the pointer comes again, or until both the pointer and the focus have left.
 - Escape is the tooltip's before anything under it: the tooltip is the top layer that takes Escape, so the key closes the tooltip and not the dialog or the popup it is shown in.
 - A disabled element shows its tooltip: a disabled element is not hovered, but it hears the pointer come and go, and the tooltip is on it as on any other.
 - It is kept in the window: where there is no room on its side it is on the other one, its arrow turned with it, and where the window pushes it along, its arrow still points at the middle of the element. It takes no focus.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the element is described by the text (`a11y_description`), and called by it (`a11y_name`) when nothing else names it: a text in the element names it (a button by its label), and an icon-only button is named by its label already; an icon alone, a glyph, names nothing. What shows is a `tooltip`. An element with an element ref of its own keeps it, and the tooltip is anchored to it.
 - It is a mounted component, not a builder that goes where an element goes: it keeps timers for its delay and its grace, an anchor that stays the same from one render to the next, and whether the pointer has shown it, and a builder has no `Ctx` to keep them in. Converted into an element on its own, a `Tooltip` is its box as it shows, anchored to nothing: for a gallery, a test or a host of an app's own.
-- Parts: `TooltipPart::Root` (the box and its arrow, and the room between them and the element), `Content` (the box), `Label`, `Shortcut`, `Arrow`. The side is the recipe's variant (`TooltipSide`), and the states are `TooltipState::Arrow`, `Shortcut` and `Multiline` (the text wraps, known once it is laid out).
+- Parts: `TooltipPart::Root` (the box and its arrow, and the room between them and the element), `Panel` (the box), `Label`, `Shortcut`, `Arrow`. The side it is on is the recipe's variant (`TooltipSide`: the side of its placement, or the other where there was no room), and the states are `TooltipState::Arrow`, `Shortcut` and `Multiline` (the text wraps, known once it is laid out).
 - In the design the box is in `Primary` with a radius of `Md`, its text in `PrimaryForeground` in the caption's 12, 10 from its sides and 6 from its top and bottom, and no wider than 200; a text that wraps has 8 above and below it, in lines of 1.4. A shortcut is 8 after the text in a chip 16 high, 4 from its sides, with a radius of 3, in a white of 15%, its keys in the mono family in 10. The arrow is 12 along the box and 6 out from it, in the box's color. The tooltip stands 6 from the element: the root's padding on the side's axis.
 - The arrow is a square in the box's color turned by 45°, its middle on the edge of the `Arrow` part that meets the box; the part clips it to the half that points away (`TooltipView::arrow()`), moved along the box by `TooltipView::aim`.
-- A renderer builds what shows, not when: it is given a `TooltipView` with the text, the shortcut, the side the tooltip is on, whether it has an arrow and its aim; `view.content()` is the default box and `view.arrow()` the default arrow.
+- A renderer builds what shows, not when: it is given a `TooltipView` with the text, the shortcut, the side the tooltip is on, whether it has an arrow and its aim; `view.panel()` is the default box and `view.arrow()` the default arrow.
+- It has no `label`: its text is its name and what describes the element. It has no `on_dismiss` and no `dismiss_on_escape`: the app does not open it, and Escape always puts it away, as content that shows on hover must be dismissible.
 
 ## Toast
 
@@ -2795,7 +2800,7 @@ let author = HoverCard::new()
   .media(Avatar::new("LQ"))
   .title("@lurq")
   .description("A Rust UI toolkit with GPU-backed rendering.")
-  .fact(icons::CALENDAR_DAYS, "Joined March 2024")
+  .fact("Joined March 2024", icons::CALENDAR_DAYS)
   .mount(ctx, Link::new("@lurq"));
 
 // With controls in it: a dialog to tooling, and Tab goes into it from the link.
@@ -2811,21 +2816,23 @@ let reviewer = HoverCard::new()
 | --- | --- |
 | `mount(ctx, element)` | Puts the card on the element it is about and returns that element |
 | `title(&str)`, `description(&str)` | What it is about, and a line or two about it |
+| `label(&str)` | What tooling calls it, in place of its title |
 | `media(element)` | What stands at its start, beside the text: an avatar, the icon of a file |
-| `fact(icon, &str)`, `plain_fact(&str)` | A fact in the row under the description, with an icon of the theme's set or without one |
+| `fact(&str, icon)`, `facts(..)` | A fact in the row under the description: its text, and an icon of the theme's set before it or `None` |
 | `child(element)`, `children(..)` | What it holds under its text: a link, a row of buttons |
 | `placement(Placement)` | The side of the element it is on and the edge it lines up with: `Bottom`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far it stands from the element in place of the theme's 8, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle with the panel's edge from the panel to the element |
 | `open_delay(..)`, `close_delay(..)` | A `MotionDuration` of the theme's or a `Duration`: how long the pointer rests before it opens (`Slower`, 400 ms) and how long it stays after the pointer left (`Slow`, 240 ms) |
-| `open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never |
+| `force_open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never |
 | `disabled(bool)` | It never opens, and the element is as it would be without it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of what shows |
 
 - It opens when the pointer has rested on the element for its open delay, and at once when the keyboard's focus comes to the element or to anything in it. It stays open while the pointer is on the element, on the card or crossing the room between them (the room is the card's root, which the pointer is on), and while the focus is in either; it closes when the pointer has left both for its close delay, when the focus leaves both, and on Escape, which it takes before anything under it. After Escape it stays closed until the pointer comes again or both the pointer and the focus have left.
 - Tab goes from the element into the card's controls and on to what follows the element (`Overlay::tab_after_anchor`): the focus is not moved into it as it opens, which is what `Overlay::takes_focus` would do. As it closes with the focus inside, the focus goes back to the element.
 - One hover card of the pointer shows at a time. Where there is no room on its side it goes to the other, its arrow turned with it, and where the window pushes it along, its arrow still points at the middle of the element.
-- To what reads the tree it is a `dialog` where it holds a control and a `tooltip` where it does not, called by its title; the element is described by the title and the description (`a11y_description`), and says it has a dialog where the card has controls.
-- It is a mounted component, as the tooltip is. Converted into an element on its own, a `HoverCard` is its panel as it shows, anchored to nothing.
+- To what reads the tree it is a `dialog` where it holds a control and a `tooltip` where it does not, called by its label or else its title; the element is described by the title and the description (`a11y_description`), and says it has a dialog where the card has controls.
+- It is a mounted component, as the tooltip is. Converted into an element on its own, a `HoverCard` is its panel as it shows, anchored to nothing. As a tooltip, it has no `on_dismiss` and no `dismiss_on_escape`: the pointer and the focus open it, not the app, and Escape always closes it.
 - Parts: `HoverCardPart::Root` (the panel and its arrow, and the room between them and the element), `Panel`, `Media`, `Text`, `Title`, `Description`, `Facts`, `Fact`, `FactIcon`, `Arrow`. States: `HoverCardState::Arrow`, `Controls`, and the side it is on by the names of `TooltipSide` (`"top"`, `"bottom"`, `"left"`, `"right"`).
 - In the design the panel is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Md` shadow and 16 of padding, the media 12 before the text. The text is 6 apart: the title in 14 at medium weight, the description in 13 of `MutedForeground` in lines of 1.5, and the facts 12 apart, each an icon of 14 6 before its text in 12, both muted. It stands 8 from the element; the arrow is 18 along the panel and 9 out from it. It fades in over the base duration and out over the fast one.
 
@@ -2837,8 +2844,8 @@ A tooltip opened by a press: a small button beside a label that opens a few word
 use lurq::ui::Toggletip;
 
 let help = Toggletip::new("What is a workspace?")
-  .content("A workspace holds the projects a team shares.")
-  .link("Learn more", |_| open_docs())
+  .text("A workspace holds the projects a team shares.")
+  .link("Learn more", || open_docs())
   .mount(ctx);
 ```
 
@@ -2846,21 +2853,25 @@ let help = Toggletip::new("What is a workspace?")
 | --- | --- |
 | `Toggletip::new(&str)` | What its button is called to tooling: the question the panel answers |
 | `mount(ctx)` | Puts its button where it goes, and its panel over the window while it is open |
-| `content(&str)` | What the panel says |
-| `link(&str, handler)` | A link under the text, with an arrow after it |
+| `text(&str)` | What the panel says |
+| `link(&str, Fn())` | A link under the text, with an arrow after it, and what a press of it does |
 | `child(element)`, `children(..)` | What the panel holds under its text: a button |
 | `icon(name)` | The button's icon, `icons::INFO` unless this says otherwise |
-| `placement(Placement)` | The side of the button the panel is on: `Top` by default |
+| `placement(Placement)` | The side of the button the panel is on and the edge it lines up with: `Top`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far the panel stands from the button in place of the theme's 6, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle from the panel to the button: the tooltip's |
-| `open(Option<bool>)` | `Some(true)` shows the panel whatever the button says, `Some(false)` never |
+| `on_dismiss(Fn())` | Told after a person closed it: another press of its button, a press outside it, Escape. A second handler is called after the first |
+| `dismiss_on_escape(bool)` | Whether Escape closes it: on by default |
+| `force_open(Option<bool>)` | `Some(true)` shows the panel whatever the button says, `Some(false)` never |
 | `disabled(bool)` | The button takes nothing |
+| `force(Option<Interaction>)` | Draws its button hovered, pressed or focused with nothing on it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
 | `id` | The id of the button; the root of the panel is `<id>-panel` |
 
-- A press of the button opens the panel and another closes it; a press outside it and Escape close it too. The focus stays on the button as it opens, and Tab goes from the button into the panel's link and on; as the panel closes with the focus in it, the focus goes back to the button.
+- A press of the button opens the panel and another closes it; a press outside it and Escape close it too, and each of the three tells `on_dismiss` once it is closed. The focus stays on the button as it opens, and Tab goes from the button into the panel's link and on; as the panel closes with the focus in it, the focus goes back to the button.
 - To what reads the tree the button is called by its label and says whether it is expanded (`a11y_expanded`), and the panel is a `status`.
 - It is a mounted component: it keeps whether it is open. Converted into an element on its own, a `Toggletip` is its panel as it shows.
-- Parts: `ToggletipPart::Root`, `Trigger` and `TriggerIcon` (what it gives the theme's button and its icon), `Panel`, `Text`, `Link` and `LinkLabel` (what it gives the theme's link and its label), `Arrow`. States: `ToggletipState::Open`, `Arrow`, `Disabled`, and the side as a hover card has it.
+- Parts: `ToggletipPart::Root`, `Trigger` and `TriggerIcon` (what it gives the theme's button and its icon), `Panel`, `Label` (its text), `Link` and `LinkLabel` (what it gives the theme's link and its label), `Arrow`. States: `ToggletipState::Open`, `Arrow`, `Disabled`, and the side as a hover card has it.
 - In the design the panel is 230 wide on `Primary`, `Md` round, with 12 of padding and 8 between what it holds. Its text is 13 in `PrimaryForeground` in lines of 1.4, and its link 13 at 600 with an arrow up and right of 14, underlined in `PrimaryForeground` under the pointer. The button is a ghost one of 20 that is a circle, its icon of 14 in `MutedForeground`, in `Foreground` under the pointer and while the panel is open. The panel stands 6 from the button, and its arrow is the tooltip's, 12 along and 6 out.
 
 ## Teaching Tip
@@ -2870,13 +2881,13 @@ A panel that points at one thing in the app and says what it is for, the first t
 ```rust
 use lurq::ui::{Icon, TeachingTip, TeachingTipVariant, Tour, TourStep, icons};
 
-// anchor: ElementRef, open: Signal<bool>, kept by the app.
+// open: Signal<bool>, anchor: ElementRef, kept by the app.
 let close = open.clone();
-let dock = TeachingTip::new(anchor.clone(), open.clone())
+let dock = TeachingTip::new(open.clone(), anchor.clone())
   .media(Icon::new(icons::SPARKLES).size(24.0))
   .title("Dock panels anywhere")
   .description("Drag a panel by its header and drop it on any edge of the window.")
-  .primary("Got it", move |_| close.set(false))
+  .primary("Got it", move || close.set(false))
   .mount(ctx);
 
 // step: Signal<Option<usize>>, which step shows; None while the tour is not on.
@@ -2888,28 +2899,32 @@ let tour = Tour::new(step.clone())
 
 | Builder | |
 | --- | --- |
-| `TeachingTip::new(anchor, open)` | Pointing at `anchor` while the `Signal<bool>` is `true` |
+| `TeachingTip::new(open, anchor)` | Pointing at `anchor` while the `Signal<bool>` is `true` |
 | `mount(ctx)` | Puts it in the app; the element it returns has no size and goes anywhere |
 | `title(&str)`, `description(&str)` | What it points at, and what it is for |
+| `label(&str)` | What tooling calls it, in place of its title |
 | `media(element)` | A picture or an icon at its top, on a muted fill as wide as it |
-| `child(element)` | Something it holds under the description |
+| `child(element)`, `children(..)` | What it holds under the description |
 | `step(n, of)` | That it is a step of several: "2 of 4" in its footer, in the tour's look |
-| `primary(&str, handler)`, `secondary(&str, handler)` | The button that goes on, and the one before it |
-| `on_close(Fn())` | Told as its close control or Escape closes it, after which the signal is `false` |
+| `primary(&str, Fn())`, `secondary(&str, Fn())` | The button that goes on, and the one before it, and what a press of each does |
+| `on_dismiss(Fn())` | Told after its close control or Escape closed it: the signal is `false` already. A second handler is called after the first |
+| `dismiss_on_escape(bool)` | Whether Escape closes it, as its close control does: on by default |
 | `close_button(bool)` | A close control at the end of its title: on by default |
 | `variant(TeachingTipVariant)` | `Plain` (the default), in the popover's colors, or `Primary` |
-| `placement(Placement)` | The side of what it points at it is on: `Bottom` by default |
+| `placement(Placement)` | The side of what it points at it is on and the edge it lines up with: `Bottom`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far it stands from what it points at in place of the theme's 4, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle with the panel's edge pointing at what it is about: on by default |
 | `takes_focus(bool)` | The focus goes into it as it opens and back as it closes. Off by default |
+| `force(Option<Interaction>)` | Draws its close control hovered, pressed or focused with nothing on it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
 | `id` | The id of what shows; its close control is `<id>-close`, its buttons `<id>-primary` and `<id>-secondary` |
 
-- It does not keep whether it is open: the app's signal does. Its close control and Escape close it, set the signal to `false` and tell `on_close`; a press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
+- It does not keep whether it is open: the app's signal does. Its close control and Escape close it: they set the signal to `false` and then tell `on_dismiss`, so that a handler that opens something else does not have it closed under it. A press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
 - It does not take the focus unless the app says so: Tab goes from what it points at into its buttons and on (`Overlay::tab_after_anchor`). With `takes_focus(true)` the focus goes into it as it opens and back to what had it as it closes.
-- To what reads the tree it is a `dialog` called by its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
-- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`labels(back, next, done)`). Its buttons set the signal; Done and Escape set it to `None`, and Done tells `on_finish`. `TourStep::new(anchor, title)` has `description`, `media` and `placement`; the tour has `variant`, `placement` and `arrow` for all its steps.
-- Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows.
-- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Stepped` (it has a count), `Media`, and the side as a hover card has it.
+- To what reads the tree it is a `dialog` called by its label or else its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
+- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on). `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
+- Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows, and a `Tour` the panel of the step its signal says, or of its first step while it says none.
+- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
 - In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
 
 ## Command Palette

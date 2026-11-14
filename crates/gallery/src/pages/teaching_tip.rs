@@ -97,11 +97,11 @@ impl TeachingTipPage {
     let plain = {
       let (title, description) = (title.clone(), description.clone());
       move |anchor: ElementRef, open: Signal<bool>| {
-        let (on, back, closed) = (record.clone(), record.clone(), record.clone());
-        let mut tip = TeachingTip::new(anchor, open)
+        let (on, back, dismissed) = (record.clone(), record.clone(), record.clone());
+        let mut tip = TeachingTip::new(open, anchor)
           .title(&title)
           .description(&description)
-          .primary(if step { "Next" } else { "Got it" }, move |_| {
+          .primary(if step { "Next" } else { "Got it" }, move || {
             on("pressed: primary".to_owned())
           })
           .close_button(close_button)
@@ -109,7 +109,7 @@ impl TeachingTipPage {
           .placement(placement)
           .arrow(arrow)
           .takes_focus(takes_focus)
-          .on_close(move || closed("closed".to_owned()));
+          .on_dismiss(move || dismissed("dismissed".to_owned()));
         if media {
           tip = tip.media(sparkles());
         }
@@ -117,7 +117,7 @@ impl TeachingTipPage {
           tip = tip.step(2, 4);
         }
         if secondary {
-          tip = tip.secondary("Back", move |_| back("pressed: secondary".to_owned()));
+          tip = tip.secondary("Back", move || back("pressed: secondary".to_owned()));
         }
         tip
       }
@@ -130,8 +130,8 @@ impl TeachingTipPage {
       .child(plain(self.anchor.clone(), self.open.clone()).mount(ctx));
 
     let mut code = vec![
-      "// anchor: ElementRef, open: Signal<bool>".to_owned(),
-      "TeachingTip::new(anchor.clone(), open.clone())".to_owned(),
+      "// open: Signal<bool>, anchor: ElementRef".to_owned(),
+      "TeachingTip::new(open.clone(), anchor.clone())".to_owned(),
       format!("    .title({title:?})"),
       format!("    .description({description:?})"),
     ];
@@ -142,10 +142,10 @@ impl TeachingTipPage {
       code.push("    .step(2, 4)".to_owned());
     }
     if secondary {
-      code.push("    .secondary(\"Back\", |_| back())".to_owned());
+      code.push("    .secondary(\"Back\", || back())".to_owned());
     }
     code.push(format!(
-      "    .primary({:?}, |_| next())",
+      "    .primary({:?}, || next())",
       if step { "Next" } else { "Got it" }
     ));
     if !close_button {
@@ -163,7 +163,7 @@ impl TeachingTipPage {
     if takes_focus {
       code.push("    .takes_focus(true)".to_owned());
     }
-    code.push("    .on_close(|| closed())".to_owned());
+    code.push("    .on_dismiss(|| dismissed())".to_owned());
     code.push("    .mount(ctx)".to_owned());
 
     let (width, padding) = if step { (280, 16) } else { (300, 14) };
@@ -236,7 +236,7 @@ impl TeachingTipPage {
         fill: false,
         forceable: false,
         facts: if open { "open".to_owned() } else { "closed".to_owned() },
-        event: "on_close",
+        event: "on_dismiss",
         code,
         tree,
         controls: vec![
@@ -326,11 +326,11 @@ impl Component for TeachingTipPage {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let (anchor, open) = &self.design;
     let done = open.clone();
-    let design_tip = TeachingTip::new(anchor.clone(), open.clone())
+    let design_tip = TeachingTip::new(open.clone(), anchor.clone())
       .media(sparkles())
       .title("Dock panels anywhere")
       .description("Drag a panel by its header and drop it on any edge of the window.")
-      .primary("Got it", move |_| done.set(false));
+      .primary("Got it", move || done.set(false));
     let design = Row::new()
       .width(FILL)
       .padding_top(32.0)
@@ -344,14 +344,14 @@ impl Component for TeachingTipPage {
 
     let (anchor, open) = &self.primary;
     let done = open.clone();
-    let primary_tip = TeachingTip::new(anchor.clone(), open.clone())
+    let primary_tip = TeachingTip::new(open.clone(), anchor.clone())
       .title("Search everything")
       .description("Find a file, a setting or a command from one place.")
       .secondary("Not now", {
         let open = open.clone();
-        move |_| open.set(false)
+        move || open.set(false)
       })
-      .primary("Try it", move |_| done.set(false))
+      .primary("Try it", move || done.set(false))
       .variant(TeachingTipVariant::Primary)
       .placement(Placement::Right);
     let primary = Row::new()
@@ -402,16 +402,16 @@ impl Component for TeachingTipPage {
 
     let rows = [
       (
-        "anchor",
-        "impl Into<ElementRef>",
-        "",
-        "The element it points at, kept from one render to the next.",
-      ),
-      (
         "open",
         "Signal<bool>",
         "",
         "Whether it shows. The app's: its close control and Escape set it to false.",
+      ),
+      (
+        "anchor",
+        "impl Into<ElementRef>",
+        "",
+        "The element it points at, kept from one render to the next.",
       ),
       (
         "mount",
@@ -423,8 +423,9 @@ impl Component for TeachingTipPage {
         "title",
         "&str",
         "",
-        "What it points at, in a few words. What tooling calls it.",
+        "What it points at, in a few words. What tooling calls it, unless its label says otherwise.",
       ),
+      ("label", "&str", "", "What tooling calls it, in place of its title."),
       ("description", "&str", "", "What it is for, under the title."),
       (
         "media",
@@ -436,7 +437,7 @@ impl Component for TeachingTipPage {
         "child",
         "impl Into<Element>",
         "",
-        "Something it holds, under the description.",
+        "Something it holds, under the description. children adds several.",
       ),
       (
         "step",
@@ -446,22 +447,19 @@ impl Component for TeachingTipPage {
       ),
       (
         "primary",
-        "(&str, impl IntoMouseEventHandler)",
+        "(&str, impl Fn())",
         "",
-        "The button that goes on.",
+        "The button that goes on, and what a press of it does.",
       ),
+      ("secondary", "(&str, impl Fn())", "", "The button before it, outlined."),
       (
-        "secondary",
-        "(&str, impl IntoMouseEventHandler)",
-        "",
-        "The button before it, outlined.",
-      ),
-      (
-        "on_close",
+        "on_dismiss",
         "impl Fn()",
         "",
-        "Told as its close control or Escape closes it. A press elsewhere does not close it.",
+        "Told after its close control or Escape closed it, the signal false already. A press elsewhere does not \
+         close it.",
       ),
+      ("dismiss_on_escape", "bool", "true", "Whether Escape closes it."),
       (
         "close_button",
         "bool",
@@ -481,6 +479,18 @@ impl Component for TeachingTipPage {
         "The side of what it points at it is on; the other side where there is no room.",
       ),
       (
+        "offset",
+        "impl Into<SpacingValue>",
+        "4",
+        "How far it stands from what it points at, in place of what the theme gives it.",
+      ),
+      (
+        "collision",
+        "CollisionStrategy",
+        "FlipThenClamp",
+        "What it does where there is no room on its side: to the other side, then moved into the window.",
+      ),
+      (
         "arrow",
         "bool",
         "true",
@@ -497,6 +507,58 @@ impl Component for TeachingTipPage {
         "impl Into<Length>",
         "300",
         "How wide the panel is; 280 for a step.",
+      ),
+      (
+        "force",
+        "Option<Interaction>",
+        "None",
+        "Draws its close control hovered, pressed or focused with nothing on it.",
+      ),
+    ];
+    let tour_rows = [
+      (
+        "new",
+        "Signal<Option<usize>>",
+        "",
+        "Which step shows, counted from 0; None while the tour is not on. Its buttons set it.",
+      ),
+      (
+        "step",
+        "TourStep",
+        "",
+        "Adds a step: TourStep::new(anchor, title), with description, media, placement, id and key. steps adds \
+         several.",
+      ),
+      (
+        "back_label, next_label, done_label",
+        "&str",
+        "Back, Next, Done",
+        "The labels of its buttons: back, on, and on from the last step.",
+      ),
+      (
+        "on_finish",
+        "impl Fn()",
+        "",
+        "Told after the last step's button ended the tour.",
+      ),
+      (
+        "on_dismiss",
+        "impl Fn()",
+        "",
+        "Told after Escape left the tour, the signal None already.",
+      ),
+      ("dismiss_on_escape", "bool", "true", "Whether Escape leaves the tour."),
+      (
+        "variant, placement, offset, collision, arrow",
+        "",
+        "",
+        "As a teaching tip has them, for every step; a step's placement comes first.",
+      ),
+      (
+        "state, style, rules, id, key",
+        "",
+        "",
+        "Laid on the tip that shows; a step's id and key come first.",
       ),
     ];
     let playground = self.play(ctx);
@@ -526,14 +588,14 @@ impl Component for TeachingTipPage {
           self.frame.demo(
             0,
             design,
-            "TeachingTip::new(anchor, open).media(..).title(..).description(..).primary(..)",
+            "TeachingTip::new(open, anchor).media(..).title(..).description(..).primary(..)",
             &[
-              "// anchor: ElementRef, open: Signal<bool>",
-              "TeachingTip::new(anchor.clone(), open.clone())",
+              "// open: Signal<bool>, anchor: ElementRef",
+              "TeachingTip::new(open.clone(), anchor.clone())",
               "    .media(Icon::new(icons::SPARKLES).size(24.0))",
               "    .title(\"Dock panels anywhere\")",
               "    .description(\"Drag a panel by its header and drop it on any edge of the window.\")",
-              "    .primary(\"Got it\", move |_| open.set(false))",
+              "    .primary(\"Got it\", move || open.set(false))",
               "    .mount(ctx)",
             ],
           ),
@@ -547,11 +609,11 @@ impl Component for TeachingTipPage {
             primary,
             ".variant(TeachingTipVariant::Primary)",
             &[
-              "TeachingTip::new(anchor.clone(), open.clone())",
+              "TeachingTip::new(open.clone(), anchor.clone())",
               "    .title(\"Search everything\")",
               "    .description(\"Find a file, a setting or a command from one place.\")",
-              "    .secondary(\"Not now\", |_| open.set(false))",
-              "    .primary(\"Try it\", |_| open.set(false))",
+              "    .secondary(\"Not now\", || open.set(false))",
+              "    .primary(\"Try it\", || open.set(false))",
               "    .variant(TeachingTipVariant::Primary)",
               "    .placement(Placement::Right)",
               "    .mount(ctx)",
@@ -581,7 +643,12 @@ impl Component for TeachingTipPage {
         Section::new(
           "Props",
           "What a teaching tip is given.",
-          props_table(&rows, &["anchor", "open", "mount"], self.frame.room()),
+          props_table(&rows, &["open", "anchor", "mount"], self.frame.room()),
+        ),
+        Section::new(
+          "Tour props",
+          "What a tour is given.",
+          props_table(&tour_rows, &["new"], self.frame.room()),
         ),
       ],
     )

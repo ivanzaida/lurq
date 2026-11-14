@@ -33,7 +33,7 @@ fn person(title: &str, description: &str, media: bool) -> HoverCard {
   let mut card = HoverCard::new()
     .title(title)
     .description(description)
-    .fact(icons::CALENDAR_DAYS, "Joined March 2024");
+    .fact("Joined March 2024", icons::CALENDAR_DAYS);
   if media {
     card = card.media(Avatar::new("LQ"));
   }
@@ -101,7 +101,7 @@ impl HoverCardPage {
         card
       }
     };
-    let shown = plain().open(open.then_some(true)).mount(ctx, Link::new(&title));
+    let shown = plain().force_open(open.then_some(true)).mount(ctx, Link::new(&title));
 
     let mut code = vec!["HoverCard::new()".to_owned()];
     if media {
@@ -109,7 +109,7 @@ impl HoverCardPage {
     }
     code.push(format!("    .title({title:?})"));
     code.push(format!("    .description({description:?})"));
-    code.push("    .fact(icons::CALENDAR_DAYS, \"Joined March 2024\")".to_owned());
+    code.push("    .fact(\"Joined March 2024\", icons::CALENDAR_DAYS)".to_owned());
     if button {
       code.push("    .child(Button::new(\"Follow\").size(ButtonSize::Sm))".to_owned());
     }
@@ -120,7 +120,7 @@ impl HoverCardPage {
       code.push("    .arrow(true)".to_owned());
     }
     if open {
-      code.push("    .open(Some(true))".to_owned());
+      code.push("    .force_open(Some(true))".to_owned());
     }
     if disabled {
       code.push("    .disabled(true)".to_owned());
@@ -201,7 +201,7 @@ impl HoverCardPage {
           flag("media", &self.media),
           flag("a button in it", &self.button),
           flag("arrow", &self.arrow),
-          flag("open", &self.open),
+          flag("force open", &self.open),
           flag("disabled", &self.disabled),
         ],
         changed: [!media, button, placement != Placement::Bottom, arrow, !open, disabled]
@@ -256,7 +256,7 @@ impl Component for HoverCardPage {
       .media(Avatar::new("Ivan Zaida"))
       .title("Ivan Zaida")
       .description("Maintains the renderer and the design system.")
-      .fact(icons::CALENDAR_DAYS, "Joined January 2023")
+      .fact("Joined January 2023", icons::CALENDAR_DAYS)
       .child(
         Row::new()
           .spacing(8.0)
@@ -279,11 +279,11 @@ impl Component for HoverCardPage {
     let file = HoverCard::new()
       .title("design-system.pen")
       .description("The board every component of lurq::ui is drawn on.")
-      .fact(icons::CALENDAR_DAYS, "Changed today")
-      .plain_fact("2.4 MB")
+      .fact("Changed today", icons::CALENDAR_DAYS)
+      .fact("2.4 MB", None)
       .placement(Placement::Right)
       .arrow(true)
-      .open(Some(true));
+      .force_open(Some(true));
     let open = Row::new().width(FILL).padding_vertical(64.0).padding_left(24.0).child(
       file.mount(
         ctx,
@@ -305,8 +305,9 @@ impl Component for HoverCardPage {
         "title",
         "&str",
         "",
-        "What it is about: a name, a page's title. What tooling calls it.",
+        "What it is about: a name, a page's title. What tooling calls it, unless its label says otherwise.",
       ),
+      ("label", "&str", "", "What tooling calls it, in place of its title."),
       ("description", "&str", "", "A line or two about it, in the muted color."),
       (
         "media",
@@ -316,9 +317,10 @@ impl Component for HoverCardPage {
       ),
       (
         "fact",
-        "(impl Into<Name>, &str)",
+        "(&str, impl Into<IconChoice>)",
         "",
-        "A fact in the row under the description: an icon and a short text. plain_fact has no icon.",
+        "A fact in the row under the description: a short text, and an icon before it or None. facts adds \
+         several.",
       ),
       (
         "child",
@@ -332,6 +334,18 @@ impl Component for HoverCardPage {
         "Placement",
         "Bottom",
         "The side of the element it is on, and the edge it lines up with; the other side where there is no room.",
+      ),
+      (
+        "offset",
+        "impl Into<SpacingValue>",
+        "8",
+        "How far it stands from the element, in place of what the theme gives it.",
+      ),
+      (
+        "collision",
+        "CollisionStrategy",
+        "FlipThenClamp",
+        "What it does where there is no room on its side: to the other side, then moved into the window.",
       ),
       (
         "arrow",
@@ -352,7 +366,7 @@ impl Component for HoverCardPage {
         "How long it stays after the pointer left the element and the card: time to cross between them.",
       ),
       (
-        "open",
+        "force_open",
         "Option<bool>",
         "None",
         "Shown whatever the pointer and the focus do, or never.",
@@ -376,8 +390,8 @@ impl Component for HoverCardPage {
       vec![
         Section::new(
           "Playground",
-          "Every prop of HoverCard is a control on the right. With open on, the card stays; turn it off and rest the \
-           pointer on the link, or reach it with Tab.",
+          "Every prop of HoverCard is a control on the right. With force open on, the card stays; turn it off and \
+           rest the pointer on the link, or reach it with Tab.",
           playground,
         ),
         Section::new(
@@ -393,7 +407,7 @@ impl Component for HoverCardPage {
               "    .media(Avatar::new(\"LQ\"))",
               "    .title(\"@lurq\")",
               "    .description(\"A Rust UI toolkit with GPU-backed rendering.\")",
-              "    .fact(icons::CALENDAR_DAYS, \"Joined March 2024\")",
+              "    .fact(\"Joined March 2024\", icons::CALENDAR_DAYS)",
               "    .mount(ctx, Link::new(\"@lurq\"))",
             ],
           ),
@@ -411,7 +425,7 @@ impl Component for HoverCardPage {
               "    .media(Avatar::new(\"Ivan Zaida\"))",
               "    .title(\"Ivan Zaida\")",
               "    .description(\"Maintains the renderer and the design system.\")",
-              "    .fact(icons::CALENDAR_DAYS, \"Joined January 2023\")",
+              "    .fact(\"Joined January 2023\", icons::CALENDAR_DAYS)",
               "    .child(",
               "        Row::new()",
               "            .spacing(8.0)",
@@ -434,8 +448,8 @@ impl Component for HoverCardPage {
               "HoverCard::new()",
               "    .title(\"design-system.pen\")",
               "    .description(\"The board every component of lurq::ui is drawn on.\")",
-              "    .fact(icons::CALENDAR_DAYS, \"Changed today\")",
-              "    .plain_fact(\"2.4 MB\")",
+              "    .fact(\"Changed today\", icons::CALENDAR_DAYS)",
+              "    .fact(\"2.4 MB\", None)",
               "    .placement(Placement::Right)",
               "    .arrow(true)",
               "    .mount(ctx, file_button)",

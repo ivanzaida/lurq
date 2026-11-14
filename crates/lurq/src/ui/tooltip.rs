@@ -18,9 +18,10 @@ use parking_lot::Mutex;
 
 use super::{
   FontFamily, names,
-  part_style::Length,
+  part_style::{Length, TransitionDuration},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
   theme::{Themed, current_theme},
+  tip::{length, side_of},
 };
 use crate::{
   app::{
@@ -35,11 +36,14 @@ use crate::{
     Alignment,
     layout_kind::{Justify, LayoutKind},
   },
-  node::{Element, HitTestBehavior, Node, NodeUpdate, color::Color, dimension::Dimension, transform::Transform2D},
+  node::{
+    Element, HitTestBehavior, Node, NodeUpdate, SpacingValue, color::Color, dimension::Dimension,
+    transform::Transform2D,
+  },
 };
 
 /// How long the pointer rests on an element before its tooltip shows, as a
-/// Markdown link's does.
+/// Markdown link's does: a tooltip's open delay unless it says otherwise.
 pub const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
 
 /// How soon after a tooltip went another shows with no delay: the pointer
@@ -96,7 +100,7 @@ pub enum TooltipPart {
   /// The box and its arrow, and the room between them and what they describe.
   Root,
   /// The box: its text and its shortcut, on the primary color.
-  Content,
+  Panel,
   /// Its text.
   Label,
   /// The keys of a shortcut after the text, in a chip of their own.
@@ -108,14 +112,16 @@ pub enum TooltipPart {
 
 names!(TooltipPart {
   Root => "root",
-  Content => "content",
+  Panel => "panel",
   Label => "label",
   Shortcut => "shortcut",
   Arrow => "arrow",
 });
 
-/// The side of what it describes a tooltip is on. Where there is no room on
-/// that side, it is on the other one, its arrow turned with it.
+/// The side of what it describes a tooltip is on: the side of its
+/// [`Placement`], or the other one where there is no room on that side, its
+/// arrow turned with it. It is the recipe's variant of a tooltip, and the
+/// name of the side state of the other panels that point at an element.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TooltipSide {
   /// Above it, its arrow pointing down.
@@ -134,16 +140,6 @@ names!(TooltipSide {
 });
 
 impl TooltipSide {
-  /// The overlay's placement of this side: centered on what it describes.
-  fn placement(self) -> Placement {
-    match self {
-      Self::Top => Placement::Top,
-      Self::Bottom => Placement::Bottom,
-      Self::Left => Placement::Left,
-      Self::Right => Placement::Right,
-    }
-  }
-
   /// Whether the tooltip is above or below what it describes.
   fn vertical(self) -> bool {
     matches!(self, Self::Top | Self::Bottom)
@@ -187,19 +183,25 @@ pub type TooltipRenderer = Arc<dyn Fn(TooltipView) -> Element + Send + Sync>;
 /// "Copy", a field's "Stored in the OS keychain".
 ///
 /// ```no_run
-/// use lurq::{app::ctx::Ctx, node::Element, ui::{Button, Tooltip, TooltipSide}};
+/// use lurq::{
+///   app::ctx::{Ctx, Placement},
+///   node::Element,
+///   ui::{Button, Tooltip},
+/// };
 ///
 /// fn toolbar(ctx: &mut Ctx) -> Element {
 ///   let copy = Button::new("Copy").icon("copy").icon_only(true);
-///   Tooltip::new("Copy").shortcut("Ctrl+C").side(TooltipSide::Bottom).mount(ctx, copy)
+///   Tooltip::new("Copy").shortcut("Ctrl+C").placement(Placement::Bottom).mount(ctx, copy)
 /// }
 /// ```
 ///
-/// It shows after the pointer has rested on the element for its delay, at
-/// once if another tooltip went a moment before, and at once when the focus
-/// comes to the element, or to anything in it (a button in a row), from
-/// the keyboard. It goes when the pointer has left both the element and
-/// the tooltip for a moment (the pointer can be moved onto it to read it),
+/// It is above the element and centered on it unless its placement says
+/// otherwise. It shows after the pointer has rested on the element for its
+/// open delay, at once if another tooltip went a moment before, and at once
+/// when the focus comes to the element, or to anything in it (a button in a
+/// row), from the keyboard. It goes when the pointer has left both the
+/// element and the tooltip for its close delay (the pointer can be moved
+/// onto it to read it),
 /// when the focus leaves, when the element is pressed, and on Escape, which
 /// it takes before anything under it. One tooltip of the pointer shows at a
 /// time. It takes no focus, and it stands beside the element, over it only
@@ -213,10 +215,13 @@ pub type TooltipRenderer = Arc<dyn Fn(TooltipView) -> Element + Send + Sync>;
 pub struct Tooltip {
   text: Arc<str>,
   shortcut: Option<Arc<str>>,
-  side: TooltipSide,
+  placement: Placement,
+  offset: Option<SpacingValue>,
+  collision: CollisionStrategy,
   arrow: bool,
-  delay: Duration,
-  open: Option<bool>,
+  open_delay: TransitionDuration,
+  close_delay: TransitionDuration,
+  force_open: Option<bool>,
   disabled: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -225,15 +230,19 @@ pub struct Tooltip {
 }
 
 impl Tooltip {
-  /// A tooltip that says `text`, above what it describes, with no arrow.
+  /// A tooltip that says `text`, above what it describes and centered on it
+  /// (`Placement::Top`), with no arrow.
   pub fn new(text: &str) -> Self {
     Self {
       text: Arc::from(text),
       shortcut: None,
-      side: TooltipSide::Top,
+      placement: Placement::Top,
+      offset: None,
+      collision: CollisionStrategy::FlipThenClamp,
       arrow: false,
-      delay: TOOLTIP_DELAY,
-      open: None,
+      open_delay: TransitionDuration::Set(TOOLTIP_DELAY),
+      close_delay: TransitionDuration::Set(TOOLTIP_GRACE),
+      force_open: None,
       disabled: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -249,9 +258,26 @@ impl Tooltip {
     self
   }
 
-  /// The side of what it describes the tooltip is on, where there is room.
-  pub fn side(mut self, side: TooltipSide) -> Self {
-    self.side = side;
+  /// Which side of what it describes the tooltip is on, where there is room,
+  /// and which edge of it it lines up with: above it and centered
+  /// (`Placement::Top`) by default.
+  pub fn placement(mut self, placement: Placement) -> Self {
+    self.placement = placement;
+    self
+  }
+
+  /// How far the tooltip stands from what it describes, in place of what the
+  /// theme gives it (6 in the design's). The pointer crosses it to the
+  /// tooltip without the tooltip going.
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
+    self
+  }
+
+  /// What the tooltip does where there is no room for it on its side: goes to
+  /// the other side, then is moved into the window, by default.
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = collision;
     self
   }
 
@@ -261,19 +287,27 @@ impl Tooltip {
     self
   }
 
-  /// How long the pointer rests on the element before the tooltip shows;
-  /// [`TOOLTIP_DELAY`] unless this says otherwise. The keyboard's focus shows
-  /// it at once.
-  pub fn delay(mut self, delay: Duration) -> Self {
-    self.delay = delay;
+  /// How long the pointer rests on the element before the tooltip shows: a
+  /// duration of the theme's, or a set one; [`TOOLTIP_DELAY`] unless this
+  /// says otherwise. The keyboard's focus shows it at once, and so does the
+  /// pointer within [`TOOLTIP_SKIP_DELAY`] of another tooltip going.
+  pub fn open_delay(mut self, delay: impl Into<TransitionDuration>) -> Self {
+    self.open_delay = delay.into();
+    self
+  }
+
+  /// How long the tooltip stays after the pointer left both it and the
+  /// element: time to cross the room between them. 100 ms by default.
+  pub fn close_delay(mut self, delay: impl Into<TransitionDuration>) -> Self {
+    self.close_delay = delay.into();
     self
   }
 
   /// Shows the tooltip whatever the pointer and the focus do (`Some(true)`),
   /// or never (`Some(false)`); `None`, as it starts, leaves it to them. For a
   /// gallery, a test, a tour of the app.
-  pub fn open(mut self, open: Option<bool>) -> Self {
-    self.open = open;
+  pub fn force_open(mut self, open: Option<bool>) -> Self {
+    self.force_open = open;
     self
   }
 
@@ -339,13 +373,26 @@ impl Tooltip {
     .state(TooltipState::Arrow, self.arrow)
     .state(TooltipState::Shortcut, self.shortcut.is_some())
     .state(TooltipState::Multiline, multiline);
+    // An offset given here is under what `style` and `rules` say of the root: the room on both sides of the
+    // tooltip, so that it stays centered.
+    let mut rules = Recipe::new();
+    if let Some(offset) = self.offset {
+      rules = rules.base(TooltipPart::Root, |s| {
+        if side.vertical() {
+          s.padding_y(offset)
+        } else {
+          s.padding_x(offset)
+        }
+      });
+    }
+    let rules = rules.extend(&self.rules);
     TooltipView {
       text: self.text.clone(),
       shortcut: self.shortcut.clone(),
       side,
       arrow: self.arrow,
       aim: 0.0,
-      recipe: theme.resolve::<Tooltip>(&case, Some(&self.rules)),
+      recipe: theme.resolve::<Tooltip>(&case, Some(&rules)),
       label_ref: None,
       id: self.id.clone(),
       key: self.key.clone(),
@@ -364,7 +411,7 @@ impl Tooltip {
   /// Converting a tooltip into an element does this in the theme of what is
   /// being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    Self::render_view(self.view(theme, self.side, false))
+    Self::render_view(self.view(theme, side_of(self.placement), false))
   }
 }
 
@@ -379,7 +426,7 @@ impl From<Tooltip> for Element {
 pub struct TooltipView {
   pub text: Arc<str>,
   pub shortcut: Option<Arc<str>>,
-  /// The side it is on: the side it was given, or the other where there was no room.
+  /// The side it is on: the side its placement gives, or the other where there was no room.
   pub side: TooltipSide,
   pub arrow: bool,
   /// How far along the box's edge from its middle the arrow is, toward the
@@ -405,23 +452,23 @@ impl TooltipView {
   }
 
   /// The box: the text, and the shortcut after it.
-  pub fn content(&self) -> Row {
+  pub fn panel(&self) -> Row {
     let label = self.part(TooltipPart::Label);
-    let mut content = Row::new()
+    let mut panel = Row::new()
       .align_items(Alignment::Center)
-      .part(&self.part(TooltipPart::Content));
+      .part(&self.part(TooltipPart::Panel));
     // The text gives way to the box's greatest width, and wraps.
     let mut words = label.text(&self.text).flex_shrink(1.0);
     if let Some(label_ref) = &self.label_ref {
       words = words.ref_element(label_ref.clone());
     }
-    content = content.child(words);
+    panel = panel.child(words);
     if let Some(keys) = &self.shortcut {
       // A text too long to have the shortcut beside it wraps across the box, and the shortcut goes under it:
       // beside it the text would be squeezed into what the shortcut leaves.
-      content = content.wrap();
+      panel = panel.wrap();
       let part = self.part(TooltipPart::Shortcut);
-      content = content.child(
+      panel = panel.child(
         Row::new()
           .align_items(Alignment::Center)
           .flex_shrink(0.0)
@@ -429,7 +476,7 @@ impl TooltipView {
           .child(part.text(keys).nowrap()),
       );
     }
-    content
+    panel
   }
 
   /// The arrow: a square in the color of the box, turned a quarter of a
@@ -440,7 +487,7 @@ impl TooltipView {
   pub fn arrow(&self) -> Option<Element> {
     let (along, away) = self.arrow_size()?;
     let part = self.part(TooltipPart::Arrow);
-    let fill = self.part(TooltipPart::Content).rest().background?;
+    let fill = self.part(TooltipPart::Panel).rest().background?;
     let vertical = self.side.vertical();
     let side = along / SQRT_2;
     // The arrow's part is on the side of the box toward what it describes: its edge that meets the box is the
@@ -502,10 +549,10 @@ impl TooltipView {
   /// How the default renderer builds a tooltip: the box, and the arrow on
   /// the side of it toward what it describes.
   pub fn render(self) -> Element {
-    let (content, arrow) = (self.content(), self.arrow());
+    let (panel, arrow) = (self.panel(), self.arrow());
     let root = self.part(TooltipPart::Root);
     let toward_after = matches!(self.side, TooltipSide::Top | TooltipSide::Left);
-    let mut children: Vec<Element> = vec![content.into()];
+    let mut children: Vec<Element> = vec![panel.into()];
     if let Some(arrow) = arrow {
       if toward_after {
         children.push(arrow);
@@ -552,10 +599,10 @@ impl Themed for Tooltip {
   /// describes. A text that wraps has 8 above and below it, in lines of 1.4.
   fn recipe() -> Recipe {
     use PaletteColor::{Primary, PrimaryForeground};
-    use TooltipPart::{Arrow, Content, Label, Root, Shortcut};
+    use TooltipPart::{Arrow, Label, Panel, Root, Shortcut};
     use TooltipSide::{Bottom, Left, Right, Top};
     Recipe::new()
-      .base(Content, |s| {
+      .base(Panel, |s| {
         s.background(Primary)
           .foreground(PrimaryForeground)
           .radius(RadiusSize::Md)
@@ -575,7 +622,7 @@ impl Themed for Tooltip {
       })
       .base(Arrow, |s| s.width(12.0).height(6.0))
       // A text that wraps: 8 above and below it, in lines of 1.4.
-      .state(TooltipState::Multiline, Content, |s| s.padding_y(8.0))
+      .state(TooltipState::Multiline, Panel, |s| s.padding_y(8.0))
       .state(TooltipState::Multiline, Label, |s| s.line_height(1.4))
       // The room between the tooltip and what it describes, on both sides of it so that it stays centered.
       .variant(Top, Root, |s| s.padding_y(6.0))
@@ -606,8 +653,9 @@ impl PartialEq for TooltipProps {
 impl crate::app::component::DevtoolsInspectable for TooltipProps {}
 
 /// How long a tooltip stays after the pointer left the element or the
-/// tooltip: time to cross the room between them, so that the pointer can be
-/// moved onto the tooltip to read it, and off it, without it going.
+/// tooltip unless its close delay says otherwise: time to cross the room
+/// between them, so that the pointer can be moved onto the tooltip to read
+/// it, and off it, without it going.
 const TOOLTIP_GRACE: Duration = Duration::from_millis(100);
 
 /// Where the pointer is: on the element, on the tooltip.
@@ -631,13 +679,13 @@ struct TooltipHost {
   aim: Signal<f32>,
   /// Whether the text wraps.
   multiline: Signal<bool>,
-  /// What the readers of where the tooltip was put need from the last render: the side it was given, the
+  /// What the readers of where the tooltip was put need from the last render: the side its placement gives, the
   /// element's anchor, the arrow's length along the box and the label's font size.
   placing: Arc<Mutex<Placing>>,
   pointer: Arc<Mutex<Pointer>>,
-  /// The delay before the pointer shows it.
+  /// The open delay: before the pointer shows it.
   delay: Timeout,
-  /// The grace after the pointer left before it goes.
+  /// The close delay: the grace after the pointer left before it goes.
   grace: Timeout,
   /// The element's anchor where the element has none of its own.
   anchor: ElementRef,
@@ -760,7 +808,10 @@ impl Component for TooltipHost {
     if tooltip.disabled {
       return child;
     }
-    self.delay.set_duration(tooltip.delay);
+    let theme = current_theme();
+    let (open_delay, close_delay) = (length(tooltip.open_delay, &theme), length(tooltip.close_delay, &theme));
+    self.delay.set_duration(open_delay);
+    self.grace.set_duration(close_delay);
     // A disabled element is not hovered, but it hears the pointer come and go: its tooltip is on it as on any.
     let child = holds_children(child);
     // An element that has an anchor of its own keeps it, and the tooltip is anchored to it.
@@ -777,17 +828,14 @@ impl Component for TooltipHost {
       }
       allowed.clone()
     };
-    let side = if self.flipped.get() {
-      tooltip.side.opposite()
-    } else {
-      tooltip.side
-    };
-    let mut view = tooltip.view(&current_theme(), side, self.multiline.get());
+    let placed = side_of(tooltip.placement);
+    let side = if self.flipped.get() { placed.opposite() } else { placed };
+    let mut view = tooltip.view(&theme, side, self.multiline.get());
     view.aim = self.aim.get();
     view.label_ref = Some(self.label.clone());
     {
       let mut placing = self.placing.lock();
-      placing.side = tooltip.side;
+      placing.side = placed;
       placing.anchor = anchor.clone();
       placing.along = view.arrow_size().map_or(0.0, |(along, _)| along);
       placing.font_size = view
@@ -797,9 +845,9 @@ impl Component for TooltipHost {
         .resolve(view.theme())
         .font_size;
     }
-    let shows = !tooltip.text.is_empty() && tooltip.open.unwrap_or(asked);
+    let shows = !tooltip.text.is_empty() && tooltip.force_open.unwrap_or(asked);
     // A tooltip that went from under the pointer is told of no leave: the pointer is on it no longer.
-    if !shows || (tooltip.open.is_none() && !allowed.get()) {
+    if !shows || (tooltip.force_open.is_none() && !allowed.get()) {
       self.pointer.lock().on_tooltip = false;
     }
     let overlay = if shows {
@@ -827,13 +875,13 @@ impl Component for TooltipHost {
       });
       let overlay = Overlay::new(shown)
         .anchor(anchor.clone())
-        .placement(tooltip.side.placement())
-        .collision(CollisionStrategy::FlipThenClamp)
+        .placement(tooltip.placement)
+        .collision(tooltip.collision)
         // The pointer can be moved onto the tooltip, its root and the room in it toward the element included (with
         // `ContentOnly` the root, which holds the handlers, would not be hit). It stands beside the element, so it
         // covers nothing of it.
         .hit_test(HitTestBehavior::Auto);
-      match tooltip.open {
+      match tooltip.force_open {
         // Shown by the app: Escape is not the tooltip's to take.
         Some(_) => overlay,
         // The runtime turns `allowed` off on an Escape while this is the top layer that takes it, so the key
@@ -853,7 +901,7 @@ impl Component for TooltipHost {
         self.delay.clone(),
         self.grace.clone(),
         self.pointer.clone(),
-        tooltip.delay,
+        open_delay,
       );
       let (id, hide) = (self.id, self.hide.clone());
       move || {
