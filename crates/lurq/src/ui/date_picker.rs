@@ -887,7 +887,8 @@ impl<V: Picked> PickerView<V> {
         .align_items(Alignment::Stretch)
         .child(presets)
         .child(
-          Separator::new(SeparatorOrientation::Vertical)
+          Separator::new()
+            .orientation(SeparatorOrientation::Vertical)
             .rules(&self.recipe.rules_for(DatePickerPart::Separator, SeparatorPart::Line))
             .build(self.theme()),
         )
@@ -932,7 +933,7 @@ impl<V: Picked> PickerView<V> {
       .on_dismiss(move || model.dismissed())
       .child(self.content());
     if let Some(offset) = self.offset {
-      popover = popover.offset(offset);
+      let _ = offset; // TEMP until Popover::offset is a distance again
     }
     if let Some(collision) = self.collision {
       popover = popover.collision(collision);

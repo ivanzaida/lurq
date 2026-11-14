@@ -502,7 +502,7 @@ impl TablePage {
     let (anchor, open) = self.columns_menu.clone();
     let (status, updated) = self.shown_columns.get();
     let (to_status, to_updated) = (self.shown_columns.clone(), self.shown_columns.clone());
-    let menu = Menu::new(anchor.clone(), open.clone())
+    let menu = Menu::new(open.clone(), anchor.clone())
       .item(
         MenuItem::new("Status")
           .checked(status)

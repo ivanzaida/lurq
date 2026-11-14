@@ -477,7 +477,7 @@ impl Navbar {
       let mut link = match &item.panel {
         Some(panel) => SidebarItem::new(&item.label)
           .disabled(item.disabled)
-          .open(true)
+          .default_open(true)
           .children(panel.links.iter().map(sidebar_link)),
         None => SidebarItem::new(&item.label)
           .selected(item.current)
