@@ -204,6 +204,9 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_escape: bool,
   /// Whether the focus goes into the overlay as it opens and back as it closes: see [`Overlay::takes_focus`].
   pub(crate) takes_focus: bool,
+  /// Whether Tab goes through the overlay right after its anchor, the focus staying where it is as it opens:
+  /// see [`Overlay::tab_after_anchor`].
+  pub(crate) tab_after_anchor: bool,
 }
 
 #[derive(Clone)]
@@ -303,6 +306,7 @@ impl OverlaySpec {
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
       takes_focus: self.takes_focus,
+      tab_after_anchor: self.tab_after_anchor,
     }
   }
 }
@@ -413,6 +417,7 @@ pub struct Overlay {
   dismiss_on_escape: bool,
   switch_on_anchor_press: bool,
   takes_focus: bool,
+  tab_after_anchor: bool,
 }
 
 impl Overlay {
@@ -432,6 +437,7 @@ impl Overlay {
       dismiss_on_escape: false,
       switch_on_anchor_press: true,
       takes_focus: false,
+      tab_after_anchor: false,
     }
   }
 
@@ -525,6 +531,17 @@ impl Overlay {
     self
   }
 
+  /// Whether Tab goes through the overlay's elements right after its
+  /// anchor's, as with [`Self::takes_focus`], while the focus stays where it
+  /// is as the overlay opens: a hover card's links, a toggletip's, a teaching
+  /// tip that does not take the focus from what a person is doing. As it
+  /// closes with the focus inside it, the focus goes back to its anchor. Off
+  /// by default; [`Self::takes_focus`] does this and more.
+  pub fn tab_after_anchor(mut self, tab: bool) -> Self {
+    self.tab_after_anchor = tab;
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -546,6 +563,7 @@ impl Overlay {
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
       takes_focus: self.takes_focus,
+      tab_after_anchor: self.tab_after_anchor,
     })
   }
 }

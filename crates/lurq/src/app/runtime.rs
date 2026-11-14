@@ -7406,7 +7406,7 @@ impl Tree {
       let focus_return = self
         .focused_overlay_hidden(had_host, &layers)
         .or_else(|| self.focused_overlay_closed(had_host, &layers));
-      self.note_focus_returns(&layers.focus_movers, focus_return.as_ref());
+      self.note_focus_returns(&layers, focus_return.as_ref());
       self.overlay_focus_movers = layers.focus_movers;
       self.overlay_focus_entry = None;
       #[cfg(feature = "canvas")]
@@ -7443,7 +7443,7 @@ impl Tree {
       .focused_overlay_hidden(old_parts_had_host, &layers)
       .or_else(|| self.focused_overlay_closed(old_parts_had_host, &layers));
     self.overlay_focus_entry = self.opened_overlay_focus(&layers);
-    self.note_focus_returns(&layers.focus_movers, focus_return.as_ref());
+    self.note_focus_returns(&layers, focus_return.as_ref());
     self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
@@ -8160,9 +8160,14 @@ fn build_overlays_from_layout_index(
         let Some(anchor) = find_element_record(index, &spec.anchor) else {
           continue;
         };
-        // Hidden or drawn, it is open: it moves the focus when it opens, not when its anchor comes back.
-        if spec.takes_focus {
+        // Hidden or drawn, it is open: it moves the focus when it opens, not when its anchor comes back. One
+        // that Tab reaches after its anchor is walked and gives the focus back as one that takes it, and moves
+        // nothing as it opens.
+        if spec.takes_focus || spec.tab_after_anchor {
           layers.focus_movers.push(spec.anchor.clone());
+        }
+        if spec.takes_focus {
+          layers.focus_takers.push(spec.anchor.clone());
         }
         // An anchor scrolled or clipped out of view takes its overlay with
         // it: left in place, the overlay would float over whatever now covers

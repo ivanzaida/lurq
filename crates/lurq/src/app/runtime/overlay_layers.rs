@@ -38,8 +38,11 @@ pub(super) struct OverlayLayers {
   pub(super) placings: Vec<Option<super::OverlayPlacing>>,
   /// The anchors of the overlays not drawn because their anchor is out of view.
   hidden_anchors: Vec<OwnedElementRef>,
-  /// The anchors of the open overlays that take the focus (`Overlay::takes_focus`), drawn or hidden.
+  /// The anchors of the open overlays that take the focus (`Overlay::takes_focus`) or that Tab reaches after
+  /// their anchor (`Overlay::tab_after_anchor`), drawn or hidden.
   pub(super) focus_movers: Vec<OwnedElementRef>,
+  /// Those of `focus_movers` that move the focus into them as they open (`Overlay::takes_focus`).
+  pub(super) focus_takers: Vec<OwnedElementRef>,
   /// The nodes that declare the modals built that take the focus (`Modal::takes_focus`).
   pub(super) focus_modals: Vec<NodeId>,
 }
@@ -127,7 +130,7 @@ impl Tree {
   pub(super) fn opened_overlay_focus(&self, layers: &OverlayLayers) -> Option<NodeId> {
     let host = self.root.as_ref()?;
     layers
-      .focus_movers
+      .focus_takers
       .iter()
       .filter(|mover| !self.overlay_focus_movers.iter().any(|old| old.same_handle(mover)))
       .filter_map(|mover| {
@@ -142,17 +145,21 @@ impl Tree {
   }
 
   /// Remembers what has the focus as the overlays that take it open in this
-  /// pass, `movers` being the anchors of those open now, and forgets what
-  /// was remembered for those that are not open any more, but for
-  /// `returning`, the one the focus goes back from in this pass.
-  pub(super) fn note_focus_returns(&mut self, movers: &[OwnedElementRef], returning: Option<&OwnedElementRef>) {
+  /// pass, the anchors of those open now being `layers.focus_movers`, and
+  /// forgets what was remembered for those that are not open any more, but
+  /// for `returning`, the one the focus goes back from in this pass. One
+  /// that Tab reaches after its anchor and that took nothing gives the focus
+  /// back to its anchor.
+  pub(super) fn note_focus_returns(&mut self, layers: &OverlayLayers, returning: Option<&OwnedElementRef>) {
+    let movers = &layers.focus_movers;
     let had = self
       .focused_node
       .zip(self.focused_event_node)
       .map(|(input_id, event_id)| FocusTarget { input_id, event_id });
     for mover in movers {
       if !self.overlay_focus_movers.iter().any(|old| old.same_handle(mover)) {
-        self.overlay_focus_returns.push((mover.clone(), had));
+        let takes = layers.focus_takers.iter().any(|taker| taker.same_handle(mover));
+        self.overlay_focus_returns.push((mover.clone(), had.filter(|_| takes)));
       }
     }
     self.overlay_focus_returns.retain(|(anchor, _)| {

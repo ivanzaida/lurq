@@ -186,6 +186,18 @@ pub enum TransitionDuration {
   Set(Duration),
 }
 
+impl From<MotionDuration> for TransitionDuration {
+  fn from(duration: MotionDuration) -> Self {
+    Self::Role(duration)
+  }
+}
+
+impl From<Duration> for TransitionDuration {
+  fn from(duration: Duration) -> Self {
+    Self::Set(duration)
+  }
+}
+
 /// How a part's transition moves: an easing of the theme's, or a set one.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TransitionEasing {
