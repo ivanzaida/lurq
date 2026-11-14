@@ -10,6 +10,8 @@ mod kit;
 mod pages;
 mod playground;
 mod shell;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 use lurq::{
   app::{
@@ -55,6 +57,8 @@ impl Component for Gallery {
     let shell = Shell::new(ctx);
     let router = ctx.router(routes(shell));
     router.replace(&ctx.props::<GalleryProps>().route);
+    // In a browser the address names the page: it is opened on, follows the pages and takes the back button.
+    router.follow_address();
     #[cfg(feature = "mcp")]
     if let Some(handle) = MCP.get() {
       handle.set_navigator(router.navigator());
@@ -92,6 +96,7 @@ fn option(name: &str) -> Option<String> {
 }
 
 /// The page to open on: `--route /tokens`, or the overview.
+#[cfg(not(target_arch = "wasm32"))]
 fn route() -> String {
   option("--route").unwrap_or_else(|| "/".to_owned())
 }
@@ -108,9 +113,17 @@ fn size() -> (u32, u32) {
 }
 
 fn main() {
-  let mut app = App::new();
+  #[cfg(not(target_arch = "wasm32"))]
+  run(App::new(), route(), WgpuRenderEngine::new);
+  // A page waits for its GPU device and its fonts first; see `web`.
+  #[cfg(target_arch = "wasm32")]
+  web::start();
+}
+
+/// Opens the gallery's window on `route`, drawn by the engines `engine` makes.
+fn run(mut app: App, route: String, engine: impl Fn() -> WgpuRenderEngine + 'static) {
   let mut tree = Tree::new();
-  tree.set_render_engine_factory(|| Box::new(WgpuRenderEngine::new()));
+  tree.set_render_engine_factory(move || Box::new(engine()));
   #[cfg(feature = "mcp")]
   {
     use lurq::mcp::{McpConfig, Scope};
@@ -126,7 +139,7 @@ fn main() {
     );
     let _ = MCP.set(handle);
   }
-  tree.mount_root::<Gallery>(&mut app, GalleryProps { route: route() });
+  tree.mount_root::<Gallery>(&mut app, GalleryProps { route });
   #[cfg(feature = "devtools")]
   tree.mount_devtools(&mut app);
   let (width, height) = size();

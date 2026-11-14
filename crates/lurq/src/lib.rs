@@ -33,6 +33,18 @@ mod size_budget;
 pub mod svg;
 pub mod ui;
 
+/// The clock lurq reads, chosen by the platform: std's everywhere but in a
+/// browser, where std's `Instant::now` and `SystemTime::now` panic and the
+/// page's clock is read instead. An app that runs in a browser too reads the
+/// time through these.
+pub mod time {
+  #[cfg(not(target_arch = "wasm32"))]
+  pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+  #[cfg(target_arch = "wasm32")]
+  pub use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+}
+
 /// The version of lurq: what an app shows in an about box, and the gallery in its header.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

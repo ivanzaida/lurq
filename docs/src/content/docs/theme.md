@@ -343,6 +343,8 @@ app.install_fonts(
 );
 ```
 
+`App::set_generic_family(GenericFamily::SansSerif, "Inter")` names the family's font itself instead of aliasing its keyword. For `sans-serif` that is also the font of text with no family, which an alias of the keyword does not reach. An app that runs in a [browser](../web/#the-fonts), where no font is chosen from the system, names its fonts this way.
+
 ### Font Weight
 
 `FontWeight` has the CSS named weights and a numeric escape hatch:

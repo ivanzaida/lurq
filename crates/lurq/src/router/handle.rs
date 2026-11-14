@@ -14,7 +14,22 @@ pub(crate) struct RouterInner {
   pub(crate) routes: Routes,
   pub(crate) current_path: Signal<String>,
   pub(crate) history: Mutex<HistoryStack>,
+  /// Whether the page's address follows this router; see [`RouterHandle::follow_address`].
+  #[cfg(target_arch = "wasm32")]
+  pub(crate) follows_address: std::sync::atomic::AtomicBool,
   _watch_handle: Option<Box<dyn std::any::Any + Send + Sync>>,
+}
+
+/// What a navigation did to the history, for the page's address to do the same.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HistoryChange {
+  /// A new entry after the current one.
+  Pushed,
+  /// The current entry is another.
+  Replaced,
+  /// The history moved by that many entries, back when negative.
+  Moved(i32),
 }
 
 struct HistoryEntry {
@@ -75,6 +90,8 @@ impl RouterHandle {
         routes,
         current_path,
         history: Mutex::new(HistoryStack::default()),
+        #[cfg(target_arch = "wasm32")]
+        follows_address: std::sync::atomic::AtomicBool::new(false),
         _watch_handle: None,
       }),
     }
@@ -121,6 +138,7 @@ impl RouterHandle {
       path
     );
     self.inner.current_path.set(path);
+    self.tell_address(HistoryChange::Pushed);
   }
 
   pub fn replace(&self, path: impl Into<String>) {
@@ -161,6 +179,7 @@ impl RouterHandle {
       path
     );
     self.inner.current_path.set(path);
+    self.tell_address(HistoryChange::Replaced);
   }
 
   /// In-memory state attached to the current history entry, if any.
@@ -206,6 +225,7 @@ impl RouterHandle {
       history.entries[history.cursor].path.clone()
     };
     self.inner.current_path.set(new_path);
+    self.tell_address(HistoryChange::Moved(-1));
     true
   }
 
@@ -222,6 +242,7 @@ impl RouterHandle {
       history.entries[history.cursor].path.clone()
     };
     self.inner.current_path.set(new_path);
+    self.tell_address(HistoryChange::Moved(-(steps as i32)));
     true
   }
 
@@ -235,8 +256,78 @@ impl RouterHandle {
       history.entries[history.cursor].path.clone()
     };
     self.inner.current_path.set(new_path);
+    self.tell_address(HistoryChange::Moved(1));
     true
   }
+
+  /// In a browser, ties the router to the page's address, so that the two say the same from then on:
+  ///
+  /// - the address has the router's path as its fragment (`index.html#/settings`), and each `push` is an entry of the
+  ///   browser's history as it is one of the router's, each `replace` the same entry with another path;
+  /// - the browser's back and forward buttons move the router, and `back` and `forward` move the browser;
+  /// - an address a person types or follows is navigated to, through the routes' guards as a `push` is;
+  /// - a page that is loaded with a path in its address starts there, in place of the path the router was given, so a
+  ///   reload stays where it was and a link opens what it names.
+  ///
+  /// Call it once the router has its first path. Only one router of an app follows the address: the one whose
+  /// screens the address should name. Outside a browser a window has no address, and this does nothing.
+  pub fn follow_address(&self) {
+    #[cfg(target_arch = "wasm32")]
+    super::address::follow(self);
+  }
+
+  /// The id of the entry the history is at; 0 before the history has one.
+  #[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+  pub(crate) fn current_entry(&self) -> u64 {
+    let history = self.inner.history.lock();
+    history.entries.get(history.cursor).map_or(0, |entry| entry.id)
+  }
+
+  /// Moves the history to its entry `id`, wherever from, as going back or forward by as many entries does,
+  /// without telling the address, which is where the move came from. `false` when the history has no such
+  /// entry.
+  #[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+  pub(crate) fn go_to_entry(&self, id: u64) -> bool {
+    let new_path = {
+      let mut history = self.inner.history.lock();
+      let Some(index) = history.entries.iter().position(|entry| entry.id == id) else {
+        return false;
+      };
+      if index == history.cursor {
+        return true;
+      }
+      history.cursor = index;
+      history.entries[index].path.clone()
+    };
+    self.inner.current_path.set(new_path);
+    true
+  }
+
+  /// Forgets the history and starts it again at `path`, or at where the routes' guards send it: for an entry
+  /// of the browser's history that is none of this router's, such as one from before the page was loaded.
+  #[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+  pub(crate) fn restart_at(&self, path: String) {
+    let path = self.check_guards(&path).unwrap_or(path);
+    {
+      let mut history = self.inner.history.lock();
+      history.entries.clear();
+      history.entries.push(HistoryEntry::new(path.clone(), None));
+      history.cursor = 0;
+    }
+    if self.inner.current_path.get_untracked() != path {
+      self.inner.current_path.set(path);
+    }
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  fn tell_address(&self, change: HistoryChange) {
+    if self.inner.follows_address.load(std::sync::atomic::Ordering::Relaxed) {
+      super::address::record(self, change);
+    }
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
+  fn tell_address(&self, _change: HistoryChange) {}
 
   /// Whether [`RouterHandle::back`] would move — there is a prior entry.
   pub fn can_back(&self) -> bool {
@@ -271,5 +362,64 @@ impl RouterHandle {
       }
     }
     None
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn router() -> RouterHandle {
+    let router = RouterHandle::new_with_signal(Routes::new(), Signal::new(String::new()));
+    router.replace("/");
+    router
+  }
+
+  #[test]
+  fn the_history_goes_to_an_entry_by_its_id() {
+    let router = router();
+    let first = router.current_entry();
+    router.push("/a");
+    let second = router.current_entry();
+    router.push("/b");
+    assert_ne!(first, second);
+
+    assert!(router.go_to_entry(first));
+    assert_eq!(router.path().get_untracked(), "/");
+    assert!(!router.can_back() && router.can_forward());
+
+    assert!(router.go_to_entry(second));
+    assert_eq!(router.path().get_untracked(), "/a");
+    assert!(router.can_back() && router.can_forward());
+
+    // The entry it is at: there, and nothing moves.
+    assert!(router.go_to_entry(second));
+    assert_eq!(router.current_entry(), second);
+
+    assert!(!router.go_to_entry(u64::MAX), "no such entry");
+    assert_eq!(router.path().get_untracked(), "/a");
+  }
+
+  #[test]
+  fn a_history_that_starts_again_has_one_entry() {
+    let router = router();
+    router.push("/a");
+    router.push("/b");
+    let before = router.current_entry();
+
+    router.restart_at("/c".to_owned());
+    assert_eq!(router.path().get_untracked(), "/c");
+    assert!(!router.can_back() && !router.can_forward());
+    assert_ne!(router.current_entry(), before);
+    assert!(!router.go_to_entry(before), "the entries of the old history are gone");
+  }
+
+  #[test]
+  fn following_the_address_changes_nothing_outside_a_browser() {
+    let router = router();
+    router.follow_address();
+    router.push("/a");
+    assert!(router.back());
+    assert_eq!(router.path().get_untracked(), "/");
   }
 }

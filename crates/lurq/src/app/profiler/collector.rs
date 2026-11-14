@@ -4,12 +4,12 @@ use std::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
   },
-  time::Instant,
 };
 
 #[cfg(feature = "perf_profile")]
 use super::application_state::{ApplicationSession, ApplicationState};
 use super::{detail, model::*, phase_slot::PhaseSlot};
+use crate::time::Instant;
 
 /// Shared capture API. No UI references, callbacks or redraws; per-component
 /// data only for a detailed recording, by static type name.

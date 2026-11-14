@@ -1,16 +1,24 @@
 //! The threads that decode images, started with the first request and kept
 //! for the process.
+//!
+//! A browser gives the page one thread: there a job runs on it, after the
+//! turn of the loop that submitted it.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::{sync::mpsc, thread};
 
+#[cfg(not(target_arch = "wasm32"))]
 use parking_lot::Mutex;
 
+#[cfg(not(target_arch = "wasm32"))]
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) struct Workers {
   sender: Mutex<mpsc::Sender<Job>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Workers {
   /// Starts `count` threads that run the submitted jobs in order of
   /// submission, one job per thread at a time.
@@ -61,5 +69,21 @@ impl Workers {
     Self {
       sender: Mutex::new(sender),
     }
+  }
+}
+
+/// The page's own thread, which runs each job once the caller has returned to the browser.
+#[cfg(target_arch = "wasm32")]
+pub(super) struct Workers;
+
+#[cfg(target_arch = "wasm32")]
+impl Workers {
+  pub(super) fn new(_count: usize) -> Self {
+    Self
+  }
+
+  pub(super) fn submit(&self, job: impl FnOnce() + Send + 'static) -> bool {
+    wasm_bindgen_futures::spawn_local(async move { job() });
+    true
   }
 }

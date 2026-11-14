@@ -7,7 +7,7 @@ use std::{
     Arc,
     atomic::{AtomicU64, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::{Condvar, Mutex};
@@ -247,8 +247,12 @@ impl DecodedImages {
   }
 
   /// Blocks until no decode is pending, or `timeout` passes (`false`).
+  ///
+  /// A browser's one thread cannot wait for itself: there this only tells
+  /// whether a decode is pending now.
+  #[cfg(not(target_arch = "wasm32"))]
   pub fn wait_idle(&self, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
+    let deadline = std::time::Instant::now() + timeout;
     let mut inner = self.shared.inner.lock();
     while inner.pending > 0 {
       if self.shared.idle.wait_until(&mut inner, deadline).timed_out() {
@@ -256,6 +260,11 @@ impl DecodedImages {
       }
     }
     true
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  pub fn wait_idle(&self, _timeout: Duration) -> bool {
+    self.pending() == 0
   }
 
   /// The decoded RGBA kept at most; see [`DEFAULT_BUDGET_BYTES`].

@@ -151,7 +151,7 @@ impl CanvasReadback {
   }
   pub fn wait_timeout(&self, timeout: Duration) -> Option<Result<CanvasSnapshot, CanvasError>> {
     let mut result = self.inner.result.lock();
-    let deadline = std::time::Instant::now() + timeout;
+    let deadline = crate::time::Instant::now() + timeout;
     while result.is_none() {
       if self.inner.ready.wait_until(&mut result, deadline).timed_out() {
         break;

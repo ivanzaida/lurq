@@ -419,6 +419,20 @@ pub struct Window {
 /// processed without waiting for the next OS event.
 pub(crate) type WindowWaker = Arc<dyn Fn() + Send + Sync>;
 
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+  /// Whether the shell's loop is in a turn: between the start of a batch of events and the end of the pass
+  /// that follows them. See [`Window::off_loop_waker`].
+  static IN_LOOP_TURN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The shell says when a turn of its loop starts and ends.
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(not(feature = "winit"), allow(dead_code))]
+pub(crate) fn set_in_loop_turn(in_turn: bool) {
+  IN_LOOP_TURN.with(|turn| turn.set(in_turn));
+}
+
 struct WindowInner {
   #[cfg(feature = "mcp")]
   accepted_close: bool,
@@ -674,16 +688,19 @@ impl Window {
   /// `std::thread`: called from any other thread it wakes the attached shell, so the loop picks the write up at
   /// once instead of at its next event. On the loop's own thread, whose turn picks the write up already, and
   /// once the window is gone, it does nothing.
+  ///
+  /// A page has one thread, and what the browser calls on it between the loop's turns (a promise that settled,
+  /// a listener of the page, a timer) is as far from a turn as another thread is: there the shell is woken
+  /// unless a turn is running.
   pub(crate) fn off_loop_waker(&self) -> WindowWaker {
     let window = Arc::downgrade(&self.inner);
     Arc::new(move || {
       let wake = window.upgrade().and_then(|window| {
         let window = window.read().unwrap();
-        if window.loop_thread == Some(std::thread::current().id()) {
-          None
-        } else {
-          window.waker.clone()
-        }
+        let in_turn = window.loop_thread == Some(std::thread::current().id());
+        #[cfg(target_arch = "wasm32")]
+        let in_turn = in_turn && IN_LOOP_TURN.with(std::cell::Cell::get);
+        if in_turn { None } else { window.waker.clone() }
       });
       if let Some(wake) = wake {
         wake();

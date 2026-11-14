@@ -1,12 +1,8 @@
-use std::{
-  collections::HashMap,
-  sync::Arc,
-  time::{Duration, Instant},
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use parking_lot::RwLock;
 
-use crate::resources::ResourceConfig;
+use crate::{resources::ResourceConfig, time::Instant};
 
 #[derive(Clone)]
 pub(crate) struct CacheItem {

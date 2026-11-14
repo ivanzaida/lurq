@@ -41,7 +41,7 @@ pub trait ClipboardReader: Send + Sync {
 #[cfg(feature = "clipboard")]
 struct OsClipboard;
 
-#[cfg(feature = "clipboard")]
+#[cfg(all(feature = "clipboard", not(target_arch = "wasm32")))]
 impl ClipboardReader for OsClipboard {
   fn read_text(&self) -> Option<String> {
     crate::clipboard::read_from_clipboard()
@@ -49,6 +49,22 @@ impl ClipboardReader for OsClipboard {
 
   fn read(&self) -> Option<ClipboardContent> {
     crate::clipboard::read_clipboard()
+  }
+}
+
+/// A browser answers a read of the clipboard through a promise: the paste is
+/// asked for here and delivered by the shell once the text has arrived, as
+/// [`Tree::paste`]. See `clipboard::web`.
+#[cfg(all(feature = "clipboard", target_arch = "wasm32"))]
+impl ClipboardReader for OsClipboard {
+  fn read_text(&self) -> Option<String> {
+    crate::clipboard::web::request_paste();
+    None
+  }
+
+  fn read(&self) -> Option<ClipboardContent> {
+    crate::clipboard::web::request_paste();
+    None
   }
 }
 

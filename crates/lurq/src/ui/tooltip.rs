@@ -11,7 +11,7 @@ use std::{
   cell::{Cell, RefCell},
   f32::consts::SQRT_2,
   sync::Arc,
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use parking_lot::Mutex;
@@ -36,6 +36,7 @@ use crate::{
     layout_kind::{Justify, LayoutKind},
   },
   node::{Element, HitTestBehavior, Node, NodeUpdate, color::Color, dimension::Dimension, transform::Transform2D},
+  time::Instant,
 };
 
 /// How long the pointer rests on an element before its tooltip shows, as a

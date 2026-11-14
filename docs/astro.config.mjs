@@ -34,6 +34,7 @@ export default defineConfig({
                         'app-runtime',
                         'window-lifecycle-menus',
                         'ios',
+                        'web',
                         'devtools',
                         'mcp',
                         'resources-media',

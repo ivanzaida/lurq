@@ -73,6 +73,19 @@ let engine = WgpuRenderEngine::new().with_backends(WgpuBackends::DX12);
 
 Excluded backend loaders are never initialized by that engine. Explicitly opting into Vulkan on Windows also opts back into its platform loader behavior.
 
+An engine asks for its GPU device at its first frame and waits for it. `WgpuDevice` is a device made ahead: an app awaits `WgpuDevice::request()` and gives the device to each engine the factory makes.
+
+```rust
+use lurq::app::wgpu_render::{WgpuDevice, WgpuRenderEngine};
+
+let device = WgpuDevice::request().await?;
+tree.set_render_engine_factory(move || {
+  Box::new(WgpuRenderEngine::new().with_device(device.clone()))
+});
+```
+
+On a desktop this is optional and moves the wait off the first frame. In a browser it is how an engine gets a device at all, since a page cannot wait inside a frame; see [Web](../web/#the-device). The engine's backends and optional features and limits are then the device's: `WgpuDevice::request_with(backends)` chooses the backends, and `WgpuDevice::backend()` says which the device draws through.
+
 On Windows with `dx12`:
 
 ```rust

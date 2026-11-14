@@ -3,9 +3,11 @@ mod canvas;
 mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
+mod gradients;
 mod layers;
 #[cfg(test)]
 mod quad_tests;
+mod surface_proxy;
 mod vertex;
 
 #[cfg(all(feature = "raster", target_os = "macos"))]
@@ -28,7 +30,8 @@ use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
 pub use wgpu::{
-  Backends as WgpuBackends, Features as WgpuFeatures, Limits as WgpuLimits, PresentMode as WgpuPresentMode,
+  Backend as WgpuBackend, Backends as WgpuBackends, Features as WgpuFeatures, Limits as WgpuLimits,
+  PresentMode as WgpuPresentMode,
 };
 
 #[cfg(feature = "perf_profile")]
@@ -340,6 +343,8 @@ pub struct WgpuRenderEngine {
   canvas_asset_budget: crate::canvas::CanvasAssetBudget,
   instance: Option<wgpu::Instance>,
   backends: wgpu::Backends,
+  /// A device made ahead of the engine, which draws with it instead of asking for one; see [`WgpuDevice`].
+  prepared: Option<WgpuDevice>,
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
@@ -375,8 +380,7 @@ pub struct WgpuRenderEngine {
   clip_globals: ClipGlobalsCache,
   quad_clip_bind_groups: std::collections::HashMap<ClipGlobalsKey, wgpu::BindGroup>,
   glyph_clip_bind_groups: std::collections::HashMap<ClipGlobalsKey, wgpu::BindGroup>,
-  gradient_buffer: Option<wgpu::Buffer>,
-  gradient_buffer_capacity: wgpu::BufferAddress,
+  gradients: Option<gradients::Gradients>,
   last_globals_bytes: Vec<u8>,
   last_gradient_bytes: Vec<u8>,
   atlas_texture: Option<wgpu::Texture>,
@@ -422,6 +426,13 @@ pub struct WgpuRenderEngine {
   width: u32,
   height: u32,
   frame_extensions: Vec<WgpuFrameExtensionEntry>,
+  /// Whether the surface's texture can be copied from; `false` on WebGL.
+  surface_copies: bool,
+  /// A test draws as on such a surface; see `without_surface_copies`.
+  #[cfg(test)]
+  deny_surface_copies: bool,
+  /// What a frame that is read back is painted into where it cannot; see `surface_proxy`.
+  surface_proxy: Option<surface_proxy::SurfaceProxy>,
   #[cfg(feature = "screenshot")]
   pending_frame_capture: Option<RenderFrameCapture>,
 }
@@ -434,6 +445,166 @@ fn default_backends() -> WgpuBackends {
   #[cfg(not(windows))]
   {
     WgpuBackends::all()
+  }
+}
+
+fn instance_descriptor(backends: WgpuBackends) -> wgpu::InstanceDescriptor {
+  let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+  descriptor.backends = backends;
+  // lurq waits for the frame latency object itself; see `wait_for_frame_latency`.
+  descriptor.backend_options.dx12.latency_waitable_object = wgpu::Dx12UseFrameLatencyWaitableObject::DontWait;
+  descriptor
+}
+
+fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
+  wgpu::Instance::new(instance_descriptor(backends))
+}
+
+/// The instance of a page. Whether a browser has WebGPU is known only once it was asked for an adapter, and an
+/// instance is of one kind from the start: with the `webgl` feature the browser is asked first, and the instance
+/// is WebGL's when it has no WebGPU.
+#[cfg(target_arch = "wasm32")]
+async fn new_page_instance(backends: WgpuBackends) -> wgpu::Instance {
+  #[cfg(feature = "webgl")]
+  return wgpu::util::new_instance_with_webgpu_detection(instance_descriptor(backends)).await;
+  #[cfg(not(feature = "webgl"))]
+  new_instance(backends)
+}
+
+/// The device an engine asks `adapter` for: the optional features and limits as far as the adapter has them.
+fn device_descriptor(
+  adapter: &wgpu::Adapter,
+  optional_features: wgpu::Features,
+  optional_limits: &wgpu::Limits,
+) -> wgpu::DeviceDescriptor<'static> {
+  #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
+  let mut required_features = adapter.features() & optional_features;
+  // Measures GPU time while a profiling session is active.
+  #[cfg(feature = "perf_profile")]
+  {
+    required_features |= gpu_timing::GpuTimer::requested_features(adapter);
+  }
+  wgpu::DeviceDescriptor {
+    label: Some("lurq"),
+    required_features,
+    required_limits: optional_limits.clone().or_worse_values_from(&adapter.limits()),
+    ..Default::default()
+  }
+}
+
+/// A GPU device made ahead of the engine that draws with it.
+///
+/// An engine asks for its device when it draws the first frame and waits for
+/// the answer. A browser answers through a promise, which a page cannot wait
+/// for: there the app awaits [`WgpuDevice::request`] before it starts its
+/// window, and gives the device to each engine with
+/// [`WgpuRenderEngine::with_device`]. Elsewhere this is optional: it moves
+/// the wait off the first frame.
+///
+/// In a browser the device is the one of the page's canvas, the canvas the
+/// window then draws to: WebGPU's where the browser has it, and with the
+/// `webgl` feature WebGL2's where it has not. [`WgpuDevice::backend`] says
+/// which.
+///
+/// ```no_run
+/// # async fn start() {
+/// use lurq::app::{
+///   Tree,
+///   wgpu_render::{WgpuDevice, WgpuRenderEngine},
+/// };
+///
+/// let device = WgpuDevice::request().await.expect("a GPU device");
+/// let mut tree = Tree::new();
+/// tree.set_render_engine_factory(move || Box::new(WgpuRenderEngine::new().with_device(device.clone())));
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct WgpuDevice {
+  instance: wgpu::Instance,
+  adapter: wgpu::Adapter,
+  device: wgpu::Device,
+  queue: wgpu::Queue,
+  /// The surface of the page's canvas, which the adapter was asked for, until the engine that draws to the
+  /// canvas takes it.
+  #[cfg(target_arch = "wasm32")]
+  surface: std::rc::Rc<std::cell::RefCell<Option<wgpu::Surface<'static>>>>,
+}
+
+/// Why [`WgpuDevice::request`] has no device: no adapter (a browser without WebGPU), or one that refused the device.
+#[derive(Clone, Debug)]
+pub struct WgpuDeviceError(String);
+
+impl std::fmt::Display for WgpuDeviceError {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    formatter.write_str(&self.0)
+  }
+}
+
+impl std::error::Error for WgpuDeviceError {}
+
+impl WgpuDevice {
+  /// Asks for a device as an engine does for its first frame, with the default backends, features and limits.
+  pub async fn request() -> Result<Self, WgpuDeviceError> {
+    Self::request_with(default_backends()).await
+  }
+
+  /// [`Self::request`] among `backends` only. In a browser, `WgpuBackends::GL` asks for WebGL2 also where there
+  /// is WebGPU, and `WgpuBackends::BROWSER_WEBGPU` for WebGPU alone.
+  pub async fn request_with(backends: WgpuBackends) -> Result<Self, WgpuDeviceError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let instance = new_instance(backends);
+    // WebGL gives a device for a canvas, so the page's canvas is there before the device is.
+    #[cfg(target_arch = "wasm32")]
+    let (instance, surface) = {
+      let instance = new_page_instance(backends).await;
+      let canvas = crate::app::web_canvas::page_canvas()
+        .ok_or_else(|| WgpuDeviceError("the page has no document to put a canvas in".to_owned()))?;
+      // The handles are given as a window's are: wgpu's own implementation takes no canvas without a display
+      // handle, which `SurfaceTarget::Canvas` leaves out. The surface keeps its own reference to the canvas.
+      let value: &wasm_bindgen::JsValue = &canvas;
+      let window = raw_window_handle::WebCanvasWindowHandle::new(std::ptr::NonNull::from(value).cast());
+      let display = raw_window_handle::WebDisplayHandle::new();
+      let surface = unsafe {
+        instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+          raw_display_handle: Some(display.into()),
+          raw_window_handle: window.into(),
+        })
+      }
+      .map_err(|error| WgpuDeviceError(format!("the page's canvas cannot be drawn to: {error}")))?;
+      (instance, surface)
+    };
+    let adapter = instance
+      .request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        #[cfg(not(target_arch = "wasm32"))]
+        compatible_surface: None,
+        #[cfg(target_arch = "wasm32")]
+        compatible_surface: Some(&surface),
+        force_fallback_adapter: false,
+      })
+      .await
+      .map_err(|error| WgpuDeviceError(format!("no suitable GPU adapter found: {error}")))?;
+    let (device, queue) = adapter
+      .request_device(&device_descriptor(
+        &adapter,
+        wgpu::Features::empty(),
+        &wgpu::Limits::default(),
+      ))
+      .await
+      .map_err(|error| WgpuDeviceError(format!("failed to create device: {error}")))?;
+    Ok(Self {
+      instance,
+      adapter,
+      device,
+      queue,
+      #[cfg(target_arch = "wasm32")]
+      surface: std::rc::Rc::new(std::cell::RefCell::new(Some(surface))),
+    })
+  }
+
+  /// What the device draws through: `WgpuBackend::BrowserWebGpu` or `WgpuBackend::Gl` in a browser.
+  pub fn backend(&self) -> WgpuBackend {
+    self.adapter.get_info().backend
   }
 }
 
@@ -454,6 +625,7 @@ impl WgpuRenderEngine {
       canvas_asset_budget: Default::default(),
       instance: None,
       backends: default_backends(),
+      prepared: None,
       adapter: None,
       device: None,
       queue: None,
@@ -489,8 +661,7 @@ impl WgpuRenderEngine {
       clip_globals: ClipGlobalsCache::default(),
       quad_clip_bind_groups: std::collections::HashMap::new(),
       glyph_clip_bind_groups: std::collections::HashMap::new(),
-      gradient_buffer: None,
-      gradient_buffer_capacity: 0,
+      gradients: None,
       last_globals_bytes: Vec::new(),
       last_gradient_bytes: Vec::new(),
       atlas_texture: None,
@@ -531,6 +702,10 @@ impl WgpuRenderEngine {
       width: 800,
       height: 600,
       frame_extensions: Vec::new(),
+      surface_copies: true,
+      #[cfg(test)]
+      deny_surface_copies: false,
+      surface_proxy: None,
       #[cfg(feature = "screenshot")]
       pending_frame_capture: None,
     }
@@ -565,6 +740,25 @@ impl WgpuRenderEngine {
   pub fn with_backends(mut self, backends: WgpuBackends) -> Self {
     assert!(self.instance.is_none(), "select WGPU backends before rendering");
     self.backends = backends;
+    self
+  }
+
+  /// Draws with a device made ahead ([`WgpuDevice::request`]) instead of
+  /// asking for one at the first frame: what a browser needs, where the
+  /// engine cannot wait for the device. The backends, optional features and
+  /// limits are then the device's, not this engine's.
+  /// Panics if this engine has already initialized a GPU instance.
+  pub fn with_device(mut self, device: WgpuDevice) -> Self {
+    assert!(self.instance.is_none(), "give the WGPU device before rendering");
+    self.prepared = Some(device);
+    self
+  }
+
+  /// Draws as on a surface whose texture cannot be copied from, as WebGL's: a frame that is read back is
+  /// painted beside the surface.
+  #[cfg(all(test, feature = "screenshot"))]
+  pub(crate) fn without_surface_copies(mut self) -> Self {
+    self.deny_surface_copies = true;
     self
   }
 
@@ -677,8 +871,8 @@ impl WgpuRenderEngine {
     #[cfg(feature = "raster")]
     self.image_instance_buffer.clear();
     self.globals_buffer = None;
-    self.gradient_buffer = None;
-    self.gradient_buffer_capacity = 0;
+    self.gradients = None;
+    self.surface_proxy = None;
     self.last_globals_bytes.clear();
     self.last_gradient_bytes.clear();
     self.atlas_view = None;
@@ -705,6 +899,15 @@ impl WgpuRenderEngine {
   }
 
   fn create_surface(&self, window: WindowHandle<'_>, display: DisplayHandle<'_>) -> wgpu::Surface<'static> {
+    // The page's canvas has its surface since the device was asked for.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(surface) = self
+      .prepared
+      .as_ref()
+      .and_then(|prepared| prepared.surface.borrow_mut().take())
+    {
+      return surface;
+    }
     let handles = WindowDisplayPair { window, display };
     let surface_target = unsafe { wgpu::SurfaceTargetUnsafe::from_display_and_window(&handles, &handles) }.unwrap();
     unsafe { self.instance.as_ref().unwrap().create_surface_unsafe(surface_target) }.unwrap()
@@ -724,8 +927,19 @@ impl WgpuRenderEngine {
       .unwrap_or(caps.formats[0]);
     let target_format = render_target_format(format);
 
+    // A backdrop blur and a capture copy the frame out of the surface's texture, where that can be copied
+    // from. WebGL's cannot: there a frame that is read is painted beside the surface; see `surface_proxy`.
+    self.surface_copies = caps.usages.contains(wgpu::TextureUsages::COPY_SRC);
+    #[cfg(test)]
+    if self.deny_surface_copies {
+      self.surface_copies = false;
+    }
     let config = wgpu::SurfaceConfiguration {
-      usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+      usage: if self.surface_copies {
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC
+      } else {
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+      },
       format,
       width: self.width.max(1),
       height: self.height.max(1),
@@ -769,17 +983,49 @@ impl WgpuRenderEngine {
     }
   }
 
+  /// Asks for the adapter that draws to `surface` and its device, and waits for them.
+  #[cfg(not(target_arch = "wasm32"))]
+  fn request_device(&self, surface: &wgpu::Surface<'static>) -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+    let adapter = pollster::block_on(
+      self
+        .instance
+        .as_ref()
+        .unwrap()
+        .request_adapter(&wgpu::RequestAdapterOptions {
+          power_preference: wgpu::PowerPreference::default(),
+          compatible_surface: Some(surface),
+          force_fallback_adapter: false,
+        }),
+    )
+    .expect("no suitable GPU adapter found");
+    let (device, queue) = pollster::block_on(adapter.request_device(&device_descriptor(
+      &adapter,
+      self.optional_device_features,
+      &self.optional_device_limits,
+    )))
+    .expect("failed to create device");
+    (adapter, device, queue)
+  }
+
+  /// A browser answers through a promise, which a frame cannot wait for.
+  #[cfg(target_arch = "wasm32")]
+  fn request_device(&self, _surface: &wgpu::Surface<'static>) -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+    panic!(
+      "in a browser the GPU device comes from a promise: await `WgpuDevice::request()` before the window starts and \
+       give the device with `WgpuRenderEngine::with_device`"
+    );
+  }
+
   fn ensure_initialized(&mut self, window: WindowHandle<'_>, display: DisplayHandle<'_>) {
     if self.device.is_some() && self.surface.is_some() {
       return;
     }
 
     if self.instance.is_none() {
-      let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-      descriptor.backends = self.backends;
-      // lurq waits for the frame latency object itself; see `wait_for_frame_latency`.
-      descriptor.backend_options.dx12.latency_waitable_object = wgpu::Dx12UseFrameLatencyWaitableObject::DontWait;
-      self.instance = Some(wgpu::Instance::new(descriptor));
+      self.instance = Some(match &self.prepared {
+        Some(prepared) => prepared.instance.clone(),
+        None => new_instance(self.backends),
+      });
     }
     let surface = self.create_surface(window, display);
 
@@ -788,42 +1034,17 @@ impl WgpuRenderEngine {
       return;
     }
 
-    let adapter = pollster::block_on(
-      self
-        .instance
-        .as_ref()
-        .unwrap()
-        .request_adapter(&wgpu::RequestAdapterOptions {
-          power_preference: wgpu::PowerPreference::default(),
-          compatible_surface: Some(&surface),
-          force_fallback_adapter: false,
-        }),
-    )
-    .expect("no suitable GPU adapter found");
-
-    #[cfg_attr(not(feature = "perf_profile"), allow(unused_mut))]
-    let mut required_features = adapter.features() & self.optional_device_features;
-    // Measures GPU time while a profiling session is active.
-    #[cfg(feature = "perf_profile")]
-    {
-      required_features |= gpu_timing::GpuTimer::requested_features(&adapter);
-    }
-    let required_limits = self
-      .optional_device_limits
-      .clone()
-      .or_worse_values_from(&adapter.limits());
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-      label: Some("lurq"),
-      required_features,
-      required_limits,
-      ..Default::default()
-    }))
-    .expect("failed to create device");
+    let (adapter, device, queue) = match self.prepared.clone() {
+      Some(prepared) => (prepared.adapter, prepared.device, prepared.queue),
+      None => self.request_device(&surface),
+    };
 
     let format = self.configure_surface(surface, &adapter, &device);
     let config = self.surface_config.as_ref().unwrap();
 
     // --- Quad pipeline ---
+    // The gradients are a storage buffer, or a texture where the device has no storage buffers.
+    let gradients_in_texture = gradients::in_texture(&device);
     let quad_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
       label: Some("lurq_quad_bgl"),
       entries: &[
@@ -837,22 +1058,13 @@ impl WgpuRenderEngine {
           },
           count: None,
         },
-        wgpu::BindGroupLayoutEntry {
-          binding: 1,
-          visibility: wgpu::ShaderStages::FRAGMENT,
-          ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-          },
-          count: None,
-        },
+        gradients::layout_entry(gradients_in_texture),
       ],
     });
 
     let quad_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
       label: Some("lurq_quad_shader"),
-      source: wgpu::ShaderSource::Wgsl(include_str!("shaders/quad.wgsl").into()),
+      source: wgpu::ShaderSource::Wgsl(gradients::quad_shader(gradients_in_texture)),
     });
 
     let quad_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1194,13 +1406,8 @@ impl WgpuRenderEngine {
       usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
-    let gradient_data: [f32; 4] = [0.0; 4];
-    let gradient_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("lurq_gradients"),
-      contents: bytemuck::cast_slice(&gradient_data),
-      usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-    });
-    let gradient_buffer_capacity = std::mem::size_of_val(&gradient_data) as wgpu::BufferAddress;
+    let mut gradients = gradients::Gradients::new(&device);
+    gradients.write(&queue, &[[0.0; 4]]);
 
     let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
       label: Some("lurq_atlas_sampler"),
@@ -1219,7 +1426,7 @@ impl WgpuRenderEngine {
         },
         wgpu::BindGroupEntry {
           binding: 1,
-          resource: gradient_buffer.as_entire_binding(),
+          resource: gradients.binding(),
         },
       ],
     });
@@ -1266,8 +1473,7 @@ impl WgpuRenderEngine {
       self.image_sampler = Some(image_sampler);
     }
     self.globals_buffer = Some(globals_buffer);
-    self.gradient_buffer = Some(gradient_buffer);
-    self.gradient_buffer_capacity = gradient_buffer_capacity;
+    self.gradients = Some(gradients);
     self.atlas_sampler = Some(atlas_sampler);
     self.quad_bind_group = Some(quad_bind_group);
     self.vertex_buffer = Some(vertex_buffer);
@@ -1751,16 +1957,9 @@ impl RenderEngine for WgpuRenderEngine {
       self.scratch_gradient_data.push([0.0; 4]);
     }
     let gradient_bytes = bytemuck::cast_slice(&self.scratch_gradient_data);
-    let required_gradient_capacity = gradient_bytes.len() as wgpu::BufferAddress;
-    let mut gradient_recreated = false;
-    if self.gradient_buffer_capacity < required_gradient_capacity {
-      self.gradient_buffer_capacity = required_gradient_capacity.next_power_of_two().max(256);
-      let gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("lurq_gradients"),
-        size: self.gradient_buffer_capacity,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-      });
+    let gradients = self.gradients.as_mut().unwrap();
+    let gradient_recreated = gradients.reserve(device, self.scratch_gradient_data.len());
+    if gradient_recreated {
       let quad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("lurq_quad_bg"),
         layout: self.quad_bgl.as_ref().unwrap(),
@@ -1771,22 +1970,20 @@ impl RenderEngine for WgpuRenderEngine {
           },
           wgpu::BindGroupEntry {
             binding: 1,
-            resource: gradient_buffer.as_entire_binding(),
+            resource: gradients.binding(),
           },
         ],
       });
-      self.gradient_buffer = Some(gradient_buffer);
       self.quad_bind_group = Some(quad_bind_group);
       self.quad_clip_bind_groups.clear();
-      gradient_recreated = true;
     }
-    let gradient_buf = self.gradient_buffer.as_ref().unwrap();
     let _gradient_upload_start = profile_scope!();
     if gradient_recreated || self.last_gradient_bytes.as_slice() != gradient_bytes {
-      queue.write_buffer(gradient_buf, 0, gradient_bytes);
+      gradients.write(queue, &self.scratch_gradient_data);
       self.last_gradient_bytes.clear();
       self.last_gradient_bytes.extend_from_slice(gradient_bytes);
     }
+    let gradients = self.gradients.as_ref().unwrap();
     _buffer_upload_dur += profile_elapsed!(_gradient_upload_start);
 
     self.scratch_glyph_instances.clear();
@@ -1950,6 +2147,45 @@ impl RenderEngine for WgpuRenderEngine {
       );
     }
 
+    // A frame that is read back, by a backdrop blur of the window or a capture, is painted beside a surface
+    // whose texture cannot be copied from, and put onto it in a last pass; see `surface_proxy`.
+    let mut frame_is_read = false;
+    if !self.surface_copies {
+      frame_is_read = layer_plan
+        .targets()
+        .iter()
+        .filter(|target| target.layer.is_none())
+        .flat_map(|target| layer_plan.steps(target))
+        .any(|step| {
+          matches!(step, LayerStep::Backdrop(index)
+            if self.scratch_backdrop_slots.get(*index).copied().flatten().is_some_and(|slots| slots.runs()))
+        });
+      #[cfg(feature = "screenshot")]
+      {
+        frame_is_read |= self.pending_frame_capture.is_some();
+      }
+    }
+    if frame_is_read {
+      let format = render_target_format(config.format);
+      if !self
+        .surface_proxy
+        .as_ref()
+        .is_some_and(|proxy| proxy.fits(format, config.width, config.height))
+      {
+        self.surface_proxy = Some(surface_proxy::SurfaceProxy::new(
+          device,
+          format,
+          config.width,
+          config.height,
+        ));
+      }
+    }
+    let surface_proxy = self.surface_proxy.as_ref().filter(|_| frame_is_read);
+    let (window_texture, window_view) = match surface_proxy {
+      Some(proxy) => (proxy.texture(), proxy.view()),
+      None => (output.texture(), &view),
+    };
+
     let mut encoder = device.create_command_encoder(&Default::default());
     #[cfg(feature = "perf_profile")]
     let target_count = layer_plan.targets().len();
@@ -1967,7 +2203,7 @@ impl RenderEngine for WgpuRenderEngine {
         ),
         _ => (
           TargetSpace::window(vw, vh),
-          view.clone(),
+          window_view.clone(),
           wgpu_clear_color(list.clear_color),
         ),
       };
@@ -2034,7 +2270,7 @@ impl RenderEngine for WgpuRenderEngine {
             if backdrop.runs() {
               let (target_texture, target_origin) = match (target.layer, layer_slot) {
                 (Some(layer), Some(slot)) => (compositor.texture(slot), list.layers[layer].painted().0),
-                _ => (output.texture(), [0, 0]),
+                _ => (window_texture, [0, 0]),
               };
               drop(pass);
               let _blur_passes = compositor.prepare_backdrop(
@@ -2141,7 +2377,7 @@ impl RenderEngine for WgpuRenderEngine {
                       },
                       wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: gradient_buf.as_entire_binding(),
+                        resource: gradients.binding(),
                       },
                     ],
                   })
@@ -2649,7 +2885,10 @@ impl RenderEngine for WgpuRenderEngine {
     let frame_capture = self
       .pending_frame_capture
       .take()
-      .and_then(|capture| encode_wgpu_frame_capture(device, &mut encoder, output.texture(), config.format, capture));
+      .and_then(|capture| encode_wgpu_frame_capture(device, &mut encoder, window_texture, config.format, capture));
+    if let Some(proxy) = surface_proxy {
+      proxy.put_onto(&mut encoder, &view);
+    }
 
     #[cfg(feature = "perf_profile")]
     self.gpu_timer.resolve(&mut encoder);

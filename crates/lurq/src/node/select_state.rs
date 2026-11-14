@@ -7,13 +7,14 @@ use std::{
     Arc, Mutex, Weak,
     atomic::{AtomicBool, Ordering},
   },
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 use crate::{
   app::ctx::OutsidePress,
   layout::layout_kind::ScrollState,
   node::{SelectAdornmentState, SelectStyle, node_kind::TextInputState, select_icon::SelectAdornment},
+  time::Instant,
 };
 
 pub(crate) type SelectChangeCallback = Arc<dyn Fn(usize) + Send + Sync>;
