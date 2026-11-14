@@ -16,12 +16,15 @@ mod family;
 mod family_play;
 mod icons;
 mod input;
+mod input_group;
 mod menu;
 mod overview;
 mod pagination;
+mod password_input;
 mod popover;
 mod progress;
 mod radio;
+mod search_field;
 mod select;
 mod separator;
 mod skeleton;
@@ -238,6 +241,30 @@ pub const PAGES: &[Page] = &[
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/password-input",
+    name: "Password Input",
+    icon: None,
+    about: "password input masked secret reveal show hide eye strength meter weak strong new password",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<password_input::PasswordInputPage>(()),
+  },
+  Page {
+    path: "/search-field",
+    name: "Search Field",
+    icon: None,
+    about: "search field query filter find clear escape enter submit shortcut key hint searchbox",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<search_field::SearchFieldPage>(()),
+  },
+  Page {
+    path: "/input-group",
+    name: "Input Group",
+    icon: None,
+    about: "input group addon prefix suffix before after https url domain unit button select joined",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<input_group::InputGroupPage>(()),
   },
   Page {
     path: "/tooltip",

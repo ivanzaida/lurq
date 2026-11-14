@@ -338,8 +338,12 @@ impl TextInputState {
   }
 
   /// What copying the selection puts on the clipboard: the app's format of
-  /// the styled selection when it gave one, else the selected text.
+  /// the styled selection when it gave one, else the selected text. Nothing
+  /// while the input is masked, as a password field copies nothing.
   pub(crate) fn clipboard_selection(&self) -> Option<String> {
+    if self.is_masked() {
+      return None;
+    }
     let selected = self.selected_text()?;
     let format = self.inner.lock().styled.copy_format.clone();
     match (format, self.selected_styled_text()) {

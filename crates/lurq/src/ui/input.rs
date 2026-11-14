@@ -18,8 +18,8 @@ use crate::{
   },
   components::{self, Row, Stack},
   core::Signal,
-  layout::{Alignment, StackAlignment, text_style::TextStyle},
-  node::{Element, dimension::Dimension},
+  layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::TextStyle},
+  node::{Element, HitTestBehavior, dimension::Dimension},
 };
 
 /// The parts of an input a recipe styles.
@@ -100,7 +100,7 @@ pub struct Input {
   value: Signal<String>,
   placeholder: Option<Arc<str>>,
   icon: Option<Name>,
-  boxed: BoxStates,
+  pub(crate) boxed: BoxStates,
   full_width: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -249,12 +249,22 @@ impl Input {
   /// Builds the input in `theme`. Converting an input into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    let view = self.view(theme);
+    match theme.renderer::<Input>() {
+      Some(renderer) => renderer(view),
+      None => view.render(),
+    }
+  }
+
+  /// The input as a renderer sees it, in `theme`: what a component made of an input (a password input, a search
+  /// field, an input in a group) builds its own nodes from.
+  pub(crate) fn view(self, theme: &Theme) -> InputView {
     let case = self
       .boxed
       .case(self.states.clone())
       .state(InputState::FullWidth, self.full_width)
       .state(InputState::WithIcon, self.icon.is_some());
-    let view = InputView {
+    InputView {
       value: self.value,
       placeholder: self.placeholder,
       icon: self.icon,
@@ -269,10 +279,6 @@ impl Input {
       name: self.name,
       id: self.id,
       key: self.key,
-    };
-    match theme.renderer::<Input>() {
-      Some(renderer) => renderer(view),
-      None => view.render(),
     }
   }
 }
@@ -344,12 +350,7 @@ impl InputView {
   pub fn text_start(&self) -> Option<f32> {
     let theme = self.theme();
     let spacing = theme.spacing();
-    let padding = self
-      .part(InputPart::Control)
-      .rest()
-      .padding_x
-      .map(|padding| padding.resolve(&spacing, 0.0))
-      .unwrap_or(0.0);
+    let padding = self.padding(Side::Start);
     if self.icon.is_none() {
       return Some(padding);
     }
@@ -407,12 +408,7 @@ impl InputView {
     let name = self.icon?;
     let part = self.part(InputPart::Icon);
     let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
-    let padding = self
-      .part(InputPart::Control)
-      .rest()
-      .padding_x
-      .map(|padding| padding.resolve(&self.theme().spacing(), 0.0))
-      .unwrap_or(0.0);
+    let padding = self.padding(Side::Start);
     Some(
       Row::new()
         .padding_left(padding)
@@ -424,6 +420,54 @@ impl InputView {
             .child(Icon::new(name).size(side).build(self.theme())),
         ),
     )
+  }
+
+  /// The control's padding at its start or its end, in pixels.
+  fn padding(&self, side: Side) -> f32 {
+    let [_, end, _, start] = self.part(InputPart::Control).rest().paddings();
+    let padding = match side {
+      Side::Start => start,
+      Side::End => end,
+    };
+    padding
+      .map(|padding| padding.resolve(&self.theme().spacing(), 0.0))
+      .unwrap_or(0.0)
+  }
+
+  /// The room the control keeps at its end for what is `width` wide over it there: its own padding, the width, and
+  /// the room an icon has before the text.
+  pub(crate) fn end_room(&self, width: f32) -> f32 {
+    let gap = self
+      .part(InputPart::Root)
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+      .unwrap_or(0.0);
+    self.padding(Side::End) + width + gap
+  }
+
+  /// How a component made of an input builds it: `control` (this input's [`Self::control`], with what the
+  /// component adds to it), its icon over its start, and `end` over its end, in from the control's padding there.
+  /// Only what is in `end` takes the pointer: around it the pointer reaches the control.
+  pub(crate) fn render_with_end(&self, control: components::TextInput, end: Option<Row>) -> Stack {
+    let mut root = Stack::new()
+      .stack_align(StackAlignment::CenterStart)
+      .part(&self.part(InputPart::Root))
+      .child(control);
+    if let Some(icon) = self.icon() {
+      root = root.child(icon);
+    }
+    if let Some(end) = end {
+      root = root.child(
+        end
+          .width(Dimension::Pct(100.0))
+          .padding_right(self.padding(Side::End))
+          .align_items(Alignment::Center)
+          .justify(Justify::End)
+          .hit_test(HitTestBehavior::ContentOnly),
+      );
+    }
+    root
   }
 
   /// How the default renderer builds an input: the control, and its icon laid over its start.
@@ -438,6 +482,13 @@ impl InputView {
     }
     root.into()
   }
+}
+
+/// A side of the control.
+#[derive(Clone, Copy)]
+enum Side {
+  Start,
+  End,
 }
 
 impl Themed for Input {
