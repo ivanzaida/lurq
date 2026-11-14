@@ -84,6 +84,7 @@ mod toggle;
 mod toggle_group;
 mod toggletip;
 mod token_input;
+mod token_list;
 mod tooltip;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};

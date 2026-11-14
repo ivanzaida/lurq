@@ -2137,17 +2137,22 @@ MultiSelect::new(languages.clone(), [
 
 ## Token Input
 
-A box of text in which what the app recognizes stands as a token: tags, recipients, the variables of a template.
+A box that holds a list as tokens, with what is being typed after them: tags, recipients. Or a text in which the app
+finds its tokens: the variables of a template.
 
 ```rust
 use lurq::ui::{TagVariant, Token, TokenInput};
 
-// Tags: every word with a space after it is a token.
-TokenInput::new(tags.clone())
-  .tokens(|text| Token::separated(text, ' '))
-  .placeholder("Add tag");
+// Tags, a list: Enter, a comma or a space makes a token of what is typed.
+// tags: Signal<Vec<String>>
+TokenInput::list(tags.clone())
+  .separators([',', ' '])
+  .unique(true)
+  .placeholder("Add tag")
+  .on_change(|tags| save(tags));
 
-// A template on rows, its variables tokens with no cross.
+// A template, a text on rows: its variables are tokens with no cross.
+// template: Signal<String>
 TokenInput::new(template.clone())
   .rows(2, 6)
   .tokens(|text| {
@@ -2160,8 +2165,16 @@ TokenInput::new(template.clone())
 
 | Builder | |
 | --- | --- |
-| `new(Signal<String>)` | The text, tokens and all; what is typed is set on it, and what the app sets on it is shown |
-| `tokens(impl Fn(&str) -> Vec<Token>)` | How the app finds its tokens in the text, called in every render. Tokens that overlap one before them, hold a line break or are not on characters are left out |
+| `list(Signal<Vec<String>>)` | A list: each item is a token. What is typed is the draft, which is no part of the list until it is made an item. What the app sets on the list is shown |
+| `separators(chars)` | The characters that make an item of the draft, as Enter does: a comma by default. A pasted list is split at them, at line breaks and at tabs; an item cannot hold one |
+| `draft(Signal<String>)` | What is typed and is no item yet: read for suggestions, and what the app sets on it is what the input shows after its tokens |
+| `unique(bool)` | An item the list already has is not added again; what was typed is dropped |
+| `commit_on_blur(bool)` | The draft becomes an item when the focus leaves, in place of staying typed |
+| `token(impl Fn(&str, Token) -> Token)` | Dresses the token of each item of a list: a variant by what the item is, or no cross |
+| `on_change(impl Fn(&[String]))` | Called with the list when a person changed it: an item made of the draft, pasted, or taken away |
+| `on_draft(impl Fn(&str))` | Called with the draft when a person changed it |
+| `new(Signal<String>)` | A text, tokens and all, where the text around the tokens is the value too; what is typed is set on it, and what the app sets on it is shown |
+| `tokens(impl Fn(&str) -> Vec<Token>)` | How the app finds its tokens in a text, called in every render. Tokens that overlap one before them, hold a line break or are not on characters are left out. Not asked over a list |
 | `Token::new(range)` | A token over a byte range of the text: atomic and removable by default |
 | `Token::variant(name)` | A `TagVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), `MENTION`, or a variant the theme's recipe names |
 | `Token::removable(bool)` | The cross at its end, which a click takes it away by |
@@ -2177,10 +2190,20 @@ TokenInput::new(template.clone())
 | `controller(TextInputController)` | Kept by the app: reads the selection and puts text at it, a token chosen from a picker |
 | `label(&str)`, `name(..)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an [input](#input) has them. `id` is the id of the control |
 
-- It is the engine's `TextInput` with `TextInput::tokens`: what it holds is text, and a token is a range of that text
-  the app's function finds in every render, so an edit that changes a token's text makes it what the function then
-  says of it. Copying, pasting, undo, a form and tooling see the text: to what reads the tree it is a `textbox` whose
-  value is the text, each token as its own words.
+- Over a list (`TokenInput::list`) the tokens and what is typed are two things. The list holds the items and nothing
+  else; the draft is the text after the tokens, and it is in no item until Enter or a separator makes one of it,
+  trimmed. A token's cross takes its item out of the list; Backspace right after a token selects it and the next takes
+  it out. What is typed with the caret among the tokens goes to the draft, which is always after them, and typing over
+  a selected token replaces it with a draft. `on_change` hears the list and `on_draft` the draft; `on_input` still
+  hears every edit, with the text the input keeps the list as.
+- The input keeps that text itself, for as long as it is in the tree, by the signal of the list: each item with a
+  narrow space (U+2005) after it, which is the room between two tokens and where a row wraps, then the draft. It is
+  what a `TokenInputView` has as `text`, what is copied from the input and what tooling reads as its value. A list
+  whose signal is made anew in every render starts with no draft in every render: keep the signal.
+- Over a text (`TokenInput::new`) it is the engine's `TextInput` with `TextInput::tokens`: what it holds is text, and
+  a token is a range of that text the app's function finds in every render, so an edit that changes a token's text
+  makes it what the function then says of it. Copying, pasting, undo, a form and tooling see the text: to what reads
+  the tree it is a `textbox` whose value is the text, each token as its own words.
 - A token is atomic: Left and Right go past it whole, a click selects all of it, Backspace after it selects it and the
   next deletes it. A click on its cross deletes it with the space after it, as one edit `on_input` hears and undo
   brings back. With `Token::separated`, deleting the space after the last token makes it text again, to be edited.

@@ -1,5 +1,5 @@
-//! The page of the token input: its playground, a list of tags typed as tokens, tokens of each variant, its states,
-//! its sizes, a template on rows whose variables are tokens, and a field that holds one.
+//! The page of the token input: its playground over a list, a list of tags, tokens of each variant, its states, its
+//! sizes, a template on rows whose variables are tokens found in its text, and a field that holds a list.
 
 use std::sync::Arc;
 
@@ -37,8 +37,13 @@ const VARIANTS: [(&str, TagVariant, &str); 5] = [
   ("destructive", TagVariant::Destructive, "TagVariant::Destructive"),
 ];
 
-/// What separates the items of the list: the selects of the playground.
+/// What makes an item of what is typed, besides Enter: the choices of the playground.
 const SEPARATORS: [(&str, char); 2] = [("space", ' '), ("comma", ',')];
+
+/// What the playground's list holds to begin with.
+fn first_tags() -> Vec<String> {
+  vec!["rust".to_owned(), "wgpu".to_owned()]
+}
 
 /// A token input as wide as the board draws one, with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
@@ -84,13 +89,16 @@ fn variables(text: &str) -> Vec<Token> {
 pub struct TokenInputPage {
   frame: Frame,
   playground: Playground,
-  value: Signal<String>,
+  items: Signal<Vec<String>>,
+  draft: Signal<String>,
   placeholder: Signal<String>,
   label: Signal<String>,
   size: Signal<usize>,
   variant: Signal<usize>,
   separator: Signal<usize>,
   removable: Signal<bool>,
+  unique: Signal<bool>,
+  commit_on_blur: Signal<bool>,
   rows: Signal<bool>,
   invalid: Signal<bool>,
   warning: Signal<bool>,
@@ -98,9 +106,9 @@ pub struct TokenInputPage {
   read_only: Signal<bool>,
   disabled: Signal<bool>,
   full_width: Signal<bool>,
-  tags: Signal<String>,
+  tags: Signal<Vec<String>>,
   template: Signal<String>,
-  recipients: Signal<String>,
+  recipients: Signal<Vec<String>>,
 }
 
 impl TokenInputPage {
@@ -112,6 +120,7 @@ impl TokenInputPage {
     let (variant_name, variant, variant_code) = VARIANTS[self.variant.get().min(VARIANTS.len() - 1)];
     let (separator_name, separator) = SEPARATORS[self.separator.get().min(SEPARATORS.len() - 1)];
     let (removable, rows) = (self.removable.get(), self.rows.get());
+    let (unique, commit_on_blur) = (self.unique.get(), self.commit_on_blur.get());
     let flags = [
       ("invalid", self.invalid.get()),
       ("warning", self.warning.get()),
@@ -120,18 +129,17 @@ impl TokenInputPage {
       ("disabled", self.disabled.get()),
       ("full_width", self.full_width.get()),
     ];
-    let value = self.value.clone();
+    let (items, draft) = (self.items.clone(), self.draft.clone());
     let plain = {
-      let (placeholder, value, name) = (placeholder.clone(), value.clone(), name.clone());
+      let (placeholder, items, draft, name) = (placeholder.clone(), items.clone(), draft.clone(), name.clone());
       let set: Vec<bool> = flags.iter().map(|(_, set)| *set).collect();
       move || {
-        let mut input = TokenInput::new(value.clone())
-          .tokens(move |text| {
-            Token::separated(text, separator)
-              .into_iter()
-              .map(|token| token.variant(variant).removable(removable))
-              .collect()
-          })
+        let mut input = TokenInput::list(items.clone())
+          .draft(draft.clone())
+          .separators([separator])
+          .unique(unique)
+          .commit_on_blur(commit_on_blur)
+          .token(move |_, token| token.variant(variant).removable(removable))
           .placeholder(&placeholder)
           .size(size)
           .invalid(set[0])
@@ -149,27 +157,32 @@ impl TokenInputPage {
         input
       }
     };
-    let record = self.playground.recorder();
+    let (changed, typed) = (self.playground.recorder(), self.playground.recorder());
     let input = plain()
       .force(self.playground.forced())
-      .on_input(move |event| record(format!("on_input({:?})", event.new_value)));
+      .on_change(move |items| changed(format!("on_change({items:?})")))
+      .on_draft(move |draft| typed(format!("on_draft({draft:?})")));
 
     let mut code = vec![
-      "// value: Signal<String>".to_owned(),
-      "TokenInput::new(value.clone())".to_owned(),
+      "// tags: Signal<Vec<String>>".to_owned(),
+      "TokenInput::list(tags.clone())".to_owned(),
     ];
-    let token = match (variant != TagVariant::Neutral, removable) {
-      (false, true) => "token".to_owned(),
-      (true, true) => format!("token.variant({variant_code})"),
-      (false, false) => "token.removable(false)".to_owned(),
-      (true, false) => format!("token.variant({variant_code}).removable(false)"),
-    };
-    if token == "token" {
-      code.push(format!("    .tokens(|text| Token::separated(text, {separator:?}))"));
-    } else {
-      code.push(format!(
-        "    .tokens(|text| Token::separated(text, {separator:?}).into_iter().map(|token| {token}).collect())"
-      ));
+    if separator != ',' {
+      code.push(format!("    .separators([{separator:?}])"));
+    }
+    if unique {
+      code.push("    .unique(true)".to_owned());
+    }
+    if commit_on_blur {
+      code.push("    .commit_on_blur(true)".to_owned());
+    }
+    match (variant != TagVariant::Neutral, removable) {
+      (false, true) => {}
+      (true, true) => code.push(format!("    .token(|_, token| token.variant({variant_code}))")),
+      (false, false) => code.push("    .token(|_, token| token.removable(false))".to_owned()),
+      (true, false) => code.push(format!(
+        "    .token(|_, token| token.variant({variant_code}).removable(false))"
+      )),
     }
     code.push(format!("    .placeholder({placeholder:?})"));
     if !name.is_empty() {
@@ -187,15 +200,17 @@ impl TokenInputPage {
       }
     }
 
-    let held = value.get();
-    let found = Token::separated(&held, separator).len();
+    let (held, typed_now) = (items.get(), draft.get());
+    let found = held.len();
     let tree = vec![
       format!("root      {}", self.playground.measured()),
-      format!("├─ text    {} characters", held.chars().count()),
-      format!("└─ tokens  {found}, {variant_name}, {token_height} high"),
+      format!("├─ tokens  {found}, {variant_name}, {token_height} high"),
+      format!("└─ draft   {typed_now:?}"),
     ];
 
-    let (to_value, to_placeholder, to_label) = (self.value.clone(), self.placeholder.clone(), self.label.clone());
+    let (to_items, to_draft) = (self.items.clone(), self.draft.clone());
+    let (to_placeholder, to_label) = (self.placeholder.clone(), self.label.clone());
+    let (to_unique, to_commit) = (self.unique.clone(), self.commit_on_blur.clone());
     let (to_size, to_variant, to_separator) = (self.size.clone(), self.variant.clone(), self.separator.clone());
     let (to_removable, to_rows) = (self.removable.clone(), self.rows.clone());
     let flag_signals = [
@@ -227,8 +242,8 @@ impl TokenInputPage {
         shown: Column::new().width(FILL).child(input).into(),
         fill: true,
         forceable: true,
-        facts: format!("{size_name} · {found} tokens · {separator_name}"),
-        event: "on_input",
+        facts: format!("{size_name} · {found} in the list · draft {typed_now:?} · Enter or {separator_name}"),
+        event: "on_change",
         code,
         tree,
         controls: vec![
@@ -254,6 +269,8 @@ impl TokenInputPage {
             }),
           ),
           flag("token: removable", &self.removable),
+          flag("unique", &self.unique),
+          flag("commit_on_blur", &self.commit_on_blur),
           flag("rows(2, 6)", &self.rows),
           divider(),
           flag("invalid", &self.invalid),
@@ -264,13 +281,15 @@ impl TokenInputPage {
           flag("full_width", &self.full_width),
         ],
         changed: [
-          held != "rust wgpu ",
+          held != first_tags() || !typed_now.is_empty(),
           placeholder != "Add tag",
           !name.is_empty(),
           size != TokenInputSize::Md,
           variant != TagVariant::Neutral,
           separator != ' ',
           !removable,
+          unique,
+          commit_on_blur,
           rows,
         ]
         .into_iter()
@@ -278,7 +297,10 @@ impl TokenInputPage {
         .filter(|changed| *changed)
         .count(),
         reset: Arc::new(move || {
-          to_value.set("rust wgpu ".to_owned());
+          to_items.set(first_tags());
+          to_draft.set(String::new());
+          to_unique.set(false);
+          to_commit.set(false);
           to_placeholder.set("Add tag".to_owned());
           to_label.set(String::new());
           to_size.set(1);
@@ -302,13 +324,16 @@ impl Component for TokenInputPage {
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 1),
-      value: ctx.signal("rust wgpu ".to_owned()),
+      items: ctx.signal(first_tags()),
+      draft: ctx.signal(String::new()),
       placeholder: ctx.signal("Add tag".to_owned()),
       label: ctx.signal(String::new()),
       size: ctx.signal(1),
       variant: ctx.signal(0),
       separator: ctx.signal(0),
       removable: ctx.signal(true),
+      unique: ctx.signal(false),
+      commit_on_blur: ctx.signal(false),
       rows: ctx.signal(false),
       invalid: ctx.signal(false),
       warning: ctx.signal(false),
@@ -316,15 +341,21 @@ impl Component for TokenInputPage {
       read_only: ctx.signal(false),
       disabled: ctx.signal(false),
       full_width: ctx.signal(false),
-      tags: ctx.signal("rust wgpu ".to_owned()),
+      tags: ctx.signal(first_tags()),
       template: ctx.signal("Hello {{name}}, your order {{order}} shipped on {{date}}.".to_owned()),
-      recipients: ctx.signal("ivan@lurq.dev, ivy@lurq.dev, ".to_owned()),
+      recipients: ctx.signal(vec!["ivan@lurq.dev".to_owned(), "ivy@lurq.dev".to_owned()]),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let held = self.tags.get();
-    let live = items().child(item(tags(self.tags.clone()), &format!("the signal holds {:?}", held)));
+    let live = items().child(item(
+      TokenInput::list(self.tags.clone())
+        .separators([',', ' '])
+        .unique(true)
+        .placeholder("Add tag"),
+      &format!("the list holds {held:?}"),
+    ));
     let mut variants = items();
     for (name, variant, _) in VARIANTS {
       variants = variants.child(item(
@@ -372,20 +403,28 @@ impl Component for TokenInputPage {
           .full_width(true),
       ),
     );
-    let recipients = self.recipients.get();
-    let count = Token::separated(&recipients, ',').len();
+    let count = self.recipients.get().len();
     let in_field = {
       let field = Field::new(
         "Recipients",
-        TokenInput::new(self.recipients.clone())
-          .tokens(|text| Token::separated(text, ','))
-          .placeholder("name@example.com,")
+        TokenInput::list(self.recipients.clone())
+          .separators([',', ';', ' '])
+          .unique(true)
+          .commit_on_blur(true)
+          .token(|address, token| {
+            if address.contains('@') {
+              token
+            } else {
+              token.variant(TagVariant::Destructive)
+            }
+          })
+          .placeholder("name@example.com")
           .full_width(true),
       )
       .required(true)
       .full_width(true);
       if count == 0 {
-        field.error("Add at least one recipient: type an address and a comma.")
+        field.error("Add at least one recipient: type an address and Enter.")
       } else {
         field.description(&format!("{count} recipient{}.", if count == 1 { "" } else { "s" }))
       }
@@ -393,16 +432,64 @@ impl Component for TokenInputPage {
     let in_field = items().child(Column::new().width(360.0).child(in_field));
     let props = [
       (
-        "value",
+        "TokenInput::list",
+        "Signal<Vec<String>>",
+        "",
+        "A list: each item is a token. What is typed is the draft, no part of the list until it is made an item.",
+      ),
+      (
+        "separators",
+        "impl IntoIterator<Item = char>",
+        "[',']",
+        "The characters that make an item of the draft, as Enter does. A pasted list is split at them.",
+      ),
+      (
+        "draft",
         "Signal<String>",
         "",
-        "The text, tokens and all. What is typed is written into it, and what the app writes there shows.",
+        "What is typed and is no item yet: read it for suggestions, set it to change what the input shows.",
+      ),
+      (
+        "unique",
+        "bool",
+        "false",
+        "An item the list already has is not added again.",
+      ),
+      (
+        "commit_on_blur",
+        "bool",
+        "false",
+        "The draft becomes an item when the focus leaves, in place of staying typed.",
+      ),
+      (
+        "token",
+        "impl Fn(&str, Token) -> Token",
+        "",
+        "Dresses the token of each item of a list: a variant by what the item is, or no cross.",
+      ),
+      (
+        "on_change",
+        "impl Fn(&[String])",
+        "",
+        "Called with the list when a person changed it: an item made, pasted or taken away.",
+      ),
+      (
+        "on_draft",
+        "impl Fn(&str)",
+        "",
+        "Called with the draft when a person changed it.",
+      ),
+      (
+        "TokenInput::new",
+        "Signal<String>",
+        "",
+        "Text with tokens in it, where the text around them is the value too: a template with variables.",
       ),
       (
         "tokens",
         "impl Fn(&str) -> Vec<Token>",
         "",
-        "How the app finds its tokens in the text, called in every render. Token::separated finds a list's items.",
+        "How the app finds its tokens in a text, called in every render.",
       ),
       (
         "Token::variant",
@@ -491,8 +578,8 @@ impl Component for TokenInputPage {
       Header {
         breadcrumb: &["Components", "Inputs", "Token Input"],
         title: "Token Input",
-        description: "A box of text in which what the app recognizes stands as a token: tags, recipients, the \
-                      variables of a template. The text is the value; the tokens are found in it in every render.",
+        description: "A box that holds a list as tokens, with what is being typed after them: tags, recipients. \
+                      Or a text in which the app finds its tokens: the variables of a template.",
         import: Some("use lurq::ui::{Token, TokenInput};"),
         status: Some("Stable"),
         since: Some("0.62"),
@@ -501,22 +588,24 @@ impl Component for TokenInputPage {
       vec![
         Section::new(
           "Playground",
-          "Every prop of TokenInput is a control on the right. The input on the stage is live: type a word and a \
-           space to make a token, click a cross to take one away, Backspace after one to select it.",
+          "Every prop of TokenInput is a control on the right. The input on the stage is live over a list: type a \
+           word and Enter or the separator to add it, click a cross to take one away, Backspace after one to select \
+           it. What is typed and is no token yet is the draft, which the list does not hold.",
           playground,
         ),
         Section::new(
           "Token input",
-          "The page holds the text in a signal, and every word with a space after it is a token. The word being \
-           typed is text until its space.",
+          "The page holds the list in a signal of strings. Enter, a comma or a space makes a token of the word being \
+           typed; until then the list does not have it. A tag it already has is not added again.",
           self.frame.demo(
             0,
             live,
-            "TokenInput::new(tags.clone()).tokens(..)",
+            "TokenInput::list(tags.clone())",
             &[
-              "// tags: Signal<String>",
-              "TokenInput::new(tags.clone())",
-              "    .tokens(|text| Token::separated(text, ' '))",
+              "// tags: Signal<Vec<String>>",
+              "TokenInput::list(tags.clone())",
+              "    .separators([',', ' '])",
+              "    .unique(true)",
               "    .placeholder(\"Add tag\")",
             ],
           ),
@@ -577,8 +666,9 @@ impl Component for TokenInputPage {
         ),
         Section::new(
           "On rows",
-          "With rows the text wraps, tokens with it, and each row has room for a token. Here the variables of a \
-           template are tokens with no cross: type {{ and a name and }} to make another.",
+          "With rows the text wraps, tokens with it, and each row has room for a token. Here the input holds a \
+           text, not a list: the variables of a template are tokens found in it, with no cross. Type {{ and a name \
+           and }} to make another.",
           self.frame.demo(
             4,
             template,
@@ -594,26 +684,32 @@ impl Component for TokenInputPage {
         ),
         Section::new(
           "In a field",
-          "A field calls the input by its label and gives it its judgment: here the error makes it invalid until it \
-           holds a recipient.",
+          "A field calls the input by its label and gives it its judgment: here the error makes it invalid until the \
+           list holds a recipient. An address with no @ is a destructive token, and the draft becomes an item when \
+           the focus leaves.",
           self.frame.demo(
             5,
             in_field,
             "Field::new(\"Recipients\", input).error(..)",
             &[
-              "// recipients: Signal<String>",
-              "let count = Token::separated(&recipients.get(), ',').len();",
+              "// recipients: Signal<Vec<String>>",
+              "let count = recipients.get().len();",
               "let field = Field::new(",
               "    \"Recipients\",",
-              "    TokenInput::new(recipients.clone())",
-              "        .tokens(|text| Token::separated(text, ','))",
-              "        .placeholder(\"name@example.com,\")",
+              "    TokenInput::list(recipients.clone())",
+              "        .separators([',', ';', ' '])",
+              "        .unique(true)",
+              "        .commit_on_blur(true)",
+              "        .token(|address, token| {",
+              "            if address.contains('@') { token } else { token.variant(TagVariant::Destructive) }",
+              "        })",
+              "        .placeholder(\"name@example.com\")",
               "        .full_width(true),",
               ")",
               ".required(true)",
               ".full_width(true);",
               "if count == 0 {",
-              "    field.error(\"Add at least one recipient: type an address and a comma.\")",
+              "    field.error(\"Add at least one recipient: type an address and Enter.\")",
               "} else {",
               "    field.description(&format!(\"{count} recipients.\"))",
               "}",
@@ -623,7 +719,7 @@ impl Component for TokenInputPage {
         Section::new(
           "Props",
           "What a token input is given.",
-          props_table(&props, &["value"], self.frame.room()),
+          props_table(&props, &["TokenInput::list"], self.frame.room()),
         ),
       ],
     )

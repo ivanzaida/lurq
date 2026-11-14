@@ -570,3 +570,164 @@ fn the_list_stands_at_a_trigger_in_a_value_the_app_sets_at_the_first_paint() {
   assert!(stage.paints("Ivan Zaida"), "the caret was at the end, and stays there");
   stands_at_trigger(&mut stage, &mentions, 23);
 }
+
+/// A token input over `items`, with the comma that makes an item, the draft in `draft` and what the app is told
+/// of the list in `told`.
+fn listed(
+  items: &Signal<Vec<String>>,
+  draft: &Signal<String>,
+  controller: &TextInputController,
+  told: &Arc<Mutex<Vec<Vec<String>>>>,
+) -> Stage {
+  let (items, draft, controller, told) = (items.clone(), draft.clone(), controller.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        TokenInput::list(items.clone())
+          .draft(draft.clone())
+          .controller(controller.clone())
+          .on_change(move |items| told.lock().unwrap().push(items.to_vec()))
+          .id("tags"),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage
+}
+
+fn strings(items: &[&str]) -> Vec<String> {
+  items.iter().map(|item| (*item).to_owned()).collect()
+}
+
+/// Types `text` where the caret of the focused input is.
+fn type_text(stage: &mut Stage, controller: &TextInputController, text: &str) {
+  controller.replace_selection(text).unwrap();
+  stage.pass();
+}
+
+#[test]
+fn a_list_holds_its_tokens_and_what_is_typed_is_a_draft_apart() {
+  let (items, draft) = (Signal::new(strings(&["rust", "wgpu"])), Signal::new(String::new()));
+  let (controller, told) = (TextInputController::new(), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = listed(&items, &draft, &controller, &told);
+  assert_eq!(crosses(&stage).len(), 2, "a token for each item");
+
+  // What is typed is no item: the list is as it was, and nothing is told of it.
+  type_text(&mut stage, &controller, "ve");
+  type_text(&mut stage, &controller, "llo");
+  assert_eq!(items.get(), strings(&["rust", "wgpu"]));
+  assert_eq!(draft.get(), "vello");
+  assert!(told.lock().unwrap().is_empty());
+  assert_eq!(crosses(&stage).len(), 2);
+
+  // The separator makes an item of the draft, which is told once.
+  type_text(&mut stage, &controller, ",");
+  assert_eq!(items.get(), strings(&["rust", "wgpu", "vello"]));
+  assert_eq!(draft.get(), "");
+  assert_eq!(told.lock().unwrap().as_slice(), [strings(&["rust", "wgpu", "vello"])]);
+  assert_eq!(crosses(&stage).len(), 3);
+
+  // The caret is after the new token: what is typed next is the next draft.
+  type_text(&mut stage, &controller, "taffy");
+  assert_eq!(draft.get(), "taffy");
+  assert_eq!(items.get().len(), 3);
+}
+
+#[test]
+fn enter_makes_an_item_of_the_draft_with_the_spaces_in_it() {
+  let (items, draft) = (Signal::new(strings(&["Kyiv"])), Signal::new(String::new()));
+  let (controller, told) = (TextInputController::new(), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = listed(&items, &draft, &controller, &told);
+  type_text(&mut stage, &controller, "New York");
+  assert_eq!(items.get(), strings(&["Kyiv"]), "a space is no separator here");
+  stage.key("Enter");
+  assert_eq!(items.get(), strings(&["Kyiv", "New York"]));
+  assert_eq!(draft.get(), "");
+  assert_eq!(crosses(&stage).len(), 2);
+  // With no draft Enter makes nothing.
+  stage.key("Enter");
+  assert_eq!(items.get().len(), 2);
+  assert_eq!(told.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_pasted_list_adds_each_of_its_items() {
+  let (items, draft) = (Signal::new(Vec::new()), Signal::new(String::new()));
+  let (controller, told) = (TextInputController::new(), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = listed(&items, &draft, &controller, &told);
+  type_text(&mut stage, &controller, "rust, wgpu,vello");
+  assert_eq!(items.get(), strings(&["rust", "wgpu"]));
+  assert_eq!(draft.get(), "vello", "what has no separator after it is still typed");
+}
+
+#[test]
+fn a_cross_and_backspace_take_an_item_out_of_the_list() {
+  let (items, draft) = (
+    Signal::new(strings(&["rust", "wgpu", "naga"])),
+    Signal::new(String::new()),
+  );
+  let (controller, told) = (TextInputController::new(), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = listed(&items, &draft, &controller, &told);
+  let cross = crosses(&stage).swap_remove(1);
+  press(&mut stage, middle(&cross));
+  assert_eq!(items.get(), strings(&["rust", "naga"]));
+  assert_eq!(told.lock().unwrap().as_slice(), [strings(&["rust", "naga"])]);
+  assert_eq!(crosses(&stage).len(), 2);
+
+  // Backspace after the last token selects it, and the next takes it away.
+  stage.key("Backspace");
+  assert_eq!(items.get(), strings(&["rust", "naga"]), "selected, not gone");
+  assert_eq!(
+    tokens(&stage, light(PaletteColor::Primary)).len(),
+    1,
+    "the selected token"
+  );
+  stage.key("Backspace");
+  assert_eq!(items.get(), strings(&["rust"]));
+  assert_eq!(crosses(&stage).len(), 1);
+}
+
+#[test]
+fn a_list_the_app_sets_is_shown_with_the_draft_kept() {
+  let (items, draft) = (Signal::new(strings(&["rust"])), Signal::new(String::new()));
+  let (controller, told) = (TextInputController::new(), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = listed(&items, &draft, &controller, &told);
+  type_text(&mut stage, &controller, "ve");
+  items.set(strings(&["rust", "wgpu", "naga"]));
+  stage.pass();
+  assert_eq!(crosses(&stage).len(), 3);
+  assert_eq!(draft.get(), "ve");
+  assert!(
+    told.lock().unwrap().is_empty(),
+    "the app is not told of what it did itself"
+  );
+  type_text(&mut stage, &controller, "l");
+  assert_eq!(
+    draft.get(),
+    "vel",
+    "what was typed is still in the input, after the tokens"
+  );
+
+  // The app's draft is what the input holds after its tokens.
+  draft.set(String::new());
+  stage.pass();
+  type_text(&mut stage, &controller, "x");
+  assert_eq!(draft.get(), "x");
+  assert_eq!(items.get().len(), 3);
+}
+
+#[test]
+fn what_is_typed_among_the_tokens_goes_to_the_draft_after_them() {
+  let (items, draft) = (Signal::new(strings(&["rust", "wgpu"])), Signal::new(String::new()));
+  let (controller, told) = (TextInputController::new(), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = listed(&items, &draft, &controller, &told);
+  controller.select(0, 0).unwrap();
+  stage.pass();
+  type_text(&mut stage, &controller, "x");
+  assert_eq!(items.get(), strings(&["rust", "wgpu"]), "no token's text changed");
+  assert_eq!(draft.get(), "x");
+  type_text(&mut stage, &controller, "y");
+  assert_eq!(draft.get(), "xy", "the caret followed the draft");
+}

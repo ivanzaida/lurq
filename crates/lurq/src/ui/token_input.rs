@@ -10,10 +10,11 @@ use super::{
   tag::TagVariant,
   text_box::{self, BoxStates, EditHandler, Judgment, TextBoxSize},
   theme::{Themed, current_theme},
+  token_list::{self, DraftHandler, ListHandler, Rules},
 };
 use crate::{
   app::{
-    events::TextInputEvent,
+    events::{KeyboardEvent, TextInputEvent},
     theme::{ControlSize, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, InputToken, InputTokenIcon, InputTokenStyle, InputTokens, Stack, TextInputController},
@@ -174,15 +175,99 @@ impl Token {
 /// How the app finds the tokens in the text.
 type FindTokens = Arc<dyn Fn(&str) -> Vec<Token> + Send + Sync>;
 
+/// How the app dresses the token of an item of a list.
+type DressToken = Arc<dyn Fn(&str, Token) -> Token + Send + Sync>;
+
+/// What a token input over a list is given: the list, what makes an item of what is typed, and who is told.
+#[derive(Clone)]
+struct ListOf {
+  items: Signal<Vec<String>>,
+  draft: Option<Signal<String>>,
+  rules: Rules,
+  commit_on_blur: bool,
+  dress: Option<DressToken>,
+  on_change: Vec<ListHandler>,
+  on_draft: Vec<DraftHandler>,
+  /// What puts the caret at the end of the text the list is kept as.
+  controller: TextInputController,
+  /// Keeps the text the list is kept as while the input is in the tree.
+  alive: Arc<()>,
+}
+
+impl ListOf {
+  /// Gives the input `text` in place of what it holds, with the caret at its end.
+  fn put(&self, value: &Signal<String>, text: String) {
+    // An input follows a value set from outside with its caret where it was, unless it was at the end.
+    let end = value.get_untracked().len();
+    let _ = self.controller.select(end, end);
+    value.set(text);
+  }
+
+  /// Sets the list and the draft where a person changed them, and tells the app.
+  fn tell(&self, items: Vec<String>, draft: &str, draft_was: &str) {
+    if self.items.get_untracked() != items {
+      self.items.set(items.clone());
+      for handler in &self.on_change {
+        handler(&items);
+      }
+    }
+    if let Some(held) = &self.draft
+      && held.get_untracked() != draft
+    {
+      held.set(draft.to_owned());
+    }
+    if draft != draft_was {
+      for handler in &self.on_draft {
+        handler(draft);
+      }
+    }
+  }
+
+  /// Makes an item of the draft, as Enter does. Whether there was a draft to make one of.
+  fn commit(&self, value: &Signal<String>) -> bool {
+    let text = value.get_untracked();
+    let Some((items, draft)) = self.rules.committed(&text) else {
+      return false;
+    };
+    let draft_was = token_list::parse(&text).1;
+    self.put(value, token_list::encode(&items, &draft));
+    self.tell(items, &draft, &draft_was);
+    true
+  }
+
+  /// Settles an edit before it is made: the list and the draft it comes to, and the text the input holds after it.
+  fn settle(&self, event: &TextInputEvent) {
+    if event.default_prevented() {
+      return;
+    }
+    let old = event.value.get_untracked();
+    let settled = token_list::settle(&old, event.new_value(), &self.rules);
+    if let Some(text) = settled.text {
+      event.prevent_default();
+      if text != old {
+        self.put(&event.value, text);
+      }
+    }
+    if let Some(token) = settled.select {
+      let _ = self.controller.select(token.start, token.end);
+    }
+    self.tell(settled.items, &settled.draft, &token_list::parse(&old).1);
+  }
+}
+
 /// A token input: a box of text in which what the app recognizes stands as a token. Tags, recipients,
 /// variables in a template.
 ///
 /// ```
 /// use lurq::{core::Signal, ui::{Token, TokenInput}};
 ///
-/// // A list of tags: each word followed by a space is a token.
-/// let tags = Signal::new("rust wgpu ".to_owned());
-/// let input = TokenInput::new(tags).tokens(|text| Token::separated(text, ' ')).placeholder("Add tag");
+/// // A list of tags: Enter, a comma or a space makes a token of what is typed.
+/// let tags = Signal::new(vec!["rust".to_owned(), "wgpu".to_owned()]);
+/// let input = TokenInput::list(tags.clone())
+///   .separators([',', ' '])
+///   .unique(true)
+///   .placeholder("Add tag")
+///   .on_change(|tags| println!("{tags:?}"));
 ///
 /// // A template whose variables are tokens, on several rows.
 /// let template = Signal::new("Hello {{name}}, your order shipped.".to_owned());
@@ -191,11 +276,13 @@ type FindTokens = Arc<dyn Fn(&str) -> Vec<Token> + Send + Sync>;
 ///   .tokens(|text| text.match_indices("{{name}}").map(|(at, name)| Token::new(at..at + name.len()).removable(false)).collect());
 /// ```
 ///
-/// What the input holds is text, in the signal it is given: a token is a range of that text that the
-/// function given to [`TokenInput::tokens`] finds, and it is found again in every render, so an edit that
-/// changes a token's text makes it what the function then says of it. The text is what is copied, pasted,
-/// undone, sent with a form and read by tooling, which sees a `textbox` whose value is the text with each
-/// token as its own words.
+/// It holds one of two things. [`TokenInput::list`] holds a list, `Signal<Vec<String>>`: each item is a token, and
+/// what is typed is the draft, which is no part of the list until Enter or a separator makes an item of it. Tags,
+/// recipients. [`TokenInput::new`] holds text, `Signal<String>`, in which the function given to
+/// [`TokenInput::tokens`] finds the tokens again in every render, so an edit that changes a token's text makes it
+/// what the function then says of it: variables in a template, where the text around the tokens is the value too.
+/// The text is what is copied, pasted, undone, sent with a form and read by tooling, which sees a `textbox` whose
+/// value is the text with each token as its own words.
 ///
 /// It is the box of an [`Input`](super::Input) (one row, 36 high) or, with [`TokenInput::rows`], of a
 /// [`Textarea`](super::Textarea), with its sizes and judgments. A token is drawn by the recipe's
@@ -205,6 +292,7 @@ type FindTokens = Arc<dyn Fn(&str) -> Vec<Token> + Send + Sync>;
 /// away, as an edit through [`TokenInput::on_input`] that undo brings back.
 pub struct TokenInput {
   value: Signal<String>,
+  list: Option<ListOf>,
   find: Option<FindTokens>,
   rows: Option<(usize, usize)>,
   placeholder: Option<Arc<str>>,
@@ -225,6 +313,7 @@ impl TokenInput {
   pub fn new(value: Signal<String>) -> Self {
     Self {
       value,
+      list: None,
       find: None,
       rows: None,
       placeholder: None,
@@ -241,7 +330,95 @@ impl TokenInput {
     }
   }
 
-  /// How the app finds the tokens in the text: called with the text in every render. Tokens that overlap one
+  /// A token input over a list: each item of `items` is a token, and a person adds to the list by typing an item
+  /// and Enter, or one of the [`TokenInput::separators`], and takes from it by a token's cross or by Backspace.
+  /// What is typed and is no item yet is the draft: it is not in the list, it is the text after the tokens, and
+  /// [`TokenInput::draft`] gives the app a signal of it. A paste of several items adds each. What is typed with the
+  /// caret among the tokens goes to the draft, which is always after them.
+  ///
+  /// The input keeps the text it edits itself, for as long as it is in the tree: a list the app sets is shown as
+  /// set, with the draft kept.
+  pub fn list(items: Signal<Vec<String>>) -> Self {
+    let (text, controller, alive) = token_list::kept(items.id());
+    let mut input = Self::new(text);
+    input.list = Some(ListOf {
+      items,
+      draft: None,
+      rules: Rules {
+        separators: vec![','],
+        unique: false,
+      },
+      commit_on_blur: false,
+      dress: None,
+      on_change: Vec::new(),
+      on_draft: Vec::new(),
+      controller,
+      alive,
+    });
+    input
+  }
+
+  /// The characters that make an item of the draft as Enter does, in place of the comma: of a list
+  /// ([`TokenInput::list`]). An item cannot hold one of them; with none, only Enter makes an item.
+  pub fn separators(mut self, separators: impl IntoIterator<Item = char>) -> Self {
+    if let Some(list) = &mut self.list {
+      list.rules.separators = separators.into_iter().collect();
+    }
+    self
+  }
+
+  /// Whether an item the list already has is not added again: of a list. What was typed is dropped.
+  pub fn unique(mut self, unique: bool) -> Self {
+    if let Some(list) = &mut self.list {
+      list.rules.unique = unique;
+    }
+    self
+  }
+
+  /// The signal that holds what is typed and is no item yet, of a list: the app reads it for suggestions, and
+  /// what the app sets on it is what the input shows after its tokens.
+  pub fn draft(mut self, draft: Signal<String>) -> Self {
+    if let Some(list) = &mut self.list {
+      list.draft = Some(draft);
+    }
+    self
+  }
+
+  /// Whether the draft becomes an item when the focus leaves the input, of a list. Otherwise it stays typed.
+  pub fn commit_on_blur(mut self, commit: bool) -> Self {
+    if let Some(list) = &mut self.list {
+      list.commit_on_blur = commit;
+    }
+    self
+  }
+
+  /// How the token of each item of a list is dressed: called with the item and its token, for a variant by what
+  /// the item is, or a token without a cross.
+  pub fn token(mut self, dress: impl Fn(&str, Token) -> Token + Send + Sync + 'static) -> Self {
+    if let Some(list) = &mut self.list {
+      list.dress = Some(Arc::new(dress));
+    }
+    self
+  }
+
+  /// Called with the list when a person changed it: an item made of the draft, pasted, or taken away. Of a list.
+  pub fn on_change(mut self, handler: impl Fn(&[String]) + Send + Sync + 'static) -> Self {
+    if let Some(list) = &mut self.list {
+      list.on_change.push(Arc::new(handler));
+    }
+    self
+  }
+
+  /// Called with the draft when a person changed it: what is typed and is no item yet. Of a list.
+  pub fn on_draft(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    if let Some(list) = &mut self.list {
+      list.on_draft.push(Arc::new(handler));
+    }
+    self
+  }
+
+  /// How the app finds the tokens in the text: called with the text in every render. A list's tokens are its
+  /// items, and this is not asked. Tokens that overlap one
   /// before them, that hold a line break or that are not on the text's characters are left out.
   pub fn tokens(mut self, find: impl Fn(&str) -> Vec<Token> + Send + Sync + 'static) -> Self {
     self.find = Some(Arc::new(find));
@@ -321,7 +498,9 @@ impl TokenInput {
   }
 
   /// Called before an edit is made, with what the input will hold: a handler may refuse it
-  /// ([`TextInputEvent::prevent_default`]). Taking a token away by its cross is an edit too.
+  /// ([`TextInputEvent::prevent_default`]). Taking a token away by its cross is an edit too. Over a list the text
+  /// of the event is the one the input keeps the list as: [`TokenInput::on_change`] and [`TokenInput::on_draft`]
+  /// say what a person did there.
   pub fn on_input(mut self, handler: impl Fn(&TextInputEvent) + Send + Sync + 'static) -> Self {
     self.on_input.push(Arc::new(handler));
     self
@@ -386,13 +565,38 @@ impl TokenInput {
       .case(self.states.clone())
       .state(TokenInputState::FullWidth, self.full_width)
       .state(TokenInputState::Multiline, multiline);
+    // A list is shown as the app holds it: its items, then the draft the app holds or the one that is typed.
+    if let Some(list) = &self.list {
+      let held = self.value.get_untracked();
+      let draft = match &list.draft {
+        Some(draft) => draft.get(),
+        None => token_list::parse(&held).1,
+      };
+      let text = token_list::encode(&list.items.get(), &draft);
+      if text != held {
+        self.value.set(text);
+      }
+    }
     // The text is read here, so that what renders the input renders it again as the text changes, and finds its
     // tokens anew.
     let text = self.value.get();
-    let mut tokens = self.find.as_ref().map(|find| find(&text)).unwrap_or_default();
+    let mut tokens = match &self.list {
+      Some(list) => token_list::ranges(&text)
+        .into_iter()
+        .map(|range| {
+          let token = Token::new(range.clone());
+          match &list.dress {
+            Some(dress) => dress(&text[range], token),
+            None => token,
+          }
+        })
+        .collect(),
+      None => self.find.as_ref().map(|find| find(&text)).unwrap_or_default(),
+    };
     tokens.extend(more(&text));
     TokenInputView {
       value: self.value,
+      list: self.list,
       text: Arc::from(text),
       tokens: tidy(tokens),
       rows: self.rows,
@@ -458,7 +662,9 @@ impl From<TokenInput> for Element {
 pub struct TokenInputView {
   /// What the input shows and what is typed is set on.
   pub value: Signal<String>,
-  /// The text the tokens were found in.
+  list: Option<ListOf>,
+  /// The text the tokens were found in. Over a list, the text the input keeps the list as: each item with a
+  /// narrow space after it, then the draft.
   pub text: Arc<str>,
   /// The tokens found in the text, in its order, none overlapping.
   pub tokens: Vec<Token>,
@@ -642,8 +848,43 @@ impl TokenInputView {
       None => control.single_line(),
     };
     let control = control.part(&self.part(TokenInputPart::Control));
-    let mut control = text_box::text_box(control, &self.boxed, self.on_input.clone());
-    if let Some(controller) = &self.controller {
+    let mut handlers = self.on_input.clone();
+    // Over a list every edit is settled, after the app's own handlers had their say.
+    let list = self.list.clone().map(|mut list| {
+      if let Some(controller) = &self.controller {
+        list.controller = controller.clone();
+      }
+      Arc::new(list)
+    });
+    if let Some(list) = &list {
+      let list = list.clone();
+      handlers.push(Arc::new(move |event: &TextInputEvent| list.settle(event)));
+    }
+    let mut control = text_box::text_box(control, &self.boxed, handlers);
+    if let Some(list) = &list {
+      control = control.controller(list.controller.clone());
+      if !self.read_only && !self.disabled {
+        let (entered, value) = (list.clone(), self.value.clone());
+        // A key reaches every node: Enter acts only while the focus is in the input, and a composition keeps its own.
+        control = control.on_key_down(move |event: KeyboardEvent| {
+          if event.focus_within
+            && !event.composing
+            && !(event.ctrl || event.alt || event.meta)
+            && event.key.as_str() == "Enter"
+            && entered.commit(&value)
+          {
+            event.prevent_default();
+          }
+        });
+        let (left, value) = (list.clone(), self.value.clone());
+        control = control.on_blur(move || {
+          let _ = &left.alive;
+          if left.commit_on_blur {
+            left.commit(&value);
+          }
+        });
+      }
+    } else if let Some(controller) = &self.controller {
       control = control.controller(controller.clone());
     }
     if let Some(placeholder) = &self.placeholder {
