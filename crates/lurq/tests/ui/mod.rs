@@ -28,6 +28,8 @@ mod menu;
 mod menubar;
 mod message_box;
 mod multi_select;
+mod navbar;
+mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;

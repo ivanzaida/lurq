@@ -47,6 +47,7 @@ pub struct FocusGroup {
   pub(crate) typeahead: bool,
   pub(crate) nested: bool,
   pub(crate) menu_row: bool,
+  pub(crate) panel_row: bool,
 }
 
 impl FocusGroup {
@@ -60,6 +61,7 @@ impl FocusGroup {
       typeahead: false,
       nested: false,
       menu_row: false,
+      panel_row: false,
     }
   }
 
@@ -183,6 +185,18 @@ impl FocusGroup {
   /// types a character, Alt does neither.
   pub fn menu_row(mut self, menu_row: bool) -> Self {
     self.menu_row = menu_row;
+    self
+  }
+
+  /// Whether the group is a row of links and of buttons that each show a panel hung from them, as a site's
+  /// navigation menu: a [row of menus](Self::menu_row) whose elements are not all buttons that open something. While
+  /// a panel of the row has the focus, Left and Right that nothing in the panel takes close it and move the focus to
+  /// the element before or after it, which opens its own panel where it says it opens and closes
+  /// (`.focus_expanded(open, toggle)`: it is asked to open), and is only focused where it is a link. Alt does nothing
+  /// to it: the letters and Alt alone are a menubar's.
+  pub fn panel_row(mut self, panel_row: bool) -> Self {
+    self.menu_row = panel_row;
+    self.panel_row = panel_row;
     self
   }
 
