@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, pressable},
+  shared::{fading, glyph, one_line, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -269,6 +269,13 @@ impl ToggleView {
   /// pressed, focused and disabled, with nothing in it yet.
   pub fn root(&self) -> crate::components::Button {
     let mut root = pressable(&self.part(TogglePart::Root), self.disabled);
+    // As a button: in a room narrower than it, it gives way down to its padding and its icon, and its label is cut.
+    if !self.icon_only {
+      root = root
+        .flex_shrink(1.0)
+        .shrink_limit(crate::layout::layout_kind::ShrinkLimit::Content)
+        .max_width(crate::node::dimension::Dimension::Pct(100.0));
+    }
     let (handlers, next) = (self.on_change.clone(), !self.on);
     if !handlers.is_empty() {
       root = root.on_click(move |_| {
@@ -297,7 +304,7 @@ impl ToggleView {
     }
     if !self.icon_only {
       let part = self.part(TogglePart::Label);
-      root = root.child(part.text(&self.label).nowrap().part(&part));
+      root = root.child(one_line(&part, &self.label));
     }
     root.into()
   }

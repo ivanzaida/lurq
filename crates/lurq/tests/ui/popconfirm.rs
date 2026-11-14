@@ -273,3 +273,46 @@ fn buttons_too_long_to_stand_side_by_side_go_one_under_the_other_inside_the_pane
   assert!(confirm.y > cancel.y + cancel.height);
   assert!((confirm.x + confirm.width - (cancel.x + cancel.width)).abs() < 1.0);
 }
+
+#[test]
+fn a_button_too_long_for_the_panel_cuts_its_label_inside_it() {
+  const CONFIRM: &str = "Move this file and every other file of its folder to the trash, now and for good";
+  let mut stage = Stage::new(page(move |anchor| {
+    Popconfirm::new(anchor, Signal::new(true))
+      .id("panel")
+      .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
+      .title("Delete this file?")
+      .confirm(CONFIRM, || {})
+      .cancel("No", || {})
+  }));
+  let (x, _, width, _) = stage.bounds("panel");
+  let inside = |left: f32, right: f32| left >= x - 0.5 && right <= x + width + 0.5;
+  // The confirming button: its fill is the primary one, and nothing of it is past the panel's edge.
+  let fill = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Primary))
+        && quad.height == 28.0
+    })
+    .expect("the confirming button");
+  assert!(
+    inside(fill.x, fill.x + fill.width),
+    "the button in the panel: {}..{} in {x}..{}",
+    fill.x,
+    fill.x + fill.width,
+    x + width
+  );
+  // Its label is cut with an ellipsis, inside the button.
+  let (text, label_x, label_width) = stage
+    .quads()
+    .into_iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, .. } if text.starts_with("Move this") => Some((text.clone(), quad.x, quad.width)),
+      _ => None,
+    })
+    .expect("the label");
+  assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
+  assert!(label_x >= fill.x && label_x + label_width <= fill.x + fill.width + 0.5);
+  assert!(stage.paints("No"), "the other button is whole");
+}

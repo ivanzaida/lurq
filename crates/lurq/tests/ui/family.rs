@@ -521,3 +521,32 @@ fn a_toggle_with_an_empty_label_and_an_icon_is_a_square_as_an_icon_alone_is() {
   let alone = stage.bounds("alone").2;
   assert_eq!(stage.bounds("empty").2, alone, "no gap and no padding of a label");
 }
+
+#[test]
+fn a_toggle_narrower_than_its_label_cuts_it() {
+  const LONG: &str = "Show the hidden files of every folder";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(140.0)
+          .child(Toggle::new(LONG).icon(icons::EYE).id("long")),
+      )
+      .into()
+  });
+  let (room_x, _, room_width, _) = stage.bounds("room");
+  let (x, _, width, _) = stage.bounds("long");
+  assert!(x + width <= room_x + room_width + 0.5, "in its room");
+  let (text, label_x, label_width) = stage
+    .quads()
+    .into_iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, .. } if text.starts_with("Show") => Some((text.clone(), quad.x, quad.width)),
+      _ => None,
+    })
+    .expect("the label");
+  assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
+  assert!(label_x + label_width <= x + width + 0.5, "inside the toggle");
+}
