@@ -49,6 +49,7 @@ mod splitter;
 mod stage;
 mod steps;
 mod switch;
+mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;

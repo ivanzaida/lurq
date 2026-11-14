@@ -78,6 +78,7 @@ mod spinner;
 mod splitter;
 mod steps;
 mod switch;
+mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -237,6 +238,10 @@ pub use steps::{
   CurrentStep, Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView,
 };
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
+pub use table::{
+  BodyWindow, ColumnAlign, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
+  TableRenderer, TableRow, TableSort, TableState, TableView,
+};
 pub use tabs::{
   Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
 };

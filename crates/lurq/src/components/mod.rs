@@ -368,6 +368,23 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Lays the element's children out side by side in the tracks of a table's columns, one child to a track,
+      /// each as wide as its track and the element's gap apart: a row of a table, which every other row of
+      /// the table lines up with whatever is in its cells. See
+      /// [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      pub fn column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::column_tracks(node, tracks.clone()));
+        self
+      }
+
+      /// Measures the cells of the rows in the element that lay their children out in `tracks`, its children
+      /// and the children of those: what holds the rows of a table. A track sized by its content is as wide as
+      /// the widest of them. See [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      pub fn measures_column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::measures_column_tracks(node, tracks.clone()));
+        self
+      }
+
       pub fn absolute(
         mut self,
         x: f32,
