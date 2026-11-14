@@ -146,7 +146,7 @@ impl DateFieldPage {
     let tree = vec![
       format!("root           {}", self.playground.measured()),
       "├─ segments     a spin button each, 2 apart".to_owned(),
-      "│  └─ segment   mono 13, filled on the info color while focused".to_owned(),
+      "│  └─ segment   mono 13, on the selection's color while focused".to_owned(),
       "└─ icon         the calendar's glyph, 16 px".to_owned(),
     ];
     let to = (
