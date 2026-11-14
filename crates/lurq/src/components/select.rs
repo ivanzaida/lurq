@@ -137,6 +137,20 @@ impl<T> SelectOption<T> {
     self
   }
 
+  /// The option with its value made another: the same label, detail, elements, hint, group and disabled.
+  pub(crate) fn map<U>(self, value: impl FnOnce(T) -> U) -> SelectOption<U> {
+    SelectOption {
+      value: value(self.value),
+      label: self.label,
+      detail: self.detail,
+      leading: self.leading,
+      trailing: self.trailing,
+      hint: self.hint,
+      group: self.group,
+      disabled: self.disabled,
+    }
+  }
+
   /// The value the option sets.
   pub fn value(&self) -> &T {
     &self.value

@@ -57,6 +57,8 @@ struct SelectInner {
   /// The row the open list draws after its options, that cannot be chosen: what it says while it has no options, or
   /// while more are loading.
   status: Option<SelectAdornment>,
+  /// Whether its value can be read and not changed: its list does not open, and nothing is committed.
+  read_only: bool,
   // Runtime state, preserved across re-renders via `copy_runtime_state_from`.
   open: bool,
   highlighted: Option<usize>,
@@ -140,6 +142,10 @@ impl SelectInner {
   }
 
   fn open_menu(&mut self, highlighted: Option<usize>) {
+    // A select that is read only shows its value and opens no list.
+    if self.read_only {
+      return;
+    }
     self.open = true;
     self.highlighted = highlighted;
     self.menu_scroll = ScrollState::new();
@@ -169,6 +175,7 @@ impl SelectState {
         combobox: None,
         free_text: false,
         status: None,
+        read_only: false,
         open: false,
         highlighted: None,
         menu_scroll: ScrollState::new(),
@@ -220,6 +227,11 @@ impl SelectState {
 
   pub(crate) fn set_style(&self, style: SelectStyle) {
     self.inner.lock().unwrap().style = style;
+  }
+
+  /// Whether the value can be read and not changed: the list does not open, and nothing is committed.
+  pub(crate) fn set_read_only(&self, read_only: bool) {
+    self.inner.lock().unwrap().read_only = read_only;
   }
 
   pub(crate) fn set_on_change(&self, on_change: SelectChangeCallback) {
@@ -534,7 +546,7 @@ impl SelectState {
   pub(crate) fn commit(&self, index: usize) {
     let (callback, multiple, combobox, label) = {
       let inner = self.inner.lock().unwrap();
-      if !inner.is_enabled(index) {
+      if !inner.is_enabled(index) || inner.read_only {
         return;
       }
       (
@@ -563,7 +575,7 @@ impl SelectState {
     }
     let old_inner = old.inner.lock().unwrap();
     let mut inner = self.inner.lock().unwrap();
-    inner.open = old_inner.open;
+    inner.open = old_inner.open && !inner.read_only;
     // The highlight names an option, not a row: it survives only while that
     // row still shows the same enabled option, so Enter never commits an
     // option the user did not move to.

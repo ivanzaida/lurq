@@ -2887,6 +2887,14 @@ impl Node {
     self
   }
 
+  /// Makes the select read only: its value is shown, its list does not open, and nothing is committed.
+  pub(crate) fn select_read_only(self, read_only: bool) -> Self {
+    if let Some(state) = self.select_state() {
+      state.set_read_only(read_only);
+    }
+    self
+  }
+
   pub fn select_on_change(self, on_change: SelectChangeCallback) -> Self {
     if let Some(state) = self.select_state() {
       state.set_on_change(on_change);

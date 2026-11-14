@@ -2,6 +2,8 @@
 //! chooses, the keys, taking values away by a tag's cross, by Backspace and by the clear control, the count past a
 //! maximum, tags going on to the next line, and a field around it.
 
+use std::sync::{Arc, Mutex};
+
 use lurq::{
   app::{
     events::MouseButton,
@@ -466,4 +468,87 @@ fn the_options_follow_the_density() {
       wgsl.1 - rust.1
     );
   }
+}
+
+#[test]
+fn on_change_is_told_the_whole_new_set_of_a_persons_change_and_not_what_the_app_sets() {
+  let value = chosen(&["rust"]);
+  let told: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
+  let queried = Arc::new(Mutex::new(Vec::new()));
+  let (tell, query) = (told.clone(), queried.clone());
+  let mut stage = page(&value, move |select| {
+    let (tell, query) = (tell.clone(), query.clone());
+    select
+      .on_change(move |values: &[String]| tell.lock().unwrap().push(values.to_vec()))
+      .on_query(move |typed| query.lock().unwrap().push(typed.to_owned()))
+  });
+  press_input(&mut stage);
+  type_in(&mut stage, "sw");
+  assert_eq!(
+    *queried.lock().unwrap(),
+    ["s", "sw"],
+    "on_query hears what the box will hold"
+  );
+  stage.key("Enter");
+  assert_eq!(*told.lock().unwrap(), [vec!["rust", "swift"]], "the whole new set");
+  // Backspace in the empty input takes the last away: told too.
+  stage.key("Backspace");
+  assert_eq!(told.lock().unwrap().last().unwrap(), &["rust"]);
+  // What the app sets is not told.
+  value.set(Vec::new());
+  stage.pass();
+  assert_eq!(told.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn a_controlled_multi_select_shows_what_the_app_answers_with() {
+  // The app holds the languages, and keeps no more than two.
+  let held = chosen(&["rust", "wgsl"]);
+  let told: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
+  let (value, tell) = (held.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let (answer, tell) = (value.clone(), tell.clone());
+    window()
+      .padding(8.0)
+      .child(
+        MultiSelect::controlled(value.get(), languages(), move |values: &[String]| {
+          tell.lock().unwrap().push(values.to_vec());
+          if values.len() <= 2 {
+            answer.set(values.to_vec());
+          }
+        })
+        .id("languages"),
+      )
+      .into()
+  });
+  assert!(stage.paints("Rust") && stage.paints("WGSL"));
+  press_input(&mut stage);
+  type_in(&mut stage, "sw");
+  stage.key("Enter");
+  assert_eq!(*told.lock().unwrap(), [vec!["rust", "wgsl", "swift"]]);
+  stage.key("Escape");
+  assert!(!stage.paints("Swift"), "the app kept two: no tag of Swift");
+  stage.key("Escape");
+  assert_eq!(typed(&mut stage), "");
+  // A tag taken away is told, and the app keeps what it is told.
+  stage.key("Backspace");
+  assert_eq!(held.get(), ["rust"]);
+  assert!(!stage.paints("WGSL"));
+}
+
+#[test]
+fn a_read_only_multi_select_has_tags_with_no_cross_and_takes_nothing() {
+  let value = chosen(&["rust", "wgsl"]);
+  let mut stage = page(&value, |select| select.read_only(true).clearable(true));
+  let close = glyph(&stage, icons::CLOSE);
+  assert!(
+    texts(&stage, &close).is_empty(),
+    "no cross on the tags, and no clear control"
+  );
+  press_input(&mut stage);
+  assert!(!is_open(&mut stage), "a press does not open the list");
+  stage.key("Backspace");
+  type_in(&mut stage, "sw");
+  assert_eq!(typed(&mut stage), "", "what is typed is not taken");
+  assert_eq!(values(&value), ["rust", "wgsl"]);
 }

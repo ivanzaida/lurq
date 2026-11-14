@@ -2,25 +2,25 @@
 
 use std::{
   collections::HashMap,
+  panic::Location,
   sync::{Arc, LazyLock, Mutex, Weak},
 };
 
 use super::{
-  combobox::{self, Choices, Engine, Filter, Finish, Many},
+  combobox::{self, Choices, ComboboxSize, ComboboxState, Engine, Filter, Finish, Many, apart},
   field::{FieldControl, InField},
   icon::Icon,
   icons, names,
   part_style::{Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   select::{self, engine_style},
-  shared::{fading, pressable},
   tag::{Tag, TagPart, TagSize},
   text_box::{self, BoxStates, EditHandler, Judgment, TextBoxSize},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
-    events::{KeyboardEvent, MouseEvent, TextInputEvent},
+    events::{KeyboardEvent, TextInputEvent},
     theme::{BorderSize, IconSize, PaletteColor, RadiusSize, Theme},
   },
   components::{self, Row, SelectOption, SelectTriggerState},
@@ -84,7 +84,7 @@ pub enum MultiSelectPart {
   /// The glyph at the end of the box.
   Chevron,
   /// The panel of the open list.
-  Menu,
+  Panel,
   /// An option of the open list. Its gap is the room between its box and its label.
   Item,
   /// The box before a chosen option: its side, corners, fill, edge, and the color of its check.
@@ -124,7 +124,7 @@ names!(MultiSelectPart {
   Value => "value",
   Placeholder => "placeholder",
   Chevron => "chevron",
-  Menu => "menu",
+  Panel => "panel",
   Item => "item",
   Check => "check",
   CheckIcon => "check_icon",
@@ -141,6 +141,12 @@ names!(MultiSelectPart {
   Clear => "clear",
   ClearIcon => "clear_icon",
 });
+
+/// The sizes of a multi select: a combobox's, the least heights of its box, with tags of 20, 24 and 28.
+pub type MultiSelectSize = ComboboxSize;
+
+/// The states of a multi select a recipe styles: a combobox's, by the same names.
+pub type MultiSelectState = ComboboxState;
 
 /// What builds a multi select's nodes: a theme's in place of the default one.
 pub type MultiSelectRenderer = Arc<dyn Fn(MultiSelectView) -> Element + Send + Sync>;
@@ -160,6 +166,10 @@ pub type MultiSelectRenderer = Arc<dyn Fn(MultiSelectView) -> Element + Send + S
 /// ])
 /// .placeholder("Select languages")
 /// .max_shown(3);
+/// // Held by the app: it is told the whole new set, and the box shows what it answers with.
+/// let held = MultiSelect::controlled(vec!["rust"], [("rust", "Rust"), ("wgsl", "WGSL")], |languages| {
+///   println!("{languages:?}")
+/// });
 /// ```
 ///
 /// It is the engine's multiple [`Select`](crate::components::Select) as a combobox, in the design's dress: its box
@@ -171,7 +181,7 @@ pub type MultiSelectRenderer = Arc<dyn Fn(MultiSelectView) -> Element + Send + S
 /// when the focus leaves. Past [`MultiSelect::max_shown`] tags the rest are one tag that counts them, "+3", and the
 /// tags go on to the next line where they do not fit: the box grows with them.
 pub struct MultiSelect {
-  choices: Arc<dyn Choices>,
+  choices: Box<dyn Choices>,
   placeholder: Option<Arc<str>>,
   boxed: BoxStates,
   full_width: bool,
@@ -179,12 +189,13 @@ pub struct MultiSelect {
   rules: Recipe,
   forced: Option<Interaction>,
   filter: Filter,
-  on_input: Vec<EditHandler>,
+  on_query: Vec<EditHandler>,
   loading: bool,
-  empty: Arc<str>,
+  empty_text: Arc<str>,
   loading_text: Arc<str>,
   max_shown: Option<usize>,
   clearable: bool,
+  clear_label: Arc<str>,
   query: Option<Signal<String>>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
@@ -199,9 +210,32 @@ impl MultiSelect {
     T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
     Vec<T>: SignalValue,
   {
+    Self::of(Box::new(Many::bound(
+      value,
+      options.into_iter().map(Into::into).collect(),
+    )))
+  }
+
+  /// A multi select of the app's `values`, which the app holds: a choice, a tag taken away and a clear are told to
+  /// `on_change` with the whole new set, and the box shows what the app answers with. Two built at the one place in
+  /// the app's code, in a loop, are told apart by their `id` or `key`.
+  #[track_caller]
+  pub fn controlled<T>(
+    values: Vec<T>,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
+  ) -> Self
+  where
+    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    Vec<T>: SignalValue,
+  {
     let options = options.into_iter().map(Into::into).collect();
+    Self::of(Box::new(Many::controlled(values, options, Location::caller()))).on_change(on_change)
+  }
+
+  fn of(choices: Box<dyn Choices>) -> Self {
     Self {
-      choices: Arc::new(Many { value, options }),
+      choices,
       placeholder: None,
       boxed: BoxStates::default(),
       full_width: false,
@@ -209,17 +243,27 @@ impl MultiSelect {
       rules: Recipe::new(),
       forced: None,
       filter: Arc::new(combobox::contains),
-      on_input: Vec::new(),
+      on_query: Vec::new(),
       loading: false,
-      empty: Arc::from("No results"),
+      empty_text: Arc::from("No results"),
       loading_text: Arc::from("Loading results…"),
       max_shown: None,
       clearable: false,
+      clear_label: Arc::from("Clear"),
       query: None,
       name: None,
       id: None,
       key: None,
     }
+  }
+
+  /// Called with the whole new set when a person chooses an option, takes one back or away, or clears them: not when
+  /// the app sets the signal. The handler takes the type of the values: `on_change(|languages: &[&str]| ..)` of a
+  /// multi select of `&str`; a handler of another type panics here.
+  pub fn on_change<T: 'static>(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+    let handler: Arc<dyn Fn(&[T]) + Send + Sync> = Arc::new(handler);
+    self.choices.on_change(Box::new(handler), "MultiSelect");
+    self
   }
 
   /// What the box says while nothing is chosen and nothing is typed.
@@ -234,8 +278,8 @@ impl MultiSelect {
     self
   }
 
-  /// A [`ComboboxSize`](super::ComboboxSize), or a size the theme's recipe names: the least height of the box, and
-  /// the size of its tags.
+  /// A [`MultiSelectSize`], or a size the theme's recipe names: the least height of the box, and the size of its
+  /// tags.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.boxed.size = size.into();
     self
@@ -259,6 +303,13 @@ impl MultiSelect {
     self
   }
 
+  /// Whether what is chosen can be read and not changed: the list does not open, what is typed is not taken, the
+  /// tags have no cross, and there is no clear control. It keeps the focus and is read by what reads the tree.
+  pub fn read_only(mut self, read_only: bool) -> Self {
+    self.boxed.read_only = read_only;
+    self
+  }
+
   /// Whether the multi select takes no input: its tags cannot be taken away either.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.boxed.disabled = disabled;
@@ -279,9 +330,9 @@ impl MultiSelect {
   }
 
   /// Called with what the box will hold at each edit: for an app that fetches its options as a person types.
-  pub fn on_input(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+  pub fn on_query(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
     self
-      .on_input
+      .on_query
       .push(Arc::new(move |event: &TextInputEvent| handler(event.new_value())));
     self
   }
@@ -293,8 +344,8 @@ impl MultiSelect {
   }
 
   /// What the list says while what is typed leaves no option: "No results" unless it is told otherwise.
-  pub fn empty(mut self, empty: &str) -> Self {
-    self.empty = Arc::from(empty);
+  pub fn empty_text(mut self, text: &str) -> Self {
+    self.empty_text = Arc::from(text);
     self
   }
 
@@ -316,6 +367,12 @@ impl MultiSelect {
     self
   }
 
+  /// What the clear control is called to what reads the tree: "Clear" unless it is told otherwise.
+  pub fn clear_label(mut self, label: &str) -> Self {
+    self.clear_label = Arc::from(label);
+    self
+  }
+
   /// The signal of what is typed, where the app keeps it. Without one the multi select keeps it itself while it is
   /// in the tree.
   pub fn query(mut self, query: Signal<String>) -> Self {
@@ -323,8 +380,7 @@ impl MultiSelect {
     self
   }
 
-  /// Puts the multi select in a state the theme's recipe names ([`ComboboxState`](super::ComboboxState)), or takes
-  /// it out.
+  /// Puts the multi select in a state the theme's recipe names ([`MultiSelectState`]), or takes it out.
   pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
     let state = state.into();
     self.states.retain(|held| *held != state);
@@ -376,14 +432,17 @@ impl MultiSelect {
     let case = self
       .boxed
       .case(self.states.clone())
-      .state(super::ComboboxState::FullWidth, self.full_width);
-    let labels = self.choices.labels();
-    let chosen = self.choices.chosen();
+      .state(ComboboxState::FullWidth, self.full_width);
+    let mut choices = self.choices;
+    choices.name(self.id.as_deref().or(self.key.as_deref()));
+    let choices: Arc<dyn Choices> = Arc::from(choices);
+    let labels = choices.labels();
+    let chosen = choices.chosen();
     let (query, alive) = match self.query {
       Some(query) => (query, Arc::new(())),
-      None => combobox::typed(self.choices.binding(), None),
+      None => combobox::typed(choices.binding(), None),
     };
-    let (picked, kept_alive, chose) = kept(self.choices.binding(), &chosen);
+    let (picked, kept_alive, chose) = kept(choices.binding(), &chosen);
     // A choice clears what was typed: the list shows every option again for the next.
     if chose && !query.get_untracked().is_empty() {
       query.set(String::new());
@@ -400,11 +459,13 @@ impl MultiSelect {
       loading: self.loading,
       max_shown: self.max_shown,
       clearable: self.clearable,
+      clear_label: self.clear_label,
+      read_only: self.boxed.read_only,
       recipe: theme.resolve::<MultiSelect>(&case, Some(&self.rules)),
       case,
       rules: self.rules,
       forced: self.forced,
-      choices: self.choices,
+      choices,
       labels,
       chosen,
       shown,
@@ -412,8 +473,8 @@ impl MultiSelect {
       alive: Arc::new((alive, kept_alive)),
       picked,
       picked_now,
-      on_input: self.on_input,
-      empty: self.empty,
+      on_query: self.on_query,
+      empty_text: self.empty_text,
       loading_text: self.loading_text,
       boxed: self.boxed,
       name: self.name,
@@ -457,6 +518,8 @@ pub struct MultiSelectView {
   pub max_shown: Option<usize>,
   /// Whether the box has the cross that takes every chosen value away.
   pub clearable: bool,
+  /// Whether what is chosen can be read and not changed.
+  pub read_only: bool,
   /// The style of each part of this multi select.
   pub recipe: ResolvedRecipe,
   case: Case,
@@ -473,9 +536,10 @@ pub struct MultiSelectView {
   /// The tag the arrow keys are on, by its place among the tags shown: Backspace takes it away.
   picked: Signal<Option<usize>>,
   picked_now: Option<usize>,
-  on_input: Vec<EditHandler>,
-  empty: Arc<str>,
+  on_query: Vec<EditHandler>,
+  empty_text: Arc<str>,
   loading_text: Arc<str>,
+  clear_label: Arc<str>,
   boxed: BoxStates,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -570,7 +634,7 @@ impl MultiSelectView {
       .flex_full(1.0, 1.0, Some(least))
       // Where Tab enters the line of tags and input: see `render`.
       .focus_entry(true);
-    let mut control = text_box::text_box(control, &self.boxed, self.on_input.clone());
+    let mut control = text_box::text_box(control, &self.boxed, self.on_query.clone());
     // The placeholder says what to do while nothing is chosen; beside tags it would say it again.
     if let Some(placeholder) = self.placeholder.as_ref().filter(|_| self.chosen.is_empty()) {
       control = control.placeholder(placeholder);
@@ -595,7 +659,7 @@ impl MultiSelectView {
       self.query.clone(),
       self.picked.clone(),
       self.chosen.clone(),
-      self.disabled,
+      self.disabled || self.read_only,
     );
     // The input is the one stop of Tab; the tags are reached from it, as a token input's tokens are: with what is
     // typed empty, Left goes onto the last tag and on to the one before, Right back towards the input, and
@@ -676,14 +740,17 @@ impl MultiSelectView {
         let (choices, index) = (self.choices.clone(), *index);
         // The tag the arrow keys are on is drawn as its button is focused from the keyboard.
         let on = self.picked_now == Some(place);
-        Tag::new(&self.labels[index])
+        let tag = Tag::new(&self.labels[index])
           .pill(true)
           .size(size)
           .disabled(self.disabled)
           .rules(&rules)
-          .force(on.then_some(Interaction::FocusVisible))
-          .on_remove(move || choices.unchoose(index))
-          .build(&theme)
+          .force(on.then_some(Interaction::FocusVisible));
+        // Read only, a tag has no cross.
+        if self.read_only {
+          return tag.build(&theme);
+        }
+        tag.on_remove(move || choices.unchoose(index)).build(&theme)
       })
       .map(apart)
       .collect();
@@ -702,27 +769,20 @@ impl MultiSelectView {
   }
 
   /// The cross at the end of the box that takes every chosen value away, while something is chosen and the multi
-  /// select is clearable. It is called "Clear" to what reads the tree.
+  /// select is clearable and not read only. It is called "Clear" to what reads the tree, or its `clear_label`.
   pub fn clear(&self) -> Option<Element> {
-    if !self.clearable || self.chosen.is_empty() {
+    if !self.clearable || self.read_only || self.chosen.is_empty() {
       return None;
     }
-    let part = self.part(MultiSelectPart::Clear);
-    let side = self
-      .part(MultiSelectPart::ClearIcon)
-      .rest()
-      .width
-      .unwrap_or(Length::Icon(IconSize::Sm));
     let choices = self.choices.clone();
-    let mut clear = pressable(&part, self.disabled)
-      .describe("a11y_role", "button")
-      .describe("a11y_name", "Clear")
-      .flex_shrink(0.0)
-      .child(Icon::new(icons::CLOSE).size(side).build(self.theme()));
-    if !self.disabled {
-      clear = clear.on_click(move |_| choices.clear());
-    }
-    Some(apart(clear.into()))
+    Some(combobox::clear_control(
+      &self.part(MultiSelectPart::Clear),
+      &self.part(MultiSelectPart::ClearIcon),
+      self.theme(),
+      self.disabled,
+      &self.clear_label,
+      move || choices.clear(),
+    ))
   }
 
   /// The glyph at the end of the box, in the style of its part: a chevron down. The pointer passes through it.
@@ -745,7 +805,7 @@ impl MultiSelectView {
       self.loading,
       self.shown.is_empty(),
       &self.loading_text,
-      &self.empty,
+      &self.empty_text,
     )
   }
 
@@ -763,8 +823,9 @@ impl MultiSelectView {
       trigger: Arc::new(trigger),
       status: self.status(),
       free_text: false,
+      read_only: self.read_only,
     };
-    let select = self.choices.build(&self.shown, engine);
+    let select = self.choices.clone().build(&self.shown, engine);
     combobox::finish(
       select,
       &self.part(MultiSelectPart::Trigger).rest(),
@@ -820,17 +881,6 @@ impl MultiSelectView {
   }
 }
 
-/// What is pressed in the box without opening its list: a press of a tag's cross takes the tag away, and one of the
-/// clear control clears, and neither reaches the select, which a press opens.
-fn apart(element: Element) -> Element {
-  Row::new()
-    .flex_shrink(0.0)
-    .overflow_visible()
-    .on_mouse_down(|event: MouseEvent| event.stop_propagation())
-    .child(element)
-    .into()
-}
-
 /// A box of the list of checkboxes, in the style of its part, with what it holds in the middle.
 fn mark(part: &ResolvedPart) -> Row {
   Row::new()
@@ -854,8 +904,8 @@ impl Themed for MultiSelect {
   /// primary fill with a check of 12 in the primary's foreground. The cross that clears is 16, in the muted
   /// foreground, the foreground under the pointer.
   fn recipe() -> Recipe {
-    use MultiSelectPart::{Check, CheckIcon, Clear, ClearIcon, Tag, TagLabel, Tags, Trigger, Unchecked, Value};
-    use PaletteColor::{Foreground, MutedForeground, Primary, PrimaryForeground, Secondary, SecondaryForeground};
+    use MultiSelectPart::{Check, CheckIcon, Tag, TagLabel, Tags, Trigger, Unchecked, Value};
+    use PaletteColor::{Primary, PrimaryForeground, Secondary, SecondaryForeground};
     let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
     let recipe = <select::Select as Themed>::recipe()
       .base(Trigger, |s| {
@@ -894,20 +944,9 @@ impl Themed for MultiSelect {
           .background(PaletteColor::Background)
           .border(edge(PaletteColor::Input))
       })
-      .base(Clear, |s| {
-        fading(
-          s.square(16.0)
-            .radius(3.0)
-            .foreground(MutedForeground)
-            .cursor(CursorIcon::Pointer),
-        )
-      })
-      .base(ClearIcon, |s| s.square(12.0))
-      .hovered(Clear, |s| s.foreground(Foreground))
-      .focus_visible(Clear, |s| s.focus_ring())
       .size(TextBoxSize::Sm, TagLabel, |s| s.font_size(12.0))
       .size(TextBoxSize::Lg, TagLabel, |s| s.font_size(14.0));
-    // The parts of the list a combobox adds to a select's, by the same names.
-    combobox::status_rules(recipe)
+    // The parts of the list and the clear control a combobox adds to a select's, by the same names.
+    combobox::clear_rules(combobox::status_rules(recipe))
   }
 }
