@@ -285,3 +285,27 @@ fn a_summary_of_a_form_lists_its_errors_once_a_submit_was_attempted() {
   press_at(&mut stage, &name_line);
   assert_eq!(focused(&stage).as_deref(), Some("name"));
 }
+
+#[test]
+fn a_summary_adds_errors_after_the_first_and_a_line_has_its_own_id() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(400.0)
+      .child(
+        ErrorSummary::new([FieldError::new("Display name", "Display name is required").id("name-error")])
+          .error(FieldError::new("Email", "Email must include a domain"))
+          .errors([FieldError::new("Password", "Password is too short").key("password")]),
+      )
+      .into()
+  });
+  assert!(stage.paints("3 fields need attention"));
+  for error in [
+    "Display name is required",
+    "Email must include a domain",
+    "Password is too short",
+  ] {
+    assert!(stage.paints(error), "{error:?}");
+  }
+  let (_, y, _, height) = stage.bounds("name-error");
+  assert!(height > 0.0 && y > 0.0, "the first line has its id");
+}

@@ -11,7 +11,7 @@ use super::{
   names,
   part_style::{FontFamily, Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::fading,
+  shared::{IconChoice, fading},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -37,7 +37,7 @@ pub enum SearchFieldPart {
   /// What the field says of the input's box: its padding.
   Control,
   /// What is at the end of the box: the clear button or the hint.
-  End,
+  Trailing,
   /// The button that empties the field, while it holds something.
   Clear,
   /// The key that reaches the field, while it is empty.
@@ -47,7 +47,7 @@ pub enum SearchFieldPart {
 names!(SearchFieldPart {
   Root => "root",
   Control => "control",
-  End => "end",
+  Trailing => "trailing",
   Clear => "clear",
   Shortcut => "shortcut",
 });
@@ -66,10 +66,11 @@ names!(SearchFieldState {
   FullWidth => "full_width",
 });
 
+/// The sizes of a search field: an input's.
+pub type SearchFieldSize = super::TextBoxSize;
+
 /// What builds a search field's nodes: a theme's in place of the default one.
 pub type SearchFieldRenderer = Arc<dyn Fn(SearchFieldView) -> Element + Send + Sync>;
-
-type SubmitHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// A search field: an input with the search icon before its text, a button
 /// at its end that empties it while it holds something, and the hint of the
@@ -88,7 +89,8 @@ type SubmitHandler = Arc<dyn Fn(&str) + Send + Sync>;
 /// What is typed goes into the signal, which the app filters by as it
 /// changes. Escape empties the field while it holds something, and Enter
 /// calls [`on_submit`](Self::on_submit) with what it holds. The clear button
-/// is pressed with the pointer and takes no focus, so the caret stays in the field; from
+/// ([`clearable`](Self::clearable), on unless the app says otherwise) is
+/// pressed with the pointer and takes no focus, so the caret stays in the field; from
 /// the keyboard, Escape does what it does, so it is no stop of Tab. The hint
 /// says the key: the app binds it, and focuses the field on it. To tooling
 /// the field is a `searchbox`, and its button "Clear search".
@@ -97,7 +99,7 @@ pub struct SearchField {
   value: Signal<String>,
   shortcut: Option<Arc<str>>,
   clear_label: Arc<str>,
-  on_submit: Vec<SubmitHandler>,
+  clearable: bool,
   read_only: bool,
   disabled: bool,
   full_width: bool,
@@ -117,7 +119,7 @@ impl SearchField {
       value,
       shortcut: None,
       clear_label: Arc::from("Clear search"),
-      on_submit: Vec::new(),
+      clearable: true,
       read_only: false,
       disabled: false,
       full_width: false,
@@ -146,9 +148,23 @@ impl SearchField {
     self
   }
 
-  /// Called on Enter with what the field holds. The focus stays in the field.
+  /// Whether the field has its clear button while it holds something, and Escape empties it: on unless the app
+  /// says otherwise, a search field being what is emptied to search again.
+  pub fn clearable(mut self, clearable: bool) -> Self {
+    self.clearable = clearable;
+    self
+  }
+
+  /// The icon before the text, in place of the search icon, or none: `icon(None)`.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.input = self.input.with_icon(icon.into().0);
+    self
+  }
+
+  /// Called on Enter with what the field holds. The focus stays in the field. A second handler is called after
+  /// the first.
   pub fn on_submit(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
-    self.on_submit.push(Arc::new(handler));
+    self.input = self.input.on_submit(handler);
     self
   }
 
@@ -281,10 +297,10 @@ impl SearchField {
       filled,
       shortcut: self.shortcut,
       clear_label: self.clear_label,
+      clearable: self.clearable,
       editable: !self.read_only && !self.disabled,
       recipe,
       forced: self.forced,
-      on_submit: self.on_submit,
       input: input.view(theme),
     };
     match theme.renderer::<SearchField>() {
@@ -318,12 +334,13 @@ pub struct SearchFieldView {
   pub filled: bool,
   pub shortcut: Option<Arc<str>>,
   pub clear_label: Arc<str>,
+  /// Whether the field has its clear button, and Escape empties it.
+  pub clearable: bool,
   /// Whether what the field holds can be changed: it is neither read only nor disabled.
   pub editable: bool,
   /// The style of each of the search field's own parts.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
-  on_submit: Vec<SubmitHandler>,
 }
 
 impl SearchFieldView {
@@ -345,7 +362,7 @@ impl SearchFieldView {
 
   /// Whether the clear button is shown: the field holds something that can be taken away.
   fn clears(&self) -> bool {
-    self.filled && self.editable
+    self.filled && self.editable && self.clearable
   }
 
   /// How wide the hint is: its padding and a cell of the mono type for each of its characters. It is laid over
@@ -376,25 +393,16 @@ impl SearchFieldView {
     if let Some(end) = end {
       control = control.padding_right(self.input.end_room(end));
     }
-    let (value, submit, editable) = (self.input.value.clone(), self.on_submit.clone(), self.editable);
-    // A key reaches every node: these act only while the focus is in the field, and leave a composition's keys to it.
+    let (value, empties) = (self.input.value.clone(), self.editable && self.clearable);
+    // A key reaches every node: this acts only while the focus is in the field, and leaves a composition's keys to
+    // it. Enter is the input's (`on_submit`).
     control.on_key_down(move |event: KeyboardEvent| {
       if !event.focus_within || event.composing || event.ctrl || event.alt || event.meta {
         return;
       }
-      match event.key.as_str() {
-        "Escape" if editable && !value.get_untracked().is_empty() => {
-          event.prevent_default();
-          value.set(String::new());
-        }
-        "Enter" if !submit.is_empty() => {
-          event.prevent_default();
-          let query = value.get_untracked();
-          for handler in &submit {
-            handler(&query);
-          }
-        }
-        _ => {}
+      if event.key == "Escape" && empties && !value.get_untracked().is_empty() {
+        event.prevent_default();
+        value.set(String::new());
       }
     })
   }
@@ -442,7 +450,7 @@ impl SearchFieldView {
       (None, Some(shortcut)) => Some(shortcut),
       (None, None) => None,
     }
-    .map(|item| Row::new().part(&self.part(SearchFieldPart::End)).child(item));
+    .map(|item| Row::new().part(&self.part(SearchFieldPart::Trailing)).child(item));
     self.input.render_with_end(self.control(), end).into()
   }
 }
@@ -458,12 +466,12 @@ impl Themed for SearchField {
   /// of 1 in the border's color, in the mono type of 11 in the muted foreground.
   fn recipe() -> Recipe {
     use PaletteColor::{Foreground, Muted, MutedForeground};
-    use SearchFieldPart::{Clear, Control, End, Root, Shortcut};
+    use SearchFieldPart::{Clear, Control, Root, Shortcut, Trailing};
     Recipe::new()
       .base(Root, |s| s.width(280.0))
       .state(SearchFieldState::FullWidth, Root, |s| s.width(Length::Fill))
       .base(Control, |s| s.padding_start(10.0).padding_end(8.0))
-      .base(End, |s| s.gap(8.0))
+      .base(Trailing, |s| s.gap(8.0))
       .base(Clear, |s| {
         fading(
           s.square(IconSize::Md)

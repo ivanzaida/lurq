@@ -9,7 +9,7 @@ use super::{
   input::{Input, InputPart, InputView},
   names,
   part_style::{Length, PartStyle},
-  recipe::{Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   select::{Select, SelectPart},
   text_box::{self, Judgment, TextBoxState},
   theme::{Themed, current_theme},
@@ -72,6 +72,12 @@ names!(InputGroupState {
   FullWidth => "full_width",
 });
 
+/// The sizes of an input group: an input's, which its buttons and selects take too.
+pub type InputGroupSize = super::TextBoxSize;
+
+/// What builds an input group's nodes: a theme's in place of the default one.
+pub type InputGroupRenderer = Arc<dyn Fn(InputGroupView) -> Element + Send + Sync>;
+
 /// What stands before or after the input of a group.
 pub enum InputAddon {
   /// A text on the muted fill: `https://`, `.com`, a unit.
@@ -129,11 +135,11 @@ impl From<Select> for InputAddon {
 ///
 /// let site = Signal::new("lurq".to_owned());
 /// let url = InputGroup::new(lurq::ui::Input::new(site.clone()))
-///   .before("https://")
-///   .after(".com");
+///   .leading("https://")
+///   .trailing(".com");
 /// let invite = InputGroup::new(lurq::ui::Input::new(Signal::new(String::new())).placeholder("Email"))
-///   .before(InputAddon::icon(icons::MAIL))
-///   .after(Button::new("Invite").variant(ButtonVariant::Ghost));
+///   .leading(InputAddon::icon(icons::MAIL))
+///   .trailing(Button::new("Invite").variant(ButtonVariant::Ghost));
 /// ```
 ///
 /// The corners of the box are the group's: those of what is at its ends
@@ -146,8 +152,8 @@ impl From<Select> for InputAddon {
 /// the field's label and judged as the field is.
 pub struct InputGroup {
   input: Input,
-  before: Vec<InputAddon>,
-  after: Vec<InputAddon>,
+  leading: Vec<InputAddon>,
+  trailing: Vec<InputAddon>,
   full_width: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -160,8 +166,8 @@ impl InputGroup {
   pub fn new(input: Input) -> Self {
     Self {
       input,
-      before: Vec::new(),
-      after: Vec::new(),
+      leading: Vec::new(),
+      trailing: Vec::new(),
       full_width: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -170,15 +176,15 @@ impl InputGroup {
     }
   }
 
-  /// What stands before the input, after what stands there already: a text with `.before("https://")`.
-  pub fn before(mut self, addon: impl Into<InputAddon>) -> Self {
-    self.before.push(addon.into());
+  /// What stands before the input, after what stands there already: a text with `.leading("https://")`.
+  pub fn leading(mut self, addon: impl Into<InputAddon>) -> Self {
+    self.leading.push(addon.into());
     self
   }
 
   /// What stands after the input, after what stands there already.
-  pub fn after(mut self, addon: impl Into<InputAddon>) -> Self {
-    self.after.push(addon.into());
+  pub fn trailing(mut self, addon: impl Into<InputAddon>) -> Self {
+    self.trailing.push(addon.into());
     self
   }
 
@@ -210,6 +216,31 @@ impl InputGroup {
   /// Whether nothing in the group takes input.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.input = self.input.disabled(disabled);
+    self
+  }
+
+  /// Whether the input can be read, selected and copied, and not changed.
+  pub fn read_only(mut self, read_only: bool) -> Self {
+    self.input = self.input.read_only(read_only);
+    self
+  }
+
+  /// What the input is called, to what reads the tree. A field gives it its label.
+  pub fn label(mut self, label: &str) -> Self {
+    self.input = self.input.label(label);
+    self
+  }
+
+  /// The name the input's value has in the form it is in.
+  #[cfg(feature = "form")]
+  pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
+    self.input = self.input.name(name);
+    self
+  }
+
+  /// Draws the input as it is under the pointer or focused, with nothing pointing at it: for a gallery or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.input = self.input.force(interaction);
     self
   }
 
@@ -252,9 +283,16 @@ impl InputGroup {
     self
   }
 
-  /// Called before an edit of the input is made, with what it will hold.
+  /// Called before an edit of the input is made, with what it will hold. A second handler is called after the
+  /// first.
   pub fn on_input(mut self, handler: impl Fn(&TextInputEvent) + Send + Sync + 'static) -> Self {
     self.input = self.input.on_input(handler);
+    self
+  }
+
+  /// Called with what the input holds when Enter is pressed in it. A second handler is called after the first.
+  pub fn on_submit(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.input = self.input.on_submit(handler);
     self
   }
 
@@ -269,23 +307,23 @@ impl InputGroup {
     let recipe = theme.resolve::<InputGroup>(&case, Some(&self.rules));
 
     // An icon beside the input is in its box: before it, the input's own icon; after it, over the end of its box.
-    let (mut before, mut after) = (self.before, self.after);
+    let (mut leading, mut trailing) = (self.leading, self.trailing);
     let mut input = self.input;
-    if matches!(before.last(), Some(InputAddon::Icon(_)))
-      && let Some(InputAddon::Icon(name)) = before.pop()
+    if matches!(leading.last(), Some(InputAddon::Icon(_)))
+      && let Some(InputAddon::Icon(name)) = leading.pop()
     {
       input = input.icon(name);
     }
-    let end_icon = match after.first() {
-      Some(InputAddon::Icon(_)) => match after.remove(0) {
+    let end_icon = match trailing.first() {
+      Some(InputAddon::Icon(_)) => match trailing.remove(0) {
         InputAddon::Icon(name) => Some(name),
         _ => None,
       },
       _ => None,
     };
 
-    let count = before.len() + 1 + after.len();
-    let at_input = before.len();
+    let count = leading.len() + 1 + trailing.len();
+    let at_input = leading.len();
     let corners = |index: usize| (index == 0, index + 1 == count);
     let of_input = recipe
       .rules_for(InputGroupPart::Field, InputPart::Root)
@@ -294,8 +332,8 @@ impl InputGroup {
     let view = InputGroupView {
       size: boxed.size,
       disabled: boxed.disabled,
-      before,
-      after,
+      leading,
+      trailing,
       at_input,
       count,
       end_icon,
@@ -345,8 +383,8 @@ impl From<InputGroup> for Element {
 pub struct InputGroupView {
   /// The input, with what the group says of it laid over its recipe.
   pub input: InputView,
-  pub before: Vec<InputAddon>,
-  pub after: Vec<InputAddon>,
+  pub leading: Vec<InputAddon>,
+  pub trailing: Vec<InputAddon>,
   /// The glyph after the input, in its box.
   pub end_icon: Option<Name>,
   /// The size of the group: each button's and select's in it.
@@ -449,15 +487,15 @@ impl InputGroupView {
 
   /// How the default renderer builds a group: one box, its parts side by side with a line between two of them.
   pub fn render(mut self) -> Element {
-    let before = std::mem::take(&mut self.before);
-    let after = std::mem::take(&mut self.after);
+    let leading = std::mem::take(&mut self.leading);
+    let trailing = std::mem::take(&mut self.trailing);
     // The parts are as high as the box, which clips them to its round corners. A ring is drawn over it.
     let mut root = Row::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(InputGroupPart::Root))
       .clip();
     let mut index = 0;
-    for addon in before {
+    for addon in leading {
       if index > 0 {
         root = root.child(self.separator());
       }
@@ -470,7 +508,7 @@ impl InputGroupView {
     root = root.child(self.field());
     index += 1;
     debug_assert_eq!(index, self.at_input + 1);
-    for addon in after {
+    for addon in trailing {
       root = root.child(self.separator()).child(self.addon(addon, index));
       index += 1;
     }
@@ -486,7 +524,7 @@ impl InputGroupView {
 
 impl Themed for InputGroup {
   const NAME: &'static str = "input_group";
-  type Renderer = Arc<dyn Fn(InputGroupView) -> Element + Send + Sync>;
+  type Renderer = InputGroupRenderer;
 
   /// The design's input group (`pencil/lurq-design-system.pen`, Input Group): one box 280 wide, the background's
   /// fill in an edge of 1 in the color of an input's, 6 round. A text addon is on the muted fill, padded 10, in 13

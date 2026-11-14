@@ -21,17 +21,17 @@ use crate::{
 /// What the playground offers before the input, and how the code says it.
 const BEFORE: [(&str, &str); 4] = [
   ("none", ""),
-  ("text", ".before(\"https://\")"),
-  ("icon", ".before(InputAddon::icon(icons::LINK))"),
-  ("select", ".before(Select::new(scheme.clone(), SCHEMES))"),
+  ("text", ".leading(\"https://\")"),
+  ("icon", ".leading(InputAddon::icon(icons::LINK))"),
+  ("select", ".leading(Select::new(scheme.clone(), SCHEMES))"),
 ];
 
 /// What the playground offers after the input, and how the code says it.
 const AFTER: [(&str, &str); 4] = [
   ("none", ""),
-  ("text", ".after(\".com\")"),
-  ("icon", ".after(InputAddon::icon(icons::CHECK_CIRCLE))"),
-  ("button", ".after(Button::new(\"Go\").variant(ButtonVariant::Ghost))"),
+  ("text", ".trailing(\".com\")"),
+  ("icon", ".trailing(InputAddon::icon(icons::CHECK_CIRCLE))"),
+  ("button", ".trailing(Button::new(\"Go\").variant(ButtonVariant::Ghost))"),
 ];
 
 /// The schemes a select before an address chooses between.
@@ -110,16 +110,16 @@ impl InputGroupPage {
           .disabled(set[1])
           .full_width(set[2]);
         group = match before {
-          1 => group.before("https://"),
-          2 => group.before(InputAddon::icon(icons::LINK)),
-          3 => group.before(Select::new(scheme.clone(), SCHEMES)),
+          1 => group.leading("https://"),
+          2 => group.leading(InputAddon::icon(icons::LINK)),
+          3 => group.leading(Select::new(scheme.clone(), SCHEMES)),
           _ => group,
         };
         let record = record.clone();
         match after {
-          1 => group.after(".com"),
-          2 => group.after(InputAddon::icon(icons::CHECK_CIRCLE)),
-          3 => group.after(
+          1 => group.trailing(".com"),
+          2 => group.trailing(InputAddon::icon(icons::CHECK_CIRCLE)),
+          3 => group.trailing(
             Button::new("Go")
               .variant(ButtonVariant::Ghost)
               .on_click(move |_| record("on_click(Go)".to_owned())),
@@ -223,14 +223,14 @@ impl InputGroupPage {
           prop("input", "Input", field(&self.value)),
           prop("placeholder", "&str", field(&self.placeholder)),
           prop(
-            "before",
+            "leading",
             "impl Into<InputAddon>",
             self
               .playground
               .select(0, &befores, &before, move |index| to_before.set(index)),
           ),
           prop(
-            "after",
+            "trailing",
             "impl Into<InputAddon>",
             self
               .playground
@@ -278,20 +278,20 @@ impl Component for InputGroupPage {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let texts = items()
       .child(item(
-        InputGroup::new(Input::new(self.site.clone())).before("https://"),
+        InputGroup::new(Input::new(self.site.clone())).leading("https://"),
         "prefix",
       ))
-      .child(item(InputGroup::new(showing("lurq")).after(".com"), "suffix"))
+      .child(item(InputGroup::new(showing("lurq")).trailing(".com"), "suffix"))
       .child(item(
-        InputGroup::new(showing("lurq")).before("https://").after(".com"),
+        InputGroup::new(showing("lurq")).leading("https://").trailing(".com"),
         "prefix and suffix",
       ));
     let (email, invited) = (self.email.clone(), self.invited.clone());
     let joined = items()
       .child(item(
         InputGroup::new(Input::new(self.email.clone()).placeholder("Email"))
-          .before(InputAddon::icon(icons::MAIL))
-          .after(
+          .leading(InputAddon::icon(icons::MAIL))
+          .trailing(
             Button::new("Invite")
               .variant(ButtonVariant::Ghost)
               .on_click(move |_| invited.set(email.get())),
@@ -299,35 +299,35 @@ impl Component for InputGroupPage {
         &format!("invited: {:?}", self.invited.get()),
       ))
       .child(item(
-        InputGroup::new(Input::new(self.site.clone())).before(Select::new(self.scheme.clone(), SCHEMES)),
+        InputGroup::new(Input::new(self.site.clone())).leading(Select::new(self.scheme.clone(), SCHEMES)),
         &format!("the scheme is {:?}", self.scheme.get()),
       ))
       .child(item(
         InputGroup::new(showing("12"))
-          .after("px")
-          .after(InputAddon::icon(icons::INFO)),
+          .trailing("px")
+          .trailing(InputAddon::icon(icons::INFO)),
         "two after it",
       ));
     let states = items()
       .child(item(
-        InputGroup::new(showing("lurq")).before("https://").invalid(true),
+        InputGroup::new(showing("lurq")).leading("https://").invalid(true),
         "invalid",
       ))
       .child(item(
-        InputGroup::new(showing("lurq")).before("https://").valid(true),
+        InputGroup::new(showing("lurq")).leading("https://").valid(true),
         "valid",
       ))
       .child(item(
         InputGroup::new(showing("lurq"))
-          .before("https://")
-          .after(Button::new("Go").variant(ButtonVariant::Ghost))
+          .leading("https://")
+          .trailing(Button::new("Go").variant(ButtonVariant::Ghost))
           .disabled(true),
         "disabled",
       ));
     let mut sizes = items();
     for (size, name, _) in SIZES {
       sizes = sizes.child(item(
-        InputGroup::new(showing("lurq")).before("https://").size(size),
+        InputGroup::new(showing("lurq")).leading("https://").size(size),
         name,
       ));
     }
@@ -335,7 +335,7 @@ impl Component for InputGroupPage {
       Field::new(
         "Website",
         InputGroup::new(Input::new(self.site.clone()))
-          .before("https://")
+          .leading("https://")
           .full_width(true),
       )
       .description("Where the project lives.")
@@ -350,12 +350,23 @@ impl Component for InputGroupPage {
         "The input the group is joined around; it keeps its own value and handlers.",
       ),
       (
-        "before",
+        "leading",
         "impl Into<InputAddon>",
         "",
         "What stands before the input, in order: a text, an icon, a Button, a Select.",
       ),
-      ("after", "impl Into<InputAddon>", "", "What stands after it, in order."),
+      (
+        "trailing",
+        "impl Into<InputAddon>",
+        "",
+        "What stands after it, in order.",
+      ),
+      (
+        "label / read_only / name / on_submit",
+        "",
+        "",
+        "Said of the input in the group: its name to tooling, read only, its name in a form, Enter.",
+      ),
       (
         "size",
         "InputSize",
@@ -408,12 +419,12 @@ impl Component for InputGroupPage {
           self.frame.demo(
             0,
             texts,
-            "InputGroup::new(input).before(\"https://\").after(\".com\")",
+            "InputGroup::new(input).leading(\"https://\").trailing(\".com\")",
             &[
               "// site: Signal<String>",
-              "InputGroup::new(Input::new(site.clone())).before(\"https://\")",
-              "InputGroup::new(Input::new(site.clone())).after(\".com\")",
-              "InputGroup::new(Input::new(site.clone())).before(\"https://\").after(\".com\")",
+              "InputGroup::new(Input::new(site.clone())).leading(\"https://\")",
+              "InputGroup::new(Input::new(site.clone())).trailing(\".com\")",
+              "InputGroup::new(Input::new(site.clone())).leading(\"https://\").trailing(\".com\")",
             ],
           ),
         ),
@@ -425,17 +436,17 @@ impl Component for InputGroupPage {
           self.frame.demo(
             1,
             joined,
-            ".after(Button::new(\"Invite\"))",
+            ".trailing(Button::new(\"Invite\"))",
             &[
               "// email, invited, site: Signal<String>; scheme: Signal<&str>",
               "InputGroup::new(Input::new(email.clone()).placeholder(\"Email\"))",
-              "    .before(InputAddon::icon(icons::MAIL))",
-              "    .after(Button::new(\"Invite\").variant(ButtonVariant::Ghost).on_click(move |_| invited.set(email.get())))",
+              "    .leading(InputAddon::icon(icons::MAIL))",
+              "    .trailing(Button::new(\"Invite\").variant(ButtonVariant::Ghost).on_click(move |_| invited.set(email.get())))",
               "",
               "InputGroup::new(Input::new(site.clone()))",
-              "    .before(Select::new(scheme.clone(), [(\"https\", \"https://\"), (\"http\", \"http://\")]))",
+              "    .leading(Select::new(scheme.clone(), [(\"https\", \"https://\"), (\"http\", \"http://\")]))",
               "",
-              "InputGroup::new(Input::new(width)).after(\"px\").after(InputAddon::icon(icons::INFO))",
+              "InputGroup::new(Input::new(width)).trailing(\"px\").trailing(InputAddon::icon(icons::INFO))",
             ],
           ),
         ),
@@ -447,9 +458,9 @@ impl Component for InputGroupPage {
             states,
             ".invalid(true)",
             &[
-              "InputGroup::new(input).before(\"https://\").invalid(true)",
-              "InputGroup::new(input).before(\"https://\").valid(true)",
-              "InputGroup::new(input).before(\"https://\").after(Button::new(\"Go\")).disabled(true)",
+              "InputGroup::new(input).leading(\"https://\").invalid(true)",
+              "InputGroup::new(input).leading(\"https://\").valid(true)",
+              "InputGroup::new(input).leading(\"https://\").trailing(Button::new(\"Go\")).disabled(true)",
             ],
           ),
         ),
@@ -461,9 +472,9 @@ impl Component for InputGroupPage {
             sizes,
             ".size(InputSize::Sm)",
             &[
-              "InputGroup::new(input).before(\"https://\").size(InputSize::Sm)",
-              "InputGroup::new(input).before(\"https://\")",
-              "InputGroup::new(input).before(\"https://\").size(InputSize::Lg)",
+              "InputGroup::new(input).leading(\"https://\").size(InputSize::Sm)",
+              "InputGroup::new(input).leading(\"https://\")",
+              "InputGroup::new(input).leading(\"https://\").size(InputSize::Lg)",
             ],
           ),
         ),
@@ -475,7 +486,7 @@ impl Component for InputGroupPage {
             in_field,
             "Field::new(\"Website\", group)",
             &[
-              "Field::new(\"Website\", InputGroup::new(Input::new(site.clone())).before(\"https://\").full_width(true))",
+              "Field::new(\"Website\", InputGroup::new(Input::new(site.clone())).leading(\"https://\").full_width(true))",
               "    .description(\"Where the project lives.\")",
               "    .full_width(true)",
             ],

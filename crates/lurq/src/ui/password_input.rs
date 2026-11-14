@@ -15,6 +15,8 @@ use super::{
 };
 use crate::{
   app::{
+    component::Component,
+    ctx::Ctx,
     events::TextInputEvent,
     theme::{IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
@@ -28,7 +30,7 @@ use crate::{
 /// [`Input`]'s, styled by the theme's recipe for an input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PasswordInputPart {
-  /// The input, and the meter and its message under it.
+  /// The input, and the meter and what it says under it.
   Root,
   /// The masked text: the room between its dots.
   Mask,
@@ -39,9 +41,9 @@ pub enum PasswordInputPart {
   /// A bar of the meter the strength does not reach.
   Bar,
   /// A bar of the meter the strength reaches, in the strength's color.
-  Filled,
+  Fill,
   /// What the meter says of the strength, under it.
-  Message,
+  Description,
 }
 
 names!(PasswordInputPart {
@@ -50,8 +52,8 @@ names!(PasswordInputPart {
   Toggle => "toggle",
   Strength => "strength",
   Bar => "bar",
-  Filled => "filled",
-  Message => "message",
+  Fill => "fill",
+  Description => "description",
 });
 
 /// The states of a password input a recipe styles, besides an input's.
@@ -103,7 +105,7 @@ impl PasswordStrength {
   }
 
   /// What the meter says of it unless the app says otherwise.
-  pub fn message(self) -> &'static str {
+  pub fn text(self) -> &'static str {
     match self {
       Self::Weak => "Weak password",
       Self::Fair => "Fair password",
@@ -112,6 +114,9 @@ impl PasswordStrength {
     }
   }
 }
+
+/// The sizes of a password input: an input's.
+pub type PasswordInputSize = super::TextBoxSize;
 
 /// What builds a password input's nodes: a theme's in place of the default one.
 pub type PasswordInputRenderer = Arc<dyn Fn(PasswordInputView) -> Element + Send + Sync>;
@@ -133,21 +138,27 @@ type RevealHandler = Arc<dyn Fn(bool) + Send + Sync>;
 /// ```
 ///
 /// It is an input in every other way: its sizes, its judgments, read only,
-/// disabled, a field's label. The reveal is the app's: a `bool` it says
-/// with [`reveal`](Self::reveal) and hears of with
-/// [`on_reveal`](Self::on_reveal), or a `Signal<bool>` it binds. The button
-/// is drawn where something hears it, after the input in the order of Tab,
-/// and is called "Show password" or "Hide password" to tooling. A masked
+/// disabled, a field's label. The button that shows the password is drawn
+/// unless [`reveal_button`](Self::reveal_button) says not, after the input
+/// in the order of Tab, called "Show password" or "Hide password" to
+/// tooling. Whether the password is shown is kept by a `Signal<bool>` the app
+/// binds ([`bind_reveal`](Self::bind_reveal)), by the app itself with
+/// [`reveal`](Self::reveal) and [`on_reveal`](Self::on_reveal), or, with
+/// neither, by the input mounted with [`mount`](Self::mount). Converted into
+/// an element with neither, it is its still form: the button turns nothing. A masked
 /// password is not copied, and tooling reads only its mask; shown, it is
 /// what the screen shows, to tooling too. Under the input the app may show
 /// a meter of the password's strength and what it says of it.
+#[derive(Clone)]
 pub struct PasswordInput {
   input: Input,
   revealed: bool,
   on_reveal: Vec<RevealHandler>,
-  labels: (Arc<str>, Arc<str>),
+  reveal_button: bool,
+  show_label: Arc<str>,
+  hide_label: Arc<str>,
   strength: Option<PasswordStrength>,
-  message: Option<Arc<str>>,
+  strength_text: Option<Arc<str>>,
   new_password: bool,
   full_width: bool,
   states: Vec<Name>,
@@ -162,9 +173,11 @@ impl PasswordInput {
       input: Input::new(value),
       revealed: false,
       on_reveal: Vec::new(),
-      labels: (Arc::from("Show password"), Arc::from("Hide password")),
+      reveal_button: true,
+      show_label: Arc::from("Show password"),
+      hide_label: Arc::from("Hide password"),
       strength: None,
-      message: None,
+      strength_text: None,
       new_password: false,
       full_width: false,
       states: Vec::new(),
@@ -203,16 +216,28 @@ impl PasswordInput {
     self.reveal(revealed.get()).on_reveal(move |next| set.set(next))
   }
 
-  /// Called on a press of the button with whether the password is to be shown.
+  /// Called on a press of the button with whether the password is to be shown. A second handler is called after
+  /// the first.
   pub fn on_reveal(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.on_reveal.push(Arc::new(handler));
     self
   }
 
-  /// What the button is called to tooling while the password is hidden and while it is shown, in place of "Show
-  /// password" and "Hide password": in another language.
-  pub fn reveal_labels(mut self, show: &str, hide: &str) -> Self {
-    self.labels = (Arc::from(show), Arc::from(hide));
+  /// Whether the button that shows the password is drawn: it is unless the app says not.
+  pub fn reveal_button(mut self, reveal_button: bool) -> Self {
+    self.reveal_button = reveal_button;
+    self
+  }
+
+  /// What the button is called to tooling while the password is hidden, in place of "Show password".
+  pub fn show_label(mut self, label: &str) -> Self {
+    self.show_label = Arc::from(label);
+    self
+  }
+
+  /// What the button is called to tooling while the password is shown, in place of "Hide password".
+  pub fn hide_label(mut self, label: &str) -> Self {
+    self.hide_label = Arc::from(label);
     self
   }
 
@@ -223,8 +248,8 @@ impl PasswordInput {
   }
 
   /// What the meter says of the strength, in place of "Strong password" and the others.
-  pub fn strength_message(mut self, message: &str) -> Self {
-    self.message = Some(Arc::from(message));
+  pub fn strength_text(mut self, text: &str) -> Self {
+    self.strength_text = Some(Arc::from(text));
     self
   }
 
@@ -354,11 +379,16 @@ impl PasswordInput {
     let view = PasswordInputView {
       revealed: self.revealed,
       disabled,
-      toggle_label: if self.revealed { self.labels.1 } else { self.labels.0 },
+      toggle_label: if self.revealed {
+        self.hide_label
+      } else {
+        self.show_label
+      },
+      reveal_button: self.reveal_button,
       strength: self.strength,
-      message: self
-        .message
-        .or_else(|| self.strength.map(|strength| Arc::from(strength.message()))),
+      strength_text: self
+        .strength_text
+        .or_else(|| self.strength.map(|strength| Arc::from(strength.text()))),
       new_password: self.new_password,
       recipe: theme.resolve::<PasswordInput>(&case, Some(&self.rules)),
       forced: self.forced,
@@ -369,6 +399,61 @@ impl PasswordInput {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
+  }
+}
+
+impl PasswordInput {
+  /// The password input mounted where it is declared: where the app keeps no reveal of its own (no
+  /// [`bind_reveal`](Self::bind_reveal), no [`on_reveal`](Self::on_reveal)), it keeps whether the password is
+  /// shown, from render to render, and its button turns it.
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    let key = self.input.key.clone();
+    let props = PasswordProps { input: Arc::new(self) };
+    match key {
+      Some(key) => ctx.mount_keyed::<PasswordHost>(&key, props),
+      None => ctx.mount::<PasswordHost>(props),
+    }
+  }
+}
+
+/// A password input to mount.
+#[derive(Clone)]
+struct PasswordProps {
+  input: Arc<PasswordInput>,
+}
+
+/// A password input is built anew by every render of what holds it, so props are never the same as before.
+impl PartialEq for PasswordProps {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for PasswordProps {}
+
+/// What keeps whether a mounted password input's password is shown.
+struct PasswordHost {
+  revealed: Signal<bool>,
+}
+
+impl Component for PasswordHost {
+  type Props = PasswordProps;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      revealed: Signal::new(false),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let input = (*ctx.props::<PasswordProps>().input).clone();
+    let input = if input.on_reveal.is_empty() {
+      input.bind_reveal(self.revealed.clone())
+    } else {
+      input
+    };
+    input.build(&current_theme())
   }
 }
 
@@ -395,9 +480,11 @@ pub struct PasswordInputView {
   pub disabled: bool,
   /// What the button is called to tooling: "Show password" while the password is hidden.
   pub toggle_label: Arc<str>,
+  /// Whether the button is drawn.
+  pub reveal_button: bool,
   pub strength: Option<PasswordStrength>,
   /// What the meter says of the strength, where it has one.
-  pub message: Option<Arc<str>>,
+  pub strength_text: Option<Arc<str>>,
   pub new_password: bool,
   /// The style of each of the password input's own parts.
   pub recipe: ResolvedRecipe,
@@ -428,9 +515,9 @@ impl PasswordInputView {
     }
   }
 
-  /// Whether the button is drawn: something hears a press of it.
+  /// Whether the button is drawn: it is unless the app said not.
   pub fn has_toggle(&self) -> bool {
-    !self.on_reveal.is_empty()
+    self.reveal_button
   }
 
   /// The input's text input, masked unless the password is shown, and keeping room at its end for the button.
@@ -491,7 +578,7 @@ impl PasswordInputView {
   /// The meter of the strength: four bars, as many filled as the strength reaches.
   pub fn strength_meter(&self) -> Option<Row> {
     let filled = self.strength?.bars();
-    let (bar, full) = (self.part(PasswordInputPart::Bar), self.part(PasswordInputPart::Filled));
+    let (bar, full) = (self.part(PasswordInputPart::Bar), self.part(PasswordInputPart::Fill));
     // As wide as the input: the column that holds them stretches it.
     let mut meter = Row::new().part(&self.part(PasswordInputPart::Strength));
     for index in 0..4 {
@@ -501,10 +588,10 @@ impl PasswordInputView {
   }
 
   /// What the meter says of the strength.
-  pub fn message(&self) -> Option<Row> {
-    let message = self.message.as_ref()?;
-    let part = self.part(PasswordInputPart::Message);
-    Some(Row::new().part(&part).child(part.text(message)))
+  pub fn description(&self) -> Option<Row> {
+    let text = self.strength_text.as_ref()?;
+    let part = self.part(PasswordInputPart::Description);
+    Some(Row::new().part(&part).child(part.text(text)))
   }
 
   /// How the default renderer builds a password input: the input with its button over the end of the box, and the
@@ -512,7 +599,7 @@ impl PasswordInputView {
   pub fn render(self) -> Element {
     let end = self.toggle().map(|toggle| Row::new().child(toggle));
     let input = self.input.render_with_end(self.control(), end);
-    let (meter, message) = (self.strength_meter(), self.message());
+    let (meter, message) = (self.strength_meter(), self.description());
     if meter.is_none() && message.is_none() {
       return input.into();
     }
@@ -553,7 +640,7 @@ impl Themed for PasswordInput {
   /// is in the foreground under the pointer and while the password is shown.
   fn recipe() -> Recipe {
     use PaletteColor::{Destructive, Foreground, Input, MutedForeground, Success, Warning};
-    use PasswordInputPart::{Bar, Filled, Mask, Message, Root, Strength, Toggle};
+    use PasswordInputPart::{Bar, Description, Fill, Mask, Root, Strength, Toggle};
     let recipe = Recipe::new()
       .base(Root, |s| s.gap(8.0))
       .state(PasswordInputState::FullWidth, Root, |s| s.width(Length::Fill))
@@ -572,14 +659,16 @@ impl Themed for PasswordInput {
       .state(PasswordInputState::Disabled, Toggle, |s| s.cursor(CursorIcon::Default))
       .base(Strength, |s| s.gap(4.0))
       .base(Bar, |s| s.height(4.0).radius(RadiusSize::Full).background(Input))
-      .base(Filled, |s| s.height(4.0).radius(RadiusSize::Full).background(Success))
-      .base(Message, |s| s.typography(TypographyStyle::Caption).foreground(Success));
+      .base(Fill, |s| s.height(4.0).radius(RadiusSize::Full).background(Success))
+      .base(Description, |s| {
+        s.typography(TypographyStyle::Caption).foreground(Success)
+      });
     [(PasswordStrength::Weak, Destructive), (PasswordStrength::Fair, Warning)]
       .into_iter()
       .fold(recipe, |recipe, (strength, color)| {
         recipe
-          .state(strength, Filled, |s| s.background(color.clone()))
-          .state(strength, Message, |s| s.foreground(color))
+          .state(strength, Fill, |s| s.background(color.clone()))
+          .state(strength, Description, |s| s.foreground(color))
       })
   }
 }

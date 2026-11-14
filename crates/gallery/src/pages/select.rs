@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Field, Icon, Input, Interaction, Select, SelectPart, SelectSize, SelectState, icons},
+  ui::{Field, Icon, Input, Interaction, Orientation, Select, SelectPart, SelectSize, SelectState, icons},
 };
 
 use crate::{
@@ -316,7 +316,9 @@ impl Component for SelectPage {
     let form = Column::new()
       .width(420.0)
       .spacing(16.0)
-      .child(Field::new("Display name", Input::new(self.name.clone()).full_width(true)).horizontal(true))
+      .child(
+        Field::new("Display name", Input::new(self.name.clone()).full_width(true)).orientation(Orientation::Horizontal),
+      )
       .child(
         Field::new(
           "Update channel",
@@ -330,7 +332,7 @@ impl Component for SelectPage {
           )
           .full_width(true),
         )
-        .horizontal(true),
+        .orientation(Orientation::Horizontal),
       );
 
     let rows = [
@@ -555,13 +557,13 @@ impl Component for SelectPage {
           self.frame.demo(
             4,
             form,
-            "Field::new(\"Update channel\", select).horizontal(true)",
+            "Field::new(\"Update channel\", select).orientation(Orientation::Horizontal)",
             &[
               "// name, channel: Signal<String>",
               "Column::new()",
               "    .width(420.0)",
               "    .spacing(16.0)",
-              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).horizontal(true))",
+              "    .child(Field::new(\"Display name\", Input::new(name.clone()).full_width(true)).orientation(Orientation::Horizontal))",
               "    .child(",
               "        Field::new(",
               "            \"Update channel\",",
@@ -572,7 +574,7 @@ impl Component for SelectPage {
               "            ])",
               "            .full_width(true),",
               "        )",
-              "        .horizontal(true),",
+              "        .orientation(Orientation::Horizontal),",
               "    )",
             ],
           ),

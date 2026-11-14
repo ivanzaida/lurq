@@ -11,7 +11,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Field, Input, InputSize, Interaction, Switch, icons},
+  ui::{Field, Input, InputSize, Interaction, Orientation, Switch, icons},
 };
 
 use crate::{
@@ -345,8 +345,8 @@ impl Component for InputPage {
       );
     let beside = Column::new()
       .spacing(16.0)
-      .child(Field::new("Time zone", showing("Europe/Kyiv").full_width(true)).horizontal(true))
-      .child(Field::new("Notifications", Switch::new("Pause notifications")).horizontal(true));
+      .child(Field::new("Time zone", showing("Europe/Kyiv").full_width(true)).orientation(Orientation::Horizontal))
+      .child(Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal));
 
     let input_rows = [
       (
@@ -417,6 +417,12 @@ impl Component for InputPage {
         "Called before an edit, which it may refuse.",
       ),
       (
+        "on_submit",
+        "impl Fn(&str)",
+        "",
+        "Called with what it holds when Enter is pressed in it.",
+      ),
+      (
         "name",
         "impl Into<Arc<str>>",
         "",
@@ -464,10 +470,10 @@ impl Component for InputPage {
         "\"Optional\" after the label; optional_text in other words.",
       ),
       (
-        "horizontal",
-        "bool",
-        "false",
-        "The label in a column of 110 beside the control.",
+        "orientation",
+        "Orientation",
+        "Vertical",
+        "Horizontal: the label in a column of 110 beside the control.",
       ),
       (
         "full_width",
@@ -628,10 +634,10 @@ impl Component for InputPage {
           self.frame.demo(
             5,
             beside,
-            ".horizontal(true)",
+            ".orientation(Orientation::Horizontal)",
             &[
-              "Field::new(\"Time zone\", Input::new(zone).full_width(true)).horizontal(true)",
-              "Field::new(\"Notifications\", Switch::new(\"Pause notifications\")).horizontal(true)",
+              "Field::new(\"Time zone\", Input::new(zone).full_width(true)).orientation(Orientation::Horizontal)",
+              "Field::new(\"Notifications\", Switch::new(\"Pause notifications\")).orientation(Orientation::Horizontal)",
             ],
           ),
         ),

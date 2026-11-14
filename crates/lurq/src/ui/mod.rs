@@ -163,7 +163,9 @@ pub use fieldset::{
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
-pub use input_group::{InputAddon, InputGroup, InputGroupPart, InputGroupState, InputGroupView};
+pub use input_group::{
+  InputAddon, InputGroup, InputGroupPart, InputGroupRenderer, InputGroupSize, InputGroupState, InputGroupView,
+};
 pub(crate) use input_otp::keyframes as input_otp_keyframes;
 pub use input_otp::{
   INPUT_OTP_CARET_BLINK, INPUT_OTP_CARET_PERIOD, InputOtp, InputOtpKind, InputOtpPart, InputOtpRenderer, InputOtpSize,
@@ -209,7 +211,8 @@ pub use part_style::{
   TransitionEasing,
 };
 pub use password_input::{
-  PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputState, PasswordInputView, PasswordStrength,
+  PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
+  PasswordStrength,
 };
 pub use popconfirm::{Popconfirm, PopconfirmPart, PopconfirmRenderer, PopconfirmState, PopconfirmView};
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
@@ -226,7 +229,9 @@ pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, R
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
-pub use search_field::{SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldState, SearchFieldView};
+pub use search_field::{
+  SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldSize, SearchFieldState, SearchFieldView,
+};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};

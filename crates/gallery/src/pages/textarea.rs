@@ -104,9 +104,12 @@ impl TextareaPage {
       }
     };
     let record = self.playground.recorder();
-    let textarea = plain()
-      .force(self.playground.forced())
-      .on_change(move |text| record(format!("on_change({} characters)", text.chars().count())));
+    let textarea =
+      plain()
+        .force(self.playground.forced())
+        .on_input(move |event: &lurq::app::events::TextInputEvent| {
+          record(format!("on_input({} characters)", event.new_value.chars().count()))
+        });
 
     let mut code = vec![
       "// value: Signal<String>".to_owned(),
@@ -161,7 +164,7 @@ impl TextareaPage {
         fill: true,
         forceable: true,
         facts: format!("{size_name} · {} characters", held.chars().count()),
-        event: "on_change",
+        event: "on_input",
         code,
         tree,
         controls: vec![
@@ -371,11 +374,18 @@ impl Component for TextareaPage {
         "Half the opacity on the muted fill; it takes no input and Tab passes it by.",
       ),
       (
-        "on_change",
-        "impl Fn(&str)",
+        "on_input",
+        "impl Fn(&TextInputEvent)",
         "",
-        "Called on every edit with the text it holds once the edit applies.",
+        "Called before each edit with what it will hold (event.new_value); a handler may refuse it.",
       ),
+      (
+        "full_width",
+        "bool",
+        "false",
+        "As wide as what holds it: it is so already, as the design draws it in a form.",
+      ),
+      ("name", "&str", "", "The name its text has in the form it is in."),
       (
         "label",
         "&str",
