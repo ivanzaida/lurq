@@ -608,3 +608,59 @@ fn a_state_of_the_themes_recipe_and_a_forced_more_button() {
     "More as under the pointer"
   );
 }
+
+#[test]
+fn a_bar_that_overflows_with_room_for_all_ends_its_last_control_at_its_padding() {
+  // With overflow, a bar wide enough for everything shows no More button, and keeps no room for it: after a spacer
+  // its last control ends at the bar's end less its padding, and without one the bar is as wide as its controls.
+  let mut stage = stage(360.0, || {
+    Toolbar::new()
+      .id("bar")
+      .overflow(true)
+      .item(Button::new("Undo").icon(icons::UNDO).icon_only(true).id("undo"))
+      .item(Toolbar::spacer())
+      .item(Button::new("Share").id("share"))
+  });
+  let (x, _, width, _) = stage.bounds("bar");
+  let (share_x, _, share_width, _) = stage.bounds("share");
+  assert_eq!(width, 360.0);
+  assert!(
+    close(share_x + share_width, x + width - 4.0),
+    "at the end, inside the padding: ends at {} in a bar ending at {}",
+    share_x + share_width,
+    x + width
+  );
+  assert_eq!(stage.bounds("bar-more").2, 0.0, "no More button");
+}
+
+#[test]
+fn a_dropped_marker_leaves_its_room_to_what_grows() {
+  // A row of 100, 10 apart: an item of 20, a child that grows, and a marker of 20. Nothing is dropped, so the
+  // marker is not there, and what grows has its room and the spacing beside it: 100 less the item and one gap.
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Row::new()
+          .id("row")
+          .width(100.0)
+          .spacing(10.0)
+          .child(
+            Row::new()
+              .id("item")
+              .size(20.0, 10.0)
+              .flex_shrink(1.0)
+              .shrink_limit(ShrinkLimit::Drop),
+          )
+          .child(Row::new().id("grows").height(10.0).flex(1.0))
+          .child(Row::new().id("marker").size(20.0, 10.0).drop_marker(true)),
+      )
+      .into()
+  });
+  assert_eq!(stage.bounds("marker").2, 0.0, "nothing dropped: no marker");
+  assert_eq!(
+    stage.bounds("grows").2,
+    70.0,
+    "the marker's room and its gap are what grows"
+  );
+}

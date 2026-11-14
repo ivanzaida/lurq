@@ -3403,7 +3403,23 @@ impl LayoutEngine {
       .filter(|(_, layout)| Arc::ptr_eq(&layout.result, &self.awaiting_room))
       .filter_map(|(child, _)| child.state_flex().and_then(|params| params.basis))
       .sum();
-    let free = remaining - bases;
+    // A line that fits without its drop marker drops it (`shrink_outcomes`): the marker's room, its size and the
+    // spacing beside it, is the growing children's, or it would be left empty once the marker is gone.
+    let marker_room = children
+      .iter()
+      .zip(&child_layouts)
+      .find(|(child, _)| !child.is_overlay_declaration() && child.shrink_rule().marker)
+      .filter(|(_, layout)| !Arc::ptr_eq(&layout.result, &self.awaiting_room))
+      .map(|(_, layout)| {
+        let gap = if layout_child_count > 1 { spacing } else { 0.0 };
+        main_size(&layout.result, vertical) + gap
+      })
+      .unwrap_or(0.0);
+    let free = if marker_room > 0.0 && remaining.is_finite() && remaining - bases + marker_room >= 0.0 {
+      remaining - bases + marker_room
+    } else {
+      remaining - bases
+    };
 
     let mut overflow = LineOverflow::new(
       FreeRoom {
