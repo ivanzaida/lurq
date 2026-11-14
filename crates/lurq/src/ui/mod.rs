@@ -193,7 +193,7 @@ pub use menu::{
 };
 pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarState, MenubarView};
 pub use message_box::{
-  MessageBox, MessageBoxAnswer, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState,
+  MessageBox, MessageBoxAnswer, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState, MessageBoxVariant,
   MessageBoxView,
 };
 pub use multi_select::{

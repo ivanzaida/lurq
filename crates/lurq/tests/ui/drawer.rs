@@ -4,7 +4,7 @@
 
 use std::{
   sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
   },
   time::Duration,
@@ -20,7 +20,7 @@ use lurq::{
   core::Signal,
   layout::quad::QuadContent,
   node::{Element, color::Color},
-  ui::{Button, Drawer, DrawerPart, SheetSide},
+  ui::{Button, Drawer, DrawerPart, Length, SheetSide},
 };
 
 use super::stage::Stage;
@@ -223,13 +223,17 @@ fn a_drawer_over_the_page_is_a_sheet_at_its_edge() {
 fn a_drawer_that_does_not_scroll_lays_what_it_holds_out_at_its_height() {
   // What holds a scroll of its own with something that stays at its bottom: the bar stays at the drawer's foot.
   let held = |open: Signal<bool>, overlay: bool| {
-    Drawer::new(open).id("drawer").scroll(false).overlay(overlay).child(
-      Column::new()
-        .id("held")
-        .height(lurq::node::dimension::Dimension::Pct(100.0))
-        .child(Column::new().flex(1.0))
-        .child(Column::new().id("bar").height(20.0)),
-    )
+    Drawer::new(open)
+      .id("drawer")
+      .body_scrolls(false)
+      .overlay(overlay)
+      .child(
+        Column::new()
+          .id("held")
+          .height(lurq::node::dimension::Dimension::Pct(100.0))
+          .child(Column::new().flex(1.0))
+          .child(Column::new().id("bar").height(20.0)),
+      )
   };
   for overlay in [false, true] {
     let open = Signal::new(true);
@@ -253,4 +257,81 @@ fn a_theme_restyles_the_panel() {
   let open = Signal::new(true);
   let mut stage = stage_in(app, move |_| layout(navigation(open.clone()), SheetSide::Start));
   assert_eq!(stage.fill_color("drawer"), Some(light(PaletteColor::Muted)));
+}
+
+#[test]
+fn a_person_closing_a_drawer_over_the_page_runs_every_handler_of_on_dismiss() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let open = Signal::new(true);
+  let (held, told) = (open.clone(), heard.clone());
+  let mut stage = stage(move |_| {
+    let (first, second) = (told.clone(), told.clone());
+    layout(
+      navigation(held.clone())
+        // Something that takes the focus as the drawer opens, so that Escape is in it.
+        .child(Button::new("Settings"))
+        .overlay(true)
+        .on_dismiss(move || first.lock().unwrap().push("first"))
+        .on_dismiss(move || second.lock().unwrap().push("second")),
+      SheetSide::Start,
+    )
+  });
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*heard.lock().unwrap(), ["first", "second"]);
+
+  // A press on the veil, beside the panel.
+  open.set(true);
+  stage.pass();
+  stage.tree.mouse_move(350.0, 150.0);
+  stage
+    .tree
+    .mouse_down(350.0, 150.0, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(350.0, 150.0, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert!(!open.get());
+  assert_eq!(heard.lock().unwrap().len(), 4);
+}
+
+#[test]
+fn escape_closes_a_drawer_over_the_page_with_nothing_in_it_that_takes_the_focus() {
+  let open = Signal::new(true);
+  let held = open.clone();
+  let mut stage = stage(move |_| {
+    layout(
+      navigation(held.clone()).overlay(true).on_dismiss(|| {}),
+      SheetSide::Start,
+    )
+  });
+  stage.key("Escape");
+  assert!(!open.get());
+}
+
+#[test]
+fn an_inline_drawer_over_the_page_is_its_panel_where_it_is_declared() {
+  let mut stage = stage(|_| {
+    layout(
+      navigation(Signal::new(false)).overlay(true).inline(true),
+      SheetSide::Start,
+    )
+  });
+  assert!(stage.paints("Inbox"), "drawn though it is closed");
+  assert_eq!(stage.bounds("drawer").2, 300.0);
+  assert!(
+    !stage
+      .quads()
+      .iter()
+      .any(|quad| { matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Scrim)) }),
+    "with no veil"
+  );
+}
+
+#[test]
+fn a_width_and_a_height_of_its_own_are_any_length() {
+  let open = Signal::new(true);
+  let held = open.clone();
+  let mut wide = stage(move |_| layout(navigation(held.clone()).width(Length::Px(200.0)), SheetSide::Start));
+  assert_eq!(wide.bounds("drawer").2, 200.0);
+  let mut high = stage(move |_| layout(navigation(open.clone()).height(Length::Px(80.0)), SheetSide::Top));
+  assert_eq!(high.bounds("drawer").3, 80.0);
 }

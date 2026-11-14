@@ -13,7 +13,7 @@ use lurq::{
   components::{Button, Column, Row},
   core::{ElementRef, Signal},
   node::{Element, color::Color},
-  ui::{Menu, MenuEntry, MenuItem, Menubar, MenubarPart, MenubarRenderer, MenubarView},
+  ui::{Menu, MenuEntry, MenuItem, Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarView},
 };
 
 use super::stage::Stage;
@@ -55,7 +55,7 @@ fn scene(disabled: bool) -> (Stage, Held) {
     let bar = Menubar::new(open.clone())
       .id("bar")
       .disabled(disabled)
-      .menu(
+      .menu(MenubarMenu::new(
         "File",
         [
           MenuItem::new("New")
@@ -68,15 +68,15 @@ fn scene(disabled: bool) -> (Stage, Held) {
           MenuItem::new("Export as")
             .id("export")
             .submenu(
-              Menu::new(export.clone(), exporting.clone())
+              Menu::new(exporting.clone(), export.clone())
                 .item(MenuItem::new("PNG").id("png").on_select(tell(&chosen, "png")))
                 .item(MenuItem::new("SVG").id("svg")),
             )
             .into(),
           MenuItem::new("Quit").id("quit").into(),
         ],
-      )
-      .menu(
+      ))
+      .menu(MenubarMenu::new(
         "Edit",
         [
           MenuItem::new("Undo").id("undo"),
@@ -84,10 +84,12 @@ fn scene(disabled: bool) -> (Stage, Held) {
           MenuItem::new("Copy").id("copy"),
           MenuItem::new("Paste").id("paste").disabled(true),
         ],
-      )
-      .menu("View", [MenuItem::new("Show grid").checked(true).id("grid")])
-      .menu("Help", [MenuItem::new("About").id("about")])
-      .title_disabled("Help", true);
+      ))
+      .menu(MenubarMenu::new(
+        "View",
+        [MenuItem::new("Show grid").checked(true).id("grid")],
+      ))
+      .menu(MenubarMenu::new("Help", [MenuItem::new("About").id("about")]).disabled(true));
     Column::new()
       .size(400.0, 300.0)
       .padding(20.0)
@@ -442,8 +444,8 @@ fn a_rule_restyles_a_part_and_a_theme_gives_the_bar_another_anatomy() {
         Row::new().child(
           Menubar::new(held.clone())
             .id("bar")
-            .style(MenubarPart::Title, |s| s.padding_x(16.0))
-            .menu("File", [MenuItem::new("New")]),
+            .style(MenubarPart::Item, |s| s.padding_x(16.0))
+            .menu(MenubarMenu::new("File", [MenuItem::new("New")])),
         ),
       )
       .into()
@@ -458,7 +460,7 @@ fn a_rule_restyles_a_part_and_a_theme_gives_the_bar_another_anatomy() {
   let renderer: MenubarRenderer = Arc::new(|mut view: MenubarView| {
     let mut bar = view.bar();
     for index in (0..view.menus.len()).rev() {
-      let title = view.title(index).child(view.label(index));
+      let title = view.item(index).child(view.label(index));
       let menu = view.menu(index);
       bar = bar.child(Column::new().child(title).child(menu));
     }
@@ -475,8 +477,8 @@ fn a_rule_restyles_a_part_and_a_theme_gives_the_bar_another_anatomy() {
         Row::new().child(
           Menubar::new(held.clone())
             .id("bar")
-            .menu("File", [MenuItem::new("New")])
-            .menu("Edit", [MenuItem::new("Undo")]),
+            .menu(MenubarMenu::new("File", [MenuItem::new("New")]))
+            .menu(MenubarMenu::new("Edit", [MenuItem::new("Undo")])),
         ),
       )
       .into()
@@ -485,4 +487,65 @@ fn a_rule_restyles_a_part_and_a_theme_gives_the_bar_another_anatomy() {
   stage.click("bar-1");
   assert_eq!(open.get(), Some(1));
   assert!(stage.paints("Undo"));
+}
+
+#[test]
+fn a_menu_with_an_id_of_its_own_names_its_item_and_its_panel() {
+  let open = Signal::new(None);
+  let held = open.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new().child(
+          Menubar::new(held.clone())
+            .id("bar")
+            .menu(MenubarMenu::new("File", [MenuItem::new("New")]))
+            .menus([
+              MenubarMenu::new("Edit", [MenuItem::new("Undo")]).id("edit"),
+              MenubarMenu::new("Help", [MenuItem::new("About")]).disabled(true),
+            ]),
+        ),
+      )
+      .into()
+  });
+  // The first keeps the bar's naming; the second is its own.
+  stage.click("bar-0");
+  assert_eq!(open.get(), Some(0));
+  stage.hover("edit");
+  assert_eq!(open.get(), Some(1));
+  assert!(stage.tree.get_element_by_id_mut("edit-menu").is_some());
+  // A disabled menu does not open: the press only closes the open one.
+  stage.click("bar-2");
+  assert_eq!(open.get(), None);
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn the_bars_label_is_its_name_and_each_menu_is_called_by_its_title() {
+  let open = Signal::new(Some(0));
+  let held = open.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new().child(
+          Menubar::new(held.clone())
+            .id("bar")
+            .label("Application")
+            .menu(MenubarMenu::new("File", [MenuItem::new("New")])),
+        ),
+      )
+      .into()
+  });
+  let mut said = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(said("bar").as_deref(), Some("Application"));
+  assert_eq!(said("bar-0-menu").as_deref(), Some("File"));
 }

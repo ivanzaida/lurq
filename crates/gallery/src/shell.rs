@@ -220,8 +220,8 @@ fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
   let focus_page = state.focus_page.clone();
   let mut palette = CommandPalette::new(state.search_open.clone())
     .placeholder("Search components and props…")
-    .empty("No page for that.")
-    .footer(true);
+    .empty_text("No page for that.")
+    .key_hints(true);
   for group in Group::ALL {
     let pages = PAGES.iter().filter(|page| page.group == group).map(|page| {
       let mut command = CommandItem::new(page.name)

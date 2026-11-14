@@ -1224,7 +1224,7 @@ impl Build<'_> {
   /// The menu the rail opens beside an item with nested items: one of each, an item with nested items of its own a
   /// submenu.
   fn menu(&self, item: &SidebarItem, key: &str, anchor: ElementRef, open: Signal<bool>) -> Menu {
-    let mut menu = Menu::new(anchor, open)
+    let mut menu = Menu::new(open, anchor)
       .placement(Placement::RightStart)
       .label(&item.label);
     for child in &item.children {
@@ -1461,7 +1461,7 @@ impl SidebarView {
     }
     // The drawer does not scroll what it holds: the sidebar's items scroll between its header and its footer.
     let mut drawer = Drawer::new(self.open.clone())
-      .scroll(false)
+      .body_scrolls(false)
       .overlay(true)
       .label(&self.label)
       .child(root);

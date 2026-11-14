@@ -1,5 +1,5 @@
 //! The page of the message box: its playground, a question that is answered,
-//! the boxes the board draws as they are, its kinds, and one with a detail.
+//! the boxes the board draws as they are, its variants, and one with a detail.
 
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Button, ButtonVariant, MessageBox, MessageBoxKind, MessageBoxRole, icons},
+  ui::{Button, ButtonVariant, MessageBox, MessageBoxRole, MessageBoxVariant, icons},
 };
 
 use crate::{
@@ -18,12 +18,12 @@ use crate::{
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
-/// The kinds, as the code names them.
-const KINDS: [(&str, MessageBoxKind); 4] = [
-  ("information", MessageBoxKind::Information),
-  ("question", MessageBoxKind::Question),
-  ("warning", MessageBoxKind::Warning),
-  ("error", MessageBoxKind::Error),
+/// The variants, as the code names them.
+const KINDS: [(&str, MessageBoxVariant); 4] = [
+  ("info", MessageBoxVariant::Info),
+  ("question", MessageBoxVariant::Question),
+  ("warning", MessageBoxVariant::Warning),
+  ("destructive", MessageBoxVariant::Destructive),
 ];
 
 const TITLE: &str = "Replace existing file?";
@@ -59,9 +59,9 @@ fn opener(label: &str, open: &Signal<bool>) -> Button {
 /// The board's warning: replace an existing file, with "Don't ask again".
 fn replace(open: &Signal<bool>, again: &Signal<bool>) -> MessageBox {
   MessageBox::new(open.clone())
-    .kind(MessageBoxKind::Warning)
+    .variant(MessageBoxVariant::Warning)
     .title(TITLE)
-    .message(MESSAGE)
+    .description(MESSAGE)
     .checkbox("Don't ask again", again.clone())
     .answer("Cancel", MessageBoxRole::Cancel, || {})
     .answer("Replace", MessageBoxRole::Default, || {})
@@ -70,10 +70,10 @@ fn replace(open: &Signal<bool>, again: &Signal<bool>) -> MessageBox {
 /// The board's destructive question: delete projects.
 fn delete(open: &Signal<bool>) -> MessageBox {
   MessageBox::new(open.clone())
-    .kind(MessageBoxKind::Warning)
+    .variant(MessageBoxVariant::Warning)
     .icon(icons::TRASH)
     .title("Delete 3 projects?")
-    .message("The projects and their history are removed from this device. This cannot be undone.")
+    .description("The projects and their history are removed from this device. This cannot be undone.")
     .answer("Cancel", MessageBoxRole::Cancel, || {})
     .answer("Delete", MessageBoxRole::Destructive, || {})
 }
@@ -81,10 +81,10 @@ fn delete(open: &Signal<bool>) -> MessageBox {
 /// The board's three choices: save the changes, do not, or go back.
 fn unsaved(open: &Signal<bool>) -> MessageBox {
   MessageBox::new(open.clone())
-    .kind(MessageBoxKind::Question)
+    .variant(MessageBoxVariant::Question)
     .icon(icons::BOX)
     .title("Do you want to save the changes to “blur.rs”?")
-    .message("Your changes will be lost if you don't save them.")
+    .description("Your changes will be lost if you don't save them.")
     .width(440.0)
     .answer("Don't Save", MessageBoxRole::Plain, || {})
     .answer("Cancel", MessageBoxRole::Cancel, || {})
@@ -94,9 +94,9 @@ fn unsaved(open: &Signal<bool>) -> MessageBox {
 /// A failure with what went wrong behind "Details".
 fn failed(open: &Signal<bool>, detail: &Signal<bool>) -> MessageBox {
   MessageBox::new(open.clone())
-    .kind(MessageBoxKind::Error)
+    .variant(MessageBoxVariant::Destructive)
     .title("The project could not be saved.")
-    .message("The disk is full. Free some space and try again.")
+    .description("The disk is full. Free some space and try again.")
     .detail(
       "os error 28: no space left on device (writing projects/lurq/blur.rs)",
       detail.clone(),
@@ -138,12 +138,12 @@ impl MessageBoxPage {
     let make = {
       let (title, message) = (title.clone(), message.clone());
       move |open: Signal<bool>, record: Option<Arc<dyn Fn(String) + Send + Sync>>| {
-        let mut message_box = MessageBox::new(open).kind(kind);
+        let mut message_box = MessageBox::new(open).variant(kind);
         if !title.is_empty() {
           message_box = message_box.title(&title);
         }
         if !message.is_empty() {
-          message_box = message_box.message(&message);
+          message_box = message_box.description(&message);
         }
         if detail {
           message_box = message_box.detail("theme.json · 4.2 KB · changed today at 09:41", detail_open.clone());
@@ -181,13 +181,13 @@ impl MessageBoxPage {
     let mut code = vec![
       "// open: Signal<bool>".to_owned(),
       "MessageBox::new(open.clone())".to_owned(),
-      format!("    .kind(MessageBoxKind::{kind:?})"),
+      format!("    .variant(MessageBoxVariant::{kind:?})"),
     ];
     if !title.is_empty() {
       code.push(format!("    .title({title:?})"));
     }
     if !message.is_empty() {
-      code.push(format!("    .message({message:?})"));
+      code.push(format!("    .description({message:?})"));
     }
     if detail {
       code.push("    .detail(\"theme.json · 4.2 KB · changed today at 09:41\", detail_open.clone())".to_owned());
@@ -208,7 +208,7 @@ impl MessageBoxPage {
 
     let mut tree = vec![
       "dialog      veil · panel 400 px · alertdialog".to_owned(),
-      format!("├─ body     well 36 px · {kind_name} · title 15 · message 13"),
+      format!("├─ header   mark 36 px · {kind_name} · title 15 · description 13"),
     ];
     if detail {
       tree.push("│  └─ detail  Details · mono 11".to_owned());
@@ -254,10 +254,10 @@ impl MessageBoxPage {
         tree,
         controls: vec![
           prop("title", "&str", field(&self.title)),
-          prop("message", "&str", field(&self.message)),
+          prop("description", "&str", field(&self.message)),
           prop(
-            "kind",
-            "MessageBoxKind",
+            "variant",
+            "MessageBoxVariant",
             segmented_fill(&kinds, &self.kind.get(), move |index| to_kind.set(index)),
           ),
           divider(),
@@ -270,7 +270,7 @@ impl MessageBoxPage {
         changed: [
           title != TITLE,
           message != MESSAGE,
-          kind != MessageBoxKind::Warning,
+          kind != MessageBoxVariant::Warning,
           checkbox,
           detail,
           !cancel,
@@ -341,17 +341,17 @@ impl Component for MessageBoxPage {
     for (name, kind) in KINDS {
       kinds = kinds.child(item(
         MessageBox::new(closed.clone())
-          .kind(kind)
+          .variant(kind)
           .width(320.0)
-          .title(&format!("A message box of the {name} kind"))
+          .title(&format!("A message box of the {name} variant"))
           .answer("OK", MessageBoxRole::Default, || {})
           .inline(true),
-        &format!("MessageBoxKind::{kind:?}"),
+        &format!("MessageBoxVariant::{kind:?}"),
       ));
     }
     let detail = items().child(item(
       failed(&closed, &self.failed_detail).inline(true),
-      "error · detail",
+      "destructive · detail",
     ));
     let rows = [
       (
@@ -361,16 +361,16 @@ impl Component for MessageBoxPage {
         "Whether it is shown. The app's: every answer sets it to false before what the answer does runs.",
       ),
       (
-        "kind",
-        "MessageBoxKind",
-        "Information",
-        "The icon in its well and their colors: information, question, warning, error.",
+        "variant",
+        "MessageBoxVariant",
+        "Info",
+        "The icon in its mark and their colors: info, question, warning, destructive.",
       ),
       (
         "icon",
-        "&str",
+        "impl Into<IconChoice>",
         "",
-        "An icon of the set in place of the kind's: trash for a question that deletes.",
+        "An icon of the set in place of the variant's: trash for a question that deletes. None for no icon and no mark.",
       ),
       (
         "title",
@@ -379,16 +379,22 @@ impl Component for MessageBoxPage {
         "What it asks or says, 15/600. It is what the message box is called.",
       ),
       (
-        "message",
+        "description",
         "&str",
         "",
         "More of it under the title, 13 in the muted color. It describes the box.",
       ),
       (
+        "label",
+        "&str",
+        "",
+        "What the message box is called to tooling, over its title.",
+      ),
+      (
         "detail",
         "&str, Signal<bool>",
         "",
-        "A text behind \"Details\" under the message, open while the signal holds true.",
+        "A text behind \"Details\" under the description, open while the signal holds true.",
       ),
       (
         "detail_label",
@@ -406,9 +412,21 @@ impl Component for MessageBoxPage {
         "answer",
         "&str, MessageBoxRole, Fn()",
         "",
-        "An answer. Default: filled, Enter gives it. Cancel: Escape and a press of the veil give it. Destructive: in the destructive color, and the focus goes to cancel. Plain: at the start of the footer.",
+        "An answer. Default: filled, Enter gives it, and the focus goes to it. Cancel: Escape and a press of the veil give it. Destructive: in the destructive color; where there is no default answer the focus goes to cancel. Plain: at the start of the footer.",
       ),
-      ("width", "f32", "400 px", "A width of its own."),
+      (
+        "dismiss_on_escape",
+        "bool",
+        "true",
+        "Whether Escape gives the cancel answer.",
+      ),
+      (
+        "dismiss_on_veil",
+        "bool",
+        "true",
+        "Whether a press of the veil gives the cancel answer.",
+      ),
+      ("width", "impl Into<Length>", "400 px", "A width of its own."),
       (
         "inline",
         "bool",
@@ -424,7 +442,7 @@ impl Component for MessageBoxPage {
         title: "Message Box",
         description: "A dialog that asks one question or says one thing and waits for the answer: replace a file, \
                       save the changes, delete projects.",
-        import: Some("use lurq::ui::{MessageBox, MessageBoxKind, MessageBoxRole};"),
+        import: Some("use lurq::ui::{MessageBox, MessageBoxVariant, MessageBoxRole};"),
         status: Some("Stable"),
         since: Some("0.62"),
         source: file!(),
@@ -439,7 +457,7 @@ impl Component for MessageBoxPage {
         ),
         Section::new(
           "Message box",
-          "As it opens the focus goes to the default answer, or to Cancel where an answer is destructive. Enter \
+          "As it opens the focus goes to the confirming answer, or to Cancel where that answer is destructive. Enter \
            gives the default answer wherever the focus is but on another button; Escape and a press of the veil \
            give Cancel.",
           self.frame.demo(
@@ -449,18 +467,18 @@ impl Component for MessageBoxPage {
             &[
               "// open: Signal<bool>, again: Signal<bool>",
               "MessageBox::new(open.clone())",
-              "    .kind(MessageBoxKind::Warning)",
+              "    .variant(MessageBoxVariant::Warning)",
               "    .title(\"Replace existing file?\")",
-              "    .message(\"“theme.json” already exists in this folder. Replacing it overwrites its contents.\")",
+              "    .description(\"“theme.json” already exists in this folder. Replacing it overwrites its contents.\")",
               "    .checkbox(\"Don't ask again\", again.clone())",
               "    .answer(\"Cancel\", MessageBoxRole::Cancel, || {})",
               "    .answer(\"Replace\", MessageBoxRole::Default, || {})",
               "",
               "MessageBox::new(open.clone())",
-              "    .kind(MessageBoxKind::Warning)",
+              "    .variant(MessageBoxVariant::Warning)",
               "    .icon(icons::TRASH)",
               "    .title(\"Delete 3 projects?\")",
-              "    .message(\"The projects and their history are removed from this device. This cannot be undone.\")",
+              "    .description(\"The projects and their history are removed from this device. This cannot be undone.\")",
               "    .answer(\"Cancel\", MessageBoxRole::Cancel, || {})",
               "    .answer(\"Delete\", MessageBoxRole::Destructive, || {})",
             ],
@@ -476,10 +494,10 @@ impl Component for MessageBoxPage {
             ".inline(true)",
             &[
               "MessageBox::new(open.clone())",
-              "    .kind(MessageBoxKind::Question)",
+              "    .variant(MessageBoxVariant::Question)",
               "    .icon(icons::BOX)",
               "    .title(\"Do you want to save the changes to “blur.rs”?\")",
-              "    .message(\"Your changes will be lost if you don't save them.\")",
+              "    .description(\"Your changes will be lost if you don't save them.\")",
               "    .width(440.0)",
               "    .answer(\"Don't Save\", MessageBoxRole::Plain, || {})",
               "    .answer(\"Cancel\", MessageBoxRole::Cancel, || {})",
@@ -489,18 +507,18 @@ impl Component for MessageBoxPage {
           ),
         ),
         Section::new(
-          "Kinds",
-          "The kind is the icon in the well and its colors. A message box with a destructive answer has its icon in \
-           the destructive colors whatever its kind.",
+          "Variants",
+          "The variant is the icon in the mark and its colors. A message box with a destructive answer has its icon \
+           in the destructive colors whatever its variant.",
           self.frame.demo(
             2,
             kinds,
-            ".kind(MessageBoxKind::Error)",
+            ".variant(MessageBoxVariant::Destructive)",
             &[
               "MessageBox::new(open.clone())",
-              "    .kind(MessageBoxKind::Error)",
+              "    .variant(MessageBoxVariant::Destructive)",
               "    .width(320.0)",
-              "    .title(\"A message box of the error kind\")",
+              "    .title(\"A message box of the destructive variant\")",
               "    .answer(\"OK\", MessageBoxRole::Default, || {})",
               "    .inline(true)",
             ],
@@ -508,7 +526,8 @@ impl Component for MessageBoxPage {
         ),
         Section::new(
           "Detail",
-          "What went wrong, where a person can open it: \"Details\" under the message, which turns the app's signal.",
+          "What went wrong, where a person can open it: \"Details\" under the description, which turns the app's \
+           signal.",
           self.frame.demo(
             3,
             detail,
@@ -516,9 +535,9 @@ impl Component for MessageBoxPage {
             &[
               "// detail: Signal<bool>",
               "MessageBox::new(open.clone())",
-              "    .kind(MessageBoxKind::Error)",
+              "    .variant(MessageBoxVariant::Destructive)",
               "    .title(\"The project could not be saved.\")",
-              "    .message(\"The disk is full. Free some space and try again.\")",
+              "    .description(\"The disk is full. Free some space and try again.\")",
               "    .detail(\"os error 28: no space left on device (writing projects/lurq/blur.rs)\", detail.clone())",
               "    .answer(\"OK\", MessageBoxRole::Default, || {})",
               "    .inline(true)",

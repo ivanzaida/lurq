@@ -26,10 +26,10 @@ use crate::{
 /// The parts of a popover a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PopoverPart {
-  /// The panel: its fill, its edge, its shadow, and its header over its body.
-  Root,
-  /// The title over the description.
-  Header,
+  /// The panel: its fill, its edge, its shadow, and its text over its body.
+  Panel,
+  /// The column of the title over the description.
+  Text,
   /// What the popover is about, in a line.
   Title,
   /// What it is for, under the title.
@@ -39,8 +39,8 @@ pub enum PopoverPart {
 }
 
 names!(PopoverPart {
-  Root => "root",
-  Header => "header",
+  Panel => "panel",
+  Text => "text",
   Title => "title",
   Description => "description",
   Body => "body",
@@ -64,7 +64,7 @@ pub type PopoverRenderer = Arc<dyn Fn(PopoverView) -> Element + Send + Sync>;
 /// let (anchor, open) = (ElementRef::new(), Signal::new(false));
 ///
 /// // The button opens and closes it, and it is shown under the button.
-/// let popover = Popover::new(anchor.clone(), open.clone())
+/// let popover = Popover::new(open.clone(), anchor.clone())
 ///   .trigger(Button::new("Dimensions"))
 ///   .title("Dimensions")
 ///   .description("Set the size of the layer.")
@@ -75,11 +75,13 @@ pub type PopoverRenderer = Arc<dyn Fn(PopoverView) -> Element + Send + Sync>;
 /// let (anchor, open) = (ElementRef::new(), Signal::new(false));
 /// let row = Row::new()
 ///   .child(Row::new().ref_element(anchor.clone()))
-///   .child(Popover::new(anchor, open).title("Details"));
+///   .child(Popover::new(open, anchor).title("Details"));
 /// ```
 ///
 /// A popover does not keep whether it is open: the app's signal does. A
-/// press outside it or Escape closes it, which sets the signal to `false`.
+/// press outside it or Escape closes it, which sets the signal to `false`
+/// (either can be turned off: [`Popover::dismiss_on_outside_press`],
+/// [`Popover::dismiss_on_escape`]).
 /// Its trigger ([`Popover::trigger`]) turns the signal; without one the app
 /// opens it, and the anchor is any element of its own. A press of the
 /// anchor is not a press outside it. The anchor is kept from one render to
@@ -98,13 +100,16 @@ pub struct Popover {
   description: Option<Arc<str>>,
   children: Vec<Element>,
   placement: Placement,
-  offset: SpacingValue,
+  offset: Option<(f32, f32)>,
   collision: CollisionStrategy,
   width: Option<Length>,
   alert: bool,
-  name: Option<Arc<str>>,
+  inline: bool,
+  dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
+  label: Option<Arc<str>>,
   described: Option<Arc<str>>,
-  on_dismiss: Option<Arc<dyn Fn() + Send + Sync>>,
+  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -113,7 +118,7 @@ pub struct Popover {
 
 impl Popover {
   /// A popover shown beside `anchor` while `open` is `true`.
-  pub fn new(anchor: impl Into<ElementRef>, open: Signal<bool>) -> Self {
+  pub fn new(open: Signal<bool>, anchor: impl Into<ElementRef>) -> Self {
     Self {
       anchor: anchor.into(),
       open,
@@ -122,13 +127,16 @@ impl Popover {
       description: None,
       children: Vec::new(),
       placement: Placement::BottomStart,
-      offset: SpacingSize::Xs.into(),
+      offset: None,
       collision: CollisionStrategy::FlipThenClamp,
       width: None,
       alert: false,
-      name: None,
+      inline: false,
+      dismiss_on_escape: true,
+      dismiss_on_outside_press: true,
+      label: None,
       described: None,
-      on_dismiss: None,
+      on_dismiss: Vec::new(),
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -176,9 +184,12 @@ impl Popover {
     self
   }
 
-  /// How far the popover is from its anchor: the theme's smallest spacing by default.
-  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
-    self.offset = offset.into();
+  /// How far the popover is moved from where its placement puts it, across
+  /// (`x`) and down (`y`), in logical pixels, as the engine's [`Popup`]
+  /// takes them. By default it is the theme's smallest spacing away from its
+  /// anchor, along the side it is on.
+  pub fn offset(mut self, x: f32, y: f32) -> Self {
+    self.offset = Some((x, y));
     self
   }
 
@@ -202,10 +213,11 @@ impl Popover {
     self
   }
 
-  /// What the popover is called to tooling that reads the tree, for one
-  /// whose title is drawn by what it holds and not given to [`Popover::title`].
-  pub fn named(mut self, name: &str) -> Self {
-    self.name = Some(Arc::from(name));
+  /// What the popover is called to tooling that reads the tree, in place of
+  /// its title: for one whose title is drawn by what it holds and not given
+  /// to [`Popover::title`].
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -215,9 +227,32 @@ impl Popover {
     self
   }
 
-  /// What runs after a press outside the popover or Escape closed it.
+  /// What runs after a person closed the popover by a press outside it or
+  /// Escape; not when the app sets the signal. A second handler is called
+  /// after the first.
   pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_dismiss = Some(Arc::new(handler));
+    self.on_dismiss.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether Escape closes the popover. `true` by default.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press outside the popover and its anchor closes it. `true` by default.
+  pub fn dismiss_on_outside_press(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_outside_press = dismiss;
+    self
+  }
+
+  /// Draws the panel where the popover is declared, whether or not it is
+  /// open, and not over the window beside its anchor: for a gallery, a
+  /// screenshot, a test. Its trigger is not drawn, and Escape and a press
+  /// outside do not close it.
+  pub fn inline(mut self, inline: bool) -> Self {
+    self.inline = inline;
     self
   }
 
@@ -264,10 +299,10 @@ impl Popover {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     };
-    // A width given here is under what `style` and `rules` say of the root.
+    // A width given here is under what `style` and `rules` say of the panel.
     let mut rules = Recipe::new();
     if let Some(width) = self.width {
-      rules = rules.base(PopoverPart::Root, |s| s.width(width));
+      rules = rules.base(PopoverPart::Panel, |s| s.width(width));
     }
     let rules = rules.extend(&self.rules);
     let view = PopoverView {
@@ -276,7 +311,7 @@ impl Popover {
       children: self.children,
       recipe: theme.resolve::<Popover>(&case, Some(&rules)),
       alert: self.alert,
-      name: self.name,
+      label: self.label,
       described: self.described,
       id: self.id,
       key: self.key,
@@ -285,25 +320,37 @@ impl Popover {
       Some(renderer) => renderer(view),
       None => view.render(),
     };
-    // The offset is away from the anchor: along the side the popover is on.
-    let offset = self.offset.resolve(&theme.spacing(), 0.0);
-    let (x, y) = match self.placement {
-      Placement::LeftStart
-      | Placement::Left
-      | Placement::LeftEnd
-      | Placement::RightStart
-      | Placement::Right
-      | Placement::RightEnd => (offset, 0.0),
-      _ => (0.0, offset),
-    };
+    if self.inline {
+      return panel;
+    }
+    // The default offset is away from the anchor: along the side the popover is on.
+    let (x, y) = self.offset.unwrap_or_else(|| {
+      let offset = SpacingValue::from(SpacingSize::Xs).resolve(&theme.spacing(), 0.0);
+      match self.placement {
+        Placement::LeftStart
+        | Placement::Left
+        | Placement::LeftEnd
+        | Placement::RightStart
+        | Placement::Right
+        | Placement::RightEnd => (offset, 0.0),
+        _ => (0.0, offset),
+      }
+    });
     let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())
       .placement(self.placement)
       .offset(x, y)
       .collision(self.collision)
+      .dismiss_on_escape(self.dismiss_on_escape)
+      .dismiss_on_outside_click(self.dismiss_on_outside_press)
       .takes_focus(true);
-    if let Some(on_dismiss) = self.on_dismiss {
-      popup = popup.on_dismiss(move || on_dismiss());
+    if !self.on_dismiss.is_empty() {
+      let handlers = self.on_dismiss;
+      popup = popup.on_dismiss(move || {
+        for handler in &handlers {
+          handler();
+        }
+      });
     }
     let Some(mut trigger) = self.trigger else {
       return popup.into();
@@ -341,7 +388,7 @@ pub struct PopoverView {
   /// The style of each part of this popover.
   pub recipe: ResolvedRecipe,
   alert: bool,
-  name: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   described: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -357,37 +404,38 @@ impl PopoverView {
     self.recipe.theme()
   }
 
-  /// A text in the style of a part, in a node that has the part's color.
-  fn text(&self, part: PopoverPart, content: &str) -> Column {
+  /// A line in the style of a part, in a node that has the part's color.
+  fn line(&self, part: PopoverPart, content: &str) -> Column {
     let part = self.part(part);
     Column::new().part(&part).child(part.text(content))
   }
 
   /// The title over the description, where the popover has either.
-  pub fn header(&self) -> Option<Column> {
+  pub fn text(&self) -> Option<Column> {
     if self.title.is_none() && self.description.is_none() {
       return None;
     }
-    let mut header = Column::new()
+    let mut text = Column::new()
       .align_items(Alignment::Stretch)
-      .part(&self.part(PopoverPart::Header));
+      .part(&self.part(PopoverPart::Text));
     if let Some(title) = &self.title {
-      header = header.child(self.text(PopoverPart::Title, title));
+      text = text.child(self.line(PopoverPart::Title, title));
     }
     if let Some(description) = &self.description {
-      header = header.child(self.text(PopoverPart::Description, description));
+      text = text.child(self.line(PopoverPart::Description, description));
     }
-    Some(header)
+    Some(text)
   }
 
-  /// The panel with nothing in it yet: what a renderer puts the header and
-  /// the body in. It is a dialog to what reads the tree, called by its title.
+  /// The panel with nothing in it yet: what a renderer puts the text and the
+  /// body in. It is a dialog to what reads the tree, called by its label or
+  /// its title.
   pub fn panel(&self) -> Column {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
-      .part(&self.part(PopoverPart::Root))
+      .part(&self.part(PopoverPart::Panel))
       .describe("a11y_role", if self.alert { "alertdialog" } else { "dialog" });
-    if let Some(name) = self.name.as_ref().or(self.title.as_ref()) {
+    if let Some(name) = self.label.as_ref().or(self.title.as_ref()) {
       panel = panel.describe("a11y_name", name.clone());
     }
     if let Some(description) = &self.described {
@@ -402,11 +450,11 @@ impl PopoverView {
     panel
   }
 
-  /// How the default renderer builds a popover: the header over the body, in the panel.
+  /// How the default renderer builds a popover: the text over the body, in the panel.
   pub fn render(mut self) -> Element {
     let mut panel = self.panel();
-    if let Some(header) = self.header() {
-      panel = panel.child(header);
+    if let Some(text) = self.text() {
+      panel = panel.child(text);
     }
     let children = std::mem::take(&mut self.children);
     if !children.is_empty() {
@@ -429,30 +477,30 @@ impl Themed for Popover {
   /// The design's popover (`pencil/lurq-design-system.pen`, Popover): a panel
   /// 292 wide in the popover's colors, with an edge of 1 in the border's
   /// color, the large radius and the medium shadow, 16 of padding and 14
-  /// between its header and its body. The header has the title in the body's
+  /// between its text and its body. The text has the title in the body's
   /// type at medium weight over the description in 13 and the muted
   /// foreground, 4 apart; what the body holds is 14 apart. It fades in over
   /// the theme's base duration in the entering curve, and out over the fast
   /// one in the leaving curve (Foundations, Motion: popovers take the base
   /// duration, and exits are quicker than entrances).
   fn recipe() -> Recipe {
-    use PaletteColor::{Border as Edge, MutedForeground, Popover as Panel, PopoverForeground};
-    use PopoverPart::{Body, Description, Header, Root, Title};
+    use PaletteColor::{Border as Edge, MutedForeground, Popover as Fill, PopoverForeground};
+    use PopoverPart::{Body, Description, Panel, Text, Title};
     Recipe::new()
-      .base(Root, |s| {
+      .base(Panel, |s| {
         s.width(292.0)
           .padding_x(16.0)
           .padding_y(16.0)
           .gap(14.0)
           .radius(RadiusSize::Lg)
-          .background(Panel)
+          .background(Fill)
           .foreground(PopoverForeground)
           .border(Border::inside(BorderSize::Sm, Edge))
           .shadow(ShadowStyle::Md)
           .enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
           .exit(PartAnimation::new(FADE_OUT, MotionDuration::Fast, MotionEasing::Exit))
       })
-      .base(Header, |s| s.gap(4.0))
+      .base(Text, |s| s.gap(4.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body).weight(FontWeight::Medium)
       })

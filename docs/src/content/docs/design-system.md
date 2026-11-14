@@ -416,7 +416,7 @@ ButtonGroup::new()
 
 - The group gives its buttons their variant and their size and squares their corners: the corners of the group are the round ones. A button keeps the rest of what it was given: its icon, what a press does, whether it is disabled.
 - Parts: `ButtonGroupPart::Root`, the group; `Item`, what the group says of each button, laid over the theme's recipe for a button's root (padded 14 in the design); `Separator`, the line between two.
-- A split button is a filled group of two: the action, and a button that opens a [menu](#menu) hung from the group (`Menu::new(anchor, open).placement(Placement::BottomEnd)`, the group in an element that carries the anchor's ref).
+- A split button is a filled group of two: the action, and a button that opens a [menu](#menu) hung from the group (`Menu::new(open, anchor).placement(Placement::BottomEnd)`, the group in an element that carries the anchor's ref).
 
 ## Toggle Group
 
@@ -870,8 +870,8 @@ use lurq::{
   ui::{Button, ButtonVariant, Field, Input, Popover},
 };
 
-// anchor: ElementRef, open: Signal<bool>, width: Signal<String>
-Popover::new(anchor.clone(), open.clone())
+// open: Signal<bool>, anchor: ElementRef, width: Signal<String>
+Popover::new(open.clone(), anchor.clone())
   .trigger(Button::new("Dimensions").variant(ButtonVariant::Outline))
   .title("Dimensions")
   .description("Set the size of the layer.")
@@ -881,14 +881,18 @@ Popover::new(anchor.clone(), open.clone())
 
 | Builder | |
 | --- | --- |
-| `new(anchor, open)` | The element it is shown beside, and the app's `Signal<bool>` of whether it is shown |
+| `new(open, anchor)` | The app's `Signal<bool>` of whether it is shown, and the element it is shown beside |
 | `trigger(..)` | The button that opens and closes it: put before it, given the anchor, and pressed to turn the signal |
-| `title(&str)`, `description(&str)` | The header: what it is about, and under it what it is for. Without either there is no header |
+| `title(&str)`, `description(&str)` | The text: what it is about, and under it what it is for. Without either there is no text |
 | `child(..)`, `children(..)` | What it holds, one under another, as wide as the panel |
 | `placement(Placement)` | The side of the anchor it is on and the edge it lines up with. `BottomStart` by default |
 | `width(..)` | How wide the panel is, over the recipe's 292 |
-| `offset(..)` | How far it is from the anchor, along the side it is on: `SpacingSize::Xs` (4) by default |
+| `offset(x, y)` | How far it is moved, across and down, from where its placement puts it, as `Popup::offset` takes it. By default `SpacingSize::Xs` (4) away from the anchor, along the side it is on |
 | `collision(CollisionStrategy)` | What it does where there is no room on its side: `FlipThenClamp` by default |
+| `label(&str)`, `described(&str)`, `alert(bool)` | What tooling calls it (its title by default), what it is described by, and whether it is an `alertdialog` |
+| `on_dismiss(Fn())` | Runs after a person closed it by a press outside or Escape, not when the app sets the signal. Each handler given runs, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape, and a press outside it and its anchor, close it: both `true` by default |
+| `inline(bool)` | Draws the panel where it is declared, open or not, without its trigger and not over the window: for a gallery, a screenshot, a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
 
 - A title or a description longer than the panel wraps inside it.
@@ -898,10 +902,10 @@ Popover::new(anchor.clone(), open.clone())
 - The anchor is kept from one render to the next (a field of the component, `ctx.element_ref()`): one made anew in each render is not the one the focus goes back to.
 - It fades in over the theme's `Base` duration in the `Enter` curve, and out over `Fast` in the `Exit` curve (`PartStyle::enter`, `PartStyle::exit` on the root, `FADE_IN` and `FADE_OUT`). A fade is not movement, so reduced motion leaves it.
 - A theme given to a subtree reaches a popover declared in it.
-- Parts: `PopoverPart::Root` (the panel), `Header` (the title over the description), `Title`, `Description`, `Body` (what it holds). It has no states of its own.
-- In the design the panel is 292 wide in `Popover` and `PopoverForeground`, with an edge of 1 in `Border`, the `Lg` radius and the `Md` shadow, 16 of padding and 14 between the header and the body. The title is in the body's type at medium weight, the description in 13 and `MutedForeground`, 4 under it; what the body holds is 14 apart.
-- To what reads the tree the panel is a `dialog` called by its title.
-- A renderer builds the panel alone: where it is shown, when, its trigger and its focus stay the popover's. It starts from `view.panel()`, the panel with its style and nothing in it, and has `view.header()` and `view.children`.
+- Parts: `PopoverPart::Panel` (the panel), `Text` (the title over the description), `Title`, `Description`, `Body` (what it holds). It has no states of its own.
+- In the design the panel is 292 wide in `Popover` and `PopoverForeground`, with an edge of 1 in `Border`, the `Lg` radius and the `Md` shadow, 16 of padding and 14 between the text and the body. The title is in the body's type at medium weight, the description in 13 and `MutedForeground`, 4 under it; what the body holds is 14 apart.
+- To what reads the tree the panel is a `dialog` called by its label or its title.
+- A renderer builds the panel alone: where it is shown, when, its trigger and its focus stay the popover's. It starts from `view.panel()`, the panel with its style and nothing in it, and has `view.text()` and `view.children`.
 
 ## Menu
 
@@ -919,28 +923,34 @@ Row::new()
   .ref_element(anchor.clone())
   .child(Button::new("View").variant(ButtonVariant::Ghost).on_click(move |_| toggle.update(|open| *open = !*open)));
 
-Menu::new(anchor, open)
+Menu::new(open, anchor)
   .item(MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z").on_select(move || undo()))
   .item(MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true))
   .separator()
   .item(MenuItem::new("Show grid").checked(grid.get()).on_select(move || toggle_grid()))
   .separator()
-  .label("Zoom")
+  .heading("Zoom")
   .item(MenuItem::new("Fit to window").radio(zoom.get() == Zoom::Fit).on_select(move || fit()))
   .item(MenuItem::new("100%").radio(zoom.get() == Zoom::Actual).on_select(move || actual()))
   .separator()
   // export: ElementRef, exporting: Signal<bool>: the submenu hangs from its item.
-  .item(MenuItem::new("Export as").submenu(Menu::new(export, exporting).items(["PNG", "SVG", "PDF"].map(MenuItem::new))))
+  .item(MenuItem::new("Export as").submenu(Menu::new(exporting, export).items(["PNG", "SVG", "PDF"].map(MenuItem::new))))
   .item(MenuItem::new("Delete").icon(icons::TRASH).destructive(true).on_select(move || delete()));
 ```
 
 | `Menu` | |
 | --- | --- |
-| `new(anchor, open)` | What it hangs from (an `ElementRef`) and whether it is open: the app's `Signal<bool>`, or a `bool` that holds it open or closed |
+| `new(open, anchor)` | Whether it is open, the app's `Signal<bool>`, and what it hangs from (an `ElementRef`). Choosing an item, a press outside, Escape and Tab set the signal to `false` |
+| `controlled(open, anchor, on_open_change)` | A menu the app holds open itself, with a `bool`: a person closing it is told `false`, and what the app's next render says is drawn. `true` and a handler that does nothing hold it open, for a gallery or a test |
 | `item(MenuItem)`, `items(..)` | Commands, after what the menu holds already |
 | `separator()` | A line that ends one group of items and starts the next |
-| `label(&str)` | A text over the items after it: what they are about |
+| `heading(&str)` | A heading over the items after it: what they are about |
+| `label(&str)` | The menu's name to what reads the tree |
 | `placement(Placement)` | Where the panel opens beside its anchor, 4 from it. `BottomStart` by default, `RightStart` for a submenu |
+| `offset(x, y)`, `collision(CollisionStrategy)` | How far the panel stands from where its placement puts it, in place of the design's 4; and what it does where the window has no room on that side (`FlipThenClamp`, the other side, by default) |
+| `on_dismiss(Fn())` | A person closed it other than by a choice: Escape, a press outside it, Tab. Not the app setting the signal. Each handler is called, in order |
+| `on_open_change(Fn(bool))` | Told `false` when a person closes it, by a choice too. Each handler is called, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape and a press outside close it: both by default |
 | `inline(bool)` | The panel drawn where the menu is in the tree, open or not, and not over the window: for a gallery, a test, a list of commands in a page |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
 
@@ -949,23 +959,23 @@ Menu::new(anchor, open)
 | `icon(name)` | An icon before the label, by its name in the theme's set |
 | `shortcut(&str)` | The keys that do the same, written at the end: "Ctrl+Z". The item only shows them; the app binds the keys |
 | `checked(bool)` | Whether what it turns on is on: a check at its end |
-| `radio(bool)` | One of several of which one is chosen: a dot at the end of the chosen one |
+| `radio(bool)` | One of several of which one is selected: a dot at the end of the selected one |
 | `submenu(Menu)` | A menu the item opens beside it, with a chevron at its end. The submenu's anchor is given to the item |
 | `destructive(bool)` | It removes or cannot be undone: drawn in the destructive color, icon and all |
-| `on_select(handler)` | Called when it is chosen, before its menu closes |
+| `on_select(handler)` | Called when it is chosen, after its menu (and the menus it is in) closed, so that a handler that opens a dialog keeps the focus the dialog takes. Each handler is called, in order |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the item |
 
-- The menu does not keep whether it is open: the app does, in the signal it gives it, and the anchor's own handler opens it. Choosing an item calls the item's handler and sets the signal to `false`; a press outside the panel and Escape do too (the engine's `Popup`). Declare the menu always, open or not, beside its anchor: lurq then knows the anchor is its trigger.
+- The menu does not keep whether it is open: the app does, in the signal it gives it, and the anchor's own handler opens it. Choosing an item sets the signal to `false` and then calls the item's handler; a press outside the panel, Escape and Tab set it too (the engine's `Popup`). Declare the menu always, open or not, beside its anchor: lurq then knows the anchor is its trigger.
 - The keyboard: a menu opened from the keyboard (Enter or Space on its button) has its first item focused and lit; opened by the pointer it has the focus there too, unlit. Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Typing a letter goes to the item whose label starts with it, letters typed quickly to the one a word starts, the same letter again to the next. Enter or Space chooses the focused item; the arrows only move the focus. Escape, or choosing, closes it and gives the focus back to its button. Tab closes it, and every menu it hangs from, and goes on from its button to the next stop, as Tab in an open [select](#select) does (the panel is a [focus group](../focus-navigation/#focus-groups) of one stop).
 - The pointer and the keyboard are on one item: the pointer coming onto an item moves the focus there, and an arrow key moves the light off the item under a pointer that holds still.
 - Under the pointer or focused from the keyboard an item is highlighted: filled with `Highlight`, the board's `accent`. An item whose submenu is open stays highlighted.
 - A submenu opens beside its item, its first item level with it, under the pointer, on a press of the item, or on Right, Enter or Space while the item is focused, with the focus on its first item; the pointer on another item of the menu closes it, and so do Left and Escape while the focus is in it, giving the focus back to its item. Choosing in it closes it and every menu it hangs from, and gives the focus back to what opened the outermost, as choosing in the menu itself does. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
-- Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Label`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (checked, or the chosen radio), `Radio`, `Destructive`, `Disabled`, `Expanded` (its submenu is open).
+- Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Label`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (a checked item), `Selected` (the selected radio), `Radio`, `Destructive`, `Disabled`, `Open` (its submenu is open).
 - A menu is as wide as its widest item, and at least as wide as the design says; never as wide as the window. In the design the panel is at least 230 wide (a submenu 160) and, where the design has no longer label, at most 360: a label longer than that gives way with an ellipsis, and the shortcut, the check and the chevron keep their room and the 8 before them. The panel is in `Popover` with `PopoverForeground`, padded 4, with the large radius, an edge of 1 in `Border` and the medium shadow. An item is 32 tall, padded 8, with the small radius and 8 between what it holds: an icon of 16 in `MutedForeground`, the label in the body's type, and at the end the shortcut in the mono type at 11 in `MutedForeground`, the check or the dot of 16, and the chevron of 16 in `MutedForeground`. A separator is a line of 1 in `Border` with 4 above and below; a group's label is 11/600 in `MutedForeground`, 8 in from the side. A destructive item is in `Destructive`, its icon too; a disabled one is dimmed.
 - Its items follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch. A context menu's, a menubar's and a command palette's are menu items, and follow it with them.
 - To what reads the tree the panel is a `menu`; an item a `menuitem`, a `menuitemcheckbox` or a `menuitemradio` (these two with `a11y_checked`) called by its label; an item with a submenu has `a11y_haspopup` `menu` and `a11y_expanded`; a separator is a `separator`.
-- What a menu holds, in order, is a `MenuEntry`: `Item(MenuItem)`, `Separator`, or `Label(text)`, as `MenuView::entries` has them. A `MenuItem` converts into one with `.into()`, for a list that mixes items with separators and labels, as a [menubar](#menubar)'s `menu(title, entries)` takes.
-- A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.label(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()`, `view.label()`, `view.shortcut()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
+- What a menu holds, in order, is a `MenuEntry`: `Item(MenuItem)`, `Separator`, or `Heading(text)`, as `MenuView::entries` has them. A `MenuItem` converts into one with `.into()`, for a list that mixes items with separators and labels, as a [menubar](#menubar)'s `menu(title, entries)` takes.
+- A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.heading(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()`, `view.label()`, `view.shortcut()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
 
 ## Dialog
 
@@ -998,21 +1008,24 @@ Dialog::new(terms_open.clone())
 | `title(&str)`, `description(&str)` | What it asks, and more of it under the title. The title is what the dialog is called |
 | `child(element)`, `children(..)` | The body: a form, a list, paragraphs |
 | `footer(element)` | Adds to the row at the end of the dialog, the least action first and the main one last. The app puts `Button`s there |
-| `size(DialogSize)`, `width(f32)` | `Sm` 360, `Md` 480, `Lg` 640, `Full` the window; 420 without one. Never wider than the window |
+| `size(DialogSize)`, `width(impl Into<Length>)` | `Sm` 360, `Md` 480, `Lg` 640, `Full` the window; 420 without one, the board's, which is none of the steps. Never wider than the window |
 | `scrollable(bool)` | The body scrolls between a header and a footer that stay, each set off by a line |
-| `close_button(bool)` | A ghost button with the close icon at the end of the header |
+| `close_button(bool)`, `close_label(&str)` | A ghost button with the close icon at the end of the header, and what it is called to tooling: "Close" when not given |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Whether a press on the veil, and Escape, close it. Both on by default |
+| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, or Escape with the focus in it. A button of the app's that closes it does not run it. A second handler runs after the first |
+| `label(&str)` | What it is called to tooling, over its title: for a dialog whose title is drawn by what it holds. `described(&str)` is what it is described by |
+| `alert(bool)` | An `alertdialog` to tooling, and not a `dialog`: it asks something that has to be answered |
 | `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `key` tells two dialogs of one component apart |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the close button as under the pointer, pressed or focused; `id` is the panel's; `key` tells two dialogs of one component apart |
 
 - A title or a description longer than the panel wraps inside its padding, beside the close button where there is one; neither is cut.
 - It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`: declared anywhere, it takes no room there and covers the whole window while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it, the button that opened it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the dialog's own controls. A dialog or a [command palette](#command-palette) opened while it is open is over it, wherever either is declared: it takes the focus, the keys and the pointer, Escape closes it first, and as it closes the focus goes back into the dialog under it.
 - A press on the panel goes no further: only a press on the veil itself closes the dialog.
 - The panel is never larger than the window less the veil's margin of 16. A dialog is as high as its content while that fits, and its body gives way and scrolls when it does not, in either form; `style(DialogPart::Panel, |s| s.height(300.0))` gives it a height of its own.
-- Parts: `DialogPart::Veil`, `Panel`, `Header` (the heading and the close button), `Heading` (the title over the description), `Title`, `Description`, `Body`, `Footer`, `Close` (laid over the theme's button), `Separator` (the lines of a scrollable dialog). States: `DialogState::Scrollable`. Sizes: `DialogSize::Sm`, `Md`, `Lg`, `Full`.
-- In the design the panel is 420 wide in `Popover` with an edge of `Border`, corners of `radius-xl` and the `lg` shadow, padded 24 with 20 between its heading, its body and its footer; the veil is `Scrim`. The title is 16/600, the description 8 under it in 14 of `MutedForeground`, and the footer's buttons stand at its end 8 apart. The scrollable one has a header of 56 (its title 20 from the edge, the close button 12 from it), higher for a description under the title, and a footer of 60, the body padded 20 and 16 between them: the body is as high as what is in it, and scrolls when the window has no room for all of the dialog. The close button is 28 with an icon of 16.
-- To what reads the tree the panel is a `dialog` called by its title.
-- A renderer that draws another dialog builds its panel from `view.panel()`, the parts from `view.header()`, `view.body()`, `view.footer()`, `view.close()` and `view.separator()`, and lays it over the window with `view.modal(panel)`; `view.closer()` closes it.
+- Parts: `DialogPart::Veil`, `Panel`, `Header` (the text and the close button), `Text` (the title over the description), `Title`, `Description`, `Body`, `Footer`, `Close` (laid over the theme's button), `Separator` (the lines of a scrollable dialog). States: `DialogState::Scrollable`. Sizes: `DialogSize::Sm`, `Md`, `Lg`, `Full`.
+- In the design the panel is 420 wide in `Popover` with an edge of `Border`, corners of `radius-xl` and the `lg` shadow, padded 24 with 20 between its text, its body and its footer; the veil is `Scrim`. The title is 16/600, the description 8 under it in 14 of `MutedForeground`, and the footer's buttons stand at its end 8 apart. The scrollable one has a header of 56 (its title 20 from the edge, the close button 12 from it), higher for a description under the title, and a footer of 60, the body padded 20 and 16 between them: the body is as high as what is in it, and scrolls when the window has no room for all of the dialog. The close button is 28 with an icon of 16.
+- To what reads the tree the panel is a `dialog` called by its label or its title.
+- A renderer that draws another dialog builds its panel from `view.panel()`, the parts from `view.header()`, `view.text()`, `view.body()`, `view.footer()`, `view.close()` and `view.separator()`, and lays it over the window with `view.modal(panel)`; `view.closer()` closes it, and `view.dismisser()` closes it and runs what `on_dismiss` was given.
 
 ## Tooltip
 
@@ -2636,21 +2649,21 @@ Outcome::new(OutcomeVariant::NotFound, "Nothing here")
 A dialog that asks one question or says one thing and waits for the answer: replace a file, save the changes, delete projects.
 
 ```rust
-use lurq::ui::{MessageBox, MessageBoxKind, MessageBoxRole, icons};
+use lurq::ui::{MessageBox, MessageBoxRole, MessageBoxVariant, icons};
 
 MessageBox::new(open.clone())
-  .kind(MessageBoxKind::Warning)
+  .variant(MessageBoxVariant::Warning)
   .title("Replace existing file?")
-  .message("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
+  .description("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
   .checkbox("Don't ask again", again.clone())
   .answer("Cancel", MessageBoxRole::Cancel, || {})
   .answer("Replace", MessageBoxRole::Default, move || replace_file());
 
-// A question that cannot be undone: the focus goes to Cancel.
+// A question whose confirming answer cannot be undone: the focus goes to Cancel.
 MessageBox::new(open.clone())
   .icon(icons::TRASH)
   .title("Delete 3 projects?")
-  .message("This cannot be undone.")
+  .description("This cannot be undone.")
   .answer("Cancel", MessageBoxRole::Cancel, || {})
   .answer("Delete", MessageBoxRole::Destructive, move || delete_projects());
 ```
@@ -2658,24 +2671,26 @@ MessageBox::new(open.clone())
 | Builder | |
 | --- | --- |
 | `MessageBox::new(Signal<bool>)` | Shown while the signal holds `true`. The message box does not keep it: every answer sets it to `false` before what the answer does runs |
-| `kind(MessageBoxKind)` | `Information` (the default, `info`), `Question` (`help-circle`), `Warning` (`warning`), `Error` (`alert-circle`): the icon in the well and their colors. A theme may add kinds by name |
-| `icon(&str)` | An icon of the theme's set in place of the kind's: `trash` for a question that deletes |
-| `title(&str)`, `message(&str)` | What it asks or says, and more of it in the muted color. The title is what it is called, the message what describes it |
-| `detail(&str, Signal<bool>)` | A text behind "Details" under the message, open while the signal holds `true`; `detail_label(&str)` names the trigger |
+| `variant(MessageBoxVariant)` | `Info` (the default, `info`), `Question` (`help-circle`), `Warning` (`warning`), `Destructive` (`alert-circle`): the icon in the mark and their colors. A theme may add variants by name |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the variant's: `trash` for a question that deletes. `None` for no icon, and no mark |
+| `title(&str)`, `description(&str)` | What it asks or says, and more of it in the muted color. The title is what it is called, the description what describes it |
+| `label(&str)` | What it is called to tooling, over its title |
+| `detail(&str, Signal<bool>)` | A text behind "Details" under the description, open while the signal holds `true`; `detail_label(&str)` names the trigger |
 | `checkbox(&str, Signal<bool>)` | A checkbox at the start of the footer: "Don't ask again" |
 | `answer(&str, MessageBoxRole, handler)` | An answer. `Default`: filled, Enter gives it. `Cancel`: outlined, Escape and a press of the veil give it. `Destructive`: in the destructive fill. `Plain`: outlined, at the start of the footer |
-| `width(f32)` | A width of its own over the board's 400 |
+| `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)` | Whether Escape, and a press of the veil, give the cancel answer. Both on by default; with no cancel answer neither closes it |
+| `width(impl Into<Length>)` | A width of its own over the board's 400 |
 | `inline(bool)` | The panel where it is declared, without the veil: for a gallery, a screenshot, a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [dialog](#dialog) has them. `id` is the id of the panel |
 
-- It is a [dialog](#dialog): the veil, the focus going in as it opens and back as it closes, and Tab going round its controls are the dialog's. As it opens the focus goes to the default answer, or to the cancel one where an answer is destructive.
+- It is a [dialog](#dialog): the veil, the focus going in as it opens and back as it closes, and Tab going round its controls are the dialog's. As it opens the focus goes to the confirming answer (the default one, or else a destructive one) unless that answer is destructive, and then to the cancel one, the least destructive answer: Enter or Space does not confirm what cannot be undone. A [popconfirm](#popconfirm) asks by the same rule.
 - Enter gives the default answer wherever the focus is, on the checkbox too, unless it is on another button, which Enter presses. Escape and a press of the veil give the cancel answer where there is one and do nothing where there is none.
 - The plain answers stand at the start of the footer, after the checkbox, in their order; at its end the cancel answer stands first and the others after it, whatever order they were given in.
-- Parts: `MessageBoxPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Body`, `IconWell`, `Icon`, `Text`, `Title`, `Message`, `DetailTrigger`, `DetailIcon`, `DetailLabel`, `DetailPanel`, `Detail`, `Footer`, `Option`, `Checkbox` and `CheckboxLabel` (laid over the checkbox's root and label), `Actions`, and for each role a part laid over the button's root and one over its label: `DefaultButton`, `DefaultLabel`, `CancelButton`, `CancelLabel`, `DestructiveButton`, `DestructiveLabel`, `PlainButton`, `PlainLabel`. Variants: the kinds. States: `MessageBoxState::Destructive` (an answer is destructive: the icon in the destructive colors), `DetailOpen`.
+- Parts: `MessageBoxPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header` (the mark beside the text), `Mark`, `Icon`, `Text`, `Title`, `Description`, `DetailTrigger`, `DetailChevron`, `DetailLabel`, `DetailPanel`, `Detail`, `Footer`, `Option`, `Checkbox` and `CheckboxLabel` (laid over the checkbox's root and label), `Actions`, and for each role a part laid over the button's root and one over its label: `DefaultButton`, `DefaultLabel`, `CancelButton`, `CancelLabel`, `DestructiveButton`, `DestructiveLabel`, `PlainButton`, `PlainLabel`. Variants: `MessageBoxVariant`. States: `MessageBoxState::Destructive` (an answer is destructive: the icon in the destructive colors), `DetailOpen`.
 - So a theme gives the two buttons of a message box fonts or fills of their own without touching a button anywhere else: `theme.patch_recipe::<MessageBox>(|rules| rules.base(MessageBoxPart::DefaultLabel, |s| s.font_family("Georgia")).base(MessageBoxPart::CancelLabel, |s| s.font_family(FontFamily::Mono)))`.
-- In the design the panel is 400 wide, padded 20 with 16 between the body and the footer; the well is 36 and round, in the kind's muted color (`InfoMuted`, `Secondary` for a question, `WarningMuted`, `DestructiveMuted`), its icon 18 in the kind's color; the title is 15/600, 14 after the well, over the message of 13 in `MutedForeground`, 4 apart; the buttons are 32 high, padded 14, 8 apart; the checkbox's label is 13. "Details" is a chevron of 14 in the muted color 4 before its label of 13, and the detail opens 8 under it, in the mono type of 11 on the `Muted` fill, with its height over the theme's base duration.
-- To what reads the tree it is an `alertdialog` called by its title and described by its message.
-- A renderer that draws another message box (an iOS alert: the text in the middle, the answers as cells side by side) has the pieces: `view.content()` (with Enter), `view.title()`, `view.message()`, `view.find(role)`, `view.press(index)` (it closes the box and runs the answer), `view.button(index)` (the default renderer's button, which takes the focus first where it should), and `view.dialog(content)`, which puts what it built in the dialog with Escape, the veil and what tooling is told.
+- In the design the panel is 400 wide, padded 20 with 16 between the header and the footer; the mark is 36 and round, in the variant's muted color (`InfoMuted`, `Secondary` for a question, `WarningMuted`, `DestructiveMuted`), its icon 18 in the variant's color; the title is 15/600, 14 after the mark, over the description of 13 in `MutedForeground`, 4 apart; the buttons are 32 high, padded 14, 8 apart; the checkbox's label is 13. "Details" is a chevron of 14 in the muted color 4 before its label of 13, and the detail opens 8 under it, in the mono type of 11 on the `Muted` fill, with its height over the theme's base duration.
+- To what reads the tree it is an `alertdialog` called by its label or its title and described by its description.
+- A renderer that draws another message box (an iOS alert: the text in the middle, the answers as cells side by side) has the pieces: `view.content()` (with Enter), `view.header()`, `view.mark()`, `view.title()`, `view.description()`, `view.find(role)`, `view.press(index)` (it closes the box and runs the answer), `view.button(index)` (the default renderer's button, which takes the focus first where it should), and `view.dialog(content)`, which puts what it built in the dialog with Escape, the veil and what tooling is told.
 
 ## Popconfirm
 
@@ -2684,7 +2699,7 @@ A question in a small panel hung from what was pressed, answered by one of two b
 ```rust
 use lurq::ui::{Button, ButtonVariant, Popconfirm};
 
-Popconfirm::new(anchor.clone(), open.clone())
+Popconfirm::new(open.clone(), anchor.clone())
   .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
   .title("Delete this file?")
   .description("It will be moved to the trash.")
@@ -2695,22 +2710,27 @@ Popconfirm::new(anchor.clone(), open.clone())
 
 | Builder | |
 | --- | --- |
-| `Popconfirm::new(anchor, Signal<bool>)` | Hung from `anchor`, shown while the signal holds `true`. Keep the anchor from one render to the next, as for a [popover](#popover) |
+| `Popconfirm::new(Signal<bool>, anchor)` | Shown while the signal holds `true`, hung from `anchor`. Keep the anchor from one render to the next, as for a [popover](#popover) |
 | `trigger(element)` | A button that asks: it is the anchor, and a press of it turns the signal |
 | `title(&str)`, `description(&str)` | The question, and more of it in the muted color |
-| `icon(&str)` | An icon of the theme's set before the title, in place of the warning sign |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set before the title, in place of the warning sign, or `None` for no icon |
 | `confirm(&str, handler)`, `cancel(&str, handler)` | The two buttons: their labels ("Yes" and "No" when not given) and what each runs after it closes the popconfirm. Escape and a press outside run the cancel one |
-| `destructive(bool)` | The confirm button and the icon in the destructive color |
-| `placement(Placement)`, `offset(..)` | Where it is beside its anchor: under it at its start, 4 from it, by default |
+| `destructive(bool)` | The confirm button and the icon in the destructive color, and the focus on the cancel button as it opens |
+| `placement(Placement)`, `offset(x, y)`, `collision(CollisionStrategy)` | Where it is beside its anchor, as a [popover](#popover) has them: under it at its start, 4 from it, by default |
+| `width(..)` | How wide the panel is, over the recipe's 250 |
+| `label(&str)` | What tooling calls it: its title by default |
+| `on_dismiss(Fn())` | Runs after a person closed it by Escape or a press outside, after what the cancel button runs; not on a press of either button, nor when the app sets the signal. Each handler given runs, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape, and a press outside it and its anchor, close it and cancel: both `true` by default |
+| `inline(bool)` | Draws the panel where it is declared, open or not, without its trigger: for a gallery, a screenshot, a test. Its buttons still answer |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of the panel |
 
-- The title and the description wrap. Buttons too long to stand side by side go one under the other, the confirm button under the cancel one, both at the end. A button's label is not cut: a label wider than the panel runs past it.
-- It is a [popover](#popover): kept in the window, gone to the other side where there is no room, the focus back on the anchor as it closes. As it opens the focus goes to the cancel button, so that Enter or Space does not confirm what was not read.
-- Escape and a press outside close it and run what the cancel button runs.
-- Parts: `PopconfirmPart::Panel` and `Body` (laid over the popover's root and body), `Content`, `Message`, `Icon`, `Text`, `Title`, `Description`, `Actions`, `CancelButton`, `CancelLabel`, `ConfirmButton`, `ConfirmLabel`. States: `PopconfirmState::Destructive`.
-- In the design the panel is 250 wide, padded 12 with 12 between the message and the buttons, in the popover's colors, edge, large radius and medium shadow; the icon is the warning sign of 16 in `Warning`, 8 before the title of 13/500 over the description of 12 in `MutedForeground`, 2 apart; the buttons are 28 high, padded 10, their labels 13, 8 apart at the end.
-- To what reads the tree it is an `alertdialog` called by its title and described by its description.
-- A theme's renderer builds what the panel holds from `PopconfirmView` (`message()`, `cancel()`, `confirm()`, `actions()`, `content()` with Escape, `confirmer()`, `canceller()`); where the panel is shown, and when, stays the popover's.
+- The title and the description wrap. Buttons too long to stand side by side go one under the other, the confirm button under the cancel one, both at the end. A button's label wider than the panel is cut with an ellipsis inside it.
+- It is a [popover](#popover): kept in the window, gone to the other side where there is no room, the focus back on the anchor as it closes. As it opens the focus goes to the confirm button; where it is destructive, to the cancel button, the least destructive answer, so that Enter or Space does not remove what was not read. A message box puts the focus by the same rule.
+- Escape and a press outside close it and run what the cancel button runs, then what `on_dismiss` was given. A button closes it before its handler runs.
+- Parts: `PopconfirmPart::Panel` and `Body` (laid over the popover's panel and body), `Content`, `Header` (the row of the icon and the text), `Icon`, `Text`, `Title`, `Description`, `Footer` (the row of the buttons), `CancelButton`, `CancelLabel`, `ConfirmButton`, `ConfirmLabel`. States: `PopconfirmState::Destructive`.
+- In the design the panel is 250 wide, padded 12 with 12 between the header and the buttons, in the popover's colors, edge, large radius and medium shadow; the icon is the warning sign of 16 in `Warning`, 8 before the title of 13/500 over the description of 12 in `MutedForeground`, 2 apart; the buttons are 28 high, padded 10, their labels 13, 8 apart at the end.
+- To what reads the tree it is an `alertdialog` called by its label or its title and described by its description.
+- A theme's renderer builds what the panel holds from `PopconfirmView` (`header()`, `cancel()`, `confirm()`, `footer()`, `content()` with Escape, `confirmer()`, `canceller()`, `dismisser()`); where the panel is shown, and when, stays the popover's.
 
 ## Progress Dialog
 
@@ -2722,33 +2742,34 @@ use lurq::ui::{ProgressDialog, icons};
 ProgressDialog::new(open.clone())
   .icon(icons::COPY)
   .title("Copying 128 items")
-  .message("from Downloads to projects/lurq/assets")
+  .description("from Downloads to projects/lurq/assets")
   .value(copied.get())
   .max(128.0)
   .format(|done, all| format!("{done} of {all}"))
   .status("about 2 min left")
   .detail(&current_file.get(), details.clone())
-  .action("Pause", move || pause())
+  .button("Pause", move || pause())
   .on_cancel(move || stop());
 ```
 
 | Builder | |
 | --- | --- |
 | `ProgressDialog::new(Signal<bool>)` | Shown while the signal holds `true`. It closes when the app sets it to `false`: Escape and a press of the veil do not close it |
-| `icon(&str)`, `title(&str)`, `message(&str)` | What kind of work it is, what is being done (what it is called), and a line more of it in the muted color |
+| `icon(&str)`, `title(&str)`, `description(&str)` | What kind of work it is, what is being done (what it is called), and a line more of it in the muted color |
+| `label(&str)` | What it is called to tooling, over its title |
 | `value(f64)`, `max(f64)` | How far the work is, a fraction of one unless `max` says otherwise. Without a value its end is not known, and the bar runs a segment across it |
 | `format(Fn(f32, f32) -> String)` | Says how much is done under the start of the bar: "42 of 128". A percentage when not given |
 | `status(&str)` | What the app says of the rest, under the end of the bar |
 | `detail(&str, Signal<bool>)` | A text behind "Details" at the start of the footer, open under the footer while the signal holds `true`; `detail_label(&str)` names the trigger |
-| `action(&str, handler)` | A button before the cancel one: "Pause". It does not close the dialog |
-| `on_cancel(handler)`, `cancel_label(&str)` | A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog: the app does once the work has stopped |
-| `width(f32)`, `inline(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [message box](#message-box) has them |
+| `button(&str, handler)` | Adds a button before the cancel one: "Pause". It does not close the dialog |
+| `on_cancel(handler)`, `cancel_label(&str)` | A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog: the app does once the work has stopped. A second handler runs after the first |
+| `width(impl Into<Length>)`, `inline(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [message box](#message-box) has them |
 
-- The title and the message wrap. The count is never cut; a status longer than what the count leaves is cut with an ellipsis on one line.
+- The title and the description wrap. The count is never cut; a status longer than what the count leaves is cut with an ellipsis on one line.
 - It is a [dialog](#dialog) with its veil, its focus and its Tab, which nothing but the app closes.
-- Parts: `ProgressDialogPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header`, `Icon`, `Text`, `Title`, `Message`, `Progress` (laid over the [progress](#progress)'s root), `Meta`, `Count`, `Status`, `Footer`, `DetailTrigger`, `DetailIcon`, `DetailLabel`, `DetailPanel`, `Detail`, `Actions`, `ActionButton`, `ActionLabel`, `CancelButton`, `CancelLabel`. States: `ProgressDialogState::Indeterminate`, `DetailOpen`.
-- In the design the panel is 420 wide, padded 20 with 12 between its parts; the icon is 20, 12 before the title of 15/600 over the message of 12 in `MutedForeground`, 2 apart; the bar is the progress's of 6 across the panel; what is done and what is left are in the mono type of 11 in `MutedForeground`; the footer, 4 further down, has "Details" at its start and the outlined buttons of 32, padded 14, 8 apart, at its end.
-- To what reads the tree it is a `dialog` called by its title and described by its message, with the `progressbar` in it.
+- Parts: `ProgressDialogPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header`, `Icon`, `Text`, `Title`, `Description`, `Progress` (laid over the [progress](#progress)'s root), `Meta`, `Count`, `Status`, `Footer`, `DetailTrigger`, `DetailChevron`, `DetailLabel`, `DetailPanel`, `Detail`, `Actions`, `ActionButton`, `ActionLabel`, `CancelButton`, `CancelLabel`. States: `ProgressDialogState::Indeterminate`, `DetailOpen`.
+- In the design the panel is 420 wide, padded 20 with 12 between its parts; the icon is 20, 12 before the title of 15/600 over the description of 12 in `MutedForeground`, 2 apart; the bar is the progress's of 6 across the panel; what is done and what is left are in the mono type of 11 in `MutedForeground`; the footer, 4 further down, has "Details" at its start and the outlined buttons of 32, padded 14, 8 apart, at its end.
+- To what reads the tree it is a `dialog` called by its label or its title and described by its description, with the `progressbar` in it.
 
 ## Sheet
 
@@ -2791,25 +2812,26 @@ Sheet::new(goal_open.clone())
 | `label(&str)` | What the sheet is called to tooling where it has no title |
 | `child(element)`, `children(..)` | The body, which scrolls between the header and the footer |
 | `footer(element)` | Adds to the footer, the least action first and the main one last: a row at the panel's end under a line, or at the bottom a column of buttons as wide as the sheet with the main one on top |
-| `close_button(bool)` | A ghost button with the close icon at the end of the header |
+| `close_button(bool)`, `close_label(&str)` | A ghost button with the close icon at the end of the header, and what it is called to tooling: "Close" when not given |
 | `grabber(bool)` | The handle at the top. A sheet at the bottom has it unless told otherwise |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Whether a press on the veil (and, mounted, a drag down), and Escape, close it. Both on by default |
-| `detents([SheetDetent])`, `detent(Signal<usize>)`, `scroll(ScrollState)` | For a mounted sheet at the bottom: the heights it stands at, which it is at, and the body's scrolling, which hands a finger to the sheet once the body is at its top |
-| `body_scrolls(bool)` | Whether the body scrolls. It does unless told; one that does not is laid out in the room the panel has for it, at a side the panel's height less the header and the footer, for what holds a scroll of its own. A drawer over the page with `scroll(false)` gives its sheet this |
+| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, or Escape with the focus in it. A button of the app's that closes it does not run it, nor a finger that drags a mounted sheet down or taps beside it (the engine's sheet closes it itself). A second handler runs after the first |
+| `detents([SheetDetent])`, `detent(Signal<usize>)`, `scroll_state(ScrollState)` | For a mounted sheet at the bottom: the heights it stands at, which it is at, and the body's scrolling, which hands a finger to the sheet once the body is at its top |
+| `body_scrolls(bool)` | Whether the body scrolls. It does unless told; one that does not is laid out in the room the panel has for it, at a side the panel's height less the header and the footer, for what holds a scroll of its own. A drawer over the page with `body_scrolls(false)` gives its sheet this |
 | `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
 | `mount(ctx)` | At the bottom, the engine's draggable `Sheet` in this look; at another edge, the same as converting it |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `key` tells two sheets of one component apart |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the close button as under the pointer, pressed or focused; `id` is the panel's; `key` tells two sheets of one component apart |
 
 - A title or a description longer than the panel wraps inside its padding on every side, centered where the sheet stands at the bottom and the top; neither is cut. A [drawer](#drawer) over the page is a sheet, and wraps the same.
 - It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`, as a [dialog](#dialog) is: declared anywhere, it takes no room there and covers the window under the window's own title bar while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the sheet's own controls. A press on the panel goes no further.
 - It slides in from its edge over the theme's slow duration in the entering curve as the veil fades in, and out to it over the base duration in the leaving curve: keyframes that move the panel by its own width or height (`ui::SHEET_IN_FROM_START` .. `ui::SHEET_OUT_TO_BOTTOM`). With motion reduced (`Theme::reduced_motion`, state `Modal` with `ReducedMotion`) it fades where it stands.
 - At the start and the end the body takes the room the header and the footer leave, so the footer stands at the panel's bottom; at the top and the bottom the sheet is as high as what it holds while that fits, and the body gives way and scrolls when it does not.
 - `mount(ctx)` puts a sheet at the bottom on the engine's [sheet](../modals/#sheets): a finger drags it between its `detents` (or the height its size gives it, or its content's) and throws it down to close it, it rises over the on-screen keyboard and keeps clear of a phone's edges, and it comes up with a spring. The engine lays out the panel and the backdrop; the recipe's `Panel` and `Veil` dress them (`SheetProps::dress`), and what the panel holds is the sheet's. A theme's renderer builds the sheet that is converted, not the mounted one, which is made of the view's parts.
-- Parts: `SheetPart::Veil`, `Panel`, `Grabber` (the strip at the top of a bottom sheet), `Handle` (its bar), `Header`, `Heading`, `Title`, `Description`, `Body`, `Footer`, `Close` (a [button](#button) restyled), `Separator` (the [separator](#separator) over the footer, restyled). Variants: `SheetSide`. Sizes: `SheetSize`. States: `SheetState::Modal` (over the window, not inline), `ReducedMotion`.
-- In the design a sheet at a side is in `Background` with a line of 1 in `Border` along the edge it shows the page and the large shadow. The header is padded 20 at the top and the sides, the title 16/600 in `Foreground` over the description in 13 `MutedForeground`, 4 apart, the close button's icon of 16 in `MutedForeground` at its end; the body is padded 20 with 16 between what it holds; the footer is padded 16 and 20, its buttons 8 apart at the end, under a line of `Border`. At the top the line is along its bottom. At the bottom it is the board's drawer: a line all round, corners of `radius-xl` (12) at its top, a handle of 40 by 4 in `Muted` 8 under its top edge, the heading in the middle 20 under it, and its buttons as wide as it, 8 apart, 20 from the edges. The veil is `Scrim`.
+- Parts: `SheetPart::Veil`, `Panel`, `Grabber` (the strip at the top of a bottom sheet), `Handle` (its bar), `Header` (the text and the close button), `Text` (the title over the description), `Title`, `Description`, `Body`, `Footer`, `Close` (a [button](#button) restyled), `Separator` (the [separator](#separator) over the footer, restyled). Variants: `SheetSide`. Sizes: `SheetSize`. States: `SheetState::Modal` (over the window, not inline), `ReducedMotion`.
+- In the design a sheet at a side is in `Background` with a line of 1 in `Border` along the edge it shows the page and the large shadow. The header is padded 20 at the top and the sides, the title 16/600 in `Foreground` over the description in 13 `MutedForeground`, 4 apart, the close button's icon of 16 in `MutedForeground` at its end; the body is padded 20 with 16 between what it holds; the footer is padded 16 and 20, its buttons 8 apart at the end, under a line of `Border`. At the top the line is along its bottom. At the bottom it is the board's drawer: a line all round, corners of `radius-xl` (12) at its top, a handle of 40 by 4 in `Muted` 8 under its top edge, the text in the middle 20 under it, and its buttons as wide as it, 8 apart, 20 from the edges. The veil is `Scrim`.
 - The board's phone and tablet sheets are the same parts restyled: the phone's bottom sheet a panel of 360 round 20 at its top with a handle of 36 in `Input`, its title 18 and its description 14, padded 16; the tablet's form sheet a panel of 520 by 360 round 16 with an edge all round. The gallery's page has them.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the panel is a `dialog` called by its title, or by its label.
-- A renderer that draws another sheet has `view.panel()`, `view.grabber()`, `view.heading()`, `view.close()`, `view.header()`, `view.body()`, `view.footer()`, `view.separator()`, `view.contents()` (all of them in order), `view.veil(panel)` and `view.modal(panel)`.
+- A renderer that draws another sheet has `view.panel()`, `view.grabber()`, `view.text()`, `view.close()`, `view.header()`, `view.body()`, `view.footer()`, `view.separator()`, `view.contents()` (all of them in order), `view.veil(panel)` and `view.modal(panel)`.
 
 ## Drawer
 
@@ -2836,10 +2858,12 @@ Drawer::new(open.clone()).label("Navigation").overlay(narrow).children(places);
 | `side(SheetSide)` | The side of the layout it stands at: `Start` (the default) and `End` open with its width, `Top` and `Bottom` with the height of what it holds |
 | `label(&str)` | What it is called to tooling |
 | `child(element)`, `children(..)` | What it holds, which scrolls where it is too small |
-| `width(f32)`, `height(f32)` | A width of its own at a side (300 without one), a height of its own at the top or the bottom |
+| `width(impl Into<Length>)`, `height(impl Into<Length>)` | A width of its own at a side (300 without one), a height of its own at the top or the bottom |
 | `overlay(bool)` | Over the page with a veil, as a [sheet](#sheet) at its edge, rather than beside it: for a window too narrow to push the page aside |
-| `scroll(bool)` | Whether what it holds scrolls where it is too small. It does unless told; what does not is laid out at the panel's height, beside the page and over it, for what holds a scroll of its own with something that stays beside it: a [sidebar](#sidebar) with its header and its footer |
+| `body_scrolls(bool)` | Whether what it holds scrolls where it is too small. It does unless told; what does not is laid out at the panel's height, beside the page and over it, for what holds a scroll of its own with something that stays beside it: a [sidebar](#sidebar) with its header and its footer |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Over the page, whether a press on the veil, and Escape, close it. Both on by default |
+| `on_dismiss(Fn())` | Over the page, runs after a person closed it by the veil or Escape, as a [sheet](#sheet)'s does. A second handler runs after the first |
+| `inline(bool)` | Over the page, its panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test. A drawer beside the page is where it is declared already |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
 
 - It is declared in the layout where it stands, at the start or the end of a row or the top or the bottom of a column. As it opens its room grows from nothing to the panel's over the theme's slow duration and pushes the page aside, and the panel, which keeps its size, comes out from the layout's edge and fades in; as it closes the room closes over it as it fades out, and what it held is gone, so that Tab does not reach it. With motion reduced it opens and closes at once.
@@ -3005,12 +3029,13 @@ CommandPalette::new(open.clone())
     CommandItem::new("Open DevTools").icon(icons::TERMINAL).shortcut("F12").on_select(devtools),
   ])
   .group("Files", files.iter().map(|file| CommandItem::new(&file.name).icon(icons::FILE).detail(&file.folder)))
-  .footer(true);
+  .label("Commands")
+  .key_hints(true);
 
 // Commands an app fetches as a person types: it keeps every one it was given.
 CommandPalette::new(open.clone())
   .query(query.clone())
-  .on_input(move |typed| fetched.set(search(typed)))
+  .on_query(move |typed| fetched.set(search(typed)))
   .filter(|_, _| true)
   .loading(searching.get())
   .items(fetched.get().iter().map(|hit| CommandItem::new(&hit.title)));
@@ -3023,17 +3048,20 @@ CommandPalette::new(open.clone())
 | `item(CommandItem)`, `items(..)` | Commands with no group |
 | `group(&str, items)` | Commands under a label: "Suggestions". A group with nothing shown for what is typed is not shown |
 | `filter(Fn(&CommandItem, &str) -> bool)` | Which commands are shown while something is typed. By default (`matches_every_word`) those whose label, detail or keywords hold every word typed, without regard to case, in the order the app gave them |
-| `on_input(Fn(&str))` | Called with what the input will hold at each edit: for an app that fetches its commands |
+| `on_query(Fn(&str))` | Called with what the input will hold at each edit: for an app that fetches its commands. Each handler is called, in order |
 | `query(Signal<String>)` | Where the app keeps what is typed. Without one the palette keeps it while it is open, and it is empty when it opens again |
-| `loading(bool)` | The list ends with a spinner and "Loading…" |
-| `empty(&str)` | What the list says when nothing is found: "No results" |
-| `footer(bool)` | A row at the bottom, under a line, of the keys that work in it: ↑ ↓ to move, ↵ to run, Esc to close |
+| `loading(bool)`, `loading_text(&str)` | The list ends with a spinner and what `loading_text` says: "Loading…" |
+| `empty_text(&str)` | What the list says when nothing is found: "No results" |
+| `key_hints(bool)` | A row at the bottom, under a line, of the keys that work in it: ↑ ↓ to move, ↵ to run, Esc to close |
+| `label(&str)` | Its name to what reads the tree: what its input says, unless told |
+| `on_dismiss(Fn())` | A person closed it other than by a command: Escape on an empty input, a press on the veil. Each handler is called, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)` | Whether Escape on an empty input and a press on the veil close it: both by default. Off, Escape still clears what is typed |
 | `inline(bool)` | The panel drawn where it is declared, open or not, without the veil: for a gallery or a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
 | `CommandItem::new(label)` | A command: what it does, or where it goes |
 | `icon(name)`, `detail(&str)`, `shortcut(&str)` | An icon of 16 before the label; a second text after it, muted; the keys that do the same at the end, as a [menu](#menu) writes them (the app binds them) |
 | `keywords([..])` | Words that find it and are not shown |
-| `disabled(bool)`, `on_select(Fn())`, `id`, `key` | Dimmed, and passed by; called when it is run, before the palette closes; the row's id and key |
+| `disabled(bool)`, `on_select(Fn())`, `id`, `key` | Dimmed, and passed by; called when it is run, after the palette closed; the row's id and key |
 
 - It stands near the top of the window over the veil, as the engine's `Modal`: the focus goes to its input as it opens and back to what had it as it closes, and Tab stays inside it, as a [dialog](#dialog)'s does.
 - The focus stays in the input. Down and Up move the highlight through the rows that are shown, across groups and round at the ends, past a disabled one, and scroll the list to it; the pointer moves it too, and a row shows it as a menu item shows the keyboard's focus. Enter runs the highlighted command and closes the palette; a click on a row does the same. Escape clears what was typed, and closes the palette when nothing is. Typing puts the highlight on the first row it shows.
@@ -3041,7 +3069,7 @@ CommandPalette::new(open.clone())
 - Parts: `CommandPalettePart::Veil`, `Panel`, `Search` (the row at the top), `SearchIcon`, `Input` (laid over the theme's input), `Key` (laid over the [Kbd](#kbd) key of the search row's Escape and of the footer), `Results` (what scrolls: its most height), `List` (the room around the rows), `GroupLabel`, `Row` (laid over a menu item's root), `Detail`, `Empty`, `Status`, `Footer`, `FooterHint`. The rows are a [menu](#menu)'s items: a theme's rules for `MenuItem` style them too. States: `CommandPaletteState::Loading`, `Empty`.
 - In the design the panel is 420 wide on `Popover` in an edge of 1 in `Border`, `radius-xl`, the large shadow, 72 from the top of the window over `Scrim`. The search row is 44 high, 14 in, with 10 between the magnifier of 16 in `MutedForeground`, the input in the body's type (no edge or fill of its own) and the key, and a line of `Border` under it. The list is padded 4 and scrolls past 320; a group's label is 12/500 in `MutedForeground`, padded 6 and 8; a row is a menu item, 32 high on `Highlight` while it is highlighted. The keys are the theme's [Kbd](#kbd), in the platform's names (`Enter` is ↩ on a Mac), and a row's shortcut is a Kbd's plain text, as a menu writes it, with the menu item's `Shortcut` part laid over its label.
 - Its rows, a menu's items, follow the [density](../theme/#density) as a menu's do: 24, 32, 40 and 44 high, and the status row with them. The search row and the footer keep their heights.
-- A renderer that draws another palette has `view.panel()`, `view.search()`, `view.input()`, `view.key(label)`, `view.results()`, `view.group_label(label)`, `view.row(index)`, `view.empty_state()`, `view.status()`, `view.footer_row()`, `view.veil(panel)` and `view.modal(panel)`, with `view.shown()`, `view.command(index)` and `view.highlighted`.
+- A renderer that draws another palette has `view.panel()`, `view.search()`, `view.input()`, `view.key(label)`, `view.results()`, `view.group_label(label)`, `view.row(index)`, `view.empty_state()`, `view.status()`, `view.footer_row()` (the key hints), `view.veil(panel)` and `view.modal(panel)`, with `view.shown()`, `view.command(index)` and `view.highlighted`.
 
 ## Context Menu
 
@@ -3050,23 +3078,27 @@ A [menu](#menu) of what can be done with an element, opened where the element is
 ```rust
 use lurq::ui::{ContextMenu, MenuItem, icons};
 
-ContextMenu::new(file_row, open.clone())
+ContextMenu::new(open.clone(), file_row)
   .item(MenuItem::new("Open").icon(icons::FOLDER_OPEN).on_select(open_file))
   .item(MenuItem::new("Rename").icon(icons::PENCIL).shortcut("F2").on_select(rename))
   .separator()
   .item(MenuItem::new("Delete").icon(icons::TRASH).destructive(true).on_select(delete));
 
 // The board's edit menu: the commands of selected text in one row.
-ContextMenu::new(editor, editing.clone())
+ContextMenu::new(editing.clone(), editor)
   .bar(true)
   .items(["Cut", "Copy", "Paste", "Select All"].map(MenuItem::new));
 ```
 
 | Builder | |
 | --- | --- |
-| `ContextMenu::new(target, open)` | The element the menu is for, which lays out as it would without it, and the app's `Signal<bool>`: what asks for the menu sets it, and choosing an item, a press outside and Escape clear it |
-| `item(MenuItem)`, `items(..)`, `separator()`, `label(&str)` | As a [menu](#menu) has them: icons, shortcuts, checks, radios, submenus, a destructive item |
-| `bar(bool)` | The commands in one row, as the board's edit menu over selected text has them. Left and Right move between them; a separator is a line down the row, and a label is left out |
+| `ContextMenu::new(open, target)` | The app's `Signal<bool>`, and the element the menu is for, which lays out as it would without it: what asks for the menu sets the signal, and choosing an item, a press outside, Escape and Tab clear it |
+| `item(MenuItem)`, `items(..)`, `separator()`, `heading(&str)` | As a [menu](#menu) has them: icons, shortcuts, checks, radios, submenus, a destructive item |
+| `label(&str)` | The menu's name to what reads the tree: what it is the menu of |
+| `inline(bool)` | The panel drawn in place of its element, open or not, and not over the window: for a gallery or a test |
+| `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | As a [menu](#menu) has them |
+| `offset(x, y)`, `collision(CollisionStrategy)` | How far its corner stands from the point it was asked for, and what it does where the window has no room there (opens up or back, by default) |
+| `bar(bool)` | The commands in one row, as the board's edit menu over selected text has them. Left and Right move between them; a separator is a line down the row, and a heading is left out |
 | `disabled(bool)` | The element has no menu now |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
 
@@ -3164,45 +3196,51 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 The menus of an app in a row, File, Edit, View, each opened from its title, as the title bar of a window holds them on Windows and Linux.
 
 ```rust
-use lurq::ui::{Menu, MenuEntry, MenuItem, Menubar, icons};
+use lurq::ui::{Menu, MenuEntry, MenuItem, Menubar, MenubarMenu, icons};
 
 // open: Signal<Option<usize>>, the menu open now; export: ElementRef, exporting: Signal<bool> for a submenu.
 Menubar::new(open)
-  .menu("File", [
+  .label("Application")
+  .menu(MenubarMenu::new("File", [
     MenuItem::new("New").icon(icons::FILE).shortcut("Ctrl+N").on_select(move || new_file()).into(),
     MenuItem::new("Open…").shortcut("Ctrl+O").on_select(move || open_file()).into(),
     MenuEntry::Separator,
-    MenuItem::new("Export as").submenu(Menu::new(export, exporting).items(["PNG", "SVG", "PDF"].map(MenuItem::new))).into(),
+    MenuItem::new("Export as").submenu(Menu::new(exporting, export).items(["PNG", "SVG", "PDF"].map(MenuItem::new))).into(),
     MenuEntry::Separator,
     MenuItem::new("Quit").shortcut("Ctrl+Q").on_select(move || quit()).into(),
-  ])
-  .menu("Edit", [
+  ]))
+  .menu(MenubarMenu::new("Edit", [
     MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z").on_select(move || undo()),
     MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true),
-  ])
-  .menu("View", [MenuItem::new("Show grid").checked(grid.get()).on_select(move || toggle_grid())])
-  .menu("Help", [MenuItem::new("About")])
-  .title_disabled("Help", !online.get());
+  ]))
+  .menu(MenubarMenu::new("View", [MenuItem::new("Show grid").checked(grid.get()).on_select(move || toggle_grid())]))
+  .menu(MenubarMenu::new("Help", [MenuItem::new("About")]).disabled(!online.get()));
 ```
 
 | `Menubar` | |
 | --- | --- |
-| `new(open)` | Which menu is open, by its index among the bar's: the app's `Signal<Option<usize>>`. A press of a title sets it; choosing an item, a press outside and Escape set it to `None`; the app may set it too |
-| `menu(title, entries)` | A menu called `title`, after the bar's others, holding [menu](#menu) items: `MenuItem`s, with `MenuEntry::Separator` and `MenuEntry::Label` between them (`.into()` each where the list mixes them) |
-| `title_disabled(title, bool)` | The menu of that title cannot be opened: its title is dimmed, and the pointer, the arrows and Alt pass it by |
+| `new(open)` | Which menu is open, by its index among the bar's: the app's `Signal<Option<usize>>`. A press of an item sets it; choosing in a menu, a press outside, Escape and Tab set it to `None`; the app may set it too |
+| `menu(MenubarMenu)`, `menus(..)` | Menus, after the bar's others |
+| `label(&str)` | The bar's name to what reads the tree |
 | `disabled(bool)` | No menu of the bar can be opened |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first title that is not disabled, the one Tab stops on. `id` is the bar's; its titles are `{id}-0`, `{id}-1` and on, and each menu's panel `{id}-0-menu` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first item that is not disabled, the one Tab stops on. `id` is the bar's; its items are `{id}-0`, `{id}-1` and on, and each menu's panel `{id}-0-menu` |
 
-- Its menus are [menus](#menu), with all their items have: icons, shortcuts, checks, radio items, submenus, disabled and destructive items, separators and labels. One is open at a time.
+| `MenubarMenu` | |
+| --- | --- |
+| `new(title, entries)` | A menu called `title` holding [menu](#menu) items: `MenuItem`s, with `MenuEntry::Separator` and `MenuEntry::Heading` between them (`.into()` each where the list mixes them). Its panel is called by its title to what reads the tree |
+| `disabled(bool)` | The menu cannot be opened: its item is dimmed, and the pointer, the arrows and Alt pass it by |
+| `id`, `key` | The id and key of its item on the bar, in place of `{id}-{index}`; its panel is `{id}-menu` |
+
+- Its menus are [menus](#menu), with all their items have: icons, shortcuts, checks, radio items, submenus, disabled and destructive items, separators and headings. One is open at a time.
 - The pointer: a press of a title opens its menu, and a press of it again closes it. While a menu is open the pointer coming onto another title opens that one, with no press. Choosing an item, a press outside and Escape close the menu.
 - The keyboard: the bar is one stop of Tab (a [focus group](../focus-navigation/#focus-groups) of one stop). Left and Right move between the titles and go round at the ends, a letter goes to the title that starts with it, and a disabled title is passed by. Down, Enter and Space open the focused title's menu with the focus on its first item, Up on its last that can be chosen. In an open menu Left and Right close it and open the menu beside it, at its first item: Left in a submenu closes the submenu first, Right on an item with a submenu opens it, and Right on one without goes to the next title from a submenu too. Escape closes the menu and gives the focus back to its title.
 - Alt: pressed and let go alone, Alt puts the focus on the first title and underlines the first letter of each title; Alt alone again gives the focus back to what had it, closing a menu that was open. The letters show while Alt is held down too. Alt with a title's first letter opens its menu from wherever the focus is, and from a menu of the bar opens the other; several titles with one first letter are gone round. On a Mac, where Option with a letter types a character and the app's menus are the system's, Alt does neither.
 - Under the pointer, focused from the keyboard, or with its menu open, a title is filled with `Highlight`, the board's `accent`. In the design the bar is 36 tall in `Background`, padded 4, with the medium radius and an edge of 1 in `Border`, its titles 2 apart; a title is 28 tall, padded 10 at its sides, with the small radius, its text 13/500 in `Foreground`. A disabled title is dimmed. A menu opens under its title from its start, 4 below it.
 - The engine's part is `FocusGroup::menu_row(true)`, which the bar's row has: a row of elements each of which opens a menu hung from it when it is pressed. While one of those menus has the focus, the Left and Right that nothing in the menu takes close it, with the menus opened from it, and press the element beside it; Alt with a letter and Alt alone act on the first such row of the window. A bar of your own, of buttons and [menus](#menu), gets the same keys from it.
 - The bar keeps, for the signal it is given, a signal for each menu kept as one with the app's, the anchor each menu hangs from, and what Alt shows, while it is in the tree.
-- Parts: `MenubarPart::Bar`, `Title` (what is pressed, and what is lit), `Label` (its text). States: `MenubarState::Open` (the title's menu is open) and `Disabled` (the bar, or the title, cannot be opened); a title is resolved in the states of the bar and its own.
+- Parts: `MenubarPart::Bar`, `Item` (a menu's title on the bar: what is pressed, and what is lit), `Label` (its text). States: `MenubarState::Open` (the item's menu is open) and `Disabled` (the bar, or the item, cannot be opened); an item is resolved in the states of the bar and its own.
 - To what reads the tree the bar is a `menubar`, each title a `menuitem` called by its text with `a11y_haspopup` `menu` and `a11y_expanded`.
-- A renderer for `Menubar` gets a `MenubarView`: `view.bar()` is the row with its style, its focus group and its handlers; `view.title(index)` a title's behavior with its style, `view.label(index)` its text, and `view.menu(index)` its menu, hung from the title, to put after it; `view.title_part(index, part)` is the style of a part of one title. `view.render()` builds the bar.
+- A renderer for `Menubar` gets a `MenubarView`: `view.bar()` is the row with its style, its focus group and its handlers; `view.item(index)` an item's behavior with its style, `view.label(index)` its text, and `view.menu(index)` its menu, hung from the item, to put after it; `view.item_part(index, part)` is the style of a part of one item. `view.render()` builds the bar.
 
 On a Mac an app's menus belong in the system's menu bar, which `App::set_menu_bar` fills (see [native menus](../window-lifecycle-menus/#building-a-native-menu)): there `app.menu_bar_support()` is `MenuBarSupport::Native`, and the app shows no `Menubar`. The native model routes a command by its id (`MenuAction::new(id, label)`, `app.on_menu_activate`), where a `MenuItem` calls a handler and has no id; and it has no check or radio item. So one list feeds both from the app's own description of its commands, built into each:
 

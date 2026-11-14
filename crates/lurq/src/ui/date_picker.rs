@@ -46,7 +46,7 @@ pub enum DatePickerPart {
   Clear,
   /// The glyph in it.
   ClearIcon,
-  /// What the picker says of the popover's panel the calendar is in: rules over its root.
+  /// What the picker says of the popover's panel the calendar is in: rules over its `Panel` part.
   Panel,
   /// The column of a range picker's presets, beside the calendar.
   Presets,
@@ -901,7 +901,7 @@ impl<V: Picked> PickerView<V> {
   /// are any, beside the calendar. Escape and a press outside close it, and with the focus in it give the focus back
   /// to the field. Inline, it is the popover's panel drawn in place under the field, open or not.
   pub fn panel(&self) -> Element {
-    let rules = self.recipe.rules_for(DatePickerPart::Panel, PopoverPart::Root);
+    let rules = self.recipe.rules_for(DatePickerPart::Panel, PopoverPart::Panel);
     if self.inline {
       let case = Case {
         breakpoint: super::current_breakpoint(),
@@ -910,7 +910,7 @@ impl<V: Picked> PickerView<V> {
       let recipe = self.theme().resolve::<Popover>(&case, Some(&rules));
       let mut panel = Column::new()
         .align_items(Alignment::Stretch)
-        .part(&recipe.part(PopoverPart::Root))
+        .part(&recipe.part(PopoverPart::Panel))
         .describe("a11y_role", "dialog")
         .describe("a11y_name", self.panel_name())
         .child(
@@ -925,9 +925,9 @@ impl<V: Picked> PickerView<V> {
       return panel.into();
     }
     let model = self.model.clone();
-    let mut popover = Popover::new(self.kept.anchor.clone(), self.kept.open.clone())
+    let mut popover = Popover::new(self.kept.open.clone(), self.kept.anchor.clone())
       .placement(self.placement)
-      .named(&self.panel_name())
+      .label(&self.panel_name())
       .rules(&rules)
       .on_dismiss(move || model.dismissed())
       .child(self.content());

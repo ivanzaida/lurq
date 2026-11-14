@@ -8,8 +8,8 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    Breadcrumb, BreadcrumbStep, Interaction, MenuEntry, MenuItem, Menubar, SegmentedControl, Tab, Tabs, TreeItem,
-    TreeView,
+    Breadcrumb, BreadcrumbStep, Interaction, MenuEntry, MenuItem, Menubar, MenubarMenu, SegmentedControl, Tab, Tabs,
+    TreeItem, TreeView,
   },
 };
 
@@ -117,9 +117,9 @@ fn a_menubar_draws_it_on_the_first_title() {
   let mut stage = stage(|| {
     Menubar::new(Signal::new(None))
       .id("bar")
-      .menu("File", [MenuEntry::from(MenuItem::new("New"))])
-      .menu("Edit", [MenuEntry::from(MenuItem::new("Undo"))])
-      .menu("View", [MenuEntry::from(MenuItem::new("Zoom"))])
+      .menu(MenubarMenu::new("File", [MenuEntry::from(MenuItem::new("New"))]))
+      .menu(MenubarMenu::new("Edit", [MenuEntry::from(MenuItem::new("Undo"))]))
+      .menu(MenubarMenu::new("View", [MenuEntry::from(MenuItem::new("Zoom"))]))
       .force(Some(Interaction::FocusVisible))
       .into()
   });

@@ -39,24 +39,24 @@ fn plain(event: &KeyboardEvent) -> bool {
 pub enum MenubarPart {
   /// The bar that holds the titles.
   Bar,
-  /// A title: what is pressed to open its menu, and what is lit while the menu is open.
-  Title,
-  /// The text of a title.
+  /// An item of the bar: the title of a menu, what is pressed to open it, and what is lit while it is open.
+  Item,
+  /// The text of an item.
   Label,
 }
 
 names!(MenubarPart {
   Bar => "bar",
-  Title => "title",
+  Item => "item",
   Label => "label",
 });
 
-/// The states of a menubar a recipe styles. A title is resolved in the states of the bar and its own.
+/// The states of a menubar a recipe styles. An item is resolved in the states of the bar and its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MenubarState {
-  /// The title's menu is open.
+  /// The item's menu is open.
   Open,
-  /// The bar, or the title, cannot be opened.
+  /// The bar, or the item, cannot be opened.
   Disabled,
 }
 
@@ -69,11 +69,51 @@ names!(MenubarState {
 pub type MenubarRenderer = Arc<dyn Fn(MenubarView) -> Element + Send + Sync>;
 
 /// One menu of a menubar: its title, what it holds, and whether it can be opened.
+///
+/// ```
+/// use lurq::ui::{MenuItem, MenubarMenu};
+///
+/// let window = MenubarMenu::new("Window", [MenuItem::new("Minimize"), MenuItem::new("Zoom")]).disabled(true);
+/// ```
 pub struct MenubarMenu {
   pub title: Arc<str>,
   /// What the menu holds, in order.
   pub entries: Vec<MenuEntry>,
   pub disabled: bool,
+  /// The id of its item on the bar, in place of `{id}-{index}` of the bar's id.
+  pub id: Option<Arc<str>>,
+  pub key: Option<Arc<str>>,
+}
+
+impl MenubarMenu {
+  /// A menu called `title` holding `entries`: [`MenuItem`](super::MenuItem)s, and [`MenuEntry::Separator`] and
+  /// [`MenuEntry::Heading`] between them.
+  pub fn new(title: &str, entries: impl IntoIterator<Item = impl Into<MenuEntry>>) -> Self {
+    Self {
+      title: Arc::from(title),
+      entries: entries.into_iter().map(Into::into).collect(),
+      disabled: false,
+      id: None,
+      key: None,
+    }
+  }
+
+  /// Whether the menu cannot be opened: its item is dimmed, and the arrows pass it by.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
+  /// The id of the menu's item on the bar: what is pressed. Its panel is `{id}-menu`.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
+  }
 }
 
 /// A menubar: the menus of an app in a row, File, Edit, View, each opened from its title, as the title bar of a
@@ -82,12 +122,13 @@ pub struct MenubarMenu {
 /// ```
 /// use lurq::{
 ///   core::Signal,
-///   ui::{MenuEntry, MenuItem, Menubar},
+///   ui::{MenuEntry, MenuItem, Menubar, MenubarMenu},
 /// };
 ///
 /// let open: Signal<Option<usize>> = Signal::new(None);
 /// let bar = Menubar::new(open)
-///   .menu(
+///   .label("Application")
+///   .menu(MenubarMenu::new(
 ///     "File",
 ///     [
 ///       MenuItem::new("New").shortcut("Ctrl+N").on_select(|| println!("new")).into(),
@@ -95,15 +136,15 @@ pub struct MenubarMenu {
 ///       MenuEntry::Separator,
 ///       MenuItem::new("Quit").shortcut("Ctrl+Q").into(),
 ///     ],
-///   )
-///   .menu("Edit", [MenuItem::new("Undo").shortcut("Ctrl+Z"), MenuItem::new("Redo").disabled(true)])
-///   .menu("View", [MenuItem::new("Show grid").checked(true)]);
+///   ))
+///   .menu(MenubarMenu::new("Edit", [MenuItem::new("Undo").shortcut("Ctrl+Z"), MenuItem::new("Redo").disabled(true)]))
+///   .menu(MenubarMenu::new("View", [MenuItem::new("Show grid").checked(true)]));
 /// ```
 ///
 /// Its menus are [`Menu`]s, of the same [`MenuItem`](super::MenuItem)s: submenus, checks, radio items, shortcuts,
-/// disabled items, separators and labels. Which of them is open is the app's: the `Signal<Option<usize>>` it gives the
-/// bar, which a press of a title sets and choosing an item, a press outside and Escape set to `None`. One is open at a
-/// time.
+/// disabled items, separators and headings. Which of them is open is the app's: the `Signal<Option<usize>>` it gives
+/// the bar, which a press of a title sets and choosing an item, a press outside and Escape set to `None`. One is open
+/// at a time.
 ///
 /// The bar is one stop of Tab. Left and Right move between the titles, a letter goes to the title that starts with
 /// it, and Down, Enter and Space open the focused title's menu at its first item, Up at its last. While a menu is
@@ -116,6 +157,7 @@ pub struct Menubar {
   open: Signal<Option<usize>>,
   menus: Vec<MenubarMenu>,
   disabled: bool,
+  label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -130,6 +172,7 @@ impl Menubar {
       open,
       menus: Vec::new(),
       disabled: false,
+      label: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -138,22 +181,21 @@ impl Menubar {
     }
   }
 
-  /// A menu called `title`, after the bar's others, holding `entries`: [`MenuItem`](super::MenuItem)s, and
-  /// [`MenuEntry::Separator`] and [`MenuEntry::Label`] between them.
-  pub fn menu(mut self, title: &str, entries: impl IntoIterator<Item = impl Into<MenuEntry>>) -> Self {
-    self.menus.push(MenubarMenu {
-      title: Arc::from(title),
-      entries: entries.into_iter().map(Into::into).collect(),
-      disabled: false,
-    });
+  /// A menu, after the bar's others.
+  pub fn menu(mut self, menu: MenubarMenu) -> Self {
+    self.menus.push(menu);
     self
   }
 
-  /// Whether the menu called `title` cannot be opened: its title is dimmed, and the arrows pass it by.
-  pub fn title_disabled(mut self, title: &str, disabled: bool) -> Self {
-    for menu in self.menus.iter_mut().filter(|menu| &*menu.title == title) {
-      menu.disabled = disabled;
-    }
+  /// Menus, in order, after the bar's others.
+  pub fn menus(mut self, menus: impl IntoIterator<Item = MenubarMenu>) -> Self {
+    self.menus.extend(menus);
+    self
+  }
+
+  /// The bar's name to what reads the tree: "Application", "Editor".
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -185,15 +227,16 @@ impl Menubar {
     self
   }
 
-  /// Draws the title Tab would stop on (the first that is not disabled) as it is under the pointer, held down or
-  /// focused from the keyboard, with nothing pointing at it: for a gallery or a test. The other titles are drawn as
+  /// Draws the item Tab would stop on (the first that is not disabled) as it is under the pointer, held down or
+  /// focused from the keyboard, with nothing pointing at it: for a gallery or a test. The other items are drawn as
   /// they are.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
   }
 
-  /// The id of the bar. Its titles are `{id}-0`, `{id}-1` and on, and the panel of each menu `{id}-0-menu`.
+  /// The id of the bar. Its items are `{id}-0`, `{id}-1` and on, and the panel of each menu `{id}-0-menu`, but for
+  /// a menu that has an id of its own.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -221,6 +264,7 @@ impl Menubar {
     let view = MenubarView {
       menus: self.menus,
       disabled: self.disabled,
+      label: self.label,
       open: open.filter(|_| !self.disabled),
       mnemonics,
       recipe: theme.resolve::<Menubar>(&case, Some(&self.rules)),
@@ -379,6 +423,8 @@ pub struct MenubarView {
   pub menus: Vec<MenubarMenu>,
   /// Whether no menu of the bar can be opened.
   pub disabled: bool,
+  /// The bar's name to what reads the tree, if the app gave it one.
+  pub label: Option<Arc<str>>,
   /// The menu open now.
   pub open: Option<usize>,
   /// Whether the first letter of each title is underlined: Alt is down, or put the focus on the bar.
@@ -413,8 +459,8 @@ impl MenubarView {
     self.disabled || self.menus.get(index).is_some_and(|menu| menu.disabled)
   }
 
-  /// The style of a part of the title `index`, in its states: open, disabled.
-  pub fn title_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
+  /// The style of a part of the item `index`, in its states: open, disabled.
+  pub fn item_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
     let case = self
       .case
       .clone()
@@ -449,6 +495,9 @@ impl MenubarView {
           .menu_row(true),
       )
       .describe("a11y_role", "menubar");
+    if let Some(label) = &self.label {
+      bar = bar.describe("a11y_name", label.clone());
+    }
     // The handlers hold what the bar keeps while it is in the tree, disabled or not.
     {
       let (down, up) = (self.kept.clone(), self.kept.clone());
@@ -494,13 +543,13 @@ impl MenubarView {
   /// menu to what reads the tree, and the anchor its menu hangs from. A press opens its menu or closes it; the
   /// pointer coming onto it while another menu is open opens its own; Down opens it at its first item, Up at its
   /// last.
-  pub fn title(&self, index: usize) -> components::Button {
+  pub fn item(&self, index: usize) -> components::Button {
     let Some(menu) = self.menus.get(index) else {
       return components::Button::empty();
     };
     let disabled = self.is_disabled(index);
     let open = self.open == Some(index);
-    let mut title = pressable(&self.title_part(index, MenubarPart::Title), disabled)
+    let mut title = pressable(&self.item_part(index, MenubarPart::Item), disabled)
       .ref_element(self.anchor(index))
       .describe("a11y_role", "menuitem")
       .describe("a11y_name", menu.title.clone())
@@ -537,15 +586,20 @@ impl MenubarView {
           keys.open_at(index, from_end);
         });
     }
-    if let Some(id) = &self.id {
-      title = title.id(format!("{id}-{index}"));
+    match (&menu.id, &self.id) {
+      (Some(id), _) => title = title.id(id.clone()),
+      (None, Some(id)) => title = title.id(format!("{id}-{index}")),
+      (None, None) => {}
+    }
+    if let Some(key) = &menu.key {
+      title = title.key(key.clone());
     }
     title
   }
 
   /// The text of the title `index`, its first letter underlined while [`mnemonics`](Self::mnemonics) show.
   pub fn label(&self, index: usize) -> Element {
-    let part = self.title_part(index, MenubarPart::Label);
+    let part = self.item_part(index, MenubarPart::Label);
     let title = self.menus.get(index).map(|menu| menu.title.clone()).unwrap_or_default();
     let mut letters = title.chars();
     let first = letters.next();
@@ -582,16 +636,22 @@ impl MenubarView {
           .rposition(|entry| matches!(entry, MenuEntry::Item(item) if !item.is_disabled()))
       })
       .flatten();
-    let mut built = Menu::new(anchor, signal);
+    let mut built = Menu::new(signal, anchor);
     for (at, entry) in entries.into_iter().enumerate() {
       built = match entry {
         MenuEntry::Item(item) => built.item(item.autofocus(Some(at) == last)),
         MenuEntry::Separator => built.separator(),
-        MenuEntry::Label(label) => built.label(&label),
+        MenuEntry::Heading(heading) => built.heading(&heading),
       };
     }
-    if let Some(id) = &self.id {
-      built = built.id(format!("{id}-{index}-menu"));
+    let titled = self.menus.get(index).map(|menu| menu.title.clone());
+    if let Some(title) = titled {
+      built = built.label(&title);
+    }
+    match (self.menus.get(index).and_then(|menu| menu.id.clone()), &self.id) {
+      (Some(id), _) => built = built.id(format!("{id}-menu")),
+      (None, Some(id)) => built = built.id(format!("{id}-{index}-menu")),
+      (None, None) => {}
     }
     built.build(self.theme())
   }
@@ -601,7 +661,7 @@ impl MenubarView {
   pub fn render(mut self) -> Element {
     let mut bar = self.bar();
     for index in 0..self.menus.len() {
-      let title = self.title(index).child(self.label(index));
+      let title = self.item(index).child(self.label(index));
       let menu = self.menu(index);
       bar = bar.child(Column::new().child(title).child(menu));
     }
@@ -619,7 +679,7 @@ impl Themed for Menubar {
   /// is open is filled with the highlight (the board's accent), as one under the pointer or focused from the
   /// keyboard is; a disabled one is dimmed.
   fn recipe() -> Recipe {
-    use MenubarPart::{Bar, Label, Title};
+    use MenubarPart::{Bar, Item, Label};
     use PaletteColor::{Background, Foreground, Highlight};
     Recipe::new()
       .base(Bar, |s| {
@@ -631,7 +691,7 @@ impl Themed for Menubar {
           .background(Background)
           .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
       })
-      .base(Title, |s| {
+      .base(Item, |s| {
         fading(
           s.height(28.0)
             .padding_x(10.0)
@@ -645,10 +705,10 @@ impl Themed for Menubar {
           .weight(FontWeight::Medium)
           .foreground(Foreground)
       })
-      .hovered(Title, |s| s.background(Highlight))
-      .focus_visible(Title, |s| s.background(Highlight))
-      .state(MenubarState::Open, Title, |s| s.background(Highlight))
-      .state(MenubarState::Disabled, Title, |s| {
+      .hovered(Item, |s| s.background(Highlight))
+      .focus_visible(Item, |s| s.background(Highlight))
+      .state(MenubarState::Open, Item, |s| s.background(Highlight))
+      .state(MenubarState::Disabled, Item, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
   }
