@@ -318,7 +318,9 @@ fn a_control_that_stays_never_goes_into_the_menu() {
 fn a_toggle_in_the_menu_is_checked_and_choosing_it_turns_it() {
   let turned = Arc::new(Mutex::new(Vec::new()));
   let told = turned.clone();
-  let mut stage = stage(120.0, move || {
+  // 100 wide: Undo, the line and Bold, and Italic are 111 with their padding and gaps; with the More button and
+  // its line, Bold goes after Italic.
+  let mut stage = stage(100.0, move || {
     let told = told.clone();
     Toolbar::new()
       .id("bar")

@@ -170,6 +170,8 @@ pub enum ToolbarPart {
   Root,
   /// What the bar says of each button and toggle in it: laid over the theme's recipe for their root.
   Item,
+  /// A control as the bar lays it out, with the line before it where one stands there: the room between the two.
+  Slot,
   /// What the bar says of the line between two groups: laid over the theme's recipe for a separator's root.
   Separator,
   /// What pushes the controls after it to the end of the bar.
@@ -187,6 +189,7 @@ pub enum ToolbarPart {
 names!(ToolbarPart {
   Root => "root",
   Item => "item",
+  Slot => "slot",
   Separator => "separator",
   Spacer => "spacer",
   Group => "group",
@@ -1000,7 +1003,10 @@ impl ToolbarView {
     }
     let element = std::mem::replace(&mut self.shown[index], Element::new());
     // The ring of a focused control is drawn outside it.
-    let mut row = Row::new().align_items(Alignment::Center).overflow_visible();
+    let mut row = Row::new()
+      .part(&self.part(ToolbarPart::Slot))
+      .align_items(Alignment::Center)
+      .overflow_visible();
     if slot.separated {
       row = row.child(self.separator());
     }
@@ -1119,7 +1125,7 @@ impl Themed for Toolbar {
   /// A focused control has its ring inside it, where the bar does not cut it off.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, MutedForeground, Popover, PopoverForeground, Ring};
-    use ToolbarPart::{Group, GroupItems, GroupLabel, Item, More, Root, Separator};
+    use ToolbarPart::{Group, GroupItems, GroupLabel, Item, More, Root, Separator, Slot};
     use ToolbarVariant::{Floating, Surface};
     let edge = || Border::inside(BorderSize::Sm, PaletteColor::Border);
     Recipe::new()
@@ -1135,6 +1141,8 @@ impl Themed for Toolbar {
       // The bar cuts off what does not fit: the ring of a focused control is inside it, where nothing cuts it off.
       .focus_visible(Item, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .base(Separator, |s| s.padding_x(4.0).height(20.0))
+      // The line between two groups stands as far from each as the controls stand apart.
+      .base(Slot, |s| s.gap(2.0))
       .base(More, |s| s.gap(2.0))
       .base(Group, |s| s.padding_x(10.0).gap(4.0).end_line(edge()))
       .base(GroupItems, |s| s.gap(4.0))
