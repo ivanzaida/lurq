@@ -677,7 +677,7 @@ impl MultiSelectView {
         // The tag the arrow keys are on is drawn as its button is focused from the keyboard.
         let on = self.picked_now == Some(place);
         Tag::new(&self.labels[index])
-          .pill(true)
+          .shape(super::TagShape::Pill)
           .size(size)
           .disabled(self.disabled)
           .rules(&rules)
@@ -691,7 +691,7 @@ impl MultiSelectView {
     if more > 0 {
       tags.push(apart(
         Tag::new(&format!("+{more}"))
-          .pill(true)
+          .shape(super::TagShape::Pill)
           .size(size)
           .disabled(self.disabled)
           .rules(&rules)

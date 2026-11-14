@@ -14,8 +14,8 @@ use lurq::{
   layout::quad::{Quad, QuadContent},
   node::{FocusGroup, color::Color},
   ui::{
-    Case, Chip, ChipGroup, ChipPart, ChipState, Interaction, Opacity, Tag, TagPart, TagRenderer, TagSize, TagState,
-    TagVariant, TagView, Themed,
+    Case, Chip, ChipGroup, ChipPart, ChipState, Interaction, Opacity, Tag, TagPart, TagRenderer, TagShape, TagSize,
+    TagState, TagVariant, TagView, Themed,
   },
 };
 
@@ -158,7 +158,7 @@ fn a_pill_is_round_with_no_line_and_padded_10_and_6() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .padding(8.0)
-      .child(Row::new().child(Tag::new("React").pill(true).on_remove(|| {}).id("pill")))
+      .child(Row::new().child(Tag::new("React").shape(TagShape::Pill).on_remove(|| {}).id("pill")))
       .into()
   });
   let (x, _, width, height) = stage.bounds("pill");
@@ -525,4 +525,28 @@ fn the_ring_of_a_focused_remove_button_stands_clear_of_the_label() {
   );
   let (x, _, width, _) = stage.bounds("rust");
   assert!(ring.x + ring.width <= x + width, "inside the tag");
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn the_remove_button_is_called_by_its_label() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .padding(8.0)
+      .child(Tag::new("rust").id("rust").on_remove(|| {}))
+      .child(Tag::new("go").id("go").remove_label("Take go away").on_remove(|| {}))
+      .into()
+  });
+  let mut name = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(
+    name("rust-remove").as_deref(),
+    Some("Remove rust"),
+    "by default, Remove and its text"
+  );
+  assert_eq!(name("go-remove").as_deref(), Some("Take go away"), "what the app says");
 }

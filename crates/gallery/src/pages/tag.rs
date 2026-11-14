@@ -10,7 +10,9 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Button, ButtonSize, ButtonVariant, Chip, ChipGroup, Choice, Interaction, Tag, TagSize, TagVariant, icons},
+  ui::{
+    Button, ButtonSize, ButtonVariant, Chip, ChipGroup, Choice, Interaction, Tag, TagShape, TagSize, TagVariant, icons,
+  },
 };
 
 use crate::{
@@ -106,7 +108,7 @@ impl TagPage {
         let tag = Tag::new(&label)
           .variant(VARIANTS[variant].0)
           .size(SIZES[size].0)
-          .pill(pill)
+          .shape(if pill { TagShape::Pill } else { TagShape::Default })
           .disabled(disabled);
         match ICONS[icon].1 {
           Some(name) => tag.icon(name),
@@ -136,7 +138,7 @@ impl TagPage {
       code.push(format!("    .icon(icons::{})", ICONS[icon].2));
     }
     if pill {
-      code.push("    .pill(true)".to_owned());
+      code.push("    .shape(TagShape::Pill)".to_owned());
     }
     if disabled {
       code.push("    .disabled(true)".to_owned());
@@ -204,6 +206,14 @@ impl TagPage {
             segmented_fill(&sizes, &size, move |index| pick_size.set(index)),
           ),
           prop(
+            "shape",
+            "TagShape",
+            segmented_fill(&[("Default", false), ("Pill", true)], &pill, {
+              let pick = self.pill.clone();
+              move |on| pick.set(on)
+            }),
+          ),
+          prop(
             "icon",
             "impl Into<Name>",
             self
@@ -212,7 +222,6 @@ impl TagPage {
           ),
           divider(),
           flag("on_remove", &self.removable),
-          flag("pill", &self.pill),
           flag("disabled", &self.disabled),
         ],
         changed: count(&[variant != 0, size != MD, icon != 0, !removable, pill, disabled]),
@@ -390,14 +399,14 @@ impl Component for TagPage {
     let pills = items()
       .child(item(
         tags()
-          .child(Tag::new("React").pill(true).on_remove(|| {}))
-          .child(Tag::new("Vue").pill(true).on_remove(|| {})),
+          .child(Tag::new("React").shape(TagShape::Pill).on_remove(|| {}))
+          .child(Tag::new("Vue").shape(TagShape::Pill).on_remove(|| {})),
         "pill, removable",
       ))
-      .child(item(Tag::new("Svelte").pill(true), "pill"))
+      .child(item(Tag::new("Svelte").shape(TagShape::Pill), "pill"))
       .child(item(
         Tag::new("Kind: Rust")
-          .pill(true)
+          .shape(TagShape::Pill)
           .variant(TagVariant::Info)
           .on_remove(|| {}),
         "pill, info",
@@ -478,7 +487,18 @@ impl Component for TagPage {
         "",
         "Gives it the button that takes it away. A press, Enter, Space, Backspace and Delete press it.",
       ),
-      ("pill", "bool", "false", "Round at both ends, with no line around it."),
+      (
+        "shape",
+        "TagShape",
+        "Default",
+        "Pill: round at both ends, with no line around it.",
+      ),
+      (
+        "remove_label",
+        "&str",
+        "\"Remove {label}\"",
+        "What the remove button is called to what reads the tree.",
+      ),
       (
         "disabled",
         "bool",
@@ -597,11 +617,11 @@ impl Component for TagPage {
           self.frame.demo(
             3,
             pills,
-            ".pill(true)",
+            ".shape(TagShape::Pill)",
             &[
-              "Tag::new(\"React\").pill(true).on_remove(..)",
-              "Tag::new(\"Svelte\").pill(true)",
-              "Tag::new(\"Kind: Rust\").pill(true).variant(TagVariant::Info).on_remove(..)",
+              "Tag::new(\"React\").shape(TagShape::Pill).on_remove(..)",
+              "Tag::new(\"Svelte\").shape(TagShape::Pill)",
+              "Tag::new(\"Kind: Rust\").shape(TagShape::Pill).variant(TagVariant::Info).on_remove(..)",
             ],
           ),
         ),

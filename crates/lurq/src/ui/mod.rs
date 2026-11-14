@@ -267,7 +267,7 @@ pub use table::{
 pub use tabs::{
   Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
 };
-pub use tag::{Tag, TagPart, TagRenderer, TagSize, TagState, TagVariant, TagView};
+pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
 pub use teaching_tip::{
   TeachingTip, TeachingTipPart, TeachingTipRenderer, TeachingTipState, TeachingTipVariant, TeachingTipView, Tour,
   TourStep,

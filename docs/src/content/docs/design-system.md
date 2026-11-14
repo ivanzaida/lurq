@@ -1411,7 +1411,7 @@ Badge::count(3)
 A label on a thing, a keyword or a category, that the app may let a person take away.
 
 ```rust
-use lurq::ui::{Tag, TagSize, TagVariant, icons};
+use lurq::ui::{Tag, TagShape, TagSize, TagVariant, icons};
 
 Tag::new("design");
 Tag::new("in review").variant(TagVariant::Info).icon(icons::CIRCLE);
@@ -1420,7 +1420,7 @@ Tag::new("in review").variant(TagVariant::Info).icon(icons::CIRCLE);
 Tag::new("rust").on_remove(move || topics.update(|all| all.retain(|t| t != "rust")));
 
 // Round, with no line: the token of a box that holds several values.
-Tag::new("React").pill(true).on_remove(move || remove("React"));
+Tag::new("React").shape(TagShape::Pill).on_remove(move || remove("React"));
 ```
 
 | Builder | |
@@ -1429,14 +1429,15 @@ Tag::new("React").pill(true).on_remove(move || remove("React"));
 | `size(TagSize)` | `Sm` (20 high), `Md` (24, the default), `Lg` (28) |
 | `icon(name)` | An icon before the text, by its name in the theme's set |
 | `on_remove(handler)` | Gives the tag its remove button, and is called on a press of it |
-| `pill(bool)` | Round at both ends, with no line around it |
+| `shape(TagShape)` | `Default`, or `Pill`: round at both ends, with no line around it |
+| `remove_label(&str)` | What the remove button is called to what reads the tree: "Remove" and the tag's text by default |
 | `disabled(bool)` | Dimmed; its remove button is not pressed and Tab passes it by |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; `force` draws the remove button |
 
 - A tag does not keep whether it is there: the app holds its list, and `on_remove` tells it which one a person took away. A tag with no handler is read only: it has no button and is no stop of Tab.
-- The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
+- The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree, or its `remove_label`; it has the tag's id with `-remove` after it. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
 - Tags an app lays in a row with a focus group (`Row::new().focus_group(FocusGroup::horizontal())`) keep the focus when one is taken away: it goes to the next tag's button, or to the last, so Backspace takes them one after another. Outside a group the focus leaves with the button.
-- Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Removable` (it has the button), `Pill`, `Disabled`.
+- Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Remove` (it has the button), `Pill`, `Disabled`.
 - In the design a tag is 24 high, padded 8, with the corners of `RadiusSize::Sm`, in `Secondary` with a line of `Border` inside it, its text 12 and medium in `SecondaryForeground`. A removable one is padded 4 at its end, where a button of 16 (corners of 3) holds a cross of 11 in `MutedForeground`, 4 after the text; under the pointer the button is filled `StateHover` and its cross is `Foreground`. Focused from the keyboard, the button has a ring of 2 in `Ring` around its edge, which stands clear of the text before it. `Info`, `Success`, `Warning` and `Destructive` are in the muted fill of their color, line and fill alike, with the text in the color. A pill is round, has no line, is padded 10 and 6, and its cross is 12.
 - Several tags side by side are an app's row: `Row::new().spacing(6.0).wrap()`, 6 apart as the board lays them out.
 - A renderer that draws another tag starts from `view.remove()`, the button with its behavior and its cross, `None` for a tag with no handler.
@@ -2169,7 +2170,7 @@ MultiSelect::new(languages.clone(), [
 | `size(ComboboxSize)` | `Sm` 32, `Md` 36, `Lg` 40 high at least, with tags of 20, 24, 28 |
 | `invalid`, `warning`, `valid`, `disabled`, `full_width`, `label`, `name`, `state`, `style`, `rules`, `force`, `id`, `key` | As a combobox has them. A disabled one keeps its tags and takes none away; `full_width` is in place of 280 |
 
-- The box holds the chosen values as tags ([tag](#tag)s with `pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
+- The box holds the chosen values as tags ([tag](#tag)s of `TagShape::Pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
 - Typing opens the list and filters it; Down and Up move the highlight; Enter or a press chooses an option or takes it back, and the list stays open while one chooses; a choice clears what was typed, and the list shows every option again. A tag's cross takes its value away, and so does Backspace in the empty input, the last one's. Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared when the focus leaves. A press of a tag or of the clear control does not open the list.
 - The input is the one stop of Tab, as a [token input](#token-input)'s is: the tags are reached from it. With nothing typed, Left goes onto the last tag, drawn as its cross is when focused, and on to the ones before; Right goes back towards the input; Backspace or Delete takes away the tag the arrows are on, and they stay on the tag that takes its place. Typing leaves the tags.
 - It is a control a [field](#field) holds.

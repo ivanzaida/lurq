@@ -47,8 +47,8 @@ names!(TagPart {
 /// keyboard do to its remove button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TagState {
-  /// It has the button that takes it away.
-  Removable,
+  /// It has the button that takes it away: the part `Remove`.
+  Remove,
   /// It is round at both ends, with no line around it: a pill.
   Pill,
   /// It takes no input: its remove button is not pressed.
@@ -56,7 +56,7 @@ pub enum TagState {
 }
 
 names!(TagState {
-  Removable => "removable",
+  Remove => "remove",
   Pill => "pill",
   Disabled => "disabled",
 });
@@ -103,18 +103,28 @@ names!(TagSize {
 /// What builds a tag's nodes: a theme's in place of the default one.
 pub type TagRenderer = Arc<dyn Fn(TagView) -> Element + Send + Sync>;
 
+/// The shape of a tag.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TagShape {
+  /// The theme's small radius, with a line inside it.
+  #[default]
+  Default,
+  /// Round at both ends, with no line around it: a pill.
+  Pill,
+}
+
 /// A tag: a label on a thing, a keyword or a category, which the app may let
 /// a person take away.
 ///
 /// ```
-/// use lurq::ui::{Tag, TagVariant, icons};
+/// use lurq::ui::{Tag, TagShape, TagVariant, icons};
 ///
 /// let plain = Tag::new("design");
 /// let status = Tag::new("in review").variant(TagVariant::Info).icon(icons::CIRCLE);
 /// // With a button at its end that takes it away: called "Remove rust" to what reads the tree.
 /// let removable = Tag::new("rust").on_remove(|| println!("rust taken away"));
 /// // Round, with no line around it: a token in a box that is typed in.
-/// let token = Tag::new("React").pill(true).on_remove(|| println!("React taken away"));
+/// let token = Tag::new("React").shape(TagShape::Pill).on_remove(|| println!("React taken away"));
 /// ```
 ///
 /// A tag does not keep whether it is there: the app holds its list, and is
@@ -126,8 +136,9 @@ pub struct Tag {
   variant: Name,
   size: Name,
   icon: Option<Name>,
-  pill: bool,
+  shape: TagShape,
   disabled: bool,
+  remove_label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -143,8 +154,9 @@ impl Tag {
       variant: TagVariant::default().into(),
       size: TagSize::default().into(),
       icon: None,
-      pill: false,
+      shape: TagShape::Default,
       disabled: false,
+      remove_label: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -172,9 +184,16 @@ impl Tag {
     self
   }
 
-  /// Whether the tag is round at both ends, with no line around it.
-  pub fn pill(mut self, pill: bool) -> Self {
-    self.pill = pill;
+  /// The shape of the tag: [`TagShape::Pill`] is round at both ends, with no line around it.
+  pub fn shape(mut self, shape: TagShape) -> Self {
+    self.shape = shape;
+    self
+  }
+
+  /// What the remove button is called to what reads the tree: "Remove" and
+  /// the tag's text by default ("Remove rust").
+  pub fn remove_label(mut self, label: &str) -> Self {
+    self.remove_label = Some(Arc::from(label));
     self
   }
 
@@ -243,15 +262,19 @@ impl Tag {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(TagState::Removable, removable)
-    .state(TagState::Pill, self.pill)
+    .state(TagState::Remove, removable)
+    .state(TagState::Pill, self.shape == TagShape::Pill)
     .state(TagState::Disabled, self.disabled);
+    let remove_label = self
+      .remove_label
+      .unwrap_or_else(|| Arc::from(format!("Remove {}", self.label)));
     let view = TagView {
       label: self.label,
+      remove_label,
       variant: self.variant,
       size: self.size,
       icon: self.icon,
-      pill: self.pill,
+      shape: self.shape,
       removable,
       disabled: self.disabled,
       recipe: theme.resolve::<Tag>(&case, Some(&self.rules)),
@@ -277,11 +300,13 @@ impl From<Tag> for Element {
 /// and its remove button ready to be dressed.
 pub struct TagView {
   pub label: Arc<str>,
+  /// What the remove button is called to what reads the tree.
+  pub remove_label: Arc<str>,
   pub variant: Name,
   pub size: Name,
   /// The name of its icon, if it has one.
   pub icon: Option<Name>,
-  pub pill: bool,
+  pub shape: TagShape,
   /// Whether it has a handler for its remove button, and so the button.
   pub removable: bool,
   pub disabled: bool,
@@ -312,7 +337,7 @@ impl TagView {
 
   /// What takes the tag away: a button with the cross in it, which a press,
   /// Enter, Space, Backspace and Delete press while the focus is on it. It is
-  /// called "Remove" and the tag's text to what reads the tree. `None` for a
+  /// called by `remove_label` to what reads the tree. `None` for a
   /// tag with no handler.
   pub fn remove(&self) -> Option<components::Button> {
     if !self.removable {
@@ -326,8 +351,11 @@ impl TagView {
       .unwrap_or(Length::Icon(IconSize::Sm));
     let mut remove = pressable(&part, self.disabled)
       .describe("a11y_role", "button")
-      .describe("a11y_name", format!("Remove {}", self.label))
+      .describe("a11y_name", self.remove_label.clone())
       .child(Icon::new(icons::CLOSE).size(side).build(self.theme()));
+    if let Some(id) = &self.id {
+      remove = remove.id(format!("{id}-remove"));
+    }
     if !self.disabled {
       let (clicked, keyed) = (self.on_remove.clone(), self.on_remove.clone());
       remove = remove
@@ -432,14 +460,14 @@ impl Themed for Tag {
       .size(TagSize::Lg, Icon, |s| s.square(IconSize::Sm))
       .size(TagSize::Lg, Remove, |s| s.square(18.0))
       .size(TagSize::Lg, RemoveIcon, |s| s.square(12.0))
-      .state(TagState::Removable, Root, |s| s.padding_end(4.0))
+      .state(TagState::Remove, Root, |s| s.padding_end(4.0))
       .when(
-        Selector::new().size(TagSize::Sm).state(TagState::Removable),
+        Selector::new().size(TagSize::Sm).state(TagState::Remove),
         Root,
         |s| s.padding_end(3.0),
       )
       .when(
-        Selector::new().size(TagSize::Lg).state(TagState::Removable),
+        Selector::new().size(TagSize::Lg).state(TagState::Remove),
         Root,
         |s| s.padding_end(5.0),
       )
@@ -457,7 +485,7 @@ impl Themed for Tag {
         s.padding_x(12.0)
       })
       .when(
-        Selector::new().state(TagState::Pill).state(TagState::Removable),
+        Selector::new().state(TagState::Pill).state(TagState::Remove),
         Root,
         |s| s.padding_end(6.0),
       )
@@ -465,7 +493,7 @@ impl Themed for Tag {
         Selector::new()
           .size(TagSize::Sm)
           .state(TagState::Pill)
-          .state(TagState::Removable),
+          .state(TagState::Remove),
         Root,
         |s| s.padding_end(4.0),
       )
@@ -473,7 +501,7 @@ impl Themed for Tag {
         Selector::new()
           .size(TagSize::Lg)
           .state(TagState::Pill)
-          .state(TagState::Removable),
+          .state(TagState::Remove),
         Root,
         |s| s.padding_end(8.0),
       )
