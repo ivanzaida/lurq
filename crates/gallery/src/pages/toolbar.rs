@@ -89,31 +89,31 @@ fn formatting(marks: &Marks, record: impl Fn(String) + Clone + Send + Sync + 'st
   };
   Toolbar::new()
     .label("Formatting")
-    .child(Marks::toggle(
+    .item(Marks::toggle(
       &marks.bold,
       "Bold",
       icons::BOLD,
       "Ctrl+B",
       record.clone(),
     ))
-    .child(Marks::toggle(
+    .item(Marks::toggle(
       &marks.italic,
       "Italic",
       icons::ITALIC,
       "Ctrl+I",
       record.clone(),
     ))
-    .child(Marks::toggle(
+    .item(Marks::toggle(
       &marks.underline,
       "Underline",
       icons::UNDERLINE,
       "Ctrl+U",
       record.clone(),
     ))
-    .child(Toolbar::separator())
-    .child(button("List", icons::LIST, "Ctrl+Shift+8"))
-    .child(button("Link", icons::LINK, "Ctrl+K"))
-    .child(button("Image", icons::IMAGE, "Ctrl+Shift+I"))
+    .item(Toolbar::separator())
+    .item(button("List", icons::LIST, "Ctrl+Shift+8"))
+    .item(button("Link", icons::LINK, "Ctrl+K"))
+    .item(button("Image", icons::IMAGE, "Ctrl+Shift+I"))
 }
 
 /// What a bar on the page is shown in: `width` wide, or as wide as it is.
@@ -161,14 +161,14 @@ impl ToolbarPage {
     let mut code = vec![
       "Toolbar::new()".to_owned(),
       format!("    .label({label:?})"),
-      "    .child(ToolbarItem::from(Toggle::new(\"Bold\").icon(icons::BOLD).icon_only(true)).shortcut(\"Ctrl+B\"))"
+      "    .item(ToolbarItem::from(Toggle::new(\"Bold\").icon(icons::BOLD).icon_only(true)).shortcut(\"Ctrl+B\"))"
         .to_owned(),
-      "    .child(Toggle::new(\"Italic\").icon(icons::ITALIC).icon_only(true))".to_owned(),
-      "    .child(Toggle::new(\"Underline\").icon(icons::UNDERLINE).icon_only(true))".to_owned(),
-      "    .child(Toolbar::separator())".to_owned(),
-      "    .child(Button::new(\"List\").icon(icons::LIST).icon_only(true))".to_owned(),
-      "    .child(Button::new(\"Link\").icon(icons::LINK).icon_only(true))".to_owned(),
-      "    .child(Button::new(\"Image\").icon(icons::IMAGE).icon_only(true))".to_owned(),
+      "    .item(Toggle::new(\"Italic\").icon(icons::ITALIC).icon_only(true))".to_owned(),
+      "    .item(Toggle::new(\"Underline\").icon(icons::UNDERLINE).icon_only(true))".to_owned(),
+      "    .item(Toolbar::separator())".to_owned(),
+      "    .item(Button::new(\"List\").icon(icons::LIST).icon_only(true))".to_owned(),
+      "    .item(Button::new(\"Link\").icon(icons::LINK).icon_only(true))".to_owned(),
+      "    .item(Button::new(\"Image\").icon(icons::IMAGE).icon_only(true))".to_owned(),
     ];
     if variant != ToolbarVariant::Surface {
       code.push(format!("    .variant(ToolbarVariant::{variant_name})"));
@@ -287,7 +287,7 @@ impl ToolbarPage {
           .gap(8.0)
           .radius(RadiusSize::Lg)
       })
-      .child(
+      .item(
         ToolbarItem::element(
           SearchField::new(self.search.clone())
             .placeholder("Filter crates")
@@ -296,13 +296,13 @@ impl ToolbarPage {
         )
         .stays(true),
       )
-      .child(ToolbarItem::element(
+      .item(ToolbarItem::element(
         Tag::new("Status: Passing").variant(TagVariant::Info).on_remove(|| {}),
       ))
-      .child(ToolbarItem::element(
+      .item(ToolbarItem::element(
         Tag::new("Kind: Rust").variant(TagVariant::Info).on_remove(|| {}),
       ))
-      .child(
+      .item(
         ToolbarItem::from(
           Button::new("Filter")
             .icon(icons::PLUS)
@@ -311,8 +311,8 @@ impl ToolbarPage {
         )
         .as_given(true),
       )
-      .child(Toolbar::spacer())
-      .child(ToggleGroup::new(
+      .item(Toolbar::spacer())
+      .item(ToggleGroup::new(
         density,
         [
           Choice::new(2u8, "Comfortable").icon(icons::ROWS_2).icon_only(true),
@@ -320,7 +320,7 @@ impl ToolbarPage {
           Choice::new(4u8, "Compact").icon(icons::ROWS_4).icon_only(true),
         ],
       ))
-      .child(
+      .item(
         ToolbarItem::element(
           Select::new(columns.clone(), [(0u8, "Columns"), (1, "Name"), (2, "Status")]).size(SelectSize::Sm),
         )
@@ -330,7 +330,7 @@ impl ToolbarPage {
             .on_select(move || columns.set(0)),
         ),
       )
-      .child(
+      .item(
         ToolbarItem::from(
           Button::new("Export")
             .icon(icons::DOWNLOAD)
@@ -353,27 +353,27 @@ impl ToolbarPage {
       .variant(ToolbarVariant::Plain)
       .size(ButtonSize::Xs)
       .overflow(true)
-      .child(
+      .item(
         ToolbarGroup::new()
           .label("Clipboard")
-          .child(command("Paste", icons::PASTE))
-          .child(command("Cut", icons::CUT))
-          .child(command("Copy", icons::COPY)),
+          .item(command("Paste", icons::PASTE))
+          .item(command("Cut", icons::CUT))
+          .item(command("Copy", icons::COPY)),
       )
-      .child(
+      .item(
         ToolbarGroup::new()
           .label("Format")
-          .child(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(true))
-          .child(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true))
-          .child(Toggle::new("Underline").icon(icons::UNDERLINE).icon_only(true))
-          .child(Toggle::new("Strikethrough").icon(icons::STRIKETHROUGH).icon_only(true)),
+          .item(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(true))
+          .item(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true))
+          .item(Toggle::new("Underline").icon(icons::UNDERLINE).icon_only(true))
+          .item(Toggle::new("Strikethrough").icon(icons::STRIKETHROUGH).icon_only(true)),
       )
-      .child(
+      .item(
         ToolbarGroup::new()
           .label("View")
-          .child(command("Sidebar", icons::PANEL_LEFT))
-          .child(command("Zoom in", icons::ZOOM_IN))
-          .child(command("Zoom out", icons::ZOOM_OUT)),
+          .item(command("Sidebar", icons::PANEL_LEFT))
+          .item(command("Zoom in", icons::ZOOM_IN))
+          .item(command("Zoom out", icons::ZOOM_OUT)),
       )
       .mount(ctx);
     Column::new()
@@ -441,7 +441,7 @@ impl Component for ToolbarPage {
         "An empty bar on a surface, its controls of the small size: 32, so the bar is 40 high.",
       ),
       (
-        "child",
+        "item, items",
         "impl Into<ToolbarItem>",
         "",
         "A Button, a Toggle, a ToggleGroup, a Select, a ToolbarGroup, Toolbar::separator(), Toolbar::spacer(), or \
@@ -462,9 +462,9 @@ impl Component for ToolbarPage {
       ),
       (
         "size",
-        "ButtonSize",
+        "ToolbarSize",
         "Sm",
-        "The size of its buttons and toggles, which are ghost ones unless an item is as_given.",
+        "The size of its buttons and toggles (a ButtonSize), which are ghost ones unless an item is as_given.",
       ),
       (
         "overflow",
@@ -473,6 +473,18 @@ impl Component for ToolbarPage {
         "Where the bar is narrower than its controls, the last go into a menu behind More at its end.",
       ),
       ("label", "&str", "", "What the bar is called, to what reads the tree."),
+      (
+        "more_label",
+        "&str",
+        "\"More\"",
+        "What the More button is called, in its tooltip and to what reads the tree.",
+      ),
+      (
+        "disabled",
+        "bool",
+        "false",
+        "Its buttons, toggles, groups of toggles, menu items and More take no input.",
+      ),
       (
         "ToolbarItem::shortcut",
         "&str",
@@ -533,15 +545,15 @@ impl Component for ToolbarPage {
           self.frame.demo(
             0,
             Row::new().overflow_visible().child(board),
-            "Toolbar::new().child(..).child(Toolbar::separator())",
+            "Toolbar::new().item(..).item(Toolbar::separator())",
             &[
               "Toolbar::new()",
               "    .label(\"Formatting\")",
-              "    .child(ToolbarItem::from(Toggle::new(\"Bold\").icon(icons::BOLD).icon_only(true).on(true))",
+              "    .item(ToolbarItem::from(Toggle::new(\"Bold\").icon(icons::BOLD).icon_only(true).on(true))",
               "        .shortcut(\"Ctrl+B\"))",
-              "    .child(Toggle::new(\"Italic\").icon(icons::ITALIC).icon_only(true))",
-              "    .child(Toolbar::separator())",
-              "    .child(Button::new(\"Link\").icon(icons::LINK).icon_only(true))",
+              "    .item(Toggle::new(\"Italic\").icon(icons::ITALIC).icon_only(true))",
+              "    .item(Toolbar::separator())",
+              "    .item(Button::new(\"Link\").icon(icons::LINK).icon_only(true))",
               "    .mount(ctx)",
             ],
           ),
@@ -556,7 +568,7 @@ impl Component for ToolbarPage {
             ".overflow(true)",
             &[
               "Toolbar::new()",
-              "    .child(..)",
+              "    .item(..)",
               "    .overflow(true)",
               "    .mount(ctx)",
             ],
@@ -572,7 +584,7 @@ impl Component for ToolbarPage {
             &[
               "Toolbar::new()",
               "    .variant(ToolbarVariant::Floating)",
-              "    .child(..)",
+              "    .item(..)",
               "    .mount(ctx)",
             ],
           ),
@@ -588,12 +600,12 @@ impl Component for ToolbarPage {
             &[
               "Toolbar::new()",
               "    .overflow(true)",
-              "    .child(ToolbarItem::element(SearchField::new(query)).stays(true))",
-              "    .child(ToolbarItem::element(Tag::new(\"Kind: Rust\").variant(TagVariant::Info)))",
-              "    .child(Toolbar::spacer())",
-              "    .child(ToggleGroup::new(density, rows))",
-              "    .child(ToolbarItem::element(columns).in_menu(ToolbarCommand::new(\"Columns\")))",
-              "    .child(ToolbarItem::from(Button::new(\"Export\").variant(ButtonVariant::Outline)).as_given(true))",
+              "    .item(ToolbarItem::element(SearchField::new(query)).stays(true))",
+              "    .item(ToolbarItem::element(Tag::new(\"Kind: Rust\").variant(TagVariant::Info)))",
+              "    .item(Toolbar::spacer())",
+              "    .item(ToggleGroup::new(density, rows))",
+              "    .item(ToolbarItem::element(columns).in_menu(ToolbarCommand::new(\"Columns\")))",
+              "    .item(ToolbarItem::from(Button::new(\"Export\").variant(ButtonVariant::Outline)).as_given(true))",
               "    .mount(ctx)",
             ],
           ),
@@ -609,8 +621,8 @@ impl Component for ToolbarPage {
             &[
               "Toolbar::new()",
               "    .variant(ToolbarVariant::Plain)",
-              "    .child(ToolbarGroup::new().label(\"Clipboard\").child(paste).child(cut).child(copy))",
-              "    .child(ToolbarGroup::new().label(\"Format\").child(bold).child(italic))",
+              "    .item(ToolbarGroup::new().label(\"Clipboard\").item(paste).item(cut).item(copy))",
+              "    .item(ToolbarGroup::new().label(\"Format\").item(bold).item(italic))",
               "    .overflow(true)",
               "    .mount(ctx)",
             ],
@@ -619,7 +631,7 @@ impl Component for ToolbarPage {
         Section::new(
           "Props",
           "What a toolbar is given, and what its items say of themselves.",
-          props_table(&rows, &["new", "child", "mount"], self.frame.room()),
+          props_table(&rows, &["new", "item, items", "mount"], self.frame.room()),
         ),
       ],
     )

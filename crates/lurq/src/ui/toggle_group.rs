@@ -289,6 +289,7 @@ impl ToggleGroup {
         checked: Some(item.on),
         run: item.pick.clone(),
         id: None,
+        key: None,
       })
       .collect()
   }

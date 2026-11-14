@@ -3182,32 +3182,34 @@ use lurq::ui::{Button, Toggle, Toolbar, ToolbarGroup, ToolbarItem, ToolbarVarian
 
 Toolbar::new()
   .label("Formatting")
-  .child(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold.get())).shortcut("Ctrl+B"))
-  .child(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).on(italic.get()))
-  .child(Toolbar::separator())
-  .child(Button::new("Link").icon(icons::LINK).icon_only(true).on_click(link))
-  .child(Toolbar::spacer())
-  .child(ToolbarItem::from(Button::new("Search").icon(icons::SEARCH).icon_only(true)).stays(true))
+  .item(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold.get())).shortcut("Ctrl+B"))
+  .item(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true).on(italic.get()))
+  .item(Toolbar::separator())
+  .item(Button::new("Link").icon(icons::LINK).icon_only(true).on_click(link))
+  .item(Toolbar::spacer())
+  .item(ToolbarItem::from(Button::new("Search").icon(icons::SEARCH).icon_only(true)).stays(true))
   .overflow(true)
   .mount(ctx);
 
 // A command bar's groups: a label under each, and the group goes into the menu whole.
 Toolbar::new()
   .variant(ToolbarVariant::Plain)
-  .child(ToolbarGroup::new().label("Clipboard").child(Button::new("Paste").icon(icons::PASTE)))
+  .item(ToolbarGroup::new().label("Clipboard").item(Button::new("Paste").icon(icons::PASTE)))
   .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
 | `Toolbar::new()` | An empty bar on a surface, its controls of the small size |
-| `child(impl Into<ToolbarItem>)`, `children(..)` | A `Button`, a `Toggle`, a `ToggleGroup`, a `Select`, a `ToolbarGroup`, `Toolbar::separator()`, `Toolbar::spacer()`, an `Element`, or a `ToolbarItem` made of any of them |
+| `item(impl Into<ToolbarItem>)`, `items(..)` | A `Button`, a `Toggle`, a `ToggleGroup`, a `Select`, a `ToolbarGroup`, `Toolbar::separator()`, `Toolbar::spacer()`, an `Element`, or a `ToolbarItem` made of any of them. A `ToolbarGroup` takes its controls with `item` and `items` too |
 | `mount(ctx)` | Puts the bar in the tree of `ctx`'s component: it keeps the menu of what does not fit and the control the focus left. `build(theme)` and `From<Toolbar> for Element` draw it once with nothing kept: no tooltips, no menu |
 | `variant(ToolbarVariant)` | `Surface` (the default): the background's fill and an edge. `Plain`: neither. `Floating`: the popover's fill, an edge and the large shadow |
-| `size(ButtonSize)` | The size of its buttons and toggles: `Sm` by default, so the bar is 40 high |
+| `size(ToolbarSize)` | The size of its buttons and toggles (a `ButtonSize`): `Sm` by default, as the board draws the bar, so it is 40 high |
 | `overflow(bool)` | Where the bar is narrower than its controls, those that do not fit go into a menu behind a More button at its end, the last first. Without it they are cut off |
 | `label(&str)` | What the bar is called, to what reads the tree |
-| `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. The More button has the id with `-more` after it, its menu `-menu` |
+| `more_label(&str)` | What the More button is called, in its tooltip and to what reads the tree: "More" |
+| `disabled(bool)` | Its buttons, toggles and groups of toggles are disabled, and so are the items of its menu and More; an element given as it is is the app's to disable. State: `ToolbarState::Disabled` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the More button; a control is forced with its own. The More button has the id with `-more` after it, its menu `-menu` |
 
 | `ToolbarItem` | |
 | --- | --- |
@@ -3216,10 +3218,12 @@ Toolbar::new()
 | `as_given(bool)` | The button or toggle keeps its own variant, size and style over the bar's: the outline Export of a table's bar |
 | `ToolbarItem::element(el)`, `in_menu(ToolbarCommand)` | Any element: it stays in the bar unless it has a command to stand for it in the menu |
 
+A `ToolbarCommand` is an item of the menu: `ToolbarCommand::new(label)` with `icon`, `checked` (a tick, as a menu item's), `disabled`, `on_select` (each one adds, called in order), `id` and `key`.
+
 - The bar gives its buttons its size and makes them ghost ones, and its toggles its size, unless an item is `as_given`. A button or toggle that is its icon alone is called by its label and has a tooltip (below it) of its label and its shortcut.
 - It is one stop of Tab: Tab enters it at the control the focus last left (the first, the first time), and leaves it at once. Left and Right move between its controls, the toggles of a group in it among them; Home and End go to the first and the last; a disabled one is passed by. A field or a select in it keeps its own keys while it is focused.
 - With `overflow`, a control that does not fit drops out of the bar whole, the last first, and the More button (`more-horizontal`, after a line) appears at the end. Enter or Space on it opens its menu with the focus on its first item, and Escape gives the focus back to More; the menu has an item for each control that went, in the order of the bar: its label, its icon, its shortcut, a check for a toggle (each toggle of a group, after a line), and its press. A labelled group goes whole, under its label. A select or a field stays unless it has `in_menu`. The bar learns what went from the layout (the engine's `ShrinkLimit::Drop` and `drop_marker`), and its menu follows it a pass later.
-- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `More`. State: `ToolbarState::Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
+- Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `More`. States: `ToolbarState::Disabled`, `Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
 - In the design the bar is padded 4, its controls 2 apart; a button is a ghost one of 32 with an icon of 16; a toggle that is on has the fill of what is picked out; a line of 20 in the border's color stands between two groups with 4 on either side. On a surface it has the background's fill, an edge of 1 in the border's color and the middle radius. A group of a command bar is padded 10 with a line at its end and its label of 10 in the muted foreground under it. A focused control has its ring inside it, where the bar does not cut it off.
 - To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
 - A renderer that draws another bar gets a `ToolbarView`: `view.slot(index)` is a control as the bar lays it out (dropping when it does not fit), `view.more()` the More button with its menu, `view.menu()` the menu alone, `view.dropped` which slots went.

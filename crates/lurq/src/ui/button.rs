@@ -376,6 +376,7 @@ impl Button {
         }
       }),
       id: self.id.clone(),
+      key: None,
     }
   }
 

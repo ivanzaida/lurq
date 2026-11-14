@@ -204,6 +204,7 @@ impl Toggle {
         }
       }),
       id: self.id.clone(),
+      key: None,
     }
   }
 

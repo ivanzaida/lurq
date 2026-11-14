@@ -15,7 +15,7 @@ use super::{
   icons,
   menu::{Menu, MenuItem},
   names,
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   separator::{Separator, SeparatorPart},
   theme::{Themed, current_theme},
   toggle::{Toggle, TogglePart},
@@ -77,6 +77,8 @@ pub struct ToolbarCommand {
   pub(crate) run: Arc<dyn Fn() + Send + Sync>,
   /// The id of the control: its item has it with `-item` after it.
   pub(crate) id: Option<Arc<str>>,
+  /// The key of the item in the menu.
+  pub(crate) key: Option<Arc<str>>,
 }
 
 impl ToolbarCommand {
@@ -90,7 +92,14 @@ impl ToolbarCommand {
       checked: None,
       run: Arc::new(|| {}),
       id: None,
+      key: None,
     }
+  }
+
+  /// The key of the item in the menu.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
+    self
   }
 
   /// The id of the item in the menu.
@@ -117,9 +126,13 @@ impl ToolbarCommand {
     self
   }
 
-  /// What choosing it does.
+  /// What choosing it does, after the handlers it has.
   pub fn on_select(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.run = Arc::new(handler);
+    let before = self.run.clone();
+    self.run = Arc::new(move || {
+      before();
+      handler();
+    });
     self
   }
 
@@ -140,6 +153,9 @@ impl ToolbarCommand {
     }
     if let Some(id) = &self.id {
       item = item.id(format!("{id}-item"));
+    }
+    if let Some(key) = &self.key {
+      item = item.key(key.clone());
     }
     item
   }
@@ -201,16 +217,22 @@ names!(ToolbarPart {
 /// The states of a toolbar a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ToolbarState {
+  /// Its controls take no input.
+  Disabled,
   /// Some controls did not fit, and are in the menu at the end.
   Overflowing,
 }
 
 names!(ToolbarState {
+  Disabled => "disabled",
   Overflowing => "overflowing",
 });
 
 /// What builds a toolbar's nodes: a theme's in place of the default one.
 pub type ToolbarRenderer = Arc<dyn Fn(ToolbarView) -> Element + Send + Sync>;
+
+/// The sizes of a toolbar's buttons and toggles: a button's.
+pub type ToolbarSize = ButtonSize;
 
 /// What a control of a toolbar is.
 enum Kind {
@@ -339,9 +361,9 @@ impl From<Element> for ToolbarItem {
 /// use lurq::ui::{Button, ToolbarGroup, icons};
 ///
 /// let history = ToolbarGroup::new()
-///   .child(Button::new("Undo").icon(icons::UNDO).icon_only(true))
-///   .child(Button::new("Redo").icon(icons::REDO).icon_only(true));
-/// let clipboard = ToolbarGroup::new().label("Clipboard").child(Button::new("Paste").icon(icons::PASTE));
+///   .item(Button::new("Undo").icon(icons::UNDO).icon_only(true))
+///   .item(Button::new("Redo").icon(icons::REDO).icon_only(true));
+/// let clipboard = ToolbarGroup::new().label("Clipboard").item(Button::new("Paste").icon(icons::PASTE));
 /// ```
 #[derive(Default)]
 pub struct ToolbarGroup {
@@ -355,12 +377,12 @@ impl ToolbarGroup {
   }
 
   /// A control of the group, after the ones it has.
-  pub fn child(mut self, item: impl Into<ToolbarItem>) -> Self {
+  pub fn item(mut self, item: impl Into<ToolbarItem>) -> Self {
     self.items.push(item.into());
     self
   }
 
-  pub fn children<I: Into<ToolbarItem>>(mut self, items: impl IntoIterator<Item = I>) -> Self {
+  pub fn items<I: Into<ToolbarItem>>(mut self, items: impl IntoIterator<Item = I>) -> Self {
     self.items.extend(items.into_iter().map(Into::into));
     self
   }
@@ -385,12 +407,12 @@ impl ToolbarGroup {
 /// # fn build(ctx: &mut Ctx, bold: bool) -> Element {
 /// Toolbar::new()
 ///   .label("Formatting")
-///   .child(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold)).shortcut("Ctrl+B"))
-///   .child(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true))
-///   .child(Toolbar::separator())
-///   .child(Button::new("Link").icon(icons::LINK).icon_only(true))
-///   .child(Toolbar::spacer())
-///   .child(Button::new("Share"))
+///   .item(ToolbarItem::from(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).on(bold)).shortcut("Ctrl+B"))
+///   .item(Toggle::new("Italic").icon(icons::ITALIC).icon_only(true))
+///   .item(Toolbar::separator())
+///   .item(Button::new("Link").icon(icons::LINK).icon_only(true))
+///   .item(Toolbar::spacer())
+///   .item(Button::new("Share"))
 ///   .overflow(true)
 ///   .mount(ctx)
 /// # }
@@ -416,7 +438,11 @@ pub struct Toolbar {
   size: Name,
   overflow: bool,
   label: Option<Arc<str>>,
+  more_label: Arc<str>,
+  disabled: bool,
+  states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -435,7 +461,11 @@ impl Toolbar {
       size: ButtonSize::Sm.into(),
       overflow: false,
       label: None,
+      more_label: Arc::from("More"),
+      disabled: false,
+      states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
@@ -454,12 +484,12 @@ impl Toolbar {
   /// A thing of the bar, after the ones it has: a button, a toggle, a group
   /// of toggles, a select, a [`ToolbarItem`], a [`ToolbarGroup`],
   /// [`Toolbar::separator`], [`Toolbar::spacer`].
-  pub fn child(mut self, item: impl Into<ToolbarItem>) -> Self {
+  pub fn item(mut self, item: impl Into<ToolbarItem>) -> Self {
     self.items.push(item.into());
     self
   }
 
-  pub fn children<I: Into<ToolbarItem>>(mut self, items: impl IntoIterator<Item = I>) -> Self {
+  pub fn items<I: Into<ToolbarItem>>(mut self, items: impl IntoIterator<Item = I>) -> Self {
     self.items.extend(items.into_iter().map(Into::into));
     self
   }
@@ -470,8 +500,9 @@ impl Toolbar {
     self
   }
 
-  /// The size of the bar's buttons and toggles: a [`ButtonSize`], small by
-  /// default. The bar is as high as they are and its padding.
+  /// The size of the bar's buttons and toggles: a [`ToolbarSize`], small by
+  /// default, as the board draws the bar. The bar is as high as they are and
+  /// its padding.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = size.into();
     self
@@ -487,6 +518,39 @@ impl Toolbar {
   /// What the bar is called, to what reads the tree: "Formatting".
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// What the More button is called, in its tooltip and to what reads the tree: "More" by default.
+  pub fn more_label(mut self, label: &str) -> Self {
+    self.more_label = Arc::from(label);
+    self
+  }
+
+  /// Whether the bar's controls take no input: a bar of a document that is
+  /// read only. Each button, toggle and group of toggles in it is disabled,
+  /// and so are the items of its menu and its More button. An element given
+  /// as it is ([`ToolbarItem::element`]) is the app's to disable.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
+  /// Puts the bar in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Draws the More button as it is under the pointer, held down or focused
+  /// from the keyboard, with nothing pointing at it: for a gallery or a test.
+  /// A control of the bar is forced with its own `force`.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
     self
   }
 
@@ -538,7 +602,7 @@ impl Toolbar {
         .iter()
         .map(|slot| match &slot.label {
           Some(label) if !slot.parts.is_empty() => {
-            let recipe = resolve(theme, bar.variant, bar.size, &bar.rules, false);
+            let recipe = resolve(theme, bar.variant, bar.size, &bar.rules, &bar.states, false);
             labelled(
               &recipe,
               label,
@@ -553,7 +617,7 @@ impl Toolbar {
       more: None,
       overflow: false,
       label: bar.label,
-      recipe: resolve(theme, bar.variant, bar.size, &bar.rules, false),
+      recipe: resolve(theme, bar.variant, bar.size, &bar.rules, &bar.states, false),
       refs: (0..count).map(|_| ElementRef::new()).collect(),
       dropped_signal: Signal::new(Vec::new()),
       open: Signal::new(false),
@@ -572,12 +636,21 @@ impl Toolbar {
 
   /// The bar's slots built in `theme`, with what its host needs, and its key.
   fn prepare(self, theme: &Theme) -> (Prepared, Option<Arc<str>>) {
-    let recipe = resolve(theme, self.variant, self.size, &self.rules, false);
+    let mut states = self.states;
+    if self.disabled {
+      states.push(ToolbarState::Disabled.into());
+    }
+    let recipe = resolve(theme, self.variant, self.size, &self.rules, &states, false);
     let mut slots = Vec::new();
     let mut separated = false;
     let count = self.items.len();
     for (index, item) in self.items.into_iter().enumerate() {
-      prepare(item, &recipe, self.size, &mut slots, &mut separated, index + 1 < count);
+      let place = Place {
+        recipe: &recipe,
+        size: self.size,
+        disabled: self.disabled,
+      };
+      prepare(item, &place, &mut slots, &mut separated, index + 1 < count);
     }
     let bar = Prepared {
       slots,
@@ -585,7 +658,11 @@ impl Toolbar {
       size: self.size,
       overflow: self.overflow,
       label: self.label,
+      more_label: self.more_label,
+      disabled: self.disabled,
+      states,
       rules: self.rules,
+      forced: self.forced,
       id: self.id,
     };
     (bar, self.key)
@@ -598,13 +675,30 @@ impl From<Toolbar> for Element {
   }
 }
 
-fn resolve(theme: &Theme, variant: Name, size: Name, rules: &Recipe, overflowing: bool) -> ResolvedRecipe {
-  let case = Case::new()
+fn resolve(
+  theme: &Theme,
+  variant: Name,
+  size: Name,
+  rules: &Recipe,
+  states: &[Name],
+  overflowing: bool,
+) -> ResolvedRecipe {
+  let mut case = Case::new()
     .variant(variant)
     .size(size)
     .breakpoint(super::current_breakpoint())
     .state(ToolbarState::Overflowing, overflowing);
+  for state in states {
+    case = case.state(state.clone(), true);
+  }
   theme.resolve::<Toolbar>(&case, Some(rules))
+}
+
+/// Where the controls of a bar are prepared: its recipe, its size, and whether it takes no input.
+struct Place<'a> {
+  recipe: &'a ResolvedRecipe,
+  size: Name,
+  disabled: bool,
 }
 
 /// One thing of the bar as it is laid out: a control, a labelled group or the spacer.
@@ -632,14 +726,8 @@ pub struct ToolbarSlot {
 
 /// Turns `item` into the slots of the bar, after `slots`: a line that ends a
 /// group is held in `separated` for the next.
-fn prepare(
-  item: ToolbarItem,
-  recipe: &ResolvedRecipe,
-  size: Name,
-  slots: &mut Vec<ToolbarSlot>,
-  separated: &mut bool,
-  more_follow: bool,
-) {
+fn prepare(item: ToolbarItem, place: &Place, slots: &mut Vec<ToolbarSlot>, separated: &mut bool, more_follow: bool) {
+  let (recipe, size) = (place.recipe, place.size);
   let theme = recipe.theme();
   let shortcut = item.shortcut.clone();
   let slot =
@@ -656,6 +744,7 @@ fn prepare(
     };
   match item.kind {
     Kind::Button(button) => {
+      let button = if place.disabled { button.disabled(true) } else { button };
       let command = button.command();
       let button = if item.as_given {
         button
@@ -676,6 +765,7 @@ fn prepare(
       slots.push(made);
     }
     Kind::Toggle(toggle) => {
+      let toggle = if place.disabled { toggle.disabled(true) } else { toggle };
       let command = toggle.command();
       let toggle = if item.as_given {
         toggle
@@ -695,6 +785,7 @@ fn prepare(
       slots.push(made);
     }
     Kind::ToggleGroup(group) => {
+      let group = if place.disabled { group.disabled(true) } else { group };
       let commands = group.commands();
       let group = if item.as_given { group } else { group.size(size) };
       let mut element = group.build(theme);
@@ -704,6 +795,13 @@ fn prepare(
       slots.push(made);
     }
     Kind::Element(element, stand_in) => {
+      let stand_in = stand_in.map(|command| {
+        if place.disabled {
+          command.disabled(true)
+        } else {
+          command
+        }
+      });
       let stays = item.stays.unwrap_or(stand_in.is_none());
       let made = slot(separated, element, stand_in.into_iter().collect(), stays, false);
       slots.push(made);
@@ -723,7 +821,7 @@ fn prepare(
         None => {
           let count = group.items.len();
           for (index, inner) in group.items.into_iter().enumerate() {
-            prepare(inner, recipe, size, slots, separated, index + 1 < count);
+            prepare(inner, place, slots, separated, index + 1 < count);
           }
         }
         Some(label) => {
@@ -731,14 +829,7 @@ fn prepare(
           let mut inner_separated = false;
           let count = group.items.len();
           for (index, inner) in group.items.into_iter().enumerate() {
-            prepare(
-              inner,
-              recipe,
-              size,
-              &mut inner_slots,
-              &mut inner_separated,
-              index + 1 < count,
-            );
+            prepare(inner, place, &mut inner_slots, &mut inner_separated, index + 1 < count);
           }
           let commands = inner_slots
             .iter()
@@ -786,7 +877,12 @@ struct Prepared {
   size: Name,
   overflow: bool,
   label: Option<Arc<str>>,
+  more_label: Arc<str>,
+  disabled: bool,
+  /// The states the app put the bar in, and `Disabled` where it is.
+  states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
 }
 
@@ -870,7 +966,7 @@ impl Component for ToolbarHost {
         .collect()
     };
     let overflowing = dropped.iter().any(|dropped| *dropped);
-    let recipe = resolve(&theme, bar.variant, bar.size, &bar.rules, overflowing);
+    let recipe = resolve(&theme, bar.variant, bar.size, &bar.rules, &bar.states, overflowing);
     let refs = {
       let mut refs = self.refs.lock();
       while refs.len() < count {
@@ -906,11 +1002,13 @@ impl Component for ToolbarHost {
       shown.push(element);
     }
     let more = if bar.overflow {
-      let mut button = Button::new("More")
+      let mut button = Button::new(&bar.more_label)
         .icon(icons::MORE_HORIZONTAL)
         .icon_only(true)
         .variant(ButtonVariant::Ghost)
         .size(bar.size)
+        .disabled(bar.disabled)
+        .force(bar.forced)
         .rules(&recipe.rules_for(ToolbarPart::Item, ButtonPart::Root))
         .on_click({
           let open = self.open.clone();
@@ -926,7 +1024,11 @@ impl Component for ToolbarHost {
       mark_stops(&mut element.node, &mut next, last, &self.last);
       // The menu hangs from the button, and its tooltip is anchored to it too.
       NodeUpdate::ref_element(&mut *element.node, self.anchor.clone());
-      Some(Tooltip::new("More").side(TooltipSide::Bottom).mount(ctx, element))
+      Some(
+        Tooltip::new(&bar.more_label)
+          .side(TooltipSide::Bottom)
+          .mount(ctx, element),
+      )
     } else {
       None
     };
