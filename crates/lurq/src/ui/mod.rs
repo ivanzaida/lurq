@@ -31,8 +31,8 @@ mod choice_card;
 mod collapsible;
 mod combobox;
 mod dialog;
-mod empty_state;
 mod drawer;
+mod empty_state;
 mod fab;
 mod field;
 mod fieldset;
@@ -115,10 +115,10 @@ pub use choice_card::{
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
+pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };
-pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
