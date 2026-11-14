@@ -522,6 +522,12 @@ impl ManagedWindow {
       self.tree.set_window_position(position.x, position.y);
       self.notify_position_changed(position.x, position.y);
     }
+    // A dialog of the system opened over this window is modal to it; see `files::FileDialog`.
+    #[cfg(windows)]
+    self
+      .tree
+      .window()
+      .set_parent(crate::app::window::parent::ParentWindow::of(&window));
     self.window = Some(window);
     self.sync_window_state();
     let presented = show_after_first_present && self.present_now(app, true);
@@ -580,6 +586,8 @@ impl ManagedWindow {
             event_loop.exit();
           } else {
             self.window = None;
+            #[cfg(windows)]
+            self.tree.window().set_parent(None);
             self.frames.settle();
             closed = true;
           }
@@ -1416,6 +1424,10 @@ impl ManagedSecondaryWindow {
     if let Ok(position) = window.outer_position() {
       tree.set_window_position(position.x, position.y);
     }
+    #[cfg(windows)]
+    tree
+      .window()
+      .set_parent(crate::app::window::parent::ParentWindow::of(&window));
     self.window = Some(window);
     // A window of UIKit's is seen in a scene: one the system has ready for it, or one it is asked for now.
     #[cfg(target_os = "ios")]
@@ -2032,6 +2044,10 @@ impl WinitHandler {
     let index = self.secondaries[position].index();
     #[cfg(target_os = "ios")]
     self.secondaries[position].leave_scene();
+    #[cfg(windows)]
+    if let Some(secondary) = self.main.tree.secondary_window(index) {
+      secondary.tree().window().set_parent(None);
+    }
     if self.main.tree.close_secondary_window(index) {
       self.main.request_redraw();
     }

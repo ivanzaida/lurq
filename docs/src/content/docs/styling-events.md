@@ -1436,7 +1436,8 @@ let choose = ctx.future_action(move |()| {
 
 | Platform | A drop | The dialog |
 | --- | --- | --- |
-| Windows, macOS, Linux | Paths, from Explorer, Finder or a file manager | The system's (`rfd`, with the feature `file_dialog`): paths and sizes. It has no parent window, so it is not modal to the app's |
+| Windows | Paths, from Explorer | The system's (`rfd`, with the feature `file_dialog`): paths and sizes. It is modal to the window it is opened over: the window takes no input until it closes |
+| macOS, Linux | Paths, from Finder or a file manager | The system's: paths and sizes. It has no parent window yet, so it is not modal to the app's: a press of the window behind it puts the dialog behind the window |
 | A browser | None: winit reports no drop from the system | The browser's file input, which a press must open: names and sizes, no path. Its bytes are not read through lurq yet |
 | iOS | None | None: `pick` gives nothing |
 
