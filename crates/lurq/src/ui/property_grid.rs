@@ -131,6 +131,8 @@ pub struct EditorContext {
   pub label: Arc<str>,
   pub read_only: bool,
   pub disabled: bool,
+  /// Whether a number has its buttons, one over the other at the end of its box.
+  pub stepper: bool,
   notify: Notify,
   /// The texts a person edited and has not committed yet, kept by the mounted grid.
   edited: Option<(Arc<str>, Edited)>,
@@ -140,6 +142,20 @@ pub struct EditorContext {
 type Edited = Arc<Mutex<std::collections::HashSet<Arc<str>>>>;
 
 impl EditorContext {
+  /// The editor part's rules laid over the part `inner` of a control, its padding left to the control: for a box
+  /// that holds something of its own at its start (a color field's swatch).
+  pub fn rules_for_unpadded(&self, inner: impl Into<Name>) -> Recipe {
+    let mut styles = self.editor.styles().clone();
+    styles.rest.padding_x = None;
+    styles.rest.padding_start = None;
+    styles.rest.padding_end = None;
+    let inner = inner.into();
+    Recipe::new()
+      .base(inner, |_| styles.rest.clone())
+      .hovered(inner, |_| styles.hovered.clone())
+      .focus_visible(inner, |_| styles.focus_visible.clone())
+  }
+
   /// The editor part's rules laid over the part `inner` of a control.
   pub fn rules_for(&self, inner: impl Into<Name>) -> Recipe {
     let styles = self.editor.styles().clone();
@@ -178,11 +194,12 @@ pub struct Property<V> {
   description: Option<Arc<str>>,
   read_only: bool,
   disabled: bool,
+  stepper: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
 
-impl<V: Clone + PartialEq + Send + Sync + 'static> Property<V> {
+impl<V: Clone + PartialEq + Send + Sync + crate::core::SignalValue + 'static> Property<V> {
   fn bound(
     name: &str,
     value: &Signal<V>,
@@ -200,6 +217,7 @@ impl<V: Clone + PartialEq + Send + Sync + 'static> Property<V> {
       description: None,
       read_only: false,
       disabled: false,
+      stepper: false,
       id: None,
       key: None,
     }
@@ -294,7 +312,14 @@ impl Property<String> {
 }
 
 impl Property<f64> {
-  /// A number typed in a number input, or stepped with its buttons and the keys.
+  /// Whether the number has its buttons, one over the other at the end of its box: the board's rotation. Without
+  /// them it is stepped with Up and Down.
+  pub fn stepper(mut self, stepper: bool) -> Self {
+    self.stepper = stepper;
+    self
+  }
+
+  /// A number typed in a number input, and stepped with Up and Down.
   pub fn number(name: &str, value: Signal<f64>) -> Self {
     Self::number_with(name, value, "")
   }
@@ -310,7 +335,11 @@ impl Property<f64> {
       move |cx| {
         let changed = cx.clone();
         NumberInput::new(bound.clone())
-          .layout(NumberInputLayout::Stacked)
+          .layout(if cx.stepper {
+            NumberInputLayout::Stacked
+          } else {
+            NumberInputLayout::Bare
+          })
           .format(NumberFormat::new().suffix(&suffix))
           .label(&cx.label)
           .read_only(cx.read_only)
@@ -410,7 +439,7 @@ impl Property<Color> {
           .read_only(cx.read_only)
           .disabled(cx.disabled)
           .full_width(true)
-          .rules(&cx.rules_for(super::ColorFieldPart::Control))
+          .rules(&cx.rules_for_unpadded(super::ColorFieldPart::Control))
           .on_change(move |_| changed.changed())
           .into()
       },
@@ -503,13 +532,14 @@ impl Property<(f64, f64)> {
       description: None,
       read_only: false,
       disabled: false,
+      stepper: false,
       id: None,
       key: None,
     }
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Property<T> {
+impl<T: Clone + PartialEq + Send + Sync + crate::core::SignalValue + 'static> Property<T> {
   /// One of `options`, chosen in a select: a blend mode, an alignment.
   pub fn choice(name: &str, value: Signal<T>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
     let options: Arc<Vec<SelectOption<T>>> = Arc::new(options.into_iter().map(Into::into).collect());
@@ -548,6 +578,7 @@ impl Property<()> {
       description: None,
       read_only: false,
       disabled: false,
+      stepper: false,
       id: None,
       key: None,
     }
@@ -559,6 +590,7 @@ impl Property<()> {
 pub struct PropertyRow {
   name: Arc<str>,
   editor: BuildEditor,
+  stepper: bool,
   modified: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
   reset: Option<Arc<dyn Fn() + Send + Sync>>,
   value_text: Option<Arc<dyn Fn() -> String + Send + Sync>>,
@@ -585,6 +617,7 @@ impl<V: PartialEq + Clone + Send + Sync + 'static> From<Property<V>> for Propert
       id: property.id.unwrap_or_else(|| property.name.clone()),
       name: property.name,
       editor: property.editor,
+      stepper: property.stepper,
       modified,
       reset,
       value_text: property.value_text,
@@ -1144,6 +1177,7 @@ impl PropertyGridView {
       label: property.name.clone(),
       read_only,
       disabled,
+      stepper: property.stepper,
       notify,
       edited: self
         .host
@@ -1152,9 +1186,12 @@ impl PropertyGridView {
     };
     let row_key: Arc<str> = Arc::from(format!("property-{}", property.key.as_deref().unwrap_or(&property.id)));
     let editor_ref = ElementRef::new();
-    let mut editor = Row::new()
+    // A column that stretches its editor: an editor whose own outer row has no width (a color field's) is given
+    // the room.
+    let mut editor = Column::new()
       .width(Dimension::Pct(100.0))
-      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .align_items(Alignment::Stretch)
       .ref_element(editor_ref.clone());
     if let Some(host) = &self.host {
       // Escape in an editor gives the focus back to its row, where nothing in the editor took the key.
@@ -1511,6 +1548,9 @@ impl crate::app::component::DevtoolsInspectable for GridProps {}
 /// What keeps a mounted grid's open categories and its names' width.
 struct GridMount {
   host: GridHost,
+  /// The row the focus went back to last, and the ref it carries: kept on it in every render after, since the
+  /// render that asks for the focus need not be the last of its pass.
+  focused: Arc<Mutex<Option<(Arc<str>, ElementRef)>>>,
 }
 
 impl Component for GridMount {
@@ -1526,6 +1566,7 @@ impl Component for GridMount {
         wake: ctx.signal(0),
         focus: None,
       },
+      focused: Arc::default(),
     }
   }
 
@@ -1537,8 +1578,9 @@ impl Component for GridMount {
     if let Some(row) = self.host.refocus.lock().unwrap().take() {
       let element = ElementRef::new();
       ctx.focus(&element);
-      host.focus = Some((row, element));
+      *self.focused.lock().unwrap() = Some((row, element));
     }
+    host.focus = self.focused.lock().unwrap().clone();
     grid.host = Some(host);
     let element: Element = grid.into();
     element

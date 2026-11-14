@@ -59,7 +59,11 @@ impl Values {
       .category(
         PropertyCategory::new("Transform")
           .property(Property::xy("Position", self.x.clone(), self.y.clone()))
-          .property(Property::number_with("Rotation", self.rotation.clone(), "°").default(0.0)),
+          .property(
+            Property::number_with("Rotation", self.rotation.clone(), "°")
+              .stepper(true)
+              .default(0.0),
+          ),
       )
       .category(
         PropertyCategory::new("Appearance")
@@ -395,4 +399,24 @@ fn to_tooling_it_is_a_treegrid_of_rows_that_say_their_values() {
   assert_eq!(said("grid-Position", "a11y_value").as_deref(), Some("X 120, Y 64"));
   assert_eq!(said("grid-Rotation", "a11y_value").as_deref(), Some("0°"));
   assert_eq!(said("grid-Radius-reset", "a11y_name").as_deref(), Some("Reset Radius"));
+}
+
+#[test]
+fn escape_gives_the_row_the_focus_when_the_page_around_the_grid_renders_again_too() {
+  let values = Values::new();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| {
+    // The page shows the value, so a step renders it again with the grid.
+    let shown = scene.rotation.get();
+    Column::new()
+      .size(400.0, 500.0)
+      .child(lurq::components::Text::new(&format!("rotation {shown}")))
+      .child(scene.grid().mount(ctx))
+      .into()
+  });
+  stage.click("grid-Rotation");
+  stage.key("ArrowUp");
+  assert_eq!(values.rotation.get(), 1.0);
+  stage.key("Escape");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Rotation"));
 }

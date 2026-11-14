@@ -60,6 +60,7 @@ mod popconfirm;
 mod popover;
 mod progress;
 mod progress_dialog;
+mod property_grid;
 mod radio;
 mod radio_card;
 mod rating;
@@ -79,11 +80,11 @@ mod switch;
 mod table;
 mod tabs;
 mod tag;
-mod timeline;
 mod teaching_tip;
 mod textarea;
 mod time_field;
 mod time_picker;
+mod timeline;
 mod toast;
 mod toggletip;
 mod token_input;
@@ -874,6 +875,14 @@ pub const PAGES: &[Page] = &[
     about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse horizontal vertical sizes on_resize on_resize_end step large_step framed disabled plitter ane size share min max collapsible label",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),
+  },
+  Page {
+    path: "/property-grid",
+    name: "Property Grid",
+    icon: Some("sliders"),
+    about: "property grid inspector properties category categories editor name value default reset modified changed xy pair slider toggle choice color text number custom read_only disabled on_change name_width divider title trailing",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<property_grid::PropertyGridPage>(()),
   },
 ];
 
