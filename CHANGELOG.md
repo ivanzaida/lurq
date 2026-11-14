@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.62.0 — 2026-11-14
 
 Breaking:
 
 - A border on some sides of a rounded element no longer thins out round a corner whose other side has none, as CSS draws it: it goes on round the arc at its full width and fades out along it, from opaque at the bordered side to nothing at the other. Sides with the same placement and dash are now one shape whatever their colors, and two colors that meet at a rounded corner go over from one to the other along the arc, at full coverage; at a square corner they meet on the diagonal, where the side painted last covered the corner. A border outside or centered on the element can paint past a side with none by its width near such a corner. Layout and hit testing are unchanged, but every app with such a border is painted differently. `StrokeStyle` has a new field, `side_colors`, and `StrokeStyle::outset`. See [styling](docs/src/content/docs/styling-events.md#borders).
+- `ClipRect::border_radius` is replaced by `ClipRect::rounded`, the rounded clips the content is under, each a `RoundedClip` with a rectangle and radii of its own. Code that reads or sets the field is changed to it; `ClipRect::rounded_rect` makes a clip with one rounded rectangle. It comes with the fix for nested rounded clips below.
 
 Fixes:
 
