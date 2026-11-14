@@ -271,7 +271,27 @@ Row::new()
   .describe("role", "commits the form") // free-form key=value shown on the element
 ```
 
-A value that changes without a render, as where a dragged divider stands, is said through the element's ref: `ElementRefMut::describe(name, value)` takes the place of what `.describe(name, ..)` said when the element was built, and `lurq_inspect`, `lurq_read_tree`, `lurq_find`, DevTools and `ElementHandle::description(name)` read it at once; saying it again replaces it. A splitter's divider tells its `a11y_valuenow` so as it moves.
+A value that changes without a render, as where a dragged divider stands, is said through the element's ref: `ElementRefMut::describe(name, value)` takes the place of what `.describe(name, ..)` said when the element was built, and `lurq_inspect`, `lurq_read_tree`, `lurq_find`, DevTools and `ElementHandle::description(name)` read it at once; saying it again replaces it. A splitter's divider tells its `a11y_valuenow` so as it moves. Like `describe`, it is read only with the `mcp` or `devtools` feature.
+
+```rust
+use lurq::{app::events::DragEvent, components::Row, core::ElementRefMut};
+
+let divider = ElementRefMut::new();
+
+Row::new()
+  .width(1.0)
+  .ref_element(divider.clone())
+  .describe("a11y_role", "separator")
+  .describe("a11y_valuenow", "240")
+  .on_drag_move({
+    let divider = divider.clone();
+    move |event: DragEvent| {
+      let width = 240.0 + event.total_delta_x;
+      // lurq_inspect reads the new value at once; nothing renders again.
+      divider.describe("a11y_valuenow", format!("{}", width.round()));
+    }
+  });
+```
 
 `id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role="commits the form"}` in `read_tree` output; all three are matched by `lurq_find`. App-provided ids, classes, roles, attribute names and values are printed as-is when they are plain words (letters, digits, `-_.:/`) and quoted with escapes otherwise, so app text can never start a new line or forge an element or ref. Attribute values, item labels and element text are cut at 80 characters and names in lookup lines at 60, ending in `…`.
 

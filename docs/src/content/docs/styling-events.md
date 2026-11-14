@@ -1201,6 +1201,34 @@ DragContainer::mount(
 
 Low-level node drag handlers are also available: `.on_drag_start`, `.on_drag_move`, `.on_drag_end`, and `.on_drop`.
 
+### A Drag Holds The Pointer
+
+A press on an element with `on_drag_*` handlers starts a drag that holds the pointer until the button is let go, as a pointer capture does in a browser:
+
+- Every move reaches `on_drag_move`, wherever the pointer is: over other elements, and out of the window too, where the shell goes on passing the moves of a held button. `DragEvent::total_delta_x` and `total_delta_y` count from where the press was.
+- Nothing is hovered meanwhile and no text is selected by the move.
+- The window shows the cursor that was under the pointer at the press for the whole drag (`Tree::cursor`), over elements with cursors of their own and out of the window, until the release; then it is that of what is under the pointer again.
+- A drag that moved clicks nothing when it is let go. `.start_drag_buttons(MouseButtonMask::LEFT)` keeps the other buttons from starting one.
+
+A divider that resizes what is beside it needs nothing more than its handlers and its cursor:
+
+```rust
+use lurq::{
+  app::events::{DragEvent, MouseButtonMask},
+  components::Row,
+  node::CursorIcon,
+};
+
+Row::new()
+  .width(6.0)
+  .cursor(CursorIcon::ColResize) // shown for the whole drag, whatever the pointer crosses
+  .start_drag_buttons(MouseButtonMask::LEFT)
+  .on_drag_move(move |event: DragEvent| resize_by(event.total_delta_x))
+  .on_drag_end(move |_: DragEvent| save_layout());
+```
+
+`ui::Splitter` is such a divider between panes, with the keys, panes that close and a layout the app saves.
+
 ## File Drag And Drop
 
 Files dragged into the window from the OS (Explorer, Finder, another program) reach the element under the pointer, with the window's overlays and modals hit-tested as for the mouse, so a drag over a popup reaches the popup:
