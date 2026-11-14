@@ -801,4 +801,14 @@ impl<V: RatingValue> super::FieldControl for Rating<V> {
     self.disabled |= field.disabled;
     self.into()
   }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
+  fn mount_in_field(mut self, field: &super::InField, ctx: &mut Ctx) -> Element {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    self.mount(ctx)
+  }
 }

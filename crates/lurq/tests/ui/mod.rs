@@ -30,6 +30,7 @@ mod drawer;
 mod drop_zone;
 mod empty_state;
 mod family;
+mod field_mount;
 mod fieldset;
 mod file_upload;
 mod find_bar;

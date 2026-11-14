@@ -560,6 +560,19 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> super::F
     }
     self.into()
   }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
+  fn mount_in_field(mut self, field: &super::InField, ctx: &mut Ctx) -> Element {
+    if self.label.is_none() {
+      self.label = Some(field.label.clone());
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    if self.description.is_none() {
+      self.description = field.description.clone();
+    }
+    self.mount(ctx)
+  }
 }
 
 /// A listbox as a renderer sees it: its options, and the style of its box.

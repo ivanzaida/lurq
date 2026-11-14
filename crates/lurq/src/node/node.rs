@@ -619,6 +619,7 @@ pub(crate) trait NodeUpdate {
   /// What the node gives a form under its `name` where its kind gives nothing of its own (a text input gives its
   /// text, a checkbox `on`): a control of the design system that is no engine control, as a shortcut recorder's
   /// `Ctrl+Shift+P`.
+  #[cfg_attr(not(feature = "form"), allow(dead_code))]
   fn form_value(&mut self, value: Option<Arc<str>>);
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);

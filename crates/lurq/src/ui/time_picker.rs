@@ -561,6 +561,12 @@ impl<V: FieldValue<Time>> FieldControl for TimePicker<V> {
     self.boxed.in_field(field);
     self.into()
   }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
+  fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
+    self.boxed.in_field(field);
+    self.mount(ctx)
+  }
 }
 
 /// How the picker's recipe is resolved in a case of its own: an item's.

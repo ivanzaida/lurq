@@ -123,6 +123,16 @@ impl<V: FieldValue<i32>> FieldControl for YearPicker<V> {
     self.core.disabled |= field.disabled;
     self.into()
   }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
+  fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
+    if self.core.label.is_none() {
+      self.core.label = Some(field.label.clone());
+    }
+    self.core.invalid |= field.judgment == Some(super::text_box::Judgment::Invalid);
+    self.core.disabled |= field.disabled;
+    self.mount(ctx)
+  }
 }
 
 impl<V: FieldValue<i32>> PeriodMountable for YearPicker<V> {

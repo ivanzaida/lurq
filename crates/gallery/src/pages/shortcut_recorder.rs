@@ -309,17 +309,14 @@ impl Component for ShortcutRecorderPage {
     let given = self.field.get();
     let field = items().child(item(
       Column::new().width(280.0).child({
-        let recorder = ShortcutRecorder::optional(self.field.clone())
-          .label("Quick open")
-          .platform(KeyPlatform::Standard)
-          .invalid(given.is_none())
-          .mount(ctx);
+        let recorder = ShortcutRecorder::optional(self.field.clone()).platform(KeyPlatform::Standard);
         let field = Field::new("Quick open", recorder);
-        if given.is_none() {
+        let field = if given.is_none() {
           field.error("Choose a shortcut to open files with.")
         } else {
           field.description("Opens the file finder from anywhere.")
-        }
+        };
+        field.mount(ctx)
       }),
       &says(&given),
     ));
@@ -509,19 +506,17 @@ impl Component for ShortcutRecorderPage {
         ),
         Section::new(
           "In a field",
-          "A field names the recorder and says what is wrong. The recorder is mounted to record, so it is given the \
-           field's label and judgment itself.",
+          "A field names the recorder and says what is wrong with what it holds. Mounted where it is declared, the \
+           field mounts the recorder, which records in it as it does outside one.",
           self.frame.demo(
             4,
             field,
-            "Field::new(\"Quick open\", recorder)",
+            "Field::new(\"Quick open\", recorder).mount(ctx)",
             &[
               "// quick_open: Signal<Option<Accelerator>>",
-              "let recorder = ShortcutRecorder::optional(quick_open.clone())",
-              "    .label(\"Quick open\")",
-              "    .invalid(quick_open.get().is_none())",
-              "    .mount(ctx);",
-              "Field::new(\"Quick open\", recorder).error(\"Choose a shortcut to open files with.\")",
+              "Field::new(\"Quick open\", ShortcutRecorder::optional(quick_open.clone()))",
+              "    .error(\"Choose a shortcut to open files with.\")",
+              "    .mount(ctx)",
             ],
           ),
         ),

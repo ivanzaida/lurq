@@ -11,7 +11,10 @@ use super::{
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::theme::{ControlSize, PaletteColor, Theme, TypographyStyle},
+  app::{
+    ctx::Ctx,
+    theme::{ControlSize, PaletteColor, Theme, TypographyStyle},
+  },
   components::{Column, Row, Stack},
   core::ElementRef,
   layout::{Alignment, text_style::FontWeight},
@@ -57,9 +60,25 @@ pub struct InField {
 /// toggle group disabled. Any [`Element`] takes none of them: an element built already cannot be told anything.
 /// Whatever the control, the field gives its description, or its error, as the control's description to what
 /// reads the tree.
+///
+/// A control that keeps state of its own between renders, which outside a field the app mounts (a shortcut recorder
+/// that records, a date field that keeps what is half typed, a picker that opens), is mounted by a field the app
+/// mounts ([`Field::mount`]): the field tells it what it says, then mounts it, and it is the same control as outside
+/// a field. A field converted into an element builds it as it is converted, which keeps nothing.
 pub trait FieldControl {
   /// The control as the field holds it.
   fn in_field(self, field: &InField) -> Element;
+
+  /// The control as a field mounted where it is declared holds it: told what the field says, as by
+  /// [`in_field`](Self::in_field), and mounted, where it keeps state of its own. Any other control is as
+  /// `in_field` gives it, which is what this does unless a control says otherwise.
+  fn mount_in_field(self, field: &InField, ctx: &mut Ctx) -> Element
+  where
+    Self: Sized,
+  {
+    let _ = ctx;
+    self.in_field(field)
+  }
 }
 
 impl FieldControl for Element {
@@ -116,8 +135,9 @@ fn described(control: Element, description: Arc<str>) -> Element {
   }
 }
 
-/// What a field holds until it is built: the control, to be finished with what the field says.
-type Unfinished = Box<dyn FnOnce(&InField) -> Element>;
+/// What a field holds until it is built: the control, to be finished with what the field says, and mounted where the
+/// field is built with a `Ctx`.
+type Unfinished = Box<dyn FnOnce(&InField, Option<&mut Ctx>) -> Element>;
 
 /// The parts of a field a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -222,7 +242,10 @@ impl Field {
   pub fn new(label: &str, control: impl FieldControl + 'static) -> Self {
     Self {
       label: Arc::from(label),
-      control: Box::new(move |field: &InField| control.in_field(field)),
+      control: Box::new(move |field: &InField, ctx: Option<&mut Ctx>| match ctx {
+        Some(ctx) => control.mount_in_field(field, ctx),
+        None => control.in_field(field),
+      }),
       description: None,
       error: None,
       invalid: false,
@@ -342,8 +365,33 @@ impl Field {
   }
 
   /// Builds the field in `theme`. Converting a field into an element does
-  /// this in the theme of what is being rendered.
+  /// this in the theme of what is being rendered. A control that keeps state
+  /// of its own is built as it is, keeping nothing: see [`Field::mount`].
   pub fn build(self, theme: &Theme) -> Element {
+    self.finish(theme, None)
+  }
+
+  /// The field built where it is declared, in the theme of what is being rendered, with its control mounted: a
+  /// control that keeps state of its own between renders (a [`ShortcutRecorder`](super::ShortcutRecorder), a
+  /// [`DateField`](super::DateField), a picker, a [`PasswordInput`](super::PasswordInput), a
+  /// [`Rating`](super::Rating)) is the same control in the field as outside it, and the field shows its label, its
+  /// description and its error. Any other control is as converting the field gives it.
+  ///
+  /// ```
+  /// use lurq::{app::{Accelerator, ctx::Ctx}, core::Signal, node::Element, ui::{Field, ShortcutRecorder}};
+  ///
+  /// fn palette(ctx: &mut Ctx, shortcut: Signal<Accelerator>) -> Element {
+  ///   Field::new("Command palette", ShortcutRecorder::new(shortcut))
+  ///     .description("Opens the palette from anywhere in the app.")
+  ///     .mount(ctx)
+  /// }
+  /// ```
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    let theme = current_theme();
+    self.finish(&theme, Some(ctx))
+  }
+
+  fn finish(self, theme: &Theme, ctx: Option<&mut Ctx>) -> Element {
     // One judgment is shown, as an input shows it: an error makes the field invalid.
     let invalid = self.invalid || self.error.is_some();
     let warning = self.warning && !invalid;
@@ -364,12 +412,15 @@ impl Field {
     .state(FieldState::Disabled, self.disabled);
     let judgment = Judgment::of(invalid, warning, valid);
     let description = self.error.or(self.description);
-    let control = (self.control)(&InField {
-      label: self.label.clone(),
-      judgment,
-      disabled: self.disabled,
-      description: description.clone(),
-    });
+    let control = (self.control)(
+      &InField {
+        label: self.label.clone(),
+        judgment,
+        disabled: self.disabled,
+        description: description.clone(),
+      },
+      ctx,
+    );
     let control = match &description {
       Some(description) => described(control, description.clone()),
       None => control,
