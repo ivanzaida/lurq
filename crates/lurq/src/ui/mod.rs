@@ -246,7 +246,9 @@ pub use skeleton::{
   SKELETON_PULSE, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation,
   SkeletonPart, SkeletonRenderer, SkeletonShape, SkeletonView,
 };
-pub use slider::{RangeSlider, Slider, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView};
+pub use slider::{
+  RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
+};
 pub(crate) use spinner::keyframes as spinner_keyframes;
 pub use spinner::{
   LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,

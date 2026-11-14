@@ -964,6 +964,15 @@ let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
 ```
 
+`.on_change(|low, high| ..)` is told each change a person makes, as it is made: a drag as it moves, a press on the track, a key, a value set by an MCP client. `.on_change_end(|low, high| ..)` is told when such a change is over: the drag let go, the press or the key done. Both are given the low value and the high one; a slider of one value gives its value twice. Neither is told what the app sets on the signal, nor a range or a step that snaps the value. Each call adds a handler.
+
+```rust
+let gain = lurq::core::Signal::new(0.5_f32);
+lurq::components::Slider::new_f32(gain)
+  .on_change(|value, _| println!("now {value}"))
+  .on_change_end(|value, _| println!("settled on {value}"));
+```
+
 The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; a part's style can have an `.outline(Outline)`, a ring around the part that changes no size; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
 
 ```rust

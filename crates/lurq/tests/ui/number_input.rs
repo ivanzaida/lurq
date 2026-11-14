@@ -495,18 +495,17 @@ fn a_controlled_value_over_a_max_set_later_is_shown_clamped_told_once_and_the_an
     Column::new()
       .padding(8.0)
       .child(
-        NumberInput::controlled(value.get())
-          .min(0.0)
-          .max(most.get())
-          .on_change(move |next| {
-            tell.lock().unwrap().push(next);
-            if !*no.lock().unwrap()
-              && let Some(next) = next
-            {
-              value.set(next);
-            }
-          })
-          .id("n"),
+        NumberInput::controlled(value.get(), move |next| {
+          tell.lock().unwrap().push(next);
+          if !*no.lock().unwrap()
+            && let Some(next) = next
+          {
+            value.set(next);
+          }
+        })
+        .min(0.0)
+        .max(most.get())
+        .id("n"),
       )
       .into()
   });
@@ -650,10 +649,9 @@ fn a_controlled_input_tells_each_change_and_shows_what_the_app_gives_it() {
     Column::new()
       .padding(8.0)
       .child(
-        NumberInput::controlled(bound.get())
+        NumberInput::controlled(bound.get(), move |value| set.set(value))
           .min(0.0)
-          .id("n")
-          .on_change(move |value| set.set(value)),
+          .id("n"),
       )
       .into()
   });
@@ -761,7 +759,7 @@ fn the_buttons_are_not_stops_of_tab() {
 
 /// The board's mobile quantity stepper, as rules over the number input's parts.
 fn quantity_stepper() -> Recipe {
-  use NumberInputPart::{Buttons, Control, Decrease, Divider, Icon, Increase};
+  use NumberInputPart::{Buttons, Control, Decrease, Icon, Increase, Separator};
   let edge = || Border::inside(1.0, PaletteColor::Secondary);
   Recipe::new()
     .base(Control, |s| {
@@ -773,7 +771,7 @@ fn quantity_stepper() -> Recipe {
     .base(Buttons, |s| s.padding_x(0.0).padding_y(0.0).radius(RadiusSize::Full))
     .base(Decrease, |s| s.width(44.0))
     .base(Increase, |s| s.width(44.0))
-    .base(Divider, |s| s.width(0.0))
+    .base(Separator, |s| s.width(0.0))
     .base(Icon, |s| s.square(20.0))
 }
 
@@ -847,4 +845,91 @@ fn a_theme_renderer_gives_it_another_anatomy_and_it_still_steps() {
   stage.key("Tab");
   stage.key("ArrowUp");
   assert_eq!(value.get(), 2.0);
+}
+
+#[test]
+fn on_change_end_hears_the_end_of_a_change_enter_the_focus_leaving_and_each_step() {
+  let value = Signal::new(4.0);
+  let ends = Arc::new(Mutex::new(Vec::new()));
+  let changes = Arc::new(Mutex::new(Vec::new()));
+  let (bound, ended, told) = (value.clone(), ends.clone(), changes.clone());
+  let mut stage = Stage::new(move |_| {
+    let (ended, told) = (ended.clone(), told.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        NumberInput::new(bound.clone())
+          .min(0)
+          .max(100)
+          .on_change(move |value| told.lock().unwrap().push(value))
+          .on_change_end(move |value| ended.lock().unwrap().push(value))
+          .id("n"),
+      )
+      .into()
+  });
+  let ends_now = || std::mem::take(&mut *ends.lock().unwrap());
+  stage.key("Tab");
+  type_over(&mut stage, 1, "12");
+  assert_eq!(value.get(), 12.0);
+  assert_eq!(*changes.lock().unwrap(), [Some(12.0)], "each change as it is typed");
+  assert!(ends_now().is_empty(), "typing is not over yet");
+  stage.key("Enter");
+  assert_eq!(ends_now(), [Some(12.0)], "Enter ends it");
+
+  // Back in it, a key's step is over as it is made, and the focus leaving after it ends nothing more.
+  stage.key("Tab");
+  stage.key("ArrowUp");
+  assert_eq!(ends_now(), [Some(13.0)]);
+  leave(&mut stage);
+  assert!(ends_now().is_empty(), "nothing changed since the step");
+
+  // Typed, then left: the focus leaving ends it, rounded and in the range.
+  stage.key("Tab");
+  type_over(&mut stage, 2, "250");
+  leave(&mut stage);
+  assert_eq!(ends_now(), [Some(100.0)]);
+
+  // A button's step is over as it is made.
+  let (minus, _) = buttons(&mut stage, "n");
+  press(&mut stage, minus);
+  assert_eq!(ends_now(), [Some(99.0)]);
+  // A focus that comes and goes with nothing changed ends nothing.
+  stage.key("Tab");
+  leave(&mut stage);
+  assert!(ends_now().is_empty());
+}
+
+#[test]
+fn the_range_and_the_step_take_whole_numbers_and_the_buttons_their_words() {
+  let value = Signal::new(4.0);
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        NumberInput::new(bound.clone())
+          .min(0)
+          .max(10)
+          .step(2)
+          .increase_label("More")
+          .decrease_label("Fewer")
+          .id("n"),
+      )
+      .into()
+  });
+  let (_, plus) = buttons(&mut stage, "n");
+  press(&mut stage, plus);
+  assert_eq!(value.get(), 6.0, "a step of 2");
+  // What reads the tree is told the buttons' words; it keeps them with tooling only.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  {
+    let said = |stage: &mut Stage, id: &str| {
+      stage
+        .tree
+        .get_element_by_id_mut(id)
+        .and_then(|element| element.description("a11y_name"))
+    };
+    assert_eq!(said(&mut stage, "n-increase").as_deref(), Some("More"));
+    assert_eq!(said(&mut stage, "n-decrease").as_deref(), Some("Fewer"));
+  }
 }

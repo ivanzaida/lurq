@@ -87,7 +87,7 @@ const KEYS: [(&str, &str); 7] = [
 /// 44 in the secondary fill with no edge, its buttons 44 square with glyphs of 20 and no lines, the number in the
 /// interface's type at 16, semibold.
 fn quantity_stepper() -> Recipe {
-  use NumberInputPart::{Buttons, Control, Decrease, Divider, Icon, Increase};
+  use NumberInputPart::{Buttons, Control, Decrease, Icon, Increase, Separator};
   let edge = || Border::inside(1.0, PaletteColor::Secondary);
   Recipe::new()
     .base(Control, |s| {
@@ -103,7 +103,7 @@ fn quantity_stepper() -> Recipe {
     .base(Buttons, |s| s.padding_x(0.0).padding_y(0.0).radius(RadiusSize::Full))
     .base(Decrease, |s| s.width(44.0))
     .base(Increase, |s| s.width(44.0))
-    .base(Divider, |s| s.width(0.0))
+    .base(Separator, |s| s.width(0.0))
     .base(Icon, |s| s.square(20.0))
 }
 
@@ -169,7 +169,11 @@ impl NumberInputPage {
         input
       }
     };
-    let input = plain().force(self.playground.forced());
+    let (record, record_end) = (self.playground.recorder(), self.playground.recorder());
+    let input = plain()
+      .force(self.playground.forced())
+      .on_change(move |value| record(format!("on_change({value:?})")))
+      .on_change_end(move |value| record_end(format!("on_change_end({value:?})")));
 
     let mut code = vec![
       "// quantity: Signal<f64>".to_owned(),
@@ -213,14 +217,14 @@ impl NumberInputPage {
         tree.push("├─ control     the box, the number in its middle".to_owned());
         tree.push("└─ buttons".to_owned());
         tree.push("   ├─ decrease   minus".to_owned());
-        tree.push("   ├─ divider".to_owned());
-        tree.push("   ├─ divider".to_owned());
+        tree.push("   ├─ separator".to_owned());
+        tree.push("   ├─ separator".to_owned());
         tree.push("   └─ increase   plus".to_owned());
       }
       NumberInputLayout::Stacked => {
         tree.push("├─ control     the box, the number at its start".to_owned());
         tree.push("└─ buttons".to_owned());
-        tree.push("   ├─ divider".to_owned());
+        tree.push("   ├─ separator".to_owned());
         tree.push("   ├─ increase   chevron up".to_owned());
         tree.push("   └─ decrease   chevron down".to_owned());
       }
@@ -255,23 +259,23 @@ impl NumberInputPage {
         fill: false,
         forceable: true,
         facts: format!("value {value}"),
-        event: "value",
+        event: "on_change / on_change_end",
         code,
         tree,
         controls: vec![
           prop(
             "min",
-            "f64",
+            "impl Into<f64>",
             self.playground.select(0, &MINS, &min, move |min| set_min.set(min)),
           ),
           prop(
             "max",
-            "f64",
+            "impl Into<f64>",
             self.playground.select(1, &MAXES, &max, move |max| set_max.set(max)),
           ),
           prop(
             "step",
-            "f64",
+            "impl Into<f64>",
             self.playground.select(2, &STEPS, &step, move |step| set_step.set(step)),
           ),
           prop(
@@ -332,7 +336,6 @@ impl Component for NumberInputPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 6);
     let value = ctx.signal(12.0);
-    playground.watch(ctx, &value, |value| format!("value = {value}"));
     Self {
       frame: Frame::new(ctx),
       playground,
@@ -504,23 +507,24 @@ impl Component for NumberInputPage {
         "Signal<f64> / Signal<Option<f64>> / Option<f64>",
         "",
         "What the input is bound to: NumberInput::new for a number there always is, NumberInput::optional for one \
-         that may be none (an emptied field), NumberInput::controlled for the app's own, told back by on_change.",
+         that may be none (an emptied field), NumberInput::controlled(value, on_change) for the app's own: it shows \
+         what the app answers with.",
       ),
       (
         "min",
-        "f64",
+        "impl Into<f64>",
         "None",
         "The least value. Without one a minus can be typed, and Home moves the caret.",
       ),
       (
         "max",
-        "f64",
+        "impl Into<f64>",
         "None",
         "The greatest value. Without one End moves the caret.",
       ),
       (
         "step",
-        "f64",
+        "impl Into<f64>",
         "1",
         "How far apart the values a step takes it to are, from the least. Page Up and Page Down take ten.",
       ),
@@ -580,7 +584,21 @@ impl Component for NumberInputPage {
         "on_change",
         "Fn(Option<f64>)",
         "",
-        "Called with the value each time it changes.",
+        "Called with the value each time a person changes it: as it is typed, stepped, put right or emptied. Each \
+         call adds.",
+      ),
+      (
+        "on_change_end",
+        "Fn(Option<f64>)",
+        "",
+        "Called with the value when a change is over: Enter or the focus leaving after typing, each step of a key or \
+         a button. Each call adds.",
+      ),
+      (
+        "increase_label, decrease_label",
+        "&str",
+        "\"Increase\", \"Decrease\"",
+        "What the buttons are called to tooling that reads the tree.",
       ),
     ];
     let playground = self.play(ctx);
@@ -748,7 +766,7 @@ impl Component for NumberInputPage {
             ".rules(&quantity_stepper())",
             &[
               "fn quantity_stepper() -> Recipe {",
-              "    use NumberInputPart::{Buttons, Control, Decrease, Divider, Icon, Increase};",
+              "    use NumberInputPart::{Buttons, Control, Decrease, Icon, Increase, Separator};",
               "    let edge = || Border::inside(1.0, PaletteColor::Secondary);",
               "    Recipe::new()",
               "        .base(Control, |s| {",
@@ -764,7 +782,7 @@ impl Component for NumberInputPage {
               "        .base(Buttons, |s| s.padding_x(0.0).padding_y(0.0).radius(RadiusSize::Full))",
               "        .base(Decrease, |s| s.width(44.0))",
               "        .base(Increase, |s| s.width(44.0))",
-              "        .base(Divider, |s| s.width(0.0))",
+              "        .base(Separator, |s| s.width(0.0))",
               "        .base(Icon, |s| s.square(20.0))",
               "}",
               "",
