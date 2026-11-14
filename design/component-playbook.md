@@ -362,6 +362,10 @@ an alias.
   must replace.
 - **A test by hand closes what it opened in the same script**, and the session looks at the screens before it ends
   its turn: no window of a test is topmost, and none outlives the script (two were left on Ivan's monitors).
+- **The merge runs every test binary that has tests, `markdown_tests` with the `markdown` feature among them.**
+  A rule of the engine (what a scroll holds is drawn on a whole device pixel) left one markdown test failing,
+  unseen until a session ran that binary for its own work: the routine had named only the suites the batches
+  touch.
 - **macOS is compiled at the merge**: `cargo check -p lurq --target aarch64-apple-darwin`, and a session that
   writes behind a macOS `cfg` runs it itself.
 - **What a report lists under "Not done" goes back to its owner at the merge**, with the board's node or the rule

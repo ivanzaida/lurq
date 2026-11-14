@@ -210,10 +210,12 @@ fn a_sideways_swipe_scrolls_the_block_and_the_bar_follows() {
 
   swipe(&mut app, &mut tree, 100_000.0);
   let end = code_text(&mut tree);
-  assert_eq!(
-    end.x + end.width + 14.0,
-    block.0 + block.2,
-    "the end of the line stops at the box's padding"
+  // What a scroll holds is drawn on a whole device pixel, so the end of a line of a fractional length stops within
+  // half a pixel of the padding.
+  let past = end.x + end.width + 14.0 - (block.0 + block.2);
+  assert!(
+    past.abs() <= 0.5,
+    "the end of the line stops at the box's padding: {past} past it"
   );
 }
 
