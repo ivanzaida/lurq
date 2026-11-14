@@ -584,3 +584,82 @@ fn a_theme_gives_the_tooltip_another_anatomy_and_it_still_shows_when_it_should()
   assert!(stage.paints("COPY LINK"));
   assert!(!stage.paints(WORDS));
 }
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_tooltip_names_only_what_nothing_else_names_and_describes_it() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(100.0)
+      .spacing(8.0)
+      .child(Tooltip::new("Copy link").mount(ctx, copy()))
+      .child(
+        Tooltip::new("Settings of the page").mount(
+          ctx,
+          Button::new("")
+            .icon(lurq::ui::icons::SETTINGS)
+            .variant(ButtonVariant::Ghost)
+            .id("cog"),
+        ),
+      )
+      .into()
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  // Its label names the button: the tooltip says more of it.
+  assert_eq!(said(&mut stage, "copy", "a11y_name"), None, "named by its label");
+  assert_eq!(
+    said(&mut stage, "copy", "a11y_description").as_deref(),
+    Some("Copy link")
+  );
+  // An icon with no name of its own is named by its tooltip.
+  assert_eq!(
+    said(&mut stage, "cog", "a11y_name").as_deref(),
+    Some("Settings of the page")
+  );
+}
+
+#[test]
+fn a_long_text_with_a_shortcut_wraps_across_the_box_and_the_shortcut_goes_under_it() {
+  let long = "Show or hide the sidebar of the window and every panel docked in it.";
+  let mut stage = stage(move || Tooltip::new(long).shortcut("Ctrl+Shift+B").delay(Duration::ZERO));
+  stage.hover("copy");
+  stage.pass();
+  let keys = stage.text_quad("Ctrl+Shift+B").expect("the shortcut shows");
+  let shown = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| rect_color(quad) == Some(light(PaletteColor::Primary)))
+    .find(|quad| quad.x <= keys.x && quad.y <= keys.y && quad.x + quad.width >= keys.x + keys.width)
+    .expect("the box");
+  assert!(shown.width <= 200.0 + 0.01, "no wider than 200: {:?}", at(&shown));
+  let start = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if long.starts_with(text.as_str())))
+    .unwrap();
+  // The text takes the box's width, not what the shortcut leaves of it.
+  assert!(
+    start.width > 150.0,
+    "across the box: {:?} in {:?}",
+    at(&start),
+    at(&shown)
+  );
+  assert!(
+    keys.x + keys.width <= shown.x + shown.width - 10.0 + 0.5,
+    "the shortcut in the box: {:?} in {:?}",
+    at(&keys),
+    at(&shown)
+  );
+  assert!(
+    keys.y >= start.y + start.height - 0.5,
+    "under the text: {:?} {:?}",
+    at(&keys),
+    at(&start)
+  );
+}

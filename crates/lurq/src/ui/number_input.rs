@@ -1,6 +1,10 @@
 //! A number input: a number a person types, or steps with the keys and two buttons.
 
-use std::sync::Arc;
+use std::{
+  cell::RefCell,
+  collections::HashMap,
+  sync::{Arc, Mutex, Weak},
+};
 
 use super::{
   field::{FieldControl, InField},
@@ -294,6 +298,33 @@ struct Model {
   step: f64,
   precision: usize,
   format: NumberFormat,
+  /// The range of the last build, held by the input's handlers: see [`range_held`].
+  range: Option<Arc<Mutex<Range>>>,
+}
+
+/// The least and the greatest value of a number input.
+type Range = (Option<f64>, Option<f64>);
+
+thread_local! {
+  /// The range each number input bound to a signal was last built with, by the id of its signal, while its input
+  /// is in the tree. A window's inputs are all on its thread.
+  static RANGES: RefCell<HashMap<usize, Weak<Mutex<Range>>>> = RefCell::new(HashMap::new());
+}
+
+/// What the input bound to the signal `binding` keeps of its range, and the range it had at its last build, `None`
+/// at its first.
+fn range_held(binding: usize, now: Range) -> (Arc<Mutex<Range>>, Option<Range>) {
+  RANGES.with(|ranges| {
+    let mut ranges = ranges.borrow_mut();
+    if let Some(held) = ranges.get(&binding).and_then(Weak::upgrade) {
+      let before = std::mem::replace(&mut *held.lock().unwrap(), now);
+      return (held, Some(before));
+    }
+    ranges.retain(|_, held| held.strong_count() > 0);
+    let held = Arc::new(Mutex::new(now));
+    ranges.insert(binding, Arc::downgrade(&held));
+    (held, None)
+  })
 }
 
 impl Model {
@@ -537,6 +568,7 @@ impl NumberInput {
         step: 1.0,
         precision: 0,
         format: NumberFormat::new(),
+        range: None,
       },
       layout: NumberInputLayout::default(),
       placeholder: None,
@@ -713,7 +745,27 @@ impl NumberInput {
       model.max = Some(min);
     }
     // Read so that what renders the input renders it again when the app's value changes: the text is made from it.
-    let value = model.tracked_value();
+    let mut value = model.tracked_value();
+    // A range that changed under the value takes it in at once, as a slider's does: shown so, written, and told. A
+    // number being typed past an end is kept until Enter or the focus leaving puts it right.
+    let binding = match &model.bound {
+      Bound::Value(signal) => Some(signal.id()),
+      Bound::Optional(signal) => Some(signal.id()),
+      Bound::Controlled(_) => None,
+    };
+    let changed = binding.is_some_and(|binding| {
+      let (held, before) = range_held(binding, (model.min, model.max));
+      model.range = Some(held);
+      before.is_some_and(|before| before != (model.min, model.max))
+    });
+    if changed
+      && let Some(held) = value
+      && model.clamp(held) != held
+    {
+      let clamped = model.clamp(held);
+      model.write(Some(clamped));
+      value = Some(clamped);
+    }
     let (at_min, at_max) = (model.at_min(value), model.at_max(value));
     let case = self
       .boxed

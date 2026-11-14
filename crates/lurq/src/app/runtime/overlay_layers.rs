@@ -95,16 +95,55 @@ impl Tree {
   }
 
   /// The anchor of the overlay that takes the focus (`Overlay::takes_focus`) and held keyboard focus in the
-  /// last layout, when it is not open in `layers` any more: the focus goes back to it.
+  /// last layout, when it is not open in `layers` any more: the focus goes back to it. Where the anchor was in
+  /// a layer that closed with it, as a submenu's item is in its menu when an item of the submenu is chosen, the
+  /// focus goes back from that layer instead, and so on out: to what opened the outermost that closed.
   pub(super) fn focused_overlay_closed(&self, had_host: bool, layers: &OverlayLayers) -> Option<OwnedElementRef> {
     if !had_host {
       return None;
     }
-    let layer = *self.focused_path.as_deref()?.first()?;
-    let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
-    let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
-    let open = layers.focus_movers.iter().any(|mover| mover.same_handle(anchor));
-    (moved && !open).then(|| anchor.clone())
+    let closed = |layer: usize| -> Option<&OwnedElementRef> {
+      let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
+      let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
+      let open = layers.focus_movers.iter().any(|mover| mover.same_handle(anchor));
+      (moved && !open).then_some(anchor)
+    };
+    let mut layer = *self.focused_path.as_deref()?.first()?;
+    let mut anchor = closed(layer)?;
+    // Bounded by the number of layers: a layer's anchor is in a layer under it.
+    for _ in 0..self.overlay_layer_parents.len() {
+      let Some(outer) = self.overlay_layer_parents.get(layer - 1).copied().flatten() else {
+        break;
+      };
+      let Some(outer_anchor) = closed(outer) else {
+        break;
+      };
+      (layer, anchor) = (outer, outer_anchor);
+    }
+    Some(anchor.clone())
+  }
+
+  /// For each layer of the host just built whose overlay takes the focus, the layer its anchor is in, where
+  /// that is a layer and not the page: see `overlay_layer_parents`. Only the layers are searched, not the page.
+  pub(super) fn focus_layer_parents(&self) -> Vec<Option<usize>> {
+    let Some(host) = self.root.as_ref() else {
+      return Vec::new();
+    };
+    let layers = host.children().get(1..).unwrap_or_default();
+    self
+      .overlay_layer_anchors
+      .iter()
+      .map(|anchor| {
+        let anchor = anchor.as_ref()?;
+        if !self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor)) {
+          return None;
+        }
+        layers
+          .iter()
+          .position(|layer| path_to_ref(layer, anchor).is_some())
+          .map(|index| index + 1)
+      })
+      .collect()
   }
 
   /// The layers of the overlay host whose overlays take the focus, each with its anchor: what Tab walks right

@@ -863,6 +863,31 @@ impl TokenInputView {
     let mut control = text_box::text_box(control, &self.boxed, handlers);
     if let Some(list) = &list {
       control = control.controller(list.controller.clone());
+      if !self.disabled {
+        // A token and the mark that ends it are one step of Left and Right: the caret does not rest between them.
+        let (stepped, value) = (list.clone(), self.value.clone());
+        control = control.on_key_down(move |event: KeyboardEvent| {
+          let on = match event.key.as_str() {
+            "ArrowRight" => true,
+            "ArrowLeft" => false,
+            _ => return,
+          };
+          if !event.focus_within || event.composing || event.shift || event.ctrl || event.alt || event.meta {
+            return;
+          }
+          let Ok(selection) = stepped.controller.selection() else {
+            return;
+          };
+          if selection.anchor.is_some_and(|anchor| anchor != selection.caret) {
+            return;
+          }
+          if let Some(to) = token_list::step(&value.get(), selection.caret, on)
+            && stepped.controller.select(to, to).is_ok()
+          {
+            event.prevent_default();
+          }
+        });
+      }
       if !self.read_only && !self.disabled {
         let (entered, value) = (list.clone(), self.value.clone());
         // A key reaches every node: Enter acts only while the focus is in the input, and a composition keeps its own.

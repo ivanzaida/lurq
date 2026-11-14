@@ -536,3 +536,28 @@ fn a_theme_gives_the_progress_another_anatomy() {
     "the recipe still styles it"
   );
 }
+
+#[test]
+fn a_label_longer_than_the_rail_is_cut_with_an_ellipsis_before_the_value() {
+  const LABEL: &str = "Uploading theme.json, icons.svg and every font the theme names to the workspace";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(240.0)
+      .child(Progress::new(0.62).label(LABEL).show_value(true).id("upload"))
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("upload");
+  let label = stage.cut_text_quad(LABEL).expect("the label is painted");
+  let value = stage.text_quad("62%").expect("the value is painted whole");
+  assert!(label.height < 20.0, "on one line: {}", label.height);
+  assert!(
+    label.x + label.width <= value.x,
+    "before the value: {} {}",
+    label.x + label.width,
+    value.x
+  );
+  assert!(
+    (value.x + value.width - (x + width)).abs() < 0.5,
+    "the value at the end"
+  );
+}

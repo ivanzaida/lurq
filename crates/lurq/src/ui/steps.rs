@@ -14,8 +14,11 @@ use crate::{
   components::{Column, Row},
   core::Signal,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, border},
+  node::{CursorIcon, Element, FocusGroup, border, dimension::Dimension, node_kind::TextOverflow},
 };
+
+/// The least length of the room of a line between two steps in a row.
+const MIN_CONNECTOR: f32 = 24.0;
 
 /// The parts of steps a recipe styles. Each step's parts are styled in the
 /// states of that step: done, current or to come, in error, pressable.
@@ -547,15 +550,28 @@ impl StepsView {
   pub fn body(&self, index: usize) -> Column {
     let step = &self.steps[index].step;
     let title = self.step_part(index, StepsPart::Title);
-    let mut body = Column::new().part(&self.step_part(index, StepsPart::Body)).child(
-      Row::new()
-        .align_items(Alignment::Center)
-        .part(&title)
-        .child(title.text(&step.title).nowrap()),
-    );
+    // It gives way where the steps do not fit: the title is cut with an ellipsis, the description goes on to
+    // more lines.
+    let mut body = Column::new()
+      .part(&self.step_part(index, StepsPart::Body))
+      .flex_shrink(1.0)
+      .min_width(Dimension::Px(0.0))
+      .child(
+        Row::new()
+          .align_items(Alignment::Center)
+          .min_width(Dimension::Px(0.0))
+          .part(&title)
+          .child(title.text(&step.title).nowrap().text_overflow(TextOverflow::Elipsis)),
+      );
     if let Some(description) = &step.description {
       let part = self.step_part(index, StepsPart::Description);
-      body = body.child(Row::new().part(&part).child(part.text(description)));
+      let fill = Dimension::Pct(100.0);
+      body = body.child(
+        Column::new()
+          .width(fill.clone())
+          .part(&part)
+          .child(part.text(description).width(fill)),
+      );
     }
     body
   }
@@ -572,8 +588,13 @@ impl StepsView {
         if let Some(id) = id {
           line = line.id(id);
         }
+        // The room the steps leave, and never less than 24, so that a line is seen between steps that do not
+        // fit: the engine grants a basis on top of the free room, and the line gives it back first, down to
+        // its least, before the steps give way.
         Row::new()
-          .flex(1.0)
+          .flex_full(1.0, 1.0, Some(MIN_CONNECTOR))
+          .min_width(Dimension::Px(MIN_CONNECTOR))
+          .shrink_order(-1)
           .align_items(Alignment::Center)
           .part(&connector)
           .child(line)
@@ -608,13 +629,17 @@ impl StepsView {
       StepsOrientation::Vertical => Alignment::Stretch,
     };
     let name = self.step_name(index);
+    let horizontal = self.orientation == StepsOrientation::Horizontal;
     let id = self.child_id(index, "");
     let current = step.status == StepsState::Current;
     let focused = step.pressable || (current && self.interactive());
     macro_rules! dressed {
       ($holder:expr) => {{
+        // A step in a row gives way where the steps do not fit, before the lines between them.
         let mut holder = $holder
           .align_items(align)
+          .flex_shrink(if horizontal { 1.0 } else { 0.0 })
+          .min_width(Dimension::Px(0.0))
           .describe("a11y_name", name)
           .with_children(content);
         if current {

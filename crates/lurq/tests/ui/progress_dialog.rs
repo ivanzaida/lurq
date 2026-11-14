@@ -282,3 +282,29 @@ fn a_title_and_a_message_too_long_for_a_line_go_on_to_the_next() {
     "the panel grows with its lines"
   );
 }
+
+#[test]
+fn a_status_longer_than_its_room_is_cut_with_an_ellipsis_after_the_count() {
+  const STATUS: &str = "about 2 min left at the speed the disk has kept up for the last ten seconds";
+  let mut stage = stage(|_| {
+    ProgressDialog::new(Signal::new(true))
+      .id("dialog")
+      .title("Copying 128 items")
+      .value(32.0)
+      .max(128.0)
+      .format(|done, all| format!("{done} of {all}"))
+      .status(STATUS)
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("dialog");
+  let count = stage.text_quad("32 of 128").expect("the count is painted whole");
+  let status = stage.cut_text_quad(STATUS).expect("the status is painted");
+  assert!(status.height < 20.0, "on one line: {}", status.height);
+  assert!(status.x > count.x + count.width, "after the count");
+  assert!(
+    status.x + status.width <= x + width - 20.0 + 0.5,
+    "inside the panel's padding: {} in {}",
+    status.x + status.width,
+    x + width
+  );
+}

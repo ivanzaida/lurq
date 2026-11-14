@@ -461,3 +461,94 @@ fn what_is_before_and_after_the_label_is_in_the_button() {
   assert_eq!(chevron.0 + chevron.2, x + width - 16.0);
   assert!(icon.0 < chevron.0);
 }
+
+/// The color a person sees where the element with `id` is: each fill and veil as large as it laid over the last.
+fn seen(stage: &mut Stage, id: &str) -> [f32; 3] {
+  use lurq::layout::quad::QuadContent;
+  let (x, y, width, height) = stage.bounds(id);
+  let mut seen = [255.0, 255.0, 255.0];
+  for quad in stage.quads() {
+    let (color, whole) = match quad.content {
+      // A veil is an inset shadow that covers the box inside its edge.
+      QuadContent::BoxShadow(shadow) if shadow.inset => (shadow.color, false),
+      QuadContent::Rect { color, .. } => (color, true),
+      _ => continue,
+    };
+    let fits = if whole {
+      (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
+    } else {
+      quad.x >= x && quad.y >= y && quad.x + quad.width <= x + width && quad.y + quad.height <= y + height
+    };
+    if fits {
+      let alpha = f32::from(color.a()) / 255.0;
+      for (channel, value) in seen.iter_mut().zip([color.r(), color.g(), color.b()]) {
+        *channel = *channel * (1.0 - alpha) + f32::from(value) * alpha;
+      }
+    }
+  }
+  seen
+}
+
+#[test]
+fn a_pressed_button_is_not_the_picture_of_a_hovered_one_in_either_appearance() {
+  use lurq::app::{App, window::Appearance};
+  for appearance in [Appearance::Light, Appearance::Dark] {
+    for variant in [
+      ButtonVariant::Primary,
+      ButtonVariant::Secondary,
+      ButtonVariant::Outline,
+      ButtonVariant::Ghost,
+      ButtonVariant::Destructive,
+    ] {
+      let app = App::new();
+      app.theme().set_preferred_appearance(Some(appearance));
+      let mut stage = Stage::in_app(app, move |_| {
+        Column::new()
+          .padding(20.0)
+          .spacing(12.0)
+          .child(
+            Button::new("Hover")
+              .variant(variant)
+              .id("hover")
+              .force(Some(Interaction::Hovered)),
+          )
+          .child(
+            Button::new("Pressed")
+              .variant(variant)
+              .id("pressed")
+              .force(Some(Interaction::Pressed)),
+          )
+          .into()
+      });
+      let (hover, pressed) = (seen(&mut stage, "hover"), seen(&mut stage, "pressed"));
+      let apart = hover
+        .iter()
+        .zip(pressed)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f32::max);
+      assert!(
+        apart >= 10.0,
+        "{appearance:?} {variant:?}: hover {hover:?} and pressed {pressed:?} are {apart} apart"
+      );
+    }
+  }
+}
+
+#[test]
+fn an_empty_label_with_an_icon_is_a_square_as_an_icon_alone_is() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .spacing(8.0)
+      .child(Button::new("").icon(icons::SETTINGS).id("empty"))
+      .child(
+        Button::new("Settings")
+          .icon(icons::SETTINGS)
+          .icon_only(true)
+          .id("alone"),
+      )
+      .into()
+  });
+  let (.., width, height) = stage.bounds("empty");
+  assert_eq!((width, height), (36.0, 36.0), "no gap and no padding of a label");
+  assert_eq!(stage.bounds("alone").2, 36.0);
+}

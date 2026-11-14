@@ -222,7 +222,8 @@ impl NavbarPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let props = self.props();
     let record = self.playground.recorder();
-    let shown = window(navbar(&props, record).mount(ctx), &props, WINDOW);
+    // Built on the stage, in the stage's theme: the search field in the bar types in that theme's color.
+    let shown = Shown::built(|ctx| window(navbar(&props, record).mount(ctx), &props, WINDOW));
 
     let mut code = vec!["Navbar::new()".to_owned(), "    .label(\"Site\")".to_owned()];
     if props.brand {
@@ -315,7 +316,7 @@ impl NavbarPage {
             WINDOW,
           )
         }),
-        shown: Shown::of(shown),
+        shown,
         fill: true,
         forceable: false,
         facts: format!(

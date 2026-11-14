@@ -13,7 +13,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::props_table,
-  playground::{Playground, Spec, divider, flag},
+  playground::{Playground, Shown, Spec, divider, flag},
 };
 
 /// The board's data list: what a build is.
@@ -96,7 +96,7 @@ impl DataListPage {
       Spec {
         title: "Data List",
         make: Arc::new(make.clone()),
-        shown: make(),
+        shown: Shown::of(make()),
         fill: false,
         forceable: false,
         facts: format!("{} items", if long { 5 } else { 4 }),

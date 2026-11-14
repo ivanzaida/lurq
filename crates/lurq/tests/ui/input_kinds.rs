@@ -569,3 +569,69 @@ fn a_theme_changes_the_addons() {
   });
   assert!(!fills(&stage, light(PaletteColor::Primary)).is_empty());
 }
+
+#[test]
+fn a_long_hint_of_a_key_is_cut_with_an_ellipsis_and_the_field_keeps_its_icon_and_text() {
+  const KEYS: &str = "Ctrl+Shift+Alt+F then press S";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        SearchField::new(Signal::new(String::new()))
+          .placeholder("Search")
+          .shortcut(KEYS)
+          .id("search"),
+      )
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("search");
+  let hint = stage.cut_text_quad(KEYS).expect("the hint is painted");
+  assert!(hint.width <= 112.0, "no wider than 112: {}", hint.width);
+  assert!(hint.x + hint.width <= x + width - 8.0 + 0.5, "inside the field");
+  let placeholder = stage.text_quad("Search").expect("the placeholder is still painted");
+  assert!((placeholder.x - (x + 10.0 + 16.0 + 8.0)).abs() < 1.0);
+  assert!(placeholder.x + placeholder.width < hint.x, "not under the hint");
+}
+
+#[test]
+fn the_placeholder_of_a_masked_password_is_set_as_any_placeholder_and_only_the_dots_are_spaced() {
+  let placeholder_spacing = |revealed: bool| {
+    let stage = Stage::new(move |_| {
+      Column::new()
+        .padding(8.0)
+        .child(
+          PasswordInput::new(Signal::new(String::new()))
+            .placeholder("Password")
+            .reveal(revealed)
+            .id("password"),
+        )
+        .into()
+    });
+    let quad = stage.text_quad("Password").expect("the placeholder is painted");
+    let spacing = match &quad.content {
+      QuadContent::Text { style, .. } => style.letter_spacing,
+      _ => unreachable!(),
+    };
+    spacing
+  };
+  let (masked, shown) = (placeholder_spacing(false), placeholder_spacing(true));
+  assert_eq!(masked, shown, "the placeholder's tracking, masked and shown");
+  // The dots are still 1 apart.
+  let plain = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        PasswordInput::new(Signal::new("hunter2".to_owned()))
+          .reveal(false)
+          .id("password"),
+      )
+      .into()
+  });
+  let dots = plain.quads().into_iter().find_map(|quad| match &quad.content {
+    QuadContent::Text { text, style, .. } if text.chars().all(|c| c == '•') && !text.is_empty() => {
+      Some(style.letter_spacing)
+    }
+    _ => None,
+  });
+  assert_eq!(dots, Some(1.0), "the dots keep their spacing");
+}

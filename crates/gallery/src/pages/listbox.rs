@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 type Id = &'static str;
@@ -237,7 +237,7 @@ impl ListboxPage {
       Spec {
         title: "Listbox",
         make: Arc::new(make),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: true,
         facts: if multiple {

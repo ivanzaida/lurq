@@ -453,6 +453,36 @@ fn the_buttons_step_and_the_one_toward_an_end_reached_takes_nothing() {
 }
 
 #[test]
+fn a_value_over_a_max_set_later_is_clamped_at_once_shown_and_told() {
+  let value = Signal::new(12.0);
+  let max = Signal::new(20.0);
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (bound, most, tell) = (value.clone(), max.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let tell = tell.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        NumberInput::new(bound.clone())
+          .min(0.0)
+          .max(most.get())
+          .on_change(move |value| tell.lock().unwrap().push(value))
+          .id("n"),
+      )
+      .into()
+  });
+  assert!(stage.paints("12"));
+  max.set(10.0);
+  stage.pass();
+  assert_eq!(value.get(), 10.0, "the value is in the range at once");
+  assert!(stage.paints("10") && !stage.paints("12"), "and shown so");
+  assert_eq!(*told.lock().unwrap(), [Some(10.0)], "and told");
+  // In the range, nothing more is told.
+  stage.pass();
+  assert_eq!(told.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn a_press_of_a_button_keeps_the_focus_on_the_number_being_typed() {
   let value = Signal::new(1.0);
   let bound = value.clone();

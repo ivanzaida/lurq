@@ -245,3 +245,31 @@ fn a_title_and_a_description_too_long_for_a_line_go_on_to_the_next() {
     "the panel grows with its lines"
   );
 }
+
+#[test]
+fn buttons_too_long_to_stand_side_by_side_go_one_under_the_other_inside_the_panel() {
+  const CANCEL: &str = "Keep the file where it is";
+  const CONFIRM: &str = "Move it to the trash now";
+  let mut stage = Stage::new(page(move |anchor| {
+    Popconfirm::new(anchor, Signal::new(true))
+      .id("panel")
+      .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
+      .title("Delete this file?")
+      .confirm(CONFIRM, || {})
+      .cancel(CANCEL, || {})
+  }));
+  let (x, _, width, _) = stage.bounds("panel");
+  let (cancel, confirm) = (stage.text_quad(CANCEL).unwrap(), stage.text_quad(CONFIRM).unwrap());
+  for (text, quad) in [(CANCEL, &cancel), (CONFIRM, &confirm)] {
+    assert!(
+      quad.x >= x + 12.0 - 0.5 && quad.x + quad.width <= x + width - 12.0 + 0.5,
+      "{text:?} inside the panel: {}..{} in {x}..{}",
+      quad.x,
+      quad.x + quad.width,
+      x + width
+    );
+  }
+  // Cancel first, the confirming button under it, both at the end.
+  assert!(confirm.y > cancel.y + cancel.height);
+  assert!((confirm.x + confirm.width - (cancel.x + cancel.width)).abs() < 1.0);
+}

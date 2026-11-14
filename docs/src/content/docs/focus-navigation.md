@@ -366,7 +366,33 @@ Tab and Shift+Tab move through one scope and wrap around at its ends:
 
 Forms do not have a scope of their own. A form's controls are stops without a tab index, in tree order among the scope's other stops, and the form is passed through like in a browser: Tab from a toolbar button reaches the form's first field, Tab from its last control moves on to the next stop after the form, and Shift+Tab from its first control goes back to the stop before it. A form cycles only when it is all its scope contains, for example the only content of a modal.
 
-When the focused element is not a stop itself (a clicked button without a tab index, or a text input outside a form), Tab continues from its place in the tree, like a browser: Tab goes to the next stop after it, Shift+Tab to the previous one. With nothing focused, Tab goes to the first stop and Shift+Tab to the last.
+When the focused element is not a stop itself (a clicked button without a tab index, or a text input outside a form), Tab continues from its place in the tree, like a browser: Tab goes to the next stop after it, Shift+Tab to the previous one. With nothing focused, Tab goes on from where the focus was last (see [Where Tab Goes On From](#where-tab-goes-on-from)), and where it was never anywhere, to the first stop, and Shift+Tab to the last.
+
+### Where Tab Goes On From
+
+A browser's sequential focus navigation starting point: when the focus is dropped, the place it was is kept, and the next Tab or Shift+Tab goes on from there in the Tab order, not from the top of the window. However the focus goes, its place stays:
+
+- **A key blurs it**: Enter in a text field that is not in a form, or Escape in one. Tab goes to the stop after the field, Shift+Tab to the one before it.
+- **What had it leaves the tree**: Tab goes to what took its place, the first stop after where it was. Inside a focus group that is still there the focus moves to the group's next stop at once (see [Focus Groups](#focus-groups)); this is for what has no group to stay in.
+- **What had it is disabled or made inert**, or an element around it is: Tab goes on from where that element is.
+- **A modal closes with nothing to give the focus back to**: what opened it has gone, or nothing had the focus as it opened. Tab goes on from where the focus was as it opened.
+- **`ctx.blur()`** or **`ElementHandle::blur()`**.
+
+A press on something that takes no focus (a label, a plain row, empty space) blurs what has the focus and puts the place there: Tab goes to the first stop after what was pressed, Shift+Tab to the last before it, as a press on a page's text does in a browser. A press on nothing at all starts Tab from the top again. Anything that gives the focus to an element (a click, Tab, `ctx.focus`) forgets the place.
+
+```rust
+use lurq::components::{Button, Column, Text, TextInput};
+
+Column::new()
+  .child(Button::new("Back").tab_index(0))
+  .child(TextInput::new(name.clone()).tab_index(0))
+  .child(Text::new("Your name as it is shown to others."))
+  .child(Button::new("Save").tab_index(0));
+// Type in the field and press Enter: the field is left, and Tab goes on to Save, not to Back.
+// Press the line of text: Tab goes to Save as well, and Shift+Tab to the field.
+```
+
+An open menu or select does not keep Tab: Tab closes a `ui::Menu` (and the menus it hangs from) or a `Select`'s list, and goes on from what opened it, as it would from there closed.
 
 Tab with no stops in scope outside a modal is not handled, so it reaches other keyboard defaults. An `on_key_down` handler that calls `prevent_default()` on Tab replaces traversal entirely (see [Keyboard And Focus](../styling-events/#keyboard-and-focus)).
 
@@ -379,7 +405,7 @@ An open `Modal` confines Tab and Shift+Tab to itself, whether or not it contains
 - Focus behind the modal is never a stop. When focus is still on the page behind it (the button that opened it), the next Tab moves into the modal.
 - Stops inside the modal follow the same rules: `tab_index(0)` or higher, and form controls inside a form in the modal. A form in a modal cycles inside the modal, together with the modal's other stops.
 - A modal without stops consumes Tab and keeps focus where it is, so Tab never reaches the page behind it.
-- With nested or stacked modals, the topmost one traps.
+- With nested or stacked modals, the topmost one traps. Modals stack in the order they opened, not in the order of the tree: a second modal opened over a first, wherever it is declared, takes the focus (with `takes_focus(true)`), and as it closes the focus goes back into the first. See [Behavior](../modals/#behavior).
 - When the modal closes, the window scope applies again.
 
 Pointer input is not trapped; a click on the page behind a `Parent`- or element-targeted modal still focuses what it hits.

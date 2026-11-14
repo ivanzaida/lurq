@@ -888,6 +888,9 @@ pub struct Tree {
   /// The anchor of each overlay host layer after the page, in host order;
   /// `None` for a select menu or a modal over the page.
   overlay_layer_anchors: Vec<Option<OwnedElementRef>>,
+  /// For each layer of `overlay_layer_anchors` whose overlay takes the focus, the layer its anchor is in (counted
+  /// from 1, as the host's children after the page are), where that is a layer: a submenu's is its menu's.
+  overlay_layer_parents: Vec<Option<usize>>,
   /// The anchors of the open overlays that take the focus, as the last layout had them: what tells an
   /// overlay that opens or closes from one that stays open.
   overlay_focus_movers: Vec<OwnedElementRef>,
@@ -903,9 +906,18 @@ pub struct Tree {
   overlay_layer_origins: Vec<Option<NodeId>>,
   /// The open modals that take the focus, by the node that declares each, the first opened first, with what
   /// had the focus before each opened: see [`modal_focus`].
-  modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
+  modal_focus: Vec<(NodeId, Option<FocusTarget>, Option<tab_navigation::FocusStart>)>,
+  /// Where Tab goes on from while nothing has the focus, a browser's sequential focus navigation starting point:
+  /// the node that last had the focus and its path then, or the one a press that took no focus was on. See
+  /// [`tab_navigation::FocusStart`].
+  focus_start: Option<tab_navigation::FocusStart>,
   /// The modals that take the focus among the layers the last pass built.
   built_focus_modals: Vec<NodeId>,
+  /// The open modals (dialogs, not the window's chrome), by the node that declares each, in the order they opened:
+  /// the one opened last is stacked over the others whatever their order in the tree. See [`modal_focus`].
+  modal_open_order: Vec<NodeId>,
+  /// The open modals met by the pass being built, to forget those that closed.
+  modals_met: Vec<NodeId>,
   /// The arrow keys moved the focus in a group that follows the pointer, and took the hover away with it: the
   /// hover stays away, under a pointer that holds still, until the pointer moves.
   hover_held_by_keys: bool,
@@ -1321,12 +1333,16 @@ impl Tree {
       canvas_registry: Vec::new(),
       overlay_dismiss_entries: Vec::new(),
       overlay_layer_anchors: Vec::new(),
+      overlay_layer_parents: Vec::new(),
       overlay_focus_movers: Vec::new(),
       overlay_focus_entry: None,
       overlay_focus_returns: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
+      focus_start: None,
       built_focus_modals: Vec::new(),
+      modal_open_order: Vec::new(),
+      modals_met: Vec::new(),
       hover_held_by_keys: false,
       typeahead: None,
       alt_alone: false,
@@ -2296,6 +2312,7 @@ impl Tree {
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
+    self.focus_start = None;
     self.apply_focus_request();
   }
 
@@ -2397,6 +2414,7 @@ impl Tree {
     self.active_path.clear();
     self.active_drag = None;
     self.clear_focus();
+    self.focus_start = None;
   }
 
   pub fn root(&self) -> Option<ElementRef<'_>> {
@@ -4405,8 +4423,13 @@ impl Tree {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
+    let start = self
+      .focus_start
+      .as_ref()
+      .filter(|_| focused.is_none())
+      .map(|start| start.point(root, &self.dropped_nodes));
     let moved = self.focus_moving_layers();
-    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, reverse) {
+    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, start, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         if let Some(state) = self.current_slider_state(target.input_id) {
           state.enter_by_tab(reverse);
@@ -5640,6 +5663,7 @@ impl Tree {
     if builtin_needs_redraw {
       self.needs_redraw = true;
     }
+    let pressed = hits.first().map(|(node, _)| node.node_id());
     drop(hits);
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
@@ -5649,6 +5673,12 @@ impl Tree {
     let keeps_keyboard = self.touch_pointer.down && self.focused_text_input();
     if blur_on_press && !keeps_keyboard {
       self.blur_focus();
+      // Tab goes on from what was pressed, as a browser's does from a press on text: from the top of the window
+      // where the press was on nothing.
+      self.focus_start = pressed.and_then(|id| {
+        let root = self.root.as_ref()?;
+        Some(tab_navigation::FocusStart::new(root, id, find_path_by_id(root, id)?))
+      });
     }
     if clear_active_after_dispatch {
       self.clear_active_path();
@@ -6107,6 +6137,7 @@ impl Tree {
       .map(|node| node.events.on_focus.clone())
       .unwrap_or_default();
     self.clear_focus();
+    self.focus_start = None;
     self.focused_node = Some(target.input_id);
     self.focused_event_node = Some(target.event_id);
     self.focused_path = Some(input_path);
@@ -7404,10 +7435,12 @@ impl Tree {
       old_parts.free_ids(&self.id_gen);
       self.overlay_dismiss_entries.clear();
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_parents.clear();
       self.overlay_focus_movers.clear();
       self.overlay_focus_entry = None;
       self.overlay_layer_origins.clear();
       self.built_focus_modals.clear();
+      self.modal_open_order.clear();
       self.overlay_focus_returns.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
@@ -7419,6 +7452,8 @@ impl Tree {
     // the chrome itself lays over the window, its title bar and its overlays, has all of the window.
     let title_bar = self.window.handle().title_bar_inset().min(viewport.height);
     let mut layers = OverlayLayers::default();
+    self.modals_met.clear();
+    self.stack_modals_in_open_order(&mut base_overlay_index.overlays);
     let mut overlays = build_overlays_from_layout_index(
       &base_overlay_index,
       viewport,
@@ -7450,13 +7485,16 @@ impl Tree {
         Vec::new()
       } else {
         let overlay = &overlays[overlay_index];
+        // Laid out at the size the host gives it, as it is drawn: a menu's items are as wide as the menu, and a
+        // submenu hung from one is placed by the item as it is drawn.
+        let layer_constraints = LayoutEngine::absolute_child_constraints(overlay, constraints);
         let (_overlay_layout, mut overlay_layout_index) = crate::app::profiler::producer::layout_compute(
           #[cfg(feature = "perf_profile")]
           &mut self.profiling,
           || {
             self
               .layout_engine
-              .compute_with_overlay_index(glyph_engine, overlay, constraints, theme_changed)
+              .compute_with_overlay_index(glyph_engine, overlay, layer_constraints, theme_changed)
           },
         );
         let (origin_x, origin_y) = match overlay.position() {
@@ -7465,6 +7503,7 @@ impl Tree {
         };
         translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
         dropdown_anchors.append(&mut overlay_layout_index.dropdown_anchors);
+        self.stack_modals_in_open_order(&mut overlay_layout_index.overlays);
         let nested_entries_start = layers.dismiss_entries.len();
         let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
@@ -7504,6 +7543,7 @@ impl Tree {
     }
 
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
+    self.forget_closed_modals();
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
@@ -7520,6 +7560,7 @@ impl Tree {
       // Overlays hidden with their anchor are still dismissed.
       self.overlay_dismiss_entries = layers.dismiss_entries;
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_parents.clear();
       self.dropdown_anchors.clear();
       return focus_return;
     }
@@ -7551,6 +7592,7 @@ impl Tree {
     self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
+    self.overlay_layer_parents = self.focus_layer_parents();
     self.overlay_layer_origins = layers.origins;
     self.dropdown_anchors = dropdown_anchors;
     focus_return
@@ -7881,6 +7923,10 @@ impl Tree {
 
   fn clear_focus(&mut self) {
     let had_focus = self.focused_node.is_some() || self.focused_event_node.is_some();
+    // However the focus goes, Tab goes on from where it was.
+    if let (Some(root), Some(id), Some(path)) = (&self.root, self.focused_node, self.focused_path.as_ref()) {
+      self.focus_start = Some(tab_navigation::FocusStart::new(root, id, path.clone()));
+    }
     if let Some(root) = &self.root {
       for id in [self.focused_node, self.focused_event_node].into_iter().flatten() {
         if let Some(node) = find_node_by_id(root, id) {

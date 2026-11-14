@@ -167,8 +167,10 @@ impl SegmentedControl {
     self
   }
 
-  /// Draws every segment as it is under the pointer, held down or focused
-  /// from the keyboard, with nothing pointing at it: for a gallery or a test.
+  /// Draws the segment Tab would stop on (the chosen one, else the first that
+  /// is not disabled) as it is under the pointer, held down or focused from
+  /// the keyboard, with nothing pointing at it: for a gallery or a test. The
+  /// other segments are drawn as they are.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
@@ -205,9 +207,16 @@ impl SegmentedControl {
     let mut root = Row::new()
       .part(&plain.part(SegmentedControlPart::Root))
       .focus_group(FocusGroup::horizontal().activate(true).one_stop(true));
-    for segment in self.segments {
+    // Where Tab enters the group: the interaction forced is drawn there alone, as it can only be.
+    let entry = self
+      .segments
+      .iter()
+      .position(|segment| segment.selected && !segment.disabled)
+      .or_else(|| self.segments.iter().position(|segment| !segment.disabled));
+    for (index, segment) in self.segments.into_iter().enumerate() {
       let recipe = if segment.selected { &chosen } else { &plain };
-      let part = |part: SegmentedControlPart| recipe.part(part).forced(self.forced);
+      let forced = self.forced.filter(|_| Some(index) == entry);
+      let part = |part: SegmentedControlPart| recipe.part(part).forced(forced);
       let pick = segment.pick;
       let mut pressed = pressable(&part(SegmentedControlPart::Segment), self.disabled || segment.disabled)
         .focus_entry(segment.selected)

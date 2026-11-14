@@ -324,7 +324,7 @@ Button::new("Saving…").loading(saving.get());
 | `size(size)` | `Xs` 28, `Sm` 32, `Md` 36 (the default), `Lg` 40, `Xl` 44, or a size the recipe names |
 | `shape(shape)` | `ButtonShape::Default`, the theme's radius for a control, or `Pill`, rounded all the way |
 | `icon(name)`, `trailing_icon(name)` | An [icon](#icon) before and after the label, by its name in the theme's set. It is drawn in the color of the label, at the size the button's size has for it |
-| `icon_only(bool)` | The icon alone: a square as wide as it is high, a circle with `ButtonShape::Pill`. The label is not drawn |
+| `icon_only(bool)` | The icon alone: a square as wide as it is high, a circle with `ButtonShape::Pill`. The label is not drawn. An icon with an empty label and nothing else beside it is drawn so too |
 | `loading(bool)` | A spinner turns in the place of the icon, or before the label, and a click, Enter and Space do nothing until it is over |
 | `description(text)` | A second line under the label that says more of what the button does. The button is as high as the two lines, with an icon of 20 beside them |
 | `leading(element)`, `trailing(element)` | Any element before and after the label, where an icon by name is not enough |
@@ -333,7 +333,7 @@ Button::new("Saving…").loading(saving.get());
 | `on_click(handler)` | A click, and Enter and Space while it is focused |
 | `state(name, on)` | A state the theme's recipe names |
 | `style(part, \|s\| ...)`, `rules(&recipe)` | One instance over the theme; the rules of the place it is in |
-| `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test |
+| `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
 | `id(id)`, `key(key)`, `submit()` | Its id and key; with the `form` feature, the button that submits the form it is in |
 
 | Size | Height | Padding | Label | Icon |
@@ -355,7 +355,7 @@ Button::new("Saving…").loading(saving.get());
 
 States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly`, `Pill` and `Compound` (it has a description), and hovered, pressed and focus-visible.
 
-- In the design a button under the pointer has its variant's hover fill (`PrimaryHover`, `SecondaryHover`, `DestructiveHover`, and `Highlight` for an outline or a ghost button), a button held down has the `StatePressed` veil over that, and one focused from the keyboard has the theme's focus ring.
+- In the design a button under the pointer has its variant's hover fill (`PrimaryHover`, `SecondaryHover`, `DestructiveHover`, and `Highlight` for an outline or a ghost button), a button held down has the `StatePressed` veil over that, and one focused from the keyboard has the theme's focus ring. A primary button held down has the veil over its `Primary` fill: over `PrimaryHover` the veil is lost (black on near black in the light palette, white on near white in the dark), and a press would look like a hover. The board draws a pressed button in its hover fill.
 - A loading button shows three quarters of itself. It stays where the focus is and is not pressed: a form it submits is not submitted again. Its label is the app's to change.
 - A theme's renderer for `ButtonPart::Label`, `ButtonPart::Icon` or `ButtonPart::Spinner` builds that part in place of the default one: dots that pulse where the design turns a ring.
 - A button that is an icon alone is still called by its label: tooling that reads the tree (DevTools, the MCP tools) names it so.
@@ -379,7 +379,7 @@ Toggle::new("Bold")
 | --- | --- |
 | `on(bool)` | Whether it is on. The toggle does not keep it: the app says so |
 | `on_change(handler)` | Called on a press with what the toggle is to be: on if it was off |
-| `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square |
+| `icon(name)`, `icon_only(bool)` | An icon before the label; the icon alone, a square. An icon with an empty label is drawn so too |
 | `size(size)` | A `ButtonSize`: a toggle is as high as a button of that size |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
@@ -465,7 +465,7 @@ SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (S
 | `SegmentedControl::controlled(value, choices, choose)` | The app holds the value and is told of a press |
 | `size(size)` | A `ButtonSize`: the track is as high as a button of that size |
 | `full_width(bool)` | As wide as what it is in, its segments sharing the width |
-| `disabled(bool)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
+| `disabled(bool)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the segment Tab stops on: the chosen one, else the first that is not disabled |
 
 - The control is one choice: Tab stops in it once, at the chosen segment; Left and Right move the focus to the next segment and choose it, Home and End the first and the last, and a click chooses one.
 - Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`.
@@ -486,7 +486,7 @@ Link::new("Read the docs").external().on_click(move |_| navigator.push("/docs"))
 | `icon(name)`, `external()` | An icon after the text; `external()` is the arrow of a link that leaves the app |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
 
-Parts: `LinkPart::Root`, `Label` (14/500), `Icon` (14, four after the text). Under the pointer the root has an `underline`.
+Parts: `LinkPart::Root`, `Label` (14/500), `Icon` (14, four after the text). While the pointer is on the link or the focus is in it, the label has an `underline` (a `within` rule: the root is an interaction group): a straight line under the text alone, not under the icon. The root's own edge would curl up at its ends, rounded as it is for the focus ring.
 
 ## Fab
 
@@ -604,6 +604,7 @@ Field::new("Notifications", Switch::new("Pause notifications")).horizontal(true)
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
 
+- A field is at least as wide as its control: one wider than the recipe's 260 that does not fill the field (an [input OTP](#input-otp) of six cells) widens it, and the label and the description stay 260. A description longer than the field wraps. Beside the label, a control lower than an input (a switch) stands in the middle of the label's height, level with it.
 - A field's control is a `FieldControl`: what the field tells it (`InField`: the label, the judgment, whether it is disabled, the description) it takes as far as it has the prop, and only where the app did not say it of the control itself: an input with a label of its own keeps it, and one the app judged keeps that judgment whatever the field says. A control of an app's own implements `FieldControl` and passes what it is told to the control in it. Any `Element` takes none of it.
 
 | Control | Takes from a field |
@@ -835,7 +836,7 @@ Select::new(platform.clone(), [
 | `name(..)` | The name of its value in a form, the chosen option's label (feature `form`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the select's node. `state(SelectState::Open, true)` draws the trigger as it is while open, for a gallery |
 
-- It is the engine's [`Select`](../styling-events/#select) dressed by the recipe, not a second one: a press, or Enter, Space and the arrows from the keyboard, open the list under it (over it where there is no room); the arrows, Home, End and the first letters move through it, skipping disabled options and the groups' labels; Enter or a press chooses, and Escape closes. Tab reaches it wherever it is (`tab_index(0)`); a disabled one does not open and Tab passes it by.
+- It is the engine's [`Select`](../styling-events/#select) dressed by the recipe, not a second one: a press, or Enter, Space and the arrows from the keyboard, open the list under it (over it where there is no room); the arrows, Home, End and the first letters move through it, skipping disabled options and the groups' labels; Enter or a press chooses, and Escape closes. Tab closes it too and goes on to the next stop, as from a closed select. Tab reaches it wherever it is (`tab_index(0)`); a disabled one does not open and Tab passes it by.
 - It stands beside an [input](#input): the same box, sizes, edge, ring and judgments. The ring is a line of 2 inside the box in `Ring`, shown from the keyboard and while the list is open.
 - Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Menu` (the panel: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `Disabled`, `FullWidth`, and of an item `Chosen` and `ItemDisabled`. Sizes: `SelectSize::Sm`, `Md`, `Lg`.
 - In the design the trigger is 260 by 36, `Background` in an edge of 1 in the `Input` color, `radius-md`, the text 12 from the edge in the body's type, the placeholder and a chevron of 16 in `MutedForeground`, 8 apart; `Ring` under the pointer; `Destructive`, `Warning` or `Success` for a judgment, under the pointer, in the focus and open too; disabled is half opaque on `Muted`. The list is 4 under it and as wide, on `Popover` in an edge of `Border`, `radius-lg`, with the theme's middle shadow and 4 of padding. An item is 32 high, its text 8 in, `radius-sm`, in the body's type, on `Highlight` under the pointer or the keys; the chosen one has a check of 16 in `Foreground` at its end, 8 after the label; a disabled one is at 0.45. A hint is 11 in the mono type in `MutedForeground`. A group's label is 11, semibold, in `MutedForeground`, in line with the items' text; a line of 1 in `Border` is between groups, 4 from each.
@@ -875,6 +876,7 @@ Popover::new(anchor.clone(), open.clone())
 | `collision(CollisionStrategy)` | What it does where there is no room on its side: `FlipThenClamp` by default |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
 
+- A title or a description longer than the panel wraps inside it.
 - It is the engine's `Popup` with the panel dressed by the recipe: it is placed against its anchor in every frame, goes to the other side where there is no room and is kept in the window, and closes on Escape and on a press outside it, which sets the signal to `false`. Declare it always and drive it with the signal: lurq only knows the anchor of a popup it can see.
 - With a trigger, the trigger's own node is the anchor: a press of it, or Enter and Space on it, opens and closes the popover, and while another popup or select is open one press of it closes that one and opens this one. It tells what reads the tree `a11y_haspopup` and `a11y_expanded`. Without a trigger the app opens it, and the anchor is any element of its own (`ref_element`); a press of the anchor is not a press outside it.
 - As it opens the focus goes to the first thing in it that takes the focus (`Popup::takes_focus`), and as it closes with the focus inside, back to what had it when it opened: the trigger. Its stops of Tab come right after the trigger's: Tab from its last one goes on to what follows the trigger. It does not keep Tab in it: it is not modal.
@@ -939,12 +941,12 @@ Menu::new(anchor, open)
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the item |
 
 - The menu does not keep whether it is open: the app does, in the signal it gives it, and the anchor's own handler opens it. Choosing an item calls the item's handler and sets the signal to `false`; a press outside the panel and Escape do too (the engine's `Popup`). Declare the menu always, open or not, beside its anchor: lurq then knows the anchor is its trigger.
-- The keyboard: a menu opened from the keyboard (Enter or Space on its button) has its first item focused and lit; opened by the pointer it has the focus there too, unlit. Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Typing a letter goes to the item whose label starts with it, letters typed quickly to the one a word starts, the same letter again to the next. Enter or Space chooses the focused item; the arrows only move the focus. Escape, or choosing, closes it and gives the focus back to its button. Tab stops in an open menu once (the panel is a [focus group](../focus-navigation/#focus-groups) of one stop).
+- The keyboard: a menu opened from the keyboard (Enter or Space on its button) has its first item focused and lit; opened by the pointer it has the focus there too, unlit. Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Typing a letter goes to the item whose label starts with it, letters typed quickly to the one a word starts, the same letter again to the next. Enter or Space chooses the focused item; the arrows only move the focus. Escape, or choosing, closes it and gives the focus back to its button. Tab closes it, and every menu it hangs from, and goes on from its button to the next stop, as Tab in an open [select](#select) does (the panel is a [focus group](../focus-navigation/#focus-groups) of one stop).
 - The pointer and the keyboard are on one item: the pointer coming onto an item moves the focus there, and an arrow key moves the light off the item under a pointer that holds still.
 - Under the pointer or focused from the keyboard an item is highlighted: filled with `Highlight`, the board's `accent`. An item whose submenu is open stays highlighted.
-- A submenu opens beside its item, its first item level with it, under the pointer, on a press of the item, or on Right, Enter or Space while the item is focused, with the focus on its first item; the pointer on another item of the menu closes it, and so do Left and Escape while the focus is in it, giving the focus back to its item. Choosing in it closes it and every menu it hangs from. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
+- A submenu opens beside its item, its first item level with it, under the pointer, on a press of the item, or on Right, Enter or Space while the item is focused, with the focus on its first item; the pointer on another item of the menu closes it, and so do Left and Escape while the focus is in it, giving the focus back to its item. Choosing in it closes it and every menu it hangs from, and gives the focus back to what opened the outermost, as choosing in the menu itself does. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
 - Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Label`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (checked, or the chosen radio), `Radio`, `Destructive`, `Disabled`, `Expanded` (its submenu is open).
-- A menu is as wide as its widest item, and at least as wide as the design says; never as wide as the window. In the design the panel is at least 230 wide (a submenu 160), in `Popover` with `PopoverForeground`, padded 4, with the large radius, an edge of 1 in `Border` and the medium shadow. An item is 32 tall, padded 8, with the small radius and 8 between what it holds: an icon of 16 in `MutedForeground`, the label in the body's type, and at the end the shortcut in the mono type at 11 in `MutedForeground`, the check or the dot of 16, and the chevron of 16 in `MutedForeground`. A separator is a line of 1 in `Border` with 4 above and below; a group's label is 11/600 in `MutedForeground`, 8 in from the side. A destructive item is in `Destructive`, its icon too; a disabled one is dimmed.
+- A menu is as wide as its widest item, and at least as wide as the design says; never as wide as the window. In the design the panel is at least 230 wide (a submenu 160) and, where the design has no longer label, at most 360: a label longer than that gives way with an ellipsis, and the shortcut, the check and the chevron keep their room and the 8 before them. The panel is in `Popover` with `PopoverForeground`, padded 4, with the large radius, an edge of 1 in `Border` and the medium shadow. An item is 32 tall, padded 8, with the small radius and 8 between what it holds: an icon of 16 in `MutedForeground`, the label in the body's type, and at the end the shortcut in the mono type at 11 in `MutedForeground`, the check or the dot of 16, and the chevron of 16 in `MutedForeground`. A separator is a line of 1 in `Border` with 4 above and below; a group's label is 11/600 in `MutedForeground`, 8 in from the side. A destructive item is in `Destructive`, its icon too; a disabled one is dimmed.
 - Its items follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch. A context menu's, a menubar's and a command palette's are menu items, and follow it with them.
 - To what reads the tree the panel is a `menu`; an item a `menuitem`, a `menuitemcheckbox` or a `menuitemradio` (these two with `a11y_checked`) called by its label; an item with a submenu has `a11y_haspopup` `menu` and `a11y_expanded`; a separator is a `separator`.
 - What a menu holds, in order, is a `MenuEntry`: `Item(MenuItem)`, `Separator`, or `Label(text)`, as `MenuView::entries` has them. A `MenuItem` converts into one with `.into()`, for a list that mixes items with separators and labels, as a [menubar](#menubar)'s `menu(title, entries)` takes.
@@ -988,7 +990,8 @@ Dialog::new(terms_open.clone())
 | `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `key` tells two dialogs of one component apart |
 
-- It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`: declared anywhere, it takes no room there and covers the whole window while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it, the button that opened it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the dialog's own controls.
+- A title or a description longer than the panel wraps inside its padding, beside the close button where there is one; neither is cut.
+- It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`: declared anywhere, it takes no room there and covers the whole window while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it, the button that opened it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the dialog's own controls. A dialog or a [command palette](#command-palette) opened while it is open is over it, wherever either is declared: it takes the focus, the keys and the pointer, Escape closes it first, and as it closes the focus goes back into the dialog under it.
 - A press on the panel goes no further: only a press on the veil itself closes the dialog.
 - The panel is never larger than the window less the veil's margin of 16. A dialog is as high as its content while that fits, and its body gives way and scrolls when it does not, in either form; `style(DialogPart::Panel, |s| s.height(300.0))` gives it a height of its own.
 - Parts: `DialogPart::Veil`, `Panel`, `Header` (the heading and the close button), `Heading` (the title over the description), `Title`, `Description`, `Body`, `Footer`, `Close` (laid over the theme's button), `Separator` (the lines of a scrollable dialog). States: `DialogState::Scrollable`. Sizes: `DialogSize::Sm`, `Md`, `Lg`, `Full`.
@@ -1026,13 +1029,14 @@ let export = Tooltip::new("Nothing to export yet").mount(ctx, export);
 | `disabled(bool)` | It never shows, and the element is as it would be without it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of what shows |
 
+- A text too long to have its shortcut beside it wraps across the box, no wider than 200, and the shortcut goes under it.
 - It shows after the pointer has rested on the element for its delay, and at once within `TOOLTIP_SKIP_DELAY` (300 ms) of the pointer leaving another: along a toolbar each button's shows at once, and the one before goes, so one tooltip of the pointer shows at a time.
 - Focus from the keyboard shows it at once: the focus of the element or of anything in it (a row with a button in it), read by `ElementRef::focus_visible_within()`.
 - The pointer can be moved onto the tooltip to read it: it goes 100 ms after the pointer has left both the element and the tooltip. It also goes when the focus leaves, when the element is pressed, and on Escape; after a press or Escape it stays away until the pointer comes again, or until both the pointer and the focus have left.
 - Escape is the tooltip's before anything under it: the tooltip is the top layer that takes Escape, so the key closes the tooltip and not the dialog or the popup it is shown in.
 - A disabled element shows its tooltip: a disabled element is not hovered, but it hears the pointer come and go, and the tooltip is on it as on any other.
 - It is kept in the window: where there is no room on its side it is on the other one, its arrow turned with it, and where the window pushes it along, its arrow still points at the middle of the element. It takes no focus.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the element is described by the text (`a11y_description`), and called by it (`a11y_name`) when nothing else names it, as an icon-only button is named by its label already. What shows is a `tooltip`. An element with an element ref of its own keeps it, and the tooltip is anchored to it.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the element is described by the text (`a11y_description`), and called by it (`a11y_name`) when nothing else names it: a text in the element names it (a button by its label), and an icon-only button is named by its label already; an icon alone, a glyph, names nothing. What shows is a `tooltip`. An element with an element ref of its own keeps it, and the tooltip is anchored to it.
 - It is a mounted component, not a builder that goes where an element goes: it keeps timers for its delay and its grace, an anchor that stays the same from one render to the next, and whether the pointer has shown it, and a builder has no `Ctx` to keep them in. Converted into an element on its own, a `Tooltip` is its box as it shows, anchored to nothing: for a gallery, a test or a host of an app's own.
 - Parts: `TooltipPart::Root` (the box and its arrow, and the room between them and the element), `Content` (the box), `Label`, `Shortcut`, `Arrow`. The side is the recipe's variant (`TooltipSide`), and the states are `TooltipState::Arrow`, `Shortcut` and `Multiline` (the text wraps, known once it is laid out).
 - In the design the box is in `Primary` with a radius of `Md`, its text in `PrimaryForeground` in the caption's 12, 10 from its sides and 6 from its top and bottom, and no wider than 200; a text that wraps has 8 above and below it, in lines of 1.4. A shortcut is 8 after the text in a chip 16 high, 4 from its sides, with a radius of 3, in a white of 15%, its keys in the mono family in 10. The arrow is 12 along the box and 6 out from it, in the box's color. The tooltip stands 6 from the element: the root's padding on the side's axis.
@@ -1127,13 +1131,13 @@ Tabs::controlled(filter, [(0, "Overview"), (1, "Activity")], move |index| set_fi
 | `manual(bool)` | The arrow keys move the focus alone, and Enter or Space selects: for panels slow to build. Otherwise the selection follows the focus |
 | `label(&str)` | What the list is called to what reads the tree |
 | `overflow(TabsOverflow)` | The overflowing form: the list scrolls between two scroll buttons, and More at its end opens a menu of every tab. `TabsOverflow::new(ctx.signal(false))` is made once, in the app's `create` |
-| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` makes every tab disabled. `id` is the root's; in the overflowing form the scroll buttons are `<id>-back` and `<id>-on` and the More button `<id>-more` |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` makes every tab disabled. `force` draws the tab Tab stops on, the selected one, and not the panel. `id` is the root's; in the overflowing form the scroll buttons are `<id>-back` and `<id>-on` and the More button `<id>-more` |
 | `Tab::new(value, label)` | A tab. `icon(name)` before the label, `count(n)` after it, `disabled(bool)`, `separated(bool)` a divider before it, `panel(Fn() -> Element)` what it shows while selected, `id` (its item in the More menu is `<id>-item`) |
 
 - Exactly one tab is selected, and the app holds which. A press of a tab selects it; a press of the selected one or of a disabled one asks for nothing.
 - The list is one stop of Tab, at the selected tab. The arrow keys of the orientation (Left and Right, or Up and Down) select the tab after and the one before, Home and End the first and the last, and a disabled tab is passed by; with `manual(true)` they move the focus and Space or Enter selects. Tab from the list goes to the panel, and on to what is in it.
 - The panel of a tab is built only while the tab is selected, keyed by the tab, so one tab's panel never takes another's nodes. What the runtime keeps of a panel's nodes (a scroll offset, a caret, an open select) goes when another tab is selected; what the app keeps in its own signals stays. A panel that is to come back as it was keeps its state in the app: its values in signals made in the app's `create`, its scroll in a `ScrollState` it gives the scroll area (`with_scroll_state`).
-- The panel is a stop of Tab itself, so a panel with nothing focusable in it is still reached and read; its ring is the focus ring.
+- The panel is a stop of Tab itself, so a panel with nothing focusable in it is still reached and read; its ring is the color and width of the focus ring, 4 out from the panel, clear of what runs to its edges.
 - Parts: `TabsPart::Root` (the list and the panel), `List`, `Tab` (what is pressed and focused), `Label`, `Icon`, `Count`, `Divider`, `Panel`, and in the overflowing form `Bar` (the row of the list, its buttons and More), `ScrollButton`, `ScrollIcon`, `More`, `MoreLabel`, `MoreIcon`. A tab's parts are styled in its states: `TabsState::Selected`, `Disabled`; the whole has `Horizontal` or `Vertical`, and `Overflow`. Variants: `TabsVariant::Default`, `Line`, `Pill`.
 - In the design the default list is a rail of `Muted`, `radius-lg`, padded 3, its tabs 2 apart; a tab is 28 high, padded 12, `radius-md`, its label 13/500 in `MutedForeground` and a count of 12 in `MutedForeground` 6 after it; the selected tab is `Background` with the small shadow and its label in `Foreground`. The line list is 44 high over a line of 1 in `Border`, as wide as what holds it, its tabs 28 apart; a label is 14 in `MutedForeground` and a count 13 at 0.7, 8 apart; the selected tab is underlined with 2 in `Foreground`, its label 500 in `Foreground` and its count whole. A divider is 1 by 16 in `Border`. Down the side the line list is at least 180 wide with a line of 1 in `Border` at its start, a tab 32 high, padded 12, its label 13, and the selected tab marked with 2 in `Foreground` at its start. The pills are 30 high, padded 14, round, 4 apart, the label 13/500; the selected one is `Primary` with its label in `PrimaryForeground`. The panel is 16 under the list, or 24 beside it.
 - A tab follows the [density](../theme/#density) by the steps of a row, 8 lower at compact, 8 and 12 higher at comfortable and touch, from the design's height of each form: the default's 28 is 20, 36 and 40; a line's 44 (its list with it) is 36, 52 and 56, its 32 standing and its 40 overflowing (the bar and the list with it) the same steps; a pill's 30 is 22, 38 and 42.
@@ -1261,7 +1265,7 @@ Breadcrumb::new()
 | `max_items(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_items - 1`; never fewer than two. All of them without it |
 | `menu(ElementRef, Signal<bool>)` | What the menu of the hidden steps hangs from, and whether it is open: the app's, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
-| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws every link and the ellipsis in the state. The ellipsis's id is the root's with `-ellipsis` after it |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first link, the one Tab stops on first, in the state. The ellipsis's id is the root's with `-ellipsis` after it |
 | `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `id` the id of its link, of the page, or of its item in the menu while it is hidden |
 
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
@@ -1346,6 +1350,7 @@ Steps::new(&at, [
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the step Tab would enter at in the state. With an `id`, each step has the id `<id>-<index>`, its mark `<id>-<index>-marker`, and the line after it `<id>-<index>-line` |
 | `Step::new(title)` | A step. `description(&str)` a line under the title, `icon(name)` an icon of the theme's set in place of its number until it is done, `error(bool)` that it has gone wrong |
 
+- In a row the steps share the width: where they do not fit, a step gives way before the lines, which are never shorter than 24. A title that does not fit is cut with an ellipsis, a description wraps under it.
 - Steps are read, not operated, unless the app says they are pressed (`on_select` or `pressable`). Then a step that is done is pressed to go back to it, and a step to come only with `ahead(true)`; the current step selects nothing. The steps are one stop of Tab, entered at the current step (at the last one pressed where every step is done); the arrow keys of the orientation, Home and End move between the current step and those that are pressed, and Space and Enter press. Steps that are only read take no press and no focus.
 - Parts: `StepsPart::Root` (the steps and the lines), `Step` (a step: what is pressed and focused), `Marker` (its round mark), `Number`, `Icon` (the check, the cross, or the step's own icon), `Body` (the title and the description), `Title`, `Description`, `Rail` (in a column, the mark with the line down from it), `Connector` (what holds a line) and `Line`. Each step's parts are styled in that step's states: `StepsState::Done`, `Current` or `Upcoming`, and `Error`, `Pressable`; the whole has `Disabled`. The orientation is the recipe's variant (`StepsOrientation::Horizontal`, `Vertical`).
 - In the design the mark is 24 and round: in `Primary` with a check of 14 in `PrimaryForeground` once the step is done, in `Primary` with its number (12, medium) while it is current, and with a 1 px edge in `Input` and the number in `MutedForeground` while it is to come. The title is 8 beside the mark in the label's type (13, medium), `Foreground`, and `MutedForeground` while the step is to come. A line of 1 runs from 12 after one step to 12 before the next, in `Primary` up to the current step and in `Border` after it; in a row the lines share what the steps leave of the width. A description is under the title in the caption's 12, `MutedForeground`. A step in error has a cross on `Destructive` and its title in `Destructive`, whatever else it is.
@@ -1431,7 +1436,7 @@ Tag::new("React").pill(true).on_remove(move || remove("React"));
 - The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
 - Tags an app lays in a row with a focus group (`Row::new().focus_group(FocusGroup::horizontal())`) keep the focus when one is taken away: it goes to the next tag's button, or to the last, so Backspace takes them one after another. Outside a group the focus leaves with the button.
 - Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Removable` (it has the button), `Pill`, `Disabled`.
-- In the design a tag is 24 high, padded 8, with the corners of `RadiusSize::Sm`, in `Secondary` with a line of `Border` inside it, its text 12 and medium in `SecondaryForeground`. A removable one is padded 4 at its end, where a button of 16 (corners of 3) holds a cross of 11 in `MutedForeground`, 4 after the text; under the pointer the button is filled `StateHover` and its cross is `Foreground`. `Info`, `Success`, `Warning` and `Destructive` are in the muted fill of their color, line and fill alike, with the text in the color. A pill is round, has no line, is padded 10 and 6, and its cross is 12.
+- In the design a tag is 24 high, padded 8, with the corners of `RadiusSize::Sm`, in `Secondary` with a line of `Border` inside it, its text 12 and medium in `SecondaryForeground`. A removable one is padded 4 at its end, where a button of 16 (corners of 3) holds a cross of 11 in `MutedForeground`, 4 after the text; under the pointer the button is filled `StateHover` and its cross is `Foreground`. Focused from the keyboard, the button has a ring of 2 in `Ring` around its edge, which stands clear of the text before it. `Info`, `Success`, `Warning` and `Destructive` are in the muted fill of their color, line and fill alike, with the text in the color. A pill is round, has no line, is padded 10 and 6, and its cross is 12.
 - Several tags side by side are an app's row: `Row::new().spacing(6.0).wrap()`, 6 apart as the board lays them out.
 - A renderer that draws another tag starts from `view.remove()`, the button with its behavior and its cross, `None` for a tag with no handler.
 
@@ -1617,6 +1622,7 @@ Row::new()
 | `decorative(bool)` | Whether tooling passes it by. On by default |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
+- A label longer than the room is cut with an ellipsis on one line, and a line of 24 at least stays on either side of it.
 - A separator across a column is as wide as the room it is given. One down a row is as high as the row where the row stretches its children (`align_items(Alignment::Stretch)`); in a row that does not, it is given a `length`. An inset is the root's padding: `style(SeparatorPart::Root, |s| s.padding_x(16.0))`.
 - Parts: `SeparatorPart::Root` (the line, or the lines and the label), `Line`, `Label`. Its orientation is the variant of its recipe: `SeparatorOrientation::Horizontal`, `Vertical`.
 - In the design the line is 1 in `Border`. A label is in the caption's type in `MutedForeground`, 8 from the line on either side.
@@ -1733,6 +1739,7 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 | `width(impl Into<Length>)` | How wide the progress is: 240 when not given |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root |
 
+- A label longer than the rail is cut with an ellipsis on one line, before the value, which is never cut.
 - A progress is read, not operated: it takes no focus and no press. What is filled is a share of the rail, and moves to a new value over the theme's slow duration; while motion is reduced it is there at once.
 - Work that is not known runs a segment of 90 of 240 across the rail, growing out of its start and leaving at its end, once in `ui::PROGRESS_PERIOD` (1.6 s), in phase with every other such bar. While motion is reduced the segment stands still 70 of 240 from the start of the rail, where no value would be, as the board draws it.
 - Parts: `ProgressPart::Root` (the header over the rail), `Header` (the label and the value), `Label`, `Value`, `Track` (the rail), `Fill` (what is filled; the moving segment). States: `ProgressState::Indeterminate`, `TopBar`.
@@ -1774,6 +1781,7 @@ PasswordInput::new(chosen.clone())
 | `placeholder`, `icon`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `on_input`, `name` | As an [input](#input) has them |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control |
 
+- While the password is masked the dots are 1 apart; the placeholder is set as any placeholder, with no spacing of its own.
 - It is an [input](#input) in every other way: its box, its sizes, its judgments, a field's label. The reveal is the app's, as a switch's state is: a `bool` and a handler, or a `Signal<bool>` bound with `bind_reveal`. The eye is drawn where something hears it.
 - Tab reaches the input and then the eye, which Space and Enter press. To tooling the eye is a `button` called "Show password" or "Hide password", with `a11y_pressed`.
 - Masked, the password is not copied or cut, the platform's keyboard keeps it out of its suggestions, and tooling (`lurq_snapshot`, `lurq_set_value` of the MCP server) reads only its dots and `masked=true`. Shown, it is what the screen shows, to tooling too. Shown or not it holds a password to the platform (`ContentKind::Password`, or `NewPassword`), which may offer to fill it in.
@@ -1805,6 +1813,7 @@ SearchField::new(query.clone())
 | `placeholder`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `on_input`, `name` | As an [input](#input) has them |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the control |
 
+- The hint of a key is never wider than 112: a longer one is cut with an ellipsis, and the icon and the text keep their room.
 - While it holds something a clear button is at its end, which empties it and takes no focus, so the caret stays in it; Escape does the same while the focus is in it, and keeps the focus there. Escape in an empty field does what it does in any input. A read-only or disabled field has no clear button, and Escape does not empty it.
 - The clear button is no stop of Tab: from the keyboard Escape does what it does. The hint shows while the field is empty; the field does not bind the key, which the app does and focuses the field on (`ctx.focus`).
 - To tooling the field is a `searchbox` and its button a `button` called "Clear search".
@@ -1887,7 +1896,7 @@ NumberInput::controlled(seats.get()).on_change(move |value| seats.set(value));
 | `name(..)` | The name of its text in a form's data. A form's number is bound with `NumberInput::new(form.number("seats"))` |
 | `label`, `full_width`, `disabled`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an [input](#input) has them. `id` is the id of the box that is typed in |
 
-- What is typed is kept as text while it is typed, and is the value as soon as it is a number. A minus (first, where the range has room below 0), digits and one decimal separator (where the precision keeps decimals) are taken; anything else is not. A number pasted as it is written (`$2,000`) is read and typed as the number. On Enter and when the focus leaves, the text is put right: the number rounded to the precision, kept in the range and written in the format; what is not a number goes back to the value.
+- What is typed is kept as text while it is typed, and is the value as soon as it is a number. A minus (first, where the range has room below 0), digits and one decimal separator (where the precision keeps decimals) are taken; anything else is not. A number pasted as it is written (`$2,000`) is read and typed as the number. On Enter and when the focus leaves, the text is put right: the number rounded to the precision, kept in the range and written in the format; what is not a number goes back to the value. When the range changes under the value of an input bound to a signal (a `max` set lower than it), the value is taken into the range at once, as a slider's is: shown, written and told to `on_change`.
 - In the focus the number is typed plain, with the decimal separator and nothing around it; out of it, it is written in the format. A locale's decimal separator is the format's: `NumberFormat::new().separators(',', '.')`.
 - Up and Down take a step, Page Up and Page Down ten, Home and End go to the least and the greatest value where the range has them. A step from a value between two steps goes to the next one; from an empty field it goes to 0, or to the end of the range nearer to it. A wheel over the input scrolls what it is in and leaves the number as it is.
 - The buttons take a step when pressed, and while held another after 400 ms and then every 50 ms. They are not stops of Tab and take no focus: a press leaves the focus on the number being typed. The one toward an end of the range the value is at is disabled and dimmed (states `AtMin`, `AtMax`).
@@ -1933,8 +1942,9 @@ InputOtp::new(recovery.clone())
 | `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name` | As an [input](#input) has them; `name` is the whole code's in its form |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the input under the cells |
 
-- To a person it is one field. Tab puts the focus on the first empty cell. Typing fills the cell that has the focus and goes on to the next; typing on a filled cell replaces its character. Backspace empties the cell that has the focus, or, on an empty one, goes back and empties the one before; Delete empties it and stays. Left and Right move, no further than the first empty cell; Home and End go to the first cell and to the first empty one. A click puts the focus on the cell clicked, or on the first empty one where that is before it.
+- To a person it is one field. Tab puts the focus on the first empty cell. Typing fills the cell that has the focus and goes on to the next; typing on a filled cell replaces its character. Past the end of a full code what is typed goes nowhere, until a key or a click puts the focus back on a cell: the last cell is not typed over, and `on_complete` is called once as the code fills. Ctrl+A (Cmd+A) selects the whole code: Backspace or Delete then clears it, and a character typed starts it again. Backspace empties the cell that has the focus, or, on an empty one, goes back and empties the one before; Delete empties it and stays. Left and Right move, no further than the first empty cell; Home and End go to the first cell and to the first empty one. A click puts the focus on the cell clicked, or on the first empty one where that is before it.
 - A code has no gaps: emptying a cell before the last filled one moves the cells after it up.
+- A value the app sets is taken as typing takes it: what is not of the code's kind is dropped, letters are made capitals where it says, and no more than its cells are kept, and the signal is set to what is left.
 - A paste of a whole code, or more, fills every cell from the first; a shorter one fills the cells from the one that has the focus. What the code does not take of it (spaces, dashes) is dropped, so `123-456` is `123456`.
 - To a form, to tooling and to the platform it is one text input: under the cells is the engine's `TextInput`, bound to the code, which draws nothing of its own. It is the one stop of Tab, the one `textbox` to what reads the tree (`lurq_snapshot` of the MCP server), called by its label, with the code as its value, and the one value of its form under its `name`. It says it holds a `ContentKind::OneTimeCode`, so a phone offers the code from a message that just came, and asks for the digits keyboard where the code is of digits. A masked code is a masked input.
 - The cell the focus is on, and whether the input has the focus, are kept by the code's signal for as long as its input is in the tree, since a builder keeps nothing between renders: two codes bound to one signal share them.
@@ -2159,7 +2169,8 @@ MultiSelect::new(languages.clone(), [
 | `invalid`, `warning`, `valid`, `disabled`, `full_width`, `label`, `name`, `state`, `style`, `rules`, `force`, `id`, `key` | As a combobox has them. A disabled one keeps its tags and takes none away; `full_width` is in place of 280 |
 
 - The box holds the chosen values as tags ([tag](#tag)s with `pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
-- Typing opens the list and filters it; Down and Up move the highlight; Enter or a press chooses an option or takes it back, and the list stays open while one chooses, with what was typed kept, to choose another of it. A tag's cross takes its value away, and so does Backspace in the empty input, the last one's. Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared when the focus leaves. A press of a tag or of the clear control does not open the list. Tab reaches the cross of each tag before the input.
+- Typing opens the list and filters it; Down and Up move the highlight; Enter or a press chooses an option or takes it back, and the list stays open while one chooses; a choice clears what was typed, and the list shows every option again. A tag's cross takes its value away, and so does Backspace in the empty input, the last one's. Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared when the focus leaves. A press of a tag or of the clear control does not open the list.
+- The input is the one stop of Tab, as a [token input](#token-input)'s is: the tags are reached from it. With nothing typed, Left goes onto the last tag, drawn as its cross is when focused, and on to the ones before; Right goes back towards the input; Backspace or Delete takes away the tag the arrows are on, and they stay on the tag that takes its place. Typing leaves the tags.
 - It is a control a [field](#field) holds.
 - Parts: a combobox's, by the same names, and `MultiSelectPart::Check` (the box before a chosen option), `CheckIcon`, `Unchecked` (the box before one that is not), `Tags` (the lines of the tags and the input: its gap), `Tag` and `TagLabel` (what is laid over a tag's root and label), `Clear` and `ClearIcon`. Its states and sizes are a combobox's (`ComboboxState`, `ComboboxSize`).
 - In the design the box is a select's, 280 wide and at least 36 high, padded 6 at its start, 10 at its end and 6 over and under, a chevron down of 16 at its end. A tag is 24 high on `Secondary`, 4 round, padded 8 before its text of 13 in `SecondaryForeground` and 6 after its cross of 12 in `MutedForeground`; the tags are 6 apart, across and down, and what is typed keeps 48 on their line. The list is a select's, with a box of 16 before each option, 8 before its label, 4 round: `Background` in an edge of `Input`, and, chosen, `Primary` with a check of 12 in `PrimaryForeground`.
@@ -2623,6 +2634,7 @@ Popconfirm::new(anchor.clone(), open.clone())
 | `placement(Placement)`, `offset(..)` | Where it is beside its anchor: under it at its start, 4 from it, by default |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of the panel |
 
+- The title and the description wrap. Buttons too long to stand side by side go one under the other, the confirm button under the cancel one, both at the end. A button's label is not cut: a label wider than the panel runs past it.
 - It is a [popover](#popover): kept in the window, gone to the other side where there is no room, the focus back on the anchor as it closes. As it opens the focus goes to the cancel button, so that Enter or Space does not confirm what was not read.
 - Escape and a press outside close it and run what the cancel button runs.
 - Parts: `PopconfirmPart::Panel` and `Body` (laid over the popover's root and body), `Content`, `Message`, `Icon`, `Text`, `Title`, `Description`, `Actions`, `CancelButton`, `CancelLabel`, `ConfirmButton`, `ConfirmLabel`. States: `PopconfirmState::Destructive`.
@@ -2662,6 +2674,7 @@ ProgressDialog::new(open.clone())
 | `on_cancel(handler)`, `cancel_label(&str)` | A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog: the app does once the work has stopped |
 | `width(f32)`, `inline(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [message box](#message-box) has them |
 
+- The title and the message wrap. The count is never cut; a status longer than what the count leaves is cut with an ellipsis on one line.
 - It is a [dialog](#dialog) with its veil, its focus and its Tab, which nothing but the app closes.
 - Parts: `ProgressDialogPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header`, `Icon`, `Text`, `Title`, `Message`, `Progress` (laid over the [progress](#progress)'s root), `Meta`, `Count`, `Status`, `Footer`, `DetailTrigger`, `DetailIcon`, `DetailLabel`, `DetailPanel`, `Detail`, `Actions`, `ActionButton`, `ActionLabel`, `CancelButton`, `CancelLabel`. States: `ProgressDialogState::Indeterminate`, `DetailOpen`.
 - In the design the panel is 420 wide, padded 20 with 12 between its parts; the icon is 20, 12 before the title of 15/600 over the message of 12 in `MutedForeground`, 2 apart; the bar is the progress's of 6 across the panel; what is done and what is left are in the mono type of 11 in `MutedForeground`; the footer, 4 further down, has "Details" at its start and the outlined buttons of 32, padded 14, 8 apart, at its end.
@@ -2717,6 +2730,7 @@ Sheet::new(goal_open.clone())
 | `mount(ctx)` | At the bottom, the engine's draggable `Sheet` in this look; at another edge, the same as converting it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `key` tells two sheets of one component apart |
 
+- A title or a description longer than the panel wraps inside its padding on every side, centered where the sheet stands at the bottom and the top; neither is cut. A [drawer](#drawer) over the page is a sheet, and wraps the same.
 - It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`, as a [dialog](#dialog) is: declared anywhere, it takes no room there and covers the window under the window's own title bar while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the sheet's own controls. A press on the panel goes no further.
 - It slides in from its edge over the theme's slow duration in the entering curve as the veil fades in, and out to it over the base duration in the leaving curve: keyframes that move the panel by its own width or height (`ui::SHEET_IN_FROM_START` .. `ui::SHEET_OUT_TO_BOTTOM`). With motion reduced (`Theme::reduced_motion`, state `Modal` with `ReducedMotion`) it fades where it stands.
 - At the start and the end the body takes the room the header and the footer leave, so the footer stands at the panel's bottom; at the top and the bottom the sheet is as high as what it holds while that fits, and the body gives way and scrolls when it does not.
@@ -3096,7 +3110,7 @@ Menubar::new(open)
 | `menu(title, entries)` | A menu called `title`, after the bar's others, holding [menu](#menu) items: `MenuItem`s, with `MenuEntry::Separator` and `MenuEntry::Label` between them (`.into()` each where the list mixes them) |
 | `title_disabled(title, bool)` | The menu of that title cannot be opened: its title is dimmed, and the pointer, the arrows and Alt pass it by |
 | `disabled(bool)` | No menu of the bar can be opened |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the bar's; its titles are `{id}-0`, `{id}-1` and on, and each menu's panel `{id}-0-menu` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first title that is not disabled, the one Tab stops on. `id` is the bar's; its titles are `{id}-0`, `{id}-1` and on, and each menu's panel `{id}-0-menu` |
 
 - Its menus are [menus](#menu), with all their items have: icons, shortcuts, checks, radio items, submenus, disabled and destructive items, separators and labels. One is open at a time.
 - The pointer: a press of a title opens its menu, and a press of it again closes it. While a menu is open the pointer coming onto another title opens that one, with no press. Choosing an item, a press outside and Escape close the menu.
@@ -3187,7 +3201,7 @@ Toolbar::new()
 
 - The bar gives its buttons its size and makes them ghost ones, and its toggles its size, unless an item is `as_given`. A button or toggle that is its icon alone is called by its label and has a tooltip (below it) of its label and its shortcut.
 - It is one stop of Tab: Tab enters it at the control the focus last left (the first, the first time), and leaves it at once. Left and Right move between its controls, the toggles of a group in it among them; Home and End go to the first and the last; a disabled one is passed by. A field or a select in it keeps its own keys while it is focused.
-- With `overflow`, a control that does not fit drops out of the bar whole, the last first, and the More button (`more-horizontal`, after a line) appears at the end; its menu has an item for each control that went, in the order of the bar: its label, its icon, its shortcut, a check for a toggle (each toggle of a group, after a line), and its press. A labelled group goes whole, under its label. A select or a field stays unless it has `in_menu`. The bar learns what went from the layout (the engine's `ShrinkLimit::Drop` and `drop_marker`), and its menu follows it a pass later.
+- With `overflow`, a control that does not fit drops out of the bar whole, the last first, and the More button (`more-horizontal`, after a line) appears at the end. Enter or Space on it opens its menu with the focus on its first item, and Escape gives the focus back to More; the menu has an item for each control that went, in the order of the bar: its label, its icon, its shortcut, a check for a toggle (each toggle of a group, after a line), and its press. A labelled group goes whole, under its label. A select or a field stays unless it has `in_menu`. The bar learns what went from the layout (the engine's `ShrinkLimit::Drop` and `drop_marker`), and its menu follows it a pass later.
 - Parts: `ToolbarPart::Root`, `Item` (laid over each button's and toggle's root), `Slot` (a control with the line before it, 2 apart), `Separator` (laid over a separator's root), `Spacer`, `Group`, `GroupItems`, `GroupLabel`, `More`. State: `ToolbarState::Overflowing`. Variants: `ToolbarVariant::Plain`, `Surface`, `Floating`.
 - In the design the bar is padded 4, its controls 2 apart; a button is a ghost one of 32 with an icon of 16; a toggle that is on has the fill of what is picked out; a line of 20 in the border's color stands between two groups with 4 on either side. On a surface it has the background's fill, an edge of 1 in the border's color and the middle radius. A group of a command bar is padded 10 with a line at its end and its label of 10 in the muted foreground under it. A focused control has its ring inside it, where the bar does not cut it off.
 - To what reads the tree it is a `toolbar` called by its label, with `a11y_orientation`; the More button says `a11y_haspopup` and `a11y_expanded`.
@@ -3208,7 +3222,9 @@ Stack::new()
       .action(Button::new("Duplicate").icon(icons::COPY).on_click(duplicate))
       .destructive_action(Button::new("Delete").icon(icons::TRASH).on_click(delete))
       .on_clear(move || selected.set(Vec::new()))
-      .escape_clears(true),
+      .escape_clears(true)
+      .return_focus(list_ref.clone())
+      .mount(ctx),
   );
 ```
 
@@ -3219,12 +3235,15 @@ Stack::new()
 | `action(Button)`, `destructive_action(Button)` | An action on what is selected: a round ghost button; one that destroys in the destructive color |
 | `on_clear(handler)` | What clearing does: the round button with a cross at the end (none without it), and Escape where it clears |
 | `escape_clears(bool)` | Escape clears the selection while the bar is shown, wherever the focus is, unless what has it took the key |
+| `return_focus(ElementRef)` | Where the focus goes as the bar leaves with the focus in it, cleared by its button or by Escape, or emptied by an action: the list it acts on (its first control that takes the focus). Without it the focus leaves with the bar |
+| `mount(ctx)` | Puts the bar in the tree of `ctx`'s component, which keeps whether the focus is in it: `return_focus` needs it. `build(theme)` and `From<ActionBar> for Element` draw it with nothing kept |
 | `placement(ActionBarPlacement)` | `Bottom` (the default) or `Top` of the room it is given |
 | `clear_label(&str)` | What the clear button is called: "Clear selection" |
 | `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. The clear button has the id with `-clear` after it |
 
 - It is as large as the room it is given and takes no press itself: put it over what it acts on, in a `Stack`. The bar stands 16 from the bottom (or the top) of that room, in the middle; it comes in with a fade and a move of 16 from that edge, and leaves the same way as the count goes to none.
 - It is a toolbar to what reads the tree, called by what it says, and one stop of Tab whose Left and Right move between its buttons.
+- What it says is on one line. Where the room is narrower than the bar, it gives way first and is cut with an ellipsis: the actions and the clear button stay whole, at any text size.
 - Parts: `ActionBarPart::Root`, `Bar`, `Count`, `Separator` (laid over a separator's root), `Action`, `ActionIcon`, `ActionLabel`, `Destructive` (laid over a button's root, icon and label), `Clear`, `ClearIcon`. State: `ActionBarState::Empty`. Variants: `ActionBarPlacement::Bottom`, `Top`.
 - In the design the bar is 44 high, of the popover's color, round at its ends, with an edge of 1 in the border's color and the large shadow, padded 16 before its count and 6 after its clear button, its parts 4 apart. The count is 13/600; a line of 20 with 6 on either side sets it apart; an action is 32 high, padded 10, its icon 14 and its label 13, 6 apart; the clear button is a round 32 with a cross of 15. A phone's selection bar is the same parts restyled: across the top, 56 high, in the fill of what is picked out.
 
@@ -3341,11 +3360,11 @@ TreeView::new(items)
 | `on_select(handler)` | Told of the row a press or Space selects |
 | `on_activate(handler)` | Told of the row a double press or Enter activates: open the file. A row that opens opens or closes as well |
 | `on_expand(handler)` | Told of each row as it opens: where a lazy row's children are brought |
-| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root; `force` draws every row so |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root; `force` draws the row Tab stops on so, the first selected, else the first that is not disabled |
 | `mount(ctx)` | In place of converting it: the tree in the engine's virtual list, for thousands of rows. Give it a height |
 
 - What is open and what is selected are the app's, as an [accordion](#accordion)'s open items are: a signal the tree reads and writes, or the app's own state and a handler. The rows are one flat list of what is shown: what a closed row holds is not built, and it opens and closes at once, as a file tree does.
-- A press of a row selects it, a press of its chevron opens or closes it (and does not select it), a double press activates it. With `multiple`, a press with Ctrl (Cmd) adds the row or takes it out, one with Shift selects the rows from the last selected to it. The last of the selection is where a range starts.
+- A click of a row selects it, as the button comes up over the row it went down on, so a press dragged off the row selects nothing; a press of its chevron opens or closes it (and does not select it), a double click activates it. With `multiple`, a press with Ctrl (Cmd) adds the row or takes it out, one with Shift selects the rows from the last selected to it. The last of the selection is where a range starts.
 - The tree is one stop of Tab, at the selected row or the first. Up and Down move through the rows that are shown, Home and End to the first and the last, without going round. Right opens a closed row and goes into an open one; Left closes an open row and goes out of a closed one or a leaf to the row it is in; `*` opens every row at the focused one's level. A letter goes to the next row that starts with it. Space selects the focused row (with `multiple` it adds it or takes it out; with Shift it selects to it), Enter activates it. With `multiple`, Shift with Up, Down, Home or End moves and selects the rows on the way, and Ctrl+A selects every row shown. A disabled row is passed by.
 - The keys are the engine's: the tree is a [focus group](../focus-navigation/#focus-groups) that is `nested`, `one_stop`, with `typeahead` and without `wrap`, and each row says its level and whether it is open with `focus_level` and `focus_expanded`. A list of items in items (a sidebar's) gets the same keys the same way.
 - `mount(ctx)` puts the rows in the engine's virtual list, which builds the rows near its view: a tree of ten thousand rows costs about one screen of them. The keys still reach every row: the tree gives its rows to its focus group ([`FocusRows`](../focus-navigation/#focus-groups)), so Up, Down, Home, End, PageUp and PageDown (a view of rows), Right, Left, `*` and typeahead go to any row, the list builds and shows the row they go to, and the focus goes to it once it is built. Shift with them and Ctrl+A select over every row. The list fills the tree, which is given a height; its rows are drawn by `TreeRow::render`, so a theme's rules reach them and its renderer of the whole tree does not.
@@ -3355,6 +3374,290 @@ TreeView::new(items)
 - In the design a row is 28 high, 2 under the one before, with `radius-sm` and 8 at each side; each level moves it in by 16. It holds a chevron of 14 in `MutedForeground` (right while it is closed, down while it is open), an icon of 16 in `MutedForeground` and its label in the body's type at 13, 6 apart. The selected row is on `Highlight`, its label at 500 and its icon in `Foreground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled row is half opaque. A guide is a line of 1 in `Border` under the middle of the chevron of the row it is in, as high as a row and the room under it. What is at a row's end is 12 in `MutedForeground`.
 - A row follows the [density](../theme/#density): 20, 28 (the design's), 36 and 40 high at compact, default, comfortable and touch, its guide with it.
 - A theme's renderer is given `TreeViewView`: `view.rows` (each a `TreeRow` with its label, level, position, whether it opens, is open, is loading, is selected, is disabled, its icon and what is at its end), `view.root()` (the column with the keys and its role) and, on each row, `row.button()` (the behavior with the row's style), `row.indent()`, `row.chevron()`, `row.icon()`, `row.label()` and `row.render()`. It is set for `TreeView<T>` of any `T`: `theme.set_renderer::<TreeView<String>>(..)` draws trees of every id.
+
+## Navbar
+
+The way round a site or an app along the top of its window: the brand at its start, its links, and a search, actions and who is signed in at its end.
+
+```rust
+use lurq::ui::{Avatar, NavItem, NavLink, NavPanel, Navbar, NavbarBrand, SearchField, TextBoxSize, icons};
+
+Navbar::new()
+  .label("Main")
+  .brand(NavbarBrand::new("lurq").icon(icons::BOX).on_select(move || go_home()))
+  .item(
+    NavItem::new("Docs").current(at_docs).panel(
+      NavPanel::new()
+        .columns(2)
+        .link(NavLink::new("Getting started").description("Install lurq and open your first window.").href("/docs"))
+        .link(NavLink::new("Theming").description("Roles, palettes and dark mode.").href("/docs/theming")),
+    ),
+  )
+  .item(NavItem::new("Components").href("/components"))
+  .item(NavItem::new("Blog").href("/blog"))
+  .end(SearchField::new(query.clone()).placeholder("Search").size(TextBoxSize::Sm))
+  .end(account) // an Avatar that opens a Menu
+  .sticky(true)
+  .mount(ctx)
+```
+
+| `Navbar` | |
+| --- | --- |
+| `brand(element)` | What stands at its start: a `NavbarBrand` (a mark beside a name, pressed where it has `on_select`), or an element of the app's |
+| `item(NavItem)`, `items(..)` | A link after the others; one with a `panel` opens a panel of links, as in a [navigation menu](#navigation-menu) |
+| `end(element)` | What stands at its end, after what stands there: a [search field](#search-field), a [button](#button), an [avatar](#avatar) with its [menu](#menu) |
+| `sticky(bool)` | It stays at the top of the page that scrolls it |
+| `open(signal)`, `on_open_change(handler)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`; and what hears it change. Without a signal the bar keeps its own |
+| `menu_open(signal)`, `on_menu_open_change(handler)` | On a narrow window, whether the links are open over the page; and what hears the menu button turn it |
+| `narrow(bool)` | Whether its links are behind the menu button, whatever the window's width: they are below the `md` breakpoint unless told |
+| `label(&str)` | What the navigation region is called to tooling: "Main" unless told |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the bar's; its links are `{id}-links` (the items `{id}-links-0` and on, a panel `{id}-links-0-panel`), the menu button `{id}-menu`, the links over the page `{id}-drawer` |
+
+- It is mounted (`mount(ctx)`): its links are a mounted navigation menu, and on a narrow window a mounted [sidebar](#sidebar). Converted into an element on its own it is drawn with what the signals it is given say, for a gallery or a test.
+- Its links are a [navigation menu](#navigation-menu) in its links variant: each a stop of Tab, the page shown (`NavItem::current`) in the foreground and the others in the muted foreground, brought forward under the pointer. One with a panel opens it under the bar by a press, under the pointer after a moment, and with Enter, Space and Down, with all a navigation menu does.
+- On a window narrower than the `md` breakpoint (or where `narrow(true)` says) the links go behind a ghost button of the `menu` icon at the bar's start, called "Open menu", into a `Sidebar` over the page, which slides in from the start over a veil: each link an item, the page shown selected, an item with a panel a group of its links under its name. Choosing one closes it, as Escape and a press on the veil do. The brand and what stands at the end stay in the bar.
+- In the design the bar is 56 tall in `Background`, with a line of 1 in `Border` along its bottom, padded 16 at its sides with 24 between what it holds. The brand is a mark of 20 in `Foreground` 8 before its name in 16/600; the links are 20 apart in 13/500; what stands at the end is 24 apart. On a narrow window it is padded 8 with 8 between what it holds.
+- Parts: `NavbarPart::Root`, `Brand`, `BrandMark`, `BrandName`, `Links` (the room of the links, which takes what the bar has to spare), `End`. States: `NavbarState::Narrow`, `Sticky`, `Interactive` (the brand is pressed). How its links look is the navigation menu's recipe, in its `Links` variant: a theme restyles them there, into the board's tablet tab bar, say (a bar on `Muted` with the full radius, its items 36 tall and round, the page shown on `Background` with a shadow).
+- To what reads the tree the bar is a `navigation` called by its label, its links `link`s (the page shown with `a11y_current` `page`) or `button`s that open a panel, and the menu button a `button` with `a11y_expanded` and `a11y_controls` naming the links over the page.
+- A renderer for `Navbar` gets a `NavbarView`: `view.root()` is the bar with its style and its role; `brand`, `links`, `end`, `menu_button` and `drawer` are what it holds, built, to put in it. `view.render()` builds the bar.
+
+## Navigation Menu
+
+The way round a site along a row of links, some of which open a panel of links under them: Docs, Components, Blog.
+
+```rust
+use lurq::ui::{Card, NavItem, NavLink, NavPanel, NavigationMenu, icons};
+
+NavigationMenu::new()
+  .label("Site")
+  .item(
+    NavItem::new("Docs").panel(
+      NavPanel::new()
+        .columns(2)
+        .featured(Card::new().title("lurq 0.62").description("A navbar, a navigation menu and a sidebar."))
+        .link(NavLink::new("Getting started").description("Install lurq and open your first window.").icon(icons::PLAY_CIRCLE).href("/docs"))
+        .link(NavLink::new("Theming").description("Roles, palettes and dark mode.").href("/docs/theming")),
+    ),
+  )
+  .item(NavItem::new("Blog").href("/blog"))
+  .open(open.clone())
+  .mount(ctx)
+```
+
+| `NavigationMenu` | |
+| --- | --- |
+| `item(NavItem)`, `items(..)` | An item after the others |
+| `open(signal)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`, which a press, the pointer and the keys set, and Escape, a press outside, a choice and the pointer going clear set to `None`. Without one the menu keeps its own |
+| `on_open_change(handler)` | What hears a panel open, another take its place, or the open one close |
+| `variant(NavigationMenuVariant)` | `Menu`, the board's: each item a box lit under the pointer and while its panel is open. `Links`: the text alone, as a navbar has it |
+| `open_delay(..)`, `close_delay(..)` | How long the pointer rests on an item before its panel opens (the theme's base duration), and how long a panel stays after the pointer has left it and its item (the slow one) |
+| `disabled(bool)`, `label(&str)` | No item can be pressed; what the navigation region is called to tooling, "Main" unless told |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the row's; its items are `{id}-0` and on unless they have ids of their own, each panel `{id}-0-panel`, its links `{id}-0-0` and on |
+
+| `NavItem`, `NavPanel`, `NavLink` | |
+| --- | --- |
+| `NavItem::new(label)` | A link: `href(path)` (the router's), `on_select(handler)`, `current(bool)`, `icon(name)`, `disabled(bool)`, `id`. With `panel(NavPanel)` it opens a panel in place of going somewhere, and has a chevron |
+| `NavPanel::new()` | `link(NavLink)`, `links(..)`; `columns(n)`, the first filled first (one unless told); `featured(element)`, a column of its own before the links: a [card](#card) |
+| `NavLink::new(title)` | `description(&str)` under its title, `icon(name)` at its start, `href(path)`, `on_select(handler)`, `current(bool)`, `disabled(bool)`, `id` |
+
+- It is mounted (`mount(ctx)`): it keeps the timers of its delays, where the pointer is and how the open panel was opened. Converted into an element on its own it opens its panels by a press and the keys, from the signal `open` gives.
+- The pointer: a press of an item with a panel opens the panel, and a press again closes it; resting on the item opens it after the open delay (a press that follows keeps it). One panel is open at a time, and with one open the pointer coming onto another item opens that one at once. The panel stays while the pointer is on the item, on the panel or crossing the 6 between them, and closes when it has left them for the close delay; a press outside it closes it and goes on to what it is on. Choosing a link runs it, goes to its path and closes the panel.
+- The keyboard: each item is a stop of Tab, as links on a page are, and Left and Right move between the items as well. Enter, Space and Down open an item's panel with the focus on its first link (Down on an item whose panel the pointer opened takes the focus into it); Up and Down go through the panel's links, column after column; Left and Right close it and go to the item beside it, opening that one's panel where it has one and only focusing a link, which is not followed; Escape closes it with the focus back on its item. Tab goes from an item into its open panel and from its last link on to what follows the item, closing the panel; the focus leaving the item and the panel closes it. Alt does nothing to it.
+- Under the pointer, focused from the keyboard, or with its panel open, an item is filled with `Highlight`, the board's `accent`; the page shown, or an item whose panel holds it, is on `Muted`. In the design an item is 36 tall, padded 12 with the medium radius, its text 13/500 in `Foreground`, and an item with a panel has a chevron of 14 in `MutedForeground` 6 after it, up while its panel is open; the items are 4 apart. The panel opens 6 under its item, from its start, in `Popover` with an edge of 1 in `Border`, the large radius and the medium shadow, padded 8 with 8 between its columns, each 208 wide; it fades in over the theme's base duration and out over the fast one. A link is padded 12 with the medium radius, its title 14/500 over its description 13 in `MutedForeground`, 4 apart and 1.4 high, an icon of 16 in `MutedForeground` 12 before them; it is lit with `Highlight` under the pointer and focused. In the `Links` variant an item is its text alone, 32 tall, 20 apart, in `MutedForeground`, in `Foreground` under the pointer, while its panel is open and where it is the page shown, with the focus ring around it; its panel opens 18 under it, 6 past the edge of a navbar.
+- The engine's part is `FocusGroup::panel_row(true)`, which the row has: a [row of menus](#menubar) whose elements are links as well as buttons. Left and Right in an open panel that nothing in it takes close it and focus the element beside it, asking it to open where it says it opens and closes (`focus_expanded(open, toggle)`), and press nothing; Alt is a menubar's, not its.
+- Parts: `NavigationMenuPart::Bar`, `Item`, `ItemIcon`, `Label`, `Chevron`, `Viewport` (the room between an item and its panel, which keeps the panel under the pointer), `Panel`, `Column`, `Featured`, `Link`, `LinkIcon`, `LinkText`, `LinkTitle`, `LinkDescription`. States: `NavigationMenuState::Open`, `Current`, `Disabled`; variants: `NavigationMenuVariant::Menu`, `Links`.
+- To what reads the tree the row is a `navigation` called by its label (in a navbar, a `list` in the navbar's), an item a `link` (with `a11y_current` `page` for the page shown) or a `button` with `a11y_expanded` and `a11y_controls` naming its panel, the panel a `group` called by its item, and its links `link`s with their description.
+- A renderer for `NavigationMenu` gets a `NavigationMenuView`: `view.bar()` is the row with its style, its role and its focus group; `view.item(index)` an item's behavior with its style, `view.item_icon(index)`, `view.label(index)` and `view.chevron(index)` what it holds, and `view.panel(index)` its panel hung from it, to put after it (`view.panel_content(index)` is the panel alone); `view.item_part(index, part)` is the style of a part of one item. `view.render()` builds the menu.
+
+## Table
+
+Rows of the same things in columns: crates and their status, files and their sizes, people and their roles. The columns of the header and of every row are the same widths whatever is in a cell.
+
+```rust
+use lurq::ui::{Badge, Table, TableColumn, TableSort};
+
+// sort: Signal<Option<TableSort>>, selected: Signal<Vec<String>>
+let columns = vec![
+  TableColumn::new("name", "Name").text(|row: &Crate| row.name.clone()).mono(true).sortable(true),
+  TableColumn::new("status", "Status").width(120.0).cell(|row: &Crate| Badge::new(&row.status).into()),
+  TableColumn::new("size", "Size").width(70.0).numeric().text(|row: &Crate| format!("{} KB", row.size)).sort_key(|row: &Crate| row.size),
+  TableColumn::actions("actions", |row: &Crate| open_button(row)),
+];
+// The app gives the rows in the order it wants.
+let mut rows = rows;
+if let Some(by) = sort.get() {
+  by.sort(&columns, &mut rows);
+}
+Table::new(columns, rows)
+  .row_key(|row: &Crate| row.name.clone())
+  .label("Crates")
+  .sort(sort)
+  .selected(selected)
+  .height(320.0)
+  .on_row_activate(|name| open(name));
+
+// Thousands of rows: mounted, it builds those in view.
+Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(480.0).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(columns, rows)`, `new_shared(columns, Arc<Vec<R>>)` | The columns and the rows, in the order the app wants them. Shared rows given again at each render are not copied |
+| `TableColumn::new(id, title)` | A column that takes a share of the room the others leave |
+| `TableColumn::text(\|row\| String)`, `cell(\|row\| Element)` | A row's cell: a text in the cell's type, or what the app builds (a badge, an avatar and a name) |
+| `TableColumn::width(px)`, `share(f32)`, `fit()`, `min_width(px)`, `max_width(px)` | Its width: in pixels, a share of what is left, or as wide as the widest of its cells shown, between a least and a most |
+| `TableColumn::align(ColumnAlign)`, `numeric()`, `mono(bool)`, `muted(bool)` | Where its content sits; a column of numbers (at its end, mono 12 in the muted color); its text in the mono type or the muted color |
+| `TableColumn::sortable(bool)`, `sort_by(\|a, b\|)`, `sort_key(\|row\|)` | A press of its header sorts the rows by it; what `TableSort::sort` compares rows by |
+| `TableColumn::sticky(bool)` | The first column stays at the start while the rows scroll sideways |
+| `TableColumn::controls(bool)`, `TableColumn::actions(id, cell)` | Its cells hold what is pressed, and a press of it is not the row's; a column of a row's buttons at its end |
+| `row_key(\|row\| K)` | What tells a row apart, which the selection and the handlers name it by. Without it, a row's place |
+| `sort(Signal<Option<TableSort>>)`, `sorted_by(sort, change)`, `on_sort(handler)` | What the rows are sorted by: a press of a sortable header goes through ascending, descending and none |
+| `selected(Signal<Vec<K>>)`, `selected_keys(keys, change)` | The rows selected, with a column of checkboxes |
+| `checkboxes(bool)` | Whether a table whose rows are selected has the column of checkboxes; without it a press of a row selects it |
+| `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter |
+| `density(Density)` | Rows of 36 compact, 44 at the default, 52 comfortable and touch |
+| `height(..)`, `max_height(..)` | The table's height: the header stays and the rows scroll under it |
+| `empty(element)` | What stands under the header where there are no rows: by default an empty state that says so |
+| `loading(bool)`, `loading_rows(n)` | Rows of skeletons under the header while the rows are on their way |
+| `pagination(element)`, `count(bool)`, `total(n)` | A footer that counts the rows and what is selected, with the pagination at its end |
+| `mount(ctx)` | The table mounted: it builds the rows in view and a few around them, and keeps its columns' measured widths |
+| `label(&str)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. A row's id is the table's with `-row-` and its place; a header's `-header-` and its column's id; the header's checkbox `-select-all` |
+
+- What the rows are, their order, what is selected and what they are sorted by are the app's. A press of a sortable header asks for the rows sorted by it, ascending, then descending, then not at all, and the app gives them in that order; `TableSort::sort(&columns, &mut rows)` sorts them by the column's key or its text.
+- With a selection a table has a column of checkboxes. A press of a row selects it alone, with Ctrl (Cmd) adds it or takes it out, with Shift selects the rows from the last selected one to it; a press of its checkbox adds or takes it out, with Shift the range. The header's checkbox selects every row the table shows, or none where all are, and is mixed while some are. A press in a column of `controls` is the control's alone.
+- The header stays while the rows scroll in the table's own height, and a table wider than its box scrolls sideways, its header with it; a sticky first column stays at the start. Converted into an element a table builds every row; mounted (`mount(ctx)`) it builds the rows in view and a few around them, so ten thousand rows cost about what a screen of them does. A table with no height builds every row either way.
+- The columns are one list of tracks for the header and every row (`ColumnTracks`), measured from the rows that are built: a column sized by its content is as wide as the widest of its cells shown so far, and does not narrow as rows scroll by.
+- The rows are one stop of Tab, at the focused, the first selected or the first row. Up and Down move through them, Home and End to the first and the last, and in a mounted table PageUp and PageDown by what is shown. Space selects the focused row (adds it or takes it out), Enter activates it, Ctrl+A selects them all. Tab from a row goes into what it holds that takes the focus, its buttons, and then out of the table. The sortable headers and the header's checkbox are a stop of their own before the rows, Left and Right between them. A row the keys reach is scrolled into view clear of the header.
+- To what reads the tree it is a `table`, or a `grid` (`a11y_multiselectable`) where its rows are selected, with `a11y_rowcount` (the header's among them) and `a11y_colcount`, `a11y_busy` while loading; its header and rows are `row`s with `a11y_rowindex` (the header's 1), `a11y_selected` where rows are selected; a header is a `columnheader` with `a11y_sort` (`ascending`, `descending`, `none`) where it sorts; a cell is a `cell`.
+- Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Row`, `Cell`, `Select` (the checkbox column's cell), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Sticky`, `Footed`, `Disabled`.
+- In the design the table is a box with `radius-lg`, an inner edge of 1 in `Border` and the `Background` fill. The header is 40 high on `Muted` with a line of 1 in `Border` under it, its titles 13/500 in `MutedForeground`; a row is 44 high with the same line under it but the last, its text 13 in `Foreground`. Both are padded 16 at each side with 16 between columns, 12 where the rows have checkboxes, whose column is 16 wide. A sorted column's title is in `Foreground` with an arrow of 14, 4 after it; a sortable one has a muted mark of `chevrons-vertical`, and its title is in `Foreground` under the pointer. A selected row is on `Highlight`. A number is mono 12 in `MutedForeground` at its column's end. The footer is 44 high, padded 16 and 8, its count 13 in `MutedForeground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled table is half opaque.
+- A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in. It is set for `Table<R, K>` of any `R` and `K`.
+
+## Calendar
+
+The days of a month in weeks, which a person chooses a date from, or a range of dates: a due date, a day to book, the week of a report.
+
+```rust
+use lurq::{
+  core::{Date, DateRange, Signal, YearMonth},
+  ui::{Calendar, CalendarMemory},
+};
+
+// due: Signal<Option<Date>>; in a component's render, mounted so that it keeps the month it shows.
+Calendar::new(due.clone()).min(Date::today()).mount(ctx);
+
+// The month shown in a signal of the app's: it is not the value.
+Calendar::new(due.clone()).month(shown.clone()).mount(ctx);
+
+// A range with two presses, two months side by side, weekends not to be chosen.
+Calendar::range(stay.clone())
+  .months(2)
+  .disabled_days(|date| date.weekday().days_from_monday() >= 5)
+  .mount(ctx);
+
+// What it keeps, kept by the app in a field of its component, made once: for a calendar built without ctx.
+Calendar::new(due.clone()).memory(&self.memory);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<Option<Date>>)`, `range(Signal<Option<DateRange>>)` | What is chosen: a date, or a range chosen with two presses |
+| `month(Signal<YearMonth>)` | The month shown, the first where there are several: not the value. The heading's buttons and the keys set it |
+| `memory(&CalendarMemory)` | What the calendar keeps between renders, the app's: the month it shows where the app gives none, a range's first press and where it would end |
+| `mount(ctx)` | The calendar with a memory of its own, in the app's locale (`App::i18n`) |
+| `months(n)` | How many months side by side, each with its heading |
+| `min(Date)`, `max(Date)` | The least and the greatest date that can be chosen. The months beyond are not shown |
+| `disabled_days(Fn(Date) -> bool)` | Which days cannot be chosen besides those out of the range |
+| `locale(DateLocale)`, `first_day(Weekday)` | The names of months and days and the first day of the week, in place of the app's locale's |
+| `week_numbers(bool)` | The ISO 8601 week number before each week |
+| `outside_days(bool)` | The days of the months before and after in the first and the last week; on, as the design draws them, and none with several months |
+| `today(Date)` | The day marked as today, in place of the system's |
+| `disabled(bool)` | It takes no input |
+| `on_change(Fn(Date))`, `on_range_change(Fn(DateRange))` | Told of a choice, the value set already |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Each day has the id with the date after it: `due-2026-11-12`; the buttons `-previous` and `-next` |
+
+- The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `CalendarMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
+- A range: the first press starts it, the pointer and the keys show where it would end, and the second ends it, before the first or after it. Its ends are chosen days, and the days between are one band.
+- The days are one stop of Tab, at the chosen day, today or the first of the month; the buttons of the heading are stops of their own before them. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and with Shift a year: into the month before or after, which is then shown, and kept between the least and the greatest date. A day that cannot be chosen takes the focus too and says so: the keys pass no day by. Enter and Space choose. The keys are the days' own, through the engine's `KeyboardEvent::focus_key`.
+- To what reads the tree each month is a `grid` called by its month (`November 2026`), of `row`s of `gridcell`s called by their day (`Thursday, Nov 12, 2026`) that say `a11y_selected`, `a11y_current` (`date`, for today) and `a11y_disabled`; the names of the days are `columnheader`s.
+- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Today`, `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`.
+- In the design the panel is 248 wide, on `Popover` with an edge of 1 in `Border`, `radius-lg` and 12 of padding; the heading is 32 high, the month in the body's type at 500 between two outline buttons of 28 (`radius-md`, edge in `Input`, chevrons of 16 in `MutedForeground`), 8 over the days. A day is 32 square with `radius-md`, its number at 13; the names of the days are at 12 in `MutedForeground`; the rows are 8 apart. Today and a day under the pointer are on `Highlight` (the board's `accent`); the chosen day is on `Primary`, its number in `PrimaryForeground` at 500. A day of the month beside, and one that cannot be chosen, is in `MutedForeground` at half opacity. The days between a range's ends are on `Highlight` with no radius.
+- A theme's renderer is given `CalendarView`: `view.months`, `view.chosen`, `view.draft`, `view.hover`, `view.shown_range()`, `view.day_states(date, outside)`, `view.day_recipe(states)`, `view.entry()`, and the pieces `nav(by)`, `header(index)`, `headers()`, `weekdays()`, `day(date, month)`, `week(days, month)`, `grid(index)`, `grids()`, `panel()` and `render()`.
+
+## Date Picker
+
+A field that holds a date, typed in it or chosen from a calendar that opens under it: a due date, a date of birth, the day of a booking.
+
+```rust
+use lurq::{
+  core::{Date, Signal},
+  ui::{CalendarMemory, DatePicker, Field},
+};
+
+// due: Signal<Option<Date>>
+DatePicker::new(due.clone()).placeholder("Pick a date").clearable(true).mount(ctx);
+
+// In a field, which names it and judges it, with what it keeps kept by the app (made once, in `create`).
+Field::new("Due date", DatePicker::new(due.clone()).min(Date::today()).memory(&self.memory))
+  .error("The due date has passed.");
+
+// Written and read the app's way.
+DatePicker::new(due.clone()).format(|date| date.to_string()).parse(|text| text.parse().ok());
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<Option<Date>>)` | The date the field holds |
+| `memory(&CalendarMemory)`, `mount(ctx)` | What it keeps between renders (whether the calendar is open, the field it opens under, the month shown): the app's, or its own where it is mounted |
+| `open(Signal<bool>)`, `month(Signal<YearMonth>)` | Whether the calendar is open and the month it shows, where the app holds them |
+| `placeholder(&str)` | What the field says while it is empty |
+| `format(Fn(Date) -> String)`, `parse(Fn(&str) -> Option<Date>)` | How the field writes the date and reads what is typed, in place of the locale's |
+| `locale(DateLocale)` | How dates are written and read, and the calendar's names and first day |
+| `min`, `max`, `disabled_days`, `first_day`, `week_numbers`, `today` | As the calendar's: what cannot be chosen cannot be typed either |
+| `clearable(bool)` | A button at the end of the field that empties it while it holds a date |
+| `size(InputSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `name` | As an [input](#input)'s. A read-only picker opens no calendar |
+| `on_change(Fn(Option<Date>))` | Told of each change, by typing, a choice or the button that empties it |
+| `state`, `style`, `rules`, `force`, `id`, `key` | As an input has them. `id` is the field's; the button has it with `-trigger`, the cross `-clear`, the panel `-panel`, the calendar `-calendar` |
+
+- What is typed is read as it is typed, in the locale's short form (`Nov 12, 2026`), in its numbers (`11/12/2026`, `12.11.2026`) or as ISO 8601, a month by its name or the start of it in the locale's words or in English: a date that can be chosen is the value at once, and the field keeps what is half typed while it has the focus. The year has four digits, so `Nov 12, 20` is no date yet. When the focus leaves the field, or on Enter, the text is written again as the picker writes the value; an emptied field is no date, and anything else takes back the date it had.
+- The calendar opens in a [popover](#popover) under the field, from the button at its start or from Down in the field, with the focus on the chosen day, today or the first of the month. A choice closes it and the focus goes back to the field, as Escape and a press outside do.
+- To what reads the tree the field is a `combobox` that says `a11y_haspopup` `dialog` and `a11y_expanded`, as the date picker of the ARIA patterns is; the panel is a `dialog` called "Choose date". The button that opens it and the cross that empties it are pressed by the pointer and take no focus.
+- In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A picker in a field keeps what it keeps in a `CalendarMemory`, since a field is given the picker's builder.
+- Parts: `DatePickerPart::Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's root), and a range picker's `Presets` and `Preset`. The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Disabled`, `FullWidth`, and the input's judgment, size and read only.
+- In the design the field is the input, 260 by 36, with a calendar's glyph of 16 in `MutedForeground` 12 from its start and the date 8 after it in the body's type. The glyph is in a button of 24 with `radius-sm`, on `Highlight` under the pointer. The calendar opens 4 under the field, in the popover's panel with no padding of its own, as wide as the calendar.
+- A theme's renderer is given `DatePickerView` (`PickerView<Date>`): `view.text`, `view.value`, `view.open`, and the pieces `control()`, `trigger()`, `clear()`, `field()`, `calendar()`, `panel()` and `render()`.
+
+## Date Range Picker
+
+A field that holds a range of dates, typed or chosen from a calendar under it, with ranges offered beside it: the dates of a stay, the period of a report.
+
+```rust
+use lurq::{
+  core::{Date, DateRange, Signal},
+  ui::DateRangePicker,
+};
+
+let today = Date::today();
+// period: Signal<Option<DateRange>>
+DateRangePicker::new(period.clone())
+  .placeholder("Pick dates")
+  .months(2)
+  .preset("Last 7 days", DateRange::new(today.add_days(-6), today))
+  .preset("Last 30 days", DateRange::new(today.add_days(-29), today))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<Option<DateRange>>)` | The range the field holds |
+| `months(n)` | How many months the calendar shows side by side: one as the design draws it, or two |
+| `preset(label, DateRange)` | A range offered beside the calendar; a press chooses it and closes the calendar. The one chosen is on the secondary fill |
+| everything else | As a [date picker](#date-picker)'s, over a range: `format(Fn(DateRange) -> String)`, `parse(Fn(&str) -> Option<DateRange>)`, `on_change(Fn(Option<DateRange>))` |
+
+- The range is in one field, as the design draws it: `Nov 9 – Nov 15, 2026`, the year once where both ends are in it. What is typed is read as two dates in any form the locale reads, with a dash or `to` between them; the year of the first may be left out where it is the second's.
+- In the calendar the first press starts the range, the pointer and the keys show where it would end, and the second press ends it and closes the calendar. Escape or a press outside drops a range half chosen. Neither end may be a day that cannot be chosen.
+- The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
+- A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
 
 ## Tab And The Design System's Controls
 

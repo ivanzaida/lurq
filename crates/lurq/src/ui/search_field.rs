@@ -22,8 +22,11 @@ use crate::{
   components::{self, Row},
   core::Signal,
   layout::Alignment,
-  node::{CursorIcon, Element, border::Border, dimension::Dimension},
+  node::{CursorIcon, Element, border::Border, dimension::Dimension, node_kind::TextOverflow},
 };
+
+/// The widest the hint of a search field's key is: 40% of the board's field.
+const SHORTCUT_MAX: f32 = 112.0;
 
 /// The parts of a search field a recipe styles. The box, its text, its placeholder and its icon are an
 /// [`Input`]'s: what the field says of them is laid over the theme's recipe for an input.
@@ -356,7 +359,7 @@ impl SearchFieldView {
       .map(|padding| padding.resolve(&self.theme().spacing(), 0.0))
       .unwrap_or(0.0);
     let size = style.text.resolve(self.theme()).font_size;
-    2.0 * padding + key.chars().count() as f32 * size * CELL
+    (2.0 * padding + key.chars().count() as f32 * size * CELL).min(SHORTCUT_MAX)
   }
 
   /// The input's text input: a stop of Tab, a `searchbox` to tooling, where Escape empties what it holds and Enter
@@ -416,7 +419,8 @@ impl SearchFieldView {
     )
   }
 
-  /// The hint of the key that reaches the field, while it is empty. The pointer passes through it.
+  /// The hint of the key that reaches the field, while it is empty. The pointer passes through it. It is never
+  /// wider than 112: a longer one is cut with an ellipsis, and the field keeps its icon and its text.
   pub fn shortcut(&self) -> Option<Row> {
     let key = self.shortcut.as_ref().filter(|_| !self.filled)?;
     let part = self.part(SearchFieldPart::Shortcut);
@@ -424,8 +428,9 @@ impl SearchFieldView {
       Row::new()
         .align_items(Alignment::Center)
         .pointer_events_none()
+        .max_width(Dimension::Px(SHORTCUT_MAX))
         .part(&part)
-        .child(part.text(key).nowrap()),
+        .child(part.text(key).nowrap().text_overflow(TextOverflow::Elipsis)),
     )
   }
 

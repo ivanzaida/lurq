@@ -417,6 +417,9 @@ impl TooltipView {
     }
     content = content.child(words);
     if let Some(keys) = &self.shortcut {
+      // A text too long to have the shortcut beside it wraps across the box, and the shortcut goes under it:
+      // beside it the text would be squeezed into what the shortcut leaves.
+      content = content.wrap();
       let part = self.part(TooltipPart::Shortcut);
       content = content.child(
         Row::new()
@@ -916,7 +919,12 @@ impl Component for TooltipHost {
     let describe = move |node: Node| {
       // What tooling is told is kept only where there is tooling to tell.
       #[cfg(any(feature = "devtools", feature = "mcp"))]
-      let named = node.debug_attrs().iter().any(|(name, _)| &**name == "a11y_name");
+      // Named by what it says of itself, or by a text in it: a button by its label.
+      let named = node
+        .debug_attrs()
+        .iter()
+        .any(|(name, value)| &**name == "a11y_name" && !value.trim().is_empty())
+        || says_something(&node);
       #[cfg(not(any(feature = "devtools", feature = "mcp")))]
       let named = true;
       let mut node = node
@@ -934,6 +942,18 @@ impl Component for TooltipHost {
     };
     child.decorate_root(describe)
   }
+}
+
+/// Whether `node` or something in it is a text that says something: what
+/// names an element to what reads the tree where nothing else does. An icon
+/// is a glyph of the private use areas, which says nothing.
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+fn says_something(node: &Node) -> bool {
+  let private = |c: char| matches!(c, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{10FFFF}');
+  node
+    .text_content()
+    .is_some_and(|text| text.chars().any(|c| !c.is_whitespace() && !private(c)))
+    || node.children().iter().any(says_something)
 }
 
 /// `element`, in a row of its own where its root lays out no children (a

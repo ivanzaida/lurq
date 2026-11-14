@@ -16,6 +16,7 @@ use lurq::{
     theme::{MotionDuration, MotionEasing, PaletteColor, ThemePalette},
   },
   components::{Column, Stack, Text},
+  layout::quad::QuadContent,
   node::color::Color,
   ui::{
     ActionBar, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarView, Button, FADE_IN, PartAnimation,
@@ -185,6 +186,126 @@ fn the_bar_is_one_stop_whose_arrows_move_between_its_buttons() {
   stage.key("Home");
   stage.key(" ");
   assert_eq!(moved.load(Ordering::SeqCst), 1);
+}
+
+/// `make` over a list `width` wide, in an app whose bar fades in where it stands, at the theme's text size `scale`.
+fn narrow(width: f32, scale: f32, make: impl Fn() -> ActionBar + Send + Sync + 'static) -> Stage {
+  let app = App::new();
+  app.theme().set_text_scale(scale);
+  app.theme().patch_recipe::<ActionBar>(|recipe| {
+    recipe.variant(ActionBarPlacement::Bottom, ActionBarPart::Bar, |s| {
+      s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+    })
+  });
+  Stage::in_app(app, move |_| {
+    Stack::new()
+      .size(width, 300.0)
+      .child(Column::new().id("list").size(width, 300.0).child(Text::new("Rows")))
+      .child(make())
+      .into()
+  })
+}
+
+/// Whether the clear button is whole, inside the bar, 6 from its end, and after the last action.
+fn clear_is_whole(stage: &mut Stage, room: f32) {
+  let (x, _, width, _) = stage.bounds("bar");
+  assert!(
+    x >= 16.0 - 0.5 && x + width <= room - 16.0 + 0.5,
+    "the bar is in its room"
+  );
+  let (clear_x, _, clear_width, clear_height) = stage.bounds("bar-clear");
+  assert_eq!((clear_width, clear_height), (32.0, 32.0), "the clear button is whole");
+  assert!(close(x + width - (clear_x + clear_width), 6.0), "6 from the end");
+  let (delete_x, _, delete_width, _) = stage.bounds("delete");
+  assert!(delete_x + delete_width <= clear_x, "after the actions");
+}
+
+#[test]
+fn a_long_text_gives_way_and_the_actions_and_the_clear_button_stay() {
+  let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  let text = "3 files selected in the folder of the quarterly reports of the year before last";
+  let mut stage = still(move || bar(3, &cleared, &moved).text(text));
+  clear_is_whole(&mut stage, 600.0);
+  // The text is cut where the line after it starts.
+  let (move_x, ..) = stage.bounds("move");
+  let count = stage
+    .quads()
+    .into_iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, .. } if text.starts_with("3 files") => Some((quad.x, quad.width, text.clone())),
+      _ => None,
+    })
+    .expect("the text is painted");
+  assert!(count.2.ends_with('…'), "cut with an ellipsis: {}", count.2);
+  assert!(count.0 + count.1 < move_x, "the text ends before the actions");
+  let (_, _, move_width, _) = stage.bounds("move");
+  assert!(move_width > 32.0, "Move keeps its label");
+}
+
+#[test]
+fn at_a_larger_text_size_the_clear_button_is_whole() {
+  let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  let mut stage = narrow(420.0, 1.3, move || bar(3, &cleared, &moved));
+  clear_is_whole(&mut stage, 420.0);
+}
+
+#[test]
+fn cleared_from_the_bar_the_focus_goes_where_the_app_says() {
+  let selected = lurq::core::Signal::new(3usize);
+  let row = lurq::core::ElementRef::new();
+  let (held, target) = (selected.clone(), row.clone());
+  let still = App::new();
+  still.theme().patch_recipe::<ActionBar>(|recipe| {
+    recipe.variant(ActionBarPlacement::Bottom, ActionBarPart::Bar, |s| {
+      s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+    })
+  });
+  let mut stage = Stage::in_app(still, move |ctx| {
+    let clear = held.clone();
+    Stack::new()
+      .size(600.0, 300.0)
+      .child(
+        Column::new().size(600.0, 300.0).child(
+          lurq::components::Button::new("Row")
+            .id("row")
+            .ref_element(target.clone()),
+        ),
+      )
+      .child(
+        ActionBar::new(held.get())
+          .id("bar")
+          .action(Button::new("Move").icon(icons::FOLDER_IMPORT).id("move"))
+          .on_clear(move || clear.set(0))
+          .escape_clears(true)
+          .return_focus(target.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  // Escape in the bar clears the selection, and the focus goes back to the row.
+  stage.key("Tab");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("move"));
+  stage.key("Escape");
+  assert_eq!(selected.get(), 0);
+  stage.pass_after(Duration::from_secs(1));
+  assert_eq!(focused(&stage).as_deref(), Some("row"));
+  // Enter on the clear button does the same.
+  selected.set(2);
+  stage.pass_after(Duration::from_secs(1));
+  stage.key("Tab");
+  stage.key("End");
+  assert_eq!(focused(&stage).as_deref(), Some("bar-clear"));
+  stage.key("Enter");
+  assert_eq!(selected.get(), 0);
+  stage.pass_after(Duration::from_secs(1));
+  assert_eq!(focused(&stage).as_deref(), Some("row"));
 }
 
 #[test]

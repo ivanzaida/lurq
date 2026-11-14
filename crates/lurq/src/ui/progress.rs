@@ -13,7 +13,7 @@ use crate::{
   app::theme::{MotionDuration, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{Row, Stack},
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
-  node::{BackgroundColor, Element, border::Border, color::Color, dimension::Dimension},
+  node::{BackgroundColor, Element, border::Border, color::Color, dimension::Dimension, node_kind::TextOverflow},
 };
 
 /// The keyframes of the room before the moving segment of a progress that does not know how far it is: it grows
@@ -454,10 +454,14 @@ impl ProgressView {
       return None;
     }
     let label = self.part(ProgressPart::Label);
-    // What holds the label takes the room there is, so that the value stands at the end with no label too.
-    let mut start = Row::new().flex(1.0).part(&label);
+    // What holds the label takes the room there is, so that the value stands at the end with no label too. A
+    // label longer than the room is cut with an ellipsis before the value.
+    let mut start = Row::new()
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(Dimension::Px(0.0))
+      .part(&label);
     if let Some(text) = &self.label {
-      start = start.child(label.text(text).nowrap());
+      start = start.child(label.text(text).nowrap().text_overflow(TextOverflow::Elipsis));
     }
     let mut header = Row::new()
       .align_items(Alignment::Center)
