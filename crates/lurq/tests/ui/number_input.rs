@@ -483,6 +483,57 @@ fn a_value_over_a_max_set_later_is_clamped_at_once_shown_and_told() {
 }
 
 #[test]
+fn a_controlled_value_over_a_max_set_later_is_shown_clamped_told_once_and_the_answer_shown() {
+  // The app holds 12, and answers a change with what it is told, unless it is told to refuse.
+  let held = Signal::new(12.0);
+  let max = Signal::new(20.0);
+  let refuse = Arc::new(Mutex::new(false));
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (value, most, no, tell) = (held.clone(), max.clone(), refuse.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let (value, no, tell) = (value.clone(), no.clone(), tell.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        NumberInput::controlled(value.get())
+          .min(0.0)
+          .max(most.get())
+          .on_change(move |next| {
+            tell.lock().unwrap().push(next);
+            if !*no.lock().unwrap()
+              && let Some(next) = next
+            {
+              value.set(next);
+            }
+          })
+          .id("n"),
+      )
+      .into()
+  });
+  assert!(stage.paints("12"));
+  max.set(10.0);
+  stage.pass();
+  assert_eq!(
+    *told.lock().unwrap(),
+    [Some(10.0)],
+    "told once, as a press of a stepper tells"
+  );
+  assert_eq!(held.get(), 10.0, "the app answered");
+  assert!(stage.paints("10") && !stage.paints("12"), "and its answer is shown");
+  stage.pass();
+  assert_eq!(told.lock().unwrap().len(), 1);
+
+  // An app that keeps its value out of the range: the input shows it clamped and tells it once.
+  *refuse.lock().unwrap() = true;
+  held.set(15.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(*told.lock().unwrap(), [Some(10.0), Some(10.0)]);
+  assert_eq!(held.get(), 15.0);
+  assert!(stage.paints("10") && !stage.paints("15"));
+}
+
+#[test]
 fn a_press_of_a_button_keeps_the_focus_on_the_number_being_typed() {
   let value = Signal::new(1.0);
   let bound = value.clone();

@@ -300,10 +300,36 @@ struct Model {
   format: NumberFormat,
   /// The range of the last build, held by the input's handlers: see [`range_held`].
   range: Option<Arc<Mutex<Range>>>,
+  /// Of a controlled input whose value is out of its range, what keeps the app from being told of the clamped value
+  /// again while it is: see [`told_once`].
+  told: Option<Arc<()>>,
 }
 
 /// The least and the greatest value of a number input.
 type Range = (Option<f64>, Option<f64>);
+
+/// A controlled input's value out of its range, by the input's id or key, the value and the range.
+type Told = (Option<Arc<str>>, u64, Option<u64>, Option<u64>);
+
+thread_local! {
+  /// The controlled inputs whose app was told the value clamped into the range, while their inputs are in the tree.
+  static TOLD: RefCell<HashMap<Told, Weak<()>>> = RefCell::new(HashMap::new());
+}
+
+/// What keeps a controlled input from telling its app of the value clamped again, and whether it is to tell now: the
+/// app holds the value, and is told once of each value out of each range, as a press of a stepper would tell it.
+fn told_once(told: Told) -> (Arc<()>, bool) {
+  TOLD.with(|all| {
+    let mut all = all.borrow_mut();
+    if let Some(alive) = all.get(&told).and_then(Weak::upgrade) {
+      return (alive, false);
+    }
+    all.retain(|_, alive| alive.strong_count() > 0);
+    let alive = Arc::new(());
+    all.insert(told, Arc::downgrade(&alive));
+    (alive, true)
+  })
+}
 
 thread_local! {
   /// The range each number input bound to a signal was last built with, by the id of its signal, while its input
@@ -569,6 +595,7 @@ impl NumberInput {
         precision: 0,
         format: NumberFormat::new(),
         range: None,
+        told: None,
       },
       layout: NumberInputLayout::default(),
       placeholder: None,
@@ -765,6 +792,27 @@ impl NumberInput {
       let clamped = model.clamp(held);
       model.write(Some(clamped));
       value = Some(clamped);
+    }
+    // The app holds a controlled value, and the input cannot set it: it shows the value in the range, tells the app
+    // once, and shows what the app answers with.
+    if let Bound::Controlled(Some(held)) = model.bound
+      && model.clamp(held) != held
+    {
+      let clamped = model.clamp(held);
+      let name = self.id.clone().or_else(|| self.key.clone());
+      let (alive, tell) = told_once((
+        name,
+        held.to_bits(),
+        model.min.map(f64::to_bits),
+        model.max.map(f64::to_bits),
+      ));
+      model.told = Some(alive);
+      value = Some(clamped);
+      if tell {
+        for handler in &model.on_change {
+          handler(Some(clamped));
+        }
+      }
     }
     let (at_min, at_max) = (model.at_min(value), model.at_max(value));
     let case = self
