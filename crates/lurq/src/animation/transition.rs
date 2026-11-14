@@ -98,6 +98,7 @@ property_accessors!(Transition {
   Foreground => foreground,
   Outline => outline,
   BoxShadow => box_shadow,
+  BorderDash => border_dash,
 });
 
 const ALL_PROPERTIES: &[AnimatableProperty] = &[
@@ -122,6 +123,7 @@ const ALL_PROPERTIES: &[AnimatableProperty] = &[
   AnimatableProperty::Foreground,
   AnimatableProperty::Outline,
   AnimatableProperty::BoxShadow,
+  AnimatableProperty::BorderDash,
 ];
 
 /// Whether animating `prop` moves an element or changes its size on screen.
@@ -133,6 +135,8 @@ fn moves(prop: AnimatableProperty) -> bool {
       | AnimatableProperty::Width
       | AnimatableProperty::Height
       | AnimatableProperty::Transform
+      // A dash running along an outline moves: a ring's arc going round.
+      | AnimatableProperty::BorderDash
   )
 }
 
@@ -174,6 +178,12 @@ pub struct TransitionEngine {
   /// The theme the values nodes head to are read against, and the theme and version it was copied from.
   theme: TargetTheme,
   theme_seen: Option<(Theme, u64)>,
+  /// Whether the colors, widths or shadows of the theme are other ones than in the frame before. What a node
+  /// heads to then changed because the theme did, not because the node did: see [`Self::process_node`].
+  theme_changed: bool,
+  /// The themes that elements of the tree carry, each with the values last read from it: a subtree is read
+  /// against its own theme, and a change of that theme is a change of theme for the subtree.
+  scopes: Vec<(Theme, TargetTheme)>,
   /// Whether motion is reduced (`Theme::reduced_motion`): what moves or resizes an element then ends at once.
   reduced_motion: bool,
 }
@@ -194,6 +204,8 @@ impl TransitionEngine {
       has_active: false,
       theme: TargetTheme::default(),
       theme_seen: None,
+      theme_changed: false,
+      scopes: Vec::new(),
       reduced_motion: false,
     }
   }
@@ -210,11 +222,19 @@ impl TransitionEngine {
     {
       return;
     }
-    self.theme = TargetTheme {
+    let taken = TargetTheme {
       palette: theme.palette().clone(),
       border_sizes: theme.border_sizes().clone(),
       shadows: theme.shared_shadows(),
     };
+    // What counts is what a role resolves to: a theme at another version with the same colors, widths
+    // and shadows, or another theme that has them, changes no value a node heads to. The first theme
+    // taken is no change either.
+    self.theme_changed = self.theme_seen.is_some()
+      && (taken.palette != self.theme.palette
+        || taken.border_sizes != self.theme.border_sizes
+        || taken.shadows != self.theme.shadows);
+    self.theme = taken;
     self.theme_seen = Some((theme.clone(), version));
   }
 
@@ -233,6 +253,7 @@ impl TransitionEngine {
   pub(crate) fn begin_frame(&mut self) {
     self.seen.clear();
     self.next_change = None;
+    self.theme_changed = false;
   }
 
   /// Ends a frame after every tick walk ran: drops runs and prev-value
@@ -273,6 +294,11 @@ impl TransitionEngine {
     }
     #[cfg(test)]
     crate::core::layout_dirty::visit();
+    let scope = node
+      .theme_scope
+      .as_deref()
+      .cloned()
+      .map(|theme| self.enter_scope(&theme));
     let node_id = node.node_id();
     let mut needs_layout = false;
     if node_id.is_assigned() && !node.transitions.is_empty() {
@@ -289,8 +315,40 @@ impl TransitionEngine {
     if needs_layout {
       node.layout_cache.invalidate();
     }
+    if let Some((theme, changed)) = scope {
+      self.theme = theme;
+      self.theme_changed = changed;
+    }
 
     needs_layout
+  }
+
+  /// Enters the subtree of an element that carries `theme`: what its nodes head to is read against that
+  /// theme, and a change of its colors, widths or shadows since the last frame is a change of theme for
+  /// them. Returns the theme and the flag to restore after the subtree.
+  fn enter_scope(&mut self, theme: &Theme) -> (TargetTheme, bool) {
+    let taken = TargetTheme {
+      palette: theme.palette().clone(),
+      border_sizes: theme.border_sizes().clone(),
+      shadows: theme.shared_shadows(),
+    };
+    let same = |a: &TargetTheme, b: &TargetTheme| {
+      a.palette == b.palette && a.border_sizes == b.border_sizes && a.shadows == b.shadows
+    };
+    let changed = match self.scopes.iter_mut().find(|(seen, _)| seen.same_theme(theme)) {
+      Some((_, values)) => {
+        let changed = !same(values, &taken);
+        *values = taken.clone();
+        changed
+      }
+      None => {
+        self.scopes.push((theme.clone(), taken.clone()));
+        false
+      }
+    };
+    let outer = (std::mem::replace(&mut self.theme, taken), self.theme_changed);
+    self.theme_changed = changed;
+    outer
   }
 
   fn process_node(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {
@@ -316,6 +374,15 @@ impl TransitionEngine {
       };
 
       let key = (node_id, *prop);
+
+      // A value that is another one because the theme is, a color of the other appearance, is there at
+      // once, with the rest of the window: only what an element does itself is a transition. A window
+      // that turned dark with its buttons still fading from light showed them as light blocks on it.
+      if self.theme_changed && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
+        self.active.remove(&key);
+        self.prev_values.insert(key, current);
+        continue;
+      }
 
       if let Some(prev) = self.prev_values.get(&key)
         && *prev != current

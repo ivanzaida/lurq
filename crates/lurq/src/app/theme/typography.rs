@@ -56,6 +56,12 @@ impl From<Arc<str>> for TypographyStyle {
 
 #[derive(Clone, PartialEq)]
 pub struct ThemeTypography {
+  /// The family of interface text: every style but `mono` is in it. The system's own font unless the theme
+  /// names one; [`Self::set_sans`] changes it in every style at once.
+  pub sans: Arc<str>,
+  /// The family of code: the `mono` style is in it. The generic `monospace` unless the theme names one;
+  /// [`Self::set_mono`] changes it in every style that has it.
+  pub mono_family: Arc<str>,
   pub heading: TextStyle,
   pub title: TextStyle,
   pub body: TextStyle,
@@ -121,6 +127,41 @@ impl ThemeTypography {
     &self.body
   }
 
+  /// Sets the family of interface text: every style in the family [`Self::sans`] was, an app's own included,
+  /// is in `family` now. One setting changes the font of the whole interface.
+  pub fn set_sans(&mut self, family: impl Into<Arc<str>>) {
+    let (old, new) = (self.sans.clone(), family.into());
+    self.replace_family(&old, &new);
+    self.sans = new;
+  }
+
+  /// Sets the family of code: every style in the family [`Self::mono_family`] was is in `family` now.
+  pub fn set_mono(&mut self, family: impl Into<Arc<str>>) {
+    let (old, new) = (self.mono_family.clone(), family.into());
+    self.replace_family(&old, &new);
+    self.mono_family = new;
+  }
+
+  fn replace_family(&mut self, old: &Arc<str>, new: &Arc<str>) {
+    let styles = [
+      &mut self.heading,
+      &mut self.title,
+      &mut self.body,
+      &mut self.description,
+      &mut self.caption,
+      &mut self.label,
+      &mut self.field_label,
+      &mut self.button,
+      &mut self.link,
+      &mut self.mono,
+    ];
+    for style in styles.into_iter().chain(self.extra.values_mut()) {
+      if style.font_family == *old {
+        style.font_family = new.clone();
+      }
+    }
+  }
+
   pub fn set_default_style(&mut self, style: TextStyle) {
     self.body = style;
   }
@@ -151,6 +192,8 @@ impl ThemeTypography {
       style
     };
     Self {
+      sans: self.sans.clone(),
+      mono_family: self.mono_family.clone(),
       heading: adjust(&self.heading),
       title: adjust(&self.title),
       body: adjust(&self.body),
@@ -170,10 +213,69 @@ impl ThemeTypography {
   }
 }
 
+/// The design's type scale (`pencil/lurq-design-system.pen`, Foundations), in the system's own font.
 impl Default for ThemeTypography {
   fn default() -> Self {
-    let body = TextStyle::default();
+    let body = TextStyle {
+      font_size: 14.0,
+      ..TextStyle::default()
+    };
+    let mono_family: Arc<str> = Arc::from("monospace");
     Self {
+      sans: body.font_family.clone(),
+      mono_family: mono_family.clone(),
+      heading: TextStyle {
+        font_size: 24.0,
+        weight: FontWeight::SemiBold,
+        letter_spacing: -0.5,
+        ..body.clone()
+      },
+      title: TextStyle {
+        font_size: 20.0,
+        weight: FontWeight::SemiBold,
+        letter_spacing: -0.3,
+        ..body.clone()
+      },
+      body: body.clone(),
+      description: body.clone(),
+      caption: TextStyle {
+        font_size: 12.0,
+        ..body.clone()
+      },
+      label: TextStyle {
+        font_size: 13.0,
+        weight: FontWeight::Medium,
+        ..body.clone()
+      },
+      field_label: TextStyle {
+        font_size: 13.0,
+        weight: FontWeight::Medium,
+        ..body.clone()
+      },
+      button: TextStyle {
+        font_size: 13.0,
+        weight: FontWeight::Medium,
+        ..body.clone()
+      },
+      link: body.clone(),
+      mono: TextStyle {
+        font_family: mono_family,
+        font_size: 13.0,
+        ..body
+      },
+      extra: HashMap::new(),
+    }
+  }
+}
+
+impl ThemeTypography {
+  /// The typography of lurq 0.61: body text of 16, bold headings, and code as large as body text.
+  pub fn legacy() -> Self {
+    let body = TextStyle::default();
+    let mono_family: Arc<str> = Arc::from("monospace");
+    Self {
+      sans: body.font_family.clone(),
+      mono_family: mono_family.clone(),
       heading: TextStyle {
         font_size: 24.0,
         weight: FontWeight::Bold,
@@ -210,7 +312,7 @@ impl Default for ThemeTypography {
       },
       link: body.clone(),
       mono: TextStyle {
-        font_family: Arc::from("monospace"),
+        font_family: mono_family,
         ..body
       },
       extra: HashMap::new(),

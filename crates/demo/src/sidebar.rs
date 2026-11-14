@@ -32,6 +32,7 @@ pub(crate) enum DemoTab {
   Sticky,
   Presence,
   Style,
+  Theme,
 }
 
 impl DemoTab {
@@ -61,6 +62,7 @@ impl DemoTab {
       Self::Sticky => "Sticky",
       Self::Presence => "Presence",
       Self::Style => "Style",
+      Self::Theme => "Theme",
     }
   }
 
@@ -90,6 +92,7 @@ impl DemoTab {
       Self::Sticky => "/sticky",
       Self::Presence => "/presence",
       Self::Style => "/style",
+      Self::Theme => "/theme",
     }
   }
 
@@ -118,6 +121,7 @@ impl DemoTab {
       "/sticky" => Self::Sticky,
       "/presence" => Self::Presence,
       "/style" => Self::Style,
+      "/theme" => Self::Theme,
       _ => Self::Layout,
     }
   }
@@ -150,6 +154,7 @@ pub(crate) fn sidebar(ctx: &mut Ctx, selected: DemoTab, theme: DemoTheme) -> Ele
     DemoTab::Sticky,
     DemoTab::Presence,
     DemoTab::Style,
+    DemoTab::Theme,
   ];
 
   let mut children = Vec::new();

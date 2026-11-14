@@ -98,6 +98,15 @@ pub(super) fn semantic_name(node: &Node) -> Option<String> {
   None
 }
 
+/// What the app says the node is for, besides its name: a field's description or error, a tooltip's text.
+pub(super) fn semantic_description(node: &Node) -> Option<String> {
+  node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| matches!(key.as_ref(), "a11y_description" | "aria-description"))
+    .map(|(_, description)| description.to_string())
+}
+
 /// Pointer-move consumers: hovering opens their tooltips or highlights.
 pub(super) fn can_hover(node: &Node) -> bool {
   !node.events.on_mouse_move.is_empty() || !node.events.on_mouse_enter.is_empty()

@@ -26,6 +26,16 @@ impl InputSelection {
   }
 }
 
+/// Where a caret stands in an input's text: see [`TextInputController::caret_point`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InputCaretPoint {
+  pub x: f32,
+  /// The top of the text's band at the caret.
+  pub y: f32,
+  /// The height of the text's band at the caret.
+  pub height: f32,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum InputEditError {
   NotMounted,
@@ -118,6 +128,16 @@ impl TextInputController {
     state.sync_external_value();
     let keyboard = KeyboardEvent::new(text, "InsertText", false, false, false, false, NodeId::UNASSIGNED);
     Ok(state.replace_selection_text(text, &keyboard))
+  }
+
+  /// Where the caret before `byte` stood when the input was last laid out, for what is hung from a place in
+  /// the text, as a list of suggestions under a word being typed. It is measured from the start of the
+  /// text's box, inside the input's padding (and, for a single line, the room that centres it), with what
+  /// the input scrolled taken off. Layout follows an edit, so in the render an edit causes the point is
+  /// that of the text before it: a byte before the edit stands where it stood.
+  pub fn caret_point(&self, byte: usize) -> Result<InputCaretPoint, InputEditError> {
+    let (x, y, height) = self.state()?.controller_point(byte);
+    Ok(InputCaretPoint { x, y, height })
   }
 
   /// Request normal runtime focus/scroll after the picker closes in the following render.

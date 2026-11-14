@@ -80,6 +80,17 @@ impl FormOptions {
     })
   }
 
+  /// Validates a range slider's two values, the low one first; `None` when the field holds no range.
+  pub fn validate_range(
+    self,
+    name: impl Into<Arc<str>>,
+    validator: impl Fn(Option<(f64, f64)>, &FormValues) -> ValidationResult + Send + Sync + 'static,
+  ) -> Self {
+    self.validate(name, move |value, values| {
+      validator(value.and_then(FormValue::as_range), values)
+    })
+  }
+
   pub fn validate_bool(
     self,
     name: impl Into<Arc<str>>,

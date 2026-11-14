@@ -6,11 +6,17 @@
 //!
 //! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops.
 //!
-//! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop.
+//! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop. Nor
+//! is anything inside an inert element (`.inert(true)`).
+//!
+//! The stops of an overlay that takes the focus (`Overlay::takes_focus`: a popover, a menu) come right after its
+//! anchor's, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last
+//! stop goes on to what follows the trigger. Where the anchor is in a focus group Tab stops in once, they come
+//! after the group.
 
 use super::{FocusTarget, find_node_by_path};
 use crate::{
-  core::NodeId,
+  core::{ElementRef as OwnedElementRef, NodeId},
   layout::layout_result::LayoutResult,
   node::{Node, SyntheticNodeRole},
 };
@@ -30,18 +36,39 @@ type StopKey = (u8, i32, usize);
 struct Stop {
   target: FocusTarget,
   key: StopKey,
+  /// Where Tab enters the one-stop focus group the stop is in.
+  entry: bool,
+  /// Where the focus goes as a modal opens, in place of its first stop (`autofocus`).
+  autofocus: bool,
 }
 
-struct Walk {
+struct Walk<'a> {
   focused: Option<NodeId>,
   focused_order: Option<usize>,
   visited: usize,
   stops: Vec<Stop>,
+  /// The layers of the overlays that move the focus, each with its anchor: walked after the anchor, not where
+  /// the host has them.
+  moved: &'a [(OwnedElementRef, &'a Node)],
+  /// Which of `moved` were walked.
+  walked: Vec<NodeId>,
+  /// How many focus groups that are one stop the walk is in: a layer met in one waits for it to end.
+  in_one_stop: usize,
+  /// The layers met in a focus group that is one stop, walked when the group ends.
+  pending: Vec<&'a Node>,
 }
 
 /// `dropped` holds the nodes the last layout dropped from their Row/Column
-/// (see [`dropped_node_ids`]); nothing inside them is a stop.
-pub(super) fn tab_move(root: &Node, dropped: &[NodeId], focused: Option<(NodeId, &[usize])>, reverse: bool) -> TabMove {
+/// (see [`dropped_node_ids`]); nothing inside them is a stop. `moved` holds
+/// the layers of the overlays that move the focus, with their anchors
+/// ([`super::Tree::focus_moving_layers`]).
+pub(super) fn tab_move(
+  root: &Node,
+  dropped: &[NodeId],
+  moved: &[(OwnedElementRef, &Node)],
+  focused: Option<(NodeId, &[usize])>,
+  reverse: bool,
+) -> TabMove {
   let modal = top_modal_path(root);
   let focused = focused.filter(|(_, path)| modal.as_deref().is_none_or(|modal| path.starts_with(modal)));
 
@@ -49,7 +76,7 @@ pub(super) fn tab_move(root: &Node, dropped: &[NodeId], focused: Option<(NodeId,
     Some(path) => find_node_by_path(root, path),
     None => Some(root),
   };
-  match scope.and_then(|scope| next_stop(scope, dropped, focused.map(|(id, _)| id), reverse)) {
+  match scope.and_then(|scope| next_stop(scope, dropped, moved, focused.map(|(id, _)| id), reverse)) {
     Some(target) => TabMove::Focus(target),
     None if modal.is_some() => TabMove::Stay,
     None => TabMove::Unhandled,
@@ -107,6 +134,24 @@ pub(super) fn path_is_disabled(root: &Node, path: &[usize]) -> bool {
   false
 }
 
+/// Whether the node at `path`, or an element it is in, is inert.
+pub(super) fn path_is_inert(root: &Node, path: &[usize]) -> bool {
+  let mut node = root;
+  if node.is_inert() {
+    return true;
+  }
+  for &index in path {
+    let Some(child) = node.children().get(index) else {
+      return false;
+    };
+    node = child;
+    if node.is_inert() {
+      return true;
+    }
+  }
+  false
+}
+
 pub(super) fn path_is_dropped(root: &Node, dropped: &[NodeId], path: &[usize]) -> bool {
   if dropped.is_empty() {
     return false;
@@ -124,14 +169,32 @@ pub(super) fn path_is_dropped(root: &Node, dropped: &[NodeId], path: &[usize]) -
   false
 }
 
-fn next_stop(scope: &Node, dropped: &[NodeId], focused: Option<NodeId>, reverse: bool) -> Option<FocusTarget> {
+fn next_stop<'a>(
+  scope: &'a Node,
+  dropped: &[NodeId],
+  moved: &'a [(OwnedElementRef, &'a Node)],
+  focused: Option<NodeId>,
+  reverse: bool,
+) -> Option<FocusTarget> {
   let mut walk = Walk {
     focused,
     focused_order: None,
     visited: 0,
     stops: Vec::new(),
+    moved,
+    walked: Vec::new(),
+    in_one_stop: 0,
+    pending: Vec::new(),
   };
   collect_stops(scope, dropped, None, false, &mut walk);
+  // A layer whose anchor the walk did not reach (in a disabled element) is where the host has it: after the
+  // page. Only a layer of this scope: a modal's holds none.
+  for (_, layer) in moved {
+    if !walk.walked.contains(&layer.node_id()) && scope.children().iter().any(|child| std::ptr::eq(child, *layer)) {
+      walk.walked.push(layer.node_id());
+      collect_node(layer, dropped, None, false, &mut walk);
+    }
+  }
   let stops = &mut walk.stops;
   if stops.is_empty() {
     return None;
@@ -154,15 +217,52 @@ fn next_stop(scope: &Node, dropped: &[NodeId], focused: Option<NodeId>, reverse:
       }
     }
     (None, None) if reverse => last,
-    (None, None) => 0,
+    // Nothing has the focus: a modal opening, or Tab in a window with no focus. A stop marked to take it first.
+    (None, None) => stops.iter().position(|stop| stop.autofocus).unwrap_or(0),
   };
   Some(stops[next].target)
 }
 
-fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>, in_form: bool, walk: &mut Walk) {
+fn collect_stops<'a>(
+  node: &'a Node,
+  dropped: &[NodeId],
+  focus_event_id: Option<NodeId>,
+  in_form: bool,
+  walk: &mut Walk<'a>,
+) {
+  // A layer that moves the focus is walked after its anchor.
+  if walk.moved.iter().any(|(_, layer)| std::ptr::eq(*layer, node)) {
+    return;
+  }
+  collect_node(node, dropped, focus_event_id, in_form, walk);
+  let Some(anchor) = &node.element_ref else {
+    return;
+  };
+  let moved = walk.moved;
+  for (_, layer) in moved.iter().filter(|(owner, _)| owner.same_handle(anchor)) {
+    if walk.walked.contains(&layer.node_id()) {
+      continue;
+    }
+    walk.walked.push(layer.node_id());
+    if walk.in_one_stop > 0 {
+      walk.pending.push(layer);
+    } else {
+      collect_node(layer, dropped, None, false, walk);
+    }
+  }
+}
+
+/// The stops in `node` and under it, where the walk is at it.
+fn collect_node<'a>(
+  node: &'a Node,
+  dropped: &[NodeId],
+  focus_event_id: Option<NodeId>,
+  in_form: bool,
+  walk: &mut Walk<'a>,
+) {
   // Nothing in a disabled element takes focus, so Tab passes all of it by.
   // Nor in a layer that is on its way out, which is only painted.
-  if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
+  if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_inert() || node.is_leaving_layer() {
     return;
   }
   let order = walk.visited;
@@ -187,16 +287,130 @@ fn collect_stops(node: &Node, dropped: &[NodeId], focus_event_id: Option<NodeId>
         event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
       },
       key: stop_key(tab_index, order),
+      entry: node.is_focus_entry(),
+      autofocus: node.is_autofocus(),
     });
-    // A button's content is part of the button, not separate stops.
-    if node.button_kind_value().is_some() {
+    // A button's content is part of the button, not separate stops, unless the button says otherwise.
+    if node.button_kind_value().is_some() && !node.has_stops_inside() {
       return;
     }
   }
 
+  let first_inside = walk.stops.len();
+  let one_stop = node.focus_group_value().is_some_and(|group| group.one_stop);
+  if one_stop {
+    walk.in_one_stop += 1;
+  }
   for child in node.children() {
     collect_stops(child, dropped, focus_event_id, in_form, walk);
   }
+  if one_stop {
+    walk.in_one_stop -= 1;
+  }
+  // A group that is one stop keeps one of the stops in it: the focused one, so that Tab from inside leaves
+  // the group; or the one marked as its entry; or its first.
+  if one_stop && walk.stops.len() > first_inside + 1 {
+    let inside = &walk.stops[first_inside..];
+    let kept = inside
+      .iter()
+      .position(|stop| walk.focused == Some(stop.target.input_id))
+      .or_else(|| inside.iter().position(|stop| stop.entry))
+      .unwrap_or(0);
+    let stop = walk.stops.swap_remove(first_inside + kept);
+    walk.stops.truncate(first_inside);
+    walk.stops.push(stop);
+  }
+  // The layers whose anchors are in the group come after it, once it is done.
+  if one_stop && walk.in_one_stop == 0 {
+    for layer in std::mem::take(&mut walk.pending) {
+      collect_node(layer, dropped, None, false, walk);
+    }
+  }
+}
+
+/// What the arrow keys move between in the focus group `group`: every stop of Tab inside it, in the order
+/// of the tree, whether or not Tab stops in the group once. What is in a group of no keys inside it
+/// (`FocusGroup::none`) is not among them.
+pub(super) fn group_stops(group: &Node, dropped: &[NodeId]) -> Vec<FocusTarget> {
+  group_stops_around(group, dropped, None).0
+}
+
+/// The stops of [`group_stops`], and how many of them are before the node `around` in the order of the
+/// tree, which may be disabled and so not a stop itself: `None` when it is not in the group.
+pub(super) fn group_stops_around(
+  group: &Node,
+  dropped: &[NodeId],
+  around: Option<NodeId>,
+) -> (Vec<FocusTarget>, Option<usize>) {
+  let walk = walk_group(group, dropped, around);
+  (walk.stops, walk.before)
+}
+
+/// The stops of [`group_stops`], each with its node: for what reads more of each than where it is, the level
+/// of an element of a nested group, the label typeahead matches, in one walk of the group.
+pub(super) fn group_stop_nodes<'a>(group: &'a Node, dropped: &[NodeId]) -> (Vec<FocusTarget>, Vec<&'a Node>) {
+  let walk = walk_group(group, dropped, None);
+  (walk.stops, walk.nodes)
+}
+
+struct GroupWalk<'a> {
+  stops: Vec<FocusTarget>,
+  nodes: Vec<&'a Node>,
+  around: Option<NodeId>,
+  before: Option<usize>,
+}
+
+fn walk_group<'a>(group: &'a Node, dropped: &[NodeId], around: Option<NodeId>) -> GroupWalk<'a> {
+  fn collect<'a>(
+    node: &'a Node,
+    root: bool,
+    dropped: &[NodeId],
+    focus_event_id: Option<NodeId>,
+    in_form: bool,
+    walk: &mut GroupWalk<'a>,
+  ) {
+    if walk.around == Some(node.node_id()) {
+      walk.before = Some(walk.stops.len());
+    }
+    if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_inert() || node.is_leaving_layer() {
+      return;
+    }
+    if !root && node.focus_group_value().is_some_and(|group| group.is_none()) {
+      return;
+    }
+    let focus_event_id = if !node.events.on_focus.is_empty() || !node.events.on_blur.is_empty() {
+      Some(node.node_id())
+    } else {
+      focus_event_id
+    };
+    let in_form = in_form || is_form(node);
+    if node
+      .tab_index_value()
+      .or(in_form.then_some(0))
+      .is_some_and(|index| index >= 0)
+      && node.is_focusable()
+    {
+      walk.stops.push(FocusTarget {
+        input_id: node.node_id(),
+        event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
+      });
+      walk.nodes.push(node);
+      if node.button_kind_value().is_some() && !node.has_stops_inside() {
+        return;
+      }
+    }
+    for child in node.children() {
+      collect(child, false, dropped, focus_event_id, in_form, walk);
+    }
+  }
+  let mut walk = GroupWalk {
+    stops: Vec::new(),
+    nodes: Vec::new(),
+    around,
+    before: None,
+  };
+  collect(group, true, dropped, None, false, &mut walk);
+  walk
 }
 
 fn stop_key(tab_index: i32, order: usize) -> StopKey {

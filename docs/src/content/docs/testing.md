@@ -187,7 +187,7 @@ use lurq::{
 let surface = Color::from_hex("#1e293b");
 let select = ElementRef::new();
 let mut app = App::new();
-app.theme().set_palette_color(PaletteColor::SurfaceInput, surface);
+app.theme().set_palette_color(PaletteColor::Background, surface);
 let mut tree = Tree::new();
 tree.set_root(Select::new(Signal::new(1)).options([(1, "One")]).ref_element(select.clone()));
 tree.pass_headless(&mut app);

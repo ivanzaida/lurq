@@ -10,6 +10,7 @@ mod engine_kit;
 mod engine_presence_demo;
 mod engine_sticky_demo;
 mod engine_style_demo;
+mod engine_theme_demo;
 mod events_demo;
 mod inputs_demo;
 mod layout_demo;
@@ -142,6 +143,7 @@ fn demo_routes(theme: Signal<DemoTheme>, modal_open: Signal<bool>) -> Routes {
         .route("/sticky", |ctx| ctx.mount::<engine_sticky_demo::StickyDemo>(()))
         .route("/presence", |ctx| ctx.mount::<engine_presence_demo::PresenceDemo>(()))
         .route("/style", |ctx| ctx.mount::<engine_style_demo::StyleDemo>(()))
+        .route("/theme", |ctx| ctx.mount::<engine_theme_demo::ThemeDemo>(()))
         .route("/events", |ctx| ctx.mount::<events_demo::EventsDemo>(()))
         .route("/reactivity", |ctx| ctx.mount::<reactivity_demo::ReactivityDemo>(()))
         .route("/components", |ctx| ctx.mount::<components_demo::ComponentsDemo>(()))
@@ -767,6 +769,9 @@ fn main() {
   }
 
   let mut app = App::new();
+  // The demo's pages are styled against the theme of lurq 0.61, its colors, radii and text sizes, and paint
+  // backgrounds of their own: it keeps that theme. The design system's gallery will show the default one.
+  app.theme().apply(lurq::app::theme::ThemeDefinition::legacy());
   let mut tree = Tree::new();
   app.set_resource_root(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"));
   app

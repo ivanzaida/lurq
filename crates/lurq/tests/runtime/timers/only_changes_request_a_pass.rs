@@ -65,7 +65,7 @@ impl Component for TimerChanges {
         Change::Signal => label.set("done"),
         Change::Scroll => scroll.set_scroll(0.0, 50.0),
         Change::ElementBounds => reference.mutable().set_relative_bounds(0.0, 0.0, 10.0, 10.0),
-        Change::Theme => theme.set_palette_color(PaletteColor::Accent, Color::from_hex("#c82828")),
+        Change::Theme => theme.set_palette_color(PaletteColor::Primary, Color::from_hex("#c82828")),
       }
     });
     timeout.start();

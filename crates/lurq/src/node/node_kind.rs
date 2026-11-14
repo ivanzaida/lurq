@@ -31,7 +31,7 @@ mod slider;
 mod text_input;
 
 pub(crate) use checkbox::CheckboxState;
-pub(crate) use slider::{SliderPartRect, SliderState};
+pub(crate) use slider::{SliderAxis, SliderPartRect, SliderState, SliderThumb};
 pub(crate) use text_input::{TextInputState, WeakTextInputState};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -305,10 +305,13 @@ impl TextStyleSource {
   }
 
   /// Whether the text names its color: one set on it, or the color of the
-  /// style it was built from. Otherwise its color is its typography style's,
-  /// which a foreground above it replaces.
+  /// style it was built from where that is not the default text color. A
+  /// style that keeps the default color names none, as a typography style
+  /// that keeps it names none for the theme's foreground. A text that names
+  /// no color takes the foreground above it.
   pub(crate) fn names_color(&self) -> bool {
-    self.color.is_some() || matches!(self.base, TextStyleBase::Explicit(_))
+    self.color.is_some()
+      || matches!(&self.base, TextStyleBase::Explicit(style) if style.color != crate::layout::text_style::DEFAULT_TEXT_COLOR)
   }
 
   pub(crate) fn set_text_align(&mut self, align: impl Into<TextAlign>) {

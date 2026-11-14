@@ -30,7 +30,7 @@ use super::{
 };
 use crate::{
   app::{
-    ctx::OutsidePress,
+    ctx::{OutsidePress, OverlayDismiss},
     hit_test::{HitRect, hit_test_tree},
     theme::ThemeRadii,
   },
@@ -78,10 +78,10 @@ impl Tree {
     let trigger = trigger_under(&hits, x, y, &self.dropdown_anchors);
     // A trigger's press is dispatched, which closes the pass-through popups
     // unless a handler prevents its default.
-    let close: Vec<Signal<bool>> = overlays
+    let close: Vec<(Signal<bool>, Option<OverlayDismiss>)> = overlays
       .iter()
       .filter(|entry| trigger.is_none() || entry.outside_press == OutsidePress::Consume)
-      .map(|entry| entry.open.clone())
+      .map(|entry| (entry.open.clone(), entry.on_dismiss.clone()))
       .collect();
     if !on_select_menu {
       let pressed_select = match trigger {
@@ -90,16 +90,19 @@ impl Tree {
       };
       close_open_selects_except(root, pressed_select);
     }
-    for open in close {
+    for (open, on_dismiss) in close {
       open.set(false);
+      if let Some(on_dismiss) = on_dismiss {
+        on_dismiss();
+      }
     }
     self.needs_redraw = true;
     trigger.is_none()
   }
 
   /// The open states of the overlays a left press at logical `(x, y)` is
-  /// outside of; the press closes them after it has been dispatched.
-  pub(super) fn overlay_dismiss_signals_at(&self, x: f32, y: f32) -> Vec<Signal<bool>> {
+  /// outside of, each with what runs as it is dismissed; the press closes them after it has been dispatched.
+  pub(super) fn overlay_dismiss_signals_at(&self, x: f32, y: f32) -> Vec<(Signal<bool>, Option<OverlayDismiss>)> {
     let layer = match (&self.root, &self.last_layout) {
       (Some(root), Some(result)) => pressed_layer(root, result, x, y, &self.layout_engine.radii()),
       _ => 0,
@@ -108,7 +111,7 @@ impl Tree {
       .overlay_dismiss_entries
       .iter()
       .filter(|entry| is_outside(entry, x, y, layer))
-      .map(|entry| entry.open.clone())
+      .map(|entry| (entry.open.clone(), entry.on_dismiss.clone()))
       .collect()
   }
 }

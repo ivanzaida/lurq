@@ -39,7 +39,10 @@ pub(super) fn paragraph(
   bytes: usize,
   config: &InputConfig,
 ) {
-  let padded = config.styles.iter().any(|style| style.padding != 0.0);
+  let padded = config
+    .styles
+    .iter()
+    .any(|style| style.padding != 0.0 || style.padding_end() != 0.0);
   let paragraph = Paragraph::new(original, config, padded);
   let context = Arc::new(RowContext {
     styles: paragraph.styles.clone(),
@@ -352,7 +355,11 @@ fn row_end(paragraph: &Paragraph, first: usize, config: &InputConfig) -> usize {
 fn fragment_delta(order: &BTreeMap<usize, Option<usize>>, cluster: &Cluster, config: &InputConfig) -> f32 {
   let previous = order.range(..cluster.rank).next_back().map(|(_, token)| *token);
   let next = order.range(cluster.rank..).next().map(|(_, token)| *token);
-  let cost = |token: Option<usize>| token.map_or(0.0, |index| config.styles[index].padding * 2.0);
+  let cost = |token: Option<usize>| {
+    token.map_or(0.0, |index| {
+      config.styles[index].padding + config.styles[index].padding_end()
+    })
+  };
   let same = |a: Option<Option<usize>>, b: Option<Option<usize>>| a.is_some() && a == b && a.flatten().is_some();
   let mut delta = cost(cluster.token);
   if same(previous, next) {

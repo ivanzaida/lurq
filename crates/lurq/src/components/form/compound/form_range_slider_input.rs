@@ -1,0 +1,120 @@
+use std::sync::Arc;
+
+use crate::{
+  app::ctx::Ctx,
+  components::{Control, FormControlField, FormFieldProps, Slider},
+  core::Signal,
+  node::{Element, dimension::Dimension},
+};
+
+/// What [`FormRangeSliderInput`] is given: the control of a range (`FormHandle::range_control`), its label, its
+/// hint and the least and greatest value of its track.
+#[derive(Clone, Debug, PartialEq, crate::DevtoolsInspectable)]
+pub struct FormRangeSliderInputProps {
+  pub control: Control<(f64, f64)>,
+  pub label: Option<Arc<str>>,
+  pub hint: Option<Arc<str>>,
+  pub min: i32,
+  pub max: i32,
+}
+
+impl FormRangeSliderInputProps {
+  pub fn new(control: Control<(f64, f64)>) -> Self {
+    Self {
+      control,
+      label: None,
+      hint: None,
+      min: 0,
+      max: 100,
+    }
+  }
+
+  pub fn label(mut self, label: impl Into<Arc<str>>) -> Self {
+    self.label = Some(label.into());
+    self
+  }
+
+  pub fn hint(mut self, hint: impl Into<Arc<str>>) -> Self {
+    self.hint = Some(hint.into());
+    self
+  }
+
+  pub fn range(mut self, min: i32, max: i32) -> Self {
+    self.min = min;
+    self.max = max;
+    self
+  }
+}
+
+/// A range slider in a form, as [`FormSliderInput`](super::FormSliderInput) is a slider in one: its label, its
+/// hint and its error around the engine's range slider, bound to a range control. The form submits the low value
+/// and the high one under the control's name; it validates the field when the slider loses the focus, and a reset
+/// puts both thumbs back at the form's default.
+pub struct FormRangeSliderInput {
+  values: Signal<(i32, i32)>,
+}
+
+impl crate::app::component::Component for FormRangeSliderInput {
+  type Props = FormRangeSliderInputProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let props = ctx.props::<Self::Props>().clone();
+    let field_values = props.control.field().value();
+    let slider_values = ctx.signal(clamp_range(field_values.get_untracked(), props.min, props.max));
+
+    let field_from_slider = field_values.clone();
+    ctx.watch(&slider_values, move |(low, high)| {
+      let next = (*low as f64, *high as f64);
+      if field_from_slider.get_untracked() != next {
+        field_from_slider.set(next);
+      }
+    });
+
+    let slider_from_field = slider_values.clone();
+    ctx.watch(&field_values, move |values| {
+      let next = clamp_range(*values, props.min, props.max);
+      if slider_from_field.get_untracked() != next {
+        slider_from_field.set(next);
+      }
+    });
+
+    Self { values: slider_values }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let props = ctx.props::<Self::Props>().clone();
+    let control = ctx.form_control(&props.control);
+    let slider_style = ctx.theme().form().slider.clone();
+    let palette = ctx.theme().palette().clone();
+    let blur_control = control.clone();
+
+    let slider = Slider::new_range(self.values.clone())
+      .name(control.name())
+      .width(Dimension::Pct(100.0))
+      .range(props.min, props.max)
+      .track_style(slider_style.track_style(&palette))
+      .track_hovered_style(slider_style.track_hovered_style(&palette))
+      .thumb_style(slider_style.thumb_style(&palette))
+      .thumb_hovered_style(slider_style.thumb_hovered_style(&palette))
+      .thumb_focused_style(slider_style.thumb_focused_style())
+      .on_blur(move || {
+        blur_control.mark_touched();
+        blur_control.validate();
+      });
+
+    ctx.mount_with::<FormControlField<(f64, f64)>>(
+      FormFieldProps::new(props.control)
+        .maybe_label(props.label)
+        .maybe_hint(props.hint),
+      vec![slider.into()],
+    )
+  }
+}
+
+/// The field's two values as whole numbers on the track, in order.
+fn clamp_range((low, high): (f64, f64), min: i32, max: i32) -> (i32, i32) {
+  let (min, max) = if min <= max { (min, max) } else { (max, min) };
+  let clamp = |value: f64| value.round().clamp(min as f64, max as f64) as i32;
+  let (low, high) = (clamp(low), clamp(high));
+  (low.min(high), low.max(high))
+}

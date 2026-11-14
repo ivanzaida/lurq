@@ -9,6 +9,7 @@ pub mod cursor;
 pub mod dimension;
 pub(crate) mod dsl;
 pub mod element;
+mod focus_group;
 mod font_features;
 pub mod gradient;
 #[cfg(feature = "markdown")]
@@ -52,6 +53,8 @@ pub use box_shadow::{BoxShadow, BoxShadowValue};
 pub use checkbox_style::CheckboxStyle;
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
+pub use focus_group::{FocusAxis, FocusGroup, FocusRows};
+pub(crate) use focus_group::{FocusBranch, FocusStep, step_rows};
 pub use gradient::{Gradient, GradientKind, GradientStop};
 #[cfg(feature = "form")]
 pub use node::FormData;
@@ -68,7 +71,7 @@ pub use outline::{Outline, ResolvedOutline};
 pub use radius_value::RadiusValue;
 pub use select_icon::{SelectAdornmentState, SelectCheckmarkPosition, SelectIcon};
 pub use select_style::{SelectPartStyle, SelectStyle};
-pub use slider_style::SliderPartStyle;
+pub use slider_style::{SliderOrientation, SliderPartStyle};
 pub use spacing_value::SpacingValue;
 pub use style::Style;
 pub use text_color::TextColor;

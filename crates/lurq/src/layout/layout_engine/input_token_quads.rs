@@ -1,9 +1,11 @@
 //! Input-only paint dispatch and geometry offsets.
 use super::{
-  LayoutEngine, ResolvedPadding, inset_clip_for_border, intersect_clip, text_input_vertical_offset,
+  ElementLayoutRecord, LayoutEngine, OverlayLayoutIndex, ResolvedPadding, TEXT_INPUT_CARET_WIDTH,
+  inset_clip_for_border, intersect_clip, text_input_vertical_offset, text_layout_output::TextLayoutOutput,
   transformed_quad_frame,
 };
 use crate::{
+  core::ElementRect,
   layout::{
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
@@ -11,14 +13,56 @@ use crate::{
   },
   node::{
     TextTransformMode,
-    border::BorderRadius,
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     node::Node,
-    node_kind::{TextInputOverflow, TextInputState},
+    node_kind::{NodeKind, TextInputOverflow, TextInputState},
     transform::Transform2D,
   },
 };
 
 impl LayoutEngine {
+  /// Publishes the element a text input puts at a byte of its value ([`TextInput::anchor_at`]): where the caret
+  /// before that byte stands in the layout just made, inside the input's padding, past what it scrolled, one
+  /// wide and as high as the text's band. An overlay that hangs from the element is placed by it in this pass.
+  ///
+  /// [`TextInput::anchor_at`]: crate::components::TextInput::anchor_at
+  pub(super) fn index_input_anchor(
+    node: &Node,
+    layout: &LayoutResult,
+    rect: ElementRect,
+    visible: bool,
+    index: &mut OverlayLayoutIndex,
+  ) {
+    let NodeKind::TextInput { state, .. } = node.node_kind() else {
+      return;
+    };
+    let Some((anchor, byte)) = state.byte_anchor() else {
+      return;
+    };
+    let Some(TextLayoutOutput::TextInput(output)) = layout.text_layout.as_deref() else {
+      return;
+    };
+    let padding = output.padding;
+    let content_height = (layout.size.height - padding.top - padding.bottom).max(0.0);
+    let (x, y, height) = state.controller_point(byte);
+    let x = padding.left + x;
+    let y = padding.top + text_input_vertical_offset(state, content_height) + y;
+    let placed = ElementRect {
+      x: rect.x + x,
+      y: rect.y + y,
+      relative_x: x,
+      relative_y: y,
+      width: TEXT_INPUT_CARET_WIDTH,
+      height: height.max(1.0),
+    };
+    anchor.update(placed.x, placed.y, x, y, placed.width, placed.height);
+    index.elements.push(ElementLayoutRecord {
+      element_ref: anchor,
+      rect: placed,
+      visible,
+    });
+  }
+
   pub(super) fn input_content(
     &self,
     state: &TextInputState,
@@ -105,8 +149,22 @@ impl LayoutEngine {
       origin.0 + padding.left - state.scroll_x(),
       origin.1 + padding.top + text_input_vertical_offset(state, height) - state.scroll_y(),
     );
-    for part in &layout.fragments {
+    for (at, part) in layout.fragments.iter().enumerate() {
       let (x, y, xf, center) = transformed_quad_frame(start.0 + part.x, start.1 + part.y, transform);
+      let edge = part.token.and_then(|(_, border)| border).map(|(width, color)| {
+        let side = Some(ResolvedBorder {
+          width,
+          color,
+          placement: BorderPlacement::Inside,
+          dash: [0.0, 0.0],
+        });
+        ResolvedBorders {
+          top: side,
+          right: side,
+          bottom: side,
+          left: side,
+        }
+      });
       quads.push(Quad {
         x,
         y,
@@ -120,6 +178,44 @@ impl LayoutEngine {
           gradient: None,
         },
         border_radius: Some(BorderRadius::all(part.radius).clamped_to_rect(part.width, part.height)),
+        border: edge,
+        clip,
+      });
+      // A token's icon is at the end of its last fragment, in the room its padding keeps for it.
+      let Some((token, _)) = part.token else {
+        continue;
+      };
+      let Some(icon) = &layout.config.styles[token].chip.icon else {
+        continue;
+      };
+      if layout.fragments[at + 1..]
+        .iter()
+        .any(|later| later.token.is_some_and(|(later, _)| later == token))
+      {
+        continue;
+      }
+      let (x, y, xf, center) = transformed_quad_frame(
+        start.0 + part.x + part.width - icon.inset - icon.size,
+        start.1 + part.y + (part.height - icon.size) * 0.5,
+        transform,
+      );
+      let mut text = [0; 4];
+      quads.push(Quad {
+        x,
+        y,
+        width: icon.size,
+        height: icon.size,
+        opacity,
+        transform: xf,
+        transform_origin: center,
+        content: QuadContent::Text {
+          text: icon.glyph.encode_utf8(&mut text).to_owned(),
+          style: icon.style.clone(),
+          wrap: false,
+          vertical_align: VerticalAlign::Center,
+          transform_mode: TextTransformMode::Bitmap,
+        },
+        border_radius: None,
         border: None,
         clip,
       });

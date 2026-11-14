@@ -59,8 +59,9 @@ Transition builders include:
 | `Transition::box_shadow()` | Animate the [box shadows](../styling-events/#box-shadows) |
 
 Colors, border widths and shadows given as theme roles (`PaletteColor`, `BorderSize`, `ShadowStyle`) are read against
-the theme, so they animate like concrete values; a role whose value changes, when the theme changes, runs the
-transition too.
+the theme, so they animate like concrete values. A role whose value changes because the theme does, a window that
+turns dark, a palette color the app sets, is at its new value at once, as everything else in the window is: a
+transition is for what the element does itself, a state it enters or a style set on it.
 
 - The foreground, the outline and the box shadow are painted only: a transition of them lays nothing out.
 - An outline that appears grows in from no width and no opacity at its own offset and color, and one that goes away
@@ -307,8 +308,13 @@ The supported properties are:
 - `BorderRadiusTopLeft`, `BorderRadiusTopRight`, `BorderRadiusBottomRight`, `BorderRadiusBottomLeft`
 - `OffsetX`, `OffsetY`
 - `Width`, `Height`
+- `BorderDash`
 - `Opacity`
 - `Transform`
+
+A width or a height in percent is animated as a share of the parent's (`AnimatableValue::Percent`): a transition or a keyframe moves it from one share to another, and between a share and pixels it changes at once. The dash and the gap of a border are one value (`Transition::border_dash()`), so one dash that makes part of an outline stays one dash on its way: the arc of a ring.
+
+A height the content decides is one too: a transition of `Height` between a height in pixels and none runs to, and from, the height of the content, which the layout reads as it goes; a panel opens from `height(0.0)` to no height and closes back.
 
 `Width`, `Height`, `OffsetX`, and `OffsetY` can invalidate layout while they animate. `Opacity` and `Transform` are paint-only in normal use. While an element's opacity is below 1, a subtree that paints more than one primitive is drawn into an offscreen layer every frame (see [Opacity](../styling-events/#opacity)); fading a large panel costs one layer of its size.
 

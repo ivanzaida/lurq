@@ -277,7 +277,7 @@ use lurq::{
   node::color::Color,
 };
 
-ctx.theme().set_palette_color(PaletteColor::Accent, Color::from_hex("#2563eb"));
+ctx.theme().set_palette_color(PaletteColor::Primary, Color::from_hex("#2563eb"));
 ctx.theme().set_spacing_value(SpacingSize::Sm, 8.0);
 
 ctx.theme().set_typography_style(TypographyStyle::Body, TextStyle {
@@ -294,7 +294,7 @@ font_size: 13.0,
 );
 ```
 
-Use strict theme keys with APIs such as `.background(PaletteColor::Accent)`,
+Use strict theme keys with APIs such as `.background(PaletteColor::Primary)`,
 `Text::new("Label").variant(TypographyStyle::Label)`, `.rounded(RadiusSize::Md)`, `.spacing(SpacingSize::Sm)`, and
 `.padding(SpacingSize::Md)`. The lookup methods `palette_color`, `typography_style`, `radius_value`, and `spacing_value`
 are also available when component code needs the concrete value.
@@ -305,8 +305,8 @@ one theme value:
 
 ```rust
 let brand = ctx.theme().lens(
-| theme| theme.palette_color(PaletteColor::Accent),
-move | theme, color| theme.set_palette_color(PaletteColor::Accent, color),
+| theme| theme.palette_color(PaletteColor::Primary),
+move | theme, color| theme.set_palette_color(PaletteColor::Primary, color),
 );
 
 brand.set(Color::from_hex("#2563eb"));
@@ -401,6 +401,12 @@ WindowChrome::new()
   .overlay(fullscreen_modal_layer(ctx))
   .mount(ctx)
 ```
+
+The chrome's content is laid out under its title bar, and so is a modal over the whole window
+(`Modal::target(ModalTarget::Root)`): it covers the window from the bar down, where a dialog is centred and a
+toast at the top is seen. What is passed to `WindowChrome::overlay` has all of the window, over the bar.
+`ctx.window().title_bar_inset()` is the height of the bar, `0.0` with no chrome or with one that is off; an app
+that draws a title bar another way says its height with `ctx.window().set_title_bar_inset(height)`.
 
 `window.start_drag()`, `window.start_resize(direction)`, and `window.stop_drag()` remain available as low-level escape
 hatches for custom shells or highly specialized chrome. If you use them directly, start native drag or resize from the
@@ -559,6 +565,39 @@ lurq::components::Rect::new(100.0, 40.0)
 
 element_ref.set_relative_bounds(15.0, 20.0, 120.0, 60.0);
 ```
+
+### Sizing An Element Without A Render
+
+`ElementRefMut::set_size(width, height)` lays the element out at another width or height than it was built with, each a `Dimension` (pixels, or `Dimension::Pct` of its parent) or `None` for the one it was built with. Nothing renders again: the next pass, which the call asks for, lays the element and what holds it out again, and its parent places it as it would any element of that size. The least and most size it was built with still hold, and the size stays until it is set again. Use it for what a person resizes continuously, a pane under a dragged divider, where rendering the component again on every move would rebuild what is in it:
+
+```rust
+use lurq::{app::events::DragEvent, components::{Column, Row}, core::ElementRefMut, node::dimension::Dimension};
+
+let pane = ElementRefMut::new();
+// The width the drag began at.
+let start = std::sync::Arc::new(std::sync::Mutex::new(240.0_f32));
+
+Row::new()
+  .child(Column::new().width(240.0).ref_element(pane.clone()).child(sidebar))
+  .child(
+    Column::new()
+      .width(1.0)
+      .on_drag_start({
+        let (pane, start) = (pane.clone(), start.clone());
+        move |_: DragEvent| *start.lock().unwrap() = pane.width()
+      })
+      .on_drag_move({
+        let (pane, start) = (pane.clone(), start.clone());
+        move |event: DragEvent| {
+          let width = (*start.lock().unwrap() + event.total_delta_x).clamp(160.0, 480.0);
+          pane.set_size(Some(Dimension::Px(width)), None);
+        }
+      }),
+  )
+  .child(Column::new().flex(1.0).child(editor));
+```
+
+`element_ref.size()` reads what was set. A ref made anew by each render starts with no size of its own, so keep what was set where the next render reads it (a signal read without subscribing, as `ui::Splitter` does) or keep the ref itself across renders.
 
 ## Interaction State
 

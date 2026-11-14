@@ -265,7 +265,7 @@ let controls = WindowControls::new()
   .content(WindowControlKind::Maximize, icon(ICON_MAXIMIZE))
   .content(WindowControlKind::Restore, icon(ICON_RESTORE))
   .content(WindowControlKind::Close, icon(ICON_CLOSE))
-  .foreground(PaletteColor::TextSecondary)
+  .foreground(PaletteColor::MutedForeground)
   .hover_background(PaletteColor::extra("chrome_hover"))
   .active_background(PaletteColor::extra("chrome_active"));
 ```
@@ -273,7 +273,10 @@ let controls = WindowControls::new()
 `hover_background` and `active_background` apply to every control, close included. To style one control, for example
 to keep a red close hover, use `control_colors(kind, WindowControlColors { .. })`.
 `WindowControlContent::element(|foreground| ...)` builds any other content, such as an SVG icon, and receives the
-configured foreground color. Hover and active change the background only; the foreground stays the same. `Maximize`
+configured foreground color. Hover and active change the background; `hover_foreground(kind, color)` gives one control
+another foreground under the pointer and while pressed, for a close control that turns white on its red. A glyph
+follows it, and so does content of `WindowControlContent::element` that names no color of its own, which is drawn in
+the foreground of its control; content drawn in the color the supplier was given keeps that color. `Maximize`
 content is shown while the window is restored and `Restore` content while it is maximized.
 
 macOS traffic lights use `TrafficLightColors`. The defaults are the macOS 11+ colors sampled from the system controls,

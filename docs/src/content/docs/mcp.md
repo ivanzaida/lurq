@@ -98,7 +98,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
 | `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; input [held across calls](#holding-buttons-and-keys): `press`/`release`, `key_down`/`key_up`; [pastes and file drags](#pastes-and-file-drags): `paste`, `drag_files`, `drop_files`, `file_drag_leave`; also `request_close` and `menu_activate`. |
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
-| `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. |
+| `lurq_set_value` | interact | Set a TextInput / Checkbox / Slider / Select value directly, no keystroke simulation. A range slider takes `[low, high]` and sets both; one number moves its nearer thumb. |
 | `lurq_resize` | interact | Resize a window, restoring it first if it is minimized, maximized or full screen. |
 | `lurq_navigate` | navigate | Push/replace a route, or go back/forward. Needs the `router` feature and a configured `Navigator`. |
 
@@ -120,7 +120,7 @@ lurq_act {"ref":"ref_17","action":"invoke"}
 → {"dispatched":true,"action":"invoke","ref":"ref_17","window":"main"}
 ```
 
-Without `query` or `role`, `lurq_inspect` returns a nested `tree`. It derives button names from child text; `a11y_name` and `a11y_role` annotations set with `.describe(...)` override the derived values. Pending reactive changes are refreshed before inspection. `bounds` is `null` before the first layout pass or while a refreshed tree awaits layout. `lurq_act` requires live layout, checks that the ref's role and name have not changed and that its center is hittable, then dispatches a normal synthetic click (`invoke`) or pointer move (`hover`, which opens hover tooltips). Each node lists the actions it accepts in `actions`: `invoke` for clickable elements and form controls, `hover` for elements with mouse-move or mouse-enter handlers. `dispatched` means the input was sent; inspect again to verify the resulting app state. When several controls match, the tool returns all of them with their ancestor paths so the agent can choose deliberately. This server inspects only the Lurq app that embeds it, not other desktop windows.
+Without `query` or `role`, `lurq_inspect` returns a nested `tree`. It derives button names from child text; `a11y_name` and `a11y_role` annotations set with `.describe(...)` override the derived values. A node described with `a11y_description` (or `aria-description`), such as a control in a field with a description or an error, or an element with a tooltip, reports it as `description`; one with `a11y_checked`, such as the design system's checkbox, radio or switch, reports `state.checked` as `true`, `false` or `"mixed"`, as the engine's checkbox does; one with `a11y_selected`, such as a tab of the design system, reports `state.selected`, and one with `a11y_pressed`, such as a chip, `state.pressed`. Pending reactive changes are refreshed before inspection. `bounds` is `null` before the first layout pass or while a refreshed tree awaits layout. `lurq_act` requires live layout, checks that the ref's role and name have not changed and that its center is hittable, then dispatches a normal synthetic click (`invoke`) or pointer move (`hover`, which opens hover tooltips). Each node lists the actions it accepts in `actions`: `invoke` for clickable elements and form controls, `hover` for elements with mouse-move or mouse-enter handlers. `dispatched` means the input was sent; inspect again to verify the resulting app state. When several controls match, the tool returns all of them with their ancestor paths so the agent can choose deliberately. This server inspects only the Lurq app that embeds it, not other desktop windows.
 
 `lurq_read_tree` remains useful for a compact text outline. It hands out `ref_N` handles for interactive elements, labeled elements (`.describe`, `.id`, `.class`), and form controls:
 
@@ -269,6 +269,28 @@ Row::new()
   .id("save-button")                    // lurq_find_by_id, shown as #save-button
   .class("toolbar-action")              // lurq_find_by_class, shown as .toolbar-action
   .describe("role", "commits the form") // free-form key=value shown on the element
+```
+
+A value that changes without a render, as where a dragged divider stands, is said through the element's ref: `ElementRefMut::describe(name, value)` takes the place of what `.describe(name, ..)` said when the element was built, and `lurq_inspect`, `lurq_read_tree`, `lurq_find`, DevTools and `ElementHandle::description(name)` read it at once; saying it again replaces it. A splitter's divider tells its `a11y_valuenow` so as it moves. Like `describe`, it is read only with the `mcp` or `devtools` feature.
+
+```rust
+use lurq::{app::events::DragEvent, components::Row, core::ElementRefMut};
+
+let divider = ElementRefMut::new();
+
+Row::new()
+  .width(1.0)
+  .ref_element(divider.clone())
+  .describe("a11y_role", "separator")
+  .describe("a11y_valuenow", "240")
+  .on_drag_move({
+    let divider = divider.clone();
+    move |event: DragEvent| {
+      let width = 240.0 + event.total_delta_x;
+      // lurq_inspect reads the new value at once; nothing renders again.
+      divider.describe("a11y_valuenow", format!("{}", width.round()));
+    }
+  });
 ```
 
 `id`/`class` are the same attributes used by `Tree::get_element_by_id` and DevTools, so one labeling effort serves tests, DevTools, and agents. `describe` is free-form and appears as `{role="commits the form"}` in `read_tree` output; all three are matched by `lurq_find`. App-provided ids, classes, roles, attribute names and values are printed as-is when they are plain words (letters, digits, `-_.:/`) and quoted with escapes otherwise, so app text can never start a new line or forge an element or ref. Attribute values, item labels and element text are cut at 80 characters and names in lookup lines at 60, ending in `…`.

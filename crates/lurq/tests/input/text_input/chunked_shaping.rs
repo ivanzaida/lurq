@@ -41,6 +41,7 @@ fn styles(text: &str) -> Vec<TokenStyle> {
       padding: 0.0,
       fill: None,
       lines: Default::default(),
+      chip: Default::default(),
     });
   }
   styles

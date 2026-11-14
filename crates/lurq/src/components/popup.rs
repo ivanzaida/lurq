@@ -76,8 +76,39 @@ impl Popup {
     self
   }
 
+  /// Whether the keyboard focus goes into the popup as it opens and back as it
+  /// closes, and Tab goes through it right after its anchor: see
+  /// [`Overlay::takes_focus`](crate::app::ctx::Overlay::takes_focus). Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.overlay = self.overlay.takes_focus(takes);
+    self
+  }
+
+  /// Whether Tab goes through the popup right after its anchor while the
+  /// focus stays where it is as it opens: see
+  /// [`Overlay::tab_after_anchor`](crate::app::ctx::Overlay::tab_after_anchor). Off by default.
+  pub fn tab_after_anchor(mut self, tab: bool) -> Self {
+    self.overlay = self.overlay.tab_after_anchor(tab);
+    self
+  }
+
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.overlay = self.overlay.dismiss_on_escape(dismiss);
+    self
+  }
+
+  /// What runs after a press outside the popup or Escape closed it: see
+  /// [`Overlay::on_dismiss`](crate::app::ctx::Overlay::on_dismiss).
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.overlay = self.overlay.on_dismiss(handler);
+    self
+  }
+
+  /// A point of the window, in logical pixels, that the popup stands at in
+  /// place of its anchor, kept inside the window: see
+  /// [`Overlay::at`](crate::app::ctx::Overlay::at). A context menu's.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.overlay = self.overlay.at(point);
     self
   }
 

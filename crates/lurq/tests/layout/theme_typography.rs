@@ -126,10 +126,10 @@ fn background_resolves_palette_color() {
   let mut app = App::new();
   app
     .theme()
-    .set_palette_color(PaletteColor::Accent, Color::from_hex("#123456"));
+    .set_palette_color(PaletteColor::Primary, Color::from_hex("#123456"));
 
   let mut tree = Tree::new();
-  tree.set_root(Rect::new(40.0, 20.0).background(PaletteColor::Accent));
+  tree.set_root(Rect::new(40.0, 20.0).background(PaletteColor::Primary));
   tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(100.0, 100.0))));
   tree.pass(&mut app, &TestSurface);
 

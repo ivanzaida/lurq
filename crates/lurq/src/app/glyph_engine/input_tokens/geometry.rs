@@ -216,9 +216,14 @@ impl DecoratedInputLayout {
       style.lines,
     );
     if let Some((fill, radius)) = style.fill {
-      let height = (font_size * line_height).max(ascent + descent);
-      let y = baseline - ascent - (height - ascent - descent) * 0.5;
+      let line = (font_size * line_height).max(ascent + descent);
+      let (height, border) = (style.chip.height.unwrap_or(line), style.chip.border);
+      // A fill of its own height is centred where the line's would be.
+      let y = baseline - ascent - (line - ascent - descent) * 0.5 + (line - height) * 0.5;
       self.push_rect(left, y, width, height, fill, radius);
+      if let Some(part) = self.fragments.last_mut() {
+        part.token = Some((token, border));
+      }
     }
     // The font's own line metrics are not at hand here; these are the usual
     // positions in ems, kept at least a pixel thick.
@@ -246,6 +251,7 @@ impl DecoratedInputLayout {
       height,
       color,
       radius,
+      token: None,
       row: self.rows.len(),
     });
   }

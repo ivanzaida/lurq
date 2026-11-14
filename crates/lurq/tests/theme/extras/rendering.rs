@@ -82,7 +82,7 @@ fn rect_resolves_extra_radius_and_border_size() {
   let mut tree = Tree::new();
   tree.set_root(
     Rect::new(40.0, 20.0)
-      .background(PaletteColor::SurfacePanel)
+      .background(PaletteColor::Canvas)
       .rounded(RadiusSize::extra("card"))
       .border_inside(BorderSize::extra("hairline"), PaletteColor::Border),
   );
@@ -104,7 +104,7 @@ fn rect_with_missing_extra_radius_and_border_size_is_square_and_borderless() {
   let mut tree = Tree::new();
   tree.set_root(
     Rect::new(40.0, 20.0)
-      .background(PaletteColor::SurfacePanel)
+      .background(PaletteColor::Canvas)
       .rounded(RadiusSize::extra("missing"))
       .border_inside(BorderSize::extra("missing"), PaletteColor::Border),
   );

@@ -2,17 +2,29 @@
 use std::{ops::Range, sync::Arc};
 
 use crate::{
-  app::theme::TypographyStyle,
+  app::theme::{IconGlyph, TypographyStyle},
+  layout::text_style::TextStyle,
   node::{TextColor, radius_value::RadiusValue, spacing_value::SpacingValue},
 };
 
+/// How a token is drawn: the color of its text and of its fill, the room on either side of its text, its
+/// corners and its type; and, where it has them, its height, a line inside its fill, an icon at its end and
+/// the looks it takes under the pointer and while the selection covers it. What the style does not set is
+/// as an engine token always was: no line, no icon, as high as its text's line, padded alike at both ends.
 #[derive(Clone, PartialEq)]
 pub struct InputTokenStyle {
   pub(crate) foreground: TextColor,
   pub(crate) background: TextColor,
   pub(crate) padding: SpacingValue,
+  pub(crate) padding_end: Option<SpacingValue>,
   pub(crate) radius: RadiusValue,
   pub(crate) typography: Option<TypographyStyle>,
+  pub(crate) text: Option<TextStyle>,
+  pub(crate) height: Option<f32>,
+  pub(crate) border: Option<(f32, TextColor)>,
+  pub(crate) icon: Option<InputTokenIcon>,
+  pub(crate) hovered: Option<Arc<InputTokenStyle>>,
+  pub(crate) selected: Option<Arc<InputTokenStyle>>,
 }
 
 impl InputTokenStyle {
@@ -21,13 +33,69 @@ impl InputTokenStyle {
       foreground: foreground.into(),
       background: background.into(),
       padding: 0.0.into(),
+      padding_end: None,
       radius: 0.0.into(),
       typography: None,
+      text: None,
+      height: None,
+      border: None,
+      icon: None,
+      hovered: None,
+      selected: None,
     }
   }
 
+  /// The room at both ends of the text, inside the fill. [`Self::padding_end`] sets the end's apart.
   pub fn padding(mut self, horizontal: impl Into<SpacingValue>) -> Self {
     self.padding = horizontal.into();
+    self
+  }
+
+  /// The room after the text (after the icon, where there is one), in place of [`Self::padding`]'s.
+  pub fn padding_end(mut self, end: impl Into<SpacingValue>) -> Self {
+    self.padding_end = Some(end.into());
+    self
+  }
+
+  /// The height of the fill, centred on the text's line, in place of the line's height. The line a token
+  /// stands in is as high as its type makes it: give the type a line height (see [`Self::text_style`]) that
+  /// leaves room around a fill taller than the text.
+  pub fn height(mut self, height: f32) -> Self {
+    self.height = Some(height);
+    self
+  }
+
+  /// A line of `width` inside the fill, in `color`.
+  pub fn border(mut self, width: f32, color: impl Into<TextColor>) -> Self {
+    self.border = Some((width, color.into()));
+    self
+  }
+
+  /// The token's type as it is, in place of [`Self::typography`]: its family, size, weight and line
+  /// height. Its color is the foreground's. The rows of a wrapping input are as high as the highest line in
+  /// them.
+  pub fn text_style(mut self, text: TextStyle) -> Self {
+    self.text = Some(text);
+    self
+  }
+
+  /// An icon at the end of the token, after its text, in the room the token keeps for it.
+  pub fn icon(mut self, icon: InputTokenIcon) -> Self {
+    self.icon = Some(icon);
+    self
+  }
+
+  /// How the token is drawn while the pointer is on it. Its geometry is the token's own: give it the same
+  /// padding, height, type and icon, and change colors.
+  pub fn hovered(mut self, hovered: InputTokenStyle) -> Self {
+    self.hovered = Some(Arc::new(hovered));
+    self
+  }
+
+  /// How the token is drawn while the selection covers all of it, over [`Self::hovered`]. Its geometry is
+  /// the token's own, as for the hovered look.
+  pub fn selected(mut self, selected: InputTokenStyle) -> Self {
+    self.selected = Some(Arc::new(selected));
     self
   }
 
@@ -42,16 +110,97 @@ impl InputTokenStyle {
   }
 }
 
-/// An editable UTF-8 source range, not an embedded object or atomic word.
+/// An icon at the end of a token: a glyph of a font, as [`IconGlyph`] names it, as wide and high as its size.
+#[derive(Clone, PartialEq)]
+pub struct InputTokenIcon {
+  pub(crate) glyph: IconGlyph,
+  pub(crate) size: f32,
+  pub(crate) color: Option<TextColor>,
+  pub(crate) gap: SpacingValue,
+  pub(crate) removes: bool,
+}
+
+impl InputTokenIcon {
+  /// The glyph, 12 square, in the color of the token's text, right after it.
+  pub fn new(glyph: IconGlyph) -> Self {
+    Self {
+      glyph,
+      size: 12.0,
+      color: None,
+      gap: 0.0.into(),
+      removes: false,
+    }
+  }
+
+  /// The side of the icon in logical pixels.
+  pub fn size(mut self, size: f32) -> Self {
+    self.size = size;
+    self
+  }
+
+  /// The color of the icon, in place of the token's text's.
+  pub fn color(mut self, color: impl Into<TextColor>) -> Self {
+    self.color = Some(color.into());
+    self
+  }
+
+  /// The room between the token's text and the icon.
+  pub fn gap(mut self, gap: impl Into<SpacingValue>) -> Self {
+    self.gap = gap.into();
+    self
+  }
+
+  /// Whether a click on the icon takes the token away: its text is deleted as an edit is, through the
+  /// input's `on_input`, as one step of its undo.
+  pub fn removes(mut self, removes: bool) -> Self {
+    self.removes = removes;
+    self
+  }
+}
+
+/// A UTF-8 source range drawn as a token. By default it is editable text, not an embedded object: the
+/// caret goes inside it and an edit can make it partial. An [`atomic`](Self::atomic) one is one thing to
+/// the caret.
 #[derive(Clone, PartialEq)]
 pub struct InputToken {
   pub(crate) range: Range<usize>,
   pub(crate) style: InputTokenStyle,
+  pub(crate) atomic: bool,
 }
 
 impl InputToken {
   pub fn new(range: Range<usize>, style: InputTokenStyle) -> Self {
-    Self { range, style }
+    Self {
+      range,
+      style,
+      atomic: false,
+    }
+  }
+
+  /// Whether the token is one thing to the caret, as a chip is: the caret never rests inside it, the
+  /// arrow keys go past it whole, a click on it selects all of it, a selection that takes part of it
+  /// takes all of it, and Backspace after it (Delete before it) selects it, so that the next deletes it.
+  /// Its text is still the input's value: copied, pasted, undone and read as text.
+  pub fn atomic(mut self, atomic: bool) -> Self {
+    self.atomic = atomic;
+    self
+  }
+}
+
+impl super::TextInput {
+  /// Has the layout put `anchor` where the caret before `byte` stands, as high as the text's line there: an
+  /// element of no size of its own, for an overlay to hang from a place in the text, as a list of suggestions
+  /// hangs under a trigger. It is set as the input is laid out, so an overlay placed in that pass stands at the
+  /// byte of the text laid out, after a paste or a value the app set as after a key. A byte past the text is
+  /// its end.
+  pub fn anchor_at(mut self, anchor: impl Into<crate::core::ElementRef>, byte: usize) -> Self {
+    let anchor = anchor.into();
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_byte_anchor(Some((anchor, byte)));
+      }
+    });
+    self
   }
 }
 

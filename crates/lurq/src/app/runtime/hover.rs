@@ -18,7 +18,8 @@
 //! [`set_hover`]), and for every change while DevTools shows the tree.
 
 use super::{
-  Tree, find_node_by_id, hovered_cursor, scrollbar_hit_at, set_node_hovered, take_disabled_hit, trim_hits_to_scrollbar,
+  FocusTarget, Tree, find_node_by_id, find_path_by_id, focus_visible, hovered_cursor, scrollbar_hit_at,
+  set_node_hovered, take_disabled_hit, trim_hits_to_scrollbar,
 };
 use crate::{
   app::{
@@ -47,17 +48,40 @@ pub(super) struct HoverMove {
   pub(super) shows: bool,
 }
 
+impl std::ops::BitOr for HoverMove {
+  type Output = Self;
+
+  fn bitor(self, other: Self) -> Self {
+    Self {
+      changed: self.changed || other.changed,
+      shows: self.shows || other.shows,
+    }
+  }
+}
+
+impl std::ops::BitOrAssign for HoverMove {
+  fn bitor_assign(&mut self, other: Self) {
+    *self = *self | other;
+  }
+}
+
 impl Tree {
   /// Remembers where the pointer is, in physical pixels, for
   /// [`Self::refresh_hover_at_pointer`]. Called by the public pointer entry
   /// points only: a click held back for a double click is delivered later at
   /// its own position, which is no longer where the pointer is.
   pub(super) fn track_pointer(&mut self, x: f32, y: f32) {
+    self.hover_held_by_keys = false;
     self.pointer = Some(PointerAt {
       x,
       y,
       source: input_source(),
     });
+  }
+
+  /// Where the pointer last was, in physical pixels; `None` while it is outside the window.
+  pub(super) fn pointer_position(&self) -> Option<(f32, f32)> {
+    self.pointer.map(|pointer| (pointer.x, pointer.y))
   }
 
   /// Hit-tests the hover again at the pointer's last position against the
@@ -67,7 +91,7 @@ impl Tree {
     let Some(PointerAt { x, y, source }) = self.pointer else {
       return false;
     };
-    if self.has_active_input_interaction() {
+    if self.has_active_input_interaction() || self.hover_held_by_keys {
       return false;
     }
     let scale = self.scale_factor();
@@ -81,7 +105,13 @@ impl Tree {
     let disabled = take_disabled_hit(&mut hits);
     trim_hits_to_scrollbar(&mut hits, lx, ly);
 
-    let moved = with_input_source(source, || move_hover(root, &self.hover_path, &hits));
+    let before = self.disabled_hover;
+    let moved = with_input_source(source, || {
+      leave_disabled(root, before, disabled)
+        | move_hover(root, &self.hover_path, &hits)
+        | enter_disabled(before, disabled)
+    });
+    self.disabled_hover = disabled.map(Node::node_id);
     let scrollable_in_disabled = if disabled.is_some() {
       super::scroll_containers_in_disabled(root, result, lx, ly, &self.layout_engine.radii(), &hits)
     } else {
@@ -97,6 +127,7 @@ impl Tree {
         }
       }
     }
+    let follow = pointer_focus(root, &self.hover_path, self.focused_path.as_deref(), &hits);
     self.hover_path = hits.iter().map(|(node, _)| node.node_id()).collect();
     self.cursor = hovered_cursor(disabled.into_iter().chain(hits.iter().map(|(node, _)| *node)));
     let draws_hover = self.draws_hover(moved);
@@ -106,7 +137,23 @@ impl Tree {
     if draws_hover || thumb_changed {
       self.needs_redraw = true;
     }
+    self.follow_pointer_focus(follow);
     moved.changed
+  }
+
+  /// Moves the focus to `target`, the element under the pointer that the
+  /// focus follows it to ([`pointer_focus`]), with no ring for it.
+  pub(super) fn follow_pointer_focus(&mut self, target: Option<NodeId>) {
+    if let Some(target) = target
+      && self.focused_node != Some(target)
+    {
+      self.set_input_modality(focus_visible::InputModality::Pointer);
+      self.focus_node(FocusTarget {
+        input_id: target,
+        event_id: target,
+      });
+      self.needs_redraw = true;
+    }
   }
 
   /// Whether a move of the hover needs a frame: it shows, or DevTools is open
@@ -119,6 +166,41 @@ impl Tree {
     }
     moved.shows
   }
+}
+
+/// The element under the pointer that the focus follows it to: the innermost
+/// one that takes the focus, where it is in a focus group that follows the
+/// pointer ([`FocusGroup::follow_pointer`](crate::node::FocusGroup::follow_pointer))
+/// and the focus, at `focused_path`, is in that group already. Only an element
+/// the pointer has just come onto, not in `hover_path`: a pointer that holds
+/// still while the keyboard moves the focus away leaves it where it went.
+pub(super) fn pointer_focus(
+  root: &Node,
+  hover_path: &[NodeId],
+  focused_path: Option<&[usize]>,
+  hits: &[(&Node, HitRect)],
+) -> Option<NodeId> {
+  let focused_path = focused_path?;
+  let stop = hits
+    .iter()
+    .rev()
+    .map(|(node, _)| *node)
+    .find(|node| node.is_focusable() && !node.is_focus_disabled())?;
+  if hover_path.contains(&stop.node_id()) {
+    return None;
+  }
+  let path = find_path_by_id(root, stop.node_id())?;
+  // The innermost group on the way to the element that follows the pointer, by the length of its path.
+  let mut group = None;
+  let mut node = root;
+  for (depth, &index) in path.iter().enumerate() {
+    if node.focus_group_value().is_some_and(|group| group.follow_pointer) {
+      group = Some(depth);
+    }
+    node = node.children().get(index)?;
+  }
+  let depth = group?;
+  (focused_path.len() > depth && focused_path[..depth] == path[..depth]).then(|| stop.node_id())
 }
 
 /// Moves the hover from the nodes in `hover_path` to the nodes in `hits`: a
@@ -144,6 +226,39 @@ pub(super) fn move_hover(root: &Node, hover_path: &[NodeId], hits: &[(&Node, Hit
     moved.shows |= set_hover(node, true, &node.events.on_mouse_enter);
   }
   moved
+}
+
+/// The pointer left `before`, the disabled element it was on, for `now` (another disabled element, or none): runs
+/// `before`'s `on_mouse_leave`. A disabled element hears the pointer come and go and nothing else of it: it is not
+/// hovered, sets no cursor and takes no press. Called before the hover moves, as a leave comes before an enter.
+pub(super) fn leave_disabled(root: &Node, before: Option<NodeId>, now: Option<&Node>) -> HoverMove {
+  let Some(before) = before.filter(|before| Some(*before) != now.map(Node::node_id)) else {
+    return HoverMove::default();
+  };
+  let Some(node) = find_node_by_id(root, before) else {
+    return HoverMove::default();
+  };
+  run(&node.events.on_mouse_leave)
+}
+
+/// The pointer came onto `now`, a disabled element, from `before`: runs `now`'s `on_mouse_enter`, after the hover
+/// moved. See [`leave_disabled`].
+pub(super) fn enter_disabled(before: Option<NodeId>, now: Option<&Node>) -> HoverMove {
+  match now {
+    Some(node) if Some(node.node_id()) != before => run(&node.events.on_mouse_enter),
+    _ => HoverMove::default(),
+  }
+}
+
+/// Runs `handlers` of a move that changes no hover: a frame for them where any ran.
+fn run(handlers: &[VoidEventHandler]) -> HoverMove {
+  for handler in handlers {
+    handler.call();
+  }
+  HoverMove {
+    changed: false,
+    shows: !handlers.is_empty(),
+  }
 }
 
 /// Takes the hover from `node` and runs its `on_mouse_leave`. Returns whether

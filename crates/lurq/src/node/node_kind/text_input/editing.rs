@@ -75,6 +75,9 @@ impl TextInputState {
   }
 
   pub(crate) fn backspace(&self, keyboard: &KeyboardEvent) -> bool {
+    if self.select_atomic_beside_caret(true) {
+      return true;
+    }
     if self.has_selection() {
       if !self.fire_input(keyboard, || self.value_without_selection().0) {
         return true;
@@ -119,6 +122,9 @@ impl TextInputState {
   }
 
   pub(crate) fn delete(&self, keyboard: &KeyboardEvent) -> bool {
+    if self.select_atomic_beside_caret(false) {
+      return true;
+    }
     if self.has_selection() {
       if !self.fire_input(keyboard, || self.value_without_selection().0) {
         return true;
@@ -173,6 +179,7 @@ impl TextInputState {
       inner.selection_anchor = None;
     }
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Start);
     self.mark_layout_dirty();
   }
 
@@ -192,6 +199,7 @@ impl TextInputState {
       inner.selection_anchor = None;
     }
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::End);
     self.mark_layout_dirty();
   }
 
@@ -210,6 +218,7 @@ impl TextInputState {
   /// the way does not pull the caret to its end for the rows after it.
   fn move_vertical(&self, down: bool, selecting: bool) {
     if self.move_token_vertical(down, selecting) {
+      self.keep_out_of_tokens(tokens::Toward::Nearest);
       return;
     }
     let value = self.value();
@@ -223,8 +232,9 @@ impl TextInputState {
     let target =
       closest_caret_on_adjacent_row(&inner.caret_positions, y, x, down).unwrap_or(if down { value.len() } else { 0 });
     move_inner_to(&mut inner, target, selecting);
-    let goal = Some((inner.caret, x));
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Nearest);
+    let goal = Some((self.inner.lock().caret, x));
     // Every other caret move or edit marks the layout dirty and so ends the run; this one continues it.
     self.mark_layout_dirty();
     self.inner.lock().vertical_goal = goal;
@@ -236,6 +246,7 @@ impl TextInputState {
     let target = previous_word_boundary(&value, inner.caret);
     move_inner_to(&mut inner, target, selecting);
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Start);
     self.mark_layout_dirty();
   }
 
@@ -245,6 +256,7 @@ impl TextInputState {
     let target = next_word_boundary(&value, inner.caret);
     move_inner_to(&mut inner, target, selecting);
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::End);
     self.mark_layout_dirty();
   }
 
@@ -332,6 +344,11 @@ impl TextInputState {
   }
 
   pub(crate) fn begin_selection_at_point(&self, x: f32, y: f32) {
+    // A press on a token's removing icon selects nothing: a release that leaves a selection is the end of a drag,
+    // and makes no click, which is what takes the token away.
+    if !self.on_removing_icon(x, y) && self.select_atomic_at_point(x, y) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     let mut inner = self.inner.lock();
     inner.caret = caret;
@@ -343,19 +360,27 @@ impl TextInputState {
   pub(crate) fn update_selection_to_point(&self, x: f32, y: f32) {
     let caret = self.closest_caret_to_point(x, y);
     self.inner.lock().caret = caret;
+    self.keep_out_of_tokens(tokens::Toward::AwayFromAnchor);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn set_caret_from_point(&self, x: f32, y: f32) {
+    if self.remove_token_at_point(x, y) || self.select_atomic_at_point(x, y) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     let mut inner = self.inner.lock();
     inner.caret = caret;
     inner.selection_anchor = None;
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::Nearest);
     self.mark_layout_dirty();
   }
 
   pub(crate) fn select_word_at_point(&self, x: f32, y: f32) {
+    if self.select_atomic_at_point(x, y) {
+      return;
+    }
     let caret = self.closest_caret_to_point(x, y);
     let value = self.value();
     let (start, end) = word_selection_bounds(&value, caret);
@@ -363,6 +388,7 @@ impl TextInputState {
     inner.selection_anchor = Some(start);
     inner.caret = end;
     drop(inner);
+    self.keep_out_of_tokens(tokens::Toward::End);
     self.mark_layout_dirty();
   }
 

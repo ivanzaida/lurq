@@ -43,6 +43,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     component_contexts_debug: Vec::new(),
     #[cfg(any(feature = "devtools", feature = "mcp"))]
     debug_attrs: Vec::new(),
+    theme_scope: None,
     layout_kind: crate::layout::layout_kind::LayoutKind::ScrollModifier {
       state: ScrollState::new(),
       direction,
@@ -53,6 +54,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     padding: Padding::default(),
     position: Position::Static,
     offset: None,
+    offset_by_size: None,
     align_self: None,
     flex: None,
     shrink_rule: crate::layout::layout_kind::ShrinkRule::default(),
@@ -82,6 +84,12 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     interaction: None,
     focusable: None,
     tab_index: None,
+    focus_group: None,
+    focus_entry: false,
+    stops_inside: false,
+    autofocus: false,
+    focus_label: None,
+    focus_branch: None,
     button_kind: None,
     #[cfg(feature = "form")]
     form_name: None,

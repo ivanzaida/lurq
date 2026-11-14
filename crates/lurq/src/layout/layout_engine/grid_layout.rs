@@ -218,7 +218,7 @@ impl LayoutEngine {
           offset: if child.is_overlay_declaration() {
             Offset::default()
           } else {
-            Self::apply_relative_position(child, offset)
+            Self::apply_relative_position(child, offset, result.size)
           },
           result,
         }

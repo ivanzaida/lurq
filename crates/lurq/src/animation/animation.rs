@@ -249,6 +249,34 @@ fn start_time(in_phase: bool, direction: AnimationDirection, duration: Duration,
   now - Duration::from_nanos(late)
 }
 
+/// A full turn about the middle of the element: [`SPIN`](crate::ui::SPIN).
+fn spin() -> Keyframes {
+  use super::interpolate::AnimatableProperty;
+  use crate::node::transform::Decomposed;
+  Keyframes::new(crate::ui::SPIN)
+    .frame(0.0, |frame| {
+      frame.set(AnimatableProperty::Transform, Decomposed::IDENTITY);
+    })
+    .frame(1.0, |frame| {
+      frame.set(
+        AnimatableProperty::Transform,
+        Decomposed::IDENTITY.with_rotate_deg(360.0),
+      );
+    })
+}
+
+/// The opacity going from `from` to `to`: [`FADE_IN`](crate::ui::FADE_IN), [`FADE_OUT`](crate::ui::FADE_OUT).
+fn fade(id: KeyframesId, from: f32, to: f32) -> Keyframes {
+  use super::interpolate::{AnimatableProperty, AnimatableValue};
+  Keyframes::new(id)
+    .frame(0.0, |frame| {
+      frame.set(AnimatableProperty::Opacity, AnimatableValue::Float(from));
+    })
+    .frame(1.0, |frame| {
+      frame.set(AnimatableProperty::Opacity, AnimatableValue::Float(to));
+    })
+}
+
 pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
@@ -267,14 +295,42 @@ impl Default for AnimationEngine {
 
 impl AnimationEngine {
   pub fn new() -> Self {
-    Self {
+    let mut engine = Self {
       active: HashMap::new(),
       keyframe_store: HashMap::new(),
       seen: HashSet::new(),
       next_change: None,
       in_phase: HashSet::new(),
       has_active: false,
+    };
+    // What lurq's own components play: a full turn, for a spinner; a fade in and out, for a panel over the window.
+    engine.register_keyframes_in_phase(spin());
+    engine.register_keyframes(fade(crate::ui::FADE_IN, 0.0, 1.0));
+    engine.register_keyframes(fade(crate::ui::FADE_OUT, 1.0, 0.0));
+    // A toast coming in and leaving.
+    for keyframes in crate::ui::toast_keyframes() {
+      engine.register_keyframes(keyframes);
     }
+    // A spinner's dots and bars, and a skeleton's pulse and sheen: in phase, so that all of them move as one.
+    for keyframes in crate::ui::spinner_keyframes()
+      .into_iter()
+      .chain(crate::ui::skeleton_keyframes())
+    {
+      engine.register_keyframes_in_phase(keyframes);
+    }
+    // A progress that does not know how far it is: the room before its segment, and the segment.
+    for keyframes in crate::ui::progress_keyframes() {
+      engine.register_keyframes_in_phase(keyframes);
+    }
+    // A one-time code's caret blinking: from when its cell takes the focus, as a text input's starts on each move.
+    for keyframes in crate::ui::input_otp_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
+    // A sheet sliding in from an edge of the window and out to it.
+    for keyframes in crate::ui::sheet_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
+    engine
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {

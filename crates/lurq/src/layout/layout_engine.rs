@@ -34,7 +34,7 @@ use crate::{
     node::{Node, SyntheticNodeRole},
     node_kind::{NodeKind, SelectState, SliderPartRect, TextInputOverflow, TextInputState, TextOverflow},
     padding::Padding,
-    slider_style::SliderPartStyle,
+    slider_style::{SliderOrientation, SliderPartStyle},
     transform::Transform2D,
   },
 };
@@ -68,11 +68,19 @@ mod text_decorations;
 mod text_highlights;
 mod text_input_quads;
 mod text_layout_output;
+mod theme_scope;
 
 use flex_shrink::{FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_line};
 pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
+/// What a checked box and a slider fill with when nothing styles them, and what an unchecked box does. The
+/// roles are those of lurq 0.61, which an app may still set: each follows the role that replaces it
+/// (`app/theme/palette.rs`).
+#[allow(deprecated)]
+const CONTROL_FILL: PaletteColor = PaletteColor::Accent;
+#[allow(deprecated)]
+const CONTROL_BLANK: PaletteColor = PaletteColor::SurfaceInput;
 const DEFAULT_CHECKBOX_WIDTH: f32 = 18.0;
 const DEFAULT_CHECKBOX_HEIGHT: f32 = 18.0;
 const DEFAULT_SLIDER_WIDTH: f32 = 120.0;
@@ -178,6 +186,9 @@ pub(crate) enum OverlayLayoutRecord {
     /// Whether the select shows through its ancestors' clips; see
     /// [`ElementLayoutRecord::visible`].
     visible: bool,
+    /// The theme of the subtree the select is in, if that has one of its
+    /// own: its menu is laid out and painted with it.
+    theme: Option<Box<Theme>>,
   },
   Overlay {
     reuse_key: Option<Arc<str>>,
@@ -217,12 +228,14 @@ impl Clone for OverlayLayoutRecord {
         state,
         bounds,
         visible,
+        theme,
       } => Self::SelectMenu {
         reuse_key: reuse_key.clone(),
         origin: *origin,
         state: state.clone(),
         bounds: *bounds,
         visible: *visible,
+        theme: theme.clone(),
       },
       Self::Overlay {
         reuse_key,
@@ -284,6 +297,9 @@ pub(crate) struct LayoutEngine {
   /// The theme the values below were copied from, and its version then
   /// (`set_theme`). `None` until a theme is set: the values are the defaults.
   theme_seen: RefCell<Option<(Theme, u64)>>,
+  /// The themes that elements of the tree carry (`Node::theme_scope`), each with the version it was last
+  /// laid out at: see `theme_scope`.
+  theme_scopes: RefCell<Vec<(Theme, u64)>>,
   palette: RefCell<ThemePalette>,
   border_sizes: RefCell<ThemeBorderSizes>,
   spacing: RefCell<ThemeSpacing>,
@@ -591,6 +607,7 @@ impl LayoutEngine {
       scrollbar_frame_at: Cell::new(std::time::Instant::now()),
       scrollbar_change_at: Cell::new(None),
       theme_seen: RefCell::new(None),
+      theme_scopes: RefCell::new(Vec::new()),
       palette: RefCell::new(ThemePalette::default()),
       border_sizes: RefCell::new(ThemeBorderSizes::default()),
       spacing: RefCell::new(ThemeSpacing::default()),
@@ -728,7 +745,7 @@ impl LayoutEngine {
 
   fn collect_overlay_index(node: &Node, layout: &LayoutResult) -> OverlayLayoutIndex {
     let mut index = OverlayLayoutIndex::default();
-    Self::collect_overlay_index_recursive(node, layout, 0.0, 0.0, 0.0, 0.0, ClipRect::default(), &mut index);
+    Self::collect_overlay_index_recursive(node, layout, 0.0, 0.0, 0.0, 0.0, ClipRect::default(), None, &mut index);
     index
   }
 
@@ -740,6 +757,7 @@ impl LayoutEngine {
     parent_x: f32,
     parent_y: f32,
     clip: ClipRect,
+    scope: Option<&Theme>,
     index: &mut OverlayLayoutIndex,
   ) {
     let rect = ElementRect {
@@ -751,13 +769,18 @@ impl LayoutEngine {
       height: layout.size.height,
     };
     let visible = !clip.active || rect_intersects_clip(rect.x, rect.y, rect.width, rect.height, clip);
+    // A layer is drawn over the tree, outside the element it is declared
+    // in: it is given the theme of the subtree it is declared in, to be laid
+    // out and painted with as what is around its declaration is.
+    let scope = node.theme_scope.as_deref().or(scope);
 
-    Self::index_node_layout(node, rect, visible, index);
+    Self::index_node_layout(node, rect, visible, scope, index);
+    Self::index_input_anchor(node, layout, rect, visible, index);
     let child_clip = intersect_clip(clip, children_clip(node, rect));
 
     for (child_layout, child) in layout.children.iter().zip(node.children()) {
       if child.modal_declaration().is_some() {
-        Self::index_child_modal(child, rect, index);
+        Self::index_child_modal(child, rect, child.theme_scope.as_deref().or(scope), index);
       }
 
       Self::collect_overlay_index_recursive(
@@ -768,6 +791,7 @@ impl LayoutEngine {
         abs_x,
         abs_y,
         child_clip,
+        scope,
         index,
       );
     }
@@ -779,7 +803,13 @@ impl LayoutEngine {
   /// carry whole nodes, are not held in every level's frame in an unoptimized
   /// build (lurq#25).
   #[inline(never)]
-  fn index_node_layout(node: &Node, rect: ElementRect, visible: bool, index: &mut OverlayLayoutIndex) {
+  fn index_node_layout(
+    node: &Node,
+    rect: ElementRect,
+    visible: bool,
+    scope: Option<&Theme>,
+    index: &mut OverlayLayoutIndex,
+  ) {
     index.dropdown_anchors.extend(node.dropdown_anchor().cloned());
     if let Some(element_ref) = node.element_ref.as_ref() {
       index.elements.push(ElementLayoutRecord {
@@ -801,31 +831,46 @@ impl LayoutEngine {
         state: state.clone(),
         bounds: rect,
         visible,
+        theme: scope.map(|theme| Box::new(theme.clone())),
       });
     }
 
     if let Some(spec) = node.overlay_declaration() {
+      let mut spec = spec.clone_for_reuse();
+      Self::scope_layer(&mut spec.node, scope);
       index.overlays.push(OverlayLayoutRecord::Overlay {
         reuse_key: spec
           .node
           .component_key()
           .map(|key| Arc::<str>::from(format!("overlay:{key}"))),
         origin: assigned_id(node),
-        spec: spec.clone_for_reuse(),
+        spec,
       });
     }
   }
 
+  /// Gives what a layer shows the theme of the subtree the layer is declared
+  /// in, unless it carries one of its own.
+  fn scope_layer(content: &mut Node, scope: Option<&Theme>) {
+    if content.theme_scope.is_none()
+      && let Some(theme) = scope
+    {
+      content.set_theme_scope(theme);
+    }
+  }
+
   #[inline(never)]
-  fn index_child_modal(child: &Node, parent: ElementRect, index: &mut OverlayLayoutIndex) {
+  fn index_child_modal(child: &Node, parent: ElementRect, scope: Option<&Theme>, index: &mut OverlayLayoutIndex) {
     if let Some(spec) = child.modal_declaration() {
+      let mut spec = spec.clone_for_reuse();
+      Self::scope_layer(&mut spec.node, scope);
       index.overlays.push(OverlayLayoutRecord::Modal {
         reuse_key: spec
           .node
           .component_key()
           .map(|key| Arc::<str>::from(format!("modal:{key}"))),
         origin: assigned_id(child),
-        spec: spec.clone_for_reuse(),
+        spec,
         parent,
       });
     }
@@ -912,15 +957,16 @@ impl LayoutEngine {
     // cached constraints would have permitted count as conflicts, so nodes
     // legitimately clamped by their parent are left alone.
     if !local_dirty && let Some((cached_constraints, cached_size)) = node.layout_cache.cached_entry() {
+      let (fixed_width, fixed_height) = node.fixed_frame_size();
       let width_conflicts = matches!(
-        node.frame.width,
+        fixed_width,
         Some(Dimension::Px(px))
           if (cached_size.width - px).abs() > 0.5
             && px <= cached_constraints.max_width + 0.5
             && px >= cached_constraints.min_width - 0.5
       );
       let height_conflicts = matches!(
-        node.frame.height,
+        fixed_height,
         Some(Dimension::Px(px))
           if (cached_size.height - px).abs() > 0.5
             && px <= cached_constraints.max_height + 0.5
@@ -1131,6 +1177,7 @@ impl LayoutEngine {
     } else {
       (clip, cull_clip)
     };
+    let theme_scope = self.enter_theme_scope(node);
     let foreground_scope = self.enter_foreground_scope(node);
     let frame = self.push_node_quads(
       node,
@@ -1222,6 +1269,7 @@ impl LayoutEngine {
 
     self.push_node_overlay_quads(node, result, abs_x, abs_y, &frame, clip, quads);
     self.leave_foreground_scope(foreground_scope);
+    self.leave_theme_scope(theme_scope);
     let opacity = node.effective_opacity();
     if opacity < DEFAULT_QUAD_OPACITY || blur > 0.0 {
       // A layer holds the outlines of what is in it, and its own.
@@ -1262,7 +1310,7 @@ impl LayoutEngine {
       );
     }
 
-    let background_color = node.resolved_color(&self.palette.borrow());
+    let background_color = node.painted_color(&self.palette.borrow(), self.foreground.get());
     let background_gradient = node
       .resolved_gradient()
       .and_then(|gradient| crate::layout::render_list::RenderGradient::resolve(&gradient, &self.palette.borrow()));
@@ -1484,6 +1532,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
           let selection_clip = clip;
@@ -1518,6 +1567,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let style = spans.first().map(|span| &span.style);
           let selection_height = style
@@ -1566,6 +1616,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let padding = self.resolved_padding_for_size(node, result.size);
           let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
@@ -1889,12 +1940,12 @@ impl LayoutEngine {
         let color = if checked {
           style
             .color
-            .unwrap_or_else(|| self.default_control_fill(state.part_styled(true), PaletteColor::Accent))
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(true), CONTROL_FILL))
         } else {
           style
             .color
             .or_else(|| node.resolved_color(&self.palette.borrow()))
-            .unwrap_or_else(|| self.default_control_fill(state.part_styled(false), PaletteColor::SurfaceInput))
+            .unwrap_or_else(|| self.default_control_fill(state.part_styled(false), CONTROL_BLANK))
         };
         push_checkbox_quads(
           quads,
@@ -1920,8 +1971,9 @@ impl LayoutEngine {
         let hovered = node.is_style_hovered() || state.is_hovered() || state.is_dragging();
         let track_style = state.track_style(hovered);
         let fill_style = state.fill_style(hovered);
-        let thumb_style = state.thumb_style(hovered, node.is_style_focus_visible());
-        let (track_rect, thumb_rect) = state.part_rects(
+        let focus_visible = node.is_style_focus_visible();
+        let active_thumb = state.active_thumb();
+        let parts = state.part_rects(
           abs_x,
           abs_y,
           result.size.width,
@@ -1929,6 +1981,7 @@ impl LayoutEngine {
           hovered,
           DEFAULT_SLIDER_THUMB_MIN_SIZE,
         );
+        let track_rect = parts.track;
         let track_color = track_style
           .color
           .or_else(|| node.resolved_color(&self.palette.borrow()))
@@ -1942,6 +1995,30 @@ impl LayoutEngine {
           .as_ref()
           .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
           .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
+        // A part's ring, kept with the outlines: over the slider and what is painted after it.
+        let ring = |style: &SliderPartStyle, rect: SliderPartRect, radius: Option<BorderRadius>| {
+          let Some(outline) = style
+            .outline
+            .as_ref()
+            .and_then(|outline| outline.resolve(&self.palette.borrow(), &self.border_sizes.borrow()))
+          else {
+            return;
+          };
+          let (x, y) = if transform.is_identity() {
+            (rect.x.round(), rect.y.round())
+          } else {
+            (rect.x, rect.y)
+          };
+          self.push_ring(
+            outline,
+            (x, y, rect.width, rect.height),
+            radius,
+            opacity,
+            transform,
+            clip,
+          );
+        };
+        ring(&track_style, track_rect, track_radius);
         push_slider_part_quads(
           quads,
           track_rect,
@@ -1954,16 +2031,12 @@ impl LayoutEngine {
           clip,
         );
         if let Some(fill_style) = fill_style {
-          let fill_height = fill_style.height.unwrap_or(track_rect.height).max(0.0);
-          let fill_center_y = track_rect.y + track_rect.height * 0.5;
-          let fill_rect = SliderPartRect {
-            x: track_rect.x,
-            y: fill_center_y - fill_height * 0.5,
-            width: ((thumb_rect.x + thumb_rect.width * 0.5) - track_rect.x)
-              .max(0.0)
-              .min(track_rect.width),
-            height: fill_height,
+          // The fill's thickness is across the track: its height on a horizontal slider, its width on a vertical one.
+          let thickness = match state.orientation() {
+            SliderOrientation::Horizontal => fill_style.height,
+            SliderOrientation::Vertical => fill_style.width,
           };
+          let fill_rect = parts.fill(thickness);
           let fill_color = fill_style.color.unwrap_or(track_color);
           let fill_radius = fill_style
             .border_radius
@@ -1973,6 +2046,7 @@ impl LayoutEngine {
             .border
             .as_ref()
             .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()));
+          ring(&fill_style, fill_rect, fill_radius);
           push_slider_part_quads(
             quads,
             fill_rect,
@@ -1985,27 +2059,31 @@ impl LayoutEngine {
             clip,
           );
         }
-        push_slider_part_quads(
-          quads,
-          thumb_rect,
-          &thumb_style,
-          thumb_style
-            .color
-            .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), PaletteColor::Accent)),
-          Some(
+        // Each thumb, the low one first; of a range only the active one shows the focus.
+        for (thumb, thumb_rect) in parts.thumbs() {
+          let thumb_style = state.thumb_style(hovered, focus_visible && thumb == active_thumb);
+          let thumb_radius = thumb_style
+            .border_radius
+            .map(|radius| radius.resolve(&self.radii.borrow()))
+            .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5));
+          ring(&thumb_style, thumb_rect, Some(thumb_radius));
+          push_slider_part_quads(
+            quads,
+            thumb_rect,
+            &thumb_style,
             thumb_style
-              .border_radius
-              .map(|radius| radius.resolve(&self.radii.borrow()))
-              .unwrap_or_else(|| BorderRadius::all(thumb_rect.width.min(thumb_rect.height) * 0.5)),
-          ),
-          thumb_style
-            .border
-            .as_ref()
-            .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow())),
-          opacity,
-          transform,
-          clip,
-        );
+              .color
+              .unwrap_or_else(|| self.default_control_fill(state.thumb_styled(), CONTROL_FILL)),
+            Some(thumb_radius),
+            thumb_style
+              .border
+              .as_ref()
+              .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow())),
+            opacity,
+            transform,
+            clip,
+          );
+        }
       }
       NodeKind::Select { state } => {
         self.push_select_trigger_quads(node, state, result, (abs_x, abs_y), opacity, transform, clip, quads);
@@ -2123,6 +2201,35 @@ impl LayoutEngine {
   }
 
   fn layout_node(&self, glyph_engine: &mut GlyphEngine, node: &Node, constraints: Constraints) -> Arc<LayoutResult> {
+    if node.theme_scope.is_some() {
+      return self.layout_node_in_theme(glyph_engine, node, constraints);
+    }
+    self.layout_node_in_scope(glyph_engine, node, constraints)
+  }
+
+  /// [`Self::layout_node`] for an element that carries a theme: it and what
+  /// is in it are laid out with that theme's values. Out of line, so the
+  /// recursion of every other node keeps its frame.
+  #[inline(never)]
+  fn layout_node_in_theme(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+  ) -> Arc<LayoutResult> {
+    let scope = self.enter_theme_scope(node);
+    let result = self.layout_node_in_scope(glyph_engine, node, constraints);
+    self.leave_theme_scope(scope);
+    result
+  }
+
+  #[inline(always)]
+  fn layout_node_in_scope(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    node: &Node,
+    constraints: Constraints,
+  ) -> Arc<LayoutResult> {
     #[cfg(feature = "perf_profile")]
     if self.trace.is_on() {
       return self.layout_node_traced(glyph_engine, node, constraints);
@@ -2314,12 +2421,13 @@ impl LayoutEngine {
     // per-node frame/cache check in `mark_layout_dirty` cannot catch this:
     // the stale geometry lives in the PARENT's cached tree, not in the
     // mismatched child's own cache.
-    if let Some(Dimension::Px(px)) = node.frame.width
+    let (fixed_width, fixed_height) = node.fixed_frame_size();
+    if let Some(Dimension::Px(px)) = fixed_width
       && (result.size.width - px).abs() > 0.5
     {
       return false;
     }
-    if let Some(Dimension::Px(px)) = node.frame.height
+    if let Some(Dimension::Px(px)) = fixed_height
       && (result.size.height - px).abs() > 0.5
     {
       return false;
@@ -2348,7 +2456,7 @@ impl LayoutEngine {
           // unrelated invalidation. Only absolutely-positioned children have
           // a self-declared offset to check against.
           if let Position::Absolute { x, y, .. } = child.position() {
-            let expected = Self::apply_relative_position(child, Offset::new(x, y));
+            let expected = Self::apply_relative_position(child, Offset::new(x, y), child_layout.result.size);
             if (child_layout.offset.x - expected.x).abs() > 0.01 || (child_layout.offset.y - expected.y).abs() > 0.01 {
               return false;
             }
@@ -2659,6 +2767,13 @@ impl LayoutEngine {
         child_overrides,
       )
     };
+    // On its way between a height in pixels and its content's, the node was laid out as high as its content and is
+    // cut to the mix of the two: what is in it stays where it was laid out, and the rest is clipped.
+    if let Some((px, content)) = node.fit_height() {
+      result.size.height = (px + content * result.size.height)
+        .max(constraints.min_height)
+        .min(constraints.max_height);
+    }
     self.lay_out_text_selection(glyph_engine, node, &mut result);
     self.lay_out_text_decorations(glyph_engine, node, &mut result);
     #[cfg(feature = "markdown")]
@@ -3518,7 +3633,7 @@ impl LayoutEngine {
       } else {
         Offset::new(main_cursor, cross_offset)
       };
-      layout.offset = Self::apply_relative_position(child, offset);
+      layout.offset = Self::apply_relative_position(child, offset, layout.result.size);
 
       positioned_layout_children += 1;
       main_cursor += child_main
@@ -3553,7 +3668,12 @@ impl LayoutEngine {
       // Keep natural children intrinsic, but resolve percentage frames
       // against the finite content constraints, as in the non-wrap path.
       // The container's min cross-constraint must not stretch wrapped items.
-      let c = Self::non_flex_child_constraints(child, constraints, vertical);
+      // A growing child with a basis is its basis long when the lines are broken, and grows into what is left of
+      // its line after: an input after the tags of a box, which keeps a least room on their line.
+      let c = match wrap_basis(child) {
+        Some(basis) => main_tight(constraints, basis, vertical),
+        None => Self::non_flex_child_constraints(child, constraints, vertical),
+      };
       child_layouts.push(ChildLayout {
         offset: Offset::default(),
         result: self.layout_child_node(glyph_engine, child_overrides, index, child, c),
@@ -3566,6 +3686,32 @@ impl LayoutEngine {
 
     while line_start < child_layouts.len() {
       let line_end = wrap_line_end(&child_layouts, line_start, spacing, max_main, vertical);
+      let room = if vertical {
+        max_main.min(constraints.max_height)
+      } else {
+        max_main.min(constraints.max_width)
+      };
+      let used = child_layouts[line_start..line_end]
+        .iter()
+        .map(|layout| main_size(&layout.result, vertical))
+        .sum::<f32>()
+        + spacing * (line_end - line_start).saturating_sub(1) as f32;
+      let grow_total: f32 = children[line_start..line_end]
+        .iter()
+        .filter(|child| wrap_basis(child).is_some())
+        .filter_map(|child| child.state_flex().map(|params| params.grow))
+        .sum();
+      if room.is_finite() && room > used && grow_total > 0.0 {
+        for index in line_start..line_end {
+          let child = &children[index];
+          let (Some(basis), Some(params)) = (wrap_basis(child), child.state_flex()) else {
+            continue;
+          };
+          let grown = basis + (room - used) * params.grow / grow_total;
+          let c = main_tight(constraints, grown, vertical);
+          child_layouts[index].result = self.layout_child_node(glyph_engine, child_overrides, index, child, c);
+        }
+      }
       let line = &mut child_layouts[line_start..line_end];
 
       let line_cross: f32 = line
@@ -3575,6 +3721,35 @@ impl LayoutEngine {
           if vertical { r.size.width } else { r.size.height }
         })
         .fold(0.0_f32, f32::max);
+
+      // Stretched, each item of a line is as high (or, in a column, as wide) as the highest of its line, as CSS
+      // stretches the items of a wrapping flex line.
+      if matches!(align, Alignment::Stretch) {
+        for (j, layout) in line.iter_mut().enumerate() {
+          let r = &layout.result;
+          let child_cross = if vertical { r.size.width } else { r.size.height };
+          if child_cross >= line_cross {
+            continue;
+          }
+          let c = if vertical {
+            Constraints {
+              min_width: line_cross,
+              max_width: line_cross,
+              min_height: r.size.height,
+              max_height: r.size.height,
+            }
+          } else {
+            Constraints {
+              min_width: r.size.width,
+              max_width: r.size.width,
+              min_height: line_cross,
+              max_height: line_cross,
+            }
+          };
+          let index = line_start + j;
+          layout.result = self.layout_child_node(glyph_engine, child_overrides, index, &children[index], c);
+        }
+      }
 
       let children_main: f32 = line
         .iter()
@@ -3625,7 +3800,7 @@ impl LayoutEngine {
         } else {
           Offset::new(main_cursor, cross_offset)
         };
-        layout.offset = Self::apply_relative_position(&children[line_start + j], offset);
+        layout.offset = Self::apply_relative_position(&children[line_start + j], offset, layout.result.size);
         main_cursor += child_main + if j < (n as usize - 1) { gap } else { 0.0 };
       }
 
@@ -3704,13 +3879,17 @@ impl LayoutEngine {
 
     for (layout, child) in child_layouts.iter_mut().zip(children.iter()) {
       layout.offset = match child.position() {
-        Position::Absolute { x, y, .. } => Self::apply_relative_position(child, Offset::new(x, y)),
+        Position::Absolute { x, y, .. } => Self::apply_relative_position(child, Offset::new(x, y), layout.result.size),
         _ => {
           let child_align = child
             .align_self()
             .map(|align| align.to_stack_alignment())
             .unwrap_or(align);
-          Self::apply_relative_position(child, child_align.resolve_offset(size, layout.result.size))
+          Self::apply_relative_position(
+            child,
+            child_align.resolve_offset(size, layout.result.size),
+            layout.result.size,
+          )
         }
       };
     }
@@ -3726,9 +3905,11 @@ impl LayoutEngine {
     }
   }
 
-  fn apply_relative_position(node: &Node, offset: Offset) -> Offset {
+  /// Where a child of `size` is, laid out at `offset`: moved by its own offset and by the shares of its size
+  /// it asks for.
+  fn apply_relative_position(node: &Node, offset: Offset, size: Size) -> Offset {
     node
-      .offset_position()
+      .offset_for_size(size)
       .map(|relative| Offset::new(offset.x + relative.x, offset.y + relative.y))
       .unwrap_or(offset)
   }
@@ -3765,11 +3946,17 @@ impl LayoutEngine {
     let outer_constraints = self.frame_constraints_for_node(node, constraints, frame);
     let parent_w = outer_constraints.max_width;
     let parent_h = outer_constraints.max_height;
-    let spacing = self.spacing.borrow();
-    let left = padding.get_left().resolve(&spacing, parent_w);
-    let right = padding.get_right().resolve(&spacing, parent_w) + self.text_input_scrollbar_lane(node);
-    let top = padding.get_top().resolve(&spacing, parent_h);
-    let bottom = padding.get_bottom().resolve(&spacing, parent_h);
+    // The theme's spacing is read here and let go: what is in the box may carry a theme of its own, whose
+    // values take the place of these while it is laid out (`theme_scope.rs`).
+    let (left, right, top, bottom) = {
+      let spacing = self.spacing.borrow();
+      (
+        padding.get_left().resolve(&spacing, parent_w),
+        padding.get_right().resolve(&spacing, parent_w) + self.text_input_scrollbar_lane(node),
+        padding.get_top().resolve(&spacing, parent_h),
+        padding.get_bottom().resolve(&spacing, parent_h),
+      )
+    };
     let h_pad = left + right;
     let v_pad = top + bottom;
 
@@ -4084,6 +4271,34 @@ impl LayoutEngine {
 
 /// Where the wrapped line starting at child `start` ends: a line takes at least
 /// one child, and then every child that still fits on it.
+/// The basis of a child of a wrapping row or column that grows into what is left of its line: one with a grow factor
+/// and a basis. A child without a basis keeps its own size.
+fn wrap_basis(child: &Node) -> Option<f32> {
+  child
+    .state_flex()
+    .filter(|params| params.grow > 0.0)
+    .and_then(|params| params.basis)
+}
+
+/// `constraints` with the main axis held at `main`.
+fn main_tight(constraints: Constraints, main: f32, vertical: bool) -> Constraints {
+  if vertical {
+    Constraints {
+      min_width: 0.0,
+      max_width: constraints.max_width,
+      min_height: main,
+      max_height: main,
+    }
+  } else {
+    Constraints {
+      min_width: main,
+      max_width: main,
+      min_height: 0.0,
+      max_height: constraints.max_height,
+    }
+  }
+}
+
 fn wrap_line_end(child_layouts: &[ChildLayout], start: usize, spacing: f32, max_main: f32, vertical: bool) -> usize {
   let mut line_main = main_size(&child_layouts[start].result, vertical);
   for (index, layout) in child_layouts.iter().enumerate().skip(start + 1) {
@@ -4358,6 +4573,7 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.state_styles.focus_visible.is_none()
     && node.state_styles.drag_over.is_none()
     && node.state_styles.disabled.is_none()
+    && node.state_styles.within.is_none()
     && node.effective_opacity() == DEFAULT_QUAD_OPACITY
     && node.effective_blur() == 0.0
     && node.effective_backdrop_blur() == 0.0
@@ -4635,7 +4851,7 @@ mod tests {
     let node: Node = Element::from(
       Row::new()
         .spacing(SpacingSize::Md)
-        .child(Rect::new(10.0, 10.0).background(PaletteColor::Accent))
+        .child(Rect::new(10.0, 10.0).background(PaletteColor::Primary))
         .child(Text::new("label")),
     )
     .into_node();
@@ -4647,7 +4863,7 @@ mod tests {
       let theme = Theme::new();
       theme.set_spacing_value(SpacingSize::Md, spacing);
       theme.set_default_text_style(style(font_size));
-      theme.set_palette_color(PaletteColor::Accent, Color::from_hex(accent));
+      theme.set_palette_color(PaletteColor::Primary, Color::from_hex(accent));
       theme
     };
     // A pass as the runtime runs it: a changed theme forces a relayout.
@@ -4674,7 +4890,7 @@ mod tests {
 
     theme.set_spacing_value(SpacingSize::Md, 9.0);
     theme.set_default_text_style(style(30.0));
-    theme.set_palette_color(PaletteColor::Accent, Color::from_hex("#445566"));
+    theme.set_palette_color(PaletteColor::Primary, Color::from_hex("#445566"));
     let (gap, height, accent, font_size) = pass(&mut glyph_engine, &theme, true);
     assert_eq!(gap, 19.0, "the new spacing lays out");
     assert!(height > small_height, "the new typography lays out");

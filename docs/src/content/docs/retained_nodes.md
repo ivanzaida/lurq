@@ -97,6 +97,8 @@ If new props are unequal to stored props, the child context is marked dirty.
 
 Every retained node has a `NodeId`. IDs are assigned by the tree's monotonic generator and are never recycled after removal. Compatible nodes preserve their IDs across reconciliation; keys, component slots, explicit IDs, retained refs, and input and select value signals help match controls across sibling changes.
 
+Children that nothing names are matched by their place among their siblings. When a list of them grows or shrinks and its end looks as it did (the same kinds of node in the same shape, with the same text), a child was put in or taken out before that end, and the children of the end keep their IDs: a button that gets a sibling before it stays the element it was, with its hover, its focus and its transitions, and the sibling is a new element. The children at the start that look alike are matched first, so a list of children that cannot be told apart loses and gains its last. A list as long as it was is matched place by place, whatever its children say. A key is still what names a child for certain, and what lets one leave with an exit animation.
+
 Node IDs are used for:
 
 - event targets,

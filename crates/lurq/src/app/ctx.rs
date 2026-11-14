@@ -189,6 +189,9 @@ pub enum OutsidePress {
   PassThrough,
 }
 
+/// What runs when a press outside an overlay or Escape closes it: see [`Overlay::on_dismiss`].
+pub(crate) type OverlayDismiss = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 pub(crate) struct OverlaySpec {
   pub(crate) anchor: ElementRef,
   pub(crate) node: Node,
@@ -202,6 +205,15 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_outside_click: bool,
   pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
+  /// What runs when a press outside the overlay or Escape closes it.
+  pub(crate) on_dismiss: Option<OverlayDismiss>,
+  /// Whether the focus goes into the overlay as it opens and back as it closes: see [`Overlay::takes_focus`].
+  pub(crate) takes_focus: bool,
+  /// Whether Tab goes through the overlay right after its anchor, the focus staying where it is as it opens:
+  /// see [`Overlay::tab_after_anchor`].
+  pub(crate) tab_after_anchor: bool,
+  /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
+  pub(crate) at: Option<(f32, f32)>,
 }
 
 #[derive(Clone)]
@@ -258,6 +270,8 @@ pub(crate) struct ModalSpec {
   pub(crate) open_signal: Option<Signal<bool>>,
   pub(crate) dismiss_on_escape: bool,
   pub(crate) layer: ModalLayer,
+  /// Whether the focus goes into the modal as it opens and back to what had it as it closes.
+  pub(crate) takes_focus: bool,
 }
 
 impl ModalSpec {
@@ -273,6 +287,7 @@ impl ModalSpec {
       open_signal: self.open_signal.clone(),
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
+      takes_focus: self.takes_focus,
     }
   }
 }
@@ -297,6 +312,10 @@ impl OverlaySpec {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      on_dismiss: self.on_dismiss.clone(),
+      takes_focus: self.takes_focus,
+      tab_after_anchor: self.tab_after_anchor,
+      at: self.at,
     }
   }
 }
@@ -308,6 +327,7 @@ pub struct Modal {
   dismiss_on_escape: bool,
   layer: ModalLayer,
   dismiss: Option<Signal<bool>>,
+  takes_focus: bool,
 }
 
 impl Modal {
@@ -319,6 +339,7 @@ impl Modal {
       dismiss_on_escape: true,
       layer: ModalLayer::Dialog,
       dismiss: None,
+      takes_focus: false,
     }
   }
 
@@ -339,6 +360,14 @@ impl Modal {
 
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether the focus goes into the modal as it opens, to its first stop of Tab, and back to what had it when
+  /// it closes, as a browser's `<dialog>` opened with `showModal()` does. A focus that has gone somewhere else
+  /// by then stays there. Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
     self
   }
 
@@ -366,6 +395,7 @@ impl Modal {
       open_signal: self.dismiss.or_else(|| self.open.signal()),
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
+      takes_focus: self.takes_focus,
     })
   }
 }
@@ -394,7 +424,11 @@ pub struct Overlay {
   dismiss_on_outside_click: bool,
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
+  on_dismiss: Option<OverlayDismiss>,
   switch_on_anchor_press: bool,
+  takes_focus: bool,
+  tab_after_anchor: bool,
+  at: Option<(f32, f32)>,
 }
 
 impl Overlay {
@@ -412,7 +446,11 @@ impl Overlay {
       dismiss_on_outside_click: false,
       outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
+      on_dismiss: None,
       switch_on_anchor_press: true,
+      takes_focus: false,
+      tab_after_anchor: false,
+      at: None,
     }
   }
 
@@ -476,6 +514,13 @@ impl Overlay {
     self
   }
 
+  /// What runs after a press outside the overlay or Escape closed it, its open signal set to `false`: what a
+  /// dismissal means to the app, beyond the overlay closing. Only an overlay driven by a signal is dismissed.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss = Some(std::sync::Arc::new(handler));
+    self
+  }
+
   /// Whether the anchor is this overlay's trigger, which a left press opens.
   /// While another dropdown is open, a press on a trigger closes it and goes
   /// on to the trigger, so one press switches dropdowns. Defaults to `true`;
@@ -484,6 +529,51 @@ impl Overlay {
   /// `dismiss_on_outside_click(true)` and a signal-backed open state.
   pub fn switch_on_anchor_press(mut self, switch: bool) -> Self {
     self.switch_on_anchor_press = switch;
+    self
+  }
+
+  /// Whether the keyboard focus goes into the overlay as it opens and back as
+  /// it closes, as [`Modal::takes_focus`] does for a modal: a popover's, a
+  /// menu's.
+  ///
+  /// - As it opens, the focus goes to the first element in it that takes the focus. An app's focus request in the same
+  ///   pass wins. The ring shows as the input that opened it shows it: after a key, not after a press of the pointer.
+  /// - As it closes with the focus inside it, the focus goes back to what had it when it opened (the button that opened
+  ///   a menu, the item of a submenu), or, where that is gone or nothing had it, to its anchor. A focus that has gone
+  ///   somewhere else stays there.
+  /// - Tab goes through its elements right after its anchor's, as a web popover's come after its invoker's.
+  /// - An overlay that is hidden because its anchor is out of view is still open: it does not take the focus again when
+  ///   the anchor comes back.
+  ///
+  /// Off by default.
+  pub fn takes_focus(mut self, takes: bool) -> Self {
+    self.takes_focus = takes;
+    self
+  }
+
+  /// Whether Tab goes through the overlay's elements right after its
+  /// anchor's, as with [`Self::takes_focus`], while the focus stays where it
+  /// is as the overlay opens: a hover card's links, a toggletip's, a teaching
+  /// tip that does not take the focus from what a person is doing. As it
+  /// closes with the focus inside it, the focus goes back to its anchor. Off
+  /// by default; [`Self::takes_focus`] does this and more.
+  pub fn tab_after_anchor(mut self, tab: bool) -> Self {
+    self.tab_after_anchor = tab;
+    self
+  }
+
+  /// A point of the window, in logical pixels, that the overlay stands at in
+  /// place of its anchor: where a secondary press or a long press was, for a
+  /// context menu. `None`, the default, places it by its anchor.
+  ///
+  /// It opens down and toward the end from the point, `offset` away from it,
+  /// and on the other side of the point along an axis where the window has no
+  /// room that way; then the collision strategy keeps it inside the window as
+  /// it does an anchored one. The placement is not used. The anchor is still
+  /// what it hangs from: a press on it is not outside it, the focus goes back
+  /// to it, and it is hidden while the anchor is out of view.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.at = point;
     self
   }
 
@@ -507,6 +597,10 @@ impl Overlay {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      on_dismiss: self.on_dismiss,
+      takes_focus: self.takes_focus,
+      tab_after_anchor: self.tab_after_anchor,
+      at: self.at,
     })
   }
 }
@@ -579,7 +673,6 @@ impl Timeout {
 
   /// The delay of the next start or restart; a running timeout keeps its
   /// fire time.
-  #[cfg(feature = "markdown")]
   pub(crate) fn set_duration(&self, duration: Duration) {
     self.timer.inner.lock().duration = duration;
   }
@@ -1635,6 +1728,12 @@ impl Ctx {
     self.current_form().bool_control(name).resolve()
   }
 
+  /// The control of a range slider's field, its low value and its high one, in the nearest form.
+  #[cfg(feature = "form")]
+  pub fn range_control(&mut self, name: impl Into<Arc<str>>) -> crate::components::ResolvedControl<(f64, f64)> {
+    self.current_form().range_control(name).resolve()
+  }
+
   #[cfg(feature = "form")]
   fn current_form(&mut self) -> crate::components::FormHandle {
     self
@@ -1988,6 +2087,23 @@ impl Ctx {
   }
 
   // --- Theme ---
+
+  /// Builds an element in `theme`: a dark side bar in a light window, a
+  /// dense inspector. The theme is that of everything `build` builds and
+  /// mounts, down to the paint: components take their recipes and their
+  /// sizes from it, and the element is laid out and painted with its
+  /// palette, its radii, its type and its shadows. The components mounted in
+  /// it keep the theme when they render again on their own, and what
+  /// rendered it renders again when the theme changes.
+  pub fn in_theme<E: Into<Element>>(&mut self, theme: &Theme, build: impl FnOnce(&mut Ctx) -> E) -> Element {
+    theme.track_access();
+    let outer = self.theme.replace(theme.clone());
+    // A builder becomes an element here, in the theme: a component that is returned unbuilt is built in it.
+    let mut element: Element = crate::ui::in_theme(theme, || build(self).into());
+    self.theme = outer;
+    element.node.set_theme_scope(theme);
+    element
+  }
 
   pub fn theme(&self) -> &Theme {
     let theme = self.theme.as_ref().expect("theme not set");
@@ -2747,6 +2863,10 @@ impl Ctx {
     }
     tracking::start_tracking();
     self.rendering = true;
+    // What the render builds is in the component's theme (`ui::current_theme`).
+    if let Some(theme) = &self.theme {
+      crate::ui::theme::enter_theme(theme.clone(), self.breakpoint.clone());
+    }
   }
 
   fn set_child_slot(&mut self, cursor: usize, slot: ChildSlot) {
@@ -2807,6 +2927,9 @@ impl Ctx {
     self.drop_unreached_future_slots();
     #[cfg(feature = "query")]
     self.query_slots.truncate(self.query_cursor);
+    if self.rendering && self.theme.is_some() {
+      crate::ui::theme::leave_theme();
+    }
     self.rendering = false;
     if let Some(previous) = self.previous_render_contexts.take()
       && self.context_map.has_same_entries(&previous)

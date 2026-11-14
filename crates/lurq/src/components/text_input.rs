@@ -181,6 +181,20 @@ impl TextInput {
     self
   }
 
+  /// Whether the input keeps what it shows while it has the focus, when a render binds it to another signal: the
+  /// text being typed is written into the new signal in place of what that signal held. For an input whose text is
+  /// made anew from a value in each render, as a number's is: a render while it is typed in, which the value's
+  /// change itself may cause, does not take back what is half typed (`1.`, `-`). Out of the focus it shows what its
+  /// signal holds. The input needs a key or an id, so that a render finds it again with another signal.
+  pub fn keep_text_while_focused(mut self, keeps: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_keeps_text_while_focused(keeps);
+      }
+    });
+    self
+  }
+
   /// The on-screen keyboard the input asks for: digits for a number, an `@` key for an email address. It
   /// changes nothing where there is no such keyboard.
   pub fn keyboard(mut self, keyboard: crate::node::node_kind::KeyboardKind) -> Self {

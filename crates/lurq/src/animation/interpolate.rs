@@ -40,6 +40,8 @@ pub enum AnimatableProperty {
   Outline,
   /// The node's box shadows (`Node::box_shadow`).
   BoxShadow,
+  /// The dashes of the node's border (`Border::dash`): the length of a dash and of the gap after it, as one value.
+  BorderDash,
 }
 
 macro_rules! property_accessors {
@@ -65,6 +67,24 @@ pub enum AnimatableValue {
   Outline(Option<ResolvedOutline>),
   /// A list of box shadows.
   Shadows(ShadowList),
+  /// A height of `px` and `content` times the height the element's content
+  /// gives it: what a height the content decides (no height, or `Auto`) is to
+  /// a transition, as `Fit { px: 0.0, content: 1.0 }`. A transition between it
+  /// and a height in pixels mixes the two, and the layout reads the content's
+  /// height as it lays the element out, so an element opens to, or closes
+  /// from, the height of what is in it.
+  Fit {
+    px: f32,
+    content: f32,
+  },
+  /// A width or a height of a share of the parent's, in percent: what `Dimension::Pct` is to a transition or a
+  /// keyframe. It moves to another share, as a bar filled to a value does; to and from pixels it changes at once.
+  Percent(f32),
+  /// The length of a border's dash and of the gap after it, in logical pixels: both 0 for a solid line.
+  Dash {
+    dash: f32,
+    gap: f32,
+  },
 }
 
 /// The box shadows of a node as one animated value: at most
@@ -181,6 +201,23 @@ impl AnimatableValue {
       (AnimatableValue::Transform(a), AnimatableValue::Transform(b)) => AnimatableValue::Transform(a.lerp(b, t)),
       (AnimatableValue::Outline(a), AnimatableValue::Outline(b)) => AnimatableValue::Outline(lerp_outline(*a, *b, t)),
       (AnimatableValue::Shadows(a), AnimatableValue::Shadows(b)) => AnimatableValue::Shadows(a.lerp(b, t)),
+      (AnimatableValue::Percent(a), AnimatableValue::Percent(b)) => AnimatableValue::Percent(a + (b - a) * t),
+      (AnimatableValue::Dash { dash: a, gap: a_gap }, AnimatableValue::Dash { dash: b, gap: b_gap }) => {
+        AnimatableValue::Dash {
+          dash: a + (b - a) * t,
+          gap: a_gap + (b_gap - a_gap) * t,
+        }
+      }
+      (
+        AnimatableValue::Float(_) | AnimatableValue::Fit { .. },
+        AnimatableValue::Float(_) | AnimatableValue::Fit { .. },
+      ) => {
+        let ((a_px, a_content), (b_px, b_content)) = (self.as_fit(), to.as_fit());
+        AnimatableValue::Fit {
+          px: a_px + (b_px - a_px) * t,
+          content: a_content + (b_content - a_content) * t,
+        }
+      }
       _ => {
         if t >= 0.5 {
           *to
@@ -188,6 +225,17 @@ impl AnimatableValue {
           *self
         }
       }
+    }
+  }
+}
+
+impl AnimatableValue {
+  /// A height in pixels or one the content decides as its pixels and its share of the content's height.
+  fn as_fit(&self) -> (f32, f32) {
+    match *self {
+      AnimatableValue::Float(px) => (px, 0.0),
+      AnimatableValue::Fit { px, content } => (px, content),
+      _ => (0.0, 0.0),
     }
   }
 }
@@ -289,6 +337,21 @@ pub(crate) fn read_target(
       .and_then(|b| b.color())
       .and_then(|color| color.resolve(&theme.palette))
       .map(AnimatableValue::Color),
+    // The dashes of the first side that has a border: a border dashed on every side is dashed alike.
+    AnimatableProperty::BorderDash => style
+      .border
+      .or_else(|| node.border.as_deref().cloned())
+      .and_then(|borders| borders.top.or(borders.right).or(borders.bottom).or(borders.left))
+      .map(|border| {
+        let [dash, gap] = match border.dash {
+          // As given, a gap of nothing too: a dash as long as the outline is a solid line that moves to a shorter
+          // dash as one dash, where its resolved lengths (none, for a solid line) would cut it into many.
+          Some(crate::node::border::BorderDash::Lengths { dash, gap }) => [dash, gap],
+          Some(dash) => dash.resolve(border.width.resolve(&theme.border_sizes)),
+          None => [0.0; 2],
+        };
+        AnimatableValue::Dash { dash, gap }
+      }),
     AnimatableProperty::BorderWidthTop => style
       .border
       .or_else(|| node.border.as_deref().cloned())
@@ -335,8 +398,9 @@ pub(crate) fn read_target(
       .map(AnimatableValue::Float),
     AnimatableProperty::OffsetX => read_offset_x(node).map(AnimatableValue::Float),
     AnimatableProperty::OffsetY => read_offset_y(node).map(AnimatableValue::Float),
-    AnimatableProperty::Width => read_target_frame_dim(node, &style, true).map(AnimatableValue::Float),
-    AnimatableProperty::Height => read_target_frame_dim(node, &style, false).map(AnimatableValue::Float),
+    AnimatableProperty::Width => read_target_frame_dim(node, &style, true),
+    // A height the content decides is one too, so that an element opens to it and closes from it.
+    AnimatableProperty::Height => Some(read_target_height(node, &style)),
     AnimatableProperty::Opacity => Some(AnimatableValue::Float(style.opacity.unwrap_or(node.opacity))),
     AnimatableProperty::Blur => Some(AnimatableValue::Float(node.blur)),
     AnimatableProperty::BackdropBlur => Some(AnimatableValue::Float(node.backdrop_blur)),
@@ -382,7 +446,25 @@ fn read_offset_y(node: &crate::node::Node) -> Option<f32> {
   node.offset.map(|offset| offset.y)
 }
 
-fn read_target_frame_dim(node: &crate::node::Node, style: &crate::node::style::Style, is_width: bool) -> Option<f32> {
+/// The height `node` is heading to: in pixels where it is given one, else the height of its content.
+fn read_target_height(node: &crate::node::Node, style: &crate::node::style::Style) -> AnimatableValue {
+  let height = match style.frame {
+    Some(overlay) => crate::node::node::merge_frame(node.frame, overlay).height,
+    None => node.frame.height,
+  };
+  match height {
+    None | Some(crate::node::dimension::Dimension::Auto) => AnimatableValue::Fit { px: 0.0, content: 1.0 },
+    Some(crate::node::dimension::Dimension::Pct(share)) => AnimatableValue::Percent(share),
+    Some(height) => AnimatableValue::Float(height.to_px()),
+  }
+}
+
+/// The width (or height) `node` is heading to: in pixels, or a share of its parent's.
+fn read_target_frame_dim(
+  node: &crate::node::Node,
+  style: &crate::node::style::Style,
+  is_width: bool,
+) -> Option<AnimatableValue> {
   let base = node.frame;
   if base == crate::layout::layout_kind::FrameConstraints::default() && style.frame.is_none() {
     return None;
@@ -391,11 +473,11 @@ fn read_target_frame_dim(node: &crate::node::Node, style: &crate::node::style::S
     Some(overlay) => crate::node::node::merge_frame(base, overlay),
     None => base,
   };
-  if is_width {
-    effective.width.map(|d| d.to_px())
-  } else {
-    effective.height.map(|d| d.to_px())
-  }
+  let dimension = if is_width { effective.width } else { effective.height };
+  dimension.map(|dimension| match dimension {
+    crate::node::dimension::Dimension::Pct(share) => AnimatableValue::Percent(share),
+    dimension => AnimatableValue::Float(dimension.to_px()),
+  })
 }
 
 #[cfg(test)]
@@ -417,6 +499,29 @@ mod tests {
     let a = AnimatableValue::Float(0.0);
     let b = AnimatableValue::Float(100.0);
     assert_eq!(a.lerp(&b, 0.75), AnimatableValue::Float(75.0));
+  }
+
+  #[test]
+  fn lerp_percent() {
+    let a = AnimatableValue::Percent(20.0);
+    let b = AnimatableValue::Percent(60.0);
+    assert_eq!(a.lerp(&b, 0.5), AnimatableValue::Percent(40.0));
+    // A share and pixels are not mixed: the value changes at once, halfway.
+    assert_eq!(a.lerp(&AnimatableValue::Float(10.0), 0.3), a);
+  }
+
+  #[test]
+  fn lerp_dash() {
+    let a = AnimatableValue::Dash { dash: 10.0, gap: 90.0 };
+    let b = AnimatableValue::Dash { dash: 70.0, gap: 30.0 };
+    assert_eq!(a.lerp(&b, 0.5), AnimatableValue::Dash { dash: 40.0, gap: 60.0 });
+    assert_eq!(a.lerp(&b, 0.0), a);
+    assert_eq!(a.lerp(&b, 1.0), b);
+    // The sum stays: a dash cut to fit an outline stays one dash of it on the way.
+    let AnimatableValue::Dash { dash, gap } = a.lerp(&b, 0.3) else {
+      panic!("a dash")
+    };
+    assert!((dash + gap - 100.0).abs() < 1e-4);
   }
 
   #[test]

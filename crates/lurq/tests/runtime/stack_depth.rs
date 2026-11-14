@@ -61,7 +61,7 @@ impl Component for Level {
       .spacing(SpacingSize::Sm)
       .align_items(Alignment::Center)
       .padding_horizontal(SpacingSize::Md)
-      .background(PaletteColor::SurfacePanel)
+      .background(PaletteColor::Canvas)
       .child(Rect::new(12.0, 12.0).corner_radius(RadiusSize::Sm))
       .child(
         Text::new(&format!(
@@ -69,7 +69,7 @@ impl Component for Level {
           props.depth, props.tick
         ))
         .variant(TypographyStyle::Caption)
-        .color(PaletteColor::TextMuted)
+        .color(PaletteColor::MutedForeground)
         .nowrap(),
       )
       .child(Spacer::new().flex(1.0))
@@ -77,7 +77,7 @@ impl Component for Level {
         Button::new("Action")
           .padding_horizontal(SpacingSize::Sm)
           .corner_radius(RadiusSize::Md)
-          .hovered(|style| style.background(PaletteColor::SurfaceInput))
+          .hovered(|style| style.background(PaletteColor::Background))
           .on_mouse_enter(move || hovered.set(true)),
       );
     let panels = Row::new()
@@ -105,7 +105,7 @@ fn panel_column(depth: u32, panel: u32) -> Element {
     .spacing(SpacingSize::Xs)
     .padding(SpacingSize::Sm)
     .corner_radius(RadiusSize::Sm)
-    .background(PaletteColor::SurfaceRaised)
+    .background(PaletteColor::Card)
     .with_children((0..3).map(|row| {
       Row::new()
         .spacing(SpacingSize::Xs)

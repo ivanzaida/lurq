@@ -247,11 +247,11 @@ fn main() {
     );
   }
   // A palette for each appearance: the theme is in the system's, and the System screen shows it.
-  let mut dark = ThemePalette::default();
+  let mut dark = ThemePalette::dark();
   for (role, color) in [
-    (PaletteColor::SurfaceBase, "#1c1c1e"),
+    (PaletteColor::Background, "#1c1c1e"),
     (PaletteColor::Border, "#38383a"),
-    (PaletteColor::TextPrimary, "#ffffff"),
+    (PaletteColor::Foreground, "#ffffff"),
   ] {
     dark.set(role, Color::from_hex(color));
   }

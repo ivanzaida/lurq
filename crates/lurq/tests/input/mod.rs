@@ -69,6 +69,7 @@ mod forms {
   mod form_data;
   mod logical_wrapper;
   mod prefill;
+  mod range_slider;
   mod rerender;
   mod state;
   mod submit_button;
@@ -81,9 +82,12 @@ mod slider {
   mod clamps_min_max;
   mod drag_updates_value;
   mod keyboard_update;
+  mod keys;
+  mod range;
   mod renders_thumb;
   mod suppresses_parent_click;
   mod updates_from_click;
+  mod vertical;
 }
 
 mod pointer {
@@ -96,5 +100,6 @@ mod disabled;
 mod focus_on_press;
 mod focus_visible;
 mod focused_style;
+mod interaction_group;
 mod scroll_into_view;
 mod tab_order;

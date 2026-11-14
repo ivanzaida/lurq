@@ -69,14 +69,18 @@ Row::new()
   .foreground("#fafafa")
   .child(Text::new("Inbox"))
   .child(Text::new("Unread"))
-  .child(Text::new("12").color(PaletteColor::TextMuted))
+  .child(Text::new("12").color(PaletteColor::MutedForeground))
 ```
 
 - The color is a concrete color or a `PaletteColor`, which follows the theme.
-- A text's own color wins: `Text::color(...)`, and the color of the style given to `Text::styled(...)`.
+- A text's own color wins: `Text::color(...)`, and the color of the style given to `Text::styled(...)`. A style
+  that keeps the default text color names none: its text takes the foreground like a text with no style.
 - A text with a typography variant and no color of its own takes the foreground in place of the variant's color.
 - With no foreground above it a text keeps its typography style's color, and where that is the default text color,
   the theme's foreground: see [The theme's foreground](#the-themes-foreground).
+- A fill can be the foreground too: `.background(BackgroundColor::CurrentForeground)` paints an element in the color
+  a text there would have, its own foreground, the nearest one above it, or the theme's. A mark that is a fill, a dot
+  or a bar, goes with the text around it so. It runs no transition of the background.
 - `.foreground(...)` on a `Text` sets the color of that text.
 - A `TextInput` and Markdown draw in their own styles and do not read it.
 - The content of an overlay (a popup, a modal, a select's menu) is painted outside the element that declares it and
@@ -85,8 +89,9 @@ Row::new()
 
 ### The theme's foreground
 
-`PaletteColor::Foreground` is the color of text that names none. It is black by default, the color of
-`TextStyle::default()`, so a theme that never sets it draws text as it always did.
+`PaletteColor::Foreground` is the color of text that names none: the design's near-black in the light palette and
+its near-white in the dark one. In the [legacy theme](../theme/#themes-as-one-value) it is black, the color of
+`TextStyle::default()`, which text had before the role.
 
 ```rust
 // Light text for a dark theme: every text that names no color follows.
@@ -241,7 +246,7 @@ Gradient::linear(90.0, ["#f00", "#0f0", "#00f"]);
 // Explicit positions and a palette color (lurq::app::theme::PaletteColor).
 Gradient::linear(90.0, [
   GradientStop::at("#000", 0.0),
-  GradientStop::at(PaletteColor::Accent, 0.4),
+  GradientStop::at(PaletteColor::Primary, 0.4),
   GradientStop::at("#fff", 1.0),
 ]);
 ```
@@ -327,7 +332,7 @@ use lurq::{
 
 Button::new("Save")
   .rounded(6.0)
-  .focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::BorderFocus).offset(2.0)))
+  .focus_visible(|style| style.outline(Outline::new(2.0, PaletteColor::Ring).offset(2.0)))
 ```
 
 - The width is logical pixels or a `BorderSize` role; the color is a concrete color or a `PaletteColor`.
@@ -380,7 +385,8 @@ A state style can also set:
 - `.outline(outline)`: an [outline](#outline) while the state holds, typically a focus ring in `focus_visible`.
 
 These three change painting only. Where several state styles set the same value, the one applied last wins: the
-[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused.
+[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused, and last the style
+[within an interaction group](#within-an-interaction-group).
 
 ```rust
 use lurq::{components::{Row, Text}, node::Outline};
@@ -391,7 +397,7 @@ Row::new()
   .padding_vertical(8.0)
   .rounded(6.0)
   .foreground("#18181b")
-  .hovered(|style| style.background("#e4e4e9").foreground("#09090b"))
+  .hovered(|style| style.background("#d9d9e0").foreground("#09090b"))
   .active(|style| style.opacity(0.8))
   .focus_visible(|style| style.outline(Outline::new(2.0, "#71717a").offset(2.0)))
   .child(Text::new("Cancel"))
@@ -407,6 +413,42 @@ let hovered = interaction.is_hovered();
 ```
 
 Attach the state to an element with `.interactive(interaction)` if you need to observe that element's state from component code.
+
+### Within An Interaction Group
+
+`.interaction_group(true)` makes an element a group: while the pointer is on it, or the focus is on it or in it, the
+elements in it show their `.within_style(style)`. An action at the end of a row that shows only while the row is
+pointed at or focused is a style within the row's group.
+
+```rust
+use lurq::{
+  components::{Button, Row, Text},
+  node::Style,
+};
+
+// The delete button shows while the pointer is on the row or the focus is in it.
+Row::new()
+  .padding_horizontal(12.0)
+  .interaction_group(true)
+  .hovered(|style| style.background("#f4f4f5"))
+  .child(Text::new("report.pdf"))
+  .child(
+    Button::new("Delete")
+      .tab_index(0)
+      .opacity(0.0)
+      .within_style(Style::new().opacity(1.0)),
+  )
+```
+
+- The pointer anywhere on the group lights it, on an element in it as well as between them. The focus on the group or
+  on anything in it lights it too, so a keyboard reaches the action and sees it.
+- An element in two groups answers to the innermost: a group inside another lights only what is in it, and the outer
+  one lights the rest.
+- It paints only, as the disabled style does: a frame, padding or flex in it is ignored, so nothing moves as it comes and
+  goes. It is laid under every other state style.
+- An element hidden by it (opacity 0) is still under the pointer and still a stop of Tab; with the pointer on it, its
+  group is lit and it shows. A design system's recipe names it `within` (see
+  [Recipes](../design-system/#recipes)).
 
 ## Disabled
 
@@ -432,6 +474,9 @@ Row::new()
   in, as with a disabled control on the web: a clickable card is not clicked through its disabled button. A press on it
   leaves focus where it is.
 - A pointer that moves over it still reaches the elements it is in: a row stays hovered over its disabled button.
+- It still hears the pointer come and go: its `on_mouse_enter` and `on_mouse_leave` run as the pointer comes onto it
+  and leaves it, so a tooltip can say why it is disabled. Nothing else of the pointer reaches it: it is not hovered and
+  its hovered style is not drawn.
 - Scrolling is not input to a control, so it works as if nothing were disabled: a wheel or a finger over a disabled
   element scrolls the containers the element is in and the scroll containers inside it, and their scrollbars can be
   dragged, so what a disabled panel holds can be read to its end. Scroll handlers (`on_scroll`) of the disabled element
@@ -890,7 +935,7 @@ let gain = lurq::core::Signal::new(0.5_f32);
 lurq::components::Slider::new_f32(gain).range_f32(0.0, 1.0).step(0.05);
 ```
 
-The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
+The slider frame still accepts normal modifiers like `.width()`, `.height()`, `.cursor()`, and `.focused()`. Track and thumb visuals are styled separately with `SliderPartStyle`; a part's style can have an `.outline(Outline)`, a ring around the part that changes no size; `.thumb_focused(...)` styles the thumb while the slider has keyboard focus ([focus-visible](../focus-navigation/#focus-visible): Tab or a key press, not a click or drag) and changes paint only.
 
 ```rust
 use lurq::{components::Slider, core::Signal, node::color::Color};
@@ -955,6 +1000,44 @@ Slider::new(value)
   .thumb(|style| style.background_image("ui/slider-thumb.png").background_cover())
 ```
 
+#### Vertical And Range Sliders
+
+`.orientation(SliderOrientation::Vertical)` (or `.vertical()`) runs the track up the slider: the least value is at the bottom, a drag goes along the height, and the up and down arrows move it as the right and left ones do. The parts are laid along the height, so a vertical track's style gives its thickness as `width` and leaves `height` to the slider's, and a fill's `width` is its thickness. An unsized vertical slider asks for 20 by 120.
+
+```rust
+use lurq::{components::Slider, core::Signal, node::SliderOrientation};
+
+let level = Signal::new(60);
+
+Slider::new(level)
+  .range(0, 100)
+  .orientation(SliderOrientation::Vertical)
+  .height(160.0)
+  .track(|style| style.width(4.0).background("#334155"))
+  .fill(|style| style.background("#f97316"))
+  .thumb(|style| style.size(14.0, 14.0).background("#f8fafc"));
+```
+
+`Slider::new_range(Signal<(i32, i32)>)` and `Slider::new_range_f32(Signal<(f32, f32)>)` put two thumbs on one track, bound to a low value and a high one, with the fill between them. A press on the track moves the nearer thumb there (of two at one place, the one on the side of the press), a drag moves the thumb it began on to its end, and neither thumb passes the other: the low one stops at the high one's value. Each thumb is a stop of Tab, the low one first going forward and the high one first going back, and the keys move the focused thumb, which alone takes the `thumb_focused` style. Both thumbs take the same `thumb` style. A range slider can be vertical too.
+
+```rust
+let price = lurq::core::Signal::new((20, 80));
+lurq::components::Slider::new_range(price).range(0, 100).step(5);
+```
+
+#### Slider Keys
+
+| Key | |
+| --- | --- |
+| Right, Up | One step toward the greatest value |
+| Left, Down | One step toward the least |
+| Page Up, Page Down | A tenth of the range, in whole steps and at least one step, as a browser's range input pages |
+| Home, End | To the least value, to the greatest |
+
+The keys are the same for a vertical slider, and for the focused thumb of a range slider, which stops at the other thumb's value. A disabled slider is not a stop of Tab and takes no key.
+
+In a form a range slider submits two entries under its name, its low value and then its high one. `SliderHandle::values()` reads both values, `value()` the low one, and `set_from_ratio` moves the thumb nearer the ratio, as a press does.
+
 ### Select
 
 `Select::new` binds a `Signal<T>` for one value and `Select::multiple` a `Signal<Vec<T>>`. Options are `(value, label)` tuples or `SelectOption`s, which add a detail line under the label, an element before or after the label, and a disabled state:
@@ -994,12 +1077,24 @@ SelectOption::new(Connection::Claude, "Claude Code")
 ```rust
 SelectOption::new(Connection::Codex, "Codex").leading_with(|state| {
   // The label's colour in this state, when the style sets one.
-  let color = state.text_color.clone().unwrap_or(PaletteColor::TextPrimary.into());
+  let color = state.text_color.clone().unwrap_or(PaletteColor::Foreground.into());
   mark(CODEX_MARK, color)
 })
 ```
 
 The builder receives a `SelectAdornmentState`: `selected`, `highlighted` (the keyboard highlight) and `disabled` for the option, `in_field` when the element is built for the closed field instead of a menu row, and `text_color`, the `text_color` of the row's resolved part (`option` with its state parts merged, or the trigger part on the field; `None` when the part sets none). The pointer hover is not a state: as for the label, it repaints the row's fill, border and shadow without rebuilding it.
+
+`group(label)` starts a group of options at the option: the menu draws a separator above it, unless it is the first row, and the label over it, unless the label is empty; the options after it are in the group until another starts one. The separator and the label are rows of the menu, not options, so the keys, type-ahead and the pointer pass them by. `hint(text)` is a short note at the end of an option's row, after its trailing element ("beta", "soon"); the closed field does not show it:
+
+```rust
+Select::new(platform.clone()).options([
+  SelectOption::new(Platform::Windows, "Windows").group("Desktop"),
+  SelectOption::new(Platform::Linux, "Linux"),
+  SelectOption::new(Platform::Ios, "iOS").group("Mobile").hint("beta"),
+])
+```
+
+`SelectStyle::group_label(part)` styles a group's label row (padding, fill, text and color), `separator(part)` the line between groups (its `background` is the line's color, its `min_height` the thickness, 1 unset, its `padding` the room around it), and `option_hint(part)` the hint's text.
 
 A pointer press on the trigger opens the menu without a highlight. On the focused select:
 
@@ -1025,16 +1120,16 @@ use lurq::{
 
 // "icon" is an app typography role that selects the icon font at 14 px.
 let icon = |glyph: &str| SelectIcon::glyph(glyph, TypographyStyle::extra("icon"));
-let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::BorderFocus).spread(1.0).inset();
+let ring = BoxShadow::new(0.0, 0.0, 0.0, PaletteColor::Ring).spread(1.0).inset();
 
 SelectStyle::new()
-  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::BorderFocus))
+  .trigger_open(SelectPartStyle::new().border_inside(1.0, PaletteColor::Ring))
   .chevron(icon("\u{e06d}"))
   .chevron_open(icon("\u{e070}"))
-  .chevron_color(PaletteColor::TextMuted)
+  .chevron_color(PaletteColor::MutedForeground)
   .menu(
     SelectPartStyle::new()
-      .background(PaletteColor::SurfaceRaised)
+      .background(PaletteColor::Card)
       .border_inside(1.0, PaletteColor::Border)
       .rounded(11.0)
       .padding(Padding::all(4.0))
@@ -1048,24 +1143,25 @@ SelectStyle::new()
       .rounded(7.0)
       .typography(TypographyStyle::Body),
   )
-  .option_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_hovered(SelectPartStyle::new().background(PaletteColor::Canvas))
   .option_selected(SelectPartStyle::new())
-  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::SurfacePanel))
+  .option_selected_hovered(SelectPartStyle::new().background(PaletteColor::Canvas))
   .option_highlighted(SelectPartStyle::new().box_shadow(ring))
-  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::TextMuted))
+  .option_disabled(SelectPartStyle::new().text_color(PaletteColor::MutedForeground))
   .single_checkmark(true)
   .checkmark(icon("\u{e06c}"))
   .checkmark_size(14.0)
   .checkmark_position(SelectCheckmarkPosition::Trailing)
-  .checkmark_color(PaletteColor::Accent)
+  .checkmark_color(PaletteColor::Primary)
 ```
 
 - An option row merges `option`, then `option_selected`, the pointer hover (`option_hovered`), the keyboard highlight, `option_selected_hovered`, the highlighted-and-selected part, and `option_disabled` last. Without `option_highlighted`, the keyboard highlight looks like the hover (`option_hovered`, `option_selected_hovered`). With it, the highlight has its own look, such as an inset ring from an inset `box_shadow`, which composes with the hover fill; `option_selected_highlighted` then styles a highlighted selected option. The pointer hover changes a row's fill, border and shadow.
-- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
+- `SelectPartStyle` has `background`, borders, `rounded`, `padding`, `min_width`, `min_height`, `box_shadow`, `opacity` (menu and options), `outline` (a ring the trigger paints over itself, at a negative offset inside its edge: `trigger_focused` and `trigger_open` can be a focus ring), and text as a `typography` role, an explicit `text` style and a `text_color`. The default `option_disabled` is `opacity(0.45)`. `option_detail` styles detail lines; the default is `Caption` in `TextMuted`.
+- `trigger_gap` (a number or a spacing role, default 8) is the room between the default trigger's label and its chevron.
 - The menu opens below the trigger at the trigger's width, `menu_gap` (default 4) away, or above it when there is no room below. `min_menu_width(260.0)` lets a menu grow wider than a narrow trigger; it is still capped by the viewport width and repositioned to fit. `max_menu_height` (default 240) limits its height; the options scroll inside. `menu_scrollbar` replaces the theme scrollbar; its insets are measured from the menu's outer bounds, border included (see [Scroll](#scroll) for `edge_inset`/`end_inset`). The menu's padding insets the options and scrolls with them.
 - Option rows are at least 34 px tall unless the option part sets `min_height`. The default option part pads labels by 10 px horizontally, like the trigger.
 - The chevron defaults to the glyph `▾` at `chevron_size` (default 10) in the trigger's text style. `chevron` replaces it with a `SelectIcon`: `SelectIcon::text` (a glyph in the part's explicit text style), `SelectIcon::glyph` (a glyph in a typography role, such as an icon font) or `SelectIcon::element` (an app-built element; the supplier receives the configured colour). `chevron_open` is drawn instead while the menu is open.
-- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
+- Multi-select marks chosen options with a checkmark. `single_checkmark(true)` also shows it on a single-select's selected option. It is off by default: a single-select marks its selection with `option_selected` only. When checkmarks are shown before the label, or in a multi-select, every option reserves the checkmark slot (`checkmark_size`, default 16 wide), so labels do not shift; a single-select's trailing checkmark takes its room on the selected row only, so the other rows' labels and trailing elements run to the row's end. `checkmark_position` puts the slot before or after the label, `checkmark_gap` (default 6) separates them, and `checkmark` replaces the `✓` glyph with a `SelectIcon`.
 - `Select::trigger(|state| ...)` replaces the trigger content. It receives the label, placeholder and selection, and a single-select's selected option's `leading` and `trailing` elements.
 - The trigger's fill is its part's `background`: the theme's `SurfaceInput` in the default `SelectStyle`. A trigger part without a `background`, as in `SelectStyle::unstyled()` or a part passed to `.trigger(...)` that sets none, paints no fill, like a button or text input without a background, so an app that styles the trigger itself (or puts it on a surface of its own) sees that surface. Its border, radius and shadows still paint. `Tree::painted_quads()` shows the fill in tests (see [Testing](../testing/#painted-output-without-a-window)).
 
@@ -1141,6 +1237,34 @@ DragContainer::mount(
 `DragContainerProps::new()` bounds descendant draggables to the container surface. Use `DragBounds::None` when the draggable should not be constrained.
 
 Low-level node drag handlers are also available: `.on_drag_start`, `.on_drag_move`, `.on_drag_end`, and `.on_drop`.
+
+### A Drag Holds The Pointer
+
+A press on an element with `on_drag_*` handlers starts a drag that holds the pointer until the button is let go, as a pointer capture does in a browser:
+
+- Every move reaches `on_drag_move`, wherever the pointer is: over other elements, and out of the window too, where the shell goes on passing the moves of a held button. `DragEvent::total_delta_x` and `total_delta_y` count from where the press was.
+- Nothing is hovered meanwhile and no text is selected by the move.
+- The window shows the cursor that was under the pointer at the press for the whole drag (`Tree::cursor`), over elements with cursors of their own and out of the window, until the release; then it is that of what is under the pointer again.
+- A drag that moved clicks nothing when it is let go. `.start_drag_buttons(MouseButtonMask::LEFT)` keeps the other buttons from starting one.
+
+A divider that resizes what is beside it needs nothing more than its handlers and its cursor:
+
+```rust
+use lurq::{
+  app::events::{DragEvent, MouseButtonMask},
+  components::Row,
+  node::CursorIcon,
+};
+
+Row::new()
+  .width(6.0)
+  .cursor(CursorIcon::ColResize) // shown for the whole drag, whatever the pointer crosses
+  .start_drag_buttons(MouseButtonMask::LEFT)
+  .on_drag_move(move |event: DragEvent| resize_by(event.total_delta_x))
+  .on_drag_end(move |_: DragEvent| save_layout());
+```
+
+`ui::Splitter` is such a divider between panes, with the keys, panes that close and a layout the app saves.
 
 ## File Drag And Drop
 

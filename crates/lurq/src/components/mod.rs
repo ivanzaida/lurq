@@ -66,9 +66,9 @@ pub(crate) use form::FormContext;
 pub use form::{
   Control, ControlOptions, ControlState, ErrorVisibility, Form, FormCheckboxInput, FormCheckboxInputProps,
   FormControlField, FormData, FormErrors, FormField, FormFieldProps, FormHandle, FormOptions, FormPrimaryButton,
-  FormPrimaryButtonProps, FormProps, FormSecondaryButton, FormSecondaryButtonProps, FormSliderInput,
-  FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue, FormValues, ResolvedControl, ValidationResult,
-  validators,
+  FormPrimaryButtonProps, FormProps, FormRangeSliderInput, FormRangeSliderInputProps, FormSecondaryButton,
+  FormSecondaryButtonProps, FormSliderInput, FormSliderInputProps, FormTextInput, FormTextInputProps, FormValue,
+  FormValues, ResolvedControl, ValidationResult, validators,
 };
 #[cfg(all(feature = "raster", feature = "wgpu"))]
 pub use gpu_viewport::GpuViewport;
@@ -88,8 +88,10 @@ pub use refresh::{ActivityIndicator, ActivityIndicatorProps, PullToRefresh, Pull
 pub use router_component::{Router, RouterProps};
 pub use row::Row;
 pub use scroll::{ScrollBoth, ScrollHorizontal, ScrollVertical};
-pub use select::{Select, SelectOption};
-pub use sheet::{Sheet, SheetDetent, SheetHost, SheetHostProps, SheetHostStyle, SheetProps, SheetStyle};
+pub use select::{Select, SelectOption, SelectTriggerState};
+pub use sheet::{
+  Sheet, SheetDetent, SheetDress, SheetHost, SheetHostProps, SheetHostStyle, SheetNode, SheetProps, SheetStyle,
+};
 pub use slider::Slider;
 pub use slot::Slot;
 pub use spacer::Spacer;
@@ -110,8 +112,8 @@ pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowProps, SwipeRowStyle};
 pub use tabs::{TabBar, TabBarBuilder, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs};
 pub use text::{Text, TextOverflow};
 pub use text_input::{ContentKind, KeyboardKind, ReturnKey, TextInput, TextInputOverflow, TextInputOverflowAnchor};
-pub use text_input_controller::{InputEditError, InputSelection, TextInputController};
-pub use text_input_tokens::{InputToken, InputTokenError, InputTokenStyle, InputTokens};
+pub use text_input_controller::{InputCaretPoint, InputEditError, InputSelection, TextInputController};
+pub use text_input_tokens::{InputToken, InputTokenError, InputTokenIcon, InputTokenStyle, InputTokens};
 #[cfg(feature = "raster")]
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;
@@ -161,6 +163,13 @@ macro_rules! impl_into_node {
       pub fn key(mut self, key: impl Into<std::sync::Arc<str>>) -> Self {
         let key = key.into();
         self.update_node(|node| node.set_component_key(Some(&key)));
+        self
+      }
+
+      /// Gives the element the style of a part of a themed component: what a
+      /// renderer of `lurq::ui` builds a component's nodes with.
+      pub fn part(mut self, part: &$crate::ui::ResolvedPart) -> Self {
+        self.update_node(|node| part.apply(node));
         self
       }
 
@@ -338,6 +347,14 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Moves the element by shares of its own width and height, once it is laid out, on top of
+      /// `offset`: `.offset_by_size(-0.5, -0.5)` puts its middle where its top left corner was, whatever
+      /// its size turns out to be. The room it takes in its parent stays where it was.
+      pub fn offset_by_size(mut self, x: f32, y: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::offset_by_size(node, x, y));
+        self
+      }
+
       pub fn relative(mut self, x: f32, y: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::relative(node, x, y));
         self
@@ -443,6 +460,20 @@ macro_rules! impl_into_node {
       /// negative or NaN `size` counts as 0.
       pub fn shrink_drop_below(mut self, size: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::shrink_drop_below(node, size));
+        self
+      }
+
+      /// Makes this child of a single-line `Row`/`Column` the one that stands
+      /// for what the line dropped
+      /// ([`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop)):
+      /// it takes its room only while another child of the line is dropped,
+      /// and is dropped itself while none is. The More button at the end of a
+      /// toolbar, which opens a menu of the controls that did not fit. The line
+      /// gives way as it would without it, and when that drops a child, gives
+      /// way again with its room taken: what fits beside it stays, the rest
+      /// drops. It does not shrink; one marker to a line.
+      pub fn drop_marker(mut self, marker: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drop_marker(node, marker));
         self
       }
 
@@ -625,6 +656,22 @@ macro_rules! impl_into_node {
       /// Builder form of `disabled_style`.
       pub fn when_disabled(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::when_disabled(node, f));
+        self
+      }
+
+      /// Merged over the element's style, under every other state style, while the
+      /// [interaction group](Self::interaction_group) it is in is under the pointer or holds the focus: an action
+      /// at the end of a row shown only then. It changes painting only.
+      pub fn within_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_style(node, style));
+        self
+      }
+
+      /// Whether the element is an interaction group: while the pointer is on it, or the focus is on it or in
+      /// it, the elements in it show their [`within_style`](Self::within_style). An element in two groups answers
+      /// to the innermost.
+      pub fn interaction_group(mut self, group: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::interaction_group(node, group));
         self
       }
 
@@ -1100,6 +1147,26 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// A click of the element focuses `target`: the first element that takes the focus under the one the ref is
+      /// on, as `Ctx::focus` finds it. What a label does for its control. A click on
+      /// something under the element that takes the focus itself focuses that instead, and a disabled target is
+      /// not focused. A button given one gives the focus on when it is pressed, by a click or by the keyboard: a
+      /// link to a field.
+      pub fn focuses(mut self, target: &$crate::core::ElementRef) -> Self {
+        let target = target.clone();
+        self.update_node(|node| node.events.focuses = Some(target));
+        self
+      }
+
+      /// Whether a press of the element repeats while it is held, as the buttons that step a number do: the
+      /// press of the primary button runs the element's `on_click` handlers at once, and again while the button
+      /// stays down over the element, first after 400 ms and then every 50 ms. The release clicks nothing more,
+      /// and what the element `focuses` is focused at the press. Enter and Space on a focused one click it once.
+      pub fn repeat_press(mut self, repeats: bool) -> Self {
+        self.update_node(|node| node.events.press_repeats = repeats);
+        self
+      }
+
       pub fn interactive(mut self, state: $crate::node::interaction_state::InteractionState) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::interactive(node, state));
         self
@@ -1115,6 +1182,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Takes the element and everything in it out of the focus and the pointer, while it is still painted: Tab
+      /// and a focus group's arrows pass it by, no focus request reaches it, no press, hover or drop reaches it
+      /// (what is under it gets them), and the focus in it leaves when it becomes inert, to the next stop of the
+      /// focus group it was in or to nothing. A splitter's closed pane, a panel on its way out. An element ref
+      /// makes it so with no render: `ElementRefMut::set_inert`.
+      pub fn inert(mut self, inert: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::inert(node, inert));
+        self
+      }
+
       /// HTML `tabindex`. Inside a form, controls are in the Tab order
       /// without one; outside a form, only elements with `tab_index(0)` or
       /// higher are. Positive values come first in ascending order, then `0`
@@ -1123,6 +1200,81 @@ macro_rules! impl_into_node {
       /// index makes the element focusable unless it is `focusable(false)`.
       pub fn tab_index(mut self, tab_index: i32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::tab_index(node, tab_index));
+        self
+      }
+
+      /// Makes the element a group the arrow keys move the focus within,
+      /// while the focus is on something in it: see
+      /// [`FocusGroup`]($crate::node::FocusGroup).
+      pub fn focus_group(mut self, group: $crate::node::FocusGroup) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_group(node, group));
+        self
+      }
+
+      /// Marks the element as where Tab enters the one-stop
+      /// [`FocusGroup`]($crate::node::FocusGroup) it is in: the chosen radio,
+      /// the chosen segment. Without one Tab enters at the first.
+      pub fn focus_entry(mut self, entry: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_entry(node, entry));
+        self
+      }
+
+      /// Whether Tab also stops at what takes the focus inside this element where it is a button, after the
+      /// button itself: a card pressed as a whole with buttons of its own in it. Off, a button's content is
+      /// part of the button.
+      pub fn stops_inside(mut self, stops: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::stops_inside(node, stops));
+        self
+      }
+
+      /// Whether the focus goes to this element as the modal or the overlay that takes the focus it is in
+      /// opens, in place of its first stop of Tab: the default button of a message box. It is a stop of Tab
+      /// as it was, in its place.
+      pub fn autofocus(mut self, autofocus: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::autofocus(node, autofocus));
+        self
+      }
+
+      /// What typing a letter in a [`FocusGroup`]($crate::node::FocusGroup)
+      /// with typeahead matches the element by: a menu item's label, where
+      /// its text is not only that.
+      pub fn focus_label(mut self, label: impl Into<std::sync::Arc<str>>) -> Self {
+        let label = label.into();
+        self.update_node(|node| $crate::node::NodeUpdate::focus_label(node, label));
+        self
+      }
+
+      /// The level the element is at in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup): 1 at the top, 2 in an
+      /// element at the top, and so on. Left goes from it to the nearest
+      /// element before it at a lower level.
+      pub fn focus_level(mut self, level: u32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_level(node, level));
+        self
+      }
+
+      /// That the element opens and closes in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup), and whether it is open:
+      /// Right, Left and `*` call `toggle` with what it is to be. What it
+      /// holds is the elements after it at a higher level, there while it is
+      /// open.
+      pub fn focus_expanded(mut self, open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        let toggle: std::sync::Arc<dyn Fn(bool) + Send + Sync> = std::sync::Arc::new(toggle);
+        self.update_node(|node| $crate::node::NodeUpdate::focus_expanded(node, open, toggle));
+        self
+      }
+
+      /// Which row of the [`FocusRows`]($crate::node::FocusRows) of its focus group the element is: the group
+      /// steps over the rows, and focuses the element of the row it steps to.
+      pub fn focus_row(mut self, row: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_row(node, row));
+        self
+      }
+
+      /// The rows the [`FocusGroup`]($crate::node::FocusGroup) of this element steps over, where a list builds
+      /// only some of them: see [`FocusRows`]($crate::node::FocusRows).
+      pub fn focus_rows(mut self, rows: std::sync::Arc<dyn $crate::node::FocusRows>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_rows(node, rows));
         self
       }
 
@@ -1139,6 +1291,16 @@ macro_rules! impl_into_node {
 
       pub fn overflow_visible(mut self) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::overflow_visible(node));
+        self
+      }
+
+      /// Lays the element and what is in it out, and paints them, with
+      /// `theme` in place of the window's: its palette, its radii, its type,
+      /// its shadows. A dark panel in a light window. Components built
+      /// inside take their recipes from the theme they are built in: see
+      /// [`Ctx::in_theme`]($crate::app::ctx::Ctx::in_theme), which does both.
+      pub fn theme(mut self, theme: &$crate::app::theme::Theme) -> Self {
+        self.update_node(|node| node.set_theme_scope(theme));
         self
       }
 

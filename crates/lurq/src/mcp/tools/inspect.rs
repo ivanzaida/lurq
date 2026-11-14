@@ -4,7 +4,9 @@ use super::{
   canvas_items,
   interact::interact_tool,
   resolve::{ResolvedRef, find_node, hits_node, locate_node, ref_bounds},
-  semantics::{can_hover, can_invoke, inspection_attrs, semantic_actions, semantic_name, semantic_role},
+  semantics::{
+    can_hover, can_invoke, inspection_attrs, semantic_actions, semantic_description, semantic_name, semantic_role,
+  },
   windows::{requested_window, window_tree_mut},
 };
 use crate::{
@@ -87,6 +89,36 @@ pub(super) fn semantic_state(node: &Node) -> serde_json::Value {
   if node.style_state.is_focus_visible() {
     state.insert("focus_visible".into(), serde_json::json!(true));
   }
+  // A control drawn of plain nodes (a design system's checkbox, radio or switch) says whether it is checked.
+  if let Some((_, checked)) = node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| key.as_ref() == "a11y_checked")
+  {
+    let checked = match checked.as_ref() {
+      "true" => serde_json::json!(true),
+      "false" => serde_json::json!(false),
+      // "mixed": some of what it stands for is checked.
+      other => serde_json::json!(other),
+    };
+    state.insert("checked".into(), checked);
+  }
+  // A tab of the design system says whether it is the selected one.
+  if let Some((_, selected)) = node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| key.as_ref() == "a11y_selected")
+  {
+    state.insert("selected".into(), serde_json::json!(selected.as_ref() == "true"));
+  }
+  // A chip of the design system, a button that stays pressed, says whether it is.
+  if let Some((_, pressed)) = node
+    .debug_attrs()
+    .iter()
+    .find(|(key, _)| key.as_ref() == "a11y_pressed")
+  {
+    state.insert("pressed".into(), serde_json::json!(pressed.as_ref() == "true"));
+  }
   match node.node_kind() {
     NodeKind::TextInput { state: input, .. } if input.is_masked() => {
       state.insert("value".into(), serde_json::json!(input.caret_source_text()));
@@ -168,6 +200,9 @@ pub(super) fn inspect_node(
     "actions": actions,
     "bounds": bounds,
   });
+  if let Some(description) = semantic_description(node) {
+    value["description"] = serde_json::json!(description);
+  }
   if !classes.is_empty() {
     value["classes"] = serde_json::json!(classes);
   }

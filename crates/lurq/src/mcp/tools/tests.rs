@@ -455,3 +455,66 @@ fn scroll_to_through_nested_scroll_containers_lands_the_element_in_view() {
     inner.scroll_y()
   );
 }
+
+#[test]
+fn set_value_takes_two_numbers_for_a_range_slider_and_one_for_its_nearer_thumb() {
+  use crate::{
+    components::{Column, Slider},
+    core::Signal,
+  };
+  let price = Signal::new((20, 80));
+  let volume = Signal::new(40);
+  let mut tree = Tree::new();
+  let mut app = App::new();
+  let state = state();
+  tree.set_root(
+    Column::new()
+      .child(Slider::new_range(price.clone()).range(0, 100).step(5.0).id("price"))
+      .child(Slider::new(volume.clone()).range(0, 100).id("volume")),
+  );
+  tree.pass_headless(&mut app);
+  let mut find = |id: &str| {
+    let found = output_text(call(
+      &mut tree,
+      &mut app,
+      &state,
+      "lurq_find_by_id",
+      serde_json::json!({ "id": id }),
+    ));
+    found.split(' ').next().unwrap().to_owned()
+  };
+  let (price_ref, volume_ref) = (find("price"), find("volume"));
+  let mut set = |reference: &str, value: serde_json::Value| {
+    call(
+      &mut tree,
+      &mut app,
+      &state,
+      "lurq_set_value",
+      serde_json::json!({ "ref": reference, "value": value }),
+    )
+  };
+
+  // Two numbers set both, snapped to the step and put in order.
+  let reply = json(set(&price_ref, serde_json::json!([71, 32])));
+  assert_eq!(reply["value"], "30,70");
+  assert_eq!(price.get(), (30, 70));
+  // One number moves the thumb nearer it, as before.
+  json(set(&price_ref, serde_json::json!(90)));
+  assert_eq!(price.get(), (30, 90));
+
+  for wrong in [
+    serde_json::json!([10]),
+    serde_json::json!([1, 2, 3]),
+    serde_json::json!(["a", 2]),
+  ] {
+    let error = set(&price_ref, wrong).err().unwrap();
+    assert!(error.contains("two numbers"), "{error}");
+  }
+  assert_eq!(price.get(), (30, 90));
+
+  // A slider of one value takes one number, not two.
+  let error = set(&volume_ref, serde_json::json!([10, 20])).err().unwrap();
+  assert!(error.contains("one value"), "{error}");
+  json(set(&volume_ref, serde_json::json!(55)));
+  assert_eq!(volume.get(), 55);
+}

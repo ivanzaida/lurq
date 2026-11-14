@@ -3,6 +3,8 @@ use std::sync::{
   atomic::{AtomicU64, Ordering},
 };
 
+use crate::node::dimension::Dimension;
+
 static OVERRIDE_CLEAR_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Default)]
@@ -48,7 +50,16 @@ struct ElementRefInner {
   focus_signal: Option<crate::core::Signal<bool>>,
   focus_visible: bool,
   focus_visible_signal: Option<crate::core::Signal<bool>>,
+  focus_visible_within: bool,
+  focus_visible_within_signal: Option<crate::core::Signal<bool>>,
   override_rect: Option<ElementRect>,
+  /// The width and the height the element is laid out at in place of those it was built with
+  /// ([`ElementRefMut::set_size`]).
+  size_override: (Option<Dimension>, Option<Dimension>),
+  /// What the element is said to be since it was built, by name ([`ElementRefMut::describe`]).
+  descriptions: Vec<(Arc<str>, Arc<str>)>,
+  /// Whether the element is out of the focus and the pointer ([`ElementRefMut::set_inert`]).
+  inert: bool,
   override_clear_generation: u64,
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
@@ -180,6 +191,38 @@ impl ElementRef {
       .clone()
   }
 
+  /// Focus-visible on the element or on something in it, like CSS
+  /// `:focus-within` for a focus that shows its ring. Reading it during render
+  /// subscribes, like [`Self::focus_visible`].
+  pub fn focus_visible_within(&self) -> bool {
+    self.focus_visible_within_signal().get()
+  }
+
+  /// Reactive focus-visible-within state. Reading `focus_visible_within()`
+  /// during render subscribes too.
+  pub fn focus_visible_within_signal(&self) -> crate::core::Signal<bool> {
+    let mut inner = self.inner.write().unwrap();
+    let within = inner.focus_visible_within;
+    inner
+      .focus_visible_within_signal
+      .get_or_insert_with(|| crate::core::Signal::new(within))
+      .clone()
+  }
+
+  pub(crate) fn set_focus_visible_within(&self, within: bool) {
+    let signal = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.focus_visible_within == within {
+        return;
+      }
+      inner.focus_visible_within = within;
+      inner.focus_visible_within_signal.clone()
+    };
+    if let Some(signal) = signal {
+      signal.set(within);
+    }
+  }
+
   pub(crate) fn update(&self, x: f32, y: f32, relative_x: f32, relative_y: f32, width: f32, height: f32) {
     let observer = {
       let mut inner = self.inner.write().unwrap();
@@ -230,6 +273,22 @@ impl ElementRef {
 
   pub(crate) fn override_rect(&self) -> Option<ElementRect> {
     self.inner.read().unwrap().override_rect
+  }
+
+  /// The width and the height [`ElementRefMut::set_size`] gave the element, each `None` where it is laid out
+  /// as it was built.
+  pub(crate) fn size_override(&self) -> (Option<Dimension>, Option<Dimension>) {
+    self.inner.read().unwrap().size_override
+  }
+
+  /// Whether [`ElementRefMut::set_inert`] made the element inert.
+  pub(crate) fn is_inert(&self) -> bool {
+    self.inner.read().unwrap().inert
+  }
+
+  /// What [`ElementRefMut::describe`] said of the element.
+  pub(crate) fn descriptions(&self) -> Vec<(Arc<str>, Arc<str>)> {
+    self.inner.read().unwrap().descriptions.clone()
   }
 
   pub(crate) fn override_clear_generation(&self) -> u64 {
@@ -360,6 +419,53 @@ impl ElementRefMut {
     });
   }
 
+  /// Lays the element out `width` wide and `height` high in place of the width and the height it was built
+  /// with, until this is called again: `None` leaves that side as it was built. The least and the most size
+  /// it was built with still hold, and its parent places it as it would any element of that size. Nothing is
+  /// rendered again: the element and what holds it are laid out again at the next pass, which this asks for.
+  /// A splitter moves its panes so while a divider is dragged, without building what is in them again.
+  pub fn set_size(&self, width: Option<Dimension>, height: Option<Dimension>) {
+    let mut inner = self.inner.write().unwrap();
+    if inner.size_override == (width, height) {
+      return;
+    }
+    inner.size_override = (width, height);
+    inner.layout_dirty = true;
+    inner.layout_subscribers.mark();
+  }
+
+  /// Says `value` of the element under `name` to tooling that reads the tree (the DevTools, the MCP server), in
+  /// place of what its `describe(name, ..)` said when it was built, until it is said again. Nothing is rendered
+  /// again: a splitter tells where its divider is after a drag so.
+  pub fn describe(&self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) {
+    let (name, value) = (name.into(), value.into());
+    let mut inner = self.inner.write().unwrap();
+    match inner.descriptions.iter_mut().find(|(said, _)| *said == name) {
+      Some((_, held)) => *held = value,
+      None => inner.descriptions.push((name, value)),
+    }
+  }
+
+  /// Makes the element inert, or not, as `.inert(..)` does where it was built, with nothing rendered again: Tab and
+  /// a focus group's keys pass by everything in it, no pointer reaches it, and the focus in it leaves at the next
+  /// pass, which this asks for. Built inert, it stays inert whatever this says. A splitter makes a pane it closes
+  /// inert so while a divider is dragged.
+  pub fn set_inert(&self, inert: bool) {
+    let mut inner = self.inner.write().unwrap();
+    if inner.inert == inert {
+      return;
+    }
+    inner.inert = inert;
+    // A pass, after whose layout the focus leaves what became inert.
+    inner.layout_dirty = true;
+    inner.layout_subscribers.mark();
+  }
+
+  /// The width and the height [`Self::set_size`] gave the element.
+  pub fn size(&self) -> (Option<Dimension>, Option<Dimension>) {
+    self.as_ref().size_override()
+  }
+
   pub fn clear_bounds_override(&self) {
     let mut inner = self.inner.write().unwrap();
     if inner.override_rect.take().is_some() {
@@ -405,5 +511,38 @@ impl ElementRefMut {
 impl From<ElementRefMut> for ElementRef {
   fn from(value: ElementRefMut) -> Self {
     value.as_ref()
+  }
+}
+
+#[cfg(all(test, any(feature = "devtools", feature = "mcp")))]
+mod tests {
+  use std::sync::Arc;
+
+  use super::ElementRefMut;
+  use crate::node::{NodeUpdate, node::Node};
+
+  fn attr(node: &Node, name: &str) -> Option<String> {
+    node
+      .debug_attrs()
+      .iter()
+      .find(|(said, _)| said.as_ref() == name)
+      .map(|(_, value)| value.to_string())
+  }
+
+  #[test]
+  fn what_a_ref_describes_stands_for_what_the_element_was_built_with() {
+    let handle = ElementRefMut::new();
+    let mut node = Node::new().ref_element(handle.clone());
+    NodeUpdate::describe(&mut node, Arc::from("a11y_role"), Arc::from("separator"));
+    NodeUpdate::describe(&mut node, Arc::from("a11y_valuenow"), Arc::from("120"));
+    assert_eq!(attr(&node, "a11y_valuenow").as_deref(), Some("120"));
+    handle.describe("a11y_valuenow", "180");
+    handle.describe("a11y_valuemax", "240");
+    assert_eq!(attr(&node, "a11y_valuenow").as_deref(), Some("180"));
+    assert_eq!(attr(&node, "a11y_valuemax").as_deref(), Some("240"));
+    assert_eq!(attr(&node, "a11y_role").as_deref(), Some("separator"));
+    assert_eq!(node.debug_attrs().len(), 3, "said once each");
+    handle.describe("a11y_valuenow", "200");
+    assert_eq!(attr(&node, "a11y_valuenow").as_deref(), Some("200"));
   }
 }

@@ -37,6 +37,12 @@ struct TextInputInner {
   tokens: Option<crate::components::InputTokens>,
   token_layout: Option<Arc<crate::layout::layout_engine::input_token_layout::TokenLayout>>,
   token_affinity: Option<TokenAffinity>,
+  /// The token the pointer is on, where its style has a look for it.
+  hovered_token: Option<usize>,
+  /// Whether the pointer is on the icon of a token that a click takes away.
+  token_icon_hovered: bool,
+  /// An element the layout puts where a byte of the value stands: what a list hangs from.
+  byte_anchor: Option<(crate::core::ElementRef, usize)>,
   placeholder: Option<String>,
   last_value: String,
   caret: usize,
@@ -70,6 +76,9 @@ struct TextInputInner {
   return_key: ReturnKey,
   content: ContentKind,
   focused: bool,
+  /// While focused, the input keeps what it shows when a render binds it to another signal: see
+  /// [`TextInputState::copy_runtime_state_from`].
+  keeps_text_while_focused: bool,
   /// An input method composition in progress, shown at the caret.
   composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
@@ -118,6 +127,9 @@ impl TextInputState {
         tokens: None,
         token_layout: None,
         token_affinity: None,
+        hovered_token: None,
+        token_icon_hovered: false,
+        byte_anchor: None,
         placeholder: None,
         last_value: initial_value,
         caret,
@@ -145,6 +157,7 @@ impl TextInputState {
         return_key: ReturnKey::default(),
         content: ContentKind::default(),
         focused: false,
+        keeps_text_while_focused: false,
         composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
@@ -311,6 +324,10 @@ impl TextInputState {
     inner.token_affinity = None;
     drop(inner);
     self.mark_layout_dirty_keeping_scroll();
+  }
+
+  pub(crate) fn set_keeps_text_while_focused(&self, keeps: bool) {
+    self.inner.lock().keeps_text_while_focused = keeps;
   }
 
   pub(crate) fn set_keyboard(&self, keyboard: KeyboardKind) {

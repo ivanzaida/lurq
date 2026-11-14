@@ -5,6 +5,18 @@ impl TextInputState {
     if Arc::ptr_eq(&self.inner, &old.inner) {
       return;
     }
+    // An input that keeps its text while focused and is bound to another signal by this render takes the text it
+    // showed into the new signal: what is being typed is the input's until it is left.
+    let carried = {
+      let old_inner = old.inner.lock();
+      (old_inner.focused && self.inner.lock().keeps_text_while_focused && !self.same_value(old))
+        .then(|| old.value.get_untracked())
+    };
+    if let Some(text) = carried
+      && self.value.get_untracked() != text
+    {
+      self.value.set(text);
+    }
     let old_inner = old.inner.lock();
     let old_caret = old_inner.caret;
     let old_affinity = old_inner.token_affinity.clone();
@@ -24,6 +36,7 @@ impl TextInputState {
     let old_undo_stack = old_inner.undo_stack.clone();
     let old_redo_stack = old_inner.redo_stack.clone();
     let old_styled = old_inner.styled.clone();
+    let old_hover = (old_inner.hovered_token, old_inner.token_icon_hovered);
     let layout_dirty = if layout_signature_matches {
       old.layout_dirty.load(Ordering::Relaxed)
     } else {
@@ -49,6 +62,8 @@ impl TextInputState {
     inner.undo_stack = old_undo_stack;
     inner.redo_stack = old_redo_stack;
     inner.styled.copy_runtime_state_from(&old_styled);
+    // The pointer is where it was: on the same token, until it moves.
+    (inner.hovered_token, inner.token_icon_hovered) = old_hover;
     self.layout_dirty.store(layout_dirty, Ordering::Relaxed);
   }
 

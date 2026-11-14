@@ -22,6 +22,8 @@ pub(super) struct HiddenDismiss {
   pub(super) open: Option<Signal<bool>>,
   pub(super) on_outside_click: bool,
   pub(super) on_escape: bool,
+  /// What runs after a press outside it or Escape closed it.
+  pub(super) on_dismiss: Option<crate::app::ctx::OverlayDismiss>,
 }
 
 #[derive(Default)]
@@ -38,6 +40,13 @@ pub(super) struct OverlayLayers {
   pub(super) placings: Vec<Option<super::OverlayPlacing>>,
   /// The anchors of the overlays not drawn because their anchor is out of view.
   hidden_anchors: Vec<OwnedElementRef>,
+  /// The anchors of the open overlays that take the focus (`Overlay::takes_focus`) or that Tab reaches after
+  /// their anchor (`Overlay::tab_after_anchor`), drawn or hidden.
+  pub(super) focus_movers: Vec<OwnedElementRef>,
+  /// Those of `focus_movers` that move the focus into them as they open (`Overlay::takes_focus`).
+  pub(super) focus_takers: Vec<OwnedElementRef>,
+  /// The nodes that declare the modals built that take the focus (`Modal::takes_focus`).
+  pub(super) focus_modals: Vec<NodeId>,
 }
 
 impl OverlayLayers {
@@ -60,6 +69,7 @@ impl OverlayLayers {
       dismiss_on_outside_click: dismiss.on_outside_click,
       outside_press: OutsidePress::PassThrough,
       dismiss_on_escape: dismiss.on_escape,
+      on_dismiss: dismiss.on_dismiss,
       layer,
       shown: false,
     });
@@ -84,20 +94,117 @@ impl Tree {
     layers.is_hidden(anchor).then(|| anchor.clone())
   }
 
-  /// Gives keyboard focus, lost with a hidden overlay, back to the overlay's
-  /// `anchor`: the anchor or the first focusable node inside it, else the
-  /// nearest focusable ancestor. Does nothing if focus is somewhere already.
+  /// The anchor of the overlay that takes the focus (`Overlay::takes_focus`) and held keyboard focus in the
+  /// last layout, when it is not open in `layers` any more: the focus goes back to it.
+  pub(super) fn focused_overlay_closed(&self, had_host: bool, layers: &OverlayLayers) -> Option<OwnedElementRef> {
+    if !had_host {
+      return None;
+    }
+    let layer = *self.focused_path.as_deref()?.first()?;
+    let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
+    let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
+    let open = layers.focus_movers.iter().any(|mover| mover.same_handle(anchor));
+    (moved && !open).then(|| anchor.clone())
+  }
+
+  /// The layers of the overlay host whose overlays take the focus, each with its anchor: what Tab walks right
+  /// after the anchor.
+  pub(super) fn focus_moving_layers(&self) -> Vec<(OwnedElementRef, &Node)> {
+    let Some(host) = self.root.as_ref() else {
+      return Vec::new();
+    };
+    self
+      .overlay_layer_anchors
+      .iter()
+      .enumerate()
+      .filter_map(|(index, anchor)| {
+        let anchor = anchor.as_ref()?;
+        self
+          .overlay_focus_movers
+          .iter()
+          .any(|mover| mover.same_handle(anchor))
+          .then(|| Some((anchor.clone(), host.children().get(index + 1)?)))?
+      })
+      .collect()
+  }
+
+  /// The first element that takes the focus in the topmost layer of the overlay host whose overlay takes the
+  /// focus and opened in this pass: where the focus goes. `layers` are the layers as the host stacks them.
+  pub(super) fn opened_overlay_focus(&self, layers: &OverlayLayers) -> Option<NodeId> {
+    let host = self.root.as_ref()?;
+    layers
+      .focus_takers
+      .iter()
+      .filter(|mover| !self.overlay_focus_movers.iter().any(|old| old.same_handle(mover)))
+      .filter_map(|mover| {
+        layers
+          .anchors
+          .iter()
+          .position(|anchor| anchor.as_ref().is_some_and(|anchor| anchor.same_handle(mover)))
+      })
+      .max()
+      .and_then(|layer| host.children().get(layer + 1))
+      .and_then(|layer| autofocused(layer).or_else(|| first_focusable(layer)))
+  }
+
+  /// Remembers what has the focus as the overlays that take it open in this
+  /// pass, the anchors of those open now being `layers.focus_movers`, and
+  /// forgets what was remembered for those that are not open any more, but
+  /// for `returning`, the one the focus goes back from in this pass. One
+  /// that Tab reaches after its anchor and that took nothing gives the focus
+  /// back to its anchor.
+  pub(super) fn note_focus_returns(&mut self, layers: &OverlayLayers, returning: Option<&OwnedElementRef>) {
+    let movers = &layers.focus_movers;
+    let had = self
+      .focused_node
+      .zip(self.focused_event_node)
+      .map(|(input_id, event_id)| FocusTarget { input_id, event_id });
+    for mover in movers {
+      if !self.overlay_focus_movers.iter().any(|old| old.same_handle(mover)) {
+        let takes = layers.focus_takers.iter().any(|taker| taker.same_handle(mover));
+        self.overlay_focus_returns.push((mover.clone(), had.filter(|_| takes)));
+      }
+    }
+    self.overlay_focus_returns.retain(|(anchor, _)| {
+      movers.iter().any(|mover| mover.same_handle(anchor)) || returning.is_some_and(|back| back.same_handle(anchor))
+    });
+  }
+
+  /// Gives keyboard focus, lost with an overlay that closed or is hidden,
+  /// back: to what had it when an overlay that takes the focus opened, where
+  /// that is still in the tree; else to the overlay's `anchor`, the anchor or
+  /// the first focusable node inside it, else the nearest focusable ancestor.
+  /// Does nothing if focus is somewhere already.
   pub(super) fn return_focus_to_anchor(&mut self, anchor: &OwnedElementRef) {
+    let had = self
+      .overlay_focus_returns
+      .iter()
+      .position(|(held, _)| held.same_handle(anchor))
+      .and_then(|index| {
+        let open = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
+        // An overlay hidden with its anchor is still open, and keeps what it gives the focus back to.
+        if open {
+          self.overlay_focus_returns[index].1
+        } else {
+          self.overlay_focus_returns.remove(index).1
+        }
+      });
     if self.focused_node.is_some() {
       return;
     }
-    let Some(target) = self.root.as_ref().and_then(|root| focus_home(root, anchor)) else {
-      return;
-    };
-    self.focus_node(FocusTarget {
-      input_id: target,
-      event_id: target,
-    });
+    let root = self.root.as_ref();
+    let back = had
+      .filter(|had| root.is_some_and(|root| super::find_path_by_id(root, had.input_id).is_some()))
+      .or_else(|| {
+        let target = root.and_then(|root| focus_home(root, anchor))?;
+        Some(FocusTarget {
+          input_id: target,
+          event_id: target,
+        })
+      });
+    if let Some(target) = back {
+      self.focus_node(target);
+    }
   }
 }
 
@@ -118,6 +225,14 @@ fn takes_focus(node: &Node) -> bool {
   node.is_focusable() && !node.is_focus_disabled()
 }
 
+/// The first element marked `autofocus` in `node` that takes the focus.
+fn autofocused(node: &Node) -> Option<NodeId> {
+  if node.is_autofocus() && takes_focus(node) {
+    return Some(node.node_id());
+  }
+  node.children().iter().find_map(autofocused)
+}
+
 fn first_focusable(node: &Node) -> Option<NodeId> {
   if takes_focus(node) {
     return Some(node.node_id());
@@ -125,7 +240,7 @@ fn first_focusable(node: &Node) -> Option<NodeId> {
   node.children().iter().find_map(first_focusable)
 }
 
-fn path_to_ref(node: &Node, anchor: &OwnedElementRef) -> Option<Vec<usize>> {
+pub(super) fn path_to_ref(node: &Node, anchor: &OwnedElementRef) -> Option<Vec<usize>> {
   if node
     .element_ref
     .as_ref()

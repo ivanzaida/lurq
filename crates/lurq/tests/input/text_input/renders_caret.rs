@@ -399,12 +399,12 @@ fn caret_color_accepts_palette_color() {
   let value = Signal::new("A".to_owned());
   let mut app = App::new();
   let mut runtime = Tree::new();
-  app.theme().set_palette_color(PaletteColor::Accent, expected);
+  app.theme().set_palette_color(PaletteColor::Primary, expected);
 
   runtime.set_root(
     lurq::components::TextInput::new(value)
       .height(40.0)
-      .caret_color(PaletteColor::Accent),
+      .caret_color(PaletteColor::Primary),
   );
 
   assert_eq!(focused_caret_color(&mut runtime, &mut app), expected);
@@ -416,13 +416,13 @@ fn text_style_caret_color_accepts_palette_color() {
   let value = Signal::new("A".to_owned());
   let mut app = App::new();
   let mut runtime = Tree::new();
-  app.theme().set_palette_color(PaletteColor::Accent, expected);
+  app.theme().set_palette_color(PaletteColor::Primary, expected);
 
   runtime.set_root(
     lurq::components::TextInput::styled(
       value,
       TextStyle {
-        caret_color: Some(PaletteColor::Accent.into()),
+        caret_color: Some(PaletteColor::Primary.into()),
         ..TextStyle::default()
       },
     )

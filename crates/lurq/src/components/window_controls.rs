@@ -59,7 +59,8 @@ pub enum WindowControlContent {
 }
 
 /// Colors of one Windows-style control. Hover and active are background colors applied through the
-/// node's hovered/active state styles; the foreground stays constant across states.
+/// node's hovered/active state styles; the foreground is the same in every state unless
+/// [`WindowControls::hover_foreground`] gives the control another under the pointer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowControlColors {
   pub foreground: TextColor,
@@ -86,6 +87,8 @@ pub struct TrafficLightColors {
 struct WindowControlButton {
   content: WindowControlContent,
   colors: WindowControlColors,
+  /// The foreground under the pointer and while pressed, when it is not the one at rest.
+  hover_foreground: Option<TextColor>,
 }
 
 impl Default for WindowControls {
@@ -100,6 +103,7 @@ impl WindowControls {
     let button = |glyph: &str, colors: &WindowControlColors| WindowControlButton {
       content: WindowControlContent::glyph(glyph, TypographyStyle::Caption),
       colors: colors.clone(),
+      hover_foreground: None,
     };
     Self {
       style: WindowControlStyle::Platform,
@@ -164,6 +168,16 @@ impl WindowControls {
   pub fn foreground(mut self, color: impl Into<TextColor>) -> Self {
     let color = color.into();
     self.update_colors(|colors| colors.foreground = color.clone());
+    self
+  }
+
+  /// Sets the foreground one Windows-style control has under the pointer and
+  /// while pressed: a close control that turns white on its red. A glyph
+  /// follows it, and so does content of [`WindowControlContent::element`]
+  /// that names no color of its own; content drawn in the color its supplier
+  /// was given keeps that color.
+  pub fn hover_foreground(mut self, kind: WindowControlKind, color: impl Into<TextColor>) -> Self {
+    self.button_mut(kind).hover_foreground = Some(color.into());
     self
   }
 
@@ -323,7 +337,8 @@ impl WindowControlContent {
 
   fn render(&self, foreground: TextColor) -> Element {
     match self {
-      Self::Glyph { glyph, typography } => Text::new(glyph).variant(*typography).color(foreground).into(),
+      // A glyph names no color: it is drawn in the foreground of its control, which a state changes.
+      Self::Glyph { glyph, typography } => Text::new(glyph).variant(*typography).into(),
       Self::Element(supplier) => supplier(foreground),
     }
   }
@@ -385,15 +400,23 @@ impl Default for TrafficLightColors {
 
 fn control_button(button: WindowControlButton, width: f32, height: f32) -> Row {
   let colors = button.colors;
+  let state = |background: BackgroundColor| {
+    let style = Style::new().background(background);
+    match &button.hover_foreground {
+      Some(foreground) => style.foreground(foreground.clone()),
+      None => style,
+    }
+  };
   Row::new()
     .width(width)
     .height(height)
     .align_items(Alignment::Center)
     .justify(Justify::Center)
     .background(colors.background)
+    .foreground(colors.foreground.clone())
     .cursor(CursorIcon::Pointer)
-    .hovered_style(Style::new().background(colors.hover_background))
-    .active_style(Style::new().background(colors.active_background))
+    .hovered_style(state(colors.hover_background))
+    .active_style(state(colors.active_background))
     .on_mouse_down(|event: MouseEvent| {
       event.prevent_default();
       event.stop_immediate_propagation();

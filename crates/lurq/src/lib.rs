@@ -31,6 +31,10 @@ pub mod responsive;
 mod size_budget;
 #[cfg(feature = "svg")]
 pub mod svg;
+pub mod ui;
+
+/// The version of lurq: what an app shows in an about box, and the gallery in its header.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(feature = "mcp")]
 pub mod mcp;

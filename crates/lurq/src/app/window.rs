@@ -428,6 +428,8 @@ struct WindowInner {
   info: WindowInfo,
   corner_radius: WindowCornerRadius,
   border_color: WindowBorderColor,
+  /// How much of the window's top the app's own title bar is drawn over.
+  title_bar_inset: f32,
   /// `None` until the shell creates the window or the app sets a title.
   title: Option<String>,
   version: u64,
@@ -492,6 +494,7 @@ impl Window {
         },
         corner_radius: WindowCornerRadius::Default,
         border_color: WindowBorderColor::Default,
+        title_bar_inset: 0.0,
         title: None,
         version: 0,
         commands: Vec::new(),
@@ -833,6 +836,18 @@ impl Window {
         return;
       }
       inner.corner_radius = radius;
+      Self::bump_version(&mut inner)
+    };
+    self.version_signal.set(version);
+  }
+
+  pub(crate) fn set_title_bar_inset(&self, inset: f32) {
+    let version = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.title_bar_inset == inset {
+        return;
+      }
+      inner.title_bar_inset = inset;
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);

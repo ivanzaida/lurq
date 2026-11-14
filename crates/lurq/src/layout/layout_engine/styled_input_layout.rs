@@ -35,6 +35,7 @@ impl LayoutEngine {
             underline: resolved.underline,
             strikethrough: resolved.strikethrough,
           },
+          chip: Default::default(),
         }
       })
       .collect();

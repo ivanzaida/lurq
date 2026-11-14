@@ -107,14 +107,32 @@ impl LayoutEngine {
     let Some(outline) = self.resolved_outline(node) else {
       return;
     };
+    let radius = node.get_border_radius(&self.radii.borrow());
+    let (width, height) = (result.size.width, result.size.height);
+    self.push_ring(outline, (abs_x, abs_y, width, height), radius, opacity, transform, clip);
+  }
+
+  /// Keeps a ring around the box `(x, y, width, height)` with corners of
+  /// `radius` for the end of the scope it is in: a node's outline, or one
+  /// a part a node paints has (a slider's thumb).
+  #[allow(clippy::too_many_arguments)]
+  pub(super) fn push_ring(
+    &self,
+    outline: ResolvedOutline,
+    (x, y, width, height): (f32, f32, f32, f32),
+    radius: Option<BorderRadius>,
+    opacity: f32,
+    transform: Transform2D,
+    clip: ClipRect,
+  ) {
     let grow = outline.outset();
-    let width = result.size.width + grow * 2.0;
-    let height = result.size.height + grow * 2.0;
+    let width = width + grow * 2.0;
+    let height = height + grow * 2.0;
     if width <= 0.0 || height <= 0.0 {
       return;
     }
     let corner = |radius: f32| if radius > 0.0 { (radius + grow).max(0.0) } else { 0.0 };
-    let border_radius = node.get_border_radius(&self.radii.borrow()).map(|radius| BorderRadius {
+    let border_radius = radius.map(|radius| BorderRadius {
       top_left: corner(radius.top_left),
       top_right: corner(radius.top_right),
       bottom_right: corner(radius.bottom_right),
@@ -126,7 +144,7 @@ impl LayoutEngine {
       placement: BorderPlacement::Inside,
       dash: [0.0; 2],
     });
-    let (x, y, quad_transform, transform_origin) = transformed_quad_frame(abs_x - grow, abs_y - grow, transform);
+    let (x, y, quad_transform, transform_origin) = transformed_quad_frame(x - grow, y - grow, transform);
     let clip = self.outline_clip(clip, grow);
     self.pending_outlines.borrow_mut().push(Quad {
       x,

@@ -310,6 +310,51 @@ fn scroll_empty_child() {
   assert_eq!(result.size.height, 100.0);
 }
 
+/// The colors of the thumbs painted for a scroll container of 100 whose content is 300 high.
+fn thumb_colors(app: &mut App) -> Vec<Color> {
+  let mut rt = rt();
+  rt.set_root(lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0)).size(100.0, 100.0));
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  rt.pass(app, &TestSurface);
+  rt.resolve_quads(rt.last_layout().unwrap())
+    .iter()
+    .filter_map(|quad| match &quad.content {
+      QuadContent::Rect { color, .. } if quad.width == ScrollBarStyle::default().width => Some(*color),
+      _ => None,
+    })
+    .collect()
+}
+
+#[test]
+fn a_scrollbar_that_sets_no_color_is_in_the_ring_color_of_the_theme() {
+  use lurq::app::theme::PaletteColor;
+
+  // The default bar is drawn in the palette's ring, which shows on a light theme and on a dark one: a fixed
+  // dark thumb was lost on a dark background.
+  let mut app = App::new();
+  let ring = app.theme().palette_color(PaletteColor::Ring);
+  assert_eq!(thumb_colors(&mut app), vec![ring]);
+  app.theme().set_appearance(lurq::app::window::Appearance::Dark);
+  let ring = app.theme().palette_color(PaletteColor::Ring);
+  assert_eq!(thumb_colors(&mut app), vec![ring]);
+  assert!(
+    ring.a() == 255,
+    "a color of its own, not a veil that needs a light background"
+  );
+
+  // It follows the palette.
+  let violet = Color::from_hex("#8b5cf6");
+  app.theme().set_palette_color(PaletteColor::Ring, violet);
+  assert_eq!(thumb_colors(&mut app), vec![violet]);
+
+  // A style with a color of its own keeps it.
+  let teal = Color::from_hex("#14b8a6");
+  app
+    .theme()
+    .set_scrollbar(ScrollBarStyle::default().with_thumb_color(teal));
+  assert_eq!(thumb_colors(&mut app), vec![teal]);
+}
+
 #[test]
 fn scrollbar_uses_theme_style_by_default() {
   let mut app = App::new();

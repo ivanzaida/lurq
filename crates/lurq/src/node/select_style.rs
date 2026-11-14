@@ -5,6 +5,7 @@ use crate::{
     BackgroundColor, BoxShadowValue, Node, SpacingValue, TextColor,
     border::{Border, BorderRadius, Borders, ThemedBorderRadius},
     border_size_value::BorderSizeValue,
+    outline::Outline,
     padding::Padding,
     radius_value::RadiusValue,
     select_icon::{SelectCheckmarkPosition, SelectIcon},
@@ -21,6 +22,8 @@ pub struct SelectPartStyle {
   pub(crate) border: Option<Borders>,
   pub(crate) border_radius: Option<ThemedBorderRadius>,
   pub(crate) box_shadow: Option<BoxShadowValue>,
+  /// A ring around the part, as a node's outline is: the trigger's focus ring. Painted on the trigger only.
+  pub(crate) outline: Option<Outline>,
   pub(crate) padding: Option<Padding>,
   pub(crate) text: Option<TextStyle>,
   pub(crate) typography: Option<TypographyStyle>,
@@ -102,6 +105,15 @@ impl SelectPartStyle {
     self
   }
 
+  /// A ring around the part, painted over the select: the line, its color
+  /// and its distance from the part's edge, as a node's outline has them. A
+  /// negative offset draws it inside the edge. The trigger paints it; the
+  /// menu and the option rows do not.
+  pub fn outline(mut self, outline: Outline) -> Self {
+    self.outline = Some(outline);
+    self
+  }
+
   /// Opacity of the part and its content, `0.0..=1.0`. Applies to the menu
   /// and option rows; the trigger ignores it.
   pub fn opacity(mut self, opacity: f32) -> Self {
@@ -134,6 +146,9 @@ impl SelectPartStyle {
     }
     if other.box_shadow.is_some() {
       self.box_shadow = other.box_shadow.clone();
+    }
+    if other.outline.is_some() {
+      self.outline = other.outline.clone();
     }
     if other.text.is_some() {
       self.text = other.text.clone();
@@ -193,6 +208,7 @@ pub struct SelectStyle {
   pub(crate) trigger_focused: Option<SelectPartStyle>,
   pub(crate) trigger_open: Option<SelectPartStyle>,
   pub(crate) placeholder_text: Option<TextStyle>,
+  pub(crate) trigger_gap: SpacingValue,
   pub(crate) menu: SelectPartStyle,
   pub(crate) menu_scrollbar: Option<ScrollBarStyle>,
   pub(crate) option: SelectPartStyle,
@@ -203,12 +219,16 @@ pub struct SelectStyle {
   pub(crate) option_selected_highlighted: Option<SelectPartStyle>,
   pub(crate) option_disabled: Option<SelectPartStyle>,
   pub(crate) option_detail: SelectPartStyle,
+  pub(crate) option_hint: SelectPartStyle,
+  pub(crate) group_label: SelectPartStyle,
+  pub(crate) separator: SelectPartStyle,
   pub(crate) option_adornment_gap: SpacingValue,
   pub(crate) chevron: SelectIcon,
   pub(crate) chevron_open: Option<SelectIcon>,
   pub(crate) chevron_color: Option<TextColor>,
   pub(crate) chevron_size: f32,
   pub(crate) checkmark: SelectIcon,
+  pub(crate) checkmark_unchecked: Option<SelectIcon>,
   pub(crate) checkmark_color: Option<TextColor>,
   pub(crate) checkmark_size: Option<f32>,
   pub(crate) checkmark_position: SelectCheckmarkPosition,
@@ -232,6 +252,9 @@ pub(crate) struct SelectOptionState {
 }
 
 impl Default for SelectStyle {
+  // The roles of lurq 0.61, which an app may still set: each follows the role that replaces it
+  // (`app/theme/palette.rs`). `Select` moves to a recipe with the components.
+  #[allow(deprecated)]
   fn default() -> Self {
     Self {
       trigger: SelectPartStyle::new()
@@ -255,6 +278,16 @@ impl Default for SelectStyle {
       option_detail: SelectPartStyle::new()
         .typography(TypographyStyle::Caption)
         .text_color(PaletteColor::TextMuted),
+      option_hint: SelectPartStyle::new()
+        .typography(TypographyStyle::Caption)
+        .text_color(PaletteColor::TextMuted),
+      group_label: SelectPartStyle::new()
+        .typography(TypographyStyle::Caption)
+        .text_color(PaletteColor::TextMuted)
+        .padding(Padding::symmetric(10.0, 6.0)),
+      separator: SelectPartStyle::new()
+        .background(PaletteColor::Border)
+        .padding(Padding::symmetric(0.0, 4.0)),
       ..Self::unstyled()
     }
   }
@@ -275,6 +308,7 @@ impl SelectStyle {
       trigger_focused: None,
       trigger_open: None,
       placeholder_text: None,
+      trigger_gap: SpacingValue::from(8.0),
       menu: SelectPartStyle::default(),
       menu_scrollbar: None,
       option: SelectPartStyle::default(),
@@ -285,12 +319,16 @@ impl SelectStyle {
       option_selected_highlighted: None,
       option_disabled: None,
       option_detail: SelectPartStyle::default(),
+      option_hint: SelectPartStyle::default(),
+      group_label: SelectPartStyle::default(),
+      separator: SelectPartStyle::default(),
       option_adornment_gap: SpacingValue::from(8.0),
       chevron: SelectIcon::default_chevron(),
       chevron_open: None,
       chevron_color: None,
       chevron_size: 10.0,
       checkmark: SelectIcon::default_checkmark(),
+      checkmark_unchecked: None,
       checkmark_color: None,
       checkmark_size: None,
       checkmark_position: SelectCheckmarkPosition::Leading,
@@ -333,6 +371,13 @@ impl SelectStyle {
 
   pub fn placeholder_text(mut self, style: TextStyle) -> Self {
     self.placeholder_text = Some(style);
+    self
+  }
+
+  /// Space between the default trigger's label and its chevron; a number or
+  /// a spacing role. Defaults to 8.
+  pub fn trigger_gap(mut self, gap: impl Into<SpacingValue>) -> Self {
+    self.trigger_gap = gap.into();
     self
   }
 
@@ -401,6 +446,28 @@ impl SelectStyle {
     self
   }
 
+  /// Text style of an option's hint (see `SelectOption::hint`); only its
+  /// text fields apply.
+  pub fn option_hint(mut self, style: SelectPartStyle) -> Self {
+    self.option_hint = style;
+    self
+  }
+
+  /// The row of a group's label (see `SelectOption::group`): its padding,
+  /// fill, text style and colour.
+  pub fn group_label(mut self, style: SelectPartStyle) -> Self {
+    self.group_label = style;
+    self
+  }
+
+  /// The line between groups (see `SelectOption::group`): its `background`
+  /// is the line's colour, its `min_height` the line's thickness (1 when
+  /// unset) and its `padding` the room around the line.
+  pub fn separator(mut self, style: SelectPartStyle) -> Self {
+    self.separator = style;
+    self
+  }
+
   /// Space between an option's label and its leading or trailing element
   /// (see `SelectOption::leading`), in the menu and on the closed field; a
   /// number or a spacing role. Defaults to 8.
@@ -439,6 +506,13 @@ impl SelectStyle {
   /// Replaces the checkmark glyph `✓`.
   pub fn checkmark(mut self, icon: SelectIcon) -> Self {
     self.checkmark = icon;
+    self
+  }
+
+  /// What the slot of the checkmark holds on an option that is not selected, where the rows draw the slot: the empty
+  /// box of a list of checkboxes, whose `checkmark` is the checked box. Unset, it is empty.
+  pub fn checkmark_unchecked(mut self, icon: SelectIcon) -> Self {
+    self.checkmark_unchecked = Some(icon);
     self
   }
 

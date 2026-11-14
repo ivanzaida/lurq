@@ -16,10 +16,10 @@ use crate::{
 };
 
 impl LayoutEngine {
-  /// Pushes the trigger's outer shadows, fill, inset shadows and border. The
-  /// fill is the resolved trigger part's `background` (the default
-  /// `SelectStyle` uses the theme's `SurfaceInput`); a part without one paints
-  /// no fill.
+  /// Pushes the trigger's outer shadows, fill, inset shadows and border, and
+  /// keeps its ring with the outlines. The fill is the resolved trigger part's
+  /// `background` (the default `SelectStyle` uses the theme's `SurfaceInput`);
+  /// a part without one paints no fill.
   #[inline(never)]
   #[allow(clippy::too_many_arguments)]
   pub(super) fn push_select_trigger_quads(
@@ -35,7 +35,9 @@ impl LayoutEngine {
   ) {
     let style = state.style();
     let hovered = node.style_state.is_hovered();
-    let focus_visible = node.style_state.is_focus_visible();
+    // A combobox is drawn focused while its text input has the focus: a text input is focus-visible however it was
+    // focused.
+    let focus_visible = node.style_state.is_focus_visible() || state.input_focused();
     let trigger = style.resolved_trigger(hovered, focus_visible, state.is_open());
 
     let background = {
@@ -57,6 +59,14 @@ impl LayoutEngine {
 
     if let Some(value) = shadow {
       self.push_part_box_shadow_quads(value, frame, radius, None, false, opacity, transform, clip, quads);
+    }
+    // The part's ring, kept with the outlines: over the select and what is painted after it.
+    if let Some(ring) = trigger
+      .outline
+      .as_ref()
+      .and_then(|outline| outline.resolve(&self.palette.borrow(), &self.border_sizes.borrow()))
+    {
+      self.push_ring(ring, frame, radius, opacity, transform, clip);
     }
     let (x, y, quad_transform, transform_origin) = transformed_quad_frame(abs_x, abs_y, transform);
     let quad = |color: Color, border| Quad {

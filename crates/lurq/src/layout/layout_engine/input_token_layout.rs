@@ -1,15 +1,18 @@
 //! Styled paragraph geometry and paint share the exact input layout.
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use super::{DEFAULT_TEXT_INPUT_WIDTH, LayoutEngine, ResolvedPadding, TextInputOutput, multiline_preferred_height};
 pub(crate) use crate::app::glyph_engine::input_tokens::DecoratedInputLayout as TokenLayout;
 use crate::{
   app::glyph_engine::{
     GlyphEngine,
-    input_tokens::{InputConfig, TextLines, TokenStyle},
+    input_tokens::{InputConfig, TextLines, TokenChip, TokenIcon, TokenStyle},
   },
-  components::InputTokens,
-  layout::{Constraints, Size, text_style::TextStyle},
+  components::{InputTokenStyle, InputTokens},
+  layout::{
+    Constraints, Size,
+    text_style::{TextAlign, TextStyle},
+  },
   node::node_kind::{TextInputOverflow, TextInputState},
 };
 
@@ -24,39 +27,94 @@ impl LayoutEngine {
     padding: ResolvedPadding,
   ) -> crate::layout::layout_result::LayoutResult {
     let width = Self::decorated_input_width(state, constraints);
+    let (hovered, selection) = (state.hovered_token(), state.selection_bounds());
     let styles = tokens
       .tokens
       .iter()
-      .map(|token| {
-        let mut text = token
-          .style
-          .typography
-          .and_then(|role| self.typography.borrow().try_get(role))
-          .unwrap_or_else(|| base.clone());
-        let palette = self.palette.borrow();
-        text.color = token
-          .style
-          .foreground
-          .resolve(&palette)
-          .unwrap_or_else(|| palette.text_color(base));
-        let pad = token.style.padding.resolve(&self.spacing.borrow(), width);
-        let padding = if pad.is_finite() { pad.max(0.0) } else { 0.0 };
-        let radius = token.style.radius.resolve(&self.radii.borrow());
-        let radius = if radius.is_finite() { radius.max(0.0) } else { 0.0 };
-        TokenStyle {
-          range: token.range.clone(),
-          text,
-          padding,
-          fill: token
-            .style
-            .background
-            .resolve(&self.palette.borrow())
-            .map(|color| (color, radius)),
-          lines: TextLines::default(),
-        }
+      .enumerate()
+      .map(|(index, token)| {
+        // The selection covering all of a token, then the pointer on it, give it their looks.
+        let covered = selection.is_some_and(|(start, end)| start <= token.range.start && token.range.end <= end);
+        let look = match (&token.style.selected, &token.style.hovered) {
+          (Some(selected), _) if covered => selected.as_ref(),
+          (_, Some(look)) if hovered == Some(index) => look.as_ref(),
+          _ => &token.style,
+        };
+        self.token_style(look, token.range.clone(), base, width)
       })
       .collect();
     self.layout_decorated_input(glyphs, state, base, constraints, (tokens.source, styles), padding)
+  }
+
+  /// The glyph engine's style of a token drawn with `look`, its roles resolved in this engine's theme.
+  fn token_style(&self, look: &InputTokenStyle, range: Range<usize>, base: &TextStyle, width: f32) -> TokenStyle {
+    let mut text = look.text.clone().unwrap_or_else(|| {
+      look
+        .typography
+        .and_then(|role| self.typography.borrow().try_get(role))
+        .unwrap_or_else(|| base.clone())
+    });
+    let palette = self.palette.borrow();
+    text.color = look
+      .foreground
+      .resolve(&palette)
+      .unwrap_or_else(|| palette.text_color(base));
+    let spacing = self.spacing.borrow();
+    let length = |value: &crate::node::spacing_value::SpacingValue| {
+      let px = value.resolve(&spacing, width);
+      if px.is_finite() { px.max(0.0) } else { 0.0 }
+    };
+    let padding = length(&look.padding);
+    let end = look.padding_end.as_ref().map_or(padding, &length);
+    let radius = look.radius.resolve(&self.radii.borrow());
+    let radius = if radius.is_finite() { radius.max(0.0) } else { 0.0 };
+    let icon = look.icon.as_ref().map(|icon| {
+      let size = if icon.size.is_finite() { icon.size.max(0.0) } else { 0.0 };
+      let color = icon
+        .color
+        .as_ref()
+        .and_then(|color| color.resolve(&palette))
+        .unwrap_or(text.color);
+      (
+        TokenIcon {
+          style: TextStyle {
+            font_family: icon.glyph.family.clone(),
+            font_size: size,
+            line_height: 1.0,
+            text_align: TextAlign::Center,
+            color,
+            ..TextStyle::default()
+          },
+          glyph: icon.glyph.glyph,
+          size,
+          inset: end,
+        },
+        length(&icon.gap) + size,
+      )
+    });
+    let chip = TokenChip {
+      padding_end: match &icon {
+        Some((_, room)) => Some(end + room),
+        None => look.padding_end.is_some().then_some(end),
+      },
+      height: look
+        .height
+        .filter(|height| height.is_finite())
+        .map(|height| height.max(0.0)),
+      border: look.border.as_ref().and_then(|(width, color)| {
+        let color = color.resolve(&palette)?;
+        (width.is_finite() && *width > 0.0).then_some((*width, color))
+      }),
+      icon: icon.map(|(icon, _)| icon),
+    };
+    TokenStyle {
+      range,
+      text,
+      padding,
+      fill: look.background.resolve(&palette).map(|color| (color, radius)),
+      lines: TextLines::default(),
+      chip,
+    }
   }
 
   /// Lays out `source` with a text style per range, sharing the geometry

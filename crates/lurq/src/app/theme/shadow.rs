@@ -104,10 +104,29 @@ impl ThemeShadows {
   }
 }
 
+/// The design's elevations (`pencil/lurq-design-system.pen`, Foundations): `sm` for controls, `md` for cards
+/// and menus, `lg` for popovers and dialogs.
 impl Default for ThemeShadows {
-  /// Neutral black elevations in the spirit of common design systems: `sm`
-  /// for controls, `md` for cards and menus, `lg` for popovers and dialogs.
   fn default() -> Self {
+    let black = |alpha: u8| Color::new(0, 0, 0, alpha);
+    Self {
+      sm: Arc::from([BoxShadow::new(0.0, 1.0, 2.0, black(0x0D))]),
+      md: Arc::from([
+        BoxShadow::new(0.0, 4.0, 8.0, black(0x1A)),
+        BoxShadow::new(0.0, 1.0, 2.0, black(0x0F)),
+      ]),
+      lg: Arc::from([
+        BoxShadow::new(0.0, 12.0, 24.0, black(0x24)),
+        BoxShadow::new(0.0, 3.0, 6.0, black(0x14)),
+      ]),
+      extra: HashMap::new(),
+    }
+  }
+}
+
+impl ThemeShadows {
+  /// The elevations of lurq 0.61.
+  pub fn legacy() -> Self {
     let black = |alpha: u8| Color::new(0, 0, 0, alpha);
     Self {
       sm: Arc::from([BoxShadow::new(0.0, 1.0, 2.0, black(13))]),
