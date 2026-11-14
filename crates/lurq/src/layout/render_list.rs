@@ -58,6 +58,28 @@ pub struct StrokeStyle {
   /// own (a border inside an element's box), 1 for the edge of its hole (a border outside the box, whose
   /// rect is the box grown by the widths), 0.5 for the middle of the stroke (a centered border).
   pub radii_at: f32,
+  /// The color of each side (top, right, bottom, left) when they differ; `None` paints every side
+  /// `RectCmd::stroke_color`. Where two sides with a stroke meet at a corner their colors mix across it.
+  pub side_colors: Option<[Color; 4]>,
+}
+
+impl StrokeStyle {
+  /// How far past its rect the stroke can paint: round a corner whose other side has no stroke, a stroke
+  /// whose radii are not at its outer edge reaches past that side as far as past its own.
+  pub fn outset(&self, stroke: [f32; 4]) -> f32 {
+    self.radii_at.max(0.0) * stroke.into_iter().fold(0.0, f32::max)
+  }
+}
+
+/// Writes the colors of a stroke's sides (top, right, bottom, left, linear) for the quad shaders, which read
+/// them where a fill reads its gradient, and returns where they start; -1 for a stroke of one color.
+pub fn encode_stroke_colors(buffer: &mut Vec<[f32; 4]>, style: &StrokeStyle) -> f32 {
+  let Some(colors) = style.side_colors else {
+    return -1.0;
+  };
+  let offset = buffer.len() as f32;
+  buffer.extend(colors.map(|color| color.to_linear_f32_array()));
+  offset
 }
 
 /// A box shadow cast by a [`RectCmd`]'s box (x, y, width, height, `radii`).

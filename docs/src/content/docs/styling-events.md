@@ -125,12 +125,18 @@ Row::new().rounded(8.0).border(Border::inside(1.0, "#94a3b8").dashed());
 
 - A border follows the element's corner radii. The corner of its inner edge is the corner's radius less the widths of
   the two sides that meet there, as CSS shapes a padding box, so sides of different widths meet in a smooth curve.
-- A border on one side of a rounded element follows the corners at its ends and thins out to nothing where it meets a
-  side that has none, as in CSS. Between two square corners it is a plain band.
+- A border on some sides of a rounded element goes on round a corner whose other side has none at its full width, its
+  inner edge concentric with the outer one, and fades out along the arc: opaque where the arc leaves the bordered side,
+  gone where it reaches the side with none. It does not thin out as in CSS, so a line under a tab or along the bottom
+  of a panel follows the shape and dissolves at its ends. Between two square corners it is a plain band that ends at
+  the element's edge.
 - A border outside or centered on a rounded element keeps the element's corners for its inner edge and is rounder on
-  its outer edge by its width. A square corner stays square.
-- Sides that differ in width only are painted as one shape; sides of different colors, placements or dashes are painted
-  apart, each as a border of its own.
+  its outer edge by its width. A square corner stays square. Round a corner whose other side has none it reaches past
+  that side as far as past its own; it paints there only, and layout and hit testing do not change.
+- Sides with the same placement and dash are painted as one shape, whatever their widths and colors. Where two of them
+  meet at a rounded corner and differ in color, the color goes over from one to the other along the arc with nothing
+  lighter in between; at a square corner they meet on the diagonal. Sides of different placements or dashes are
+  painted apart, each as a border of its own.
 
 ### Dashed borders
 

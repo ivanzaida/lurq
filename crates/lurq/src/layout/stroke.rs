@@ -8,23 +8,52 @@
 //! **The ring.** A stroke has a width per side. Its hole is the rect inset by
 //! each side's width, and a corner of the hole is the ellipse CSS gives a
 //! padding box: the corner's radius less the widths of the two sides that
-//! meet there. So a stroke on one side only follows the corners at its ends
-//! and thins out to nothing where it meets a side that has none. On a side
-//! with no stroke the hole reaches [`HOLE_MARGIN`] past the edge, so that the
-//! ring has no coverage there, not the half-covered hairline two coincident
-//! edges would leave.
+//! meet there. On a side with no stroke the hole reaches [`HOLE_MARGIN`] past
+//! the edge, so that the ring has no coverage there, not the half-covered
+//! hairline two coincident edges would leave.
+//!
+//! **Corners where a stroke ends.** Unlike CSS, a stroke does not thin out
+//! round a rounded corner whose other side has none. In that corner the
+//! other side is taken as being as wide as the stroke's side, so the ring
+//! goes on round the arc at its full width, concentric with the corner, and
+//! its opacity falls off along the arc ([`corner_fade`]) from the side with
+//! the stroke to the side with none. A square corner ends the stroke at the
+//! rect's edge, as before.
+//!
+//! **Colors.** Sides may differ in color ([`StrokeStyle::side_colors`]).
+//! Across a rounded corner where two sides with a stroke meet the colors mix
+//! by the angle round the arc ([`corner_color_mix`]); in a square corner they
+//! meet on the line from the outer corner to the hole's.
 //!
 //! **The radii.** [`StrokeStyle::radii_at`] says which edge of the stroke the
 //! rect's radii describe: its outer edge for a border inside an element's
 //! box, its hole for a border outside the box, where the rect is the box
 //! grown by the widths and the hole has to match the element's own corners.
-//! A square corner stays square on both edges.
+//! A square corner stays square on both edges. Round a corner whose other
+//! side has no stroke, a stroke outside or centred on the box reaches past
+//! that side by as much as past its own ([`StrokeStyle::outset`]).
 //!
 //! **The dashes.** A dashed stroke is cut along the rect's outline, clockwise
 //! from the start of its top edge. The period is fitted to the outline's
 //! length, so the last dash meets the first with a whole gap between them.
 
 use crate::layout::render_list::StrokeStyle;
+
+/// How a stroke's opacity falls off along the arc of a rounded corner where
+/// its side meets a side with none: `on` is 1 where the arc leaves the side
+/// with the stroke and 0 where it reaches the other. The shaders'
+/// `corner_fade`, the one place to tune it.
+pub fn corner_fade(on: f32) -> f32 {
+  let t = on.clamp(0.0, 1.0);
+  t * t * (3.0 - 2.0 * t)
+}
+
+/// How the colors of two sides that meet at a corner mix across it: `turn`
+/// is 0 on the top or bottom side and 1 on the left or right one.
+pub fn corner_color_mix(turn: f32) -> f32 {
+  let t = turn.clamp(0.0, 1.0);
+  t * t * (3.0 - 2.0 * t)
+}
 
 /// How far the hole reaches past an edge whose side has no stroke, in pixels.
 pub const HOLE_MARGIN: f32 = 1.0;
@@ -79,38 +108,174 @@ fn inset(width: f32) -> f32 {
   if width > 0.0 { width } else { -HOLE_MARGIN }
 }
 
+/// The widths of the sides that meet at the corner of `(x, y)`'s quadrant:
+/// across (the left or right side) and along (the top or bottom one).
+fn quadrant_widths(x: f32, y: f32, shape: &StrokeShape) -> [f32; 2] {
+  let [top, right, bottom, left] = shape.stroke.map(|width| width.max(0.0));
+  [if x < 0.0 { left } else { right }, if y < 0.0 { top } else { bottom }]
+}
+
+/// The widths the stroke has in a corner of `radius` whose sides are `sides`
+/// wide (across, along): theirs, but at a rounded corner where one side has
+/// none the other's width goes on round the corner.
+fn corner_widths(sides: [f32; 2], radius: f32) -> [f32; 2] {
+  if radius <= 0.0 {
+    return sides;
+  }
+  let width = sides[0].max(sides[1]);
+  sides.map(|side| if side <= 0.0 { width } else { side })
+}
+
+/// The widths the ring has at `(x, y)`: the corner's widths in the arc of a
+/// rounded corner, the sides' own anywhere else, so that past the arc of a
+/// corner where the stroke ends the side with none has no ring at all and the
+/// distance to the ring does not jump where the quadrants meet (the shaders
+/// take their ramps from how it changes between neighbouring pixels).
+fn ring_widths(x: f32, y: f32, shape: &StrokeShape, radius: f32, sides: [f32; 2]) -> [f32; 2] {
+  let corner = corner_widths(sides, radius);
+  if corner == sides {
+    return sides;
+  }
+  let radii_at = shape.style.radii_at;
+  let p = [x.abs(), y.abs()];
+  let in_arc = (0..2).all(|axis| {
+    let edge = shape.half[axis] + radii_at * (corner[axis] - sides[axis]);
+    p[axis] > edge - (radius + radii_at * corner[axis])
+  });
+  if in_arc { corner } else { sides }
+}
+
+/// A box given by how far each of its edges (top, right, bottom, left) is
+/// inside a rect of half extent `half`: its centre and half extent.
+fn inset_box(half: [f32; 2], [top, right, bottom, left]: [f32; 4]) -> ([f32; 2], [f32; 2]) {
+  (
+    [0.5 * (left - right), 0.5 * (top - bottom)],
+    [
+      (half[0] - 0.5 * (left + right)).max(0.0),
+      (half[1] - 0.5 * (top + bottom)).max(0.0),
+    ],
+  )
+}
+
 /// Signed distance from `(x, y)` to the ring: negative inside it.
 pub fn stroke_distance(x: f32, y: f32, shape: &StrokeShape) -> f32 {
-  let [top, right, bottom, left] = shape.stroke.map(|width| width.max(0.0));
   let radius = shape.radii[corner(x, y)].max(0.0);
-  // The sides that meet at this quadrant's corner.
-  let across = if x < 0.0 { left } else { right };
-  let along = if y < 0.0 { top } else { bottom };
+  let radii_at = shape.style.radii_at;
+  let sides = quadrant_widths(x, y, shape);
+  let corner = ring_widths(x, y, shape, radius, sides);
+
+  // How far the outer edge is past the rect on each side, and the hole's edge inside it.
+  let reach = [radii_at * (corner[0] - sides[0]), radii_at * (corner[1] - sides[1])];
+  let mut outward = [0.0; 4];
+  let mut insets = shape.stroke.map(|width| inset(width.max(0.0)));
+  let (across_side, along_side) = (if x < 0.0 { 3 } else { 1 }, if y < 0.0 { 0 } else { 2 });
+  outward[across_side] = reach[0];
+  outward[along_side] = reach[1];
+  insets[across_side] = inset(corner[0]);
+  insets[along_side] = inset(corner[1]);
+
   let outer_radius = if radius > 0.0 {
-    [
-      radius + shape.style.radii_at * across,
-      radius + shape.style.radii_at * along,
-    ]
+    [radius + radii_at * corner[0], radius + radii_at * corner[1]]
   } else {
     [0.0; 2]
   };
-  let outer = elliptical_box_distance(x, y, shape.half, outer_radius);
-
-  let hole_half = [
-    (shape.half[0] - 0.5 * (inset(left) + inset(right))).max(0.0),
-    (shape.half[1] - 0.5 * (inset(top) + inset(bottom))).max(0.0),
-  ];
-  let hole_centre = [0.5 * (inset(left) - inset(right)), 0.5 * (inset(top) - inset(bottom))];
   let hole_radius = if radius > 0.0 {
     [
-      (outer_radius[0] - inset(across)).max(0.0),
-      (outer_radius[1] - inset(along)).max(0.0),
+      (outer_radius[0] - inset(corner[0])).max(0.0),
+      (outer_radius[1] - inset(corner[1])).max(0.0),
     ]
   } else {
     [0.0; 2]
   };
+  let (outer_centre, outer_half) = inset_box(shape.half, outward.map(|reach| -reach));
+  let outer = elliptical_box_distance(x - outer_centre[0], y - outer_centre[1], outer_half, outer_radius);
+  let hole_insets = [0, 1, 2, 3].map(|side| insets[side] - outward[side]);
+  let (hole_centre, hole_half) = inset_box(shape.half, hole_insets);
   let hole = elliptical_box_distance(x - hole_centre[0], y - hole_centre[1], hole_half, hole_radius);
   outer.max(-hole)
+}
+
+/// Where `(x, y)` is round the corner of its quadrant: 0 on the top or
+/// bottom side, 1 on the left or right one, the angle in between along a
+/// rounded corner's arc. In a square corner, and inside the arc's centre of a
+/// stroke wider than its corner, the two sides meet on the line from the
+/// outer corner to the hole's, a pixel wide.
+pub fn corner_turn(x: f32, y: f32, shape: &StrokeShape) -> f32 {
+  let radius = shape.radii[corner(x, y)].max(0.0);
+  let radii_at = shape.style.radii_at;
+  let sides = quadrant_widths(x, y, shape);
+  let corner = corner_widths(sides, radius);
+  // Mirrored into the bottom-right quadrant.
+  let p = [x.abs(), y.abs()];
+  let edge = [0, 1].map(|axis| shape.half[axis] + radii_at * (corner[axis] - sides[axis]));
+  let outer_radius = if radius > 0.0 {
+    [radius + radii_at * corner[0], radius + radii_at * corner[1]]
+  } else {
+    [0.0; 2]
+  };
+  let d = [p[0] - (edge[0] - outer_radius[0]), p[1] - (edge[1] - outer_radius[1])];
+  if d[0] > 0.0 && d[1] > 0.0 && outer_radius[0] > 0.0 {
+    return (d[0] / outer_radius[0]).atan2(d[1] / outer_radius[1]) * std::f32::consts::FRAC_2_PI;
+  }
+  if d[0] <= 0.0 && d[1] > 0.0 {
+    return 0.0;
+  }
+  if d[0] > 0.0 && d[1] <= 0.0 {
+    return 1.0;
+  }
+  let to_edge = [edge[0] - p[0], edge[1] - p[1]];
+  let span = corner[0].hypot(corner[1]).max(1e-4);
+  (0.5 + (to_edge[1] * corner[0] - to_edge[0] * corner[1]) / span).clamp(0.0, 1.0)
+}
+
+/// How much of the stroke shows at `(x, y)` along a rounded corner where one
+/// of the sides that meet has none: it fades out from the side with a stroke
+/// to the other. In a quadrant whose sides both have none, only the band of a
+/// far side wide enough to reach into it (more than half the rect) shows:
+/// not the end of an arc that goes on past the middle of a side, as round a
+/// pill whose stroke is outside it. 1 anywhere else.
+pub fn corner_fade_at(x: f32, y: f32, shape: &StrokeShape) -> f32 {
+  let radius = shape.radii[corner(x, y)].max(0.0);
+  let [across, along] = quadrant_widths(x, y, shape);
+  if across <= 0.0 && along <= 0.0 {
+    let [top, right, bottom, left] = shape.stroke.map(|width| width.max(0.0));
+    let far = [if x < 0.0 { right } else { left }, if y < 0.0 { bottom } else { top }];
+    // How far the point is from the far edges, less a pixel for their ramps.
+    let from_far = [shape.half[0] + x.abs() - 1.0, shape.half[1] + y.abs() - 1.0];
+    return if from_far[0] < far[0] || from_far[1] < far[1] {
+      1.0
+    } else {
+      0.0
+    };
+  }
+  if radius <= 0.0 || (across > 0.0) == (along > 0.0) {
+    return 1.0;
+  }
+  let turn = corner_turn(x, y, shape);
+  if along > 0.0 {
+    corner_fade(1.0 - turn)
+  } else {
+    corner_fade(turn)
+  }
+}
+
+/// How much each side's color (top, right, bottom, left) makes of the
+/// stroke's at `(x, y)`: a side's own along it, mixed across a corner where
+/// two sides with a stroke meet. The weights add up to 1.
+pub fn side_color_weights(x: f32, y: f32, shape: &StrokeShape) -> [f32; 4] {
+  let [across, along] = quadrant_widths(x, y, shape);
+  let (across_side, along_side) = (if x < 0.0 { 3 } else { 1 }, if y < 0.0 { 0 } else { 2 });
+  let mut weights = [0.0; 4];
+  if along <= 0.0 {
+    weights[across_side] = 1.0;
+  } else if across <= 0.0 {
+    weights[along_side] = 1.0;
+  } else {
+    let mix = corner_color_mix(corner_turn(x, y, shape));
+    weights[along_side] = 1.0 - mix;
+    weights[across_side] = mix;
+  }
+  weights
 }
 
 /// How much nearer the second of two edges that meet at a corner has to be
@@ -239,7 +404,7 @@ fn ring_sample(x: f32, y: f32, shape: &StrokeShape) -> f32 {
 /// The stroke's coverage (0 to 1) at the pixel centre `(x, y)`, relative to
 /// the centre of an untransformed rect: the ring over four half-pixel
 /// subsamples with half-pixel ramps, as the quad shaders take it, times the
-/// dashes at the centre.
+/// fade round a corner where the stroke ends and the dashes at the centre.
 pub fn stroke_coverage(x: f32, y: f32, shape: &StrokeShape) -> f32 {
   if shape.half[0] <= 0.0 || shape.half[1] <= 0.0 {
     return 0.0;
@@ -256,6 +421,11 @@ pub fn stroke_coverage(x: f32, y: f32, shape: &StrokeShape) -> f32 {
       .map(|(dx, dy)| ring_sample(x + dx, y + dy, shape))
       .sum::<f32>()
       * 0.25
+  };
+  let ring = if ring > 0.0 {
+    ring * corner_fade_at(x, y, shape)
+  } else {
+    ring
   };
   if ring <= 0.0 || shape.style.dash[0] <= 0.0 {
     return ring;
@@ -299,32 +469,113 @@ mod tests {
   }
 
   #[test]
-  fn a_stroke_on_one_side_follows_the_corners_at_its_ends_and_thins_out() {
+  fn a_stroke_on_one_side_goes_round_a_rounded_corner_at_its_width_and_fades_out() {
     let left = shape([0.0, 0.0, 0.0, 4.0], 10.0, 0.0);
     // Full width along the straight part of the side.
     assert_eq!(stroke_coverage(-48.0, 0.0, &left), 1.0);
     assert_eq!(stroke_coverage(-45.0, 0.0, &left), 0.0);
     // Outside the rounded corner there is nothing, where a square band would paint.
     assert_eq!(stroke_coverage(-49.5, -19.5, &left), 0.0);
-    // Along the corner the stroke gets thinner towards the top edge, and is gone where the top edge starts.
-    let depth_at = |angle_deg: f32| {
+    // Round the corner (centred at (-40, -10)) the ring keeps its width of 4: from radius 10 to radius 6.
+    let at = |angle_deg: f32, radius: f32| {
       let angle = angle_deg.to_radians();
-      (0..40)
+      (-40.0 - radius * angle.cos(), -10.0 - radius * angle.sin())
+    };
+    for angle in [10.0, 45.0, 80.0] {
+      let depth = (0..40)
         .map(|step| 10.0 - step as f32 * 0.25)
         .filter(|radius| {
-          let (x, y) = (-40.0 - radius * angle.cos(), -10.0 - radius * angle.sin());
+          let (x, y) = at(angle, *radius);
           stroke_distance(x, y, &left) < 0.0
         })
         .count() as f32
-        * 0.25
+        * 0.25;
+      assert!((3.75..=4.25).contains(&depth), "the width at {angle} degrees: {depth}");
+    }
+    // Its opacity falls off from the left side to the top one, and is gone where the top edge starts.
+    let coverage = |angle: f32| {
+      let (x, y) = at(angle, 8.0);
+      stroke_coverage(x, y, &left)
     };
-    let (low, middle, high) = (depth_at(10.0), depth_at(45.0), depth_at(80.0));
+    let (low, middle, high) = (coverage(10.0), coverage(45.0), coverage(80.0));
     assert!(low > middle && middle > high, "{low} {middle} {high}");
+    assert!(low > 0.9, "nearly whole near the side: {low}");
+    assert!((0.4..=0.6).contains(&middle), "half way round: {middle}");
+    assert!(high < 0.1, "nearly nothing near the top edge: {high}");
+    assert_eq!(stroke_coverage(-40.0, -18.0, &left), 0.0, "where the top edge starts");
+  }
+
+  #[test]
+  fn a_stroke_on_one_side_ends_at_a_square_corner() {
+    let left = shape([0.0, 0.0, 0.0, 4.0], 0.0, 0.0);
+    assert_eq!(stroke_coverage(-48.0, -19.5, &left), 1.0);
+    assert_eq!(stroke_coverage(-48.0, 19.5, &left), 1.0);
+    assert_eq!(stroke_coverage(-45.0, -19.5, &left), 0.0);
+    assert_eq!(stroke_coverage(-48.0, -20.6, &left), 0.0);
+  }
+
+  #[test]
+  fn a_stroke_outside_the_box_goes_round_the_corner_past_the_side_with_none() {
+    // A bottom border of 2 outside a box 100 by 38 with corners of 8: the rect is the box grown by 2 below.
+    let bottom = shape([0.0, 0.0, 2.0, 0.0], 8.0, 1.0);
+    assert!(bottom.style.outset(bottom.stroke) >= 2.0);
+    // The element's corner is centred 8 in from its right edge (x 50) and its bottom edge (y 18).
+    let (cx, cy) = (42.0, 10.0);
+    let diagonal = std::f32::consts::FRAC_1_SQRT_2;
+    let at = |radius: f32| {
+      let (x, y) = (cx + radius * diagonal, cy + radius * diagonal);
+      (stroke_distance(x, y, &bottom), stroke_coverage(x, y, &bottom))
+    };
+    assert!(at(7.0).0 > 0.0, "inside the element's corner");
+    let (distance, coverage) = at(9.0);
     assert!(
-      (3.5..=4.0).contains(&low),
-      "nearly the whole width near the side: {low}"
+      distance < 0.0 && (0.3..=0.7).contains(&coverage),
+      "in the border: {coverage}"
     );
-    assert!(high < 1.0, "nearly nothing near the top edge: {high}");
+    assert!(at(11.0).0 > 0.0, "outside the border");
+    // Near where the arc meets the right side the border reaches past it, at nearly no opacity; past the arc
+    // the side with none has no ring.
+    assert!(stroke_distance(51.0, cy + 0.5, &bottom) < 0.0);
+    assert!(stroke_coverage(51.0, cy + 0.5, &bottom) < 0.02);
+    assert!(stroke_distance(51.0, cy - 0.5, &bottom) > 0.0);
+  }
+
+  #[test]
+  fn two_sides_of_two_colors_mix_across_their_corner_at_full_coverage() {
+    let corner = StrokeShape {
+      style: StrokeStyle {
+        side_colors: Some([crate::node::color::Color::new(0, 0, 0, 255); 4]),
+        ..StrokeStyle::default()
+      },
+      ..shape([0.0, 0.0, 2.0, 2.0], 10.0, 0.0)
+    };
+    // The bottom-left corner is centred at (-40, 10); the middle of the ring is 9 from it.
+    let at = |angle_deg: f32| {
+      let angle = angle_deg.to_radians();
+      (-40.0 - 9.0 * angle.cos(), 10.0 + 9.0 * angle.sin())
+    };
+    for angle in [5.0, 30.0, 45.0, 60.0, 85.0] {
+      let (x, y) = at(angle);
+      assert_eq!(stroke_coverage(x, y, &corner), 1.0, "coverage at {angle} degrees");
+    }
+    let weights = |angle| {
+      let (x, y) = at(angle);
+      side_color_weights(x, y, &corner)
+    };
+    // Bottom (2) is the side along; left (3) the one across.
+    assert!((weights(45.0)[2] - 0.5).abs() < 1e-3 && (weights(45.0)[3] - 0.5).abs() < 1e-3);
+    assert!(weights(5.0)[3] > 0.95, "near the left side: {:?}", weights(5.0));
+    assert!(weights(85.0)[2] > 0.95, "near the bottom side: {:?}", weights(85.0));
+    assert_eq!(side_color_weights(0.0, 19.0, &corner), [0.0, 0.0, 1.0, 0.0]);
+    assert_eq!(side_color_weights(-49.0, 0.0, &corner), [0.0, 0.0, 0.0, 1.0]);
+  }
+
+  #[test]
+  fn two_sides_meet_on_the_diagonal_of_a_square_corner() {
+    let corner = shape([0.0, 0.0, 2.0, 2.0], 0.0, 0.0);
+    assert_eq!(side_color_weights(-49.5, 18.2, &corner), [0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(side_color_weights(-48.2, 19.5, &corner), [0.0, 0.0, 1.0, 0.0]);
+    assert_eq!(side_color_weights(-49.0, 19.0, &corner), [0.0, 0.0, 0.5, 0.5]);
   }
 
   #[test]
@@ -332,6 +583,11 @@ mod tests {
     let left = shape([0.0, 0.0, 0.0, 4.0], 10.0, 0.0);
     for offset in [-0.4_f32, -0.1, 0.0, 0.1, 0.4] {
       // The top, right and bottom edges, at fractions of a pixel.
+      assert_eq!(
+        stroke_coverage(-20.0, -20.0 + offset, &left),
+        0.0,
+        "top beyond the corner at {offset}"
+      );
       assert_eq!(stroke_coverage(10.0, -20.0 + offset, &left), 0.0, "top at {offset}");
       assert_eq!(stroke_coverage(50.0 + offset, 3.0, &left), 0.0, "right at {offset}");
       assert_eq!(stroke_coverage(10.0, 20.0 + offset, &left), 0.0, "bottom at {offset}");
@@ -442,7 +698,7 @@ mod tests {
     let dashed = StrokeShape {
       style: StrokeStyle {
         dash: [6.0, 4.0],
-        radii_at: 0.0,
+        ..StrokeStyle::default()
       },
       ..shape([2.0; 4], 0.0, 0.0)
     };
