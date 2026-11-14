@@ -3691,6 +3691,100 @@ PropertyGrid::new()
 - In the design the grid is 300 wide on `Background` with an edge of 1 in `Border` and the large radius. Its header is 30 high on `Muted`, its title in 11 semibold capitals spaced 0.6 in `MutedForeground`. A category's row is 28 high on `Muted` with a line under it, its chevron of 14 in `MutedForeground` 6 before its title in 12 semibold. A property's row is 32 high with a line under it, padded 12 at its start and 8 at its end, its name 84 wide in 12 in `MutedForeground` and its editors 8 after it, 6 apart. An editor is 24 high on `Background` with an edge of 1 in `Input`, the small radius, padded 6 across, its text in 12 mono; the letter of a value of two is 11 semibold mono, X in `Destructive`, Y in `Success`, others in `MutedForeground`. A changed value's name is 12 semibold in `Foreground` with a dot of 5 in `Info` after it, and the reset of 13 in `MutedForeground` ends its row. The board draws no row under the pointer or focused: a row under the pointer is on `Muted`, a focused one has the focus ring inside it. Rows follow the theme's density; editors keep their 24.
 - A renderer that draws another grid has `view.header()`, `view.category_row(index, entry)`, `view.property_row(category, row, entry)`, `view.divider()` and `view.categories`, each category's and property's view with its recipe in its state.
 
+## Document Tabs
+
+The open documents of an editor, in a bar across its top: one of them shown, each closed by its control, moved by a drag, and those that do not fit in a menu at the end.
+
+```rust
+use lurq::ui::{DocumentTab, DocumentTabs, MenuItem, icons};
+
+// shown: Signal<PathBuf>; files: the app's list of what is open.
+DocumentTabs::new(shown.clone(), files.iter().map(|file| {
+  DocumentTab::new(file.path.clone(), &file.name)
+    .icon(icons::FILE_CODE)
+    .dirty(file.dirty)
+    .pinned(file.pinned)
+    .preview(file.preview)
+}))
+.label("Open files")
+.on_close(|path| close(path))
+.on_reorder(|from, to| files.update(|files| { let file = files.remove(from); files.insert(to, file); }))
+.on_keep(|path| keep(path))
+.on_add(|| new_file())
+.context_menu(|path| vec![MenuItem::new("Close Others"), MenuItem::new("Copy Path")])
+.mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `DocumentTabs::new(Signal<T>, tabs)`, `optional(Signal<Option<T>>, tabs)` | The tabs, of which the one whose value the signal has is shown, or none where it is `None`: an editor with nothing open. A press of another tab sets the signal |
+| `controlled(value, tabs, on_change)`, `controlled_optional(Option<T>, tabs, on_change)` | The app holds which is shown, and `on_change` is told what it is to be; the bar shows nothing itself |
+| `tab(impl Into<DocumentTab<T>>)`, `tabs(..)` | Tabs after those it has. `(value, "name")` is a tab |
+| `on_change(handler)` | Told the new value as a person shows another tab, after the signal is set: `&T` of a `DocumentTabs<T>`, `&Option<T>` of a `DocumentTabs<T, Option<T>>`. Not when the app sets the signal, nor for a press of the tab shown |
+| `on_close(Fn(&T))` | Told the tab a person closes, after its own handlers: its close control, a press of it with the middle button, Ctrl+W (or Cmd+W) while it is focused. The app takes it out, and says which is shown next where it was the one shown |
+| `on_reorder(Fn(usize, usize))` | Told that a person moved the tab at the first index to the second, both counted in the tabs as they are before and after: `tabs.insert(to, tabs.remove(from))`. By a drag along the bar, and by Ctrl+Shift+PageUp and PageDown on a focused tab. A pinned tab moves among the pinned ones, another among the others. The bar moves nothing itself |
+| `on_add(Fn())` | A press of the new tab button after the tabs, which is there once this is given |
+| `on_keep(Fn(&T))` | A double press of a preview: the app keeps the document open as a tab that is no preview |
+| `context_menu(Fn(&T) -> Vec<MenuItem>)` | The commands of a tab's [context menu](#context-menu), opened by a press of the secondary button, a long press, the Menu key or Shift+F10 on a mounted bar |
+| `label(&str)` | What the tabs are called to what reads the tree: a `tablist` of that name |
+| `close_label(&str)`, `add_label(&str)`, `more_label(&str)` | What the close control is called before the tab's name ("Close blur.rs"), the new tab button and the More button: "Close", "New tab" and "Show the hidden tabs" unless told |
+| `mount(ctx)` | Puts it where it goes: it keeps which tabs did not fit and the menu of them, a tab being dragged, and each tab's context menu. Built on its own (`build`, `.into()`) every tab is in the bar whether it fits or not, with no drag and no context menu |
+| `DocumentTab::new(value, name)` | A tab. `icon(name)` an icon before its name, `dirty(bool)` a document not saved, `pinned(bool)` a square of the pin at the start with no close control, `preview(bool)` its name in italics, `on_close(Fn())` its own handler, called before the bar's, `disabled`, `id` (its close control is `{id}-close`, its item in the menu `{id}-item`) and `key` (what the focus follows it by when it moves: its name and how many before it have the same unless told) |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the tab Tab stops on; the bar's buttons have ids after its own, `{id}-add` and `{id}-more` |
+
+- The tabs are one stop of Tab, at the one shown. Left and Right move the focus between them, and Space and Enter show the one focused: a document is not opened by an arrow. The new tab button and the More button are stops of their own.
+- A tab under the pointer, or holding the focus, shows its cross whole; another's is at half, and a document not saved shows a dot in its place, which the cross takes the place of under the pointer. The close control is no stop of Tab: Ctrl+W closes the tab focused, and the focus goes to the tab after it, or before it where it was the last.
+- A drag of a tab along the bar marks where it goes with a line of 2 in `Primary` at the edge of the tab it goes before (or after the last), and the dragged tab is dimmed; let go, `on_reorder` is told. A press that moves less than 4 is a press. Ctrl+Shift+PageUp and PageDown move the focused tab one place, and the focus stays on it.
+- Mounted, the tabs that do not fit leave the bar from its end, the last first, but the one shown and the pinned ones. The More button at the end says how many it holds and opens a menu of them; a tab chosen there is shown, and is in the bar from then on.
+- A name longer than its room ends in an ellipsis: a tab is 240 wide at most, and its close control keeps its room.
+- The bar is a row of the density's height: 38 at the default, the steps of a row from it (`ui::ROW_STEPS`); the pinned tab and the new tab button stay square.
+- To what reads the tree the bar is a `tablist` (its `label`), each tab a `tab` called by its name with `a11y_selected`, a pinned one too; the close control is called "Close" and the tab's name; the More button says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
+- Parts: `DocumentTabsPart::Root`, `Bar` (the muted box under the tabs, with the line the tab shown covers), `List`, `Tab`, `Icon`, `Label`, `Close`, `CloseIcon`, `Dirty`, `Add`, `AddIcon`, `More`, `MoreLabel`, `MoreIcon`. States of a tab: `DocumentTabsState::Selected`, `Dirty`, `Pinned`, `Preview`, `Disabled`, `Dragged`, `DropBefore`, `DropAfter`; of the bar, `Overflowing`.
+- In the design the bar is 38 high in `Muted` with a line of 1 in `Border` along its bottom. A tab is padded 12 at its start and 8 at its end, its icon of 14, its name of 13 and its close control of 20 (the small radius, a cross of 13) 8 apart, a line of 1 in `Border` at its end; its icon and name are in `MutedForeground`. The tab shown is `Background` with a line of 2 in `Primary` along its top, over the bar's line, its icon, name and cross in `Foreground`. The close control under the pointer is `SecondaryHover`. The dot of a document not saved is 8 in `Foreground`. A pinned tab is a square of 38 with its pin. The new tab button is a square of 38 with a plus of 16 in `Foreground`; the More button is padded 10 with a line at its start, its count of 12 and a chevron of 14 in `MutedForeground`, 4 apart.
+- A renderer that draws other tabs is given the view: `view.tabs` (each tab's name, icon and states), `view.dropped`, `view.part(..)`, `view.tab_part(index, ..)`, `view.tab(index)`, `view.list()`, `view.add()`, `view.more()` and `view.render()` the default.
+
+## Status Bar
+
+The bar along the bottom of a window, which says what state the app is in: the branch, the problems, what is being done at its start; where one is in a document at its end.
+
+```rust
+use lurq::ui::{StatusBar, StatusBarVariant, StatusItem, StatusItemVariant, icons};
+
+StatusBar::new()
+  .label("Editor status")
+  .leading([
+    StatusItem::new("feat/design-system").icon(icons::BRANCH).variant(StatusItemVariant::Primary).priority(2),
+    StatusItem::new("3").icon(icons::WARNING).tooltip("3 warnings").on_select(|| show_problems()),
+    StatusItem::new("Indexing").progress(0.55),
+  ])
+  .trailing(["Ln 42, Col 7", "UTF-8", "Rust"])
+  .mount(ctx);
+
+// Debugging: the whole bar in a tone.
+StatusBar::new().variant(StatusBarVariant::Warning).leading(["Paused on a breakpoint"]);
+```
+
+| Builder | |
+| --- | --- |
+| `StatusBar::new()` | An empty bar in the neutral tone |
+| `leading(items)`, `trailing(items)` | Items at its start and at its end, after those it has there. A `&str` is an item of that text |
+| `variant(StatusBarVariant)` | The tone of the whole bar: `Neutral` (the default), `Primary`, `Info`, `Success`, `Warning`, `Destructive`. Each item is in it unless it has its own |
+| `drops_first(StatusRegion)` | The end that gives way first where the bar is too narrow: `Trailing` (the default) or `Leading` |
+| `label(&str)` | What the bar is called to what reads the tree |
+| `mount(ctx)` | Puts it where it goes with the tooltips of its items, which keep their timers. Built on its own it has none |
+| `StatusItem::new(text)` | An item: its text, which is its name to what reads the tree. `icon(name)` an icon before it, `icon_only(bool)` the icon alone, `variant(StatusItemVariant)` its tone, `tooltip(&str)`, `progress(0..1)` a rail after its text, `priority(i32)` how long it stays in a bar too narrow (the lower leave first, 0 unless told), `disabled`, `id`, `key` |
+| `StatusItem::on_select(Fn())` | Called when it is pressed, by a click, Space or Enter: an item with a handler is a button, one without says what it says. Each one adds |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first pressed item |
+
+- The items that are pressed are one stop of Tab, at the first of them; Left and Right move between them and pass the others by.
+- Where the bar is too narrow its items leave it whole, those of the lowest priority first; of one priority, the end `drops_first` says before the other, each from its end. An item that left is no stop of Tab. A text is 240 wide at most, and ends in an ellipsis.
+- A tone is the muted fill of its color, the item's text and icon in the color: `DestructiveMuted` and `Destructive`. `Primary` is the primary fill and its foreground. A pressed item under the pointer is under the hover veil (`StateHover`), held down under `StatePressed`, whatever its fill.
+- The bar is 26 high whatever the density: it is a bar, as the toolbar and the menubar are, not a row.
+- To what reads the tree the bar is a `status` (its `label`), each item called by its text, an icon alone too; an item with progress says `a11y_valuenow` where it is pressed.
+- Parts: `StatusBarPart::Root`, `Item`, `Icon`, `Label`, `Track`, `Fill`. States of an item: `StatusBarState::Pressable`, `Progress`, `Disabled`; variants: `StatusBarVariant` (`StatusItemVariant` is the same).
+- In the design the bar is 26 high in `Muted` under a line of 1 in `Border`. An item is padded 8, its icon of 13 and its text of 12 in `Foreground` 5 apart. The item with progress has its text in `MutedForeground` and, 8 after it, a rail 72 by 4 of the `Input` color, round, its part done in `Foreground`. The branch is in the `Primary` fill.
+- A renderer that draws another bar is given the view: `view.entries` (each item's text, its end, whether it is pressed and its order), `view.part(..)`, `view.item(index)` (an item, built, as it leaves the bar) and `view.render()` the default.
+
 ## Tree View
 
 Things inside things, one level under the other: the files of a project in their folders, the layers of a scene, settings in their groups.

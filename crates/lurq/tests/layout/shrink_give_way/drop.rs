@@ -257,3 +257,27 @@ fn give_way_last_child_drop_leaves_no_slack_at_the_end() {
     "the fixed item ends at the line's end",
   );
 }
+
+#[test]
+fn the_room_a_dropped_child_frees_beyond_the_need_goes_to_a_growing_child() {
+  // A bar of two groups and a spacer between them: the second group stays at the end of the line once a child of
+  // the first has dropped and freed more than the line needed.
+  let natural = natural_widths();
+  let row = || {
+    Row::new()
+      .spacing(SPACING)
+      .child(label(DETAIL))
+      .child(label(TIME).flex_shrink(1.0).shrink_limit(ShrinkLimit::Drop))
+      .child(Spacer::new().flex(1.0))
+      .child(Rect::new(STOP, 10.0))
+  };
+  let width = natural[0] + natural[1] + STOP + SPACING * 3.0 - 3.0;
+  let (_, layout) = layout_once(row(), width, LINE_HEIGHT);
+  assert!(layout.children[1].result.is_dropped(), "the time is dropped");
+  let stop = &layout.children[3];
+  assert_close(
+    stop.offset.x + stop.result.size.width,
+    width,
+    "the last child ends at the line's end",
+  );
+}

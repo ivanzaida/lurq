@@ -3541,6 +3541,56 @@ impl LayoutEngine {
       child_overrides,
     );
 
+    // Dropped children take no spacing.
+    let line_main = |child_layouts: &[ChildLayout]| -> f32 {
+      let line_child_count = child_layouts
+        .iter()
+        .zip(children.iter())
+        .filter(|(layout, child)| occupies_line(child, &layout.result))
+        .count();
+      let total_spacing = spacing * (line_child_count as f32 - 1.0).max(0.0);
+      child_layouts
+        .iter()
+        .zip(children.iter())
+        .filter(|(layout, child)| occupies_line(child, &layout.result))
+        .map(|(layout, _)| main_size(&layout.result, vertical))
+        .sum::<f32>()
+        + total_spacing
+    };
+    let mut total_main = line_main(&child_layouts);
+    // A child that dropped can free more than the line needed. What is left is the growing children's, as free room
+    // is: a spacer between two groups keeps the second at the end of the line once a child of the first has dropped.
+    let left = max_main - total_main;
+    let dropped_any = child_layouts.iter().any(|layout| layout.result.dropped);
+    if dropped_any && left.is_finite() && left > 0.5 && grow_total > 0.0 {
+      for (i, child) in children.iter().enumerate() {
+        let Some(params) = child.state_flex().filter(|params| params.grow > 0.0) else {
+          continue;
+        };
+        if child.is_overlay_declaration() || !occupies_line(child, &child_layouts[i].result) {
+          continue;
+        }
+        let size = main_size(&child_layouts[i].result, vertical) + left * (params.grow / grow_total);
+        let child_constraints = if vertical {
+          Constraints {
+            min_width: 0.0,
+            max_width: constraints.max_width,
+            min_height: size,
+            max_height: size,
+          }
+        } else {
+          Constraints {
+            min_width: size,
+            max_width: size,
+            min_height: 0.0,
+            max_height: constraints.max_height,
+          }
+        };
+        child_layouts[i].result = self.layout_child_node(glyph_engine, child_overrides, i, child, child_constraints);
+      }
+      total_main = line_main(&child_layouts);
+    }
+
     let max_cross: f32 = child_layouts
       .iter()
       .zip(children.iter())
@@ -3550,21 +3600,6 @@ impl LayoutEngine {
         if vertical { r.size.width } else { r.size.height }
       })
       .fold(0.0_f32, f32::max);
-
-    // Dropped children take no spacing.
-    let line_child_count = child_layouts
-      .iter()
-      .zip(children.iter())
-      .filter(|(layout, child)| occupies_line(child, &layout.result))
-      .count();
-    let total_spacing = spacing * (line_child_count as f32 - 1.0).max(0.0);
-    let total_main: f32 = child_layouts
-      .iter()
-      .zip(children.iter())
-      .filter(|(layout, child)| occupies_line(child, &layout.result))
-      .map(|(layout, _)| main_size(&layout.result, vertical))
-      .sum::<f32>()
-      + total_spacing;
 
     let size = if vertical {
       constraints.constrain(Size::new(max_cross, total_main))
