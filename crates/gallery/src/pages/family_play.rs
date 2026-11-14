@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   kit::segmented_fill,
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// A size: what it is, what the code calls it, and what the panel calls it.
@@ -143,7 +143,7 @@ impl TogglePlay {
       Spec {
         title: "Toggle",
         make: Arc::new(move || plain().into()),
-        shown: toggle.into(),
+        shown: Shown::of(toggle),
         fill: false,
         forceable: true,
         facts: if on { "on".to_owned() } else { "off".to_owned() },
@@ -252,7 +252,7 @@ impl LinkPlay {
       Spec {
         title: "Link",
         make: Arc::new(move || plain().into()),
-        shown: link.into(),
+        shown: Shown::of(link),
         fill: false,
         forceable: true,
         facts: String::new(),
@@ -388,7 +388,7 @@ impl SegmentedPlay {
             .disabled(disabled)
             .into()
         }),
-        shown: control.into(),
+        shown: Shown::of(control),
         fill: full_width,
         forceable: true,
         facts: format!("chosen: {}", VIEWS[chosen].0),
@@ -515,7 +515,7 @@ impl ButtonGroupPlay {
           }
           group.into()
         }),
-        shown: group.into(),
+        shown: Shown::of(group),
         fill: false,
         forceable: false,
         facts: format!("{buttons} buttons"),
@@ -677,7 +677,7 @@ impl ToggleGroupPlay {
               .into()
           })
         },
-        shown: group.into(),
+        shown: Shown::of(group),
         fill: false,
         forceable: false,
         facts: if names.is_empty() {

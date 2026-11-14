@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The links of the Docs panel: a title, a line about it, and an icon.
@@ -237,7 +237,7 @@ impl NavigationMenuPage {
           let open = Signal::new(None);
           move || scene(menu(props, |_| {}).open(open.clone()).into(), height)
         }),
-        shown,
+        shown: Shown::of(shown),
         fill: true,
         forceable: false,
         facts,

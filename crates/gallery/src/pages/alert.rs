@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The variants, as the board names them and as the code does.
@@ -158,7 +158,7 @@ impl AlertPage {
       Spec {
         title: "Alert",
         make: Arc::new(make),
-        shown: Column::new().width(360.0).child(alert).into(),
+        shown: Shown::built(move |_| Column::new().width(360.0).child(alert).into()),
         fill: false,
         forceable: closable,
         facts: format!("{variant_name} · {}", variant.role()),

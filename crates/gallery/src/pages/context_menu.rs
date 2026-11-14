@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet},
-  playground::{Playground, Spec, divider, flag},
+  playground::{Playground, Shown, Spec, divider, flag},
 };
 
 /// Something on a stage with what it is under it.
@@ -199,7 +199,7 @@ impl ContextMenuPage {
       Spec {
         title: "Context Menu",
         make: Arc::new(make),
-        shown,
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: facts.join(" · "),

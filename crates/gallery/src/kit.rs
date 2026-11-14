@@ -268,6 +268,20 @@ pub fn fit(key: &str, room: f32, least: f32, content: impl Into<Element>) -> Ele
 /// The props of a component, a row for each. `room` is the width there is for the table:
 /// `Frame::room`.
 pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f32) -> Element {
+  // A column is as wide as the longest thing in it, and no narrower than the design draws it: a name or a type
+  // is one word that does not break, and one wider than its column would be drawn under the column after it.
+  let theme = lurq::ui::current_theme();
+  let wide = |size: f32, longest: usize| longest as f32 * theme.scaled(size) * 0.62;
+  let longest = |of: &dyn Fn(&(&str, &str, &str, &str)) -> usize| rows.iter().map(of).max().unwrap_or(0);
+  let badge = theme.scaled(11.0) * 0.62 * 8.0 + 12.0 + 8.0;
+  let prop_width = rows
+    .iter()
+    .map(|row| wide(13.0, row.0.chars().count()) + if required.contains(&row.0) { badge } else { 0.0 })
+    .fold(0.0, f32::max);
+  let prop_width = (prop_width + 16.0).max(150.0);
+  let type_width = (wide(12.0, longest(&|row| row.1.chars().count())) + 10.0 + 16.0).max(180.0);
+  let default_width = (wide(13.0, longest(&|row| row.2.chars().count())) + 16.0).max(110.0);
+  let least = PROPS_WIDTH + (prop_width - 150.0) + (type_width - 180.0) + (default_width - 110.0);
   let head = |title: &str| text(title, 12.0, FontWeight::Medium).color(PaletteColor::MutedForeground);
   let mut table = Column::new().width(FILL).child(
     Row::new()
@@ -276,14 +290,15 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
       .padding_horizontal(16.0)
       .align_items(Alignment::Center)
       .background(PaletteColor::Muted)
-      .child(Row::new().width(150.0).child(head("Prop")))
-      .child(Row::new().width(180.0).child(head("Type")))
-      .child(Row::new().width(110.0).child(head("Default")))
+      .child(Row::new().width(prop_width).flex_shrink(0.0).child(head("Prop")))
+      .child(Row::new().width(type_width).flex_shrink(0.0).child(head("Type")))
+      .child(Row::new().width(default_width).flex_shrink(0.0).child(head("Default")))
       .child(Row::new().flex(1.0).child(head("Description"))),
   );
   for (prop, kind, default, about) in rows {
     let mut named = Row::new()
-      .width(150.0)
+      .width(prop_width)
+      .flex_shrink(0.0)
       .spacing(8.0)
       .align_items(Alignment::Center)
       .child(name(prop, 13.0));
@@ -299,7 +314,7 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
           .child(text("required", 11.0, FontWeight::Medium)),
       );
     }
-    let mut typed = Row::new().width(180.0);
+    let mut typed = Row::new().width(type_width).flex_shrink(0.0);
     if !kind.is_empty() {
       typed = typed.child(
         Row::new()
@@ -319,11 +334,16 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
         .border_top(line())
         .child(named)
         .child(typed)
-        .child(Row::new().width(110.0).child(if default.is_empty() {
-          quiet("—", 13.0)
-        } else {
-          mono(default, 13.0)
-        }))
+        .child(
+          Row::new()
+            .width(default_width)
+            .flex_shrink(0.0)
+            .child(if default.is_empty() {
+              quiet("—", 13.0)
+            } else {
+              mono(default, 13.0)
+            }),
+        )
         .child(
           styled(about, TypographyStyle::Body, |style| {
             style.font_size = 13.0;
@@ -343,7 +363,7 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
     .border(line())
     // The columns keep the width they need: in a narrower card the table scrolls sideways, and a
     // description is never a few words wide.
-    .child(fit("props", room, PROPS_WIDTH, table))
+    .child(fit("props", room, least, table))
     .into()
 }
 

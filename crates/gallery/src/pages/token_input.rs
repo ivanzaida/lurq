@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// How wide the board draws a token input.
@@ -239,7 +239,7 @@ impl TokenInputPage {
       Spec {
         title: "Token Input",
         make: Arc::new(move || Column::new().width(360.0).child(plain()).into()),
-        shown: Column::new().width(FILL).child(input).into(),
+        shown: Shown::of(input),
         fill: true,
         forceable: true,
         facts: format!("{size_name} · {found} in the list · draft {typed_now:?} · Enter or {separator_name}"),

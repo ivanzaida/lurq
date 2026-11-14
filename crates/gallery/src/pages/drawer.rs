@@ -18,7 +18,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, line, props_table, segmented_fill, text},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The sides, as the code names them.
@@ -195,7 +195,7 @@ impl DrawerPage {
           let open = Signal::new(true);
           layout(make(open.clone()).overlay(false), side, &open)
         }),
-        shown,
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: format!(

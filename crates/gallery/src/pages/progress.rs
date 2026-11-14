@@ -23,7 +23,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, line, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -187,7 +187,7 @@ impl ProgressPage {
       Spec {
         title: "Progress",
         make: Arc::new(plain.clone()),
-        shown: plain(),
+        shown: Shown::of(plain()),
         fill: false,
         forceable: false,
         facts: if indeterminate && !ring {

@@ -18,7 +18,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, line, props_table, segmented_fill, text},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The places of the board's sidebar, by group: a name, an icon, and how many it holds.
@@ -302,7 +302,7 @@ impl SidebarPage {
       Spec {
         title: "Sidebar",
         make: Arc::new(move || window(board(&make_props, |_| {}).into(), &make_props, FILL)),
-        shown,
+        shown: Shown::of(shown),
         fill: true,
         forceable: false,
         facts: format!(

@@ -15,7 +15,7 @@ use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet, segmented_fill},
   pages::alert::VARIANTS,
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -99,7 +99,7 @@ impl CalloutPage {
       Spec {
         title: "Callout",
         make: Arc::new(make.clone()),
-        shown: make(),
+        shown: Shown::of(make()),
         fill: false,
         forceable: false,
         facts: format!("{variant_name} · note"),

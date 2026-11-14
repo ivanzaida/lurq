@@ -20,7 +20,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, line, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -144,7 +144,7 @@ impl CheckboxPage {
       Spec {
         title: "Checkbox",
         make: Arc::new(move || plain().into()),
-        shown: checkbox.into(),
+        shown: Shown::of(checkbox),
         fill: false,
         forceable: true,
         facts,

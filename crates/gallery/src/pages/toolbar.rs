@@ -20,7 +20,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The variants the playground offers, as the code names them.
@@ -156,7 +156,7 @@ impl ToolbarPage {
           .label(&label)
       }
     };
-    let shown = sized(width, plain().mount(ctx));
+    let shown = sized(width, self.playground.measure(plain().mount(ctx)).into());
 
     let mut code = vec![
       "Toolbar::new()".to_owned(),
@@ -215,7 +215,7 @@ impl ToolbarPage {
       Spec {
         title: "Toolbar",
         make: Arc::new(make),
-        shown,
+        shown: Shown::of(shown).measured(),
         fill: false,
         forceable: false,
         facts: match width {

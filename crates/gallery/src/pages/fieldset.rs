@@ -17,7 +17,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The fields of the board's fieldset, in it: a required one, an optional one, one with its label beside it, and
@@ -156,7 +156,7 @@ impl FieldsetPage {
       Spec {
         title: "Fieldset",
         make: Arc::new(make),
-        shown: fieldset.into(),
+        shown: Shown::of(fieldset),
         fill: full_width,
         forceable: false,
         facts: if disabled { "disabled" } else { "enabled" }.to_owned(),

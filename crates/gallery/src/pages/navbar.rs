@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, line, props_table, segmented_fill, text},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The bar's links, in order.
@@ -315,7 +315,7 @@ impl NavbarPage {
             WINDOW,
           )
         }),
-        shown,
+        shown: Shown::of(shown),
         fill: true,
         forceable: false,
         facts: format!(

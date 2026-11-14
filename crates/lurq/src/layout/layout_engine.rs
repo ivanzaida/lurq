@@ -1509,7 +1509,17 @@ impl LayoutEngine {
         }
 
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
-          self.push_input_tokens(node, state, result, (abs_x, abs_y), transform, clip, opacity, quads);
+          self.push_input_tokens(
+            node,
+            state,
+            result,
+            (abs_x, abs_y),
+            transform,
+            clip,
+            opacity,
+            false,
+            quads,
+          );
         }
 
         self.push_text_highlights(node, result, (abs_x, abs_y), transform, clip, opacity, quads);
@@ -1678,6 +1688,21 @@ impl LayoutEngine {
               clip: selection_clip,
             });
           }
+        }
+        // The tokens the selection covers in a look of their own, over its highlight: an input that lost the
+        // focus draws no highlight and keeps its selection, and its tokens their look.
+        if let NodeKind::TextInput { state, .. } = node.node_kind() {
+          self.push_input_tokens(
+            node,
+            state,
+            result,
+            (abs_x, abs_y),
+            transform,
+            clip,
+            opacity,
+            true,
+            quads,
+          );
         }
 
         let (content_x, content_y, content_width, content_height, content_clip) = match node.node_kind() {

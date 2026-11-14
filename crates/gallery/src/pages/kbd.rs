@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill, text},
-  playground::{Playground, Spec, divider, field, prop},
+  playground::{Playground, Shown, Spec, divider, field, prop},
 };
 
 /// What the playground builds from the keys typed: a key, a shortcut, or a sequence of steps parted by spaces.
@@ -147,7 +147,7 @@ impl KbdPage {
       Spec {
         title: "Kbd",
         make: Arc::new(move || make()),
-        shown: plain(),
+        shown: Shown::of(plain()),
         fill: false,
         forceable: false,
         facts: format!("{variant_name} · {size_name} · {platform_name}"),

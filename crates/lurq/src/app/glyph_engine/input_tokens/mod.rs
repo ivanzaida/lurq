@@ -67,6 +67,12 @@ pub(crate) struct TokenChip {
   /// A line inside the fill: its width and color.
   pub(crate) border: Option<(f32, Color)>,
   pub(crate) icon: Option<TokenIcon>,
+  /// The token is one thing to the caret: at its ends the caret stands outside its fill, before its padding and
+  /// after the room at its end, and never between its text and its icon.
+  pub(crate) atomic: bool,
+  /// The selection covers the token and it has a look of its own for that: its fill is drawn over the selection's
+  /// highlight, which would otherwise lie over it.
+  pub(crate) over_selection: bool,
 }
 
 /// An icon at the end of a token, drawn in the room its padding keeps for it.

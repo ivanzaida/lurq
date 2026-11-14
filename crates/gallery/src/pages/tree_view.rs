@@ -18,7 +18,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet},
-  playground::{Playground, Spec, divider, flag},
+  playground::{Playground, Shown, Spec, divider, flag},
 };
 
 type Id = &'static str;
@@ -316,7 +316,7 @@ impl TreeViewPage {
       Spec {
         title: "Tree View",
         make: Arc::new(make),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: true,
         facts: format!("{} open, {} selected", open.len(), selected.len()),
@@ -622,7 +622,7 @@ impl Component for TreeViewPage {
         ),
         Section::new(
           "Ten thousand rows",
-          "A hundred folders of a hundred files, every folder open: `mount(ctx)` puts the rows in the engine's            virtual list, which builds those near the view. The keys reach every row, built or not: End goes to the            last, a letter to the next row it starts, PageDown a view down, Left from a file to its folder however            far up, Shift with them and Ctrl+A select over all of them.",
+          "A hundred folders of a hundred files, every folder open: `mount(ctx)` puts the rows in the engine's virtual list, which builds those near the view. The keys reach every row, built or not: End goes to the last, a letter to the next row it starts, PageDown a view down, Left from a file to its folder however far up, Shift with them and Ctrl+A select over all of them.",
           self.frame.demo(
             5,
             big,
@@ -643,7 +643,7 @@ impl Component for TreeViewPage {
         ),
         Section::new(
           "An action on hover",
-          "What an item marks with `trailing_on_hover` stands at the row's end only while the pointer is on the row            or the focus is in it, and always under a finger: the button that adds a file to a folder.",
+          "What an item marks with `trailing_on_hover` stands at the row's end only while the pointer is on the row or the focus is in it, and always under a finger: the button that adds a file to a folder.",
           self.frame.demo(
             6,
             hover,

@@ -14,7 +14,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The zooms the View menu offers, one of which is chosen.
@@ -168,7 +168,7 @@ impl MenubarPage {
           let quiet = |_: &str| -> Box<dyn Fn() + Send + Sync> { Box::new(|| {}) };
           make(Signal::new(None), (ElementRef::new(), Signal::new(false)), &quiet).into()
         }),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: true,
         facts: facts.join(" · "),

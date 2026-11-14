@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -178,7 +178,7 @@ impl TagPage {
       Spec {
         title: "Tag",
         make: Arc::new(move || make().into()),
-        shown: tag.into(),
+        shown: Shown::of(tag),
         fill: false,
         forceable: removable,
         facts: if removable {
@@ -284,7 +284,7 @@ impl TagPage {
       Spec {
         title: "Chip",
         make: Arc::new(move || plain().into()),
-        shown: chip.into(),
+        shown: Shown::of(chip),
         fill: false,
         forceable: true,
         facts: if selected {

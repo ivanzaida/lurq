@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The variants, as the code names them, with what the board says in each.
@@ -200,7 +200,7 @@ impl OutcomePage {
       Spec {
         title: "Outcome",
         make: Arc::new(move || make()),
-        shown: plain(),
+        shown: Shown::of(plain()),
         fill: false,
         forceable: false,
         facts: variant_name.to_owned(),

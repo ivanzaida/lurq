@@ -14,7 +14,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{line, mono, props_table},
-  playground::{Playground, Spec, divider, flag},
+  playground::{Playground, Shown, Spec, divider, flag},
 };
 
 /// The questions of the board, as items of `T`.
@@ -164,7 +164,7 @@ impl AccordionPage {
       Spec {
         title: "Accordion",
         make: Arc::new(make),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: format!("{} open", open.len()),

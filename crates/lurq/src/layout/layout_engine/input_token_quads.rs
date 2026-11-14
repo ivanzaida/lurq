@@ -123,6 +123,9 @@ impl LayoutEngine {
     }
   }
 
+  /// The fills, lines and icons of an input's tokens. They are drawn in two passes, with the selection's highlight
+  /// between them: `over_selection` false draws what the highlight lies over, and true the tokens that the
+  /// selection covers in a look of their own, whose fill would be hidden in the band of the text by it.
   pub(super) fn push_input_tokens(
     &self,
     node: &Node,
@@ -132,11 +135,20 @@ impl LayoutEngine {
     transform: Transform2D,
     clip: ClipRect,
     opacity: f32,
+    over_selection: bool,
     quads: &mut Vec<Quad>,
   ) {
     let Some(layout) = state.painted_layout() else {
       return;
     };
+    let over = |at: usize| {
+      layout.fragments[at]
+        .token
+        .is_some_and(|(token, _)| layout.config.styles[token].chip.over_selection)
+    };
+    if over_selection && !(0..layout.fragments.len()).any(over) {
+      return;
+    }
     let padding = self.resolved_padding_for_size(node, result.size);
     let height = (result.size.height - padding.top - padding.bottom).max(0.0);
     let clip = intersect_clip(
@@ -150,6 +162,9 @@ impl LayoutEngine {
       origin.1 + padding.top + text_input_vertical_offset(state, height) - state.scroll_y(),
     );
     for (at, part) in layout.fragments.iter().enumerate() {
+      if over(at) != over_selection {
+        continue;
+      }
       let (x, y, xf, center) = transformed_quad_frame(start.0 + part.x, start.1 + part.y, transform);
       let edge = part.token.and_then(|(_, border)| border).map(|(width, color)| {
         let side = Some(ResolvedBorder {

@@ -2,10 +2,13 @@
 //! when its work is cancelled, the one the board draws as it is, and one whose
 //! end is not known.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use lurq::{
-  app::{component::Component, ctx::Ctx},
+  app::{
+    component::Component,
+    ctx::{Ctx, Timeout},
+  },
   components::{Column, Row},
   core::Signal,
   layout::Alignment,
@@ -16,7 +19,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// How far the work of the playground is, of 128 items; `None` while its end is not known.
@@ -93,11 +96,18 @@ pub struct ProgressDialogPage {
   copy_open: Signal<bool>,
   copy_detail: Signal<bool>,
   board_detail: Signal<bool>,
+  /// Closes the playground's dialog where nothing in it does: the work is over.
+  done: Timeout,
 }
+
+/// How long the playground's dialog stays where it has no cancel button: Escape and the veil do not close a
+/// progress dialog, so the stage ends the work itself.
+const WORK: Duration = Duration::from_secs(4);
 
 impl ProgressDialogPage {
   /// The playground: a button on the stage that opens the dialog the panel's props make. Its cancel button
-  /// closes it, as an app does once the work has stopped.
+  /// closes it, as an app does once the work has stopped; with no cancel button the work is over after a moment
+  /// and the stage closes it, so the window is never left behind a dialog nothing closes.
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (title, message, status) = (self.title.get(), self.message.get(), self.status.get());
     let (value_name, value) = VALUES[self.value.get().min(VALUES.len() - 1)];
@@ -152,10 +162,17 @@ impl ProgressDialogPage {
     };
     let recorded: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record);
     let opener = {
-      let open = self.open.clone();
+      let (open, done) = (self.open.clone(), self.done.clone());
       Button::new("Copy items…")
         .variant(ButtonVariant::Outline)
-        .on_click(move |_| open.set(true))
+        .on_click(move |_| {
+          open.set(true);
+          if cancel {
+            done.cancel();
+          } else {
+            done.restart();
+          }
+        })
     };
     let shown = Row::new().child(opener).child(make(self.open.clone(), Some(recorded)));
 
@@ -224,7 +241,7 @@ impl ProgressDialogPage {
       Spec {
         title: "Progress Dialog",
         make: Arc::new(move || make(Signal::new(true), None).inline(true).into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: format!(
@@ -286,10 +303,16 @@ impl Component for ProgressDialogPage {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
+    let open = ctx.signal(false);
+    let done = {
+      let open = open.clone();
+      ctx.create_timeout(WORK, move || open.set(false))
+    };
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 0),
-      open: ctx.signal(false),
+      open,
+      done,
       title: ctx.signal(TITLE.to_owned()),
       message: ctx.signal(MESSAGE.to_owned()),
       value: ctx.signal(2),
@@ -413,7 +436,7 @@ impl Component for ProgressDialogPage {
         Section::new(
           "Playground",
           "Every prop of ProgressDialog is a control on the right. The button on the stage opens the dialog they \
-           make; its cancel button closes it here, as an app does once the work has stopped.",
+           make; its cancel button closes it here, as an app does once the work has stopped. Without `on_cancel` \n           nothing in the dialog closes it, so the stage does after four seconds.",
           playground,
         ),
         Section::new(

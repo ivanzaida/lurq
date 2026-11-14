@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// What a pane shows: its name in the middle of it.
@@ -217,7 +217,7 @@ impl SplitterPage {
       Spec {
         title: "Splitter",
         make,
-        shown: room(splitter, 300.0).into(),
+        shown: Shown::of(room(splitter, 300.0)),
         fill: true,
         forceable: true,
         facts: format!("3 panes{}", if nested { ", one split across" } else { "" }),

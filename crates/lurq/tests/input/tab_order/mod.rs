@@ -4,10 +4,10 @@ mod dropped;
 mod focus_group;
 mod focus_rows;
 mod focusable;
-mod inert;
-mod keyed_focus;
 #[cfg(feature = "form")]
 mod forms_in_scope;
+mod inert;
+mod keyed_focus;
 mod menu_row;
 mod modal_trap;
 mod nested_focus_group;

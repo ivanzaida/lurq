@@ -101,6 +101,11 @@ CRLF. Tokens are editable ranges, not atomic words: a click can place the caret 
 and typing/deletion can make it a partial or invalid expression. Existing ranges stop decorating immediately
 when the source changes. Reparse on the next render; omitted/invalid expressions remain ordinary text.
 
+A token made atomic (`InputToken::atomic(true)`) is one thing to the caret: the caret stands before its chip
+or past it, room for an icon at its end included, never in it. A token with a selected look
+(`InputTokenStyle::selected`) is drawn in that look over the selection's highlight while the selection covers
+all of it; one without keeps the highlight over it.
+
 The default single-line Scroll mode presents each CR or LF as one space, preserving every raw UTF-8
 byte offset, token range and source-backed edit. CRLF presents two spaces; clipboard/history still
 contain the original CRLF. Multiline uses the ordinary input's canonical hard paragraphs: CRLF and

@@ -19,7 +19,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, fit, line, name, props_table, quiet, segmented, segmented_fill, styled},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// A variant: what it is, what the code calls it, and what it is for.
@@ -316,8 +316,7 @@ impl ButtonPage {
     let shown = props
       .button()
       .force(self.playground.forced())
-      .on_click(move |_| record("on_click".to_owned()))
-      .into();
+      .on_click(move |_| record("on_click".to_owned()));
     let radius = match theme
       .resolve::<Button>(&props.case(), None)
       .part(ButtonPart::Root)
@@ -390,7 +389,7 @@ impl ButtonPage {
       ctx,
       Spec {
         title: "Button",
-        shown,
+        shown: Shown::of(shown),
         make: {
           let props = props.clone();
           Arc::new(move || props.button().into())

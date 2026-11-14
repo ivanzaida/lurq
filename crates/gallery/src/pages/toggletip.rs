@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The sides the playground offers.
@@ -148,7 +148,7 @@ impl ToggletipPage {
       Spec {
         title: "Toggletip",
         make: Arc::new(move || plain().into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: if open {

@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -269,7 +269,7 @@ impl CalendarPage {
       Spec {
         title: "Calendar",
         make,
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts,

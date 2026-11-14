@@ -21,7 +21,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, line, props_table, quiet, text},
-  playground::{Playground, Spec, divider, field, prop},
+  playground::{Playground, Shown, Spec, divider, field, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -245,7 +245,7 @@ impl AvatarPage {
       Spec {
         title: "Avatar",
         make: Arc::new(shown.clone()),
-        shown: shown(),
+        shown: Shown::of(shown()),
         fill: false,
         forceable: false,
         facts: facts.join(" · "),

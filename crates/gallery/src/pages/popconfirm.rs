@@ -14,7 +14,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::props_table,
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 const TITLE: &str = "Delete this file?";
@@ -104,7 +104,7 @@ impl PopconfirmPage {
       Spec {
         title: "Popconfirm",
         make: Arc::new(move || make(ElementRef::new(), Signal::new(false), None).into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: (if self.open.get() { "open" } else { "closed" }).to_owned(),

@@ -19,7 +19,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The sizes, as the code names them.
@@ -203,7 +203,7 @@ impl EmptyStatePage {
       Spec {
         title: "EmptyState",
         make: Arc::new(move || make()),
-        shown: plain(),
+        shown: Shown::of(plain()),
         fill: true,
         forceable: false,
         facts: size_name.to_owned(),

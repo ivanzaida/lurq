@@ -159,6 +159,21 @@ starting under the window's own title bar.
   they are two things to the app: a list and a draft, each with its own event, not one text that holds both.
 - **The stage of a playground cuts nothing off**, and a page's own wrappers must not either where a shadow, a ring
   or a badge reaches past the component: `overflow_visible()` on what holds it.
+- **What is on the stage is built on the stage.** `Spec::shown` is a `Shown`: `Shown::of(component)` for a builder,
+  which becomes an element in the stage's theme (the stage can be in the other appearance, and a text input's
+  color or a slider's track is read when it is built), and `Shown::built(|ctx| ..)` for a scene of more than one
+  thing. An element the page has already built keeps the page's colors.
+- **The size under the stage is the component's.** A component is given to the stage bare: no column of the page's
+  to make it full width (`fill: true` gives it the stage's width to fill, and it stands in the middle where it keeps
+  a width of its own). A scene that must hold more than the component (a column that gives a skeleton its width,
+  what a separator is between) puts `playground.measure(component)` around the component in it and gives the
+  scene as `Shown::of(scene).measured()`.
+- **A signal the component is bound to is counted with `playground.watch(ctx, &signal, |value| ..)`**, which
+  counts changes only: a control that sets its value as it is built is no event. Reset empties the log.
+- **Nothing a playground opens is left open.** A dialog that nothing in it closes (a progress dialog with no
+  cancel) is closed by the stage after a moment: the window is never behind a veil with no way out.
+- **A prose string is one line of source or ends its lines with `\`.** A string continued on the next line
+  without it keeps that line's indentation, and the page shows a hole in the sentence.
 - **What a batch may use now**: `BackgroundColor::CurrentForeground`; a width in percent run by a keyframe or a
   transition; `Transition::border_dash()`; `PartStyle::corners`; `.stops_inside(true)`; `ui::Badge`, `ui::Tag`,
   `ui::Chip`, `ui::Avatar`, `ui::Card`, `ui::Separator`, `ui::Progress`, `ui::Spinner`, `ui::Skeleton` in what your

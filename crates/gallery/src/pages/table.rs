@@ -20,7 +20,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -384,7 +384,7 @@ impl TablePage {
       Spec {
         title: "Table",
         make: Arc::new(make),
-        shown,
+        shown: Shown::of(shown),
         fill: true,
         forceable: true,
         facts: format!(

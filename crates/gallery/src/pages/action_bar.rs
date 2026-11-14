@@ -19,7 +19,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The rows of the list the bar acts on.
@@ -175,7 +175,7 @@ impl ActionBarPage {
       Spec {
         title: "Action Bar",
         make: Arc::new(over.clone()),
-        shown: over(),
+        shown: Shown::of(over()),
         fill: false,
         forceable: false,
         facts: format!("{count} selected"),

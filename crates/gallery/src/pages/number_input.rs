@@ -23,7 +23,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -251,7 +251,7 @@ impl NumberInputPage {
       Spec {
         title: "Number Input",
         make: Arc::new(move || plain().into()),
-        shown: input.into(),
+        shown: Shown::of(input),
         fill: false,
         forceable: true,
         facts: format!("value {value}"),
@@ -332,8 +332,7 @@ impl Component for NumberInputPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 6);
     let value = ctx.signal(12.0);
-    let record = playground.recorder();
-    ctx.watch(&value, move |value| record(format!("value = {value}")));
+    playground.watch(ctx, &value, |value| format!("value = {value}"));
     Self {
       frame: Frame::new(ctx),
       playground,

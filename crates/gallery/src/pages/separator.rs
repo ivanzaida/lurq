@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The orientations, as the code names them.
@@ -69,15 +69,23 @@ impl SeparatorPage {
       }
     };
     // Between two blocks: under each other across a column, side by side down a row that stretches it.
+    // `measured` is the separator in the row the stage measures, which is as long as what it is between.
     let between = {
       let plain = plain.clone();
-      move || -> Element {
+      move |measured: Option<&Playground>| -> Element {
+        let separator: Element = match (measured, orientation) {
+          (None, _) => plain().into(),
+          (Some(playground), SeparatorOrientation::Horizontal) => playground.measure(plain()).width(FILL).into(),
+          (Some(playground), SeparatorOrientation::Vertical) => {
+            playground.measure(plain()).align_items(Alignment::Stretch).into()
+          }
+        };
         match orientation {
           SeparatorOrientation::Horizontal => Column::new()
             .width(320.0)
             .spacing(16.0)
             .child(block("Profile", "Your name and picture."))
-            .child(plain())
+            .child(separator)
             .child(block("Account", "Your email and password."))
             .into(),
           SeparatorOrientation::Vertical => Row::new()
@@ -85,7 +93,7 @@ impl SeparatorPage {
             .spacing(16.0)
             .align_items(Alignment::Stretch)
             .child(block("Profile", "Your name and picture."))
-            .child(plain())
+            .child(separator)
             .child(block("Account", "Your email and password."))
             .into(),
         }
@@ -120,8 +128,11 @@ impl SeparatorPage {
       ctx,
       Spec {
         title: "Separator",
-        make: Arc::new(between.clone()),
-        shown: between(),
+        make: Arc::new({
+          let between = between.clone();
+          move || between(None)
+        }),
+        shown: Shown::of(between(Some(&self.playground))).measured(),
         fill: false,
         forceable: false,
         facts: name.to_owned(),

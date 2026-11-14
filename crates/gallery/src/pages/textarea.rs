@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// How wide the board draws a textarea.
@@ -157,7 +157,7 @@ impl TextareaPage {
       Spec {
         title: "Textarea",
         make: Arc::new(move || Column::new().width(360.0).child(plain()).into()),
-        shown: Column::new().width(FILL).child(textarea).into(),
+        shown: Shown::of(textarea),
         fill: true,
         forceable: true,
         facts: format!("{size_name} · {} characters", held.chars().count()),

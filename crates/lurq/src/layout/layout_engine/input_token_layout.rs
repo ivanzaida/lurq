@@ -40,7 +40,11 @@ impl LayoutEngine {
           (_, Some(look)) if hovered == Some(index) => look.as_ref(),
           _ => &token.style,
         };
-        self.token_style(look, token.range.clone(), base, width)
+        let mut style = self.token_style(look, token.range.clone(), base, width);
+        style.chip.atomic = token.atomic;
+        // A token in its selected look is its own sign of the selection: it is drawn over the highlight.
+        style.chip.over_selection = covered && token.style.selected.is_some();
+        style
       })
       .collect();
     self.layout_decorated_input(glyphs, state, base, constraints, (tokens.source, styles), padding)
@@ -106,6 +110,8 @@ impl LayoutEngine {
         (width.is_finite() && *width > 0.0).then_some((*width, color))
       }),
       icon: icon.map(|(icon, _)| icon),
+      atomic: false,
+      over_selection: false,
     };
     TokenStyle {
       range,

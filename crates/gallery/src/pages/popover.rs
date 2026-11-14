@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The sides a popover is placed on, as the playground offers them.
@@ -98,7 +98,16 @@ impl PopoverPage {
     // The trigger turns the signal; this handler of the page's is told of the press as well, before it.
     let (record, told) = (self.playground.recorder(), self.open.clone());
     let trigger = button().on_click(move |_| record(format!("open: {}", !told.get())));
-    let shown = plain(&self.anchor, &self.open, &self.layer, trigger);
+    // Built on the stage, in the stage's theme: the field in it types in that theme's color.
+    let shown = {
+      let (plain, anchor, open, layer) = (
+        plain.clone(),
+        self.anchor.clone(),
+        self.open.clone(),
+        self.layer.clone(),
+      );
+      Shown::built(move |_| plain(&anchor, &open, &layer, trigger).into())
+    };
 
     let mut code = vec![
       "// anchor: ElementRef, open: Signal<bool>".to_owned(),
@@ -146,7 +155,7 @@ impl PopoverPage {
           let (anchor, open, layer) = (ElementRef::new(), Signal::new(false), Signal::new("320px".to_owned()));
           plain(&anchor, &open, &layer, button()).into()
         }),
-        shown: shown.into(),
+        shown,
         fill: false,
         forceable: false,
         facts: if open { "open".to_owned() } else { "closed".to_owned() },
