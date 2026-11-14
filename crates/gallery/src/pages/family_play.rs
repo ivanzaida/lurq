@@ -606,17 +606,25 @@ impl ToggleGroupPlay {
       .iter()
       .enumerate()
       .map(|(index, (label, glyph, _))| Choice::new(index, label).icon(*glyph).icon_only(icon_only));
-    let group = if multiple {
-      ToggleGroup::multiple(many, choices).on_change(move |on: &[usize]| {
-        let names: Vec<&str> = on.iter().map(|index| MARKS[*index].0).collect();
-        record(format!("on_change: [{}]", names.join(", ")));
-      })
+    // A group of one and one of any number are two types: each is an element.
+    let group: Element = if multiple {
+      ToggleGroup::multiple(many, choices)
+        .on_change(move |on| {
+          let names: Vec<&str> = on.iter().map(|index| MARKS[*index].0).collect();
+          record(format!("on_change: [{}]", names.join(", ")));
+        })
+        .label("Marks")
+        .size(SIZES[size].0)
+        .disabled(disabled)
+        .into()
     } else {
-      ToggleGroup::new(one, choices).on_change(move |index: &usize| record(format!("on_change: {}", MARKS[*index].0)))
-    }
-    .label("Marks")
-    .size(SIZES[size].0)
-    .disabled(disabled);
+      ToggleGroup::new(one, choices)
+        .on_change(move |index| record(format!("on_change: {}", MARKS[*index].0)))
+        .label("Marks")
+        .size(SIZES[size].0)
+        .disabled(disabled)
+        .into()
+    };
 
     let mut code = vec![if multiple {
       "ToggleGroup::multiple(marks, [".to_owned()
@@ -679,14 +687,18 @@ impl ToggleGroupPlay {
               .enumerate()
               .map(|(index, (label, glyph, _))| Choice::new(index, label).icon(*glyph).icon_only(icon_only));
             if multiple {
-              ToggleGroup::controlled_multiple(on.clone(), choices, |_: &[usize]| {})
+              ToggleGroup::controlled_multiple(on.clone(), choices, |_| {})
+                .label("Marks")
+                .size(SIZES[size].0)
+                .disabled(disabled)
+                .into()
             } else {
-              ToggleGroup::controlled(on[0], choices, |_: &usize| {})
+              ToggleGroup::controlled(on[0], choices, |_| {})
+                .label("Marks")
+                .size(SIZES[size].0)
+                .disabled(disabled)
+                .into()
             }
-            .label("Marks")
-            .size(SIZES[size].0)
-            .disabled(disabled)
-            .into()
           })
         },
         shown: Shown::of(group),

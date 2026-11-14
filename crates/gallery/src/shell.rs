@@ -22,8 +22,7 @@ use lurq::{
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
   ui::{
     Badge, BadgePart, BadgeVariant, Button, ButtonVariant, CommandItem, CommandPalette, FontFamily, Kbd, KeyPlatform,
-    Length, Recipe, SegmentedControl, Selector, Sidebar, SidebarGroup, SidebarItem, SidebarPart, SidebarState,
-    SidebarTrigger, icons,
+    Length, Recipe, Selector, Sidebar, SidebarGroup, SidebarItem, SidebarPart, SidebarState, SidebarTrigger, icons,
   },
 };
 
@@ -246,7 +245,8 @@ fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
 
 /// What the gear opens: what a theme can be told that is not a color.
 fn settings(theme: &Theme, state: &Shell) -> Column {
-  let setting = |name: &str, about: &str, control: SegmentedControl| {
+  // A setting of the window: its name, what it does, and its control (a segmented control of any value).
+  fn setting(name: &str, about: &str, control: impl Into<Element>) -> Column {
     Column::new()
       .width(FILL)
       .spacing(8.0)
@@ -261,8 +261,8 @@ fn settings(theme: &Theme, state: &Shell) -> Column {
               .width(FILL),
           ),
       )
-      .child(control)
-  };
+      .child(control.into())
+  }
   let motion = MOTION[state.motion.get().min(MOTION.len() - 1)].1;
   let scale = theme.text_scale();
   let scale = TEXT_SCALE

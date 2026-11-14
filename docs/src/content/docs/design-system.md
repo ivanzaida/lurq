@@ -441,14 +441,14 @@ ToggleGroup::multiple(marks.clone(), [
 | `ToggleGroup::multiple(signal, choices)` | A `Signal<Vec<T>>`: a press adds a value, or takes it out |
 | `ToggleGroup::controlled(value, choices, on_change)` | The app holds the one that is on: a press of another tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the one that is on tells nothing |
 | `ToggleGroup::controlled_multiple(values, choices, on_change)` | The app holds those that are on: a press tells `on_change` (`Fn(&[T])`) the whole set it is to be |
-| `on_change(handler)` | Called as a person changes what is on, with the new value: `\|align: &Align\|` for a group of one, `\|marks: &[Mark]\|` for one of any number. Not called where the app sets the signal. Each one adds; a handler of another type panics |
+| `on_change(handler)` | Called as a person changes what is on, with the new value: `\|align: &Align\|` for a group of one, `\|marks: &[Mark]\|` for one of any number. Not called where the app sets the signal. Each one adds |
 | `label(&str)` | What the group is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
 | `orientation(Orientation)` | Along a row (the default), or down a column, with the arrow keys of that way |
 | `invalid(bool)` | Its line is in the destructive color; a field's judgment sets it |
 | `size(size)`, `disabled(bool)` | For the whole group: a `ToggleGroupSize` (a `ButtonSize`) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the toggle Tab stops on |
 
-A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. Tab stops in the group once; the arrow keys move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`. States: `ToggleGroupState::Horizontal`, `Vertical`, `Disabled`, `Invalid`.
+The group is generic over its values: `new` and `controlled` make a `ToggleGroup<T>`, whose `on_change` is told `&T`, and `multiple` and `controlled_multiple` a `ToggleGroup<T, [T]>`, told `&[T]`; the compiler checks what a handler is told. `T` is `()` where nothing names it, as in the theme's `resolve::<ToggleGroup>`. A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. Tab stops in the group once; the arrow keys move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`. States: `ToggleGroupState::Horizontal`, `Vertical`, `Disabled`, `Invalid`.
 
 In a [toolbar](#toolbar) the group takes the bar's size and is no stop of its own: its toggles are among the bar's controls, and the bar's Left and Right move through them and on. Where the bar is too narrow for it, the whole group goes into the bar's menu, after a line, as a checked item for each toggle, on while it is; choosing one presses that toggle.
 
@@ -472,7 +472,7 @@ SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (S
 | --- | --- |
 | `SegmentedControl::new(signal, choices)` | The chosen segment is the one with the signal's value; a press of another sets it |
 | `SegmentedControl::controlled(value, choices, on_change)` | The app holds the value: a press of another segment tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the chosen one tells nothing |
-| `on_change(handler)` | Called as a person chooses another segment, with its value (`\|period: &Period\|`). Not called where the app sets the signal. Each one adds |
+| `on_change(handler)` | Called as a person chooses another segment, with its value (`\|period: &Period\|`), checked by the compiler: the control is a `SegmentedControl<T>`. Not called where the app sets the signal. Each one adds |
 | `label(&str)` | What the control is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
 | `invalid(bool)` | The track has a line in the destructive color; a field's judgment sets it |
 | `size(size)` | A `SegmentedControlSize` (a `ButtonSize`): the track is as high as a button of that size |
@@ -1562,7 +1562,7 @@ ChipGroup::multiple(languages, [
 | `ChipGroup::multiple(signal, choices)` | Any number chosen: the signal's values. A press adds a value or takes it out |
 | `ChipGroup::controlled(value, choices, on_change)` | The app holds the one chosen: a press of another tells `on_change` (`Fn(&T)`) the value it is to be, and a press of the chosen one tells nothing |
 | `ChipGroup::controlled_multiple(values, choices, on_change)` | The app holds those chosen: a press tells `on_change` (`Fn(&[T])`) the whole set it is to be |
-| `on_change(handler)` | Called as a person changes what is chosen, with the new value: `&T` for a group of one, `&[T]` for one of any number. Not called where the app sets the signal. Each one adds |
+| `on_change(handler)` | Called as a person changes what is chosen, with the new value: `&T` for a group of one (a `ChipGroup<T>`), `&[T]` for one of any number (a `ChipGroup<T, [T]>`), checked by the compiler. Not called where the app sets the signal. Each one adds |
 | `label(&str)` | What the group is called to what reads the tree, a `group`; a [field](#field)'s label where it has none |
 | `invalid(bool)` | Each chip has a line in the destructive color; a field's judgment sets it. State: `ChipGroupState::Invalid` |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | `ChipGroupPart::Item` lays rules over each chip's root. `force` draws the chip Tab stops on |

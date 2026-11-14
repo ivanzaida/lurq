@@ -702,12 +702,6 @@ fn a_controlled_toggle_group_shows_what_the_app_holds_and_is_told_what_it_is_to_
 }
 
 #[test]
-#[should_panic(expected = "on_change of this group is told")]
-fn a_handler_of_another_type_is_a_mistake() {
-  let _ = ToggleGroup::new(Signal::new(1u8), [(0u8, "One")]).on_change(|_: &u16| {});
-}
-
-#[test]
 fn a_press_of_the_chosen_segment_tells_nothing() {
   let told = Arc::new(Mutex::new(Vec::new()));
   let (t, bound) = (told.clone(), Signal::new(0u8));

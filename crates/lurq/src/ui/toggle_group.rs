@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe},
-  shared::{Changes, Choice, Chosen, Orientation},
+  shared::{ChangeHandler, Choice, Chosen, Orientation},
   theme::{Themed, current_theme},
   toggle::{Toggle, TogglePart},
 };
@@ -85,13 +85,13 @@ pub type ToggleGroupRenderer = Arc<dyn Fn(ToggleGroup) -> Element + Send + Sync>
 /// // One of them is on: the signal's value.
 /// let alignment = ToggleGroup::new(align, [(0, "Left"), (1, "Center"), (2, "Right")])
 ///   .label("Alignment")
-///   .on_change(|align: &u8| println!("aligned {align}"));
+///   .on_change(|align| println!("aligned {align}"));
 /// // Any number are: the signal's values.
 /// let style = ToggleGroup::multiple(marks, [
 ///   Choice::new("bold", "Bold").icon(icons::BOLD).icon_only(true),
 ///   Choice::new("italic", "Italic").icon(icons::ITALIC).icon_only(true),
 /// ])
-/// .on_change(|marks: &[&str]| println!("{marks:?}"));
+/// .on_change(|marks| println!("{marks:?}"));
 /// # }
 /// ```
 ///
@@ -99,10 +99,199 @@ pub type ToggleGroupRenderer = Arc<dyn Fn(ToggleGroup) -> Element + Send + Sync>
 /// group sets it, or the app holds the value and is told what it is to be
 /// ([`controlled`](Self::controlled), [`controlled_multiple`](Self::controlled_multiple)).
 /// [`on_change`](Self::on_change) is told the new value as a person changes it:
-/// `&T` for a group of one, the whole new set `&[T]` for one of any number.
-pub struct ToggleGroup {
+/// `&T` for a group of one, a `ToggleGroup<T>`, and the whole new set `&[T]`
+/// for a group of any number, a `ToggleGroup<T, [T]>`. The compiler checks
+/// what a handler is told. `T` is `()` where nothing names it: the theme's
+/// recipe is `ToggleGroup`'s, whatever its values.
+pub struct ToggleGroup<T = (), V: ?Sized = T> {
+  choices: Vec<Choice<T>>,
+  chosen: Chosen<T, V>,
+  on_change: Vec<ChangeHandler<V>>,
+  toggles: Toggles,
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> ToggleGroup<T, T> {
+  /// A group of which exactly one toggle is on: the one whose value the
+  /// signal has. A press of another sets the signal.
+  pub fn new(value: Signal<T>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
+  where
+    T: SignalValue,
+  {
+    Self::of(Chosen::one(value), choices)
+  }
+
+  /// A group of one whose value the app holds: the toggle of `value` is on,
+  /// and a press of another tells `on_change` the value it is to be. A press
+  /// of the one that is on tells nothing.
+  pub fn controlled(
+    value: T,
+    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
+  ) -> Self {
+    Self::of(Chosen::held_one(value), choices).on_change(on_change)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> ToggleGroup<T, [T]> {
+  /// A group of which any number of toggles are on: those whose values the
+  /// signal has. A press adds a value, or takes it out.
+  pub fn multiple(values: Signal<Vec<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
+  where
+    Vec<T>: SignalValue,
+  {
+    Self::of(Chosen::many(values), choices)
+  }
+
+  /// A group of any number whose values the app holds: the toggles of
+  /// `values` are on, and a press tells `on_change` the whole set it is to
+  /// be, with the value pressed added or taken out.
+  pub fn controlled_multiple(
+    values: impl IntoIterator<Item = T>,
+    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
+  ) -> Self {
+    Self::of(Chosen::held_many(values.into_iter().collect()), choices).on_change(on_change)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> ToggleGroup<T, V> {
+  fn of(chosen: Chosen<T, V>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self {
+    Self {
+      choices: choices.into_iter().map(Into::into).collect(),
+      chosen,
+      on_change: Vec::new(),
+      toggles: Toggles {
+        items: Vec::new(),
+        size: ButtonSize::default().into(),
+        orientation: Orientation::Horizontal,
+        label: None,
+        disabled: false,
+        invalid: false,
+        states: Vec::new(),
+        rules: Recipe::new(),
+        forced: None,
+        id: None,
+        key: None,
+      },
+    }
+  }
+
+  /// Called as a person changes what is on, after the handlers there are,
+  /// with the new value: `&T` for a group of one, the whole new set `&[T]`
+  /// for a group of any number. Not called where the app sets the signal,
+  /// nor for a press of what is already so.
+  pub fn on_change(mut self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
+    self
+  }
+
+  /// What the group is called to what reads the tree: what the toggles are a choice of.
+  pub fn label(mut self, label: &str) -> Self {
+    self.toggles.label = Some(Arc::from(label));
+    self
+  }
+
+  /// The size of every toggle in the group: a [`ToggleGroupSize`].
+  pub fn size(mut self, size: impl Into<Name>) -> Self {
+    self.toggles.size = size.into();
+    self
+  }
+
+  /// Which way the toggles run: along a row (the default), or down a column.
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.toggles.orientation = orientation;
+    self
+  }
+
+  /// Whether the whole group takes no input.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.toggles.disabled = disabled;
+    self
+  }
+
+  /// Whether what is chosen is wrong: the group's line is in the destructive color.
+  pub fn invalid(mut self, invalid: bool) -> Self {
+    self.toggles.invalid = invalid;
+    self
+  }
+
+  /// Puts the group in a state the theme's recipe names, or takes it out.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.toggles.states.retain(|held| *held != state);
+    if on {
+      self.toggles.states.push(state);
+    }
+    self
+  }
+
+  /// Styles one part of this group over what the theme gives it.
+  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
+    self.toggles.rules = self.toggles.rules.base(part, style);
+    self
+  }
+
+  /// Lays rules over the theme's recipe for this group: what the component
+  /// it is in says of it in this place.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.toggles.rules = self.toggles.rules.extend(rules);
+    self
+  }
+
+  /// Draws the toggle where Tab enters the group as it is under the
+  /// pointer, held down or focused from the keyboard, with nothing pointing
+  /// at it: for a gallery or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.toggles.forced = interaction;
+    self
+  }
+
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.toggles.id = Some(id.into());
+    self
+  }
+
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.toggles.key = Some(key.into());
+    self
+  }
+
+  /// The group with what a press of each toggle does, of no type of the app's: what it is built from, and what a
+  /// toolbar holds.
+  pub(crate) fn erase(self) -> Toggles {
+    let handlers: Arc<[ChangeHandler<V>]> = self.on_change.into();
+    let mut toggles = self.toggles;
+    toggles.items = self
+      .choices
+      .into_iter()
+      .map(|choice| Item {
+        on: self.chosen.has(&choice.value),
+        pick: self.chosen.picker(choice.value, handlers.clone()),
+        label: choice.label,
+        icon: choice.icon,
+        icon_only: choice.icon_only,
+        disabled: choice.disabled,
+      })
+      .collect();
+    toggles
+  }
+
+  /// Builds the group in `theme`. Converting a group into an element does
+  /// this in the theme of what is being rendered.
+  pub fn build(self, theme: &Theme) -> Element {
+    self.erase().build(theme)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<ToggleGroup<T, V>> for Element {
+  fn from(group: ToggleGroup<T, V>) -> Self {
+    group.build(&current_theme())
+  }
+}
+
+/// A group of toggles of no type of the app's: what each toggle shows and what a press of it does.
+pub(crate) struct Toggles {
   items: Vec<Item>,
-  changes: Changes,
   size: Name,
   orientation: Orientation,
   label: Option<Arc<str>>,
@@ -115,162 +304,16 @@ pub struct ToggleGroup {
   key: Option<Arc<str>>,
 }
 
-impl ToggleGroup {
-  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Chosen<T>,
-    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-  ) -> Self {
-    let items = choices
-      .into_iter()
-      .map(Into::into)
-      .map(|choice: Choice<T>| Item {
-        on: chosen.has(&choice.value),
-        pick: Arc::new(chosen.picker(choice.value)),
-        label: choice.label,
-        icon: choice.icon,
-        icon_only: choice.icon_only,
-        disabled: choice.disabled,
-      })
-      .collect();
-    Self {
-      items,
-      changes: chosen.changes(),
-      size: ButtonSize::default().into(),
-      orientation: Orientation::Horizontal,
-      label: None,
-      disabled: false,
-      invalid: false,
-      states: Vec::new(),
-      rules: Recipe::new(),
-      forced: None,
-      id: None,
-      key: None,
-    }
-  }
-
-  /// A group of which exactly one toggle is on: the one whose value the
-  /// signal has. A press of another sets the signal.
-  pub fn new<T>(value: Signal<T>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-  {
-    Self::of(Chosen::one(value), choices)
-  }
-
-  /// A group of which any number of toggles are on: those whose values the
-  /// signal has. A press adds a value, or takes it out.
-  pub fn multiple<T>(values: Signal<Vec<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + 'static,
-    Vec<T>: SignalValue,
-  {
-    Self::of(Chosen::many(values), choices)
-  }
-
-  /// A group of one whose value the app holds: the toggle of `value` is on,
-  /// and a press of another tells `on_change` the value it is to be. A press
-  /// of the one that is on tells nothing.
-  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
-    value: T,
-    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-    on_change: impl Fn(&T) + Send + Sync + 'static,
-  ) -> Self {
-    Self::of(Chosen::held_one(value, on_change), choices)
-  }
-
-  /// A group of any number whose values the app holds: the toggles of
-  /// `values` are on, and a press tells `on_change` the whole set it is to
-  /// be, with the value pressed added or taken out.
-  pub fn controlled_multiple<T: Clone + PartialEq + Send + Sync + 'static>(
-    values: impl IntoIterator<Item = T>,
-    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-    on_change: impl Fn(&[T]) + Send + Sync + 'static,
-  ) -> Self {
-    Self::of(Chosen::held_many(values.into_iter().collect(), on_change), choices)
-  }
-
-  /// Called as a person changes what is on, after the handlers there are,
-  /// with the new value: `&T` for a group of one (`|align: &Align| ..`),
-  /// the whole new set `&[T]` for a group of any number. Not called where
-  /// the app sets the signal, nor for a press of what is already so.
-  ///
-  /// # Panics
-  ///
-  /// Where it is told another type than the group's values: a handler that
-  /// would never be called.
-  pub fn on_change<V: ?Sized + 'static>(self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
-    self.changes.add(handler);
+impl Toggles {
+  /// The size of every toggle: a toolbar gives its own.
+  pub(crate) fn size(mut self, size: Name) -> Self {
+    self.size = size;
     self
   }
 
-  /// What the group is called to what reads the tree: what the toggles are a choice of.
-  pub fn label(mut self, label: &str) -> Self {
-    self.label = Some(Arc::from(label));
-    self
-  }
-
-  /// The size of every toggle in the group: a [`ToggleGroupSize`].
-  pub fn size(mut self, size: impl Into<Name>) -> Self {
-    self.size = size.into();
-    self
-  }
-
-  /// Which way the toggles run: along a row (the default), or down a column.
-  pub fn orientation(mut self, orientation: Orientation) -> Self {
-    self.orientation = orientation;
-    self
-  }
-
-  /// Whether the whole group takes no input.
-  pub fn disabled(mut self, disabled: bool) -> Self {
-    self.disabled = disabled;
-    self
-  }
-
-  /// Whether what is chosen is wrong: the group's line is in the destructive color.
-  pub fn invalid(mut self, invalid: bool) -> Self {
-    self.invalid = invalid;
-    self
-  }
-
-  /// Puts the group in a state the theme's recipe names, or takes it out.
-  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
-    let state = state.into();
-    self.states.retain(|held| *held != state);
-    if on {
-      self.states.push(state);
-    }
-    self
-  }
-
-  /// Styles one part of this group over what the theme gives it.
-  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
-    self.rules = self.rules.base(part, style);
-    self
-  }
-
-  /// Lays rules over the theme's recipe for this group: what the component
-  /// it is in says of it in this place.
-  pub fn rules(mut self, rules: &Recipe) -> Self {
-    self.rules = self.rules.extend(rules);
-    self
-  }
-
-  /// Draws the toggle where Tab enters the group as it is under the
-  /// pointer, held down or focused from the keyboard, with nothing pointing
-  /// at it: for a gallery or a test.
-  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
-    self.forced = interaction;
-    self
-  }
-
-  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
-    self.id = Some(id.into());
-    self
-  }
-
-  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
-    self.key = Some(key.into());
+  /// Whether the whole group takes no input: a toolbar that is disabled says so.
+  pub(crate) fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled |= disabled;
     self
   }
 
@@ -294,9 +337,8 @@ impl ToggleGroup {
       .collect()
   }
 
-  /// Builds the group in `theme`. Converting a group into an element does
-  /// this in the theme of what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
+  /// Builds the group in `theme`.
+  pub(crate) fn build(self, theme: &Theme) -> Element {
     let vertical = self.orientation == Orientation::Vertical;
     let mut case = Case::new()
       .size(self.size)
@@ -383,13 +425,7 @@ impl ToggleGroup {
   }
 }
 
-impl From<ToggleGroup> for Element {
-  fn from(group: ToggleGroup) -> Self {
-    group.build(&current_theme())
-  }
-}
-
-impl Themed for ToggleGroup {
+impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for ToggleGroup<T, V> {
   const NAME: &'static str = "toggle_group";
   type Renderer = ToggleGroupRenderer;
 
@@ -414,15 +450,15 @@ impl Themed for ToggleGroup {
   }
 }
 
-impl super::FieldControl for ToggleGroup {
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> super::FieldControl for ToggleGroup<T, V> {
   /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled
   /// where the field is. Each toggle is called by its own label.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
-      self.label = Some(field.label.clone());
+    if self.toggles.label.is_none() {
+      self.toggles.label = Some(field.label.clone());
     }
-    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
-    self.disabled |= field.disabled;
+    self.toggles.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.toggles.disabled |= field.disabled;
     self.into()
   }
 }
