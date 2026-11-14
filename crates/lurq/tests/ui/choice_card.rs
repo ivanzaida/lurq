@@ -64,6 +64,18 @@ fn indicator(stage: &mut Stage, id: &str) -> Quad {
     .unwrap_or_else(|| panic!("#{id} should hold a box or a mark"))
 }
 
+/// The color the box or the mark of the card `id` is filled with. A box with its check in it has its edge painted
+/// over the check, apart from its fill: the fill is the filled square at the box's place.
+fn indicator_fill(stage: &mut Stage, id: &str) -> Color {
+  let at = indicator(stage, id);
+  squares_in(stage, id, 16.0)
+    .iter()
+    .filter(|quad| (quad.x, quad.y) == (at.x, at.y))
+    .map(color_of)
+    .find(|color| color.a() > 0)
+    .unwrap_or_else(|| panic!("the box of #{id} should be filled"))
+}
+
 /// Whether the card `id` has a dot of 8 of the primary color in the middle of its mark.
 fn has_dot(stage: &mut Stage, id: &str) -> bool {
   let mark = indicator(stage, id);
@@ -128,12 +140,12 @@ fn a_checkbox_card_is_the_boards_card_with_its_box_at_the_end() {
   let square = indicator(&mut stage, "checked");
   assert_eq!((x + width - (square.x + 16.0), square.y - y), (16.0, 16.0));
   assert_eq!(
-    color_of(&square),
+    indicator_fill(&mut stage, "checked"),
     light(PaletteColor::Primary),
     "the checkbox's own box, checked"
   );
   let empty = indicator(&mut stage, "not");
-  assert_eq!(color_of(&empty), light(PaletteColor::Background));
+  assert_eq!(indicator_fill(&mut stage, "not"), light(PaletteColor::Background));
   assert_eq!(
     empty.border.and_then(|border| border.top).map(|side| side.color),
     Some(light(PaletteColor::Input))
