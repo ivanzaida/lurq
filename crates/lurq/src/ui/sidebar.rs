@@ -40,7 +40,7 @@ use crate::{
   },
   components::{Column, Row, ScrollVertical},
   core::{ElementRef, Signal},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{Alignment, layout_kind::Justify, scrollbar::ScrollBarStyle, text_style::FontWeight},
   node::{
     CursorIcon, Element, FocusGroup, border::Border as Edge, color::Color, dimension::Dimension, outline::Outline,
   },
@@ -56,8 +56,10 @@ pub enum SidebarPart {
   Header,
   /// The groups of items, which scroll where they are more than the sidebar's height.
   Body,
-  /// What stays at the bottom: the app's footer, the person signed in, the settings.
+  /// What stays at the bottom: the room of the app's footer at the sidebar's sides.
   Footer,
+  /// The footer's content, with the line over it: the person signed in, the settings.
+  FooterContent,
   /// A group: its label over its items.
   Group,
   /// The row of a group's label, its count and its chevron; pressed, where the group opens and closes.
@@ -108,6 +110,7 @@ names!(SidebarPart {
   Header => "header",
   Body => "body",
   Footer => "footer",
+  FooterContent => "footer-content",
   Group => "group",
   GroupLabel => "group-label",
   GroupText => "group-text",
@@ -469,11 +472,12 @@ impl SidebarGroup {
 /// `true`, and closes when an item is chosen; [`SidebarTrigger`] opens and
 /// collapses it from wherever the app puts it.
 ///
-/// Its items are one list to the keyboard: Tab stops at it once, on the
+/// Its items are a tree to the keyboard: Tab stops at it once, on the
 /// selected item, Up and Down move through the items that are shown, Home and
 /// End go to the first and the last, and a letter to the item whose name
-/// starts with it; Enter and Space choose. Right opens an item's nested items
-/// and Left closes them, and on the rail Right opens its menu. Its items
+/// starts with it; Enter and Space choose. Right opens a closed item and goes
+/// into an open one, Left closes an open item and goes from a nested one to
+/// the item it is in; on the rail Right opens an item's menu. Its items
 /// scroll where they are more than its height, its header and its footer
 /// staying. To tooling it is a navigation region called by its label, its
 /// items links or buttons, the selected one the current page, and a nested
@@ -878,10 +882,12 @@ impl Build<'_> {
     if !self.collapsed && (group.label.is_some() || group.count.is_some() || group.action.is_some()) {
       root = root.child(self.group_label(group, &recipe, &key, open, collapsible));
     }
+    // To the keys a group that opens and closes is an item its items are in.
+    let level = if collapsible { 2 } else { 1 };
     let items: Vec<Element> = group
       .items
       .iter()
-      .map(|item| self.item(ctx, item, &format!("{key}/{}", item.ident()), 0))
+      .map(|item| self.item(ctx, item, &format!("{key}/{}", item.ident()), 0, level))
       .collect();
     if !collapsible {
       return root.with_children(items).into();
@@ -913,7 +919,7 @@ impl Build<'_> {
       Row::new().part(&part).child(part.text(&count.to_string()).nowrap())
     });
     let mut label: Element = if collapsible {
-      let signal = self.opened(key, group.open);
+      let (signal, toggle) = (self.opened(key, group.open), self.opened(key, group.open));
       let name = group.label.clone().unwrap_or_else(|| Arc::from("Group"));
       let mut button = pressable(&part, false)
         .flex(1.0)
@@ -923,6 +929,8 @@ impl Build<'_> {
         .describe("a11y_name", name.clone())
         .describe("a11y_expanded", if open { "true" } else { "false" })
         .focus_label(name)
+        .focus_level(1)
+        .focus_expanded(open, move |open| toggle.set(open))
         .on_click(move |_| signal.update(|open| *open = !*open));
       button = button.with_children(text).with_children(count).child(glyph(
         &recipe.part(SidebarPart::GroupChevron),
@@ -945,7 +953,9 @@ impl Build<'_> {
     };
     // The action is beside the label, not in it, and the arrow keys of the items pass it by.
     if let Some(action) = &group.action {
+      // As wide as the group, so that the label's count stands at its end, before the action.
       label = Row::new()
+        .flex(1.0)
         .align_items(Alignment::Center)
         .overflow_visible()
         .child(label)
@@ -965,9 +975,9 @@ impl Build<'_> {
       .child(label)
   }
 
-  /// An item at `depth` of nesting, with its nested items under it, or on the rail its icon with its name in a
-  /// tooltip and its nested items in a menu beside it.
-  fn item(&self, ctx: &mut Option<&mut Ctx>, item: &SidebarItem, key: &str, depth: usize) -> Element {
+  /// An item at `depth` of nesting and at `level` of the tree the keys go through, with its nested items under it,
+  /// or on the rail its icon with its name in a tooltip and its nested items in a menu beside it.
+  fn item(&self, ctx: &mut Option<&mut Ctx>, item: &SidebarItem, key: &str, depth: usize, level: u32) -> Element {
     let has_children = !item.children.is_empty();
     let open_signal =
       (has_children && !self.collapsed).then(|| self.opened(key, item.open.unwrap_or_else(|| item.holds_selected())));
@@ -990,7 +1000,8 @@ impl Build<'_> {
       .describe("a11y_role", if item.href.is_some() { "link" } else { "button" })
       .describe("a11y_name", item.label.clone())
       // Typing in the list matches its name, not its count or its keys.
-      .focus_label(item.label.clone());
+      .focus_label(item.label.clone())
+      .focus_level(level);
     if selected {
       button = button.describe("a11y_current", "page").focus_entry(true);
     }
@@ -1029,21 +1040,8 @@ impl Build<'_> {
               choose();
             }
           })
-          // Right opens what it holds and Left closes it, while it has the focus.
-          .on_key_down(move |event: KeyboardEvent| {
-            if !event.focus_within || !plain(&event) {
-              return;
-            }
-            let to = match event.key.as_str() {
-              "ArrowRight" => true,
-              "ArrowLeft" => false,
-              _ => return,
-            };
-            if keys.get_untracked() != to {
-              event.prevent_default();
-              keys.set(to);
-            }
-          });
+          // The list is a tree to the keys: Right opens it and goes into it, Left closes it.
+          .focus_expanded(open, move |open| keys.set(open));
       }
     } else if let Some(choose) = choose {
       button = button.on_click(move |_| choose());
@@ -1129,7 +1127,7 @@ impl Build<'_> {
     let children: Vec<Element> = item
       .children
       .iter()
-      .map(|child| self.item(ctx, child, &format!("{key}/{}", child.ident()), depth + 1))
+      .map(|child| self.item(ctx, child, &format!("{key}/{}", child.ident()), depth + 1, level + 1))
       .collect();
     Column::new()
       .align_items(Alignment::Stretch)
@@ -1153,6 +1151,10 @@ impl Build<'_> {
 
   fn menu_item(&self, item: &SidebarItem, key: &str) -> MenuItem {
     let mut entry = MenuItem::new(&item.label).disabled(item.disabled);
+    // What is pressed has the item's id, on the rail as beside the page.
+    if let Some(id) = &item.id {
+      entry = entry.id(id.clone());
+    }
     if let Some(icon) = item.icon {
       entry = entry.icon(icon);
     }
@@ -1255,33 +1257,68 @@ impl SidebarView {
     )
   }
 
-  /// The footer in the style of its part, if there is one.
+  /// The footer in the style of its part, if there is one, its content under its line.
   pub fn footer(&mut self) -> Option<Element> {
     let footer = self.footer.take()?;
     Some(
       Column::new()
-        .align_items(self.alignment())
+        .align_items(Alignment::Stretch)
         .overflow_visible()
         .part(&self.part(SidebarPart::Footer))
-        .child(footer)
+        .child(
+          Column::new()
+            .align_items(self.alignment())
+            .overflow_visible()
+            .part(&self.part(SidebarPart::FooterContent))
+            .child(footer),
+        )
         .into(),
     )
+  }
+
+  /// The room at the end of the body that keeps the scroll bar off its rows: the lane of the theme's bar (its
+  /// width and its inset on either side, from the sidebar's edge), or the body's own padding where that is more.
+  /// The bar is drawn over what scrolls, along its edge, and the body reaches the sidebar's edge.
+  fn bar_room(&self) -> f32 {
+    let theme = self.theme();
+    let rest = self.part(SidebarPart::Body).rest();
+    let own = rest
+      .padding_end
+      .or(rest.padding_x)
+      .map(|padding| padding.resolve(&theme.spacing(), 0.0))
+      .unwrap_or(0.0);
+    let bar = theme.scrollbar();
+    own.max(bar.width + bar.resolved_edge_inset() * 2.0)
   }
 
   /// The groups in the style of the body, in what scrolls where they are more than the sidebar's height. They
   /// are one list to the keyboard: Tab stops at it once, on the selected item, Up and Down move through it, and a
   /// letter goes to the item whose name starts with it.
   pub fn body(&mut self) -> Element {
-    let body = Column::new()
+    let mut body = Column::new()
       .width(Dimension::Pct(100.0))
       .align_items(self.alignment())
       .part(&self.part(SidebarPart::Body))
-      .focus_group(FocusGroup::vertical().one_stop(true).typeahead(true))
+      // A tree to the keys beside the page: Left goes from a nested item to the one it is in. The rail is a list.
+      .focus_group(
+        FocusGroup::vertical()
+          .one_stop(true)
+          .typeahead(true)
+          .nested(!self.collapsed),
+      )
       .with_children(std::mem::take(&mut self.groups));
-    ScrollVertical::new(body)
+    // The bar is drawn over what scrolls, along the sidebar's edge: the rows end before its lane.
+    if !self.collapsed {
+      body = body.padding_right(self.bar_room());
+    }
+    let scroll = ScrollVertical::new(body)
       .width(Dimension::Pct(100.0))
-      .flex_full(1.0, 1.0, None)
-      .into()
+      .flex_full(1.0, 1.0, None);
+    // The rail has no room for a bar beside its icons: it scrolls with the wheel and the keys, and shows none.
+    if self.collapsed {
+      return scroll.scrollbar(ScrollBarStyle::hidden()).into();
+    }
+    scroll.into()
   }
 
   /// The sidebar in the style of its root, with `children` in it: a navigation region to tooling, called by its
@@ -1315,7 +1352,9 @@ impl SidebarView {
     if !self.overlay {
       return root.into();
     }
+    // The drawer does not scroll what it holds: the sidebar's items scroll between its header and its footer.
     let mut drawer = Drawer::new(self.open.clone())
+      .scroll(false)
       .overlay(true)
       .label(&self.label)
       .child(root);
@@ -1654,9 +1693,9 @@ impl Themed for Sidebar {
     let ring = || Outline::new(BorderSize::Md, Ring).offset(-2.0);
     let recipe = Recipe::new()
       .base(Root, |s| {
+        // The 8 at its sides is its regions': the body reaches its edge, so that the scroll bar is not over its rows.
         s.width(260.0)
           .height(Length::Fill)
-          .padding_x(8.0)
           .padding_y(8.0)
           .gap(2.0)
           .background(Muted)
@@ -1665,19 +1704,19 @@ impl Themed for Sidebar {
           .transition(PartTransition::new(Transition::width(), MotionDuration::Slow).easing(MotionEasing::Standard))
       })
       .state(Collapsed, Root, |s| s.width(52.0).gap(4.0))
-      // Over the page it is what the drawer holds: the drawer has the fill and the edge.
+      // Over the page it is what the drawer holds, as high as the drawer: the drawer has the fill and the edge.
       .state(Overlay, Root, |s| {
         s.width(Length::Fill)
-          .height(Length::Auto)
           .background(clear())
           .end_line(none())
       })
-      .base(Header, |s| s.gap(2.0))
+      .base(Header, |s| s.gap(2.0).padding_x(8.0))
       .state(Collapsed, Header, |s| s.padding_bottom(8.0))
-      .base(Body, |s| s.gap(2.0))
+      .base(Body, |s| s.gap(2.0).padding_x(8.0))
       .state(Collapsed, Body, |s| s.gap(4.0))
-      .base(Footer, |s| s.gap(2.0).padding_y(2.0).top_line(line()))
-      .state(Collapsed, Footer, |s| s.padding_y(0.0).top_line(none()))
+      .base(Footer, |s| s.padding_x(8.0))
+      .base(FooterContent, |s| s.gap(2.0).padding_y(2.0).top_line(line()))
+      .state(Collapsed, FooterContent, |s| s.padding_y(0.0).top_line(none()))
       .base(Group, |s| s.gap(2.0))
       .state(Collapsed, Group, |s| s.gap(4.0))
       .base(GroupLabel, |s| {

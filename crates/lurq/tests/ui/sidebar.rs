@@ -135,7 +135,17 @@ fn a_sidebar_is_260_wide_on_the_muted_fill_with_a_line_toward_the_page_as_the_bo
 fn an_item_is_32_high_with_its_icon_and_its_name_in_13() {
   let mut stage = stage(|ctx| layout(ctx, board()));
   let (x, _, width, height) = stage.bounds("overview");
-  assert_eq!((x, width, height), (8.0, 244.0, 32.0), "padded 8 inside the sidebar");
+  assert_eq!((x, height), (8.0, 32.0), "8 in from the sidebar's start");
+  // At its end the room of the scroll bar's lane, which the bar is drawn in: the theme's is 8 wide, 2 from each side.
+  let bar = stage.app.theme().scrollbar().clone();
+  let lane = bar.width + bar.resolved_edge_inset() * 2.0;
+  assert_eq!((lane, x + width), (12.0, 260.0 - 12.0));
+  let heading = stage.bounds("heading");
+  assert_eq!(
+    (heading.0, heading.2),
+    (8.0, 244.0),
+    "the header has the board's 8 at either side"
+  );
   assert_eq!(stage.text("Overview"), (light(PaletteColor::Foreground), 13.0));
   // 8 in, an icon of 16 and 8 after it.
   assert!(close(stage.text_quad("Overview").unwrap().x, 8.0 + 8.0 + 16.0 + 8.0));
@@ -168,6 +178,33 @@ fn a_group_has_its_label_in_capitals_in_the_muted_foreground() {
   assert_eq!(stage.text("PROJECT"), (light(PaletteColor::MutedForeground), 11.0));
   assert!(stage.paints("TEAM"));
   assert!(!stage.paints("Project"), "the label is written in capitals");
+}
+
+#[test]
+fn a_groups_count_stands_at_the_end_of_its_label_before_its_action() {
+  let mut stage = stage(|ctx| {
+    layout(
+      ctx,
+      Sidebar::new().narrow(false).group(
+        SidebarGroup::new("Project")
+          .count(4)
+          .action(Column::new().id("add").size(24.0, 24.0))
+          .item(SidebarItem::new("Overview")),
+      ),
+    )
+  });
+  let count = stage.text_quad("4").expect("the count");
+  let (x, _, width, _) = stage.bounds("add");
+  assert!(
+    close(x + width, 260.0 - 12.0),
+    "the action at the end of the rows: {}",
+    x + width
+  );
+  assert!(
+    close(count.x + count.width, x - 8.0),
+    "the count 8 before the action: ends at {}, the action at {x}",
+    count.x + count.width
+  );
 }
 
 #[test]
@@ -307,6 +344,85 @@ fn right_opens_an_item_with_nested_items_and_left_closes_it() {
   stage.key("ArrowLeft");
   stage.pass();
   assert!(!stage.paints("Buttons"), "Left closed it");
+}
+
+#[test]
+fn the_items_are_a_tree_to_the_keys() {
+  let (inputs, choose_inputs) = counter();
+  let (tokens, choose_tokens) = counter();
+  let mut stage = stage(move |ctx| {
+    let (choose_inputs, choose_tokens) = (choose_inputs.clone(), choose_tokens.clone());
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(SidebarItem::new("Overview").selected(true))
+        .item(
+          SidebarItem::new("Components")
+            .id("components")
+            .child(SidebarItem::new("Buttons").id("buttons"))
+            .child(
+              SidebarItem::new("Inputs")
+                .id("inputs")
+                .on_select(move || choose_inputs()),
+            ),
+        )
+        .item(SidebarItem::new("Tokens").on_select(move || choose_tokens())),
+    )
+  });
+  stage.key("Tab");
+  stage.key("ArrowDown");
+  // On a closed item Right opens it, and on an open one goes to the first item in it.
+  stage.key("ArrowRight");
+  assert!(stage.paints("Buttons"), "Right opened Components");
+  stage.key("ArrowRight");
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(
+    inputs.load(Ordering::SeqCst),
+    1,
+    "Right went into it, to Buttons, and Down to Inputs"
+  );
+  // On a nested item Left goes to the item it is in, and there it closes it.
+  stage.key("ArrowLeft");
+  assert!(stage.paints("Buttons"), "Left went to Components and closed nothing");
+  stage.key("ArrowLeft");
+  assert!(!stage.paints("Buttons"), "Left on Components closed it");
+  // What is closed is passed by: Down from Components is Tokens.
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(tokens.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_group_that_opens_and_closes_is_an_item_its_items_are_in_to_the_keys() {
+  let (chosen, choose) = counter();
+  let mut stage = stage(move |ctx| {
+    let choose = choose.clone();
+    layout(
+      ctx,
+      Sidebar::new().narrow(false).group(
+        SidebarGroup::new("Team")
+          .collapsible(true)
+          .item(SidebarItem::new("Members").selected(true))
+          .item(SidebarItem::new("Settings").on_select(move || choose())),
+      ),
+    )
+  });
+  stage.key("Tab");
+  stage.key("ArrowLeft");
+  assert!(stage.paints("Members"), "Left went from Members to the group's label");
+  stage.key("ArrowLeft");
+  assert!(!stage.paints("Members"), "Left on the label closed the group");
+  stage.key("ArrowRight");
+  stage.key("ArrowRight");
+  stage.key("ArrowDown");
+  stage.key("Enter");
+  assert_eq!(
+    chosen.load(Ordering::SeqCst),
+    1,
+    "Right opened it, went to Members, Down to Settings"
+  );
 }
 
 #[test]
@@ -496,7 +612,7 @@ fn its_items_scroll_and_its_header_and_footer_stay() {
       .header(SidebarHeading::new("lurq").icon(icons::BOX).id("heading"))
       .footer(Column::new().id("footer").child(Text::new("Ivan Zaida")));
     for index in 0..40 {
-      sidebar = sidebar.item(SidebarItem::new(&format!("Page {index}")));
+      sidebar = sidebar.item(SidebarItem::new(&format!("Page {index}")).id(format!("page-{index}")));
     }
     Row::new()
       .size(1024.0, 300.0)
@@ -508,6 +624,55 @@ fn its_items_scroll_and_its_header_and_footer_stay() {
     stage.bounds("sidebar").3,
     300.0,
     "as high as the window, not as its items"
+  );
+  // The bar is drawn over what scrolls, at the sidebar's edge: the rows end before its lane.
+  let bar = stage.app.theme().scrollbar().clone();
+  let lane = bar.width + bar.resolved_edge_inset() * 2.0;
+  let (x, _, width, _) = stage.bounds("page-0");
+  assert!(
+    x + width <= 260.0 - lane + 0.01,
+    "the row ends at {}, the bar's lane starts at {}",
+    x + width,
+    260.0 - lane
+  );
+  let (_, y, _, height) = stage.bounds("heading");
+  assert_eq!((y, height), (8.0, 44.0), "the header at the top");
+  let (_, y, _, height) = stage.bounds("footer");
+  assert!(
+    close(y + height, 300.0 - 8.0 - 2.0),
+    "the footer at the bottom: ends at {}",
+    y + height
+  );
+  assert!(
+    !stage.paints("Page 39"),
+    "what is past the height is scrolled out of sight"
+  );
+}
+
+#[test]
+fn over_the_page_its_header_and_footer_stay_while_its_items_scroll() {
+  let mut stage = stage(|ctx| {
+    let mut sidebar = Sidebar::new()
+      .id("sidebar")
+      .narrow(true)
+      .open(Signal::new(true))
+      .header(SidebarHeading::new("lurq").icon(icons::BOX).id("heading"))
+      .footer(Column::new().id("footer").child(Text::new("Ivan Zaida")));
+    for index in 0..40 {
+      sidebar = sidebar.item(SidebarItem::new(&format!("Page {index}")));
+    }
+    Row::new()
+      .size(1024.0, 300.0)
+      .child(sidebar.mount(ctx))
+      .child(page())
+      .into()
+  });
+  stage.tree.resize(1024, 300);
+  stage.pass();
+  assert_eq!(
+    stage.bounds("sidebar").3,
+    300.0,
+    "as high as the drawer, not as its items"
   );
   let (_, y, _, height) = stage.bounds("heading");
   assert_eq!((y, height), (8.0, 44.0), "the header at the top");

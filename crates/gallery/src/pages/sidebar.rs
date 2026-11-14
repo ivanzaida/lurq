@@ -8,7 +8,7 @@ use lurq::{
   components::{Column, Row},
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
-  node::Element,
+  node::{Element, dimension::Dimension},
   ui::{
     Avatar, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Sidebar, SidebarGroup, SidebarHeading,
     SidebarHeadingVariant, SidebarItem, SidebarTrigger, icons,
@@ -129,8 +129,12 @@ fn board(props: &Props, record: impl Fn(String) + Clone + Send + Sync + 'static)
     .narrow(props.narrow)
 }
 
-/// A window of the size of a small app: `sidebar` beside its page, which has the trigger in its bar.
-fn window(sidebar: Element, props: &Props) -> Element {
+/// How high the playground's window is: what the stage has room for under its bar.
+const PLAYED: f32 = 340.0;
+
+/// A window as wide as what it is shown in and `height` high: `sidebar` at its own width beside its page, which
+/// takes the rest and has the trigger in its bar.
+fn window(sidebar: Element, props: &Props, height: impl Into<Dimension>) -> Element {
   let page = Column::new()
     .flex(1.0)
     .height(FILL)
@@ -153,7 +157,8 @@ fn window(sidebar: Element, props: &Props) -> Element {
     )
     .child(text("What the place shows.", 13.0, FontWeight::Normal).color(PaletteColor::MutedForeground));
   Column::new()
-    .size(720.0, 460.0)
+    .width(FILL)
+    .height(height)
     .border(line())
     .rounded(8.0)
     .clip()
@@ -210,7 +215,7 @@ impl SidebarPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let props = self.props();
     let record = self.playground.recorder();
-    let shown = window(board(&props, record).mount(ctx), &props);
+    let shown = window(board(&props, record).mount(ctx), &props, PLAYED);
 
     let mut code = vec![
       "// collapsed, open: Signal<bool>".to_owned(),
@@ -296,9 +301,9 @@ impl SidebarPage {
       ctx,
       Spec {
         title: "Sidebar",
-        make: Arc::new(move || window(board(&make_props, |_| {}).into(), &make_props)),
+        make: Arc::new(move || window(board(&make_props, |_| {}).into(), &make_props, FILL)),
         shown,
-        fill: false,
+        fill: true,
         forceable: false,
         facts: format!(
           "{} · {}",
@@ -367,7 +372,7 @@ impl Component for SidebarPage {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let section = |ctx: &mut Ctx, signals: &(Signal<bool>, Signal<bool>, Signal<usize>), narrow: bool| {
       let props = Self::section(signals, narrow);
-      window(board(&props, |_| {}).mount(ctx), &props)
+      window(board(&props, |_| {}).mount(ctx), &props, 460.0)
     };
     let beside = section(ctx, &self.beside, false);
     let rail = section(ctx, &self.rail, false);
@@ -452,9 +457,9 @@ impl Component for SidebarPage {
         Section::new(
           "Playground",
           "Every prop of Sidebar is a control on the right. The button in the page's bar collapses it, or opens it \
-           over the page where it is narrow. Its items are one list to the keyboard: Tab stops at the selected \
-           one, Up and Down move, Right and Left open and close a nested list, and a letter goes to the item it \
-           starts.",
+           over the page where it is narrow. Its items are a tree to the keyboard: Tab stops at the selected \
+           one, Up and Down move, Right opens a nested list and goes into it, Left closes it and goes out to the \
+           item it is in, and a letter goes to the item it starts.",
           playground,
         ),
         Section::new(
