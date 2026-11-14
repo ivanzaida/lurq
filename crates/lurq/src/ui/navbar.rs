@@ -52,8 +52,8 @@ pub enum NavbarPart {
 names!(NavbarPart {
   Root => "root",
   Brand => "brand",
-  BrandMark => "brand-mark",
-  BrandName => "brand-name",
+  BrandMark => "brand_mark",
+  BrandName => "brand_name",
   Links => "links",
   Trailing => "trailing",
 });

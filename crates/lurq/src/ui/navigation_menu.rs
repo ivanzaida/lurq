@@ -85,7 +85,7 @@ pub enum NavigationMenuPart {
 names!(NavigationMenuPart {
   Bar => "bar",
   Item => "item",
-  ItemIcon => "item-icon",
+  ItemIcon => "item_icon",
   Label => "label",
   Chevron => "chevron",
   Viewport => "viewport",
@@ -93,10 +93,10 @@ names!(NavigationMenuPart {
   Column => "column",
   Featured => "featured",
   Link => "link",
-  LinkIcon => "link-icon",
-  LinkText => "link-text",
-  LinkTitle => "link-title",
-  LinkDescription => "link-description",
+  LinkIcon => "link_icon",
+  LinkText => "link_text",
+  LinkTitle => "link_title",
+  LinkDescription => "link_description",
 });
 
 /// The states of a navigation menu a recipe styles. An item and a link of a panel are resolved in the states of
