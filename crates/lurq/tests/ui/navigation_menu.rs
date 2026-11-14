@@ -16,7 +16,10 @@ use lurq::{
   },
   components::{Button, Column, Row},
   core::Signal,
-  layout::quad::{Quad, QuadContent},
+  layout::{
+    Constraints, Size,
+    quad::{Quad, QuadContent},
+  },
   node::{Element, color::Color},
   ui::{
     NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuVariant,
@@ -87,6 +90,9 @@ fn scene_with(make: impl Fn(&Log) -> NavigationMenu + Send + Sync + 'static) -> 
       .child(Row::new().child(Button::new("After").id("after").tab_index(0)))
       .into()
   });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 500.0))));
   stage.tree.resize(800, 500);
   stage.pass();
   (stage, open, log)
@@ -353,11 +359,12 @@ fn a_press_outside_closes_the_panel_and_reaches_what_it_is_on() {
   let (mut stage, open, _) = scene();
   stage.click("nav-0");
   assert_eq!(open.get(), Some(0));
-  stage.click("after");
+  // The button before the menu: the one after it is under the open panel.
+  stage.click("before");
   assert_eq!(open.get(), None);
   assert_eq!(
     focused(&stage).as_deref(),
-    Some("after"),
+    Some("before"),
     "the press went on to the button"
   );
 }

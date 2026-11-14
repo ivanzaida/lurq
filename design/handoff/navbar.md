@@ -14,6 +14,10 @@
     and a menubar after a navbar in the tree is still the window's first row of menus.
   - The module's doc says what a row of panels is.
 - No change to `shared.rs`, `part_style.rs`, `recipe.rs` or `runtime.rs`. No keyframes.
+- `docs/src/content/docs/focus-navigation.md`: `panel_row(bool)` in the table of `FocusGroup`, and a section "A Row Of
+  Panels" after "A Row Of Menus". Written there already, not to be added again.
+- `CHANGELOG.md`: a line for `FocusGroup::panel_row(bool)` under Unreleased, Added, after the one of `menu_row`.
+  Written there already; the two lines below are still to be added.
 
 ## For `docs/src/content/docs/design-system.md`
 

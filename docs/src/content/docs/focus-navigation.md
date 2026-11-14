@@ -101,6 +101,7 @@ Row::new()
 | `follow_pointer(bool)` | While the focus is in the group, the pointer coming onto one of its elements moves the focus there, with no ring, and an arrow key takes the hover off the element under a pointer that holds still: what the pointer and the keyboard are on is one, as in a menu |
 | `typeahead(bool)` | Typing a letter moves the focus to the element whose label starts with it. Letters typed within a second of one another are one prefix, the same letter again goes on to the next element that starts with it, and a pause starts again |
 | `menu_row(bool)` | The group is a row of menus, as the File, Edit and View of a menubar: each of its elements opens a menu hung from it. With one of those menus open, Left and Right go to the menu beside it, and Alt reaches the row from anywhere. See [a row of menus](#a-row-of-menus) |
+| `panel_row(bool)` | The group is a row of panels, as a site's navigation menu: a row of menus whose elements are links as well as buttons that open a panel. Left and Right from an open panel focus the element beside it and open its panel, pressing no link, and Alt is not its. See [a row of panels](#a-row-of-panels) |
 | `nested(bool)` | The group is a tree: Right and Left open, close and go between levels, and `*` opens the elements beside the focused one. Its elements say their level with `.focus_level(n)` and whether they are open with `.focus_expanded(open, toggle)`. See [a nested list](#a-nested-list) |
 | `FocusGroup::none()` | No key moves the focus within it, and what is in it is out of the group around it: that group's arrows pass it by, and do nothing while the focus is in it. For what a group holds beside what its keys move between, as the content of an accordion's open item is between two headers |
 
@@ -157,6 +158,40 @@ Row::new()
 - Alt with a letter presses the element of that row whose label starts with it (its `focus_label`, or the one text of a button), from wherever the focus is: it opens its menu, closing the one that was open. Where several start with the letter, the next press goes on to the next. A letter that starts no element is not the row's.
 - A disabled row, or a disabled element of it, is passed by: the row with no element to stop at is not reached by Alt.
 - On a Mac, Alt (Option) does neither: Option with a letter types a character there, and an app's menus belong in the system's menu bar (see [native menus](../window-lifecycle-menus/#building-a-native-menu)).
+
+### A Row Of Panels
+
+`FocusGroup::panel_row(true)` makes a group a row of panels: a [row of menus](#a-row-of-menus) whose elements are links as well as buttons that open a panel hung from them, as a site's navigation menu is (`ui::NavigationMenu` has it, and so the links of `ui::Navbar`). It sets `menu_row` too, and keeps what a row of menus does with two differences, which a row of links needs.
+
+```rust
+use lurq::{
+  components::{Button, Column, Popup, Row},
+  core::{ElementRef, Signal},
+  node::FocusGroup,
+};
+
+// docs: ElementRef; docs_open: Signal<bool>; docs_panel: what the panel holds; go_to_blog: what the link does.
+let (open, toggle) = (docs_open.clone(), docs_open.clone());
+Row::new()
+  .focus_group(FocusGroup::horizontal().panel_row(true))
+  .child(
+    Column::new()
+      .child(
+        Button::new("Docs")
+          .tab_index(0)
+          .ref_element(docs.clone())
+          .on_click(move |_| open.update(|open| *open = !*open))
+          // How the row opens it from the keyboard, as a nested list does.
+          .focus_expanded(docs_open.get(), move |open| toggle.set(open)),
+      )
+      .child(Popup::new(docs.clone(), docs_panel).open(docs_open.clone()).takes_focus(true)),
+  )
+  .child(Button::new("Blog").tab_index(0).on_click(move |_| go_to_blog()));
+```
+
+- On the row itself it is a group as any other, and Tab still stops at each of its elements unless the group has `one_stop(true)`: a site's links are each a stop, as a browser's are.
+- While a panel hung from an element of the row has the focus, Left and Right that nothing in the panel takes close it, as in a row of menus, and then focus the element before or after the one it hangs from, from the keyboard, without pressing it: going past a link does not follow it. An element that says with `.focus_expanded(open, toggle)` how it opens is asked to open (`toggle(true)`), and opens its panel; a link, which says nothing, is only focused.
+- Alt is a menubar's, not a row of panels': neither Alt alone nor Alt with a letter reaches it, so a navbar before a menubar in the tree does not take the window's Alt from it.
 
 ### A Nested List
 
