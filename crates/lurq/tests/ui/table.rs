@@ -821,6 +821,69 @@ fn a_mounted_table_of_ten_thousand_rows_builds_those_in_view_and_end_reaches_the
 }
 
 #[test]
+fn a_mounted_table_of_fifty_columns_builds_the_cells_of_those_in_view_and_the_pinned_ones() {
+  let rows = many(200);
+  let columns = || {
+    let mut columns = vec![
+      TableColumn::new("name", "Name")
+        .width(140.0)
+        .pin(ColumnPin::Start)
+        .text(|row: &Crate| row.name.to_owned()),
+    ];
+    columns.extend((1..50).map(|index| {
+      TableColumn::new(&format!("c{index}"), &format!("Column {index}"))
+        .width(120.0)
+        .text(move |row: &Crate| format!("{}/{index}", row.size))
+    }));
+    columns
+  };
+  let mut stage = window(Stage::new(move |ctx| {
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        Table::new_shared(columns(), rows.clone())
+          .id("t")
+          .height(300.0)
+          .mount(ctx),
+      )
+      .into()
+  }));
+  stage.pass();
+  let painted = |stage: &Stage, column: usize| stage.paints(&format!("Column {column}"));
+  let built: Vec<usize> = (1..50).filter(|column| painted(&stage, *column)).collect();
+  assert!(
+    built.contains(&1) && built.len() < 12,
+    "the columns in view and two past them: {built:?}"
+  );
+  assert!(!painted(&stage, 49), "a far column is not built");
+  // The columns not built keep their room: the cells of the first row are where their tracks are.
+  let (x, y, ..) = stage.bounds("t");
+  stage
+    .tree
+    .scroll(x + 300.0, y + 150.0, -3000.0, 0.0, ScrollPhase::Scroll);
+  stage.pass();
+  stage.pass();
+  assert!(
+    stage.paints("crate 0"),
+    "the pinned name is built wherever the rows are scrolled"
+  );
+  let built: Vec<usize> = (1..50).filter(|column| painted(&stage, *column)).collect();
+  assert!(!built.contains(&1), "the first columns left: {built:?}");
+  assert!(
+    built.iter().any(|column| (24..=28).contains(column)),
+    "the columns now in view: {built:?}"
+  );
+  // A column's cell stands where its track is: column 26 starts 140 + 25 columns of 120 after the row's start.
+  let header = texts(&stage, "Column 26").pop().expect("its header is built");
+  let cell = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.ends_with("/26")))
+    .expect("a cell of it");
+  assert!((header.x - cell.x).abs() < 0.5, "the cell under its header");
+}
+
+#[test]
 fn with_no_rows_an_empty_state_stands_under_the_header_and_loading_rows_of_skeletons() {
   let stage = wide(|| table(Vec::new()).into());
   assert!(stage.paints("Name"), "the header stays");

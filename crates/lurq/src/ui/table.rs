@@ -1091,6 +1091,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let table_fill = recipe.part(TablePart::Root).rest().background;
     let header_fill = recipe.part(TablePart::Header).rest().background;
     let cell_ends = |column: usize| column + 1 == self.columns.len();
+    let columns_built = window.as_ref().and_then(|window| window.columns.clone());
+    let built = |column: usize| {
+      columns_built
+        .as_ref()
+        .is_none_or(|built| built.get(column).copied().unwrap_or(true))
+    };
 
     let held_now: HashSet<&K> = self.selected.iter().collect();
     let shown: Vec<usize> = match &window {
@@ -1123,6 +1129,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .columns
           .iter()
           .enumerate()
+          .filter(|(column_index, _)| built(*column_index))
           .map(|(column_index, column)| {
             let part = cell_recipe(column_index, selected)
               .part(TablePart::Cell)
@@ -1133,6 +1140,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               Content::Nothing => Row::new().into(),
             };
             TableCell {
+              column: column_index,
               content,
               part,
               align: column.align,
@@ -1168,6 +1176,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           recipe,
           forced: self.forced,
           tracks: tracks.clone(),
+          columns_built: columns_built.clone(),
           geometry,
           actions: (!self.disabled).then(|| model.actions(index)),
           select_label: self.words.select_row.clone(),
@@ -1185,6 +1194,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       .columns
       .iter()
       .enumerate()
+      .filter(|(column_index, _)| built(*column_index))
       .map(|(column_index, column)| {
         let sorted = self
           .sort
@@ -1213,6 +1223,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           }) as Arc<dyn Fn() + Send + Sync>
         });
         TableHeader {
+          column: column_index,
           title: column.title.clone(),
           title_hidden: column.title_hidden,
           align: column.align,
@@ -1294,6 +1305,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       recipe,
       geometry,
       tracks,
+      columns_built,
       window: body_window,
       scroll: window.as_ref().map(|window| window.scroll.clone()),
       on_scroll: window.as_ref().and_then(|window| window.on_scroll.clone()),
@@ -1476,6 +1488,8 @@ struct Window {
   row_height: f32,
   scroll: ScrollState,
   refs: HashMap<usize, ElementRef>,
+  /// Which columns are built, where the table builds those in view only: `None` for every one.
+  columns: Option<Arc<Vec<bool>>>,
   host: Option<Arc<HostLink>>,
   /// The rows as the body's focus group steps over them, built or not.
   rows: Arc<dyn FocusRows>,
@@ -1532,6 +1546,8 @@ pub struct TableView {
   pub geometry: Geometry,
   /// The tracks of the columns, which the header and every row lay their cells out in.
   pub tracks: ColumnTracks,
+  /// Which columns are built, where a mounted table builds those in view only: `None` for every one.
+  pub columns_built: Option<Arc<Vec<bool>>>,
   /// Where the rows a mounted table does not build are.
   pub window: Option<BodyWindow>,
   scroll: Option<ScrollState>,
@@ -1610,7 +1626,11 @@ impl TableView {
       header = header.child(self.select_all());
     }
     let headers = std::mem::take(&mut self.headers);
-    header.with_children(headers.into_iter().map(TableHeader::render))
+    let placed = headers.into_iter().map(|header| (header.column, header.render()));
+    header.with_children(in_tracks(
+      self.columns_built.as_ref().map(|built| built.as_slice()),
+      placed,
+    ))
   }
 
   /// The header's checkbox, in the cell of the column of checkboxes: checked where every row is selected,
@@ -1792,6 +1812,27 @@ impl TableView {
   }
 }
 
+/// The cells of a row, each with the column it is of, in the tracks of the columns: where a run of columns is
+/// not built (`built` says so), one room spans their tracks in place of a cell each.
+pub fn in_tracks(built: Option<&[bool]>, cells: impl IntoIterator<Item = (usize, Element)>) -> Vec<Element> {
+  let mut placed = Vec::new();
+  let mut next = 0;
+  let mut room = |from: usize, to: usize, placed: &mut Vec<Element>| {
+    if to > from {
+      placed.push(Row::new().track_span(to - from).key(format!("columns-{from}")).into());
+    }
+  };
+  for (column, cell) in cells {
+    room(next, column, &mut placed);
+    placed.push(cell);
+    next = column + 1;
+  }
+  if let Some(built) = built {
+    room(next, built.len(), &mut placed);
+  }
+  placed
+}
+
 /// The cell of the column of checkboxes, the header's or a row's: as wide as its track, its padding at the
 /// start where the cells at the start stay.
 fn lead_cell(part: &ResolvedPart, geometry: Geometry, sticky: bool) -> Row {
@@ -1808,6 +1849,8 @@ fn lead_cell(part: &ResolvedPart, geometry: Geometry, sticky: bool) -> Row {
 
 /// The header of one column as a renderer sees it.
 pub struct TableHeader {
+  /// Which column it is of, from 0.
+  pub column: usize,
   pub title: Arc<str>,
   /// Whether its title is said to what reads the tree and not drawn: the column of a row's actions.
   pub title_hidden: bool,
@@ -1843,7 +1886,9 @@ impl TableHeader {
       .align_items(Alignment::Center)
       .justify(justify(self.align))
       .describe("a11y_role", "columnheader")
-      .describe("a11y_name", self.title.clone());
+      .describe("a11y_name", self.title.clone())
+      // A header is the same element wherever the columns built around it start.
+      .key(format!("header-{}", self.column));
     if self.sortable || self.sorted.is_some() {
       let sort = match self.sorted {
         Some(SortDirection::Ascending) => "ascending",
@@ -1927,6 +1972,8 @@ fn justify(align: ColumnAlign) -> Justify {
 
 /// One cell of a row as a renderer sees it.
 pub struct TableCell {
+  /// Which column it is of, from 0.
+  pub column: usize,
   /// What the column built from the row.
   pub content: Element,
   /// The style of the cell, in the case of its column and its row.
@@ -1955,6 +2002,8 @@ impl TableCell {
       .part(&self.part)
       .focus_group(FocusGroup::none())
       .describe("a11y_role", "cell")
+      // A cell is the same element wherever the columns built around it start.
+      .key(format!("cell-{}", self.column))
       .child(self.content);
     if !self.last {
       cell = cell.padding_right(self.gap);
@@ -2003,6 +2052,7 @@ pub struct TableRow {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   tracks: ColumnTracks,
+  columns_built: Option<Arc<Vec<bool>>>,
   geometry: Geometry,
   actions: Option<Arc<RowActions>>,
   /// The name of its checkbox.
@@ -2142,7 +2192,13 @@ impl TableRow {
       row = row.child(self.checkbox());
     }
     let cells = std::mem::take(&mut self.cells);
-    row.with_children(cells.into_iter().map(TableCell::render)).into()
+    let placed = cells.into_iter().map(|cell| (cell.column, cell.render()));
+    row
+      .with_children(in_tracks(
+        self.columns_built.as_ref().map(|built| built.as_slice()),
+        placed,
+      ))
+      .into()
   }
 }
 
@@ -2235,10 +2291,19 @@ struct Metrics {
   header_height: f32,
   count: usize,
   disabled: bool,
+  /// The room before the first track of a row, and after the last.
+  padding_start: f32,
+  padding_end: f32,
+  /// The tracks before the first column's: the checkboxes'.
+  lead_tracks: usize,
+  /// The columns that stay at the start and at the end, built wherever the rows are scrolled.
+  pins: (usize, usize),
 }
 
 /// Rows built past each edge of what is in view.
 const OVERSCAN: usize = 8;
+/// Columns built past each side of what is in view.
+const OVERSCAN_COLUMNS: usize = 2;
 /// Rows built before the table knows how high it is.
 const FIRST_ROWS: usize = 40;
 
@@ -2249,6 +2314,10 @@ struct HostState {
   tracks: Mutex<Option<(Vec<TrackSpec>, ColumnTracks)>>,
   /// The places of the rows built.
   built: Mutex<Vec<usize>>,
+  /// Which columns are built, where the columns in view only are.
+  columns_built: Mutex<Option<Arc<Vec<bool>>>>,
+  /// The column that has, or last had, the focus: built wherever the rows are scrolled.
+  focused_column: Mutex<Option<usize>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -2288,6 +2357,87 @@ impl HostState {
   fn rebuild(&self) {
     self.revision.update(|revision| *revision = revision.wrapping_add(1));
   }
+
+  /// Which columns are in view at `scroll_x`, with [`OVERSCAN_COLUMNS`] past each side, the pinned ones and the
+  /// focused one: `None` while the table does not know its width, or where every column is in view anyway.
+  fn columns_at(&self, scroll_x: f32) -> Option<Vec<bool>> {
+    let metrics = *self.metrics.lock();
+    let tracks = self.tracks.lock().as_ref()?.1.clone();
+    let viewport = self.scroll.viewport_width();
+    if viewport <= 0.0 {
+      return None;
+    }
+    let available = (viewport - metrics.padding_start - metrics.padding_end).max(0.0);
+    let widths = tracks.widths(Some(available), 0.0);
+    let columns = widths.len().saturating_sub(metrics.lead_tracks);
+    let mut x = metrics.padding_start;
+    let mut seen = vec![false; columns];
+    for (track, width) in widths.iter().enumerate() {
+      if let Some(column) = track.checked_sub(metrics.lead_tracks) {
+        seen[column] = x + width >= scroll_x && x <= scroll_x + viewport;
+      }
+      x += width;
+    }
+    if seen.iter().all(|seen| *seen) {
+      return None;
+    }
+    let mut built = seen.clone();
+    for (column, seen) in seen.iter().enumerate() {
+      if *seen {
+        let (from, to) = (
+          column.saturating_sub(OVERSCAN_COLUMNS),
+          (column + OVERSCAN_COLUMNS + 1).min(columns),
+        );
+        built[from..to].iter_mut().for_each(|built| *built = true);
+      }
+    }
+    let (start, end) = metrics.pins;
+    built[..start.min(columns)].iter_mut().for_each(|built| *built = true);
+    built[columns.saturating_sub(end)..]
+      .iter_mut()
+      .for_each(|built| *built = true);
+    if let Some(column) = *self.focused_column.lock()
+      && column < columns
+    {
+      built[column] = true;
+    }
+    Some(built)
+  }
+
+  /// Whether a column in view at `scroll_x` is not built, or the table built only some columns and now sees
+  /// them all: it is rendered again.
+  fn needs_columns(&self, scroll_x: f32) -> bool {
+    let wanted = self.columns_at(scroll_x);
+    let built = self.columns_built.lock().clone();
+    match (wanted, built) {
+      (None, None) => false,
+      (None, Some(built)) => built.iter().any(|built| !built),
+      (Some(_), None) => false,
+      (Some(wanted), Some(built)) => {
+        // Only a column that came into view: one that left keeps its cells until the next render.
+        wanted
+          .iter()
+          .zip(built.iter())
+          .enumerate()
+          .any(|(column, (wanted, built))| *wanted && !built && self.seen_at(column, scroll_x))
+      }
+    }
+  }
+
+  /// Whether the column `column` is in view at `scroll_x`.
+  fn seen_at(&self, column: usize, scroll_x: f32) -> bool {
+    let metrics = *self.metrics.lock();
+    let Some(tracks) = self.tracks.lock().as_ref().map(|(_, tracks)| tracks.clone()) else {
+      return true;
+    };
+    let viewport = self.scroll.viewport_width();
+    let available = (viewport - metrics.padding_start - metrics.padding_end).max(0.0);
+    let widths = tracks.widths(Some(available), 0.0);
+    let track = column + metrics.lead_tracks;
+    let x = metrics.padding_start + widths[..track.min(widths.len())].iter().sum::<f32>();
+    let width = widths.get(track).copied().unwrap_or(0.0);
+    x + width >= scroll_x && x <= scroll_x + viewport
+  }
 }
 
 struct TableProps<R, K> {
@@ -2318,6 +2468,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         scroll: ScrollState::new(),
         tracks: Mutex::new(None),
         built: Mutex::new(Vec::new()),
+        columns_built: Mutex::new(None),
+        focused_column: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
@@ -2350,12 +2502,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     let row_height = px(recipe.part(TablePart::Row).rest().height, &theme).unwrap_or(0.0);
     let header_height = px(recipe.part(TablePart::Header).rest().height, &theme).unwrap_or(0.0);
     let count = table.rows.len();
+    let geometry = Geometry::of(&recipe);
+    let pins = table.pins();
+    let lead_tracks = usize::from(table.with_checkboxes());
     *state.metrics.lock() = Metrics {
       row_height,
       header_height,
       count,
       disabled: table.disabled,
+      // A row whose cells stay at an end holds its padding there in its pinned cell, in a track.
+      padding_start: if pins.0 > 0 { 0.0 } else { geometry.padding_start },
+      padding_end: if pins.1 > 0 { 0.0 } else { geometry.padding_end },
+      lead_tracks,
+      pins,
     };
+    // The columns in view, and the pinned and the focused one; every column before the table knows its width.
+    let columns_built = state.columns_at(state.scroll.scroll_x()).map(Arc::new);
+    *state.columns_built.lock() = columns_built.clone();
 
     // A recipe whose rows have no height in pixels builds every row: where they are cannot be reckoned.
     let window = (row_height > 0.0).then(|| {
@@ -2382,8 +2545,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         let first = (scroll_y / metrics.row_height).floor() as usize;
         let last = (((scroll_y + viewport) / metrics.row_height).ceil() as usize).min(metrics.count);
         let built = watcher.built.lock().clone();
+        let scroll_x = (watcher.scroll.scroll_x() - event.delta_x).max(0.0);
         if (first.saturating_sub(OVERSCAN / 2)..(last + OVERSCAN / 2).min(metrics.count))
           .any(|index| !built.contains(&index))
+          || watcher.needs_columns(scroll_x)
         {
           watcher.rebuild();
         }
@@ -2394,6 +2559,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         row_height,
         scroll: state.scroll.clone(),
         refs,
+        columns: columns_built,
         host: Some(Arc::new(HostLink { state: state.clone() })),
         rows: state.clone(),
         on_scroll: Some(on_scroll),
@@ -2408,7 +2574,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
 
   fn after_layout(&self) {
     // A scroll the handler did not see (the bar dragged, a row scrolled into view) or a height first known.
-    if self.state.needs_rows() {
+    if self.state.needs_rows() || self.state.needs_columns(self.state.scroll.scroll_x()) {
       self.state.rebuild();
     }
   }

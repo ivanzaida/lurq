@@ -282,7 +282,7 @@ pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRendere
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
   BodyWindow, ColumnAlign, ColumnPin, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
-  TableRenderer, TableRow, TableSort, TableState, TableView,
+  TableRenderer, TableRow, TableSort, TableState, TableView, in_tracks,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
