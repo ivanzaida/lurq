@@ -52,6 +52,7 @@ mod sheet;
 mod skeleton;
 mod slider;
 mod spinner;
+mod splitter;
 mod steps;
 mod switch;
 mod tabs;
@@ -610,6 +611,14 @@ pub const PAGES: &[Page] = &[
     about: "result outcome success error warning info not found 404 done finished page dialog",
     group: Group::Data,
     mount: |ctx| ctx.mount::<outcome::OutcomePage>(()),
+  },
+  Page {
+    path: "/splitter",
+    name: "Splitter",
+    icon: None,
+    about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),
   },
 ];
 
