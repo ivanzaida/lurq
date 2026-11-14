@@ -8,7 +8,7 @@ use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   icons, names,
   part_style::Length,
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -29,10 +29,10 @@ pub enum DialogPart {
   Veil,
   /// The dialog itself: its edge, its corners, its shadow.
   Panel,
-  /// The top of the panel: the heading, and the close button at its end.
+  /// The top of the panel: the text, and the close button at its end.
   Header,
   /// The title and the description, one over the other.
-  Heading,
+  Text,
   /// What the dialog asks or says, in a word or a line.
   Title,
   /// More of it, under the title.
@@ -52,7 +52,7 @@ names!(DialogPart {
   Veil => "veil",
   Panel => "panel",
   Header => "header",
-  Heading => "heading",
+  Text => "text",
   Title => "title",
   Description => "description",
   Body => "body",
@@ -74,7 +74,7 @@ names!(DialogState {
 });
 
 /// How wide a dialog is, in the design's steps. A dialog given none is as
-/// wide as the board draws one, 420.
+/// wide as the board draws one, 420, which is none of these steps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DialogSize {
   /// 360: a question and two buttons.
@@ -133,10 +133,12 @@ pub struct Dialog {
   close_button: bool,
   dismiss_on_veil: bool,
   dismiss_on_escape: bool,
-  on_dismiss: Option<Dismiss>,
+  on_dismiss: Vec<Dismiss>,
   alert: bool,
-  name: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   described: Option<Arc<str>>,
+  close_label: Arc<str>,
+  forced: Option<Interaction>,
   inline: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -161,10 +163,12 @@ impl Dialog {
       close_button: false,
       dismiss_on_veil: true,
       dismiss_on_escape: true,
-      on_dismiss: None,
+      on_dismiss: Vec::new(),
       alert: false,
-      name: None,
+      label: None,
       described: None,
+      close_label: Arc::from("Close"),
+      forced: None,
       inline: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -212,9 +216,10 @@ impl Dialog {
     self
   }
 
-  /// A width of its own, in logical pixels, over its size's. A dialog is
-  /// never wider than the window.
-  pub fn width(mut self, width: f32) -> Self {
+  /// A width of its own over its size's: logical pixels, or any [`Length`].
+  /// A dialog is never wider than the window.
+  pub fn width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
     self.rules = self.rules.base(DialogPart::Panel, |s| s.width(width));
     self
   }
@@ -235,6 +240,21 @@ impl Dialog {
     self
   }
 
+  /// What the close button is called to tooling that reads the tree:
+  /// "Close" when not given.
+  pub fn close_label(mut self, label: &str) -> Self {
+    self.close_label = Arc::from(label);
+    self
+  }
+
+  /// Draws the close button as it is under the pointer, held down or
+  /// focused from the keyboard, with nothing pointing at it: for a gallery
+  /// or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
   /// Whether a press on the veil closes the dialog. On by default; off for
   /// a dialog that has to be answered.
   pub fn dismiss_on_veil(mut self, dismiss: bool) -> Self {
@@ -251,8 +271,9 @@ impl Dialog {
   /// What runs when the dialog is dismissed, after its signal is set to
   /// `false`: by a press on the veil, by its close button, or by Escape with
   /// the focus in it. A button of the app's that closes it does not run it.
+  /// A second handler runs after the first.
   pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_dismiss = Some(Arc::new(handler));
+    self.on_dismiss.push(Arc::new(handler));
     self
   }
 
@@ -264,10 +285,11 @@ impl Dialog {
     self
   }
 
-  /// What the dialog is called to tooling that reads the tree, for one whose
-  /// title is drawn by what it holds and not given to [`Dialog::title`].
-  pub fn named(mut self, name: &str) -> Self {
-    self.name = Some(Arc::from(name));
+  /// What the dialog is called to tooling that reads the tree, over its
+  /// title: for one whose title is drawn by what it holds and not given to
+  /// [`Dialog::title`].
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -345,8 +367,10 @@ impl Dialog {
       recipe: theme.resolve::<Dialog>(&case, Some(&self.rules)),
       on_dismiss: self.on_dismiss,
       alert: self.alert,
-      name: self.name,
+      label: self.label,
       described: self.described,
+      close_label: self.close_label,
+      forced: self.forced,
       open: self.open,
       id: self.id,
       key: self.key,
@@ -378,12 +402,16 @@ pub struct DialogView {
   pub dismiss_on_veil: bool,
   pub dismiss_on_escape: bool,
   pub inline: bool,
+  /// What the close button is called: "Close" unless the app said otherwise.
+  pub close_label: Arc<str>,
+  /// How the close button is drawn whatever points at it.
+  pub forced: Option<Interaction>,
   /// The style of each part of this dialog.
   pub recipe: ResolvedRecipe,
   open: Signal<bool>,
-  on_dismiss: Option<Dismiss>,
+  on_dismiss: Vec<Dismiss>,
   alert: bool,
-  name: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   described: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -411,13 +439,14 @@ impl DialogView {
   }
 
   /// What dismisses the dialog: it closes, and what the app gave
-  /// [`Dialog::on_dismiss`] runs. The veil, the close button and Escape do this.
+  /// [`Dialog::on_dismiss`] runs, in the order it was given. The veil, the
+  /// close button and Escape do this.
   pub fn dismisser(&self) -> impl Fn() + Send + Sync + Clone + 'static {
     let (close, on_dismiss) = (self.closer(), self.on_dismiss.clone());
     move || {
       close();
-      if let Some(on_dismiss) = &on_dismiss {
-        on_dismiss();
+      for handler in &on_dismiss {
+        handler();
       }
     }
   }
@@ -433,7 +462,7 @@ impl DialogView {
       .max_height(Dimension::Pct(100.0))
       .on_click(|event: MouseEvent| event.stop_propagation())
       .describe("a11y_role", if self.alert { "alertdialog" } else { "dialog" });
-    if let Some(name) = self.name.as_ref().or(self.title.as_ref()) {
+    if let Some(name) = self.label.as_ref().or(self.title.as_ref()) {
       panel = panel.describe("a11y_name", name.clone());
     }
     if let Some(description) = &self.described {
@@ -444,7 +473,7 @@ impl DialogView {
     }
     // Escape with the focus in the dialog dismisses it here, where what the app gave `on_dismiss` can run; the
     // modal's own Escape is off for such a dialog (`modal`).
-    if self.dismiss_on_escape && self.on_dismiss.is_some() {
+    if self.dismiss_on_escape && !self.on_dismiss.is_empty() {
       let dismiss = self.dismisser();
       panel = panel.on_key_down(move |event: KeyboardEvent| {
         if event.focus_within && event.key == "Escape" && !event.default_prevented() {
@@ -458,42 +487,43 @@ impl DialogView {
 
   /// The title and the description, one over the other: `None` for a dialog
   /// that has neither.
-  pub fn heading(&self) -> Option<Column> {
+  pub fn text(&self) -> Option<Column> {
     if self.title.is_none() && self.description.is_none() {
       return None;
     }
     // It takes the room the close button leaves and no more: a longer text goes on to the next line.
-    let mut heading = Column::new()
-      .part(&self.part(DialogPart::Heading))
+    let mut text = Column::new()
+      .part(&self.part(DialogPart::Text))
       .flex_full(1.0, 1.0, Some(0.0))
       .min_width(Dimension::Px(0.0));
     if let Some(title) = &self.title {
-      heading = heading.child(wrapping(&self.part(DialogPart::Title), title));
+      text = text.child(wrapping(&self.part(DialogPart::Title), title));
     }
     if let Some(description) = &self.description {
-      heading = heading.child(wrapping(&self.part(DialogPart::Description), description));
+      text = text.child(wrapping(&self.part(DialogPart::Description), description));
     }
-    Some(heading)
+    Some(text)
   }
 
   /// The button that closes the dialog: a ghost button that is its icon
   /// alone, styled over the theme's button by [`DialogPart::Close`].
   pub fn close(&self) -> Button {
     let close = self.dismisser();
-    Button::new("Close")
+    Button::new(&self.close_label)
       .variant(ButtonVariant::Ghost)
       .size(ButtonSize::Sm)
       .icon(icons::CLOSE)
       .icon_only(true)
+      .force(self.forced)
       .rules(&self.recipe.rules_for(DialogPart::Close, ButtonPart::Root))
       .on_click(move |_| close())
   }
 
-  /// The header: the heading, and the close button at its end. `None` for a
+  /// The header: the text, and the close button at its end. `None` for a
   /// dialog with neither.
   pub fn header(&self) -> Option<Row> {
-    let heading = self.heading();
-    if heading.is_none() && !self.close_button {
+    let text = self.text();
+    if text.is_none() && !self.close_button {
       return None;
     }
     let mut header = Row::new()
@@ -504,11 +534,11 @@ impl DialogView {
         Alignment::Start
       })
       .part(&self.part(DialogPart::Header));
-    if let Some(heading) = heading {
-      header = header.child(heading);
+    if let Some(text) = text {
+      header = header.child(text);
     }
     if self.close_button {
-      // Without a heading the button still stands at the end.
+      // Without a text the button still stands at the end.
       header = header.justify(Justify::End).child(self.close());
     }
     Some(header)
@@ -584,7 +614,7 @@ impl DialogView {
     Modal::new(self.veil(panel))
       .open(self.open.clone())
       .target(Root)
-      .dismiss_on_escape(self.dismiss_on_escape && self.on_dismiss.is_none())
+      .dismiss_on_escape(self.dismiss_on_escape && self.on_dismiss.is_empty())
       .takes_focus(true)
       .into()
   }
@@ -632,7 +662,7 @@ impl Themed for Dialog {
   /// footer of 60, each set off by a line, and the body padded 20 and 16
   /// between them. The close button is 28, its icon 16.
   fn recipe() -> Recipe {
-    use DialogPart::{Body, Close, Description, Footer, Header, Heading, Panel, Separator, Title, Veil};
+    use DialogPart::{Body, Close, Description, Footer, Header, Panel, Separator, Text, Title, Veil};
     use DialogState::Scrollable;
     use PaletteColor::*;
     Recipe::new()
@@ -650,7 +680,7 @@ impl Themed for Dialog {
           .gap(12.0)
       })
       .base(Header, |s| s.gap(8.0).padding_x(4.0).padding_y(4.0))
-      .base(Heading, |s| s.gap(8.0))
+      .base(Text, |s| s.gap(8.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(16.0)
@@ -675,7 +705,7 @@ impl Themed for Dialog {
       // The close button stands 12 from the edge and the title 20, as the body's text does. A header of 56 for a
       // title, and higher for a title with a description under it.
       .state(Scrollable, Header, |s| s.min_height(56.0).padding_x(12.0).padding_y(12.0))
-      .state(Scrollable, Heading, |s| s.padding_x(8.0))
+      .state(Scrollable, Text, |s| s.padding_x(8.0))
       .state(Scrollable, Body, |s| s.padding_x(20.0).padding_y(16.0))
       .state(Scrollable, Footer, |s| s.height(60.0).padding_x(20.0).padding_y(0.0))
   }

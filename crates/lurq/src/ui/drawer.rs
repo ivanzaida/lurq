@@ -88,9 +88,11 @@ pub struct Drawer {
   label: Option<Arc<str>>,
   body: Vec<Element>,
   overlay: bool,
-  scroll: bool,
+  body_scrolls: bool,
   dismiss_on_veil: bool,
   dismiss_on_escape: bool,
+  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
+  inline: bool,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -106,9 +108,11 @@ impl Drawer {
       label: None,
       body: Vec::new(),
       overlay: false,
-      scroll: true,
+      body_scrolls: true,
       dismiss_on_veil: true,
       dismiss_on_escape: true,
+      on_dismiss: Vec::new(),
+      inline: false,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -141,9 +145,10 @@ impl Drawer {
     self
   }
 
-  /// A width of its own at the start or the end, in logical pixels, over the
-  /// board's 300.
-  pub fn width(mut self, width: f32) -> Self {
+  /// A width of its own at the start or the end, over the board's 300:
+  /// logical pixels, or any [`Length`].
+  pub fn width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
     self.rules =
       self
         .rules
@@ -152,9 +157,10 @@ impl Drawer {
     self
   }
 
-  /// A height of its own at the top or the bottom, in logical pixels, over
-  /// the height of what it holds.
-  pub fn height(mut self, height: f32) -> Self {
+  /// A height of its own at the top or the bottom, over the height of what
+  /// it holds: logical pixels, or any [`Length`].
+  pub fn height(mut self, height: impl Into<Length>) -> Self {
+    let height = height.into();
     self.rules =
       self
         .rules
@@ -176,8 +182,8 @@ impl Drawer {
   /// it. It does unless told otherwise; what does not is laid out at the
   /// panel's height, for what holds a scroll of its own with something that
   /// stays beside it: a sidebar with its header and its footer.
-  pub fn scroll(mut self, scroll: bool) -> Self {
-    self.scroll = scroll;
+  pub fn body_scrolls(mut self, scrolls: bool) -> Self {
+    self.body_scrolls = scrolls;
     self
   }
 
@@ -191,6 +197,24 @@ impl Drawer {
   /// Whether Escape closes a drawer that lies over the page. On by default.
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// What runs when a person closes a drawer that lies over the page, after
+  /// its signal is set to `false`: by a press on the veil or by Escape, as
+  /// [`Sheet::on_dismiss`] says. A drawer beside the page is closed by the
+  /// app alone, and does not run it. A second handler runs after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(handler));
+    self
+  }
+
+  /// Draws a drawer that lies over the page as its panel where it is
+  /// declared, whether or not it is open, without the veil and without
+  /// taking the window: for a gallery, a screenshot, a test. A drawer beside
+  /// the page is drawn where it is declared already.
+  pub fn inline(mut self, inline: bool) -> Self {
+    self.inline = inline;
     self
   }
 
@@ -249,7 +273,7 @@ impl Drawer {
       side: self.side,
       label: self.label,
       body: self.body,
-      scroll: self.scroll,
+      body_scrolls: self.body_scrolls,
       is_open: open,
       recipe,
       open: self.open,
@@ -278,7 +302,8 @@ fn over_the_page(drawer: Drawer, recipe: &ResolvedRecipe) -> Element {
     .side(drawer.side)
     .dismiss_on_veil(drawer.dismiss_on_veil)
     .dismiss_on_escape(drawer.dismiss_on_escape)
-    .body_scrolls(drawer.scroll)
+    .inline(drawer.inline)
+    .body_scrolls(drawer.body_scrolls)
     .children(drawer.body)
     // What the drawer holds is laid out as in the drawer: the body's spacing is the drawer's.
     .style(SheetPart::Body, |s| {
@@ -306,6 +331,9 @@ fn over_the_page(drawer: Drawer, recipe: &ResolvedRecipe) -> Element {
   if let Some(label) = &drawer.label {
     sheet = sheet.label(label);
   }
+  for handler in drawer.on_dismiss {
+    sheet = sheet.on_dismiss(move || handler());
+  }
   if let Some(id) = drawer.id {
     sheet = sheet.id(id);
   }
@@ -323,7 +351,7 @@ pub struct DrawerView {
   /// What the app put in the drawer.
   pub body: Vec<Element>,
   /// Whether what the app put in the drawer scrolls.
-  pub scroll: bool,
+  pub body_scrolls: bool,
   /// Whether the drawer is open now.
   pub is_open: bool,
   /// The style of each part of this drawer.
@@ -357,7 +385,7 @@ impl DrawerView {
       .part(&self.part(DrawerPart::Body))
       .with_children(std::mem::take(&mut self.body));
     let grow = if self.side.is_side() { 1.0 } else { 0.0 };
-    if !self.scroll {
+    if !self.body_scrolls {
       return body.align_items(Alignment::Stretch).flex_full(grow, 1.0, None).into();
     }
     ScrollVertical::new(body)

@@ -131,7 +131,12 @@ impl DrawerPage {
         .dismiss_on_escape(on_escape)
         .children(navigation())
     };
-    let shown = layout(make(self.open.clone()), side, &self.open);
+    let record = self.playground.recorder();
+    let shown = layout(
+      make(self.open.clone()).on_dismiss(move || record("on_dismiss()".to_owned())),
+      side,
+      &self.open,
+    );
 
     let mut code = vec![
       "// open: Signal<bool>".to_owned(),
@@ -148,6 +153,7 @@ impl DrawerPage {
           code.push(format!("    .{name}(false)"));
         }
       }
+      code.push("    .on_dismiss(|| ..)".to_owned());
     }
     code.push("    .children(navigation)".to_owned());
 
@@ -203,7 +209,7 @@ impl DrawerPage {
           if overlay { "over the page" } else { "beside the page" },
           if self.open.get() { "open" } else { "closed" }
         ),
-        event: "",
+        event: if overlay { "on_dismiss" } else { "" },
         code,
         tree,
         controls,
@@ -281,10 +287,15 @@ impl Component for DrawerPage {
         "",
         "Adds an element to the drawer, which scrolls.",
       ),
-      ("width", "f32", "300", "A width of its own at the start or the end."),
+      (
+        "width",
+        "impl Into<Length>",
+        "300",
+        "A width of its own at the start or the end.",
+      ),
       (
         "height",
-        "f32",
+        "impl Into<Length>",
         "content",
         "A height of its own at the top or the bottom.",
       ),
@@ -305,6 +316,24 @@ impl Component for DrawerPage {
         "bool",
         "true",
         "Over the page, whether Escape closes it.",
+      ),
+      (
+        "on_dismiss",
+        "Fn()",
+        "",
+        "Over the page, runs after a person closed it by the veil or Escape. A second handler runs after the first.",
+      ),
+      (
+        "body_scrolls",
+        "bool",
+        "true",
+        "Whether what it holds scrolls; one that does not is laid out at the panel's height.",
+      ),
+      (
+        "inline",
+        "bool",
+        "false",
+        "Over the page, its panel where it is declared, without the veil: for a gallery, a screenshot, a test.",
       ),
     ];
     let playground = self.play(ctx);

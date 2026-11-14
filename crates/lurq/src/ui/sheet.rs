@@ -7,7 +7,7 @@ use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   icons, names,
   part_style::{Length, PartAnimation, PartStyle},
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   separator::{Separator, SeparatorPart},
   shared::{FADE_IN, FADE_OUT},
   theme::{Themed, current_theme},
@@ -16,7 +16,7 @@ use crate::{
   animation::{AnimatableProperty, AnimatableValue, Keyframes, KeyframesId},
   app::{
     ctx::Ctx,
-    events::MouseEvent,
+    events::{KeyboardEvent, MouseEvent},
     theme::{BorderSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{
@@ -81,10 +81,10 @@ pub enum SheetPart {
   Grabber,
   /// The bar in the grabber that says the sheet can be dragged.
   Handle,
-  /// The top of the panel: the heading, and the close button at its end.
+  /// The top of the panel: the text, and the close button at its end.
   Header,
   /// The title and the description, one over the other.
-  Heading,
+  Text,
   /// What the sheet is, in a word or a line.
   Title,
   /// More of it, under the title.
@@ -106,7 +106,7 @@ names!(SheetPart {
   Grabber => "grabber",
   Handle => "handle",
   Header => "header",
-  Heading => "heading",
+  Text => "text",
   Title => "title",
   Description => "description",
   Body => "body",
@@ -162,8 +162,8 @@ names!(SheetState {
 
 /// How large a sheet is across from its edge, in the design's steps: its
 /// width at the start or the end, its height at the top or the bottom. A
-/// sheet given none is as wide as the board draws one, 320, or as high as
-/// what is in it.
+/// sheet given none is as wide as the board draws one, 320 (the width of
+/// `Sm`), or as high as what is in it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SheetSize {
   /// 320 wide, or 240 high.
@@ -209,7 +209,8 @@ pub type SheetRenderer = Arc<dyn Fn(SheetView) -> Element + Send + Sync>;
 ///
 /// A sheet does not keep whether it is open: the app's signal does, and the
 /// sheet is shown while it holds `true`. Escape, a press on the veil and the
-/// close button set it to `false`. It slides in from its edge as the veil
+/// close button set it to `false`, and then run what the app gave
+/// [`Sheet::on_dismiss`]. It slides in from its edge as the veil
 /// fades in, and out again; with motion reduced it fades. As it opens the
 /// focus goes to its first control, and as it closes back to what had it.
 /// While it is open nothing under the veil takes the pointer, and Tab and
@@ -229,12 +230,15 @@ pub struct Sheet {
   footer: Vec<Element>,
   size: Option<Name>,
   close_button: bool,
+  close_label: Arc<str>,
+  forced: Option<Interaction>,
   grabber: Option<bool>,
   dismiss_on_veil: bool,
   dismiss_on_escape: bool,
+  on_dismiss: Vec<Dismiss>,
   detents: Vec<SheetDetent>,
   detent: Option<Signal<usize>>,
-  scroll: Option<ScrollState>,
+  scroll_state: Option<ScrollState>,
   body_scrolls: bool,
   inline: bool,
   states: Vec<Name>,
@@ -242,6 +246,9 @@ pub struct Sheet {
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
+
+/// What runs as the sheet is dismissed.
+type Dismiss = Arc<dyn Fn() + Send + Sync>;
 
 impl Sheet {
   /// A sheet shown while `open` holds `true`, at the window's end.
@@ -256,12 +263,15 @@ impl Sheet {
       footer: Vec::new(),
       size: None,
       close_button: false,
+      close_label: Arc::from("Close"),
+      forced: None,
       grabber: None,
       dismiss_on_veil: true,
       dismiss_on_escape: true,
+      on_dismiss: Vec::new(),
       detents: Vec::new(),
       detent: None,
-      scroll: None,
+      scroll_state: None,
       body_scrolls: true,
       inline: false,
       states: Vec::new(),
@@ -331,6 +341,21 @@ impl Sheet {
     self
   }
 
+  /// What the close button is called to tooling that reads the tree:
+  /// "Close" when not given.
+  pub fn close_label(mut self, label: &str) -> Self {
+    self.close_label = Arc::from(label);
+    self
+  }
+
+  /// Draws the close button as it is under the pointer, held down or
+  /// focused from the keyboard, with nothing pointing at it: for a gallery
+  /// or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
   /// Whether the panel has the grabber at its top. A sheet at the bottom has
   /// it unless told otherwise; a sheet at another edge has none.
   pub fn grabber(mut self, grabber: bool) -> Self {
@@ -352,6 +377,17 @@ impl Sheet {
     self
   }
 
+  /// What runs when a person closes the sheet, after its signal is set to
+  /// `false`: by a press on the veil, by its close button, or by Escape with
+  /// the focus in it. A button of the app's that closes it does not run it,
+  /// nor, for a mounted sheet at the bottom, a finger that drags it down or
+  /// taps beside it (the engine's sheet closes it itself). A second handler
+  /// runs after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(handler));
+    self
+  }
+
   /// The heights a mounted sheet at the bottom stands at ([`Sheet::mount`]):
   /// it comes up at the first, and a finger moves it between them. Without
   /// them it stands at the height of its size, or of its content.
@@ -370,8 +406,8 @@ impl Sheet {
   /// The state of the body's scrolling, which the app keeps. A mounted sheet
   /// gives a finger that goes down on the body to the body while it has
   /// something above to show, and to the sheet once it is at its top.
-  pub fn scroll(mut self, scroll: ScrollState) -> Self {
-    self.scroll = Some(scroll);
+  pub fn scroll_state(mut self, scroll: ScrollState) -> Self {
+    self.scroll_state = Some(scroll);
     self
   }
 
@@ -447,6 +483,8 @@ impl Sheet {
       body: self.body,
       footer: self.footer,
       close_button: self.close_button,
+      close_label: self.close_label,
+      forced: self.forced,
       grabber: self.grabber.unwrap_or(self.side == SheetSide::Bottom),
       dismiss_on_veil: self.dismiss_on_veil,
       dismiss_on_escape: self.dismiss_on_escape,
@@ -455,7 +493,8 @@ impl Sheet {
       open: self.open,
       detents: self.detents,
       detent: self.detent,
-      scroll: self.scroll,
+      scroll_state: self.scroll_state,
+      on_dismiss: self.on_dismiss,
       body_scrolls: self.body_scrolls,
       id: self.id,
       key: self.key,
@@ -505,6 +544,10 @@ pub struct SheetView {
   /// What the app put in the footer.
   pub footer: Vec<Element>,
   pub close_button: bool,
+  /// What the close button is called: "Close" unless the app said otherwise.
+  pub close_label: Arc<str>,
+  /// How the close button is drawn whatever points at it.
+  pub forced: Option<Interaction>,
   pub grabber: bool,
   pub dismiss_on_veil: bool,
   pub dismiss_on_escape: bool,
@@ -512,9 +555,10 @@ pub struct SheetView {
   /// The style of each part of this sheet.
   pub recipe: ResolvedRecipe,
   open: Signal<bool>,
+  on_dismiss: Vec<Dismiss>,
   detents: Vec<SheetDetent>,
   detent: Option<Signal<usize>>,
-  scroll: Option<ScrollState>,
+  scroll_state: Option<ScrollState>,
   body_scrolls: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -541,8 +585,38 @@ impl SheetView {
     move || open.set(false)
   }
 
+  /// What dismisses the sheet: it closes, and what the app gave
+  /// [`Sheet::on_dismiss`] runs, in the order it was given. The veil, the
+  /// close button and Escape do this.
+  pub fn dismisser(&self) -> impl Fn() + Send + Sync + Clone + 'static {
+    let (close, on_dismiss) = (self.closer(), self.on_dismiss.clone());
+    move || {
+      close();
+      for handler in &on_dismiss {
+        handler();
+      }
+    }
+  }
+
+  /// `column` dismissing the sheet on Escape with the focus in it, where what
+  /// the app gave [`Sheet::on_dismiss`] can run: the Escape is then taken
+  /// before the modal it is in closes it. With the focus elsewhere the modal
+  /// still closes it, and nothing hears it (the engine's modal tells no one).
+  fn on_escape(&self, column: Column) -> Column {
+    if !self.dismiss_on_escape || self.on_dismiss.is_empty() {
+      return column;
+    }
+    let dismiss = self.dismisser();
+    column.on_key_down(move |event: KeyboardEvent| {
+      if event.focus_within && event.key == "Escape" && !event.default_prevented() {
+        event.prevent_default();
+        dismiss();
+      }
+    })
+  }
+
   /// Whether the sheet lays out as the board's sheet at the bottom does: its
-  /// heading in the middle, and its buttons one over the other as wide as it.
+  /// text in the middle, and its buttons one over the other as wide as it.
   fn stacked(&self) -> bool {
     self.side == SheetSide::Bottom
   }
@@ -568,7 +642,7 @@ impl SheetView {
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
-    panel
+    self.on_escape(panel)
   }
 
   /// The grabber across the panel's top, with its handle in the middle:
@@ -588,7 +662,7 @@ impl SheetView {
 
   /// The title and the description, one over the other: `None` for a sheet
   /// that has neither.
-  pub fn heading(&self) -> Option<Column> {
+  pub fn text(&self) -> Option<Column> {
     if self.title.is_none() && self.description.is_none() {
       return None;
     }
@@ -598,8 +672,8 @@ impl SheetView {
       (Alignment::Start, TextAlign::Left)
     };
     // It takes the room the close button leaves and no more: a longer text goes on to the next line.
-    let mut heading = Column::new()
-      .part(&self.part(SheetPart::Heading))
+    let mut column = Column::new()
+      .part(&self.part(SheetPart::Text))
       .align_items(align)
       .flex_full(1.0, 1.0, Some(0.0))
       .min_width(Dimension::Px(0.0));
@@ -612,43 +686,44 @@ impl SheetView {
         .child(part.text(content).width(fill.clone()).text_align(text_align))
     };
     if let Some(title) = &self.title {
-      heading = heading.child(text(SheetPart::Title, title));
+      column = column.child(text(SheetPart::Title, title));
     }
     if let Some(description) = &self.description {
-      heading = heading.child(text(SheetPart::Description, description));
+      column = column.child(text(SheetPart::Description, description));
     }
-    Some(heading)
+    Some(column)
   }
 
   /// The button that closes the sheet: a ghost button that is its icon
   /// alone, styled over the theme's button by [`SheetPart::Close`].
   pub fn close(&self) -> Button {
-    let close = self.closer();
-    Button::new("Close")
+    let close = self.dismisser();
+    Button::new(&self.close_label)
       .variant(ButtonVariant::Ghost)
       .size(ButtonSize::Sm)
       .icon(icons::CLOSE)
       .icon_only(true)
+      .force(self.forced)
       .rules(&self.recipe.rules_for(SheetPart::Close, ButtonPart::Root))
       .on_click(move |_| close())
   }
 
-  /// The header: the heading, and the close button at its end. `None` for a
+  /// The header: the text, and the close button at its end. `None` for a
   /// sheet with neither.
   pub fn header(&self) -> Option<Row> {
-    let heading = self.heading();
-    if heading.is_none() && !self.close_button {
+    let text = self.text();
+    if text.is_none() && !self.close_button {
       return None;
     }
     let mut header = Row::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Start)
       .part(&self.part(SheetPart::Header));
-    if let Some(heading) = heading {
-      header = header.child(heading);
+    if let Some(text) = text {
+      header = header.child(text);
     }
     if self.close_button {
-      // Without a heading the button still stands at the end.
+      // Without a text the button still stands at the end.
       header = header.justify(Justify::End).child(self.close());
     }
     Some(header)
@@ -682,7 +757,7 @@ impl SheetView {
       return Some(body.align_items(Alignment::Stretch).flex_full(grow, 1.0, None).into());
     }
     let mut scroll = ScrollVertical::new(body);
-    if let Some(state) = &self.scroll {
+    if let Some(state) = &self.scroll_state {
       scroll = scroll.with_scroll_state(state.clone());
     }
     let grow = if self.side.is_side() { 1.0 } else { 0.0 };
@@ -764,7 +839,7 @@ impl SheetView {
           .justify(justify)
           .child(panel);
         if self.dismiss_on_veil {
-          let close = self.closer();
+          let close = self.dismisser();
           holder = holder.on_click(move |_| close());
         }
         holder.into()
@@ -781,7 +856,7 @@ impl SheetView {
           .justify(justify)
           .child(panel);
         if self.dismiss_on_veil {
-          let close = self.closer();
+          let close = self.dismisser();
           holder = holder.on_click(move |_| close());
         }
         holder.into()
@@ -866,6 +941,7 @@ impl SheetView {
     if let Some(id) = &self.id {
       content = content.id(id.clone());
     }
+    let content = self.on_escape(content);
 
     let mut props = SheetProps::new(self.open.clone())
       .detents(detents)
@@ -882,7 +958,7 @@ impl SheetView {
     if let Some(detent) = self.detent.take() {
       props = props.detent(detent);
     }
-    if let Some(scroll) = self.scroll.take() {
+    if let Some(scroll) = self.scroll_state.take() {
       props = props.scroll(scroll);
     }
     match &self.key {
@@ -952,17 +1028,17 @@ impl Themed for Sheet {
   /// line. At the top it is as wide as the window, its line along its
   /// bottom. At the bottom (Drawer) it has the line all round and corners
   /// of `radius-xl` at its top, a grabber with a handle 40 by 4 in the muted
-  /// color 8 under its top edge, its heading in the middle 20 under that,
+  /// color 8 under its top edge, its text in the middle 20 under that,
   /// and its buttons as wide as it, 8 apart, 20 from the edges. It comes in
   /// over the theme's slow duration in the entering curve as the veil of the
   /// scrim's color fades in, and goes out over the base duration in the
   /// leaving curve (Foundations, Motion: a dialog, a sheet and a drawer take
   /// the slow duration, and exits are quicker than entrances). Of the
-  /// header's 20, 4 are the heading's own, so that the close button of 24
+  /// header's 20, 4 are the text's own, so that the close button of 24
   /// has its icon where the board draws it.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use SheetPart::{Body, Close, Description, Footer, Grabber, Handle, Header, Heading, Panel, Title, Veil};
+    use SheetPart::{Body, Close, Description, Footer, Grabber, Handle, Header, Panel, Text, Title, Veil};
     use SheetSide::{Bottom, End, Start, Top};
     use SheetSize::{Full, Lg, Md, Sm};
     use SheetState::{Modal, ReducedMotion};
@@ -983,7 +1059,7 @@ impl Themed for Sheet {
           .shadow(ShadowStyle::Lg)
       })
       .base(Header, |s| s.gap(8.0).padding_x(16.0).padding_top(16.0))
-      .base(Heading, |s| s.gap(4.0).padding_start(4.0).padding_top(4.0))
+      .base(Text, |s| s.gap(4.0).padding_start(4.0).padding_top(4.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(16.0)
@@ -1021,7 +1097,7 @@ impl Themed for Sheet {
           .background(Muted)
       })
       .variant(Bottom, Header, |s| s.padding_x(20.0).padding_top(20.0))
-      .variant(Bottom, Heading, |s| s.padding_start(0.0).padding_top(0.0))
+      .variant(Bottom, Text, |s| s.padding_start(0.0).padding_top(0.0))
       .variant(Bottom, Body, |s| s.padding_y(0.0).padding_top(20.0))
       .variant(Bottom, Footer, |s| s.padding_y(0.0).padding_top(20.0));
     for (size, width, height) in [(Sm, 320.0, 240.0), (Md, 400.0, 360.0), (Lg, 540.0, 480.0)] {

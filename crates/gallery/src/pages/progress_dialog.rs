@@ -70,13 +70,13 @@ fn copying(open: &Signal<bool>, detail: &Signal<bool>) -> ProgressDialog {
   ProgressDialog::new(open.clone())
     .icon(icons::COPY)
     .title(TITLE)
-    .message(MESSAGE)
+    .description(MESSAGE)
     .value(42.0)
     .max(128.0)
     .format(items_and_bytes)
     .status(STATUS)
     .detail("assets/icons/warning.svg", detail.clone())
-    .action("Pause", || {})
+    .button("Pause", || {})
     .on_cancel(move || cancel.set(false))
 }
 
@@ -130,7 +130,7 @@ impl ProgressDialogPage {
           dialog = dialog.title(&title);
         }
         if !message.is_empty() {
-          dialog = dialog.message(&message);
+          dialog = dialog.description(&message);
         }
         if !status.is_empty() {
           dialog = dialog.status(&status);
@@ -143,9 +143,9 @@ impl ProgressDialogPage {
         }
         if pause {
           let record = record.clone();
-          dialog = dialog.action("Pause", move || {
+          dialog = dialog.button("Pause", move || {
             if let Some(record) = &record {
-              record("action(\"Pause\")".to_owned());
+              record("button(\"Pause\")".to_owned());
             }
           });
         }
@@ -185,7 +185,7 @@ impl ProgressDialogPage {
       code.push(format!("    .title({title:?})"));
     }
     if !message.is_empty() {
-      code.push(format!("    .message({message:?})"));
+      code.push(format!("    .description({message:?})"));
     }
     if let Some(value) = value {
       code.push(format!("    .value({value:?})"));
@@ -201,7 +201,7 @@ impl ProgressDialogPage {
       code.push("    .detail(\"assets/icons/warning.svg\", detail_open.clone())".to_owned());
     }
     if pause {
-      code.push("    .action(\"Pause\", || ..)".to_owned());
+      code.push("    .button(\"Pause\", || ..)".to_owned());
     }
     if cancel {
       code.push("    .on_cancel(move || open.set(false))".to_owned());
@@ -209,7 +209,7 @@ impl ProgressDialogPage {
 
     let mut tree = vec![
       "dialog      veil · panel 420 px · neither Escape nor the veil close it".to_owned(),
-      "├─ header   copy 20 · title 15 · message 12".to_owned(),
+      "├─ header   copy 20 · title 15 · description 12".to_owned(),
       format!(
         "├─ progress 6 px · {}",
         if value.is_some() { "a value" } else { "indeterminate" }
@@ -253,12 +253,12 @@ impl ProgressDialogPage {
           },
           if self.open.get() { "open" } else { "closed" }
         ),
-        event: "on_cancel / action",
+        event: "on_cancel / button",
         code,
         tree,
         controls: vec![
           prop("title", "&str", field(&self.title)),
-          prop("message", "&str", field(&self.message)),
+          prop("description", "&str", field(&self.message)),
           prop("status", "&str", field(&self.status)),
           prop(
             "value",
@@ -268,7 +268,7 @@ impl ProgressDialogPage {
           divider(),
           flag("format", &self.format),
           flag("detail", &self.detail),
-          flag("action", &self.pause),
+          flag("button", &self.pause),
           flag("on_cancel", &self.cancel),
         ],
         changed: [
@@ -348,7 +348,7 @@ impl Component for ProgressDialogPage {
       ProgressDialog::new(closed.clone())
         .icon(icons::REFRESH)
         .title("Connecting to the registry")
-        .message("crates.io")
+        .description("crates.io")
         .on_cancel(|| {})
         .inline(true),
       "progress dialog · indeterminate",
@@ -372,7 +372,13 @@ impl Component for ProgressDialogPage {
         "",
         "What is being done, 15/600. It is what the dialog is called.",
       ),
-      ("message", "&str", "", "A line more of it, 12 in the muted color."),
+      ("description", "&str", "", "A line more of it, 12 in the muted color."),
+      (
+        "label",
+        "&str",
+        "",
+        "What the dialog is called to tooling, over its title.",
+      ),
       (
         "value",
         "f64",
@@ -399,19 +405,19 @@ impl Component for ProgressDialogPage {
         "A text behind \"Details\" at the start of the footer, open under it while the signal holds true.",
       ),
       (
-        "action",
+        "button",
         "&str, Fn()",
         "",
-        "A button before the cancel one: \"Pause\". It does not close the dialog.",
+        "Adds a button before the cancel one: \"Pause\". It does not close the dialog.",
       ),
       (
         "on_cancel",
         "Fn()",
         "",
-        "A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog.",
+        "A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog. A second handler runs after the first.",
       ),
       ("cancel_label", "&str", "\"Cancel\"", "The label of the cancel button."),
-      ("width", "f32", "420 px", "A width of its own."),
+      ("width", "impl Into<Length>", "420 px", "A width of its own."),
       (
         "inline",
         "bool",
@@ -453,13 +459,13 @@ impl Component for ProgressDialogPage {
               "ProgressDialog::new(open.clone())",
               "    .icon(icons::COPY)",
               "    .title(\"Copying 128 items\")",
-              "    .message(\"from Downloads to projects/lurq/assets\")",
+              "    .description(\"from Downloads to projects/lurq/assets\")",
               "    .value(42.0)",
               "    .max(128.0)",
               "    .format(|done, all| format!(\"{done} of {all} · ..\"))",
               "    .status(\"about 2 min left\")",
               "    .detail(\"assets/icons/warning.svg\", detail.clone())",
-              "    .action(\"Pause\", || {})",
+              "    .button(\"Pause\", || {})",
               "    .on_cancel(move || cancel.set(false))",
             ],
           ),
@@ -475,13 +481,13 @@ impl Component for ProgressDialogPage {
               "ProgressDialog::new(open.clone())",
               "    .icon(icons::COPY)",
               "    .title(\"Copying 128 items\")",
-              "    .message(\"from Downloads to projects/lurq/assets\")",
+              "    .description(\"from Downloads to projects/lurq/assets\")",
               "    .value(42.0)",
               "    .max(128.0)",
               "    .format(|done, all| format!(\"{done} of {all} · ..\"))",
               "    .status(\"about 2 min left\")",
               "    .detail(\"assets/icons/warning.svg\", detail.clone())",
-              "    .action(\"Pause\", || {})",
+              "    .button(\"Pause\", || {})",
               "    .on_cancel(|| {})",
               "    .inline(true)",
             ],
@@ -498,7 +504,7 @@ impl Component for ProgressDialogPage {
               "ProgressDialog::new(open.clone())",
               "    .icon(icons::REFRESH)",
               "    .title(\"Connecting to the registry\")",
-              "    .message(\"crates.io\")",
+              "    .description(\"crates.io\")",
               "    .on_cancel(|| {})",
               "    .inline(true)",
             ],

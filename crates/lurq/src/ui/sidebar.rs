@@ -1441,7 +1441,7 @@ impl SidebarView {
     }
     // The drawer does not scroll what it holds: the sidebar's items scroll between its header and its footer.
     let mut drawer = Drawer::new(self.open.clone())
-      .scroll(false)
+      .body_scrolls(false)
       .overlay(true)
       .label(&self.label)
       .child(root);

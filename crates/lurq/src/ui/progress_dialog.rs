@@ -33,16 +33,16 @@ pub enum ProgressDialogPart {
   Panel,
   /// What the panel holds, one thing under another.
   Content,
-  /// The icon beside the title and the message.
+  /// The icon beside the title and the description.
   Header,
   /// The icon of the work, before the title.
   Icon,
-  /// The title over the message.
+  /// The title over the description.
   Text,
   /// What is being done: "Copying 128 items".
   Title,
   /// A line more of it: "from Downloads to projects/lurq/assets".
-  Message,
+  Description,
   /// The bar, laid over the progress's root.
   Progress,
   /// The row under the bar: how much is done at its start, what the app says of the rest at its end.
@@ -53,10 +53,10 @@ pub enum ProgressDialogPart {
   Status,
   /// The row at the bottom: what opens the detail at its start, the buttons at its end.
   Footer,
-  /// What opens the detail: an arrow and its label.
+  /// What opens the detail: a chevron and its label.
   DetailTrigger,
-  /// The arrow of the trigger, which points down while the detail is open.
-  DetailIcon,
+  /// The chevron of the trigger, which points down while the detail is open.
+  DetailChevron,
   /// The label of the trigger: "Details".
   DetailLabel,
   /// What opens and closes with the detail.
@@ -65,7 +65,7 @@ pub enum ProgressDialogPart {
   Detail,
   /// The buttons at the end of the footer.
   Actions,
-  /// A button of the app's before the cancel one ("Pause"), laid over the button's root.
+  /// A button of the app's ([`ProgressDialog::button`]) before the cancel one ("Pause"), laid over the button's root.
   ActionButton,
   /// Its label, laid over the button's.
   ActionLabel,
@@ -83,14 +83,14 @@ names!(ProgressDialogPart {
   Icon => "icon",
   Text => "text",
   Title => "title",
-  Message => "message",
+  Description => "description",
   Progress => "progress",
   Meta => "meta",
   Count => "count",
   Status => "status",
   Footer => "footer",
   DetailTrigger => "detail_trigger",
-  DetailIcon => "detail_icon",
+  DetailChevron => "detail_chevron",
   DetailLabel => "detail_label",
   DetailPanel => "detail_panel",
   Detail => "detail",
@@ -132,13 +132,13 @@ type Handler = Arc<dyn Fn() + Send + Sync>;
 /// let copying = ProgressDialog::new(open)
 ///   .icon(icons::COPY)
 ///   .title("Copying 128 items")
-///   .message("from Downloads to projects/lurq/assets")
+///   .description("from Downloads to projects/lurq/assets")
 ///   .value(42.0)
 ///   .max(128.0)
 ///   .format(|done, all| format!("{done} of {all}"))
 ///   .status("about 2 min left")
 ///   .detail("assets/icons/warning.svg", details)
-///   .action("Pause", || println!("paused"))
+///   .button("Pause", || println!("paused"))
 ///   .on_cancel(|| println!("cancelled"));
 /// ```
 ///
@@ -150,13 +150,14 @@ type Handler = Arc<dyn Fn() + Send + Sync>;
 /// it: the app closes it once the work has stopped. Escape presses it, and the
 /// focus goes to it as the dialog opens. Without a value it shows work whose
 /// end is not known. It is a [`Dialog`], with the veil, the focus and Tab of
-/// one; to tooling that reads the tree it is called by its title and
-/// described by its message.
+/// one; to tooling that reads the tree it is called by its label or its
+/// title and described by its description.
 pub struct ProgressDialog {
   open: Signal<bool>,
   icon: Option<Name>,
   title: Option<Arc<str>>,
-  message: Option<Arc<str>>,
+  description: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   value: Option<f32>,
   max: f32,
   format: Option<ProgressFormat>,
@@ -165,7 +166,7 @@ pub struct ProgressDialog {
   detail_label: Arc<str>,
   actions: Vec<(Arc<str>, Handler)>,
   cancel_label: Arc<str>,
-  on_cancel: Option<Handler>,
+  on_cancel: Vec<Handler>,
   inline: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -180,7 +181,8 @@ impl ProgressDialog {
       open,
       icon: None,
       title: None,
-      message: None,
+      description: None,
+      label: None,
       value: None,
       max: 1.0,
       format: None,
@@ -189,7 +191,7 @@ impl ProgressDialog {
       detail_label: Arc::from("Details"),
       actions: Vec::new(),
       cancel_label: Arc::from("Cancel"),
-      on_cancel: None,
+      on_cancel: Vec::new(),
       inline: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -212,8 +214,14 @@ impl ProgressDialog {
   }
 
   /// A line more of it, under the title: where from, where to, which file.
-  pub fn message(mut self, message: &str) -> Self {
-    self.message = Some(Arc::from(message));
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// What the dialog is called to tooling that reads the tree, over its title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -258,16 +266,18 @@ impl ProgressDialog {
     self
   }
 
-  /// A button of the app's before the cancel one: "Pause". It does not close the dialog.
-  pub fn action(mut self, label: &str, handler: impl Fn() + Send + Sync + 'static) -> Self {
+  /// Adds a button of the app's before the cancel one, after those already
+  /// there: "Pause". It does not close the dialog.
+  pub fn button(mut self, label: &str, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.actions.push((Arc::from(label), Arc::new(handler)));
     self
   }
 
   /// What the cancel button does: the dialog has one only with this. It does
-  /// not close the dialog; the app does, once the work has stopped.
+  /// not close the dialog; the app does, once the work has stopped. A second
+  /// handler runs after the first.
   pub fn on_cancel(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_cancel = Some(Arc::new(handler));
+    self.on_cancel.push(Arc::new(handler));
     self
   }
 
@@ -277,8 +287,9 @@ impl ProgressDialog {
     self
   }
 
-  /// A width of its own, in logical pixels, over the board's 420.
-  pub fn width(mut self, width: f32) -> Self {
+  /// A width of its own over the board's 420: logical pixels, or any [`Length`].
+  pub fn width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
     self.rules = self.rules.base(ProgressDialogPart::Panel, |s| s.width(width));
     self
   }
@@ -340,7 +351,8 @@ impl ProgressDialog {
     let view = ProgressDialogView {
       icon: self.icon,
       title: self.title,
-      message: self.message,
+      description: self.description,
+      label: self.label,
       value: self.value,
       max: self.max,
       status: self.status,
@@ -348,7 +360,7 @@ impl ProgressDialog {
       detail_label: self.detail_label,
       detail_open,
       actions: self.actions.iter().map(|(label, _)| label.clone()).collect(),
-      cancel_label: self.on_cancel.is_some().then_some(self.cancel_label),
+      cancel_label: (!self.on_cancel.is_empty()).then_some(self.cancel_label),
       inline: self.inline,
       recipe: theme.resolve::<ProgressDialog>(&case, Some(&self.rules)),
       open: self.open,
@@ -377,7 +389,9 @@ impl From<ProgressDialog> for Element {
 pub struct ProgressDialogView {
   pub icon: Option<Name>,
   pub title: Option<Arc<str>>,
-  pub message: Option<Arc<str>>,
+  pub description: Option<Arc<str>>,
+  /// What it is called to tooling, over its title.
+  pub label: Option<Arc<str>>,
   /// How far the work is; `None` while it is not known.
   pub value: Option<f32>,
   pub max: f32,
@@ -396,7 +410,7 @@ pub struct ProgressDialogView {
   format: Option<ProgressFormat>,
   detail_signal: Option<Signal<bool>>,
   handlers: Vec<Handler>,
-  on_cancel: Option<Handler>,
+  on_cancel: Vec<Handler>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -436,7 +450,7 @@ impl ProgressDialogView {
     })
   }
 
-  /// The icon, the title and the message.
+  /// The icon, the title and the description.
   pub fn header(&self) -> Row {
     let mut text = Column::new()
       .flex(1.0)
@@ -444,7 +458,7 @@ impl ProgressDialogView {
       .part(&self.part(ProgressDialogPart::Text));
     for (part, content) in [
       (ProgressDialogPart::Title, &self.title),
-      (ProgressDialogPart::Message, &self.message),
+      (ProgressDialogPart::Description, &self.description),
     ] {
       if let Some(content) = content {
         text = text.child(wrapping(&self.part(part), content));
@@ -502,10 +516,19 @@ impl ProgressDialogView {
     Some(meta)
   }
 
-  /// What the cancel button and Escape do: what the app gave [`ProgressDialog::on_cancel`].
+  /// What the cancel button and Escape do: what the app gave
+  /// [`ProgressDialog::on_cancel`], in the order it was given. `None` where it
+  /// gave nothing.
   pub fn canceller(&self) -> Option<impl Fn() + Send + Sync + Clone + 'static> {
-    let handler = self.on_cancel.clone()?;
-    Some(move || handler())
+    if self.on_cancel.is_empty() {
+      return None;
+    }
+    let handlers = self.on_cancel.clone();
+    Some(move || {
+      for handler in &handlers {
+        handler();
+      }
+    })
   }
 
   /// A button of the dialog's, with the dialog's rules for `parts` laid over the theme's for a button.
@@ -535,11 +558,11 @@ impl ProgressDialogView {
         handler.clone(),
       ));
     }
-    if let (Some(label), Some(handler)) = (&self.cancel_label, &self.on_cancel) {
+    if let (Some(label), Some(cancel)) = (&self.cancel_label, self.canceller()) {
       actions = actions.child(autofocus(self.button(
         label,
         (ProgressDialogPart::CancelButton, ProgressDialogPart::CancelLabel),
-        handler.clone(),
+        Arc::new(cancel),
       )));
     }
     actions
@@ -613,11 +636,11 @@ impl ProgressDialogView {
       .dismiss_on_escape(false)
       .dismiss_on_veil(false)
       .child(content);
-    if let Some(title) = &self.title {
-      dialog = dialog.named(title);
+    if let Some(label) = self.label.as_ref().or(self.title.as_ref()) {
+      dialog = dialog.label(label);
     }
-    if let Some(message) = &self.message {
-      dialog = dialog.described(message);
+    if let Some(description) = &self.description {
+      dialog = dialog.described(description);
     }
     if let Some(id) = &self.id {
       dialog = dialog.id(id.clone());
@@ -660,7 +683,7 @@ fn detail_parts() -> DisclosureParts {
   use ProgressDialogPart::*;
   DisclosureParts {
     trigger: DetailTrigger.into(),
-    icon: DetailIcon.into(),
+    icon: DetailChevron.into(),
     label: DetailLabel.into(),
     panel: DetailPanel.into(),
     content: Detail.into(),
@@ -674,7 +697,7 @@ impl Themed for ProgressDialog {
   /// The design's progress dialog (`pencil/lurq-design-system.pen`, Progress
   /// Dialog): a dialog's panel 420 wide, padded 20 with 12 between its parts.
   /// The header is the icon of 20, 12 before the title of 15/600 over the
-  /// message of 12 in the muted color, 2 apart; under it the bar of 6 across
+  /// description of 12 in the muted color, 2 apart; under it the bar of 6 across
   /// the panel, and under that what is done and what is left in the mono type
   /// of 11 in the muted color. The footer, 4 further down, has "Details" at
   /// its start and the outlined buttons of 32 padded 14 at its end, 8 apart.
@@ -694,7 +717,7 @@ impl Themed for ProgressDialog {
           .weight(FontWeight::SemiBold)
           .foreground(Foreground)
       })
-      .base(Message, |s| {
+      .base(Description, |s| {
         s.typography(TypographyStyle::Description)
           .font_size(12.0)
           .foreground(MutedForeground)

@@ -994,21 +994,24 @@ Dialog::new(terms_open.clone())
 | `title(&str)`, `description(&str)` | What it asks, and more of it under the title. The title is what the dialog is called |
 | `child(element)`, `children(..)` | The body: a form, a list, paragraphs |
 | `footer(element)` | Adds to the row at the end of the dialog, the least action first and the main one last. The app puts `Button`s there |
-| `size(DialogSize)`, `width(f32)` | `Sm` 360, `Md` 480, `Lg` 640, `Full` the window; 420 without one. Never wider than the window |
+| `size(DialogSize)`, `width(impl Into<Length>)` | `Sm` 360, `Md` 480, `Lg` 640, `Full` the window; 420 without one, the board's, which is none of the steps. Never wider than the window |
 | `scrollable(bool)` | The body scrolls between a header and a footer that stay, each set off by a line |
-| `close_button(bool)` | A ghost button with the close icon at the end of the header |
+| `close_button(bool)`, `close_label(&str)` | A ghost button with the close icon at the end of the header, and what it is called to tooling: "Close" when not given |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Whether a press on the veil, and Escape, close it. Both on by default |
+| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, or Escape with the focus in it. A button of the app's that closes it does not run it. A second handler runs after the first |
+| `label(&str)` | What it is called to tooling, over its title: for a dialog whose title is drawn by what it holds. `described(&str)` is what it is described by |
+| `alert(bool)` | An `alertdialog` to tooling, and not a `dialog`: it asks something that has to be answered |
 | `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `key` tells two dialogs of one component apart |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the close button as under the pointer, pressed or focused; `id` is the panel's; `key` tells two dialogs of one component apart |
 
 - A title or a description longer than the panel wraps inside its padding, beside the close button where there is one; neither is cut.
 - It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`: declared anywhere, it takes no room there and covers the whole window while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it, the button that opened it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the dialog's own controls. A dialog or a [command palette](#command-palette) opened while it is open is over it, wherever either is declared: it takes the focus, the keys and the pointer, Escape closes it first, and as it closes the focus goes back into the dialog under it.
 - A press on the panel goes no further: only a press on the veil itself closes the dialog.
 - The panel is never larger than the window less the veil's margin of 16. A dialog is as high as its content while that fits, and its body gives way and scrolls when it does not, in either form; `style(DialogPart::Panel, |s| s.height(300.0))` gives it a height of its own.
-- Parts: `DialogPart::Veil`, `Panel`, `Header` (the heading and the close button), `Heading` (the title over the description), `Title`, `Description`, `Body`, `Footer`, `Close` (laid over the theme's button), `Separator` (the lines of a scrollable dialog). States: `DialogState::Scrollable`. Sizes: `DialogSize::Sm`, `Md`, `Lg`, `Full`.
-- In the design the panel is 420 wide in `Popover` with an edge of `Border`, corners of `radius-xl` and the `lg` shadow, padded 24 with 20 between its heading, its body and its footer; the veil is `Scrim`. The title is 16/600, the description 8 under it in 14 of `MutedForeground`, and the footer's buttons stand at its end 8 apart. The scrollable one has a header of 56 (its title 20 from the edge, the close button 12 from it), higher for a description under the title, and a footer of 60, the body padded 20 and 16 between them: the body is as high as what is in it, and scrolls when the window has no room for all of the dialog. The close button is 28 with an icon of 16.
-- To what reads the tree the panel is a `dialog` called by its title.
-- A renderer that draws another dialog builds its panel from `view.panel()`, the parts from `view.header()`, `view.body()`, `view.footer()`, `view.close()` and `view.separator()`, and lays it over the window with `view.modal(panel)`; `view.closer()` closes it.
+- Parts: `DialogPart::Veil`, `Panel`, `Header` (the text and the close button), `Text` (the title over the description), `Title`, `Description`, `Body`, `Footer`, `Close` (laid over the theme's button), `Separator` (the lines of a scrollable dialog). States: `DialogState::Scrollable`. Sizes: `DialogSize::Sm`, `Md`, `Lg`, `Full`.
+- In the design the panel is 420 wide in `Popover` with an edge of `Border`, corners of `radius-xl` and the `lg` shadow, padded 24 with 20 between its text, its body and its footer; the veil is `Scrim`. The title is 16/600, the description 8 under it in 14 of `MutedForeground`, and the footer's buttons stand at its end 8 apart. The scrollable one has a header of 56 (its title 20 from the edge, the close button 12 from it), higher for a description under the title, and a footer of 60, the body padded 20 and 16 between them: the body is as high as what is in it, and scrolls when the window has no room for all of the dialog. The close button is 28 with an icon of 16.
+- To what reads the tree the panel is a `dialog` called by its label or its title.
+- A renderer that draws another dialog builds its panel from `view.panel()`, the parts from `view.header()`, `view.text()`, `view.body()`, `view.footer()`, `view.close()` and `view.separator()`, and lays it over the window with `view.modal(panel)`; `view.closer()` closes it, and `view.dismisser()` closes it and runs what `on_dismiss` was given.
 
 ## Tooltip
 
@@ -2577,21 +2580,21 @@ Outcome::new(OutcomeVariant::NotFound, "Nothing here")
 A dialog that asks one question or says one thing and waits for the answer: replace a file, save the changes, delete projects.
 
 ```rust
-use lurq::ui::{MessageBox, MessageBoxKind, MessageBoxRole, icons};
+use lurq::ui::{MessageBox, MessageBoxRole, MessageBoxVariant, icons};
 
 MessageBox::new(open.clone())
-  .kind(MessageBoxKind::Warning)
+  .variant(MessageBoxVariant::Warning)
   .title("Replace existing file?")
-  .message("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
+  .description("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
   .checkbox("Don't ask again", again.clone())
   .answer("Cancel", MessageBoxRole::Cancel, || {})
   .answer("Replace", MessageBoxRole::Default, move || replace_file());
 
-// A question that cannot be undone: the focus goes to Cancel.
+// A question whose confirming answer cannot be undone: the focus goes to Cancel.
 MessageBox::new(open.clone())
   .icon(icons::TRASH)
   .title("Delete 3 projects?")
-  .message("This cannot be undone.")
+  .description("This cannot be undone.")
   .answer("Cancel", MessageBoxRole::Cancel, || {})
   .answer("Delete", MessageBoxRole::Destructive, move || delete_projects());
 ```
@@ -2599,24 +2602,26 @@ MessageBox::new(open.clone())
 | Builder | |
 | --- | --- |
 | `MessageBox::new(Signal<bool>)` | Shown while the signal holds `true`. The message box does not keep it: every answer sets it to `false` before what the answer does runs |
-| `kind(MessageBoxKind)` | `Information` (the default, `info`), `Question` (`help-circle`), `Warning` (`warning`), `Error` (`alert-circle`): the icon in the well and their colors. A theme may add kinds by name |
-| `icon(&str)` | An icon of the theme's set in place of the kind's: `trash` for a question that deletes |
-| `title(&str)`, `message(&str)` | What it asks or says, and more of it in the muted color. The title is what it is called, the message what describes it |
-| `detail(&str, Signal<bool>)` | A text behind "Details" under the message, open while the signal holds `true`; `detail_label(&str)` names the trigger |
+| `variant(MessageBoxVariant)` | `Info` (the default, `info`), `Question` (`help-circle`), `Warning` (`warning`), `Destructive` (`alert-circle`): the icon in the mark and their colors. A theme may add variants by name |
+| `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the variant's: `trash` for a question that deletes. `None` for no icon, and no mark |
+| `title(&str)`, `description(&str)` | What it asks or says, and more of it in the muted color. The title is what it is called, the description what describes it |
+| `label(&str)` | What it is called to tooling, over its title |
+| `detail(&str, Signal<bool>)` | A text behind "Details" under the description, open while the signal holds `true`; `detail_label(&str)` names the trigger |
 | `checkbox(&str, Signal<bool>)` | A checkbox at the start of the footer: "Don't ask again" |
 | `answer(&str, MessageBoxRole, handler)` | An answer. `Default`: filled, Enter gives it. `Cancel`: outlined, Escape and a press of the veil give it. `Destructive`: in the destructive fill. `Plain`: outlined, at the start of the footer |
-| `width(f32)` | A width of its own over the board's 400 |
+| `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)` | Whether Escape, and a press of the veil, give the cancel answer. Both on by default; with no cancel answer neither closes it |
+| `width(impl Into<Length>)` | A width of its own over the board's 400 |
 | `inline(bool)` | The panel where it is declared, without the veil: for a gallery, a screenshot, a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [dialog](#dialog) has them. `id` is the id of the panel |
 
-- It is a [dialog](#dialog): the veil, the focus going in as it opens and back as it closes, and Tab going round its controls are the dialog's. As it opens the focus goes to the default answer, or to the cancel one where an answer is destructive.
+- It is a [dialog](#dialog): the veil, the focus going in as it opens and back as it closes, and Tab going round its controls are the dialog's. As it opens the focus goes to the confirming answer (the default one, or else a destructive one) unless that answer is destructive, and then to the cancel one, the least destructive answer: Enter or Space does not confirm what cannot be undone. A [popconfirm](#popconfirm) asks by the same rule.
 - Enter gives the default answer wherever the focus is, on the checkbox too, unless it is on another button, which Enter presses. Escape and a press of the veil give the cancel answer where there is one and do nothing where there is none.
 - The plain answers stand at the start of the footer, after the checkbox, in their order; at its end the cancel answer stands first and the others after it, whatever order they were given in.
-- Parts: `MessageBoxPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Body`, `IconWell`, `Icon`, `Text`, `Title`, `Message`, `DetailTrigger`, `DetailIcon`, `DetailLabel`, `DetailPanel`, `Detail`, `Footer`, `Option`, `Checkbox` and `CheckboxLabel` (laid over the checkbox's root and label), `Actions`, and for each role a part laid over the button's root and one over its label: `DefaultButton`, `DefaultLabel`, `CancelButton`, `CancelLabel`, `DestructiveButton`, `DestructiveLabel`, `PlainButton`, `PlainLabel`. Variants: the kinds. States: `MessageBoxState::Destructive` (an answer is destructive: the icon in the destructive colors), `DetailOpen`.
+- Parts: `MessageBoxPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header` (the mark beside the text), `Mark`, `Icon`, `Text`, `Title`, `Description`, `DetailTrigger`, `DetailChevron`, `DetailLabel`, `DetailPanel`, `Detail`, `Footer`, `Option`, `Checkbox` and `CheckboxLabel` (laid over the checkbox's root and label), `Actions`, and for each role a part laid over the button's root and one over its label: `DefaultButton`, `DefaultLabel`, `CancelButton`, `CancelLabel`, `DestructiveButton`, `DestructiveLabel`, `PlainButton`, `PlainLabel`. Variants: `MessageBoxVariant`. States: `MessageBoxState::Destructive` (an answer is destructive: the icon in the destructive colors), `DetailOpen`.
 - So a theme gives the two buttons of a message box fonts or fills of their own without touching a button anywhere else: `theme.patch_recipe::<MessageBox>(|rules| rules.base(MessageBoxPart::DefaultLabel, |s| s.font_family("Georgia")).base(MessageBoxPart::CancelLabel, |s| s.font_family(FontFamily::Mono)))`.
-- In the design the panel is 400 wide, padded 20 with 16 between the body and the footer; the well is 36 and round, in the kind's muted color (`InfoMuted`, `Secondary` for a question, `WarningMuted`, `DestructiveMuted`), its icon 18 in the kind's color; the title is 15/600, 14 after the well, over the message of 13 in `MutedForeground`, 4 apart; the buttons are 32 high, padded 14, 8 apart; the checkbox's label is 13. "Details" is a chevron of 14 in the muted color 4 before its label of 13, and the detail opens 8 under it, in the mono type of 11 on the `Muted` fill, with its height over the theme's base duration.
-- To what reads the tree it is an `alertdialog` called by its title and described by its message.
-- A renderer that draws another message box (an iOS alert: the text in the middle, the answers as cells side by side) has the pieces: `view.content()` (with Enter), `view.title()`, `view.message()`, `view.find(role)`, `view.press(index)` (it closes the box and runs the answer), `view.button(index)` (the default renderer's button, which takes the focus first where it should), and `view.dialog(content)`, which puts what it built in the dialog with Escape, the veil and what tooling is told.
+- In the design the panel is 400 wide, padded 20 with 16 between the header and the footer; the mark is 36 and round, in the variant's muted color (`InfoMuted`, `Secondary` for a question, `WarningMuted`, `DestructiveMuted`), its icon 18 in the variant's color; the title is 15/600, 14 after the mark, over the description of 13 in `MutedForeground`, 4 apart; the buttons are 32 high, padded 14, 8 apart; the checkbox's label is 13. "Details" is a chevron of 14 in the muted color 4 before its label of 13, and the detail opens 8 under it, in the mono type of 11 on the `Muted` fill, with its height over the theme's base duration.
+- To what reads the tree it is an `alertdialog` called by its label or its title and described by its description.
+- A renderer that draws another message box (an iOS alert: the text in the middle, the answers as cells side by side) has the pieces: `view.content()` (with Enter), `view.header()`, `view.mark()`, `view.title()`, `view.description()`, `view.find(role)`, `view.press(index)` (it closes the box and runs the answer), `view.button(index)` (the default renderer's button, which takes the focus first where it should), and `view.dialog(content)`, which puts what it built in the dialog with Escape, the veil and what tooling is told.
 
 ## Popconfirm
 
@@ -2668,33 +2673,34 @@ use lurq::ui::{ProgressDialog, icons};
 ProgressDialog::new(open.clone())
   .icon(icons::COPY)
   .title("Copying 128 items")
-  .message("from Downloads to projects/lurq/assets")
+  .description("from Downloads to projects/lurq/assets")
   .value(copied.get())
   .max(128.0)
   .format(|done, all| format!("{done} of {all}"))
   .status("about 2 min left")
   .detail(&current_file.get(), details.clone())
-  .action("Pause", move || pause())
+  .button("Pause", move || pause())
   .on_cancel(move || stop());
 ```
 
 | Builder | |
 | --- | --- |
 | `ProgressDialog::new(Signal<bool>)` | Shown while the signal holds `true`. It closes when the app sets it to `false`: Escape and a press of the veil do not close it |
-| `icon(&str)`, `title(&str)`, `message(&str)` | What kind of work it is, what is being done (what it is called), and a line more of it in the muted color |
+| `icon(&str)`, `title(&str)`, `description(&str)` | What kind of work it is, what is being done (what it is called), and a line more of it in the muted color |
+| `label(&str)` | What it is called to tooling, over its title |
 | `value(f64)`, `max(f64)` | How far the work is, a fraction of one unless `max` says otherwise. Without a value its end is not known, and the bar runs a segment across it |
 | `format(Fn(f32, f32) -> String)` | Says how much is done under the start of the bar: "42 of 128". A percentage when not given |
 | `status(&str)` | What the app says of the rest, under the end of the bar |
 | `detail(&str, Signal<bool>)` | A text behind "Details" at the start of the footer, open under the footer while the signal holds `true`; `detail_label(&str)` names the trigger |
-| `action(&str, handler)` | A button before the cancel one: "Pause". It does not close the dialog |
-| `on_cancel(handler)`, `cancel_label(&str)` | A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog: the app does once the work has stopped |
-| `width(f32)`, `inline(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [message box](#message-box) has them |
+| `button(&str, handler)` | Adds a button before the cancel one: "Pause". It does not close the dialog |
+| `on_cancel(handler)`, `cancel_label(&str)` | A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog: the app does once the work has stopped. A second handler runs after the first |
+| `width(impl Into<Length>)`, `inline(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [message box](#message-box) has them |
 
-- The title and the message wrap. The count is never cut; a status longer than what the count leaves is cut with an ellipsis on one line.
+- The title and the description wrap. The count is never cut; a status longer than what the count leaves is cut with an ellipsis on one line.
 - It is a [dialog](#dialog) with its veil, its focus and its Tab, which nothing but the app closes.
-- Parts: `ProgressDialogPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header`, `Icon`, `Text`, `Title`, `Message`, `Progress` (laid over the [progress](#progress)'s root), `Meta`, `Count`, `Status`, `Footer`, `DetailTrigger`, `DetailIcon`, `DetailLabel`, `DetailPanel`, `Detail`, `Actions`, `ActionButton`, `ActionLabel`, `CancelButton`, `CancelLabel`. States: `ProgressDialogState::Indeterminate`, `DetailOpen`.
-- In the design the panel is 420 wide, padded 20 with 12 between its parts; the icon is 20, 12 before the title of 15/600 over the message of 12 in `MutedForeground`, 2 apart; the bar is the progress's of 6 across the panel; what is done and what is left are in the mono type of 11 in `MutedForeground`; the footer, 4 further down, has "Details" at its start and the outlined buttons of 32, padded 14, 8 apart, at its end.
-- To what reads the tree it is a `dialog` called by its title and described by its message, with the `progressbar` in it.
+- Parts: `ProgressDialogPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header`, `Icon`, `Text`, `Title`, `Description`, `Progress` (laid over the [progress](#progress)'s root), `Meta`, `Count`, `Status`, `Footer`, `DetailTrigger`, `DetailChevron`, `DetailLabel`, `DetailPanel`, `Detail`, `Actions`, `ActionButton`, `ActionLabel`, `CancelButton`, `CancelLabel`. States: `ProgressDialogState::Indeterminate`, `DetailOpen`.
+- In the design the panel is 420 wide, padded 20 with 12 between its parts; the icon is 20, 12 before the title of 15/600 over the description of 12 in `MutedForeground`, 2 apart; the bar is the progress's of 6 across the panel; what is done and what is left are in the mono type of 11 in `MutedForeground`; the footer, 4 further down, has "Details" at its start and the outlined buttons of 32, padded 14, 8 apart, at its end.
+- To what reads the tree it is a `dialog` called by its label or its title and described by its description, with the `progressbar` in it.
 
 ## Sheet
 
@@ -2737,25 +2743,26 @@ Sheet::new(goal_open.clone())
 | `label(&str)` | What the sheet is called to tooling where it has no title |
 | `child(element)`, `children(..)` | The body, which scrolls between the header and the footer |
 | `footer(element)` | Adds to the footer, the least action first and the main one last: a row at the panel's end under a line, or at the bottom a column of buttons as wide as the sheet with the main one on top |
-| `close_button(bool)` | A ghost button with the close icon at the end of the header |
+| `close_button(bool)`, `close_label(&str)` | A ghost button with the close icon at the end of the header, and what it is called to tooling: "Close" when not given |
 | `grabber(bool)` | The handle at the top. A sheet at the bottom has it unless told otherwise |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Whether a press on the veil (and, mounted, a drag down), and Escape, close it. Both on by default |
-| `detents([SheetDetent])`, `detent(Signal<usize>)`, `scroll(ScrollState)` | For a mounted sheet at the bottom: the heights it stands at, which it is at, and the body's scrolling, which hands a finger to the sheet once the body is at its top |
-| `body_scrolls(bool)` | Whether the body scrolls. It does unless told; one that does not is laid out in the room the panel has for it, at a side the panel's height less the header and the footer, for what holds a scroll of its own. A drawer over the page with `scroll(false)` gives its sheet this |
+| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, or Escape with the focus in it. A button of the app's that closes it does not run it, nor a finger that drags a mounted sheet down or taps beside it (the engine's sheet closes it itself). A second handler runs after the first |
+| `detents([SheetDetent])`, `detent(Signal<usize>)`, `scroll_state(ScrollState)` | For a mounted sheet at the bottom: the heights it stands at, which it is at, and the body's scrolling, which hands a finger to the sheet once the body is at its top |
+| `body_scrolls(bool)` | Whether the body scrolls. It does unless told; one that does not is laid out in the room the panel has for it, at a side the panel's height less the header and the footer, for what holds a scroll of its own. A drawer over the page with `body_scrolls(false)` gives its sheet this |
 | `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
 | `mount(ctx)` | At the bottom, the engine's draggable `Sheet` in this look; at another edge, the same as converting it |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `key` tells two sheets of one component apart |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the close button as under the pointer, pressed or focused; `id` is the panel's; `key` tells two sheets of one component apart |
 
 - A title or a description longer than the panel wraps inside its padding on every side, centered where the sheet stands at the bottom and the top; neither is cut. A [drawer](#drawer) over the page is a sheet, and wraps the same.
 - It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`, as a [dialog](#dialog) is: declared anywhere, it takes no room there and covers the window under the window's own title bar while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the sheet's own controls. A press on the panel goes no further.
 - It slides in from its edge over the theme's slow duration in the entering curve as the veil fades in, and out to it over the base duration in the leaving curve: keyframes that move the panel by its own width or height (`ui::SHEET_IN_FROM_START` .. `ui::SHEET_OUT_TO_BOTTOM`). With motion reduced (`Theme::reduced_motion`, state `Modal` with `ReducedMotion`) it fades where it stands.
 - At the start and the end the body takes the room the header and the footer leave, so the footer stands at the panel's bottom; at the top and the bottom the sheet is as high as what it holds while that fits, and the body gives way and scrolls when it does not.
 - `mount(ctx)` puts a sheet at the bottom on the engine's [sheet](../modals/#sheets): a finger drags it between its `detents` (or the height its size gives it, or its content's) and throws it down to close it, it rises over the on-screen keyboard and keeps clear of a phone's edges, and it comes up with a spring. The engine lays out the panel and the backdrop; the recipe's `Panel` and `Veil` dress them (`SheetProps::dress`), and what the panel holds is the sheet's. A theme's renderer builds the sheet that is converted, not the mounted one, which is made of the view's parts.
-- Parts: `SheetPart::Veil`, `Panel`, `Grabber` (the strip at the top of a bottom sheet), `Handle` (its bar), `Header`, `Heading`, `Title`, `Description`, `Body`, `Footer`, `Close` (a [button](#button) restyled), `Separator` (the [separator](#separator) over the footer, restyled). Variants: `SheetSide`. Sizes: `SheetSize`. States: `SheetState::Modal` (over the window, not inline), `ReducedMotion`.
-- In the design a sheet at a side is in `Background` with a line of 1 in `Border` along the edge it shows the page and the large shadow. The header is padded 20 at the top and the sides, the title 16/600 in `Foreground` over the description in 13 `MutedForeground`, 4 apart, the close button's icon of 16 in `MutedForeground` at its end; the body is padded 20 with 16 between what it holds; the footer is padded 16 and 20, its buttons 8 apart at the end, under a line of `Border`. At the top the line is along its bottom. At the bottom it is the board's drawer: a line all round, corners of `radius-xl` (12) at its top, a handle of 40 by 4 in `Muted` 8 under its top edge, the heading in the middle 20 under it, and its buttons as wide as it, 8 apart, 20 from the edges. The veil is `Scrim`.
+- Parts: `SheetPart::Veil`, `Panel`, `Grabber` (the strip at the top of a bottom sheet), `Handle` (its bar), `Header` (the text and the close button), `Text` (the title over the description), `Title`, `Description`, `Body`, `Footer`, `Close` (a [button](#button) restyled), `Separator` (the [separator](#separator) over the footer, restyled). Variants: `SheetSide`. Sizes: `SheetSize`. States: `SheetState::Modal` (over the window, not inline), `ReducedMotion`.
+- In the design a sheet at a side is in `Background` with a line of 1 in `Border` along the edge it shows the page and the large shadow. The header is padded 20 at the top and the sides, the title 16/600 in `Foreground` over the description in 13 `MutedForeground`, 4 apart, the close button's icon of 16 in `MutedForeground` at its end; the body is padded 20 with 16 between what it holds; the footer is padded 16 and 20, its buttons 8 apart at the end, under a line of `Border`. At the top the line is along its bottom. At the bottom it is the board's drawer: a line all round, corners of `radius-xl` (12) at its top, a handle of 40 by 4 in `Muted` 8 under its top edge, the text in the middle 20 under it, and its buttons as wide as it, 8 apart, 20 from the edges. The veil is `Scrim`.
 - The board's phone and tablet sheets are the same parts restyled: the phone's bottom sheet a panel of 360 round 20 at its top with a handle of 36 in `Input`, its title 18 and its description 14, padded 16; the tablet's form sheet a panel of 520 by 360 round 16 with an edge all round. The gallery's page has them.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the panel is a `dialog` called by its title, or by its label.
-- A renderer that draws another sheet has `view.panel()`, `view.grabber()`, `view.heading()`, `view.close()`, `view.header()`, `view.body()`, `view.footer()`, `view.separator()`, `view.contents()` (all of them in order), `view.veil(panel)` and `view.modal(panel)`.
+- A renderer that draws another sheet has `view.panel()`, `view.grabber()`, `view.text()`, `view.close()`, `view.header()`, `view.body()`, `view.footer()`, `view.separator()`, `view.contents()` (all of them in order), `view.veil(panel)` and `view.modal(panel)`.
 
 ## Drawer
 
@@ -2782,10 +2789,12 @@ Drawer::new(open.clone()).label("Navigation").overlay(narrow).children(places);
 | `side(SheetSide)` | The side of the layout it stands at: `Start` (the default) and `End` open with its width, `Top` and `Bottom` with the height of what it holds |
 | `label(&str)` | What it is called to tooling |
 | `child(element)`, `children(..)` | What it holds, which scrolls where it is too small |
-| `width(f32)`, `height(f32)` | A width of its own at a side (300 without one), a height of its own at the top or the bottom |
+| `width(impl Into<Length>)`, `height(impl Into<Length>)` | A width of its own at a side (300 without one), a height of its own at the top or the bottom |
 | `overlay(bool)` | Over the page with a veil, as a [sheet](#sheet) at its edge, rather than beside it: for a window too narrow to push the page aside |
-| `scroll(bool)` | Whether what it holds scrolls where it is too small. It does unless told; what does not is laid out at the panel's height, beside the page and over it, for what holds a scroll of its own with something that stays beside it: a [sidebar](#sidebar) with its header and its footer |
+| `body_scrolls(bool)` | Whether what it holds scrolls where it is too small. It does unless told; what does not is laid out at the panel's height, beside the page and over it, for what holds a scroll of its own with something that stays beside it: a [sidebar](#sidebar) with its header and its footer |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Over the page, whether a press on the veil, and Escape, close it. Both on by default |
+| `on_dismiss(Fn())` | Over the page, runs after a person closed it by the veil or Escape, as a [sheet](#sheet)'s does. A second handler runs after the first |
+| `inline(bool)` | Over the page, its panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test. A drawer beside the page is where it is declared already |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
 
 - It is declared in the layout where it stands, at the start or the end of a row or the top or the bottom of a column. As it opens its room grows from nothing to the panel's over the theme's slow duration and pushes the page aside, and the panel, which keeps its size, comes out from the layout's edge and fades in; as it closes the room closes over it as it fades out, and what it held is gone, so that Tab does not reach it. With motion reduced it opens and closes at once.

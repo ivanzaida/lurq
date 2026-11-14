@@ -1,4 +1,4 @@
-//! A message box: its panel, its icon by kind, its title, its message and its
+//! A message box: its panel, its icon by variant, its title, its description and its
 //! footer where the board has them, the answers and where the focus goes,
 //! what Enter, Escape and a press of the veil give, the checkbox, the detail,
 //! and a theme's fonts for its two buttons and its other anatomy.
@@ -23,8 +23,8 @@ use lurq::{
   },
   node::{Element, color::Color},
   ui::{
-    Button, FontFamily, MessageBox, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxView,
-    icons,
+    Button, FontFamily, MessageBox, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxVariant,
+    MessageBoxView, icons,
   },
 };
 
@@ -103,9 +103,9 @@ fn replace(
 ) -> MessageBox {
   MessageBox::new(open)
     .id("box")
-    .kind(MessageBoxKind::Warning)
+    .variant(MessageBoxVariant::Warning)
     .title("Replace existing file?")
-    .message("theme.json already exists in this folder.")
+    .description("theme.json already exists in this folder.")
     .checkbox("Don't ask again", again)
     .answer("Cancel", MessageBoxRole::Cancel, cancel)
     .answer("Replace", MessageBoxRole::Default, replace)
@@ -119,10 +119,10 @@ fn delete(
 ) -> MessageBox {
   MessageBox::new(open)
     .id("box")
-    .kind(MessageBoxKind::Warning)
+    .variant(MessageBoxVariant::Warning)
     .icon(icons::TRASH)
     .title("Delete 3 projects?")
-    .message("This cannot be undone.")
+    .description("This cannot be undone.")
     .answer("Cancel", MessageBoxRole::Cancel, cancel)
     .answer("Delete", MessageBoxRole::Destructive, delete)
 }
@@ -154,7 +154,7 @@ fn an_open_message_box_is_the_panel_of_the_board_over_a_veil() {
     "round"
   );
 
-  // The title of 15 and the message of 13 in the muted color, 14 after the well.
+  // The title of 15 and the description of 13 in the muted color, 14 after the well.
   assert_eq!(
     stage.text("Replace existing file?"),
     (light(PaletteColor::Foreground), 15.0)
@@ -165,8 +165,11 @@ fn an_open_message_box_is_the_panel_of_the_board_over_a_veil() {
   );
   let title = stage.text_quad("Replace existing file?").unwrap();
   assert!((title.x - (x + 70.0)).abs() < 0.5, "{} {x}", title.x);
-  let message = stage.text_quad("theme.json already exists in this folder.").unwrap();
-  assert!(message.y > title.y + title.height - 0.5, "the message under the title");
+  let description = stage.text_quad("theme.json already exists in this folder.").unwrap();
+  assert!(
+    description.y > title.y + title.height - 0.5,
+    "the description under the title"
+  );
 
   // The checkbox at the start of the footer, its label of 13 8 after its box of 16.
   let label = stage.text_quad("Don't ask again").unwrap();
@@ -194,27 +197,27 @@ fn an_open_message_box_is_the_panel_of_the_board_over_a_veil() {
 }
 
 #[test]
-fn each_kind_has_its_icon_and_colors_and_a_destructive_question_the_destructive_ones() {
+fn each_variant_has_its_icon_and_colors_and_a_destructive_question_the_destructive_ones() {
   let cases = [
-    (MessageBoxKind::Information, PaletteColor::InfoMuted, icons::INFO),
-    (MessageBoxKind::Warning, PaletteColor::WarningMuted, icons::WARNING),
+    (MessageBoxVariant::Info, PaletteColor::InfoMuted, icons::INFO),
+    (MessageBoxVariant::Warning, PaletteColor::WarningMuted, icons::WARNING),
     (
-      MessageBoxKind::Error,
+      MessageBoxVariant::Destructive,
       PaletteColor::DestructiveMuted,
       icons::ALERT_CIRCLE,
     ),
-    (MessageBoxKind::Question, PaletteColor::Secondary, icons::HELP_CIRCLE),
+    (MessageBoxVariant::Question, PaletteColor::Secondary, icons::HELP_CIRCLE),
   ];
   for (kind, well, icon) in cases {
     let stage = stage(move |_| {
       MessageBox::new(Signal::new(true))
-        .kind(kind)
+        .variant(kind)
         .title("Title")
         .answer("OK", MessageBoxRole::Default, || {})
         .into()
     });
     assert_eq!(fills(&stage, light(well), 36.0, 36.0).len(), 1, "{kind:?}");
-    // The glyph of the kind's icon is what is painted in the well.
+    // The glyph of the variant's icon is what is painted in the well.
     let glyph = icons::ALL.iter().find(|(name, _)| *name == icon).unwrap().1;
     assert!(stage.paints(&glyph.to_string()), "{kind:?} shows {icon}");
   }
@@ -362,14 +365,14 @@ fn the_plain_answers_stand_at_the_start_and_the_cancel_one_before_the_others_at_
 }
 
 #[test]
-fn the_detail_opens_under_the_message() {
+fn the_detail_opens_under_the_description() {
   let detail = Signal::new(false);
   let held = detail.clone();
   let mut stage = stage(move |_| {
     MessageBox::new(Signal::new(true))
-      .kind(MessageBoxKind::Error)
+      .variant(MessageBoxVariant::Destructive)
       .title("The file could not be saved.")
-      .message("The disk is full.")
+      .description("The disk is full.")
       .detail("os error 28: no space left on device", held.clone())
       .answer("OK", MessageBoxRole::Default, || {})
       .into()
@@ -383,8 +386,8 @@ fn the_detail_opens_under_the_message() {
     .text_quad("os error 28: no space left on device")
     .expect("the detail is open");
   assert_eq!(stage.text("os error 28: no space left on device").1, 11.0);
-  let message = stage.text_quad("The disk is full.").unwrap();
-  assert!(text.y > message.y, "under the message");
+  let description = stage.text_quad("The disk is full.").unwrap();
+  assert!(text.y > description.y, "under the description");
 }
 
 #[test]
@@ -419,7 +422,7 @@ fn a_theme_gives_the_two_buttons_of_a_message_box_fonts_of_their_own() {
 
 #[test]
 fn a_theme_gives_the_message_box_the_anatomy_of_a_mobile_alert() {
-  // The board's mobile alert: the title and the message in the middle, and the answers as cells side by side,
+  // The board's mobile alert: the title and the description in the middle, and the answers as cells side by side,
   // the cancel one first. Other nodes, the same behavior.
   let app = App::new();
   let renderer: MessageBoxRenderer = Arc::new(|view: MessageBoxView| {
@@ -483,18 +486,18 @@ fn an_inline_message_box_is_its_panel_where_it_is_declared() {
 }
 
 #[test]
-fn a_title_a_message_and_a_detail_too_long_for_a_line_go_on_to_the_next() {
+fn a_title_a_description_and_a_detail_too_long_for_a_line_go_on_to_the_next() {
   const TITLE: &str = "Do you want to replace the existing file in this folder with the one you are moving?";
-  const MESSAGE: &str = "“theme.json” already exists in this folder. Replacing it overwrites its contents.";
+  const DESCRIPTION: &str = "“theme.json” already exists in this folder. Replacing it overwrites its contents.";
   const DETAIL: &str =
     "projects/lurq/assets/themes/theme.json · 4.2 KB · changed today at 09:41 by the import of the old workspace";
   let make = |long: bool| {
     move |_: &mut Ctx| -> Element {
       MessageBox::new(Signal::new(true))
         .id("box")
-        .kind(MessageBoxKind::Warning)
+        .variant(MessageBoxVariant::Warning)
         .title(if long { TITLE } else { "Replace?" })
-        .message(if long { MESSAGE } else { "Short." })
+        .description(if long { DESCRIPTION } else { "Short." })
         .detail(if long { DETAIL } else { "Short." }, Signal::new(true))
         .answer("Cancel", MessageBoxRole::Cancel, || {})
         .answer("Replace", MessageBoxRole::Default, || {})
@@ -508,7 +511,7 @@ fn a_title_a_message_and_a_detail_too_long_for_a_line_go_on_to_the_next() {
   let (x, _, width, height) = long.bounds("box");
   // Each text is as wide as the room beside the well at most, and on more than one line: a wrapped text is painted
   // as one quad as high as its lines.
-  for (text, line) in [(TITLE, 15.0), (MESSAGE, 13.0), (DETAIL, 11.0)] {
+  for (text, line) in [(TITLE, 15.0), (DESCRIPTION, 13.0), (DETAIL, 11.0)] {
     let quad = long
       .text_quad(text)
       .unwrap_or_else(|| panic!("{text:?} is painted whole"));
@@ -523,4 +526,95 @@ fn a_title_a_message_and_a_detail_too_long_for_a_line_go_on_to_the_next() {
     );
   }
   assert!(height > short.bounds("box").3 + 40.0, "the panel grows with its lines");
+}
+
+#[test]
+fn the_focus_goes_to_the_confirming_answer_unless_that_answer_is_destructive() {
+  // "Save changes?": the confirming answer is Save, which is not destructive, though "Don't Save" is. The focus
+  // goes to Save, as it would in a box with no destructive answer.
+  let (saved, save) = counter();
+  let (discarded, discard) = counter();
+  let (cancelled, cancel) = counter();
+  let mut stage = stage(move |_| {
+    let (save, discard, cancel) = (save.clone(), discard.clone(), cancel.clone());
+    MessageBox::new(Signal::new(true))
+      .title("Save changes?")
+      .answer("Don't Save", MessageBoxRole::Destructive, move || discard())
+      .answer("Cancel", MessageBoxRole::Cancel, move || cancel())
+      .answer("Save", MessageBoxRole::Default, move || save())
+      .into()
+  });
+  stage.key(" ");
+  assert_eq!((count(&saved), count(&discarded), count(&cancelled)), (1, 0, 0));
+}
+
+#[test]
+fn escape_and_the_veil_can_be_kept_from_giving_the_cancel_answer() {
+  let open = Signal::new(true);
+  let (cancelled, cancel) = counter();
+  let held = open.clone();
+  let mut stage = stage(move |_| {
+    replace(held.clone(), Signal::new(false), cancel.clone(), || {})
+      .dismiss_on_escape(false)
+      .dismiss_on_veil(false)
+      .into()
+  });
+  stage.key("Escape");
+  press_at(&mut stage, 5.0, 5.0);
+  assert!(open.get());
+  assert_eq!(count(&cancelled), 0);
+  // Its cancel button still gives it.
+  press_text(&mut stage, "Cancel");
+  assert!(!open.get());
+  assert_eq!(count(&cancelled), 1);
+
+  // Escape alone is kept from it, and the veil still gives it.
+  let open = Signal::new(true);
+  let (cancelled, cancel) = counter();
+  let held = open.clone();
+  let mut stage = self::stage(move |_| {
+    replace(held.clone(), Signal::new(false), cancel.clone(), || {})
+      .dismiss_on_escape(false)
+      .into()
+  });
+  stage.key("Escape");
+  assert!(open.get());
+  press_at(&mut stage, 5.0, 5.0);
+  assert!(!open.get());
+  assert_eq!(count(&cancelled), 1);
+}
+
+#[test]
+fn a_message_box_given_no_icon_has_no_mark_and_its_text_starts_at_the_padding() {
+  let mut stage = stage(|_| {
+    replace(Signal::new(true), Signal::new(false), || {}, || {})
+      .icon(None)
+      .into()
+  });
+  assert!(
+    fills(&stage, light(PaletteColor::WarningMuted), 36.0, 36.0).is_empty(),
+    "no mark"
+  );
+  let (x, ..) = stage.bounds("box");
+  let title = stage.text_quad("Replace existing file?").unwrap();
+  assert!((title.x - (x + 20.0)).abs() < 0.5, "{} {x}", title.x);
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_label_names_it_to_tooling_over_its_title() {
+  let said = |stage: &mut Stage| {
+    stage
+      .tree
+      .get_element_by_id_mut("box")
+      .and_then(|element| element.description("a11y_name"))
+  };
+  let mut titled = stage(|_| replace(Signal::new(true), Signal::new(false), || {}, || {}).into());
+  assert_eq!(said(&mut titled).as_deref(), Some("Replace existing file?"));
+  let mut labelled = stage(|_| {
+    replace(Signal::new(true), Signal::new(false), || {}, || {})
+      .label("Replace theme.json")
+      .into()
+  });
+  assert_eq!(said(&mut labelled).as_deref(), Some("Replace theme.json"));
 }

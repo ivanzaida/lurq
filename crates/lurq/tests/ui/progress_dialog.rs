@@ -4,7 +4,7 @@
 
 use std::{
   sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
   },
   time::Duration,
@@ -24,7 +24,7 @@ use lurq::{
     quad::{Quad, QuadContent},
   },
   node::{Element, color::Color},
-  ui::{ProgressDialog, ProgressDialogPart, icons},
+  ui::{Length, ProgressDialog, ProgressDialogPart, icons},
 };
 
 use super::stage::Stage;
@@ -100,13 +100,13 @@ fn copying(
     .id("dialog")
     .icon(icons::COPY)
     .title("Copying 128 items")
-    .message("from Downloads to projects/lurq/assets")
+    .description("from Downloads to projects/lurq/assets")
     .value(32.0)
     .max(128.0)
     .format(|done, all| format!("{done} of {all}"))
     .status("about 2 min left")
     .detail("assets/icons/warning.svg", detail)
-    .action("Pause", pause)
+    .button("Pause", pause)
     .on_cancel(cancel)
 }
 
@@ -241,14 +241,15 @@ fn a_theme_restyles_its_parts() {
 }
 
 #[test]
-fn a_title_and_a_message_too_long_for_a_line_go_on_to_the_next() {
+fn a_title_and_a_description_too_long_for_a_line_go_on_to_the_next() {
   const TITLE: &str = "Copying 128 items from the downloads folder into the assets of the project";
-  const MESSAGE: &str = "from C:/Users/ivan/Downloads/lurq-icons-2026-11 to H:/projects/lurq/crates/lurq/assets/icons";
+  const DESCRIPTION: &str =
+    "from C:/Users/ivan/Downloads/lurq-icons-2026-11 to H:/projects/lurq/crates/lurq/assets/icons";
   let long = Signal::new(true);
   let held = long.clone();
   let mut stage = stage(move |_| {
-    let (title, message) = if held.get() {
-      (TITLE, MESSAGE)
+    let (title, description) = if held.get() {
+      (TITLE, DESCRIPTION)
     } else {
       ("Copying", "here")
     };
@@ -256,12 +257,12 @@ fn a_title_and_a_message_too_long_for_a_line_go_on_to_the_next() {
       .id("dialog")
       .icon(icons::COPY)
       .title(title)
-      .message(message)
+      .description(description)
       .value(0.5)
       .into()
   });
   let (x, _, width, height) = stage.bounds("dialog");
-  for (text, line) in [(TITLE, 15.0), (MESSAGE, 12.0)] {
+  for (text, line) in [(TITLE, 15.0), (DESCRIPTION, 12.0)] {
     let quad = stage
       .text_quad(text)
       .unwrap_or_else(|| panic!("{text:?} is painted whole"));
@@ -307,4 +308,51 @@ fn a_status_longer_than_its_room_is_cut_with_an_ellipsis_after_the_count() {
     status.x + status.width,
     x + width
   );
+}
+
+#[test]
+fn every_handler_given_to_on_cancel_runs_in_the_order_it_was_given() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let told = heard.clone();
+  let mut stage = stage(move |_| {
+    let (first, second) = (told.clone(), told.clone());
+    ProgressDialog::new(Signal::new(true))
+      .title("Copying 128 items")
+      .on_cancel(move || first.lock().unwrap().push("first"))
+      .on_cancel(move || second.lock().unwrap().push("second"))
+      .into()
+  });
+  press_text(&mut stage, "Cancel");
+  assert_eq!(*heard.lock().unwrap(), ["first", "second"], "a second handler adds");
+  stage.key("Escape");
+  assert_eq!(*heard.lock().unwrap(), ["first", "second", "first", "second"]);
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_label_names_it_to_tooling_over_its_title() {
+  let said = |stage: &mut Stage| {
+    stage
+      .tree
+      .get_element_by_id_mut("dialog")
+      .and_then(|element| element.description("a11y_name"))
+  };
+  let mut titled = stage(|_| copying(Signal::new(true), Signal::new(false), || {}, || {}).into());
+  assert_eq!(said(&mut titled).as_deref(), Some("Copying 128 items"));
+  let mut labelled = stage(|_| {
+    copying(Signal::new(true), Signal::new(false), || {}, || {})
+      .label("Copying the icons")
+      .into()
+  });
+  assert_eq!(said(&mut labelled).as_deref(), Some("Copying the icons"));
+}
+
+#[test]
+fn a_width_of_its_own_is_any_length() {
+  let mut stage = stage(|_| {
+    copying(Signal::new(true), Signal::new(false), || {}, || {})
+      .width(Length::Px(360.0))
+      .into()
+  });
+  assert_eq!(stage.bounds("dialog").2, 360.0);
 }
