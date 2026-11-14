@@ -20,7 +20,7 @@ use crate::{
     theme::{BorderSize, IconSize, PaletteColor, RadiusSize, Theme},
   },
   components::{self, Row},
-  core::{ElementRef, Signal},
+  core::Signal,
   layout::Alignment,
   node::{CursorIcon, Element, border::Border, dimension::Dimension},
 };
@@ -85,7 +85,7 @@ type SubmitHandler = Arc<dyn Fn(&str) + Send + Sync>;
 /// What is typed goes into the signal, which the app filters by as it
 /// changes. Escape empties the field while it holds something, and Enter
 /// calls [`on_submit`](Self::on_submit) with what it holds. The clear button
-/// is pressed with the pointer and puts the caret back in the field; from
+/// is pressed with the pointer and takes no focus, so the caret stays in the field; from
 /// the keyboard, Escape does what it does, so it is no stop of Tab. The hint
 /// says the key: the app binds it, and focuses the field on it. To tooling
 /// the field is a `searchbox`, and its button "Clear search".
@@ -282,7 +282,6 @@ impl SearchField {
       recipe,
       forced: self.forced,
       on_submit: self.on_submit,
-      focus: ElementRef::new(),
       input: input.view(theme),
     };
     match theme.renderer::<SearchField>() {
@@ -322,8 +321,6 @@ pub struct SearchFieldView {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   on_submit: Vec<SubmitHandler>,
-  /// What a press of the clear button focuses: the control.
-  focus: ElementRef,
 }
 
 impl SearchFieldView {
@@ -365,7 +362,7 @@ impl SearchFieldView {
   /// The input's text input: a stop of Tab, a `searchbox` to tooling, where Escape empties what it holds and Enter
   /// submits it, keeping room at its end for the clear button or the hint.
   pub fn control(&self) -> components::TextInput {
-    let mut control = self.input.control().ref_element(self.focus.clone());
+    let mut control = self.input.control();
     let end = if self.clears() {
       Some(self.px(self.part(SearchFieldPart::Clear).rest().width))
     } else if let Some(key) = self.shortcut.as_deref().filter(|_| !self.filled) {
@@ -399,7 +396,7 @@ impl SearchFieldView {
     })
   }
 
-  /// The button that empties the field and puts the caret back in it, while it holds something.
+  /// The button that empties the field, while it holds something. A press of it leaves the focus where it is.
   pub fn clear(&self) -> Option<Row> {
     if !self.clears() {
       return None;
@@ -412,7 +409,8 @@ impl SearchFieldView {
         .part(&part)
         .describe("a11y_role", "button")
         .describe("a11y_name", self.clear_label.clone())
-        .focuses(&self.focus)
+        // A press of it takes no focus and leaves it where it is: in the field, where the text was typed.
+        .focusable(false)
         .on_click(move |_| value.set(String::new()))
         .child(Icon::new(icons::CLOSE_CIRCLE).size(side).build(self.theme())),
     )

@@ -145,9 +145,13 @@ fn a_press_of_the_eye_shows_the_password_and_another_hides_it() {
   press_at(&mut stage, ex, ey);
   assert!(shown.get(), "the app's signal is told");
   assert!(stage.paints("hunter2"), "shown as it is");
+  let glyph = |name: &str| icons::ALL.iter().find(|(icon, _)| *icon == name).unwrap().1.to_string();
+  assert!(stage.paints(&glyph(icons::EYE_OFF)), "the eye with a line through it");
+  assert!(!stage.paints(&glyph(icons::EYE)));
   press_at(&mut stage, ex, ey);
   assert!(!shown.get());
   assert!(!stage.paints("hunter2"), "masked again");
+  assert!(stage.paints(&glyph(icons::EYE)), "the eye again");
   assert_eq!(value.get(), "hunter2", "what it holds is the same");
 }
 
@@ -241,7 +245,8 @@ fn the_meter_fills_as_many_bars_as_the_strength_reaches_in_its_color() {
   assert!((filled[0].y - (y + height + 8.0)).abs() < 0.5, "8 under the box");
   assert!(
     (filled[0].width - (width - 12.0) / 4.0).abs() < 0.5,
-    "a quarter less the gaps"
+    "a quarter less the gaps: {} of {width}",
+    filled[0].width
   );
   assert_eq!(stage.text("Good password"), (light(PaletteColor::Success), 12.0));
 }

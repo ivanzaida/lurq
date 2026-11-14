@@ -6,7 +6,7 @@ use super::{
   field::{FieldControl, InField},
   icon::Icon,
   icons,
-  input::{Input, InputView},
+  input::{Input, InputPart, InputView},
   names,
   part_style::{Length, PartStyle},
   recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -469,7 +469,11 @@ impl PasswordInputView {
       .describe("a11y_role", "button")
       .describe("a11y_name", self.toggle_label.clone())
       .describe("a11y_pressed", if self.revealed { "true" } else { "false" })
-      .child(Icon::new(icons::EYE).size(side).build(self.theme()));
+      .child(
+        Icon::new(if self.revealed { icons::EYE_OFF } else { icons::EYE })
+          .size(side)
+          .build(self.theme()),
+      );
     if !self.disabled {
       let (handlers, next) = (self.on_reveal.clone(), !self.revealed);
       toggle = toggle.on_click(move |_| {
@@ -485,9 +489,8 @@ impl PasswordInputView {
   pub fn strength_meter(&self) -> Option<Row> {
     let filled = self.strength?.bars();
     let (bar, full) = (self.part(PasswordInputPart::Bar), self.part(PasswordInputPart::Filled));
-    let mut meter = Row::new()
-      .width(Dimension::Pct(100.0))
-      .part(&self.part(PasswordInputPart::Strength));
+    // As wide as the input: the column that holds them stretches it.
+    let mut meter = Row::new().part(&self.part(PasswordInputPart::Strength));
     for index in 0..4 {
       meter = meter.child(Row::new().flex(1.0).part(if index < filled { &full } else { &bar }));
     }
@@ -513,8 +516,18 @@ impl PasswordInputView {
     // The input keeps its width; the meter and its message are as wide as it is.
     let mut root = Column::new()
       .align_items(Alignment::Stretch)
-      .part(&self.part(PasswordInputPart::Root))
-      .child(input);
+      .part(&self.part(PasswordInputPart::Root));
+    // A column that stretches what it holds is as wide as the room it has: it is as wide as the input is.
+    if let Some(width) = self
+      .input
+      .part(InputPart::Root)
+      .rest()
+      .width
+      .and_then(|width| width.resolve(self.theme()))
+    {
+      root = root.width(width);
+    }
+    let mut root = root.child(input);
     if let Some(meter) = meter {
       root = root.child(meter);
     }
