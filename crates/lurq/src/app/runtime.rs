@@ -90,6 +90,7 @@ mod inline_link_copy_tests;
 mod inline_link_keys;
 mod input_token_paint;
 mod interaction_groups;
+mod key_scroll;
 mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
@@ -4241,6 +4242,8 @@ impl Tree {
       {
         true
       } else if !ctrl && !meta && self.menu_row_key(&key, alt, click_modifiers) {
+        true
+      } else if !ctrl && !alt && !meta && self.scroll_focused_container(&key, &code, shift) {
         true
       } else if matches!(
         (key.as_str(), code.as_str()),

@@ -71,6 +71,7 @@ mod progress;
 mod progress_dialog;
 mod radio;
 mod recipe;
+mod scroll_area;
 mod search_field;
 mod segmented;
 mod select;
@@ -188,9 +189,7 @@ pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,
 };
-pub use listbox::{
-  Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView,
-};
+pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
   MentionsState, MentionsView,
@@ -243,6 +242,10 @@ pub use radio::{
 };
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
+};
+pub use scroll_area::{
+  ScrollArea, ScrollAreaOrientation, ScrollAreaPart, ScrollAreaRenderer, ScrollAreaScrollbars, ScrollAreaState,
+  ScrollAreaView,
 };
 pub use search_field::{
   SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldSize, SearchFieldState, SearchFieldView,

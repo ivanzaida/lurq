@@ -46,6 +46,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod radio;
+mod scroll_area;
 mod select;
 mod separator;
 mod sheet;
