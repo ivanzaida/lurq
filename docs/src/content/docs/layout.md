@@ -231,7 +231,7 @@ Column::new()
 | Track | Width |
 |-------|-------|
 | `TrackSpec::px(120.0)` | A length in logical pixels. |
-| `TrackSpec::share(1.0)` | A share of the room the other tracks and the gaps leave, as a grid's `Fr`. Where the room is not known (a row as wide as its content), as wide as its content. |
+| `TrackSpec::share(1.0)` | A share of the room the other tracks and the gaps leave, as a grid's `Fr`. Where the room is not known (a row as wide as its content, what scrolls sideways before it is stretched), at its least: what is in it does not widen it. |
 | `TrackSpec::content()` | As wide as the widest of its cells that has been measured. |
 
 - `.min(px)` and `.max(px)` hold a track between a least and a most. The shares split what is left between theirs; where

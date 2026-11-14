@@ -713,6 +713,97 @@ fn with_no_rows_an_empty_state_stands_under_the_header_and_loading_rows_of_skele
   assert_eq!(bones, 12, "a line in each of the three cells of four rows");
 }
 
+/// The board's columns of its tables of 420 (`Th2wb`, `z2NoZz`): a name in the room left, the status and when
+/// it changed 90 each.
+fn narrow_columns() -> Vec<TableColumn<Crate>> {
+  vec![
+    TableColumn::new("name", "Name").text(|row: &Crate| row.name.to_owned()),
+    TableColumn::new("status", "Status")
+      .width(90.0)
+      .text(|row: &Crate| row.status.to_owned()),
+    TableColumn::new("updated", "Updated")
+      .width(90.0)
+      .text(|row: &Crate| row.updated.to_owned()),
+  ]
+}
+
+/// A stage of `table` in a box 420 wide, as the board's empty and loading tables are.
+fn narrow(table: impl Fn() -> Table<Crate, &'static str> + Send + Sync + 'static) -> Stage {
+  window(Stage::new(move |_| {
+    Column::new().size(420.0, 300.0).child(table().id("t")).into()
+  }))
+}
+
+#[test]
+fn the_loading_rows_are_in_the_tracks_of_the_header_and_a_share_takes_the_room_not_its_skeletons() {
+  let mut stage = narrow(|| {
+    Table::new(narrow_columns(), crates())
+      .row_key(|row: &Crate| row.name)
+      .loading(true)
+  });
+  let (x, _, width, _) = stage.bounds("t");
+  assert_eq!(width, 420.0);
+  // As the board has it: the name 176 and 16 after it, the status at 208 and the time at 314, all in the box.
+  let title_x = |stage: &Stage, title: &str| texts(stage, title).pop().map(|quad| quad.x).unwrap_or_default();
+  let (name_x, status_x, updated_x) = (
+    title_x(&stage, "Name"),
+    title_x(&stage, "Status"),
+    title_x(&stage, "Updated"),
+  );
+  assert!((name_x - (x + 16.0)).abs() < 1.01, "the name at 16: {}", name_x - x);
+  // The name's track is the room the others leave: 176 and the 16 after it, whatever its skeletons are.
+  assert!(
+    (status_x - (x + 208.0)).abs() < 1.01,
+    "the status at 208: {}",
+    status_x - x
+  );
+  assert!(
+    (updated_x - (x + 314.0)).abs() < 1.01,
+    "the time at 314: {}",
+    updated_x - x
+  );
+
+  // Every row of skeletons in those tracks, the last as well: its lines of the status and the time start
+  // where the header's titles do.
+  let muted = light(PaletteColor::Muted);
+  let mut starts: Vec<i32> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == muted)
+        && quad.height < 13.0
+        && quad.x > name_x + 100.0
+    })
+    .map(|quad| (quad.x - x).round() as i32)
+    .collect();
+  starts.sort_unstable();
+  starts.dedup();
+  assert_eq!(
+    starts,
+    [208, 314],
+    "the lines of every row start at the header's titles"
+  );
+}
+
+#[test]
+fn an_empty_state_stands_in_the_middle_of_the_view_however_wide_the_columns_are() {
+  let mut stage = narrow(|| {
+    let mut columns = narrow_columns();
+    columns[0] = TableColumn::new("name", "Name")
+      .text(|row: &Crate| row.name.to_owned())
+      .min_width(400.0);
+    Table::new(columns, Vec::new()).row_key(|row: &Crate| row.name)
+  });
+  let (x, ..) = stage.bounds("t");
+  let icon = texts(&stage, INBOX).pop().expect("the empty state's icon");
+  let middle = icon.x + icon.width / 2.0;
+  assert!(
+    (middle - (x + 210.0)).abs() < 1.01,
+    "in the middle of the table's 420, not of its columns': {}",
+    middle - x
+  );
+}
+
 #[test]
 fn the_footer_counts_the_rows_and_what_is_selected() {
   let selected = Signal::new(vec!["crates/lurq"]);
@@ -830,7 +921,7 @@ fn a_compact_table_has_rows_of_36() {
   assert_eq!(stage.bounds("t-row-1").1 - stage.bounds("t-row-0").1, 36.0);
 }
 
-#[cfg(feature = "mcp")]
+#[cfg(any(feature = "devtools", feature = "mcp"))]
 #[test]
 fn a_table_tells_tooling_its_rows_its_sort_and_what_is_selected() {
   let selected = Signal::new(vec!["crates/lurq"]);
@@ -851,6 +942,11 @@ fn a_table_tells_tooling_its_rows_its_sort_and_what_is_selected() {
   assert_eq!(said(&mut stage, "t", "a11y_role").as_deref(), Some("grid"));
   assert_eq!(said(&mut stage, "t", "a11y_rowcount").as_deref(), Some("4"));
   assert_eq!(said(&mut stage, "t", "a11y_name").as_deref(), Some("Crates"));
+  assert_eq!(
+    said(&mut stage, "t", "a11y_colcount").as_deref(),
+    Some("4"),
+    "the three columns and the checkboxes'"
+  );
   assert_eq!(said(&mut stage, "t-row-0", "a11y_role").as_deref(), Some("row"));
   assert_eq!(said(&mut stage, "t-row-0", "a11y_selected").as_deref(), Some("true"));
   assert_eq!(said(&mut stage, "t-row-1", "a11y_selected").as_deref(), Some("false"));
@@ -859,6 +955,10 @@ fn a_table_tells_tooling_its_rows_its_sort_and_what_is_selected() {
     said(&mut stage, "t-select-all", "a11y_checked").as_deref(),
     Some("mixed")
   );
+
+  let mut stage = wide(|| table(crates()).into());
+  assert_eq!(said(&mut stage, "t", "a11y_role").as_deref(), Some("table"));
+  assert_eq!(said(&mut stage, "t", "a11y_colcount").as_deref(), Some("3"));
 }
 
 #[test]

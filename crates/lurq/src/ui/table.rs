@@ -1494,7 +1494,8 @@ impl TableView {
   /// The box in the style of its part, with nothing in it yet. It is a table to what reads the tree of the
   /// window, a grid where its rows are selected, with how many rows (the header's among them) and columns.
   pub fn root(&self) -> Column {
-    let columns = self.headers.len() + usize::from(self.checkboxes);
+    // The tracks are the columns and the checkboxes': there however a renderer took the headers.
+    let columns = self.tracks.len();
     let mut root = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(TablePart::Root))
@@ -1622,15 +1623,19 @@ impl TableView {
     Column::new()
       .align_items(Alignment::Stretch)
       .with_children((0..self.loading_rows).map(|index| {
+        // The last row's part, with no line under it, is its only one: a part given after the tracks would take
+        // them away, and the row would fall out of the columns.
+        let row_part = if self.loading_rows == index + 1 && self.footer.is_none() {
+          self.last_row.part(TablePart::Row)
+        } else {
+          part.clone()
+        };
         let mut row = Row::new()
-          .part(&part)
+          .part(&row_part)
           .spacing(0.0)
           .align_items(Alignment::Center)
           .column_tracks(&self.tracks)
           .describe("a11y_hidden", "true");
-        if self.loading_rows == index + 1 && self.footer.is_none() {
-          row = row.part(&self.last_row.part(TablePart::Row));
-        }
         if self.checkboxes {
           row = row.child(Row::new());
         }
@@ -1679,16 +1684,29 @@ impl TableView {
       .align_items(Alignment::Stretch)
       .measures_column_tracks(&self.tracks)
       .child(self.header());
+    // The empty state is in the middle of the table's box, not of its columns, which may be wider: it stands
+    // under what scrolls, which holds the header alone.
+    let empty = if self.loading { None } else { self.empty() };
     if self.loading {
       content = content.child(self.skeletons());
-    } else if let Some(empty) = self.empty() {
-      content = content.child(empty);
-    } else {
+    } else if empty.is_none() {
       content = content.child(self.body());
     }
     let mut scroll = ScrollBoth::new(content)
       .fill_width(true)
       .part(&self.part(TablePart::Scroll));
+    if let Some(empty) = empty {
+      let mut root = self.root().child(scroll.flex_full(0.0, 1.0, None));
+      let mut empty = Column::new().align_items(Alignment::Stretch).child(empty);
+      if self.height.is_some() {
+        empty = empty.flex(1.0).justify(Justify::Center);
+      }
+      root = root.child(empty);
+      if let Some(footer) = self.footer() {
+        root = root.child(footer);
+      }
+      return root.into();
+    }
     if self.height.is_some() {
       scroll = scroll.flex_full(1.0, 1.0, None);
     } else {
