@@ -407,6 +407,7 @@ fn one_dash_from_the_top(side: f32, fraction: f32) {
     style: StrokeStyle {
       dash: [dash, circle - dash],
       radii_at: 0.0,
+      ..StrokeStyle::default()
     },
   };
   // Along the middle of the ring, a sample every half degree; the ends of the dash have a ramp of a pixel.
