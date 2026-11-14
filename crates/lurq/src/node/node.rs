@@ -5443,14 +5443,19 @@ impl Node {
         None => &old.children[index],
       }
     };
-    let matched_len = self.children.len().min(old_len);
-    let positional =
-      (0..matched_len).all(|index| self.children[index].can_preserve_runtime_state_from(old_child(index)));
+    let places = Places::between(&self.children, old_len, old_child);
+    let positional = (0..self.children.len()).all(|index| {
+      places
+        .of(index)
+        .is_none_or(|place| self.children[index].can_preserve_runtime_state_from(old_child(place)))
+    });
     let mut child_layout_signatures_match = without_leaving.is_none();
     if positional {
-      for index in 0..matched_len {
-        child_layout_signatures_match &=
-          self.children[index].preserve_runtime_state_and_layout_signature_from(old_child(index));
+      for index in 0..self.children.len() {
+        if let Some(place) = places.of(index) {
+          child_layout_signatures_match &=
+            self.children[index].preserve_runtime_state_and_layout_signature_from(old_child(place));
+        }
       }
     } else {
       // Reordered children preserve state by identity, but cache signatures
@@ -5459,8 +5464,9 @@ impl Node {
       let mut claimed = vec![false; old_len];
       for index in 0..self.children.len() {
         let child = &self.children[index];
-        let matched = (index < old_len && !claimed[index] && child.can_preserve_runtime_state_from(old_child(index)))
-          .then_some(index)
+        let matched = places
+          .of(index)
+          .filter(|place| !claimed[*place] && child.can_preserve_runtime_state_from(old_child(*place)))
           .or_else(|| (0..old_len).find(|offset| !claimed[*offset] && child.identity_matches(old_child(*offset))));
         if let Some(offset) = matched {
           claimed[offset] = true;
@@ -5744,20 +5750,21 @@ impl Node {
         .iter()
         .zip(&old.children)
         .all(|(child, old_child)| child.can_reuse_id_from(old_child));
+    let places = Places::between(&self.children, old.children.len(), |index| &old.children[index]);
     if positional {
-      for (child, old_child) in self.children.iter_mut().zip(old.children.iter_mut()) {
-        child.preserve_ids_from(old_child);
+      for (index, child) in self.children.iter_mut().enumerate() {
+        if let Some(place) = places.of(index) {
+          child.preserve_ids_from(&mut old.children[place]);
+        }
       }
       return;
     }
 
     let mut claimed = vec![false; old.children.len()];
     for (index, child) in self.children.iter_mut().enumerate() {
-      let matched = old
-        .children
-        .get(index)
-        .filter(|old_child| !claimed[index] && child.can_reuse_id_from(old_child))
-        .map(|_| index)
+      let matched = places
+        .of(index)
+        .filter(|place| !claimed[*place] && child.can_reuse_id_from(&old.children[*place]))
         .or_else(|| {
           old
             .children
@@ -5770,6 +5777,28 @@ impl Node {
         child.preserve_ids_from(&mut old.children[offset]);
       }
     }
+  }
+
+  /// Whether this node and `old` are the same thing to someone looking at the tree: the same kinds of node in
+  /// the same shape, with the same names and the same text. Not how they are styled, which a state changes.
+  fn looks_like(&self, old: &Node) -> bool {
+    if self.component_slot_id != old.component_slot_id
+      || self.component_key != old.component_key
+      || self.element_id != old.element_id
+      || self.tag_name != old.tag_name
+      || std::mem::discriminant(&self.node_kind) != std::mem::discriminant(&old.node_kind)
+      || std::mem::discriminant(&self.layout_kind) != std::mem::discriminant(&old.layout_kind)
+      || self.text_content.as_ref() != old.text_content.as_ref()
+      || self.children.len() != old.children.len()
+    {
+      return false;
+    }
+    for (child, old_child) in self.children.iter().zip(&old.children) {
+      if !child.looks_like(old_child) {
+        return false;
+      }
+    }
+    true
   }
 
   fn can_reuse_id_from(&self, old: &Node) -> bool {
@@ -6103,6 +6132,59 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
 
 /// Two retained refs name the same element only when they are one handle; a
 /// missing ref on either side does not tell the elements apart.
+/// Which child of the node a render replaces each child of the new node stands for, before anything names
+/// them: the child at the same place, unless the two lists differ in length and end alike. Then a child was
+/// put in or taken out before that end, and the children of the end are the ones that were there, each moved
+/// by the difference: a button that gets a sibling before it stays the element it was, with its hover, its
+/// focus and its transitions, and the sibling is a new one.
+///
+/// The children at the start that look alike are matched first, so a list of things that cannot be told
+/// apart loses and gains its last, as it always did. One look at the last pair settles every list that only
+/// grew or shrank at its end.
+struct Places {
+  /// The place the end starts at among the new children.
+  end_from: usize,
+  /// How far the end moved: the old length less the new one.
+  moved: isize,
+  /// How many of the old children are before the end.
+  old_before_end: usize,
+}
+
+impl Places {
+  fn between<'a>(new: &[Node], old_len: usize, old_child: impl Fn(usize) -> &'a Node) -> Self {
+    let end = Self::alike_end(new, old_len, &old_child);
+    Self {
+      end_from: new.len() - end,
+      moved: old_len as isize - new.len() as isize,
+      old_before_end: old_len - end,
+    }
+  }
+
+  /// How many children the two lists have alike at their ends, past the ones alike at their starts.
+  fn alike_end<'a>(new: &[Node], old_len: usize, old_child: &impl Fn(usize) -> &'a Node) -> usize {
+    let len = new.len();
+    let shorter = len.min(old_len);
+    if len == old_len || shorter == 0 || !new[len - 1].looks_like(old_child(old_len - 1)) {
+      return 0;
+    }
+    let start = (0..shorter)
+      .take_while(|index| new[*index].looks_like(old_child(*index)))
+      .count();
+    (1..=shorter - start)
+      .take_while(|back| new[len - back].looks_like(old_child(old_len - back)))
+      .count()
+  }
+
+  /// The place among the old children of what the new child at `index` stands for, if any.
+  fn of(&self, index: usize) -> Option<usize> {
+    if index >= self.end_from {
+      Some((index as isize + self.moved) as usize)
+    } else {
+      (index < self.old_before_end).then_some(index)
+    }
+  }
+}
+
 fn refs_compatible(current: Option<&CoreElementRef>, previous: Option<&CoreElementRef>) -> bool {
   match (current, previous) {
     (Some(current), Some(previous)) => current.same_handle(previous),
@@ -6635,5 +6717,98 @@ mod tests {
     collect_ids(&new, &mut ids);
     let unique: std::collections::HashSet<u64> = ids.iter().map(|id| id.value()).collect();
     assert_eq!(unique.len(), ids.len());
+  }
+
+  /// A row of buttons with nothing naming them, as a component's actions are.
+  fn buttons(labels: &[&str]) -> Node {
+    Node::row(
+      0.0,
+      Alignment::Start,
+      labels
+        .iter()
+        .map(|label| Node::row(0.0, Alignment::Start, vec![Node::text(label)]))
+        .collect(),
+    )
+  }
+
+  fn ids_of(row: &Node) -> Vec<crate::core::NodeId> {
+    row.children.iter().map(Node::node_id).collect()
+  }
+
+  #[test]
+  fn a_child_put_before_another_does_not_take_its_id() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Deploy"]);
+    old.assign_ids(&id_gen);
+    let deploy = ids_of(&old)[0];
+
+    let mut new = buttons(&["View log", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    // Deploy is the element it was; View log, which stands where it stood, is a new one.
+    assert_eq!(ids_of(&new)[1], deploy);
+    assert_ne!(ids_of(&new)[0], deploy);
+  }
+
+  #[test]
+  fn a_child_taken_from_before_another_leaves_the_other_its_id() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Back", "View log", "Deploy"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut new = buttons(&["Back", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new), vec![before[0], before[2]]);
+  }
+
+  #[test]
+  fn children_of_lists_as_long_as_each_other_are_matched_by_their_place() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Save", "Deploy"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    // A text that changed is the same element saying something else.
+    let mut new = buttons(&["Saving", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new), before);
+  }
+
+  #[test]
+  fn children_that_cannot_be_told_apart_lose_and_gain_the_last() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Row", "Row", "Row"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut shorter = buttons(&["Row", "Row"]);
+    shorter.preserve_ids_from(&mut old);
+    shorter.assign_ids(&id_gen);
+    assert_eq!(ids_of(&shorter), before[..2]);
+
+    let mut longer = buttons(&["Row", "Row", "Row"]);
+    longer.preserve_ids_from(&mut shorter);
+    longer.assign_ids(&id_gen);
+    assert_eq!(ids_of(&longer)[..2], before[..2]);
+  }
+
+  #[test]
+  fn a_list_that_grew_at_its_end_keeps_every_child_it_had() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["a", "b"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut new = buttons(&["a", "b", "c"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new)[..2], before[..]);
   }
 }
