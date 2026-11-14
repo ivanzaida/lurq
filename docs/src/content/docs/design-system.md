@@ -2257,6 +2257,589 @@ Mentions::new(comment.clone(), &mentions)
   before its label in the body's type; the active one, and the one under the pointer, are on `Highlight`. A mention is
   in the text's type on `InfoMuted`, its text in `Info`, 20 high and padded 4.
 
+## Alert
+
+A message in the flow of a page about what is on it: a file that could not be saved, a disk that is nearly full, a shortcut to know.
+
+```rust
+use lurq::ui::{Alert, AlertVariant, Button, ButtonSize, ButtonVariant, Progress, icons};
+
+Alert::new("Could not save")
+  .description("The settings file is read-only.")
+  .variant(AlertVariant::Destructive)
+  .action(Button::new("Retry").variant(ButtonVariant::Outline).size(ButtonSize::Sm))
+  .on_close(move || shown.set(false));
+
+// More than text under the description, and an icon of its own.
+Alert::new("Downloading lurq 0.61")
+  .variant(AlertVariant::Info)
+  .icon(icons::DOWNLOAD)
+  .child(Progress::new(0.6).label("Downloading"));
+```
+
+| Builder | |
+| --- | --- |
+| `Alert::new(&str)` | The title: what it is about. It is what the alert is called |
+| `description(&str)` | More of it, under the title |
+| `variant(AlertVariant)` | `Neutral` (the default), `Info`, `Success`, `Warning`, `Destructive` |
+| `icon(..)` | An icon of the theme's set in place of the variant's (`icon(icons::DOWNLOAD)`), or none (`icon(None)`) |
+| `action(element)` | What can be done about it, at its end before the close control: a button, a link |
+| `child(element)`, `children(..)` | Elements under the description, for more than text |
+| `on_close(handler)` | Draws the close control, called on a press of it. The app takes the alert away |
+| `role(&str)` | What it is to tooling, in place of the variant's |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the close control's states; `id` is the id of the box |
+
+- It is read where it stands and is not an overlay. It is as wide as the room it is given, and its title and description wrap in the room the icon, the action and the close control leave them.
+- The close control is a stop of Tab with the focus ring; Enter, Space and a click press it.
+- To what reads the tree (`lurq_snapshot` of the MCP server) a warning and a destructive alert are an `alert`, which a screen reader says at once, and the others a `status`, said when the reader is done; each is called by its title. `role("status")` says a warning is no news, `role("alert")` that an informative one is urgent. `AlertVariant::role()` is the variant's.
+- Parts: `AlertPart::Root` (the box), `Icon`, `Text` (the title, the description and the body, one over the other), `Title`, `Description`, `Body`, `Action`, `Close`. States: `AlertState::Action`, which centres what is in the box on the action. Variants by `AlertVariant`.
+- In the design the box is in the `Card` color with an edge of 1 in `Border`, corners of `radius-lg`, padded 16. The icon is 16, 12 from the title (14, medium, `Foreground`) over the description (13, 1.5 high, `MutedForeground`), 4 apart. An informative, a successful and a warning alert are in `InfoMuted`, `SuccessMuted`, `WarningMuted`, with an edge and an icon of `Info`, `Success`, `Warning` and a description in `Foreground`. A destructive one keeps the `Card` color, with an edge, an icon and a title of `Destructive`. The icon is the information sign for a neutral and an informative alert, the check in a circle for a successful one, the warning sign for a warning and a destructive one. The close control is 16 in `MutedForeground`, in `Foreground` under the pointer.
+- `AlertVariant` is shared with the banner and the callout: `icon()`, `accent()` (the color of its icon, edge, bar and link) and `tint()` (its fill) say the same for the three.
+- A renderer that draws another alert starts from `view.text()`, `view.icon()`, `view.action()` and `view.close()` (the behavior), with `view.role` and `view.closable`.
+
+## Banner
+
+A message across the full width of what holds it, one line where it fits, at the top of a window or a page: a new version, a connection lost, a trial that ends. The app shows it and takes it away.
+
+```rust
+use lurq::ui::{AlertVariant, Banner, BannerPart, Link, icons};
+
+Banner::new("lurq 0.61 is available with faster text shaping.")
+  .variant(AlertVariant::Info)
+  .link(Link::new("Update now").on_click(|_| update()))
+  .open(open.get())
+  .on_close(move || open.set(false));
+
+// Along the top edge of a window: in its middle, with no corners of its own.
+Banner::new("No connection. Changes will sync later.")
+  .variant(AlertVariant::Warning)
+  .icon(icons::WIFI_OFF)
+  .centered(true)
+  .style(BannerPart::Panel, |s| s.radius(0.0));
+```
+
+| Builder | |
+| --- | --- |
+| `Banner::new(&str)` | What it says. It is what the banner is called |
+| `variant(AlertVariant)` | As an [alert](#alert)'s. A neutral and an informative banner have the megaphone |
+| `icon(..)` | An icon of its own, or none: `icon(None)` |
+| `link(Link)` | A link after the text, in the variant's color and semibold |
+| `action(element)` | Any element after the text in place of a link: a button |
+| `on_close(handler)` | Draws the close control, called on a press of it |
+| `open(bool)` | Whether it is shown. It is unless it says |
+| `centered(bool)` | Its icon, text and action in its middle rather than from its start |
+| `sticky(bool)` | It sticks to the top of what scrolls the page it is on |
+| `role(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an alert has them. `id` is the id of the bar, `key` the key of what stands in the page |
+
+- It stays in the tree whether it is shown or not, so it fades in as `open(true)` shows it and out as `open(false)` takes it away (the `Panel` part's `enter` and `exit`: `ui::FADE_IN` over the theme's base duration, `ui::FADE_OUT` over its fast one). Taken away it is no height, and what is under it moves up.
+- A text too long for one line goes on to the next in the room the rest leaves it; a centred one is as wide as it is, and no wider than that room.
+- `sticky(true)` gives what stands in the page the engine's `Sticky::top(0.0)`: in a scroll container it stays at the top while the page scrolls under it.
+- The link and the close control are stops of Tab, in that order. To what reads the tree it is an `alert` or a `status` as an alert is, called by its text.
+- Parts: `BannerPart::Root` (what stands in the page, sticky or not), `Panel` (the bar), `Icon`, `Text`, `Action`, `Link` (the style a link given by `link` takes over the theme's for a link), `Close`. States: `BannerState::Centered`, `Sticky`.
+- In the design the bar is in the muted form of the variant's color (`Muted` for a neutral one), with corners of `radius-md`, padded 10 and 16, what is in it 12 apart and centred on a line: the icon of 16 in the variant's color, the text of 13 in `Foreground`, the link 13 and semibold in the variant's color, the close control 16 in `Foreground`.
+- A renderer that draws another banner starts from `view.panel()`, or from `view.icon()`, `view.text()`, `view.action()` and `view.close()`.
+
+## Callout
+
+A note set apart inside prose or a form: a hint beside a setting, a caution in a page of documentation.
+
+```rust
+use lurq::ui::{AlertVariant, Callout, Link, icons};
+
+Callout::new("Theme changes rerender only the components that read the theme.").variant(AlertVariant::Info);
+
+// The note of a document: a bar along its start, the icon before its title.
+Callout::new("Use backdrop blur for panels over busy content.")
+  .title("Tip")
+  .variant(AlertVariant::Success)
+  .icon(icons::LIGHTBULB)
+  .bar(true);
+
+// In a form, with what the app puts under its text.
+Callout::new("The key is shown once.")
+  .title("Before you go on")
+  .variant(AlertVariant::Warning)
+  .child(Link::new("How keys are stored").external());
+```
+
+| Builder | |
+| --- | --- |
+| `Callout::new(&str)` | What it says. An empty text says nothing, for a callout of a title and elements |
+| `title(&str)` | What it is, in a word, over its text. It is what the callout is called |
+| `child(element)`, `children(..)` | Elements under the text |
+| `variant(AlertVariant)`, `icon(..)` | As an [alert](#alert) has them |
+| `bar(bool)` | A bar along its start in the variant's color, and the icon before a title in that color |
+| `role(&str)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As an alert has them |
+
+- It is read, and is no stop of Tab. To what reads the tree it is a `note`, called by its title where it has one.
+- Without a bar, the icon stands at its start and the title, the text and the elements beside it. With a bar and a title, the icon and the title are a heading over the text; with a bar and no title, the icon stands at the start as without one.
+- Parts: `CalloutPart::Root` (the box), `Icon`, `Heading` (the icon and the title, with a bar), `Content` (the title, the text and the elements), `Title`, `Text`. States: `CalloutState::Bar`, `Titled`.
+- In the design the box is in the muted form of the variant's color (`Muted` for a neutral one), with corners of `radius-md`, padded 12 and 14; the icon of 16 in the variant's color is 10 from the text, 13 in `Foreground` and 1.5 high; a title is 13 and semibold. With a bar (the board's Markdown/Admonition) the bar is 3 wide in the variant's color and the corners on its side are square; the icon is 8 before a title of 14, semibold, in the variant's color, and the text of 14 is 4 under them.
+
+## Kbd
+
+A key of the keyboard, the keys of a shortcut pressed together, or steps pressed one after another: what a person presses to do something.
+
+```rust
+use lurq::ui::{InlineCode, Kbd, KbdSize, KbdVariant, KeyPlatform};
+
+Kbd::new("Esc");
+
+// A key each. `Mod` is Ctrl, and ⌘ on a Mac.
+Kbd::shortcut("Mod+K").platform(KeyPlatform::current());
+
+// Pressed one after another: G, then D; or two shortcuts.
+Kbd::sequence(["G", "D"]);
+Kbd::sequence(["Ctrl+K", "Ctrl+S"]).size(KbdSize::Lg);
+
+// As a menu writes it: one text, no box. "⌘K" on a Mac.
+Kbd::shortcut("Mod+K").variant(KbdVariant::Plain);
+
+// A short text of code in a run of text.
+InlineCode::new("ctx.theme()");
+```
+
+| Builder | |
+| --- | --- |
+| `Kbd::new(&str)` | One key, written as it is given: "Ctrl", "Page Up", "/" |
+| `Kbd::shortcut(&str)` | The keys of a shortcut, parted by `+`, a box each. A `+` after another, or alone, is the key of that name: `Ctrl++` |
+| `Kbd::sequence(steps)` | Steps pressed one after another, each a key or a shortcut, with "then" between them |
+| `Kbd::accelerator(&Accelerator)` | The keys of an accelerator of the app's menu: its modifiers, then its key |
+| `platform(KeyPlatform)` | `Standard` (words, the default) or `Mac` (⌃ ⌥ ⇧ ⌘, ↩ ⌫ ⇥ ⌦, the modifiers first in a Mac's order). `KeyPlatform::current()` is the platform the app is built for |
+| `variant(KbdVariant)` | `Default` (a box for each key) or `Plain` (each step as one text in the muted color, with no box: "Ctrl+K", "⌘K") |
+| `size(KbdSize)` | `Sm` 16 high at 10, `Md` 20 at 11, `Lg` 24 at 12 |
+| `separator(&str)` | What stands between the steps of a sequence: "then" unless told |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
+
+- Keys are named as lurq names them in a `KeyboardEvent` (`Escape`, `ArrowUp`, `Backspace`, `PageUp`) or as a person writes them, in any case and with spaces or none: `Esc`, `Del`, `Page Up`. `Mod` is Ctrl, and ⌘ on a Mac; `Meta`, `Cmd`, `Super` and `Win` are ⌘ on a Mac. Arrows are drawn as ↑ ↓ ← →. A single letter is drawn in capitals; a key lurq does not name is drawn as it is written (`Up` stays `Up`).
+- On a Mac the modifiers are glyphs and stand first, in the order `Accelerator::display` writes them: ⌃ ⌥ ⇧ ⌘. In words they keep the order they are given in.
+- Keys are read and not operated: they take no press, no focus and no stop of Tab. To what reads the tree (`lurq_snapshot` of the MCP server) they are one `text`, called by their keys in words: "Ctrl+K", "Cmd+Shift+P", "G then D".
+- Parts: `KbdPart::Root` (the row of keys, its gap), `Key` (a key's box), `Label` (the text on a key, or of a plain step), `Separator` (what stands between steps). Variants: `KbdVariant`. Sizes: `KbdSize`. States: `KbdState::Sequence`, `Mac`.
+- In the design a key is 20 high, padded 6, on `Muted` with an edge of 1 in `Border` and the radius `Sm`, its text 11 in the family of code in `MutedForeground`. The keys of a shortcut are 4 apart with nothing between them; large ones are 24 high, padded 7, at 12 and 6 apart, as the list of an app's shortcuts has them. Plain is the text of a menu's shortcut: 11 in the family of code in `MutedForeground`.
+- A renderer that draws other keys has `view.steps` (each step's keys, with what is drawn on each and what it is called), `view.root()`, `view.key_cap(key)`, `view.label(text)`, `view.between()` and `view.written(step)` (a step as one text).
+- `InlineCode::new(&str)` is a short text of code in a run of text: 13 in the family of code in `Foreground`, on `Muted` with the radius `Sm`, padded 5 across and 1 above and below. It is not cut, and is `code` to what reads the tree, called by its text. Parts: `InlineCodePart::Root`, `Label`.
+
+## Empty State
+
+What stands where content would be when there is none, and what to do about it: no results, no windows yet, all caught up.
+
+```rust
+use lurq::ui::{Button, ButtonSize, ButtonVariant, EmptyState, EmptyStateSize, Length, icons};
+
+EmptyState::new("No windows yet")
+  .description("Open a window to see it listed here.")
+  .icon(icons::INBOX)
+  .action(Button::new("New window").icon(icons::PLUS).variant(ButtonVariant::Outline));
+
+// In a table or a list: the icon alone, no edge; centred in all of the room the list would have.
+EmptyState::new("No crates match")
+  .description("Check the spelling or clear the filter.")
+  .icon(icons::SEARCH_CLOSE)
+  .size(EmptyStateSize::Sm)
+  .height(Length::Fill)
+  .action(Button::new("Clear filter").variant(ButtonVariant::Outline).size(ButtonSize::Sm));
+```
+
+| Builder | |
+| --- | --- |
+| `EmptyState::new(&str)` | What is empty, in a line. It is what the empty state is called |
+| `description(&str)` | Why, or what to do, under the title |
+| `icon(name)` | An icon of the theme's set over the title, in its well |
+| `media(element)` | An element of the app's in place of the icon and its well: an illustration, a picture |
+| `action(element)` | Something to do under the text; called again, a second one after it, the main one last |
+| `size(EmptyStateSize)` | `Sm` (the icon alone, 22, everything 10 apart), `Md` (a well of 40, in an edge), `Lg` (a round well of 64, a title of 18) |
+| `bordered(bool)` | An edge around it. `Md` has one unless told; `Sm` and `Lg` have none |
+| `height(Length)` | A height of its own, in which what it holds is centred: `Length::Fill` for all of the room a parent that stretches it gives |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
+
+- It is as wide as the room it is given and as high as what is in it, all of it centred; the title and the description wrap in the width there is. Its actions are the app's elements, as large as the place has them: a small button in a table.
+- It is read; what it gives to do is operated as itself. To what reads the tree it is a `status`, called by its title, with its description as `a11y_description`.
+- Parts: `EmptyStatePart::Root`, `Media` (the well), `Icon`, `Text` (the title over the description), `Title`, `Description`, `Actions`. Sizes: `EmptyStateSize`. States: `EmptyStateState::Bordered`.
+- In the design the medium one is padded 32, with 16 between the well, the text and the actions, in an edge of 1 in `Border` with the radius `Xl`; the well is 40 on `Muted` with the radius `Lg`, its icon 20 in `Foreground`; the title is 14/500 in `Foreground`, the description 4 under it at 13 in `MutedForeground`; the actions are 8 apart. The small one is the empty table's: padded 32 and 16, everything 10 apart, the icon 22 in `MutedForeground` with no well. The large one is the phone's: padded 32 and 24, a round well of 64 with an icon of 28, a title of 18/600 and a description of 15, 6 apart.
+- A renderer that draws another empty state has `view.root()`, `view.media()` (the app's element or the icon in its well), `view.text()` and `view.actions()`.
+
+## Result
+
+What a page or a dialog says when something is over: payment received, build failed, nothing here. It is `ui::Outcome` in the code, so that `use lurq::ui::*` does not hide `std::result::Result`.
+
+```rust
+use lurq::ui::{Button, ButtonVariant, Outcome, OutcomeVariant};
+
+Outcome::new(OutcomeVariant::Success, "Build succeeded")
+  .description("412 tests passed in 38 seconds.")
+  .action(Button::new("View log").variant(ButtonVariant::Outline))
+  .action(Button::new("Deploy"));
+
+// On a page of its own, or in a dialog: no box.
+Outcome::new(OutcomeVariant::NotFound, "Nothing here")
+  .description("This page was moved or never existed.")
+  .bordered(false)
+  .action(Button::new("Home"));
+```
+
+| Builder | |
+| --- | --- |
+| `Outcome::new(OutcomeVariant, &str)` | What came of it, and its title, which is what it is called. `Success`, `Error`, `Warning`, `Info` or `NotFound` (a 404) |
+| `description(&str)` | More of it, under the title |
+| `icon(name)` | Another icon of the theme's set in the mark, in the variant's colors |
+| `media(element)` | An element of the app's in place of the mark |
+| `extra(element)` | What stands under the text and over the buttons, as wide as the outcome: a summary, a list |
+| `action(element)` | A button at the bottom, after those there: the least first, the main one last |
+| `bordered(bool)` | A box of its own with a fill and an edge, as the design draws it: true unless told |
+| `width(Length)` | A width of its own in place of the design's 300 |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
+
+- Everything in it is centred; its title and description wrap in its width. With no box it has no padding either, and stands where what holds it puts it: a column that centres it on a page, the body of a [dialog](#dialog).
+- It is read; its buttons are operated as themselves. To what reads the tree it is a `status`, called by its title, with its description as `a11y_description`.
+- Parts: `OutcomePart::Root`, `Mark`, `Icon`, `Text`, `Title`, `Description`, `Extra`, `Actions`. Variants: `OutcomeVariant` (`OutcomeVariant::icon()` is the icon each is marked with). States: `OutcomeState::Bordered`.
+- In the design it is 300 wide, padded 24 with 16 between the mark, the text and the buttons, on `Background` in an edge of 1 in `Border` with the radius `Lg`. The mark is a circle of 48 in the variant's muted color, its icon 24 in the variant's color: a check in `Success`, a cross in `Destructive`, a warning in `Warning`, an `i` in `Info`, and a crossed magnifier in `Foreground` on `Muted` for not found. The title is 16/600 in `Foreground`, the description 4 under it at 13 in `MutedForeground`; the buttons are 8 apart.
+- A renderer that draws another outcome has `view.root()`, `view.mark()`, `view.text()`, `view.extra()` and `view.actions()`.
+
+## Message Box
+
+A dialog that asks one question or says one thing and waits for the answer: replace a file, save the changes, delete projects.
+
+```rust
+use lurq::ui::{MessageBox, MessageBoxKind, MessageBoxRole, icons};
+
+MessageBox::new(open.clone())
+  .kind(MessageBoxKind::Warning)
+  .title("Replace existing file?")
+  .message("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
+  .checkbox("Don't ask again", again.clone())
+  .answer("Cancel", MessageBoxRole::Cancel, || {})
+  .answer("Replace", MessageBoxRole::Default, move || replace_file());
+
+// A question that cannot be undone: the focus goes to Cancel.
+MessageBox::new(open.clone())
+  .icon(icons::TRASH)
+  .title("Delete 3 projects?")
+  .message("This cannot be undone.")
+  .answer("Cancel", MessageBoxRole::Cancel, || {})
+  .answer("Delete", MessageBoxRole::Destructive, move || delete_projects());
+```
+
+| Builder | |
+| --- | --- |
+| `MessageBox::new(Signal<bool>)` | Shown while the signal holds `true`. The message box does not keep it: every answer sets it to `false` before what the answer does runs |
+| `kind(MessageBoxKind)` | `Information` (the default, `info`), `Question` (`help-circle`), `Warning` (`warning`), `Error` (`alert-circle`): the icon in the well and their colors. A theme may add kinds by name |
+| `icon(&str)` | An icon of the theme's set in place of the kind's: `trash` for a question that deletes |
+| `title(&str)`, `message(&str)` | What it asks or says, and more of it in the muted color. The title is what it is called, the message what describes it |
+| `detail(&str, Signal<bool>)` | A text behind "Details" under the message, open while the signal holds `true`; `detail_label(&str)` names the trigger |
+| `checkbox(&str, Signal<bool>)` | A checkbox at the start of the footer: "Don't ask again" |
+| `answer(&str, MessageBoxRole, handler)` | An answer. `Default`: filled, Enter gives it. `Cancel`: outlined, Escape and a press of the veil give it. `Destructive`: in the destructive fill. `Plain`: outlined, at the start of the footer |
+| `width(f32)` | A width of its own over the board's 400 |
+| `inline(bool)` | The panel where it is declared, without the veil: for a gallery, a screenshot, a test |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [dialog](#dialog) has them. `id` is the id of the panel |
+
+- It is a [dialog](#dialog): the veil, the focus going in as it opens and back as it closes, and Tab going round its controls are the dialog's. As it opens the focus goes to the default answer, or to the cancel one where an answer is destructive.
+- Enter gives the default answer wherever the focus is, on the checkbox too, unless it is on another button, which Enter presses. Escape and a press of the veil give the cancel answer where there is one and do nothing where there is none.
+- The plain answers stand at the start of the footer, after the checkbox, in their order; at its end the cancel answer stands first and the others after it, whatever order they were given in.
+- Parts: `MessageBoxPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Body`, `IconWell`, `Icon`, `Text`, `Title`, `Message`, `DetailTrigger`, `DetailIcon`, `DetailLabel`, `DetailPanel`, `Detail`, `Footer`, `Option`, `Checkbox` and `CheckboxLabel` (laid over the checkbox's root and label), `Actions`, and for each role a part laid over the button's root and one over its label: `DefaultButton`, `DefaultLabel`, `CancelButton`, `CancelLabel`, `DestructiveButton`, `DestructiveLabel`, `PlainButton`, `PlainLabel`. Variants: the kinds. States: `MessageBoxState::Destructive` (an answer is destructive: the icon in the destructive colors), `DetailOpen`.
+- So a theme gives the two buttons of a message box fonts or fills of their own without touching a button anywhere else: `theme.patch_recipe::<MessageBox>(|rules| rules.base(MessageBoxPart::DefaultLabel, |s| s.font_family("Georgia")).base(MessageBoxPart::CancelLabel, |s| s.font_family(FontFamily::Mono)))`.
+- In the design the panel is 400 wide, padded 20 with 16 between the body and the footer; the well is 36 and round, in the kind's muted color (`InfoMuted`, `Secondary` for a question, `WarningMuted`, `DestructiveMuted`), its icon 18 in the kind's color; the title is 15/600, 14 after the well, over the message of 13 in `MutedForeground`, 4 apart; the buttons are 32 high, padded 14, 8 apart; the checkbox's label is 13. "Details" is a chevron of 14 in the muted color 4 before its label of 13, and the detail opens 8 under it, in the mono type of 11 on the `Muted` fill, with its height over the theme's base duration.
+- To what reads the tree it is an `alertdialog` called by its title and described by its message.
+- A renderer that draws another message box (an iOS alert: the text in the middle, the answers as cells side by side) has the pieces: `view.content()` (with Enter), `view.title()`, `view.message()`, `view.find(role)`, `view.press(index)` (it closes the box and runs the answer), `view.button(index)` (the default renderer's button, which takes the focus first where it should), and `view.dialog(content)`, which puts what it built in the dialog with Escape, the veil and what tooling is told.
+
+## Popconfirm
+
+A question in a small panel hung from what was pressed, answered by one of two buttons: delete a file, leave a channel.
+
+```rust
+use lurq::ui::{Button, ButtonVariant, Popconfirm};
+
+Popconfirm::new(anchor.clone(), open.clone())
+  .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
+  .title("Delete this file?")
+  .description("It will be moved to the trash.")
+  .destructive(true)
+  .confirm("Delete", move || delete_file())
+  .cancel("Keep", || {});
+```
+
+| Builder | |
+| --- | --- |
+| `Popconfirm::new(anchor, Signal<bool>)` | Hung from `anchor`, shown while the signal holds `true`. Keep the anchor from one render to the next, as for a [popover](#popover) |
+| `trigger(element)` | A button that asks: it is the anchor, and a press of it turns the signal |
+| `title(&str)`, `description(&str)` | The question, and more of it in the muted color |
+| `icon(&str)` | An icon of the theme's set before the title, in place of the warning sign |
+| `confirm(&str, handler)`, `cancel(&str, handler)` | The two buttons: their labels ("Yes" and "No" when not given) and what each runs after it closes the popconfirm. Escape and a press outside run the cancel one |
+| `destructive(bool)` | The confirm button and the icon in the destructive color |
+| `placement(Placement)`, `offset(..)` | Where it is beside its anchor: under it at its start, 4 from it, by default |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of the panel |
+
+- It is a [popover](#popover): kept in the window, gone to the other side where there is no room, the focus back on the anchor as it closes. As it opens the focus goes to the cancel button, so that Enter or Space does not confirm what was not read.
+- Escape and a press outside close it and run what the cancel button runs.
+- Parts: `PopconfirmPart::Panel` and `Body` (laid over the popover's root and body), `Content`, `Message`, `Icon`, `Text`, `Title`, `Description`, `Actions`, `CancelButton`, `CancelLabel`, `ConfirmButton`, `ConfirmLabel`. States: `PopconfirmState::Destructive`.
+- In the design the panel is 250 wide, padded 12 with 12 between the message and the buttons, in the popover's colors, edge, large radius and medium shadow; the icon is the warning sign of 16 in `Warning`, 8 before the title of 13/500 over the description of 12 in `MutedForeground`, 2 apart; the buttons are 28 high, padded 10, their labels 13, 8 apart at the end.
+- To what reads the tree it is an `alertdialog` called by its title and described by its description.
+- A theme's renderer builds what the panel holds from `PopconfirmView` (`message()`, `cancel()`, `confirm()`, `actions()`, `content()` with Escape, `confirmer()`, `canceller()`); where the panel is shown, and when, stays the popover's.
+
+## Progress Dialog
+
+A dialog over the window while a piece of work runs: what is being done, how far it is, and a way to stop it.
+
+```rust
+use lurq::ui::{ProgressDialog, icons};
+
+ProgressDialog::new(open.clone())
+  .icon(icons::COPY)
+  .title("Copying 128 items")
+  .message("from Downloads to projects/lurq/assets")
+  .value(copied.get())
+  .max(128.0)
+  .format(|done, all| format!("{done} of {all}"))
+  .status("about 2 min left")
+  .detail(&current_file.get(), details.clone())
+  .action("Pause", move || pause())
+  .on_cancel(move || stop());
+```
+
+| Builder | |
+| --- | --- |
+| `ProgressDialog::new(Signal<bool>)` | Shown while the signal holds `true`. It closes when the app sets it to `false`: Escape and a press of the veil do not close it |
+| `icon(&str)`, `title(&str)`, `message(&str)` | What kind of work it is, what is being done (what it is called), and a line more of it in the muted color |
+| `value(f64)`, `max(f64)` | How far the work is, a fraction of one unless `max` says otherwise. Without a value its end is not known, and the bar runs a segment across it |
+| `format(Fn(f32, f32) -> String)` | Says how much is done under the start of the bar: "42 of 128". A percentage when not given |
+| `status(&str)` | What the app says of the rest, under the end of the bar |
+| `detail(&str, Signal<bool>)` | A text behind "Details" at the start of the footer, open under the footer while the signal holds `true`; `detail_label(&str)` names the trigger |
+| `action(&str, handler)` | A button before the cancel one: "Pause". It does not close the dialog |
+| `on_cancel(handler)`, `cancel_label(&str)` | A cancel button, which has the focus as the dialog opens and which Escape presses. It does not close the dialog: the app does once the work has stopped |
+| `width(f32)`, `inline(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [message box](#message-box) has them |
+
+- It is a [dialog](#dialog) with its veil, its focus and its Tab, which nothing but the app closes.
+- Parts: `ProgressDialogPart::Veil` and `Panel` (laid over the dialog's), `Content`, `Header`, `Icon`, `Text`, `Title`, `Message`, `Progress` (laid over the [progress](#progress)'s root), `Meta`, `Count`, `Status`, `Footer`, `DetailTrigger`, `DetailIcon`, `DetailLabel`, `DetailPanel`, `Detail`, `Actions`, `ActionButton`, `ActionLabel`, `CancelButton`, `CancelLabel`. States: `ProgressDialogState::Indeterminate`, `DetailOpen`.
+- In the design the panel is 420 wide, padded 20 with 12 between its parts; the icon is 20, 12 before the title of 15/600 over the message of 12 in `MutedForeground`, 2 apart; the bar is the progress's of 6 across the panel; what is done and what is left are in the mono type of 11 in `MutedForeground`; the footer, 4 further down, has "Details" at its start and the outlined buttons of 32, padded 14, 8 apart, at its end.
+- To what reads the tree it is a `dialog` called by its title and described by its message, with the `progressbar` in it.
+
+## Sheet
+
+A panel that slides in from an edge of the window, over the page, for what goes with the page without leaving it: edit a profile, filter a list, share a document.
+
+```rust
+use lurq::{
+  components::SheetDetent,
+  ui::{Button, ButtonVariant, Input, Sheet, SheetSide, SheetSize},
+};
+
+// open: Signal<bool>, the app's.
+let close = open.clone();
+Sheet::new(open.clone())
+  .title("Edit profile")
+  .description("Changes save when you close the panel.")
+  .close_button(true)
+  .child(Input::new(name.clone()))
+  .footer(Button::new("Close").variant(ButtonVariant::Outline).on_click(move |_| close.set(false)))
+  .footer(Button::new("Save"));
+
+// From the start, wider.
+Sheet::new(filters_open.clone()).side(SheetSide::Start).size(SheetSize::Md).title("Filters").children(filters);
+
+// At the bottom, mounted: a finger drags it between its heights and down to put it away.
+Sheet::new(goal_open.clone())
+  .side(SheetSide::Bottom)
+  .title("Move goal")
+  .detents([SheetDetent::Content, SheetDetent::Large])
+  .footer(Button::new("Submit"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<bool>)` | Shown while the signal holds `true`. The sheet does not keep it: Escape, a press on the veil and the close button set it to `false` |
+| `side(SheetSide)` | The edge it comes from: `End` (the default) and `Start` as high as the window, `Top` and `Bottom` as wide as it |
+| `size(SheetSize)` | Across from its edge: `Sm` 320, `Md` 400, `Lg` 540 wide at a side, `Sm` 240, `Md` 360, `Lg` 480 high at the top or the bottom, `Full` the window. Without one it is 320 wide at a side and as high as what it holds at the top or the bottom. Never larger than the window |
+| `title(&str)`, `description(&str)` | What it is, and more of it under the title. The title is what the sheet is called |
+| `label(&str)` | What the sheet is called to tooling where it has no title |
+| `child(element)`, `children(..)` | The body, which scrolls between the header and the footer |
+| `footer(element)` | Adds to the footer, the least action first and the main one last: a row at the panel's end under a line, or at the bottom a column of buttons as wide as the sheet with the main one on top |
+| `close_button(bool)` | A ghost button with the close icon at the end of the header |
+| `grabber(bool)` | The handle at the top. A sheet at the bottom has it unless told otherwise |
+| `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Whether a press on the veil (and, mounted, a drag down), and Escape, close it. Both on by default |
+| `detents([SheetDetent])`, `detent(Signal<usize>)`, `scroll(ScrollState)` | For a mounted sheet at the bottom: the heights it stands at, which it is at, and the body's scrolling, which hands a finger to the sheet once the body is at its top |
+| `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
+| `mount(ctx)` | At the bottom, the engine's draggable `Sheet` in this look; at another edge, the same as converting it |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's; `key` tells two sheets of one component apart |
+
+- It is the engine's `Modal` with `target(Root)` and `takes_focus(true)`, as a [dialog](#dialog) is: declared anywhere, it takes no room there and covers the window under the window's own title bar while it is open. As it opens the focus goes to its first control (the close button where it has one), and as it closes back to what had it. Nothing under the veil takes the pointer, and Tab and Shift+Tab go round the sheet's own controls. A press on the panel goes no further.
+- It slides in from its edge over the theme's slow duration in the entering curve as the veil fades in, and out to it over the base duration in the leaving curve: keyframes that move the panel by its own width or height (`ui::SHEET_IN_FROM_START` .. `ui::SHEET_OUT_TO_BOTTOM`). With motion reduced (`Theme::reduced_motion`, state `Modal` with `ReducedMotion`) it fades where it stands.
+- At the start and the end the body takes the room the header and the footer leave, so the footer stands at the panel's bottom; at the top and the bottom the sheet is as high as what it holds while that fits, and the body gives way and scrolls when it does not.
+- `mount(ctx)` puts a sheet at the bottom on the engine's [sheet](../modals/#sheets): a finger drags it between its `detents` (or the height its size gives it, or its content's) and throws it down to close it, it rises over the on-screen keyboard and keeps clear of a phone's edges, and it comes up with a spring. The engine lays out the panel and the backdrop; the recipe's `Panel` and `Veil` dress them (`SheetProps::dress`), and what the panel holds is the sheet's. A theme's renderer builds the sheet that is converted, not the mounted one, which is made of the view's parts.
+- Parts: `SheetPart::Veil`, `Panel`, `Grabber` (the strip at the top of a bottom sheet), `Handle` (its bar), `Header`, `Heading`, `Title`, `Description`, `Body`, `Footer`, `Close` (a [button](#button) restyled), `Separator` (the [separator](#separator) over the footer, restyled). Variants: `SheetSide`. Sizes: `SheetSize`. States: `SheetState::Modal` (over the window, not inline), `ReducedMotion`.
+- In the design a sheet at a side is in `Background` with a line of 1 in `Border` along the edge it shows the page and the large shadow. The header is padded 20 at the top and the sides, the title 16/600 in `Foreground` over the description in 13 `MutedForeground`, 4 apart, the close button's icon of 16 in `MutedForeground` at its end; the body is padded 20 with 16 between what it holds; the footer is padded 16 and 20, its buttons 8 apart at the end, under a line of `Border`. At the top the line is along its bottom. At the bottom it is the board's drawer: a line all round, corners of `radius-xl` (12) at its top, a handle of 40 by 4 in `Muted` 8 under its top edge, the heading in the middle 20 under it, and its buttons as wide as it, 8 apart, 20 from the edges. The veil is `Scrim`.
+- The board's phone and tablet sheets are the same parts restyled: the phone's bottom sheet a panel of 360 round 20 at its top with a handle of 36 in `Input`, its title 18 and its description 14, padded 16; the tablet's form sheet a panel of 520 by 360 round 16 with an edge all round. The gallery's page has them.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the panel is a `dialog` called by its title, or by its label.
+- A renderer that draws another sheet has `view.panel()`, `view.grabber()`, `view.heading()`, `view.close()`, `view.header()`, `view.body()`, `view.footer()`, `view.separator()`, `view.contents()` (all of them in order), `view.veil(panel)` and `view.modal(panel)`.
+
+## Drawer
+
+A panel at one side of a layout, beside the page rather than over it, that opens and closes: the navigation of an app, a pane of details or of filters.
+
+```rust
+use lurq::{
+  components::Row,
+  ui::{Drawer, SheetSide},
+};
+
+// open: Signal<bool>, the app's. The drawer pushes the page aside.
+Row::new()
+  .child(Drawer::new(open.clone()).label("Navigation").children(places))
+  .child(page);
+
+// On a narrow window it lies over the page with a veil.
+Drawer::new(open.clone()).label("Navigation").overlay(narrow).children(places);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<bool>)` | Open while the signal holds `true`. The app's: over the page, Escape and a press on the veil set it to `false` |
+| `side(SheetSide)` | The side of the layout it stands at: `Start` (the default) and `End` open with its width, `Top` and `Bottom` with the height of what it holds |
+| `label(&str)` | What it is called to tooling |
+| `child(element)`, `children(..)` | What it holds, which scrolls where it is too small |
+| `width(f32)`, `height(f32)` | A width of its own at a side (300 without one), a height of its own at the top or the bottom |
+| `overlay(bool)` | Over the page with a veil, as a [sheet](#sheet) at its edge, rather than beside it: for a window too narrow to push the page aside |
+| `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Over the page, whether a press on the veil, and Escape, close it. Both on by default |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
+
+- It is declared in the layout where it stands, at the start or the end of a row or the top or the bottom of a column. As it opens its room grows from nothing to the panel's over the theme's slow duration and pushes the page aside, and the panel, which keeps its size, comes out from the layout's edge and fades in; as it closes the room closes over it as it fades out, and what it held is gone, so that Tab does not reach it. With motion reduced it opens and closes at once.
+- `overlay(true)` builds a [sheet](#sheet) at the drawer's edge, as large across as the drawer's panel, holding what the drawer holds laid out as in the drawer: it takes no room in the layout, slides in over a veil, and is a dialog to tooling.
+- Parts: `DrawerPart::Root` (the room it takes, with the transition of its width or height), `Panel`, `Body`. Variants: `SheetSide`. States: `DrawerState::Open`.
+- In the design (the board's navigation drawer) the panel is 300 wide in `Background` with a line of 1 in `Border` along the edge it shows the page; what it holds pads itself.
+- To what reads the tree it is a `complementary` region called by its label.
+- A renderer that draws another drawer has `view.body()`, `view.panel()` and `view.root(panel)`, and `view.is_open`.
+
+## Hover Card
+
+More about what the pointer rests on, a person, a link, a file, in a panel beside it. Unlike a tooltip it holds what a person reads and presses.
+
+```rust
+use lurq::{
+  components::Placement,
+  ui::{Avatar, Button, ButtonSize, HoverCard, Link, icons},
+};
+
+// In a component's render: a hover card is mounted on the element it is about, and returns that element.
+let author = HoverCard::new()
+  .media(Avatar::new("LQ"))
+  .title("@lurq")
+  .description("A Rust UI toolkit with GPU-backed rendering.")
+  .fact(icons::CALENDAR_DAYS, "Joined March 2024")
+  .mount(ctx, Link::new("@lurq"));
+
+// With controls in it: a dialog to tooling, and Tab goes into it from the link.
+let reviewer = HoverCard::new()
+  .title("Ivan Zaida")
+  .child(Button::new("Follow").size(ButtonSize::Sm))
+  .placement(Placement::Right)
+  .arrow(true)
+  .mount(ctx, Link::new("Ivan Zaida"));
+```
+
+| Builder | |
+| --- | --- |
+| `mount(ctx, element)` | Puts the card on the element it is about and returns that element |
+| `title(&str)`, `description(&str)` | What it is about, and a line or two about it |
+| `media(element)` | What stands at its start, beside the text: an avatar, the icon of a file |
+| `fact(icon, &str)`, `plain_fact(&str)` | A fact in the row under the description, with an icon of the theme's set or without one |
+| `child(element)`, `children(..)` | What it holds under its text: a link, a row of buttons |
+| `placement(Placement)` | The side of the element it is on and the edge it lines up with: `Bottom`, centered, by default |
+| `arrow(bool)` | A triangle with the panel's edge from the panel to the element |
+| `open_delay(..)`, `close_delay(..)` | A `MotionDuration` of the theme's or a `Duration`: how long the pointer rests before it opens (`Slower`, 400 ms) and how long it stays after the pointer left (`Slow`, 240 ms) |
+| `open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never |
+| `disabled(bool)` | It never opens, and the element is as it would be without it |
+| `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of what shows |
+
+- It opens when the pointer has rested on the element for its open delay, and at once when the keyboard's focus comes to the element or to anything in it. It stays open while the pointer is on the element, on the card or crossing the room between them (the room is the card's root, which the pointer is on), and while the focus is in either; it closes when the pointer has left both for its close delay, when the focus leaves both, and on Escape, which it takes before anything under it. After Escape it stays closed until the pointer comes again or both the pointer and the focus have left.
+- Tab goes from the element into the card's controls and on to what follows the element (`Overlay::tab_after_anchor`): the focus is not moved into it as it opens, which is what `Overlay::takes_focus` would do. As it closes with the focus inside, the focus goes back to the element.
+- One hover card of the pointer shows at a time. Where there is no room on its side it goes to the other, its arrow turned with it, and where the window pushes it along, its arrow still points at the middle of the element.
+- To what reads the tree it is a `dialog` where it holds a control and a `tooltip` where it does not, called by its title; the element is described by the title and the description (`a11y_description`), and says it has a dialog where the card has controls.
+- It is a mounted component, as the tooltip is. Converted into an element on its own, a `HoverCard` is its panel as it shows, anchored to nothing.
+- Parts: `HoverCardPart::Root` (the panel and its arrow, and the room between them and the element), `Panel`, `Media`, `Text`, `Title`, `Description`, `Facts`, `Fact`, `FactIcon`, `Arrow`. States: `HoverCardState::Arrow`, `Controls`, and the side it is on by the names of `TooltipSide` (`"top"`, `"bottom"`, `"left"`, `"right"`).
+- In the design the panel is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Md` shadow and 16 of padding, the media 12 before the text. The text is 6 apart: the title in 14 at medium weight, the description in 13 of `MutedForeground` in lines of 1.5, and the facts 12 apart, each an icon of 14 6 before its text in 12, both muted. It stands 8 from the element; the arrow is 18 along the panel and 9 out from it. It fades in over the base duration and out over the fast one.
+
+## Toggletip
+
+A tooltip opened by a press: a small button beside a label that opens a few words about it, for what must be reachable by a finger and told by a screen reader.
+
+```rust
+use lurq::ui::Toggletip;
+
+let help = Toggletip::new("What is a workspace?")
+  .content("A workspace holds the projects a team shares.")
+  .link("Learn more", |_| open_docs())
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `Toggletip::new(&str)` | What its button is called to tooling: the question the panel answers |
+| `mount(ctx)` | Puts its button where it goes, and its panel over the window while it is open |
+| `content(&str)` | What the panel says |
+| `link(&str, handler)` | A link under the text, with an arrow after it |
+| `child(element)`, `children(..)` | What the panel holds under its text: a button |
+| `icon(name)` | The button's icon, `icons::INFO` unless this says otherwise |
+| `placement(Placement)` | The side of the button the panel is on: `Top` by default |
+| `arrow(bool)` | A triangle from the panel to the button: the tooltip's |
+| `open(Option<bool>)` | `Some(true)` shows the panel whatever the button says, `Some(false)` never |
+| `disabled(bool)` | The button takes nothing |
+| `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
+| `id` | The id of the button; the root of the panel is `<id>-panel` |
+
+- A press of the button opens the panel and another closes it; a press outside it and Escape close it too. The focus stays on the button as it opens, and Tab goes from the button into the panel's link and on; as the panel closes with the focus in it, the focus goes back to the button.
+- To what reads the tree the button is called by its label and says whether it is expanded (`a11y_expanded`), and the panel is a `status`.
+- It is a mounted component: it keeps whether it is open. Converted into an element on its own, a `Toggletip` is its panel as it shows.
+- Parts: `ToggletipPart::Root`, `Trigger` and `TriggerIcon` (what it gives the theme's button and its icon), `Panel`, `Text`, `Link` and `LinkLabel` (what it gives the theme's link and its label), `Arrow`. States: `ToggletipState::Open`, `Arrow`, `Disabled`, and the side as a hover card has it.
+- In the design the panel is 230 wide on `Primary`, `Md` round, with 12 of padding and 8 between what it holds. Its text is 13 in `PrimaryForeground` in lines of 1.4, and its link 13 at 600 with an arrow up and right of 14, underlined in `PrimaryForeground` under the pointer. The button is a ghost one of 20 that is a circle, its icon of 14 in `MutedForeground`, in `Foreground` under the pointer and while the panel is open. The panel stands 6 from the button, and its arrow is the tooltip's, 12 along and 6 out.
+
+## Teaching Tip
+
+A panel that points at one thing in the app and says what it is for, the first time a person comes to it or when it is new, without taking the focus from what they are doing. A tour shows several, one after another.
+
+```rust
+use lurq::ui::{Icon, TeachingTip, TeachingTipVariant, Tour, TourStep, icons};
+
+// anchor: ElementRef, open: Signal<bool>, kept by the app.
+let close = open.clone();
+let dock = TeachingTip::new(anchor.clone(), open.clone())
+  .media(Icon::new(icons::SPARKLES).size(24.0))
+  .title("Dock panels anywhere")
+  .description("Drag a panel by its header and drop it on any edge of the window.")
+  .primary("Got it", move |_| close.set(false))
+  .mount(ctx);
+
+// step: Signal<Option<usize>>, which step shows; None while the tour is not on.
+let tour = Tour::new(step.clone())
+  .step(TourStep::new(theme_button, "Switch themes here").description("Light and dark palettes share the same roles."))
+  .step(TourStep::new(panels, "Dock panels anywhere"))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `TeachingTip::new(anchor, open)` | Pointing at `anchor` while the `Signal<bool>` is `true` |
+| `mount(ctx)` | Puts it in the app; the element it returns has no size and goes anywhere |
+| `title(&str)`, `description(&str)` | What it points at, and what it is for |
+| `media(element)` | A picture or an icon at its top, on a muted fill as wide as it |
+| `child(element)` | Something it holds under the description |
+| `step(n, of)` | That it is a step of several: "2 of 4" in its footer, in the tour's look |
+| `primary(&str, handler)`, `secondary(&str, handler)` | The button that goes on, and the one before it |
+| `on_close(Fn())` | Told as its close control or Escape closes it, after which the signal is `false` |
+| `close_button(bool)` | A close control at the end of its title: on by default |
+| `variant(TeachingTipVariant)` | `Plain` (the default), in the popover's colors, or `Primary` |
+| `placement(Placement)` | The side of what it points at it is on: `Bottom` by default |
+| `arrow(bool)` | A triangle with the panel's edge pointing at what it is about: on by default |
+| `takes_focus(bool)` | The focus goes into it as it opens and back as it closes. Off by default |
+| `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
+| `id` | The id of what shows; its close control is `<id>-close`, its buttons `<id>-primary` and `<id>-secondary` |
+
+- It does not keep whether it is open: the app's signal does. Its close control and Escape close it, set the signal to `false` and tell `on_close`; a press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
+- It does not take the focus unless the app says so: Tab goes from what it points at into its buttons and on (`Overlay::tab_after_anchor`). With `takes_focus(true)` the focus goes into it as it opens and back to what had it as it closes.
+- To what reads the tree it is a `dialog` called by its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
+- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`labels(back, next, done)`). Its buttons set the signal; Done and Escape set it to `None`, and Done tells `on_finish`. `TourStep::new(anchor, title)` has `description`, `media` and `placement`; the tour has `variant`, `placement` and `arrow` for all its steps.
+- Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows.
+- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Stepped` (it has a count), `Media`, and the side as a hover card has it.
+- In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
