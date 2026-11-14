@@ -17,7 +17,8 @@ use lurq::{
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
   ui::{
     Badge, BadgePart, BadgeVariant, Button, ButtonVariant, CommandItem, CommandPalette, FontFamily, Kbd, KeyPlatform,
-    SegmentedControl, Sidebar, SidebarGroup, SidebarItem, SidebarTrigger, icons,
+    Recipe, SegmentedControl, Selector, Sidebar, SidebarGroup, SidebarItem, SidebarPart, SidebarState, SidebarTrigger,
+    icons,
   },
 };
 
@@ -409,8 +410,31 @@ fn sidebar(ctx: &mut Ctx, state: &Shell, current: &str) -> Element {
     });
     Some(SidebarGroup::new(group.name()).count(pages.len()).items(items))
   });
+  // The gallery's side bar is on the canvas of its window, as its design draws it, and the page that is open is a
+  // card on it: the component's own fill is the board's sidebar's, which stands beside a page of another color.
+  let look = Recipe::new()
+    .base(SidebarPart::Root, |s| s.background(PaletteColor::Canvas))
+    .hovered(SidebarPart::Item, |s| {
+      s.background(PaletteColor::Highlight)
+        .foreground(PaletteColor::HighlightForeground)
+    })
+    .state(SidebarState::Selected, SidebarPart::Item, |s| {
+      s.background(PaletteColor::Card)
+        .foreground(PaletteColor::CardForeground)
+    })
+    .when(
+      Selector::new().state(SidebarState::Selected).hovered(),
+      SidebarPart::Item,
+      |s| s.background(PaletteColor::Card),
+    )
+    .when(
+      Selector::new().state(SidebarState::Selected).pressed(),
+      SidebarPart::Item,
+      |s| s.background(PaletteColor::Card),
+    );
   Sidebar::new()
     .label("Pages")
+    .rules(&look)
     .groups(groups)
     .collapsed(state.collapsed.clone())
     .open(state.sidebar_open.clone())
