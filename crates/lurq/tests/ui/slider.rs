@@ -2,7 +2,7 @@
 //! a drag and the arrow keys set, its states, and a theme's other look; the
 //! vertical one, and the range slider with its two thumbs.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::{
@@ -114,7 +114,7 @@ fn the_arrow_keys_move_the_value_by_its_step_within_its_range() {
       .padding(8.0)
       .spacing(12.0)
       .child(Slider::new(read_volume.clone()).min(10).max(42).step(2).id("volume"))
-      .child(Slider::new_f32(read_gain.clone()).step(0.25).id("gain"))
+      .child(Slider::new(read_gain.clone()).step(0.25).id("gain"))
       .into()
   });
   // Tab reaches the first slider and draws the ring around its thumb; the arrows then move what Tab is on.
@@ -225,7 +225,7 @@ fn a_theme_restyles_the_slider_and_gives_it_another_look_that_still_slides() {
   let app = App::new();
   app
     .theme()
-    .patch_recipe::<Slider>(|rules| rules.base(SliderPart::Range, |s| s.background(PaletteColor::Destructive)));
+    .patch_recipe::<Slider>(|rules| rules.base(SliderPart::Fill, |s| s.background(PaletteColor::Destructive)));
   // A slider that shows its value after the track: other nodes, the same behavior.
   let renderer: SliderRenderer = Arc::new(|view: SliderView| {
     let value = format!("{}", view.value());
@@ -460,7 +460,7 @@ fn a_disabled_range_slider_takes_nothing() {
 fn a_theme_styles_the_range_slider_by_its_state() {
   let app = App::new();
   app.theme().patch_recipe::<Slider>(|rules| {
-    rules.state(SliderState::Range, SliderPart::Range, |s| {
+    rules.state(SliderState::Range, SliderPart::Fill, |s| {
       s.background(PaletteColor::Destructive)
     })
   });
@@ -525,4 +525,217 @@ fn page_keys_home_and_end_move_a_slider_and_each_thumb_of_a_range() {
   stage.key("End");
   assert_eq!(price.get(), (0, 100));
   assert_eq!(level.get(), 0, "the keys move only what Tab is on");
+}
+
+/// What a slider's handlers were told, in order.
+#[derive(Clone, Default)]
+struct Heard(Arc<Mutex<Vec<String>>>);
+
+impl Heard {
+  fn tell(&self, what: impl Into<String>) {
+    self.0.lock().unwrap().push(what.into());
+  }
+
+  /// What was told since the last look.
+  fn take(&self) -> Vec<String> {
+    std::mem::take(&mut *self.0.lock().unwrap())
+  }
+}
+
+/// The x of the point along the slider `id` that is at `ratio` of its range: the thumb's center goes 224 from 8 in.
+fn along(stage: &mut Stage, id: &str, ratio: f32) -> (f32, f32) {
+  let (x, y, ..) = stage.bounds(id);
+  (x + 8.0 + 224.0 * ratio, y + 8.0)
+}
+
+#[test]
+fn on_change_hears_what_a_person_does_and_on_change_end_the_end_of_it_and_neither_what_the_app_sets() {
+  let volume = Signal::new(0);
+  let heard = Heard::default();
+  let (read, told, ended) = (volume.clone(), heard.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let (told, ended) = (told.clone(), ended.clone());
+    Row::new()
+      .padding(8.0)
+      .child(
+        Slider::new(read.clone())
+          .on_change(move |value| told.tell(format!("change {value}")))
+          .on_change_end(move |value| ended.tell(format!("end {value}")))
+          .id("slider"),
+      )
+      .into()
+  });
+  let (half, three_quarters) = (along(&mut stage, "slider", 0.5), along(&mut stage, "slider", 0.75));
+  stage.tree.mouse_move(half.0, half.1);
+  stage.tree.mouse_down(half.0, half.1, MouseButton::Left);
+  stage.tree.mouse_move(three_quarters.0, three_quarters.1);
+  stage.pass();
+  assert_eq!(
+    heard.take(),
+    ["change 50", "change 75"],
+    "each change as the drag makes it"
+  );
+  stage
+    .tree
+    .mouse_up(three_quarters.0, three_quarters.1, MouseButton::Left);
+  stage.pass();
+  assert_eq!(heard.take(), ["end 75"], "and the value when it is let go");
+
+  stage.key("ArrowRight");
+  assert_eq!(
+    heard.take(),
+    ["change 76", "end 76"],
+    "a key's step is over as it is made"
+  );
+  stage.key("End");
+  stage.key("ArrowRight");
+  assert_eq!(
+    heard.take(),
+    ["change 100", "end 100"],
+    "a key at the end changes nothing, and tells nothing"
+  );
+
+  volume.set(10);
+  stage.pass();
+  assert!(heard.take().is_empty(), "the app setting the signal is not told");
+  assert_eq!(volume.get(), 10);
+}
+
+#[test]
+fn a_slider_of_fractions_is_told_its_value_as_it_is_written() {
+  let opacity = Signal::new(0.5_f32);
+  let heard = Heard::default();
+  let (read, told) = (opacity.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Row::new()
+      .padding(8.0)
+      .child(
+        Slider::new(read.clone())
+          .step(0.05)
+          .on_change(move |value| told.tell(value.to_string()))
+          .id("slider"),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(heard.take(), ["0.55"]);
+}
+
+#[test]
+fn a_controlled_slider_shows_what_the_app_answers_and_a_drag_goes_on_over_its_renders() {
+  let held = Signal::new(20);
+  let refuse = Arc::new(Mutex::new(false));
+  let heard = Heard::default();
+  let (value, no, told) = (held.clone(), refuse.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let (value, no, told) = (value.clone(), no.clone(), told.clone());
+    Row::new()
+      .padding(8.0)
+      .child(
+        Slider::controlled(value.get(), move |next| {
+          told.tell(format!("change {next}"));
+          if !*no.lock().unwrap() {
+            value.set(next as i32);
+          }
+        })
+        .id("slider"),
+      )
+      .into()
+  });
+  let (x, ..) = stage.bounds("slider");
+  assert!((thumb(&mut stage, "slider").x - x - 224.0 * 0.2).abs() < 1.0);
+  let (half, three_quarters, quarter) = (
+    along(&mut stage, "slider", 0.5),
+    along(&mut stage, "slider", 0.75),
+    along(&mut stage, "slider", 0.25),
+  );
+  stage.tree.mouse_move(half.0, half.1);
+  stage.tree.mouse_down(half.0, half.1, MouseButton::Left);
+  stage.pass();
+  assert_eq!(held.get(), 50, "the app took what it was told");
+  // The drag goes on over the render the answer made.
+  stage.tree.mouse_move(three_quarters.0, three_quarters.1);
+  stage.pass();
+  assert_eq!(held.get(), 75);
+  assert!((thumb(&mut stage, "slider").x - x - 224.0 * 0.75).abs() < 1.0);
+
+  // An app that keeps its value: the slider shows the app's, not where the pointer is.
+  *refuse.lock().unwrap() = true;
+  stage.tree.mouse_move(quarter.0, quarter.1);
+  stage.pass();
+  stage.tree.mouse_up(quarter.0, quarter.1, MouseButton::Left);
+  stage.pass();
+  // The release at 25 asks for it again: the value is still the app's 75.
+  assert_eq!(heard.take(), ["change 50", "change 75", "change 25", "change 25"]);
+  assert_eq!(held.get(), 75);
+  assert!(
+    (thumb(&mut stage, "slider").x - x - 224.0 * 0.75).abs() < 1.0,
+    "the app's value is shown"
+  );
+}
+
+#[test]
+fn a_range_slider_tells_both_values_and_its_controlled_form_shows_the_answer() {
+  let price = Signal::new((20, 80));
+  let heard = Heard::default();
+  let (read, told, ended) = (price.clone(), heard.clone(), heard.clone());
+  let held = Signal::new((10.0_f32, 30.0_f32));
+  let answer = held.clone();
+  let mut stage = Stage::new(move |_| {
+    let (told, ended, answer) = (told.clone(), ended.clone(), answer.clone());
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(
+        RangeSlider::new(read.clone())
+          .on_change(move |(low, high)| told.tell(format!("change {low} {high}")))
+          .on_change_end(move |(low, high)| ended.tell(format!("end {low} {high}")))
+          .id("price"),
+      )
+      .child(
+        RangeSlider::controlled(answer.get(), move |(low, high)| answer.set((low as f32, high as f32)))
+          .max(40)
+          .id("held"),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(heard.take(), ["change 21 80", "end 21 80"]);
+  stage.key("Tab");
+  stage.key("ArrowLeft");
+  assert_eq!(heard.take(), ["change 21 79", "end 21 79"]);
+  assert_eq!(price.get(), (21, 79));
+
+  // The controlled one of fractions, from 0 to 40 in hundredths: its low thumb steps and the app answers.
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(held.get(), (10.01, 30.0));
+}
+
+#[test]
+fn the_state_of_its_way_is_on_one_way_or_the_other() {
+  let app = App::new();
+  app
+    .theme()
+    .patch_recipe::<Slider>(|rules| rules.state(SliderState::Horizontal, SliderPart::Root, |s| s.width(300.0)));
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .padding(8.0)
+      .child(Slider::new(Signal::new(10)).id("across"))
+      .child(
+        Slider::new(Signal::new(10))
+          .orientation(SliderOrientation::Vertical)
+          .id("up"),
+      )
+      .into()
+  });
+  assert_eq!(
+    stage.bounds("across").2,
+    300.0,
+    "a horizontal slider is in the state Horizontal"
+  );
+  assert_eq!(stage.bounds("up").2, 16.0, "a vertical one is not");
 }

@@ -56,6 +56,32 @@ impl Slider {
     self
   }
 
+  /// Called each time a person changes the value: a drag as it moves, a press on the track, an arrow, Page or
+  /// Home/End key, a change from tooling. Given the low value and the high one; of a slider of one value, that
+  /// value twice. Not called when the app sets the signal, nor when a new range or step snaps it. Each call adds a
+  /// handler.
+  pub fn on_change(mut self, handler: impl Fn(f32, f32) + Send + Sync + 'static) -> Self {
+    let handler: crate::node::node_kind::SliderChangeHandler = std::sync::Arc::new(handler);
+    self.update_node(|node| {
+      if let Some(state) = node.slider_state() {
+        state.add_on_change(handler);
+      }
+    });
+    self
+  }
+
+  /// Called when an interaction that changed the value is over, with the value as it then is: the drag let go,
+  /// the press on the track or the key done. Each call adds a handler.
+  pub fn on_change_end(mut self, handler: impl Fn(f32, f32) + Send + Sync + 'static) -> Self {
+    let handler: crate::node::node_kind::SliderChangeHandler = std::sync::Arc::new(handler);
+    self.update_node(|node| {
+      if let Some(state) = node.slider_state() {
+        state.add_on_change_end(handler);
+      }
+    });
+    self
+  }
+
   pub fn track_style(mut self, style: SliderPartStyle) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::slider_track_style(node, style));
     self

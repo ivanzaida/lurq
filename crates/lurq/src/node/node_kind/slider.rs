@@ -1,6 +1,10 @@
 use super::*;
 use crate::node::slider_style::SliderOrientation;
 
+/// What hears a slider's value change, given its low value and its high one (of a slider of one value, that
+/// value twice).
+pub(crate) type SliderChangeHandler = Arc<dyn Fn(f32, f32) + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) struct SliderState {
   value: SliderValue,
@@ -44,6 +48,12 @@ struct SliderInner {
   active: SliderThumb,
   /// Where the active thumb is drawn while it is dragged, between the values it snaps to.
   drag_ratio: Option<f32>,
+  /// Told of each change a person makes: a drag, a press on the track, a key, tooling.
+  on_change: Vec<SliderChangeHandler>,
+  /// Told when the interaction that changed the value is over: the drag let go, the key's step made.
+  on_change_end: Vec<SliderChangeHandler>,
+  /// A person changed the value in the interaction going on: what its end is told of.
+  changed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -284,6 +294,9 @@ impl SliderInner {
       hovered: false,
       active: SliderThumb::Low,
       drag_ratio: None,
+      on_change: Vec::new(),
+      on_change_end: Vec::new(),
+      changed: false,
     }
   }
 }
@@ -370,6 +383,49 @@ impl SliderState {
     self.value.id()
   }
 
+  /// Adds what is told of each change a person makes to the value.
+  pub(crate) fn add_on_change(&self, handler: SliderChangeHandler) {
+    self.inner.lock().unwrap().on_change.push(handler);
+  }
+
+  /// Adds what is told when an interaction that changed the value is over.
+  pub(crate) fn add_on_change_end(&self, handler: SliderChangeHandler) {
+    self.inner.lock().unwrap().on_change_end.push(handler);
+  }
+
+  /// Tells of a change a person made, where it `changed` the value. The app's own setting of the signal, the
+  /// range and the step snapping it, are not told.
+  fn told(&self, changed: bool) -> bool {
+    if changed {
+      let handlers = {
+        let mut inner = self.inner.lock().unwrap();
+        inner.changed = true;
+        inner.on_change.clone()
+      };
+      let (low, high) = self.value.get();
+      for handler in handlers {
+        handler(low, high);
+      }
+    }
+    changed
+  }
+
+  /// The interaction is over: the drag let go, the press or the key done. Tells of the value as it now is,
+  /// where a person changed it in the interaction.
+  pub(crate) fn change_ended(&self) {
+    let handlers = {
+      let mut inner = self.inner.lock().unwrap();
+      if !std::mem::take(&mut inner.changed) {
+        return;
+      }
+      inner.on_change_end.clone()
+    };
+    let (low, high) = self.value.get();
+    for handler in handlers {
+      handler(low, high);
+    }
+  }
+
   /// Sets the value of one thumb; a range's thumb stops at the other's value rather than pass it.
   fn set_value_of(&self, thumb: SliderThumb, value: f32) -> bool {
     if !self.is_range() {
@@ -428,7 +484,9 @@ impl SliderState {
     let ratio = slider_ratio_for_value(value, inner.min, inner.max);
     drop(inner);
     let thumb = self.nearer_thumb(ratio);
-    self.set_value_of(thumb, value)
+    let changed = self.told(self.set_value_of(thumb, value));
+    self.change_ended();
+    changed
   }
 
   /// Sets both values of a range from outside the pointer/keyboard path, each snapped to the range and step and
@@ -443,7 +501,8 @@ impl SliderState {
     let low = snap_slider_value(low, inner.min, inner.max, inner.step);
     let high = snap_slider_value(high, inner.min, inner.max, inner.step);
     drop(inner);
-    self.value.set(low, high);
+    self.told(self.value.set(low, high));
+    self.change_ended();
     true
   }
 
@@ -452,7 +511,7 @@ impl SliderState {
     let raw_value = inner.min + ratio.clamp(0.0, 1.0) * (inner.max - inner.min);
     let value = snap_slider_value(raw_value, inner.min, inner.max, inner.step);
     drop(inner);
-    self.set_value_of(thumb, value)
+    self.told(self.set_value_of(thumb, value))
   }
 
   /// A press at `ratio` along the track: of a range, the thumb nearer it becomes the active one and goes
@@ -461,7 +520,9 @@ impl SliderState {
     let thumb = self.nearer_thumb(ratio);
     self.set_active_thumb(thumb);
     self.clear_drag_ratio();
-    self.set_from_ratio_of(thumb, ratio)
+    let changed = self.set_from_ratio_of(thumb, ratio);
+    self.change_ended();
+    changed
   }
 
   /// The thumb a press at `ratio` along the track takes: the nearer. Of two at one place, the one on the
@@ -538,7 +599,8 @@ impl SliderState {
     let current = self.value_of(thumb);
     let next = snap_slider_value(current + delta as f32 * inner.step, inner.min, inner.max, inner.step);
     drop(inner);
-    self.set_value_of(thumb, next);
+    self.told(self.set_value_of(thumb, next));
+    self.change_ended();
   }
 
   /// Page Up and Page Down: the active thumb moves by `delta` pages, a page being a tenth of the range in whole
@@ -559,7 +621,8 @@ impl SliderState {
     let thumb = inner.active;
     let value = if greatest { inner.max } else { inner.min };
     drop(inner);
-    self.set_value_of(thumb, value);
+    self.told(self.set_value_of(thumb, value));
+    self.change_ended();
   }
 
   pub(crate) fn set_track_style(&self, style: SliderPartStyle) {
@@ -655,6 +718,8 @@ impl SliderState {
     let old_inner = old.inner.lock().unwrap();
     let mut inner = self.inner.lock().unwrap();
     inner.hovered = old_inner.hovered;
+    // A drag that goes on over a render still ends told.
+    inner.changed = old_inner.changed;
     if self.is_range() {
       inner.active = old_inner.active;
     }

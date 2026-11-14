@@ -763,8 +763,12 @@ use lurq::ui::{RangeSlider, Slider, SliderOrientation};
 // volume: Signal<i32>
 Slider::new(volume.clone()).label("Volume");
 
-// A fraction, in steps of a twentieth.
-Slider::new_f32(opacity.clone()).step(0.05).label("Opacity");
+// opacity: Signal<f32>: a fraction, in steps of a twentieth.
+Slider::new(opacity.clone()).step(0.05).label("Opacity");
+
+// The app holds the value; told each change, and of the end of a drag.
+Slider::controlled(volume, move |value| set_volume(value))
+  .on_change_end(move |value| save(value));
 
 // From 10 to 50 in steps of 5.
 Slider::new(size.clone()).min(10).max(50).step(5);
@@ -778,10 +782,13 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 
 | Builder | |
 | --- | --- |
-| `Slider::new(Signal<i32>)`, `Slider::new_f32(Signal<f32>)` | The value it is bound to: whole numbers, from 0 to 100 in steps of 1, or fractions, from 0 to 1 in steps of a hundredth |
-| `RangeSlider::new(Signal<(i32, i32)>)`, `RangeSlider::new_f32(Signal<(f32, f32)>)` | The two values a range slider is bound to, the low one first, in the same ranges and steps |
+| `Slider::new(Signal<T>)` | The value it is bound to, `T` a `SliderNumber`: `i32`, whole numbers from 0 to 100 in steps of 1, or `f32`, fractions from 0 to 1 in steps of a hundredth |
+| `Slider::controlled(value, on_change)` | The app holds the value, an `i32` or an `f32`: the slider shows it, tells `on_change` what a person makes it, and shows what the app answers with. A drag goes on over the renders the answers make |
+| `RangeSlider::new(Signal<(T, T)>)`, `RangeSlider::controlled((low, high), on_change)` | The two values of a range slider, the low one first, in the same ranges and steps |
+| `on_change(Fn(f64))` | Each change a person makes, as it is made: a drag as it moves, a press on the track, a key. Not what the app sets, nor a new range or step that snaps the value. A range slider's is `Fn((f64, f64))`, the two values. Each call adds |
+| `on_change_end(Fn(f64))` | The value when a change is over: the drag let go, the press on the track or the key's step made. A range slider's is told the two. Each call adds |
 | `min(v)`, `max(v)`, `step(v)` | The least value, the greatest and how far apart the values are, from the least. Any number: `min(10)`, `step(0.25)` |
-| `orientation(SliderOrientation)` | `Horizontal`, or `Vertical`: 16 wide and 140 high, the least value at the bottom |
+| `orientation(SliderOrientation)` | `Horizontal`, or `Vertical`: 16 wide and 140 high, the least value at the bottom. `SliderOrientation` is `ui::Orientation` |
 | `length(f32)` | How long the slider is along its track: its width across, its height up |
 | `label(&str)` | What the slider is called, to what reads the tree. The slider shows no text: the field it is in does |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the slider's node |
@@ -789,11 +796,11 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 - It is the engine's [`Slider`](../styling-events/#slider-styling) dressed by the recipe: a drag of the thumb, a press on the track and the keys set the signal, snapped to the step and kept in the range. Tab reaches it wherever it is (`tab_index(0)`), and the focus ring is the thumb's. A vertical slider is dragged along its height, and the up and down arrows move it.
 - The keys: the arrows a step (right and up toward the greatest value), Page Up and Page Down a tenth of the range in whole steps and at least one, Home and End to the least and the greatest. The [engine's slider keys](../styling-events/#slider-keys) are the same for a vertical slider and for each thumb of a range slider.
 - A range slider is the engine's slider with two thumbs. A press on the track moves the nearer thumb, a drag the thumb it began on, and neither passes the other, by the pointer or the keys. Each thumb is a stop of Tab, the low one first; the keys move the one focused, and the ring is around it. In a form it is `FormRangeSliderInput` (see [Forms](../forms/)).
-- Parts: `SliderPart::Root` (the slider's node: its size, its cursor, its opacity), `Track`, `Range` (the track from its start to the thumb, or between a range slider's thumbs), `Thumb` (both of a range slider's). States: `SliderState::Disabled`, `Vertical`, `Range`. A range slider is drawn by the slider's recipe and renderer in the state `Range`, so a theme that restyles the slider restyles it too, and `rules.state(SliderState::Range, ..)` styles it alone.
-- In the design the slider is 240 by 16; the track is 4 high and round, in `Secondary`; the range is `Primary`; the thumb is 16, round, in `Background` with an edge of 1.5 in `Primary` inside it. The vertical one is 16 by 140, its track 4 wide and as high as it. A disabled slider is dimmed. `style(SliderPart::Root, |s| s.width(Length::Fill))` makes it as wide as what holds it.
-- The engine paints the track, the range and the thumb, not nodes: of their style it takes the width and the height in pixels, the fill, the corners, the border and the outline (`focus_ring()` too), at rest, under the pointer (`hovered`), and for the thumb focused from the keyboard (`focus_visible`). An opacity, a shadow or a transition of one of those three parts is not painted. On a vertical slider a part's width is its thickness.
+- Parts: `SliderPart::Root` (the slider's node: its size, its cursor, its opacity), `Track`, `Fill` (the track from its start to the thumb, or between a range slider's thumbs), `Thumb` (both of a range slider's). States: `SliderState::Disabled`, `Horizontal` or `Vertical` (one of them is on), `Range`. A range slider is drawn by the slider's recipe and renderer in the state `Range`, so a theme that restyles the slider restyles it too, and `rules.state(SliderState::Range, ..)` styles it alone.
+- In the design the slider is 240 by 16; the track is 4 high and round, in `Secondary`; the fill is `Primary`; the thumb is 16, round, in `Background` with an edge of 1.5 in `Primary` inside it. The vertical one is 16 by 140, its track 4 wide and as high as it. A disabled slider is dimmed. `style(SliderPart::Root, |s| s.width(Length::Fill))` makes it as wide as what holds it.
+- The engine paints the track, the fill and the thumb, not nodes: of their style it takes the width and the height in pixels, the fill, the corners, the border and the outline (`focus_ring()` too), at rest, under the pointer (`hovered`), and for the thumb focused from the keyboard (`focus_visible`). An opacity, a shadow or a transition of one of those three parts is not painted. On a vertical slider a part's width is its thickness.
 - To what reads the tree (`lurq_snapshot` of the MCP server) it is a `slider` called by its label; a range slider's value is `low,high`.
-- A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value (or the two) with its orientation, the root's style and the length, and `view.dressed(slider)` gives it the recipe's track, range and thumbs. `view.value()` reads the value, `view.values()` a range slider's two, and `view.is_range()` tells which it is.
+- A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value (or the two) with its orientation, the root's style and the length, and `view.dressed(slider)` gives it the recipe's track, fill and thumbs. `view.value()` reads the value, `view.values()` a range slider's two, and `view.is_range()` tells which it is.
 
 ## Select
 
@@ -1863,7 +1870,7 @@ A number a person types or steps: a quantity, a price, a size in pixels.
 use lurq::ui::{NumberFormat, NumberInput, NumberInputLayout};
 
 // A number there always is, between 1 and 99.
-NumberInput::new(quantity.clone()).min(1.0).max(99.0).label("Quantity");
+NumberInput::new(quantity.clone()).min(1).max(99).label("Quantity");
 
 // A price with two decimals, its thousands set apart, the buttons stacked at the end.
 NumberInput::new(price.clone())
@@ -1876,24 +1883,26 @@ NumberInput::new(price.clone())
 // A number that may be left out: an emptied field is None, not 0.
 NumberInput::optional(limit.clone()).placeholder("No limit");
 
-// The app's own value, told back.
-NumberInput::controlled(seats.get()).on_change(move |value| seats.set(value));
+// The app's own value, told back; and saved when Enter, the focus leaving or a step ends a change.
+NumberInput::controlled(seats.get(), move |value| seats.set(value)).on_change_end(move |value| save(value));
 ```
 
 | Builder | |
 | --- | --- |
 | `NumberInput::new(Signal<f64>)` | Bound to a number there always is: an emptied field takes back the number it had when it is left |
 | `NumberInput::optional(Signal<Option<f64>>)` | Bound to a number that may be none: an emptied field sets `None` |
-| `NumberInput::controlled(Option<f64>)` | Shows what the app gives it and tells each change to `on_change` |
-| `min(f64)`, `max(f64)` | The ends of the range, where it has them. With no least value a minus can be typed and Home moves the caret; with no greatest End does |
-| `step(f64)` | How far apart the values a step takes it to are, from the least (from 0 with none): 1 when not given |
+| `NumberInput::controlled(Option<f64>, on_change)` | The app holds the value: it shows it, tells `on_change` each change a person makes, and shows what the app answers with |
+| `min(v)`, `max(v)` | The ends of the range, where it has them, any number (`impl Into<f64>`). With no least value a minus can be typed and Home moves the caret; with no greatest End does |
+| `step(v)` | How far apart the values a step takes it to are, from the least (from 0 with none): 1 when not given |
 | `precision(usize)` | How many decimals the value keeps and shows: as many as the step has when not given. With none no decimal separator is taken |
 | `format(NumberFormat)` | How the number is written out of the focus: `prefix`, `suffix`, `grouping`, `separators(decimal, group)`, or `NumberFormat::custom(format, parse)`, the app's own |
 | `layout(NumberInputLayout)` | `Split` (the board's: a minus at the start, a plus at the end, the number in the middle), `Stacked` (a chevron up over one down at the end, the number at the start), `Bare` (no buttons) |
 | `size(NumberInputSize)` | `Sm` 32, `Md` 36, `Lg` 40 high, the type 13, 14, 15 |
 | `placeholder(&str)` | What an empty input says |
 | `invalid`, `warning`, `valid`, `read_only` | As an [input](#input) has them. A read-only one is focused and selected, and its keys and buttons change nothing |
-| `on_change(Fn(Option<f64>))` | Called with the value each time it changes |
+| `on_change(Fn(Option<f64>))` | Called with the value each time a person changes it: as it is typed, stepped, put right or emptied. Each call adds |
+| `on_change_end(Fn(Option<f64>))` | Called with the value when a change is over, where it is another than before: Enter or the focus leaving after typing, each step of a key or a button, Home and End. Each call adds |
+| `increase_label(&str)`, `decrease_label(&str)` | What the buttons are called to what reads the tree: "Increase" and "Decrease" when not given |
 | `name(..)` | The name of its text in a form's data. A form's number is bound with `NumberInput::new(form.number("seats"))` |
 | `label`, `full_width`, `disabled`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an [input](#input) has them. `id` is the id of the box that is typed in |
 
@@ -1901,11 +1910,11 @@ NumberInput::controlled(seats.get()).on_change(move |value| seats.set(value));
 - In the focus the number is typed plain, with the decimal separator and nothing around it; out of it, it is written in the format. A locale's decimal separator is the format's: `NumberFormat::new().separators(',', '.')`.
 - Up and Down take a step, Page Up and Page Down ten, Home and End go to the least and the greatest value where the range has them. A step from a value between two steps goes to the next one; from an empty field it goes to 0, or to the end of the range nearer to it. A wheel over the input scrolls what it is in and leaves the number as it is.
 - The buttons take a step when pressed, and while held another after 400 ms and then every 50 ms. They are not stops of Tab and take no focus: a press leaves the focus on the number being typed. The one toward an end of the range the value is at is disabled and dimmed (states `AtMin`, `AtMax`).
-- Parts: `NumberInputPart::Root` (its width), `Control` (the box that is typed in, which holds the ring of the focus), `Placeholder`, `Buttons` (what holds the buttons over the box: its inset and corners), `Decrease`, `Increase`, `Divider` (the line between a button and the number), `Icon`. Variants: `NumberInputLayout`. States: `NumberInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `AtMin`, `AtMax`.
+- Parts: `NumberInputPart::Root` (its width), `Control` (the box that is typed in, which holds the ring of the focus), `Placeholder`, `Buttons` (what holds the buttons over the box: its inset and corners), `Decrease`, `Increase`, `Separator` (the line between a button and the number), `Icon`. Variants: `NumberInputLayout`. States: `NumberInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `AtMin`, `AtMax`.
 - In the design the box is 132 by 36, an input's box (the `Background` fill in an edge of 1 in `Input`, 6 round), its number in the middle in the mono type at 14 in `Foreground`. The minus and the plus are 36 wide at the ends, each with a line of 1 in `Input` between it and the number, their glyphs 16; under the pointer a button is in `Highlight`. The ring's color under the pointer, a line of 2 inside the box in the focus, and the judgments' colors are the input's.
-- The board's mobile quantity stepper is the number input restyled: rules make the `Control` 44 high, round, in `Secondary` with no edge, the number in the sans type at 16, semibold; the `Buttons` with no inset and round; `Decrease` and `Increase` 44 wide; the `Divider` 0 wide; the `Icon` 20. The gallery's page has them.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `spinbutton` called by its label, with `a11y_valuenow`, `a11y_valuetext` (as it is written), `a11y_valuemin` and `a11y_valuemax`; the buttons are `button`s called "Increase" and "Decrease", with `a11y_disabled` at an end of the range.
-- A renderer that draws another number input has `view.control()` (the box with all of its typing, keys and putting right), `view.button(part, icon, steps)`, `view.divider()`, `view.buttons()` (laid over the box as the layout has them) and `view.buttons_reach()` (how far they reach in from each end).
+- The board's mobile quantity stepper is the number input restyled: rules make the `Control` 44 high, round, in `Secondary` with no edge, the number in the sans type at 16, semibold; the `Buttons` with no inset and round; `Decrease` and `Increase` 44 wide; the `Separator` 0 wide; the `Icon` 20. The gallery's page has them.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `spinbutton` called by its label, with `a11y_valuenow`, `a11y_valuetext` (as it is written), `a11y_valuemin` and `a11y_valuemax`; the buttons are `button`s called "Increase" and "Decrease" (or their labels), with `a11y_disabled` at an end of the range, their ids the input's with `-increase` and `-decrease` after it.
+- A renderer that draws another number input has `view.control()` (the box with all of its typing, keys and putting right), `view.button(part, icon, steps)`, `view.separator()`, `view.buttons()` (laid over the box as the layout has them) and `view.buttons_reach()` (how far they reach in from each end).
 
 ## Input OTP
 

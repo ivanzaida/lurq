@@ -1,22 +1,24 @@
 //! A slider: a value picked along a track, between a least and a greatest; and a range slider, two values
 //! picked on one track.
 
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 use super::{
   names,
   part_style::{Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  shared::Orientation,
   theme::{Themed, current_theme},
 };
-/// Which way a slider's track runs: across, or up with the least value at the bottom.
-pub use crate::node::SliderOrientation;
 use crate::{
   app::theme::{OpacityLevel, PaletteColor, RadiusSize, Theme},
   components,
-  core::Signal,
-  node::{CursorIcon, Element, SliderPartStyle, border, dimension::Dimension},
+  core::{Signal, SignalValue},
+  node::{self, CursorIcon, Element, SliderPartStyle, border, dimension::Dimension},
 };
+
+/// Which way a slider's track runs: across, or up with the least value at the bottom.
+pub type SliderOrientation = Orientation;
 
 /// The parts of a slider a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -27,7 +29,7 @@ pub enum SliderPart {
   Track,
   /// The part of the track from its start to the thumb: how much of the range the value is. Of a range
   /// slider, the part between its thumbs.
-  Range,
+  Fill,
   /// What is dragged: at the value, along the track. A range slider has two.
   Thumb,
 }
@@ -35,7 +37,7 @@ pub enum SliderPart {
 names!(SliderPart {
   Root => "root",
   Track => "track",
-  Range => "range",
+  Fill => "fill",
   Thumb => "thumb",
 });
 
@@ -45,6 +47,8 @@ names!(SliderPart {
 pub enum SliderState {
   /// It takes no input.
   Disabled,
+  /// Its track runs across, the least value at the start. One of this and [`SliderState::Vertical`] is on.
+  Horizontal,
   /// Its track runs up, the least value at the bottom.
   Vertical,
   /// It is a [`RangeSlider`]: two thumbs, and the range between them.
@@ -53,12 +57,30 @@ pub enum SliderState {
 
 names!(SliderState {
   Disabled => "disabled",
+  Horizontal => "horizontal",
   Vertical => "vertical",
   Range => "range",
 });
 
 /// What builds a slider's nodes: a theme's in place of the default one.
 pub type SliderRenderer = Arc<dyn Fn(SliderView) -> Element + Send + Sync>;
+
+/// What hears a slider's value change: its low value and its high one (of a slider of one value, that twice).
+type ChangeHandler = Arc<dyn Fn(f64, f64) + Send + Sync>;
+
+mod sealed {
+  pub trait Sealed {}
+  impl Sealed for i32 {}
+  impl Sealed for f32 {}
+}
+
+/// A number a slider holds: whole numbers (`i32`), from 0 to 100 in steps of 1 where the slider is given no range
+/// and no step, or fractions (`f32`), from 0 to 1 in steps of a hundredth. A slider is bound to a `Signal<i32>` or
+/// a `Signal<f32>`, a range slider to a signal of a pair of either.
+pub trait SliderNumber: sealed::Sealed + SignalValue + Copy + Send + Sync + 'static {}
+
+impl SliderNumber for i32 {}
+impl SliderNumber for f32 {}
 
 /// The value a slider is bound to: whole numbers, or fractions; of a range slider, a low one and a high one.
 #[derive(Clone)]
@@ -67,6 +89,93 @@ enum Bound {
   Float(Signal<f32>),
   IntRange(Signal<(i32, i32)>),
   FloatRange(Signal<(f32, f32)>),
+}
+
+impl Bound {
+  /// The bound of a slider of one value, of whole numbers or of fractions.
+  fn one<T: SliderNumber>(value: Signal<T>) -> Self {
+    let value: Box<dyn Any> = Box::new(value);
+    match value.downcast::<Signal<i32>>() {
+      Ok(value) => Self::Int(*value),
+      Err(value) => Self::Float(
+        *value
+          .downcast::<Signal<f32>>()
+          .expect("a slider's number is an i32 or an f32"),
+      ),
+    }
+  }
+
+  /// The bound of a range slider, of whole numbers or of fractions.
+  fn pair<T: SliderNumber>(values: Signal<(T, T)>) -> Self
+  where
+    (T, T): SignalValue,
+  {
+    let values: Box<dyn Any> = Box::new(values);
+    match values.downcast::<Signal<(i32, i32)>>() {
+      Ok(values) => Self::IntRange(*values),
+      Err(values) => Self::FloatRange(
+        *values
+          .downcast::<Signal<(f32, f32)>>()
+          .expect("a range slider's numbers are i32 or f32"),
+      ),
+    }
+  }
+
+  /// Whether it holds whole numbers.
+  fn whole(&self) -> bool {
+    matches!(self, Self::Int(_) | Self::IntRange(_))
+  }
+
+  /// The greatest value where the slider is given none: 100 for whole numbers, 1 for fractions.
+  fn greatest(&self) -> f32 {
+    if self.whole() { 100.0 } else { 1.0 }
+  }
+
+  /// Sets the signal to `low` and `high` (a slider of one value to `low`), where it holds something else.
+  fn put(&self, low: f32, high: f32) {
+    match self {
+      Self::Int(signal) => {
+        let next = low.round() as i32;
+        if signal.get_untracked() != next {
+          signal.set(next);
+        }
+      }
+      Self::Float(signal) => {
+        if signal.get_untracked() != low {
+          signal.set(low);
+        }
+      }
+      Self::IntRange(signal) => {
+        let next = (low.round() as i32, high.round() as i32);
+        if signal.get_untracked() != next {
+          signal.set(next);
+        }
+      }
+      Self::FloatRange(signal) => {
+        if signal.get_untracked() != (low, high) {
+          signal.set((low, high));
+        }
+      }
+    }
+  }
+}
+
+/// A value the engine's slider holds as an `f32`, as the app is told it: a whole number exactly, a fraction as it
+/// is written (0.05, not 0.05000000074505806).
+fn told(value: f32, whole: bool) -> f64 {
+  if whole {
+    f64::from(value.round())
+  } else {
+    value.to_string().parse().unwrap_or(f64::from(value))
+  }
+}
+
+/// The engine's slider's way: its own enum, which the design system's is not.
+fn engine_orientation(orientation: Orientation) -> node::SliderOrientation {
+  match orientation {
+    Orientation::Horizontal => node::SliderOrientation::Horizontal,
+    Orientation::Vertical => node::SliderOrientation::Vertical,
+  }
 }
 
 /// A slider: a value picked along a track, between a least and a greatest.
@@ -79,17 +188,25 @@ enum Bound {
 /// let slider = Slider::new(volume).label("Volume");
 /// // A fraction, in steps of a twentieth.
 /// let opacity = Signal::new(0.5_f32);
-/// let fine = Slider::new_f32(opacity).max(1.0).step(0.05).label("Opacity");
+/// let fine = Slider::new(opacity).max(1.0).step(0.05).label("Opacity");
+/// // The app holds the value, and is told what a person makes it.
+/// let held = Slider::controlled(40, |value| println!("{value}")).label("Volume");
 /// ```
 ///
 /// The slider is bound to the app's signal: a drag, a press on the track
 /// and the keys set it, snapped to the step and kept between the least and
-/// the greatest value. The arrow keys move it a step (right and up toward the
+/// the greatest value. [`Slider::on_change`] hears each change a person makes
+/// as it is made, [`Slider::on_change_end`] the value when the drag is let go
+/// or the key's step is made. The arrow keys move it a step (right and up toward the
 /// greatest), Page Up and Page Down a tenth of the range in whole steps and at
 /// least one, and Home and End to the least and the greatest. It is the engine's
 /// [`Slider`](crate::components::Slider) dressed by the theme's recipe.
 pub struct Slider {
   value: Bound,
+  /// Of a controlled slider, the app's value: what the slider shows until the app answers a change.
+  controlled: Option<(f32, f32)>,
+  on_change: Vec<ChangeHandler>,
+  on_change_end: Vec<ChangeHandler>,
   min: f32,
   max: f32,
   step: Option<f32>,
@@ -105,21 +222,48 @@ pub struct Slider {
 }
 
 impl Slider {
-  /// A slider of whole numbers bound to `value`: from 0 to 100, in steps of 1.
-  pub fn new(value: Signal<i32>) -> Self {
-    Self::bound(Bound::Int(value), 100.0)
+  /// A slider bound to `value`: of whole numbers (`Signal<i32>`), from 0 to 100 in steps of 1, or of fractions
+  /// (`Signal<f32>`), from 0 to 1 in steps of a hundredth. What a person does sets the signal.
+  pub fn new<T: SliderNumber>(value: Signal<T>) -> Self {
+    Self::bound(Bound::one(value), None)
   }
 
-  /// A slider of fractions bound to `value`: from 0 to 1, in steps of a hundredth.
-  pub fn new_f32(value: Signal<f32>) -> Self {
-    Self::bound(Bound::Float(value), 1.0)
+  /// A slider that shows `value`, held by the app, and tells `on_change` what a person makes it: the app sets
+  /// what it shows. Of whole numbers or fractions as [`Slider::new`] is.
+  pub fn controlled<T: SliderNumber>(value: T, on_change: impl Fn(f64) + Send + Sync + 'static) -> Self {
+    let signal = Signal::new(value);
+    let bound = Bound::one(signal);
+    let held = Self::held(&bound);
+    Self::bound(bound, Some(held)).on_change(on_change)
   }
 
-  fn bound(value: Bound, max: f32) -> Self {
+  /// What `bound` holds now, as the engine holds it: the low value and the high one.
+  fn held(bound: &Bound) -> (f32, f32) {
+    match bound {
+      Bound::Int(value) => {
+        let value = value.get_untracked() as f32;
+        (value, value)
+      }
+      Bound::Float(value) => {
+        let value = value.get_untracked();
+        (value, value)
+      }
+      Bound::IntRange(values) => {
+        let (low, high) = values.get_untracked();
+        (low as f32, high as f32)
+      }
+      Bound::FloatRange(values) => values.get_untracked(),
+    }
+  }
+
+  fn bound(value: Bound, controlled: Option<(f32, f32)>) -> Self {
     Self {
+      max: value.greatest(),
       value,
+      controlled,
+      on_change: Vec::new(),
+      on_change_end: Vec::new(),
       min: 0.0,
-      max,
       step: None,
       orientation: SliderOrientation::Horizontal,
       length: None,
@@ -157,6 +301,21 @@ impl Slider {
   /// right and left ones do.
   pub fn orientation(mut self, orientation: SliderOrientation) -> Self {
     self.orientation = orientation;
+    self
+  }
+
+  /// Called each time a person changes the value, with the new value: as a drag moves it, a press on the track,
+  /// an arrow, Page or Home/End key. Not called when the app sets the signal, nor for a press that leaves the
+  /// value as it is. Each call adds a handler.
+  pub fn on_change(mut self, handler: impl Fn(f64) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(move |value, _| handler(value)));
+    self
+  }
+
+  /// Called when an interaction that changed the value is over, with the value as it then is: the drag let go,
+  /// the press on the track or the key's step made. Each call adds a handler.
+  pub fn on_change_end(mut self, handler: impl Fn(f64) + Send + Sync + 'static) -> Self {
+    self.on_change_end.push(Arc::new(move |value, _| handler(value)));
     self
   }
 
@@ -232,6 +391,10 @@ impl Slider {
       states: self.states.clone(),
     }
     .state(SliderState::Disabled, self.disabled)
+    .state(
+      SliderState::Horizontal,
+      self.orientation == SliderOrientation::Horizontal,
+    )
     .state(SliderState::Vertical, self.orientation == SliderOrientation::Vertical)
     .state(
       SliderState::Range,
@@ -247,6 +410,9 @@ impl Slider {
       disabled: self.disabled,
       recipe: theme.resolve::<Slider>(&case, Some(&self.rules)),
       value: self.value,
+      controlled: self.controlled,
+      on_change: self.on_change,
+      on_change_end: self.on_change_end,
       forced: self.forced,
       id: self.id,
       key: self.key,
@@ -279,6 +445,9 @@ pub struct SliderView {
   /// The style of each part of this slider.
   pub recipe: ResolvedRecipe,
   value: Bound,
+  controlled: Option<(f32, f32)>,
+  on_change: Vec<ChangeHandler>,
+  on_change_end: Vec<ChangeHandler>,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -330,7 +499,8 @@ impl SliderView {
   /// The engine's slider bound to the value (or a range slider's two), with
   /// its range, step and orientation, in the style of the root and of the
   /// length it was given: what is dragged, pressed, moved by the arrow keys,
-  /// focused and disabled. Its track, range and thumbs are not styled yet:
+  /// focused and disabled, and that tells the slider's handlers of what a
+  /// person does. Its track, fill and thumbs are not styled yet:
   /// [`SliderView::dressed`] gives them the recipe's.
   pub fn slider(&self) -> components::Slider {
     let mut slider = match &self.value {
@@ -339,11 +509,38 @@ impl SliderView {
       Bound::IntRange(values) => components::Slider::new_range(values.clone()),
       Bound::FloatRange(values) => components::Slider::new_range_f32(values.clone()),
     }
-    .orientation(self.orientation)
+    .orientation(engine_orientation(self.orientation))
     // The range first: it keeps the value in it, snapped to the step it has, and the step then snaps it to its own.
     .range_f32(self.min, self.max);
     if let Some(step) = self.step {
       slider = slider.step(step);
+    }
+    let whole = self.value.whole();
+    // A controlled slider shows the app's value: what a person did is told, and the slider goes back to what the
+    // app holds until the app answers with the value it takes.
+    let (handlers, back) = (
+      self.on_change.clone(),
+      self.controlled.map(|held| (self.value.clone(), held)),
+    );
+    if !handlers.is_empty() || back.is_some() {
+      slider = slider.on_change(move |low, high| {
+        let (low_told, high_told) = (told(low, whole), told(high, whole));
+        for handler in &handlers {
+          handler(low_told, high_told);
+        }
+        if let Some((bound, (low, high))) = &back {
+          bound.put(*low, *high);
+        }
+      });
+    }
+    if !self.on_change_end.is_empty() {
+      let handlers = self.on_change_end.clone();
+      slider = slider.on_change_end(move |low, high| {
+        let (low, high) = (told(low, whole), told(high, whole));
+        for handler in &handlers {
+          handler(low, high);
+        }
+      });
     }
     // A slider is a stop of Tab only in a form or with an index of its own. A control of the design system is one
     // wherever it is, in the order of the tree.
@@ -370,27 +567,27 @@ impl SliderView {
     slider
   }
 
-  /// `slider` with its track, range and thumb in the style the recipe gives
+  /// `slider` with its track, fill and thumb in the style the recipe gives
   /// them, at rest and under the pointer; the thumb also as it is while the
   /// slider is focused from the keyboard. The engine paints the parts: of a
   /// part's style it takes the size, the fill, the corners, the border and
   /// the ring.
   pub fn dressed(&self, slider: components::Slider) -> components::Slider {
     let theme = self.theme();
-    let (track, range, thumb) = (
+    let (track, fill, thumb) = (
       self.part(SliderPart::Track),
-      self.part(SliderPart::Range),
+      self.part(SliderPart::Fill),
       self.part(SliderPart::Thumb),
     );
     let mut slider = slider
       .track_style(engine_part(&track.rest(), theme))
-      .fill_style(engine_part(&range.rest(), theme))
+      .fill_style(engine_part(&fill.rest(), theme))
       .thumb_style(engine_part(&thumb.rest(), theme));
     if !track.styles().hovered.is_empty() {
       slider = slider.track_hovered_style(engine_part(&track.styles().hovered, theme));
     }
-    if !range.styles().hovered.is_empty() {
-      slider = slider.fill_hovered_style(engine_part(&range.styles().hovered, theme));
+    if !fill.styles().hovered.is_empty() {
+      slider = slider.fill_hovered_style(engine_part(&fill.styles().hovered, theme));
     }
     if !thumb.styles().hovered.is_empty() {
       slider = slider.thumb_hovered_style(engine_part(&thumb.styles().hovered, theme));
@@ -458,11 +655,11 @@ impl Themed for Slider {
   /// with two thumbs, the range between them.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use SliderPart::{Range, Root, Thumb, Track};
+    use SliderPart::{Fill, Root, Thumb, Track};
     Recipe::new()
       .base(Root, |s| s.width(240.0).height(16.0).cursor(CursorIcon::Pointer))
       .base(Track, |s| s.height(4.0).radius(RadiusSize::Full).background(Secondary))
-      .base(Range, |s| s.radius(RadiusSize::Full).background(Primary))
+      .base(Fill, |s| s.radius(RadiusSize::Full).background(Primary))
       .base(Thumb, |s| {
         s.square(16.0)
           .radius(RadiusSize::Full)
@@ -487,6 +684,8 @@ impl Themed for Slider {
 ///
 /// let price = Signal::new((20, 80));
 /// let slider = RangeSlider::new(price).label("Price");
+/// // The app holds the two values, and is told what a person makes them.
+/// let held = RangeSlider::controlled((20, 80), |(low, high)| println!("{low} to {high}"));
 /// ```
 ///
 /// Bound to the app's signal of the two values, the low one first. A press on
@@ -511,16 +710,41 @@ macro_rules! as_slider {
 }
 
 impl RangeSlider {
-  /// A range slider of whole numbers bound to `values`, the low one first:
-  /// from 0 to 100, in steps of 1.
-  pub fn new(values: Signal<(i32, i32)>) -> Self {
-    Self(Slider::bound(Bound::IntRange(values), 100.0))
+  /// A range slider bound to `values`, the low one first: of whole numbers (`Signal<(i32, i32)>`), from 0 to 100
+  /// in steps of 1, or of fractions (`Signal<(f32, f32)>`), from 0 to 1 in steps of a hundredth.
+  pub fn new<T: SliderNumber>(values: Signal<(T, T)>) -> Self
+  where
+    (T, T): SignalValue,
+  {
+    Self(Slider::bound(Bound::pair(values), None))
   }
 
-  /// A range slider of fractions bound to `values`: from 0 to 1, in steps of
-  /// a hundredth.
-  pub fn new_f32(values: Signal<(f32, f32)>) -> Self {
-    Self(Slider::bound(Bound::FloatRange(values), 1.0))
+  /// A range slider that shows `values`, held by the app, the low one first, and tells `on_change` the two values
+  /// a person makes them: the app sets what it shows.
+  pub fn controlled<T: SliderNumber>(values: (T, T), on_change: impl Fn((f64, f64)) + Send + Sync + 'static) -> Self
+  where
+    (T, T): SignalValue,
+  {
+    let bound = Bound::pair(Signal::new(values));
+    let held = Slider::held(&bound);
+    Self(Slider::bound(bound, Some(held))).on_change(on_change)
+  }
+
+  /// Called each time a person changes either value, with the two, the low one first: as a drag moves a thumb,
+  /// a press on the track, a key. Not called when the app sets the signal. Each call adds a handler.
+  pub fn on_change(mut self, handler: impl Fn((f64, f64)) + Send + Sync + 'static) -> Self {
+    self.0.on_change.push(Arc::new(move |low, high| handler((low, high))));
+    self
+  }
+
+  /// Called when an interaction that changed a value is over, with the two values as they then are: the drag
+  /// let go, the press on the track or the key's step made. Each call adds a handler.
+  pub fn on_change_end(mut self, handler: impl Fn((f64, f64)) + Send + Sync + 'static) -> Self {
+    self
+      .0
+      .on_change_end
+      .push(Arc::new(move |low, high| handler((low, high))));
+    self
   }
 
   as_slider! {

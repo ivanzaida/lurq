@@ -103,7 +103,11 @@ impl SliderPage {
           .disabled(disabled)
       }
     };
-    let slider = plain().force(self.playground.forced());
+    let (record, record_end) = (self.playground.recorder(), self.playground.recorder());
+    let slider = plain()
+      .force(self.playground.forced())
+      .on_change(move |value| record(format!("on_change({value})")))
+      .on_change_end(move |value| record_end(format!("on_change_end({value})")));
 
     let mut code = vec![
       "// volume: Signal<i32>".to_owned(),
@@ -132,7 +136,7 @@ impl SliderPage {
     let tree = vec![
       format!("root       {}", self.playground.measured()),
       format!("├─ track   {track}     secondary"),
-      format!("├─ range   {share}% of the track   primary"),
+      format!("├─ fill    {share}% of the track   primary"),
       format!("└─ thumb   16 × 16 px     at {value}"),
     ];
 
@@ -159,7 +163,7 @@ impl SliderPage {
         fill: false,
         forceable: true,
         facts: format!("value {value}"),
-        event: "value",
+        event: "on_change / on_change_end",
         code,
         tree,
         controls: vec![
@@ -215,7 +219,6 @@ impl Component for SliderPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 4);
     let value = ctx.signal(40);
-    playground.watch(ctx, &value, |value| format!("value = {value}"));
     Self {
       frame: Frame::new(ctx),
       playground,
@@ -242,7 +245,7 @@ impl Component for SliderPage {
         &format!("the signal has: {}", self.volume.get()),
       ))
       .child(item(
-        Slider::new_f32(self.opacity.clone()).step(0.05).label("Opacity"),
+        Slider::new(self.opacity.clone()).step(0.05).label("Opacity"),
         &format!("the signal has: {:.2}", self.opacity.get()),
       ));
     let states = items()
@@ -327,9 +330,29 @@ impl Component for SliderPage {
         "value",
         "Signal<i32> / Signal<f32>",
         "",
-        "What the slider is bound to: Slider::new for whole numbers, Slider::new_f32 for fractions. A drag, a press \
-         on the track and the arrow keys set it. A RangeSlider is bound to a Signal<(i32, i32)> or a \
-         Signal<(f32, f32)>, its low value and its high one.",
+        "What the slider is bound to: Slider::new of a Signal<i32> for whole numbers or of a Signal<f32> for \
+         fractions. A drag, a press on the track and the arrow keys set it. A RangeSlider is bound to a \
+         Signal<(i32, i32)> or a Signal<(f32, f32)>, its low value and its high one.",
+      ),
+      (
+        "controlled",
+        "(value, on_change)",
+        "",
+        "Slider::controlled(value, on_change): the app holds the value, the slider shows it and tells on_change what \
+         a person makes it, and shows what the app answers with. RangeSlider::controlled((low, high), on_change).",
+      ),
+      (
+        "on_change",
+        "Fn(f64)",
+        "",
+        "Each change a person makes, as it is made: a drag as it moves, a press on the track, a key. Not what the app \
+         sets. A RangeSlider's is told the two values, Fn((f64, f64)). Each call adds.",
+      ),
+      (
+        "on_change_end",
+        "Fn(f64)",
+        "",
+        "The value when the change is over: the drag let go, the press or the key's step made. Each call adds.",
       ),
       ("min", "impl Into<f64>", "0", "The least value: the start of the track."),
       (
@@ -402,7 +425,7 @@ impl Component for SliderPage {
               "// volume: Signal<i32>, opacity: Signal<f32>",
               "Slider::new(volume.clone()).label(\"Volume\")",
               "",
-              "Slider::new_f32(opacity.clone())",
+              "Slider::new(opacity.clone())",
               "    .step(0.05)",
               "    .label(\"Opacity\")",
             ],
