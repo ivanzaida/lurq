@@ -464,10 +464,12 @@ impl Playground {
           .justify(Justify::SpaceBetween)
           .border_top(line())
           .border_bottom(line())
-          .child(tabs)
-          .child(tool("Copy", icons::COPY, move || {
+          // The tabs take the room there is and Copy keeps its own: tabs are as wide as what holds them, and
+          // beside them in a row they pushed Copy out of the bar.
+          .child(Row::new().flex(1.0).min_width(0.0).child(tabs))
+          .child(Row::new().flex_shrink(0.0).child(tool("Copy", icons::COPY, move || {
             lurq::clipboard::copy_to_clipboard(&copied);
-          })),
+          }))),
       )
       // As high as the design draws it, whatever it shows: a longer log or a longer builder scrolls in it,
       // and the card keeps its height.
