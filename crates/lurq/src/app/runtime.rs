@@ -8070,6 +8070,14 @@ impl Tree {
 
   fn clear_focus(&mut self) {
     let had_focus = self.focused_node.is_some() || self.focused_event_node.is_some();
+    // A render that builds the focused input anew under another id carries its state, its focus with it, into the
+    // node now where it stood: that one leaves the focus too, or it would go on painting a caret.
+    if let (Some(root), Some(path)) = (&self.root, self.focused_path.as_ref())
+      && let Some(node) = find_node_by_path(root, path)
+      && let NodeKind::TextInput { state, .. } = node.node_kind()
+    {
+      state.set_focused(false);
+    }
     // However the focus goes, Tab goes on from where it was.
     if let (Some(root), Some(id), Some(path)) = (&self.root, self.focused_node, self.focused_path.as_ref()) {
       self.focus_start = Some(tab_navigation::FocusStart::new(root, id, path.clone()));
