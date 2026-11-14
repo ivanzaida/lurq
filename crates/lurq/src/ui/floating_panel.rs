@@ -1,7 +1,10 @@
 //! A floating panel: a tool window inside the app's window, moved by its header and resized by its edges; the header
 //! of a panel on its own; and a layer of floating panels that brings the one pressed to the front.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{
+  Arc, Mutex,
+  atomic::{AtomicBool, Ordering},
+};
 
 use super::{
   icon::Icon,
@@ -570,9 +573,19 @@ pub struct FloatingPanel {
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
-  /// What a layer of panels is told of a press anywhere in the panel, and whether it is the one in front.
-  pub(crate) raise: Option<Handler>,
-  pub(crate) active: bool,
+  on_active_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  /// What a layer of panels makes of the panel, where it is in one.
+  layered: Option<Layered>,
+}
+
+/// What a layer of panels gives a panel in it: what a press in it or the focus coming into it does (it brings the
+/// panel to the front and makes it the active one), what a press outside it or the focus going outside it does (it is
+/// no longer the active one), and whether it is the active one.
+#[derive(Clone)]
+struct Layered {
+  activate: Handler,
+  deactivate: Handler,
+  active: bool,
 }
 
 /// A value of a panel: the app's signal, the app's value with its handler, or the panel's own with what starts it;
@@ -666,8 +679,8 @@ impl FloatingPanel {
       forced: None,
       id: None,
       key: None,
-      raise: None,
-      active: true,
+      on_active_change: Vec::new(),
+      layered: None,
     }
   }
 
@@ -731,6 +744,15 @@ impl FloatingPanel {
   /// handler is called after the first.
   pub fn on_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.on_open_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with whether it is the active panel, its title in the foreground, when that changes by what a person
+  /// does: a press in it, or the focus coming into it, makes it active; a press outside it (on the content it floats
+  /// over, on another panel) or the focus going to something outside it makes it not. A panel starts not active. Not
+  /// when the app sets the active panel of a [`FloatingPanels`]. A second handler is called after the first.
+  pub fn on_active_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.on_active_change.push(Arc::new(handler));
     self
   }
 
@@ -964,8 +986,8 @@ impl FloatingPanel {
       rules: self.rules,
       forced: self.forced,
       id: self.id,
-      raise: self.raise,
-      active: self.active,
+      on_active_change: self.on_active_change,
+      layered: self.layered,
     }
   }
 }
@@ -1005,8 +1027,8 @@ struct Core {
   rules: Recipe,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
-  raise: Option<Handler>,
-  active: bool,
+  on_active_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  layered: Option<Layered>,
 }
 
 /// What a panel keeps where the app keeps nothing, and what a drag needs.
@@ -1023,6 +1045,11 @@ struct Own {
   drag: Arc<Mutex<Option<(PanelPosition, PanelSize)>>>,
   /// Whether it is mounted: a drag moves it.
   mounted: bool,
+  /// Whether it is the active panel, where it is in no layer.
+  active: Signal<bool>,
+  /// Whether its menu was open as it was last drawn: a press that closes the menu, which is outside the panel, does
+  /// not make the panel inactive.
+  menu_open: Arc<AtomicBool>,
 }
 
 impl Own {
@@ -1044,6 +1071,9 @@ impl Own {
       panel: ElementRef::new(),
       drag: Arc::new(Mutex::new(None)),
       mounted: false,
+      // A still panel is drawn as the board draws one: in front.
+      active: Signal::new(true),
+      menu_open: Arc::new(AtomicBool::new(false)),
     }
   }
 }
@@ -1057,12 +1087,34 @@ struct Edges {
 }
 
 impl Core {
+  /// What makes the panel active and what makes it not: its layer's, or its own where it is in none, which tell the
+  /// handlers of a change.
+  fn activity(&self, own: &Own) -> (Handler, Handler) {
+    if let Some(layered) = &self.layered {
+      return (layered.activate.clone(), layered.deactivate.clone());
+    }
+    let turn = |to: bool| -> Handler {
+      let (active, handlers) = (own.active.clone(), self.on_active_change.clone());
+      Arc::new(move || {
+        if active.get_untracked() != to {
+          active.set(to);
+          handlers.iter().for_each(|handler| handler(to));
+        }
+      })
+    };
+    (turn(true), turn(false))
+  }
+
   fn build(self, theme: &Theme, own: &Own) -> Element {
     let open = match &self.open {
       Some(open) => open.get(),
       None => own.open.get(),
     };
     let size = self.size.get(&own.size);
+    let active = match &self.layered {
+      Some(layered) => layered.active,
+      None => own.active.get(),
+    };
     let case = Case {
       variant: None,
       size: None,
@@ -1070,7 +1122,7 @@ impl Core {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(FloatingPanelState::Active, self.active)
+    .state(FloatingPanelState::Active, active)
     .state(FloatingPanelState::Collapsed, !open)
     .state(FloatingPanelState::Sized, size.is_some() && open)
     .state(FloatingPanelState::Resizable, self.resizable)
@@ -1081,7 +1133,7 @@ impl Core {
       open,
       position: self.position.get(&own.position),
       size,
-      active: self.active,
+      active,
       recipe,
       core: self,
       own: own.clone(),
@@ -1103,7 +1155,7 @@ pub struct FloatingPanelView {
   pub position: PanelPosition,
   /// Its size of its own, where a person gave it one.
   pub size: Option<PanelSize>,
-  /// Whether it is the one in front.
+  /// Whether it is the active panel: pressed last, or with the focus in it.
   pub active: bool,
   /// The style of each part of the panel.
   pub recipe: ResolvedRecipe,
@@ -1461,8 +1513,24 @@ impl FloatingPanelView {
         root = root.height(height);
       }
     }
-    if let Some(raise) = self.core.raise.clone() {
-      root = root.on_mouse_down(move |_| raise());
+    if self.own.mounted {
+      let (activate, deactivate) = self.core.activity(&self.own);
+      let pressed = activate.clone();
+      root = root.on_mouse_down(move |_| pressed());
+      // Its root hears every key of the window: after one, whether the focus is in it says whether it is active.
+      // Tab into it makes it active, Tab out of it to the content makes it not; the keys of its menu, which is
+      // outside it, leave it as it is.
+      let (menu, menu_open) = (
+        self.core.menu.as_ref().map(|menu| menu.open.clone()),
+        self.own.menu_open.clone(),
+      );
+      root = root.on_key_up(move |event: KeyboardEvent| {
+        if event.focus_within {
+          activate();
+        } else if !menu.as_ref().is_some_and(|open| open.get_untracked()) && !menu_open.load(Ordering::Relaxed) {
+          deactivate();
+        }
+      });
     }
     if self.core.dismiss_on_escape && !self.core.on_dismiss.is_empty() {
       let handlers = self.core.on_dismiss.clone();
@@ -1562,12 +1630,29 @@ impl Component for PanelHost {
         panel: ElementRef::new(),
         drag: Arc::new(Mutex::new(None)),
         mounted: true,
+        active: ctx.signal(false),
+        menu_open: Arc::new(AtomicBool::new(false)),
       },
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let core = ctx.props::<PanelProps>().core.clone();
+    // A press outside the panel (on the content it floats over, on another panel) makes it no longer active; not one
+    // in its menu, which opens outside it.
+    let menu = core.menu.as_ref().map(|menu| menu.open.clone());
+    let menu_open = self.own.menu_open.clone();
+    menu_open.store(
+      menu.as_ref().is_some_and(|open| open.get_untracked()),
+      Ordering::Relaxed,
+    );
+    let (_, deactivate) = core.activity(&self.own);
+    ctx.on_click_outside(self.own.panel.clone(), move |_| {
+      let open = menu.as_ref().is_some_and(|open| open.get_untracked());
+      if !open && !menu_open.load(Ordering::Relaxed) {
+        deactivate();
+      }
+    });
     core.build(&current_theme(), &self.own)
   }
 }
@@ -1671,6 +1756,8 @@ impl Themed for FloatingPanel {
 #[derive(Clone)]
 pub struct FloatingPanels {
   panels: Vec<FloatingPanel>,
+  active: Option<Signal<Option<Arc<str>>>>,
+  on_active_change: Vec<Arc<dyn Fn(Option<&str>) + Send + Sync>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -1686,6 +1773,8 @@ impl FloatingPanels {
   pub fn new() -> Self {
     Self {
       panels: Vec::new(),
+      active: None,
+      on_active_change: Vec::new(),
       id: None,
       key: None,
     }
@@ -1703,6 +1792,22 @@ impl FloatingPanels {
     self
   }
 
+  /// The active panel, held in the app's signal: the key of a panel (its `key`, or its title where it has none), or
+  /// `None` where no panel is active. A press in a panel or the focus coming into it sets its key; a press on the
+  /// content the panels float over or the focus going outside every panel sets `None`. A key the app sets shows that
+  /// panel active, and brings it to no other place. Without it the layer keeps its own, starting at `None`.
+  pub fn active(mut self, active: Signal<Option<Arc<str>>>) -> Self {
+    self.active = Some(active);
+    self
+  }
+
+  /// Called with the key of the active panel, or `None`, when that changes by what a person does: after the signal
+  /// is set. Not when the app sets the signal. A second handler is called after the first.
+  pub fn on_active_change(mut self, handler: impl Fn(Option<&str>) + Send + Sync + 'static) -> Self {
+    self.on_active_change.push(Arc::new(handler));
+    self
+  }
+
   /// The id of the layer.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
@@ -1715,7 +1820,7 @@ impl FloatingPanels {
     self
   }
 
-  /// Mounts it: it keeps the order of its panels, the one pressed last in front.
+  /// Mounts it: it keeps the order of its panels, the one pressed last in front, and which is active.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone().unwrap_or_else(|| Arc::from("floating_panels"));
     ctx.mount_keyed::<LayerHost>(&key, LayerProps { layer: self })
@@ -1736,10 +1841,18 @@ impl PartialEq for LayerProps {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for LayerProps {}
 
-/// What a mounted layer keeps: the keys of its panels, the one in front last.
+/// What a mounted layer keeps: the keys of its panels, the one in front last, and the key of the active one where the
+/// app keeps none.
 struct LayerHost {
   order: Signal<Vec<Arc<str>>>,
+  active: Signal<Option<Arc<str>>>,
 }
+
+/// What hears the active panel of a layer change: the layer's handlers, and each panel's by its key.
+type ActiveHandlers = (
+  Vec<Arc<dyn Fn(Option<&str>) + Send + Sync>>,
+  Vec<(Arc<str>, Vec<Arc<dyn Fn(bool) + Send + Sync>>)>,
+);
 
 impl Component for LayerHost {
   type Props = LayerProps;
@@ -1747,6 +1860,7 @@ impl Component for LayerHost {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       order: ctx.signal(Vec::new()),
+      active: ctx.signal(None),
     }
   }
 
@@ -1769,11 +1883,36 @@ impl Component for LayerHost {
         order.push(key.clone());
       }
     }
-    let front = order.last().cloned();
+    let active_signal = layer.active.clone().unwrap_or_else(|| self.active.clone());
+    let active = active_signal.get();
+    let heard: Arc<ActiveHandlers> = Arc::new((
+      layer.on_active_change.clone(),
+      keyed
+        .iter()
+        .map(|(key, panel)| (key.clone(), panel.on_active_change.clone()))
+        .collect(),
+    ));
+    // Makes `to` the active panel, or none, and tells who hears it of a change.
+    let change = move |to: Option<Arc<str>>| {
+      let from = active_signal.get_untracked();
+      if from == to {
+        return;
+      }
+      active_signal.set(to.clone());
+      for (key, handlers) in &heard.1 {
+        if from.as_ref() == Some(key) {
+          handlers.iter().for_each(|handler| handler(false));
+        }
+        if to.as_ref() == Some(key) {
+          handlers.iter().for_each(|handler| handler(true));
+        }
+      }
+      heard.0.iter().for_each(|handler| handler(to.as_deref()));
+    };
     let mut panels: Vec<(usize, Element)> = Vec::new();
     for (key, panel) in keyed {
-      let raise = {
-        let (signal, key, now) = (self.order.clone(), key.clone(), order.clone());
+      let activate = {
+        let (signal, key, now, change) = (self.order.clone(), key.clone(), order.clone(), change.clone());
         Arc::new(move || {
           if now.last() != Some(&key) {
             let mut next = now.clone();
@@ -1781,12 +1920,25 @@ impl Component for LayerHost {
             next.push(key.clone());
             signal.set(next);
           }
+          change(Some(key.clone()));
+        }) as Handler
+      };
+      let deactivate = {
+        let (key, change) = (key.clone(), change.clone());
+        let active = layer.active.clone().unwrap_or_else(|| self.active.clone());
+        Arc::new(move || {
+          if active.get_untracked().as_ref() == Some(&key) {
+            change(None);
+          }
         }) as Handler
       };
       let at = order.iter().position(|held| *held == key).unwrap_or(0);
       let mut panel = panel.key(key.clone());
-      panel.raise = Some(raise);
-      panel.active = front.as_ref() == Some(&key);
+      panel.layered = Some(Layered {
+        activate,
+        deactivate,
+        active: active.as_ref() == Some(&key),
+      });
       panels.push((at, panel.mount(ctx)));
     }
     panels.sort_by_key(|(at, _)| *at);

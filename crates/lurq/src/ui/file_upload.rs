@@ -1047,6 +1047,16 @@ impl super::FieldControl for FileUpload {
     self.disabled |= field.disabled;
     self.into()
   }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
+  fn mount_in_field(mut self, field: &super::InField, ctx: &mut Ctx) -> Element {
+    if self.label.is_none() {
+      self = self.label(&field.label);
+    }
+    self.invalid |= field.judgment == Some(super::Judgment::Invalid);
+    self.disabled |= field.disabled;
+    self.mount(ctx)
+  }
 }
 
 impl super::FieldControl for DropZone {
@@ -1057,6 +1067,15 @@ impl super::FieldControl for DropZone {
       .invalid(field.judgment == Some(super::Judgment::Invalid))
       .disabled(field.disabled)
       .into()
+  }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same zone as outside a field.
+  fn mount_in_field(self, field: &super::InField, ctx: &mut Ctx) -> Element {
+    self
+      .label(&field.label)
+      .invalid(field.judgment == Some(super::Judgment::Invalid))
+      .disabled(field.disabled)
+      .mount(ctx)
   }
 }
 

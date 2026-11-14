@@ -1210,6 +1210,12 @@ impl<V: FieldValue<Date>> FieldControl for DateField<V> {
     self.core.boxed.in_field(field);
     self.into()
   }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
+  fn mount_in_field(mut self, field: &InField, ctx: &mut Ctx) -> Element {
+    self.core.boxed.in_field(field);
+    self.mount(ctx)
+  }
 }
 
 /// What builds a date field's nodes: a theme's in place of the default one.

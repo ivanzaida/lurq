@@ -462,11 +462,17 @@ impl<V: ShortcutValue> From<ShortcutRecorder<V>> for Element {
 
 impl<V: ShortcutValue> super::FieldControl for ShortcutRecorder<V> {
   /// Called by the field's label unless it has a name of its own, judged as the field is unless the app judged it
-  /// itself, and disabled where the field is. A field holds it as it is converted into an element, which does not
-  /// record: to record in a field, mount it and give it the field's label and judgment.
+  /// itself, and disabled where the field is. A field converted into an element holds it as it is built, which does
+  /// not record: a field the app mounts ([`Field::mount`](super::Field::mount)) mounts it, and it records.
   fn in_field(mut self, field: &super::InField) -> Element {
     self.boxed.in_field(field);
     self.into()
+  }
+
+  /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
+  fn mount_in_field(mut self, field: &super::InField, ctx: &mut Ctx) -> Element {
+    self.boxed.in_field(field);
+    self.mount(ctx)
   }
 }
 
