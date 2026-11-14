@@ -351,6 +351,28 @@ an alias.
   `Recipe::row_density`; `ui::Navbar`, `ui::NavigationMenu`, `ui::Table`, `ui::List`, `ui::ListItem`,
   `ui::Listbox`, `ui::DataList`, `ui::Calendar`, `ui::DatePicker`, `ui::DateRangePicker`.
 
+## What the tenth batch taught
+
+- **A change of a rule the engine shares runs every suite before it is committed.** A session's own filtered tests
+  passed while its change to the order of Tab broke another family's; whoever touches `tab_navigation.rs`, the
+  layout engine or the runtime runs `--test ui_tests` whole with `mcp`, and `input_tests`, `layout_tests` and
+  `runtime_tests` whole, and pins its own case beside the one it could have broken.
+- **What stands for something of the window takes it from the window.** A title bar's icon is the window's icon
+  unless the app says another; a glyph of the theme is what is drawn when there is none, not the default an app
+  must replace.
+- **A test by hand closes what it opened in the same script**, and the session looks at the screens before it ends
+  its turn: no window of a test is topmost, and none outlives the script (two were left on Ivan's monitors).
+- **macOS is compiled at the merge**: `cargo check -p lurq --target aarch64-apple-darwin`, and a session that
+  writes behind a macOS `cfg` runs it itself.
+- **What a report lists under "Not done" goes back to its owner at the merge**, with the board's node or the rule
+  that settles it; the merge is pushed first, so the rest of the batch does not wait for it.
+- **What a batch may use now**: `.captures_keys(bool)`; `Accelerator::from_key_event`, `parse`, `matches`;
+  `.form_value(..)`; `on_copy` and `on_paste` on what is not a text input; `Gradient::corners`;
+  `ScrollHorizontal::fill_width`; `lurq::eyedropper::EyeDropper`; `WindowHandle::show_system_menu()`;
+  `ui::WindowChrome`, `ui::WindowTabs`, `ui::DocumentTabs`, `ui::StatusBar`, `ui::CommandBar`, `ui::FindBar`,
+  `ui::ShortcutRecorder`, `ui::FloatingPanel`, `ui::PanelHeader`, `ui::PropertyGrid`, and the Data Grid's
+  `ColumnLayout`, group rows and summaries.
+
 ## What the seventh batch taught
 
 - **A scene made for a stage fills it.** The stage scrolls what is larger than it, but a scene of a fixed width
