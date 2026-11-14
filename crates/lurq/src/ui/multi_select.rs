@@ -1,6 +1,9 @@
 //! A multi select: several values chosen from a list that what is typed filters, held as tags in its box.
 
-use std::sync::{Arc, Mutex};
+use std::{
+  collections::HashMap,
+  sync::{Arc, LazyLock, Mutex, Weak},
+};
 
 use super::{
   combobox::{self, Choices, Engine, Filter, Finish, Many},
@@ -23,8 +26,47 @@ use crate::{
   components::{self, Row, SelectOption, SelectTriggerState},
   core::{Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, SelectCheckmarkPosition, SelectIcon, SelectStyle, border::Border, dimension::Dimension},
+  node::{
+    CursorIcon, Element, FocusGroup, SelectCheckmarkPosition, SelectIcon, SelectStyle, border::Border,
+    dimension::Dimension,
+  },
 };
+
+/// What a multi select keeps across its renders, one for each signal one is bound to while it is in the tree: what
+/// was chosen at the last build, to tell a choice, and the tag the arrow keys are on. `alive` is held by the
+/// input of the last one built.
+struct Kept {
+  chosen: Vec<usize>,
+  picked: Signal<Option<usize>>,
+  alive: Weak<()>,
+}
+
+static KEPT: LazyLock<Mutex<HashMap<usize, Kept>>> = LazyLock::new(Default::default);
+
+/// The tag the arrow keys are on in the multi select bound to `binding`, what keeps it while the multi select is
+/// in the tree, and whether a value was chosen since its last build: an option the last did not hold is held now.
+fn kept(binding: usize, chosen: &[usize]) -> (Signal<Option<usize>>, Arc<()>, bool) {
+  let mut all = KEPT.lock().unwrap();
+  all.retain(|_, kept| kept.alive.strong_count() > 0);
+  if let Some(kept) = all.get_mut(&binding)
+    && let Some(alive) = kept.alive.upgrade()
+  {
+    let grew = chosen.iter().any(|index| !kept.chosen.contains(index));
+    kept.chosen = chosen.to_vec();
+    return (kept.picked.clone(), alive, grew);
+  }
+  let alive = Arc::new(());
+  let picked = Signal::new(None);
+  all.insert(
+    binding,
+    Kept {
+      chosen: chosen.to_vec(),
+      picked: picked.clone(),
+      alive: Arc::downgrade(&alive),
+    },
+  );
+  (picked, alive, false)
+}
 
 /// The parts of a multi select a recipe styles. Those it shares with a select and a combobox have their names, and
 /// the engine draws its list as it draws theirs.
@@ -341,8 +383,15 @@ impl MultiSelect {
       Some(query) => (query, Arc::new(())),
       None => combobox::typed(self.choices.binding(), None),
     };
+    let (picked, kept_alive, chose) = kept(self.choices.binding(), &chosen);
+    // A choice clears what was typed: the list shows every option again for the next.
+    if chose && !query.get_untracked().is_empty() {
+      query.set(String::new());
+    }
     let typed_now = query.get();
     let shown = combobox::filtered(&labels, &typed_now, None, &self.filter);
+    let tags = chosen.len().min(self.max_shown.unwrap_or(usize::MAX));
+    let picked_now = picked.get().filter(|&tag| tag < tags);
     let view = MultiSelectView {
       placeholder: self.placeholder,
       label: self.boxed.label.clone(),
@@ -360,7 +409,9 @@ impl MultiSelect {
       chosen,
       shown,
       query,
-      alive,
+      alive: Arc::new((alive, kept_alive)),
+      picked,
+      picked_now,
       on_input: self.on_input,
       empty: self.empty,
       loading_text: self.loading_text,
@@ -416,7 +467,12 @@ pub struct MultiSelectView {
   chosen: Vec<usize>,
   shown: Vec<usize>,
   query: Signal<String>,
-  alive: Arc<()>,
+  /// Held by the input: what keeps what was typed and the tag the arrows are on while the multi select is in the
+  /// tree.
+  alive: Arc<(Arc<()>, Arc<()>)>,
+  /// The tag the arrow keys are on, by its place among the tags shown: Backspace takes it away.
+  picked: Signal<Option<usize>>,
+  picked_now: Option<usize>,
   on_input: Vec<EditHandler>,
   empty: Arc<str>,
   loading_text: Arc<str>,
@@ -511,7 +567,9 @@ impl MultiSelectView {
       .placeholder_style(text_box::ink(theme, &placeholder))
       // As long as its least room when the tags are laid on their lines, and as long as the rest of its line then.
       .min_width(least)
-      .flex_full(1.0, 1.0, Some(least));
+      .flex_full(1.0, 1.0, Some(least))
+      // Where Tab enters the line of tags and input: see `render`.
+      .focus_entry(true);
     let mut control = text_box::text_box(control, &self.boxed, self.on_input.clone());
     // The placeholder says what to do while nothing is chosen; beside tags it would say it again.
     if let Some(placeholder) = self.placeholder.as_ref().filter(|_| self.chosen.is_empty()) {
@@ -520,31 +578,65 @@ impl MultiSelectView {
     if let Some(id) = &self.id {
       control = control.id(format!("{id}-input"));
     }
-    let (query, alive) = (self.query.clone(), self.alive.clone());
+    let (query, alive, picked) = (self.query.clone(), self.alive.clone(), self.picked.clone());
     control = control.on_blur(move || {
       // Held while the input is: what was typed is kept for the multi select while it is in the tree.
       let _ = &alive;
       if !query.get_untracked().is_empty() {
         query.set(String::new());
       }
+      if picked.get_untracked().is_some() {
+        picked.set(None);
+      }
     });
-    let (choices, query, last, disabled) = (
+    let tags = self.chosen.len().min(self.max_shown.unwrap_or(usize::MAX));
+    let (choices, query, picked, chosen, disabled) = (
       self.choices.clone(),
       self.query.clone(),
-      self.chosen.last().copied(),
+      self.picked.clone(),
+      self.chosen.clone(),
       self.disabled,
     );
+    // The input is the one stop of Tab; the tags are reached from it, as a token input's tokens are: with what is
+    // typed empty, Left goes onto the last tag and on to the one before, Right back towards the input, and
+    // Backspace or Delete takes away the tag the arrows are on, or the last where they are on none.
     control.on_key_down(move |event: KeyboardEvent| {
       let plain = !event.ctrl && !event.alt && !event.meta && !event.shift && !event.composing;
-      if event.focus_within
-        && plain
-        && !disabled
-        && event.key == "Backspace"
-        && query.get_untracked().is_empty()
-        && let Some(index) = last
-      {
-        event.prevent_default();
-        choices.unchoose(index);
+      if !event.focus_within || disabled {
+        return;
+      }
+      let on = picked.get_untracked().filter(|&tag| tag < tags);
+      let empty = query.get_untracked().is_empty();
+      let set = |tag: Option<usize>| {
+        if picked.get_untracked() != tag {
+          picked.set(tag);
+        }
+      };
+      match event.key.as_str() {
+        "ArrowLeft" if plain && empty && tags > 0 => {
+          event.prevent_default();
+          set(Some(on.map_or(tags - 1, |tag| tag.saturating_sub(1))));
+        }
+        "ArrowRight" if plain && on.is_some() => {
+          event.prevent_default();
+          set(on.and_then(|tag| (tag + 1 < tags).then_some(tag + 1)));
+        }
+        "Backspace" | "Delete" if plain && empty => {
+          let gone = match on {
+            Some(tag) => chosen.get(tag).copied(),
+            None if event.key == "Backspace" => chosen.last().copied(),
+            None => None,
+          };
+          if let Some(index) = gone {
+            event.prevent_default();
+            // The arrows stay on the tag that takes its place, or the one before where it was the last.
+            set(on.and_then(|tag| (tags > 1).then(|| tag.min(tags - 2))));
+            choices.unchoose(index);
+          }
+        }
+        // Anything else is typing: the arrows leave the tags.
+        _ if on.is_some() => set(None),
+        _ => {}
       }
     })
   }
@@ -579,13 +671,17 @@ impl MultiSelectView {
       .chosen
       .iter()
       .take(max)
-      .map(|index| {
+      .enumerate()
+      .map(|(place, index)| {
         let (choices, index) = (self.choices.clone(), *index);
+        // The tag the arrow keys are on is drawn as its button is focused from the keyboard.
+        let on = self.picked_now == Some(place);
         Tag::new(&self.labels[index])
           .pill(true)
           .size(size)
           .disabled(self.disabled)
           .rules(&rules)
+          .force(on.then_some(Interaction::FocusVisible))
           .on_remove(move || choices.unchoose(index))
           .build(&theme)
       })
@@ -705,7 +801,9 @@ impl MultiSelectView {
       }
       line = line.with_children(tags);
       if let Some(input) = state.input {
-        line = line.child(input);
+        // The input is the one stop of Tab in the line: a tag's cross is pressed, or reached with the arrows from
+        // the input, not stopped on.
+        line = line.focus_group(FocusGroup::horizontal().one_stop(true)).child(input);
       }
       let mut row = Row::new()
         .width(Dimension::Pct(100.0))

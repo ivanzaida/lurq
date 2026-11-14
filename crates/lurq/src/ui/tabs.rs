@@ -438,8 +438,11 @@ impl Tabs {
     self
   }
 
-  /// Draws every tab as it is under the pointer, held down or focused from
-  /// the keyboard, with nothing pointing at it: for a gallery or a test.
+  /// Draws the tab Tab would stop on (the selected one, else the first that is
+  /// not disabled) as it is under the pointer, held down or focused from the
+  /// keyboard, with nothing pointing at it: for a gallery or a test. The other
+  /// tabs, the panel and the buttons of the overflowing form are drawn as they
+  /// are.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
@@ -545,16 +548,31 @@ pub struct TabsView {
 impl TabsView {
   /// The style of a part that is no tab's, as these tabs are to be drawn.
   pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
-    self.recipes[0].part(part).forced(self.forced)
+    self.recipes[0].part(part)
   }
 
-  /// The style of a part of the tab at `index`: in the states of that tab.
+  /// The style of a part of the tab at `index`: in the states of that tab, and in the interaction forced where
+  /// it is the tab Tab stops on.
   pub fn tab_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
     let tab = &self.tabs[index];
     let disabled = self.disabled || tab.disabled;
+    let forced = self.forced.filter(|_| self.entry() == Some(index));
     self.recipes[usize::from(tab.selected) + 2 * usize::from(disabled)]
       .part(part)
-      .forced(self.forced)
+      .forced(forced)
+  }
+
+  /// The tab Tab stops on: the selected one, else the first that is not disabled. None where all are.
+  pub fn entry(&self) -> Option<usize> {
+    if self.disabled {
+      return None;
+    }
+    let open = |tab: &TabEntry| !tab.disabled;
+    self
+      .tabs
+      .iter()
+      .position(|tab| tab.selected && open(tab))
+      .or_else(|| self.tabs.iter().position(open))
   }
 
   pub fn theme(&self) -> &Theme {

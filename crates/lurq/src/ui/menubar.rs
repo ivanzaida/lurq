@@ -185,8 +185,9 @@ impl Menubar {
     self
   }
 
-  /// Draws the titles as they are under the pointer, held down or focused from the keyboard, with nothing pointing
-  /// at them: for a gallery or a test.
+  /// Draws the title Tab would stop on (the first that is not disabled) as it is under the pointer, held down or
+  /// focused from the keyboard, with nothing pointing at it: for a gallery or a test. The other titles are drawn as
+  /// they are.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
@@ -395,7 +396,12 @@ pub struct MenubarView {
 impl MenubarView {
   /// The style of a part of the bar.
   pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
-    self.recipe.part(part).forced(self.forced)
+    self.recipe.part(part)
+  }
+
+  /// The title Tab stops on: the first that is not disabled. None where all are.
+  pub fn entry(&self) -> Option<usize> {
+    (0..self.menus.len()).find(|&index| !self.is_disabled(index))
   }
 
   pub fn theme(&self) -> &Theme {
@@ -418,7 +424,7 @@ impl MenubarView {
       .theme()
       .resolve::<Menubar>(&case, Some(&self.rules))
       .part(part)
-      .forced(self.forced)
+      .forced(self.forced.filter(|_| self.entry() == Some(index)))
   }
 
   /// The anchor the menu `index` hangs from: its title. It is kept with the bar, so that the runtime knows the

@@ -906,7 +906,11 @@ pub struct Tree {
   overlay_layer_origins: Vec<Option<NodeId>>,
   /// The open modals that take the focus, by the node that declares each, the first opened first, with what
   /// had the focus before each opened: see [`modal_focus`].
-  modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
+  modal_focus: Vec<(NodeId, Option<FocusTarget>, Option<tab_navigation::FocusStart>)>,
+  /// Where Tab goes on from while nothing has the focus, a browser's sequential focus navigation starting point:
+  /// the node that last had the focus and its path then, or the one a press that took no focus was on. See
+  /// [`tab_navigation::FocusStart`].
+  focus_start: Option<tab_navigation::FocusStart>,
   /// The modals that take the focus among the layers the last pass built.
   built_focus_modals: Vec<NodeId>,
   /// The open modals (dialogs, not the window's chrome), by the node that declares each, in the order they opened:
@@ -1335,6 +1339,7 @@ impl Tree {
       overlay_focus_returns: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
+      focus_start: None,
       built_focus_modals: Vec::new(),
       modal_open_order: Vec::new(),
       modals_met: Vec::new(),
@@ -2307,6 +2312,7 @@ impl Tree {
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
+    self.focus_start = None;
     self.apply_focus_request();
   }
 
@@ -2408,6 +2414,7 @@ impl Tree {
     self.active_path.clear();
     self.active_drag = None;
     self.clear_focus();
+    self.focus_start = None;
   }
 
   pub fn root(&self) -> Option<ElementRef<'_>> {
@@ -4416,8 +4423,13 @@ impl Tree {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
+    let start = self
+      .focus_start
+      .as_ref()
+      .filter(|_| focused.is_none())
+      .map(|start| start.point(root, &self.dropped_nodes));
     let moved = self.focus_moving_layers();
-    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, reverse) {
+    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, start, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         if let Some(state) = self.current_slider_state(target.input_id) {
           state.enter_by_tab(reverse);
@@ -5651,6 +5663,7 @@ impl Tree {
     if builtin_needs_redraw {
       self.needs_redraw = true;
     }
+    let pressed = hits.first().map(|(node, _)| node.node_id());
     drop(hits);
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
@@ -5660,6 +5673,12 @@ impl Tree {
     let keeps_keyboard = self.touch_pointer.down && self.focused_text_input();
     if blur_on_press && !keeps_keyboard {
       self.blur_focus();
+      // Tab goes on from what was pressed, as a browser's does from a press on text: from the top of the window
+      // where the press was on nothing.
+      self.focus_start = pressed.and_then(|id| {
+        let root = self.root.as_ref()?;
+        Some(tab_navigation::FocusStart::new(root, id, find_path_by_id(root, id)?))
+      });
     }
     if clear_active_after_dispatch {
       self.clear_active_path();
@@ -6118,6 +6137,7 @@ impl Tree {
       .map(|node| node.events.on_focus.clone())
       .unwrap_or_default();
     self.clear_focus();
+    self.focus_start = None;
     self.focused_node = Some(target.input_id);
     self.focused_event_node = Some(target.event_id);
     self.focused_path = Some(input_path);
@@ -7903,6 +7923,10 @@ impl Tree {
 
   fn clear_focus(&mut self) {
     let had_focus = self.focused_node.is_some() || self.focused_event_node.is_some();
+    // However the focus goes, Tab goes on from where it was.
+    if let (Some(root), Some(id), Some(path)) = (&self.root, self.focused_node, self.focused_path.as_ref()) {
+      self.focus_start = Some(tab_navigation::FocusStart::new(root, id, path.clone()));
+    }
     if let Some(root) = &self.root {
       for id in [self.focused_node, self.focused_event_node].into_iter().flatten() {
         if let Some(node) = find_node_by_id(root, id) {
