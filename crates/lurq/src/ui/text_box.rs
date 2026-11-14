@@ -125,6 +125,8 @@ pub(crate) struct BoxStates {
   pub disabled: bool,
   /// What the box is called to what reads the tree. A field gives it its label.
   pub label: Option<Arc<str>>,
+  /// What the box is to what reads the tree, in place of a `textbox`: a search field's `searchbox`.
+  pub role: Option<&'static str>,
 }
 
 impl Default for BoxStates {
@@ -137,6 +139,7 @@ impl Default for BoxStates {
       read_only: false,
       disabled: false,
       label: None,
+      role: None,
     }
   }
 }
@@ -285,7 +288,7 @@ pub(crate) fn text_box(control: TextInput, states: &BoxStates, handlers: Vec<Edi
     // one wherever it is.
     .tab_index(0)
     .disabled(states.disabled)
-    .describe("a11y_role", "textbox")
+    .describe("a11y_role", states.role.unwrap_or("textbox"))
     .describe("a11y_invalid", if invalid { "true" } else { "false" });
   if states.read_only {
     control = control.describe("a11y_readonly", "true");

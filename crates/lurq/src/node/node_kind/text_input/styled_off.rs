@@ -53,8 +53,12 @@ impl TextInputState {
     match spans {}
   }
 
-  /// What copying the selection puts on the clipboard: the selected text.
+  /// What copying the selection puts on the clipboard: the selected text. Nothing while the input is masked, as a
+  /// password field copies nothing.
   pub(crate) fn clipboard_selection(&self) -> Option<String> {
+    if self.is_masked() {
+      return None;
+    }
     self.selected_text()
   }
 

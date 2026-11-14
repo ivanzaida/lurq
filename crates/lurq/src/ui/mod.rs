@@ -34,14 +34,17 @@ mod icon;
 pub mod icons;
 mod input;
 mod input_otp;
+mod input_group;
 mod link;
 mod menu;
 mod pagination;
 mod part_style;
+mod password_input;
 mod popover;
 mod progress;
 mod radio;
 mod recipe;
+mod search_field;
 mod segmented;
 mod select;
 mod separator;
@@ -101,6 +104,7 @@ pub use input_otp::{
   INPUT_OTP_CARET_BLINK, INPUT_OTP_CARET_PERIOD, InputOtp, InputOtpKind, InputOtpPart, InputOtpRenderer, InputOtpSize,
   InputOtpState, InputOtpView,
 };
+pub use input_group::{InputAddon, InputGroup, InputGroupPart, InputGroupState, InputGroupView};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
@@ -111,6 +115,9 @@ pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
   TransitionEasing,
 };
+pub use password_input::{
+  PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputState, PasswordInputView, PasswordStrength,
+};
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub(crate) use progress::keyframes as progress_keyframes;
 pub use progress::{
@@ -120,6 +127,7 @@ pub use progress::{
 };
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
+pub use search_field::{SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldState, SearchFieldView};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
