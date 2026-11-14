@@ -198,7 +198,9 @@ core-video-sys = { version = "0.1", default-features = false, optional = true }
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat"], optional = true }
 objc2 = "0.6"
 # `objc2-core-foundation` gives `NSPoint` for `NSEvent::mouseLocation` (the pointer during a file drag).
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSResponder", "objc2-core-foundation"] }
+# `NSColorSampler` and `block2` for `lurq::eyedropper`: the system's sampler of a color from the screen.
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSResponder", "objc2-core-foundation", "NSColor", "NSColorSampler", "NSColorSpace", "block2"] }
+block2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "objc2-core-foundation"] }
 wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
 

@@ -175,7 +175,8 @@ While it picks, the pointer is a cross and a loupe follows it: the pixels around
 | Platform | |
 | --- | --- |
 | Windows | A thread of its own with the platform's means, as PowerToys' color picker and a browser's eyedropper do: a window over every monitor, all but transparent, takes the pointer and the keys, and a small one draws the loupe. Both are kept out of what is read of the screen (`WDA_EXCLUDEFROMCAPTURE`), so the pixels under the pointer are read live with GDI as it moves; before Windows 10 2004 the screen is read once as the pick starts. The thread is aware of each monitor's scale, so the pixel taken is the physical one under the pointer at 150% and across monitors of different scales, and the loupe is as large on each |
-| macOS, Linux, iOS, a browser | Not yet: `EyeDropper::is_supported()` is false and `pick` gives `Err(Unsupported)` at once |
+| macOS | The system's own sampler (`NSColorSampler`), shown from the main thread: its own loupe, so `.theme(..)` is not used, and the system's keys (Escape gives up). The color it gives is converted to sRGB |
+| Linux, iOS, a browser | Not yet: `EyeDropper::is_supported()` is false and `pick` gives `Err(Unsupported)` at once; the color picker and the color field show no eyedropper |
 
 `EyeDropper::is_supported()` is what a component asks before it shows an eyedropper; the [color picker](../design-system/#color-picker) and the [color field](../design-system/#color-field) show theirs only where it is true. A test, or a tool driving the app, sets `EyeDropper::stand_in(|| Ok(Some(color)))`, which answers the picks of its thread until the guard it gives is dropped. Setting `LURQ_EYEDROPPER_SNAPSHOT` in the environment takes the way of a system that cannot keep the windows out of a capture: to check it, and to see the loupe in a screenshot.
 
