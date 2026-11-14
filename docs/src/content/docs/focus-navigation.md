@@ -114,6 +114,31 @@ Row::new()
 - The innermost group around the focused element that takes the key acts: a vertical menu inside a horizontal bar takes Up and Down, the bar Left and Right.
 - An element's label for typeahead is what `.focus_label(..)` gives it, or, for a button with one text in it, that text; an element with neither is not reached by typing. A menu item's label is its label alone, not its shortcut. A text input, a slider and a select in the group keep the letters, and Space still presses what has the focus.
 - A key event reaches every node's `on_key_down`, focused or not. `KeyboardEvent::focus_within` says whether the focus is on the node whose handler runs or inside it: a handler that acts only for what has the focus (a menu item opening its submenu on Right) checks it.
+- A key's handler can move the focus to an element of its group by the element's key with `event.focus_key(key)`. Once the handlers have run and what they changed is rendered, the focus goes to the stop of the innermost group around the focused element whose `.key(..)` is `key`, from the keyboard (it shows its ring), and is scrolled into view. The key's default is prevented, so the group does not move the focus as well. This is for a group whose elements are reached by what the app knows of them, not by their order. The days of a calendar are one: Up is the same day a week back, PageDown the same day a month on, and either may be in a month that is built only once the key has shown it. A key no stop of the group has, or a group with nothing focused in it, moves nothing.
+
+```rust
+use lurq::{
+  app::events::KeyboardEvent,
+  components::{Button, Row},
+  node::FocusGroup,
+};
+
+// Each day says where the keys take the focus from it: Right to the next day, by its key.
+let day = |n: u32| {
+  Button::new(&n.to_string())
+    .tab_index(0)
+    .key(format!("day-{n}"))
+    .on_key_down(move |event: KeyboardEvent| {
+      if event.focus_within && event.key == "ArrowRight" {
+        event.focus_key(format!("day-{}", n + 1));
+      }
+    })
+};
+let week = Row::new()
+  .focus_group(FocusGroup::horizontal().one_stop(true))
+  .child(day(1))
+  .child(day(2));
+```
 
 ### A Row Of Menus
 

@@ -8,6 +8,7 @@ use lurq::{
   app::theme::{PaletteColor, ThemePalette},
   components::{Column, Row},
   core::{Date, DateLocale, DateRange, Signal, Weekday, YearMonth},
+  layout::{Constraints, Size},
   node::color::Color,
   ui::{Calendar, CalendarPart, CalendarRenderer, CalendarView, Recipe},
 };
@@ -27,26 +28,36 @@ fn cell(month: u8, number: u8) -> String {
   format!("cal-{}", day(month, number))
 }
 
+/// A stage of 640 by 420: room for the six weeks of a calendar, 336 high, and for two months side by side.
+fn roomy(stage: Stage) -> Stage {
+  let mut stage = stage;
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(640.0, 420.0))));
+  stage.pass();
+  stage
+}
+
 /// A calendar of one date, mounted, with today the 9th of November 2026 as the board has it.
 fn single(value: &Signal<Option<Date>>, make: impl Fn(Calendar) -> Calendar + Send + Sync + 'static) -> Stage {
   let value = value.clone();
-  Stage::new(move |ctx| {
+  roomy(Stage::new(move |ctx| {
     Column::new()
       .padding(10.0)
       .child(make(Calendar::new(value.clone()).today(day(11, 9)).id("cal")).mount(ctx))
       .into()
-  })
+  }))
 }
 
 /// A calendar of a range, mounted.
 fn range(value: &Signal<Option<DateRange>>, make: impl Fn(Calendar) -> Calendar + Send + Sync + 'static) -> Stage {
   let value = value.clone();
-  Stage::new(move |ctx| {
+  roomy(Stage::new(move |ctx| {
     Column::new()
       .padding(10.0)
       .child(make(Calendar::range(value.clone()).today(day(11, 9)).id("cal")).mount(ctx))
       .into()
-  })
+  }))
 }
 
 fn focused(stage: &Stage) -> Option<String> {

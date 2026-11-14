@@ -587,7 +587,7 @@ impl<V: Picked> PickerView<V> {
       .into()
   }
 
-  /// What opens and closes the calendar, at the start of the field: pressed by the pointer, and no stop of Tab, since
+  /// What opens and closes the calendar, at the start of the field: pressed by the pointer, and taking no focus, since
   /// Down in the field opens it. Called by what it does to what reads the tree.
   pub fn trigger(&self) -> components::Button {
     let icon = if self.calendar.is_range() {
@@ -600,8 +600,9 @@ impl<V: Picked> PickerView<V> {
       .justify(Justify::Center)
       .align_items(Alignment::Center)
       .part(&self.part(DatePickerPart::Trigger))
-      // No stop of Tab, in a form either: Down in the field opens the calendar.
-      .tab_index(-1)
+      // No stop of Tab, in a form either, and a press leaves the focus where it is: Down in the field opens the
+      // calendar, and a choice gives the focus back to the field, the first thing in the anchor that takes it.
+      .focusable(false)
       .disabled(self.disabled || self.read_only)
       .describe("a11y_name", if self.calendar.is_range() { "Choose dates" } else { "Choose date" })
       .describe("a11y_haspopup", "dialog")
@@ -614,7 +615,7 @@ impl<V: Picked> PickerView<V> {
     trigger
   }
 
-  /// What empties the field, at its end, where it shows one: pressed by the pointer, and no stop of Tab, since the
+  /// What empties the field, at its end, where it shows one: pressed by the pointer, and taking no focus, since the
   /// field is emptied by deleting what it holds.
   pub fn clear(&self) -> Option<components::Button> {
     if !self.shows_clear() {
@@ -625,7 +626,7 @@ impl<V: Picked> PickerView<V> {
       .justify(Justify::Center)
       .align_items(Alignment::Center)
       .part(&self.part(DatePickerPart::Clear))
-      .tab_index(-1)
+      .focusable(false)
       .describe("a11y_name", "Clear")
       .child(self.glyph(DatePickerPart::ClearIcon, icons::CLOSE))
       .on_click(move |_: MouseEvent| {
@@ -814,7 +815,7 @@ impl<V: Picked> PickerView<V> {
 /// The calendar opens in a popover under the field from the button at its start, or from Down in the field, with the
 /// focus on the chosen day; a choice closes it and the focus goes back to the field, as Escape and a press outside do.
 /// To tooling the field is a `combobox` that opens a `dialog`, as the date picker of the ARIA patterns is, and its
-/// button is no stop of Tab.
+/// button takes no focus.
 ///
 /// The picker keeps whether its calendar is open, the field it opens under and the month its calendar shows where it
 /// is mounted ([`DatePicker::mount`]) or given a [`CalendarMemory`](super::CalendarMemory) the app keeps
