@@ -2,7 +2,10 @@
 
 use std::{
   collections::HashMap,
-  sync::{Arc, Mutex},
+  sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+  },
 };
 
 use super::{
@@ -284,6 +287,7 @@ pub struct DocumentTabs<T = (), V: ?Sized = T> {
   label: Option<Arc<str>>,
   words: Words,
   disabled: bool,
+  shortcuts: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -382,6 +386,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
         more: Arc::from("Show the hidden tabs"),
       },
       disabled: false,
+      shortcuts: true,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -475,6 +480,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
   /// Whether no tab takes input.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// Whether the editor's keys work from anywhere in the window, the focus in the document or elsewhere: Ctrl+Tab
+  /// and Ctrl+Shift+Tab (and on Windows and Linux Ctrl+PageDown and Ctrl+PageUp) show the next tab and the one
+  /// before, round at the ends; Ctrl+W (Cmd+W on macOS) closes the tab shown, but a pinned one;
+  /// Ctrl+Shift+PageDown and PageUp move it. On unless told otherwise. Where the window's title bar has
+  /// [`WindowTabs`](super::WindowTabs) with its keys on too, a press is the documents': the window's tabs pass by
+  /// a key these took. An app that wants the window's to have them turns these off.
+  pub fn shortcuts(mut self, on: bool) -> Self {
+    self.shortcuts = on;
     self
   }
 
@@ -595,6 +611,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
       label: self.label,
       words: self.words,
       disabled: self.disabled,
+      shortcuts: self.shortcuts,
       states: self.states,
       rules: self.rules,
       forced: self.forced,
@@ -655,6 +672,7 @@ struct Prepared {
   label: Option<Arc<str>>,
   words: Words,
   disabled: bool,
+  shortcuts: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -758,6 +776,7 @@ impl Prepared {
       dropped,
       label: self.label,
       disabled: self.disabled,
+      shortcuts: self.shortcuts,
       recipe,
       tab_recipes,
       words: self.words,
@@ -851,6 +870,8 @@ pub struct DocumentTabsView {
   pub dropped: Vec<bool>,
   pub label: Option<Arc<str>>,
   pub disabled: bool,
+  /// Whether the editor's keys work from anywhere in the window.
+  pub shortcuts: bool,
   /// The recipe of every part that is no tab's.
   recipe: ResolvedRecipe,
   /// Each tab's recipe, in its own states.
@@ -1019,8 +1040,8 @@ impl DocumentTabsView {
     element
   }
 
-  /// What the keys do on the tab at `index`: Ctrl+W closes it and sends the focus to the tab beside it,
-  /// Ctrl+Shift+PageUp and PageDown move it.
+  /// What the keys do on the tab at `index`: Ctrl+W closes it (but a pinned one) and sends the focus to the tab
+  /// beside it, Ctrl+Shift+PageUp and PageDown move it.
   fn keys(&self, index: usize) -> impl Fn(KeyboardEvent) + Send + Sync + 'static {
     let entry = &self.tabs[index];
     let close = entry.close.clone();
@@ -1032,13 +1053,18 @@ impl DocumentTabsView {
       .map(|tab| tab.key.clone());
     let (first, last) = kind_range(&self.tabs, index);
     let reorder = self.reorder_call();
+    let pinned = entry.pinned;
     move |event: KeyboardEvent| {
-      // A key reaches every tab: it is the focused one's.
-      if !event.focus_within {
+      // A key reaches every tab: it is the focused one's, where nothing took it before.
+      if !event.focus_within || event.default_prevented() {
         return;
       }
       let command = event.ctrl || event.meta;
       if command && !event.shift && !event.alt && event.key.eq_ignore_ascii_case("w") {
+        // A pinned tab has no close control: the keys do not close it either.
+        if pinned {
+          return;
+        }
         event.prevent_default();
         close();
         if let Some(beside) = &beside {
@@ -1231,8 +1257,102 @@ impl DocumentTabsView {
     list.into()
   }
 
+  /// What the editor's keys do from anywhere in the window: show the next tab and the one before, close the one
+  /// shown, move it. `in_bar` says whether the focus is in the bar, which the bar's root learns first; where it is,
+  /// the focus follows the tab shown.
+  fn shortcut(&self, in_bar: Arc<AtomicBool>) -> impl Fn(KeyboardEvent) + Send + Sync + 'static {
+    // Of each tab: whether it is the one shown, whether it can be shown, whether it is pinned, what shows it, what
+    // closes it, its key.
+    let tabs: Vec<(bool, bool, bool, Call, Call, Arc<str>)> = self
+      .tabs
+      .iter()
+      .map(|tab| {
+        (
+          tab.selected,
+          !tab.disabled,
+          tab.pinned,
+          tab.select.clone(),
+          tab.close.clone(),
+          tab.key.clone(),
+        )
+      })
+      .collect();
+    let ranges: Vec<(usize, usize)> = (0..self.tabs.len())
+      .map(|index| kind_range(&self.tabs, index))
+      .collect();
+    let reorder = self.reorder_call();
+    move |event: KeyboardEvent| {
+      // A key a focused tab, or anything before, took is not the window's.
+      if event.default_prevented() || event.composing || event.alt || tabs.is_empty() {
+        return;
+      }
+      let mac = cfg!(target_os = "macos");
+      let at = tabs.iter().position(|tab| tab.0);
+      let key = event.key.as_str();
+      let (select, close, moves) = match key {
+        "Tab" if event.ctrl && !event.meta => (Some(if event.shift { -1 } else { 1 }), false, None),
+        "PageDown" | "PageUp" if event.ctrl && !event.meta => {
+          let by: isize = if key == "PageDown" { 1 } else { -1 };
+          if event.shift {
+            (None, false, Some(by))
+          } else if mac {
+            return;
+          } else {
+            (Some(by), false, None)
+          }
+        }
+        _ if key.eq_ignore_ascii_case("w")
+          && !event.shift
+          && if mac {
+            event.meta && !event.ctrl
+          } else {
+            event.ctrl && !event.meta
+          } =>
+        {
+          (None, true, None)
+        }
+        _ => return,
+      };
+      event.prevent_default();
+      let follow = in_bar.load(Ordering::Relaxed);
+      if let Some(by) = select {
+        // The next tab that can be shown, `by` one way or the other, round at the ends.
+        let count = tabs.len() as isize;
+        let from = at.map(|at| at as isize).unwrap_or(if by > 0 { -1 } else { count });
+        let next = (1..=count)
+          .map(|n| (from + by * n).rem_euclid(count) as usize)
+          .find(|index| tabs[*index].1 && Some(*index) != at);
+        if let Some(next) = next {
+          (tabs[next].3)();
+          if follow {
+            event.focus_key(tabs[next].5.clone());
+          }
+        }
+      } else if close {
+        if let Some(at) = at.filter(|at| tabs[*at].1 && !tabs[*at].2) {
+          (tabs[at].4)();
+          let beside = tabs
+            .get(at + 1)
+            .or_else(|| at.checked_sub(1).and_then(|before| tabs.get(before)));
+          if let (true, Some(beside)) = (follow, beside) {
+            event.focus_key(beside.5.clone());
+          }
+        }
+      } else if let (Some(by), Some(from)) = (moves, at) {
+        let (first, last) = ranges[from];
+        let to = from as isize + by;
+        if to >= first as isize && to <= last as isize {
+          reorder(from, to as usize);
+          if follow {
+            event.focus_key(tabs[from].5.clone());
+          }
+        }
+      }
+    }
+  }
+
   /// How the default renderer builds the tabs: the bar's box, with its line, under the row of tabs, so that the
-  /// tab shown covers the line.
+  /// tab shown covers the line. The editor's keys are heard after the tabs, so that a focused tab's own come first.
   pub fn render(self) -> Element {
     let fill = Dimension::Pct(100.0);
     let mut row = Row::new()
@@ -1246,6 +1366,15 @@ impl DocumentTabsView {
       .part(&self.part(DocumentTabsPart::Root))
       .child(Row::new().size(fill, fill).part(&self.part(DocumentTabsPart::Bar)))
       .child(row);
+    if self.shortcuts && !self.disabled {
+      // Keys reach every element in the order of the tree: the root learns whether the focus is in the bar, the
+      // tabs act on their own keys, and the element after them on the window's.
+      let in_bar = Arc::new(AtomicBool::new(false));
+      let heard = in_bar.clone();
+      root = root
+        .on_key_down(move |event: KeyboardEvent| heard.store(event.focus_within, Ordering::Relaxed))
+        .child(Row::new().on_key_down(self.shortcut(in_bar)));
+    }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }

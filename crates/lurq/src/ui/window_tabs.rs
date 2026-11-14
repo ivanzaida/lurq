@@ -1319,7 +1319,7 @@ impl WindowTabsView {
       .collect();
     let (reorder, refocus) = (self.reorder.clone(), self.kept.refocus.clone());
     move |event: KeyboardEvent| {
-      if event.composing || event.alt || tabs.is_empty() {
+      if event.default_prevented() || event.composing || event.alt || tabs.is_empty() {
         return;
       }
       let mac = cfg!(target_os = "macos");
