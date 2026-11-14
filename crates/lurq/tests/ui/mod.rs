@@ -11,6 +11,7 @@ mod dialog;
 mod family;
 mod icon;
 mod input;
+mod input_otp;
 mod menu;
 mod pagination;
 mod popover;

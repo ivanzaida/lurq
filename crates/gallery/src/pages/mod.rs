@@ -16,6 +16,7 @@ mod family;
 mod family_play;
 mod icons;
 mod input;
+mod input_otp;
 mod menu;
 mod overview;
 mod pagination;
@@ -238,6 +239,14 @@ pub const PAGES: &[Page] = &[
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/input-otp",
+    name: "Input OTP",
+    icon: None,
+    about: "input otp one time code verification pin two factor 2fa cells digits paste autofill mask",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<input_otp::InputOtpPage>(()),
   },
   Page {
     path: "/tooltip",
