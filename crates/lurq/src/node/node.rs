@@ -699,6 +699,7 @@ pub(crate) trait NodeUpdate {
   fn focus_level(&mut self, level: u32);
   fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>);
   fn focus_row(&mut self, row: usize);
+  fn focus_column(&mut self, column: usize);
   fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
@@ -2168,6 +2169,10 @@ impl NodeUpdate for Node {
 
   fn focus_row(&mut self, row: usize) {
     Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).row = Some(row);
+  }
+
+  fn focus_column(&mut self, column: usize) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).column = Some(column);
   }
 
   fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>) {

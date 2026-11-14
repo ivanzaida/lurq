@@ -15,6 +15,10 @@
 //! choice follows the focus ([`FocusGroup::activate`]), or that extends with Shift
 //! ([`FocusGroup::shift_extends`]), the row is pressed once it is focused, as an element of a group that builds
 //! every one is.
+//!
+//! A row may hold several stops, the cells of a grid, each saying its column (`.focus_column(c)`): Up and Down go
+//! to the stop of the same column in the row they go to ([`ColumnAim`]), and Ctrl+Home and Ctrl+End to the first
+//! stop of the first row and the last stop of the last.
 
 use std::sync::Arc;
 
@@ -28,8 +32,21 @@ use crate::{
 pub(super) struct PendingRowFocus {
   rows: Arc<dyn FocusRows>,
   row: usize,
+  /// Which of the row's stops is focused.
+  aim: ColumnAim,
   /// The press to make of it once it is focused, with these keys held.
   press: Option<MouseModifiers>,
+}
+
+/// Which stop of a row of several the focus goes to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ColumnAim {
+  /// Its first: a row of one stop, or Ctrl+Home.
+  First,
+  /// Its last: Ctrl+End.
+  Last,
+  /// The one of this column, or the nearest before it where the row has none of it.
+  Same(usize),
 }
 
 /// Whether two handles are the rows of one group: the same `Arc`.
@@ -157,6 +174,7 @@ impl Tree {
     current: usize,
     step: FocusStep,
     modifiers: MouseModifiers,
+    aim: ColumnAim,
   ) -> bool {
     let count = rows.count();
     if current >= count {
@@ -197,7 +215,18 @@ impl Tree {
     if let Some(target) = target {
       // A move with Shift in a group that extends with it presses what it moved to with Shift: a range.
       let press = (config.activate || (config.shift_extends && modifiers.shift)).then_some(modifiers);
-      self.focus_row(group, rows, target, press);
+      self.focus_row_at(group, rows, target, press, aim);
+    } else if matches!(step, FocusStep::First | FocusStep::Last)
+      && let Some(stop) = self
+        .root
+        .as_ref()
+        .and_then(|root| find_node_by_id(root, group))
+        .and_then(|node| row_stop(node, current, aim, &self.dropped_nodes))
+    {
+      // Ctrl+Home on the first row, Ctrl+End on the last: the first or the last stop of the row it is on.
+      self.set_input_modality(focus_visible::InputModality::Keyboard);
+      self.focus_node(stop);
+      self.scroll_focused_into_view();
     }
     true
   }
@@ -211,11 +240,23 @@ impl Tree {
     row: usize,
     press: Option<MouseModifiers>,
   ) {
+    self.focus_row_at(group, rows, row, press, ColumnAim::First);
+  }
+
+  /// Focuses the stop `aim` says of the row `row`: see [`Self::focus_row`].
+  pub(super) fn focus_row_at(
+    &mut self,
+    group: NodeId,
+    rows: Arc<dyn FocusRows>,
+    row: usize,
+    press: Option<MouseModifiers>,
+    aim: ColumnAim,
+  ) {
     let built = self
       .root
       .as_ref()
       .and_then(|root| find_node_by_id(root, group))
-      .and_then(|group| row_stop(group, row, &self.dropped_nodes));
+      .and_then(|group| row_stop(group, row, aim, &self.dropped_nodes));
     self.set_input_modality(focus_visible::InputModality::Keyboard);
     match built {
       Some(target) => {
@@ -228,7 +269,7 @@ impl Tree {
       }
       None => {
         rows.reveal(row);
-        self.pending_row_focus = Some(PendingRowFocus { rows, row, press });
+        self.pending_row_focus = Some(PendingRowFocus { rows, row, aim, press });
       }
     }
   }
@@ -237,11 +278,11 @@ impl Tree {
   /// or the key is not the group's.
   pub(super) fn pending_rows_key(&mut self, key: &str, modifiers: MouseModifiers) -> Option<bool> {
     let pending = self.pending_row_focus.as_ref()?;
-    let (rows, row) = (pending.rows.clone(), pending.row);
+    let (rows, row, aim) = (pending.rows.clone(), pending.row, pending.aim);
     let (group, config) = group_of_rows(self.root.as_ref()?, &rows)?;
     let group = group.node_id();
     let step = config.step(key)?;
-    Some(self.focus_rows_key(group, rows, config, row, step, modifiers))
+    Some(self.focus_rows_key(group, rows, config, row, step, modifiers, aim))
   }
 
   /// After a layout: focuses the row a group of rows waited for, where the list has built it now.
@@ -257,7 +298,7 @@ impl Tree {
       self.pending_row_focus = None;
       return;
     };
-    let Some(target) = row_stop(group, pending.row, &self.dropped_nodes) else {
+    let Some(target) = row_stop(group, pending.row, pending.aim, &self.dropped_nodes) else {
       return;
     };
     let press = pending.press;
@@ -272,13 +313,29 @@ impl Tree {
   }
 }
 
-/// The stop of the row `row` in `group`, where it is built.
-fn row_stop(group: &Node, row: usize, dropped: &[NodeId]) -> Option<super::FocusTarget> {
+/// The stop of the row `row` in `group` that `aim` says, where it is built: of a row of several stops, the one
+/// of the column aimed at, or the nearest before it.
+fn row_stop(group: &Node, row: usize, aim: ColumnAim, dropped: &[NodeId]) -> Option<super::FocusTarget> {
   let (stops, nodes) = tab_navigation::group_stop_nodes(group, dropped);
-  nodes
+  let in_row: Vec<(usize, Option<usize>)> = nodes
     .iter()
-    .position(|node| node.focus_branch().and_then(|branch| branch.row) == Some(row))
-    .map(|index| stops[index])
+    .enumerate()
+    .filter_map(|(index, node)| {
+      let branch = node.focus_branch()?;
+      (branch.row == Some(row)).then_some((index, branch.column))
+    })
+    .collect();
+  let index = match aim {
+    ColumnAim::First => in_row.first().map(|(index, _)| *index),
+    ColumnAim::Last => in_row.last().map(|(index, _)| *index),
+    ColumnAim::Same(column) => in_row
+      .iter()
+      .filter(|(_, at)| at.is_some_and(|at| at <= column))
+      .max_by_key(|(_, at)| *at)
+      .or_else(|| in_row.first())
+      .map(|(index, _)| *index),
+  }?;
+  Some(stops[index])
 }
 
 /// The row the row `row` is in: the nearest row before it at a lower level.

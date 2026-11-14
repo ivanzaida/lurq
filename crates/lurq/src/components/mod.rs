@@ -1310,6 +1310,15 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// The column of its row the element is in, in a group of [`FocusRows`]($crate::node::FocusRows) whose
+      /// rows hold several stops each (the cells of a grid, with `.focus_row(row)` on each): Up, Down, PageUp and
+      /// PageDown go to the stop of the same column in the row they go to, and Ctrl+Home and Ctrl+End to the
+      /// first stop of the first row and the last of the last. Left and Right are a group of each row's own.
+      pub fn focus_column(mut self, column: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_column(node, column));
+        self
+      }
+
       /// The rows the [`FocusGroup`]($crate::node::FocusGroup) of this element steps over, where a list builds
       /// only some of them: see [`FocusRows`]($crate::node::FocusRows).
       pub fn focus_rows(mut self, rows: std::sync::Arc<dyn $crate::node::FocusRows>) -> Self {
