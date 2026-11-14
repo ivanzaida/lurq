@@ -63,6 +63,17 @@ Column::new().inert(!open).child(panel_content);
 - Unlike `disabled(true)`, it sets no disabled state on what is in it: no disabled style is drawn, and controls in it look as they did.
 - An element ref makes its element inert with nothing rendered again: `ElementRefMut::set_inert(bool)`. It takes effect at the next pass, which it asks for. An element built inert stays inert whatever its ref says.
 
+```rust
+use lurq::{components::Column, core::ElementRefMut, node::dimension::Dimension};
+
+let pane = ElementRefMut::new();
+let panel = Column::new().ref_element(pane.clone()).child(panel_content);
+
+// Closed by a drag, with no render: no width, and nothing in it takes the focus or the pointer.
+pane.set_size(Some(Dimension::Px(0.0)), None);
+pane.set_inert(true);
+```
+
 ## Focus Groups
 
 `.focus_group(FocusGroup::..)` on an element makes what is in it a group the arrow keys move the focus within, while the focus is on one of them: the buttons of a toolbar, the choices of a radio group, the items of a menu.
