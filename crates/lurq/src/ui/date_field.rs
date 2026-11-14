@@ -144,7 +144,8 @@ pub(crate) trait Segmented: Copy + Ord + Send + Sync + std::fmt::Debug + 'static
   fn part(self, segment: DateSegment, cycle: HourCycle) -> u32;
 
   /// The value the segments make, where they make one.
-  fn join(parts: &[(DateSegment, u32)], cycle: HourCycle) -> Option<Self>;
+  /// What the field has no segment for is `base`'s, the value it holds: the seconds of a time shown without them.
+  fn join(parts: &[(DateSegment, u32)], cycle: HourCycle, base: Option<Self>) -> Option<Self>;
 
   /// What stands between two segments.
   fn separator(text: &dyn DateText, before: DateSegment, after: DateSegment) -> Option<char>;
@@ -168,7 +169,7 @@ impl Segmented for Date {
     }
   }
 
-  fn join(parts: &[(DateSegment, u32)], _: HourCycle) -> Option<Self> {
+  fn join(parts: &[(DateSegment, u32)], _: HourCycle, _: Option<Self>) -> Option<Self> {
     let of = |wanted: DateSegment| {
       parts
         .iter()
@@ -210,7 +211,7 @@ impl Segmented for Time {
     }
   }
 
-  fn join(parts: &[(DateSegment, u32)], cycle: HourCycle) -> Option<Self> {
+  fn join(parts: &[(DateSegment, u32)], cycle: HourCycle, base: Option<Self>) -> Option<Self> {
     let of = |wanted: DateSegment| {
       parts
         .iter()
@@ -218,7 +219,7 @@ impl Segmented for Time {
         .map(|(_, value)| *value)
     };
     let (hour, minute) = (of(DateSegment::Hour)? as u8, of(DateSegment::Minute)? as u8);
-    let second = of(DateSegment::Second).unwrap_or(0) as u8;
+    let second = of(DateSegment::Second).map_or_else(|| base.map_or(0, Time::second), |second| second as u8);
     match cycle {
       HourCycle::H23 => Time::new(hour, minute, second),
       HourCycle::H12 => {
@@ -527,7 +528,7 @@ impl<T: Segmented, V: FieldValue<T>> Model<T, V> {
       .map(|(segment, value)| value.map(|value| (*segment, value)))
       .collect();
     let made = whole
-      .and_then(|parts| T::join(&parts, self.cycle))
+      .and_then(|parts| T::join(&parts, self.cycle, self.value.get_untracked().get()))
       .filter(|value| self.min.is_none_or(|min| *value >= min) && self.max.is_none_or(|max| *value <= max));
     self.keep(values);
     match made {

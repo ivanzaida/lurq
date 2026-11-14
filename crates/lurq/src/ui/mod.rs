@@ -58,6 +58,7 @@ mod mentions;
 mod menu;
 mod menubar;
 mod message_box;
+mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
@@ -94,6 +95,7 @@ mod text_box;
 mod textarea;
 pub(crate) mod theme;
 mod time_field;
+mod time_picker;
 mod tip;
 mod toast;
 mod toggle;
@@ -104,6 +106,7 @@ mod token_list;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod year_picker;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
 pub use action_bar::{
@@ -155,6 +158,11 @@ pub use data_list::{
   DataList, DataListItem, DataListOrientation, DataListPart, DataListRenderer, DataListState, DataListView,
 };
 pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
+pub use month_picker::{
+  CellShown, MonthPicker, MonthPickerPart, MonthPickerRenderer, MonthPickerState, MonthPickerView, PeriodsView,
+};
+pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
+pub use time_picker::{ColumnKind, TimePicker, TimePickerPart, TimePickerRenderer, TimePickerSize, TimePickerState, TimePickerView};
 pub use date_field::{
   DateField, DateFieldPart, DateFieldRenderer, DateFieldSize, DateFieldState, DateFieldView, FieldValue, SegmentFieldView,
   SegmentShown,
