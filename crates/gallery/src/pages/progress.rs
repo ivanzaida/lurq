@@ -408,6 +408,12 @@ impl Component for ProgressPage {
         "What the work is, over the start of the rail, and what the progress is called.",
       ),
       (
+        "label_hidden",
+        "bool",
+        "false",
+        "The label is what the progress is called, and is not drawn.",
+      ),
+      (
         "show_value",
         "bool",
         "false",

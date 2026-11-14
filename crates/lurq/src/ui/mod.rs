@@ -250,7 +250,7 @@ pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
-pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
+pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{

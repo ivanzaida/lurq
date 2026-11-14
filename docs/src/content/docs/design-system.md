@@ -1667,10 +1667,11 @@ Card::new()
 
 | Builder | |
 | --- | --- |
-| `title(&str)` | What the card is about, 16/600. It is what the card is called, and wraps in the width the card has |
+| `title(&str)` | What the card is about, 16/600. It is what the card is called unless it has a label, and wraps in the width the card has |
+| `label(&str)` | What the card is called to what reads the tree, in place of its title |
 | `description(&str)` | More of it, under the title, 14 in the muted color |
-| `action(element)` | At the end of the header, beside the title: a button, a menu, a badge |
-| `child(element)`, `children(..)` | The content, under the header |
+| `action(element)` | At the end of the header, beside the title: a button, a menu, a badge. A card has one: a second call takes its place |
+| `child(element)`, `children(..)` | Add to the body, under the header |
 | `footer(element)` | Added to a row at the end of the card, under a line: its least action first and its main one last |
 | `variant(..)` | `CardVariant::Outline` (the default), `Elevated`, `Filled`, or a variant the theme's recipe names |
 | `size(..)` | `CardSize::Md` (the default) or `Sm`, or a size the theme's recipe names |
@@ -1678,14 +1679,14 @@ Card::new()
 | `on_click(handler)` | Makes the card pressed as a whole, from the pointer and the keyboard |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the surface |
 
-- Every part is optional: a card with children alone is a padded surface. The header is there where the card has a title, a description or an action; the footer where it has something in it, set off by a line only where there is a body over it.
+- Every part is optional: a card with children alone is a padded surface. The header is there where the card has a title, a description or an action; the footer where it has something in it, set off by a line only where there is content over it.
 - A card is as wide as the room it is given, as a block is. Cards side by side in a row are each given a share of it: a `Column::new().flex(1.0)` around each, or a grid. The title and the description wrap in the room the action leaves them.
-- A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its content is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
-- Parts: `CardPart::Root` (the surface; what is pressed), `Body` (the header over the content, padded), `Header` (the heading and the action), `Heading` (the title over the description), `Title`, `Description`, `Action`, `Content`, `Footer`. States: `CardState::Pressable`, `Disabled`, `Footed` (it has a footer under a body; the line over the footer is the body's `underline`).
-- In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its body is padded 24 with 24 between the header and the content; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the content is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
-- The settings card and the stat card of the design are cards with their parts styled: `style(CardPart::Body, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what they hold as the content.
-- To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its title, and a pressed card a `button`.
-- A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.body()`, `view.header()`, `view.heading()`, `view.action()`, `view.content()` and `view.footer()` are the default ones.
+- A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its body is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
+- Parts: `CardPart::Root` (the surface; what is pressed), `Content` (the header over the body, padded), `Header` (the text and the action), `Text` (the title over the description), `Title`, `Description`, `Action`, `Body` (what the app put in it), `Footer`. States: `CardState::Pressable`, `Disabled`, `Footer` (it has a footer under its content; the line over the footer is the content's `underline`).
+- In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its content is padded 24 with 24 between the header and the body; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the body is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
+- The settings card and the stat card of the design are cards with their parts styled: `style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))`, `style(CardPart::Root, |s| s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none()))`, and what they hold as the body.
+- To what reads the tree (`lurq_snapshot` of the MCP server) a card is a `group` called by its label or its title, and a pressed card a `button`.
+- A renderer that draws another card (`CardRenderer`) starts from `view.read_root()` or `view.pressed_root()`, the surface with its behavior, and puts in it what it likes: `view.content()` (the header over the body), `view.header()`, `view.text()`, `view.action()`, `view.body()` and `view.footer()` are the default ones.
 
 ## Separator
 
@@ -1709,7 +1710,8 @@ Row::new()
 
 | Builder | |
 | --- | --- |
-| `Separator::horizontal()`, `vertical()`, `new(orientation)` | A line across a column, or down a row |
+| `Separator::new()`, `horizontal()`, `vertical()` | A line across a column (`new` and `horizontal`), or down a row |
+| `orientation(Orientation)` | Which way it runs: `Horizontal` (unless told) or `Vertical`. `SeparatorOrientation` is `ui::Orientation` |
 | `label(&str)` | A word in the middle, with the line on either side of it |
 | `length(f32)` | How long it is: its width across a column, its height down a row |
 | `decorative(bool)` | Whether tooling passes it by. On by default |
@@ -1717,7 +1719,7 @@ Row::new()
 
 - A label longer than the room is cut with an ellipsis on one line, and a line of 24 at least stays on either side of it.
 - A separator across a column is as wide as the room it is given. One down a row is as high as the row where the row stretches its children (`align_items(Alignment::Stretch)`); in a row that does not, it is given a `length`. An inset is the root's padding: `style(SeparatorPart::Root, |s| s.padding_x(16.0))`.
-- Parts: `SeparatorPart::Root` (the line, or the lines and the label), `Line`, `Label`. Its orientation is the variant of its recipe: `SeparatorOrientation::Horizontal`, `Vertical`.
+- Parts: `SeparatorPart::Root` (the line, or the lines and the label), `Line`, `Label`. States: `SeparatorState::Horizontal` and `Vertical`, one of them on, which a recipe styles each way by.
 - In the design the line is 1 in `Border`. A label is in the caption's type in `MutedForeground`, 8 from the line on either side.
 - A separator is decoration to what reads the tree. One given `decorative(false)` is a `separator` with `a11y_orientation`, called by its label where it has one: for one between parts a person moves between.
 - Tabs, the dialog and the menu draw lines of their own from their recipes.
@@ -1826,7 +1828,8 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 | `variant(ProgressVariant)` | The color of what is filled: `Default` (primary), `Success`, `Warning`, `Destructive` |
 | `size(ProgressSize)` | The rail's height: `Sm` 4, `Md` 6, `Lg` 8 (the default). A ring of 40, 56 or 72 |
 | `label(&str)` | What the work is, over the start of the rail, and what the progress is called |
-| `show_value(bool)` | The value over the end of the rail, as a percentage or as `format` says it. None while it is not known. A ring shows it unless told not to |
+| `label_hidden(bool)` | The label is what the progress is called, and is not drawn |
+| `show_value(bool)` | The value over the end of the rail, as a percentage or as `format` says it. Off unless told, as the design's bar draws none; none while it is not known. A ring shows it unless told not to, as the design's ring does |
 | `format(Fn(f32, f32) -> String)` | Says the value, given the value and `max`: "42 of 128" |
 | `top_bar(bool)` | The thin bar across the top of a window or a surface: 3 high, no rail, as wide as what holds it |
 | `width(impl Into<Length>)` | How wide the progress is: 240 when not given |
@@ -2609,12 +2612,13 @@ InlineCode::new("ctx.theme()");
 | `platform(KeyPlatform)` | `Standard` (words, the default) or `Mac` (⌃ ⌥ ⇧ ⌘, ↩ ⌫ ⇥ ⌦, the modifiers first in a Mac's order). `KeyPlatform::current()` is the platform the app is built for |
 | `variant(KbdVariant)` | `Default` (a box for each key) or `Plain` (each step as one text in the muted color, with no box: "Ctrl+K", "⌘K") |
 | `size(KbdSize)` | `Sm` 16 high at 10, `Md` 20 at 11, `Lg` 24 at 12 |
-| `separator(&str)` | What stands between the steps of a sequence: "then" unless told |
+| `separator_text(&str)` | The word between the steps of a sequence: "then" unless told |
+| `label(&str)` | What the keys are called to what reads the tree, in place of their words |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
 
 - Keys are named as lurq names them in a `KeyboardEvent` (`Escape`, `ArrowUp`, `Backspace`, `PageUp`) or as a person writes them, in any case and with spaces or none: `Esc`, `Del`, `Page Up`. `Mod` is Ctrl, and ⌘ on a Mac; `Meta`, `Cmd`, `Super` and `Win` are ⌘ on a Mac. Arrows are drawn as ↑ ↓ ← →. A single letter is drawn in capitals; a key lurq does not name is drawn as it is written (`Up` stays `Up`).
 - On a Mac the modifiers are glyphs and stand first, in the order `Accelerator::display` writes them: ⌃ ⌥ ⇧ ⌘. In words they keep the order they are given in.
-- Keys are read and not operated: they take no press, no focus and no stop of Tab. To what reads the tree (`lurq_snapshot` of the MCP server) they are one `text`, called by their keys in words: "Ctrl+K", "Cmd+Shift+P", "G then D".
+- Keys are read and not operated: they take no press, no focus and no stop of Tab. To what reads the tree (`lurq_snapshot` of the MCP server) they are one `text`, called by their label or their keys in words: "Ctrl+K", "Cmd+Shift+P", "G then D".
 - Parts: `KbdPart::Root` (the row of keys, its gap), `Key` (a key's box), `Label` (the text on a key, or of a plain step), `Separator` (what stands between steps). Variants: `KbdVariant`. Sizes: `KbdSize`. States: `KbdState::Sequence`, `Mac`.
 - In the design a key is 20 high, padded 6, on `Muted` with an edge of 1 in `Border` and the radius `Sm`, its text 11 in the family of code in `MutedForeground`. The keys of a shortcut are 4 apart with nothing between them; large ones are 24 high, padded 7, at 12 and 6 apart, as the list of an app's shortcuts has them. Plain is the text of a menu's shortcut: 11 in the family of code in `MutedForeground`.
 - A renderer that draws other keys has `view.steps` (each step's keys, with what is drawn on each and what it is called), `view.root()`, `view.key_cap(key)`, `view.label(text)`, `view.between()` and `view.written(step)` (a step as one text).
@@ -2644,20 +2648,22 @@ EmptyState::new("No crates match")
 | Builder | |
 | --- | --- |
 | `EmptyState::new(&str)` | What is empty, in a line. It is what the empty state is called |
+| `label(&str)` | What it is called to what reads the tree, in place of its title |
 | `description(&str)` | Why, or what to do, under the title |
 | `icon(name)` | An icon of the theme's set over the title, in its well |
 | `media(element)` | An element of the app's in place of the icon and its well: an illustration, a picture |
-| `action(element)` | Something to do under the text; called again, a second one after it, the main one last |
+| `action(element)`, `actions(elements)` | Add something to do under the text, after what is there: an empty state has one or two, the main one last |
 | `size(EmptyStateSize)` | `Sm` (the icon alone, 22, everything 10 apart), `Md` (a well of 40, in an edge), `Lg` (a round well of 64, a title of 18) |
 | `bordered(bool)` | An edge around it. `Md` has one unless told; `Sm` and `Lg` have none |
+| `width(Length)` | A width of its own in place of all of the room it is given |
 | `height(Length)` | A height of its own, in which what it holds is centred: `Length::Fill` for all of the room a parent that stretches it gives |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
 
 - It is as wide as the room it is given and as high as what is in it, all of it centred; the title and the description wrap in the width there is. Its actions are the app's elements, as large as the place has them: a small button in a table.
-- It is read; what it gives to do is operated as itself. To what reads the tree it is a `status`, called by its title, with its description as `a11y_description`.
-- Parts: `EmptyStatePart::Root`, `Media` (the well), `Icon`, `Text` (the title over the description), `Title`, `Description`, `Actions`. Sizes: `EmptyStateSize`. States: `EmptyStateState::Bordered`.
+- It is read; what it gives to do is operated as itself. To what reads the tree it is a `status`, called by its label or its title, with its description as `a11y_description`.
+- Parts: `EmptyStatePart::Root`, `Mark` (the well), `Icon`, `Text` (the title over the description), `Title`, `Description`, `Actions`. Sizes: `EmptyStateSize`. States: `EmptyStateState::Bordered`.
 - In the design the medium one is padded 32, with 16 between the well, the text and the actions, in an edge of 1 in `Border` with the radius `Xl`; the well is 40 on `Muted` with the radius `Lg`, its icon 20 in `Foreground`; the title is 14/500 in `Foreground`, the description 4 under it at 13 in `MutedForeground`; the actions are 8 apart. The small one is the empty table's: padded 32 and 16, everything 10 apart, the icon 22 in `MutedForeground` with no well. The large one is the phone's: padded 32 and 24, a round well of 64 with an icon of 28, a title of 18/600 and a description of 15, 6 apart.
-- A renderer that draws another empty state has `view.root()`, `view.media()` (the app's element or the icon in its well), `view.text()` and `view.actions()`.
+- A renderer that draws another empty state has `view.root()`, `view.mark()` (the app's element or the icon in its well), `view.text()` and `view.actions()`.
 
 ## Result
 
@@ -2666,13 +2672,14 @@ What a page or a dialog says when something is over: payment received, build fai
 ```rust
 use lurq::ui::{Button, ButtonVariant, Outcome, OutcomeVariant};
 
-Outcome::new(OutcomeVariant::Success, "Build succeeded")
+Outcome::new("Build succeeded")
   .description("412 tests passed in 38 seconds.")
   .action(Button::new("View log").variant(ButtonVariant::Outline))
   .action(Button::new("Deploy"));
 
 // On a page of its own, or in a dialog: no box.
-Outcome::new(OutcomeVariant::NotFound, "Nothing here")
+Outcome::new("Nothing here")
+  .variant(OutcomeVariant::NotFound)
   .description("This page was moved or never existed.")
   .bordered(false)
   .action(Button::new("Home"));
@@ -2680,21 +2687,23 @@ Outcome::new(OutcomeVariant::NotFound, "Nothing here")
 
 | Builder | |
 | --- | --- |
-| `Outcome::new(OutcomeVariant, &str)` | What came of it, and its title, which is what it is called. `Success`, `Error`, `Warning`, `Info` or `NotFound` (a 404) |
+| `Outcome::new(&str)` | Its title, what came of it in a line, which is what it is called |
+| `variant(OutcomeVariant)` | What came of it: `Info`, `Success` (unless told), `Warning`, `Destructive` or `NotFound` (a 404), or a variant the theme's recipe names, marked with the information sign |
+| `label(&str)` | What it is called to what reads the tree, in place of its title |
 | `description(&str)` | More of it, under the title |
-| `icon(name)` | Another icon of the theme's set in the mark, in the variant's colors |
+| `icon(impl Into<IconChoice>)` | Another icon of the theme's set in the mark, in the variant's colors; `None` for no mark |
 | `media(element)` | An element of the app's in place of the mark |
-| `extra(element)` | What stands under the text and over the buttons, as wide as the outcome: a summary, a list |
-| `action(element)` | A button at the bottom, after those there: the least first, the main one last |
+| `child(element)`, `children(elements)` | Add what stands under the text and over the buttons, as wide as the outcome, 8 apart: a summary, a list |
+| `action(element)`, `actions(elements)` | Add a button at the bottom, after those there: an outcome has several, the least first, the main one last |
 | `bordered(bool)` | A box of its own with a fill and an edge, as the design draws it: true unless told |
-| `width(Length)` | A width of its own in place of the design's 300 |
+| `width(Length)`, `height(Length)` | A width of its own in place of the design's 300; a height of its own, what it holds centred in it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
 
 - Everything in it is centred; its title and description wrap in its width. With no box it has no padding either, and stands where what holds it puts it: a column that centres it on a page, the body of a [dialog](#dialog).
-- It is read; its buttons are operated as themselves. To what reads the tree it is a `status`, called by its title, with its description as `a11y_description`.
-- Parts: `OutcomePart::Root`, `Mark`, `Icon`, `Text`, `Title`, `Description`, `Extra`, `Actions`. Variants: `OutcomeVariant` (`OutcomeVariant::icon()` is the icon each is marked with). States: `OutcomeState::Bordered`.
+- It is read; its buttons are operated as themselves. To what reads the tree it is a `status`, called by its label or its title, with its description as `a11y_description`.
+- Parts: `OutcomePart::Root`, `Mark`, `Icon`, `Text`, `Title`, `Description`, `Body` (what the app put under the text), `Actions`. Variants: `OutcomeVariant` (`OutcomeVariant::icon()` is the icon each is marked with). States: `OutcomeState::Bordered`.
 - In the design it is 300 wide, padded 24 with 16 between the mark, the text and the buttons, on `Background` in an edge of 1 in `Border` with the radius `Lg`. The mark is a circle of 48 in the variant's muted color, its icon 24 in the variant's color: a check in `Success`, a cross in `Destructive`, a warning in `Warning`, an `i` in `Info`, and a crossed magnifier in `Foreground` on `Muted` for not found. The title is 16/600 in `Foreground`, the description 4 under it at 13 in `MutedForeground`; the buttons are 8 apart.
-- A renderer that draws another outcome has `view.root()`, `view.mark()`, `view.text()`, `view.extra()` and `view.actions()`.
+- A renderer that draws another outcome has `view.root()`, `view.mark()` (`None` with no icon and no media), `view.text()`, `view.body()` and `view.actions()`.
 
 ## Message Box
 
@@ -3692,13 +3701,17 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 | `TableColumn::sticky(bool)` | The first column stays at the start while the rows scroll sideways |
 | `TableColumn::controls(bool)`, `TableColumn::actions(id, cell)` | Its cells hold what is pressed, and a press of it is not the row's; a column of a row's buttons at its end |
 | `row_key(\|row\| K)` | What tells a row apart, which the selection and the handlers name it by. Without it, a row's place |
-| `sort(Signal<Option<TableSort>>)`, `sorted_by(sort, change)`, `on_sort(handler)` | What the rows are sorted by: a press of a sortable header goes through ascending, descending and none |
-| `selected(Signal<Vec<K>>)`, `selected_keys(keys, change)` | The rows selected, with a column of checkboxes |
+| `sort(Signal<Option<TableSort>>)`, `sort_controlled(sort, on_change)` | What the rows are sorted by, the app's signal or its value: a press of a sortable header goes through ascending, descending and none |
+| `on_sort_change(\|sort: Option<&TableSort>\|)` | Told the new sort at each press of a sortable header, bound or not; a second handler is called after the first |
+| `selected(Signal<Vec<K>>)`, `selected_controlled(keys, on_change)` | The rows selected, the app's signal or its value, with a column of checkboxes |
+| `on_selection_change(\|keys: &[K]\|)` | Told the whole new selection after a press or a key that changes it, bound or not; not for one that leaves it as it is, nor when the app sets the signal |
 | `checkboxes(bool)` | Whether a table whose rows are selected has the column of checkboxes; without it a press of a row selects it |
 | `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter |
 | `density(Density)` | Rows of 36 compact, 44 at the default, 52 comfortable and touch |
 | `height(..)`, `max_height(..)` | The table's height: the header stays and the rows scroll under it |
-| `empty(element)` | What stands under the header where there are no rows: by default an empty state that says so |
+| `empty(element)`, `empty_text(&str)` | What stands under the header where there are no rows: by default an empty state that says "No rows", or the app's words |
+| `select_all_label(&str)`, `select_row_label(&str)` | The names of the header's checkbox and of a row's: "Select all" and "Select row" unless told |
+| `count_text(\|rows, selected\| String)` | What the footer's count says: "24 rows", "3 of 24 rows selected" unless told |
 | `loading(bool)`, `loading_rows(n)` | Rows of skeletons under the header while the rows are on their way |
 | `pagination(element)`, `count(bool)`, `total(n)` | A footer that counts the rows and what is selected, with the pagination at its end |
 | `mount(ctx)` | The table mounted: it builds the rows in view and a few around them, and keeps its columns' measured widths |
@@ -3710,7 +3723,7 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 - The columns are one list of tracks for the header and every row (`ColumnTracks`), measured from the rows that are built: a column sized by its content is as wide as the widest of its cells shown so far, and does not narrow as rows scroll by.
 - The rows are one stop of Tab, at the focused, the first selected or the first row. Up and Down move through them, Home and End to the first and the last, and in a mounted table PageUp and PageDown by what is shown. Space selects the focused row (adds it or takes it out), Enter activates it, Ctrl+A selects them all. Tab from a row goes into what it holds that takes the focus, its buttons, and then out of the table. The sortable headers and the header's checkbox are a stop of their own before the rows, Left and Right between them. A row the keys reach is scrolled into view clear of the header.
 - To what reads the tree it is a `table`, or a `grid` (`a11y_multiselectable`) where its rows are selected, with `a11y_rowcount` (the header's among them) and `a11y_colcount`, `a11y_busy` while loading; its header and rows are `row`s with `a11y_rowindex` (the header's 1), `a11y_selected` where rows are selected; a header is a `columnheader` with `a11y_sort` (`ascending`, `descending`, `none`) where it sorts; a cell is a `cell`.
-- Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Row`, `Cell`, `Select` (the checkbox column's cell), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Sticky`, `Footed`, `Disabled`.
+- Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Row`, `Cell`, `Select` (the checkbox column's cell), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Sticky`, `Footer`, `Disabled`.
 - In the design the table is a box with `radius-lg`, an inner edge of 1 in `Border` and the `Background` fill. The header is 40 high on `Muted` with a line of 1 in `Border` under it, its titles 13/500 in `MutedForeground`; a row is 44 high with the same line under it but the last, its text 13 in `Foreground`. Both are padded 16 at each side with 16 between columns, 12 where the rows have checkboxes, whose column is 16 wide. A sorted column's title is in `Foreground` with an arrow of 14, 4 after it; a sortable one has a muted mark of `chevrons-vertical`, and its title is in `Foreground` under the pointer. A selected row is on `Highlight`. A number is mono 12 in `MutedForeground` at its column's end. The footer is 44 high, padded 16 and 8, its count 13 in `MutedForeground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled table is half opaque.
 - A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in. It is set for `Table<R, K>` of any `R` and `K`.
 

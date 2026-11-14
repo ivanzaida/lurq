@@ -150,7 +150,8 @@ pub struct Kbd {
   platform: KeyPlatform,
   variant: Name,
   size: Name,
-  separator: Arc<str>,
+  separator_text: Arc<str>,
+  label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -164,7 +165,8 @@ impl Kbd {
       platform: KeyPlatform::default(),
       variant: KbdVariant::default().into(),
       size: KbdSize::default().into(),
-      separator: Arc::from("then"),
+      separator_text: Arc::from("then"),
+      label: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -223,9 +225,16 @@ impl Kbd {
     self
   }
 
-  /// What stands between the steps of a sequence, and what it is called by between them: "then" unless told.
-  pub fn separator(mut self, separator: &str) -> Self {
-    self.separator = Arc::from(separator);
+  /// The word that stands between the steps of a sequence, and that they are called by between them: "then"
+  /// unless told.
+  pub fn separator_text(mut self, text: &str) -> Self {
+    self.separator_text = Arc::from(text);
+    self
+  }
+
+  /// What the keys are called to what reads the tree, in place of their words: "Search" for `Ctrl+K`.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -279,7 +288,8 @@ impl Kbd {
       platform,
       variant: self.variant,
       size: self.size,
-      separator: self.separator,
+      separator_text: self.separator_text,
+      label: self.label,
       recipe: theme.resolve::<Kbd>(&case, Some(&self.rules)),
       id: self.id,
       key: self.key,
@@ -433,8 +443,10 @@ pub struct KbdView {
   pub platform: KeyPlatform,
   pub variant: Name,
   pub size: Name,
-  /// What stands between steps.
-  pub separator: Arc<str>,
+  /// The word that stands between steps.
+  pub separator_text: Arc<str>,
+  /// What the keys are called to what reads the tree, where the app gave other words than theirs.
+  pub label: Option<Arc<str>>,
   /// The style of each part.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -462,15 +474,18 @@ impl KbdView {
     step.iter().map(|key| key.label.as_ref()).collect::<Vec<_>>().join(join)
   }
 
-  /// What the keys are called to what reads the tree: their words, parted by `+` within a step and by the
-  /// separator between steps. "Ctrl+K", "Cmd+Shift+P", "G then D".
+  /// What the keys are called to what reads the tree: the app's label, or their words, parted by `+` within a
+  /// step and by the separator's word between steps. "Ctrl+K", "Cmd+Shift+P", "G then D".
   pub fn name(&self) -> String {
+    if let Some(label) = &self.label {
+      return label.to_string();
+    }
     self
       .steps
       .iter()
       .map(|step| step.iter().map(|key| key.name.as_ref()).collect::<Vec<_>>().join("+"))
       .collect::<Vec<_>>()
-      .join(&format!(" {} ", self.separator))
+      .join(&format!(" {} ", self.separator_text))
   }
 
   /// The root in its style, with nothing in it yet: one text to what reads the tree, called by [`name`](Self::name).
@@ -506,7 +521,7 @@ impl KbdView {
   /// What stands between two steps.
   pub fn between(&self) -> Row {
     let part = self.part(KbdPart::Separator);
-    Row::new().part(&part).child(part.text(&self.separator).nowrap())
+    Row::new().part(&part).child(part.text(&self.separator_text).nowrap())
   }
 
   /// How the default renderer builds keys: each key in its box, or each step as one text where they are plain, and

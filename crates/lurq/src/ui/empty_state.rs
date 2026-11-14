@@ -43,8 +43,8 @@ names!(EmptyStateSize {
 pub enum EmptyStatePart {
   /// What holds the rest, centred: its edge, its padding.
   Root,
-  /// The well the icon is in.
-  Media,
+  /// The well the icon is in. The app's [`media`](EmptyState::media) stands in place of it.
+  Mark,
   /// The icon in the well.
   Icon,
   /// The title and the description, one over the other.
@@ -59,7 +59,7 @@ pub enum EmptyStatePart {
 
 names!(EmptyStatePart {
   Root => "root",
-  Media => "media",
+  Mark => "mark",
   Icon => "icon",
   Text => "text",
   Title => "title",
@@ -105,6 +105,7 @@ pub type EmptyStateRenderer = Arc<dyn Fn(EmptyStateView) -> Element + Send + Syn
 /// and described by its description.
 pub struct EmptyState {
   title: Arc<str>,
+  label: Option<Arc<str>>,
   description: Option<Arc<str>>,
   icon: Option<Name>,
   media: Option<Element>,
@@ -122,6 +123,7 @@ impl EmptyState {
   pub fn new(title: &str) -> Self {
     Self {
       title: Arc::from(title),
+      label: None,
       description: None,
       icon: None,
       media: None,
@@ -133,6 +135,12 @@ impl EmptyState {
       id: None,
       key: None,
     }
+  }
+
+  /// What it is called to what reads the tree, in place of its title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
   }
 
   /// Why it is empty, or what to do, under the title.
@@ -153,9 +161,16 @@ impl EmptyState {
     self
   }
 
-  /// Adds something to do under the text, after what is there: a button, a link. One or two; the main one last.
+  /// Adds something to do under the text, after what is there: a button, a link. An empty state has one or two;
+  /// the main one last.
   pub fn action(mut self, action: impl Into<Element>) -> Self {
     self.actions.push(action.into());
+    self
+  }
+
+  /// Adds each of `actions` under the text, as [`action`](Self::action) does.
+  pub fn actions(mut self, actions: impl IntoIterator<Item = impl Into<Element>>) -> Self {
+    self.actions.extend(actions.into_iter().map(Into::into));
     self
   }
 
@@ -168,6 +183,13 @@ impl EmptyState {
   /// Whether it has an edge around it. The medium size has one unless told; the small and the large have none.
   pub fn bordered(mut self, bordered: bool) -> Self {
     self.bordered = Some(bordered);
+    self
+  }
+
+  /// A width of its own in place of all of the room it is given.
+  pub fn width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
+    self.rules = self.rules.base(EmptyStatePart::Root, |s| s.width(width));
     self
   }
 
@@ -226,6 +248,7 @@ impl EmptyState {
     .state(EmptyStateState::Bordered, bordered);
     let view = EmptyStateView {
       title: self.title,
+      label: self.label,
       description: self.description,
       icon: self.icon,
       media: self.media,
@@ -252,6 +275,8 @@ impl From<EmptyState> for Element {
 /// An empty state as a renderer sees it: what it was given, and the style of its parts.
 pub struct EmptyStateView {
   pub title: Arc<str>,
+  /// What it is called to what reads the tree, where the app gave other words than its title.
+  pub label: Option<Arc<str>>,
   pub description: Option<Arc<str>>,
   /// The name of its icon, if it has one.
   pub icon: Option<Name>,
@@ -278,14 +303,14 @@ impl EmptyStateView {
   }
 
   /// The root in its style, with nothing in it yet: what it holds centred in it, a `status` to what reads the tree,
-  /// called by the title and described by the description.
+  /// called by its label or its title and described by the description.
   pub fn root(&self) -> Column {
     let mut root = Column::new()
       .align_items(Alignment::Center)
       .justify(Justify::Center)
       .part(&self.part(EmptyStatePart::Root))
       .describe("a11y_role", "status")
-      .describe("a11y_name", self.title.clone());
+      .describe("a11y_name", self.label.clone().unwrap_or_else(|| self.title.clone()));
     if let Some(description) = &self.description {
       root = root.describe("a11y_description", description.clone());
     }
@@ -299,7 +324,7 @@ impl EmptyStateView {
   }
 
   /// The app's element, or the icon in its well: `None` for an empty state with neither.
-  pub fn media(&mut self) -> Option<Element> {
+  pub fn mark(&mut self) -> Option<Element> {
     if let Some(media) = self.media.take() {
       return Some(media);
     }
@@ -308,7 +333,7 @@ impl EmptyStateView {
       Row::new()
         .align_items(Alignment::Center)
         .justify(Justify::Center)
-        .part(&self.part(EmptyStatePart::Media))
+        .part(&self.part(EmptyStatePart::Mark))
         .child(glyph(&self.part(EmptyStatePart::Icon), name, false))
         .into(),
     )
@@ -341,11 +366,11 @@ impl EmptyStateView {
     )
   }
 
-  /// How the default renderer builds an empty state: the media over the text over the actions, centred.
+  /// How the default renderer builds an empty state: the mark over the text over the actions, centred.
   pub fn render(mut self) -> Element {
     let mut root = self.root();
-    if let Some(media) = self.media() {
-      root = root.child(media);
+    if let Some(mark) = self.mark() {
+      root = root.child(mark);
     }
     root = root.child(self.text());
     if let Some(actions) = self.actions() {
@@ -376,13 +401,13 @@ impl Themed for EmptyState {
   /// one is the phone's: padded 32 and 24, a round well of 64 with an icon of 28, a title of 18/600 and a
   /// description of 15, 6 apart. The actions are 8 apart.
   fn recipe() -> Recipe {
-    use EmptyStatePart::{Actions, Description, Icon, Media, Root, Text, Title};
+    use EmptyStatePart::{Actions, Description, Icon, Mark, Root, Text, Title};
     use EmptyStateSize::{Lg, Sm};
     use PaletteColor::*;
     let clear = Color::new(0, 0, 0, 0);
     Recipe::new()
       .base(Root, |s| s.width(Length::Fill).padding_x(32.0).padding_y(32.0).gap(16.0))
-      .base(Media, |s| s.square(40.0).radius(RadiusSize::Lg).background(Muted))
+      .base(Mark, |s| s.square(40.0).radius(RadiusSize::Lg).background(Muted))
       .base(Icon, |s| s.square(20.0).foreground(Foreground))
       .base(Text, |s| s.gap(4.0))
       .base(Title, |s| {
@@ -402,12 +427,12 @@ impl Themed for EmptyState {
       })
       // The table's: the icon alone, and everything 10 apart.
       .size(Sm, Root, |s| s.padding_x(16.0).gap(10.0))
-      .size(Sm, Media, |s| s.square(22.0).radius(0.0).background(clear))
+      .size(Sm, Mark, |s| s.square(22.0).radius(0.0).background(clear))
       .size(Sm, Icon, |s| s.square(22.0).foreground(MutedForeground))
       .size(Sm, Text, |s| s.gap(10.0))
       // The phone's.
       .size(Lg, Root, |s| s.padding_x(24.0))
-      .size(Lg, Media, |s| s.square(64.0).radius(RadiusSize::Full))
+      .size(Lg, Mark, |s| s.square(64.0).radius(RadiusSize::Full))
       .size(Lg, Icon, |s| s.square(28.0))
       .size(Lg, Text, |s| s.gap(6.0))
       .size(Lg, Title, |s| s.font_size(18.0).weight(FontWeight::SemiBold))

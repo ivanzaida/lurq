@@ -6,6 +6,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  shared::Orientation,
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -35,17 +36,20 @@ names!(SeparatorPart {
   Label => "label",
 });
 
-/// Which way a separator runs: the variant of its recipe.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum SeparatorOrientation {
-  /// Across a column, between what is over it and what is under it.
-  #[default]
+/// Which way a separator runs: across a column (`Horizontal`), between what is over it and what is under it, or
+/// down a row (`Vertical`), between what is before it and what is after it.
+pub type SeparatorOrientation = Orientation;
+
+/// The states of a separator a recipe styles: which way it runs, one of the two on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SeparatorState {
+  /// It runs across a column.
   Horizontal,
-  /// Down a row, between what is before it and what is after it.
+  /// It runs down a row.
   Vertical,
 }
 
-names!(SeparatorOrientation {
+names!(SeparatorState {
   Horizontal => "horizontal",
   Vertical => "vertical",
 });
@@ -79,7 +83,8 @@ pub type SeparatorRenderer = Arc<dyn Fn(SeparatorView) -> Element + Send + Sync>
 /// tooling that reads the tree, unless the app says it separates something
 /// a person moves between ([`Separator::decorative`]).
 pub struct Separator {
-  orientation: SeparatorOrientation,
+  orientation: Orientation,
+  length: Option<f32>,
   label: Option<Arc<str>>,
   decorative: bool,
   states: Vec<Name>,
@@ -88,11 +93,18 @@ pub struct Separator {
   key: Option<Arc<str>>,
 }
 
+impl Default for Separator {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl Separator {
-  /// A separator that runs `orientation`.
-  pub fn new(orientation: SeparatorOrientation) -> Self {
+  /// A line across a column, unless told [another way](Self::orientation).
+  pub fn new() -> Self {
     Self {
-      orientation,
+      orientation: Orientation::Horizontal,
+      length: None,
       label: None,
       decorative: true,
       states: Vec::new(),
@@ -102,14 +114,20 @@ impl Separator {
     }
   }
 
-  /// A line across a column.
+  /// A line across a column: `Separator::new()`.
   pub fn horizontal() -> Self {
-    Self::new(SeparatorOrientation::Horizontal)
+    Self::new()
   }
 
-  /// A line down a row.
+  /// A line down a row: `Separator::new().orientation(Orientation::Vertical)`.
   pub fn vertical() -> Self {
-    Self::new(SeparatorOrientation::Vertical)
+    Self::new().orientation(Orientation::Vertical)
+  }
+
+  /// Which way it runs: across a column, or down a row.
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
+    self
   }
 
   /// A word in the middle of the line, with the line on either side of it: "or".
@@ -119,13 +137,10 @@ impl Separator {
   }
 
   /// How long the separator is, in logical pixels, over the room it would
-  /// take: its width across a column, its height down a row.
+  /// take: its width across a column, its height down a row, whichever way it
+  /// is told to run before or after.
   pub fn length(mut self, length: f32) -> Self {
-    let orientation = self.orientation;
-    self.rules = self.rules.base(SeparatorPart::Root, |s| match orientation {
-      SeparatorOrientation::Horizontal => s.width(length),
-      SeparatorOrientation::Vertical => s.height(length),
-    });
+    self.length = Some(length);
     self
   }
 
@@ -173,18 +188,29 @@ impl Separator {
   /// Builds the separator in `theme`. Converting a separator into an element
   /// does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    let vertical = self.orientation.is_vertical();
     let case = Case {
-      variant: Some(self.orientation.into()),
+      variant: None,
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
-    };
+    }
+    .state(SeparatorState::Horizontal, !vertical)
+    .state(SeparatorState::Vertical, vertical);
+    // The app's length is over the recipe's and under what the app styles.
+    let mut rules = Recipe::new();
+    if let Some(length) = self.length {
+      rules = rules.base(SeparatorPart::Root, |s| {
+        if vertical { s.height(length) } else { s.width(length) }
+      });
+    }
+    let rules = rules.extend(&self.rules);
     let view = SeparatorView {
       orientation: self.orientation,
       label: self.label,
       decorative: self.decorative,
-      recipe: theme.resolve::<Separator>(&case, Some(&self.rules)),
+      recipe: theme.resolve::<Separator>(&case, Some(&rules)),
       id: self.id,
       key: self.key,
     };
@@ -203,7 +229,7 @@ impl From<Separator> for Element {
 
 /// A separator as a renderer sees it: what it was given and the style of its parts.
 pub struct SeparatorView {
-  pub orientation: SeparatorOrientation,
+  pub orientation: Orientation,
   pub label: Option<Arc<str>>,
   pub decorative: bool,
   /// The style of each part of this separator.
@@ -231,11 +257,11 @@ impl SeparatorView {
   pub fn line(&self) -> Element {
     let part = self.part(SeparatorPart::Line);
     match self.orientation {
-      SeparatorOrientation::Horizontal if self.label.is_some() => {
+      Orientation::Horizontal if self.label.is_some() => {
         Row::new().flex_full(1.0, 0.0, Some(LEAST_LINE)).part(&part).into()
       }
-      SeparatorOrientation::Horizontal => Row::new().flex(1.0).part(&part).into(),
-      SeparatorOrientation::Vertical => Column::new().flex(1.0).part(&part).into(),
+      Orientation::Horizontal => Row::new().flex(1.0).part(&part).into(),
+      Orientation::Vertical => Column::new().flex(1.0).part(&part).into(),
     }
   }
 
@@ -283,8 +309,8 @@ impl SeparatorView {
       }};
     }
     match self.orientation {
-      SeparatorOrientation::Horizontal => whole!(Row::new()),
-      SeparatorOrientation::Vertical => whole!(Column::new()),
+      Orientation::Horizontal => whole!(Row::new()),
+      Orientation::Vertical => whole!(Column::new()),
     }
   }
 }
@@ -299,16 +325,16 @@ impl Themed for Separator {
   /// the muted color.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use SeparatorOrientation::{Horizontal, Vertical};
     use SeparatorPart::{Label, Line, Root};
+    use SeparatorState::{Horizontal, Vertical};
     Recipe::new()
       .base(Root, |s| s.gap(8.0))
       // Down a row it takes no height of its own, which would be all the room the row is offered: a row that
       // stretches its children makes it as high as the row.
-      .variant(Horizontal, Root, |s| s.width(Length::Fill))
+      .state(Horizontal, Root, |s| s.width(Length::Fill))
       .base(Line, |s| s.background(Border))
-      .variant(Horizontal, Line, |s| s.height(1.0))
-      .variant(Vertical, Line, |s| s.width(1.0))
+      .state(Horizontal, Line, |s| s.height(1.0))
+      .state(Vertical, Line, |s| s.width(1.0))
       .base(Label, |s| {
         s.typography(TypographyStyle::Caption).foreground(MutedForeground)
       })

@@ -1,5 +1,6 @@
 //! An outcome, the board's Result: its box against the board, the mark of each variant, the app's icon, what the app
-//! puts under the text, one with no box, that only its buttons take the focus, a theme's rules and renderer.
+//! puts under the text, no mark, buttons added, one with no box, that only its buttons take the focus, the name
+//! tooling reads, a theme's rules and renderer.
 
 use std::sync::Arc;
 
@@ -39,7 +40,7 @@ fn scene(children: Vec<Element>) -> Element {
 }
 
 fn built() -> Outcome {
-  Outcome::new(OutcomeVariant::Success, "Build succeeded")
+  Outcome::new("Build succeeded")
     .description("412 tests passed in 38 seconds.")
     .action(Button::new("View log").variant(ButtonVariant::Outline).id("log"))
     .action(Button::new("Deploy").id("deploy"))
@@ -121,8 +122,8 @@ fn each_variant_has_its_mark_and_its_colors() {
       PaletteColor::Success,
     ),
     (
-      OutcomeVariant::Error,
-      "error",
+      OutcomeVariant::Destructive,
+      "destructive",
       icons::CLOSE,
       PaletteColor::DestructiveMuted,
       PaletteColor::Destructive,
@@ -150,7 +151,7 @@ fn each_variant_has_its_mark_and_its_colors() {
     ),
   ];
   for (variant, id, icon, fill, ink) in variants {
-    let mut stage = Stage::new(move |_| scene(vec![Outcome::new(variant, "Over").id(id).into()]));
+    let mut stage = Stage::new(move |_| scene(vec![Outcome::new("Over").variant(variant).id(id).into()]));
     let mark = mark_in(&mut stage, id);
     assert_eq!(color_of(&mark), light(fill), "{id}");
     assert_eq!(stage.text(&glyph(icon)), (light(ink), 24.0), "{id}");
@@ -161,10 +162,9 @@ fn each_variant_has_its_mark_and_its_colors() {
 fn the_apps_icon_takes_the_variants_colors_and_an_element_stands_in_place_of_the_mark() {
   let mut stage = Stage::new(|_| {
     scene(vec![
-      Outcome::new(OutcomeVariant::Success, "Payment received")
-        .icon(icons::CHECK_CIRCLE)
-        .into(),
-      Outcome::new(OutcomeVariant::Info, "Welcome")
+      Outcome::new("Payment received").icon(icons::CHECK_CIRCLE).into(),
+      Outcome::new("Welcome")
+        .variant(OutcomeVariant::Info)
         .media(Rect::new(120.0, 80.0).background(PaletteColor::Primary).id("picture"))
         .id("welcome")
         .into(),
@@ -185,7 +185,7 @@ fn what_the_app_puts_under_the_text_is_as_wide_as_the_outcome_and_over_the_butto
   let mut stage = Stage::new(|_| {
     scene(vec![
       built()
-        .extra(Column::new().width(Dimension::Pct(100.0)).height(40.0).id("summary"))
+        .child(Column::new().width(Dimension::Pct(100.0)).height(40.0).id("summary"))
         .into(),
     ])
   });
@@ -198,10 +198,76 @@ fn what_the_app_puts_under_the_text_is_as_wide_as_the_outcome_and_over_the_butto
 }
 
 #[test]
+fn children_are_8_apart_under_the_text_and_actions_add_after_the_action_there() {
+  let mut stage = Stage::new(|_| {
+    scene(vec![
+      Outcome::new("Payment received")
+        .children([
+          Column::new().width(Dimension::Pct(100.0)).height(20.0).id("first"),
+          Column::new().width(Dimension::Pct(100.0)).height(20.0).id("second"),
+        ])
+        .action(Button::new("Receipt").id("receipt"))
+        .actions([Button::new("Back").id("back"), Button::new("Done").id("done")])
+        .id("paid")
+        .into(),
+    ])
+  });
+  let (_, first_y, ..) = stage.bounds("first");
+  let (_, second_y, ..) = stage.bounds("second");
+  assert!((second_y - (first_y + 20.0) - 8.0).abs() < 0.01, "8 apart");
+  let receipt = stage.bounds("receipt").0;
+  let back = stage.bounds("back").0;
+  let done = stage.bounds("done").0;
+  assert!(
+    receipt < back && back < done,
+    "in the order given, the plural after the singular"
+  );
+}
+
+#[test]
+fn no_icon_is_no_mark_and_the_title_is_at_the_top() {
+  let mut stage = Stage::new(|_| scene(vec![Outcome::new("Saved").icon(None).id("saved").into()]));
+  assert!(!stage.paints(&glyph(icons::CHECK)), "no icon");
+  let (_, y, ..) = stage.bounds("saved");
+  let title = stage.text_quad("Saved").unwrap();
+  assert!(title.y - y < 24.0 + 16.0, "nothing over the title but the padding");
+}
+
+#[test]
+fn a_height_of_its_own_centres_what_it_holds() {
+  let mut stage = Stage::new(|_| scene(vec![built().height(400.0).into()]));
+  let (_, y, _, height) = stage.bounds("built");
+  assert_eq!(height, 400.0);
+  let mark = mark_in(&mut stage, "built");
+  assert!(mark.y - y > 60.0, "centred, not at the top");
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn tooling_reads_a_status_called_by_its_title_or_its_label() {
+  let mut stage = Stage::new(|_| {
+    scene(vec![
+      built().into(),
+      Outcome::new("Done").label("Upload finished").id("labelled").into(),
+    ])
+  });
+  let mut said = |id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said("built", "a11y_role").as_deref(), Some("status"));
+  assert_eq!(said("built", "a11y_name").as_deref(), Some("Build succeeded"));
+  assert_eq!(said("labelled", "a11y_name").as_deref(), Some("Upload finished"));
+}
+
+#[test]
 fn one_with_no_box_has_no_fill_no_edge_and_no_padding() {
   let mut stage = Stage::new(|_| {
     scene(vec![
-      Outcome::new(OutcomeVariant::NotFound, "Nothing here")
+      Outcome::new("Nothing here")
+        .variant(OutcomeVariant::NotFound)
         .bordered(false)
         .width(lurq::ui::Length::Fill)
         .id("missing")

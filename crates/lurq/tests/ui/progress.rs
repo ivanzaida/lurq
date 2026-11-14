@@ -202,6 +202,36 @@ fn the_label_is_over_the_start_of_the_rail_and_the_value_over_its_end() {
 }
 
 #[test]
+fn a_hidden_label_is_not_drawn_and_the_rail_is_at_the_top() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(Progress::new(0.5).label("Indexing").label_hidden(true).id("quiet"))
+      .into()
+  });
+  assert!(!stage.paints("Indexing"), "not drawn");
+  let (_, y, _, height) = stage.bounds("quiet");
+  assert_eq!(height, 8.0, "the rail alone");
+  let rail = fill(&mut stage, "quiet", light(PaletteColor::Primary));
+  assert!((rail.y - y).abs() < 0.01);
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_hidden_label_is_still_what_the_bar_is_called() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(Progress::new(0.5).label("Indexing").label_hidden(true).id("quiet"))
+      .into()
+  });
+  let name = stage
+    .tree
+    .get_element_by_id_mut("quiet")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(name.as_deref(), Some("Indexing"));
+}
+
+#[test]
 fn what_is_filled_moves_to_a_new_value() {
   let value = Signal::new(0.2_f32);
   let read = value.clone();

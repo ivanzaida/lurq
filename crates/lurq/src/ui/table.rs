@@ -109,7 +109,7 @@ pub enum TableState {
   /// A cell of the column that stays while the rows scroll sideways.
   Sticky,
   /// It has a footer under its rows.
-  Footed,
+  Footer,
   /// It takes no input.
   Disabled,
 }
@@ -124,7 +124,7 @@ names!(TableState {
   Mono => "mono",
   Numeric => "numeric",
   Sticky => "sticky",
-  Footed => "footed",
+  Footer => "footer",
   Disabled => "disabled",
 });
 
@@ -434,6 +434,34 @@ impl<R: 'static> TableColumn<R> {
 
 type Told<K> = Arc<dyn Fn(&K) + Send + Sync>;
 type SortFn = Arc<dyn Fn(Option<TableSort>) + Send + Sync>;
+type SortHeard = Arc<dyn Fn(Option<&TableSort>) + Send + Sync>;
+type SelectionHeard<K> = Arc<dyn Fn(&[K]) + Send + Sync>;
+/// What says the count of the footer, given how many rows there are and how many are selected where they are.
+type CountFn = Arc<dyn Fn(usize, Option<usize>) -> String + Send + Sync>;
+
+/// The words a table writes itself, each of which the app says otherwise.
+#[derive(Clone)]
+struct Words {
+  /// The title of the empty state of a table with no rows.
+  empty: Arc<str>,
+  /// The name of the header's checkbox.
+  select_all: Arc<str>,
+  /// The name of a row's checkbox.
+  select_row: Arc<str>,
+  /// The footer's count, where the app says it.
+  count: Option<CountFn>,
+}
+
+impl Default for Words {
+  fn default() -> Self {
+    Self {
+      empty: Arc::from("No rows"),
+      select_all: Arc::from("Select all"),
+      select_row: Arc::from("Select row"),
+      count: None,
+    }
+  }
+}
 type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 
 /// Rows of the same things in columns: crates and their status, files and their sizes, people and their
@@ -468,7 +496,7 @@ type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 ///
 /// What the rows are, their order, what is selected and what they are sorted by are the app's. A press of a
 /// sortable header asks for the rows sorted by it, ascending, then descending, then not at all
-/// ([`Table::sort`], [`Table::on_sort`]), and the app gives them in that order ([`TableSort::sort`] sorts
+/// ([`Table::sort`], [`Table::on_sort_change`]), and the app gives them in that order ([`TableSort::sort`] sorts
 /// them by the column's text or what it compares by).
 ///
 /// With a selection ([`Table::selected`]) the table has a column of checkboxes. A press of a row selects it
@@ -493,9 +521,11 @@ pub struct Table<R, K = usize> {
   key_of: KeyFn<R, K>,
   sort: Option<TableSort>,
   write_sort: Option<SortFn>,
-  on_sort: Vec<SortFn>,
+  on_sort_change: Vec<SortHeard>,
   selected: Vec<K>,
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
+  on_selection_change: Vec<SelectionHeard<K>>,
+  words: Words,
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
@@ -525,9 +555,11 @@ impl<R, K: Clone> Clone for Table<R, K> {
       key_of: self.key_of.clone(),
       sort: self.sort.clone(),
       write_sort: self.write_sort.clone(),
-      on_sort: self.on_sort.clone(),
+      on_sort_change: self.on_sort_change.clone(),
       selected: self.selected.clone(),
       select: self.select.clone(),
+      on_selection_change: self.on_selection_change.clone(),
+      words: self.words.clone(),
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
@@ -567,9 +599,11 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       key_of: Arc::new(|index, _| index),
       sort: None,
       write_sort: None,
-      on_sort: Vec::new(),
+      on_sort_change: Vec::new(),
       selected: Vec::new(),
       select: None,
+      on_selection_change: Vec::new(),
+      words: Words::default(),
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -604,9 +638,11 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       key_of: Arc::new(move |_, row| key(row)),
       sort: self.sort,
       write_sort: self.write_sort,
-      on_sort: self.on_sort,
+      on_sort_change: self.on_sort_change,
       selected: Vec::new(),
       select: None,
+      on_selection_change: Vec::new(),
+      words: self.words,
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -642,21 +678,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self
   }
 
-  /// What the rows are sorted by, as the app holds it: `change` is told the next at each press of a sortable
-  /// header.
-  pub fn sorted_by(
+  /// What the rows are sorted by, as the app holds it: `on_change` is told the next at each press of a
+  /// sortable header, and the table shows what the app gives it at the next render.
+  pub fn sort_controlled(
     mut self,
     sort: Option<TableSort>,
-    change: impl Fn(Option<TableSort>) + Send + Sync + 'static,
+    on_change: impl Fn(Option<TableSort>) + Send + Sync + 'static,
   ) -> Self {
     self.sort = sort;
-    self.write_sort = Some(Arc::new(change));
+    self.write_sort = Some(Arc::new(on_change));
     self
   }
 
-  /// Called with what the rows are to be sorted by at each press of a sortable header.
-  pub fn on_sort(mut self, handler: impl Fn(Option<TableSort>) + Send + Sync + 'static) -> Self {
-    self.on_sort.push(Arc::new(handler));
+  /// Called with what the rows are to be sorted by at each press of a sortable header, bound to a signal or
+  /// not; a second handler is called after the first. Given alone, it makes the headers sortable, and the
+  /// table shows the sort the app gives it with [`sort_controlled`](Self::sort_controlled).
+  pub fn on_sort_change(mut self, handler: impl Fn(Option<&TableSort>) + Send + Sync + 'static) -> Self {
+    self.on_sort_change.push(Arc::new(handler));
     self
   }
 
@@ -671,15 +709,24 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self
   }
 
-  /// The rows that are selected, as the app holds them: `change` is told what is to be selected after each
-  /// press or key that changes it.
-  pub fn selected_keys(
+  /// The rows that are selected, as the app holds them: `on_change` is told what is to be selected after each
+  /// press or key that changes it, and the table shows what the app gives it at the next render.
+  pub fn selected_controlled(
     mut self,
     selected: impl IntoIterator<Item = K>,
-    change: impl Fn(Vec<K>) + Send + Sync + 'static,
+    on_change: impl Fn(Vec<K>) + Send + Sync + 'static,
   ) -> Self {
     self.selected = selected.into_iter().collect();
-    self.select = Some(Arc::new(change));
+    self.select = Some(Arc::new(on_change));
+    self
+  }
+
+  /// Called with the whole new selection after each press or key that changes it, bound to a signal or not:
+  /// not for a press that leaves it as it is, nor when the app sets the signal. A second handler is called
+  /// after the first. It hears a table that is selected ([`selected`](Self::selected),
+  /// [`selected_controlled`](Self::selected_controlled)); alone it selects nothing.
+  pub fn on_selection_change(mut self, handler: impl Fn(&[K]) + Send + Sync + 'static) -> Self {
+    self.on_selection_change.push(Arc::new(handler));
     self
   }
 
@@ -717,6 +764,32 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// The most the table is high: as high as its rows up to it, and they scroll past it.
   pub fn max_height(mut self, height: impl Into<Length>) -> Self {
     self.max_height = Some(height.into());
+    self
+  }
+
+  /// The title of the empty state that stands under the header where there are no rows: "No rows" unless
+  /// told. [`empty`](Self::empty) puts an element of the app's in its place.
+  pub fn empty_text(mut self, text: &str) -> Self {
+    self.words.empty = Arc::from(text);
+    self
+  }
+
+  /// The name of the header's checkbox, which selects every row: "Select all" unless told.
+  pub fn select_all_label(mut self, label: &str) -> Self {
+    self.words.select_all = Arc::from(label);
+    self
+  }
+
+  /// The name of a row's checkbox: "Select row" unless told.
+  pub fn select_row_label(mut self, label: &str) -> Self {
+    self.words.select_row = Arc::from(label);
+    self
+  }
+
+  /// What the footer's count says, given how many rows there are and, where they are selected, how many
+  /// are: "24 rows" and "3 of 24 rows selected" unless told.
+  pub fn count_text(mut self, text: impl Fn(usize, Option<usize>) -> String + Send + Sync + 'static) -> Self {
+    self.words.count = Some(Arc::new(text));
     self
   }
 
@@ -848,7 +921,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let mut case = Case::new()
       .breakpoint(super::current_breakpoint())
       .state(TableState::Selectable, self.with_checkboxes())
-      .state(TableState::Footed, self.count || self.pagination.is_some())
+      .state(TableState::Footer, self.count || self.pagination.is_some())
       .state(TableState::Disabled, self.disabled);
     case.states.extend(self.states.iter().copied());
     if let Some(density) = &self.density {
@@ -953,6 +1026,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       keys: keys.clone(),
       selected: self.selected.clone(),
       select: self.select.clone(),
+      on_selection_change: self.on_selection_change.clone(),
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
     });
@@ -1044,6 +1118,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           tracks: tracks.clone(),
           geometry,
           actions: (!self.disabled).then(|| model.actions(index)),
+          select_label: self.words.select_row.clone(),
           host: window.as_ref().and_then(|window| window.host.clone()),
           element: window
             .as_ref()
@@ -1070,10 +1145,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .state(TableState::Sortable, sortable)
           .state(TableState::Sorted, sorted.is_some())
           .state(TableState::Sticky, column_index == 0 && sticky);
-        let press = (sortable && (self.write_sort.is_some() || !self.on_sort.is_empty())).then(|| {
+        let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
           let (write, handlers, next) = (
             self.write_sort.clone(),
-            self.on_sort.clone(),
+            self.on_sort_change.clone(),
             TableSort::after_press(self.sort.as_ref(), &column.id),
           );
           Arc::new(move || {
@@ -1081,7 +1156,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               write(next.clone());
             }
             for handler in &handlers {
-              handler(next.clone());
+              handler(next.as_ref());
             }
           }) as Arc<dyn Fn() + Send + Sync>
         });
@@ -1118,10 +1193,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
     let total = self.total.unwrap_or(count);
     let selected_count = self.selected.len();
-    let count_text = if selectable {
-      format!("{selected_count} of {total} {} selected", rows_word(total))
-    } else {
-      format!("{total} {}", rows_word(total))
+    let count_text = match &self.words.count {
+      Some(text) => text(total, selectable.then_some(selected_count)),
+      None if selectable => format!("{selected_count} of {total} {} selected", rows_word(total)),
+      None => format!("{total} {}", rows_word(total)),
     };
 
     let body_window = window.as_ref().map(|window| BodyWindow {
@@ -1130,7 +1205,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     });
     let empty = (count == 0 && !self.loading).then(|| {
       self.empty.clone().unwrap_or_else(|| {
-        EmptyState::new("No rows")
+        EmptyState::new(&self.words.empty)
           .icon(icons::INBOX)
           .size(EmptyStateSize::Sm)
           .build(theme)
@@ -1150,6 +1225,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         (false, false) => Some(false),
       },
       select_all,
+      select_all_label: self.words.select_all.clone(),
       loading: self.loading,
       loading_rows: self.loading_rows,
       empty,
@@ -1223,6 +1299,7 @@ struct Model<K> {
   keys: Arc<Vec<K>>,
   selected: Vec<K>,
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
+  on_selection_change: Vec<SelectionHeard<K>>,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
 }
@@ -1310,11 +1387,15 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Model<K> {
     self.write(next);
   }
 
+  /// Asks for `next` to be selected and tells every handler of it: nothing where it is what is selected now.
   fn write(&self, next: Vec<K>) {
     if let Some(select) = &self.select
       && next != self.selected
     {
-      select(next);
+      select(next.clone());
+      for handler in &self.on_selection_change {
+        handler(&next);
+      }
     }
   }
 }
@@ -1370,6 +1451,8 @@ pub struct TableView {
   /// Whether every row is selected: `Some(true)` all, `Some(false)` none, `None` some.
   pub selection: Option<bool>,
   select_all: Option<Arc<dyn Fn() + Send + Sync>>,
+  /// The name of the header's checkbox.
+  select_all_label: Arc<str>,
   pub loading: bool,
   pub loading_rows: usize,
   /// What stands under the header where there are no rows.
@@ -1411,7 +1494,8 @@ impl TableView {
   /// The box in the style of its part, with nothing in it yet. It is a table to what reads the tree of the
   /// window, a grid where its rows are selected, with how many rows (the header's among them) and columns.
   pub fn root(&self) -> Column {
-    let columns = self.headers.len() + usize::from(self.checkboxes);
+    // The tracks are the columns and the checkboxes': there however a renderer took the headers.
+    let columns = self.tracks.len();
     let mut root = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(TablePart::Root))
@@ -1470,7 +1554,7 @@ impl TableView {
   /// mixed where some are. A press selects every row, or none where all are.
   pub fn select_all(&self) -> Element {
     let part = self.part(TablePart::Select);
-    let mut checkbox = Checkbox::new("Select all")
+    let mut checkbox = Checkbox::new(&self.select_all_label)
       .label_hidden(true)
       .checked(self.selection == Some(true))
       .indeterminate(self.selection.is_none())
@@ -1539,15 +1623,19 @@ impl TableView {
     Column::new()
       .align_items(Alignment::Stretch)
       .with_children((0..self.loading_rows).map(|index| {
+        // The last row's part, with no line under it, is its only one: a part given after the tracks would take
+        // them away, and the row would fall out of the columns.
+        let row_part = if self.loading_rows == index + 1 && self.footer.is_none() {
+          self.last_row.part(TablePart::Row)
+        } else {
+          part.clone()
+        };
         let mut row = Row::new()
-          .part(&part)
+          .part(&row_part)
           .spacing(0.0)
           .align_items(Alignment::Center)
           .column_tracks(&self.tracks)
           .describe("a11y_hidden", "true");
-        if self.loading_rows == index + 1 && self.footer.is_none() {
-          row = row.part(&self.last_row.part(TablePart::Row));
-        }
         if self.checkboxes {
           row = row.child(Row::new());
         }
@@ -1596,16 +1684,29 @@ impl TableView {
       .align_items(Alignment::Stretch)
       .measures_column_tracks(&self.tracks)
       .child(self.header());
+    // The empty state is in the middle of the table's box, not of its columns, which may be wider: it stands
+    // under what scrolls, which holds the header alone.
+    let empty = if self.loading { None } else { self.empty() };
     if self.loading {
       content = content.child(self.skeletons());
-    } else if let Some(empty) = self.empty() {
-      content = content.child(empty);
-    } else {
+    } else if empty.is_none() {
       content = content.child(self.body());
     }
     let mut scroll = ScrollBoth::new(content)
       .fill_width(true)
       .part(&self.part(TablePart::Scroll));
+    if let Some(empty) = empty {
+      let mut root = self.root().child(scroll.flex_full(0.0, 1.0, None));
+      let mut empty = Column::new().align_items(Alignment::Stretch).child(empty);
+      if self.height.is_some() {
+        empty = empty.flex(1.0).justify(Justify::Center);
+      }
+      root = root.child(empty);
+      if let Some(footer) = self.footer() {
+        root = root.child(footer);
+      }
+      return root.into();
+    }
     if self.height.is_some() {
       scroll = scroll.flex_full(1.0, 1.0, None);
     } else {
@@ -1828,6 +1929,8 @@ pub struct TableRow {
   tracks: ColumnTracks,
   geometry: Geometry,
   actions: Option<Arc<RowActions>>,
+  /// The name of its checkbox.
+  select_label: Arc<str>,
   host: Option<Arc<HostLink>>,
   element: ElementRef,
   id: Option<Arc<str>>,
@@ -1930,7 +2033,7 @@ impl TableRow {
   /// press: Space on the row is its press.
   pub fn checkbox(&self) -> Element {
     let part = self.part(TablePart::Select);
-    let checkbox = Checkbox::new("Select row")
+    let checkbox = Checkbox::new(&self.select_label)
       .label_hidden(true)
       .checked(self.selected)
       .disabled(self.disabled)
@@ -2263,7 +2366,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       // What scrolls clips what is in it to its own corners, the box's: a clip of its own inside the box would cut
       // the header's fill square over the box's round corners.
       .base(TablePart::Scroll, |s| s.radius(RadiusSize::Lg))
-      .state(TableState::Footed, TablePart::Scroll, |s| {
+      .state(TableState::Footer, TablePart::Scroll, |s| {
         s.corners(RadiusSize::Lg, RadiusSize::Lg, 0.0, 0.0)
       })
       .base(Header, |s| {
