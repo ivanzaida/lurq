@@ -11,7 +11,7 @@ use super::{
   part_style::PartStyle,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::fading,
-  theme::{Themed, current_theme},
+  theme::{Themed, current_date_locale, current_theme},
 };
 use crate::{
   app::{
@@ -21,7 +21,7 @@ use crate::{
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Column, Row},
-  core::{Date, DateLocale, DateRange, Signal, Weekday, YearMonth},
+  core::{Date, DateRange, DateText, Signal, Weekday, YearMonth, shared_date_text},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, FocusGroup, RadiusValue, border::Border, color::Color, dimension::Dimension},
 };
@@ -293,7 +293,7 @@ pub struct Calendar<V: Picked = Date> {
   pub(crate) max: Option<Date>,
   pub(crate) unavailable: Option<Arc<dyn Fn(Date) -> bool + Send + Sync>>,
   pub(crate) first_day: Option<Weekday>,
-  pub(crate) locale: Option<DateLocale>,
+  pub(crate) locale: Option<Arc<dyn DateText>>,
   pub(crate) months: usize,
   pub(crate) week_numbers: bool,
   pub(crate) outside_days: bool,
@@ -400,10 +400,11 @@ impl<V: Picked> Calendar<V> {
     self
   }
 
-  /// The locale the calendar names its months and days in and starts its weeks by, in place of the app's (`App::i18n`
-  /// where the app has the `i18n` feature, else English).
-  pub fn locale(mut self, locale: DateLocale) -> Self {
-    self.locale = Some(locale);
+  /// What the calendar names its months, its days and its buttons in and starts its weeks by, in place of the app's
+  /// ([`App::set_date_locale`](crate::app::App::set_date_locale), English where it set none): a
+  /// [`DateLocale`](crate::core::DateLocale), the app's own [`DateText`], or an `Arc` of it.
+  pub fn locale(mut self, locale: impl DateText + 'static) -> Self {
+    self.locale = Some(shared_date_text(locale));
     self
   }
 
@@ -521,7 +522,7 @@ impl<V: Picked> Calendar<V> {
 
   /// The calendar mounted where it is declared: it keeps the month it shows where the app gives none, follows the
   /// value to its month when the app sets it to a date that is not shown, keeps the first press of a range and shows
-  /// where the range would end, and names its months and days in the app's locale.
+  /// where the range would end, and names its months and days as the app says (`App::set_date_locale`).
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
     let mut element = ctx.mount::<CalendarHost<V>>(CalendarProps { calendar: self });
@@ -570,7 +571,7 @@ impl<V: Picked> Calendar<V> {
       .kept
       .clone()
       .unwrap_or_else(|| self.kept_by(self.memory.as_ref(), today));
-    let locale = self.locale.clone().unwrap_or_default();
+    let locale = self.locale.clone().unwrap_or_else(current_date_locale);
     self.build_with(theme, kept, locale, today)
   }
 
@@ -601,7 +602,7 @@ impl<V: Picked> Calendar<V> {
     }
   }
 
-  pub(crate) fn build_with(self, theme: &Theme, kept: Kept, locale: DateLocale, today: Date) -> Element {
+  pub(crate) fn build_with(self, theme: &Theme, kept: Kept, locale: Arc<dyn DateText>, today: Date) -> Element {
     let view = self.view(theme, kept, locale, today);
     match theme.renderer::<Calendar>() {
       Some(renderer) => renderer(view),
@@ -609,8 +610,8 @@ impl<V: Picked> Calendar<V> {
     }
   }
 
-  fn view(self, theme: &Theme, kept: Kept, locale: DateLocale, today: Date) -> CalendarView {
-    let first_day = self.first_day.unwrap_or(locale.first_day);
+  fn view(self, theme: &Theme, kept: Kept, locale: Arc<dyn DateText>, today: Date) -> CalendarView {
+    let first_day = self.first_day.unwrap_or_else(|| locale.first_day());
     let shown = kept.month.get();
     let (draft, hover) = if kept.tracked {
       (kept.draft.get(), kept.hover.get())
@@ -816,7 +817,8 @@ pub struct CalendarView {
   /// Whether the first and the last week are filled with the days of the months before and after.
   pub outside_days: bool,
   pub disabled: bool,
-  pub locale: DateLocale,
+  /// What the calendar's text is: its own `.locale(..)`, else the app's, else English.
+  pub locale: Arc<dyn DateText>,
   /// The style of each part of this calendar.
   pub recipe: ResolvedRecipe,
   /// The recipe of a day in each set of its states, resolved once for each.
@@ -928,15 +930,22 @@ impl CalendarView {
   /// A button that shows the month before (`by` -1) or after (1), in the design's dress: an outline button of an
   /// icon, called by what it does. Disabled where that month is out of the range.
   pub fn nav(&self, by: i32) -> Element {
+    // The app's name for the button, else its locale's.
     let (label, icon, suffix) = if by < 0 {
       (
-        self.previous_label.as_deref().unwrap_or("Previous month"),
+        self
+          .previous_label
+          .as_deref()
+          .map_or_else(|| self.locale.previous_month_label(), str::to_owned),
         icons::CHEVRON_LEFT,
         "previous",
       )
     } else {
       (
-        self.next_label.as_deref().unwrap_or("Next month"),
+        self
+          .next_label
+          .as_deref()
+          .map_or_else(|| self.locale.next_month_label(), str::to_owned),
         icons::CHEVRON_RIGHT,
         "next",
       )
@@ -953,7 +962,7 @@ impl CalendarView {
       .rules_for(CalendarPart::Nav, ButtonPart::Root)
       .extend(&self.recipe.rules_for(CalendarPart::NavIcon, ButtonPart::Icon));
     let month = self.model.month.clone();
-    let mut button = Button::new(label)
+    let mut button = Button::new(&label)
       .variant(ButtonVariant::Outline)
       .size(ButtonSize::Xs)
       .icon(icon)
@@ -1013,15 +1022,15 @@ impl CalendarView {
       row = row.child(Row::new().part(&self.part(CalendarPart::WeekNumber)));
     }
     for index in 0..7 {
-      let at = Weekday::from_monday(self.first_day as i64 + index).days_from_monday() as usize;
+      let day = Weekday::from_monday(self.first_day as i64 + index);
       row = row.child(
         Row::new()
           .align_items(Alignment::Center)
           .justify(Justify::Center)
           .part(&part)
           .describe("a11y_role", "columnheader")
-          .describe("a11y_name", self.locale.weekdays[at].clone())
-          .child(part.text(&self.locale.weekdays_short[at]).nowrap()),
+          .describe("a11y_name", self.locale.weekday_name(day))
+          .child(part.text(&self.locale.weekday_short(day)).nowrap()),
       );
     }
     row
@@ -1356,9 +1365,7 @@ impl<V: Picked> Component for CalendarHost<V> {
     if calendar.memory.is_none() {
       calendar.memory = Some(self.memory.clone());
     }
-    if calendar.locale.is_none() {
-      calendar.locale = Some(app_locale(ctx));
-    }
+    // The app's date text is read in the build, which is in this render: a change of it renders this again.
     calendar.build(&current_theme())
   }
 }
@@ -1382,18 +1389,5 @@ pub(crate) fn follow<V: Picked>(last: &Mutex<Option<CalendarChoice>>, calendar: 
     if shown < first || shown > first.add_months(calendar.months as i32 - 1) {
       month.set(shown);
     }
-  }
-}
-
-/// The locale of the app, where it has the `i18n` feature: what a mounted calendar names its months and days in.
-pub(crate) fn app_locale(ctx: &Ctx) -> DateLocale {
-  #[cfg(feature = "i18n")]
-  {
-    DateLocale::for_tag(&ctx.i18n().locale())
-  }
-  #[cfg(not(feature = "i18n"))]
-  {
-    let _ = ctx;
-    DateLocale::default()
   }
 }

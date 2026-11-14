@@ -189,7 +189,7 @@ impl DateRangePickerPage {
           ),
           prop(
             "locale",
-            "DateLocale",
+            "impl DateText",
             self
               .playground
               .select(1, &LOCALES, &locale, move |locale| set_locale.set(locale)),

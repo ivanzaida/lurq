@@ -2882,7 +2882,11 @@ impl Ctx {
     crate::router::navigator::enter_render(self.context_map.get::<crate::router::Navigator>());
     // What the render builds is in the component's theme (`ui::current_theme`).
     if let Some(theme) = &self.theme {
-      crate::ui::theme::enter_theme(theme.clone(), self.breakpoint.clone());
+      crate::ui::theme::enter_theme(
+        theme.clone(),
+        self.breakpoint.clone(),
+        self.app.as_ref().map(|app| app.shared.dates.clone()),
+      );
     }
   }
 

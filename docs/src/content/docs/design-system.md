@@ -3763,11 +3763,11 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `controlled(Option<V>, Fn(V))` | The app's value, and what it is told of a choice, which the calendar does not set: the app answers with the value it renders it with next |
 | `month(Signal<YearMonth>)` | The month shown, the first where there are several: not the value. The heading's buttons and the keys set it |
 | `memory(&CalendarMemory)` | What the calendar keeps between renders, the app's: the month it shows where the app gives none, a range's first press and where it would end |
-| `mount(ctx)` | The calendar with a memory of its own, in the app's locale (`App::i18n`) |
+| `mount(ctx)` | The calendar with a memory of its own |
 | `months(n)` | How many months side by side, each with its heading |
 | `min(Date)`, `max(Date)` | The least and the greatest date that can be chosen. The months beyond are not shown |
 | `disabled_days(Fn(Date) -> bool)` | Which days cannot be chosen besides those out of the range |
-| `locale(DateLocale)`, `first_day(Weekday)` | The names of months and days and the first day of the week, in place of the app's locale's |
+| `locale(impl DateText)`, `first_day(Weekday)` | Its text (a `DateLocale`, the app's own `DateText`, or an `Arc` of it) in place of the app's (`app.set_date_locale`, English where it set none), and the first day of the week in place of the text's |
 | `week_numbers(bool)` | The ISO 8601 week number before each week |
 | `outside_days(bool)` | The days of the months before and after in the first and the last week; on, as the design draws them, and none with several months |
 | `today(Date)` | The day marked as today (the state `Current`), in place of the system's |
@@ -3778,6 +3778,7 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the id with the date after it: `due-2026-11-12`; the buttons `-previous` and `-next` |
 
 - The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `CalendarMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
+- Its text (the title of a month, the heads of the weekdays, what a day and the buttons are called) is one [`DateText`](../dates/#how-an-app-writes-its-dates): its own `.locale(..)`, else the app's `app.set_date_locale(..)`, else English. The app's is read where the calendar is built in a render, mounted or not, and a change of it builds the calendar again.
 - A range: the first press starts it, the pointer and the keys show where it would end, and the second ends it, before the first or after it. Its ends are chosen days, and the days between are one band.
 - The days are one stop of Tab, at the chosen day, today or the first of the month; the buttons of the heading are stops of their own before them. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and with Shift a year: into the month before or after, which is then shown, and kept between the least and the greatest date. A day that cannot be chosen takes the focus too and says so: the keys pass no day by. Enter and Space choose. The keys are the days' own, through the engine's `KeyboardEvent::focus_key`.
 - To what reads the tree each month is a `grid` called by its month (`November 2026`), of `row`s of `gridcell`s called by their day (`Thursday, Nov 12, 2026`) that say `a11y_selected`, `a11y_current` (`date`, for today) and `a11y_disabled`; the names of the days are `columnheader`s.
@@ -3819,7 +3820,7 @@ DatePicker::controlled(self.due.get(), move |date| due.set(date));
 | `inline(bool)` | The panel drawn in place under the field, open or not, taking no focus: for a gallery, a test, a page that holds a calendar |
 | `placeholder(&str)` | What the field says while it is empty |
 | `format(Fn(Date) -> String)`, `parse(Fn(&str) -> Option<Date>)` | How the field writes the date and reads what is typed, in place of the locale's |
-| `locale(DateLocale)` | How dates are written and read, and the calendar's names and first day |
+| `locale(impl DateText)` | How dates are written and read, and the calendar's names, first day and the controls' names, in place of the app's (`app.set_date_locale`, English where it set none) |
 | `min`, `max`, `disabled_days`, `first_day`, `week_numbers`, `today` | As the calendar's: what cannot be chosen cannot be typed either |
 | `clearable(bool)` | A button at the end of the field that empties it while it holds a date |
 | `size(DatePickerSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `name` | As an [input](#input)'s; `DatePickerSize` is `TextBoxSize`. A read-only picker opens no calendar |
@@ -3831,6 +3832,7 @@ DatePicker::controlled(self.due.get(), move |date| due.set(date));
 | `on_open_change(Fn(bool))`, `on_dismiss(Fn())` | Told of the calendar opening and closing, and of Escape or a press outside closing it |
 | `state`, `style`, `rules`, `force`, `id`, `key` | As an input has them. `id` is the field's; the button has it with `-trigger`, the cross `-clear`, the panel `-panel`, the calendar `-calendar` |
 
+- Its text, the field's form of a date, how what is typed is read and the names of its button, cross and panel, is its calendar's `DateText`: its own `.locale(..)`, else the app's `app.set_date_locale(..)`, else English. `trigger_label`, `clear_label` and `panel_label` are above it.
 - What is typed is read as it is typed, in the locale's short form (`Nov 12, 2026`), in its numbers (`11/12/2026`, `12.11.2026`) or as ISO 8601, a month by its name or the start of it in the locale's words or in English: a date that can be chosen is the value at once, and the field keeps what is half typed while it has the focus. The year has four digits, so `Nov 12, 20` is no date yet. When the focus leaves the field, or on Enter, the text is written again as the picker writes the value; an emptied field is no date, and anything else takes back the date it had.
 - The calendar opens in a [popover](#popover) under the field, from the button at its start or from Down in the field, with the focus on the chosen day, today or the first of the month. A choice closes it and the focus goes back to the field, as Escape and a press outside do.
 - To what reads the tree the field is a `combobox` that says `a11y_haspopup` `dialog` and `a11y_expanded`, as the date picker of the ARIA patterns is; the panel is a `dialog` called "Choose date". The button that opens it and the cross that empties it are pressed by the pointer and take no focus.

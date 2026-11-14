@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
   app::{ctx::Ctx, theme::Theme},
-  core::{Date, DateLocale, DateRange, Signal, Weekday, YearMonth},
+  core::{Date, DateRange, Signal, Weekday, YearMonth},
   node::Element,
 };
 
@@ -98,7 +98,8 @@ impl DateRangePicker {
   }
 
   /// The picker mounted where it is declared: it keeps whether its calendar is open, the field it opens under, the
-  /// month the calendar shows and the first press of a range, and writes dates in the app's locale.
+  /// month the calendar shows and the first press of a range, and writes dates as the app says
+  /// (`App::set_date_locale`).
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     mount_picker(ctx, self.core)
   }

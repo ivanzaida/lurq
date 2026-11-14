@@ -6,7 +6,7 @@ use std::sync::Arc;
 use lurq::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Row},
-  core::{Date, DateLocale, DateRange, Signal, Weekday, YearMonth},
+  core::{Date, DateLocale, DateRange, DateText, Signal, Weekday, YearMonth},
   layout::Alignment,
   node::Element,
   ui::{Calendar, CalendarMemory, Kbd, Picked},
@@ -95,6 +95,48 @@ const KEYS: [(&str, &str); 9] = [
   ),
 ];
 
+/// The months in Roman numerals.
+const NUMERALS: [&str; 12] = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+
+/// A date text of the page's own, a form no locale of lurq's has: the months in Roman numerals, `12.XI.2026`, the
+/// weeks from Monday, the days' names in English. What an app plugs in with `.locale(..)` or `app.set_date_locale`.
+pub(crate) struct RomanDates;
+
+impl DateText for RomanDates {
+  fn first_day(&self) -> Weekday {
+    Weekday::Monday
+  }
+
+  fn month_name(&self, month: u8) -> String {
+    NUMERALS[(month.clamp(1, 12) - 1) as usize].to_owned()
+  }
+
+  fn weekday_name(&self, day: Weekday) -> String {
+    DateLocale::english().weekday_name(day)
+  }
+
+  fn weekday_short(&self, day: Weekday) -> String {
+    DateLocale::english().weekday_short(day)
+  }
+
+  fn format(&self, date: Date) -> String {
+    format!("{}.{}.{}", date.day(), self.month_name(date.month()), date.year())
+  }
+
+  fn parse(&self, text: &str) -> Option<Date> {
+    let mut parts = text.trim().split('.');
+    let day = parts.next()?.trim().parse().ok()?;
+    let numeral = parts.next()?.trim().to_ascii_uppercase();
+    let month = NUMERALS.iter().position(|held| *held == numeral)? as u8 + 1;
+    let year = parts.next()?.trim();
+    // Four digits, as a year is read anywhere: what is still being typed is no date yet.
+    if year.len() != 4 {
+      return None;
+    }
+    Date::new(year.parse().ok()?, month, day)
+  }
+}
+
 /// Saturday and Sunday.
 fn weekend(date: Date) -> bool {
   date.weekday().days_from_monday() >= 5
@@ -174,7 +216,7 @@ pub struct CalendarPage {
   due: Signal<Option<Date>>,
   shown: Signal<YearMonth>,
   stay: Signal<Option<DateRange>>,
-  kept: [CalendarMemory; 6],
+  kept: [CalendarMemory; 7],
 }
 
 impl CalendarPage {
@@ -330,7 +372,7 @@ impl CalendarPage {
           ),
           prop(
             "locale",
-            "DateLocale",
+            "impl DateText",
             self
               .playground
               .select(2, &LOCALES, &locale, move |locale| set_locale.set(locale)),
@@ -465,6 +507,12 @@ impl Component for CalendarPage {
           .memory(&self.kept[5]),
         "de, without the days of the months beside",
       ));
+    let own = items().child(item(
+      Calendar::new(Signal::new(Some(today)))
+        .locale(RomanDates)
+        .memory(&self.kept[6]),
+      "months in Roman numerals, a DateText of the page's own",
+    ));
     let keyboard = KEYS
       .into_iter()
       .fold(Column::new().width(FILL).spacing(10.0), |list, (key, does)| {
@@ -524,9 +572,9 @@ impl Component for CalendarPage {
       ),
       (
         "locale",
-        "DateLocale",
+        "impl DateText",
         "app's",
-        "The names of months and days and the first day of the week: the app's i18n locale, else English.",
+        "Months, days and the first day: the one given, else the app's (set_date_locale), else English.",
       ),
       ("first_day", "Weekday", "locale's", "The day the weeks start on."),
       ("week_numbers", "bool", "false", "The ISO week number before each week."),
@@ -637,8 +685,8 @@ impl Component for CalendarPage {
         ),
         Section::new(
           "Locales",
-          "The names of the months and the days and the first day of the week are the locale's: the app's i18n \
-           locale for a mounted calendar, or the one it is given.",
+          "The names of the months and the days and the first day of the week are the locale's: the one the \
+           calendar is given, else the app's (app.set_date_locale), else English.",
           self.frame.demo(
             3,
             locales,
@@ -653,6 +701,33 @@ impl Component for CalendarPage {
               "Calendar::new(value.clone())",
               "    .locale(DateLocale::for_tag(\"de\"))",
               "    .outside_days(false)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A date text of the app's own",
+          "What no locale of lurq's has is the app's own DateText: here the months are Roman numerals. It is given \
+           to one calendar with .locale(..), or to the whole app with app.set_date_locale(..).",
+          self.frame.demo(
+            4,
+            own,
+            ".locale(RomanDates)",
+            &[
+              "struct RomanDates;",
+              "",
+              "impl DateText for RomanDates {",
+              "  fn first_day(&self) -> Weekday { Weekday::Monday }",
+              "  fn month_name(&self, month: u8) -> String { NUMERALS[month as usize - 1].to_owned() }",
+              "  fn weekday_name(&self, day: Weekday) -> String { DateLocale::english().weekday_name(day) }",
+              "  fn weekday_short(&self, day: Weekday) -> String { DateLocale::english().weekday_short(day) }",
+              "  fn format(&self, date: Date) -> String {",
+              "    format!(\"{}.{}.{}\", date.day(), self.month_name(date.month()), date.year())",
+              "  }",
+              "  fn parse(&self, text: &str) -> Option<Date> { /* 12.XI.2026 */ }",
+              "}",
+              "",
+              "Calendar::new(value.clone()).locale(RomanDates)",
+              "app.set_date_locale(RomanDates)",
             ],
           ),
         ),
