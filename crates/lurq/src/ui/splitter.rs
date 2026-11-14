@@ -28,7 +28,7 @@ use crate::{
   },
   components::{Column, Row, Stack},
   core::{ElementRect, ElementRefMut, Signal},
-  layout::Alignment,
+  layout::{Alignment, stack_alignment::StackAlignment},
   node::{
     BackgroundColor, CursorIcon, Element, HitTestBehavior, color::Color, dimension::Dimension, transform::Transform2D,
   },
@@ -321,8 +321,7 @@ pub struct Splitter {
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
-  /// What the host of a mounted splitter is told: the sizes the splitter itself wrote last, and when a divider was
-  /// let go.
+  /// What the host of a mounted splitter is told: the sizes the splitter itself wrote last.
   host: Option<Arc<HostLink>>,
 }
 
@@ -521,9 +520,8 @@ impl Splitter {
   }
 
   /// The splitter mounted where it is declared: it keeps the sizes of its panes from render to render where the app
-  /// gives it no signal for them, shows the sizes the app sets in [`Splitter::sizes`] from outside, and tells tooling
-  /// the sizes a divider was let go at. Moving a divider renders nothing again while it moves; the splitter alone
-  /// renders again when it is let go.
+  /// gives it no signal for them, and shows the sizes the app sets in [`Splitter::sizes`] from outside, which renders
+  /// it again. Moving a divider renders nothing again.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
     let props = SplitterProps {
@@ -560,6 +558,8 @@ struct Panes {
   /// The panes, and their copies under the dividers' handles, which take the sizes the panes take.
   panes: Vec<ElementRefMut>,
   shadows: Vec<ElementRefMut>,
+  /// The dividers' handles, which tell tooling where they are.
+  handles: Vec<ElementRefMut>,
   /// The row of the panes: its length along the splitter is the room they share.
   room: ElementRefMut,
   on_resize: Vec<SizesHandler>,
@@ -711,10 +711,18 @@ impl Panes {
       self.panes[index].set_size(width, height);
       self.shadows[index].set_size(width, height);
     }
-    if let Some(host) = &self.host {
-      *host.written.lock() = Some(sizes.to_vec());
+    self.keep(sizes.to_vec());
+  }
+
+  /// Keeps `sizes` in the signal, and tells tooling where each divider is now, with nothing rendered again.
+  fn keep(&self, sizes: Vec<f32>) {
+    for (handle, size) in self.handles.iter().zip(&sizes) {
+      handle.describe("a11y_valuenow", format!("{}", size.round()));
     }
-    self.sizes.set(sizes.to_vec());
+    if let Some(host) = &self.host {
+      *host.written.lock() = Some(sizes.clone());
+    }
+    self.sizes.set(sizes);
   }
 
   /// Lays the panes out at `sizes` and says so to `on_resize`.
@@ -725,14 +733,11 @@ impl Panes {
     }
   }
 
-  /// Says to `on_resize_end` that a divider has moved, and to the host.
+  /// Says to `on_resize_end` that a divider has moved.
   fn resized(&self) {
     let sizes = self.sizes.get_untracked();
     for handler in &self.on_resize_end {
       handler(&sizes);
-    }
-    if let Some(host) = &self.host {
-      host.settled();
     }
   }
 
@@ -828,15 +833,7 @@ impl Panes {
     if changed {
       self.put(&sizes);
     } else if first {
-      if let Some(host) = &self.host {
-        *host.written.lock() = Some(sizes.clone());
-      }
-      self.sizes.set(sizes);
-    }
-    if (changed || first)
-      && let Some(host) = &self.host
-    {
-      host.settled();
+      self.keep(sizes);
     }
   }
 
@@ -1032,6 +1029,7 @@ impl SplitterView {
       sizes: self.sizes.clone(),
       panes: panes.clone(),
       shadows: shadows.clone(),
+      handles: (0..count.saturating_sub(1)).map(|_| ElementRefMut::new()).collect(),
       room: room.clone(),
       on_resize: self.on_resize.clone(),
       on_resize_end: self.on_resize_end.clone(),
@@ -1139,8 +1137,10 @@ impl SplitterView {
     let horizontal = self.orientation == SplitterOrientation::Horizontal;
     let back = -(handle_across - thickness) / 2.0;
     let mut handle = Stack::new()
+      .stack_align(StackAlignment::Center)
       .part(&self.part(SplitterPart::Handle))
       .key(format!("divider-{index}"))
+      .ref_element(shared.handles[index].clone())
       .child(Row::new().part(&self.part(SplitterPart::Line)))
       .child(Row::new().part(&self.part(SplitterPart::Bar)))
       .describe("a11y_role", "separator")
@@ -1276,7 +1276,7 @@ impl Themed for Splitter {
 struct HostLink {
   /// The sizes the splitter wrote last: a write of other sizes is the app's.
   written: Mutex<Option<Vec<f32>>>,
-  /// Renders the host again: once a divider is let go, so that tooling reads the sizes it was let go at.
+  /// Renders the host again: the app set the sizes from outside.
   revision: Signal<u64>,
 }
 

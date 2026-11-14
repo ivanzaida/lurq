@@ -4679,8 +4679,25 @@ impl Node {
 
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[allow(dead_code)]
-  pub fn debug_attrs(&self) -> &[(Arc<str>, Arc<str>)] {
-    &self.debug_attrs
+  pub fn debug_attrs(&self) -> std::borrow::Cow<'_, [(Arc<str>, Arc<str>)]> {
+    // What the node's ref says of it since it was built (`ElementRefMut::describe`) stands for what it was built
+    // with under the same name.
+    let described = self
+      .element_ref
+      .as_ref()
+      .map(CoreElementRef::descriptions)
+      .unwrap_or_default();
+    if described.is_empty() {
+      return std::borrow::Cow::Borrowed(&self.debug_attrs);
+    }
+    let mut attrs: Vec<(Arc<str>, Arc<str>)> = self
+      .debug_attrs
+      .iter()
+      .filter(|(name, _)| !described.iter().any(|(said, _)| said == name))
+      .cloned()
+      .collect();
+    attrs.extend(described);
+    std::borrow::Cow::Owned(attrs)
   }
 
   pub(crate) fn node_kind(&self) -> &NodeKind {

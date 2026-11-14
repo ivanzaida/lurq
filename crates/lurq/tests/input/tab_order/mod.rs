@@ -1,5 +1,6 @@
 use lurq::app::{App, Tree};
 
+mod cut_away;
 mod dropped;
 mod focus_group;
 mod focusable;

@@ -244,7 +244,12 @@ fn the_keys_move_a_divider_focused_from_the_keyboard() {
   stage.pass();
   assert_eq!(width(&mut stage, "a"), 80.0, "50 with Shift, stopped at its least");
   stage.key("End");
-  assert_eq!(width(&mut stage, "a"), 240.0, "End: its most");
+  // Its most is 240, but the editor beside it keeps its least of 60 of the 298 the two share.
+  assert_eq!(
+    width(&mut stage, "a"),
+    238.0,
+    "End: its most, as far as the editor lets it"
+  );
   stage.key("Home");
   assert_eq!(width(&mut stage, "a"), 80.0, "Home: its least");
   stage.key("Enter");
@@ -420,4 +425,37 @@ fn a_theme_restyles_its_parts() {
       .into()
   });
   assert_eq!(rects(&stage, light(PaletteColor::Primary), 1.0).len(), 2);
+}
+
+#[test]
+fn nothing_in_a_closed_pane_is_a_stop_of_tab() {
+  let pressed = Arc::new(AtomicUsize::new(0));
+  let mut stage = Stage::new({
+    let pressed = pressed.clone();
+    move |_| {
+      let pressed = pressed.clone();
+      Splitter::horizontal()
+        .pane(
+          SplitterPane::new(lurq::ui::Button::new("Inside").on_click(move |_| {
+            pressed.fetch_add(1, Ordering::Relaxed);
+          }))
+          .size(120.0)
+          .min(80.0)
+          .collapsible(true),
+        )
+        .pane(SplitterPane::new(content("b")))
+        .into()
+    }
+  });
+  // Open, the button in the pane is the first stop.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(pressed.load(Ordering::Relaxed), 1);
+  drag(&mut stage, 120.5, 150.0, 20.0);
+  assert_eq!(stage.bounds("b").0, 1.0, "closed");
+  // Closed, the divider is the first: Enter opens the pane, and the button is not pressed.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(pressed.load(Ordering::Relaxed), 1);
+  assert_eq!(stage.bounds("b").0, 121.0, "opened again");
 }

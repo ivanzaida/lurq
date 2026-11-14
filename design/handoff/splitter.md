@@ -42,6 +42,28 @@ The board draws no handle on the edge or the corner of a single box.
   set_size(width, height)` lays the element out at another width or height (`Dimension::Px` or `Dimension::Pct`) than
   it was built with, until it is set again or set to `None`; its least and most size still hold. Nothing renders
   again: the next pass lays it and its parent out. A splitter resizes its panes so while a divider moves."
+- **Engine: what a zero-size element that clips holds is not a stop of Tab** (added after the batch's merge, to close
+  what this handoff had under Not done). `dropped_node_ids` (`crates/lurq/src/app/runtime/tab_navigation.rs`) counts,
+  besides a child its line dropped, an element that clips (`Overflow::Hidden`), holds something, and was laid out
+  with no width or no height (`cuts_away`): what it holds is cut away whole and painted nowhere, so it is not a stop,
+  a focus request for it is refused, and the focus in it leaves when it closes, as for a dropped child. The root is
+  never one (a headless tree may lay it out at no size), nor an overlay's declaration or the overlay host. This also
+  holds for a closed `ui::Drawer` (a root of no width) and a closed `ui::Collapsible`'s panel, which hold nothing
+  that can be seen; the merge should run the focus tests of those two. Its tests, run:
+  `crates/lurq/tests/input/tab_order/cut_away.rs` (registered in `tests/input/tab_order/mod.rs`).
+- **Engine: a description an element ref gives, with no render.** `ElementRefMut::describe(name, value)`
+  (`crates/lurq/src/core/element_ref.rs`): says `value` under `name` to tooling in place of what the element's
+  `describe(name, ..)` said when it was built. `ElementRefInner` has a field `descriptions`, `ElementRef::descriptions()`
+  (crate) reads it. `Node::debug_attrs()` (`crates/lurq/src/node/node.rs`) now returns a
+  `Cow<[(Arc<str>, Arc<str>)]>`: borrowed as before where the ref describes nothing, otherwise the node's attributes
+  with the ref's laid over them by name; `Element::debug_attrs()` (`node/element.rs`) returns the same. Every caller
+  (DevTools' snapshot, the MCP server's inspect and semantics, `ui::Field`) reads it with `.iter()` and compiles
+  unchanged. Its unit test, run with `mcp` (the lib does not build with `devtools` now: `ui/combobox.rs` 232 and 308, `Signal<T>` with no `DevtoolsInspectable` bound, not of this session): `element_ref::tests` at the end of `element_ref.rs`. The splitter
+  tells `a11y_valuenow` of each divider so as it moves.
+- `docs/src/content/docs/focus-navigation.md` wants a sentence where it says a dropped child holds no stops: "Nor does
+  an element that clips and is laid out with no width or no height: what it holds is cut away (a splitter's closed
+  pane, a closed drawer)." And the paragraph for `set_size` above wants: "`ElementRefMut::describe(name, value)` says
+  another value to tooling than the element's `describe` did, with no render."
 - `crates/gallery/src/pages/mod.rs`: the page is the first of `Group::Desktop`, at the end of `PAGES`. If the
   Sidebar, Menubar or Toolbar session put pages in that group too, the merge orders them as the board does.
 - No keyframes were registered (none is used).
@@ -137,19 +159,20 @@ Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
   divided by lines with no box; `framed(true)` draws the specimen.
 - **Mounted, or converted.** A builder has no `Ctx`: converted into an element, the splitter's own sizes live as long
   as what holds it does not render again; `mount(ctx)` keeps them in a host, which also renders the splitter again
-  when the app writes the signal (a write that is not the splitter's own) and once a divider is let go.
+  when the app writes the signal (a write that is not the splitter's own). A divider let go renders nothing: it tells
+  tooling where it is through its handle's ref (`ElementRefMut::describe`).
+- **The line has a room of its own between the panes**, as on the board (Pane A, the Handle of 1, Pane B, with no gap):
+  the line does not lie on the first pane's edge. The handle that takes the pointer is a stack centered on that room,
+  its line, bar and grip centered in it (`StackAlignment::Center`: a stack lays its children at its top start
+  otherwise, which put them 5.5 to the left and the grip at the top until the merge's tests found it).
+- **A closed pane holds no stop of Tab**, by the engine's rule for an element that clips and has no width: its content
+  stays mounted, and the focus in it leaves when it closes.
 - Keys: a step of 10 and with Shift 50, as other desktop splitters move.
 
 ## Not done
 
-- **What is in a closed pane can still take the focus.** A closed pane is 0 along the splitter and keeps its content
-  mounted, so a button in it is still a stop of Tab. Needs the engine to skip, in Tab's order, what is inside an
-  element laid out at a size of 0 that clips (as it skips what is inside a dropped child of a line); or a
-  `Node`-level "inert" flag the splitter could set on the closed pane's box.
-- **`a11y_valuenow` of a converted splitter** is the size when it was last built: one converted into an element (not
-  mounted) is not rendered again after a drag, so tooling reads the old value until what holds it renders. Mounted, it
-  is up to date once the divider is let go. Needs the engine to let a description be set without a render (an
-  `ElementRefMut::describe`), the smallest change.
+Nothing. The two items this handoff had here (what is in a closed pane taking the focus, and `a11y_valuenow` of a
+splitter not rendered again after a drag) are built by the two engine changes added after the merge, above.
 
 ## Differs from the board
 
