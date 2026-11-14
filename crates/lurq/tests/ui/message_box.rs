@@ -481,3 +481,46 @@ fn an_inline_message_box_is_its_panel_where_it_is_declared() {
   stage.key("Enter");
   assert_eq!(count(&replaced), 0);
 }
+
+#[test]
+fn a_title_a_message_and_a_detail_too_long_for_a_line_go_on_to_the_next() {
+  const TITLE: &str = "Do you want to replace the existing file in this folder with the one you are moving?";
+  const MESSAGE: &str = "“theme.json” already exists in this folder. Replacing it overwrites its contents.";
+  const DETAIL: &str =
+    "projects/lurq/assets/themes/theme.json · 4.2 KB · changed today at 09:41 by the import of the old workspace";
+  let make = |long: bool| {
+    move |_: &mut Ctx| -> Element {
+      MessageBox::new(Signal::new(true))
+        .id("box")
+        .kind(MessageBoxKind::Warning)
+        .title(if long { TITLE } else { "Replace?" })
+        .message(if long { MESSAGE } else { "Short." })
+        .detail(if long { DETAIL } else { "Short." }, Signal::new(true))
+        .answer("Cancel", MessageBoxRole::Cancel, || {})
+        .answer("Replace", MessageBoxRole::Default, || {})
+        .into()
+    }
+  };
+  let mut short = stage(make(false));
+  let mut long = stage(make(true));
+  long.pass_after(std::time::Duration::from_secs(1));
+  short.pass_after(std::time::Duration::from_secs(1));
+  let (x, _, width, height) = long.bounds("box");
+  // Each text is as wide as the room beside the well at most, and on more than one line: a wrapped text is painted
+  // as one quad as high as its lines.
+  for (text, line) in [(TITLE, 15.0), (MESSAGE, 13.0), (DETAIL, 11.0)] {
+    let quad = long
+      .text_quad(text)
+      .unwrap_or_else(|| panic!("{text:?} is painted whole"));
+    assert!(
+      quad.height > line * 2.0,
+      "{text:?} on more than one line: {} high",
+      quad.height
+    );
+    assert!(
+      quad.x + quad.width <= x + width - 20.0 + 0.5,
+      "{text:?} inside the panel"
+    );
+  }
+  assert!(height > short.bounds("box").3 + 40.0, "the panel grows with its lines");
+}

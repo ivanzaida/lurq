@@ -204,3 +204,44 @@ fn a_theme_styles_its_buttons_apart_from_buttons_elsewhere() {
   assert_eq!(stage.font_of("Delete file"), system);
   assert_eq!(stage.bounds("panel").2, 300.0);
 }
+
+#[test]
+fn a_title_and_a_description_too_long_for_a_line_go_on_to_the_next() {
+  const TITLE: &str = "Delete this file and every copy of it in the workspace?";
+  const DESCRIPTION: &str = "It will be moved to the trash, where it is kept for thirty days.";
+  let long = Signal::new(true);
+  let held = long.clone();
+  let mut stage = Stage::new(page(move |anchor| {
+    let (title, description) = if held.get() {
+      (TITLE, DESCRIPTION)
+    } else {
+      ("Delete?", "Trash.")
+    };
+    Popconfirm::new(anchor, Signal::new(true))
+      .id("panel")
+      .trigger(Button::new("Delete file").variant(ButtonVariant::Outline))
+      .title(title)
+      .description(description)
+  }));
+  let (x, _, width, height) = stage.bounds("panel");
+  for (text, line) in [(TITLE, 13.0), (DESCRIPTION, 12.0)] {
+    let quad = stage
+      .text_quad(text)
+      .unwrap_or_else(|| panic!("{text:?} is painted whole"));
+    assert!(
+      quad.height > line * 2.0,
+      "{text:?} on more than one line: {} high",
+      quad.height
+    );
+    assert!(
+      quad.x + quad.width <= x + width - 12.0 + 0.5,
+      "{text:?} inside the panel"
+    );
+  }
+  long.set(false);
+  stage.pass();
+  assert!(
+    height > stage.bounds("panel").3 + 20.0,
+    "the panel grows with its lines"
+  );
+}

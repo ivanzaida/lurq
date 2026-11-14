@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   dialog::{Dialog, DialogPart},
-  message_box::{DisclosureParts, autofocus, disclosure, disclosure_recipe},
+  message_box::{DisclosureParts, autofocus, disclosure, disclosure_recipe, wrapping},
   names,
   part_style::{Length, PartStyle},
   progress::{Progress, ProgressFormat, ProgressPart, ProgressSize},
@@ -447,13 +447,7 @@ impl ProgressDialogView {
       (ProgressDialogPart::Message, &self.message),
     ] {
       if let Some(content) = content {
-        let part = self.part(part);
-        text = text.child(
-          Row::new()
-            .width(Dimension::Pct(100.0))
-            .part(&part)
-            .child(part.text(content)),
-        );
+        text = text.child(wrapping(&self.part(part), content));
       }
     }
     let mut header = Row::new()

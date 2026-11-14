@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   icons,
-  message_box::autofocus,
+  message_box::{autofocus, wrapping},
   names,
   part_style::PartStyle,
   popover::{Popover, PopoverPart},
@@ -364,13 +364,7 @@ impl PopconfirmView {
       (PopconfirmPart::Description, &self.description),
     ] {
       if let Some(content) = content {
-        let part = self.part(part);
-        text = text.child(
-          Row::new()
-            .width(Dimension::Pct(100.0))
-            .part(&part)
-            .child(part.text(content)),
-        );
+        text = text.child(wrapping(&self.part(part), content));
       }
     }
     Row::new()
