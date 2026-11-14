@@ -1,5 +1,6 @@
-//! The page of the data grid: its playground, the board's Data Grid, editing in place, a range of cells, columns
-//! pinned at both ends and resized, ten thousand rows of fifty columns, a grid that is read only, and its props.
+//! The page of the data grid: its playground, the board's Data Grid, editing in place, a range of cells, a
+//! column's menu, columns pinned at both ends and resized, ten thousand rows of fifty columns, a grid that is read
+//! only, and its props.
 
 use std::sync::Arc;
 
@@ -10,8 +11,8 @@ use lurq::{
   layout::Alignment,
   node::Element,
   ui::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnPin, DataGrid,
-    Pagination, TableColumn, TableSort, icons,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnLayout, ColumnPin,
+    DataGrid, Pagination, TableColumn, TableSort, icons,
   },
 };
 
@@ -145,6 +146,8 @@ pub struct DataGridPage {
   footer: Signal<bool>,
   bind_range: Signal<bool>,
   played_range: Signal<Option<CellRange<String>>>,
+  column_menu: Signal<bool>,
+  played_layout: Signal<ColumnLayout>,
   played: Signal<Vec<File>>,
   played_selected: Signal<Vec<String>>,
   played_sort: Signal<Option<TableSort>>,
@@ -156,6 +159,9 @@ pub struct DataGridPage {
   pinned: Signal<Vec<File>>,
   ranged: Signal<Vec<File>>,
   range: Signal<Option<CellRange<String>>>,
+  menu_rows: Signal<Vec<File>>,
+  menu_sort: Signal<Option<TableSort>>,
+  layout: Signal<ColumnLayout>,
   many: Arc<Vec<File>>,
 }
 
@@ -172,17 +178,22 @@ impl DataGridPage {
       self.footer.get(),
       self.bind_range.get(),
     );
+    let column_menu = self.column_menu.get();
     let record = self.playground.recorder();
     let rows = self.played.clone();
     let sort = self.played_sort.get();
 
-    let (edited, selected_to, sorted_to, ranged_to) = (record.clone(), record.clone(), record.clone(), record);
+    let (edited, selected_to, sorted_to, ranged_to, arranged_to) =
+      (record.clone(), record.clone(), record.clone(), record.clone(), record);
     let mut grid = DataGrid::new(columns(pin_name), sorted(rows.get(), &sort))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
       .density(density)
       .read_only(read_only)
       .resizable(resizable)
+      .column_menu(column_menu)
+      .column_layout(self.played_layout.clone())
+      .on_column_layout_change(move |layout| arranged_to(format!("on_column_layout_change({})", said_layout(layout))))
       .sort(self.played_sort.clone())
       .on_sort_change(move |sort| sorted_to(format!("on_sort_change({sort:?})")))
       .on_edit({
@@ -269,12 +280,16 @@ impl DataGridPage {
     if bind_range {
       code.push(".cell_selection(range) // Signal<Option<CellRange<String>>>".to_owned());
     }
+    code.push(".column_layout(layout) // Signal<ColumnLayout>".to_owned());
+    if !column_menu {
+      code.push(".column_menu(false)".to_owned());
+    }
     code.push(".on_edit(|edit| /* take it into files, or refuse it */ true)".to_owned());
     code.push(".mount(ctx)".to_owned());
 
     let tree = vec![
       format!("root        {} · a table's · grid", self.playground.measured()),
-      "├─ header   the table's · a resizer at each column's end".to_owned(),
+      "├─ header   the table's · a menu_trigger and a resizer at each column's end · drop_line".to_owned(),
       "└─ row      not a stop · Left and Right its own".to_owned(),
       "   └─ cell     a gridcell · the ring inside it from the keyboard · in_range, range_top..range_end".to_owned(),
       "      └─ editor   Input, NumberInput or Select, Sm, while it is edited".to_owned(),
@@ -302,6 +317,8 @@ impl DataGridPage {
       self.played_sort.clone(),
       self.bind_range.clone(),
       self.played_range.clone(),
+      self.column_menu.clone(),
+      self.played_layout.clone(),
     );
     let still = {
       let rows = rows.get();
@@ -322,7 +339,7 @@ impl DataGridPage {
           self.played_selected.get().len(),
           self.played_range.get().map_or(0, |range| range.len())
         ),
-        event: "on_edit / on_selection_change / on_cell_selection_change",
+        event: "on_edit / on_selection_change / on_cell_selection_change / on_column_layout_change",
         code,
         tree,
         controls: vec![
@@ -349,6 +366,7 @@ impl DataGridPage {
           flag("name pinned at the start", &self.pin_name),
           flag("count in a footer", &self.footer),
           flag("cell_selection(signal): told the range", &self.bind_range),
+          flag("column_menu: a menu on each header", &self.column_menu),
         ],
         changed: [
           selection != 1,
@@ -359,6 +377,8 @@ impl DataGridPage {
           pin_name,
           footer,
           !bind_range,
+          !column_menu,
+          self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
         .into_iter()
@@ -377,10 +397,39 @@ impl DataGridPage {
           reset.9.set(None);
           reset.10.set(true);
           reset.11.set(None);
+          reset.12.set(true);
+          reset.13.set(ColumnLayout::default());
         }),
       },
     )
   }
+}
+
+/// An arrangement of columns as a line: each column in its order, with what a person changed of it.
+fn said_layout(layout: &ColumnLayout) -> String {
+  layout
+    .columns
+    .iter()
+    .map(|place| {
+      let mut said = place.id.to_string();
+      if place.hidden {
+        said.push_str(" hidden");
+      }
+      if let Some(width) = place.width {
+        said.push_str(&format!(" {width:.0}"));
+      }
+      if place.fit {
+        said.push_str(" fit");
+      }
+      match place.pin {
+        ColumnPin::Start => said.push_str(" pinned at the start"),
+        ColumnPin::End => said.push_str(" pinned at the end"),
+        ColumnPin::None => {}
+      }
+      said
+    })
+    .collect::<Vec<_>>()
+    .join(" · ")
 }
 
 fn capitalized(name: &str) -> String {
@@ -407,6 +456,8 @@ impl Component for DataGridPage {
       footer: ctx.signal(false),
       bind_range: ctx.signal(true),
       played_range: ctx.signal(None),
+      column_menu: ctx.signal(true),
+      played_layout: ctx.signal(ColumnLayout::default()),
       played: ctx.signal(files(8)),
       played_selected: ctx.signal(Vec::new()),
       played_sort: ctx.signal(None),
@@ -418,6 +469,9 @@ impl Component for DataGridPage {
       pinned: ctx.signal(files(8)),
       ranged: ctx.signal(files(8)),
       range: ctx.signal(None),
+      menu_rows: ctx.signal(files(8)),
+      menu_sort: ctx.signal(None),
+      layout: ctx.signal(ColumnLayout::default()),
       many: Arc::new(
         (0..10_000)
           .map(|index| File {
@@ -547,6 +601,45 @@ impl Component for DataGridPage {
       .child(range_grid)
       .child(quiet(&range_said, 12.0));
 
+    // A column's menu: the arrangement it makes, which the app could store, under the grid.
+    let menu_rows = self.menu_rows.clone();
+    let menu_grid = DataGrid::new(columns(false), sorted(menu_rows.get(), &self.menu_sort.get()))
+      .row_key(|row: &File| row.name.clone())
+      .label("Files")
+      .sort(self.menu_sort.clone())
+      .column_layout(self.layout.clone())
+      .on_edit(move |edit| take(&menu_rows, edit.row, edit.column, &edit.value))
+      .key("menu")
+      .mount(ctx);
+    let arrangement = self.layout.get();
+    let reset_layout = self.layout.clone();
+    let menu_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(menu_grid)
+      .child(
+        Row::new()
+          .spacing(12.0)
+          .align_items(Alignment::Center)
+          .child(quiet(
+            &if arrangement.columns.is_empty() {
+              "Point at a header and press its ⋮, or press Alt+↓ on it. Drag a header to move its column, or press \
+               Ctrl+Shift+PageUp or PageDown on it."
+                .to_owned()
+            } else {
+              said_layout(&arrangement)
+            },
+            12.0,
+          ))
+          .child(
+            Button::new("Reset columns")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Xs)
+              .disabled(arrangement.columns.is_empty())
+              .on_click(move |_| reset_layout.set(ColumnLayout::default())),
+          ),
+      );
+
     // Pinned at both ends: the name stays at the start, the actions at the end, while the columns between scroll.
     let pinned_rows = self.pinned.clone();
     let mut pinned_columns = columns(true);
@@ -639,6 +732,19 @@ impl Component for DataGridPage {
         "bool",
         "false",
         "No cell is edited; the cells still take the focus.",
+      ),
+      (
+        "column_layout",
+        "Signal<ColumnLayout>",
+        "the grid's own",
+        "How the columns are arranged: their order, which are hidden, their widths and pins; with its controlled \
+         form and on_column_layout_change.",
+      ),
+      (
+        "column_menu",
+        "bool",
+        "true",
+        "A menu on each header: sort, pin, size to fit, hide, show the others.",
       ),
       (
         "cell_selection",
@@ -762,6 +868,27 @@ impl Component for DataGridPage {
               "    .on_edit(|edit| /* a paste and Delete come here cell by cell */ true)",
               "    .mount(ctx)",
               "// range.rows: the keys of its rows; range.columns: the ids of its columns",
+            ],
+          ),
+        ),
+        Section::new(
+          "A column's menu",
+          "Each header has a menu at its end, shown under the pointer and with the focus, and opened by Alt+Down \
+           on the header: it sorts the rows by the column, pins it at the start or the end, sizes it to its \
+           content, hides it, and shows the columns hidden. A header dragged to another place moves its column, \
+           as Ctrl+Shift+PageUp and PageDown on it do. How the columns are arranged is a value the app holds and \
+           stores.",
+          self.frame.demo(
+            6,
+            menu_grid,
+            ".column_layout(layout)",
+            &[
+              "// layout: Signal<ColumnLayout>, which the app may store and give back",
+              "DataGrid::new(columns, files.get())",
+              "    .sort(sort)",
+              "    .column_layout(layout)",
+              "    .on_column_layout_change(|layout| store(layout))",
+              "    .mount(ctx)",
             ],
           ),
         ),

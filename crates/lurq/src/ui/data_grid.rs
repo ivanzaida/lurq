@@ -11,7 +11,7 @@ use std::{hash::Hash, sync::Arc};
 
 use super::{
   Interaction, Length, Name, PartStyle, Recipe,
-  table::{CellEdit, CellRange, Table, TableColumn, TableSort},
+  table::{CellEdit, CellRange, ColumnLayout, Table, TableColumn, TableSort},
 };
 use crate::{
   app::{ctx::Ctx, theme::Density},
@@ -86,6 +86,11 @@ use crate::{
 /// a press, and Ctrl+A select the cells between, drawn as one area with the focused cell in it, and told by the
 /// rows' keys and the columns' ids. Ctrl+C copies it as tab-separated text, Ctrl+V pastes into it a cell at a time
 /// through [`on_edit`](Self::on_edit), Delete clears what is edited.
+///
+/// **A column's menu** at the end of each header ([`column_menu`](Self::column_menu)), shown under the pointer and
+/// with the focus and opened by Alt+Down too, sorts by the column, pins it, sizes it to its content, hides it and
+/// shows the columns hidden; a header dragged to another place, or Ctrl+Shift+PageUp and PageDown on it, moves its
+/// column. How the columns are arranged is a value the app holds and stores ([`column_layout`](Self::column_layout)).
 ///
 /// **A cell is edited in place** with its column's editor ([`CellEditor`]): an input for a text, a number input,
 /// a select of the column's choices, or a box ticked in the cell itself. Enter or F2 on a cell, a double press of
@@ -176,6 +181,39 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// not: not when the app sets it. A second handler is called after the first.
   pub fn on_cell_selection_change(self, handler: impl Fn(Option<&CellRange<K>>) + Send + Sync + 'static) -> Self {
     self.with(|table| table.add_on_cell_selection_change(handler))
+  }
+
+  /// How the columns are arranged: in what order, which are hidden, their widths and pins, the signal's, which a
+  /// column's menu, a drag or the keys of a header and a resize set. Without it, the grid keeps its own; the
+  /// columns given are as the app made them.
+  pub fn column_layout(self, layout: Signal<ColumnLayout>) -> Self
+  where
+    ColumnLayout: SignalValue,
+  {
+    let now = layout.get();
+    self.with(|table| table.column_layout(Some(now), Arc::new(move |next| layout.set(next))))
+  }
+
+  /// How the columns are arranged, as the app holds it: `on_change` is told the whole of the next at each change,
+  /// and the grid shows what the app gives it at the next render.
+  pub fn column_layout_controlled(
+    self,
+    layout: ColumnLayout,
+    on_change: impl Fn(ColumnLayout) + Send + Sync + 'static,
+  ) -> Self {
+    self.with(|table| table.column_layout(Some(layout), Arc::new(on_change)))
+  }
+
+  /// Called with the whole of the arrangement of the columns at each change, bound to a signal or not: to store
+  /// it. A second handler is called after the first.
+  pub fn on_column_layout_change(self, handler: impl Fn(&ColumnLayout) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.add_on_column_layout_change(handler))
+  }
+
+  /// Whether each header has a menu: sort, pin, size to fit, hide the column and show the others. On unless
+  /// told.
+  pub fn column_menu(self, menu: bool) -> Self {
+    self.with(|table| table.set_column_menu(menu))
   }
 
   /// Whether no cell is edited: the cells take the focus and are read, and say so to what reads the tree.

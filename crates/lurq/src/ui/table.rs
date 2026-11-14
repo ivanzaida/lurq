@@ -17,6 +17,7 @@ use super::{
   empty_state::{EmptyState, EmptyStateSize},
   icons,
   input::{Input, InputSize},
+  menu::{Menu, MenuItem},
   names,
   number_input::NumberInput,
   part_style::{FontFamily, Length},
@@ -26,15 +27,18 @@ use super::{
   skeleton::Skeleton,
   theme::{Themed, current_theme},
 };
+mod columns;
 mod range;
 
+pub use columns::{ColumnLayout, ColumnPlace};
+use columns::{ColumnMenuLink, DropSide, MenuChoice};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
 
 use crate::{
   app::{
     component::Component,
-    ctx::Ctx,
+    ctx::{Ctx, Placement},
     events::{CopyEvent, DragEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent, PasteEvent, ScrollEvent},
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
@@ -70,6 +74,11 @@ pub enum TablePart {
   Resizer,
   /// The line in the resizer, shown under the pointer and while it is dragged.
   ResizeLine,
+  /// What opens a column's menu in a data grid's header: shown under the pointer, with the focus and while the
+  /// menu is open.
+  MenuTrigger,
+  /// Where a column dragged by its header goes: a line at the start of a header, or the end of the last.
+  DropLine,
   /// One row: its height, its padding, the room between columns, the line under it. What is pressed,
   /// selected and focused.
   Row,
@@ -95,6 +104,8 @@ names!(TablePart {
   SortIcon => "sort_icon",
   Resizer => "resizer",
   ResizeLine => "resize_line",
+  MenuTrigger => "menu_trigger",
+  DropLine => "drop_line",
   Row => "row",
   Cell => "cell",
   Select => "select",
@@ -140,6 +151,12 @@ pub enum TableState {
   RangeStart,
   /// A cell at the end of the range: the edge along its end.
   RangeEnd,
+  /// A header whose column's menu is open.
+  Open,
+  /// A header a column dragged by its header goes before.
+  DropBefore,
+  /// The last header, where a column dragged by its header goes after it.
+  DropAfter,
 }
 
 names!(TableState {
@@ -159,6 +176,9 @@ names!(TableState {
   RangeBottom => "range_bottom",
   RangeStart => "range_start",
   RangeEnd => "range_end",
+  Open => "open",
+  DropBefore => "drop_before",
+  DropAfter => "drop_after",
 });
 
 /// What builds a table's nodes: a theme's in place of the default one.
@@ -509,6 +529,9 @@ type SelectionHeard<K> = Arc<dyn Fn(&[K]) + Send + Sync>;
 /// What asks for a range of cells to be the grid's, and what is told it.
 type RangeWrite<K> = Arc<dyn Fn(Option<CellRange<K>>) + Send + Sync>;
 type RangeHeard<K> = Arc<dyn Fn(Option<&CellRange<K>>) + Send + Sync>;
+/// What asks for the columns to be arranged another way, and what is told it.
+type LayoutWrite = Arc<dyn Fn(ColumnLayout) + Send + Sync>;
+type LayoutHeard = Arc<dyn Fn(&ColumnLayout) + Send + Sync>;
 /// What says the count of the footer, given how many rows there are and how many are selected where they are.
 type CountFn = Arc<dyn Fn(usize, Option<usize>) -> String + Send + Sync>;
 /// What is told the width a column is made: its id, and the width.
@@ -623,6 +646,15 @@ pub struct Table<R, K = usize> {
   cell_range: Option<CellRange<K>>,
   write_cell_range: Option<RangeWrite<K>>,
   on_cell_selection_change: Vec<RangeHeard<K>>,
+  /// How a grid's columns are arranged, what asks for another arrangement, and who is told.
+  column_layout: Option<ColumnLayout>,
+  write_column_layout: Option<LayoutWrite>,
+  on_column_layout_change: Vec<LayoutHeard>,
+  /// Whether a grid's headers have a menu.
+  column_menu: bool,
+  /// Every column of a mounted grid in its layout, shown or not, with its title: what its menus list, and what
+  /// a change of the arrangement starts from.
+  arranged: Option<Arc<(ColumnLayout, Vec<(Arc<str>, Arc<str>)>)>>,
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
@@ -667,6 +699,11 @@ impl<R, K: Clone> Clone for Table<R, K> {
       cell_range: self.cell_range.clone(),
       write_cell_range: self.write_cell_range.clone(),
       on_cell_selection_change: self.on_cell_selection_change.clone(),
+      column_layout: self.column_layout.clone(),
+      write_column_layout: self.write_column_layout.clone(),
+      on_column_layout_change: self.on_column_layout_change.clone(),
+      column_menu: self.column_menu,
+      arranged: self.arranged.clone(),
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
@@ -721,6 +758,11 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       cell_range: None,
       write_cell_range: None,
       on_cell_selection_change: Vec::new(),
+      column_layout: None,
+      write_column_layout: None,
+      on_column_layout_change: Vec::new(),
+      column_menu: false,
+      arranged: None,
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -770,6 +812,11 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       cell_range: None,
       write_cell_range: None,
       on_cell_selection_change: Vec::new(),
+      column_layout: self.column_layout,
+      write_column_layout: self.write_column_layout,
+      on_column_layout_change: self.on_column_layout_change,
+      column_menu: self.column_menu,
+      arranged: None,
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -1072,7 +1119,42 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   pub(super) fn as_grid(mut self) -> Self {
     self.grid = true;
     self.resizable = true;
+    self.column_menu = true;
     self
+  }
+
+  pub(super) fn column_layout(mut self, layout: Option<ColumnLayout>, write: LayoutWrite) -> Self {
+    self.column_layout = layout;
+    self.write_column_layout = Some(write);
+    self
+  }
+
+  pub(super) fn add_on_column_layout_change(mut self, handler: impl Fn(&ColumnLayout) + Send + Sync + 'static) -> Self {
+    self.on_column_layout_change.push(Arc::new(handler));
+    self
+  }
+
+  pub(super) fn set_column_menu(mut self, menu: bool) -> Self {
+    self.column_menu = menu;
+    self
+  }
+
+  /// Asks for the columns of a grid arranged as `next`, and tells every handler: nothing where they are.
+  fn layout_changer(&self) -> Option<LayoutWrite> {
+    let (now, _) = &**self.arranged.as_ref()?;
+    let now = now.clone();
+    let (write, heard) = (self.write_column_layout.clone(), self.on_column_layout_change.clone());
+    Some(Arc::new(move |next: ColumnLayout| {
+      if next == now {
+        return;
+      }
+      if let Some(write) = &write {
+        write(next.clone());
+      }
+      for handler in &heard {
+        handler(&next);
+      }
+    }))
   }
 
   pub(super) fn set_read_only(mut self, read_only: bool) -> Self {
@@ -1492,6 +1574,21 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       })
       .collect();
 
+    // A mounted grid's headers have a menu, are dragged to another place, and are found by where they are.
+    let menu_host = grid_host.as_ref().filter(|_| self.column_menu && !self.disabled);
+    let change_layout = menu_host.and_then(|_| self.layout_changer());
+    let open_menu = menu_host.and_then(|host| host.menu_open.lock().clone());
+    let shown_ids: Arc<Vec<Arc<str>>> = Arc::new(self.columns.iter().map(|column| column.id.clone()).collect());
+    let header_drop = menu_host.and_then(|host| *host.header_drop.lock());
+    let drop_of = |column: usize| match header_drop {
+      Some((from, to)) if to != Some(from) && to != Some(from + 1) => match to {
+        Some(to) if to == column => Some(DropSide::Before),
+        None if column + 1 == columns_count && from + 1 != columns_count => Some(DropSide::After),
+        _ => None,
+      },
+      _ => None,
+    };
+    let mut header_refs: HashMap<usize, ElementRef> = HashMap::new();
     let headers = self
       .columns
       .iter()
@@ -1504,11 +1601,110 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .filter(|sort| sort.column == column.id)
           .map(|sort| sort.direction);
         let sortable = column.sortable && !self.disabled;
+        let open = open_menu.as_deref() == Some(&*column.id);
+        let drop = drop_of(column_index);
         let header_case = case
           .clone()
           .state(TableState::Sortable, sortable)
           .state(TableState::Sorted, sorted.is_some())
-          .state(TableState::Pinned, sticky_of(column_index).is_some());
+          .state(TableState::Pinned, sticky_of(column_index).is_some())
+          .state(TableState::Open, open)
+          .state(TableState::DropBefore, drop == Some(DropSide::Before))
+          .state(TableState::DropAfter, drop == Some(DropSide::After));
+        let sorts = self.write_sort.is_some() || !self.on_sort_change.is_empty();
+        let menu = menu_host.zip(change_layout.clone()).map(|(host, change)| {
+          let element = ElementRef::new();
+          header_refs.insert(column_index, element);
+          let (layout, titles) = &**self
+            .arranged
+            .as_ref()
+            .expect("a grid with a layout changer is arranged");
+          let id = column.id.clone();
+          let choose: Arc<dyn Fn(MenuChoice) + Send + Sync> = {
+            let (id, layout, change) = (id.clone(), layout.clone(), change.clone());
+            let (write_sort, sort_heard) = (self.write_sort.clone(), self.on_sort_change.clone());
+            Arc::new(move |choice: MenuChoice| match choice {
+              MenuChoice::Sort(direction) => {
+                let next = direction.map(|direction| TableSort {
+                  column: id.clone(),
+                  direction,
+                });
+                if let Some(write) = &write_sort {
+                  write(next.clone());
+                }
+                for handler in &sort_heard {
+                  handler(next.as_ref());
+                }
+              }
+              MenuChoice::Pin(pin) => change(layout.clone().with_pin(&id, pin)),
+              MenuChoice::Fit => change(layout.clone().with_fit(&id)),
+              MenuChoice::Hide => change(layout.clone().with_hidden(&id, true)),
+              MenuChoice::Toggle(other) => {
+                let hidden = layout.place(&other).is_some_and(|place| place.hidden);
+                change(layout.clone().with_hidden(&other, !hidden));
+              }
+              MenuChoice::ShowAll => change(layout.clone().with_all_shown()),
+            })
+          };
+          let set_open: Arc<dyn Fn(bool) + Send + Sync> = {
+            let (host, id) = (host.clone(), id.clone());
+            Arc::new(move |open: bool| {
+              let mut held = host.menu_open.lock();
+              if open {
+                *held = Some(id.clone());
+              } else if held.as_deref() == Some(&*id) {
+                *held = None;
+              }
+              std::mem::drop(held);
+              host.rebuild();
+            })
+          };
+          let move_to: Arc<dyn Fn(Option<usize>) + Send + Sync> = {
+            let (id, layout, change, shown) = (id.clone(), layout.clone(), change.clone(), shown_ids.clone());
+            Arc::new(move |before: Option<usize>| {
+              let before = before.and_then(|place| shown.get(place)).map(|id| &**id);
+              change(layout.clone().with_moved(&id, before));
+            })
+          };
+          let move_by: Arc<dyn Fn(isize) + Send + Sync> = {
+            let move_to = move_to.clone();
+            let count = shown_ids.len();
+            Arc::new(move |by: isize| {
+              let to = (column_index as isize + by).clamp(0, count as isize - 1) as usize;
+              if to == column_index {
+                return;
+              }
+              // Before the column at its new place going back, before the one after it going on.
+              move_to(if to < column_index {
+                Some(to)
+              } else {
+                (to + 1 < count).then_some(to + 1)
+              });
+            })
+          };
+          Arc::new(ColumnMenuLink {
+            id: id.clone(),
+            title: column.title.clone(),
+            sortable: column.sortable && sorts,
+            sorted,
+            pin: column.pin,
+            can_hide: self.columns.len() > 1,
+            columns: titles
+              .iter()
+              .map(|(id, title)| {
+                let hidden = layout.place(id).is_some_and(|place| place.hidden);
+                (id.clone(), title.clone(), !hidden)
+              })
+              .collect(),
+            open,
+            host: host.clone(),
+            choose,
+            set_open,
+            move_by,
+            move_to,
+            place: column_index,
+          })
+        });
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
           let (write, handlers, next) = (
             self.write_sort.clone(),
@@ -1532,6 +1728,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .map(|host| {
             let floor = column.track.min.max(LEAST_COLUMN);
             Arc::new(ResizeLink {
+              layout: change_layout.clone().and_then(|change| {
+                let (layout, _) = &**self.arranged.as_ref()?;
+                let layout = layout.clone();
+                Some(
+                  Arc::new(move |id: &str, width: f32| change(layout.clone().with_width(id, width)))
+                    as Arc<dyn Fn(&str, f32) + Send + Sync>,
+                )
+              }),
               host,
               column: column_index,
               id: column.id.clone(),
@@ -1574,10 +1778,17 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           recipe: self.resolve(theme, &header_case),
           press,
           resize,
+          element: header_refs.get(&column_index).cloned(),
+          key: column.id.clone(),
+          menu,
+          drop,
           id: id_of(&format!("header-{}", column.id)),
         }
       })
       .collect();
+    if let Some(host) = menu_host {
+      *host.header_refs.lock() = header_refs;
+    }
 
     // Every row's key is looked up once, however many are selected.
     let held: HashSet<&K> = self.selected.iter().collect();
@@ -2223,6 +2434,13 @@ pub struct TableHeader {
   pub recipe: ResolvedRecipe,
   press: Option<Arc<dyn Fn() + Send + Sync>>,
   resize: Option<Arc<ResizeLink>>,
+  /// Where a mounted grid finds the header, which a column dragged by its header goes before.
+  element: Option<ElementRef>,
+  /// The column's id, which keeps the header the same element wherever the column is.
+  key: Arc<str>,
+  menu: Option<Arc<ColumnMenuLink>>,
+  /// Where a column dragged by its header goes, drawn on this one.
+  drop: Option<DropSide>,
   id: Option<Arc<str>>,
 }
 
@@ -2235,12 +2453,15 @@ impl TableHeader {
   /// has it. It is a column header to what reads the tree, with which way it is sorted where it sorts.
   pub fn cell(&self) -> Row {
     let mut cell = Row::new()
+      // Where a column dragged by its header goes, drawn as a line at its start or its end.
+      .part(&self.part(TablePart::DropLine))
       .align_items(Alignment::Center)
       .justify(justify(self.align))
       .describe("a11y_role", "columnheader")
       .describe("a11y_name", self.title.clone())
-      // A header is the same element wherever the columns built around it start.
-      .key(format!("header-{}", self.column));
+      // A header is the same element wherever the columns built around it start, and wherever its column is
+      // moved to.
+      .key(format!("header-{}", self.key));
     if self.sortable || self.sorted.is_some() {
       let sort = match self.sorted {
         Some(SortDirection::Ascending) => "ascending",
@@ -2264,7 +2485,136 @@ impl TableHeader {
     if let Some(fill) = self.fill.clone() {
       cell = cell.background(fill);
     }
+    if let Some(element) = &self.element {
+      cell = cell.ref_element(element.clone());
+    }
+    if self.menu.is_some() {
+      // Its menu's trigger shows while the pointer is on the header or the focus is in it.
+      cell = cell.interaction_group(true);
+    }
     cell
+  }
+
+  /// What opens the column's menu, at the end of its header: `None` where the header has no menu. It takes no
+  /// focus: Alt+Down on the header opens the menu too.
+  pub fn menu_trigger(&self) -> Option<Element> {
+    let link = self.menu.clone()?;
+    let part = self.part(TablePart::MenuTrigger);
+    let toggle = link.clone();
+    let mut trigger = pressable(&part, false)
+      .focusable(false)
+      .align_items(Alignment::Center)
+      .describe("a11y_name", format!("{} column menu", link.title))
+      .describe("a11y_haspopup", "menu")
+      .describe("a11y_expanded", if link.open { "true" } else { "false" })
+      .on_click(move |event: MouseEvent| {
+        // A press of it is its own: it does not sort the rows.
+        event.stop_propagation();
+        (toggle.set_open)(!toggle.open);
+      })
+      .child(glyph(
+        &self.part(TablePart::SortIcon),
+        Name::new(icons::MORE_VERTICAL),
+        false,
+      ));
+    if let Some(id) = &self.id {
+      trigger = trigger.id(format!("{id}-menu"));
+    }
+    if link.open {
+      trigger = trigger.ref_element(link.host.menu_anchor.clone());
+    }
+    Some(trigger.into())
+  }
+
+  /// The column's menu, while it is open: the sort, the pin, its width to fit its content, hiding it, and the
+  /// columns to show or hide.
+  pub fn menu(&self) -> Option<Element> {
+    let link = self.menu.clone().filter(|link| link.open)?;
+    let choose = |choice: MenuChoice| {
+      let choose = link.choose.clone();
+      move || choose(choice.clone())
+    };
+    let set_open = link.set_open.clone();
+    let mut menu = Menu::controlled(true, link.host.menu_anchor.clone(), move |open| set_open(open))
+      .label(&format!("{} column", link.title))
+      .placement(Placement::BottomEnd);
+    if let Some(id) = &self.id {
+      menu = menu.id(format!("{id}-menu-panel"));
+    }
+    if link.sortable {
+      menu = menu
+        .item(
+          MenuItem::new("Sort ascending")
+            .icon(icons::ARROW_UP)
+            .checked(link.sorted == Some(SortDirection::Ascending))
+            .on_select(choose(MenuChoice::Sort(Some(SortDirection::Ascending)))),
+        )
+        .item(
+          MenuItem::new("Sort descending")
+            .icon(icons::ARROW_DOWN)
+            .checked(link.sorted == Some(SortDirection::Descending))
+            .on_select(choose(MenuChoice::Sort(Some(SortDirection::Descending)))),
+        )
+        .item(
+          MenuItem::new("Clear sort")
+            .icon(icons::CHEVRONS_VERTICAL)
+            .disabled(link.sorted.is_none())
+            .on_select(choose(MenuChoice::Sort(None))),
+        )
+        .separator();
+    }
+    let hidden = link.columns.iter().any(|(_, _, shown)| !shown);
+    let shown = link.columns.iter().filter(|(_, _, shown)| *shown).count();
+    let columns = Menu::new(link.host.submenu_open.clone(), link.host.submenu_anchor.clone())
+      .label("Columns")
+      .items(link.columns.iter().map(|(id, title, on)| {
+        MenuItem::new(title)
+          .checked(*on)
+          // The last column shown stays.
+          .disabled(*on && shown == 1)
+          .on_select(choose(MenuChoice::Toggle(id.clone())))
+      }))
+      .separator()
+      .item(
+        MenuItem::new("Show all columns")
+          .disabled(!hidden)
+          .on_select(choose(MenuChoice::ShowAll)),
+      );
+    Some(
+      menu
+        .item(
+          MenuItem::new("Pin to start")
+            .icon(icons::PIN)
+            .checked(link.pin == ColumnPin::Start)
+            .on_select(choose(MenuChoice::Pin(ColumnPin::Start))),
+        )
+        .item(
+          MenuItem::new("Pin to end")
+            .icon(icons::PIN)
+            .checked(link.pin == ColumnPin::End)
+            .on_select(choose(MenuChoice::Pin(ColumnPin::End))),
+        )
+        .item(
+          MenuItem::new("Unpin")
+            .icon(icons::CLOSE)
+            .disabled(link.pin == ColumnPin::None)
+            .on_select(choose(MenuChoice::Pin(ColumnPin::None))),
+        )
+        .separator()
+        .item(
+          MenuItem::new("Size to fit")
+            .icon(icons::RESIZE_HORIZONTAL)
+            .on_select(choose(MenuChoice::Fit)),
+        )
+        .item(
+          MenuItem::new("Hide column")
+            .icon(icons::EYE_OFF)
+            .disabled(!link.can_hide)
+            .on_select(choose(MenuChoice::Hide)),
+        )
+        .item(MenuItem::new("Columns").icon(icons::EYE).submenu(columns))
+        .build(self.recipe.theme()),
+    )
   }
 
   /// The arrow of a column the rows are sorted by, up or down, and the mark of one that sorts.
@@ -2338,8 +2688,8 @@ impl TableHeader {
         if let Some(icon) = self.sort_icon() {
           label = label.child(icon);
         }
-        // A header that is resized and not sorted is a stop of the header's keys, for Ctrl and Left or Right.
-        if self.resize.is_some() {
+        // A header that is resized or has a menu and is not sorted is a stop of the header's keys.
+        if self.resize.is_some() || self.menu.is_some() {
           label = label.tab_index(0).describe("a11y_name", self.title.clone());
           if let Some(id) = &self.id {
             label = label.id(id.clone());
@@ -2366,17 +2716,70 @@ impl TableHeader {
         button.into()
       }
     };
-    let Some(resizer) = resizer else {
-      return cell.child(label).into();
+    // A header with a menu is dragged to another place among the columns.
+    let label = match &self.menu {
+      Some(link) => {
+        let (start, moved, end) = (link.clone(), link.clone(), link.clone());
+        Row::new()
+          .flex_full(0.0, 1.0, None)
+          .min_width(Dimension::Px(0.0))
+          .align_items(Alignment::Center)
+          .start_drag_buttons(MouseButtonMask::LEFT)
+          .on_drag_start(move |_: DragEvent| {
+            *start.host.header_drop.lock() = Some((start.place, Some(start.place)));
+          })
+          .on_drag_move(move |event: DragEvent| {
+            let to = moved.host.drop_place(event.x);
+            let mut held = moved.host.header_drop.lock();
+            if held.is_some_and(|(_, at)| at != to) {
+              *held = Some((moved.place, to));
+              drop(held);
+              moved.host.rebuild();
+            }
+          })
+          .on_drag_end(move |_: DragEvent| {
+            let held = end.host.header_drop.lock().take();
+            end.host.rebuild();
+            if let Some((from, to)) = held
+              && to != Some(from)
+              && to != Some(from + 1)
+            {
+              (end.move_to)(to);
+            }
+          })
+          .child(label)
+          .into()
+      }
+      None => label,
     };
-    let link = self.resize.clone().expect("a resizer has its link");
-    // The label takes the room the resizer leaves, which stands in the room after the column, on its edge.
-    let half = px(self.part(TablePart::Resizer).rest().width, self.recipe.theme()).unwrap_or(8.0) / 2.0;
-    let after = if self.last { self.trail } else { self.gap };
-    cell = cell
-      .padding_right((after / 2.0 - half).max(0.0))
-      .on_key_down(move |event: KeyboardEvent| {
-        if !event.focus_within || !(event.ctrl || event.meta) || event.alt {
+    let trigger = self.menu_trigger();
+    let menu = self.menu();
+    let (resize_link, menu_link) = (self.resize.clone(), self.menu.clone());
+    if resize_link.is_some() || menu_link.is_some() {
+      cell = cell.on_key_down(move |event: KeyboardEvent| {
+        if !event.focus_within {
+          return;
+        }
+        let command = event.ctrl || event.meta;
+        if let Some(link) = &menu_link {
+          // Alt+Down, the menu key or Shift+F10 opens the column's menu; Ctrl+Shift+PageUp and PageDown move the
+          // column, as a browser moves a tab.
+          let key = event.key.as_str();
+          if (event.alt && !command && key == "ArrowDown") || key == "ContextMenu" || (event.shift && key == "F10") {
+            event.prevent_default();
+            (link.set_open)(true);
+            return;
+          }
+          if command && event.shift && !event.alt && matches!(key, "PageUp" | "PageDown") {
+            event.prevent_default();
+            (link.move_by)(if key == "PageUp" { -1 } else { 1 });
+            return;
+          }
+        }
+        let Some(link) = &resize_link else {
+          return;
+        };
+        if !command || event.alt {
           return;
         }
         let step = if event.shift { RESIZE_STEP_SHIFT } else { RESIZE_STEP };
@@ -2388,22 +2791,51 @@ impl TableHeader {
         event.prevent_default();
         link.step(by);
       });
-    cell
-      .child(
-        Row::new()
-          .flex_full(1.0, 1.0, Some(0.0))
-          .min_width(Dimension::Px(0.0))
-          .justify(justify(self.align))
-          .align_items(Alignment::Center)
-          .child(label),
-      )
-      .child(resizer)
-      .into()
+    }
+    if resizer.is_none() && trigger.is_none() {
+      return cell.child(label).into();
+    }
+    if resizer.is_some() {
+      // The label takes the room the resizer leaves, which stands in the room after the column, on its edge.
+      let half = px(self.part(TablePart::Resizer).rest().width, self.recipe.theme()).unwrap_or(8.0) / 2.0;
+      let after = if self.last { self.trail } else { self.gap };
+      cell = cell.padding_right((after / 2.0 - half).max(0.0));
+    }
+    // The title where its column puts it, in the room the trigger at the header's end leaves.
+    let titled = Row::new()
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(Dimension::Px(0.0))
+      .justify(justify(self.align))
+      .align_items(Alignment::Center)
+      .child(label);
+    match trigger {
+      Some(trigger) => {
+        cell = cell.child(
+          Row::new()
+            .flex_full(1.0, 1.0, Some(0.0))
+            .min_width(Dimension::Px(0.0))
+            .align_items(Alignment::Center)
+            .spacing(4.0)
+            .child(titled)
+            .child(trigger),
+        );
+      }
+      None => cell = cell.child(titled),
+    }
+    if let Some(resizer) = resizer {
+      cell = cell.child(resizer);
+    }
+    if let Some(menu) = menu {
+      cell = cell.child(menu);
+    }
+    cell.into()
   }
 }
 
 /// A column's resizer and its table's host: what a drag or a key makes the column, and who is told.
 struct ResizeLink {
+  /// What keeps the width a person made the column in a grid's arrangement of its columns.
+  layout: Option<Arc<dyn Fn(&str, f32) + Send + Sync>>,
   host: Arc<HostLink>,
   column: usize,
   id: Arc<str>,
@@ -2437,9 +2869,19 @@ impl ResizeLink {
   fn finish(&self) {
     let width = self.width();
     if (width - *self.start.lock()).abs() > 0.01 {
+      self.keep(width);
       for handler in &self.on_resize_end {
         handler(&self.id, width);
       }
+    }
+  }
+
+  /// The width a person made the column, kept in the grid's arrangement of its columns, which is then what it
+  /// is drawn at.
+  fn keep(&self, width: f32) {
+    if let Some(layout) = &self.layout {
+      layout(&self.id, width);
+      self.host.state.resized.lock().remove(&self.id);
     }
   }
 
@@ -2448,6 +2890,7 @@ impl ResizeLink {
     let before = self.width();
     let after = self.set(before + by);
     if (after - before).abs() > 0.01 {
+      self.keep(after);
       for handler in &self.on_resize_end {
         handler(&self.id, after);
       }
@@ -3578,6 +4021,14 @@ struct HostState {
   /// The cell a drag of cells started at, and the cell it last reached.
   drag_anchor: Mutex<Option<(usize, usize)>>,
   drag_last: Mutex<Option<(usize, usize)>>,
+  /// The column whose menu is open, what the menu hangs from, and its list of columns.
+  menu_open: Mutex<Option<Arc<str>>>,
+  menu_anchor: ElementRef,
+  submenu_open: Signal<bool>,
+  submenu_anchor: ElementRef,
+  /// Where each header built is, by its column, and a column dragged by its header: from where to before which.
+  header_refs: Mutex<HashMap<usize, ElementRef>>,
+  header_drop: Mutex<Option<(usize, Option<usize>)>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -3718,6 +4169,8 @@ struct TableHost<R, K> {
   state: Arc<HostState>,
   /// The range of cells of a grid whose app holds none.
   own_range: Arc<Mutex<Option<CellRange<K>>>>,
+  /// The arrangement of a grid's columns whose app holds none.
+  own_layout: Arc<Mutex<Option<ColumnLayout>>>,
   _marker: PhantomData<fn() -> R>,
 }
 
@@ -3742,11 +4195,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         scroll_ref: ElementRef::new(),
         drag_anchor: Mutex::new(None),
         drag_last: Mutex::new(None),
+        menu_open: Mutex::new(None),
+        menu_anchor: ElementRef::new(),
+        submenu_open: ctx.signal(false),
+        submenu_anchor: ElementRef::new(),
+        header_refs: Mutex::new(HashMap::new()),
+        header_drop: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
       }),
       own_range: Arc::new(Mutex::new(None)),
+      own_layout: Arc::new(Mutex::new(None)),
       _marker: PhantomData,
     }
   }
@@ -3764,6 +4224,29 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         *own.lock() = next;
         state.rebuild();
       }));
+    }
+    // A grid's columns as a person arranged them: in their order, the hidden ones out, their widths and pins.
+    if table.grid {
+      if table.write_column_layout.is_none() {
+        table.column_layout = self.own_layout.lock().clone();
+        let (own, state) = (self.own_layout.clone(), self.state.clone());
+        table.write_column_layout = Some(Arc::new(move |next| {
+          *own.lock() = Some(next);
+          state.rebuild();
+        }));
+      }
+      let columns = std::mem::take(&mut table.columns);
+      let full = table.column_layout.clone().unwrap_or_default().full(&columns);
+      let titles = full
+        .columns
+        .iter()
+        .filter_map(|place| {
+          let column = columns.iter().find(|column| column.id == place.id)?;
+          Some((column.id.clone(), column.title.clone()))
+        })
+        .collect();
+      table.columns = full.arrange(columns);
+      table.arranged = Some(Arc::new((full, titles)));
     }
     let theme = current_theme();
     let state = &self.state;
@@ -3955,6 +4438,23 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       // dragged, nothing at rest, as the board draws no line between headers.
       .base(TablePart::Resizer, |s| s.width(8.0).cursor(CursorIcon::ColResize))
       .base(TablePart::ResizeLine, |s| s.width(2.0).radius(RadiusSize::Full))
+      // A grid's column menu: a ghost button of 24 at the end of the header, its mark muted, shown while the
+      // pointer is on the header, the focus is in it, or the menu is open.
+      .base(TablePart::MenuTrigger, |s| {
+        fading(
+          s.square(24.0)
+            .radius(RadiusSize::Sm)
+            .foreground(MutedForeground)
+            .cursor(CursorIcon::Pointer)
+            .opacity(0.0),
+        )
+      })
+      .within(TablePart::MenuTrigger, |s| s.opacity(1.0))
+      .state(TableState::Open, TablePart::MenuTrigger, |s| s.opacity(1.0).background(Muted))
+      .hovered(TablePart::MenuTrigger, |s| s.veil(StateHover).foreground(Foreground))
+      // Where a column dragged by its header goes: a line of 2 in the ring's color.
+      .state(TableState::DropBefore, TablePart::DropLine, |s| s.start_line(range_edge()))
+      .state(TableState::DropAfter, TablePart::DropLine, |s| s.end_line(range_edge()))
       .within_hovered(TablePart::ResizeLine, |s| s.background(Ring))
       .within_pressed(TablePart::ResizeLine, |s| s.background(Ring))
       .state(Sortable, HeaderCell, |s| fading(s.radius(RadiusSize::Sm).cursor(CursorIcon::Pointer)))
