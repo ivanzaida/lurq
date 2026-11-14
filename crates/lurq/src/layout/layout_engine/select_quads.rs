@@ -35,7 +35,9 @@ impl LayoutEngine {
   ) {
     let style = state.style();
     let hovered = node.style_state.is_hovered();
-    let focus_visible = node.style_state.is_focus_visible();
+    // A combobox is drawn focused while its text input has the focus: a text input is focus-visible however it was
+    // focused.
+    let focus_visible = node.style_state.is_focus_visible() || state.input_focused();
     let trigger = style.resolved_trigger(hovered, focus_visible, state.is_open());
 
     let background = {

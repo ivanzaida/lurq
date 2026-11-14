@@ -11,12 +11,14 @@ mod breadcrumb;
 mod button;
 mod card;
 mod checkbox;
+mod combobox;
 mod dialog;
 mod family;
 mod family_play;
 mod icons;
 mod input;
 mod menu;
+mod multi_select;
 mod overview;
 mod pagination;
 mod popover;
@@ -238,6 +240,22 @@ pub const PAGES: &[Page] = &[
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/combobox",
+    name: "Combobox",
+    icon: None,
+    about: "combobox autocomplete typeahead search filter select option list type custom value fetch loading no results",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<combobox::ComboboxPage>(()),
+  },
+  Page {
+    path: "/multi-select",
+    name: "Multi Select",
+    icon: None,
+    about: "multi select multiple choose several tags tokens chips checkbox list filter max shown clear",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<multi_select::MultiSelectPage>(()),
   },
   Page {
     path: "/tooltip",

@@ -25,6 +25,7 @@ mod card;
 mod checkbox;
 mod chip;
 mod collapsible;
+mod combobox;
 mod dialog;
 mod fab;
 mod field;
@@ -33,6 +34,7 @@ pub mod icons;
 mod input;
 mod link;
 mod menu;
+mod multi_select;
 mod pagination;
 mod part_style;
 mod popover;
@@ -80,6 +82,7 @@ pub use checkbox::{
 };
 pub use chip::{Chip, ChipGroup, ChipGroupPart, ChipPart, ChipRenderer, ChipState, ChipView};
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
+pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
@@ -90,6 +93,7 @@ pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
+pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
 pub use pagination::{PageItem, Pagination, PaginationPart, PaginationRenderer, PaginationState, PaginationView};
 pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
