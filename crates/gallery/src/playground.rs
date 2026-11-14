@@ -23,7 +23,7 @@ use lurq::{
   ui::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Interaction, Switch, Toggle, icons},
 };
 
-use crate::kit::{FILL, code_block, icon, line, mono, name, quiet, segmented, select, text, tool};
+use crate::kit::{FILL, code_block, icon, line, mono, name, plain_block, quiet, segmented, select, text, tool};
 
 /// The least width of the card with the panel beside the stage: the panel, and a stage whose bar holds the
 /// switch of states and its tools.
@@ -41,6 +41,14 @@ const FORCED: [(&str, Option<Interaction>); 4] = [
 const KEPT: usize = 50;
 /// How high what a tab shows is: five lines of code, as the design draws it.
 const OUTPUT: f32 = 150.0;
+/// How high the stage is, with the row of facts under the canvas.
+const STAGE: f32 = 418.0;
+/// How high the row of facts under the canvas is.
+const FACTS: f32 = 36.0;
+/// The room at each side of what is on the canvas.
+const STAGE_PADDING: f32 = 32.0;
+/// How wide the panel of props is beside the stage.
+const PANEL: f32 = 320.0;
 
 /// What a page keeps between renders for its playground.
 pub struct Playground {
@@ -254,15 +262,32 @@ impl Playground {
   }
 
   /// The stage: the component on the canvas, with its measured size and the count of what it did under it.
-  fn stage(&self, spec: &mut Spec) -> Column {
+  /// It is `room` wide: what is larger than it is scrolled to, and what is smaller stands in its middle.
+  fn stage(&self, spec: &mut Spec, room: f32) -> Column {
     // What is on the stage is measured by this row, which cuts nothing off: a shadow, a ring or a badge on a
     // corner reaches past the component's box, and the stage has the room for it.
     let mut held = Row::new()
       .ref_element(self.anchor.clone())
       .overflow_visible()
       .child(std::mem::take(&mut spec.shown));
+    // What scrolls has no width to fill: a component as wide as the stage is given the stage's.
     if spec.fill {
-      held = held.width(FILL);
+      held = if room > 0.0 {
+        held.width((room - 2.0 * STAGE_PADDING).max(0.0))
+      } else {
+        held.width(FILL)
+      };
+    }
+    // The canvas is at least the stage, so what fits is in its middle, and as large as what is on it, so
+    // what does not fit is reached by scrolling and nothing of it is cut.
+    let mut canvas = Row::new()
+      .min_height(STAGE - FACTS)
+      .padding_horizontal(STAGE_PADDING)
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .child(held);
+    if room > 0.0 {
+      canvas = canvas.min_width(room);
     }
     let measured = if spec.facts.is_empty() {
       self.measured()
@@ -271,22 +296,14 @@ impl Playground {
     };
     Column::new()
       .width(FILL)
-      .height(418.0)
+      .height(STAGE)
       .background(PaletteColor::Canvas)
       .foreground(PaletteColor::Foreground)
+      .child(ScrollBoth::new(canvas).key("stage").width(FILL).height(STAGE - FACTS))
       .child(
         Row::new()
           .width(FILL)
-          .flex(1.0)
-          .padding_horizontal(32.0)
-          .align_items(Alignment::Center)
-          .justify(Justify::Center)
-          .child(held),
-      )
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(36.0)
+          .height(FACTS)
           .padding_horizontal(16.0)
           .align_items(Alignment::Center)
           .justify(Justify::SpaceBetween)
@@ -346,9 +363,9 @@ impl Playground {
     };
     let body: Element = match shown {
       0 => code_block(&spec.code).into(),
-      1 if events.is_empty() => plain_lines(&["Nothing yet: use what is on the stage.".to_owned()]).into(),
-      1 => plain_lines(&events.lines().map(str::to_owned).collect::<Vec<_>>()).into(),
-      _ => plain_lines(&spec.tree).into(),
+      1 if events.is_empty() => plain_block(&["Nothing yet: use what is on the stage.".to_owned()]).into(),
+      1 => plain_block(&events.lines().map(str::to_owned).collect::<Vec<_>>()).into(),
+      _ => plain_block(&spec.tree).into(),
     };
     Column::new()
       .width(FILL)
@@ -426,7 +443,13 @@ impl Playground {
       ctx.breakpoint() >= Some(Breakpoint::Lg)
     };
     let toolbar = self.toolbar(ctx, &spec);
-    let stage = self.stage(&mut spec);
+    // The stage is the card less its edges, and less the panel and the line before it where that is beside it.
+    let stage_room = match (room > 0.0, wide) {
+      (false, _) => 0.0,
+      (true, true) => (room - 2.0 - PANEL - 1.0).max(0.0),
+      (true, false) => (room - 2.0).max(0.0),
+    };
+    let stage = self.stage(&mut spec, stage_room);
     // The stage in the appearance the page is not in: a theme of its own, for it and what is on it.
     let stage: Element = if self.other.get() {
       self
@@ -457,7 +480,7 @@ impl Playground {
             .width(FILL)
             .align_items(Alignment::Stretch)
             .child(preview.flex(1.0))
-            .child(panel.width(320.0).border_left(line())),
+            .child(panel.width(PANEL).border_left(line())),
         )
         .into()
     } else {
@@ -467,20 +490,6 @@ impl Playground {
         .into()
     }
   }
-}
-
-/// Lines of plain text in the family of code: a log, a tree.
-fn plain_lines(lines: &[String]) -> Column {
-  let mut block = Column::new()
-    .width(FILL)
-    .padding_horizontal(16.0)
-    .padding_top(16.0)
-    .padding_bottom(18.0)
-    .spacing(4.0);
-  for line in lines {
-    block = block.child(mono(line, 13.0).height(20.0));
-  }
-  block
 }
 
 /// A control of the panel under the name of its prop and its type.

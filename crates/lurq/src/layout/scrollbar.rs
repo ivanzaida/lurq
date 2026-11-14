@@ -1,6 +1,10 @@
 use std::time::{Duration, Instant};
 
-use crate::{animation::Easing, node::color::Color};
+use crate::{
+  animation::Easing,
+  app::theme::{PaletteColor, ThemePalette},
+  node::color::Color,
+};
 
 const DEFAULT_SCROLLBAR_WIDTH: f32 = 8.0;
 const DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH: f32 = 24.0;
@@ -31,6 +35,8 @@ pub struct ScrollBarStyle {
   pub width: f32,
   pub min_thumb_length: f32,
   pub track_color: Color,
+  /// The color of the thumb. A style that never set one has [`Self::THEME_THUMB`], which is drawn in the
+  /// theme's `Ring`: grey on a light theme and on a dark one, as the design system's scrollbar is.
   pub thumb_color: Color,
   pub thumb_radius: f32,
   pub track_radius: f32,
@@ -107,6 +113,19 @@ impl Default for ScrollBarStyle {
 }
 
 impl ScrollBarStyle {
+  /// The thumb color of a style that set none: a mark for "the theme's `Ring`", and the color drawn where a
+  /// palette has no ring.
+  pub const THEME_THUMB: Color = DEFAULT_SCROLLBAR_THUMB_COLOR;
+
+  /// The color the thumb is drawn in under `palette`: its own, or the palette's `Ring` where it set none.
+  pub fn thumb_in(&self, palette: &ThemePalette) -> Color {
+    if self.thumb_color == Self::THEME_THUMB {
+      palette.try_get(&PaletteColor::Ring).unwrap_or(self.thumb_color)
+    } else {
+      self.thumb_color
+    }
+  }
+
   /// A phone's scroll indicator: a thin rounded bar over the content, clear of the corners, that shows while
   /// the content scrolls and fades out after. Grey, to show over light content and dark.
   pub fn indicator() -> Self {
