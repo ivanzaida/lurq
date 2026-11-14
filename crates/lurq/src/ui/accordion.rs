@@ -114,12 +114,15 @@ impl<T> AccordionItem<T> {
   }
 }
 
-/// What is told the values of the items open, once a press has changed them.
-type Handler<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
+/// What is told the value of the accordion, once a press has changed it: `Option<T>`, or the whole set `[T]`.
+type Handler<V> = Arc<dyn Fn(&V) + Send + Sync>;
 
 /// What a press of the header of the item of a value makes of the items open: the values open after it. Where the
 /// accordion is bound, it sets the signal to them.
 type Toggle<T> = Arc<dyn Fn(&T) -> Vec<T> + Send + Sync>;
+
+/// What tells the handlers the items open after a press, as the accordion's value: one or none, or the set.
+type Tell<T, V> = fn(&[T], &[Handler<V>]);
 
 /// The values open after a press of `value` where one is open at a time: it alone, or none where it was open.
 fn one<T: Clone + PartialEq>(open: &[T], value: &T) -> Vec<T> {
@@ -151,32 +154,43 @@ fn many<T: Clone + PartialEq>(open: &[T], value: &T) -> Vec<T> {
 ///
 /// # fn faq(open: Signal<Option<u8>>, sections: Signal<Vec<&'static str>>) {
 /// // One open at a time: the signal's value, or none.
-/// let faq = Accordion::new(open, [
+/// let faq = Accordion::optional(open, [
 ///   AccordionItem::text(0, "Is lurq GPU-accelerated?", "Yes, through wgpu."),
 ///   AccordionItem::text(1, "Does it support dark mode?", "Every theme has a light and a dark appearance."),
 /// ])
-/// .label("Questions");
-/// // Any number open: the signal's values. A press is told the values open after it.
+/// .label("Questions")
+/// .on_change(|open: &Option<u8>| println!("{open:?}"));
+/// // Any number open: the signal's values. A press is told the whole set open after it.
 /// let form = Accordion::multiple(sections, [
 ///   AccordionItem::text("billing", "Billing", "Card, address and invoices."),
 ///   AccordionItem::text("shipping", "Shipping", "Where the order goes."),
 /// ])
-/// .on_change(|open| println!("{open:?}"));
+/// .on_change(|open: &[&str]| println!("{open:?}"));
 /// // The app holds what is open, and is told what is to be.
-/// let held = Accordion::controlled([1], [AccordionItem::text(1, "Billing", "..")], |open| println!("{open:?}"));
+/// let held = Accordion::controlled_optional(Some(1), [AccordionItem::text(1, "Billing", "..")], |open| {
+///   println!("{open:?}")
+/// });
 /// # }
 /// ```
+///
+/// Bound to a signal ([`optional`](Self::optional), [`multiple`](Self::multiple)) the accordion sets it, or the
+/// app holds what is open and is told what is to be ([`controlled_optional`](Self::controlled_optional),
+/// [`controlled_multiple`](Self::controlled_multiple)). [`on_change`](Self::on_change) is told the accordion's
+/// value: `&Option<T>` for one at a time, an `Accordion<T>`, and the whole set `&[T]` for any number, an
+/// `Accordion<T, [T]>`. `T` is `()` where nothing names it: the theme's recipe is `Accordion`'s, whatever its
+/// values. An accordion has no form of which one must be open.
 ///
 /// Each header is a stop of Tab, which Space and Enter press, and Up and Down
 /// move the focus from one header to the next. What an item holds opens and
 /// closes with its height over the theme's duration, at once where motion is
 /// reduced; while it is closed it is not there, and the controls in it are
 /// not stops of Tab.
-pub struct Accordion<T = ()> {
+pub struct Accordion<T = (), V: ?Sized = Option<T>> {
   items: Vec<AccordionItem<T>>,
   open: Vec<T>,
   toggle: Toggle<T>,
-  on_change: Vec<Handler<T>>,
+  tell: Tell<T, V>,
+  on_change: Vec<Handler<V>>,
   disabled: bool,
   label: Option<Arc<str>>,
   states: Vec<Name>,
@@ -186,36 +200,16 @@ pub struct Accordion<T = ()> {
   key: Option<Arc<str>>,
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T> {
-  fn of(
-    open: Vec<T>,
-    items: impl IntoIterator<Item = AccordionItem<T>>,
-    toggle: impl Fn(&T) -> Vec<T> + Send + Sync + 'static,
-  ) -> Self {
-    Self {
-      items: items.into_iter().collect(),
-      open,
-      toggle: Arc::new(toggle),
-      on_change: Vec::new(),
-      disabled: false,
-      label: None,
-      states: Vec::new(),
-      rules: Recipe::new(),
-      forced: None,
-      id: None,
-      key: None,
-    }
-  }
-
+impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T, Option<T>> {
   /// An accordion of which one item is open at a time: the one whose value
   /// the signal has, or none. A press of another opens it and closes the one
   /// that was open; a press of the open one closes it.
-  pub fn new(open: Signal<Option<T>>, items: impl IntoIterator<Item = AccordionItem<T>>) -> Self
+  pub fn optional(open: Signal<Option<T>>, items: impl IntoIterator<Item = AccordionItem<T>>) -> Self
   where
     Option<T>: SignalValue,
   {
     let now: Vec<T> = open.get().into_iter().collect();
-    Self::of(now, items, move |value| {
+    Self::of(now, items, Self::tell_one, move |value| {
       let held: Vec<T> = open.get_untracked().into_iter().collect();
       let next = one(&held, value);
       open.set(next.first().cloned());
@@ -223,6 +217,28 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T> {
     })
   }
 
+  /// An accordion of which one item is open at a time, whose state the app holds: the item of `open` is open,
+  /// and `on_change` is told, on a press of a header, the value that is to be open: that item's, or none where it
+  /// was open. The accordion opens and closes nothing itself.
+  pub fn controlled_optional(
+    open: Option<T>,
+    items: impl IntoIterator<Item = AccordionItem<T>>,
+    on_change: impl Fn(&Option<T>) + Send + Sync + 'static,
+  ) -> Self {
+    let now: Vec<T> = open.into_iter().collect();
+    let held = now.clone();
+    Self::of(now, items, Self::tell_one, move |value| one(&held, value)).on_change(on_change)
+  }
+
+  fn tell_one(next: &[T], handlers: &[Handler<Option<T>>]) {
+    let next = next.first().cloned();
+    for handler in handlers {
+      handler(&next);
+    }
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T, [T]> {
   /// An accordion of which any number of items are open: those whose values
   /// the signal has. A press opens an item, or closes it.
   pub fn multiple(open: Signal<Vec<T>>, items: impl IntoIterator<Item = AccordionItem<T>>) -> Self
@@ -230,24 +246,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T> {
     Vec<T>: SignalValue,
   {
     let now = open.get();
-    Self::of(now, items, move |value| {
+    Self::of(now, items, Self::tell_many, move |value| {
       let next = many(&open.get_untracked(), value);
       open.set(next.clone());
       next
     })
-  }
-
-  /// An accordion of which one item is open at a time, whose state the app holds: the items of `open` are open,
-  /// and `on_change` is told, on a press of a header, the values that are to be open: that item's alone, or none
-  /// where it was open. The accordion opens and closes nothing itself.
-  pub fn controlled(
-    open: impl IntoIterator<Item = T>,
-    items: impl IntoIterator<Item = AccordionItem<T>>,
-    on_change: impl Fn(&[T]) + Send + Sync + 'static,
-  ) -> Self {
-    let now: Vec<T> = open.into_iter().collect();
-    let held = now.clone();
-    Self::of(now, items, move |value| one(&held, value)).on_change(on_change)
   }
 
   /// An accordion of which any number of items are open, whose state the app holds: the items of `open` are open,
@@ -260,13 +263,43 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T> {
   ) -> Self {
     let now: Vec<T> = open.into_iter().collect();
     let held = now.clone();
-    Self::of(now, items, move |value| many(&held, value)).on_change(on_change)
+    Self::of(now, items, Self::tell_many, move |value| many(&held, value)).on_change(on_change)
   }
 
-  /// Called on a press of a header, after the signal is set where the accordion is bound, with the values of
-  /// every item that is open now. A value the app sets is told to none of them. A second handler is called after
-  /// the first.
-  pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+  fn tell_many(next: &[T], handlers: &[Handler<[T]>]) {
+    for handler in handlers {
+      handler(next);
+    }
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Accordion<T, V> {
+  fn of(
+    open: Vec<T>,
+    items: impl IntoIterator<Item = AccordionItem<T>>,
+    tell: Tell<T, V>,
+    toggle: impl Fn(&T) -> Vec<T> + Send + Sync + 'static,
+  ) -> Self {
+    Self {
+      items: items.into_iter().collect(),
+      open,
+      toggle: Arc::new(toggle),
+      tell,
+      on_change: Vec::new(),
+      disabled: false,
+      label: None,
+      states: Vec::new(),
+      rules: Recipe::new(),
+      forced: None,
+      id: None,
+      key: None,
+    }
+  }
+
+  /// Called on a press of a header, after the signal is set where the accordion is bound, with the accordion's
+  /// value now: the item open or none (`&Option<T>`), or every item open (`&[T]`). A value the app sets is told to
+  /// none of them. A second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
   }
@@ -344,7 +377,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T> {
     } else {
       self.items.iter().position(|item| !item.disabled)
     };
-    let handlers: Arc<[Handler<T>]> = self.on_change.into();
+    let handlers: Arc<[Handler<V>]> = self.on_change.into();
+    let tell = self.tell;
     let items = self
       .items
       .into_iter()
@@ -354,10 +388,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T> {
         let open = self.open.contains(&item.value);
         let (toggle, handlers, value) = (self.toggle.clone(), handlers.clone(), item.value);
         let press = Arc::new(move |_: bool| {
-          let next = toggle(&value);
-          for handler in handlers.iter() {
-            handler(&next);
-          }
+          tell(&toggle(&value), &handlers);
         });
         CollapsibleView::item(
           item.label,
@@ -388,8 +419,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Accordion<T> {
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> From<Accordion<T>> for Element {
-  fn from(accordion: Accordion<T>) -> Self {
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<Accordion<T, V>> for Element {
+  fn from(accordion: Accordion<T, V>) -> Self {
     accordion.build(&current_theme())
   }
 }
@@ -441,7 +472,7 @@ impl AccordionView {
 }
 
 /// Every accordion has the one recipe and renderer, whatever its items' values are.
-impl<T: Send + Sync + 'static> Themed for Accordion<T> {
+impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Accordion<T, V> {
   const NAME: &'static str = "accordion";
   type Renderer = AccordionRenderer;
 

@@ -454,6 +454,31 @@ fn without_dismiss_on_escape_escape_leaves_it_open() {
 }
 
 #[test]
+fn with_dismiss_on_outside_press_a_press_elsewhere_closes_it_and_tells_on_dismiss() {
+  let (open, closed) = (Signal::new(true), Arc::new(AtomicUsize::new(0)));
+  let mut stage = {
+    let closed = closed.clone();
+    stage(&open, move |anchor, open| {
+      let closed = closed.clone();
+      TeachingTip::new(open, anchor)
+        .title(TITLE)
+        .id("tip")
+        .dismiss_on_outside_press(true)
+        .on_dismiss(move || {
+          closed.fetch_add(1, Ordering::SeqCst);
+        })
+    })
+  };
+  stage.pass();
+  assert!(stage.paints(TITLE));
+  stage.click("field");
+  stage.pass();
+  assert!(!open.get(), "a press elsewhere closes it");
+  assert_eq!(closed.load(Ordering::SeqCst), 1, "and tells on_dismiss");
+  assert!(!stage.paints(TITLE));
+}
+
+#[test]
 fn its_buttons_call_what_they_are_given_and_children_add_what_it_holds() {
   let pressed = Arc::new(std::sync::Mutex::new(Vec::new()));
   let open = Signal::new(true);

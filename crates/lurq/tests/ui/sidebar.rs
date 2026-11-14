@@ -6,7 +6,7 @@
 
 use std::{
   sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
   },
   time::Duration,
@@ -572,6 +572,29 @@ fn on_a_narrow_window_it_lies_over_the_page_and_closes_when_an_item_is_chosen() 
   assert!(!open.get(), "choosing an item closes it");
   stage.pass();
   assert!(!stage.paints("Archive"));
+}
+
+#[test]
+fn over_the_page_it_closes_before_the_item_s_handler_is_called() {
+  let open = Signal::new(true);
+  let seen: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+  let (held, read, tell) = (open.clone(), open.clone(), seen.clone());
+  let mut stage = stage(move |ctx| {
+    let (read, tell) = (read.clone(), tell.clone());
+    layout(
+      ctx,
+      board().narrow(true).open(held.clone()).item(
+        SidebarItem::new("Archive")
+          .id("archive")
+          .on_select(move || tell.lock().unwrap().push(read.get_untracked())),
+      ),
+    )
+  });
+  stage.tree.get_element_by_id_mut("archive").unwrap().click();
+  stage.pass();
+  // The handler is called once the drawer is closed: what it opens next is not under the sidebar.
+  assert_eq!(*seen.lock().unwrap(), [false]);
+  assert!(!open.get());
 }
 
 #[test]

@@ -85,27 +85,34 @@ impl AccordionPage {
     };
     // The accordion is bound to the page's signals, as an app's is, and each change is counted.
     let record = self.playground.recorder();
-    let told = move |open: &[usize]| record(format!("on_change({open:?})"));
-    let shown = if multiple {
-      Accordion::multiple(self.played_many.clone(), questions(item_disabled)).on_change(told)
+    let shown: Element = if multiple {
+      Accordion::multiple(self.played_many.clone(), questions(item_disabled))
+        .on_change(move |open: &[usize]| record(format!("on_change({open:?})")))
+        .disabled(disabled)
+        .style(AccordionPart::Root, |s| s.width(WIDE))
+        .into()
     } else {
-      Accordion::new(self.played_one.clone(), questions(item_disabled)).on_change(told)
-    }
-    .disabled(disabled)
-    .style(AccordionPart::Root, |s| s.width(WIDE));
+      Accordion::optional(self.played_one.clone(), questions(item_disabled))
+        .on_change(move |open: &Option<usize>| record(format!("on_change({open:?})")))
+        .disabled(disabled)
+        .style(AccordionPart::Root, |s| s.width(WIDE))
+        .into()
+    };
 
     let make = {
       let open = open.clone();
       move || {
-        let accordion = if multiple {
+        if multiple {
           Accordion::controlled_multiple(open.clone(), questions(item_disabled), |_| {})
+            .disabled(disabled)
+            .style(AccordionPart::Root, |s| s.width(WIDE))
+            .into()
         } else {
-          Accordion::controlled(open.clone(), questions(item_disabled), |_| {})
-        };
-        accordion
-          .disabled(disabled)
-          .style(AccordionPart::Root, |s| s.width(WIDE))
-          .into()
+          Accordion::controlled_optional(open.first().copied(), questions(item_disabled), |_| {})
+            .disabled(disabled)
+            .style(AccordionPart::Root, |s| s.width(WIDE))
+            .into()
+        }
       }
     };
 
@@ -117,7 +124,7 @@ impl AccordionPage {
     code.push(if multiple {
       "Accordion::multiple(open, [".to_owned()
     } else {
-      "Accordion::new(open, [".to_owned()
+      "Accordion::optional(open, [".to_owned()
     });
     for (index, (question, answer)) in QUESTIONS.iter().enumerate() {
       let tail = if item_disabled && index == 1 {
@@ -130,7 +137,11 @@ impl AccordionPage {
       ));
     }
     code.push("])".to_owned());
-    code.push(".on_change(|open| /* the values open after a press */)".to_owned());
+    code.push(if multiple {
+      ".on_change(|open: &[usize]| /* every item open after a press */)".to_owned()
+    } else {
+      ".on_change(|open: &Option<usize>| /* the item open after a press, or none */)".to_owned()
+    });
     if disabled {
       code.push(".disabled(true)".to_owned());
     }
@@ -213,10 +224,10 @@ impl Component for AccordionPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let single = Accordion::new(self.one.clone(), questions(false)).style(AccordionPart::Root, |s| s.width(WIDE));
+    let single = Accordion::optional(self.one.clone(), questions(false)).style(AccordionPart::Root, |s| s.width(WIDE));
     let several =
       Accordion::multiple(self.many.clone(), questions(false)).style(AccordionPart::Root, |s| s.width(WIDE));
-    let disabled = Accordion::new(self.one.clone(), questions(true)).style(AccordionPart::Root, |s| s.width(WIDE));
+    let disabled = Accordion::optional(self.one.clone(), questions(true)).style(AccordionPart::Root, |s| s.width(WIDE));
     let collapsible = Collapsible::new("3 crates in this workspace", crates())
       .bind(self.crates_open.clone())
       .style(CollapsiblePart::Root, |s| s.width(280.0));
@@ -245,27 +256,28 @@ impl Component for AccordionPage {
         "open",
         "Signal<Option<T>> / Signal<Vec<T>>",
         "",
-        "The item open, or none (`new`), or the items open (`multiple`). A press of a header sets it.",
+        "The item open, or none (`optional`), or the items open (`multiple`). A press of a header sets it.",
       ),
       (
         "items",
         "impl IntoIterator<Item = AccordionItem<T>>",
         "",
-        "Each with its value, what its header says and what it shows: an element (`new`) or a text (`text`).",
+        "Each with its value, what its header says and what it shows: an element (`AccordionItem::new`) or a text \
+         (`AccordionItem::text`).",
       ),
       (
-        "controlled / controlled_multiple",
-        "(open, items, impl Fn(&[T]))",
+        "controlled_optional / controlled_multiple",
+        "(open, items, impl Fn(&Option<T>) / impl Fn(&[T]))",
         "",
-        "The app holds what is open, one at a time or any number, and is told the values that are to be open after \
-         each press.",
+        "The app holds what is open, one at a time or any number, and is told what is to be open after each press: \
+         the item or none, or the whole set.",
       ),
       (
         "on_change",
-        "impl Fn(&[T])",
+        "impl Fn(&Option<T>) / impl Fn(&[T])",
         "",
-        "Told the values open after a press, once the signal is set: not what the app sets. A second one is called \
-         after the first.",
+        "Told the accordion's value after a press, once the signal is set: the item open or none, or every item \
+         open. Not what the app sets. A second one is called after the first.",
       ),
       (
         "label",
@@ -319,10 +331,10 @@ impl Component for AccordionPage {
           self.frame.demo(
             0,
             single,
-            "Accordion::new(open, items)",
+            "Accordion::optional(open, items)",
             &[
               "// open: Signal<Option<usize>>",
-              "Accordion::new(open, [",
+              "Accordion::optional(open, [",
               "    AccordionItem::text(0, \"Is lurq GPU-accelerated?\", \"Yes. Rendering goes through wgpu, ..\"),",
               "    AccordionItem::text(1, \"Does it support dark mode?\", \"Every theme has a light and a dark ..\"),",
               "    AccordionItem::text(2, \"Can I bring my own theme?\", \"Yes: a theme is a value the app builds, ..\"),",
@@ -355,7 +367,7 @@ impl Component for AccordionPage {
             disabled,
             ".disabled(true)",
             &[
-              "Accordion::new(open, [",
+              "Accordion::optional(open, [",
               "    AccordionItem::text(0, \"Is lurq GPU-accelerated?\", \"..\"),",
               "    AccordionItem::text(1, \"Does it support dark mode?\", \"..\").disabled(true),",
               "    AccordionItem::text(2, \"Can I bring my own theme?\", \"..\"),",

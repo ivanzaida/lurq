@@ -40,7 +40,7 @@ fn a_bound_collapsible_sets_its_signal_and_tells_its_handlers_after_it() {
       .child(
         // The handler is given before the signal, and is still told once the signal is set.
         Collapsible::text("3 crates in this workspace", BODY)
-          .on_change(move |next| tell.lock().unwrap().push((next, seen.get_untracked())))
+          .on_open_change(move |next| tell.lock().unwrap().push((next, seen.get_untracked())))
           .bind(read.clone())
           .id("crates")
           .style(CollapsiblePart::Root, |s| s.width(280.0)),
