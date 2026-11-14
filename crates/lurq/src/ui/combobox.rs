@@ -154,10 +154,6 @@ pub(crate) struct Engine {
   pub read_only: bool,
 }
 
-/// A handler of a change of the value, of the value's type, out of sight of the builder that holds it: an
-/// `Arc<dyn Fn(&T) + Send + Sync>` of a single value, an `Arc<dyn Fn(&[T]) + Send + Sync>` of several.
-pub(crate) type AnyHandler = Box<dyn Any + Send + Sync>;
-
 /// What a select, a combobox or a multi select the app holds the value of (`controlled`) is across renders: where
 /// in the app's code it is built and its id or key, out of the range of the ids of signals.
 fn controlled_binding(at: &'static Location<'static>, name: Option<&str>) -> usize {
@@ -190,9 +186,6 @@ pub(crate) trait Choices: Send + Sync {
   /// The id or key of the component: the binding of a controlled one is made with it too, so that two built at the
   /// one place in the app's code are told apart.
   fn name(&mut self, name: Option<&str>);
-  /// Adds a handler of a change of the value. `owner` names the builder, for the panic of a handler whose value is
-  /// of another type than its own.
-  fn on_change(&mut self, handler: AnyHandler, owner: &str);
   /// The label of each option, in order.
   fn labels(&self) -> Vec<Arc<str>>;
   /// Where each option is in the groups: the group it is in, by the index of the option that starts it, and its
@@ -217,6 +210,20 @@ pub(crate) trait Choices: Send + Sync {
   fn build(self: Arc<Self>, shown: &[usize], engine: Engine) -> Element;
   /// The engine's select of every option, in `style`, as a plain select.
   fn build_plain(self: Arc<Self>, style: SelectStyle, placeholder: Option<Arc<str>>, read_only: bool) -> Element;
+}
+
+/// The choices of a single value of type `T`, which hear its change in that type: what a select's and a combobox's
+/// builder holds, and gives on as [`Choices`] as it builds.
+pub(crate) trait OneOf<T>: Choices {
+  /// Adds a handler of a change of the value.
+  fn on_change(&mut self, handler: Arc<dyn Fn(&T) + Send + Sync>);
+}
+
+/// The choices of several values of type `T`, which hear their change as the whole new set: what a multi select's
+/// builder holds.
+pub(crate) trait ManyOf<T>: Choices {
+  /// Adds a handler of a change of the values.
+  fn on_change(&mut self, handler: Arc<dyn Fn(&[T]) + Send + Sync>);
 }
 
 /// The options of `options` at `shown`, each that comes first of its group in them starting it.
@@ -344,6 +351,16 @@ where
   }
 }
 
+impl<T> OneOf<T> for One<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Vec<T>: SignalValue,
+{
+  fn on_change(&mut self, handler: Arc<dyn Fn(&T) + Send + Sync>) {
+    self.told.push(handler);
+  }
+}
+
 impl<T> Choices for One<T>
 where
   T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
@@ -356,13 +373,6 @@ where
   fn name(&mut self, name: Option<&str>) {
     if let Some(at) = self.at {
       self.binding = controlled_binding(at, name);
-    }
-  }
-
-  fn on_change(&mut self, handler: AnyHandler, owner: &str) {
-    match handler.downcast::<Arc<dyn Fn(&T) + Send + Sync>>() {
-      Ok(handler) => self.told.push(*handler),
-      Err(_) => panic!("{owner}::on_change: the handler takes a value of another type than the {owner}'s"),
     }
   }
 
@@ -515,6 +525,16 @@ where
   }
 }
 
+impl<T> ManyOf<T> for Many<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Vec<T>: SignalValue,
+{
+  fn on_change(&mut self, handler: Arc<dyn Fn(&[T]) + Send + Sync>) {
+    self.told.push(handler);
+  }
+}
+
 impl<T> Choices for Many<T>
 where
   T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
@@ -527,13 +547,6 @@ where
   fn name(&mut self, name: Option<&str>) {
     if let Some(at) = self.at {
       self.binding = controlled_binding(at, name);
-    }
-  }
-
-  fn on_change(&mut self, handler: AnyHandler, owner: &str) {
-    match handler.downcast::<Arc<dyn Fn(&[T]) + Send + Sync>>() {
-      Ok(handler) => self.told.push(*handler),
-      Err(_) => panic!("{owner}::on_change: the handler takes values of another type than the {owner}'s"),
     }
   }
 
@@ -736,8 +749,8 @@ pub(crate) fn filtered(labels: &[Arc<str>], query: &str, shown: Option<&str>, fi
 /// nothing and goes on. Choosing puts the option's label in the box, and the list opens whole again until something
 /// else is typed. When the focus leaves, what was typed goes back to the chosen option's label, unless custom values
 /// are allowed. The options are a select's: a detail, a hint, elements before and after the label, groups, disabled.
-pub struct Combobox {
-  choices: Box<dyn Choices>,
+pub struct Combobox<V = ()> {
+  choices: Box<dyn OneOf<V>>,
   placeholder: Option<Arc<str>>,
   boxed: BoxStates,
   full_width: bool,
@@ -762,50 +775,50 @@ pub struct Combobox {
 /// What is told of Enter in a combobox: what the box holds.
 pub(crate) type SubmitHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
-impl Combobox {
+impl<T> Combobox<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Vec<T>: SignalValue,
+{
   /// A combobox of `options` bound to `value`: the option whose value the signal has is chosen, and choosing another
   /// sets it. An option is a `(value, label)` or a [`SelectOption`].
-  pub fn new<T>(value: Signal<T>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Vec<T>: SignalValue,
-  {
+  pub fn new(value: Signal<T>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
     Self::of(Box::new(One::bound(
       value,
       options.into_iter().map(Into::into).collect(),
     )))
   }
 
-  /// A combobox bound to `value`, which may hold no value: `None` is no option's, and the box shows its placeholder;
-  /// [`Combobox::clearable`] takes the value away.
-  pub fn optional<T>(value: Signal<Option<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Option<T>: SignalValue,
-    Vec<Option<T>>: SignalValue,
-  {
-    let options = options.into_iter().map(|option| option.into().map(Some)).collect();
-    Self::of(Box::new(One::bound(value, options).with_empty(None)))
-  }
-
   /// A combobox of the app's `value`, which the app holds: a choice is told to `on_change`, and the box shows what
   /// the app answers with. Two built at the one place in the app's code, in a loop, are told apart by their `id` or
   /// `key`.
   #[track_caller]
-  pub fn controlled<T>(
+  pub fn controlled(
     value: T,
     options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
     on_change: impl Fn(&T) + Send + Sync + 'static,
-  ) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Vec<T>: SignalValue,
-  {
+  ) -> Self {
     let options = options.into_iter().map(Into::into).collect();
     Self::of(Box::new(One::controlled(value, options, Location::caller()))).on_change(on_change)
   }
+}
 
-  fn of(choices: Box<dyn Choices>) -> Self {
+impl<T> Combobox<Option<T>>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Option<T>: SignalValue,
+  Vec<Option<T>>: SignalValue,
+{
+  /// A combobox bound to `value`, which may hold no value: `None` is no option's, and the box shows its placeholder;
+  /// [`Combobox::clearable`] takes the value away.
+  pub fn optional(value: Signal<Option<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
+    let options = options.into_iter().map(|option| option.into().map(Some)).collect();
+    Self::of(Box::new(One::bound(value, options).with_empty(None)))
+  }
+}
+
+impl<V: 'static> Combobox<V> {
+  fn of(choices: Box<dyn OneOf<V>>) -> Self {
     Self {
       choices,
       placeholder: None,
@@ -833,10 +846,9 @@ impl Combobox {
   /// Called with the new value when a person chooses an option, or keeps a value of its own
   /// ([`Combobox::allow_custom`]), or clears it: not when the app sets the signal, and not for what is chosen
   /// already. The handler takes the type of the value: `on_change(|framework: &&str| ..)` of a combobox of `&str`,
-  /// `&Option<T>` of an [`optional`](Combobox::optional) one; a handler of another type panics here.
-  pub fn on_change<T: 'static>(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
-    let handler: Arc<dyn Fn(&T) + Send + Sync> = Arc::new(handler);
-    self.choices.on_change(Box::new(handler), "Combobox");
+  /// `&Option<T>` of an [`optional`](Combobox::optional) one; a handler of another type does not compile.
+  pub fn on_change(mut self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
+    self.choices.on_change(Arc::new(handler));
     self
   }
 
@@ -1022,6 +1034,7 @@ impl Combobox {
       .state(ComboboxState::FullWidth, self.full_width);
     let mut choices = self.choices;
     choices.name(self.id.as_deref().or(self.key.as_deref()));
+    let choices: Box<dyn Choices> = choices;
     let choices: Arc<dyn Choices> = Arc::from(choices);
     let labels = choices.labels();
     let chosen = choices.chosen();
@@ -1073,13 +1086,13 @@ impl Combobox {
   }
 }
 
-impl From<Combobox> for Element {
-  fn from(combobox: Combobox) -> Self {
+impl<V: 'static> From<Combobox<V>> for Element {
+  fn from(combobox: Combobox<V>) -> Self {
     combobox.build(&current_theme())
   }
 }
 
-impl FieldControl for Combobox {
+impl<V: 'static> FieldControl for Combobox<V> {
   /// Called by the field's label unless it has a name of its own, judged as the field is unless the app judged the
   /// combobox itself, and disabled where the field is.
   fn in_field(mut self, field: &InField) -> Element {
@@ -1505,7 +1518,8 @@ pub(crate) fn status_rules(recipe: Recipe) -> Recipe {
     .row_density(super::Selector::new(), ComboboxPart::Status, 32.0)
 }
 
-impl Themed for Combobox {
+/// Every combobox has the one recipe and renderer, whatever its values are.
+impl<V: 'static> Themed for Combobox<V> {
   const NAME: &'static str = "combobox";
   type Renderer = ComboboxRenderer;
 

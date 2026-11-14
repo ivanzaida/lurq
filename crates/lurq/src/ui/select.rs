@@ -3,7 +3,7 @@
 use std::{panic::Location, sync::Arc};
 
 use super::{
-  combobox::{Choices, One},
+  combobox::{Choices, One, OneOf},
   icon::Icon,
   icons, names,
   part_style::{FontFamily, Length, Opacity, PartStyle},
@@ -140,8 +140,8 @@ pub type SelectRenderer = Arc<dyn Fn(SelectView) -> Element + Send + Sync>;
 /// same box, the same sizes, the same ring, and the same judgments of what it
 /// holds (`invalid`, `warning`, `valid`). An option can start a group, which
 /// the list draws with its label over it and a line above it.
-pub struct Select {
-  choices: Box<dyn Choices>,
+pub struct Select<V = ()> {
+  choices: Box<dyn OneOf<V>>,
   placeholder: Option<Arc<str>>,
   label: Option<Arc<str>>,
   size: Name,
@@ -159,52 +159,52 @@ pub struct Select {
   key: Option<Arc<str>>,
 }
 
-impl Select {
+impl<T> Select<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Vec<T>: SignalValue,
+{
   /// A select of `options` bound to `value`: the option whose value the
   /// signal has is chosen, and choosing another sets it. An option is a
   /// `(value, label)` or a [`SelectOption`], which can have a detail, an
   /// element before or after its label, or be disabled.
-  pub fn new<T>(value: Signal<T>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Vec<T>: SignalValue,
-  {
+  pub fn new(value: Signal<T>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
     Self::of(Box::new(One::bound(
       value,
       options.into_iter().map(Into::into).collect(),
     )))
   }
 
-  /// A select bound to `value`, which may hold no value: `None` is no option's, and the trigger shows the
-  /// placeholder.
-  pub fn optional<T>(value: Signal<Option<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Option<T>: SignalValue,
-    Vec<Option<T>>: SignalValue,
-  {
-    let options = options.into_iter().map(|option| option.into().map(Some)).collect();
-    Self::of(Box::new(One::bound(value, options).with_empty(None)))
-  }
-
   /// A select of the app's `value`, which the app holds: a choice is told to `on_change`, and the trigger shows what
   /// the app answers with. Two built at the one place in the app's code, in a loop, are told apart by their `id` or
   /// `key`.
   #[track_caller]
-  pub fn controlled<T>(
+  pub fn controlled(
     value: T,
     options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
     on_change: impl Fn(&T) + Send + Sync + 'static,
-  ) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Vec<T>: SignalValue,
-  {
+  ) -> Self {
     let options = options.into_iter().map(Into::into).collect();
     Self::of(Box::new(One::controlled(value, options, Location::caller()))).on_change(on_change)
   }
+}
 
-  fn of(choices: Box<dyn Choices>) -> Self {
+impl<T> Select<Option<T>>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Option<T>: SignalValue,
+  Vec<Option<T>>: SignalValue,
+{
+  /// A select bound to `value`, which may hold no value: `None` is no option's, and the trigger shows the
+  /// placeholder.
+  pub fn optional(value: Signal<Option<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
+    let options = options.into_iter().map(|option| option.into().map(Some)).collect();
+    Self::of(Box::new(One::bound(value, options).with_empty(None)))
+  }
+}
+
+impl<V: 'static> Select<V> {
+  fn of(choices: Box<dyn OneOf<V>>) -> Self {
     Self {
       choices,
       placeholder: None,
@@ -226,11 +226,17 @@ impl Select {
   }
 
   /// Called with the new value when a person chooses an option: not when the app sets the signal, and not for the
-  /// option chosen already. The handler takes the type of the value: `on_change(|theme: &&str| ..)` of a select
-  /// of `&str`, `&Option<T>` of an [`optional`](Select::optional) one; a handler of another type panics here.
-  pub fn on_change<T: 'static>(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
-    let handler: Arc<dyn Fn(&T) + Send + Sync> = Arc::new(handler);
-    self.choices.on_change(Box::new(handler), "Select");
+  /// option chosen already. The handler takes the type of the value, `&Option<T>` of an
+  /// [`optional`](Select::optional) one; a handler of another type does not compile:
+  ///
+  /// ```compile_fail
+  /// use lurq::{core::Signal, ui::Select};
+  ///
+  /// let theme = Signal::new("light".to_owned());
+  /// let select = Select::new(theme, [("light".to_owned(), "Light")]).on_change(|rows: &u32| {});
+  /// ```
+  pub fn on_change(mut self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
+    self.choices.on_change(Arc::new(handler));
     self
   }
 
@@ -362,6 +368,7 @@ impl Select {
     .state(SelectState::FullWidth, self.full_width);
     let mut choices = self.choices;
     choices.name(self.id.as_deref().or(self.key.as_deref()));
+    let choices: Box<dyn Choices> = choices;
     let view = SelectView {
       placeholder: self.placeholder,
       label: self.label,
@@ -384,9 +391,60 @@ impl Select {
   }
 }
 
-impl From<Select> for Element {
-  fn from(select: Select) -> Self {
+impl<V: 'static> From<Select<V>> for Element {
+  fn from(select: Select<V>) -> Self {
     select.build(&current_theme())
+  }
+}
+
+/// A select of any type of value, as what holds one is given it: an [`InputAddon`](super::InputAddon) of an input
+/// group, the page size of a [`Pagination`](super::Pagination). The holder sizes it, names it and lays its rules over
+/// it as it builds it; its handlers keep the type of its value.
+pub struct AnySelect(Box<dyn Held>);
+
+/// What a holder of a select does to it as it builds it.
+#[derive(Default)]
+pub(crate) struct Dress<'a> {
+  pub size: Option<Name>,
+  pub label: Option<&'a str>,
+  pub rules: Option<&'a Recipe>,
+  pub disabled: bool,
+}
+
+/// A select out of sight of the type of its value.
+trait Held: Send + Sync {
+  fn build_dressed(self: Box<Self>, theme: &Theme, dress: Dress<'_>) -> Element;
+}
+
+impl<V: 'static> Held for Select<V> {
+  fn build_dressed(self: Box<Self>, theme: &Theme, dress: Dress<'_>) -> Element {
+    let mut select = *self;
+    if let Some(size) = dress.size {
+      select = select.size(size);
+    }
+    if let Some(label) = dress.label {
+      select = select.label(label);
+    }
+    if let Some(rules) = dress.rules {
+      select = select.rules(rules);
+    }
+    if dress.disabled {
+      select = select.disabled(true);
+    }
+    select.build(theme)
+  }
+}
+
+impl<V: 'static> From<Select<V>> for AnySelect {
+  fn from(select: Select<V>) -> Self {
+    Self(Box::new(select))
+  }
+}
+
+impl AnySelect {
+  /// Builds the select in `theme`, as `dress` says.
+  pub(crate) fn build(self, theme: &Theme, dress: Dress<'_>) -> Element {
+    self.0.build_dressed(theme, dress)
   }
 }
 
@@ -681,7 +739,8 @@ pub(crate) fn engine_part(style: &PartStyle, theme: &Theme) -> SelectPartStyle {
   part
 }
 
-impl Themed for Select {
+/// Every select has the one recipe and renderer, whatever its values are.
+impl<V: 'static> Themed for Select<V> {
   const NAME: &'static str = "select";
   type Renderer = SelectRenderer;
 
@@ -811,7 +870,7 @@ impl Themed for Select {
   }
 }
 
-impl super::FieldControl for Select {
+impl<V: 'static> super::FieldControl for Select<V> {
   /// Called by the field's label unless it has a name of its own, judged as the field is unless the app judged the
   /// select itself, and disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {

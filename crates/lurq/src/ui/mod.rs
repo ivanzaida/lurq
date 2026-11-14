@@ -250,7 +250,7 @@ pub use search_field::{
 pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
-pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
+pub use select::{AnySelect, Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorState, SeparatorView};
 pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
@@ -319,7 +319,8 @@ pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
 };
 pub use tree_view::{
-  TreeItem, TreeRow, TreeSelection, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState, TreeViewView,
+  ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
+  TreeViewView,
 };
 
 /// Gives an enum of names its names: `as_str`, and a conversion into

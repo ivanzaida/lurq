@@ -41,7 +41,10 @@ fn window() -> Column {
   Column::new().size(400.0, 300.0)
 }
 
-fn page(value: &Signal<Vec<String>>, dress: impl Fn(MultiSelect) -> MultiSelect + Send + Sync + 'static) -> Stage {
+fn page(
+  value: &Signal<Vec<String>>,
+  dress: impl Fn(MultiSelect<String>) -> MultiSelect<String> + Send + Sync + 'static,
+) -> Stage {
   let value = value.clone();
   Stage::new(move |_| {
     window()

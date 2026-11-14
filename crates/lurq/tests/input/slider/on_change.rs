@@ -64,3 +64,20 @@ fn a_key_is_told_and_over_at_once_and_what_the_app_sets_is_not_told() {
   assert_eq!(value.get(), 6);
   assert!(take(&heard).is_empty());
 }
+
+#[test]
+fn a_drag_taken_back_to_where_it_began_ends_nothing() {
+  let (value, heard) = (Signal::new(0), Heard::default());
+  let mut tree = Tree::new();
+  tree.set_root(slider(&value, &heard));
+  run_pass(&mut tree);
+  let rect = tree.find_element(|_| true).unwrap().bounds();
+  let y = rect.y + rect.height / 2.0;
+
+  tree.mouse_down(rect.x, y, MouseButton::Left);
+  tree.mouse_move(rect.x + 75.0, y);
+  tree.mouse_move(rect.x, y);
+  assert_eq!(take(&heard), ["change 8 8", "change 0 0"]);
+  tree.mouse_up(rect.x, y, MouseButton::Left);
+  assert!(take(&heard).is_empty(), "the value is what it was as the drag began");
+}

@@ -84,7 +84,7 @@ fn a_tree_draws_it_on_the_selected_row_else_the_first() {
   });
   ring_on(&mut first, "src");
   let mut chosen = stage(move || {
-    TreeView::new(Signal::new(vec!["cargo"]), items())
+    TreeView::new(Signal::new(Some("cargo")), items())
       .force(Some(Interaction::FocusVisible))
       .into()
   });

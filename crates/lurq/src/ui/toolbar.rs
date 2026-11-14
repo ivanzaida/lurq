@@ -335,8 +335,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<Tog
   }
 }
 
-impl From<super::Select> for ToolbarItem {
-  fn from(select: super::Select) -> Self {
+impl<V: 'static> From<super::Select<V>> for ToolbarItem {
+  fn from(select: super::Select<V>) -> Self {
     Self::element(select)
   }
 }

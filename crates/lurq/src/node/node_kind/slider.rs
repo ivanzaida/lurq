@@ -52,8 +52,8 @@ struct SliderInner {
   on_change: Vec<SliderChangeHandler>,
   /// Told when the interaction that changed the value is over: the drag let go, the key's step made.
   on_change_end: Vec<SliderChangeHandler>,
-  /// A person changed the value in the interaction going on: what its end is told of.
-  changed: bool,
+  /// The value as a person first changed it in the interaction going on: what its end compares with.
+  changed_from: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -296,7 +296,7 @@ impl SliderInner {
       drag_ratio: None,
       on_change: Vec::new(),
       on_change_end: Vec::new(),
-      changed: false,
+      changed_from: None,
     }
   }
 }
@@ -393,13 +393,13 @@ impl SliderState {
     self.inner.lock().unwrap().on_change_end.push(handler);
   }
 
-  /// Tells of a change a person made, where it `changed` the value. The app's own setting of the signal, the
-  /// range and the step snapping it, are not told.
-  fn told(&self, changed: bool) -> bool {
+  /// Tells of a change a person made from `before`, where it `changed` the value. The app's own setting of the
+  /// signal, the range and the step snapping it, are not told.
+  fn told(&self, before: (f32, f32), changed: bool) -> bool {
     if changed {
       let handlers = {
         let mut inner = self.inner.lock().unwrap();
-        inner.changed = true;
+        inner.changed_from.get_or_insert(before);
         inner.on_change.clone()
       };
       let (low, high) = self.value.get();
@@ -411,16 +411,16 @@ impl SliderState {
   }
 
   /// The interaction is over: the drag let go, the press or the key done. Tells of the value as it now is,
-  /// where a person changed it in the interaction.
+  /// where it is another than it was as the interaction began: a drag taken back to where it started ends nothing.
   pub(crate) fn change_ended(&self) {
+    let (low, high) = self.value.get();
     let handlers = {
       let mut inner = self.inner.lock().unwrap();
-      if !std::mem::take(&mut inner.changed) {
-        return;
+      match inner.changed_from.take() {
+        Some(from) if from != (low, high) => inner.on_change_end.clone(),
+        _ => return,
       }
-      inner.on_change_end.clone()
     };
-    let (low, high) = self.value.get();
     for handler in handlers {
       handler(low, high);
     }
@@ -484,7 +484,7 @@ impl SliderState {
     let ratio = slider_ratio_for_value(value, inner.min, inner.max);
     drop(inner);
     let thumb = self.nearer_thumb(ratio);
-    let changed = self.told(self.set_value_of(thumb, value));
+    let changed = self.told(self.value.get(), self.set_value_of(thumb, value));
     self.change_ended();
     changed
   }
@@ -501,7 +501,7 @@ impl SliderState {
     let low = snap_slider_value(low, inner.min, inner.max, inner.step);
     let high = snap_slider_value(high, inner.min, inner.max, inner.step);
     drop(inner);
-    self.told(self.value.set(low, high));
+    self.told(self.value.get(), self.value.set(low, high));
     self.change_ended();
     true
   }
@@ -511,7 +511,7 @@ impl SliderState {
     let raw_value = inner.min + ratio.clamp(0.0, 1.0) * (inner.max - inner.min);
     let value = snap_slider_value(raw_value, inner.min, inner.max, inner.step);
     drop(inner);
-    self.told(self.set_value_of(thumb, value))
+    self.told(self.value.get(), self.set_value_of(thumb, value))
   }
 
   /// A press at `ratio` along the track: of a range, the thumb nearer it becomes the active one and goes
@@ -599,7 +599,7 @@ impl SliderState {
     let current = self.value_of(thumb);
     let next = snap_slider_value(current + delta as f32 * inner.step, inner.min, inner.max, inner.step);
     drop(inner);
-    self.told(self.set_value_of(thumb, next));
+    self.told(self.value.get(), self.set_value_of(thumb, next));
     self.change_ended();
   }
 
@@ -621,7 +621,7 @@ impl SliderState {
     let thumb = inner.active;
     let value = if greatest { inner.max } else { inner.min };
     drop(inner);
-    self.told(self.set_value_of(thumb, value));
+    self.told(self.value.get(), self.set_value_of(thumb, value));
     self.change_ended();
   }
 
@@ -719,7 +719,7 @@ impl SliderState {
     let mut inner = self.inner.lock().unwrap();
     inner.hovered = old_inner.hovered;
     // A drag that goes on over a render still ends told.
-    inner.changed = old_inner.changed;
+    inner.changed_from = old_inner.changed_from;
     if self.is_range() {
       inner.active = old_inner.active;
     }

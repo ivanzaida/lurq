@@ -179,47 +179,71 @@ impl TreeViewPage {
     let (set_open, set_selected) = (self.played_open.clone(), self.played_selected.clone());
     let (toggled, changed, activated, opened) = (record.clone(), record.clone(), record.clone(), record);
     let load = self.play_load.clone();
-    let shown = TreeView::controlled(selected.clone(), shape.project(), move |next| {
-      // One at a time, the page keeps the last, as a `Signal<Option<_>>` would.
-      let next: Vec<Id> = if multiple {
-        next.to_vec()
-      } else {
-        next.last().copied().into_iter().collect()
+    // A tree of one and a tree of any number are of two types: what both are given is said once.
+    let forced = self.playground.forced();
+    macro_rules! dressed {
+      ($tree:expr) => {
+        $tree
+          .label("Files")
+          .guides(guides)
+          .force(forced)
+          .open_ids(open.clone(), move |id, opened| {
+            set_open.update(|held| {
+              held.retain(|row| row != id);
+              if opened {
+                held.push(id);
+              }
+            });
+            toggled(format!("toggle({id:?}, {opened})"));
+          })
+          .on_activate(move |id| activated(format!("on_activate({id:?})")))
+          .on_open_change(move |id, open| {
+            if *id == "registry" && open {
+              load.restart();
+            }
+            opened(format!("on_open_change({id:?}, {open})"));
+          })
+          .style(TreeViewPart::Root, |s| s.width(260.0))
+          .into()
       };
-      changed(format!("on_change({next:?})"));
-      set_selected.set(next);
-    })
-    .label("Files")
-    .multiple(multiple)
-    .guides(guides)
-    .force(self.playground.forced())
-    .open_ids(open.clone(), move |id, opened| {
-      set_open.update(|held| {
-        held.retain(|row| row != id);
-        if opened {
-          held.push(id);
+    }
+    let shown: Element = if multiple {
+      dressed!(TreeView::controlled_multiple(
+        selected.clone(),
+        shape.project(),
+        move |next| {
+          changed(format!("on_change({next:?})"));
+          set_selected.set(next.to_vec());
         }
-      });
-      toggled(format!("toggle({id:?}, {opened})"));
-    })
-    .on_activate(move |id| activated(format!("on_activate({id:?})")))
-    .on_open_change(move |id, open| {
-      if *id == "registry" && open {
-        load.restart();
-      }
-      opened(format!("on_open_change({id:?}, {open})"));
-    })
-    .style(TreeViewPart::Root, |s| s.width(260.0));
+      ))
+    } else {
+      // One at a time, the page keeps it as a `Signal<Option<_>>` would.
+      dressed!(TreeView::controlled(
+        selected.last().copied(),
+        shape.project(),
+        move |row| {
+          changed(format!("on_change({row:?})"));
+          set_selected.set(vec![*row]);
+        }
+      ))
+    };
 
     let make = {
       let (open, selected) = (open.clone(), selected.clone());
-      move || {
-        TreeView::controlled(selected.clone(), shape.project(), |_| {})
-          .multiple(multiple)
-          .guides(guides)
-          .open_ids(open.clone(), |_, _| {})
-          .style(TreeViewPart::Root, |s| s.width(260.0))
-          .into()
+      move || -> Element {
+        if multiple {
+          TreeView::controlled_multiple(selected.clone(), shape.project(), |_| {})
+            .guides(guides)
+            .open_ids(open.clone(), |_, _| {})
+            .style(TreeViewPart::Root, |s| s.width(260.0))
+            .into()
+        } else {
+          TreeView::controlled(selected.last().copied(), shape.project(), |_| {})
+            .guides(guides)
+            .open_ids(open.clone(), |_, _| {})
+            .style(TreeViewPart::Root, |s| s.width(260.0))
+            .into()
+        }
       }
     };
 
@@ -230,7 +254,11 @@ impl TreeViewPage {
       } else {
         "// selected: Signal<Option<&str>>".to_owned()
       },
-      "TreeView::new(selected, [".to_owned(),
+      if multiple {
+        "TreeView::multiple(selected, [".to_owned()
+      } else {
+        "TreeView::new(selected, [".to_owned()
+      },
     ];
     let (folder, file) = if shape.icons {
       ("TreeItem::folder", "TreeItem::file")
@@ -256,9 +284,6 @@ impl TreeViewPage {
     code.push("])".to_owned());
     code.push(".label(\"Files\")".to_owned());
     code.push(".open(open)".to_owned());
-    if multiple {
-      code.push(".multiple(true)".to_owned());
-    }
     if guides {
       code.push(".guides(true)".to_owned());
     }
@@ -390,14 +415,13 @@ impl Component for TreeViewPage {
       .label("Files")
       .open(self.open.clone())
       .style(TreeViewPart::Root, |s| s.width(WIDE));
-    let many = TreeView::new(self.many.clone(), plain.project())
+    let many = TreeView::multiple(self.many.clone(), plain.project())
       .label("Files")
       .open(self.many_open.clone())
-      .multiple(true)
       .style(TreeViewPart::Root, |s| s.width(260.0));
     let load = self.load.clone();
     let lazy = TreeView::controlled(
-      [],
+      None,
       Shape {
         lazy: true,
         loaded: self.loaded.get(),
@@ -415,11 +439,11 @@ impl Component for TreeViewPage {
     })
     .style(TreeViewPart::Root, |s| s.width(260.0));
     let big = ctx.mount::<BigTree>(());
-    let hover = TreeView::controlled([], Shape { action: true, ..plain }.project(), |_| {})
+    let hover = TreeView::controlled(None, Shape { action: true, ..plain }.project(), |_| {})
       .label("Files")
       .open(self.hover_open.clone())
       .style(TreeViewPart::Root, |s| s.width(260.0));
-    let guides = TreeView::controlled([], plain.project(), |_| {})
+    let guides = TreeView::controlled(None, plain.project(), |_| {})
       .label("Files")
       .open(self.guide_open.clone())
       .guides(true)
@@ -452,9 +476,9 @@ impl Component for TreeViewPage {
     let rows = [
       (
         "selection",
-        "Signal<Option<T>> / Signal<Vec<T>>",
+        "Signal<Option<T>>",
         "",
-        "What is selected, the first argument of `new`. `controlled(selected, items, on_change)` is the same held \
+        "The row selected, the first argument of `new`. `controlled(selected, items, on_change)` is the same held \
          by the app.",
       ),
       (
@@ -473,9 +497,10 @@ impl Component for TreeViewPage {
       ),
       (
         "multiple",
-        "bool",
-        "false",
-        "Any number selected, with Ctrl and Shift as a list of files has them, Space and Ctrl+A.",
+        "Signal<Vec<T>>",
+        "",
+        "In place of `new`: any number selected, with Ctrl and Shift as a list of files has them, Space and Ctrl+A. \
+         `controlled_multiple(selected, items, on_change)` is the same held by the app.",
       ),
       (
         "guides",
@@ -497,9 +522,10 @@ impl Component for TreeViewPage {
       ),
       (
         "on_change",
-        "impl Fn(&[T])",
+        "impl Fn(&T) / Fn(&[T])",
         "",
-        "Told the new selection after a click, Space, Shift with a key or Ctrl+A changed it.",
+        "Told the row a click or Space selects; of a tree of any number, the whole new selection after a click, \
+         Space, Shift with a key or Ctrl+A changed it.",
       ),
       (
         "on_activate",
@@ -569,18 +595,17 @@ impl Component for TreeViewPage {
         ),
         Section::new(
           "Many selected",
-          "With `multiple` and a `Signal<Vec<&str>>`: a press with Ctrl adds a row or takes it out, one with Shift \
+          "`TreeView::multiple` with a `Signal<Vec<&str>>`: a press with Ctrl adds a row or takes it out, one with Shift \
            selects the rows from the last selected to it, Shift with the arrows selects on the way, Space adds or \
            takes out the focused row, and Ctrl+A selects every row shown.",
           self.frame.demo(
             1,
             many,
-            "TreeView::new(many, project).multiple(true)",
+            "TreeView::multiple(many, project)",
             &[
               "// open, many: Signal<Vec<&str>>",
-              "TreeView::new(many, project)",
+              "TreeView::multiple(many, project)",
               "    .open(open)",
-              "    .multiple(true)",
             ],
           ),
         ),
@@ -624,12 +649,11 @@ impl Component for TreeViewPage {
             "TreeView::new(selected, items).mount(ctx)",
             &[
               "// open, selected: Signal<Vec<u32>>",
-              "TreeView::new(selected, (0..100).map(|i| {",
+              "TreeView::multiple(selected, (0..100).map(|i| {",
               "    TreeItem::folder(i * 1000, &format!(\"Folder {i}\"))",
               "        .items((0..100).map(|j| TreeItem::file(i * 1000 + j + 1, &format!(\"file {i}.{j}\"))))",
               "}))",
               ".open(open)",
-              ".multiple(true)",
               ".style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))",
               ".mount(ctx)",
             ],
@@ -704,7 +728,7 @@ impl Component for BigTree {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    TreeView::new(
+    TreeView::multiple(
       self.selected.clone(),
       (0..100u32).map(|i| {
         TreeItem::folder(i * 1000, &format!("Folder {i}"))
@@ -713,7 +737,6 @@ impl Component for BigTree {
     )
     .label("Ten thousand files")
     .open(self.open.clone())
-    .multiple(true)
     .style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))
     .mount(ctx)
   }

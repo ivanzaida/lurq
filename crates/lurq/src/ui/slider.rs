@@ -230,6 +230,7 @@ impl Slider {
 
   /// A slider that shows `value`, held by the app, and tells `on_change` what a person makes it: the app sets
   /// what it shows. Of whole numbers or fractions as [`Slider::new`] is.
+  /// Two built at the one place in the app's code, in a loop, are told apart by their `id` or `key`.
   pub fn controlled<T: SliderNumber>(value: T, on_change: impl Fn(f64) + Send + Sync + 'static) -> Self {
     let signal = Signal::new(value);
     let bound = Bound::one(signal);
@@ -312,8 +313,9 @@ impl Slider {
     self
   }
 
-  /// Called when an interaction that changed the value is over, with the value as it then is: the drag let go,
-  /// the press on the track or the key's step made. Each call adds a handler.
+  /// Called when an interaction is over, with the value as it then is, where it is another than it was as the
+  /// interaction began: the drag let go, the press on the track or the key's step made. A drag taken back to where
+  /// it began tells nothing. Each call adds a handler.
   pub fn on_change_end(mut self, handler: impl Fn(f64) + Send + Sync + 'static) -> Self {
     self.on_change_end.push(Arc::new(move |value, _| handler(value)));
     self
@@ -721,6 +723,7 @@ impl RangeSlider {
 
   /// A range slider that shows `values`, held by the app, the low one first, and tells `on_change` the two values
   /// a person makes them: the app sets what it shows.
+  /// Two built at the one place in the app's code, in a loop, are told apart by their `id` or `key`.
   pub fn controlled<T: SliderNumber>(values: (T, T), on_change: impl Fn((f64, f64)) + Send + Sync + 'static) -> Self
   where
     (T, T): SignalValue,
@@ -737,8 +740,8 @@ impl RangeSlider {
     self
   }
 
-  /// Called when an interaction that changed a value is over, with the two values as they then are: the drag
-  /// let go, the press on the track or the key's step made. Each call adds a handler.
+  /// Called when an interaction is over, with the two values as they then are, where they are others than they
+  /// were as it began: the drag let go, the press on the track or the key's step made. Each call adds a handler.
   pub fn on_change_end(mut self, handler: impl Fn((f64, f64)) + Send + Sync + 'static) -> Self {
     self
       .0
