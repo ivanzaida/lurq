@@ -340,6 +340,7 @@ States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOn
 - A theme's renderer for `ButtonPart::Label`, `ButtonPart::Icon` or `ButtonPart::Spinner` builds that part in place of the default one: dots that pulse where the design turns a ring.
 - A button that is an icon alone is still called by its label: tooling that reads the tree (DevTools, the MCP tools) names it so.
 - The design's close button, menu button and compound button are this button: `Button::new("Close").variant(ButtonVariant::Ghost).size(ButtonSize::Xs).icon(icons::CLOSE).icon_only(true)`, `Button::new("Export").variant(ButtonVariant::Outline).trailing_icon(icons::CHEVRON_DOWN)`, and a button with a `description`.
+- In a [toolbar](#toolbar) a button is a ghost one of the bar's size (unless its item is `as_given`), and an icon alone has a tooltip of its label. Where the bar is too narrow for it, it goes into the bar's menu as an item of its label, its icon, its id with `-item` after it, disabled where the button is disabled or loading; choosing the item calls the button's `on_click` handlers with the click Enter would make (`from_keyboard`, at 0, 0).
 
 ## Toggle
 
@@ -363,6 +364,8 @@ Toggle::new("Bold")
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
 
 Parts: `TogglePart::Root`, `Label`, `Icon`. States: `ToggleState::On`, `Disabled`, `IconOnly`. In the design a toggle has no fill until the pointer is on it or it is on, and then the `Highlight` fill; it is padded 10.
+
+In a [toolbar](#toolbar) a toggle takes the bar's size, and an icon alone has a tooltip of its label. Where the bar is too narrow for it, it goes into the bar's menu as a checked item, on while the toggle is: its label, its icon and its id with `-item` after it. Choosing the item calls `on_change` with the other state, as a press would.
 
 ## Button Group
 
@@ -418,6 +421,8 @@ ToggleGroup::multiple(marks.clone(), [
 | `ToggleGroup::controlled(on, choices, press)` | The app holds the state: the toggles of `on` are on, and `press` is told the value of each one pressed |
 
 A choice is a value and a label, `(value, "Label")`, or a `Choice` with an icon, the icon alone, or disabled. `size(size)` and `disabled(bool)` are for the whole group. Tab stops in the group once; Left and Right move between its toggles, and Space or Enter turns the one the focus is on. Parts: `ToggleGroupPart::Root`, `Item` (laid over a toggle's root) and `Separator`.
+
+In a [toolbar](#toolbar) the group takes the bar's size and is no stop of its own: its toggles are among the bar's controls, and the bar's Left and Right move through them and on. Where the bar is too narrow for it, the whole group goes into the bar's menu, after a line, as a checked item for each toggle, on while it is; choosing one presses that toggle.
 
 ## Segmented Control
 
