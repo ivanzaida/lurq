@@ -1111,13 +1111,19 @@ impl ManagedWindow {
           MouseScrollDelta::LineDelta(x, y) => (x * WHEEL_LINE, y * WHEEL_LINE),
           MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
         };
-        // A browser tells a notch as the distance it would scroll a page; see `web_wheel`.
+        #[cfg(not(target_arch = "wasm32"))]
+        let notched = notched_wheel::is_notched(delta);
+        // A browser tells a notch as the distance it would scroll a page, a mouse's as a touchpad's; see
+        // `web_wheel`.
         #[cfg(target_arch = "wasm32")]
-        let (mut dx, mut dy) = web_wheel::scroll_distance(
-          delta,
-          f64::from(self.tree.scale_factor()),
-          web::scrolls_the_systems_distance(),
-        );
+        let ((mut dx, mut dy), notched) = {
+          let scale = f64::from(self.tree.scale_factor());
+          let system_distance = web::scrolls_the_systems_distance();
+          (
+            web_wheel::scroll_distance(delta, scale, system_distance),
+            web_wheel::is_notched(delta, scale, system_distance),
+          )
+        };
         if self.modifiers.shift_key() && dx == 0.0 {
           dx = dy;
           dy = 0.0;
@@ -1141,7 +1147,7 @@ impl ManagedWindow {
         }
         let (x, y) = (self.cursor_pos.0 as f32, self.cursor_pos.1 as f32);
         // A mouse's notches are animated; a touchpad's travel moves the content with the fingers.
-        if notched_wheel::is_notched(delta) {
+        if notched {
           self.tree.wheel(x, y, dx, dy, scroll_phase);
         } else {
           self.tree.scroll(x, y, dx, dy, scroll_phase);
