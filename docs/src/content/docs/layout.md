@@ -50,6 +50,7 @@ Common modifiers:
 | `.flex_shrink(factor)`                                                  | Give up main-axis space when a row/column overflows                    |
 | `.shrink_order(order)` / `.shrink_limit(ShrinkLimit)`                   | When and how far a shrinking child gives way                           |
 | `.shrink_drop_below(size)`                                              | Shrink a child down to `size`, then drop it                            |
+| `.drop_marker(bool)`                                                    | Lay a child out only while another child of its line is dropped        |
 
 Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max
 sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
@@ -409,6 +410,52 @@ Row::new()
 
 As the row narrows, the time is dropped first, then the approval detail is ellipsized down to the icon and count, and
 only then does the run label shrink.
+
+### What did not fit: the drop marker
+
+A row whose children drop where it is too narrow often needs one more child that stands for them: a More button at
+the end of a toolbar that opens a menu of what went. `.drop_marker(true)` makes a child of a single-line `Row` or
+`Column` that one: it takes its room only while another child of the line is dropped, and is dropped itself (zero size,
+no spacing, not drawn, not hit, no Tab stop) while none is. The line gives way as it would without the marker, and only
+when that drops or collapses a child does it give way again with the marker's room taken, so what fits beside the
+marker stays and the rest drops. The marker itself does not shrink, and a line has one. In a wrapping row it has no
+effect.
+
+The row says what it dropped through the element refs of its children: a dropped child, and everything in it, reports
+a zero-size rect where the next child starts, and `ElementRef::observe_rect` is called when that changes. A component
+that keeps a menu of the dropped children puts a ref on each and sets a signal from the observer, which renders it
+again with the menu as the layout left it; the row itself needs no second pass.
+
+```rust
+use lurq::{
+  components::{Button, Row},
+  core::{ElementRef, Signal},
+  layout::layout_kind::ShrinkLimit,
+};
+
+// In a component: `tools` holds a ref for each tool, `dropped` is `ctx.signal(vec![false; tools.len()])`.
+let mut bar = Row::new().spacing(2.0);
+for (index, name) in ["Bold", "Italic", "Link", "Image"].into_iter().enumerate() {
+  let (at, dropped) = (tools[index].clone(), dropped.clone());
+  at.observe_rect(move |rect| {
+    let gone = rect.width == 0.0 && rect.height == 0.0;
+    if dropped.get_untracked()[index] != gone {
+      dropped.update(|dropped| dropped[index] = gone);
+    }
+  });
+  bar = bar.child(
+    Button::new(name)
+      .tab_index(0)
+      .ref_element(at)
+      .flex_shrink(1.0)
+      .shrink_limit(ShrinkLimit::Drop),
+  );
+}
+// Laid out only while a tool is dropped; its menu lists the tools `dropped` marks.
+bar.child(Button::new("More").tab_index(0).drop_marker(true))
+```
+
+`ui::Toolbar` with `overflow(true)` is built this way.
 
 ## Scroll
 
