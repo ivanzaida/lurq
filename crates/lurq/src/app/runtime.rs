@@ -768,6 +768,8 @@ pub struct Tree {
   /// Where the selection in the selectable texts started, which a Shift
   /// press extends from.
   selectable_text_anchor: Option<SelectableTextAnchor>,
+  /// The text input whose tokens the pointer was last over, which is told when it leaves.
+  token_hover: Option<TextInputState>,
   active_drag: Option<ActiveDrag>,
   /// Files from the OS dragged over the window; see `file_drag`.
   file_drag: Option<file_drag::FileDragSession>,
@@ -1213,6 +1215,7 @@ impl Tree {
       dragging_slider: None,
       dragging_text_selection: None,
       selectable_text_anchor: None,
+      token_hover: None,
       active_drag: None,
       file_drag: None,
       #[cfg(feature = "image")]
@@ -3728,6 +3731,9 @@ impl Tree {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
     self.pointer = None;
+    if let Some(left) = self.token_hover.take() {
+      left.hover_token_at_point(None);
+    }
     if self.end_autoscroll() {
       // The release that follows, if it comes, belongs to the autoscroll.
       self.swallowed_press = Some(MouseButton::Middle);
@@ -4928,6 +4934,30 @@ impl Tree {
       Vec::new()
     };
     trim_hits_to_scrollbar(&mut hits, lx, ly);
+    if matches!(evt.kind, MouseEventKind::Move) {
+      // The token of a text input under the pointer takes the look its style has for that.
+      let over = hits.iter().find_map(|(node, rect)| match node.node_kind() {
+        NodeKind::TextInput { state, .. } => {
+          let padding = self
+            .layout_engine
+            .resolved_padding_for_size(node, Size::new(rect.width, rect.height));
+          let content_height = (rect.height - padding.top - padding.bottom).max(0.0);
+          let top = padding.top + text_input_vertical_offset(state, content_height);
+          state.hover_token_at_point(Some((
+            rect.local_x - rect.x - padding.left,
+            rect.local_y - rect.y - top,
+          )));
+          Some(state.clone())
+        }
+        _ => None,
+      });
+      if let Some(left) = self.token_hover.take()
+        && over.as_ref().is_none_or(|over| !over.same_state(&left))
+      {
+        left.hover_token_at_point(None);
+      }
+      self.token_hover = over;
+    }
     let blocked = disabled_hit.is_some() && !matches!(evt.kind, MouseEventKind::Move);
     // What stays hovered while the press itself has no target.
     let hovered_hits = blocked.then(|| std::mem::take(&mut hits));
@@ -11195,6 +11225,12 @@ fn hovered_cursor<'a>(mut nodes: impl Iterator<Item = &'a Node>) -> CursorIcon {
         .is_some_and(|(state, _)| state.is_thumb_hovered())
       {
         Some(CursorIcon::Default)
+      } else if let NodeKind::TextInput { state, .. } = node.node_kind()
+        && state.token_icon_hovered()
+        && !node.is_disabled()
+      {
+        // The cross that takes a token away is pressed, as a button is.
+        Some(CursorIcon::Pointer)
       } else {
         node.cursor_icon()
       }

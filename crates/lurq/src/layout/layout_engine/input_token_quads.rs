@@ -11,7 +11,7 @@ use crate::{
   },
   node::{
     TextTransformMode,
-    border::BorderRadius,
+    border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     node::Node,
     node_kind::{TextInputOverflow, TextInputState},
     transform::Transform2D,
@@ -105,8 +105,22 @@ impl LayoutEngine {
       origin.0 + padding.left - state.scroll_x(),
       origin.1 + padding.top + text_input_vertical_offset(state, height) - state.scroll_y(),
     );
-    for part in &layout.fragments {
+    for (at, part) in layout.fragments.iter().enumerate() {
       let (x, y, xf, center) = transformed_quad_frame(start.0 + part.x, start.1 + part.y, transform);
+      let edge = part.token.and_then(|(_, border)| border).map(|(width, color)| {
+        let side = Some(ResolvedBorder {
+          width,
+          color,
+          placement: BorderPlacement::Inside,
+          dash: [0.0, 0.0],
+        });
+        ResolvedBorders {
+          top: side,
+          right: side,
+          bottom: side,
+          left: side,
+        }
+      });
       quads.push(Quad {
         x,
         y,
@@ -120,6 +134,44 @@ impl LayoutEngine {
           gradient: None,
         },
         border_radius: Some(BorderRadius::all(part.radius).clamped_to_rect(part.width, part.height)),
+        border: edge,
+        clip,
+      });
+      // A token's icon is at the end of its last fragment, in the room its padding keeps for it.
+      let Some((token, _)) = part.token else {
+        continue;
+      };
+      let Some(icon) = &layout.config.styles[token].chip.icon else {
+        continue;
+      };
+      if layout.fragments[at + 1..]
+        .iter()
+        .any(|later| later.token.is_some_and(|(later, _)| later == token))
+      {
+        continue;
+      }
+      let (x, y, xf, center) = transformed_quad_frame(
+        start.0 + part.x + part.width - icon.inset - icon.size,
+        start.1 + part.y + (part.height - icon.size) * 0.5,
+        transform,
+      );
+      let mut text = [0; 4];
+      quads.push(Quad {
+        x,
+        y,
+        width: icon.size,
+        height: icon.size,
+        opacity,
+        transform: xf,
+        transform_origin: center,
+        content: QuadContent::Text {
+          text: icon.glyph.encode_utf8(&mut text).to_owned(),
+          style: icon.style.clone(),
+          wrap: false,
+          vertical_align: VerticalAlign::Center,
+          transform_mode: TextTransformMode::Bitmap,
+        },
+        border_radius: None,
         border: None,
         clip,
       });

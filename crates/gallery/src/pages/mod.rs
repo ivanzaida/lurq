@@ -16,6 +16,7 @@ mod family;
 mod family_play;
 mod icons;
 mod input;
+mod mentions;
 mod menu;
 mod overview;
 mod pagination;
@@ -33,6 +34,7 @@ mod tabs;
 mod tag;
 mod textarea;
 mod toast;
+mod token_input;
 mod tokens;
 mod tooltip;
 
@@ -238,6 +240,22 @@ pub const PAGES: &[Page] = &[
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
+  },
+  Page {
+    path: "/token-input",
+    name: "Token Input",
+    icon: None,
+    about: "token input tags chips tag list recipients variables template tokens remove backspace",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<token_input::TokenInputPage>(()),
+  },
+  Page {
+    path: "/mentions",
+    name: "Mentions",
+    icon: None,
+    about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
   },
   Page {
     path: "/tooltip",

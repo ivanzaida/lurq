@@ -29,4 +29,5 @@ mod tag;
 mod textarea;
 mod theming;
 mod toast;
+mod token_input;
 mod tooltip;

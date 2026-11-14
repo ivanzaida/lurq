@@ -110,8 +110,8 @@ pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowProps, SwipeRowStyle};
 pub use tabs::{TabBar, TabBarBuilder, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs};
 pub use text::{Text, TextOverflow};
 pub use text_input::{ContentKind, KeyboardKind, ReturnKey, TextInput, TextInputOverflow, TextInputOverflowAnchor};
-pub use text_input_controller::{InputEditError, InputSelection, TextInputController};
-pub use text_input_tokens::{InputToken, InputTokenError, InputTokenStyle, InputTokens};
+pub use text_input_controller::{InputCaretPoint, InputEditError, InputSelection, TextInputController};
+pub use text_input_tokens::{InputToken, InputTokenError, InputTokenIcon, InputTokenStyle, InputTokens};
 #[cfg(feature = "raster")]
 pub use video::Video;
 pub use virtualized_list::VirtualizedList;
