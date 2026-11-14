@@ -424,3 +424,36 @@ fn transformed_parent_selectable_text_click_uses_visual_line() {
     text_rect.width
   );
 }
+
+#[test]
+fn a_selection_is_in_the_selection_color_of_the_theme() {
+  use lurq::{
+    app::{App, theme::PaletteColor, window::Appearance},
+    layout::quad::QuadContent,
+  };
+
+  use crate::support::TestSurface;
+
+  // A text that names no selection color takes the palette's, which a dark theme has its own of: the light
+  // theme's blue was drawn on every theme.
+  let mut app = App::new();
+  app.theme().set_appearance(Appearance::Dark);
+  let selection = app.theme().palette_color(PaletteColor::Selection);
+  assert_ne!(selection, Color::from_hex("#bfdbfe"));
+
+  let mut runtime = Tree::new();
+  runtime.set_root(lurq::components::Text::new("Hello world").selectable(true));
+  runtime.pass(&mut app, &TestSurface);
+  let rect = runtime.find_element(|_| true).unwrap().bounds();
+  let y = rect.y + rect.height / 2.0;
+  runtime.mouse_down(rect.x, y, MouseButton::Left);
+  runtime.mouse_move(rect.x + rect.width, y);
+  runtime.mouse_up(rect.x + rect.width, y, MouseButton::Left);
+  runtime.pass(&mut app, &TestSurface);
+
+  let quads = runtime.resolve_quads(runtime.last_layout().unwrap());
+  assert!(quads.iter().any(|quad| match &quad.content {
+    QuadContent::Rect { color, .. } => *color == selection && quad.width > 1.0,
+    _ => false,
+  }));
+}

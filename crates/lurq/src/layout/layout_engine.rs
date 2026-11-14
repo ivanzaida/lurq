@@ -1532,6 +1532,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
           let selection_clip = clip;
@@ -1566,6 +1567,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let style = spans.first().map(|span| &span.style);
           let selection_height = style
@@ -1614,6 +1616,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let padding = self.resolved_padding_for_size(node, result.size);
           let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
