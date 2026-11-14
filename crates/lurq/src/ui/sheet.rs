@@ -16,7 +16,7 @@ use crate::{
   animation::{AnimatableProperty, AnimatableValue, Keyframes, KeyframesId},
   app::{
     ctx::Ctx,
-    events::{KeyboardEvent, MouseEvent},
+    events::MouseEvent,
     theme::{BorderSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{
@@ -378,11 +378,11 @@ impl Sheet {
   }
 
   /// What runs when a person closes the sheet, after its signal is set to
-  /// `false`: by a press on the veil, by its close button, or by Escape with
-  /// the focus in it. A button of the app's that closes it does not run it,
-  /// nor, for a mounted sheet at the bottom, a finger that drags it down or
-  /// taps beside it (the engine's sheet closes it itself). A second handler
-  /// runs after the first.
+  /// `false`: by a press on the veil, by its close button, by Escape wherever
+  /// the focus is, and for a mounted sheet at the bottom by a finger that
+  /// drags it down and away or taps beside it. A button of the app's that
+  /// closes it, or the app setting the signal, does not run it. A second
+  /// handler runs after the first.
   pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_dismiss.push(Arc::new(handler));
     self
@@ -598,23 +598,6 @@ impl SheetView {
     }
   }
 
-  /// `column` dismissing the sheet on Escape with the focus in it, where what
-  /// the app gave [`Sheet::on_dismiss`] can run: the Escape is then taken
-  /// before the modal it is in closes it. With the focus elsewhere the modal
-  /// still closes it, and nothing hears it (the engine's modal tells no one).
-  fn on_escape(&self, column: Column) -> Column {
-    if !self.dismiss_on_escape || self.on_dismiss.is_empty() {
-      return column;
-    }
-    let dismiss = self.dismisser();
-    column.on_key_down(move |event: KeyboardEvent| {
-      if event.focus_within && event.key == "Escape" && !event.default_prevented() {
-        event.prevent_default();
-        dismiss();
-      }
-    })
-  }
-
   /// Whether the sheet lays out as the board's sheet at the bottom does: its
   /// text in the middle, and its buttons one over the other as wide as it.
   fn stacked(&self) -> bool {
@@ -642,7 +625,7 @@ impl SheetView {
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
-    self.on_escape(panel)
+    panel
   }
 
   /// The grabber across the panel's top, with its handle in the middle:
@@ -874,12 +857,16 @@ impl SheetView {
   /// focus goes to its first control as it opens and back to what had it as
   /// it closes.
   pub fn modal(&self, panel: impl Into<Element>) -> Element {
-    Modal::new(self.veil(panel))
+    let mut modal = Modal::new(self.veil(panel))
       .open(self.open.clone())
       .target(Root)
       .dismiss_on_escape(self.dismiss_on_escape)
-      .takes_focus(true)
-      .into()
+      .takes_focus(true);
+    for handler in &self.on_dismiss {
+      let handler = handler.clone();
+      modal = modal.on_dismiss(move || handler());
+    }
+    modal.into()
   }
 
   /// How the default renderer builds a sheet: the grabber, the header, the
@@ -941,7 +928,6 @@ impl SheetView {
     if let Some(id) = &self.id {
       content = content.id(id.clone());
     }
-    let content = self.on_escape(content);
 
     let mut props = SheetProps::new(self.open.clone())
       .detents(detents)
@@ -955,6 +941,10 @@ impl SheetView {
         // The engine draws no grabber of its own here: the sheet's is in what it holds.
         SheetNode::Grabber => column.part(&handle_look),
       });
+    for handler in &self.on_dismiss {
+      let handler = handler.clone();
+      props = props.on_dismiss(move || handler());
+    }
     if let Some(detent) = self.detent.take() {
       props = props.detent(detent);
     }

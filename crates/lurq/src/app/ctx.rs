@@ -280,6 +280,8 @@ pub(crate) struct ModalSpec {
   pub(crate) layer: ModalLayer,
   /// Whether the focus goes into the modal as it opens and back to what had it as it closes.
   pub(crate) takes_focus: bool,
+  /// What runs after a person dismissed the modal, its open signal set to `false`: see [`Modal::on_dismiss`].
+  pub(crate) on_dismiss: Option<OverlayDismiss>,
 }
 
 impl ModalSpec {
@@ -296,6 +298,7 @@ impl ModalSpec {
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
       takes_focus: self.takes_focus,
+      on_dismiss: self.on_dismiss.clone(),
     }
   }
 }
@@ -336,6 +339,7 @@ pub struct Modal {
   layer: ModalLayer,
   dismiss: Option<Signal<bool>>,
   takes_focus: bool,
+  on_dismiss: Vec<OverlayDismiss>,
 }
 
 impl Modal {
@@ -348,6 +352,7 @@ impl Modal {
       layer: ModalLayer::Dialog,
       dismiss: None,
       takes_focus: false,
+      on_dismiss: Vec::new(),
     }
   }
 
@@ -379,6 +384,15 @@ impl Modal {
     self
   }
 
+  /// What runs after a person dismissed the modal, its open signal set to `false` first: Escape, wherever the
+  /// focus is, for a modal driven by a signal that Escape closes; and whatever the app's own content calls a
+  /// dismissal (a press on its veil) through the same handler. Not when the app sets the signal. A second
+  /// handler is called after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(std::sync::Arc::new(handler));
+    self
+  }
+
   /// The signal Escape sets to `false`, for a modal that stays open after it: one that is shown on its way
   /// out, as a [`Sheet`](crate::components::Sheet) is.
   pub(crate) fn dismisses(mut self, open: Signal<bool>) -> Self {
@@ -397,6 +411,14 @@ impl Modal {
       return None;
     }
 
+    let handlers = self.on_dismiss;
+    let on_dismiss = (!handlers.is_empty()).then(|| {
+      std::sync::Arc::new(move || {
+        for handler in &handlers {
+          handler();
+        }
+      }) as OverlayDismiss
+    });
     Some(ModalSpec {
       target: self.target,
       node: *self.node,
@@ -404,6 +426,7 @@ impl Modal {
       dismiss_on_escape: self.dismiss_on_escape,
       layer: self.layer,
       takes_focus: self.takes_focus,
+      on_dismiss,
     })
   }
 }

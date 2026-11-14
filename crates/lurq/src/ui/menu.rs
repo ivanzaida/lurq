@@ -73,7 +73,13 @@ pub enum MenuEntry {
 }
 
 /// What closes a menu: sets its open signal to `false` and tells the app's `on_open_change`.
-pub(crate) type Closer = Arc<dyn Fn() + Send + Sync>;
+#[derive(Clone)]
+pub(crate) struct Closer {
+  /// Closes the menu: its signal set to `false`, its `on_open_change` told.
+  pub(crate) close: Arc<dyn Fn() + Send + Sync>,
+  /// Tells its `on_dismiss`, where a person closed it other than by a choice.
+  pub(crate) dismissed: Arc<dyn Fn() + Send + Sync>,
+}
 
 /// A handler of the menu's own, kept to be called in order.
 type Handler = Arc<dyn Fn() + Send + Sync>;
@@ -433,19 +439,25 @@ impl MenuView {
     self.open.signal()
   }
 
-  /// What closes this menu: its signal set to `false`, and its `on_open_change` told.
+  /// What closes this menu: its signal set to `false`, and its `on_open_change` told; and what tells its
+  /// `on_dismiss` where a person dismissed it.
   fn closer(&self) -> Option<Closer> {
     let open = self.open.signal();
-    let told = self.on_open_change.clone();
-    (open.is_some() || !told.is_empty()).then(|| {
-      Arc::new(move || {
+    let (told, dismiss) = (self.on_open_change.clone(), self.on_dismiss.clone());
+    (open.is_some() || !told.is_empty() || !dismiss.is_empty()).then(|| Closer {
+      close: Arc::new(move || {
         if let Some(open) = &open {
           open.set(false);
         }
         for tell in &told {
           tell(false);
         }
-      }) as Closer
+      }),
+      dismissed: Arc::new(move || {
+        for handler in &dismiss {
+          handler();
+        }
+      }),
     })
   }
 
@@ -510,19 +522,22 @@ impl MenuView {
       });
     }
     // Tab closes the menu and the menus it is a submenu of, as a select closes its list, and goes on: the menu is
-    // walked right after what opened it, so the focus goes on from there.
+    // walked right after what opened it, so the focus goes on from there. A person dismissed each of them: they
+    // all close first, then each one's `on_dismiss` is told, this one's first.
     let closes = self.closes_too.clone();
     let (own, dismissed) = (self.open.signal(), self.dismissed());
     if own.is_some() || !closes.is_empty() {
       panel = panel.on_key_down(move |event: KeyboardEvent| {
         if event.focus_within && event.key == "Tab" && !event.ctrl && !event.alt && !event.meta {
-          // A person closed this one, and the menus it hangs from close with it.
           if let Some(own) = &own {
             own.set(false);
           }
+          for closer in &closes {
+            (closer.close)();
+          }
           dismissed();
-          for close in &closes {
-            close();
+          for closer in &closes {
+            (closer.dismissed)();
           }
         }
       });
@@ -1046,8 +1061,8 @@ impl MenuItemView {
     let (handlers, closes) = (self.on_select.clone(), self.closes.clone());
     (!handlers.is_empty() || !closes.is_empty()).then(|| {
       Arc::new(move || {
-        for close in &closes {
-          close();
+        for closer in &closes {
+          (closer.close)();
         }
         for handler in &handlers {
           handler();

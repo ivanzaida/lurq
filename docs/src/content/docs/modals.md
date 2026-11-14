@@ -74,7 +74,11 @@ Modal::new(content).open(open.clone()).target(panel_ref);
   on screen, taking no input, until the animation ends: see
   [Presence](../animation-transforms/#presence-entering-and-leaving-layers).
 - Open modals stack in the order they opened, as a browser's top layer holds dialogs opened with `showModal()`: one opened over another is over it whatever their order in the tree, so a search declared in an app's shell before the page opens over a dialog of the page. The topmost takes the pointer and Tab, Escape closes it first, and one that takes the focus gives it back into the modal under it as it closes. Modals that open in the same pass stack in the order they are declared.
-- Signal-backed modals close on `Escape` by default.
+- Signal-backed modals close on `Escape` by default, wherever the focus is.
+- `Modal::on_dismiss(handler)` hears a person dismiss the modal: Escape, after the modal has set its signal to
+  `false`. Content of the app's that closes the modal for a person (a press on its veil, a close button) calls the
+  same handler, as `ui::Dialog`, `ui::Sheet`, `ui::Drawer` and `ui::CommandPalette` do. The app setting the signal
+  tells nothing. A second handler is called after the first.
 - An open modal traps Tab and Shift+Tab: they cycle the topmost modal's stops (elements with `tab_index(0)` or higher, and form controls) and never reach the page behind it, with or without a form. A form inside the modal cycles inside it. See [Modal Focus Trap](../focus-navigation/#modal-focus-trap).
 - `Modal::takes_focus(true)` moves the focus into the modal as it opens, to its first stop of Tab, and back to what had it as it closes, as a browser's `<dialog>` opened with `showModal()` does. A focus the app or a press has put somewhere else by then stays there. The focus follows the last input's modality, so a modal opened from the keyboard shows the ring on its first control. Off by default; `ui::Dialog` turns it on.
 
@@ -100,6 +104,8 @@ let sheet = Sheet::mount(
   has gone down.
 - **It is put away** by clearing the signal, by Escape, by a press beside it, and by a finger that drags it down
   far enough or throws it down. `SheetProps::dismissable(false)` leaves only the signal.
+  `SheetProps::on_dismiss(handler)` hears a person put it away (the drag, the press beside it, Escape), after its
+  signal is `false`; clearing the signal tells nothing.
 - **It stands at its detents**: `Content` (as high as its content, the default), `Medium` (half the window),
   `Large` (the whole window under the status bar), `Fraction(share)` and `Height(pixels)`. It comes up at the
   first, a finger moves it between them, and it goes to the nearest to where the finger threw it.

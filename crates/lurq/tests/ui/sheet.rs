@@ -737,3 +737,25 @@ fn a_forced_focus_draws_the_ring_around_the_close_button() {
   assert!(!ring(None));
   assert!(ring(Some(Interaction::FocusVisible)));
 }
+
+#[test]
+fn escape_with_the_focus_outside_the_sheet_runs_on_dismiss_too() {
+  let heard: Heard = Arc::default();
+  let open = Signal::new(false);
+  let (held, told) = (open.clone(), heard.clone());
+  let mut stage = stage(move |_| window(heard_by(move_goal(held.clone()), &told)));
+  open.set(true);
+  stage.pass();
+  // The focus went into the sheet as it opened, to a button of it; it is let go.
+  let inside = stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+    .expect("the focus in the sheet");
+  stage.tree.get_element_by_id_mut(&inside).unwrap().blur();
+  stage.pass();
+  assert!(stage.tree.focused_element().is_none());
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*heard.lock().unwrap(), ["first", "second"]);
+}

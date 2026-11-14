@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
   app::{
-    events::{KeyboardEvent, MouseEvent},
+    events::MouseEvent,
     theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{Column, Modal, Root, Row, ScrollVertical},
@@ -269,8 +269,9 @@ impl Dialog {
   }
 
   /// What runs when the dialog is dismissed, after its signal is set to
-  /// `false`: by a press on the veil, by its close button, or by Escape with
-  /// the focus in it. A button of the app's that closes it does not run it.
+  /// `false`: by a press on the veil, by its close button, or by Escape,
+  /// wherever the focus is. A button of the app's that closes it, or the app
+  /// setting the signal, does not run it.
   /// A second handler runs after the first.
   pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_dismiss.push(Arc::new(handler));
@@ -471,17 +472,6 @@ impl DialogView {
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
-    // Escape with the focus in the dialog dismisses it here, where what the app gave `on_dismiss` can run; the
-    // modal's own Escape is off for such a dialog (`modal`).
-    if self.dismiss_on_escape && !self.on_dismiss.is_empty() {
-      let dismiss = self.dismisser();
-      panel = panel.on_key_down(move |event: KeyboardEvent| {
-        if event.focus_within && event.key == "Escape" && !event.default_prevented() {
-          event.prevent_default();
-          dismiss();
-        }
-      });
-    }
     panel
   }
 
@@ -607,16 +597,21 @@ impl DialogView {
   }
 
   /// The veil and the panel laid over the window while the dialog is open,
-  /// as the engine's [`Modal`]: Escape closes it, Tab stays inside it, and
-  /// the focus goes to its first control as it opens and back to what had it
-  /// as it closes.
+  /// as the engine's [`Modal`]: Escape closes it wherever the focus is and
+  /// runs what the app gave `on_dismiss`, Tab stays inside it, and the focus
+  /// goes to its first control as it opens and back to what had it as it
+  /// closes.
   pub fn modal(&self, panel: impl Into<Element>) -> Element {
-    Modal::new(self.veil(panel))
+    let mut modal = Modal::new(self.veil(panel))
       .open(self.open.clone())
       .target(Root)
-      .dismiss_on_escape(self.dismiss_on_escape && self.on_dismiss.is_empty())
-      .takes_focus(true)
-      .into()
+      .dismiss_on_escape(self.dismiss_on_escape)
+      .takes_focus(true);
+    for handler in &self.on_dismiss {
+      let handler = handler.clone();
+      modal = modal.on_dismiss(move || handler());
+    }
+    modal.into()
   }
 
   /// How the default renderer builds a dialog: the header, the body and the

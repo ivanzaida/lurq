@@ -8493,7 +8493,7 @@ fn build_overlays_from_layout_index(
             open: spec.open_signal.clone(),
             on_outside_click: false,
             on_escape: spec.dismiss_on_escape,
-            on_dismiss: None,
+            on_dismiss: spec.on_dismiss.clone(),
           };
           layers.hide(target, dismiss, overlays.len() + 1);
           continue;
@@ -8508,6 +8508,7 @@ fn build_overlays_from_layout_index(
         };
         let dismiss_signal = spec.open_signal.clone();
         let dismiss_on_escape = spec.dismiss_on_escape;
+        let on_dismiss = spec.on_dismiss.clone();
         if spec.takes_focus
           && let Some(origin) = origin
         {
@@ -8525,7 +8526,7 @@ fn build_overlays_from_layout_index(
             dismiss_on_outside_click: false,
             outside_press: OutsidePress::default(),
             dismiss_on_escape,
-            on_dismiss: None,
+            on_dismiss,
             layer: overlays.len() + 1,
             shown: true,
           });

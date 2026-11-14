@@ -980,7 +980,7 @@ Menu::new(open, anchor)
 | `label(&str)` | The menu's name to what reads the tree |
 | `placement(Placement)` | Where the panel opens beside its anchor, 4 from it. `BottomStart` by default, `RightStart` for a submenu |
 | `offset(impl Into<SpacingValue>)`, `collision(CollisionStrategy)` | How far the panel is from its anchor, along the side it opens on, in place of the design's 4 (a submenu's first item stays level with its item); and what it does where the window has no room on that side (`FlipThenClamp`, the other side, by default) |
-| `on_dismiss(Fn())` | A person closed it other than by a choice: Escape, a press outside it, Tab. Not the app setting the signal. Each handler is called, in order |
+| `on_dismiss(Fn())` | A person closed it other than by a choice: Escape, a press outside it, Tab. Not the app setting the signal. Each handler is called, in order. Tab in a submenu closes it and the menus it hangs from, and tells each one's `on_dismiss`, the submenu's first |
 | `on_open_change(Fn(bool))` | Told `false` when a person closes it, by a choice too. Each handler is called, in order |
 | `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape and a press outside close it: both by default |
 | `inline(bool)` | The panel drawn where the menu is in the tree, open or not, and not over the window: for a gallery, a test, a list of commands in a page |
@@ -1044,7 +1044,7 @@ Dialog::new(terms_open.clone())
 | `scrollable(bool)` | The body scrolls between a header and a footer that stay, each set off by a line |
 | `close_button(bool)`, `close_label(&str)` | A ghost button with the close icon at the end of the header, and what it is called to tooling: "Close" when not given |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Whether a press on the veil, and Escape, close it. Both on by default |
-| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, or Escape with the focus in it. A button of the app's that closes it does not run it. A second handler runs after the first |
+| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, or Escape wherever the focus is (the engine's `Modal::on_dismiss`). A button of the app's that closes it, or the app setting the signal, does not run it. A second handler runs after the first |
 | `label(&str)` | What it is called to tooling, over its title: for a dialog whose title is drawn by what it holds. `described(&str)` is what it is described by |
 | `alert(bool)` | An `alertdialog` to tooling, and not a `dialog`: it asks something that has to be answered |
 | `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
@@ -2877,7 +2877,7 @@ Sheet::new(goal_open.clone())
 | `close_button(bool)`, `close_label(&str)` | A ghost button with the close icon at the end of the header, and what it is called to tooling: "Close" when not given |
 | `grabber(bool)` | The handle at the top. A sheet at the bottom has it unless told otherwise |
 | `dismiss_on_veil(bool)`, `dismiss_on_escape(bool)` | Whether a press on the veil (and, mounted, a drag down), and Escape, close it. Both on by default |
-| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, or Escape with the focus in it. A button of the app's that closes it does not run it, nor a finger that drags a mounted sheet down or taps beside it (the engine's sheet closes it itself). A second handler runs after the first |
+| `on_dismiss(Fn())` | Runs after a person closed it: a press on the veil, the close button, Escape wherever the focus is (the engine's `Modal::on_dismiss`), and for a mounted sheet at the bottom a finger that drags it down and away or taps beside it (`SheetProps::on_dismiss`). A button of the app's that closes it, or the app setting the signal, does not run it. A second handler runs after the first |
 | `detents([SheetDetent])`, `detent(Signal<usize>)`, `scroll_state(ScrollState)` | For a mounted sheet at the bottom: the heights it stands at, which it is at, and the body's scrolling, which hands a finger to the sheet once the body is at its top |
 | `body_scrolls(bool)` | Whether the body scrolls. It does unless told; one that does not is laid out in the room the panel has for it, at a side the panel's height less the header and the footer, for what holds a scroll of its own. A drawer over the page with `body_scrolls(false)` gives its sheet this |
 | `inline(bool)` | The panel where it is declared, without the veil and without taking the window: for a gallery, a screenshot, a test |
@@ -3116,7 +3116,7 @@ CommandPalette::new(open.clone())
 | `empty_text(&str)` | What the list says when nothing is found: "No results" |
 | `key_hints(bool)` | A row at the bottom, under a line, of the keys that work in it: ↑ ↓ to move, ↵ to run, Esc to close |
 | `label(&str)` | Its name to what reads the tree: what its input says, unless told |
-| `on_dismiss(Fn())` | A person closed it other than by a command: Escape on an empty input, a press on the veil. Each handler is called, in order |
+| `on_dismiss(Fn())` | A person closed it other than by a command: Escape on an empty input (the engine's `Modal::on_dismiss`), a press on the veil. Each handler is called, in order |
 | `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)` | Whether Escape on an empty input and a press on the veil close it: both by default. Off, Escape still clears what is typed |
 | `inline(bool)` | The panel drawn where it is declared, open or not, without the veil: for a gallery or a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |

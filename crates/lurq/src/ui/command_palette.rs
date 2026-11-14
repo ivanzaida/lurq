@@ -835,7 +835,8 @@ impl CommandPaletteView {
       .collect();
     let (enabled, highlighted) = (self.enabled.clone(), self.highlighted);
     let (highlight, query, dismiss) = (self.highlight.clone(), self.query.clone(), self.dismisser());
-    let dismiss_on_escape = self.dismiss_on_escape;
+    // Over the window the modal closes it on Escape and tells `on_dismiss`; drawn in place, the palette does.
+    let (dismiss_on_escape, inline) = (self.dismiss_on_escape, self.inline);
     let (groups, filter) = (self.groups.clone(), self.filter.clone());
     let (scroll, results, rows, alive) = (
       self.scroll.clone(),
@@ -866,12 +867,16 @@ impl CommandPaletteView {
           }
         }
         "Escape" => {
-          event.prevent_default();
           if query.get_untracked().is_empty() {
-            if dismiss_on_escape {
+            // An Escape left to the modal closes the palette, wherever the focus is.
+            if !dismiss_on_escape || inline {
+              event.prevent_default();
+            }
+            if dismiss_on_escape && inline {
               dismiss();
             }
           } else {
+            event.prevent_default();
             query.set(String::new());
             let all = shown(&groups, "", &filter);
             let enabled: Vec<bool> = all
@@ -1112,15 +1117,19 @@ impl CommandPaletteView {
   }
 
   /// The veil and the panel laid over the window while the palette is open, as the engine's [`Modal`]: Tab stays
-  /// inside it, and the focus goes to its input as it opens and back to what had it as it closes. Escape is the
-  /// palette's own.
+  /// inside it, and the focus goes to its input as it opens and back to what had it as it closes. Escape first
+  /// clears what is typed (the input's own), and then the modal closes the palette and tells `on_dismiss`.
   pub fn modal(&self, panel: impl Into<Element>) -> Element {
-    Modal::new(self.veil(panel))
+    let mut modal = Modal::new(self.veil(panel))
       .open(self.open.clone())
       .target(Root)
-      .dismiss_on_escape(false)
-      .takes_focus(true)
-      .into()
+      .dismiss_on_escape(self.dismiss_on_escape)
+      .takes_focus(true);
+    for handler in &self.on_dismiss {
+      let handler = handler.clone();
+      modal = modal.on_dismiss(move || handler());
+    }
+    modal.into()
   }
 
   /// How the default renderer builds a palette: the search row, the list and the footer in the panel, and the panel

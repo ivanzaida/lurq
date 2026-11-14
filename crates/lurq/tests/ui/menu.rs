@@ -1266,3 +1266,46 @@ fn a_selected_radio_item_is_in_the_state_selected_and_a_checked_one_in_checked()
   assert_eq!(stage.fill_color("zoom"), Some(light(PaletteColor::Destructive)));
   assert_ne!(stage.fill_color("grid"), Some(light(PaletteColor::Destructive)));
 }
+
+#[test]
+fn tab_from_a_submenu_tells_on_dismiss_of_every_menu_it_closes() {
+  let (open, exporting) = (Signal::new(false), Signal::new(false));
+  let (anchor, export) = (ElementRef::new(), ElementRef::new());
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (held, sub, told) = (open.clone(), exporting.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let toggle = held.clone();
+    let (menu_told, sub_told) = (told.clone(), told.clone());
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new().ref_element(anchor.clone()).child(
+          Button::new("Edit")
+            .id("button")
+            .on_click(move |_| toggle.update(|open| *open = !*open)),
+        ),
+      )
+      .child(
+        Menu::new(held.clone(), anchor.clone())
+          .on_dismiss(move || menu_told.lock().unwrap().push("menu"))
+          .item(MenuItem::new("Undo").id("undo"))
+          .item(
+            MenuItem::new("Export as").id("export").submenu(
+              Menu::new(sub.clone(), export.clone())
+                .on_dismiss(move || sub_told.lock().unwrap().push("submenu"))
+                .item(MenuItem::new("PNG").id("png")),
+            ),
+          ),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  stage.key("Enter");
+  stage.key("ArrowDown");
+  stage.key("ArrowRight");
+  assert!(exporting.get());
+  stage.key("Tab");
+  assert!(!open.get() && !exporting.get());
+  assert_eq!(*heard.lock().unwrap(), ["submenu", "menu"], "both were dismissed");
+}

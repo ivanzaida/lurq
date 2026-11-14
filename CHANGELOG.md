@@ -297,6 +297,7 @@ Fixes:
 - The line under a `ui::Link` the pointer is on is straight and under its text alone: it was the bottom edge of the link's box, which is rounded for the focus ring, so it curled up at both ends and ran under the icon. It shows while the focus is in the link too.
 - The placeholder of a masked `ui::PasswordInput` is set as any placeholder: it had the spacing meant for the dots.
 - A wrapped text starts where it was laid out at a scale that is not whole. Paint shapes the text again at the window's scale, where a line can hold a word more than the layout's did; the text then had a line fewer than its box and stood lower in it by half a line. It keeps its offset from the layout now: the description of a step next to the others, at 1.5.
+- A person dismissing a modal is heard wherever the focus is. The engine's `Modal` told no one, so a `ui::Sheet`'s `on_dismiss` heard Escape only with the focus in the sheet, and a mounted bottom sheet told no one of a finger dragging it down or tapping beside it. `Modal::on_dismiss` runs after Escape closed the modal, and `SheetProps::on_dismiss` after the drag, the tap or Escape put the sheet away; neither runs when the app clears the signal. `ui::Dialog`, `ui::Sheet`, `ui::Drawer` and `ui::CommandPalette` take their `on_dismiss` from it. Tab in a submenu tells `on_dismiss` of every menu it closes, not only the submenu's.
 
 ## 0.61.1 — 2026-11-13
 
