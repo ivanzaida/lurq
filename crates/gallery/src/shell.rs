@@ -1,5 +1,5 @@
 //! The gallery's shell: its own title bar, the header across the top, the
-//! side bar with the pages, and the page beside it.
+//! sidebar with the pages, and the page beside it.
 
 use lurq::{
   app::{
@@ -9,7 +9,7 @@ use lurq::{
     window::Appearance,
   },
   components::{
-    ChromeTitleBar, Column, Link, Outlet, Popup, Row, ScrollVertical, WindowControlColors, WindowControlContent,
+    ChromeTitleBar, Column, Outlet, Popup, Row, ScrollVertical, WindowControlColors, WindowControlContent,
     WindowControlKind, WindowControls,
   },
   core::{ElementRef, Signal},
@@ -17,18 +17,17 @@ use lurq::{
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
   ui::{
     Badge, BadgePart, BadgeVariant, Button, ButtonVariant, CommandItem, CommandPalette, FontFamily, Kbd, KeyPlatform,
-    SegmentedControl, icons,
+    SegmentedControl, Sidebar, SidebarGroup, SidebarItem, SidebarTrigger, icons,
   },
 };
 
 use crate::{
-  kit::{FILL, icon, mono, overline, popover, row_height, segmented, select, text},
+  kit::{FILL, icon, mono, popover, segmented, select, text},
   pages::{Group, PAGES, page_at},
 };
 
 const TITLE_BAR: f32 = 36.0;
 const HEADER: f32 = 56.0;
-const SIDEBAR: f32 = 248.0;
 
 /// What the shell keeps between renders: whether the search is open, and which of its popups is.
 #[derive(Clone)]
@@ -41,6 +40,9 @@ pub struct Shell {
   settings_open: Signal<bool>,
   /// Which of [`MOTION`] is chosen.
   motion: Signal<usize>,
+  /// Whether the sidebar is its rail, and whether it is open over the page on a narrow window.
+  collapsed: Signal<bool>,
+  sidebar_open: Signal<bool>,
 }
 
 /// Whether motion is reduced: as the system says, or as the app does.
@@ -56,6 +58,8 @@ impl Shell {
       settings_anchor: ElementRef::new(),
       settings_open: ctx.signal(false),
       motion: ctx.signal(0),
+      collapsed: ctx.signal(false),
+      sidebar_open: ctx.signal(false),
     }
   }
 }
@@ -105,8 +109,8 @@ pub fn title_bar() -> ChromeTitleBar {
 pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
   let current = page_at(&ctx.route_path()).path;
   let find = state.search_open.clone();
-  // What is behind the cards and beside them is the theme's canvas: the page, the side bar. A card, the
-  // header and a control are surfaces on it, so each stands out from what it is on.
+  // What is behind the cards is the theme's canvas. A card, the header and a control are surfaces on it, so each
+  // stands out from what it is on.
   Column::new()
     .size(FILL, FILL)
     .background(PaletteColor::Canvas)
@@ -125,14 +129,11 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
         .width(FILL)
         .flex(1.0)
         .align_items(Alignment::Stretch)
-        .child(sidebar(ctx, current))
+        .child(sidebar(ctx, state, current))
         .child(
           // Each page has a scroll of its own: a page opened from another starts at its top, wherever the
           // one before it was scrolled to.
-          ScrollVertical::new(Outlet::mount(ctx))
-            .key(current)
-            .flex(1.0)
-            .border_left(Border::inside(BorderSize::Sm, PaletteColor::Border)),
+          ScrollVertical::new(Outlet::mount(ctx)).key(current).flex(1.0),
         ),
     )
     .into()
@@ -284,9 +285,12 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
     ("Light", Some(Appearance::Light)),
     ("Dark", Some(Appearance::Dark)),
   ];
+  // What collapses the sidebar to its rail, or opens it over the page on a narrow window.
+  let trigger = SidebarTrigger::new(state.collapsed.clone()).open(state.sidebar_open.clone());
   let mut brand = Row::new()
     .spacing(10.0)
     .align_items(Alignment::Center)
+    .child(trigger)
     .child(
       Row::new()
         .size(28.0, 28.0)
@@ -385,67 +389,30 @@ fn density_name(density: Density) -> &'static str {
   }
 }
 
-/// The pages in the design system's groups, each group with how many it has.
-/// A row of it is 32 high at the default density, and follows the density.
-fn sidebar(ctx: &mut Ctx, current: &str) -> ScrollVertical {
-  let theme = ctx.theme().clone();
-  let row_height = row_height(&theme);
-  let mut groups = Column::new()
-    .width(FILL)
-    .padding_vertical(20.0)
-    .padding_horizontal(16.0)
-    .spacing(20.0);
-  for group in Group::ALL {
+/// The pages in the design system's groups, each group with how many it has, and the page the route is at
+/// selected. A row of it is 32 high at the default density, and follows the density.
+fn sidebar(ctx: &mut Ctx, state: &Shell, current: &str) -> Element {
+  let groups = Group::ALL.into_iter().filter_map(|group| {
     let pages: Vec<_> = PAGES.iter().filter(|page| page.group == group).collect();
     if pages.is_empty() {
-      continue;
+      return None;
     }
-    let mut list = Column::new().width(FILL).spacing(2.0).child(
-      Row::new()
-        .width(FILL)
-        // A line of 15 and 6 under it, as the design has it, whatever the font's own line is.
-        .height(21.0)
-        .padding_horizontal(8.0)
-        .padding_bottom(6.0)
-        .align_items(Alignment::Center)
-        .justify(Justify::SpaceBetween)
-        .child(overline(group.name()))
-        .child(mono(&pages.len().to_string(), 11.0).color(PaletteColor::MutedForeground)),
-    );
-    for page in pages {
-      let on = page.path == current;
-      let mut row = Row::new()
-        .width(FILL)
-        .height(row_height)
-        .padding_horizontal(8.0)
-        .spacing(8.0)
-        .align_items(Alignment::Center)
-        .rounded(RadiusSize::Md)
-        .cursor(CursorIcon::Pointer);
+    let items = pages.iter().map(|page| {
+      let mut item = SidebarItem::new(page.name)
+        .key(page.path)
+        .href(page.path)
+        .selected(page.path == current);
       if let Some(name) = page.icon {
-        row = row.child(icon(name, 16.0).color(PaletteColor::MutedForeground));
+        item = item.icon(name);
       }
-      row = row.child(text(
-        page.name,
-        14.0,
-        if on { FontWeight::Medium } else { FontWeight::Normal },
-      ));
-      // The page that is open is a card on the canvas of the side bar.
-      row = if on {
-        row
-          .background(PaletteColor::Card)
-          .foreground(PaletteColor::CardForeground)
-          .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
-      } else {
-        row.hovered(|style| {
-          style
-            .background(PaletteColor::Highlight)
-            .foreground(PaletteColor::HighlightForeground)
-        })
-      };
-      list = list.child(Link::build_empty(ctx, page.path).child(row));
-    }
-    groups = groups.child(list);
-  }
-  ScrollVertical::new(groups).width(SIDEBAR)
+      item
+    });
+    Some(SidebarGroup::new(group.name()).count(pages.len()).items(items))
+  });
+  Sidebar::new()
+    .label("Pages")
+    .groups(groups)
+    .collapsed(state.collapsed.clone())
+    .open(state.sidebar_open.clone())
+    .mount(ctx)
 }

@@ -39,6 +39,7 @@ mod radio;
 mod select;
 mod separator;
 mod sheet;
+mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;

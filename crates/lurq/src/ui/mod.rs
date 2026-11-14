@@ -69,6 +69,7 @@ mod select;
 mod separator;
 mod shared;
 mod sheet;
+mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -205,6 +206,10 @@ pub use sheet::{
   SHEET_IN_FROM_BOTTOM, SHEET_IN_FROM_END, SHEET_IN_FROM_START, SHEET_IN_FROM_TOP, SHEET_OUT_TO_BOTTOM,
   SHEET_OUT_TO_END, SHEET_OUT_TO_START, SHEET_OUT_TO_TOP, Sheet, SheetPart, SheetRenderer, SheetSide, SheetSize,
   SheetState, SheetView,
+};
+pub use sidebar::{
+  Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
+  SidebarState, SidebarTrigger, SidebarView,
 };
 pub(crate) use skeleton::keyframes as skeleton_keyframes;
 pub use skeleton::{

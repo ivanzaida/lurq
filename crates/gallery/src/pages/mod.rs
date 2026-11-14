@@ -51,6 +51,7 @@ mod search_field;
 mod select;
 mod separator;
 mod sheet;
+mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -543,6 +544,15 @@ pub const PAGES: &[Page] = &[
     about: "action bar selection selected bulk actions count clear escape floating bottom top contextual",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<action_bar::ActionBarPage>(()),
+  },
+  Page {
+    path: "/sidebar",
+    name: "Sidebar",
+    icon: Some("panel-left"),
+    about: "sidebar side bar navigation rail collapsed collapse expand trigger groups items nested tree selected \
+            current page badge count shortcut header footer workspace account drawer overlay narrow",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<sidebar::SidebarPage>(()),
   },
   Page {
     path: "/badge",
