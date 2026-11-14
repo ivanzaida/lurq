@@ -330,13 +330,45 @@ fn a_link_is_text_with_an_icon_after_it_and_a_line_under_the_pointer() {
   assert!(stage.border("docs").is_none(), "and no line at rest");
 
   stage.hover("docs");
-  let line = stage
-    .border("docs")
-    .and_then(|quad| quad.border)
+  assert!(
+    stage.border("docs").is_none(),
+    "the link's box, rounded for its ring, has no line"
+  );
+  // A straight line under the text alone: the label's own bottom edge, with no radius, not under the icon.
+  let edge = stage
+    .quads()
+    .into_iter()
+    .find(|quad| quad.border.is_some_and(|border| border.bottom.is_some()))
     .expect("a line under the link the pointer is on");
-  assert!(line.top.is_none(), "under it only");
+  let line = edge.border.unwrap();
+  assert!(
+    line.top.is_none() && line.left.is_none() && line.right.is_none(),
+    "under it only"
+  );
   let under = line.bottom.expect("the line");
   assert_eq!((under.width, under.color), (1.0, light(PaletteColor::Foreground)));
+  assert!(
+    edge
+      .border_radius
+      .is_none_or(|radius| radius.bottom_left == 0.0 && radius.bottom_right == 0.0),
+    "straight to its ends"
+  );
+  assert!(
+    (edge.x - label.x).abs() < 0.5 && (edge.width - label.width).abs() < 0.5,
+    "under the text"
+  );
+  assert!(edge.x + edge.width <= icon.x, "not under the icon");
+  // The pointer on the icon draws the line under the text too.
+  stage
+    .tree
+    .mouse_move(icon.x + icon.width / 2.0, icon.y + icon.height / 2.0);
+  stage.pass();
+  assert!(
+    stage
+      .quads()
+      .iter()
+      .any(|quad| quad.border.is_some_and(|border| border.bottom.is_some()))
+  );
 
   stage.click("docs");
   stage.key("Tab");

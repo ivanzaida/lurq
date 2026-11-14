@@ -623,3 +623,43 @@ fn a_tooltip_names_only_what_nothing_else_names_and_describes_it() {
     Some("Settings of the page")
   );
 }
+
+#[test]
+fn a_long_text_with_a_shortcut_wraps_across_the_box_and_the_shortcut_goes_under_it() {
+  let long = "Show or hide the sidebar of the window and every panel docked in it.";
+  let mut stage = stage(move || Tooltip::new(long).shortcut("Ctrl+Shift+B").delay(Duration::ZERO));
+  stage.hover("copy");
+  stage.pass();
+  let keys = stage.text_quad("Ctrl+Shift+B").expect("the shortcut shows");
+  let shown = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| rect_color(quad) == Some(light(PaletteColor::Primary)))
+    .find(|quad| quad.x <= keys.x && quad.y <= keys.y && quad.x + quad.width >= keys.x + keys.width)
+    .expect("the box");
+  assert!(shown.width <= 200.0 + 0.01, "no wider than 200: {:?}", at(&shown));
+  let start = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if long.starts_with(text.as_str())))
+    .unwrap();
+  // The text takes the box's width, not what the shortcut leaves of it.
+  assert!(
+    start.width > 150.0,
+    "across the box: {:?} in {:?}",
+    at(&start),
+    at(&shown)
+  );
+  assert!(
+    keys.x + keys.width <= shown.x + shown.width - 10.0 + 0.5,
+    "the shortcut in the box: {:?} in {:?}",
+    at(&keys),
+    at(&shown)
+  );
+  assert!(
+    keys.y >= start.y + start.height - 0.5,
+    "under the text: {:?} {:?}",
+    at(&keys),
+    at(&start)
+  );
+}

@@ -26,7 +26,7 @@ use crate::{
   layout::{
     Alignment,
     layout_kind::{Justify, ScrollState},
-    text_style::FontWeight,
+    text_style::{FontWeight, TextAlign},
   },
   node::{Element, border::Border as Edge, color::Color, dimension::Dimension},
 };
@@ -592,28 +592,30 @@ impl SheetView {
     if self.title.is_none() && self.description.is_none() {
       return None;
     }
-    let (align, justify) = if self.stacked() {
-      (Alignment::Center, Justify::Center)
+    let (align, text_align) = if self.stacked() {
+      (Alignment::Center, TextAlign::Center)
     } else {
-      (Alignment::Start, Justify::Start)
+      (Alignment::Start, TextAlign::Left)
     };
+    // It takes the room the close button leaves and no more: a longer text goes on to the next line.
     let mut heading = Column::new()
       .part(&self.part(SheetPart::Heading))
       .align_items(align)
-      .flex(1.0);
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(Dimension::Px(0.0));
+    let fill = Dimension::Pct(100.0);
+    let text = |part: SheetPart, content: &str| {
+      let part = self.part(part);
+      Column::new()
+        .width(fill.clone())
+        .part(&part)
+        .child(part.text(content).width(fill.clone()).text_align(text_align))
+    };
     if let Some(title) = &self.title {
-      let part = self.part(SheetPart::Title);
-      heading = heading.child(Row::new().part(&part).child(part.text(title)));
+      heading = heading.child(text(SheetPart::Title, title));
     }
     if let Some(description) = &self.description {
-      let part = self.part(SheetPart::Description);
-      heading = heading.child(
-        Row::new()
-          .width(Dimension::Pct(100.0))
-          .justify(justify)
-          .part(&part)
-          .child(part.text(description)),
-      );
+      heading = heading.child(text(SheetPart::Description, description));
     }
     Some(heading)
   }

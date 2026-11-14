@@ -21,7 +21,7 @@ use crate::{
   components::{Column, Row},
   core::Signal,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, dimension::Dimension},
+  node::{Element, dimension::Dimension, node_kind::TextOverflow},
 };
 
 /// The parts of a progress dialog a recipe styles.
@@ -478,22 +478,26 @@ impl ProgressDialogView {
     if count.is_none() && self.status.is_none() {
       return None;
     }
-    let text = |part: ProgressDialogPart, content: &str| {
-      let part = self.part(part);
-      Row::new().part(&part).child(part.text(content).nowrap())
-    };
-    // What holds the count takes the room there is, so that the status stands at the end with no count too.
-    let mut start = Row::new().flex(1.0);
-    if let Some(count) = &count {
-      start = start.child(text(ProgressDialogPart::Count, count));
-    }
     let mut meta = Row::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Center)
-      .part(&self.part(ProgressDialogPart::Meta))
-      .child(start);
+      .part(&self.part(ProgressDialogPart::Meta));
+    if let Some(count) = &count {
+      let part = self.part(ProgressDialogPart::Count);
+      meta = meta.child(Row::new().part(&part).child(part.text(count).nowrap()));
+    }
+    // The status takes the room the count leaves and stands at its end, with no count too; a status longer than
+    // that room is cut with an ellipsis.
     if let Some(status) = &self.status {
-      meta = meta.child(text(ProgressDialogPart::Status, status));
+      let part = self.part(ProgressDialogPart::Status);
+      meta = meta.child(
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(Dimension::Px(0.0))
+          .justify(Justify::End)
+          .part(&part)
+          .child(part.text(status).nowrap().text_overflow(TextOverflow::Elipsis)),
+      );
     }
     Some(meta)
   }

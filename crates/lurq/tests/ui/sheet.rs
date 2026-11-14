@@ -583,3 +583,34 @@ fn an_inline_sheet_is_its_panel_where_it_is_declared() {
   assert!(stage.paints("Edit profile"));
   assert!(veils(&stage, light(PaletteColor::Scrim)).is_empty());
 }
+
+#[test]
+fn a_title_and_a_description_longer_than_the_panel_go_on_to_more_lines_inside_it_on_every_side() {
+  const TITLE: &str = "Edit the profile that is shown to everyone in the workspace";
+  const DESCRIPTION: &str = "Changes save when you close the panel, and everyone in the workspace sees them at once.";
+  for side in [SheetSide::End, SheetSide::Start, SheetSide::Top, SheetSide::Bottom] {
+    let open = Signal::new(true);
+    let mut stage = stage(move |_| {
+      window(
+        Sheet::new(open.clone())
+          .id("panel")
+          .side(side)
+          .title(TITLE)
+          .description(DESCRIPTION)
+          .close_button(true),
+      )
+    });
+    let (x, _, width, _) = stage.bounds("panel");
+    for text in [TITLE, DESCRIPTION] {
+      let quad = stage.text_quad(text).unwrap();
+      assert!(quad.x >= x, "{side:?}: {text:?} in the panel: {} {x}", quad.x);
+      assert!(
+        quad.x + quad.width <= x + width + 0.5,
+        "{side:?}: {text:?} in the panel: {} in {}",
+        quad.x + quad.width,
+        x + width
+      );
+      assert!(quad.height > 24.0, "{side:?}: {text:?} on more lines: {}", quad.height);
+    }
+  }
+}

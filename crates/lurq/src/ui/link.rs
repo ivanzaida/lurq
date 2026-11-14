@@ -211,7 +211,8 @@ impl LinkView {
   /// The link's behavior with the style of its root: the element that is
   /// pressed and focused, with nothing in it yet.
   pub fn root(&self) -> crate::components::Button {
-    let mut root = pressable(&self.part(LinkPart::Root), self.disabled);
+    // A group, so that the line under the label shows while the pointer is anywhere on the link: on its icon too.
+    let mut root = pressable(&self.part(LinkPart::Root), self.disabled).interaction_group(true);
     for handler in &self.on_click {
       root = root.on_click(handler.clone());
     }
@@ -240,8 +241,10 @@ impl Themed for Link {
   type Renderer = LinkRenderer;
 
   /// The design's link (`pencil/lurq-design-system.pen`, Link): text at
-  /// 14/500 in the foreground, an icon of 14 four after it, and a line under
-  /// both while the pointer is on it.
+  /// 14/500 in the foreground, an icon of 14 four after it, and a straight
+  /// line of 1 under the text, not under the icon, while the pointer is on
+  /// the link or the focus is in it. The line is the label's own edge: the
+  /// root's has the radius of the focus ring, and would curl up at its ends.
   fn recipe() -> Recipe {
     use LinkPart::{Icon, Label, Root};
     use PaletteColor::Foreground;
@@ -258,7 +261,7 @@ impl Themed for Link {
         s.typography(TypographyStyle::Body).weight(FontWeight::Medium)
       })
       .base(Icon, |s| s.square(IconSize::Sm))
-      .hovered(Root, |s| s.underline(Border::inside(1.0, Foreground)))
+      .within(Label, |s| s.underline(Border::inside(1.0, Foreground)))
       .focus_visible(Root, |s| s.focus_ring())
       .state(LinkState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
   }

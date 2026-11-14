@@ -15,7 +15,8 @@ use lurq::{
   layout::quad::Quad,
   node::color::Color,
   ui::{
-    Case, Field, Input, InputPart, InputRenderer, InputSize, InputState, InputView, Interaction, Opacity, Switch, icons,
+    Case, Field, Input, InputOtp, InputPart, InputRenderer, InputSize, InputState, InputView, Interaction, Opacity,
+    Switch, icons,
   },
 };
 
@@ -662,4 +663,55 @@ fn a_tap_of_the_label_focuses_the_input_even_from_another_text_input() {
   assert_eq!(focused(&stage).as_deref(), Some("name"));
   type_in(&mut stage, "Ivan");
   assert_eq!(value.get(), "Ivan");
+}
+
+#[test]
+fn a_control_wider_than_the_field_widens_it_and_is_not_cut() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Field::new(
+          "Verification code",
+          InputOtp::new(Signal::new(String::new())).groups([3, 3]).id("code"),
+        )
+        .description("We sent a code to ivan@lurq.dev, where it can be read for the next ten minutes.")
+        .id("field"),
+      )
+      .child(Field::new("Display name", Input::new(Signal::new(String::new())).id("name")).id("narrow"))
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("field");
+  let (code_x, _, code_width, _) = stage.bounds("code");
+  assert!(
+    code_width > 260.0,
+    "the board's code is wider than a field: {code_width}"
+  );
+  assert!(
+    code_x >= x - 0.5 && code_x + code_width <= x + width + 0.5,
+    "the field holds the code: {code_x}..{} in {x}..{}",
+    code_x + code_width,
+    x + width
+  );
+  // The description wraps at the field's width, and a field with a narrower control is still 260.
+  let description = stage
+    .text_quad("We sent a code to ivan@lurq.dev, where it can be read for the next ten minutes.")
+    .unwrap();
+  assert!(description.width <= 260.0 + 0.5, "{}", description.width);
+  assert_eq!(stage.bounds("narrow").2, 260.0);
+}
+
+#[test]
+fn beside_the_label_a_control_lower_than_an_input_is_level_with_it() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .child(Field::new("Notifications", Switch::new("Pause notifications").id("pause")).horizontal(true))
+      .into()
+  });
+  let label = stage.text_quad("Notifications").unwrap();
+  let (_, y, _, height) = stage.bounds("pause");
+  assert!(height < 36.0, "a switch is lower than an input: {height}");
+  let (label_middle, middle) = (label.y + label.height / 2.0, y + height / 2.0);
+  assert!((label_middle - middle).abs() < 1.0, "level: {label_middle} {middle}");
 }

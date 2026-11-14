@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use super::{
+  alert::wrapping,
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   icons, names,
   part_style::Length,
@@ -461,19 +462,16 @@ impl DialogView {
     if self.title.is_none() && self.description.is_none() {
       return None;
     }
-    let mut heading = Column::new().part(&self.part(DialogPart::Heading)).flex(1.0);
+    // It takes the room the close button leaves and no more: a longer text goes on to the next line.
+    let mut heading = Column::new()
+      .part(&self.part(DialogPart::Heading))
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(Dimension::Px(0.0));
     if let Some(title) = &self.title {
-      let part = self.part(DialogPart::Title);
-      heading = heading.child(Row::new().part(&part).child(part.text(title)));
+      heading = heading.child(wrapping(&self.part(DialogPart::Title), title));
     }
     if let Some(description) = &self.description {
-      let part = self.part(DialogPart::Description);
-      heading = heading.child(
-        Row::new()
-          .width(Dimension::Pct(100.0))
-          .part(&part)
-          .child(part.text(description)),
-      );
+      heading = heading.child(wrapping(&self.part(DialogPart::Description), description));
     }
     Some(heading)
   }

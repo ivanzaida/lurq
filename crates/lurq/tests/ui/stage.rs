@@ -191,6 +191,15 @@ impl Stage {
       .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == content))
   }
 
+  /// The quad of the text `content` as painted whole, or cut with an
+  /// ellipsis: its start and the ellipsis.
+  pub fn cut_text_quad(&self, content: &str) -> Option<Quad> {
+    self.quads().into_iter().find(|quad| {
+      matches!(&quad.content, QuadContent::Text { text, .. }
+        if text == content || text.strip_suffix('…').is_some_and(|start| content.starts_with(start.trim_end())))
+    })
+  }
+
   /// Whether the text `content` is painted.
   pub fn paints(&self, content: &str) -> bool {
     self.text_quad(content).is_some()
