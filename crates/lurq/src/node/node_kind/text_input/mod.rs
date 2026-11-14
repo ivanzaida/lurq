@@ -41,6 +41,8 @@ struct TextInputInner {
   hovered_token: Option<usize>,
   /// Whether the pointer is on the icon of a token that a click takes away.
   token_icon_hovered: bool,
+  /// An element the layout puts where a byte of the value stands: what a list hangs from.
+  byte_anchor: Option<(crate::core::ElementRef, usize)>,
   placeholder: Option<String>,
   last_value: String,
   caret: usize,
@@ -127,6 +129,7 @@ impl TextInputState {
         token_affinity: None,
         hovered_token: None,
         token_icon_hovered: false,
+        byte_anchor: None,
         placeholder: None,
         last_value: initial_value,
         caret,

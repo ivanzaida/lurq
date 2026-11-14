@@ -20,7 +20,7 @@ use crate::{
     events::{KeyboardEvent, TextInputEvent},
     theme::{BorderSize, IconSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
-  components::{Column, Popup, Rect, Row, TextInputController},
+  components::{Column, Popup, Row, TextInputController},
   core::{ElementRef, Signal},
   layout::Alignment,
   node::{CursorIcon, Element, border::Border},
@@ -648,9 +648,9 @@ impl MentionsView {
   }
 
   /// What choosing the offer at `index` does: its text in place of the trigger and what was typed, as a mention.
-  fn chooser(&self, index: usize) -> Option<Arc<dyn Fn() + Send + Sync>> {
+  fn chooser(&self, offer: &Mention) -> Option<Arc<dyn Fn() + Send + Sync>> {
     let (at, character) = self.trigger?;
-    let text = self.offers.get(index)?.inserted(character);
+    let text = offer.inserted(character);
     let (controller, handlers) = (self.controller.clone(), self.on_mention.clone());
     Some(Arc::new(move || {
       controller.choose(at, &text);
@@ -664,7 +664,7 @@ impl MentionsView {
   /// Escape puts the list away. Any other key, and a press, has the field look again for a trigger at the caret.
   pub fn control(&self) -> crate::components::TextInput {
     let controller = self.controller.clone();
-    let choosers: Vec<_> = (0..self.offers.len()).filter_map(|index| self.chooser(index)).collect();
+    let choosers: Vec<_> = self.offers.iter().filter_map(|offer| self.chooser(offer)).collect();
     let (open, trigger) = (self.open, self.trigger);
     let mut control = self.input.control().on_key_down(move |event: KeyboardEvent| {
       if !event.focus_within {
@@ -699,6 +699,10 @@ impl MentionsView {
       }
       controller.redraw();
     });
+    // The list hangs from the trigger, where the input's layout puts the anchor.
+    if let Some((at, _)) = self.trigger {
+      control = control.anchor_at(self.controller.anchor.clone(), at);
+    }
     let controller = self.controller.clone();
     control = control
       .on_mouse_down(move |_| controller.redraw())
@@ -711,6 +715,7 @@ impl MentionsView {
   /// field.
   pub fn option(&self, index: usize, offer: Mention) -> Element {
     let active = index == self.active;
+    let choose = self.chooser(&offer);
     let case = self.case.clone().state(MentionsState::Active, active);
     let recipe = self.theme().resolve::<Mentions>(&case, Some(&self.rules));
     let part = recipe.part(MentionsPart::Option).forced(self.forced.filter(|_| active));
@@ -738,7 +743,7 @@ impl MentionsView {
     }
     let label = recipe.part(MentionsPart::OptionLabel);
     row = row.child(Row::new().part(&label).child(label.text(&offer.label).nowrap()));
-    if let Some(choose) = self.chooser(index) {
+    if let Some(choose) = choose {
       row = row.on_click(move |_| choose());
     }
     let controller = self.controller.clone();
@@ -776,46 +781,12 @@ impl MentionsView {
       .into()
   }
 
-  /// A mark of no width at the trigger, which the list hangs from: as high as the text's line there, where the
-  /// input last laid it out, inside the box's padding.
-  pub fn anchor(&self) -> Element {
-    let point = self
-      .trigger
-      .and_then(|(at, _)| self.controller.input.caret_point(at).ok());
-    let control = self.input.part(TokenInputPart::Control).rest();
-    let spacing = self.theme().spacing();
-    let pad = |side: &Option<crate::node::SpacingValue>, both: &Option<crate::node::SpacingValue>| {
-      side
-        .as_ref()
-        .or(both.as_ref())
-        .map_or(0.0, |value| value.resolve(&spacing, 0.0))
-    };
-    let (left, top) = (
-      pad(&control.padding_start, &control.padding_x),
-      pad(&control.padding_top, &control.padding_y),
-    );
-    let (x, y, height) = point.map_or((0.0, 0.0, 1.0), |point| (point.x, point.y, point.height));
-    Row::new()
-      .padding_left((left + x).max(0.0))
-      .padding_top((top + y).max(0.0))
-      .pointer_events_none()
-      .child(Rect::new(1.0, height.max(1.0)).ref_element(self.controller.anchor.clone()))
-      .into()
-  }
-
-  /// How the default renderer builds a mentions field: the token input's control, the mark the list hangs from,
-  /// and the list.
+  /// How the default renderer builds a mentions field: the token input's control, which puts the list's anchor at
+  /// the trigger, and the list.
   pub fn render(mut self) -> Element {
     let control = self.control();
-    let anchor = self.anchor();
     let list = self.list();
-    self
-      .input
-      .root(control)
-      .overflow_visible()
-      .child(anchor)
-      .child(list)
-      .into()
+    self.input.root(control).overflow_visible().child(list).into()
   }
 }
 

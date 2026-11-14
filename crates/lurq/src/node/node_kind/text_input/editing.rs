@@ -344,7 +344,9 @@ impl TextInputState {
   }
 
   pub(crate) fn begin_selection_at_point(&self, x: f32, y: f32) {
-    if self.select_atomic_at_point(x, y) {
+    // A press on a token's removing icon selects nothing: a release that leaves a selection is the end of a drag,
+    // and makes no click, which is what takes the token away.
+    if !self.on_removing_icon(x, y) && self.select_atomic_at_point(x, y) {
       return;
     }
     let caret = self.closest_caret_to_point(x, y);

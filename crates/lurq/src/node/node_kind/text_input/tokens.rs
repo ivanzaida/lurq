@@ -96,6 +96,16 @@ impl TextInputState {
     Arc::ptr_eq(&self.inner, &other.inner)
   }
 
+  /// Has the layout put `anchor` where the byte `byte` of the value stands, or no element.
+  pub(crate) fn set_byte_anchor(&self, anchor: Option<(crate::core::ElementRef, usize)>) {
+    self.inner.lock().byte_anchor = anchor;
+  }
+
+  /// The element the layout puts at a byte of the value, and the byte.
+  pub(crate) fn byte_anchor(&self) -> Option<(crate::core::ElementRef, usize)> {
+    self.inner.lock().byte_anchor.clone()
+  }
+
   /// Whether the pointer is on the icon of a token that a click takes away: what is pressed there is a button.
   pub(crate) fn token_icon_hovered(&self) -> bool {
     self.inner.lock().token_icon_hovered
@@ -216,6 +226,11 @@ impl TextInputState {
     let mut inner = self.inner.lock();
     inner.caret = caret;
     inner.selection_anchor = anchor;
+  }
+
+  /// Whether `(x, y)` is on the icon of a token that a click takes away.
+  pub(super) fn on_removing_icon(&self, x: f32, y: f32) -> bool {
+    self.token_at_point(x, y).is_some_and(|token| token.on_removing_icon)
   }
 
   /// Selects all of the token at `(x, y)` where it is atomic; `false` where there is none.

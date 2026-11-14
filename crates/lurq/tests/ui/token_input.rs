@@ -517,3 +517,56 @@ fn a_click_on_an_offer_chooses_it_and_a_function_offers_what_it_finds() {
     "the press kept the focus in the field"
   );
 }
+
+/// The panel of the list of offers: the popover's fill, 220 wide.
+fn list_panel(stage: &Stage) -> Option<Quad> {
+  stage.quads().into_iter().find(|quad| {
+    matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Popover))
+      && quad.width == 220.0
+  })
+}
+
+/// Whether the list stands under the trigger at byte `at` of the field, as the field was laid out last: its left at
+/// the trigger's, its top 4 under the trigger's line.
+fn stands_at_trigger(stage: &mut Stage, mentions: &MentionsController, at: usize) {
+  let panel = list_panel(stage).expect("the list is painted");
+  let (x, y, ..) = stage.bounds("comment");
+  let point = mentions.input().caret_point(at).unwrap();
+  // The box's padding is 12 across and 8 down.
+  let (left, top) = (x + 12.0 + point.x, y + 8.0 + point.y + point.height + 4.0);
+  assert!(point.x > 50.0, "the trigger is well into the line: {}", point.x);
+  assert!(
+    (panel.x - left).abs() < 1.0,
+    "at the trigger's left: {} for {left}",
+    panel.x
+  );
+  assert!(
+    (panel.y - top).abs() < 1.0,
+    "under the trigger's line: {} for {top}",
+    panel.y
+  );
+}
+
+#[test]
+fn the_list_stands_at_a_trigger_that_arrives_in_a_paste_at_the_first_paint() {
+  let value = Signal::new(String::new());
+  let mentions = MentionsController::new();
+  let mut stage = comment(value.clone(), mentions.clone());
+  stage.key("Tab");
+  // The whole line at once, as a paste puts it: the trigger is nowhere the text laid out before had.
+  stage.tree.text_input_replace(0..0, "Thanks for the review @iv");
+  stage.pass_after(std::time::Duration::ZERO);
+  stands_at_trigger(&mut stage, &mentions, 22);
+}
+
+#[test]
+fn the_list_stands_at_a_trigger_in_a_value_the_app_sets_at_the_first_paint() {
+  let value = Signal::new(String::new());
+  let mentions = MentionsController::new();
+  let mut stage = comment(value.clone(), mentions.clone());
+  stage.key("Tab");
+  value.set("Ping the release owner @iv".to_owned());
+  stage.pass_after(std::time::Duration::ZERO);
+  assert!(stage.paints("Ivan Zaida"), "the caret was at the end, and stays there");
+  stands_at_trigger(&mut stage, &mentions, 23);
+}

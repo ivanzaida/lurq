@@ -79,9 +79,21 @@ What `lurq::ui` builds on, and does not write again:
   (`hovered_cursor`), as over a button; elsewhere in the input it stays the input's.
 - `crates/lurq/src/components/text_input_controller.rs` and `node_kind/text_input/controller_access.rs`:
   `TextInputController::caret_point(byte) -> InputCaretPoint { x, y, height }`, where the caret before a byte stood
-  when the input was last laid out, from the start of its text's box; `InputCaretPoint` is exported. `Mentions` hangs
-  its list from it. This is no area another session owns (it neither masks, filters what is typed, steps a value nor
-  moves the focus), and it is a read of what layout already keeps.
+  when the input was last laid out, from the start of its text's box; `InputCaretPoint` is exported. This is no area
+  another session owns (it neither masks, filters what is typed, steps a value nor moves the focus), and it is a read
+  of what layout already keeps.
+- An anchor at a byte, set as the input is laid out: `TextInput::anchor_at(element_ref, byte)` (in
+  `text_input_tokens.rs`, kept in `TextInputInner::byte_anchor`) has the layout publish `element_ref` at the place of
+  the caret before `byte`, one wide and as high as the text's band, inside the padding and past the scroll.
+  `LayoutEngine::index_input_anchor` (`input_token_quads.rs`, called from `collect_overlay_index_recursive` in
+  `layout_engine.rs` beside `index_node_layout`) pushes it into the overlay index where every element's rectangle is
+  published, and updates the ref's own bounds; an overlay placed in that pass hangs from it. Nothing of overlay
+  placement changed. `Mentions` hangs its list from it, so the list stands at the trigger at the first paint after a
+  paste or a value the app sets, as after a key.
+- `node_kind/text_input/geometry.rs`: the input keeps the hovered token across a render, as it keeps the caret, until
+  the pointer moves.
+- `node_kind/text_input/editing.rs`: a press on a token's removing icon selects nothing, so its release is a click
+  (a release that leaves a selection is the end of a drag and makes no click).
 - What `Mentions` would share with the Combobox session's list: its list is a `Popup` that takes no focus, with rows of
   its own (36 high, an avatar or icon and a label, the active one on `Highlight`), because the keys stay in the text
   and a row must not take the focus. A list filtered by typing that never takes the focus from the input it hangs from,
@@ -100,7 +112,8 @@ What `lurq::ui` builds on, and does not write again:
   room), a line inside the fill (`border`), the whole type (`text_style`), an icon after the text
   (`InputTokenIcon`, whose `removes(true)` makes a click on it delete the token as one undoable edit through
   `on_input`), and the looks it takes under the pointer (`hovered`) and while the selection covers it (`selected`).
-  `TextInputController::caret_point(byte)` says where a byte stood in the last layout, for a list hung from the text."
+  `TextInputController::caret_point(byte)` says where a byte stood in the last layout, and `TextInput::anchor_at(element,
+  byte)` has the layout put an element at a byte as it lays the input out, for an overlay hung from the text."
 
 ## For `docs/src/content/docs/design-system.md`
 
@@ -228,7 +241,7 @@ Mentions::new(comment.clone(), &mentions)
 
 ## For `CHANGELOG.md`
 
-- `ui::TokenInput`: a box of text, on one line or on rows, in which the tokens the app finds stand as chips in the colors of a tag, with a cross that takes one away as an undoable edit; atomic to the caret and to Backspace, and a `textbox` of the plain text to tooling. The engine's input tokens have what it needs: `InputTokenStyle::padding_end`, `height`, `border`, `text_style`, `icon(InputTokenIcon)`, `hovered` and `selected`, `InputToken::atomic`, and `TextInputController::caret_point`.
+- `ui::TokenInput`: a box of text, on one line or on rows, in which the tokens the app finds stand as chips in the colors of a tag, with a cross that takes one away as an undoable edit; atomic to the caret and to Backspace, and a `textbox` of the plain text to tooling. The engine's input tokens have what it needs: `InputTokenStyle::padding_end`, `height`, `border`, `text_style`, `icon(InputTokenIcon)`, `hovered` and `selected`, `InputToken::atomic`, `TextInput::anchor_at` (an element the layout puts at a byte, for an overlay) and `TextInputController::caret_point`.
 - `ui::Mentions` and `MentionsController`: a token input in which a trigger (`@`, `#`, `/`) opens a list of `Mention`s under it, narrowed to what is typed or found by a function, chosen with Up, Down and Enter or a click and put away with Escape; what is chosen stands as an atomic mention token.
 
 ## Decided
@@ -255,8 +268,8 @@ Mentions::new(comment.clone(), &mentions)
   dismissed trigger are kept in it, and a signal in it renders the field again when a key moves the offer or the caret
   without changing the text. A mounted component would have needed a `Ctx` where it is built, and `FieldControl`
   builds without one.
-- **The list hangs from the trigger, not the caret**, so that it stays still while the query is typed. Its anchor is a
-  mark of no width at the trigger, placed from `TextInputController::caret_point` and the box's padding.
+- **The list hangs from the trigger, not the caret**, so that it stays still while the query is typed. Its anchor is an
+  element the input's layout puts at the trigger's byte (`TextInput::anchor_at`).
 - **The list's rows are the mentions' own**, in a recipe that has a menu item's values (36 high as the board draws,
   padding 8, gap 8, `radius-sm`, `Highlight`): `ui::MenuItem` is a focusable button that would take the focus from
   the text, and has no avatar.
@@ -268,12 +281,7 @@ Mentions::new(comment.clone(), &mentions)
 
 ## Not done
 
-- **The list's place right after a paste or an edit of the app's**: `caret_point` reads the last layout, and the render
-  that follows an edit runs before the layout of it. Typed one key at a time this is exactly the trigger's place (the
-  byte the trigger was typed at stood there before it was typed), but when the trigger arrives in a paste or a value
-  the app sets, the mark stands where the text before it ended until the next render. Needs the engine to resolve an
-  overlay's anchor at a byte of a text input at layout time (an `ElementRef` of a text input's caret or byte that the
-  layout sets, as `ElementRefMut::set_bounds` does for an app), or to tell a component when an input's layout changed.
+Nothing.
 
 ## Differs from the board
 

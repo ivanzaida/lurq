@@ -775,6 +775,7 @@ impl LayoutEngine {
     let scope = node.theme_scope.as_deref().or(scope);
 
     Self::index_node_layout(node, rect, visible, scope, index);
+    Self::index_input_anchor(node, layout, rect, visible, index);
     let child_clip = intersect_clip(clip, children_clip(node, rect));
 
     for (child_layout, child) in layout.children.iter().zip(node.children()) {
