@@ -1118,7 +1118,8 @@ macro_rules! impl_into_node {
       /// A click of the element focuses `target`: the first element that takes the focus under the one the ref is
       /// on, as `Ctx::focus` finds it. What a label does for its control. A click on
       /// something under the element that takes the focus itself focuses that instead, and a disabled target is
-      /// not focused.
+      /// not focused. A button given one gives the focus on when it is pressed, by a click or by the keyboard: a
+      /// link to a field.
       pub fn focuses(mut self, target: &$crate::core::ElementRef) -> Self {
         let target = target.clone();
         self.update_node(|node| node.events.focuses = Some(target));
