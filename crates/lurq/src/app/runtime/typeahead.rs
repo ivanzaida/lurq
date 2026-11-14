@@ -116,7 +116,7 @@ fn find(stops: &[FocusTarget], nodes: &[&Node], current: Option<usize>, prefix: 
 }
 
 /// The label of an element: its `focus_label`, or, for a button, the one text in it.
-fn label(node: &Node) -> Option<String> {
+pub(super) fn label(node: &Node) -> Option<String> {
   if let Some(label) = node.focus_label() {
     return Some(label.to_owned());
   }

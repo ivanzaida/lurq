@@ -93,6 +93,7 @@ mod leaving_layers;
 mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
+mod menu_row;
 mod modal_focus;
 mod nested_focus;
 mod outside_press;
@@ -903,6 +904,11 @@ pub struct Tree {
   hover_held_by_keys: bool,
   /// What has been typed into the typeahead of a focus group, and when: see [`typeahead`].
   typeahead: Option<typeahead::Typeahead>,
+  /// Alt is down and nothing else was pressed since: its release puts the focus on a row of menus. See
+  /// [`menu_row`].
+  alt_alone: bool,
+  /// What had the focus before Alt alone put it on a row of menus, which Alt alone again gives it back to.
+  menu_row_return: Option<FocusTarget>,
   /// The closed layers the overlay host still draws, while their exit
   /// animations play: see [`leaving_layers`].
   leaving_layers: Vec<leaving_layers::LeavingLayer>,
@@ -1314,6 +1320,8 @@ impl Tree {
       built_focus_modals: Vec::new(),
       hover_held_by_keys: false,
       typeahead: None,
+      alt_alone: false,
+      menu_row_return: None,
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
       leaving_children: Vec::new(),
@@ -3812,6 +3820,8 @@ impl Tree {
     self.track_pointer(x, y);
     self.lay_out_rebuilt_for_input();
     self.set_input_modality(focus_visible::InputModality::Pointer);
+    // A press between Alt and its release makes the release no Alt alone.
+    self.alt_alone = false;
     if self.swallowed_press == Some(button) {
       // Its release never arrived (the OS took it); this is a new press.
       self.swallowed_press = None;
@@ -4094,6 +4104,7 @@ impl Tree {
       return;
     }
     self.note_key_press_modality(&key, ctrl, alt, meta);
+    self.note_alt_press(&key, ctrl, meta);
     // Keys never reach a node that was dropped since it took focus.
     self.blur_focus_in_dropped_child();
     // The input method takes the keys it reports as `Process` (on Windows,
@@ -4143,6 +4154,8 @@ impl Tree {
         && !meta
         && (self.focus_group_key(&key, click_modifiers) || self.focus_group_typeahead(&key))
       {
+        true
+      } else if !ctrl && !meta && self.menu_row_key(&key, alt, click_modifiers) {
         true
       } else if matches!(
         (key.as_str(), code.as_str()),
@@ -4213,6 +4226,10 @@ impl Tree {
       None => return,
     };
     fire_keyboard_up_recursive(root, &mut evt, self.focused_path.as_deref());
+    // Alt let go with nothing pressed while it was down goes to a row of menus, unless a handler took it.
+    if evt.key == "Alt" && std::mem::take(&mut self.alt_alone) && !evt.default_prevented() && self.menu_row_alt() {
+      self.needs_redraw = true;
+    }
     self.apply_reactive_updates_after_event();
   }
 

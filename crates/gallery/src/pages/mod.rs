@@ -32,6 +32,7 @@ mod input_otp;
 mod kbd;
 mod mentions;
 mod menu;
+mod menubar;
 mod message_box;
 mod multi_select;
 mod number_input;
@@ -515,6 +516,14 @@ pub const PAGES: &[Page] = &[
     about: "tree view treeview file tree explorer folder file nested hierarchy expand collapse outline lazy guides multiple select",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<tree_view::TreeViewPage>(()),
+  },
+  Page {
+    path: "/menubar",
+    name: "Menubar",
+    icon: None,
+    about: "menubar menu bar file edit view help title bar app menus mnemonic alt keyboard shortcut submenu",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<menubar::MenubarPage>(()),
   },
   Page {
     path: "/badge",

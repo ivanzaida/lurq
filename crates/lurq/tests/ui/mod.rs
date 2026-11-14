@@ -24,6 +24,7 @@ mod input_kinds;
 mod input_otp;
 mod kbd;
 mod menu;
+mod menubar;
 mod message_box;
 mod multi_select;
 mod number_input;

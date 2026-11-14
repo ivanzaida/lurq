@@ -72,6 +72,12 @@ pub enum MenuEntry {
   Label(Arc<str>),
 }
 
+impl From<MenuItem> for MenuEntry {
+  fn from(item: MenuItem) -> Self {
+    Self::Item(item)
+  }
+}
+
 /// A menu: a list of commands in a panel over the window, opened from an
 /// anchor. The actions of a file, the account's menu under an avatar, what a
 /// split button offers beside its action.
@@ -592,6 +598,7 @@ pub struct MenuItem {
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
   closes: Vec<Signal<bool>>,
   submenus: Vec<Signal<bool>>,
+  autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -614,6 +621,7 @@ impl MenuItem {
       on_select: Vec::new(),
       closes: Vec::new(),
       submenus: Vec::new(),
+      autofocus: false,
       id: None,
       key: None,
     }
@@ -728,6 +736,18 @@ impl MenuItem {
     self
   }
 
+  /// Makes the item the one the focus goes to as its menu opens, in place of the first: a menubar's menu opened
+  /// with Up opens at its last item.
+  pub(crate) fn autofocus(mut self, autofocus: bool) -> Self {
+    self.autofocus = autofocus;
+    self
+  }
+
+  /// Whether the item cannot be chosen.
+  pub(crate) fn is_disabled(&self) -> bool {
+    self.disabled
+  }
+
   /// Builds the item in `theme`. Converting an item into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
@@ -759,6 +779,7 @@ impl MenuItem {
       on_select: self.on_select,
       closes: self.closes,
       submenus: self.submenus,
+      autofocus: self.autofocus,
       id: self.id,
       key: self.key,
     };
@@ -798,6 +819,7 @@ pub struct MenuItemView {
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
   closes: Vec<Signal<bool>>,
   submenus: Vec<Signal<bool>>,
+  autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -908,6 +930,9 @@ impl MenuItemView {
           open.set(true);
         }
       });
+    }
+    if self.autofocus {
+      root = root.autofocus(true);
     }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
