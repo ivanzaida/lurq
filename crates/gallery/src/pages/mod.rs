@@ -5,10 +5,13 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
+mod alert;
 mod avatar;
 mod badge;
+mod banner;
 mod breadcrumb;
 mod button;
+mod callout;
 mod card;
 mod checkbox;
 mod checkbox_card;
@@ -466,6 +469,30 @@ pub const PAGES: &[Page] = &[
     about: "progress bar ring indeterminate loading upload value max percent label top bar meter variant size",
     group: Group::Data,
     mount: |ctx| ctx.mount::<progress::ProgressPage>(()),
+  },
+  Page {
+    path: "/alert",
+    name: "Alert",
+    icon: None,
+    about: "alert message notice error warning success info destructive severity status callout inline dismiss close action",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<alert::AlertPage>(()),
+  },
+  Page {
+    path: "/banner",
+    name: "Banner",
+    icon: None,
+    about: "banner announcement bar top window page notice update offline sticky dismiss close link centered",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<banner::BannerPage>(()),
+  },
+  Page {
+    path: "/callout",
+    name: "Callout",
+    icon: None,
+    about: "callout note tip warning caution admonition aside hint prose document bar form",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<callout::CalloutPage>(()),
   },
 ];
 
