@@ -1,11 +1,13 @@
 //! A table: rows of the same things in columns, which line up whatever is in a cell.
 
 use std::{
+  cell::Cell,
   cmp::Ordering,
   collections::{HashMap, HashSet},
   hash::Hash,
   marker::PhantomData,
   sync::Arc,
+  time::Instant,
 };
 
 use parking_lot::Mutex;
@@ -15,7 +17,7 @@ use super::{
   empty_state::{EmptyState, EmptyStateSize},
   icons, names,
   part_style::{FontFamily, Length},
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
   skeleton::Skeleton,
   theme::{Themed, current_theme},
@@ -25,6 +27,7 @@ use crate::{
     component::Component,
     ctx::Ctx,
     events::{KeyboardEvent, MouseEvent, ScrollEvent},
+    runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Column, Row, ScrollBoth},
@@ -36,7 +39,8 @@ use crate::{
     text_style::FontWeight,
   },
   node::{
-    BackgroundColor, CursorIcon, Element, FocusGroup, border::Border as Line, dimension::Dimension, outline::Outline,
+    BackgroundColor, CursorIcon, Element, FocusGroup, FocusRows, border::Border as Line, dimension::Dimension,
+    outline::Outline,
   },
 };
 
@@ -916,7 +920,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           let case = case
             .clone()
             .state(TableState::Selected, selected)
-            .state(TableState::Last, last);
+            .state(TableState::Last, last)
+            .state(TableState::Sticky, sticky);
           self.resolve(theme, &case)
         })
         .clone()
@@ -983,13 +988,21 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         let selected = selectable && held_now.contains(&keys[index]);
         let last = index + 1 == count && !footer;
         let recipe = row_recipe(selected, last);
-        let self_fill = table_fill.clone();
+        // A cell that stays covers what scrolls under it, in the row's fill, or the table's.
+        let stuck_fill: BackgroundColor = recipe
+          .part(TablePart::Row)
+          .rest()
+          .background
+          .or_else(|| table_fill.clone())
+          .unwrap_or_else(|| PaletteColor::Background.into());
         let cells = self
           .columns
           .iter()
           .enumerate()
           .map(|(column_index, column)| {
-            let part = cell_recipe(column_index, selected).part(TablePart::Cell);
+            let part = cell_recipe(column_index, selected)
+              .part(TablePart::Cell)
+              .forced(self.forced);
             let content = match &column.content {
               Content::Text(text) => part.text(&text(row)).nowrap().into(),
               Content::Element(cell) => cell(row),
@@ -1000,15 +1013,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               part,
               align: column.align,
               sticky: sticky_of(column_index),
-              // A cell that stays covers what scrolls under it, in the row's fill, or the table's.
-              fill: sticky_of(column_index).map(|_| {
-                recipe
-                  .part(TablePart::Row)
-                  .rest()
-                  .background
-                  .or_else(|| self_fill.clone())
-                  .unwrap_or_else(|| PaletteColor::Background.into())
-              }),
+              fill: sticky_of(column_index).map(|_| stuck_fill.clone()),
               controls: column.controls,
               last: cell_ends(column_index),
               gap: geometry.gap,
@@ -1032,6 +1037,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           cells,
           checkbox: checkboxes,
           sticky,
+          lead_fill: sticky.then(|| stuck_fill.clone()),
           entry: entry == Some(index),
           recipe,
           forced: self.forced,
@@ -1161,6 +1167,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       window: body_window,
       scroll: window.as_ref().map(|window| window.scroll.clone()),
       on_scroll: window.as_ref().and_then(|window| window.on_scroll.clone()),
+      focus_rows: window.as_ref().map(|window| window.rows.clone()),
       id: self.id.clone(),
       key: self.key.clone(),
     }
@@ -1332,6 +1339,8 @@ struct Window {
   scroll: ScrollState,
   refs: HashMap<usize, ElementRef>,
   host: Option<Arc<HostLink>>,
+  /// The rows as the body's focus group steps over them, built or not.
+  rows: Arc<dyn FocusRows>,
   on_scroll: Option<Arc<dyn Fn(ScrollEvent) + Send + Sync>>,
 }
 
@@ -1385,6 +1394,7 @@ pub struct TableView {
   pub window: Option<BodyWindow>,
   scroll: Option<ScrollState>,
   on_scroll: Option<Arc<dyn Fn(ScrollEvent) + Send + Sync>>,
+  focus_rows: Option<Arc<dyn FocusRows>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -1471,7 +1481,11 @@ impl TableView {
     }
     let mut cell = lead_cell(&part, self.geometry, self.sticky).child(checkbox.build(self.theme()));
     if self.sticky {
+      // It covers what scrolls under it, in the header's fill.
       cell = cell.sticky(Sticky::left(0.0));
+      if let Some(fill) = self.part(TablePart::Header).rest().background {
+        cell = cell.background(fill);
+      }
     }
     cell.into()
   }
@@ -1480,13 +1494,19 @@ impl TableView {
   /// rows a mounted table does not build before and after them.
   pub fn body(&mut self) -> Column {
     let rows = std::mem::take(&mut self.rows);
+    let group = FocusGroup::vertical().one_stop(true).wrap(false);
     let mut body = Column::new()
       .align_items(Alignment::Stretch)
-      .focus_group(FocusGroup::vertical().one_stop(true).wrap(false))
       .describe("a11y_role", "rowgroup");
-    let Some(window) = self.window else {
-      return body.with_children(rows.into_iter().map(TableRow::render));
+    let (Some(window), Some(focus_rows)) = (self.window, self.focus_rows.clone()) else {
+      // Every row is built: the group steps over the rows themselves.
+      return body
+        .focus_group(group)
+        .with_children(rows.into_iter().map(TableRow::render));
     };
+    // A mounted table builds the rows around its view: the group steps over all of them, and a row it goes to
+    // that is not built is revealed and focused once it is.
+    body = body.focus_group(group).focus_rows(focus_rows);
     let spacer = |before: usize, rows: usize| {
       Row::new()
         .height(rows as f32 * window.row_height)
@@ -1794,6 +1814,8 @@ pub struct TableRow {
   pub checkbox: bool,
   /// Whether the cells at its start stay while the rows scroll sideways.
   pub sticky: bool,
+  /// The fill of the cells that stay, the row's, over which the others scroll.
+  pub lead_fill: Option<BackgroundColor>,
   /// Whether Tab enters the rows at it.
   pub entry: bool,
   /// The style of each part of this row, in its case.
@@ -1821,6 +1843,8 @@ impl TableRow {
       .align_items(Alignment::Center)
       .spacing(0.0)
       .column_tracks(&self.tracks)
+      // The cells that stay cover the row's veil: they take it from the row under the pointer and held down.
+      .interaction_group(true)
       .stops_inside(true)
       .ref_element(self.element.clone())
       .focus_entry(self.entry)
@@ -1828,6 +1852,9 @@ impl TableRow {
       .describe("a11y_rowindex", (self.index + 2).to_string())
       // A row is the same element wherever the rows built around it start.
       .key(format!("row-{}", self.index));
+    if self.host.is_some() {
+      row = row.focus_row(self.index);
+    }
     if self.sticky {
       row = row.padding_left(0.0);
     }
@@ -1840,8 +1867,16 @@ impl TableRow {
       row = row.describe("a11y_selected", if self.selected { "true" } else { "false" });
     }
     if let Some(actions) = self.actions.clone() {
+      // A press selects at once, and a second press of the row soon after at the same place activates it. The
+      // row has no `on_dblclick`: the engine holds back the click of an element that has one, and the focus with
+      // it, until it knows it is not the first of a double press.
       let press = actions.clone();
+      let index = self.index;
       row = row.on_click(move |event: MouseEvent| {
+        if second_press(index, &event) {
+          (press.activate)();
+          return;
+        }
         if press.selectable {
           let pick = if event.shift {
             Pick::Range
@@ -1855,9 +1890,7 @@ impl TableRow {
         }
         (press.click)();
       });
-      let activate = actions.clone();
-      row = row.on_dblclick(move |_| (activate.activate)());
-      let (element, host, index) = (self.element.clone(), self.host.clone(), self.index);
+      let element = self.element.clone();
       row = row.on_key_down(move |event: KeyboardEvent| {
         // A key on a button in the row is the button's.
         if !element.focused() || event.composing || event.alt {
@@ -1874,18 +1907,11 @@ impl TableRow {
             event.prevent_default();
             (actions.select_all)();
           }
-          key => {
-            if let Some(host) = &host
-              && !command
-              && host.go(index, key)
-            {
-              event.prevent_default();
-            }
-          }
+          _ => {}
         }
       });
       if let Some(host) = &self.host {
-        let host = host.clone();
+        let (host, index) = (host.clone(), self.index);
         row = row.on_focus(move || host.focused(index));
       }
     }
@@ -1909,6 +1935,9 @@ impl TableRow {
     if self.sticky {
       cell = cell.sticky(Sticky::left(0.0));
     }
+    if let Some(fill) = self.lead_fill.clone() {
+      cell = cell.background(fill);
+    }
     if let Some(actions) = self.actions.clone() {
       cell = cell.on_click(move |event: MouseEvent| {
         event.stop_propagation();
@@ -1929,7 +1958,29 @@ impl TableRow {
   }
 }
 
-/// What a mounted table's rows tell its host: where the focus is, and the keys that go past the rows built.
+thread_local! {
+  /// The last plain press of a row: which row, when and where. A second one of it soon after at the same place,
+  /// as the engine counts a double press, activates it.
+  static LAST_PRESS: Cell<Option<(usize, Instant, (f32, f32))>> = const { Cell::new(None) };
+}
+
+/// Whether a press of the row `index` is the second of a double press: then the next is a first again. A press
+/// with Shift, Ctrl or the system key, or from the keyboard, changes the selection and is never one.
+fn second_press(index: usize, event: &MouseEvent) -> bool {
+  let plain = !(event.from_keyboard || event.shift || event.ctrl || event.meta || event.alt);
+  let now = Instant::now();
+  let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
+  LAST_PRESS.with(|last| {
+    let second = plain
+      && last
+        .get()
+        .is_some_and(|(row, at, place)| row == index && now.duration_since(at) <= DOUBLE_CLICK_INTERVAL && near(place));
+    last.set((plain && !second).then_some((index, now, (event.x, event.y))));
+    second
+  })
+}
+
+/// What a mounted table's rows tell its host: where the focus is.
 struct HostLink {
   state: Arc<HostState>,
 }
@@ -1938,37 +1989,44 @@ impl HostLink {
   fn focused(&self, index: usize) {
     *self.state.focused.lock() = Some(index);
   }
+}
 
-  /// A key on the row at `index` that the host moves the focus for: PageUp and PageDown, Home and End, and
-  /// Up and Down onto a row that is not built. Whether it took the key.
-  fn go(&self, index: usize, key: &str) -> bool {
-    let state = &self.state;
-    let metrics = *state.metrics.lock();
-    if metrics.count == 0 || metrics.row_height <= 0.0 {
-      return false;
+/// The rows of a mounted table as the engine's focus group steps over them: Up and Down, Home and End, PageUp
+/// and PageDown go to any row, and one that is not built is scrolled to and built, and focused once it is.
+impl FocusRows for HostState {
+  fn count(&self) -> usize {
+    self.metrics.lock().count
+  }
+
+  fn label(&self, _row: usize) -> Option<String> {
+    None
+  }
+
+  fn enabled(&self, _row: usize) -> bool {
+    !self.metrics.lock().disabled
+  }
+
+  /// The rows the view holds under the header, less one, so that the row a page goes from stays in view.
+  fn page(&self) -> usize {
+    let metrics = *self.metrics.lock();
+    if metrics.row_height <= 0.0 {
+      return 1;
     }
-    let last = metrics.count - 1;
-    let page = ((state.scroll.viewport_height() - metrics.header_height) / metrics.row_height)
+    ((self.scroll.viewport_height() - metrics.header_height) / metrics.row_height)
       .floor()
       .max(2.0) as usize
-      - 1;
-    let built = |at: usize| state.built.lock().contains(&at);
-    let target = match key {
-      "PageDown" => (index + page).min(last),
-      "PageUp" => index.saturating_sub(page),
-      "Home" => 0,
-      "End" => last,
-      "ArrowDown" if index < last && !built(index + 1) => index + 1,
-      "ArrowUp" if index > 0 && !built(index - 1) => index - 1,
-      _ => return false,
-    };
-    if target == index {
-      return true;
+      - 1
+  }
+
+  fn reveal(&self, row: usize) {
+    let metrics = *self.metrics.lock();
+    if row >= metrics.count || metrics.row_height <= 0.0 {
+      return;
     }
-    // The row is scrolled to where it shows under the header, and focused once it is built.
-    let top = target as f32 * metrics.row_height;
-    let room = (state.scroll.viewport_height() - metrics.header_height).max(metrics.row_height);
-    let scroll_y = state.scroll.scroll_y();
+    // The row is scrolled to where it shows under the header, and kept built as the focused row is.
+    let top = row as f32 * metrics.row_height;
+    let room = (self.scroll.viewport_height() - metrics.header_height).max(metrics.row_height);
+    let scroll_y = self.scroll.scroll_y();
     let y = if top < scroll_y {
       top
     } else if top + metrics.row_height > scroll_y + room {
@@ -1976,11 +2034,9 @@ impl HostLink {
     } else {
       scroll_y
     };
-    state.scroll.set_scroll(state.scroll.scroll_x(), y.max(0.0));
-    *state.pending.lock() = Some(target);
-    *state.focused.lock() = Some(target);
-    state.revision.update(|revision| *revision = revision.wrapping_add(1));
-    true
+    self.scroll.set_scroll(self.scroll.scroll_x(), y.max(0.0));
+    *self.focused.lock() = Some(row);
+    self.rebuild();
   }
 }
 
@@ -1990,6 +2046,7 @@ struct Metrics {
   row_height: f32,
   header_height: f32,
   count: usize,
+  disabled: bool,
 }
 
 /// Rows built past each edge of what is in view.
@@ -2005,10 +2062,8 @@ struct HostState {
   /// The places of the rows built.
   built: Mutex<Vec<usize>>,
   metrics: Mutex<Metrics>,
-  /// The row that has, or last had, the focus.
+  /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
-  /// The row a key moved the focus to, which is focused once it is built.
-  pending: Mutex<Option<usize>>,
   revision: Signal<u64>,
 }
 
@@ -2077,7 +2132,6 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         built: Mutex::new(Vec::new()),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
-        pending: Mutex::new(None),
         revision: ctx.signal(0_u64),
       }),
       _marker: PhantomData,
@@ -2112,6 +2166,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       row_height,
       header_height,
       count,
+      disabled: table.disabled,
     };
 
     // A recipe whose rows have no height in pixels builds every row: where they are cannot be reckoned.
@@ -2127,11 +2182,6 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       }
       *state.built.lock() = indices.clone();
       let refs: HashMap<usize, ElementRef> = indices.iter().map(|index| (*index, ElementRef::new())).collect();
-      if let Some(pending) = state.pending.lock().take()
-        && let Some(target) = refs.get(&pending)
-      {
-        ctx.focus(target);
-      }
       let watcher = state.clone();
       let on_scroll: Arc<dyn Fn(ScrollEvent) + Send + Sync> = Arc::new(move |event: ScrollEvent| {
         // Handlers run before the scroll moves: the rows are reckoned from where it is going.
@@ -2157,6 +2207,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         scroll: state.scroll.clone(),
         refs,
         host: Some(Arc::new(HostLink { state: state.clone() })),
+        rows: state.clone(),
         on_scroll: Some(on_scroll),
       }
     });
@@ -2259,6 +2310,15 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(Select, |s| s.width(16.0).cursor(CursorIcon::Pointer))
+      // The cells that stay cover the row's veil with its fill: they have it themselves.
+      .when(Selector::new().state(TableState::Sticky).within().hovered(), TablePart::Cell, |s| {
+        s.veil(StateHover)
+      })
+      .when(Selector::new().state(TableState::Sticky).within().pressed(), TablePart::Cell, |s| {
+        s.veil(StatePressed)
+      })
+      .when(Selector::new().state(TableState::Sticky).within().hovered(), Select, |s| s.veil(StateHover))
+      .when(Selector::new().state(TableState::Sticky).within().pressed(), Select, |s| s.veil(StatePressed))
       .base(Empty, |s| s.width(Length::Fill))
       .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {

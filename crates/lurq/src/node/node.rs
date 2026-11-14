@@ -592,6 +592,8 @@ pub(crate) trait NodeUpdate {
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);
   fn within_style(&mut self, style: Style);
+  fn within_hovered_style(&mut self, style: Style);
+  fn within_pressed_style(&mut self, style: Style);
   fn interaction_group(&mut self, group: bool);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
   fn off_click(&mut self, f: impl IntoMouseEventHandler);
@@ -1577,6 +1579,14 @@ impl NodeUpdate for Node {
 
   fn within_style(&mut self, style: Style) {
     self.state_styles.within = Some(style);
+  }
+
+  fn within_hovered_style(&mut self, style: Style) {
+    self.state_styles.within_hovered = Some(style);
+  }
+
+  fn within_pressed_style(&mut self, style: Style) {
+    self.state_styles.within_pressed = Some(style);
   }
 
   fn interaction_group(&mut self, group: bool) {
@@ -4864,6 +4874,16 @@ impl Node {
     {
       return Some(value);
     }
+    if let Some(value) = states.within_pressed.as_ref().and_then(&pick)
+      && state.is_within_pressed()
+    {
+      return Some(value);
+    }
+    if let Some(value) = states.within_hovered.as_ref().and_then(&pick)
+      && state.is_within_hovered()
+    {
+      return Some(value);
+    }
     if let Some(value) = states.within.as_ref().and_then(&pick)
       && state.is_within()
     {
@@ -4983,6 +5003,8 @@ impl Node {
       .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
       .or_else(|| state_shadow(self.style_state.is_focus_visible(), &states.focus_visible))
       .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
+      .or_else(|| state_shadow(self.style_state.is_within_pressed(), &states.within_pressed))
+      .or_else(|| state_shadow(self.style_state.is_within_hovered(), &states.within_hovered))
       .or_else(|| state_shadow(self.style_state.is_within(), &states.within))
       .or(self.rare_style.box_shadow.as_ref())
   }
@@ -5297,14 +5319,13 @@ impl Node {
     layout_dirty
   }
 
-  /// Lights or puts out what the interaction group around the node lights in it (its `within` style). Returns
-  /// the node's state, whose handle the tree keeps to put it out again.
-  pub(crate) fn set_style_within(&self, within: bool) -> InteractionState {
+  /// Lights or puts out what the interaction group around the node lights in it (its `within` styles), with
+  /// whether the group is under the pointer and held down. Returns the node's state, whose handle the tree keeps
+  /// to put it out again, and whether it changed.
+  pub(crate) fn set_style_within(&self, within: bool, hovered: bool, pressed: bool) -> (InteractionState, bool) {
     let state = self.bound_style_state();
-    if state.is_within() != within {
-      state.set_within(within);
-    }
-    state.clone()
+    let changed = state.set_within(within, hovered, pressed);
+    (state.clone(), changed)
   }
 
   /// Whether the node is an interaction group: see [`NodeUpdate::interaction_group`].
@@ -5314,7 +5335,8 @@ impl Node {
 
   /// Whether the node has a style for while its interaction group is lit.
   pub(crate) fn has_within_style(&self) -> bool {
-    self.state_styles.within.is_some()
+    let states = &*self.state_styles;
+    states.within.is_some() || states.within_hovered.is_some() || states.within_pressed.is_some()
   }
 
   pub(crate) fn set_style_focused(&self, focused: bool) -> bool {
@@ -6257,6 +6279,16 @@ impl Node {
     let mut style = Style::new();
     if let Some(within) = &self.state_styles.within
       && self.style_state.is_within()
+    {
+      style.merge_from(within);
+    }
+    if let Some(within) = &self.state_styles.within_hovered
+      && self.style_state.is_within_hovered()
+    {
+      style.merge_from(within);
+    }
+    if let Some(within) = &self.state_styles.within_pressed
+      && self.style_state.is_within_pressed()
     {
       style.merge_from(within);
     }

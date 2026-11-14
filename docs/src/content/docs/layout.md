@@ -199,6 +199,51 @@ A track, a column or a row, is a `GridTrack`:
 - `Auto` columns that do not fit the width give way in proportion, and their text wraps.
 - An absolutely positioned child takes no cell and is placed over the grid, as in a `Stack`.
 
+### Columns That Rows Share
+
+A table's header and each of its rows are elements of their own, each pressed, hovered and selected as one, and their
+cells line up in columns whatever is in them. `ColumnTracks` is the list of columns they share: a row given it with
+`.column_tracks(&tracks)` lays its children out side by side, one to a track, each as wide as its track; what holds the
+rows, given it with `.measures_column_tracks(&tracks)`, measures the cells of the rows in it.
+
+```rust
+use lurq::{
+  components::{Column, Row, Text},
+  layout::column_tracks::{ColumnTracks, TrackSpec},
+};
+
+// Kept from render to render, in a component's field: another list is other columns.
+let tracks = ColumnTracks::new([TrackSpec::share(1.0).min(120.0), TrackSpec::content(), TrackSpec::px(80.0)]);
+let row = |name: &str, kind: &str, size: &str| {
+  Row::new()
+    .spacing(16.0)
+    .column_tracks(&tracks)
+    .child(Text::new(name))
+    .child(Text::new(kind))
+    .child(Text::new(size))
+};
+Column::new()
+  .measures_column_tracks(&tracks)
+  .child(row("Name", "Kind", "Size"))
+  .child(row("blur.rs", "Rust", "12 KB"))
+```
+
+| Track | Width |
+|-------|-------|
+| `TrackSpec::px(120.0)` | A length in logical pixels. |
+| `TrackSpec::share(1.0)` | A share of the room the other tracks and the gaps leave, as a grid's `Fr`. Where the room is not known (a row as wide as its content), as wide as its content. |
+| `TrackSpec::content()` | As wide as the widest of its cells that has been measured. |
+
+- `.min(px)` and `.max(px)` hold a track between a least and a most. The shares split what is left between theirs; where
+  the tracks do not fit, none gives way below its least, and the row is wider than its room.
+- The row's `.spacing(..)` is the gap between two tracks. A cell is laid out as wide as its track, and the row is as
+  tall as its tallest cell; `.align_items(..)` says how the others sit in it.
+- What measures the tracks measures the rows that are its children and the rows in those, three deep, before it lays
+  them out, and a track keeps the widest cell it has had, so a column does not narrow as rows scroll by. Only rows that
+  are built are measured: in a list of thousands that builds those in view, a column is as wide as what has been seen.
+- A list is a handle: clones are the same list, and two lists are equal only where they are the same. A row whose list
+  is another than before is laid out again, so columns that change are a new list.
+
 ## Relative Positioning
 
 ```rust
@@ -471,6 +516,10 @@ lurq::components::ScrollVertical::new(
 Scroll containers give their child unbounded constraints on the scroll axis and apply scroll offsets during
 layout/rendering. Without a fixed size on the scroll axis, a scroll container takes its content's size within its
 constraints, so `.max_height(...)` makes it grow with its content up to the cap and scroll beyond it.
+
+`ScrollBoth::fill_width(true)` lays the content out at least as wide as the viewport, and wider only where it needs
+more: a table's columns share the room there is, and it scrolls sideways only where they do not fit. Without it the
+content of a `ScrollBoth` is as wide as it is itself, as unbounded room makes it.
 
 To bring an element into view, request it from a component with `ctx.scroll_into_view(&element_ref)` (the ref attached
 with `.ref_element(...)`), or call `scroll_into_view()` on the `ElementHandle` from `tree.get_element_by_id_mut(id)`.

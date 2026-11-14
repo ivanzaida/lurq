@@ -450,6 +450,35 @@ Row::new()
   group is lit and it shows. A design system's recipe names it `within` (see
   [Recipes](../design-system/#recipes)).
 
+`.within_hovered_style(style)` is laid over the within style while the group is under the pointer, and not while it only
+holds the focus; `.within_pressed_style(style)` over that while the group is held down. A cell of a table that stays
+while the row scrolls sideways covers the row's veil with its fill, so it takes the veil itself, by its row's hover and
+press: the row clicked keeps the focus, and the cell is not veiled once the pointer leaves it.
+
+```rust
+use lurq::{
+  components::{Row, Text},
+  layout::layout_kind::Sticky,
+  node::Style,
+};
+
+Row::new()
+  .interaction_group(true)
+  .hovered(|style| style.background("#f4f4f5"))
+  .active(|style| style.background("#e4e4e7"))
+  .child(
+    Row::new()
+      .sticky(Sticky::left(0.0))
+      .background("#ffffff")
+      .within_hovered_style(Style::new().background("#f4f4f5"))
+      .within_pressed_style(Style::new().background("#e4e4e7"))
+      .child(Text::new("report.pdf")),
+  )
+```
+
+A recipe says them as `within` with `hovered` or `pressed` (`Recipe::within_hovered`, `Recipe::within_pressed`, or
+`Selector::new().within().hovered()`).
+
 ## Disabled
 
 `.disabled(true)` takes an element and everything in it out of input:
