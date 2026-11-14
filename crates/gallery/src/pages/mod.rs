@@ -63,6 +63,7 @@ mod toggletip;
 mod token_input;
 mod tokens;
 mod tooltip;
+mod tree_view;
 
 /// A group of the side bar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -506,6 +507,14 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/tree-view",
+    name: "Tree View",
+    icon: None,
+    about: "tree view treeview file tree explorer folder file nested hierarchy expand collapse outline lazy guides multiple select",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<tree_view::TreeViewPage>(()),
   },
   Page {
     path: "/badge",

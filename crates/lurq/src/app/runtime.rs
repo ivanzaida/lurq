@@ -94,6 +94,7 @@ mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
 mod modal_focus;
+mod nested_focus;
 mod outside_press;
 mod overlay_layers;
 mod paste;
@@ -4290,6 +4291,11 @@ impl Tree {
     let Some((group_node, group, step)) = found else {
       return false;
     };
+    // Right, Left and `*` in a nested group open, close and climb: see `nested_focus`.
+    if step.is_nested() {
+      let group_id = group_node.node_id();
+      return self.focus_group_branch_key(group_id, focused, step);
+    }
     let stops = tab_navigation::group_stops(group_node, &self.dropped_nodes);
     let Some(current) = stops.iter().position(|stop| stop.input_id == focused) else {
       return false;
@@ -4302,7 +4308,11 @@ impl Tree {
       crate::node::FocusStep::Back if group.wrap => last,
       crate::node::FocusStep::On if current < last => current + 1,
       crate::node::FocusStep::On if group.wrap => 0,
-      _ => current,
+      crate::node::FocusStep::Back
+      | crate::node::FocusStep::On
+      | crate::node::FocusStep::Open
+      | crate::node::FocusStep::Close
+      | crate::node::FocusStep::OpenSiblings => current,
     };
     // The key is the group's even where it moves nothing: at an end of a group that does not wrap.
     if next != current {

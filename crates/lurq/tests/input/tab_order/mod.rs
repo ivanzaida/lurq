@@ -6,6 +6,7 @@ mod focusable;
 #[cfg(feature = "form")]
 mod forms_in_scope;
 mod modal_trap;
+mod nested_focus_group;
 mod scroll_into_view;
 mod typeahead;
 mod window_chrome;

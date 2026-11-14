@@ -15,7 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use super::{FocusTarget, NodeKind, Tree, find_node_by_id, focus_visible, tab_navigation};
+use super::{FocusTarget, NodeKind, Tree, focus_visible, tab_navigation};
 use crate::node::Node;
 
 /// How long after a letter the next one goes on the same prefix.
@@ -82,9 +82,10 @@ impl Tree {
       at: now,
     });
 
-    let stops = tab_navigation::group_stops(group, &self.dropped_nodes);
+    // The stops with their nodes, in one walk: a tree of thousands of rows is not searched again for each.
+    let (stops, nodes) = tab_navigation::group_stop_nodes(group, &self.dropped_nodes);
     let current = stops.iter().position(|stop| stop.input_id == focused);
-    let target = find(group, &stops, current, &prefix);
+    let target = find(&stops, &nodes, current, &prefix);
     if let Some(target) = target
       && Some(target.input_id) != Some(focused)
     {
@@ -99,7 +100,7 @@ impl Tree {
 /// The stop of `stops` whose label starts with `prefix`, looked for round the
 /// group: from `current` on for a prefix of more than one letter, from the one
 /// after it for one letter, or one letter typed again and again.
-fn find(group: &Node, stops: &[FocusTarget], current: Option<usize>, prefix: &str) -> Option<FocusTarget> {
+fn find(stops: &[FocusTarget], nodes: &[&Node], current: Option<usize>, prefix: &str) -> Option<FocusTarget> {
   let mut letters = prefix.chars();
   let first = letters.next()?;
   let repeated = letters.all(|letter| letter == first);
@@ -109,14 +110,13 @@ fn find(group: &Node, stops: &[FocusTarget], current: Option<usize>, prefix: &st
     (_, None) => (prefix.to_owned(), 0),
   };
   (0..stops.len())
-    .map(|step| stops[(start + step) % stops.len()])
-    .find(|stop| label(group, stop.input_id).is_some_and(|label| label.to_lowercase().starts_with(&wanted)))
+    .map(|step| (start + step) % stops.len())
+    .find(|&index| label(nodes[index]).is_some_and(|label| label.to_lowercase().starts_with(&wanted)))
+    .map(|index| stops[index])
 }
 
-/// The label of the element `id` in `group`: its `focus_label`, or, for a
-/// button, the one text in it.
-fn label(group: &Node, id: crate::core::NodeId) -> Option<String> {
-  let node = find_node_by_id(group, id)?;
+/// The label of an element: its `focus_label`, or, for a button, the one text in it.
+fn label(node: &Node) -> Option<String> {
   if let Some(label) = node.focus_label() {
     return Some(label.to_owned());
   }

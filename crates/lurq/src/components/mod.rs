@@ -1204,6 +1204,26 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// The level the element is at in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup): 1 at the top, 2 in an
+      /// element at the top, and so on. Left goes from it to the nearest
+      /// element before it at a lower level.
+      pub fn focus_level(mut self, level: u32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_level(node, level));
+        self
+      }
+
+      /// That the element opens and closes in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup), and whether it is open:
+      /// Right, Left and `*` call `toggle` with what it is to be. What it
+      /// holds is the elements after it at a higher level, there while it is
+      /// open.
+      pub fn focus_expanded(mut self, open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        let toggle: std::sync::Arc<dyn Fn(bool) + Send + Sync> = std::sync::Arc::new(toggle);
+        self.update_node(|node| $crate::node::NodeUpdate::focus_expanded(node, open, toggle));
+        self
+      }
+
       #[cfg(feature = "form")]
       pub fn name(mut self, name: impl Into<std::sync::Arc<str>>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::name(node, name));
