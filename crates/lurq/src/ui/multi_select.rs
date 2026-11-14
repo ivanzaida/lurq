@@ -7,7 +7,7 @@ use std::{
 };
 
 use super::{
-  combobox::{self, Choices, ComboboxSize, ComboboxState, Engine, Filter, Finish, Many, apart},
+  combobox::{self, Choices, ComboboxSize, ComboboxState, Engine, Filter, Finish, Many, ManyOf, apart},
   field::{FieldControl, InField},
   icon::Icon,
   icons, names,
@@ -180,8 +180,8 @@ pub type MultiSelectRenderer = Arc<dyn Fn(MultiSelectView) -> Element + Send + S
 /// Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared
 /// when the focus leaves. Past [`MultiSelect::max_shown`] tags the rest are one tag that counts them, "+3", and the
 /// tags go on to the next line where they do not fit: the box grows with them.
-pub struct MultiSelect {
-  choices: Box<dyn Choices>,
+pub struct MultiSelect<V = ()> {
+  choices: Box<dyn ManyOf<V>>,
   placeholder: Option<Arc<str>>,
   boxed: BoxStates,
   full_width: bool,
@@ -202,14 +202,16 @@ pub struct MultiSelect {
   key: Option<Arc<str>>,
 }
 
-impl MultiSelect {
+impl<T> MultiSelect<T>
+where
+  T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+  Vec<T>: SignalValue,
+{
   /// A multi select of `options` bound to `value`: the options whose values the signal has are chosen, and choosing
-  /// one adds its value, or takes it out. An option is a `(value, label)` or a [`SelectOption`].
-  pub fn new<T>(value: Signal<Vec<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Vec<T>: SignalValue,
-  {
+  /// one adds its value, or takes it out. An option is a `(value, label)` or a [`SelectOption`]. A multi select is
+  /// the `multiple` of a [`Select`](super::Select) by what it is, so it keeps `new` and `controlled` of its own, where
+  /// a component that holds one value or any number has `multiple` and `controlled_multiple`.
+  pub fn new(value: Signal<Vec<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
     Self::of(Box::new(Many::bound(
       value,
       options.into_iter().map(Into::into).collect(),
@@ -220,20 +222,18 @@ impl MultiSelect {
   /// `on_change` with the whole new set, and the box shows what the app answers with. Two built at the one place in
   /// the app's code, in a loop, are told apart by their `id` or `key`.
   #[track_caller]
-  pub fn controlled<T>(
+  pub fn controlled(
     values: Vec<T>,
     options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
     on_change: impl Fn(&[T]) + Send + Sync + 'static,
-  ) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
-    Vec<T>: SignalValue,
-  {
+  ) -> Self {
     let options = options.into_iter().map(Into::into).collect();
     Self::of(Box::new(Many::controlled(values, options, Location::caller()))).on_change(on_change)
   }
+}
 
-  fn of(choices: Box<dyn Choices>) -> Self {
+impl<V: 'static> MultiSelect<V> {
+  fn of(choices: Box<dyn ManyOf<V>>) -> Self {
     Self {
       choices,
       placeholder: None,
@@ -259,10 +259,9 @@ impl MultiSelect {
 
   /// Called with the whole new set when a person chooses an option, takes one back or away, or clears them: not when
   /// the app sets the signal. The handler takes the type of the values: `on_change(|languages: &[&str]| ..)` of a
-  /// multi select of `&str`; a handler of another type panics here.
-  pub fn on_change<T: 'static>(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
-    let handler: Arc<dyn Fn(&[T]) + Send + Sync> = Arc::new(handler);
-    self.choices.on_change(Box::new(handler), "MultiSelect");
+  /// multi select of `&str`; a handler of another type does not compile.
+  pub fn on_change(mut self, handler: impl Fn(&[V]) + Send + Sync + 'static) -> Self {
+    self.choices.on_change(Arc::new(handler));
     self
   }
 
@@ -435,6 +434,7 @@ impl MultiSelect {
       .state(ComboboxState::FullWidth, self.full_width);
     let mut choices = self.choices;
     choices.name(self.id.as_deref().or(self.key.as_deref()));
+    let choices: Box<dyn Choices> = choices;
     let choices: Arc<dyn Choices> = Arc::from(choices);
     let labels = choices.labels();
     let chosen = choices.chosen();
@@ -488,13 +488,13 @@ impl MultiSelect {
   }
 }
 
-impl From<MultiSelect> for Element {
-  fn from(select: MultiSelect) -> Self {
+impl<V: 'static> From<MultiSelect<V>> for Element {
+  fn from(select: MultiSelect<V>) -> Self {
     select.build(&current_theme())
   }
 }
 
-impl FieldControl for MultiSelect {
+impl<V: 'static> FieldControl for MultiSelect<V> {
   /// Called by the field's label unless it has a name of its own, judged as the field is unless the app judged it
   /// itself, and disabled where the field is.
   fn in_field(mut self, field: &InField) -> Element {
@@ -890,7 +890,8 @@ fn mark(part: &ResolvedPart) -> Row {
     .justify(Justify::Center)
 }
 
-impl Themed for MultiSelect {
+/// Every multiselect has the one recipe and renderer, whatever its values are.
+impl<V: 'static> Themed for MultiSelect<V> {
   const NAME: &'static str = "multi_select";
   type Renderer = MultiSelectRenderer;
 

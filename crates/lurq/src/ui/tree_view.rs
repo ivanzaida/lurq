@@ -224,45 +224,44 @@ impl<T> TreeItem<T> {
   }
 }
 
-/// What a tree's selection reads and writes: a signal of one row,
-/// `Signal<Option<T>>`, or of any number, `Signal<Vec<T>>`, which
-/// [`TreeView::new`] takes either of.
-pub struct TreeSelection<T> {
-  read: Arc<dyn Fn() -> Vec<T> + Send + Sync>,
-  write: Arc<dyn Fn(Vec<T>) + Send + Sync>,
-  many: bool,
+/// How many rows a tree's selection holds, which its constructor says: one ([`OneSelected`], `TreeView::new`,
+/// `TreeView::controlled`) or any number ([`ManySelected`], `TreeView::multiple`, `TreeView::controlled_multiple`).
+/// It is what [`TreeView::on_change`] is told: the row, `&T`, or the rows, `&[T]`.
+pub trait RowSelection<T>: Send + Sync + 'static {
+  /// What `on_change` is told.
+  type Value: ?Sized;
+  /// Whether any number of rows may be selected.
+  const MANY: bool;
+  /// What `on_change` is told of the rows now selected: of one row, none where none is.
+  fn told(selected: &[T]) -> Option<&Self::Value>;
 }
 
-impl<T: Clone + Send + Sync + 'static> From<Signal<Option<T>>> for TreeSelection<T>
-where
-  Option<T>: SignalValue,
-{
-  fn from(signal: Signal<Option<T>>) -> Self {
-    let read = signal.clone();
-    Self {
-      read: Arc::new(move || read.get().into_iter().collect()),
-      write: Arc::new(move |chosen: Vec<T>| signal.set(chosen.into_iter().last())),
-      many: false,
-    }
+/// One row selected at most: what `TreeView::new` and `TreeView::controlled` make.
+pub struct OneSelected;
+
+/// Any number of rows selected, with Ctrl and Shift: what `TreeView::multiple` and `TreeView::controlled_multiple`
+/// make.
+pub struct ManySelected;
+
+impl<T: 'static> RowSelection<T> for OneSelected {
+  type Value = T;
+  const MANY: bool = false;
+
+  fn told(selected: &[T]) -> Option<&T> {
+    selected.last()
   }
 }
 
-impl<T: Clone + Send + Sync + 'static> From<Signal<Vec<T>>> for TreeSelection<T>
-where
-  Vec<T>: SignalValue,
-{
-  fn from(signal: Signal<Vec<T>>) -> Self {
-    let read = signal.clone();
-    Self {
-      read: Arc::new(move || read.get()),
-      write: Arc::new(move |chosen| signal.set(chosen)),
-      many: true,
-    }
+impl<T: 'static> RowSelection<T> for ManySelected {
+  type Value = [T];
+  const MANY: bool = true;
+
+  fn told(selected: &[T]) -> Option<&[T]> {
+    Some(selected)
   }
 }
 
 type Told<T> = Arc<dyn Fn(&T) + Send + Sync>;
-type ToldAll<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
 type ToldOpen<T> = Arc<dyn Fn(&T, bool) + Send + Sync>;
 
 /// Things inside things, one level under the other: the files of a
@@ -285,7 +284,7 @@ type ToldOpen<T> = Arc<dyn Fn(&T, bool) + Send + Sync>;
 /// .open(open)
 /// .on_activate(|file| println!("open {file}"));
 /// // The selection held by the app, which is told each new one.
-/// let held = TreeView::controlled(["Cargo.toml"], [TreeItem::file("Cargo.toml", "Cargo.toml")], |chosen| {
+/// let held = TreeView::controlled(Some("Cargo.toml"), [TreeItem::file("Cargo.toml", "Cargo.toml")], |chosen| {
 ///   println!("{chosen:?}")
 /// });
 /// # }
@@ -307,22 +306,20 @@ type ToldOpen<T> = Arc<dyn Fn(&T, bool) + Send + Sync>;
 /// one; a letter goes to the next row that starts with it. Space selects the
 /// focused row and Enter activates it: a row that opens opens or closes, and
 /// [`on_activate`](Self::on_activate) is told. With
-/// [`multiple`](Self::multiple) a press with Ctrl (or Cmd) adds a row or takes
+/// [`TreeView::multiple`] a press with Ctrl (or Cmd) adds a row or takes
 /// it out, one with Shift selects the rows from the last selected one to it,
 /// Space adds or takes out the focused row, Shift with Up, Down, Home or End
 /// moves and selects the rows on the way, and Ctrl+A selects them all.
-pub struct TreeView<T> {
+pub struct TreeView<T: 'static, M: RowSelection<T> = OneSelected> {
   items: Vec<TreeItem<T>>,
   open: Vec<T>,
   toggle: Option<Arc<dyn Fn(&T, bool) + Send + Sync>>,
   selected: Vec<T>,
   select: Option<Arc<dyn Fn(Vec<T>) + Send + Sync>>,
-  holds_many: bool,
-  multiple: bool,
   guides: bool,
   disabled: bool,
   label: Option<Arc<str>>,
-  on_change: Vec<ToldAll<T>>,
+  on_change: Vec<Arc<dyn Fn(&M::Value) + Send + Sync>>,
   on_activate: Vec<Told<T>>,
   on_open_change: Vec<ToldOpen<T>>,
   states: Vec<Name>,
@@ -330,37 +327,68 @@ pub struct TreeView<T> {
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  _selection: PhantomData<fn() -> M>,
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
-  /// A tree of `items`, each with what it holds, whose selection is bound to `selection`: a `Signal<Option<T>>`
-  /// of one row, or a `Signal<Vec<T>>` of any number with [`multiple`](Self::multiple). The last of a `Vec` is
-  /// where a range selected with Shift starts. None is open until the app says.
-  pub fn new(selection: impl Into<TreeSelection<T>>, items: impl IntoIterator<Item = TreeItem<T>>) -> Self {
-    let selection = selection.into();
+impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T, OneSelected> {
+  /// A tree of `items`, each with what it holds, of which one row is selected at most, bound to `selected`: a click
+  /// or Space selects a row, and sets the signal. None is open until the app says.
+  pub fn new(selected: Signal<Option<T>>, items: impl IntoIterator<Item = TreeItem<T>>) -> Self
+  where
+    Option<T>: SignalValue,
+  {
     let mut tree = Self::of(items);
-    tree.selected = (selection.read)();
-    tree.select = Some(selection.write);
-    tree.holds_many = selection.many;
+    tree.selected = selected.get().into_iter().collect();
+    tree.select = Some(Arc::new(move |chosen: Vec<T>| selected.set(chosen.into_iter().last())));
     tree
   }
 
-  /// A tree of `items` whose selection the app holds: the rows of `selected`, and `on_change` is told what is to be
-  /// selected after each press or key that changes it, and shows what the app then gives. The last is where a
-  /// range selected with Shift starts.
+  /// A tree of `items` of which the app holds the one row selected: `selected`, and `on_change` is told the row a
+  /// click or Space selects; the tree shows what the app then gives. Two built at the one place in the app's code,
+  /// in a loop, are told apart by their `id` or `key`.
   pub fn controlled(
+    selected: Option<T>,
+    items: impl IntoIterator<Item = TreeItem<T>>,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
+  ) -> Self {
+    let mut tree = Self::of(items);
+    tree.selected = selected.into_iter().collect();
+    // The app's handler is told by `on_change`, with the handlers that hear the change.
+    tree.select = Some(Arc::new(|_| {}));
+    tree.on_change(on_change)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T, ManySelected> {
+  /// A tree of `items` of which any number of rows are selected, with Ctrl and Shift as a list of files has them,
+  /// bound to `selected`. The last of it is where a range selected with Shift starts.
+  pub fn multiple(selected: Signal<Vec<T>>, items: impl IntoIterator<Item = TreeItem<T>>) -> Self
+  where
+    Vec<T>: SignalValue,
+  {
+    let mut tree = Self::of(items);
+    tree.selected = selected.get();
+    tree.select = Some(Arc::new(move |chosen| selected.set(chosen)));
+    tree
+  }
+
+  /// A tree of `items` of which the app holds the rows selected: those of `selected`, and `on_change` is told the
+  /// whole new selection after each press or key that changes it; the tree shows what the app then gives. The last
+  /// is where a range selected with Shift starts. Two built at the one place in the app's code, in a loop, are told
+  /// apart by their `id` or `key`.
+  pub fn controlled_multiple(
     selected: impl IntoIterator<Item = T>,
     items: impl IntoIterator<Item = TreeItem<T>>,
     on_change: impl Fn(&[T]) + Send + Sync + 'static,
   ) -> Self {
     let mut tree = Self::of(items);
     tree.selected = selected.into_iter().collect();
-    // The app's handler is told by `on_change`, with the handlers that hear the change.
     tree.select = Some(Arc::new(|_| {}));
-    tree.holds_many = true;
     tree.on_change(on_change)
   }
+}
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<T, M> {
   fn of(items: impl IntoIterator<Item = TreeItem<T>>) -> Self {
     Self {
       items: items.into_iter().collect(),
@@ -368,8 +396,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
       toggle: None,
       selected: Vec::new(),
       select: None,
-      holds_many: false,
-      multiple: false,
       guides: false,
       disabled: false,
       label: None,
@@ -381,6 +407,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
       forced: None,
       id: None,
       key: None,
+      _selection: PhantomData,
     }
   }
 
@@ -413,13 +440,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     self
   }
 
-  /// Whether any number of rows may be selected: with Ctrl and Shift, as a list of files has it. A selection
-  /// in a `Signal<Option<T>>` holds one whatever this says.
-  pub fn multiple(mut self, multiple: bool) -> Self {
-    self.multiple = multiple;
-    self
-  }
-
   /// Whether a line runs down each level, under the chevron of the row it is in.
   pub fn guides(mut self, guides: bool) -> Self {
     self.guides = guides;
@@ -438,10 +458,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     self
   }
 
-  /// Called with what is selected after a click, Space, a key with Shift or Ctrl+A changed it: the whole new
-  /// selection, of one row where the tree holds one. Not called for a row that was selected already, nor when the
-  /// app sets the selection.
-  pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+  /// Called with what a click, Space, a key with Shift or Ctrl+A selected: the row (`&T`) of a tree of one, the whole
+  /// new selection (`&[T]`) of a tree of any number. Not called for a row that was selected already, nor when the app
+  /// sets the selection.
+  pub fn on_change(mut self, handler: impl Fn(&M::Value) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
   }
@@ -541,19 +561,18 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
     let mut flat = Vec::new();
     flatten(&self.items, 1, "", &self.open, self.disabled, &mut flat);
 
-    let multiple = self.multiple && self.holds_many;
-    // What writes a new selection tells the handlers of the change too, what a tree of one row holds of it.
+    let multiple = M::MANY;
+    // What writes a new selection tells the handlers of the change too: the row of a tree of one, the rows of one of
+    // any number.
     let write = self.select.clone().map(|write| {
-      let (told, many) = (self.on_change.clone(), self.holds_many);
+      let told = self.on_change.clone();
       Arc::new(move |next: Vec<T>| {
-        let held: Vec<T> = if many {
-          next.clone()
-        } else {
-          next.last().cloned().into_iter().collect()
-        };
+        let held = next.clone();
         write(next);
-        for handler in &told {
-          handler(&held);
+        if let Some(value) = M::told(&held) {
+          for handler in &told {
+            handler(value);
+          }
         }
       }) as Arc<dyn Fn(Vec<T>) + Send + Sync>
     });
@@ -659,8 +678,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> From<TreeView<T>> for Element {
-  fn from(tree: TreeView<T>) -> Self {
+impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> From<TreeView<T, M>> for Element {
+  fn from(tree: TreeView<T, M>) -> Self {
     tree.build(&current_theme())
   }
 }
@@ -1133,7 +1152,8 @@ impl TreeRow {
   }
 }
 
-impl<T: Send + Sync + 'static> Themed for TreeView<T> {
+/// Every tree has the one recipe and renderer, whatever its values are and however many it selects.
+impl<T: Send + Sync + 'static, M: RowSelection<T>> Themed for TreeView<T, M> {
   const NAME: &'static str = "tree_view";
   type Renderer = TreeViewRenderer;
 
@@ -1191,7 +1211,7 @@ impl<T: Send + Sync + 'static> Themed for TreeView<T> {
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
+impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<T, M> {
   /// The tree in the engine's virtual list, for a tree of thousands of rows: only the rows near its view are
   /// built, and the keys reach every row, built or not. Up, Down, Home, End, PageUp, PageDown, Right, Left, `*`
   /// and typeahead step over the rows that are shown (the engine's [`FocusRows`](crate::node::FocusRows)), the
@@ -1213,15 +1233,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
   /// # }
   /// ```
   pub fn mount(self, ctx: &mut Ctx) -> Element {
-    ctx.mount::<TreeViewHost<T>>(TreeViewHostProps { tree: self })
+    ctx.mount::<TreeViewHost<T, M>>(TreeViewHostProps { tree: self })
   }
 }
 
-struct TreeViewHostProps<T> {
-  tree: TreeView<T>,
+struct TreeViewHostProps<T: 'static, M: RowSelection<T>> {
+  tree: TreeView<T, M>,
 }
 
-impl<T> PartialEq for TreeViewHostProps<T> {
+impl<T, M: RowSelection<T>> PartialEq for TreeViewHostProps<T, M> {
   /// A tree built again is drawn again: what is open and selected is read from the app's signals as it is built.
   fn eq(&self, _: &Self) -> bool {
     false
@@ -1229,7 +1249,7 @@ impl<T> PartialEq for TreeViewHostProps<T> {
 }
 
 #[cfg(feature = "devtools")]
-impl<T> crate::app::component::DevtoolsInspectable for TreeViewHostProps<T> {
+impl<T, M: RowSelection<T>> crate::app::component::DevtoolsInspectable for TreeViewHostProps<T, M> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("TreeView", format!("{} items at the top", self.tree.items.len()));
   }
@@ -1308,15 +1328,15 @@ impl FocusRows for HostRows {
 
 /// A tree in a virtual list: its root, the focus group, holds the list, and the list a row component for each
 /// row near its view.
-struct TreeViewHost<T> {
+struct TreeViewHost<T, M> {
   shown: Arc<Mutex<Shown>>,
   rows: Arc<HostRows>,
   generation: AtomicU64,
-  _ids: PhantomData<fn() -> T>,
+  _ids: PhantomData<fn() -> (T, M)>,
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Component for TreeViewHost<T> {
-  type Props = TreeViewHostProps<T>;
+impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> Component for TreeViewHost<T, M> {
+  type Props = TreeViewHostProps<T, M>;
 
   fn create(ctx: &mut Ctx) -> Self {
     Self {
@@ -1336,7 +1356,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Component for TreeViewHost<T>
     let theme = current_theme();
     let rows = self.rows.clone();
     let page: Page = Arc::new(move || rows.page());
-    let (mut view, keys) = ctx.props::<TreeViewHostProps<T>>().tree.view(&theme, Some(page));
+    let (mut view, keys) = ctx.props::<TreeViewHostProps<T, M>>().tree.view(&theme, Some(page));
     for (index, row) in view.rows.iter_mut().enumerate() {
       row.row = Some(index);
     }

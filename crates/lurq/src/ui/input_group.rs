@@ -10,7 +10,7 @@ use super::{
   names,
   part_style::{Length, PartStyle},
   recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  select::{Select, SelectPart},
+  select::{AnySelect, Dress, Select, SelectPart},
   text_box::{self, Judgment, TextBoxState},
   theme::{Themed, current_theme},
 };
@@ -87,8 +87,8 @@ pub enum InputAddon {
   Icon(Name),
   /// A button: what the input is sent with.
   Button(Button),
-  /// A select: a scheme, a unit, a field to search in.
-  Select(Select),
+  /// A select: a scheme, a unit, a field to search in, of any type of value.
+  Select(AnySelect),
 }
 
 impl InputAddon {
@@ -121,9 +121,9 @@ impl From<Button> for InputAddon {
   }
 }
 
-impl From<Select> for InputAddon {
-  fn from(select: Select) -> Self {
-    Self::Select(select)
+impl<V: 'static> From<Select<V>> for InputAddon {
+  fn from(select: Select<V>) -> Self {
+    Self::Select(select.into())
   }
 }
 
@@ -453,9 +453,15 @@ impl InputGroupView {
           .recipe
           .rules_for(InputGroupPart::Select, SelectPart::Trigger)
           .extend(&corner_rules(&self.recipe, SelectPart::Trigger, ends));
-        let select = select.size(self.size).rules(&rules);
-        let select = if self.disabled { select.disabled(true) } else { select };
-        select.build(self.theme())
+        select.build(
+          self.theme(),
+          Dress {
+            size: Some(self.size),
+            rules: Some(&rules),
+            disabled: self.disabled,
+            ..Dress::default()
+          },
+        )
       }
     }
   }

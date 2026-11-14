@@ -897,6 +897,8 @@ pub struct EventHandlers {
   /// A press of the primary button runs the node's `on_click` handlers at once, and again while the button is held
   /// over it; its release clicks nothing more. See `app/runtime/press_repeat.rs`.
   pub press_repeats: bool,
+  /// Run as a press that repeats is let go, wherever the pointer is, or taken by the OS: the end of the gesture.
+  pub on_press_end: Vec<VoidCallback>,
 }
 
 /// The styles few nodes set, behind one guard: a guard holds a watch handle

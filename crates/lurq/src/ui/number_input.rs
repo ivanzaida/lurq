@@ -336,6 +336,9 @@ thread_local! {
   /// The value the focused number input had when it took the focus, or when an edit of it was last over: what
   /// tells whether Enter or the focus leaving ends a change. One input has the focus at a time.
   static EDIT_START: Cell<Option<Option<f64>>> = const { Cell::new(None) };
+  /// The value as a button of a number input was pressed, while it is held: what its release compares with. A
+  /// window has one pointer that holds a button.
+  static HELD_FROM: Cell<Option<Option<f64>>> = const { Cell::new(None) };
 }
 
 thread_local! {
@@ -616,6 +619,7 @@ impl NumberInput {
 
   /// A number input that shows `value`, held by the app, and tells `on_change` each change a person makes: the app
   /// sets what it shows. `None` is an empty field.
+  /// Two built at the one place in the app's code, in a loop, are told apart by their `id` or `key`.
   pub fn controlled(value: impl Into<Option<f64>>, on_change: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
     Self::bound(Bound::Controlled(value.into())).on_change(on_change)
   }
@@ -753,8 +757,9 @@ impl NumberInput {
     self
   }
 
-  /// Called with the value when a change is over, where the value is another than it was: Enter or the focus leaving
-  /// after typing, and each step of a key or a button, Home and End. Each call adds a handler.
+  /// Called with the value when a change is over, where the value is another than it was as it began: Enter or the
+  /// focus leaving after typing, each step of a key, Home and End, and the release of a button held down, however many
+  /// steps it took. Each call adds a handler.
   pub fn on_change_end(mut self, handler: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
     self.model.on_change_end.push(Arc::new(handler));
     self
@@ -1207,11 +1212,29 @@ impl NumberInputView {
       .focusable(false)
       .disabled(disabled)
       .repeat_press(true)
-      .on_click(move |_| {
+      .on_click(move |event: crate::app::events::MouseEvent| {
         let editing = model.accepts(&text.get_untracked());
         let before = model.value();
         let after = model.step(&text, steps, editing);
-        model.step_over(before, Some(after));
+        if event.from_keyboard {
+          model.step_over(before, Some(after));
+          return;
+        }
+        // A press held down steps again and again: the change is over as it is let go.
+        HELD_FROM.with(|from| {
+          if from.get().is_none() {
+            from.set(Some(before));
+          }
+        });
+        model.step_over(Some(after), Some(after));
+      })
+      .on_press_end({
+        let model = self.model.clone();
+        move || {
+          if let Some(before) = HELD_FROM.with(Cell::take) {
+            model.step_over(before, model.value());
+          }
+        }
       })
       .describe("a11y_role", "button")
       .describe("a11y_name", name)

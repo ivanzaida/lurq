@@ -7,7 +7,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  select::{Select, SelectPart},
+  select::{AnySelect, Dress, SelectPart},
   shared::glyph,
   theme::{Themed, current_theme},
 };
@@ -129,7 +129,7 @@ pub struct Pagination {
   previous_label: Arc<str>,
   next_label: Arc<str>,
   page_label: Arc<str>,
-  page_size: Option<(Arc<str>, Select)>,
+  page_size: Option<(Arc<str>, AnySelect)>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -254,8 +254,8 @@ impl Pagination {
   /// pagination is then as wide as what holds it, with the select at one end
   /// and the pages at the other. The select is the app's, bound to its own
   /// signal; the pagination sizes its trigger.
-  pub fn page_size(mut self, label: &str, select: Select) -> Self {
-    self.page_size = Some((Arc::from(label), select));
+  pub fn page_size(mut self, label: &str, select: impl Into<AnySelect>) -> Self {
+    self.page_size = Some((Arc::from(label), select.into()));
     self
   }
 
@@ -424,7 +424,7 @@ pub struct PaginationView {
   pub next_label: Arc<str>,
   pub page_label: Arc<str>,
   forced: Option<Interaction>,
-  page_size: Option<(Arc<str>, Select)>,
+  page_size: Option<(Arc<str>, AnySelect)>,
   go: Vec<Go>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -593,7 +593,14 @@ impl PaginationView {
     let rules = self.recipe.rules_for(PaginationPart::PageSize, SelectPart::Trigger);
     Some([
       Row::new().part(&text).child(text.text(&label).nowrap()).into(),
-      select.label(&label).rules(&rules).build(self.theme()),
+      select.build(
+        self.theme(),
+        Dress {
+          label: Some(&label),
+          rules: Some(&rules),
+          ..Dress::default()
+        },
+      ),
     ])
   }
 

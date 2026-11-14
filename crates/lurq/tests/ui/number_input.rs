@@ -584,6 +584,43 @@ fn a_button_held_down_steps_again_and_again_until_it_is_let_go() {
 }
 
 #[test]
+fn a_button_held_down_ends_its_change_once_as_it_is_let_go() {
+  let value = Signal::new(0.0);
+  let ends = Arc::new(Mutex::new(Vec::new()));
+  let (bound, ended) = (value.clone(), ends.clone());
+  let mut stage = Stage::new(move |_| {
+    let ended = ended.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        NumberInput::new(bound.clone())
+          .max(100.0)
+          .on_change_end(move |value| ended.lock().unwrap().push(value))
+          .id("n"),
+      )
+      .into()
+  });
+  let (_, (x, y)) = buttons(&mut stage, "n");
+  let pressed = Instant::now();
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.pass();
+  stage.tree.tick_timers_at(pressed + Duration::from_millis(450));
+  stage.tree.tick_timers_at(pressed + Duration::from_millis(520));
+  assert_eq!(value.get(), 3.0);
+  assert!(ends.lock().unwrap().is_empty(), "held, the change is not over");
+  // Let go away from the button: the end is its release, wherever the pointer is.
+  stage.tree.mouse_move(390.0, 290.0);
+  stage.tree.mouse_up(390.0, 290.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(
+    *ends.lock().unwrap(),
+    [Some(3.0)],
+    "told once, the value it was let go at"
+  );
+}
+
+#[test]
 fn the_number_is_written_in_its_format_out_of_the_focus_and_typed_plain_in_it() {
   let value = Signal::new(1234.5);
   let bound = value.clone();

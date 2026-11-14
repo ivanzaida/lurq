@@ -42,7 +42,7 @@ fn window() -> Column {
 
 /// A page with one combobox of the frameworks, bound to `value`, as `dress` makes it, and an input under it that Tab
 /// goes on to: with the combobox alone on the page, Tab would come round to it again.
-fn page(value: &Signal<String>, dress: impl Fn(Combobox) -> Combobox + Send + Sync + 'static) -> Stage {
+fn page(value: &Signal<String>, dress: impl Fn(Combobox<String>) -> Combobox<String> + Send + Sync + 'static) -> Stage {
   let (value, next) = (value.clone(), Signal::new(String::new()));
   Stage::new(move |_| {
     window()
@@ -418,11 +418,14 @@ fn a_disabled_combobox_takes_nothing() {
 fn judgments_are_an_inputs_and_a_field_gives_its_own() {
   for (judge, color) in [
     (
-      (|combobox: Combobox| combobox.invalid(true)) as fn(Combobox) -> Combobox,
+      (|combobox: Combobox<String>| combobox.invalid(true)) as fn(Combobox<String>) -> Combobox<String>,
       PaletteColor::Destructive,
     ),
-    (|combobox: Combobox| combobox.warning(true), PaletteColor::Warning),
-    (|combobox: Combobox| combobox.valid(true), PaletteColor::Success),
+    (
+      |combobox: Combobox<String>| combobox.warning(true),
+      PaletteColor::Warning,
+    ),
+    (|combobox: Combobox<String>| combobox.valid(true), PaletteColor::Success),
   ] {
     let value = Signal::new("lurq".to_owned());
     let mut stage = page(&value, judge);

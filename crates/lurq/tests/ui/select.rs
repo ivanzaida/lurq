@@ -40,7 +40,7 @@ fn window() -> Column {
 }
 
 /// A page with one select of the themes, bound to `value`, as `dress` makes it.
-fn page(value: &Signal<String>, dress: impl Fn(Select) -> Select + Send + Sync + 'static) -> Stage {
+fn page(value: &Signal<String>, dress: impl Fn(Select<String>) -> Select<String> + Send + Sync + 'static) -> Stage {
   let value = value.clone();
   Stage::new(move |_| {
     window()
@@ -354,12 +354,12 @@ fn an_invalid_select_keeps_the_destructive_color_in_its_edge_and_its_ring() {
 fn warning_and_valid_are_an_inputs_judgments_and_invalid_is_shown_over_them() {
   for (judge, color) in [
     (
-      (|select: Select| select.warning(true)) as fn(Select) -> Select,
+      (|select: Select<String>| select.warning(true)) as fn(Select<String>) -> Select<String>,
       PaletteColor::Warning,
     ),
-    (|select: Select| select.valid(true), PaletteColor::Success),
+    (|select: Select<String>| select.valid(true), PaletteColor::Success),
     (
-      |select: Select| select.valid(true).warning(true).invalid(true),
+      |select: Select<String>| select.valid(true).warning(true).invalid(true),
       PaletteColor::Destructive,
     ),
   ] {
@@ -575,12 +575,6 @@ fn on_change_is_told_a_persons_choice_and_not_what_the_app_sets_or_what_is_chose
   stage.pass();
   assert!(stage.paints("System"));
   assert_eq!(told.lock().unwrap().len(), 1);
-}
-
-#[test]
-#[should_panic(expected = "Select::on_change")]
-fn a_handler_of_another_type_than_the_values_panics() {
-  let _ = Select::new(Signal::new("light".to_owned()), themes()).on_change(|_: &u32| {});
 }
 
 #[test]

@@ -62,7 +62,7 @@ fn frameworks() -> Vec<(String, &'static str)> {
 }
 
 /// A combobox of the frameworks that holds `value`, bound to a signal of its own: for a stage that shows a state.
-fn showing(value: &str) -> Combobox {
+fn showing(value: &str) -> Combobox<String> {
   Combobox::new(Signal::new(value.to_owned()), frameworks()).placeholder("Select framework")
 }
 

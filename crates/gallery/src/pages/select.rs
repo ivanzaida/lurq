@@ -44,7 +44,7 @@ fn themes() -> Vec<(String, &'static str)> {
 }
 
 /// A select of the themes that holds `value`, bound to a signal of its own: for a stage that shows a state.
-fn showing(value: &str) -> Select {
+fn showing(value: &str) -> Select<String> {
   Select::new(Signal::new(value.to_owned()), themes())
 }
 

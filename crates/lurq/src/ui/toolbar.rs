@@ -335,8 +335,8 @@ impl From<ToggleGroup> for ToolbarItem {
   }
 }
 
-impl From<super::Select> for ToolbarItem {
-  fn from(select: super::Select) -> Self {
+impl<V: 'static> From<super::Select<V>> for ToolbarItem {
+  fn from(select: super::Select<V>) -> Self {
     Self::element(select)
   }
 }
@@ -1024,7 +1024,11 @@ impl Component for ToolbarHost {
       mark_stops(&mut element.node, &mut next, last, &self.last);
       // The menu hangs from the button, and its tooltip is anchored to it too.
       NodeUpdate::ref_element(&mut *element.node, self.anchor.clone());
-      Some(Tooltip::new(&bar.more_label).placement(Placement::Bottom).mount(ctx, element))
+      Some(
+        Tooltip::new(&bar.more_label)
+          .placement(Placement::Bottom)
+          .mount(ctx, element),
+      )
     } else {
       None
     };

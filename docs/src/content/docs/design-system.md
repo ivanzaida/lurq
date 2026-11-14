@@ -817,7 +817,7 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 | `Slider::controlled(value, on_change)` | The app holds the value, an `i32` or an `f32`: the slider shows it, tells `on_change` what a person makes it, and shows what the app answers with. A drag goes on over the renders the answers make |
 | `RangeSlider::new(Signal<(T, T)>)`, `RangeSlider::controlled((low, high), on_change)` | The two values of a range slider, the low one first, in the same ranges and steps |
 | `on_change(Fn(f64))` | Each change a person makes, as it is made: a drag as it moves, a press on the track, a key. Not what the app sets, nor a new range or step that snaps the value. A range slider's is `Fn((f64, f64))`, the two values. Each call adds |
-| `on_change_end(Fn(f64))` | The value when a change is over: the drag let go, the press on the track or the key's step made. A range slider's is told the two. Each call adds |
+| `on_change_end(Fn(f64))` | The value when a change is over, where it is another than it was as the change began: the drag let go, the press on the track or the key's step made. A drag taken back to where it began tells nothing. A range slider's is told the two. Each call adds |
 | `min(v)`, `max(v)`, `step(v)` | The least value, the greatest and how far apart the values are, from the least. Any number: `min(10)`, `step(0.25)` |
 | `orientation(SliderOrientation)` | `Horizontal`, or `Vertical`: 16 wide and 140 high, the least value at the bottom. `SliderOrientation` is `ui::Orientation` |
 | `length(f32)` | How long the slider is along its track: its width across, its height up |
@@ -872,7 +872,7 @@ Select::controlled(rows, [(10, "10"), (20, "20"), (50, "50")], move |rows| set_r
 | `new(Signal<T>, options)` | What it is bound to, and its options: `(value, label)` pairs or `SelectOption`s (`detail`, a second line; `hint`, a note at its end; `leading` and `trailing`, an element before and after the label, which the closed select shows for the chosen option, and `leading_with` and `trailing_with` for one built for the state of its row, as an [icon](#icon) in the color of the label is; `group(label)`, the group it starts; `disabled`). The option whose value the signal has is chosen; choosing another sets the signal |
 | `optional(Signal<Option<T>>, options)` | Bound to a value that may be none: `None` is no option's, and the trigger shows the placeholder |
 | `controlled(value, options, on_change)` | The app holds the value: a choice is told to `on_change`, and the trigger shows what the app answers with. Two built at one place in the app's code, in a loop, are told apart by their `id` or `key` |
-| `on_change(Fn(&T))` | Called with the new value when a person chooses: not when the app sets the signal, and not for the option chosen already. The handler names the type of the value, `on_change(\|theme: &String\| ..)`, `&Option<T>` of an optional one; a handler of another type panics. A second handler is called after the first |
+| `on_change(Fn(&T))` | Called with the new value when a person chooses: not when the app sets the signal, and not for the option chosen already. The handler takes the type of the value, `&Option<T>` of an optional one: a `Select<T>` is generic over it, so a handler of another type does not compile. A second handler is called after the first |
 | `placeholder(&str)` | What the trigger says while no option is chosen |
 | `size(SelectSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15: an input's sizes. `SelectSize` is `TextBoxSize` |
 | `read_only(bool)` | What is chosen is read and not changed: the list does not open. It keeps the focus; the trigger is on `Muted` in an edge of `Border`, as a read only input is |
@@ -1994,7 +1994,7 @@ NumberInput::controlled(seats.get(), move |value| seats.set(value)).on_change_en
 | `placeholder(&str)` | What an empty input says |
 | `invalid`, `warning`, `valid`, `read_only` | As an [input](#input) has them. A read-only one is focused and selected, and its keys and buttons change nothing |
 | `on_change(Fn(Option<f64>))` | Called with the value each time a person changes it: as it is typed, stepped, put right or emptied. Each call adds |
-| `on_change_end(Fn(Option<f64>))` | Called with the value when a change is over, where it is another than before: Enter or the focus leaving after typing, each step of a key or a button, Home and End. Each call adds |
+| `on_change_end(Fn(Option<f64>))` | Called with the value when a change is over, where it is another than before: Enter or the focus leaving after typing, each step of a key, Home and End, and the release of a button held down, however many steps it took. Each call adds |
 | `increase_label(&str)`, `decrease_label(&str)` | What the buttons are called to what reads the tree: "Increase" and "Decrease" when not given |
 | `name(..)` | The name of its text in a form's data. A form's number is bound with `NumberInput::new(form.number("seats"))` |
 | `label`, `full_width`, `disabled`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As an [input](#input) has them. `id` is the id of the box that is typed in |
@@ -2285,7 +2285,7 @@ MultiSelect::new(languages.clone(), [
 | Builder | |
 | --- | --- |
 | `MultiSelect::new(value, options)` | Bound to a `Signal<Vec<T>>`: the options with its values are chosen, shown as tags in the order they were chosen; choosing one adds its value, or takes it out. The options are a select's |
-| `controlled(values, options, on_change)` | The app holds the values: a change is told to `on_change` with the whole new set, and the box shows what the app answers with |
+| `controlled(values, options, on_change)` | The app holds the values: a change is told to `on_change` with the whole new set, and the box shows what the app answers with. A multi select is the `multiple` of a select by what it is, so these are its own `new` and `controlled`, where a component that holds one value or any number has `multiple` and `controlled_multiple` |
 | `on_change(Fn(&[T]))` | Called with the whole new set when a person chooses an option, takes one back or away, or clears them: not when the app sets the signal. Its handler names the type of the values, `on_change(\|languages: &[String]\| ..)` |
 | `read_only(bool)` | What is chosen is read and not changed: the list does not open, what is typed is not taken, the tags have no cross and there is no clear control |
 | `placeholder(&str)` | What the box says while nothing is chosen and nothing is typed |
@@ -3511,10 +3511,10 @@ TreeView::new(selected, [
 .on_activate(|file| open_file(file));
 
 // Any number selected, with Ctrl and Shift.
-TreeView::new(many, project).open(open).multiple(true);
+TreeView::multiple(many, project).open(open);
 
 // The selection held by the app, which is told each new one.
-TreeView::controlled(app.selected(), project, |next| app.select(next));
+TreeView::controlled(app.selected(), project, |row| app.select(row));
 
 // Children the app brings when the row is first opened.
 TreeItem::folder("registry", "registry").lazy(true);
@@ -3531,8 +3531,9 @@ TreeView::new(selected, items)
 
 | Builder | |
 | --- | --- |
-| `new(selection, items)` | The rows at the top, each a `TreeItem<T>` with what it holds, and what is selected: a `Signal<Option<T>>` of one row, or a `Signal<Vec<T>>` of any number with `multiple`. `T` is what rows are told apart by: a path, an id |
-| `controlled(selected, items, on_change)` | The selection held by the app: the rows of `selected`, and `on_change(&next)` is told what is to be selected; the tree shows what the app gives back |
+| `new(selected, items)` | The rows at the top, each a `TreeItem<T>` with what it holds, of which one is selected at most, bound to a `Signal<Option<T>>`. `T` is what rows are told apart by: a path, an id |
+| `multiple(selected, items)` | The same of which any number are selected, with Ctrl and Shift as a list of files has them, bound to a `Signal<Vec<T>>` |
+| `controlled(selected, items, on_change)`, `controlled_multiple(selected, items, on_change)` | The selection held by the app: an `Option<T>` of one row, told `on_change(&row)`, or the rows of any number, told `on_change(&[rows])`; the tree shows what the app gives back. Two built at the one place in the app's code, in a loop, are told apart by their `id` or `key` |
 | `TreeItem::new(value, label)`, `folder(value, label)`, `file(value, label)` | A row; a folder has the icons of a folder and of an open one, a file the icon of a file |
 | `TreeItem::icon(icon)`, `open_icon(icon)` | The icon before the label, and another while the row is open: a name, or `None` for none in place of a folder's or a file's |
 | `TreeItem::trailing(element)` | What stands at the row's end: a count, a badge |
@@ -3542,10 +3543,9 @@ TreeView::new(selected, items)
 | `TreeItem::disabled(bool)`, `id(id)`, `key(key)` | A row that takes nothing; the id of the row's element; what the row is told apart by among the rows in place of its place, which keeps its node and its focus in a virtual list as rows are put in before it |
 | `open(Signal<Vec<T>>)` | The rows that are open. Opening a row adds it, closing one takes it out |
 | `open_ids(ids, toggle)` | The same held by the app: `toggle(&value, open)` is told of each row a press or a key asks to open or close |
-| `multiple(bool)` | Any number selected, with Ctrl and Shift as a list of files has them |
 | `guides(bool)` | A line down each level, under the chevron of the row it is in |
 | `label(&str)` | What the tree is called, to what reads the tree. It draws nothing |
-| `on_change(handler)` | Told the whole new selection (`&[T]`, of one row where the tree holds one) after a click, Space, Shift with a key or Ctrl+A changed it; not for what was selected already, nor when the app sets it |
+| `on_change(handler)` | Told the row a click or Space selects (`&T`), or, of a tree of any number, the whole new selection (`&[T]`) after a click, Space, Shift with a key or Ctrl+A changed it; not for what was selected already, nor when the app sets it. The tree is `TreeView<T, OneSelected>` or `TreeView<T, ManySelected>`, so a handler of another type does not compile |
 | `on_activate(handler)` | Told of the row a double click or Enter activates: open the file. A row that opens opens or closes as well |
 | `on_open_change(handler)` | Told of each row a press or a key opens or closes, `(&value, open)`: where a lazy row's children are brought |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root; `force` draws the row Tab stops on so, the first selected, else the first that is not disabled |

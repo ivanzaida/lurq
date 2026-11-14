@@ -1199,6 +1199,13 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Called as a press of the element that repeats (`repeat_press`) is let go, wherever the pointer is then, or
+      /// is taken by the OS: the end of the held press, after the last of its clicks.
+      pub fn on_press_end(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {
+        self.update_node(|node| node.events.on_press_end.push($crate::node::VoidEventHandler::new(f)));
+        self
+      }
+
       pub fn interactive(mut self, state: $crate::node::interaction_state::InteractionState) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::interactive(node, state));
         self

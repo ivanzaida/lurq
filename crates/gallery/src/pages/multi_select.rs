@@ -59,7 +59,7 @@ fn owned(values: &[&str]) -> Vec<String> {
 
 /// A multi select of the languages that holds `values`, bound to a signal of its own: for a stage that shows a
 /// state.
-fn showing(values: &[&str]) -> MultiSelect {
+fn showing(values: &[&str]) -> MultiSelect<String> {
   MultiSelect::new(Signal::new(owned(values)), languages()).placeholder("Select languages")
 }
 

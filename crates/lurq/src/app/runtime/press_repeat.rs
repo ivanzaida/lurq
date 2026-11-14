@@ -2,7 +2,7 @@
 //! primary button on such an element runs its `on_click` handlers at once; while the button stays down and the
 //! pointer over the element, they run again, first after [`REPEAT_DELAY`] and then every [`REPEAT_INTERVAL`]. A
 //! pointer that leaves the element pauses the repeat, and one that comes back resumes it. The release ends it and
-//! clicks nothing more.
+//! clicks nothing more, and tells the element (`on_press_end`).
 
 use super::{Tree, find_node_by_id};
 use crate::{
@@ -52,9 +52,20 @@ impl Tree {
     self.run_press_repeat(target, x, y);
   }
 
-  /// Ends a held press: its button was released, or the OS took the press.
+  /// Ends a held press: its button was released, or the OS took the press. The element is told (`on_press_end`).
   pub(super) fn end_press_repeat(&mut self) {
-    self.press_repeat = None;
+    let Some(held) = self.press_repeat.take() else {
+      return;
+    };
+    let ended = self
+      .root
+      .as_ref()
+      .and_then(|root| find_node_by_id(root, held.node))
+      .map(|node| node.events.on_press_end.clone())
+      .unwrap_or_default();
+    for handler in ended {
+      handler.call();
+    }
   }
 
   /// When a held press repeats next.

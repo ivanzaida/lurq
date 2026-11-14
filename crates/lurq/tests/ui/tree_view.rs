@@ -344,11 +344,7 @@ fn with_multiple_ctrl_adds_shift_selects_a_range_and_space_and_ctrl_a_select_too
   let (scene_open, scene_selected) = (open.clone(), selected.clone());
   let mut stage = Stage::new(move |_| {
     Column::new()
-      .child(
-        TreeView::new(scene_selected.clone(), files())
-          .open(scene_open.clone())
-          .multiple(true),
-      )
+      .child(TreeView::multiple(scene_selected.clone(), files()).open(scene_open.clone()))
       .into()
   });
   stage.click("lurq");
@@ -519,10 +515,9 @@ fn big_stage(open: Vec<u32>) -> (Stage, Signal<Vec<u32>>, Signal<Vec<u32>>) {
   let stage = Stage::new(move |ctx| {
     Column::new()
       .child(
-        TreeView::new(scene_selected.clone(), big())
+        TreeView::multiple(scene_selected.clone(), big())
           .label("Files")
           .open(scene_open.clone())
-          .multiple(true)
           .style(TreeViewPart::Root, |s| s.width(220.0).height(240.0))
           .id("tree")
           .mount(ctx),
@@ -699,7 +694,7 @@ fn a_rows_height_follows_the_density() {
 
 #[test]
 fn on_change_is_told_the_new_selection_a_person_makes_and_not_what_is_so_or_what_the_app_sets() {
-  let told = Arc::new(Mutex::new(Vec::<Vec<Id>>::new()));
+  let told = Arc::new(Mutex::new(Vec::<Id>::new()));
   let second = Arc::new(Mutex::new(0));
   let held = Held::new(&["crates"], None);
   let (scene, tell, also) = (held.clone(), told.clone(), second.clone());
@@ -710,13 +705,13 @@ fn on_change_is_told_the_new_selection_a_person_makes_and_not_what_is_so_or_what
       .child(
         scene
           .tree(files())
-          .on_change(move |chosen| tell.lock().unwrap().push(chosen.to_vec()))
+          .on_change(move |chosen: &Id| tell.lock().unwrap().push(*chosen))
           .on_change(move |_| *also.lock().unwrap() += 1),
       )
       .into()
   });
   stage.click("Cargo.toml");
-  assert_eq!(*told.lock().unwrap(), [vec!["Cargo.toml"]], "the whole new selection");
+  assert_eq!(*told.lock().unwrap(), ["Cargo.toml"], "the row a tree of one selects");
   assert_eq!(*second.lock().unwrap(), 1, "a second handler is called after the first");
   assert_eq!(focused(&stage).as_deref(), Some("Cargo.toml"));
   // Space on the row that is selected already changes nothing, and tells nothing.
@@ -741,7 +736,7 @@ fn a_controlled_tree_shows_what_the_app_answers_with() {
     Column::new()
       .padding(8.0)
       .child(
-        TreeView::controlled(held, files(), move |chosen| {
+        TreeView::controlled_multiple(held, files(), move |chosen| {
           tell.lock().unwrap().push(chosen.to_vec());
           answer.set(vec!["Cargo.toml"]);
         })
@@ -827,4 +822,50 @@ fn a_row_with_a_key_keeps_its_focus_in_a_virtual_list_as_a_row_is_put_in_before_
   // Space selects the row that has the focus: b.rs, which a row was put in before.
   stage.key(" ");
   assert_eq!(selected.get(), Some("b"));
+}
+
+#[test]
+fn a_controlled_tree_of_one_is_told_the_row_and_shows_the_answer() {
+  let answer: Signal<Option<Id>> = Signal::new(Some("Cargo.toml"));
+  let asked = Arc::new(Mutex::new(Vec::<Id>::new()));
+  let (scene, tell) = (answer.clone(), asked.clone());
+  let mut stage = Stage::new(move |_| {
+    let (answer, tell) = (scene.clone(), tell.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        TreeView::controlled(answer.get(), files(), move |row: &Id| {
+          tell.lock().unwrap().push(*row);
+          // The app takes the row asked for.
+          answer.set(Some(*row));
+        })
+        .open(Signal::new(vec!["crates"])),
+      )
+      .into()
+  });
+  stage.click("crates");
+  assert_eq!(*asked.lock().unwrap(), ["crates"]);
+  assert_eq!(stage.fill_color("crates"), Some(light(PaletteColor::Highlight)));
+  assert_eq!(stage.fill_color("Cargo.toml"), None);
+}
+
+#[test]
+fn a_tree_of_any_number_is_told_the_whole_new_set() {
+  let selected: Signal<Vec<Id>> = Signal::new(vec!["Cargo.toml"]);
+  let told = Arc::new(Mutex::new(Vec::<Vec<Id>>::new()));
+  let (scene, tell) = (selected.clone(), told.clone());
+  let mut stage = Stage::new(move |_| {
+    let tell = tell.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        TreeView::multiple(scene.clone(), files())
+          .open(Signal::new(vec!["crates"]))
+          .on_change(move |rows: &[Id]| tell.lock().unwrap().push(rows.to_vec())),
+      )
+      .into()
+  });
+  press_with(&mut stage, "crates", false, true);
+  assert_eq!(*told.lock().unwrap(), [vec!["Cargo.toml", "crates"]]);
+  assert_eq!(selected.get(), ["Cargo.toml", "crates"]);
 }
