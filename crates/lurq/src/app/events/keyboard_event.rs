@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::EventControl;
 use crate::core::NodeId;
 
@@ -86,5 +88,31 @@ impl KeyboardEvent {
 
   pub fn immediate_propagation_stopped(&self) -> bool {
     self.control.immediate_propagation_stopped()
+  }
+
+  /// Moves the focus, once this key's handlers have run and what they changed is rendered, to the element of the
+  /// [focus group](crate::node::FocusGroup) around the focused element whose key (`.key(..)`) is `key`, as the
+  /// group's arrows move it: from the keyboard, so that it shows its ring, and into view. The key's default is
+  /// prevented, so the group does not move the focus as well. For a group whose elements are reached by what the app
+  /// knows of them and not by their order: a calendar's day a week on, which may be in the month the key shows next.
+  /// Nothing moves where the group is not there after the render, or has no element of that key that takes the
+  /// focus. The last request of a key's handlers wins.
+  ///
+  /// ```
+  /// use lurq::{app::events::KeyboardEvent, components::{Button, Row}, node::FocusGroup};
+  ///
+  /// // Each day says where the keys take the focus from it: Right to the next day, by its key.
+  /// let day = |n: u32| {
+  ///   Button::new(&n.to_string()).tab_index(0).key(format!("day-{n}")).on_key_down(move |event: KeyboardEvent| {
+  ///     if event.focus_within && event.key == "ArrowRight" {
+  ///       event.focus_key(format!("day-{}", n + 1));
+  ///     }
+  ///   })
+  /// };
+  /// let week = Row::new().focus_group(FocusGroup::horizontal().one_stop(true)).child(day(1)).child(day(2));
+  /// ```
+  pub fn focus_key(&self, key: impl Into<Arc<str>>) {
+    self.control.prevent_default();
+    self.control.request_focus_key(key.into());
   }
 }

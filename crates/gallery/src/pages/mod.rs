@@ -12,6 +12,7 @@ mod badge;
 mod banner;
 mod breadcrumb;
 mod button;
+mod calendar;
 mod callout;
 mod card;
 mod checkbox;
@@ -19,6 +20,8 @@ mod checkbox_card;
 mod combobox;
 mod command_palette;
 mod context_menu;
+mod date_picker;
+mod date_range_picker;
 mod dialog;
 mod drawer;
 mod empty_state;
@@ -368,6 +371,30 @@ pub const PAGES: &[Page] = &[
     about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
+  },
+  Page {
+    path: "/calendar",
+    name: "Calendar",
+    icon: None,
+    about: "calendar date day month week range picker grid today weekday locale first day week numbers",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<calendar::CalendarPage>(()),
+  },
+  Page {
+    path: "/date-picker",
+    name: "Date Picker",
+    icon: None,
+    about: "date picker datepicker calendar day field typed parse format popover due date birthday",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<date_picker::DatePickerPage>(()),
+  },
+  Page {
+    path: "/date-range-picker",
+    name: "Date Range Picker",
+    icon: None,
+    about: "date range picker period from to start end calendar presets last 7 days two months stay report",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<date_range_picker::DateRangePickerPage>(()),
   },
   Page {
     path: "/tooltip",
