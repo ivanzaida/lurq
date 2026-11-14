@@ -1938,13 +1938,16 @@ InputOtp::new(recovery.clone())
 | `kind(InputOtpKind)` | `Digits` (the default) or `Alphanumeric`. Anything else typed or pasted is not taken |
 | `uppercase(bool)` | A letter is taken as a capital |
 | `mask(bool)` | A dot for each character in place of it, as a PIN is shown |
-| `on_complete(handler)` | Called with the code when an edit fills its last cell |
+| `on_change(impl Fn(&str))` | Called with the code when a person changes it: a character typed, pasted or deleted. Not when the app sets the signal |
+| `on_complete(handler)` | Called with the code when an edit fills its last cell. A second handler is called after the first, as every `on_*` is |
 | `size(InputOtpSize)` | `Sm`, `Md`, `Lg`: cells of 32 by 36, 36 by 40, 40 by 44, with type of 14, 16, 18 |
 | `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name` | As an [input](#input) has them; `name` is the whole code's in its form |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the input under the cells |
 
 - To a person it is one field. Tab puts the focus on the first empty cell. Typing fills the cell that has the focus and goes on to the next; typing on a filled cell replaces its character. Past the end of a full code what is typed goes nowhere, until a key or a click puts the focus back on a cell: the last cell is not typed over, and `on_complete` is called once as the code fills. Ctrl+A (Cmd+A) selects the whole code: Backspace or Delete then clears it, and a character typed starts it again. Backspace empties the cell that has the focus, or, on an empty one, goes back and empties the one before; Delete empties it and stays. Left and Right move, no further than the first empty cell; Home and End go to the first cell and to the first empty one. A click puts the focus on the cell clicked, or on the first empty one where that is before it.
 - A code has no gaps: emptying a cell before the last filled one moves the cells after it up.
+- It is a text input, which is always bound to a signal: it has no `controlled` form. `kind` says what the code is
+  made of, not a tone: it is not a `variant`.
 - A value the app sets is taken as typing takes it: what is not of the code's kind is dropped, letters are made capitals where it says, and no more than its cells are kept, and the signal is set to what is left.
 - A paste of a whole code, or more, fills every cell from the first; a shorter one fills the cells from the one that has the focus. What the code does not take of it (spaces, dashes) is dropped, so `123-456` is `123456`.
 - To a form, to tooling and to the platform it is one text input: under the cells is the engine's `TextInput`, bound to the code, which draws nothing of its own. It is the one stop of Tab, the one `textbox` to what reads the tree (`lurq_snapshot` of the MCP server), called by its label, with the code as its value, and the one value of its form under its `name`. It says it holds a `ContentKind::OneTimeCode`, so a phone offers the code from a message that just came, and asks for the digits keyboard where the code is of digits. A masked code is a masked input.
@@ -2199,7 +2202,7 @@ TokenInput::list(tags.clone())
 // template: Signal<String>
 TokenInput::new(template.clone())
   .rows(2, 6)
-  .tokens(|text| {
+  .find_tokens(|text| {
     text
       .match_indices("{{name}}")
       .map(|(at, name)| Token::new(at..at + name.len()).variant(TagVariant::Info).removable(false))
@@ -2211,14 +2214,14 @@ TokenInput::new(template.clone())
 | --- | --- |
 | `list(Signal<Vec<String>>)` | A list: each item is a token. What is typed is the draft, which is no part of the list until it is made an item. What the app sets on the list is shown |
 | `separators(chars)` | The characters that make an item of the draft, as Enter does: a comma by default. A pasted list is split at them, at line breaks and at tabs; an item cannot hold one |
-| `draft(Signal<String>)` | What is typed and is no item yet: read for suggestions, and what the app sets on it is what the input shows after its tokens |
+| `query(Signal<String>)` | The draft, what is typed and is no item yet: the query read for suggestions, as a [combobox](#combobox)'s is, and what the app sets on it is what the input shows after its tokens |
 | `unique(bool)` | An item the list already has is not added again; what was typed is dropped |
 | `commit_on_blur(bool)` | The draft becomes an item when the focus leaves, in place of staying typed |
-| `token(impl Fn(&str, Token) -> Token)` | Dresses the token of each item of a list: a variant by what the item is, or no cross |
+| `dress_token(impl Fn(&str, Token) -> Token)` | Dresses the token of each item of a list: a variant by what the item is, or no cross |
 | `on_change(impl Fn(&[String]))` | Called with the list when a person changed it: an item made of the draft, pasted, or taken away |
-| `on_draft(impl Fn(&str))` | Called with the draft when a person changed it |
+| `on_query(impl Fn(&str))` | Called with the draft, the query, when a person changed it; not when the app sets `query` |
 | `new(Signal<String>)` | A text, tokens and all, where the text around the tokens is the value too; what is typed is set on it, and what the app sets on it is shown |
-| `tokens(impl Fn(&str) -> Vec<Token>)` | How the app finds its tokens in a text, called in every render. Tokens that overlap one before them, hold a line break or are not on characters are left out. Not asked over a list |
+| `find_tokens(impl Fn(&str) -> Vec<Token>)` | How the app finds its tokens in a text, called in every render. Tokens that overlap one before them, hold a line break or are not on characters are left out. Not asked over a list |
 | `Token::new(range)` | A token over a byte range of the text: atomic and removable by default |
 | `Token::variant(name)` | A `TagVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), `MENTION`, or a variant the theme's recipe names |
 | `Token::removable(bool)` | The cross at its end, which a click takes it away by |
@@ -2238,7 +2241,7 @@ TokenInput::new(template.clone())
   else; the draft is the text after the tokens, and it is in no item until Enter or a separator makes one of it,
   trimmed. A token's cross takes its item out of the list; Backspace right after a token selects it and the next takes
   it out. What is typed with the caret among the tokens goes to the draft, which is always after them, and typing over
-  a selected token replaces it with a draft. `on_change` hears the list and `on_draft` the draft; `on_input` still
+  a selected token replaces it with a draft. `on_change` hears the list and `on_query` the draft; `on_input` still
   hears every edit, with the text the input keeps the list as.
 - The input keeps that text itself, for as long as it is in the tree, by the signal of the list: each item with a
   narrow space (U+2005) after it, which is the room between two tokens and where a row wraps, then the draft. It is
@@ -2257,8 +2260,10 @@ TokenInput::new(template.clone())
   `Placeholder`, `Token` (fill, edge, radius, height, the room before the text and after the cross, and the gap
   between them), `TokenLabel` (the token's type and color), `TokenIcon` (the cross: its side and color). States:
   `TokenInputState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, `Multiline`, and a token's own
-  `TokenHovered` and `TokenSelected`. A token's parts are resolved with its variant and its state as the case, so a
-  recipe styles a variant's tokens with `.variant(..)` and their looks with `.state(TokenInputState::TokenHovered, ..)`.
+  `Hovered` and `Selected`. A token's parts are resolved with its variant and its state as the case, so a recipe
+  styles a variant's tokens with `.variant(..)` and their looks with `.state(TokenInputState::Hovered, ..)`.
+- It is a text input in both forms, always bound to a signal: it has no `controlled` form. A `Token` is a range of
+  the text, not an element: it has no `id` or `key`.
 - In the design the box is 260 by 36, an input's, padded 6 at its sides. A token is 24 high, `Secondary`, `radius-sm`,
   8 before its text and 6 after its cross; its text is 13 in `SecondaryForeground` and its cross 12 in
   `MutedForeground`, 4 after the text. A colored variant is in the muted fill of its color with its text and cross in
@@ -2294,17 +2299,19 @@ Mentions::new(comment.clone(), &mentions)
 | --- | --- |
 | `new(Signal<String>, &MentionsController)` | The text, and what the field keeps between renders: the app keeps both |
 | `trigger(char, options)` | What a character at the start of a word offers: a `Vec<Mention>`, narrowed to the offers whose label or text has what is typed after it (without regard to case), or a function of what is typed. At most 8 are shown |
-| `Mention::new(label)` | An offer: `text(&str)` is what it puts in the field (the trigger and the label by default), `avatar(Avatar)` or `icon(name)` before its label |
+| `Mention::new(label)` | An offer: `text(&str)` is what it puts in the field (the trigger and the label by default), `avatar(Avatar)` or `icon(name)` before its label; `disabled(bool)` shows it dimmed and leaves it to no choice, `id` and `key` are its row's |
 | `on_mention(handler)` | Called with the text of an offer as it is chosen |
-| `tokens(..)` | Other tokens of the app's in the text, as a [token input](#token-input) finds them |
+| `find_tokens(..)` | Other tokens of the app's in the text, as a [token input](#token-input) finds them |
 | `rows(min, max)` | 2 and 8 unless told |
 | `full_width(bool)` | As wide as what holds it, in place of 280 |
 | `input_rules(&recipe)` | Rules laid over the token input it is |
-| `placeholder`, `size`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name`, `on_input`, `state`, `style`, `rules`, `force`, `id`, `key` | As a token input has them |
+| `size(MentionsSize)` | An input's sizes (`MentionsSize` is `TextBoxSize`): the type of its text and mentions, 13, 14 or 15 |
+| `placeholder`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `name`, `on_input`, `state`, `style`, `rules`, `force`, `id`, `key` | As a token input has them |
 
 - Typing a trigger at the start of the text or after a space opens the list under it while it offers something. Up and
   Down move the offer that Enter (or Tab) chooses, a click chooses one, the pointer moves the active one, and Escape
-  puts the list away while the caret stays in that word, so that Enter is a new line again. The keys stay in the
+  puts the list away while the caret stays in that word, so that Enter is a new line again. A disabled offer is
+  passed by: Up and Down go over it, the pointer does not light it, and a click on it chooses nothing. The keys stay in the
   field the whole time: the list takes no focus, and a press on it does not blur the field.
 - Choosing puts the offer's text and a space in place of the trigger and what was typed, as one edit through
   `on_input`. From then on that text is a mention wherever it stands as a word of its own: a token of the variant
@@ -2316,8 +2323,10 @@ Mentions::new(comment.clone(), &mentions)
   offer's text, with `a11y_haspopup` `listbox` and `a11y_expanded`; the list is a `listbox` of `option`s, the active
   one `a11y_selected`.
 - Parts: `MentionsPart::Root`, `Control` (laid over the token input's control: its padding, line and least height),
-  `List`, `Option`, `OptionAvatar`, `OptionIcon`, `OptionLabel`; the mentions themselves are the token input's parts in
-  the variant `MENTION`. States: `MentionsState::Open`, `Active` (an offer's own).
+  `Panel` (the list that floats under the trigger), `Item`, `ItemAvatar`, `ItemIcon`, `ItemLabel`; the mentions
+  themselves are the token input's parts in the variant `MENTION`. States: `MentionsState::Open`, and an offer's own
+  `Highlighted` (the one Enter chooses) and `Disabled`.
+- A renderer that draws another field has `view.control()`, `view.item(index, offer)` and `view.panel()`.
 - In the design the box is 280 wide and at least 64 high, padded 12 across and 8 down, its text 14 with lines of 1.5.
   The list hangs 4 under the trigger: 220 wide, `Popover`, `radius-lg`, an edge of 1 in `Border`, the medium shadow,
   padded 4. An offer is 36 high, padded 8, `radius-sm`, an avatar of 24 (or an icon of 16 in `MutedForeground`) 8

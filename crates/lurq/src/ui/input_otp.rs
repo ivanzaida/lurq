@@ -138,8 +138,8 @@ impl InputOtpKind {
 /// What builds a code's nodes: a theme's in place of the default one.
 pub type InputOtpRenderer = Arc<dyn Fn(InputOtpView) -> Element + Send + Sync>;
 
-/// What is called with the code once its last cell is filled.
-type CompleteHandler = Arc<dyn Fn(&str) + Send + Sync>;
+/// What is called with the code: as a person changes it, or once its last cell is filled.
+type CodeHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// A one-time code: a few characters typed one to a cell, the code a message or an authenticator app gives to
 /// prove who a person is.
@@ -172,7 +172,8 @@ pub struct InputOtp {
   kind: InputOtpKind,
   uppercase: bool,
   mask: bool,
-  on_complete: Option<CompleteHandler>,
+  on_change: Vec<CodeHandler>,
+  on_complete: Vec<CodeHandler>,
   boxed: BoxStates,
   states: Vec<Name>,
   rules: Recipe,
@@ -192,7 +193,8 @@ impl InputOtp {
       kind: InputOtpKind::default(),
       uppercase: false,
       mask: false,
-      on_complete: None,
+      on_change: Vec::new(),
+      on_complete: Vec::new(),
       boxed: BoxStates::default(),
       states: Vec::new(),
       rules: Recipe::new(),
@@ -234,9 +236,17 @@ impl InputOtp {
     self
   }
 
-  /// Called with the code when an edit fills its last cell: what verifies it, or moves on.
+  /// Called with the code when a person changes it: a character typed, pasted or deleted. Not when the app sets
+  /// the signal. A second handler is called after the first.
+  pub fn on_change(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with the code when an edit fills its last cell: what verifies it, or moves on. A second handler is
+  /// called after the first.
   pub fn on_complete(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
-    self.on_complete = Some(Arc::new(handler));
+    self.on_complete.push(Arc::new(handler));
     self
   }
 
@@ -378,6 +388,7 @@ impl InputOtp {
       length: self.length,
       kind: self.kind,
       uppercase: self.uppercase,
+      on_change: self.on_change,
       on_complete: self.on_complete,
     };
     let view = InputOtpView {
@@ -506,7 +517,8 @@ struct Editor {
   length: usize,
   kind: InputOtpKind,
   uppercase: bool,
-  on_complete: Option<CompleteHandler>,
+  on_change: Vec<CodeHandler>,
+  on_complete: Vec<CodeHandler>,
 }
 
 impl Editor {
@@ -538,9 +550,14 @@ impl Editor {
     self.cursor.past.store(past, Ordering::Relaxed);
     if self.value.get_untracked() != code {
       self.value.set(code.clone());
+      for handler in &self.on_change {
+        handler(&code);
+      }
     }
-    if full && let Some(complete) = &self.on_complete {
-      complete(&code);
+    if full {
+      for handler in &self.on_complete {
+        handler(&code);
+      }
     }
   }
 

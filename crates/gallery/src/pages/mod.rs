@@ -366,7 +366,7 @@ pub const PAGES: &[Page] = &[
     path: "/token-input",
     name: "Token Input",
     icon: Some("users"),
-    about: "token input tags chips tag list recipients variables template tokens remove backspace oken nput separators draft unique commit_on_blur on_change on_draft new variant removable atomic placeholder rows size invalid warning valid read_only disabled full_width on_input controller label",
+    about: "token input tags chips tag list recipients variables template tokens remove backspace oken nput separators draft unique commit_on_blur on_change on_query query find_tokens dress_token new variant removable atomic placeholder rows size invalid warning valid read_only disabled full_width on_input controller label",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<token_input::TokenInputPage>(()),
   },
