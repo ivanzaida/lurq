@@ -1,7 +1,8 @@
 //! Document tabs: the bar and its tabs against the board, the tab shown, a document not saved, a preview and a
 //! pinned tab, the close control, a middle press and Ctrl+W, the keys of one stop of Tab, moving a tab by a drag and
 //! by the keys, the tabs that do not fit going into the menu at the end, a name longer than its room, the density,
-//! the context menu, and a theme's rules and renderer.
+//! the context menu, the editor's keys from anywhere in the window and beside a window's tabs, and a theme's rules
+//! and renderer.
 
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +16,10 @@ use lurq::{
   core::Signal,
   layout::{quad::QuadContent, text_style::FontStyle},
   node::{Element, color::Color},
-  ui::{DocumentTab, DocumentTabs, DocumentTabsPart, DocumentTabsRenderer, DocumentTabsView, MenuItem, icons},
+  ui::{
+    Button, DocumentTab, DocumentTabs, DocumentTabsPart, DocumentTabsRenderer, DocumentTabsView, MenuItem,
+    WindowChrome, WindowPlatform, WindowTabs, icons,
+  },
 };
 
 use super::stage::Stage;
@@ -512,4 +516,144 @@ fn a_themes_rules_and_renderer_change_it() {
       .into()
   });
   assert!(stage.paints("5 tabs"));
+}
+
+/// The board's tabs after a button the focus is on, their keys `shortcuts`, each handler telling `told`.
+fn elsewhere(open: &Signal<&'static str>, told: &Log, shortcuts: bool) -> Stage {
+  let (open, told) = (open.clone(), told.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let (change, closed, moved) = (told.clone(), told.clone(), told.clone());
+    Column::new()
+      .size(860.0, 300.0)
+      .child(Button::new("Elsewhere").id("elsewhere"))
+      .child(
+        DocumentTabs::new(open.clone(), files())
+          .id("bar")
+          .shortcuts(shortcuts)
+          .on_change(move |value: &&str| change.lock().unwrap().push(format!("change {value}")))
+          .on_close(move |value| closed.lock().unwrap().push(format!("close {value}")))
+          .on_reorder(move |from, to| moved.lock().unwrap().push(format!("move {from} {to}")))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("elsewhere"));
+  stage
+}
+
+/// Ctrl+W, or Cmd+W on macOS.
+fn close_key(stage: &mut Stage) {
+  let mac = cfg!(target_os = "macos");
+  stage
+    .tree
+    .key_down_with_meta("w".to_owned(), "KeyW".to_owned(), false, !mac, false, mac);
+  stage.tree.key_up("w".to_owned(), "KeyW".to_owned(), false, !mac, false);
+  stage.pass();
+}
+
+#[test]
+fn the_editors_keys_work_with_the_focus_elsewhere_and_a_pinned_tab_is_not_closed() {
+  let (open, told) = (Signal::new("blur.rs"), log());
+  let mut stage = elsewhere(&open, &told, true);
+  key(&mut stage, "Tab", false, true);
+  assert_eq!(open.get(), "theme.rs", "Ctrl+Tab shows the next tab");
+  key(&mut stage, "Tab", true, true);
+  assert_eq!(open.get(), "blur.rs", "Ctrl+Shift+Tab the one before");
+  key(&mut stage, "Tab", true, true);
+  assert_eq!(open.get(), "main.rs", "a pinned one too");
+  key(&mut stage, "Tab", true, true);
+  assert_eq!(open.get(), "README.md", "round at the ends");
+  if !cfg!(target_os = "macos") {
+    key(&mut stage, "PageUp", false, true);
+    assert_eq!(open.get(), "canvas.rs", "Ctrl+PageUp the one before");
+    key(&mut stage, "PageDown", false, true);
+    assert_eq!(open.get(), "README.md");
+  }
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("elsewhere"),
+    "the focus stays where it was"
+  );
+  told.lock().unwrap().clear();
+  // The tab shown moves among its kind, and closes; a pinned one is not closed.
+  key(&mut stage, "PageUp", true, true);
+  assert_eq!(said(&told), ["move 4 3"]);
+  close_key(&mut stage);
+  assert_eq!(said(&told)[1..], ["close README.md"]);
+  open.set("main.rs");
+  stage.pass();
+  close_key(&mut stage);
+  assert_eq!(said(&told).len(), 2, "a pinned tab is not closed by the keys");
+  assert_eq!(focused(&stage).as_deref(), Some("elsewhere"));
+
+  // Off, the keys are not the bar's.
+  let (open, told) = (Signal::new("blur.rs"), log());
+  let mut stage = elsewhere(&open, &told, false);
+  close_key(&mut stage);
+  assert!(said(&told).is_empty(), "Ctrl+W closes nothing");
+  key(&mut stage, "Tab", false, true);
+  assert_eq!(open.get(), "blur.rs", "Ctrl+Tab shows nothing");
+}
+
+#[test]
+fn with_the_focus_on_a_tab_the_editors_keys_take_the_focus_along_and_a_key_acts_once() {
+  let (open, told) = (Signal::new("blur.rs"), log());
+  let mut stage = stage(860.0, &open, &told);
+  tab_in(&mut stage);
+  assert_eq!(focused(&stage).as_deref(), Some("blur"));
+  key(&mut stage, "Tab", false, true);
+  assert_eq!(open.get(), "theme.rs");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("theme"),
+    "the focus follows the tab shown"
+  );
+  // Ctrl+W on the focused tab closes it once: the tab's own key, not the window's as well.
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("canvas"));
+  told.lock().unwrap().clear();
+  close_key(&mut stage);
+  assert_eq!(said(&told), ["close canvas.rs"], "the focused tab, and only it");
+}
+
+#[test]
+fn in_a_window_whose_title_bar_has_tabs_a_key_is_the_documents_and_the_windows_pass_it_by() {
+  let (window, documents, told) = (Signal::new(1_u8), Signal::new("blur.rs"), log());
+  let (seen_window, seen_documents, heard) = (window.clone(), documents.clone(), told.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let (window_said, document_said) = (heard.clone(), heard.clone());
+    let strip = WindowTabs::new(seen_window.clone(), [(1_u8, "Project"), (2, "Notes"), (3, "Scratch")])
+      .on_change(move |value| window_said.lock().unwrap().push(format!("window {value}")))
+      .mount(ctx);
+    let editor = Column::new()
+      .size(600.0, 200.0)
+      .child(Button::new("Elsewhere").id("elsewhere"))
+      .child(
+        DocumentTabs::new(seen_documents.clone(), files())
+          .on_change(move |value: &&str| document_said.lock().unwrap().push(format!("documents {value}")))
+          .mount(ctx),
+      );
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        WindowChrome::new()
+          .platform(WindowPlatform::Windows)
+          .title("Editor")
+          .tabs(strip)
+          .content(editor)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.tree.resize(640, 300);
+  stage.pass();
+  stage.click("elsewhere");
+  key(&mut stage, "Tab", false, true);
+  assert_eq!(
+    said(&told),
+    ["documents theme.rs"],
+    "one of them, and it is the documents'"
+  );
+  assert_eq!(window.get(), 1);
 }

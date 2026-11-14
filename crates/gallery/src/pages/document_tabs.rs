@@ -91,6 +91,7 @@ pub struct DocumentTabsPage {
   add: Signal<bool>,
   menu: Signal<bool>,
   disabled: Signal<bool>,
+  shortcuts: Signal<bool>,
   /// The files the narrow bar shows.
   narrow: Signal<String>,
 }
@@ -100,6 +101,7 @@ impl DocumentTabsPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (width_name, width) = WIDTHS[self.width.get().min(WIDTHS.len() - 1)];
     let (add, menu, disabled) = (self.add.get(), self.menu.get(), self.disabled.get());
+    let shortcuts = self.shortcuts.get();
     let files = self.files.get();
     let record = self.playground.recorder();
     self
@@ -120,6 +122,7 @@ impl DocumentTabsPage {
         let mut tabs = DocumentTabs::new(shown.clone(), files.iter().map(File::tab))
           .label("Open files")
           .disabled(disabled)
+          .shortcuts(shortcuts)
           .on_close(move |name: &String| {
             closed(format!("on_close(\"{name}\")"));
             let mut files = closing.get_untracked();
@@ -203,6 +206,9 @@ impl DocumentTabsPage {
     if menu {
       code.push(".context_menu(|path| vec![MenuItem::new(\"Close Others\"), MenuItem::new(\"Copy Path\")])".to_owned());
     }
+    if !shortcuts {
+      code.push(".shortcuts(false)".to_owned());
+    }
     if disabled {
       code.push(".disabled(true)".to_owned());
     }
@@ -231,6 +237,7 @@ impl DocumentTabsPage {
       self.width.clone(),
     );
     let (to_add, to_menu, to_disabled) = (self.add.clone(), self.menu.clone(), self.disabled.clone());
+    let to_shortcuts = self.shortcuts.clone();
     self.playground.card(
       ctx,
       Spec {
@@ -259,12 +266,20 @@ impl DocumentTabsPage {
           divider(),
           flag("on_add", &self.add),
           flag("context_menu", &self.menu),
+          flag("shortcuts", &self.shortcuts),
           flag("disabled", &self.disabled),
         ],
-        changed: [self.width.get() != 0, !add, !menu, disabled, files != board_files()]
-          .into_iter()
-          .filter(|changed| *changed)
-          .count(),
+        changed: [
+          self.width.get() != 0,
+          !add,
+          !menu,
+          !shortcuts,
+          disabled,
+          files != board_files(),
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
         reset: Arc::new(move || {
           to_files.set(board_files());
           to_shown.set("blur.rs".to_owned());
@@ -273,6 +288,7 @@ impl DocumentTabsPage {
           to_add.set(true);
           to_menu.set(true);
           to_disabled.set(false);
+          to_shortcuts.set(true);
         }),
       },
     )
@@ -293,6 +309,7 @@ impl Component for DocumentTabsPage {
       add: ctx.signal(true),
       menu: ctx.signal(true),
       disabled: ctx.signal(false),
+      shortcuts: ctx.signal(true),
       narrow: ctx.signal("canvas.rs".to_owned()),
     }
   }
@@ -305,6 +322,7 @@ impl Component for DocumentTabsPage {
         |_: &String| {},
       )
       .on_add(|| {})
+      .shortcuts(false)
       .build(&lurq::ui::current_theme()),
     );
     let narrow = Column::new()
@@ -313,6 +331,7 @@ impl Component for DocumentTabsPage {
         Column::new().width(420.0).child(
           DocumentTabs::new(self.narrow.clone(), board_files().iter().map(File::tab))
             .on_add(|| {})
+            .shortcuts(false)
             .mount(ctx),
         ),
       )
@@ -387,6 +406,12 @@ impl Component for DocumentTabsPage {
         "\"Close\", \"New tab\", \"Show the hidden tabs\"",
         "What the close control (before the tab's name), the new tab button and More are called.",
       ),
+      (
+        "shortcuts",
+        "bool",
+        "true",
+        "Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp and PageDown, Ctrl+W and the move keys from anywhere in the window,          before a window's tabs.",
+      ),
       ("disabled", "bool", "false", "No tab takes input."),
       (
         "DocumentTab::icon",
@@ -437,7 +462,7 @@ impl Component for DocumentTabsPage {
           "Playground",
           "The page holds the files open, as an editor does: close a tab with its cross, a middle press or Ctrl+W, \
            drag one along the bar or move it with Ctrl+Shift+PageUp and PageDown, press the plus for a new file, \
-           press a preview twice to keep it, and press a tab with the secondary button for its menu. Pick a narrow \
+           press a preview twice to keep it, and press a tab with the secondary button for its menu. With the focus anywhere on the page, Ctrl+Tab shows the next tab and Ctrl+W closes the one shown. Pick a narrow \
            width to see the tabs that do not fit go into the menu at the end.",
           playground,
         ),
