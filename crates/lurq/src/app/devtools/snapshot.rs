@@ -763,7 +763,6 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     #[cfg(feature = "canvas")]
     NodeKind::Canvas { .. } => "Canvas",
     NodeKind::Text { .. } => "Text",
-    #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => "RichText",
     #[cfg(feature = "markdown")]
     NodeKind::InlineLink { .. } => "InlineLink",

@@ -2287,7 +2287,6 @@ impl NodeUpdate for Node {
   fn selectable(&mut self, selectable: bool) {
     match &self.node_kind {
       NodeKind::Text { state, .. } => state.set_selectable(selectable),
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, .. } => state.set_selectable(selectable),
       _ => {}
     }
@@ -2722,9 +2721,21 @@ impl Node {
     node.with_text_content(content)
   }
 
-  #[cfg(feature = "markdown")]
+  /// A paragraph of runs of their own style: the words of a mark in another
+  /// weight. It is laid out, drawn, selected and highlighted as one text.
   pub(crate) fn rich_text(spans: Vec<crate::layout::quad::RichTextSpan>) -> Self {
-    Self::rich_text_with_links(spans, vec![], vec![])
+    let text = spans.iter().map(|span| span.text.as_str()).collect::<String>();
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::RichText {
+        state: TextState::new(),
+        spans,
+        transform_mode: TextTransformMode::default(),
+        generated: std::sync::Arc::from([]),
+      },
+      vec![],
+    )
+    .with_text_content(&text)
   }
 
   /// Rich text with the links in it: [`Self::inline_link`] nodes, which the
@@ -4233,13 +4244,11 @@ impl Node {
   ) {
     match &self.node_kind {
       NodeKind::Text { state, .. } => state.set_highlights(highlights.into()),
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, .. } => state.set_highlights(highlights.into()),
       _ => {}
     }
   }
 
-  #[cfg(feature = "markdown")]
   pub(crate) fn rich_text_value(&self) -> Option<String> {
     let NodeKind::RichText { spans, .. } = self.node_kind() else {
       return None;
@@ -4326,7 +4335,6 @@ impl Node {
   pub fn selectable(self, selectable: bool) -> Self {
     match &self.node_kind {
       NodeKind::Text { state, .. } => state.set_selectable(selectable),
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, .. } => state.set_selectable(selectable),
       _ => {}
     }
@@ -5761,7 +5769,6 @@ impl Node {
           own_layout_signature_matches,
         );
       }
-      #[cfg(feature = "markdown")]
       (NodeKind::RichText { state, .. }, NodeKind::RichText { state: old_state, .. }) => {
         state.copy_runtime_state_from(
           old_state,
@@ -6018,7 +6025,6 @@ impl Node {
           && state.is_sensitive() == old_state.is_sensitive()
           && transform_mode == old_transform_mode
       }
-      #[cfg(feature = "markdown")]
       (
         NodeKind::RichText {
           state,

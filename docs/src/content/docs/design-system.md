@@ -4145,7 +4145,7 @@ view.on_key_down(move |event: KeyboardEvent| {
 - Parts: `FindBarPart::Root`, `Bar`, `FindRow`, `ReplaceRow`, `Field` (laid over an input's box), `Options`, `Option`, `OptionOn`, `Count`, `Button`, `ButtonIcon` (laid over a button's root and icon), `Pad`. States: `FindBarState::Closed`, `NoMatches`, `Expandable`, `Replacing`, `Disabled`.
 - In the design the bar is of the popover's color with an edge of 1, the large radius and the large shadow, padded 6, its rows 6 apart and their controls 4 apart. The field is an input 28 high with its text of 13, padded 8 before it and 3 after the options, which are 22 square with a glyph of 11 in the muted foreground; one that is on has the fill of what is picked out, an edge in an input's color and its glyph in the foreground. The count is 11 in the muted foreground, padded 6, in the destructive color where nothing matches. The buttons are ghost ones 24 square with icons of 14. The replace row is indented 28 under a bar that has the chevron and ends 52 before the end.
 - To what reads the tree it is a `search` called by its label; each option says `a11y_pressed`, the chevron `a11y_expanded`, and the count is `a11y_live` polite.
-- The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight), every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
+- The bar counts and the app finds: what it finds it marks on its text with a [Highlight](#highlight) that keeps the text's weight, every match and the current one stronger, which brings the current one into view as it changes. `find_matches(text, query, FindOptions)` finds the ranges of a query under the bar's three options, for an app that searches a plain text.
 - A renderer that draws another bar gets a `FindBarView`: `field()`, `options()`, `count()`, `find_row()`, `replace_row()`, `bar()`, and `button(..)` for a button of its own.
 
 ## Highlight
@@ -4158,7 +4158,11 @@ use lurq::ui::{FindOptions, Highlight, find_matches};
 let options = FindOptions { match_case: case.get(), whole_word: whole.get(), regex: regex.get() };
 let found = find_matches(&document, &query.get(), options).unwrap_or_default();
 let current = (!found.is_empty()).then(|| current.get().min(found.len() - 1));
-Highlight::new(&document).marks(found).current(current).mount(ctx);
+// A find in a text keeps the text's weight: it must not wrap again as the query is typed.
+Highlight::new(&document).marks(found).current(current).keep_weight(true).mount(ctx);
+
+// A mark in a sentence, its words at the board's 500.
+Highlight::new("Results for backdrop blur in docs").mark(12..25);
 ```
 
 | Builder | |
@@ -4166,6 +4170,7 @@ Highlight::new(&document).marks(found).current(current).mount(ctx);
 | `Highlight::new(&str)` | The text, with no marks yet |
 | `mark(Range<usize>)`, `marks(..)` | A mark on a range of the text, in bytes, after the ones it has |
 | `current(Option<usize>)` | Which mark is the current one, by its index: drawn stronger |
+| `keep_weight(bool)` | The marks' words keep the text's weight, whatever the recipe gives `Mark` and `Current`: the find in a text. Without it they are the board's 500 |
 | `mount(ctx)` | Puts it in the tree of `ctx`'s component, which brings the current mark into view each time it changes (`Ctx::scroll_range_into_view`), and not as the text is first shown. `build(theme)` and `From<Highlight> for Element` draw it with nothing kept |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them; the id is the text's |
 
@@ -4175,9 +4180,9 @@ Highlight::new(&document).marks(found).current(current).mount(ctx);
 | `FindOptions::whole_word` | A match has no letter, digit or `_` right before or after it |
 | `FindOptions::regex` | The query is a regular expression, with lurq's `regex` feature: `FindError::InvalidPattern` for one that is not, `FindError::RegexUnavailable` without the feature. A match of no length is passed over |
 
-- The marks are the text's highlights (`Text::highlights`, see [Text Styling](../dsl/#text-styling)): they follow their words as the text wraps, a mark over the end of a line goes on at the start of the next, and the text is shaped and laid out as without them. Nothing searches for the app unless it calls `find_matches`: it keeps the query, the matches and the current one.
-- Parts: `HighlightPart::Root` (the text's type and color), `Mark`, `Current` (in place of `Mark`: its fill, its radius, its padding and its edge).
-- In the design (`Highlight`) the text is 14 in the foreground and a mark is on the muted warning fill, of a radius of 2, reaching 3 past its words and 1 above and below. The board draws no current mark: it is the mark with an edge of 2 in the warning color, which reads in both appearances where a fill of the warning color would not under the text's own color. The board's mark sets its words in 500; a highlight does not change how its text is shaped, so they keep the text's weight.
+- The marks are the text's highlights (`Text::highlights`, see [Text Styling](../dsl/#text-styling)): they follow their words as the text wraps, and a mark over the end of a line goes on at the start of the next. A mark's words are of the weight of the `Mark` part's style (`Current`'s for the current one), 500 by default: the text is drawn in runs, each mark's words in its weight, and the fill is behind them as they are laid out. Heavier words are wider, so the text wraps otherwise than without the marks: a find in a text, where the marks change with each letter typed, keeps the text's weight with `keep_weight(true)`, and the text is then shaped and laid out as without them. Nothing searches for the app unless it calls `find_matches`: it keeps the query, the matches and the current one.
+- Parts: `HighlightPart::Root` (the text's type and color), `Mark` (its fill, its radius, its padding, its words' weight), `Current` (in place of `Mark`, with its edge).
+- In the design (`Highlight`) the text is 14 in the foreground and a mark is on the muted warning fill, of a radius of 2, reaching 3 past its words and 1 above and below. The board draws no current mark: it is the mark with an edge of 2 in the warning color, which reads in both appearances where a fill of the warning color would not under the text's own color. A mark's words are 500, as the board's; a face without a 500 draws its nearest, as the system's sans on Windows does with 400.
 - A renderer that draws another highlight gets a `HighlightView`: `fill(range, part)` is a mark as a `TextHighlight` in a part's style, `fills()` every one.
 
 ## Tree View

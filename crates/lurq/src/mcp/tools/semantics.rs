@@ -37,7 +37,6 @@ pub(super) fn semantic_role(node: &Node) -> String {
     NodeKind::Slider { .. } => "slider".into(),
     NodeKind::Select { .. } => "combobox".into(),
     NodeKind::Text { .. } => "text".into(),
-    #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => "text".into(),
     #[cfg(feature = "markdown")]
     NodeKind::InlineLink { .. } => "link".into(),
@@ -52,7 +51,6 @@ pub(super) fn semantic_role(node: &Node) -> String {
 pub(super) fn is_text_node(node: &Node) -> bool {
   match node.node_kind() {
     NodeKind::Text { .. } => true,
-    #[cfg(feature = "markdown")]
     NodeKind::RichText { .. } => true,
     _ => false,
   }

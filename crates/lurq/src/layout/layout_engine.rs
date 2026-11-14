@@ -46,6 +46,9 @@ mod foreground;
 mod grid_layout;
 #[cfg(feature = "markdown")]
 pub(crate) mod inline_links;
+#[cfg(not(feature = "markdown"))]
+#[path = "layout_engine/inline_links_none.rs"]
+pub(crate) mod inline_links;
 mod input_layout;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
@@ -1361,15 +1364,14 @@ impl LayoutEngine {
           transform_mode: *transform_mode,
         }
       }
-      #[cfg(feature = "markdown")]
       NodeKind::RichText {
         spans, transform_mode, ..
       } => QuadContent::RichText {
-        spans: if node.children().is_empty() {
+        spans: self.painted_spans(if node.children().is_empty() {
           spans.clone()
         } else {
           Self::painted_rich_text_spans(node, spans)
-        },
+        }),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         // Text that paints underlines or links is drawn from the top of its
         // laid-out lines, which `inline_text_frame` centers in its box.
@@ -1586,7 +1588,6 @@ impl LayoutEngine {
             });
           }
         }
-        #[cfg(feature = "markdown")]
         if let NodeKind::RichText { state, spans, .. } = node.node_kind()
           && state.selectable()
         {
@@ -2940,7 +2941,6 @@ impl LayoutEngine {
           force_display_text,
         );
       }
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, spans, .. } => {
         return self.layout_rich_text_node(
           glyph_engine,
@@ -3217,7 +3217,6 @@ impl LayoutEngine {
     Self::text_result(state, size, output)
   }
 
-  #[cfg(feature = "markdown")]
   fn layout_rich_text_node(
     &self,
     glyph_engine: &mut GlyphEngine,

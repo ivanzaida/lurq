@@ -267,7 +267,6 @@ impl LayoutEngine {
     };
     match (node.node_kind(), output) {
       (NodeKind::Text { state, .. }, TextLayoutOutput::Text(output)) => output.apply(state),
-      #[cfg(feature = "markdown")]
       (NodeKind::RichText { state, .. }, TextLayoutOutput::Text(output)) => output.apply(state),
       (NodeKind::TextInput { state, .. }, TextLayoutOutput::TextInput(output)) => output.apply(state),
       _ => {}

@@ -59,7 +59,6 @@ impl LayoutEngine {
         let text = output.display_text.as_deref().unwrap_or(content);
         self.painted_text(glyph_engine, text, &style, output.render_wrap, result.size)
       }
-      #[cfg(feature = "markdown")]
       NodeKind::RichText { state, spans, .. } if state.measures_carets() => {
         let wrap = node.text_wrap && node.text_overflow == crate::node::node_kind::TextOverflow::Clip;
         self.painted_rich_text(glyph_engine, spans, wrap, result.size)
@@ -102,7 +101,6 @@ impl LayoutEngine {
   /// `spans` laid out as the paint lays them out in a box of `size`:
   /// centered in it, unless the paragraph paints links or underlines and
   /// writes its own frame's top afterwards.
-  #[cfg(feature = "markdown")]
   fn painted_rich_text(
     &self,
     glyph_engine: &mut GlyphEngine,
