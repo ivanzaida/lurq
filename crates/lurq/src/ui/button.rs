@@ -381,7 +381,15 @@ impl Button {
 
   /// Builds the button in `theme`. Converting a button into an element does
   /// this in the theme of what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
+  pub fn build(mut self, theme: &Theme) -> Element {
+    // An icon with an empty label and nothing else beside it is an icon alone: no gap and no padding for a label.
+    self.icon_only = self.icon_only
+      || self.label.is_empty()
+        && self.icon.is_some()
+        && self.description.is_none()
+        && self.leading.is_none()
+        && self.trailing.is_none()
+        && self.trailing_icon.is_none();
     let case = Case {
       variant: Some(self.variant),
       size: Some(self.size),
@@ -490,7 +498,7 @@ impl ButtonView {
       }
     }
     // A button that is an icon alone draws no label, and is still called by it.
-    if self.icon_only {
+    if self.icon_only && !self.label.is_empty() {
       root = root.describe("a11y_name", self.label.clone());
     }
     if let Some(id) = &self.id {
@@ -696,7 +704,13 @@ impl Themed for Button {
     let recipe = sized(recipe, ButtonSize::Sm, IconSize::Md.into(), ControlSize::Sm.into());
     let recipe = sized(recipe, ButtonSize::Lg, Length::Px(18.0), ControlSize::Lg.into());
     let recipe = sized(recipe, ButtonSize::Xl, IconSize::Lg.into(), Density::Comfortable.into());
-    let recipe = filled(recipe, ButtonVariant::Primary, Primary, PrimaryForeground, PrimaryHover);
+    let recipe = filled(recipe, ButtonVariant::Primary, Primary, PrimaryForeground, PrimaryHover)
+      // The board presses a button in its hover fill, under which the pressed veil is lost: black over the near
+      // black of the light theme, white over the near white of the dark. Pressed, it goes back to its fill under the
+      // veil, so that a press is seen.
+      .when(Selector::new().variant(ButtonVariant::Primary).pressed(), Root, |s| {
+        s.background(Primary)
+      });
     let recipe = filled(
       recipe,
       ButtonVariant::Secondary,

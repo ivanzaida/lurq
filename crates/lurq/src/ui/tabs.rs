@@ -907,7 +907,8 @@ impl Themed for Tabs {
       .base(MoreIcon, |s| s.square(IconSize::Sm).foreground(MutedForeground))
       .hovered(Tab, |s| s.foreground(Foreground))
       .focus_visible(Tab, |s| s.focus_ring())
-      .focus_visible(Panel, |s| s.focus_ring())
+      // A panel's content runs to its edges: its ring stands 4 out, clear of the text.
+      .focus_visible(Panel, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(4.0)))
       .focus_visible(More, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .state(Vertical, Root, |s| s.gap(24.0))
       .state(Vertical, Divider, |s| s.width(Length::Auto).height(1.0))

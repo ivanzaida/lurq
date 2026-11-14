@@ -1,6 +1,9 @@
 //! An action bar: the toolbar of a selection, over the list it acts on.
 
-use std::sync::Arc;
+use std::sync::{
+  Arc,
+  atomic::{AtomicBool, Ordering},
+};
 
 use super::{
   button::{Button, ButtonPart, ButtonVariant},
@@ -13,14 +16,17 @@ use super::{
 use crate::{
   animation::KeyframesId,
   app::{
+    component::Component,
+    ctx::Ctx,
     events::KeyboardEvent,
     theme::{
       BorderSize, IconSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle,
     },
   },
-  components::{Column, Row},
+  components::{Column, Row, TextOverflow},
+  core::ElementRef,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, FocusGroup, HitTestBehavior, border::Border},
+  node::{Element, FocusGroup, HitTestBehavior, NodeUpdate, border::Border, node::Node},
 };
 
 /// The keyframes a toast comes in and leaves with, which every window has
@@ -98,6 +104,7 @@ names!(ActionBarState {
 pub type ActionBarRenderer = Arc<dyn Fn(ActionBarView) -> Element + Send + Sync>;
 
 /// One action of the bar: its button, and whether it destroys what it acts on.
+#[derive(Clone)]
 pub struct ActionBarAction {
   pub button: Button,
   pub destructive: bool,
@@ -132,6 +139,11 @@ pub struct ActionBarAction {
 /// something is selected and leaves as nothing is. It is a toolbar: Tab
 /// stops in it once, and Left and Right move between its actions. Escape
 /// clears the selection where the app says so ([`escape_clears`](Self::escape_clears)).
+/// A text longer than the room gives way, cut with an ellipsis: the actions
+/// and the clear button stay whole. Mounted ([`mount`](Self::mount)), a bar
+/// that leaves with the focus in it gives the focus to what
+/// [`return_focus`](Self::return_focus) names: the list it acted on.
+#[derive(Clone)]
 pub struct ActionBar {
   count: usize,
   text: Option<Arc<str>>,
@@ -140,6 +152,7 @@ pub struct ActionBar {
   placement: ActionBarPlacement,
   escape_clears: bool,
   clear_label: Arc<str>,
+  return_focus: Option<ElementRef>,
   rules: Recipe,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -156,6 +169,7 @@ impl ActionBar {
       placement: ActionBarPlacement::default(),
       escape_clears: false,
       clear_label: Arc::from("Clear selection"),
+      return_focus: None,
       rules: Recipe::new(),
       id: None,
       key: None,
@@ -214,6 +228,16 @@ impl ActionBar {
     self
   }
 
+  /// Where the focus goes when the bar leaves with the focus in it: the
+  /// selection cleared by its clear button or by Escape, or emptied by one of
+  /// its actions. The list the bar acts on, or the row the selection started
+  /// at; without it the focus leaves with the bar. A bar does this where it
+  /// is mounted ([`mount`](Self::mount)), which keeps where the focus is.
+  pub fn return_focus(mut self, element: ElementRef) -> Self {
+    self.return_focus = Some(element);
+    self
+  }
+
   /// Styles one part of this bar over what the theme gives it.
   pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
     self.rules = self.rules.base(part, style);
@@ -235,6 +259,19 @@ impl ActionBar {
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
+  }
+
+  /// Puts the bar in the tree of `ctx`'s component, in the theme of what is
+  /// being rendered: as [`build`](Self::build) does, and it keeps whether the
+  /// focus is in the bar, so that the focus goes where
+  /// [`return_focus`](Self::return_focus) says as the bar leaves with it.
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    let key = self.key.clone();
+    let mut element = ctx.mount::<ActionBarHost>(ActionBarProps { bar: self });
+    if let Some(key) = key {
+      element = element.key(key);
+    }
+    element
   }
 
   /// Builds the bar in `theme`. Converting a bar into an element does this
@@ -268,6 +305,64 @@ impl ActionBar {
 impl From<ActionBar> for Element {
   fn from(bar: ActionBar) -> Self {
     bar.build(&current_theme())
+  }
+}
+
+#[derive(Clone)]
+struct ActionBarProps {
+  bar: ActionBar,
+}
+
+/// The bar is made anew by every render of what holds it, so props are never
+/// the same as before.
+impl PartialEq for ActionBarProps {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for ActionBarProps {}
+
+/// What a mounted bar keeps from one render to the next: whether the focus is
+/// on one of its buttons.
+struct ActionBarHost {
+  focused: Arc<AtomicBool>,
+}
+
+/// Has each stop of Tab in `node` say whether it has the focus in `focused`.
+fn watch_focus(node: &mut Node, focused: &Arc<AtomicBool>) {
+  if node.tab_index_value().is_some_and(|index| index >= 0) && node.is_focusable() {
+    let (gained, lost) = (focused.clone(), focused.clone());
+    NodeUpdate::on_focus(node, move || gained.store(true, Ordering::Relaxed));
+    NodeUpdate::on_blur(node, move || lost.store(false, Ordering::Relaxed));
+  }
+  for child in &mut node.children {
+    watch_focus(child, focused);
+  }
+}
+
+impl Component for ActionBarHost {
+  type Props = ActionBarProps;
+
+  fn create(_: &mut Ctx) -> Self {
+    Self {
+      focused: Arc::new(AtomicBool::new(false)),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let ActionBarProps { bar } = ctx.props::<ActionBarProps>().clone();
+    // The bar leaves with the focus in it: the focus goes where the app said, and is not lost with the bar.
+    if bar.count == 0
+      && self.focused.swap(false, Ordering::Relaxed)
+      && let Some(element) = &bar.return_focus
+    {
+      ctx.focus(element);
+    }
+    let mut element = bar.build(&current_theme());
+    watch_focus(&mut element.node, &self.focused);
+    element
   }
 }
 
@@ -305,10 +400,21 @@ impl ActionBarView {
       .build(self.theme())
   }
 
-  /// How many are selected.
+  /// How many are selected, on one line: where the bar is narrower than
+  /// what it holds, this gives way first and is cut with an ellipsis.
   pub fn count(&self) -> Element {
     let part = self.part(ActionBarPart::Count);
-    part.text(&self.text).nowrap().part(&part).into()
+    Row::new()
+      .flex_shrink(1.0)
+      .min_width(0.0)
+      .child(
+        part
+          .text(&self.text)
+          .nowrap()
+          .text_overflow(TextOverflow::Elipsis)
+          .part(&part),
+      )
+      .into()
   }
 
   /// The action at `index`, a ghost button in the bar's dress.
