@@ -731,7 +731,8 @@ impl FileUploadView {
         .zone
         .clone()
         .invalid(self.invalid)
-        .disabled(self.disabled || !self.operated)
+        // A list only shown draws its zone at rest: it takes nothing all the same.
+        .disabled(self.disabled)
         .force(self.forced)
         .with_host(self.host.clone());
       // The zone's own count of files does not know the list: it takes what the upload takes.

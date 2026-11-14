@@ -124,6 +124,12 @@ impl DroppedFile {
   }
 }
 
+impl crate::app::component::DevtoolsInspectable for DroppedFile {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_display(&self.name);
+  }
+}
+
 /// What kind of file a file is, by its extension: what decides its icon, and
 /// what `"image/*"` and the others accept.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -189,7 +195,7 @@ pub fn format_size(bytes: u64) -> String {
 /// The system's dialog for files to open.
 ///
 /// ```no_run
-/// use lurq::{app::Ctx, files::FileDialog};
+/// use lurq::{app::ctx::Ctx, files::FileDialog};
 ///
 /// # fn open(ctx: &mut Ctx) {
 /// let window = ctx.window();
@@ -246,7 +252,7 @@ impl FileDialog {
 
   /// Opens the dialog over `window` and gives what the person chose: nothing when they cancelled, or where there
   /// is no dialog (see the [module](self)). The future does not borrow the window: it is for
-  /// [`Ctx::future_action`](crate::app::Ctx::future_action), whose result is `Result<Vec<DroppedFile>, ()>`
+  /// [`Ctx::future_action`](crate::app::ctx::Ctx::future_action), whose result is `Result<Vec<DroppedFile>, ()>`
   /// with [`FileDialog::pick_result`].
   pub fn pick(self, window: &WindowHandle) -> impl Future<Output = Vec<DroppedFile>> + Send + 'static + use<> {
     let _ = window;

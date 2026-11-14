@@ -25,10 +25,12 @@ mod date_picker;
 mod date_range_picker;
 mod dialog;
 mod drawer;
+mod drop_zone;
 mod empty_state;
 mod family;
 mod family_play;
 mod fieldset;
+mod file_upload;
 mod hover_card;
 mod icons;
 mod input;
@@ -401,6 +403,22 @@ pub const PAGES: &[Page] = &[
     about: "date range picker period from to start end calendar presets last 7 days two months stay report value memory preset format parse placeholder min max disabled_days clearable size judgments read_only disabled label on_change controlled presets on_input on_submit on_open_change on_dismiss placement offset collision inline trigger_label clear_label panel_label months",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<date_range_picker::DateRangePickerPage>(()),
+  },
+  Page {
+    path: "/file-upload",
+    name: "File Upload",
+    icon: Some("upload"),
+    about: "file upload files choose browse dialog drop list progress uploading done failed retry remove accept multiple max_size max_files zone on_files on_reject on_remove on_retry on_change controlled at UploadFile DroppedFile",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<file_upload::FileUploadPage>(()),
+  },
+  Page {
+    path: "/drop-zone",
+    name: "Drop Zone",
+    icon: Some("inbox"),
+    about: "drop zone files drag drop dropped browse dialog accept multiple max_size max_files on_files on_reject drag_over rejected title description icon drop_text reject_text mount",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<drop_zone::DropZonePage>(()),
   },
   Page {
     path: "/tooltip",

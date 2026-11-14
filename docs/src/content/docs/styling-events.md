@@ -1353,3 +1353,29 @@ Column::new()
 - A drop ends the drag: the `drag_over` style goes without an `on_file_drag_leave`.
 
 The winit shell collects the OS's burst of one event per file into one session on Windows and macOS, and reads the pointer position from the OS while the drag hovers (the OS owns the pointer during a drag, so no `CursorMoved` arrives), every 16 ms, delivering `on_file_drag_over` when it moved. A hover ends as a leave when no mouse button has been pressed for 250 ms of polls (the OS drag ended without winit telling; read from the OS on Windows and macOS — the grace period covers the release, which the OS reports before its drop callback runs, so a drop within it continues the same session without a leave, and it covers drags whose button state is reported differently, a touch or pen drag promoted to a mouse drag, ClickLock, macOS drag lock, which end after the grace period at most and have not been checked), or when it neither moved nor got a drop or a cancel for 60 s, since its source is gone (a program that died mid-drag) and polling would never stop; a drag held still that long is ended too, and a drop that comes later still arrives. On Linux the last pointer position the window saw is used. A shell that drives a `Tree` itself calls `Tree::file_drag_enter(paths, x, y)`, `file_drag_over(x, y)`, `file_drag_leave()` and `file_drop(paths, x, y)` with physical pixels.
+
+### Files a person gives
+
+`lurq::files` gives a file dropped and a file chosen as one type, so an app handles both alike. `DroppedFile::from_path(path)` is a file of a drop (its name, its size read once, its path); `DroppedFile::new(name, size)` is one with no path, as a browser gives. `file.extension()`, `file.kind()` (`FileKind::Image`, `Video`, `Audio`, `Text`, `Archive`, `Other`, by the extension) and `file.is_accepted(&["image/*", "pdf"])` judge it; `format_size(bytes)` says a size as `4 KB` or `1.2 MB`.
+
+`FileDialog` opens the system's dialog for files to open. It runs off the loop, and its future does not borrow the window, so it is what a `ctx.future_action` runs:
+
+```rust
+use lurq::files::FileDialog;
+
+// In `create`.
+let window = ctx.window();
+let choose = ctx.future_action(move |()| {
+  FileDialog::new().title("Add images").filter("Images", &["png", "jpg"]).multiple(true).pick_result(&window)
+});
+// In a handler: `choose.run(())`; `choose.state()` then holds the chosen `Vec<DroppedFile>`, empty when the
+// person cancelled.
+```
+
+| Platform | A drop | The dialog |
+| --- | --- | --- |
+| Windows, macOS, Linux | Paths, from Explorer, Finder or a file manager | The system's (`rfd`, with the feature `file_dialog`): paths and sizes. It has no parent window, so it is not modal to the app's |
+| A browser | None: winit reports no drop from the system | The browser's file input, which a press must open: names and sizes, no path. Its bytes are not read through lurq yet |
+| iOS | None | None: `pick` gives nothing |
+
+Without the feature `file_dialog`, `pick` gives nothing and says so once through `tracing`. Under an MCP server with a [`FileDialogBroker`](../mcp-file-dialogs/) registered, `pick` asks the broker and no system dialog opens: an agent answers it. `ui::DropZone` and `ui::FileUpload` are made of these.

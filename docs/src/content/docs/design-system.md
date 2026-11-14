@@ -3876,6 +3876,95 @@ DateRangePicker::new(period.clone())
 - The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
 - A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
 
+## Drop Zone
+
+Where files are dropped from the system, or chosen in its file dialog: images for a gallery, a document to import. It says what a drag over it will do, takes what it accepts, and tells the app what it refused.
+
+```rust
+use lurq::ui::DropZone;
+
+DropZone::new()
+  .accept(["image/*", "pdf"])
+  .max_size(5 * 1024 * 1024)
+  .description("PNG, JPG or PDF, up to 5 MB")
+  .on_files(|files| upload(files))
+  .on_reject(|refused| say_why(refused))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `DropZone::new()` | A zone that takes any number of files of any kind and size |
+| `accept(impl IntoIterator<Item = &str>)` | The files it takes: extensions (`"png"`, `".png"`) and kinds (`"image/*"`, `"video/*"`, `"audio/*"`, `"text/*"`, `"archive/*"`), in any case. A second call adds. Nothing accepted takes every file |
+| `multiple(bool)` | More than one file at once: on unless told. Off, the first is taken and the rest refused as too many |
+| `max_size(u64)`, `max_files(usize)` | The greatest size of a file in bytes (a file whose size is not known is taken), and the most files of one drop or choice |
+| `icon(impl Into<IconChoice>)` | The icon over its words in place of the upload icon, or `None` |
+| `title(&str)`, `description(&str)`, `no_description()` | What it says, in place of "Drop files here" and "or click to browse" |
+| `drop_text(&str)`, `reject_text(&str)` | What it says while files it takes, or files it takes none of, are dragged over it, in place of "Drop to add" and "These files can't be added" |
+| `label(&str)` | What it is called to tooling, and its dialog's title; its title where it has none |
+| `invalid(bool)`, `disabled(bool)` | Its edge in the destructive color; or it takes no drop and no press, dimmed |
+| `on_files(Fn(&[DroppedFile]))` | Called with the files it took from a drop or from its dialog, in their order |
+| `on_reject(Fn(&[RejectedFile]))` | Called with the files it refused and why: `RejectReason::Kind`, `TooLarge`, `TooMany`, `Folder` |
+| `mount(ctx)` | The zone mounted where it is declared: it shows a drag over it, and a press, Enter or Space opens the system's dialog |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `state(DropZoneState::DragOver, true)` draws a drag with none |
+
+- It is a stop of Tab, a `button` to tooling called by its label. A press, Enter or Space opens the system's dialog for files to open ([`lurq::files::FileDialog`](../styling-events/#files-a-person-gives), with the feature `file_dialog`), filtered by the extensions it accepts; a second press while the dialog is open opens no second one. What is chosen is sorted as a drop is.
+- A drag over it is taken where it takes at least one of its files; one it takes none of is refused (`FileDragEvent::refuse`) and drawn so. The drop gives `on_files` what it takes and `on_reject` the rest, each only where there is something to tell. A folder is refused.
+- Showing a drag and opening the dialog are what the mounted zone does: converted into an element on its own it is its still form, which takes a drop, shows no drag and opens nothing.
+- Parts: `DropZonePart::Root` (the zone), `Icon`, `Text` (the column of the title and the description), `Title`, `Description`. States: `DropZoneState::DragOver`, `Rejected`, `Invalid`, `Disabled`, `Icon`, `Description`.
+- In the design the zone is 320 by 140 on `Muted`, with the large radius and an edge of 1.5 in `Input` inside it; in its middle the upload icon of 20 in `MutedForeground`, 8 over "Drop files here" in 14 medium in `Foreground` and "or click to browse" in a caption's 12 in `MutedForeground`. The board draws it at rest only: a drag it takes is drawn as the board's Drop Target, on `InfoMuted` with an edge of 2 in `Info` and its icon and title in `Info`; a drag it refuses the same in `DestructiveMuted` and `Destructive`. Under the pointer its edge is `Ring`, focused from the keyboard it has the focus ring, invalid its edge is `Destructive`. A longer title wraps and the zone grows; it is padded 24 across and 16 down for that, which the board's zone, of three short lines, does not show.
+- In a [field](#field) it is called by the field's label, invalid where the field is, and disabled where it is.
+- A renderer that draws another zone starts from `view.zone()`, the element files are dropped on and that is pressed, and puts `view.icon()` and `view.text()` in it, or what it likes.
+
+## File Upload
+
+The files a person gives, by the system's file dialog or a drop, in a list with how far each is sent. The app sends them and says how far: lurq sends nothing.
+
+```rust
+use lurq::{files::DroppedFile, ui::{FileUpload, UploadFile}};
+
+// files: Signal<Vec<UploadFile>>
+FileUpload::new(files.clone())
+  .accept(["image/*", "json"])
+  .on_files(|given| send(given))
+  .on_retry(|file| send_again(file))
+  .mount(ctx);
+
+// As the app sends them, it moves each file on.
+files.update(|files| files[0] = files[0].clone().uploading(0.62));
+```
+
+| Builder | |
+| --- | --- |
+| `FileUpload::new(Signal<Vec<UploadFile>>)` | Bound to the app's list: what is given is added as waiting and a removed file is taken out, then the handlers are told |
+| `FileUpload::controlled(files, on_change)` | The list the app holds: a person's change is told to `on_change` as the whole new list, and the upload shows what the app answers with |
+| `FileUpload::at(files)` | A list shown and not operated: nothing is given, removed or sent again |
+| `accept`, `multiple`, `max_size`, `max_files` | What it takes, as a [drop zone](#drop-zone)'s; `max_files` counts the files the list holds |
+| `zone(bool)` | A drop zone in place of the button; `title` and `description` are the zone's words |
+| `choose_label(&str)` | What the button says, in place of "Choose files" |
+| `remove_label(&str)`, `retry_label(&str)` | What a file's controls are called before its name, in place of "Remove" and "Retry" |
+| `size_text(Fn(u64) -> String)` | How a file's size is said, in place of "4 KB" and "1.2 MB" (`lurq::files::format_size`) |
+| `label(&str)`, `invalid(bool)`, `disabled(bool)` | What it is called to tooling and its dialog's title; its button's or zone's edge destructive; nothing given or removed, its list dimmed |
+| `on_change(Fn(&[UploadFile]))` | Called with the whole new list a person made; bound, after the signal is set |
+| `on_files(Fn(&[DroppedFile]))`, `on_reject(Fn(&[RejectedFile]))` | Called with the files given, which the app sends, and with those refused and why |
+| `on_remove(Fn(&UploadFile))`, `on_retry(Fn(&UploadFile))` | Called with a file a person removed (one being sent is to be stopped), and with a failed file to send again (the app sets it uploading) |
+| `mount(ctx)` | Mounted where it is declared: its button or zone opens the system's dialog, the zone shows a drag, and the focus of a removed file's control goes on |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. With an `id`, the button or zone is `<id>-trigger`, a file `<id>-<file's id>`, its controls `<id>-<file's id>-remove` and `-retry` |
+
+| `UploadFile` | |
+| --- | --- |
+| `UploadFile::new(DroppedFile)` | A file waiting to be sent. Its `id`, what the app finds it by, is its path, else its name |
+| `uploading(f32)`, `done()`, `failed(&str)`, `waiting()` | Where it is: being sent, a fraction from 0 to 1 of the way; sent; not sent, and why; waiting again |
+| `id(..)`, `key(..)`, `disabled(bool)` | Its id in place of its path; the key of its element; whether a person may not remove it or send it again |
+
+- Files dropped anywhere on it are given as a drop zone's are, and a drag it takes nothing of is refused. Tab reaches the button, then each file's controls in order; Enter or Space presses them. Mounted, a removed file's control gives the focus to the next file's, else the one before, else the button.
+- A file says its size while it waits and once it is sent, and how far it is while it is sent, with a bar under its line. A failed file says why under its line and has a retry control before its remove control. A file that was sent has the check and no control: the app takes it out where it likes.
+- A name longer than its line ends in an ellipsis; its size keeps its room.
+- Parts: `FileUploadPart::Root`, `Trigger` (the button, whose rules are laid over a button's root), `List`, `Item`, `Icon` (the icon of the file's kind: an image, a text, an archive, a file), `Text`, `Label` (the name), `Meta` (the size or how far), `Progress`, `Error`, `Status` (the check), `Remove`, `Retry`. States: `FileUploadState::Zone`, `Invalid`, `Disabled`, and on a file's parts `Waiting`, `Uploading`, `Done`, `Failed`, `Unavailable` (a disabled file).
+- In the design the upload is 300 wide: the outline button of 36 with the upload icon, and 8 under it the files 8 apart. A file is a row with an edge of 1 in `Border` inside it, the medium radius, padded 12 across and 10 down, its parts 10 apart: the icon of its kind, 16 in `MutedForeground`; its name in 13 medium in `Foreground`, and 8 after it its size or how far in 11 mono in `MutedForeground`; while it is sent a progress of 4, 6 under the line; at the end the check in `Success` or the remove control of 16 in `MutedForeground`. The board draws no failed file: its edge and its icon are `Destructive`, its error in a caption's 12 in `Destructive`. With a zone it is 320 wide, the zone's.
+- In a [field](#field) it is called by the field's label, invalid where the field is, and disabled where it is.
+- A renderer that draws another upload has `view.trigger()`, `view.item(index)`, `view.list()`, and `view.files`; `view.item_part(index, part)` is a part in its file's state.
+
 ## List
 
 Rows one under the other: settings, people, files, notifications. A row has a title, a description under it, what stands before it and what stands at its end.
