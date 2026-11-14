@@ -81,8 +81,41 @@ app.set_date_locale(Arc::new(Catalog::load()));
 | `day_label(date)` | the weekday's name and the date: `Thursday, Nov 12, 2026`, what a day is called to tooling |
 | `parse(text)`, `parse_range(text)` | ISO 8601; a range is two dates with a dash or `to` between |
 | `previous_month_label()`, `next_month_label()`, `choose_date_label()`, `choose_dates_label()`, `clear_label()` | English: `Previous month`, `Next month`, `Choose date`, `Choose dates`, `Clear` |
+| `hour_cycle()`, `day_period_name(period)` | `HourCycle::H23`; `AM` and `PM` |
+| `format_time(time, seconds)`, `parse_time(text)` | `14:30` (or `2:30 PM` on a clock of twelve hours), and back: hours and minutes and perhaps seconds, and a half of the day by its name or `am`/`pm` |
+| `date_order()`, `date_separator()`, `time_separator()` | the order and what stands between the segments of a date field (`MonthDayYear`, `/`) and of a time field (`:`) |
+| `month_short(month)` | the first three letters of `month_name`: a month picker's cell |
+| `segment_label(segment)`, `segment_placeholder(segment)` | what a segment of a field is called to tooling (`Day`, `Hour`) and what an empty one shows (`dd`, `mm`, `yyyy`, `hh`, `mm`, `ss`, `--`) |
+| `previous_year_label()`, `next_year_label()`, `previous_years_label()`, `next_years_label()`, `choose_time_label()` | English: `Previous year`, `Next year`, `Previous years`, `Next years`, `Choose time` |
+| `year_range_title(first, last)` | a year picker's heading: `2020 – 2031` |
 
 The names of the controls are words lurq writes itself, not dates, and are in `DateText` so that one thing gives all of a calendar's text; a component's `previous_label`, `next_label`, `trigger_label`, `clear_label` and `panel_label` are above them. `DateLocale` gives them in its language.
+
+## The time of day
+
+`core::Time` is a time of day with no date and no zone: what a time field and a time picker hold.
+
+```rust
+use lurq::core::{DayPeriod, Time};
+
+let time = Time::new(14, 30, 0).unwrap();
+assert_eq!(time.to_string(), "14:30:00");
+assert_eq!("14:30".parse::<Time>(), Ok(time));
+assert_eq!(time.hour12(), (2, DayPeriod::Pm));
+assert_eq!(time.add_minutes(45), Time::new(15, 15, 0).unwrap());
+```
+
+| `Time` | |
+| --- | --- |
+| `new(hour, minute, second)` | `None` for what is no time: hours 0 to 23, minutes and seconds 0 to 59 |
+| `from_hour12(hour, period, minute, second)`, `hour12()`, `period()` | On a clock of twelve hours: 12:30 AM is `00:30` |
+| `now()` | Now by the system's clock and zone; in the browser, and wherever lurq cannot read the zone, in UTC |
+| `hour()`, `minute()`, `second()`, `seconds()` | Its parts, and the seconds since midnight |
+| `add_minutes(n)`, `add_seconds(n)`, `from_seconds(n)` | Round the clock: 20 minutes after 23:50 is 00:10 |
+| `without_seconds()`, `clamp_to(min, max)` | |
+| `Time::MIDNIGHT`, `Time::MAX` | `00:00:00` and `23:59:59` |
+
+Times are ordered, hashed and copied, and written and read as ISO 8601 (`14:30` or `14:30:00`). `HourCycle` says how a locale counts the hours (`H23`, `H12`), and `DayPeriod` the halves of the day (`Am`, `Pm`). A `DateLocale` writes and reads times as its language does: `en-US` on a clock of twelve hours, the others on one of 24.
 
 ## The date type
 

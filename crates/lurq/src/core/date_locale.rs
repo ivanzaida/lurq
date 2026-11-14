@@ -12,6 +12,7 @@ use parking_lot::RwLock;
 use super::{
   Signal,
   date::{Date, DateRange, Weekday, YearMonth},
+  time::{DayPeriod, HourCycle, Time},
 };
 
 /// What a calendar, a date picker and a date range picker ask of a date's text: the first day of the week, the title
@@ -134,6 +135,183 @@ pub trait DateText: Send + Sync {
   fn clear_label(&self) -> String {
     "Clear".to_owned()
   }
+
+  /// How the hours are counted: from 0 to 23 unless the app says otherwise.
+  fn hour_cycle(&self) -> HourCycle {
+    HourCycle::H23
+  }
+
+  /// What a half of the day is called on a clock of twelve hours: `AM`, `PM`.
+  fn day_period_name(&self, period: DayPeriod) -> String {
+    match period {
+      DayPeriod::Am => "AM".to_owned(),
+      DayPeriod::Pm => "PM".to_owned(),
+    }
+  }
+
+  /// How a field writes a time: `14:30`, or `2:30 PM` on a clock of twelve hours, with its seconds where `seconds`.
+  fn format_time(&self, time: Time, seconds: bool) -> String {
+    let separator = self.time_separator();
+    let rest = if seconds {
+      format!("{separator}{:02}{separator}{:02}", time.minute(), time.second())
+    } else {
+      format!("{separator}{:02}", time.minute())
+    };
+    match self.hour_cycle() {
+      HourCycle::H23 => format!("{:02}{rest}", time.hour()),
+      HourCycle::H12 => {
+        let (hour, period) = time.hour12();
+        format!("{hour}{rest} {}", self.day_period_name(period))
+      }
+    }
+  }
+
+  /// The time what is typed holds, `None` where it is none yet: hours and minutes and perhaps seconds, with the
+  /// locale's separator or a colon, and a half of the day by its name or `am`/`pm` after them.
+  fn parse_time(&self, text: &str) -> Option<Time> {
+    read_time(text, self.time_separator(), |word| {
+      [DayPeriod::Am, DayPeriod::Pm]
+        .into_iter()
+        .find(|period| self.day_period_name(*period).eq_ignore_ascii_case(word))
+    })
+  }
+
+  /// The order of a date field's segments: the day, the month and the year as the locale writes them in numbers.
+  fn date_order(&self) -> DateOrder {
+    DateOrder::MonthDayYear
+  }
+
+  /// What stands between a date field's segments: `/` in `11/12/2026`.
+  fn date_separator(&self) -> char {
+    '/'
+  }
+
+  /// What stands between a time's hours, minutes and seconds: `:`.
+  fn time_separator(&self) -> char {
+    ':'
+  }
+
+  /// The short name of a month, as a month picker's cell has it: `Nov`. The first three letters of its name unless
+  /// the app says otherwise.
+  fn month_short(&self, month: u8) -> String {
+    self.month_name(month).chars().take(3).collect()
+  }
+
+  /// What a segment of a date or time field is called to what reads the tree: `Day`, `Hour`.
+  fn segment_label(&self, segment: DateSegment) -> String {
+    match segment {
+      DateSegment::Day => "Day",
+      DateSegment::Month => "Month",
+      DateSegment::Year => "Year",
+      DateSegment::Hour => "Hour",
+      DateSegment::Minute => "Minute",
+      DateSegment::Second => "Second",
+      DateSegment::Period => "AM/PM",
+    }
+    .to_owned()
+  }
+
+  /// What an empty segment shows: `dd`, `mm`, `yyyy`, `hh`, `mm`, `ss`, and `--` for the half of the day.
+  fn segment_placeholder(&self, segment: DateSegment) -> String {
+    match segment {
+      DateSegment::Day => "dd",
+      DateSegment::Month => "mm",
+      DateSegment::Year => "yyyy",
+      DateSegment::Hour => "hh",
+      DateSegment::Minute => "mm",
+      DateSegment::Second => "ss",
+      DateSegment::Period => "--",
+    }
+    .to_owned()
+  }
+
+  /// What a month picker's button that shows the year before is called: `Previous year`.
+  fn previous_year_label(&self) -> String {
+    "Previous year".to_owned()
+  }
+
+  /// What a month picker's button that shows the year after is called: `Next year`.
+  fn next_year_label(&self) -> String {
+    "Next year".to_owned()
+  }
+
+  /// What a year picker's button that shows the years before is called: `Previous years`.
+  fn previous_years_label(&self) -> String {
+    "Previous years".to_owned()
+  }
+
+  /// What a year picker's button that shows the years after is called: `Next years`.
+  fn next_years_label(&self) -> String {
+    "Next years".to_owned()
+  }
+
+  /// What a time picker's button and panel are called: `Choose time`.
+  fn choose_time_label(&self) -> String {
+    "Choose time".to_owned()
+  }
+
+  /// The heading of a year picker: `2020 – 2031`.
+  fn year_range_title(&self, first: i32, last: i32) -> String {
+    format!("{first} – {last}")
+  }
+}
+
+/// A segment of a date field or a time field: what is typed in, stepped and read as one number (or a half of the
+/// day).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DateSegment {
+  Day,
+  Month,
+  Year,
+  Hour,
+  Minute,
+  Second,
+  /// The half of the day on a clock of twelve hours: AM or PM.
+  Period,
+}
+
+impl DateSegment {
+  /// Its place among the seven: what a locale's tables of segments are indexed by.
+  pub fn index(self) -> usize {
+    self as usize
+  }
+}
+
+/// The time `text` holds: hours, minutes and perhaps seconds between `separator`s or colons, two digits for the
+/// minutes and the seconds, and after them a half of the day that `period` reads (or `am`, `pm`, `a`, `p`).
+pub(crate) fn read_time(text: &str, separator: char, period: impl Fn(&str) -> Option<DayPeriod>) -> Option<Time> {
+  let text = text.trim();
+  let split = text.find(|c: char| c.is_alphabetic()).unwrap_or(text.len());
+  let (clock, words) = (text[..split].trim(), text[split..].trim());
+  let half = if words.is_empty() {
+    None
+  } else {
+    let word = words.trim_end_matches('.');
+    Some(period(word).or_else(|| match word.to_ascii_lowercase().as_str() {
+      "am" | "a" | "a.m" => Some(DayPeriod::Am),
+      "pm" | "p" | "p.m" => Some(DayPeriod::Pm),
+      _ => None,
+    })?)
+  };
+  let parts: Vec<&str> = clock.split(|c: char| c == separator || c == ':').collect();
+  if !(2..=3).contains(&parts.len()) {
+    return None;
+  }
+  let number = |part: &str, digits: std::ops::RangeInclusive<usize>| {
+    (digits.contains(&part.len()) && part.bytes().all(|byte| byte.is_ascii_digit()))
+      .then(|| part.parse::<u8>().ok())
+      .flatten()
+  };
+  let hour = number(parts[0], 1..=2)?;
+  let minute = number(parts[1], 2..=2)?;
+  let second = match parts.get(2) {
+    Some(part) => number(part, 2..=2)?,
+    None => 0,
+  };
+  match half {
+    Some(half) => Time::from_hour12(hour, half, minute, second),
+    None => Time::new(hour, minute, second),
+  }
 }
 
 /// An app's own type shared: what it gives [`App::set_date_locale`](crate::app::App::set_date_locale) and a
@@ -186,6 +364,54 @@ impl<T: DateText + ?Sized> DateText for Arc<T> {
   }
   fn clear_label(&self) -> String {
     (**self).clear_label()
+  }
+  fn hour_cycle(&self) -> HourCycle {
+    (**self).hour_cycle()
+  }
+  fn day_period_name(&self, period: DayPeriod) -> String {
+    (**self).day_period_name(period)
+  }
+  fn format_time(&self, time: Time, seconds: bool) -> String {
+    (**self).format_time(time, seconds)
+  }
+  fn parse_time(&self, text: &str) -> Option<Time> {
+    (**self).parse_time(text)
+  }
+  fn date_order(&self) -> DateOrder {
+    (**self).date_order()
+  }
+  fn date_separator(&self) -> char {
+    (**self).date_separator()
+  }
+  fn time_separator(&self) -> char {
+    (**self).time_separator()
+  }
+  fn month_short(&self, month: u8) -> String {
+    (**self).month_short(month)
+  }
+  fn segment_label(&self, segment: DateSegment) -> String {
+    (**self).segment_label(segment)
+  }
+  fn segment_placeholder(&self, segment: DateSegment) -> String {
+    (**self).segment_placeholder(segment)
+  }
+  fn previous_year_label(&self) -> String {
+    (**self).previous_year_label()
+  }
+  fn next_year_label(&self) -> String {
+    (**self).next_year_label()
+  }
+  fn previous_years_label(&self) -> String {
+    (**self).previous_years_label()
+  }
+  fn next_years_label(&self) -> String {
+    (**self).next_years_label()
+  }
+  fn choose_time_label(&self) -> String {
+    (**self).choose_time_label()
+  }
+  fn year_range_title(&self, first: i32, last: i32) -> String {
+    (**self).year_range_title(first, last)
   }
 }
 
@@ -267,23 +493,82 @@ pub struct DateLabels {
   pub choose_date: Arc<str>,
   pub choose_dates: Arc<str>,
   pub clear: Arc<str>,
+  pub previous_year: Arc<str>,
+  pub next_year: Arc<str>,
+  pub previous_years: Arc<str>,
+  pub next_years: Arc<str>,
+  pub choose_time: Arc<str>,
 }
 
 impl DateLabels {
-  fn of(words: [&str; 5]) -> Self {
-    let [previous_month, next_month, choose_date, choose_dates, clear] = words.map(Arc::from);
+  fn of(words: [&str; 10]) -> Self {
+    let [
+      previous_month,
+      next_month,
+      choose_date,
+      choose_dates,
+      clear,
+      previous_year,
+      next_year,
+      previous_years,
+      next_years,
+      choose_time,
+    ] = words.map(Arc::from);
     Self {
       previous_month,
       next_month,
       choose_date,
       choose_dates,
       clear,
+      previous_year,
+      next_year,
+      previous_years,
+      next_years,
+      choose_time,
     }
   }
 
-  /// English: `Previous month`, `Next month`, `Choose date`, `Choose dates`, `Clear`.
+  /// English: `Previous month`, `Next month`, `Choose date`, `Choose dates`, `Clear`, `Previous year`, `Next year`,
+  /// `Previous years`, `Next years`, `Choose time`.
   pub fn english() -> Self {
-    Self::of(["Previous month", "Next month", "Choose date", "Choose dates", "Clear"])
+    Self::of([
+      "Previous month",
+      "Next month",
+      "Choose date",
+      "Choose dates",
+      "Clear",
+      "Previous year",
+      "Next year",
+      "Previous years",
+      "Next years",
+      "Choose time",
+    ])
+  }
+}
+
+/// What the segments of a date field and a time field are called to what reads the tree, and what an empty one shows,
+/// in a locale's words: indexed by [`DateSegment::index`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SegmentWords {
+  pub labels: [Arc<str>; 7],
+  pub placeholders: [Arc<str>; 7],
+}
+
+impl SegmentWords {
+  fn of(labels: [&str; 7], placeholders: [&str; 7]) -> Self {
+    Self {
+      labels: labels.map(Arc::from),
+      placeholders: placeholders.map(Arc::from),
+    }
+  }
+
+  /// English: `Day`, `Month`, `Year`, `Hour`, `Minute`, `Second`, `AM/PM`; `dd`, `mm`, `yyyy`, `hh`, `mm`, `ss`,
+  /// `--`.
+  pub fn english() -> Self {
+    Self::of(
+      ["Day", "Month", "Year", "Hour", "Minute", "Second", "AM/PM"],
+      ["dd", "mm", "yyyy", "hh", "mm", "ss", "--"],
+    )
   }
 }
 
@@ -351,6 +636,12 @@ pub struct DateLocale {
   pub parser: Option<DateParser>,
   /// What a calendar and a date picker call their controls.
   pub labels: DateLabels,
+  /// How the hours are counted: `14:30`, or `2:30 PM`.
+  pub hour_cycle: HourCycle,
+  /// What the halves of the day are called on a clock of twelve hours: `AM`, `PM`.
+  pub day_periods: [Arc<str>; 2],
+  /// What the segments of a date or time field are called, and what an empty one shows.
+  pub segments: SegmentWords,
 }
 
 impl fmt::Debug for DateLocale {
@@ -392,6 +683,9 @@ impl PartialEq for DateLocale {
       && same(&self.formatter, &other.formatter)
       && same_parser(&self.parser, &other.parser)
       && self.labels == other.labels
+      && self.hour_cycle == other.hour_cycle
+      && self.day_periods == other.day_periods
+      && self.segments == other.segments
   }
 }
 
@@ -440,6 +734,9 @@ impl DateLocale {
       formatter: None,
       parser: None,
       labels: DateLabels::english(),
+      hour_cycle: HourCycle::H23,
+      day_periods: names(["AM", "PM"]),
+      segments: SegmentWords::english(),
     }
   }
 
@@ -451,6 +748,7 @@ impl DateLocale {
     let mut locale = match (tag.as_str(), language) {
       ("en-us" | "en-ca" | "en-ph", _) => Self {
         first_day: Weekday::Sunday,
+        hour_cycle: HourCycle::H12,
         ..Self::english()
       },
       ("en-gb" | "en-ie" | "en-au" | "en-nz" | "en-in" | "en-za", _) => Self {
@@ -494,7 +792,16 @@ impl DateLocale {
           "Виберіть дату",
           "Виберіть дати",
           "Очистити",
+          "Попередній рік",
+          "Наступний рік",
+          "Попередні роки",
+          "Наступні роки",
+          "Виберіть час",
         ]),
+        segments: SegmentWords::of(
+          ["День", "Місяць", "Рік", "Година", "Хвилина", "Секунда", "Частина доби"],
+          ["дд", "мм", "рррр", "гг", "хх", "сс", "--"],
+        ),
         ..Self::english()
       },
       (_, "de") => Self {
@@ -534,7 +841,16 @@ impl DateLocale {
           "Datum wählen",
           "Daten wählen",
           "Löschen",
+          "Vorheriges Jahr",
+          "Nächstes Jahr",
+          "Vorherige Jahre",
+          "Nächste Jahre",
+          "Uhrzeit wählen",
         ]),
+        segments: SegmentWords::of(
+          ["Tag", "Monat", "Jahr", "Stunde", "Minute", "Sekunde", "AM/PM"],
+          ["TT", "MM", "JJJJ", "hh", "mm", "ss", "--"],
+        ),
         ..Self::english()
       },
       (_, "fr") => Self {
@@ -566,7 +882,16 @@ impl DateLocale {
           "Choisir une date",
           "Choisir des dates",
           "Effacer",
+          "Année précédente",
+          "Année suivante",
+          "Années précédentes",
+          "Années suivantes",
+          "Choisir une heure",
         ]),
+        segments: SegmentWords::of(
+          ["Jour", "Mois", "Année", "Heure", "Minute", "Seconde", "AM/PM"],
+          ["jj", "mm", "aaaa", "hh", "mm", "ss", "--"],
+        ),
         ..Self::english()
       },
       (_, "es") => Self {
@@ -598,7 +923,16 @@ impl DateLocale {
           "Elegir fecha",
           "Elegir fechas",
           "Borrar",
+          "Año anterior",
+          "Año siguiente",
+          "Años anteriores",
+          "Años siguientes",
+          "Elegir hora",
         ]),
+        segments: SegmentWords::of(
+          ["Día", "Mes", "Año", "Hora", "Minuto", "Segundo", "AM/PM"],
+          ["dd", "mm", "aaaa", "hh", "mm", "ss", "--"],
+        ),
         ..Self::english()
       },
       (_, "pl") => Self {
@@ -638,7 +972,16 @@ impl DateLocale {
           "Wybierz datę",
           "Wybierz daty",
           "Wyczyść",
+          "Poprzedni rok",
+          "Następny rok",
+          "Poprzednie lata",
+          "Następne lata",
+          "Wybierz godzinę",
         ]),
+        segments: SegmentWords::of(
+          ["Dzień", "Miesiąc", "Rok", "Godzina", "Minuta", "Sekunda", "AM/PM"],
+          ["dd", "mm", "rrrr", "gg", "mm", "ss", "--"],
+        ),
         ..Self::english()
       },
       _ => Self::english(),
@@ -955,6 +1298,54 @@ impl DateText for DateLocale {
   fn clear_label(&self) -> String {
     self.labels.clear.to_string()
   }
+
+  fn hour_cycle(&self) -> HourCycle {
+    self.hour_cycle
+  }
+
+  fn day_period_name(&self, period: DayPeriod) -> String {
+    self.day_periods[period as usize].to_string()
+  }
+
+  fn date_order(&self) -> DateOrder {
+    self.order
+  }
+
+  fn date_separator(&self) -> char {
+    self.separator
+  }
+
+  fn month_short(&self, month: u8) -> String {
+    capitalized(self.months_short[(month.clamp(1, 12) - 1) as usize].trim_end_matches('.'))
+  }
+
+  fn segment_label(&self, segment: DateSegment) -> String {
+    self.segments.labels[segment.index()].to_string()
+  }
+
+  fn segment_placeholder(&self, segment: DateSegment) -> String {
+    self.segments.placeholders[segment.index()].to_string()
+  }
+
+  fn previous_year_label(&self) -> String {
+    self.labels.previous_year.to_string()
+  }
+
+  fn next_year_label(&self) -> String {
+    self.labels.next_year.to_string()
+  }
+
+  fn previous_years_label(&self) -> String {
+    self.labels.previous_years.to_string()
+  }
+
+  fn next_years_label(&self) -> String {
+    self.labels.next_years.to_string()
+  }
+
+  fn choose_time_label(&self) -> String {
+    self.labels.choose_time.to_string()
+  }
 }
 
 /// `word` with its first letter in capitals.
@@ -1020,6 +1411,47 @@ mod tests {
   }
 
   #[test]
+  fn a_locale_writes_and_reads_a_time() {
+    let time = Time::new(14, 5, 9).unwrap();
+    let en = DateLocale::english();
+    assert_eq!(en.format_time(time, false), "14:05");
+    assert_eq!(en.format_time(time, true), "14:05:09");
+    let us = DateLocale::for_tag("en-US");
+    assert_eq!(us.format_time(time, false), "2:05 PM");
+    assert_eq!(us.format_time(Time::new(0, 30, 0).unwrap(), false), "12:30 AM");
+    for (text, read) in [
+      ("14:05", Some(time.without_seconds())),
+      ("2:05 pm", Some(time.without_seconds())),
+      ("2:05 PM", Some(time.without_seconds())),
+      ("14:05:09", Some(time)),
+      ("9:30", Time::new(9, 30, 0)),
+      ("12:00 am", Time::new(0, 0, 0)),
+      ("14:5", None),
+      ("25:00", None),
+      ("2:05 xm", None),
+    ] {
+      assert_eq!(us.parse_time(text), read, "{text}");
+    }
+    assert_eq!(
+      DateText::segment_placeholder(&DateLocale::for_tag("de"), DateSegment::Year),
+      "JJJJ"
+    );
+    assert_eq!(
+      DateText::segment_label(&DateLocale::for_tag("uk"), DateSegment::Month),
+      "Місяць"
+    );
+    assert_eq!(DateText::month_short(&DateLocale::for_tag("uk"), 11), "Лис");
+    assert_eq!(
+      DateText::date_order(&DateLocale::for_tag("en-GB")),
+      DateOrder::DayMonthYear
+    );
+    assert_eq!(
+      DateText::choose_time_label(&DateLocale::for_tag("pl")),
+      "Wybierz godzinę"
+    );
+  }
+
+  #[test]
   fn the_traits_defaults_follow_from_its_other_answers() {
     struct Plain;
     impl DateText for Plain {
@@ -1049,6 +1481,12 @@ mod tests {
       Some(DateRange::new(day, day.add_days(3)))
     );
     assert_eq!(Plain.next_month_label(), "Next month");
+    let time = Time::new(9, 5, 0).unwrap();
+    assert_eq!(Plain.format_time(time, false), "09:05");
+    assert_eq!(Plain.parse_time("9:05"), Some(time));
+    assert_eq!(Plain.month_short(11), "M11");
+    assert_eq!(Plain.segment_placeholder(DateSegment::Year), "yyyy");
+    assert_eq!(Plain.year_range_title(2020, 2031), "2020 – 2031");
     // Shared, it answers as it does.
     let shared: Arc<dyn DateText> = Arc::new(Plain);
     assert_eq!(shared.month_title(day.year_month()), "M11 2026");

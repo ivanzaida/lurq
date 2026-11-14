@@ -24,6 +24,7 @@ mod command_palette;
 mod context_menu;
 mod data_grid;
 mod data_list;
+mod date_field;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
@@ -46,6 +47,7 @@ mod mentions;
 mod menu;
 mod menubar;
 mod message_box;
+mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
@@ -80,6 +82,8 @@ mod tag;
 mod timeline;
 mod teaching_tip;
 mod textarea;
+mod time_field;
+mod time_picker;
 mod toast;
 mod toggletip;
 mod token_input;
@@ -87,6 +91,7 @@ mod tokens;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod year_picker;
 
 /// A group of the side bar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -458,6 +463,46 @@ pub const PAGES: &[Page] = &[
     about: "drop zone files drag drop dropped browse dialog accept multiple max_size max_files on_files on_reject drag_over rejected title description icon drop_text reject_text mount",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<drop_zone::DropZonePage>(()),
+  },
+  Page {
+    path: "/date-field",
+    name: "Date Field",
+    icon: Some("calendar"),
+    about: "date field segments day month year typed spin button keyboard birthday new optional controlled controlled_optional min max today locale icon size invalid warning valid read_only disabled full_width label name memory on_change",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<date_field::DateFieldPage>(()),
+  },
+  Page {
+    path: "/time-field",
+    name: "Time Field",
+    icon: Some("timer"),
+    about: "time field segments hour minute second am pm clock twelve hours typed spin button new optional controlled controlled_optional step seconds hour_cycle min max locale icon size invalid read_only disabled label name memory on_change",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<time_field::TimeFieldPage>(()),
+  },
+  Page {
+    path: "/time-picker",
+    name: "Time Picker",
+    icon: Some("calendar-clock"),
+    about: "time picker hours minutes columns panel popover meeting slot new optional controlled controlled_optional step hour_cycle min max placeholder locale size invalid read_only disabled label name memory open placement offset collision inline trigger_label panel_label on_change on_input on_submit on_open_change on_dismiss",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<time_picker::TimePickerPage>(()),
+  },
+  Page {
+    path: "/month-picker",
+    name: "Month Picker",
+    icon: Some("calendar-days"),
+    about: "month picker months year grid report expiry new optional controlled controlled_optional min max today locale previous_label next_label memory label invalid disabled on_change",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<month_picker::MonthPickerPage>(()),
+  },
+  Page {
+    path: "/year-picker",
+    name: "Year Picker",
+    icon: Some("calendar"),
+    about: "year picker years decade grid birth new optional controlled controlled_optional min max today locale previous_label next_label memory label invalid disabled on_change",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<year_picker::YearPickerPage>(()),
   },
   Page {
     path: "/tooltip",

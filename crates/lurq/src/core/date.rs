@@ -479,8 +479,19 @@ impl crate::app::component::DevtoolsInspectable for DateRange {
 }
 
 /// Today by the system's clock and zone, where lurq can read the zone.
-#[cfg(windows)]
 fn local_today() -> Option<Date> {
+  local_now().map(|(date, _)| date)
+}
+
+/// The seconds since midnight now by the system's clock and zone, where lurq can read the zone: what
+/// [`Time::now`](super::Time::now) is.
+pub(crate) fn local_now_seconds() -> Option<i64> {
+  local_now().map(|(_, seconds)| seconds)
+}
+
+/// Now by the system's clock and zone: the date and the seconds since its midnight.
+#[cfg(windows)]
+fn local_now() -> Option<(Date, i64)> {
   #[repr(C)]
   struct SystemTime {
     year: u16,
@@ -508,12 +519,13 @@ fn local_today() -> Option<Date> {
   };
   // SAFETY: GetLocalTime writes the eight fields of the struct it is given, which is laid out as SYSTEMTIME is.
   unsafe { GetLocalTime(&mut time) };
-  Date::new(time.year as i32, time.month as u8, time.day as u8)
+  let seconds = time.hour as i64 * 3600 + time.minute as i64 * 60 + time.second as i64;
+  Date::new(time.year as i32, time.month as u8, time.day as u8).map(|date| (date, seconds))
 }
 
-/// Today by the system's clock and zone, where lurq can read the zone.
+/// Now by the system's clock and zone: the date and the seconds since its midnight.
 #[cfg(all(unix, not(target_arch = "wasm32")))]
-fn local_today() -> Option<Date> {
+fn local_now() -> Option<(Date, i64)> {
   use std::os::raw::{c_int, c_long};
   unsafe extern "C" {
     fn time(out: *mut c_long) -> c_long;
@@ -531,18 +543,25 @@ fn local_today() -> Option<Date> {
   if written.is_null() {
     return None;
   }
-  Date::new(tm[5] + 1900, (tm[4] + 1) as u8, tm[3] as u8)
+  let seconds = tm[2] as i64 * 3600 + tm[1] as i64 * 60 + tm[0].min(59) as i64;
+  Date::new(tm[5] + 1900, (tm[4] + 1) as u8, tm[3] as u8).map(|date| (date, seconds))
 }
 
-/// Today by the browser's clock and zone.
+/// Now by the browser's clock and zone: the date and the seconds since its midnight.
 #[cfg(target_arch = "wasm32")]
-fn local_today() -> Option<Date> {
+fn local_now() -> Option<(Date, i64)> {
   let now = js_sys::Date::new_0();
-  Date::new(now.get_full_year() as i32, (now.get_month() + 1) as u8, now.get_date() as u8)
+  let seconds = now.get_hours() as i64 * 3600 + now.get_minutes() as i64 * 60 + now.get_seconds() as i64;
+  Date::new(
+    now.get_full_year() as i32,
+    (now.get_month() + 1) as u8,
+    now.get_date() as u8,
+  )
+  .map(|date| (date, seconds))
 }
 
 #[cfg(not(any(windows, unix, target_arch = "wasm32")))]
-fn local_today() -> Option<Date> {
+fn local_now() -> Option<(Date, i64)> {
   None
 }
 

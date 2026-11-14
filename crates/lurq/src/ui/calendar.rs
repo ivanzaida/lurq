@@ -151,29 +151,31 @@ impl MonthSource {
   }
 }
 
-/// What a calendar keeps from one render to the next, kept by the app: a field of the component that renders the
-/// calendar or the date picker, made once, as the [`ElementRef`](crate::core::ElementRef) a popover hangs from is. The
-/// month it shows, the first press of a range and where the pointer or the keys are while the second is to come, and
-/// for a picker whether its calendar is open and the field it opens under.
+/// What a component of dates keeps from one render to the next, kept by the app: a field of the component that renders
+/// the calendar, the picker or the field, made once, as the [`ElementRef`](crate::core::ElementRef) a popover hangs
+/// from is. The month or the years a calendar or a month or year picker shows, the first press of a range and where the
+/// pointer or the keys are while the second is to come; for a picker whether its panel is open and the field it opens
+/// under; for a date or time field what is typed in its segments while it is not a whole value. A mounted component
+/// keeps one of its own; one in a [`Field`](super::Field), which is given the builder, keeps the app's.
 ///
 /// ```
 /// use lurq::{
 ///   app::{component::Component, ctx::Ctx},
 ///   core::{Date, Signal},
 ///   node::Element,
-///   ui::{CalendarMemory, DatePicker, Field},
+///   ui::{DateMemory, DatePicker, Field},
 /// };
 ///
 /// struct Booking {
 ///   day: Signal<Option<Date>>,
-///   picker: CalendarMemory,
+///   picker: DateMemory,
 /// }
 ///
 /// impl Component for Booking {
 ///   type Props = ();
 ///
 ///   fn create(_ctx: &mut Ctx) -> Self {
-///     Self { day: Signal::new(None), picker: CalendarMemory::new() }
+///     Self { day: Signal::new(None), picker: DateMemory::new() }
 ///   }
 ///
 ///   fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
@@ -183,16 +185,25 @@ impl MonthSource {
 /// }
 /// ```
 #[derive(Clone)]
-pub struct CalendarMemory {
+pub struct DateMemory {
   pub(crate) month: Signal<Option<YearMonth>>,
   pub(crate) draft: Signal<Option<Date>>,
   pub(crate) hover: Signal<Option<Date>>,
   pub(crate) open: Signal<bool>,
   pub(crate) anchor: crate::core::ElementRef,
   pub(crate) last: Arc<Mutex<Option<CalendarChoice>>>,
+  /// What a field of segments has typed while it is not a whole value: `None` where it shows the value.
+  pub(crate) typed: Signal<Option<super::date_field::Typed>>,
+  /// Which segment of a field has the focus.
+  pub(crate) focused: Signal<Option<usize>>,
+  /// The digits typed in the focused segment so far: the segment, how many, and the number they make.
+  pub(crate) digits: Arc<Mutex<Option<(usize, usize, u32)>>>,
+  /// The value a field of segments was last built with, written as its `Debug`: one set from outside resets what is
+  /// typed.
+  pub(crate) seen: Arc<Mutex<Option<String>>>,
 }
 
-impl CalendarMemory {
+impl DateMemory {
   pub fn new() -> Self {
     Self {
       month: Signal::new(None),
@@ -201,6 +212,10 @@ impl CalendarMemory {
       open: Signal::new(false),
       anchor: crate::core::ElementRef::new(),
       last: Arc::new(Mutex::new(None)),
+      typed: Signal::new(None),
+      focused: Signal::new(None),
+      digits: Arc::new(Mutex::new(None)),
+      seen: Arc::new(Mutex::new(None)),
     }
   }
 
@@ -217,7 +232,7 @@ impl CalendarMemory {
   }
 }
 
-impl Default for CalendarMemory {
+impl Default for DateMemory {
   fn default() -> Self {
     Self::new()
   }
@@ -270,7 +285,7 @@ pub(crate) struct Kept {
 /// The calendar does not keep what is chosen: the app's signal does, which a press of a day sets. The month it shows
 /// is not what is chosen: it is the app's where it gives one ([`Calendar::month`]), else the calendar keeps it,
 /// starting at the month of what is chosen, or of today. It keeps it, and the first press of a range, where it is
-/// mounted ([`Calendar::mount`]) or given a [`CalendarMemory`] the app keeps ([`Calendar::memory`]). Converted into an
+/// mounted ([`Calendar::mount`]) or given a [`DateMemory`] the app keeps ([`Calendar::memory`]). Converted into an
 /// element with neither, it keeps nothing: its buttons show no other month unless the app gives it the month, and a
 /// range is shown only once it is chosen.
 ///
@@ -310,7 +325,7 @@ pub struct Calendar<V: Picked = Date> {
   forced: Option<Interaction>,
   /// Where a date picker keeps what the calendar keeps.
   pub(crate) kept: Option<Kept>,
-  pub(crate) memory: Option<CalendarMemory>,
+  pub(crate) memory: Option<DateMemory>,
   /// Whether the day Tab would enter at takes the focus as the panel it is in opens.
   pub(crate) autofocus: bool,
   pub(crate) bare: bool,
@@ -515,7 +530,7 @@ impl<V: Picked> Calendar<V> {
   /// What keeps the month the calendar shows, the first press of a range and where the range would end, from one
   /// render to the next: the app's, made once. A calendar with one follows the value to its month when the app sets
   /// it to a date that is not shown.
-  pub fn memory(mut self, memory: &CalendarMemory) -> Self {
+  pub fn memory(mut self, memory: &DateMemory) -> Self {
     self.memory = Some(memory.clone());
     self
   }
@@ -576,7 +591,7 @@ impl<V: Picked> Calendar<V> {
   }
 
   /// What the calendar keeps in `memory`, or, with none, what it keeps for one build.
-  pub(crate) fn kept_by(&self, memory: Option<&CalendarMemory>, today: Date) -> Kept {
+  pub(crate) fn kept_by(&self, memory: Option<&DateMemory>, today: Date) -> Kept {
     let start = self.start_month_untracked(today);
     let Some(memory) = memory else {
       return Kept {
@@ -1346,7 +1361,7 @@ impl<V: Picked> crate::app::component::DevtoolsInspectable for CalendarProps<V> 
 
 /// What a mounted calendar keeps between renders.
 struct CalendarHost<V: Picked> {
-  memory: CalendarMemory,
+  memory: DateMemory,
   value: PhantomData<fn() -> V>,
 }
 
@@ -1355,7 +1370,7 @@ impl<V: Picked> Component for CalendarHost<V> {
 
   fn create(_ctx: &mut Ctx) -> Self {
     Self {
-      memory: CalendarMemory::new(),
+      memory: DateMemory::new(),
       value: PhantomData,
     }
   }
