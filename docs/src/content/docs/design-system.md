@@ -282,9 +282,10 @@ Icon::new(icons::SPINNER).spin(true);                 // a spinner
 | `id(id)`, `key(key)` | Its id and key |
 
 - An icon names no color: it is drawn in the `.foreground(..)` of what it is in, as text is, so the icon of a button is the color of its label.
-- `ui::icons` has a constant for each of the 152 icons of lurq's font (`icons::CHEVRON_DOWN` is `"chevron-down"`), `icons::ALL` lists them with their characters, and `icons::FAMILY` is the family of the font. Every app has the font loaded, hinted: at 16 and 20 pixels its strokes land on whole pixels of the display.
+- `ui::icons` has a constant for each of the 155 icons of lurq's font (`icons::CHEVRON_DOWN` is `"chevron-down"`), `icons::ALL` lists them with their characters, and `icons::FAMILY` is the family of the font. Every app has the font loaded, hinted: at 16 and 20 pixels its strokes land on whole pixels of the display.
 - The theme says what a name is drawn with ([`ThemeIcons`](../theme/#icons)). A theme gives a name another glyph, or adds names of its own, from a font the app loads; lurq's components name the icons they draw, so they change with it.
 - A name the theme has no glyph for takes its room and draws nothing.
+- Most icons are lines. `icons::STAR_FILL` is a solid star, the shape a [rating](#rating) lights: a glyph that is filled where `icons::STAR` is drawn.
 - Spinning icons are in phase: spinners that appear at different moments turn together. `ui::SPIN` is the keyframes of the turn, registered in every window; keyframe identifiers from `0xFF00` up are lurq's own.
 
 ```rust
@@ -833,6 +834,55 @@ RangeSlider::new(price.clone()).step(5).label("Price");
 - The engine paints the track, the fill and the thumb, not nodes: of their style it takes the width and the height in pixels, the fill, the corners, the border and the outline (`focus_ring()` too), at rest, under the pointer (`hovered`), and for the thumb focused from the keyboard (`focus_visible`). An opacity, a shadow or a transition of one of those three parts is not painted. On a vertical slider a part's width is its thickness.
 - To what reads the tree (`lurq_snapshot` of the MCP server) it is a `slider` called by its label; a range slider's value is `low,high`.
 - A renderer that draws another slider starts from `view.slider()`, the engine's slider bound to the value (or the two) with its orientation, the root's style and the length, and `view.dressed(slider)` gives it the recipe's track, fill and thumbs. `view.value()` reads the value, `view.values()` a range slider's two, and `view.is_range()` tells which it is.
+
+## Rating
+
+A number of stars, chosen by a press or by the keys, or shown and not chosen: the quality of a call, how much a person liked a release, what others gave a package.
+
+```rust
+use lurq::ui::{Rating, RatingPrecision, RatingSize, icons};
+
+// quality: Signal<f64>, 0 for none. Mounted, the stars up to the one under the pointer are lit as a press would set them.
+Rating::new(quality.clone()).label("Call quality").mount(ctx);
+
+// review: Signal<Option<f64>>, None until a rating is given; in halves, and a press of the value takes it back.
+Rating::optional(review.clone())
+  .precision(RatingPrecision::Half)
+  .clearable(true)
+  .on_change(|stars| save(stars))
+  .mount(ctx);
+
+// Shown and not chosen: an average lights the part of a star.
+Rating::at(3.7).label("Average rating").size(RatingSize::Sm);
+
+// Another icon.
+Rating::at(3.0).icon(icons::HEART).empty_icon(icons::HEART);
+```
+
+| Builder | |
+| --- | --- |
+| `Rating::new(Signal<f64>)` | The stars the signal holds, `0.0` for none; a press or a key sets it |
+| `Rating::optional(Signal<Option<f64>>)` | The same where none is a state of its own: `None` until a rating is given |
+| `Rating::controlled(f64, on_change)`, `Rating::controlled_optional(Option<f64>, on_change)` | The app holds the stars: it is told what a press or a key asks for, and what is drawn is what it says next |
+| `Rating::at(f64)` | Shown and not chosen from: the stars, the part of one too. It tells nothing and is no stop of Tab |
+| `on_change(handler)` | Called with what a press or a key sets (`f64`, or `Option<f64>` for an optional rating), after the signal is set. Not for a press that changes nothing, nor when the app sets the signal. Each call adds |
+| `max(u32)` | How many stars there are: 5 unless told |
+| `precision(RatingPrecision)` | `Whole` unless told; `Half`, a press of the half of a star under the pointer and the keys choose halves. A value the app gives is drawn as it is |
+| `clearable(bool)` | A press of the star that is the value takes it back to none; so do 0, Backspace and Delete |
+| `read_only(bool)` | Shown and not chosen from; `at` is a rating that is |
+| `size(RatingSize)` | `Sm` stars of 16, 2 apart; `Md` 20 and 4 apart, the board's; `Lg` 24 and 4 apart |
+| `icon(name)`, `empty_icon(name)` | The icon of a lit star and of one that is not: `icons::STAR_FILL` unless told |
+| `label(&str)` | What it is called to tooling, "Rating" unless told. It draws nothing: a [field](#field) gives it its label |
+| `value_text(Fn(Option<f64>, u32) -> String)` | What it says it holds to tooling: "3 of 5 stars", and "No rating" for none, unless told |
+| `invalid(bool)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the row of stars, what takes the focus |
+
+- To a screen reader it is a slider, the WAI-ARIA pattern for a rating that is one stop of Tab and takes halves: called by its label, of the range from none (or the first step where it is not clearable) to the number of stars, with its value in words. Tab stops on it once. Left and Down take a step off, Right and Up add one, Home and End go to the least and the most, a digit sets that many stars, and where it is clearable 0, Backspace and Delete set none. The ring of the focus is around the row of stars.
+- The pointer: a press of a star sets that many, and in halves the half of the star under the pointer decides. A press focuses the rating, so the keys go on from it. Mounted (`mount(ctx)`), the rating keeps where the pointer is, and the stars up to the one under it are lit as a press would set them; the pointer gone, the value is lit again. Converted into an element, or given to a field, it takes the presses and the keys and lights nothing under the pointer.
+- A value between two steps (3.7) is drawn as it is: the empty star, and over it the lit star in a room as wide as the part that is lit, which cuts the rest off.
+- In the design the stars are solid, 20 and 4 apart, those lit in `Warning` and the rest in `Input`. The board draws no other state: an invalid rating has its stars that are not lit in `Destructive` at half its opacity, a disabled one is dimmed, and a rating that is chosen from has the pointer's hand over its stars.
+- Parts: `RatingPart::Root` (the row of stars, what is focused), `Star` (the room of a star, what a press chooses), `Filled` (a lit star, or the lit part of one), `Empty`. States: `RatingState::Interactive`, `ReadOnly`, `Invalid`, `Disabled`; sizes `RatingSize::Sm`, `Md`, `Lg`.
+- In a [field](#field) it is called by the field's label unless it has one of its own, invalid where the field is and disabled where the field is.
+- A renderer that draws another rating is given a `RatingView`: `view.root()` is the row with its behavior (the keys, the role, the value), `view.star(index)` a star with its room for a press, `view.lit(index)` how much of a star is lit, `view.stars` the value and `view.shown` what is lit now.
 
 ## Select
 

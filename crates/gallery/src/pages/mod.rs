@@ -55,6 +55,7 @@ mod progress;
 mod progress_dialog;
 mod radio;
 mod radio_card;
+mod rating;
 mod search_field;
 mod select;
 mod separator;
@@ -401,6 +402,14 @@ pub const PAGES: &[Page] = &[
     about: "date range picker period from to start end calendar presets last 7 days two months stay report value memory preset format parse placeholder min max disabled_days clearable size judgments read_only disabled label on_change controlled presets on_input on_submit on_open_change on_dismiss placement offset collision inline trigger_label clear_label panel_label months",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<date_range_picker::DateRangePickerPage>(()),
+  },
+  Page {
+    path: "/rating",
+    name: "Rating",
+    icon: Some("star"),
+    about: "rating stars score review feedback quality half precision clearable read only at optional controlled max size icon empty_icon label value_text invalid disabled on_change slider",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<rating::RatingPage>(()),
   },
   Page {
     path: "/tooltip",
