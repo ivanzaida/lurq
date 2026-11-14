@@ -1,6 +1,7 @@
 //! The design system's components and what a theme styles them with.
 
 mod accordion;
+mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
@@ -51,4 +52,5 @@ mod theming;
 mod toast;
 mod toggletip;
 mod token_input;
+mod toolbar;
 mod tooltip;

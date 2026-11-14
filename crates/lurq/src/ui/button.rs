@@ -358,6 +358,27 @@ impl Button {
     self
   }
 
+  /// What an item of a menu that stands for this button takes from it: a
+  /// toolbar moves a button that does not fit into its menu with this. Its
+  /// press is the button's, as Enter would make it.
+  pub(crate) fn command(&self) -> super::toolbar::ToolbarCommand {
+    let handlers = self.on_click.clone();
+    super::toolbar::ToolbarCommand {
+      label: self.label.clone(),
+      icon: self.icon,
+      icon_only: self.icon_only,
+      disabled: self.disabled || self.loading,
+      checked: None,
+      run: Arc::new(move || {
+        let click = super::toolbar::keyboard_click();
+        for handler in &handlers {
+          handler.call(&click);
+        }
+      }),
+      id: self.id.clone(),
+    }
+  }
+
   /// Builds the button in `theme`. Converting a button into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {

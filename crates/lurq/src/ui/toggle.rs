@@ -176,6 +176,26 @@ impl Toggle {
     self
   }
 
+  /// What an item of a menu that stands for this toggle takes from it, checked
+  /// while the toggle is on: a toolbar moves a toggle that does not fit into
+  /// its menu with this. Choosing it turns the toggle, as a press would.
+  pub(crate) fn command(&self) -> super::toolbar::ToolbarCommand {
+    let (on, handlers) = (self.on, self.on_change.clone());
+    super::toolbar::ToolbarCommand {
+      label: self.label.clone(),
+      icon: self.icon,
+      icon_only: self.icon_only,
+      disabled: self.disabled,
+      checked: Some(on),
+      run: Arc::new(move || {
+        for handler in &handlers {
+          handler(!on);
+        }
+      }),
+      id: self.id.clone(),
+    }
+  }
+
   /// Builds the toggle in `theme`. Converting a toggle into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {

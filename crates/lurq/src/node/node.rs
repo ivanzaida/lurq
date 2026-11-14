@@ -537,6 +537,7 @@ pub(crate) trait NodeUpdate {
   fn shrink_order(&mut self, order: i32);
   fn shrink_limit(&mut self, limit: ShrinkLimit);
   fn shrink_drop_below(&mut self, size: f32);
+  fn drop_marker(&mut self, marker: bool);
   fn background(&mut self, color: impl Into<BackgroundColor>);
   fn background_gradient(&mut self, gradient: impl Into<Gradient>);
   fn foreground(&mut self, color: impl Into<TextColor>);
@@ -1319,6 +1320,11 @@ impl NodeUpdate for Node {
     // rebuild; a negative size means the same as 0.
     let size = if size.is_nan() { 0.0 } else { size.max(0.0) };
     self.shrink_rule.drop_below = Some(size);
+    self.layout_cache.invalidate();
+  }
+
+  fn drop_marker(&mut self, marker: bool) {
+    self.shrink_rule.marker = marker;
     self.layout_cache.invalidate();
   }
 

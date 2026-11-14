@@ -5,6 +5,7 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
+mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
@@ -62,6 +63,7 @@ mod toast;
 mod toggletip;
 mod token_input;
 mod tokens;
+mod toolbar;
 mod tooltip;
 
 /// A group of the side bar.
@@ -506,6 +508,22 @@ pub const PAGES: &[Page] = &[
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
+  },
+  Page {
+    path: "/toolbar",
+    name: "Toolbar",
+    icon: None,
+    about: "toolbar tools bar row buttons toggles group separator spacer overflow more menu command bar ribbon table formatting",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<toolbar::ToolbarPage>(()),
+  },
+  Page {
+    path: "/action-bar",
+    name: "Action Bar",
+    icon: None,
+    about: "action bar selection selected bulk actions count clear escape floating bottom top contextual",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<action_bar::ActionBarPage>(()),
   },
   Page {
     path: "/badge",
