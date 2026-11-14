@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Changes, Choice, Chosen, fading, glyph, pressable},
+  shared::{ChangeHandler, Choice, Chosen, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -377,7 +377,7 @@ struct Item {
 /// // Any number are chosen: the signal's values.
 /// let filters = ChipGroup::multiple(languages, [("rust", "Rust"), ("swift", "Swift"), ("kotlin", "Kotlin")])
 ///   .label("Languages")
-///   .on_change(|languages: &[&str]| println!("{languages:?}"));
+///   .on_change(|languages| println!("{languages:?}"));
 /// // One of them is: the signal's value.
 /// let kinds = ChipGroup::new(kind, [(0, "All"), (1, "Issues"), (2, "Pull requests")]);
 /// # }
@@ -389,10 +389,14 @@ struct Item {
 /// the app holds the value and is told what it is to be
 /// ([`controlled`](Self::controlled), [`controlled_multiple`](Self::controlled_multiple)).
 /// [`on_change`](Self::on_change) is told the new value as a person changes
-/// it: `&T` for a group of one, the whole new set `&[T]` for one of any number.
-pub struct ChipGroup {
-  items: Vec<Item>,
-  changes: Changes,
+/// it: `&T` for a group of one, a `ChipGroup<T>`, and the whole new set
+/// `&[T]` for a group of any number, a `ChipGroup<T, [T]>`. The compiler
+/// checks what a handler is told. `T` is `()` where nothing names it: the
+/// theme's recipe is `ChipGroup`'s, whatever its values.
+pub struct ChipGroup<T = (), V: ?Sized = T> {
+  choices: Vec<Choice<T>>,
+  chosen: Chosen<T, V>,
+  on_change: Vec<ChangeHandler<V>>,
   label: Option<Arc<str>>,
   disabled: bool,
   invalid: bool,
@@ -403,25 +407,12 @@ pub struct ChipGroup {
   key: Option<Arc<str>>,
 }
 
-impl ChipGroup {
-  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Chosen<T>,
-    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-  ) -> Self {
-    let items = choices
-      .into_iter()
-      .map(Into::into)
-      .map(|choice: Choice<T>| Item {
-        selected: chosen.has(&choice.value),
-        pick: Arc::new(chosen.picker(choice.value)),
-        label: choice.label,
-        icon: choice.icon,
-        disabled: choice.disabled,
-      })
-      .collect();
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> ChipGroup<T, V> {
+  fn of(chosen: Chosen<T, V>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self {
     Self {
-      items,
-      changes: chosen.changes(),
+      choices: choices.into_iter().map(Into::into).collect(),
+      chosen,
+      on_change: Vec::new(),
       label: None,
       disabled: false,
       invalid: false,
@@ -432,59 +423,59 @@ impl ChipGroup {
       key: None,
     }
   }
+}
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> ChipGroup<T, T> {
   /// A group of which exactly one chip is chosen: the one whose value the
   /// signal has. A press of another sets the signal.
-  pub fn new<T>(value: Signal<T>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
+  pub fn new(value: Signal<T>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
   where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    T: SignalValue,
   {
     Self::of(Chosen::one(value), choices)
-  }
-
-  /// A group of which any number of chips are chosen: those whose values the
-  /// signal has. A press adds a value, or takes it out.
-  pub fn multiple<T>(values: Signal<Vec<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
-  where
-    T: Clone + PartialEq + Send + Sync + 'static,
-    Vec<T>: SignalValue,
-  {
-    Self::of(Chosen::many(values), choices)
   }
 
   /// A group of one whose value the app holds: the chip of `value` is
   /// chosen, and a press of another tells `on_change` the value it is to be.
   /// A press of the chosen one tells nothing.
-  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
+  pub fn controlled(
     value: T,
     choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
     on_change: impl Fn(&T) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held_one(value, on_change), choices)
+    Self::of(Chosen::held_one(value), choices).on_change(on_change)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> ChipGroup<T, [T]> {
+  /// A group of which any number of chips are chosen: those whose values the
+  /// signal has. A press adds a value, or takes it out.
+  pub fn multiple(values: Signal<Vec<T>>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
+  where
+    Vec<T>: SignalValue,
+  {
+    Self::of(Chosen::many(values), choices)
   }
 
   /// A group of any number whose values the app holds: the chips of
   /// `values` are chosen, and a press tells `on_change` the whole set it is
   /// to be, with the value pressed added or taken out.
-  pub fn controlled_multiple<T: Clone + PartialEq + Send + Sync + 'static>(
+  pub fn controlled_multiple(
     values: impl IntoIterator<Item = T>,
     choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
     on_change: impl Fn(&[T]) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held_many(values.into_iter().collect(), on_change), choices)
+    Self::of(Chosen::held_many(values.into_iter().collect()), choices).on_change(on_change)
   }
+}
 
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> ChipGroup<T, V> {
   /// Called as a person changes what is chosen, after the handlers there
   /// are, with the new value: `&T` for a group of one, the whole new set
   /// `&[T]` for a group of any number. Not called where the app sets the
   /// signal, nor for a press of what is already so.
-  ///
-  /// # Panics
-  ///
-  /// Where it is told another type than the group's values: a handler that
-  /// would never be called.
-  pub fn on_change<V: ?Sized + 'static>(self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
-    self.changes.add(handler);
+  pub fn on_change(mut self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
     self
   }
 
@@ -573,13 +564,25 @@ impl ChipGroup {
     if self.invalid {
       root = root.describe("a11y_invalid", "true");
     }
+    // Each chip with what a press of it does, of no type of the app's.
+    let handlers: Arc<[ChangeHandler<V>]> = self.on_change.into();
+    let items: Vec<Item> = self
+      .choices
+      .into_iter()
+      .map(|choice| Item {
+        selected: self.chosen.has(&choice.value),
+        pick: self.chosen.picker(choice.value, handlers.clone()),
+        label: choice.label,
+        icon: choice.icon,
+        disabled: choice.disabled,
+      })
+      .collect();
     // Where Tab enters the group: the interaction forced is drawn there alone, as it can only be.
-    let entry = self
-      .items
+    let entry = items
       .iter()
       .position(|item| item.selected && !item.disabled)
-      .or_else(|| self.items.iter().position(|item| !item.disabled));
-    for (index, choice) in self.items.into_iter().enumerate() {
+      .or_else(|| items.iter().position(|item| !item.disabled));
+    for (index, choice) in items.into_iter().enumerate() {
       let pick = choice.pick;
       let mut chip = Chip::new(&choice.label)
         .selected(choice.selected)
@@ -602,13 +605,13 @@ impl ChipGroup {
   }
 }
 
-impl From<ChipGroup> for Element {
-  fn from(group: ChipGroup) -> Self {
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<ChipGroup<T, V>> for Element {
+  fn from(group: ChipGroup<T, V>) -> Self {
     group.build(&current_theme())
   }
 }
 
-impl Themed for ChipGroup {
+impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for ChipGroup<T, V> {
   const NAME: &'static str = "chip_group";
   type Renderer = ChipGroupRenderer;
 
@@ -623,7 +626,7 @@ impl Themed for ChipGroup {
   }
 }
 
-impl super::FieldControl for ChipGroup {
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> super::FieldControl for ChipGroup<T, V> {
   /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled
   /// where the field is. Each chip is called by its own text.
   fn in_field(mut self, field: &super::InField) -> Element {

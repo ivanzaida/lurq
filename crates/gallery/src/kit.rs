@@ -179,7 +179,7 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
   options: &[(&str, T)],
   chosen: &T,
   choose: impl Fn(T) + Send + Sync + 'static,
-) -> SegmentedControl {
+) -> SegmentedControl<T> {
   SegmentedControl::controlled(
     chosen.clone(),
     options.iter().map(|(label, value)| (value.clone(), *label)),

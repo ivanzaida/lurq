@@ -19,7 +19,7 @@ use super::{
   separator::{Separator, SeparatorPart},
   theme::{Themed, current_theme},
   toggle::{Toggle, TogglePart},
-  toggle_group::ToggleGroup,
+  toggle_group::{ToggleGroup, Toggles},
   tooltip::Tooltip,
 };
 use crate::{
@@ -238,7 +238,7 @@ pub type ToolbarSize = ButtonSize;
 enum Kind {
   Button(Button),
   Toggle(Toggle),
-  ToggleGroup(ToggleGroup),
+  ToggleGroup(Toggles),
   /// A select, a field, anything else: it keeps its own keys, and goes into the menu only with what the app
   /// gives to stand for it.
   Element(Element, Option<ToolbarCommand>),
@@ -329,9 +329,9 @@ impl From<Toggle> for ToolbarItem {
   }
 }
 
-impl From<ToggleGroup> for ToolbarItem {
-  fn from(group: ToggleGroup) -> Self {
-    Self::of(Kind::ToggleGroup(group))
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<ToggleGroup<T, V>> for ToolbarItem {
+  fn from(group: ToggleGroup<T, V>) -> Self {
+    Self::of(Kind::ToggleGroup(group.erase()))
   }
 }
 
@@ -1024,7 +1024,11 @@ impl Component for ToolbarHost {
       mark_stops(&mut element.node, &mut next, last, &self.last);
       // The menu hangs from the button, and its tooltip is anchored to it too.
       NodeUpdate::ref_element(&mut *element.node, self.anchor.clone());
-      Some(Tooltip::new(&bar.more_label).placement(Placement::Bottom).mount(ctx, element))
+      Some(
+        Tooltip::new(&bar.more_label)
+          .placement(Placement::Bottom)
+          .mount(ctx, element),
+      )
     } else {
       None
     };

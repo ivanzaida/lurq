@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedRecipe},
-  shared::{Changes, Choice, Chosen, fading, glyph, pressable},
+  shared::{ChangeHandler, Choice, Chosen, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -94,10 +94,13 @@ struct Segment {
 /// Exactly one segment is chosen. Each is a button: Tab reaches it, and a
 /// click, Enter or Space chooses it. Its sizes are a button's
 /// ([`SegmentedControlSize`]). [`on_change`](Self::on_change) is told the
-/// value a person chooses; a press of the chosen segment tells nothing.
-pub struct SegmentedControl {
-  segments: Vec<Segment>,
-  changes: Changes,
+/// value a person chooses, a `&T` the compiler checks; a press of the chosen
+/// segment tells nothing. `T` is `()` where nothing names it: the theme's
+/// recipe is `SegmentedControl`'s, whatever its values.
+pub struct SegmentedControl<T = ()> {
+  choices: Vec<Choice<T>>,
+  chosen: Chosen<T>,
+  on_change: Vec<ChangeHandler<T>>,
   size: Name,
   label: Option<Arc<str>>,
   disabled: bool,
@@ -110,27 +113,13 @@ pub struct SegmentedControl {
   key: Option<Arc<str>>,
 }
 
-impl SegmentedControl {
-  fn of<T: Clone + PartialEq + Send + Sync + 'static>(
-    chosen: Chosen<T>,
-    choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
-  ) -> Self {
-    let segments = choices
-      .into_iter()
-      .map(Into::into)
-      .map(|choice: Choice<T>| Segment {
-        selected: chosen.has(&choice.value),
-        pick: Arc::new(chosen.picker(choice.value)),
-        label: choice.label,
-        icon: choice.icon,
-        icon_only: choice.icon_only,
-        disabled: choice.disabled,
-      })
-      .collect();
+impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
+  fn of(chosen: Chosen<T>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self {
     Self {
-      segments,
+      choices: choices.into_iter().map(Into::into).collect(),
+      chosen,
+      on_change: Vec::new(),
       size: ButtonSize::default().into(),
-      changes: chosen.changes(),
       label: None,
       disabled: false,
       invalid: false,
@@ -145,9 +134,9 @@ impl SegmentedControl {
 
   /// A control whose chosen segment is the one with the signal's value. A
   /// press of another sets the signal.
-  pub fn new<T>(value: Signal<T>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
+  pub fn new(value: Signal<T>, choices: impl IntoIterator<Item = impl Into<Choice<T>>>) -> Self
   where
-    T: Clone + PartialEq + Send + Sync + SignalValue + 'static,
+    T: SignalValue,
   {
     Self::of(Chosen::one(value), choices)
   }
@@ -155,24 +144,19 @@ impl SegmentedControl {
   /// A control whose value the app holds: the segment of `value` is the
   /// chosen one, and a press of another tells `on_change` the value it is to
   /// be. A press of the chosen one tells nothing.
-  pub fn controlled<T: Clone + PartialEq + Send + Sync + 'static>(
+  pub fn controlled(
     value: T,
     choices: impl IntoIterator<Item = impl Into<Choice<T>>>,
     on_change: impl Fn(&T) + Send + Sync + 'static,
   ) -> Self {
-    Self::of(Chosen::held_one(value, on_change), choices)
+    Self::of(Chosen::held_one(value), choices).on_change(on_change)
   }
 
   /// Called as a person chooses another segment, after the handlers there
   /// are, with its value (`|period: &Period| ..`). Not called where the app
   /// sets the signal, nor for a press of the chosen one.
-  ///
-  /// # Panics
-  ///
-  /// Where it is told another type than the control's values: a handler
-  /// that would never be called.
-  pub fn on_change<V: ?Sized + 'static>(self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
-    self.changes.add(handler);
+  pub fn on_change(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
     self
   }
 
@@ -280,13 +264,26 @@ impl SegmentedControl {
     if self.invalid {
       root = root.describe("a11y_invalid", "true");
     }
+    // Each segment with what a press of it does, of no type of the app's.
+    let handlers: Arc<[ChangeHandler<T>]> = self.on_change.into();
+    let segments: Vec<Segment> = self
+      .choices
+      .into_iter()
+      .map(|choice| Segment {
+        selected: self.chosen.has(&choice.value),
+        pick: self.chosen.picker(choice.value, handlers.clone()),
+        label: choice.label,
+        icon: choice.icon,
+        icon_only: choice.icon_only,
+        disabled: choice.disabled,
+      })
+      .collect();
     // Where Tab enters the group: the interaction forced is drawn there alone, as it can only be.
-    let entry = self
-      .segments
+    let entry = segments
       .iter()
       .position(|segment| segment.selected && !segment.disabled)
-      .or_else(|| self.segments.iter().position(|segment| !segment.disabled));
-    for (index, segment) in self.segments.into_iter().enumerate() {
+      .or_else(|| segments.iter().position(|segment| !segment.disabled));
+    for (index, segment) in segments.into_iter().enumerate() {
       let recipe = if segment.selected { &chosen } else { &plain };
       let forced = self.forced.filter(|_| Some(index) == entry);
       let part = |part: SegmentedControlPart| recipe.part(part).forced(forced);
@@ -318,13 +315,13 @@ impl SegmentedControl {
   }
 }
 
-impl From<SegmentedControl> for Element {
-  fn from(control: SegmentedControl) -> Self {
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<SegmentedControl<T>> for Element {
+  fn from(control: SegmentedControl<T>) -> Self {
     control.build(&current_theme())
   }
 }
 
-impl Themed for SegmentedControl {
+impl<T: Send + Sync + 'static> Themed for SegmentedControl<T> {
   const NAME: &'static str = "segmented_control";
   type Renderer = SegmentedControlRenderer;
 
@@ -381,7 +378,7 @@ impl Themed for SegmentedControl {
   }
 }
 
-impl super::FieldControl for SegmentedControl {
+impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for SegmentedControl<T> {
   /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled
   /// where the field is. Each segment is called by its own label.
   fn in_field(mut self, field: &super::InField) -> Element {
