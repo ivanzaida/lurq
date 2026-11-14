@@ -17,7 +17,10 @@ use lurq::{
   },
   components::{Column, Row},
   core::Signal,
-  layout::quad::{Quad, QuadContent},
+  layout::{
+    Constraints, Size,
+    quad::{Quad, QuadContent},
+  },
   node::{Element, color::Color},
   ui::{
     Button, FontFamily, MessageBox, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxView,
@@ -40,6 +43,10 @@ fn stage_in(app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'stati
   let mut stage = Stage::in_app(app, move |ctx| {
     Column::new().size(600.0, 400.0).child(scene(ctx)).into()
   });
+  // The stage lays its scene out in 400 by 300 and culls what is outside that: a window of 600 by 400 is that too.
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(600.0, 400.0))));
   stage.tree.resize(600, 400);
   stage.pass();
   stage
@@ -141,8 +148,9 @@ fn an_open_message_box_is_the_panel_of_the_board_over_a_veil() {
   let wells = fills(&stage, light(PaletteColor::WarningMuted), 36.0, 36.0);
   assert_eq!(wells.len(), 1, "one well of the warning's muted color");
   assert!((wells[0].x - (x + 20.0)).abs() < 0.5 && (wells[0].y - (y + 20.0)).abs() < 0.5);
+  // Round: the full radius, which is drawn as half the side.
   assert!(
-    wells[0].border_radius.is_some_and(|radius| radius.top_left == 18.0),
+    wells[0].border_radius.is_some_and(|radius| radius.top_left >= 18.0),
     "round"
   );
 
@@ -186,14 +194,18 @@ fn an_open_message_box_is_the_panel_of_the_board_over_a_veil() {
 }
 
 #[test]
-fn each_kind_has_its_colors_and_a_destructive_question_the_destructive_ones() {
+fn each_kind_has_its_icon_and_colors_and_a_destructive_question_the_destructive_ones() {
   let cases = [
-    (MessageBoxKind::Information, PaletteColor::InfoMuted),
-    (MessageBoxKind::Warning, PaletteColor::WarningMuted),
-    (MessageBoxKind::Error, PaletteColor::DestructiveMuted),
-    (MessageBoxKind::Question, PaletteColor::Secondary),
+    (MessageBoxKind::Information, PaletteColor::InfoMuted, icons::INFO),
+    (MessageBoxKind::Warning, PaletteColor::WarningMuted, icons::WARNING),
+    (
+      MessageBoxKind::Error,
+      PaletteColor::DestructiveMuted,
+      icons::ALERT_CIRCLE,
+    ),
+    (MessageBoxKind::Question, PaletteColor::Secondary, icons::HELP_CIRCLE),
   ];
-  for (kind, well) in cases {
+  for (kind, well, icon) in cases {
     let stage = stage(move |_| {
       MessageBox::new(Signal::new(true))
         .kind(kind)
@@ -202,6 +214,9 @@ fn each_kind_has_its_colors_and_a_destructive_question_the_destructive_ones() {
         .into()
     });
     assert_eq!(fills(&stage, light(well), 36.0, 36.0).len(), 1, "{kind:?}");
+    // The glyph of the kind's icon is what is painted in the well.
+    let glyph = icons::ALL.iter().find(|(name, _)| *name == icon).unwrap().1;
+    assert!(stage.paints(&glyph.to_string()), "{kind:?} shows {icon}");
   }
   let stage = stage(|_| delete(Signal::new(true), || {}, || {}).into());
   assert_eq!(

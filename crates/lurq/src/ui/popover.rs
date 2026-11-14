@@ -104,6 +104,7 @@ pub struct Popover {
   alert: bool,
   name: Option<Arc<str>>,
   described: Option<Arc<str>>,
+  on_dismiss: Option<Arc<dyn Fn() + Send + Sync>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -127,6 +128,7 @@ impl Popover {
       alert: false,
       name: None,
       described: None,
+      on_dismiss: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -213,6 +215,12 @@ impl Popover {
     self
   }
 
+  /// What runs after a press outside the popover or Escape closed it.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss = Some(Arc::new(handler));
+    self
+  }
+
   /// Puts the popover in a state the theme's recipe names, or takes it out.
   pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
     let state = state.into();
@@ -288,12 +296,15 @@ impl Popover {
       | Placement::RightEnd => (offset, 0.0),
       _ => (0.0, offset),
     };
-    let popup = Popup::new(self.anchor.clone(), panel)
+    let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())
       .placement(self.placement)
       .offset(x, y)
       .collision(self.collision)
       .takes_focus(true);
+    if let Some(on_dismiss) = self.on_dismiss {
+      popup = popup.on_dismiss(move || on_dismiss());
+    }
     let Some(mut trigger) = self.trigger else {
       return popup.into();
     };

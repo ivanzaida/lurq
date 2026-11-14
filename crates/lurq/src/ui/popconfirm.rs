@@ -114,10 +114,9 @@ type Handler = Arc<dyn Fn() + Send + Sync>;
 /// trigger turns the app's signal, and it is kept in the window. Either
 /// button closes it and then runs what the app gave it. As it opens the focus
 /// goes to the cancel button, so that Enter or Space does not confirm what
-/// was not read. Escape with the focus in it cancels, as the cancel button
-/// does; a press outside closes it, confirming nothing. To tooling that reads
-/// the tree it is an `alertdialog`, called by its title and described by its
-/// description.
+/// was not read. Escape and a press outside cancel, as the cancel button
+/// does. To tooling that reads the tree it is an `alertdialog`, called by its
+/// title and described by its description.
 pub struct Popconfirm {
   anchor: ElementRef,
   open: Signal<bool>,
@@ -191,7 +190,7 @@ impl Popconfirm {
   }
 
   /// The button that cancels: its label ("No" when not given) and what it
-  /// does after it closes the popconfirm. Escape runs it too.
+  /// does after it closes the popconfirm. Escape and a press outside run it too.
   pub fn cancel(mut self, label: &str, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.cancel = (Arc::from(label), Some(Arc::new(handler)));
     self
@@ -264,6 +263,7 @@ impl Popconfirm {
     let rules = recipe
       .rules_for(PopconfirmPart::Panel, PopoverPart::Root)
       .extend(&recipe.rules_for(PopconfirmPart::Body, PopoverPart::Body));
+    let on_dismiss = self.cancel.1.clone();
     let view = PopconfirmView {
       icon: self.icon,
       title: self.title.clone(),
@@ -285,6 +285,10 @@ impl Popconfirm {
       .placement(self.placement)
       .rules(&rules)
       .child(content);
+    // A press outside cancels, as Escape and the cancel button do.
+    if let Some(on_dismiss) = on_dismiss {
+      popover = popover.on_dismiss(move || on_dismiss());
+    }
     if let Some(trigger) = self.trigger {
       popover = popover.trigger(trigger);
     }

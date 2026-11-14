@@ -22,6 +22,8 @@ pub(super) struct HiddenDismiss {
   pub(super) open: Option<Signal<bool>>,
   pub(super) on_outside_click: bool,
   pub(super) on_escape: bool,
+  /// What runs after a press outside it or Escape closed it.
+  pub(super) on_dismiss: Option<crate::app::ctx::OverlayDismiss>,
 }
 
 #[derive(Default)]
@@ -67,6 +69,7 @@ impl OverlayLayers {
       dismiss_on_outside_click: dismiss.on_outside_click,
       outside_press: OutsidePress::PassThrough,
       dismiss_on_escape: dismiss.on_escape,
+      on_dismiss: dismiss.on_dismiss,
       layer,
       shown: false,
     });

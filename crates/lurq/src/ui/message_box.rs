@@ -412,8 +412,9 @@ fn kind_icon(kind: Name) -> Name {
     icons::WARNING.into()
   } else if kind == Name::from(MessageBoxKind::Error) {
     icons::ALERT_CIRCLE.into()
+  } else if kind == Name::from(MessageBoxKind::Question) {
+    icons::HELP_CIRCLE.into()
   } else {
-    // The icon set has no question mark yet: a question shows the information sign.
     icons::INFO.into()
   }
 }
