@@ -982,6 +982,30 @@ TextInput::new(draft.clone())
 
 `PasteEvent::kinds()` tells which of `text`, `image` and `files` the clipboard holds; `content()` gives the whole `ClipboardContent`. The handler runs inside the input's delivery, so `is_synthetic_input()` tells an MCP client's paste from a person's. A synthetic `Ctrl+V` (`lurq_interact` `key`, an applied `SyntheticInput::key_down`) never reads the OS clipboard: it is refused, and a synthetic paste carries its own content instead (`SyntheticInput::paste(content)`, the MCP `paste` action). See [Testing](../testing/#pastes-file-drags-and-runtime-images).
 
+#### Copy
+
+A copy or a cut on a focused element that is not a text input (a cell of a [data grid](../design-system/#data-grid), a canvas) delivers one `CopyEvent`: `Ctrl+C` and `Ctrl+Insert` copy, `Ctrl+X` and `Shift+Delete` cut (`Cmd` on macOS). Handlers run on the focused element first and bubble to its ancestors; one says what goes on the clipboard with `event.set_text(..)` (a later call takes the place of an earlier one), and the engine writes it once they have run. `event.is_cut()` tells a cut, whose handler takes away what it copied. With no text set nothing is written; with no `on_copy` handler on the way, a selectable text is copied as before.
+
+```rust
+use lurq::{app::events::{CopyEvent, PasteEvent}, components::Row};
+
+Row::new()
+  .tab_index(0)
+  .on_copy(move |event: CopyEvent| {
+    event.set_text(board.selection_as_text());
+    if event.is_cut() {
+      board.remove_selection();
+    }
+  })
+  .on_paste(move |event: PasteEvent| {
+    if let Some(text) = event.text() {
+      board.insert_text(text);
+    }
+  })
+```
+
+`Ctrl+V` and `Shift+Insert` on such an element deliver a `PasteEvent` to it and its ancestors where one of them has an `on_paste` handler, as to a text input, with nothing inserted by default; `Tree::paste(content)` does the same. The copy writes the OS clipboard (feature `clipboard`), or what a test installs with `tree.set_clipboard_writer(Some(Arc::new(writer)))`, a `lurq::app::ClipboardWriter` with `write_text(&str)`, which a text input's copy goes to as well.
+
 #### Input Methods
 
 Text inputs take input method (IME) composition on Windows and macOS: Japanese, Chinese and Korean input, dead keys and the macOS accent menu. While a text input that is not masked has focus, the winit shell lets the window's input method compose and places its candidate window at the input's caret; password fields (`.mask()`) take no composition, like the platforms' native ones.

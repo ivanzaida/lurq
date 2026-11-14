@@ -103,9 +103,9 @@ mod teaching_tip;
 mod text_box;
 mod textarea;
 pub(crate) mod theme;
-mod timeline;
 mod time_field;
 mod time_picker;
+mod timeline;
 mod tip;
 mod toast;
 mod toggle;
@@ -140,9 +140,7 @@ pub use button::{
 pub use button_group::{
   ButtonGroup, ButtonGroupPart, ButtonGroupRenderer, ButtonGroupSize, ButtonGroupState, ButtonGroupVariant,
 };
-pub use calendar::{
-  Calendar, CalendarChoice, DateMemory, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
-};
+pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 pub use checkbox::{
@@ -178,15 +176,9 @@ pub use data_grid::DataGrid;
 pub use data_list::{
   DataList, DataListItem, DataListOrientation, DataListPart, DataListRenderer, DataListState, DataListView,
 };
-pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
-pub use month_picker::{
-  CellShown, MonthPicker, MonthPickerPart, MonthPickerRenderer, MonthPickerState, MonthPickerView, PeriodsView,
-};
-pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
-pub use time_picker::{ColumnKind, TimePicker, TimePickerPart, TimePickerRenderer, TimePickerSize, TimePickerState, TimePickerView};
 pub use date_field::{
-  DateField, DateFieldPart, DateFieldRenderer, DateFieldSize, DateFieldState, DateFieldView, FieldValue, SegmentFieldView,
-  SegmentShown,
+  DateField, DateFieldPart, DateFieldRenderer, DateFieldSize, DateFieldState, DateFieldView, FieldValue,
+  SegmentFieldView, SegmentShown,
 };
 pub use date_picker::{
   DatePicker, DatePickerPart, DatePickerRenderer, DatePickerSize, DatePickerState, DatePickerView, Picked,
@@ -243,6 +235,9 @@ pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarSta
 pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState, MessageBoxVariant,
   MessageBoxView,
+};
+pub use month_picker::{
+  CellShown, MonthPicker, MonthPickerPart, MonthPickerRenderer, MonthPickerState, MonthPickerView, PeriodsView,
 };
 pub use multi_select::{
   MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectSize, MultiSelectState, MultiSelectView,
@@ -334,8 +329,9 @@ pub use swatch_picker::{
 };
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
-  BodyWindow, CellEdit, CellEditor, CellValue, ColumnAlign, ColumnPin, Geometry, GridCell, SortDirection, Table,
-  TableCell, TableColumn, TableHeader, TablePart, TableRenderer, TableRow, TableSort, TableState, TableView, in_tracks,
+  BodyWindow, CellEdit, CellEditor, CellKey, CellRange, CellValue, ColumnAlign, ColumnPin, Geometry, GridCell,
+  SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart, TableRenderer, TableRow, TableSort, TableState,
+  TableView, in_tracks,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
@@ -348,10 +344,15 @@ pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
   TextareaView,
 };
-pub use timeline::{
-  Timeline, TimelineItem, TimelineItemView, TimelinePart, TimelineRenderer, TimelineState, TimelineVariant, TimelineView,
-};
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_date_locale, current_theme, in_theme};
+pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
+pub use time_picker::{
+  ColumnKind, TimePicker, TimePickerPart, TimePickerRenderer, TimePickerSize, TimePickerState, TimePickerView,
+};
+pub use timeline::{
+  Timeline, TimelineItem, TimelineItemView, TimelinePart, TimelineRenderer, TimelineState, TimelineVariant,
+  TimelineView,
+};
 pub(crate) use toast::keyframes as toast_keyframes;
 pub use toast::{
   TOAST_DURATION, TOASTS_SHOWN, Toast, ToastAction, ToastId, ToastPart, ToastPosition, ToastRenderer, ToastState,
@@ -376,6 +377,7 @@ pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
   TreeViewView,
 };
+pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
 /// [`Name`], so that a variant, a size, a state or a part of a component is

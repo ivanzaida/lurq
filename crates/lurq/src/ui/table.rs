@@ -26,11 +26,16 @@ use super::{
   skeleton::Skeleton,
   theme::{Themed, current_theme},
 };
+mod range;
+
+pub use range::{CellKey, CellRange};
+use range::{RangeMark, Span, span_of};
+
 use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{DragEvent, KeyboardEvent, MouseButtonMask, MouseEvent, ScrollEvent},
+    events::{CopyEvent, DragEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent, PasteEvent, ScrollEvent},
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
@@ -125,6 +130,16 @@ pub enum TableState {
   Footer,
   /// It takes no input.
   Disabled,
+  /// A cell of a data grid in the range of cells selected, but the one the focus is on: the range's fill.
+  InRange,
+  /// A cell at the top of the range of cells selected: the range's edge along its top.
+  RangeTop,
+  /// A cell at the bottom of the range: the edge along its bottom.
+  RangeBottom,
+  /// A cell at the start of the range: the edge along its start.
+  RangeStart,
+  /// A cell at the end of the range: the edge along its end.
+  RangeEnd,
 }
 
 names!(TableState {
@@ -139,6 +154,11 @@ names!(TableState {
   Pinned => "pinned",
   Footer => "footer",
   Disabled => "disabled",
+  InRange => "in_range",
+  RangeTop => "range_top",
+  RangeBottom => "range_bottom",
+  RangeStart => "range_start",
+  RangeEnd => "range_end",
 });
 
 /// What builds a table's nodes: a theme's in place of the default one.
@@ -486,6 +506,9 @@ type Told<K> = Arc<dyn Fn(&K) + Send + Sync>;
 type SortFn = Arc<dyn Fn(Option<TableSort>) + Send + Sync>;
 type SortHeard = Arc<dyn Fn(Option<&TableSort>) + Send + Sync>;
 type SelectionHeard<K> = Arc<dyn Fn(&[K]) + Send + Sync>;
+/// What asks for a range of cells to be the grid's, and what is told it.
+type RangeWrite<K> = Arc<dyn Fn(Option<CellRange<K>>) + Send + Sync>;
+type RangeHeard<K> = Arc<dyn Fn(Option<&CellRange<K>>) + Send + Sync>;
 /// What says the count of the footer, given how many rows there are and how many are selected where they are.
 type CountFn = Arc<dyn Fn(usize, Option<usize>) -> String + Send + Sync>;
 /// What is told the width a column is made: its id, and the width.
@@ -596,6 +619,10 @@ pub struct Table<R, K = usize> {
   grid: bool,
   read_only: bool,
   on_edit: Vec<EditHeard<K>>,
+  /// The range of cells a grid has selected, what asks for another, and who is told.
+  cell_range: Option<CellRange<K>>,
+  write_cell_range: Option<RangeWrite<K>>,
+  on_cell_selection_change: Vec<RangeHeard<K>>,
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
@@ -637,6 +664,9 @@ impl<R, K: Clone> Clone for Table<R, K> {
       grid: self.grid,
       read_only: self.read_only,
       on_edit: self.on_edit.clone(),
+      cell_range: self.cell_range.clone(),
+      write_cell_range: self.write_cell_range.clone(),
+      on_cell_selection_change: self.on_cell_selection_change.clone(),
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
@@ -688,6 +718,9 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       grid: false,
       read_only: false,
       on_edit: Vec::new(),
+      cell_range: None,
+      write_cell_range: None,
+      on_cell_selection_change: Vec::new(),
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -734,6 +767,9 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       grid: self.grid,
       read_only: self.read_only,
       on_edit: Vec::new(),
+      cell_range: None,
+      write_cell_range: None,
+      on_cell_selection_change: Vec::new(),
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -1049,6 +1085,20 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self
   }
 
+  pub(super) fn cell_selection(mut self, range: Option<CellRange<K>>, write: RangeWrite<K>) -> Self {
+    self.cell_range = range;
+    self.write_cell_range = Some(write);
+    self
+  }
+
+  pub(super) fn add_on_cell_selection_change(
+    mut self,
+    handler: impl Fn(Option<&CellRange<K>>) + Send + Sync + 'static,
+  ) -> Self {
+    self.on_cell_selection_change.push(Arc::new(handler));
+    self
+  }
+
   fn with_checkboxes(&self) -> bool {
     self.selectable() && self.checkboxes
   }
@@ -1152,16 +1202,22 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         })
         .clone()
     };
-    let mut cell_recipes: HashMap<(usize, bool), ResolvedRecipe> = HashMap::new();
-    let mut cell_recipe = |column: usize, selected: bool| {
+    let mut cell_recipes: HashMap<(usize, bool, Option<RangeMark>), ResolvedRecipe> = HashMap::new();
+    let mut cell_recipe = |column: usize, selected: bool, mark: Option<RangeMark>| {
       cell_recipes
-        .entry((column, selected))
+        .entry((column, selected, mark))
         .or_insert_with(|| {
           let pinned = column < start_pins || column + end_pins >= self.columns.len();
+          let marked = |side: fn(&RangeMark) -> bool| mark.as_ref().is_some_and(side);
           let mut case = case
             .clone()
             .state(TableState::Selected, selected)
-            .state(TableState::Pinned, pinned);
+            .state(TableState::Pinned, pinned)
+            .state(TableState::InRange, marked(|mark| mark.fill))
+            .state(TableState::RangeTop, marked(|mark| mark.top))
+            .state(TableState::RangeBottom, marked(|mark| mark.bottom))
+            .state(TableState::RangeStart, marked(|mark| mark.start))
+            .state(TableState::RangeEnd, marked(|mark| mark.end));
           case.states.extend(self.columns[column].kinds.iter().copied());
           self.resolve(theme, &case)
         })
@@ -1229,9 +1285,28 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       .filter(|_| self.grid)
       .and_then(|window| window.host.as_ref())
       .map(|host| host.state.clone());
+    let ids: Vec<Arc<str>> = self.columns.iter().map(|column| column.id.clone()).collect();
+    let span = grid_host
+      .as_ref()
+      .and(self.cell_range.as_ref())
+      .and_then(|range| span_of(range, &keys, &ids));
     let grid_model: Option<Arc<dyn GridCells>> = grid_host.as_ref().map(|host| {
       Arc::new(GridModel {
         host: host.clone(),
+        span,
+        range: self.cell_range.clone(),
+        write_range: self.write_cell_range.clone(),
+        on_range: self.on_cell_selection_change.clone(),
+        texts: Arc::new(
+          self
+            .columns
+            .iter()
+            .map(|column| match &column.content {
+              Content::Text(text) => Some(text.clone()),
+              _ => None,
+            })
+            .collect(),
+        ),
         rows: self.rows.clone(),
         keys: keys.clone(),
         editors: Arc::new(
@@ -1284,7 +1359,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .enumerate()
           .filter(|(column_index, _)| built(*column_index))
           .map(|(column_index, column)| {
-            let part = cell_recipe(column_index, selected)
+            let mark = span.and_then(|span| span.mark(index, column_index));
+            let part = cell_recipe(column_index, selected, mark)
               .part(TablePart::Cell)
               .forced(self.forced);
             let content = match (&column.content, column.editor.as_ref().map(|editor| &editor.kind)) {
@@ -1347,6 +1423,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               GridCell {
                 row: index,
                 editable,
+                selected: span.is_some_and(|span| span.anchor != span.extent && span.contains(index, column_index)),
                 editor,
                 entry: entry == Some(index) && column_index == focused_column.min(self.columns.len().saturating_sub(1)),
                 column_index: column_index + 1 + usize::from(checkboxes),
@@ -1366,7 +1443,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               part,
               align: column.align,
               pinned: sticky_of(column_index),
-              fill: sticky_of(column_index).map(|_| stuck_fill.clone()),
+              // A cell of the range has the range's fill, over what scrolls under it too.
+              fill: sticky_of(column_index)
+                .filter(|_| !mark.is_some_and(|mark| mark.fill))
+                .map(|_| stuck_fill.clone()),
               controls: column.controls,
               last: cell_ends(column_index),
               gap: geometry.gap,
@@ -1564,6 +1644,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       scroll: window.as_ref().map(|window| window.scroll.clone()),
       on_scroll: window.as_ref().and_then(|window| window.on_scroll.clone()),
       focus_rows: window.as_ref().map(|window| window.rows.clone()),
+      scroll_ref: window
+        .as_ref()
+        .and_then(|window| window.host.as_ref())
+        .map(|host| host.state.scroll_ref.clone()),
       id: self.id.clone(),
       key: self.key.clone(),
     }
@@ -1812,6 +1896,8 @@ pub struct TableView {
   scroll: Option<ScrollState>,
   on_scroll: Option<Arc<dyn Fn(ScrollEvent) + Send + Sync>>,
   focus_rows: Option<Arc<dyn FocusRows>>,
+  /// What a mounted grid knows its view by, where a drag of cells past its edge scrolls it.
+  scroll_ref: Option<ElementRef>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -2062,6 +2148,9 @@ impl TableView {
     }
     if let Some(state) = self.scroll.clone() {
       scroll = scroll.with_scroll_state(state);
+    }
+    if let Some(element) = self.scroll_ref.clone() {
+      scroll = scroll.ref_element(element);
     }
     if let Some(on_scroll) = self.on_scroll.clone() {
       scroll = scroll.on_scroll(move |event: ScrollEvent| on_scroll(event));
@@ -2672,6 +2761,8 @@ pub enum CellValue {
   Choice(usize),
   /// A box ticked, or not.
   Checked(bool),
+  /// A number or a choice cleared: Delete on its cell. What it is emptied to is the app's, which may refuse it.
+  Empty,
 }
 
 /// An edit a person committed in a cell: which row (its key), which column (its id), and the new value. The app
@@ -2796,15 +2887,43 @@ trait GridCells: Send + Sync {
   /// Moves the focus to the cell `(row, column)`, where there is one: whether there is.
   fn move_to(&self, row: usize, column: usize) -> bool;
   fn select(&self, row: usize, pick: Pick);
-  fn select_all(&self);
   fn activate(&self, row: usize);
   /// How many rows and columns the grid has.
   fn size(&self) -> (usize, usize);
+  /// The row a press of a cell is on: the handlers of a row's press are told.
+  fn click(&self, row: usize);
+  /// The corner of the range of cells that moves, where there is a range.
+  fn extent(&self) -> Option<(usize, usize)>;
+  /// The range from its anchor (or `from`, or the focused cell where there is none) to `to`, scrolled into view.
+  fn extend(&self, from: Option<(usize, usize)>, to: (usize, usize));
+  /// No range: whether there was one.
+  fn clear_range(&self) -> bool;
+  /// Every cell in the range.
+  fn select_cells(&self);
+  /// The range's cells, or the one at `at`, as tab-separated text; a cut clears those that are edited.
+  fn copy(&self, at: (usize, usize), cut: bool) -> String;
+  /// Pastes tab-separated text from the range's first cell, or `at`.
+  fn paste(&self, at: (usize, usize), text: &str);
+  /// Clears what is edited of the range's cells, or the one at `at`.
+  fn clear(&self, at: (usize, usize));
+  /// A drag of cells starts at `at`, and is at `(x, y)` now.
+  fn drag_start(&self, at: (usize, usize));
+  fn drag_to(&self, x: f32, y: f32);
+  /// How many rows a page is.
+  fn page(&self) -> usize;
 }
 
 /// The cells of a grid as its host works them.
 struct GridModel<R, K> {
   host: Arc<HostState>,
+  /// The range of cells, among the rows and the columns shown, and as the app holds it; what asks for another
+  /// and who is told.
+  span: Option<Span>,
+  range: Option<CellRange<K>>,
+  write_range: Option<RangeWrite<K>>,
+  on_range: Vec<RangeHeard<K>>,
+  /// The text of each column, where it is a text: what a copy takes of a cell that is not edited.
+  texts: Arc<Vec<Option<TextFn<R>>>>,
   rows: Arc<Vec<R>>,
   keys: Arc<Vec<K>>,
   /// The id and the editor of each column, where it is edited.
@@ -2858,8 +2977,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
 
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> GridCells for GridModel<R, K> {
   fn focused(&self, row: usize, column: usize) {
+    let before = (*self.host.focused.lock(), *self.host.focused_column.lock());
     *self.host.focused.lock() = Some(row);
     *self.host.focused_column.lock() = Some(column);
+    // The focus moved to another cell: the range is gone, and the cell is where the next one starts.
+    if before != (Some(row), Some(column)) {
+      self.write_span(None);
+    }
     let editing = *self.host.editing.lock();
     if let Some(editing) = editing
       && (editing.row, editing.column) != (row, column)
@@ -2955,10 +3079,6 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
     self.model.pick(row, pick);
   }
 
-  fn select_all(&self) {
-    self.model.select_shown(true);
-  }
-
   fn activate(&self, row: usize) {
     if let Some(key) = self.keys.get(row) {
       for handler in &self.model.on_row_activate {
@@ -2970,6 +3090,94 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   fn size(&self) -> (usize, usize) {
     (self.rows.len(), self.editors.len())
   }
+
+  fn click(&self, row: usize) {
+    if let Some(key) = self.keys.get(row) {
+      for handler in &self.model.on_row_click {
+        handler(key);
+      }
+    }
+  }
+
+  fn extent(&self) -> Option<(usize, usize)> {
+    self.span.map(|span| span.extent)
+  }
+
+  fn extend(&self, from: Option<(usize, usize)>, to: (usize, usize)) {
+    let focused = (*self.host.focused.lock()).zip(*self.host.focused_column.lock());
+    let anchor = self.span.map(|span| span.anchor).or(from).or(focused).unwrap_or(to);
+    let span = Span { anchor, extent: to };
+    // A range of one cell is the focused cell alone.
+    self.write_span((anchor != to).then_some(span));
+    self.host.reveal_cell(to.0, to.1);
+  }
+
+  fn clear_range(&self) -> bool {
+    let had = self.span.is_some();
+    self.write_span(None);
+    had
+  }
+
+  fn select_cells(&self) {
+    let (rows, columns) = self.size();
+    if rows == 0 || columns == 0 {
+      return;
+    }
+    let focused = (*self.host.focused.lock()).zip(*self.host.focused_column.lock());
+    let anchor = focused.unwrap_or((0, 0));
+    // The focus stays where it is, at a corner of the range.
+    let extent = (
+      if anchor.0 == 0 { rows - 1 } else { 0 },
+      if anchor.1 == 0 { columns - 1 } else { 0 },
+    );
+    let span = if anchor.0 == 0 || anchor.0 == rows - 1 {
+      Span { anchor, extent }
+    } else {
+      Span {
+        anchor: (0, 0),
+        extent: (rows - 1, columns - 1),
+      }
+    };
+    self.write_span(Some(span));
+  }
+
+  fn copy(&self, at: (usize, usize), cut: bool) -> String {
+    self.copy_cells(at, cut)
+  }
+
+  fn paste(&self, at: (usize, usize), text: &str) {
+    self.paste_cells(at, text);
+  }
+
+  fn clear(&self, at: (usize, usize)) {
+    self.clear_cells(at);
+  }
+
+  fn drag_start(&self, at: (usize, usize)) {
+    *self.host.drag_anchor.lock() = Some(at);
+    *self.host.drag_last.lock() = Some(at);
+    // A drag has no click to focus the cell it started at: the focus goes there, where the range starts.
+    self.aim(FocusAim::Cell(at.0, at.1));
+  }
+
+  fn drag_to(&self, x: f32, y: f32) {
+    self.host.scroll_toward(x, y);
+    let Some(anchor) = *self.host.drag_anchor.lock() else {
+      return;
+    };
+    let Some(cell) = self.host.cell_at(x, y) else {
+      return;
+    };
+    // A drag's handlers may be an earlier render's: what it last asked for is the host's.
+    if self.host.drag_last.lock().replace(cell) == Some(cell) {
+      return;
+    }
+    self.write_span_now((anchor != cell).then_some(Span { anchor, extent: cell }));
+  }
+
+  fn page(&self) -> usize {
+    FocusRows::page(&*self.host)
+  }
 }
 
 /// What a cell of a grid is and does, as a renderer sees it beside the cell's own: where it is, whether it is
@@ -2979,6 +3187,8 @@ pub struct GridCell {
   pub row: usize,
   /// Whether a person edits it: its column has an editor and the grid is not read only.
   pub editable: bool,
+  /// Whether it is in the range of cells selected.
+  pub selected: bool,
   /// The editor in it while it is being edited, in place of its content.
   pub editor: Option<Element>,
   /// Whether it is the cell Tab enters the grid at.
@@ -3035,78 +3245,168 @@ impl GridCell {
       .on_click({
         let grid = grid.clone();
         move |event: MouseEvent| {
-          // A second press of an editable cell edits it, and is not the row's.
-          if editable && second_cell_press((row, column), &event) {
-            event.stop_propagation();
-            grid.start(row, column, None);
+          // A press of a cell is the cell's: it does not select the row, as its checkbox and Space do.
+          event.stop_propagation();
+          if event.shift {
+            // The press took the range to the cell: the focus stays where the range started.
+            event.prevent_default();
+            return;
           }
+          if event.ctrl || event.meta || event.alt {
+            return;
+          }
+          // A second press edits a cell that is edited, and activates the row of one that is not.
+          if second_cell_press((row, column), &event) {
+            if editable {
+              grid.start(row, column, None);
+            } else {
+              grid.activate(row);
+            }
+            return;
+          }
+          grid.click(row);
         }
       });
+    if self.selected {
+      cell = cell.describe("a11y_selected", "true");
+    }
     if let Some(id) = &self.id {
       cell = cell.id(id.clone());
     }
-    // A cell being edited leaves its keys to its editor.
-    if !editing {
-      cell = cell.on_key_down(move |event: KeyboardEvent| {
-        // A key in the cell is the cell's only where the cell has the focus itself, not its editor.
-        if !element.focused() || event.composing || event.alt {
-          return;
+    // A cell being edited leaves its keys, its presses and its clipboard to its editor.
+    if editing {
+      return cell;
+    }
+    cell = cell
+      // A press with Shift takes the range to the cell and leaves the focus where the range started; a press
+      // without it starts again from the cell.
+      .on_mouse_down({
+        let grid = grid.clone();
+        move |event: MouseEvent| {
+          if event.button != MouseButton::Left {
+            return;
+          }
+          if event.shift {
+            event.prevent_default();
+            grid.extend(None, (row, column));
+          } else {
+            grid.clear_range();
+          }
         }
-        let command = event.ctrl || event.meta;
-        match event.key.as_str() {
-          "Enter" | "F2" if !command && editable && !checkbox => {
-            event.prevent_default();
-            grid.start(row, column, None);
+      })
+      // A drag from a cell selects the cells from it to the one under the pointer.
+      .start_drag_buttons(MouseButtonMask::LEFT)
+      .on_drag_start({
+        let grid = grid.clone();
+        move |_: DragEvent| grid.drag_start((row, column))
+      })
+      .on_drag_move({
+        let grid = grid.clone();
+        move |event: DragEvent| grid.drag_to(event.x, event.y)
+      })
+      .on_copy({
+        let grid = grid.clone();
+        move |event: CopyEvent| event.set_text(grid.copy((row, column), event.is_cut()))
+      })
+      .on_paste({
+        let grid = grid.clone();
+        move |event: PasteEvent| {
+          if let Some(text) = event.text() {
+            grid.paste((row, column), text);
           }
-          "Enter" if !command => {
-            event.prevent_default();
-            grid.activate(row);
-          }
-          " " if !command && checkbox && editable => {
-            event.prevent_default();
-            grid.toggle(row, column);
-          }
-          " " if !command => {
-            event.prevent_default();
-            grid.select(row, if event.shift { Pick::Range } else { Pick::Toggle });
-          }
-          "Tab" if !command => {
-            let to = if event.shift {
-              column.checked_sub(1)
-            } else {
-              Some(column + 1)
-            };
-            if to.is_some_and(|to| grid.move_to(row, to)) {
-              event.prevent_default();
-            }
-          }
-          // The ends of the row, and with Ctrl of the grid: cells that may not be built, as the columns and the
-          // rows out of view are not.
-          "Home" | "End" if !event.shift => {
-            event.prevent_default();
-            let (rows, columns) = grid.size();
-            let last = event.key == "End";
-            let to_row = match (command, last) {
-              (true, true) => rows.saturating_sub(1),
-              (true, false) => 0,
-              (false, _) => row,
-            };
-            grid.move_to(to_row, if last { columns.saturating_sub(1) } else { 0 });
-          }
-          "a" | "A" if command && !event.shift => {
-            event.prevent_default();
-            grid.select_all();
-          }
-          // What is typed in an editable cell starts its edit with it.
-          key if !command && editable && !checkbox && key.chars().count() == 1 && !key.trim().is_empty() => {
-            event.prevent_default();
-            grid.start(row, column, Some(key.to_owned()));
-          }
-          _ => {}
         }
       });
-    }
-    cell
+    cell.on_key_down(move |event: KeyboardEvent| {
+      // A key in the cell is the cell's only where the cell has the focus itself, not its editor.
+      if !element.focused() || event.composing || event.alt {
+        return;
+      }
+      let command = event.ctrl || event.meta;
+      let (rows, columns) = grid.size();
+      let (last_row, last_column) = (rows.saturating_sub(1), columns.saturating_sub(1));
+      // Shift with a key that moves takes the range's moving corner there, and leaves the focus where it is.
+      let (at_row, at_column) = grid.extent().unwrap_or((row, column));
+      let reach = match event.key.as_str() {
+        _ if !event.shift => None,
+        "ArrowUp" if !command => Some((at_row.saturating_sub(1), at_column)),
+        "ArrowDown" if !command => Some(((at_row + 1).min(last_row), at_column)),
+        "ArrowLeft" if !command => Some((at_row, at_column.saturating_sub(1))),
+        "ArrowRight" if !command => Some((at_row, (at_column + 1).min(last_column))),
+        "PageUp" if !command => Some((at_row.saturating_sub(grid.page()), at_column)),
+        "PageDown" if !command => Some(((at_row + grid.page()).min(last_row), at_column)),
+        "Home" if command => Some((0, 0)),
+        "End" if command => Some((last_row, last_column)),
+        "Home" => Some((at_row, 0)),
+        "End" => Some((at_row, last_column)),
+        _ => None,
+      };
+      if let Some(to) = reach {
+        event.prevent_default();
+        grid.extend(Some((row, column)), to);
+        return;
+      }
+      match event.key.as_str() {
+        "Enter" | "F2" if !command && editable && !checkbox => {
+          event.prevent_default();
+          grid.start(row, column, None);
+        }
+        "Enter" if !command => {
+          event.prevent_default();
+          grid.activate(row);
+        }
+        " " if !command && checkbox && editable => {
+          event.prevent_default();
+          grid.toggle(row, column);
+        }
+        " " if !command => {
+          event.prevent_default();
+          grid.select(row, if event.shift { Pick::Range } else { Pick::Toggle });
+        }
+        "Tab" if !command => {
+          let to = if event.shift {
+            column.checked_sub(1)
+          } else {
+            Some(column + 1)
+          };
+          if to.is_some_and(|to| grid.move_to(row, to)) {
+            event.prevent_default();
+          }
+        }
+        // The ends of the row, and with Ctrl of the grid: cells that may not be built, as the columns and the
+        // rows out of view are not.
+        "Home" | "End" => {
+          event.prevent_default();
+          let end = event.key == "End";
+          let to_row = match (command, end) {
+            (true, true) => last_row,
+            (true, false) => 0,
+            (false, _) => row,
+          };
+          grid.move_to(to_row, if end { last_column } else { 0 });
+        }
+        // Every cell: the rows are selected with the header's checkbox.
+        "a" | "A" if command && !event.shift => {
+          event.prevent_default();
+          grid.select_cells();
+        }
+        // Delete clears what is edited of the range, or of the cell; Shift+Delete is a cut, the engine's.
+        "Delete" | "Backspace" if !command && !event.shift => {
+          event.prevent_default();
+          grid.clear((row, column));
+        }
+        "Escape" if !command => {
+          if grid.clear_range() {
+            event.prevent_default();
+          }
+        }
+        // What is typed in an editable cell starts its edit with it.
+        key if !command && editable && !checkbox && key.chars().count() == 1 && !key.trim().is_empty() => {
+          event.prevent_default();
+          grid.start(row, column, Some(key.to_owned()));
+        }
+        _ => {}
+      }
+    })
   }
 }
 
@@ -3271,6 +3571,13 @@ struct HostState {
   editing: Mutex<Option<Editing>>,
   /// Where the focus is to go once a render has it.
   pending_focus: Mutex<Option<FocusAim>>,
+  /// The refs of the cells built at the last render, by row and column, which a drag of cells finds its cell by.
+  cell_refs: Mutex<HashMap<(usize, usize), ElementRef>>,
+  /// What scrolls, where a drag of cells past its edge scrolls it.
+  scroll_ref: ElementRef,
+  /// The cell a drag of cells started at, and the cell it last reached.
+  drag_anchor: Mutex<Option<(usize, usize)>>,
+  drag_last: Mutex<Option<(usize, usize)>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -3409,7 +3716,9 @@ impl<R, K> crate::app::component::DevtoolsInspectable for TableProps<R, K> {}
 /// What keeps a mounted table: the scroll of its rows, the widths of its columns, which rows are built.
 struct TableHost<R, K> {
   state: Arc<HostState>,
-  _marker: PhantomData<fn() -> (R, K)>,
+  /// The range of cells of a grid whose app holds none.
+  own_range: Arc<Mutex<Option<CellRange<K>>>>,
+  _marker: PhantomData<fn() -> R>,
 }
 
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Component for TableHost<R, K> {
@@ -3429,10 +3738,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         draft_choice: ctx.signal(0),
         editing: Mutex::new(None),
         pending_focus: Mutex::new(None),
+        cell_refs: Mutex::new(HashMap::new()),
+        scroll_ref: ElementRef::new(),
+        drag_anchor: Mutex::new(None),
+        drag_last: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
       }),
+      own_range: Arc::new(Mutex::new(None)),
       _marker: PhantomData,
     }
   }
@@ -3442,6 +3756,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     let _ = self.state.revision.get();
     // The widths a person made the columns are the table's.
     table.resized = Arc::new(self.state.resized.lock().clone());
+    // A grid whose app holds no range of cells keeps its own.
+    if table.grid && table.write_cell_range.is_none() {
+      table.cell_range = self.own_range.lock().clone();
+      let (own, state) = (self.own_range.clone(), self.state.clone());
+      table.write_cell_range = Some(Arc::new(move |next| {
+        *own.lock() = next;
+        state.rebuild();
+      }));
+    }
     let theme = current_theme();
     let state = &self.state;
 
@@ -3508,6 +3831,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       } else {
         HashMap::new()
       };
+      *state.cell_refs.lock() = cell_refs.clone();
       let editor_ref = ElementRef::new();
       let pending = *state.pending_focus.lock();
       match pending {
@@ -3597,6 +3921,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
     use TablePart::{Count, Empty, Footer, Header, HeaderCell, Root, Row, Select, SortIcon};
     use TableState::{Disabled, Last, Numeric, Selectable, Selected, Sortable, Sorted};
     let line = || Line::inside(BorderSize::Sm, PaletteColor::Border);
+    let range_edge = || Line::inside(BorderSize::Md, Ring);
     Recipe::new()
       .base(Root, |s| {
         s.width(Length::Fill)
@@ -3668,6 +3993,13 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       // A cell of a data grid takes the focus: from the keyboard, the ring inside it, as a row's.
       .focus_visible(TablePart::Cell, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .base(TablePart::Editor, |s| s.width(Length::Fill))
+      // The range of cells of a grid: one area in the selection's fill, edged in the ring's color, the focused cell
+      // in it on its row's fill.
+      .state(TableState::InRange, TablePart::Cell, |s| s.background(PaletteColor::Selection))
+      .state(TableState::RangeTop, TablePart::Cell, |s| s.top_line(range_edge()))
+      .state(TableState::RangeBottom, TablePart::Cell, |s| s.underline(range_edge()))
+      .state(TableState::RangeStart, TablePart::Cell, |s| s.start_line(range_edge()))
+      .state(TableState::RangeEnd, TablePart::Cell, |s| s.end_line(range_edge()))
       // The cells that stay cover the row's veil with its fill: they have it themselves.
       .when(Selector::new().state(TableState::Pinned).within().hovered(), TablePart::Cell, |s| {
         s.veil(StateHover)

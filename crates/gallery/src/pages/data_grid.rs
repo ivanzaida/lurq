@@ -1,5 +1,5 @@
-//! The page of the data grid: its playground, the board's Data Grid, editing in place, columns pinned at both
-//! ends and resized, ten thousand rows of fifty columns, a grid that is read only, and its props.
+//! The page of the data grid: its playground, the board's Data Grid, editing in place, a range of cells, columns
+//! pinned at both ends and resized, ten thousand rows of fifty columns, a grid that is read only, and its props.
 
 use std::sync::Arc;
 
@@ -10,8 +10,8 @@ use lurq::{
   layout::Alignment,
   node::Element,
   ui::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellValue, ColumnPin, DataGrid, Pagination,
-    TableColumn, TableSort, icons,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnPin, DataGrid,
+    Pagination, TableColumn, TableSort, icons,
   },
 };
 
@@ -143,6 +143,8 @@ pub struct DataGridPage {
   read_only: Signal<bool>,
   resizable: Signal<bool>,
   footer: Signal<bool>,
+  bind_range: Signal<bool>,
+  played_range: Signal<Option<CellRange<String>>>,
   played: Signal<Vec<File>>,
   played_selected: Signal<Vec<String>>,
   played_sort: Signal<Option<TableSort>>,
@@ -152,6 +154,8 @@ pub struct DataGridPage {
   edited: Signal<Vec<File>>,
   log: Signal<Vec<String>>,
   pinned: Signal<Vec<File>>,
+  ranged: Signal<Vec<File>>,
+  range: Signal<Option<CellRange<String>>>,
   many: Arc<Vec<File>>,
 }
 
@@ -160,18 +164,19 @@ impl DataGridPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let selection = self.selection.get().min(SELECTIONS.len() - 1);
     let (density_name, density) = DENSITIES[self.density.get().min(DENSITIES.len() - 1)];
-    let (fixed_height, pin_name, read_only, resizable, footer) = (
+    let (fixed_height, pin_name, read_only, resizable, footer, bind_range) = (
       self.fixed_height.get(),
       self.pin_name.get(),
       self.read_only.get(),
       self.resizable.get(),
       self.footer.get(),
+      self.bind_range.get(),
     );
     let record = self.playground.recorder();
     let rows = self.played.clone();
     let sort = self.played_sort.get();
 
-    let (edited, selected_to, sorted_to) = (record.clone(), record.clone(), record);
+    let (edited, selected_to, sorted_to, ranged_to) = (record.clone(), record.clone(), record.clone(), record);
     let mut grid = DataGrid::new(columns(pin_name), sorted(rows.get(), &sort))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -203,6 +208,20 @@ impl DataGridPage {
     }
     if footer {
       grid = grid.count(true);
+    }
+    if bind_range {
+      grid = grid
+        .cell_selection(self.played_range.clone())
+        .on_cell_selection_change(move |range| {
+          ranged_to(match range {
+            Some(range) => format!(
+              "on_cell_selection_change({} rows × {:?})",
+              range.rows.len(),
+              range.columns.iter().map(|id| id.as_ref()).collect::<Vec<_>>()
+            ),
+            None => "on_cell_selection_change(None)".to_owned(),
+          })
+        });
     }
 
     let mut code = vec![
@@ -247,6 +266,9 @@ impl DataGridPage {
     if footer {
       code.push(".count(true)".to_owned());
     }
+    if bind_range {
+      code.push(".cell_selection(range) // Signal<Option<CellRange<String>>>".to_owned());
+    }
     code.push(".on_edit(|edit| /* take it into files, or refuse it */ true)".to_owned());
     code.push(".mount(ctx)".to_owned());
 
@@ -254,7 +276,7 @@ impl DataGridPage {
       format!("root        {} · a table's · grid", self.playground.measured()),
       "├─ header   the table's · a resizer at each column's end".to_owned(),
       "└─ row      not a stop · Left and Right its own".to_owned(),
-      "   └─ cell     a gridcell · the ring inside it from the keyboard".to_owned(),
+      "   └─ cell     a gridcell · the ring inside it from the keyboard · in_range, range_top..range_end".to_owned(),
       "      └─ editor   Input, NumberInput or Select, Sm, while it is edited".to_owned(),
     ];
 
@@ -278,6 +300,8 @@ impl DataGridPage {
       self.played.clone(),
       self.played_selected.clone(),
       self.played_sort.clone(),
+      self.bind_range.clone(),
+      self.played_range.clone(),
     );
     let still = {
       let rows = rows.get();
@@ -293,11 +317,12 @@ impl DataGridPage {
         fill: true,
         forceable: true,
         facts: format!(
-          "{} rows · {} selected",
+          "{} rows · {} selected · {} cells in the range",
           rows.get().len(),
-          self.played_selected.get().len()
+          self.played_selected.get().len(),
+          self.played_range.get().map_or(0, |range| range.len())
         ),
-        event: "on_edit / on_selection_change",
+        event: "on_edit / on_selection_change / on_cell_selection_change",
         code,
         tree,
         controls: vec![
@@ -323,6 +348,7 @@ impl DataGridPage {
           flag("height(240): the header stays", &self.fixed_height),
           flag("name pinned at the start", &self.pin_name),
           flag("count in a footer", &self.footer),
+          flag("cell_selection(signal): told the range", &self.bind_range),
         ],
         changed: [
           selection != 1,
@@ -332,6 +358,7 @@ impl DataGridPage {
           !fixed_height,
           pin_name,
           footer,
+          !bind_range,
           self.played.get() != files(8),
         ]
         .into_iter()
@@ -348,6 +375,8 @@ impl DataGridPage {
           reset.7.set(files(8));
           reset.8.set(Vec::new());
           reset.9.set(None);
+          reset.10.set(true);
+          reset.11.set(None);
         }),
       },
     )
@@ -376,6 +405,8 @@ impl Component for DataGridPage {
       read_only: ctx.signal(false),
       resizable: ctx.signal(true),
       footer: ctx.signal(false),
+      bind_range: ctx.signal(true),
+      played_range: ctx.signal(None),
       played: ctx.signal(files(8)),
       played_selected: ctx.signal(Vec::new()),
       played_sort: ctx.signal(None),
@@ -385,6 +416,8 @@ impl Component for DataGridPage {
       edited: ctx.signal(files(5)),
       log: ctx.signal(Vec::new()),
       pinned: ctx.signal(files(8)),
+      ranged: ctx.signal(files(8)),
+      range: ctx.signal(None),
       many: Arc::new(
         (0..10_000)
           .map(|index| File {
@@ -473,6 +506,46 @@ impl Component for DataGridPage {
         },
         12.0,
       ));
+
+    // A range of cells: what it spans, by the rows' keys and the columns' ids, and the sizes in it added up.
+    let ranged_rows = self.ranged.clone();
+    let range_grid = DataGrid::new(columns(false), ranged_rows.get())
+      .row_key(|row: &File| row.name.clone())
+      .label("Files")
+      .cell_selection(self.range.clone())
+      .on_edit(move |edit| take(&ranged_rows, edit.row, edit.column, &edit.value))
+      .key("range")
+      .mount(ctx);
+    let range_said = match self.range.get() {
+      Some(range) => {
+        let files = self.ranged.get();
+        let sizes: f64 = files
+          .iter()
+          .filter(|file| range.rows.contains(&file.name))
+          .map(|file| file.size)
+          .sum();
+        format!(
+          "{} rows × {} columns: {} · {}{}",
+          range.rows.len(),
+          range.columns.len(),
+          range.rows.join(", "),
+          range.columns.join(", "),
+          if range.columns.iter().any(|id| id.as_ref() == "size") {
+            format!(" · {sizes} KB in all")
+          } else {
+            String::new()
+          }
+        )
+      }
+      None => "Drag from a cell, or Shift with the arrows or a press. Ctrl+C copies the range as tab-separated \
+               text, Ctrl+V pastes into it, Delete clears what is edited, Ctrl+A is every cell."
+        .to_owned(),
+    };
+    let range_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(range_grid)
+      .child(quiet(&range_said, 12.0));
 
     // Pinned at both ends: the name stays at the start, the actions at the end, while the columns between scroll.
     let pinned_rows = self.pinned.clone();
@@ -568,6 +641,13 @@ impl Component for DataGridPage {
         "No cell is edited; the cells still take the focus.",
       ),
       (
+        "cell_selection",
+        "Signal<Option<CellRange<K>>>",
+        "the grid's own",
+        "The range of cells selected, by the rows' keys and the columns' ids; with its controlled form and \
+         on_cell_selection_change.",
+      ),
+      (
         "resizable",
         "bool",
         "true",
@@ -661,6 +741,27 @@ impl Component for DataGridPage {
               "    rows.set(files);",
               "    true",
               "})",
+            ],
+          ),
+        ),
+        Section::new(
+          "A range of cells",
+          "A drag from a cell, Shift with the arrows or with a press select the cells between, drawn as one area \
+           with the focused cell in it; Ctrl+A selects them all. The app is told the range by the rows' keys and \
+           the columns' ids. Ctrl+C copies it as tab-separated text, Ctrl+V pastes into it cell by cell through \
+           on_edit, Delete clears what is edited. It is apart from the rows' selection.",
+          self.frame.demo(
+            5,
+            range_grid,
+            ".cell_selection(range)",
+            &[
+              "// range: Signal<Option<CellRange<String>>>",
+              "DataGrid::new(columns, files.get())",
+              "    .row_key(|row| row.name.clone())",
+              "    .cell_selection(range)",
+              "    .on_edit(|edit| /* a paste and Delete come here cell by cell */ true)",
+              "    .mount(ctx)",
+              "// range.rows: the keys of its rows; range.columns: the ids of its columns",
             ],
           ),
         ),

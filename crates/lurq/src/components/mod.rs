@@ -910,6 +910,19 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// A copy or a cut from the focused element where it is not a text input (Ctrl+C, Ctrl+X): on the
+      /// element, or on an ancestor it bubbles to. The handler says what goes on the clipboard with
+      /// `set_text`; a cut also takes away what it copied.
+      pub fn on_copy(mut self, f: impl $crate::node::IntoCopyEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_copy(node, f));
+        self
+      }
+
+      pub fn off_copy(mut self, f: impl $crate::node::IntoCopyEventHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_copy(node, f));
+        self
+      }
+
       /// A trackpad swipe between pages ended over this element: two fingers moved sideways that nothing under the
       /// pointer scrolled with. Go back or forward by the event's `direction`, as a browser does.
       pub fn on_history_swipe(mut self, f: impl $crate::node::IntoHistorySwipeEventHandler) -> Self {

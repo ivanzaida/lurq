@@ -11,7 +11,7 @@ use crate::{
   animation::{Animation, Transition},
   app::{
     events::{
-      DragEvent, DropEvent, EdgePanEvent, FileDragEvent, FileDropEvent, HistorySwipeEvent, KeyboardEvent,
+      CopyEvent, DragEvent, DropEvent, EdgePanEvent, FileDragEvent, FileDropEvent, HistorySwipeEvent, KeyboardEvent,
       LongPressEvent, MouseButton, MouseButtonMask, MouseEvent, PanEvent, PasteEvent, PinchEvent, RotateEvent,
       ScrollEvent, SwipeEvent, TapEvent, TextInputEvent, TouchEvent,
     },
@@ -373,6 +373,25 @@ pub trait IntoPasteEventHandler {
   fn into_event_handler(self) -> EventHandler<PasteEvent>;
 }
 
+pub trait IntoCopyEventHandler {
+  fn into_event_handler(self) -> EventHandler<CopyEvent>;
+}
+
+impl IntoCopyEventHandler for EventHandler<CopyEvent> {
+  fn into_event_handler(self) -> EventHandler<CopyEvent> {
+    self
+  }
+}
+
+impl<F> IntoCopyEventHandler for F
+where
+  F: Fn(CopyEvent) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<CopyEvent> {
+    EventHandler::from_event(self)
+  }
+}
+
 impl IntoPasteEventHandler for EventHandler<PasteEvent> {
   fn into_event_handler(self) -> EventHandler<PasteEvent> {
     self
@@ -629,6 +648,8 @@ pub(crate) trait NodeUpdate {
   fn off_file_drop(&mut self, f: impl IntoFileDropEventHandler);
   fn on_paste(&mut self, f: impl IntoPasteEventHandler);
   fn off_paste(&mut self, f: impl IntoPasteEventHandler);
+  fn on_copy(&mut self, f: impl IntoCopyEventHandler);
+  fn off_copy(&mut self, f: impl IntoCopyEventHandler);
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn off_mouse_enter(&mut self, f: impl IntoVoidEventHandler);
   fn on_mouse_leave(&mut self, f: impl IntoVoidEventHandler);
@@ -870,6 +891,7 @@ pub struct EventHandlers {
   pub on_file_drag_leave: Vec<VoidCallback>,
   pub on_file_drop: Vec<Callback<FileDropEvent>>,
   pub on_paste: Vec<Callback<PasteEvent>>,
+  pub on_copy: Vec<Callback<CopyEvent>>,
   pub on_mouse_enter: Vec<VoidCallback>,
   pub on_mouse_leave: Vec<VoidCallback>,
   pub on_key_down: Vec<Callback<KeyboardEvent>>,
@@ -1816,6 +1838,15 @@ impl NodeUpdate for Node {
   fn off_paste(&mut self, f: impl IntoPasteEventHandler) {
     let handler = f.into_event_handler();
     self.events.on_paste.retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_copy(&mut self, f: impl IntoCopyEventHandler) {
+    self.events.on_copy.push(f.into_event_handler());
+  }
+
+  fn off_copy(&mut self, f: impl IntoCopyEventHandler) {
+    let handler = f.into_event_handler();
+    self.events.on_copy.retain(|existing| !existing.same_handler(&handler));
   }
 
   fn on_mouse_enter(&mut self, f: impl IntoVoidEventHandler) {
@@ -3693,6 +3724,11 @@ impl Node {
 
   pub fn on_paste(mut self, f: impl IntoPasteEventHandler) -> Self {
     NodeUpdate::on_paste(&mut self, f);
+    self
+  }
+
+  pub fn on_copy(mut self, f: impl IntoCopyEventHandler) -> Self {
+    NodeUpdate::on_copy(&mut self, f);
     self
   }
 

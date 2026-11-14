@@ -59,8 +59,8 @@ pub use gradient::{Gradient, GradientKind, GradientStop};
 #[cfg(feature = "form")]
 pub use node::FormData;
 pub use node::{
-  BackgroundSize, ButtonKind, EventHandler, HitTestBehavior, IntoDragEventHandler, IntoDropEventHandler,
-  IntoEdgePanEventHandler, IntoEventHandler, IntoFileDragEventHandler, IntoFileDropEventHandler,
+  BackgroundSize, ButtonKind, EventHandler, HitTestBehavior, IntoCopyEventHandler, IntoDragEventHandler,
+  IntoDropEventHandler, IntoEdgePanEventHandler, IntoEventHandler, IntoFileDragEventHandler, IntoFileDropEventHandler,
   IntoHistorySwipeEventHandler, IntoKeyboardEventHandler, IntoLongPressEventHandler, IntoMouseEventHandler,
   IntoPanEventHandler, IntoPasteEventHandler, IntoPinchEventHandler, IntoRotateEventHandler, IntoScrollEventHandler,
   IntoSwipeEventHandler, IntoTapEventHandler, IntoTextInputEventHandler, IntoTouchEventHandler, IntoVoidEventHandler,

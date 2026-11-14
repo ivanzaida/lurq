@@ -11,6 +11,13 @@
 //! handler on the input or its ancestors only the text is read, as before
 //! there were paste events; with one, the image and the files too.
 //!
+//! A paste shortcut on a focused element that is not a text input (a cell of
+//! a data grid) delivers the same event to it and its ancestors where one of
+//! them has an `on_paste` handler, with nothing inserted by default. A copy or
+//! a cut shortcut there delivers a [`CopyEvent`]: a handler says the text,
+//! and the engine writes it to the clipboard, or to what a test installs with
+//! [`Tree::set_clipboard_writer`].
+//!
 //! A key shortcut delivered as synthetic input (an MCP client, an applied
 //! [`SyntheticInput`](crate::app::synthetic_input::SyntheticInput)) never
 //! reads the OS clipboard: the person's clipboard is theirs. Such a paste
@@ -23,7 +30,7 @@ use std::sync::Arc;
 
 use super::{Tree, find_node_by_path, find_path_by_id};
 use crate::{
-  app::events::{ClipboardContent, KeyboardEvent, PasteEvent, is_synthetic_input},
+  app::events::{ClipboardContent, CopyEvent, KeyboardEvent, PasteEvent, is_synthetic_input},
   core::NodeId,
   node::{node::Node, node_kind::NodeKind},
 };
@@ -35,6 +42,13 @@ pub trait ClipboardReader: Send + Sync {
   fn read_text(&self) -> Option<String>;
   /// Everything the clipboard holds, for a paste a handler looks at.
   fn read(&self) -> Option<ClipboardContent>;
+}
+
+/// Where a copy writes: the OS clipboard (with the `clipboard` feature), or
+/// what a test installs with [`Tree::set_clipboard_writer`].
+pub trait ClipboardWriter: Send + Sync {
+  /// Puts `text` on the clipboard: whether it was written.
+  fn write_text(&self, text: &str) -> bool;
 }
 
 /// The OS clipboard.
@@ -72,8 +86,10 @@ impl Tree {
   /// Pastes `content` into the focused text input, as Ctrl+V pastes the OS
   /// clipboard: the input's `on_paste` handlers and its ancestors' see the
   /// content first, and unless one prevents the default, the text is
-  /// inserted at the caret. `false` when no text input has focus, or nothing
-  /// was inserted and no handler prevented it.
+  /// inserted at the caret. A focused element that is not an input gets the
+  /// event where it or an ancestor has an `on_paste` handler, and nothing is
+  /// inserted. `false` when nothing has focus, or nothing was inserted and no
+  /// handler prevented it or heard it.
   ///
   /// A shell calls this with what it read from the OS; a headless test calls
   /// it with the content it wants to paste, or applies
@@ -129,6 +145,70 @@ impl Tree {
     self.apply_reactive_updates_after_event();
   }
 
+  /// Where copies and cuts write instead of the OS clipboard: a test's
+  /// clipboard, which the OS never sees. `None` goes back to the OS clipboard
+  /// (feature `clipboard`; nothing without it).
+  pub fn set_clipboard_writer(&mut self, writer: Option<Arc<dyn ClipboardWriter>>) {
+    self.clipboard_writer = writer;
+  }
+
+  /// Writes `text` where copies go: whether it was written.
+  pub(super) fn write_clipboard_text(&self, text: &str) -> bool {
+    match &self.clipboard_writer {
+      Some(writer) => writer.write_text(text),
+      None => super::write_os_clipboard_text(text),
+    }
+  }
+
+  /// A copy, a cut or a paste shortcut on a focused element that is not a
+  /// text input, where it or an ancestor has a handler for it: the copy
+  /// event's text is written to the clipboard, the paste event carries what
+  /// the clipboard holds. `false` where it is no such shortcut, or nothing
+  /// hears it.
+  pub(super) fn clipboard_shortcut_on_focus(&mut self, keyboard: &KeyboardEvent) -> bool {
+    let (key, code) = (keyboard.key.as_str(), keyboard.code.as_str());
+    let shortcut = Self::platform_shortcut_modifier(keyboard.ctrl, keyboard.meta);
+    let plain_ctrl = keyboard.ctrl && !keyboard.shift && !keyboard.alt;
+    let copy = (shortcut && matches!((key, code), ("c" | "C", _) | (_, "KeyC")))
+      || (plain_ctrl && matches!((key, code), ("Insert", _) | (_, "Insert")));
+    let cut = (shortcut && matches!((key, code), ("x" | "X", _) | (_, "KeyX")))
+      || (keyboard.shift && !keyboard.ctrl && matches!((key, code), ("Delete", _) | (_, "Delete")));
+    let paste = (shortcut && matches!((key, code), ("v" | "V", _) | (_, "KeyV")))
+      || (keyboard.shift && !keyboard.ctrl && matches!((key, code), ("Insert", _) | (_, "Insert")));
+    if !(copy || cut || paste) || keyboard.alt {
+      return false;
+    }
+    let Some(root) = &self.root else {
+      return false;
+    };
+    let Some(path) = self
+      .focused_path
+      .clone()
+      .or_else(|| self.focused_node.and_then(|id| find_path_by_id(root, id)))
+    else {
+      return false;
+    };
+    let Some(focused) = find_node_by_path(root, &path) else {
+      return false;
+    };
+    if matches!(focused.node_kind(), NodeKind::TextInput { .. }) {
+      return false;
+    }
+    if paste {
+      return !is_synthetic_input() && self.paste_from_reader(keyboard);
+    }
+    let chain = nodes_along_path(root, &path);
+    if chain.iter().all(|node| node.events.on_copy.is_empty()) {
+      return false;
+    }
+    let event = CopyEvent::new(focused.node_id(), cut);
+    dispatch_copy(&chain, &event);
+    if let Some(text) = event.text() {
+      self.write_clipboard_text(&text);
+    }
+    true
+  }
+
   fn paste_from_reader(&mut self, keyboard: &KeyboardEvent) -> bool {
     let Some(reader) = self.clipboard_reader.clone().or_else(os_clipboard) else {
       return false;
@@ -162,7 +242,18 @@ impl Tree {
       return false;
     };
     let NodeKind::TextInput { state, .. } = input.node_kind() else {
-      return false;
+      // An element that is not an input: its handlers and its ancestors' take the content, and nothing is
+      // inserted.
+      let chain = nodes_along_path(root, &path);
+      if chain.iter().all(|node| node.events.on_paste.is_empty()) {
+        return false;
+      }
+      let Some(content) = read(true) else {
+        return false;
+      };
+      let event = PasteEvent::new(Arc::new(content), input.node_id());
+      dispatch_paste(&chain, &event);
+      return true;
     };
     let state = state.clone();
     let chain = nodes_along_path(root, &path);
@@ -210,6 +301,23 @@ fn nodes_along_path<'a>(root: &'a Node, path: &[usize]) -> Vec<&'a Node> {
     current = child;
   }
   chain
+}
+
+/// Runs the `on_copy` handlers of the focused element, then of each ancestor
+/// up to the root, until one stops the propagation.
+fn dispatch_copy(chain: &[&Node], event: &CopyEvent) {
+  for node in chain.iter().rev() {
+    let event = event.at(node.node_id());
+    for handler in &node.events.on_copy {
+      handler.call(&event);
+      if event.immediate_propagation_stopped() {
+        return;
+      }
+    }
+    if event.propagation_stopped() {
+      return;
+    }
+  }
 }
 
 /// Runs the `on_paste` handlers of the input, then of each ancestor up to
