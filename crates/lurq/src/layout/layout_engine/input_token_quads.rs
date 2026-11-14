@@ -1,9 +1,11 @@
 //! Input-only paint dispatch and geometry offsets.
 use super::{
-  LayoutEngine, ResolvedPadding, inset_clip_for_border, intersect_clip, text_input_vertical_offset,
+  ElementLayoutRecord, LayoutEngine, OverlayLayoutIndex, ResolvedPadding, TEXT_INPUT_CARET_WIDTH,
+  inset_clip_for_border, intersect_clip, text_input_vertical_offset, text_layout_output::TextLayoutOutput,
   transformed_quad_frame,
 };
 use crate::{
+  core::ElementRect,
   layout::{
     layout_result::LayoutResult,
     quad::{ClipRect, Quad, QuadContent},
@@ -13,12 +15,54 @@ use crate::{
     TextTransformMode,
     border::{BorderPlacement, BorderRadius, ResolvedBorder, ResolvedBorders},
     node::Node,
-    node_kind::{TextInputOverflow, TextInputState},
+    node_kind::{NodeKind, TextInputOverflow, TextInputState},
     transform::Transform2D,
   },
 };
 
 impl LayoutEngine {
+  /// Publishes the element a text input puts at a byte of its value ([`TextInput::anchor_at`]): where the caret
+  /// before that byte stands in the layout just made, inside the input's padding, past what it scrolled, one
+  /// wide and as high as the text's band. An overlay that hangs from the element is placed by it in this pass.
+  ///
+  /// [`TextInput::anchor_at`]: crate::components::TextInput::anchor_at
+  pub(super) fn index_input_anchor(
+    node: &Node,
+    layout: &LayoutResult,
+    rect: ElementRect,
+    visible: bool,
+    index: &mut OverlayLayoutIndex,
+  ) {
+    let NodeKind::TextInput { state, .. } = node.node_kind() else {
+      return;
+    };
+    let Some((anchor, byte)) = state.byte_anchor() else {
+      return;
+    };
+    let Some(TextLayoutOutput::TextInput(output)) = layout.text_layout.as_deref() else {
+      return;
+    };
+    let padding = output.padding;
+    let content_height = (layout.size.height - padding.top - padding.bottom).max(0.0);
+    let (x, y, height) = state.controller_point(byte);
+    let x = padding.left + x;
+    let y = padding.top + text_input_vertical_offset(state, content_height) + y;
+    let placed = ElementRect {
+      x: rect.x + x,
+      y: rect.y + y,
+      relative_x: x,
+      relative_y: y,
+      width: TEXT_INPUT_CARET_WIDTH,
+      height: height.max(1.0),
+    };
+    anchor.update(placed.x, placed.y, x, y, placed.width, placed.height);
+    index.elements.push(ElementLayoutRecord {
+      element_ref: anchor,
+      rect: placed,
+      visible,
+    });
+  }
+
   pub(super) fn input_content(
     &self,
     state: &TextInputState,

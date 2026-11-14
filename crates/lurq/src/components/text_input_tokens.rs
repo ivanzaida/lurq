@@ -187,6 +187,23 @@ impl InputToken {
   }
 }
 
+impl super::TextInput {
+  /// Has the layout put `anchor` where the caret before `byte` stands, as high as the text's line there: an
+  /// element of no size of its own, for an overlay to hang from a place in the text, as a list of suggestions
+  /// hangs under a trigger. It is set as the input is laid out, so an overlay placed in that pass stands at the
+  /// byte of the text laid out, after a paste or a value the app set as after a key. A byte past the text is
+  /// its end.
+  pub fn anchor_at(mut self, anchor: impl Into<crate::core::ElementRef>, byte: usize) -> Self {
+    let anchor = anchor.into();
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_byte_anchor(Some((anchor, byte)));
+      }
+    });
+    self
+  }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputTokenError {
   InvalidRange,
