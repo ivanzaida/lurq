@@ -1449,6 +1449,8 @@ impl TableView {
     let mut header = Row::new()
       .part(&part)
       .spacing(0.0)
+      // A title and the header's checkbox stand in the middle of the header's height, as a cell does in its row.
+      .align_items(Alignment::Center)
       .column_tracks(&self.tracks)
       .sticky(Sticky::top(0.0))
       .focus_group(FocusGroup::horizontal().one_stop(true).wrap(false))
@@ -1540,6 +1542,7 @@ impl TableView {
         let mut row = Row::new()
           .part(&part)
           .spacing(0.0)
+          .align_items(Alignment::Center)
           .column_tracks(&self.tracks)
           .describe("a11y_hidden", "true");
         if self.loading_rows == index + 1 && self.footer.is_none() {

@@ -201,6 +201,8 @@ Added:
 
 Fixes:
 
+- What a scroll container holds is drawn on a whole device pixel. A text is painted on whole device pixels and a box where it is, so at a scale that is no whole number (150%) a scroll offset of half a device pixel moved every label a pixel against its box, and back at the next step of the wheel: the text of a field jumped as its page scrolled. The scroll's own offset is as it was given.
+- A `ui::Table`'s titles and the header's checkbox stand in the middle of the header's height, and the skeletons of its loading rows in the middle of theirs; they stood at the top edge.
 - With the `devtools` feature, a value of the design system goes in a signal: every variant, size and state name, and its shapes, orientations and positions (`AvatarShape`, `ToastPosition`, `Placement`, `SliderOrientation` and the rest) are `DevtoolsInspectable`. An app that kept an `AvatarSize` in a signal did not compile with DevTools on, and neither did `ui::Combobox` itself.
 - A token of a text input in its selected look is drawn over the selection's highlight. The highlight was painted over the chip, so a selected token of a `TokenInput` was a white label on the pale selection between strips of the chip's own fill. A token the selection covers that has no selected look keeps the highlight over it.
 - The caret at the end of an atomic token of a text input stands past its chip, and the one at its start before it. It stood where the token's text ends, inside the chip, between the label and the cross of a `TokenInput`'s token. A token the caret goes into is as it was.
