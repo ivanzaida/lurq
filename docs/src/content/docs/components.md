@@ -204,8 +204,12 @@ Apps provide title-bar slots and content. They should not manually call `window.
 normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, the system's menu of the window on a
 right press (`WindowHandle::show_system_menu`, which only Windows has: Restore, Move, Size, Minimize, Maximize, Close),
 resize edge and corner hit zones, control-button event propagation, and platform drag/resize fallbacks in the active
-shell. Windows 11's snap layouts flyout over the maximize button is not shown: the shell would have to answer the
-system's hit test with the maximize button's region, which winit does not let it do.
+shell. On Windows 11 the system's snap layouts open over the maximize control as the pointer rests on it, as over a
+title bar the system draws: `WindowControls` tells the window which element its maximize control is
+(`WindowHandle::set_maximize_control`), and the shell answers the system's hit test there with the maximize button.
+The pointer over it is then the system's, so the control hears it from the window, `WindowHandle::maximize_control_look()`
+(under the pointer, held down), and is drawn so; a press and release on it still maximize and restore the window. A
+title bar the app draws in its own way names its maximize control the same way, and `None` where it has none.
 
 `ChromeTitleBar::draw(|window, height| ..)` draws the whole bar from the app's own element in place of its leading,
 title, center, trailing and controls, given the window (to read whether it is maximized or in front, and to minimize,

@@ -21,6 +21,20 @@ use crate::{
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
+/// The icon the playground's bar shows: the window's own (the gallery's), a glyph of the theme's, or none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, lurq::DevtoolsInspectable)]
+enum IconShown {
+  Window,
+  Glyph,
+  None,
+}
+
+const ICONS: [(&str, IconShown); 3] = [
+  ("the window's", IconShown::Window),
+  ("a glyph", IconShown::Glyph),
+  ("None", IconShown::None),
+];
+
 const PLATFORMS: [(&str, WindowPlatform); 4] = [
   ("Windows", WindowPlatform::Windows),
   ("macOS", WindowPlatform::Macos),
@@ -88,7 +102,7 @@ pub struct WindowChromePage {
   playground: Playground,
   platform: Signal<WindowPlatform>,
   title: Signal<String>,
-  icon: Signal<bool>,
+  icon: Signal<IconShown>,
   menubar: Signal<bool>,
   tabs: Signal<bool>,
   /// The tab selected in the playground's bar, and in the section's.
@@ -126,8 +140,10 @@ impl WindowChromePage {
           .state(WindowChromeState::Maximized, maximized)
           .controls(WindowControls::new().minimizable(minimizable).maximizable(maximizable))
           .content(content(120.0));
-        if !icon {
-          chrome = chrome.icon(None);
+        match icon {
+          IconShown::Window => {}
+          IconShown::Glyph => chrome = chrome.icon(icons::FILE_CODE),
+          IconShown::None => chrome = chrome.icon(None),
         }
         if menubar {
           chrome = chrome.leading(menus(&menus_open));
@@ -153,8 +169,10 @@ impl WindowChromePage {
       code.push(format!("    .platform(WindowPlatform::{platform:?})"));
     }
     code.push(format!("    .title({title:?})"));
-    if !icon {
-      code.push("    .icon(None)".to_owned());
+    match icon {
+      IconShown::Window => {}
+      IconShown::Glyph => code.push("    .icon(icons::FILE_CODE)".to_owned()),
+      IconShown::None => code.push("    .icon(None)".to_owned()),
     }
     if menubar {
       code.push("    .leading(Menubar::new(open).menu(MenubarMenu::new(\"File\", [..])) /* Edit, View */)".to_owned());
@@ -191,9 +209,10 @@ impl WindowChromePage {
     ];
 
     let set_platform = self.platform.clone();
+    let set_icon = self.icon.clone();
     let reset = {
-      let (platform, title) = (self.platform.clone(), self.title.clone());
-      let on = [self.icon.clone(), self.minimizable.clone(), self.maximizable.clone()];
+      let (platform, title, shown_icon) = (self.platform.clone(), self.title.clone(), self.icon.clone());
+      let on = [self.minimizable.clone(), self.maximizable.clone()];
       let off = [
         self.menubar.clone(),
         self.tabs.clone(),
@@ -203,6 +222,7 @@ impl WindowChromePage {
       Arc::new(move || {
         platform.set(WindowPlatform::Windows);
         title.set("lurq demo".to_owned());
+        shown_icon.set(IconShown::Window);
         for flag in &on {
           flag.set(true);
         }
@@ -236,8 +256,12 @@ impl WindowChromePage {
               .select(0, &PLATFORMS, &platform, move |platform| set_platform.set(platform)),
           ),
           prop("title", "&str", field(&self.title)),
+          prop(
+            "icon",
+            "WindowChromeIcon",
+            self.playground.select(1, &ICONS, &icon, move |icon| set_icon.set(icon)),
+          ),
           divider(),
-          flag("icon", &self.icon),
           flag("menubar", &self.menubar),
           flag("tabs", &self.tabs),
           flag("inactive", &self.inactive),
@@ -248,7 +272,7 @@ impl WindowChromePage {
         changed: [
           platform != WindowPlatform::Windows,
           title != "lurq demo",
-          !icon,
+          icon != IconShown::Window,
           menubar,
           tabs,
           inactive,
@@ -340,10 +364,10 @@ impl Component for WindowChromePage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 1),
+      playground: Playground::new(ctx, 2),
       platform: ctx.signal(WindowPlatform::Windows),
       title: ctx.signal("lurq demo".to_owned()),
-      icon: ctx.signal(true),
+      icon: ctx.signal(IconShown::Window),
       menubar: ctx.signal(false),
       tabs: ctx.signal(false),
       play_file: ctx.signal(1),
@@ -380,9 +404,9 @@ impl Component for WindowChromePage {
       ),
       (
         "icon",
-        "impl Into<IconChoice>",
-        "box",
-        "The app's icon where the platform shows one (Windows, KDE); None for none.",
+        "impl Into<WindowChromeIcon>",
+        "the window's",
+        "The app's icon where the platform shows one (Windows, KDE): a glyph's name, an ImageData of the app's, or          None for none. By default the window's own icon (here the gallery's), or a box where it has none.",
       ),
       ("label", "&str", "the title", "The bar's name to what reads the tree."),
       (

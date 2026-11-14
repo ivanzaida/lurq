@@ -2943,6 +2943,7 @@ impl Ctx {
         theme.clone(),
         self.breakpoint.clone(),
         self.app.as_ref().map(|app| app.shared.dates.clone()),
+        self.window.clone(),
       );
     }
   }

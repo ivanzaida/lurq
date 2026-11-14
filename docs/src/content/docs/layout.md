@@ -759,6 +759,11 @@ ScrollVertical::new(Column::new().child(section)).size(240.0, 320.0)
   (the bar and its edge inset on both sides), while the content is wider than the viewport: the viewport ends above
   the lane, so nothing it shows is ever under the bar, and the bar down ends where the viewport does. Content that
   fits has no lane and no strip under it. `ui::Table` asks for it.
+- A wheel turned up and down scrolls a container down, or what holds it, and a container that scrolls only across
+  lets it by. `.wheel_across(true)` on `ScrollHorizontal` or `ScrollBoth` takes such a turn sideways, as a browser's
+  strip of tabs does: turned down, the content moves to its end; what is left of the turn at the container's end goes
+  to what holds it, as with any scroll. A turn that has a sideways part (a touchpad's) is taken as it is. Off by
+  default, so a list across inside a page lets the page take the wheel. `ui::WindowTabs` asks for it.
 
 ### Middle-button autoscroll
 

@@ -25,6 +25,9 @@ pub struct DragEvent {
   pub button: MouseButton,
   pub target_id: NodeId,
   pub drop_result: Option<DropResult>,
+  /// Whether the pointer is out of the window: past any of its edges, which a drag still follows (the press holds
+  /// the pointer). A tab let go out of the window is to be taken out of it.
+  pub outside_window: bool,
 }
 
 #[derive(Clone)]

@@ -156,7 +156,9 @@ impl WinitWindow {
   /// size. On macOS this does nothing: the Dock and the app switcher show the
   /// application bundle's icon.
   pub fn with_icon(mut self, icon: impl Into<Option<WindowIcon>>) -> Self {
-    self.attrs = with_window_icons(self.attrs, icon.into().and_then(to_winit_icon));
+    let icon = icon.into();
+    self.tree.window().set_icon(icon.clone());
+    self.attrs = with_window_icons(self.attrs, icon.and_then(to_winit_icon));
     self
   }
 
@@ -528,6 +530,9 @@ impl ManagedWindow {
       .tree
       .window()
       .set_parent(crate::app::window::parent::ParentWindow::of(&window));
+    // Windows 11's snap layouts over a maximize control the app draws itself.
+    #[cfg(windows)]
+    lay_snap_layouts(&window, self.tree.window());
     self.window = Some(window);
     self.sync_window_state();
     let presented = show_after_first_present && self.present_now(app, true);
@@ -1434,6 +1439,8 @@ impl ManagedSecondaryWindow {
     tree
       .window()
       .set_parent(crate::app::window::parent::ParentWindow::of(&window));
+    #[cfg(windows)]
+    lay_snap_layouts(&window, tree.window());
     self.window = Some(window);
     // A window of UIKit's is seen in a scene: one the system has ready for it, or one it is asked for now.
     #[cfg(target_os = "ios")]
@@ -2946,6 +2953,18 @@ fn start_native_window_drag(window: &Window) -> bool {
 fn start_native_window_resize(window: &Window, direction: WindowResizeDirection) -> bool {
   begin_native_window_resize(window, direction)
     || window.drag_resize_window(to_winit_resize_direction(direction)).is_ok()
+}
+
+/// Lays the shell's procedure over `window` for the snap layouts over the app's maximize control; see
+/// `app::snap_layouts`.
+#[cfg(windows)]
+fn lay_snap_layouts(window: &Window, state: &crate::app::window::Window) {
+  let Ok(handle) = window.window_handle() else {
+    return;
+  };
+  if let RawWindowHandle::Win32(handle) = handle.as_raw() {
+    crate::app::snap_layouts::lay_over(handle.hwnd.get(), state.clone());
+  }
 }
 
 #[cfg(windows)]

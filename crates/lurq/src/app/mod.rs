@@ -78,6 +78,8 @@ pub mod wgpu_render;
 pub mod window;
 #[cfg(feature = "winit")]
 pub mod winit_shell;
+#[cfg(all(feature = "winit", windows))]
+mod snap_layouts;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener, WindowOptions};
 pub use runtime::{

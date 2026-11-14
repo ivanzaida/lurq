@@ -60,6 +60,32 @@ fn drag_end_fires_even_when_pointer_is_released_outside_source_bounds() {
 }
 
 #[test]
+fn a_drag_says_whether_the_pointer_is_out_of_the_window() {
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let (moved, ended) = (seen.clone(), seen.clone());
+
+  let mut runtime = Tree::new();
+  runtime.resize(400, 300);
+  runtime.set_root(
+    Rect::new(100.0, 100.0)
+      .on_drag_move(move |event: DragEvent| moved.lock().unwrap().push(("move", event.outside_window)))
+      .on_drag_end(move |event: DragEvent| ended.lock().unwrap().push(("end", event.outside_window))),
+  );
+
+  run_pass(&mut runtime);
+  runtime.mouse_down(20.0, 20.0, MouseButton::Left);
+  runtime.mouse_move(350.0, 250.0);
+  runtime.mouse_move(450.0, 120.0);
+  runtime.mouse_move(120.0, -10.0);
+  runtime.mouse_up(500.0, 60.0, MouseButton::Left);
+
+  assert_eq!(
+    *seen.lock().unwrap(),
+    vec![("move", false), ("move", true), ("move", true), ("end", true)]
+  );
+}
+
+#[test]
 fn drag_reports_incremental_and_total_deltas() {
   let moves = Arc::new(Mutex::new(Vec::new()));
   let captured = moves.clone();

@@ -674,12 +674,11 @@ struct Drag {
 }
 
 impl Drag {
-  /// Whether the pointer at `x`, `y` is away from the strip: more than its height above or below it, or out of
-  /// the window past its top or start edge. What the engine tells of a pointer out of the window is where it is
-  /// from the window's corner; nothing says how wide the window is, so past its end edge beside the strip a tab
-  /// is still let go along the strip.
-  fn away_at(&self, x: f32, y: f32) -> bool {
-    x < 0.0 || y < 0.0 || y < self.top - self.strip || y > self.top + 2.0 * self.strip
+  /// Whether the pointer of `event` is away from the strip: more than its height above or below it, or out of
+  /// the window past any of its edges (`DragEvent::outside_window`), beside the strip too.
+  fn away_at(&self, event: &DragEvent) -> bool {
+    let y = event.y;
+    event.outside_window || y < self.top - self.strip || y > self.top + 2.0 * self.strip
   }
 
   /// Where the dragged tab is drawn, from the start of the list: under the pointer, and within the tabs.
@@ -1179,7 +1178,7 @@ impl WindowTabsView {
             return;
           };
           drag.moved = event.total_delta_x;
-          drag.away = drag.away_at(event.x, event.y);
+          drag.away = drag.away_at(&event);
           let begins = !drag.begun && event.total_delta_x.hypot(event.total_delta_y) > DRAG_START;
           if begins {
             drag.begun = true;
@@ -1203,7 +1202,7 @@ impl WindowTabsView {
           return;
         }
         end.moved();
-        if drag.away_at(event.x, event.y) {
+        if drag.away_at(&event) {
           detach();
           return;
         }
@@ -1384,8 +1383,10 @@ impl WindowTabsView {
   /// the selected one. The window's keys are heard on the strip.
   pub fn render(self) -> Element {
     // The tabs share the room the strip is given, down to their least width, and past that the list scrolls.
+    // A wheel turned up and down over it scrolls it sideways, as a browser's strip of tabs.
     let scroll = ScrollBoth::new(self.list())
       .fill_width(true)
+      .wheel_across(true)
       .with_scroll_state(self.kept.scroll.clone())
       .scrollbar(ScrollBarStyle::hidden())
       .flex_full(1.0, 1.0, Some(0.0))
@@ -1414,6 +1415,8 @@ impl WindowTabsView {
       .width(full)
       .flex_shrink(1.0)
       .min_width(0.0)
+      // Never wider than what holds it: a row gives way by the shrink, a column by this.
+      .max_width(Dimension::Pct(100.0))
       .ref_element(self.kept.root.clone())
       .child(scroll);
     if let Some(add) = self.add() {
