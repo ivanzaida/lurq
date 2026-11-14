@@ -1,5 +1,6 @@
-//! The page of the timeline: its playground, the board's history of a project, a deploy with its marks and tones, and
-//! the activity of a document with avatars and content under its items.
+//! The page of the timeline: its playground, the board's history of a project, a deploy with its marks and tones, the
+//! activity of a document with avatars and content under its items, a log, a history down the middle, and an order's
+//! steps across.
 
 use std::sync::Arc;
 
@@ -8,7 +9,10 @@ use lurq::{
   components::Text,
   core::Signal,
   node::Element,
-  ui::{Avatar, Button, ButtonSize, ButtonVariant, Card, Timeline, TimelineItem, TimelinePart, TimelineVariant},
+  ui::{
+    Avatar, Button, ButtonSize, ButtonVariant, Card, Orientation, Timeline, TimelineAlign, TimelineItem, TimelinePart,
+    TimelineSize, TimelineVariant,
+  },
 };
 
 use crate::{
@@ -31,6 +35,28 @@ const MARKS: [(&str, Marks); 3] = [
   ("Avatars", Marks::Avatars),
 ];
 
+const ORIENTATIONS: [(&str, Orientation); 2] = [
+  ("Vertical", Orientation::Vertical),
+  ("Horizontal", Orientation::Horizontal),
+];
+
+const SIZES: [(&str, TimelineSize); 2] = [("Md", TimelineSize::Md), ("Sm", TimelineSize::Sm)];
+
+const ALIGNS: [(&str, TimelineAlign); 3] = [
+  ("Start", TimelineAlign::Start),
+  ("Alternate", TimelineAlign::Alternate),
+  ("TimeColumn", TimelineAlign::TimeColumn),
+];
+
+/// The names of a list of choices with their places, for a segmented control of the panel.
+fn places<T>(choices: &[(&'static str, T)]) -> Vec<(&'static str, usize)> {
+  choices
+    .iter()
+    .enumerate()
+    .map(|(index, (name, _))| (*name, index))
+    .collect()
+}
+
 /// The board's timeline: the history of a project, the oldest item to come.
 fn board() -> Timeline {
   Timeline::new([
@@ -52,6 +78,9 @@ fn board() -> Timeline {
 /// What the playground's panel says of the timeline.
 #[derive(Clone, Copy)]
 struct Props {
+  orientation: Orientation,
+  size: TimelineSize,
+  align: TimelineAlign,
   marks: Marks,
   descriptions: bool,
   times: bool,
@@ -63,12 +92,17 @@ struct Props {
   content: bool,
   action: bool,
   select: bool,
+  more: bool,
+  loading: bool,
 }
 
 pub struct TimelinePage {
   frame: Frame,
   playground: Playground,
-  /// Which of [`MARKS`] stands for the marks.
+  /// Which of [`ORIENTATIONS`], [`SIZES`], [`ALIGNS`] and [`MARKS`] are chosen.
+  orientation: Signal<usize>,
+  size: Signal<usize>,
+  align: Signal<usize>,
   marks: Signal<usize>,
   descriptions: Signal<bool>,
   times: Signal<bool>,
@@ -80,10 +114,13 @@ pub struct TimelinePage {
   content: Signal<bool>,
   action: Signal<bool>,
   select: Signal<bool>,
+  more: Signal<bool>,
+  loading: Signal<bool>,
 }
 
-/// The playground's timeline: a deploy, as `props` make it, its items telling `record` they were pressed.
-fn deploy(props: Props, record: Option<Arc<dyn Fn(String) + Send + Sync>>) -> Timeline {
+/// The playground's timeline: a deploy, as `props` make it, each step told by its place when it is pressed, and
+/// telling `record` what was pressed.
+fn deploy(props: Props, record: Option<Arc<dyn Fn(String) + Send + Sync>>) -> Timeline<usize> {
   let steps: [(&str, &str, &str, &str, &str); 4] = [
     (
       "Built",
@@ -112,7 +149,7 @@ fn deploy(props: Props, record: Option<Arc<dyn Fn(String) + Send + Sync>>) -> Ti
     .iter()
     .enumerate()
     .map(|(index, (title, description, time, icon, who))| {
-      let mut item = TimelineItem::new(title);
+      let mut item = TimelineItem::new(title).value(index);
       if props.descriptions {
         let text = if props.long && index == 1 {
           "1,174 tests passed on Windows, macOS and Linux, among them the tests of the renderer against the board's \
@@ -154,22 +191,45 @@ fn deploy(props: Props, record: Option<Arc<dyn Fn(String) + Send + Sync>>) -> Ti
             .size(ButtonSize::Sm),
         );
       }
-      if props.select
-        && let Some(record) = &record
-      {
-        let (record, title) = (record.clone(), title.to_string());
-        item = item.on_select(move || record(format!("on_select(\"{title}\")")));
-      }
       item
     });
-  Timeline::new(items)
+  let mut timeline = Timeline::new(items)
     .label("Deploy")
-    .style(TimelinePart::Root, |s| s.width(340.0))
+    .orientation(props.orientation)
+    .size(props.size)
+    .align(props.align);
+  if props.orientation.is_vertical() {
+    let width = if props.align == TimelineAlign::Alternate {
+      520.0
+    } else {
+      340.0
+    };
+    timeline = timeline.style(TimelinePart::Root, move |s| s.width(width));
+  }
+  if props.select {
+    let record = record.clone();
+    timeline = timeline.on_select(move |step: &usize| {
+      if let Some(record) = &record {
+        record(format!("on_select({step})"));
+      }
+    });
+  }
+  if props.more {
+    timeline = timeline.loading(props.loading).on_load_more(move || {
+      if let Some(record) = &record {
+        record("on_load_more()".to_owned());
+      }
+    });
+  }
+  timeline
 }
 
 impl TimelinePage {
   fn props(&self) -> Props {
     Props {
+      orientation: ORIENTATIONS[self.orientation.get().min(ORIENTATIONS.len() - 1)].1,
+      size: SIZES[self.size.get().min(SIZES.len() - 1)].1,
+      align: ALIGNS[self.align.get().min(ALIGNS.len() - 1)].1,
       marks: MARKS[self.marks.get().min(MARKS.len() - 1)].1,
       descriptions: self.descriptions.get(),
       times: self.times.get(),
@@ -181,6 +241,8 @@ impl TimelinePage {
       content: self.content.get(),
       action: self.action.get(),
       select: self.select.get(),
+      more: self.more.get(),
+      loading: self.loading.get(),
     }
   }
 
@@ -198,7 +260,7 @@ impl TimelinePage {
       Marks::Icons => ".icon(\"box\")",
       Marks::Avatars => ".media(Avatar::new(\"Ivan Zaida\").size(\"xs\"))",
     };
-    let mut first = format!("    TimelineItem::new(\"Built\"){mark}");
+    let mut first = format!("    TimelineItem::new(\"Built\").value(0){mark}");
     if props.descriptions {
       first.push_str(".description(\"Compiled in release mode with LTO.\")");
     }
@@ -207,9 +269,6 @@ impl TimelinePage {
     }
     if props.content {
       first.push_str(".child(Card::new().description(\"lurq-0.61.0-..zip, 18.4 MB\"))");
-    }
-    if props.select {
-      first.push_str(".on_select(|| /* open it */)");
     }
     code.push(format!("{first},"));
     if props.failed {
@@ -234,6 +293,24 @@ impl TimelinePage {
     ));
     code.push("])".to_owned());
     code.push(".label(\"Deploy\")".to_owned());
+    if !props.orientation.is_vertical() {
+      code.push(".orientation(Orientation::Horizontal)".to_owned());
+    }
+    if props.size == TimelineSize::Sm {
+      code.push(".size(TimelineSize::Sm)".to_owned());
+    }
+    if props.align != TimelineAlign::Start {
+      code.push(format!(".align(TimelineAlign::{})", ALIGNS[self.align.get().min(2)].0));
+    }
+    if props.select {
+      code.push(".on_select(|step: &usize| /* open it */)".to_owned());
+    }
+    if props.more {
+      code.push(".on_load_more(|| /* fetch the next page */)".to_owned());
+      if props.loading {
+        code.push(".loading(true)".to_owned());
+      }
+    }
 
     let wide = props.marks != Marks::Dots;
     let tree = vec![
@@ -254,7 +331,23 @@ impl TimelinePage {
       "      └─ body         8 under the time".to_owned(),
     ];
 
+    let segmented = |signal: &Signal<usize>, choices: Vec<(&'static str, usize)>| {
+      let choose = signal.clone();
+      segmented_fill(&choices, &signal.get(), move |index| choose.set(index))
+    };
     let mut controls = vec![
+      prop(
+        "orientation",
+        "Orientation",
+        segmented(&self.orientation, places(&ORIENTATIONS)),
+      ),
+      prop("size", "TimelineSize", segmented(&self.size, places(&SIZES))),
+    ];
+    if props.orientation.is_vertical() {
+      controls.push(prop("align", "TimelineAlign", segmented(&self.align, places(&ALIGNS))));
+    }
+    controls.extend([
+      divider(),
       prop("marks", "icon / media", {
         let choose = self.marks.clone();
         let choices: Vec<(&str, usize)> = MARKS
@@ -267,7 +360,7 @@ impl TimelinePage {
       divider(),
       flag("description", &self.descriptions),
       flag("time", &self.times),
-    ];
+    ]);
     if props.descriptions {
       controls.push(flag("a long description", &self.long));
     }
@@ -280,9 +373,17 @@ impl TimelinePage {
       divider(),
       flag("child: a card (Built)", &self.content),
       flag("action (Deploying)", &self.action),
-      flag("on_select", &self.select),
+      flag("on_select (the timeline's)", &self.select),
+      divider(),
+      flag("on_load_more", &self.more),
     ]);
+    if props.more {
+      controls.push(flag("loading", &self.loading));
+    }
     let defaults = Props {
+      orientation: Orientation::Vertical,
+      size: TimelineSize::Md,
+      align: TimelineAlign::Start,
       marks: Marks::Dots,
       descriptions: true,
       times: true,
@@ -294,8 +395,13 @@ impl TimelinePage {
       content: false,
       action: false,
       select: false,
+      more: false,
+      loading: false,
     };
     let changed = [
+      props.orientation != defaults.orientation,
+      props.size != defaults.size,
+      props.align != defaults.align,
       props.marks != defaults.marks,
       props.descriptions != defaults.descriptions,
       props.times != defaults.times,
@@ -307,12 +413,19 @@ impl TimelinePage {
       props.content != defaults.content,
       props.action != defaults.action,
       props.select != defaults.select,
+      props.more != defaults.more,
+      props.loading != defaults.loading,
     ]
     .into_iter()
     .filter(|changed| *changed)
     .count();
     let signals = (
-      self.marks.clone(),
+      [
+        self.orientation.clone(),
+        self.size.clone(),
+        self.align.clone(),
+        self.marks.clone(),
+      ],
       [
         (self.descriptions.clone(), defaults.descriptions),
         (self.times.clone(), defaults.times),
@@ -324,6 +437,8 @@ impl TimelinePage {
         (self.content.clone(), defaults.content),
         (self.action.clone(), defaults.action),
         (self.select.clone(), defaults.select),
+        (self.more.clone(), defaults.more),
+        (self.loading.clone(), defaults.loading),
       ],
     );
     self.playground.card(
@@ -332,16 +447,23 @@ impl TimelinePage {
         title: "Timeline",
         make: Arc::new(make),
         shown: Shown::of(shown),
-        fill: false,
+        fill: !props.orientation.is_vertical(),
         forceable: props.select,
         facts: "4 items".to_owned(),
-        event: if props.select { "on_select" } else { "" },
+        event: match (props.select, props.more) {
+          (true, true) => "on_select, on_load_more",
+          (true, false) => "on_select",
+          (false, true) => "on_load_more",
+          (false, false) => "",
+        },
         code,
         tree,
         controls,
         changed,
         reset: Arc::new(move || {
-          signals.0.set(0);
+          for signal in &signals.0 {
+            signal.set(0);
+          }
           for (signal, value) in &signals.1 {
             signal.set(*value);
           }
@@ -358,6 +480,9 @@ impl Component for TimelinePage {
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 0),
+      orientation: ctx.signal(0),
+      size: ctx.signal(0),
+      align: ctx.signal(0),
       marks: ctx.signal(0),
       descriptions: ctx.signal(true),
       times: ctx.signal(true),
@@ -369,6 +494,8 @@ impl Component for TimelinePage {
       content: ctx.signal(false),
       action: ctx.signal(false),
       select: ctx.signal(false),
+      more: ctx.signal(false),
+      loading: ctx.signal(false),
     }
   }
 
@@ -411,13 +538,95 @@ impl Component for TimelinePage {
     ])
     .label("Activity")
     .style(TimelinePart::Root, |s| s.width(420.0));
+    let log = Timeline::new([
+      TimelineItem::new("Deployed to every region").time("14:21"),
+      TimelineItem::new("Smoke tests passed").time("14:17"),
+      TimelineItem::new("Canary at 5%")
+        .time("14:15")
+        .variant(TimelineVariant::Warning),
+      TimelineItem::new("Build 0.61.0 signed").time("14:09"),
+      TimelineItem::new("Tag v0.61.0 pushed").time("14:02"),
+    ])
+    .label("Release log")
+    .size(TimelineSize::Sm)
+    .align(TimelineAlign::TimeColumn)
+    .on_load_more(|| {})
+    .more_label("Earlier")
+    .style(TimelinePart::Root, |s| s.width(360.0));
+    let middle = Timeline::new([
+      TimelineItem::new("0.60: frosted glass")
+        .description("Blur, backdrop filters and the frosted panel.")
+        .time("Nov 10"),
+      TimelineItem::new("0.59: the design system")
+        .description("Recipes, themes and the first forty components.")
+        .time("Oct 21"),
+      TimelineItem::new("0.58: text")
+        .description("Shaping, bidi-free wrapping and the glyph atlas.")
+        .time("Sep 30"),
+      TimelineItem::new("0.57: the first window")
+        .description("wgpu, winit and a tree of elements.")
+        .time("Aug 12")
+        .upcoming(true),
+    ])
+    .label("Releases")
+    .align(TimelineAlign::Alternate)
+    .style(TimelinePart::Root, |s| s.width(560.0));
+    let order = Timeline::new([
+      TimelineItem::new("Ordered").value(1u32).time("Nov 12, 09:14"),
+      TimelineItem::new("Packed").value(2).time("Nov 12, 16:40"),
+      TimelineItem::new("Handed to the courier in Lviv")
+        .value(3)
+        .time("Nov 13, 08:02"),
+      TimelineItem::new("Out for delivery")
+        .value(4)
+        .current(true)
+        .pending(true),
+      TimelineItem::new("Delivered").value(5).upcoming(true),
+    ])
+    .label("Order #4021")
+    .orientation(Orientation::Horizontal)
+    .on_select(|_step: &u32| {});
 
     let rows = [
       (
         "new",
-        "IntoIterator<Item = TimelineItem>",
+        "IntoIterator<Item = TimelineItem<T>>",
         "",
-        "The items, the first at the top. `item` and `items` add more.",
+        "The items, the first at the top or the start. `item` and `items` add more.",
+      ),
+      (
+        "orientation",
+        "Orientation",
+        "Vertical",
+        "Horizontal: the line across, each item's text under its mark, the items sharing the width and scrolling \
+         sideways past their least (160, 120 small).",
+      ),
+      (
+        "size",
+        "TimelineSize",
+        "Md",
+        "Sm: a log, a dot of 8, the time beside the title, items as close as rows of the theme's density.",
+      ),
+      (
+        "align",
+        "TimelineAlign",
+        "Start",
+        "Alternate: either side of the line, falling back to Start in a window narrower than the md breakpoint \
+         (768). TimeColumn: the time in a column of its own before the line, or over it across.",
+      ),
+      (
+        "on_select",
+        "Fn(&T)",
+        "",
+        "Told the value of the item pressed: every item is then pressed, the items one stop of Tab with the arrows \
+         between them.",
+      ),
+      (
+        "on_load_more / loading",
+        "Fn() / bool",
+        "",
+        "An item at the end that shows more, its mark a spinner while the next page loads. more_label and \
+         loading_text say its words.",
       ),
       ("label", "&str", "", "What the timeline is called, to tooling."),
       (
@@ -464,17 +673,24 @@ impl Component for TimelinePage {
         "The one action, at the end of the item beside its title.",
       ),
       (
-        "on_select",
+        "value",
+        "T",
+        "()",
+        "What the timeline's on_select is told when the item is pressed.",
+      ),
+      (
+        "TimelineItem::on_select",
         "Fn()",
         "",
-        "The item is pressed and a stop of Tab. A second handler is called after the first.",
+        "The item is pressed, before the timeline's handler. A second handler is called after the first.",
       ),
       ("disabled", "bool", "false", "An item that is pressed takes nothing."),
       (
         "style / rules",
         "TimelinePart",
         "",
-        "Root, Item, Rail, Dot, Mark, Icon, Separator, Content, Title, Action, Description, Time, Body.",
+        "Root, Item, Rail, Dot, Mark, Icon, Separator, Content, Header, Title, Description, Time, Body, Action, \
+         Opposite, More.",
       ),
     ];
     let playground = self.play(ctx);
@@ -567,6 +783,71 @@ impl Component for TimelinePage {
               "        .time(\"just now\")",
               "        .action(Button::new(\"Review\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
               "])",
+            ],
+          ),
+        ),
+        Section::new(
+          "A log",
+          "The small size with the times in a column of their own: a dot of 8, a title of 13, items as close as \
+           rows, which follow the theme's density. A feed's history is loaded a page at a time: the line runs on \
+           to an item that shows more.",
+          self.frame.demo(
+            3,
+            log,
+            ".size(TimelineSize::Sm).align(TimelineAlign::TimeColumn)",
+            &[
+              "Timeline::new([",
+              "    TimelineItem::new(\"Deployed to every region\").time(\"14:21\"),",
+              "    TimelineItem::new(\"Smoke tests passed\").time(\"14:17\"),",
+              "    TimelineItem::new(\"Canary at 5%\").time(\"14:15\").variant(TimelineVariant::Warning),",
+              "    ..",
+              "])",
+              ".size(TimelineSize::Sm)",
+              ".align(TimelineAlign::TimeColumn)",
+              ".on_load_more(|| /* fetch the next page */)",
+              ".more_label(\"Earlier\")",
+            ],
+          ),
+        ),
+        Section::new(
+          "Down the middle",
+          "Alternate sides: the text before and after the line, item by item, the time on the other side. In a \
+           window narrower than the theme's md breakpoint, 768, every item's text is after the line.",
+          self.frame.demo(
+            4,
+            middle,
+            ".align(TimelineAlign::Alternate)",
+            &[
+              "Timeline::new([",
+              "    TimelineItem::new(\"0.60: frosted glass\")",
+              "        .description(\"Blur, backdrop filters and the frosted panel.\")",
+              "        .time(\"Nov 10\"),",
+              "    TimelineItem::new(\"0.59: the design system\")..,",
+              "    ..",
+              "])",
+              ".align(TimelineAlign::Alternate)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Across",
+          "An order's steps along a line across, each step's text under its mark. The steps share the width and \
+           keep their least, 160: in a narrow room the line scrolls sideways. Every step is pressed and told by \
+           its value; the steps are one stop of Tab, and the arrows bring the focused one into view.",
+          self.frame.demo(
+            5,
+            order,
+            ".orientation(Orientation::Horizontal).on_select(..)",
+            &[
+              "Timeline::new([",
+              "    TimelineItem::new(\"Ordered\").value(1).time(\"Nov 12, 09:14\"),",
+              "    TimelineItem::new(\"Packed\").value(2).time(\"Nov 12, 16:40\"),",
+              "    ..",
+              "    TimelineItem::new(\"Out for delivery\").value(4).current(true).pending(true),",
+              "    TimelineItem::new(\"Delivered\").value(5).upcoming(true),",
+              "])",
+              ".orientation(Orientation::Horizontal)",
+              ".on_select(|step: &u32| /* open the step */)",
             ],
           ),
         ),

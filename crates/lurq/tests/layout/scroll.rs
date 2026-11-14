@@ -801,3 +801,38 @@ fn where_two_bars_meet_each_track_ends_before_the_others_lane() {
   let whole = 100.0 - style.resolved_end_inset() - style.thumb_inset;
   assert!((y + height - whole).abs() < 0.01, "{}", y + height);
 }
+
+/// A horizontal scroll that fills its width lays out a row of growing items at least as wide as its viewport, and
+/// wider, to scroll, once their least widths are more than it.
+#[test]
+fn a_horizontal_scroll_that_fills_its_width_lets_its_items_share_the_viewport() {
+  let row_of = |count: usize| {
+    Row::new().with_children((0..count).map(|_| {
+      Column::new()
+        .flex_full(1.0, 0.0, None)
+        .width(Dimension::Px(100.0))
+        .height(Dimension::Px(10.0))
+    }))
+  };
+  for (count, width, fill) in [(3, 400.0, true), (6, 600.0, true), (3, 300.0, false)] {
+    let mut rt = rt();
+    rt.set_root(
+      lurq::components::ScrollHorizontal::new(Row::new().child(row_of(count).flex(1.0)))
+        .fill_width(fill)
+        .size(400.0, 40.0),
+    );
+    let result = rt.pass_layout(Constraints::loose(Size::new(800.0, 400.0))).unwrap();
+    let content = &result.children[0].result;
+    assert_eq!(content.size.width, width, "{count} items, filling: {fill}");
+    // The row in it grows to the viewport, and its items share it: 3 of 133, 6 of their least 100, or their least
+    // where the scroll does not fill.
+    let row = &content.children[0].result;
+    assert_eq!(row.size.width, width);
+    let item = &row.children[0].result;
+    assert!(
+      (item.size.width - width / count as f32).abs() < 0.01,
+      "{}",
+      item.size.width
+    );
+  }
+}

@@ -1,21 +1,30 @@
 //! A timeline: the board's items (the rail, the dot, the line and the texts), the last item, a description of five
 //! lines and content under an item that the line runs along, the marks (an icon, media, a spinner), the tones, the
-//! current and the upcoming item, an item that is pressed, what tooling reads, and a theme's rules and renderer.
+//! current and the upcoming item, an item that is pressed, what tooling reads, and a theme's rules and renderer; the
+//! timeline's own `on_select` with its items one focus group, the small size and the density, the time column and
+//! alternate sides with their fallback in a narrow window, the timeline across in a scroll area, and the item that
+//! shows more.
 
 use std::sync::{
-  Arc,
+  Arc, Mutex,
   atomic::{AtomicUsize, Ordering},
 };
 
 use lurq::{
-  app::theme::{PaletteColor, ThemePalette},
+  app::{
+    App,
+    theme::{Density, PaletteColor, ThemePalette},
+  },
   components::{Column, Row, Text},
   layout::{
     quad::{Quad, QuadContent},
     text_style::FontWeight,
   },
   node::color::Color,
-  ui::{Avatar, Button, Timeline, TimelineItem, TimelinePart, TimelineRenderer, TimelineVariant, TimelineView},
+  ui::{
+    Avatar, Button, Orientation, Timeline, TimelineAlign, TimelineItem, TimelinePart, TimelineRenderer, TimelineSize,
+    TimelineVariant, TimelineView,
+  },
 };
 
 use super::stage::Stage;
@@ -419,4 +428,382 @@ fn a_timeline_tells_tooling_its_items() {
   assert_eq!(said("deploying", "a11y_current").as_deref(), Some("true"));
   assert_eq!(said("deploying", "a11y_busy").as_deref(), Some("true"));
   assert_eq!(said("released", "a11y_role").as_deref(), Some("button"));
+}
+
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+/// The steps of an order, each told by its value: the third disabled.
+fn steps() -> Vec<TimelineItem<u32>> {
+  vec![
+    TimelineItem::new("Ordered").value(1).id("s1"),
+    TimelineItem::new("Packed").value(2).id("s2"),
+    TimelineItem::new("Shipped").value(3).disabled(true).id("s3"),
+    TimelineItem::new("Delivered").value(4).id("s4"),
+  ]
+}
+
+/// The timeline's `on_select` makes every item pressed and is told the item's value, after its own handlers; the
+/// items are one stop of Tab, the arrows move between them past a disabled one, and Tab leaves for what is after.
+#[test]
+fn the_timelines_on_select_is_told_the_value_and_the_items_are_one_stop() {
+  let told: Arc<Mutex<Vec<String>>> = Arc::default();
+  let heard = told.clone();
+  let mut stage = Stage::new(move |_| {
+    let (own, chosen) = (heard.clone(), heard.clone());
+    let mut items = steps();
+    items[0] = TimelineItem::new("Ordered")
+      .value(1)
+      .on_select(move || own.lock().unwrap().push("own".to_owned()))
+      .id("s1");
+    Column::new()
+      .width(316.0)
+      .child(Button::new("Before").id("before"))
+      .child(Timeline::new(items).on_select(move |step: &u32| chosen.lock().unwrap().push(format!("step {step}"))))
+      .child(Button::new("After").id("after"))
+      .into()
+  });
+  stage.click("s2");
+  assert_eq!(*told.lock().unwrap(), ["step 2"]);
+  stage.click("s1");
+  assert_eq!(told.lock().unwrap()[1..], ["own", "step 1"], "the item's own first");
+  stage.click("s3");
+  assert_eq!(told.lock().unwrap().len(), 3, "a disabled item takes nothing");
+
+  stage.click("before");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("s1"), "into the items at the first");
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("s2"));
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("s4"), "past the disabled one");
+  stage.key("Enter");
+  assert_eq!(told.lock().unwrap().last().map(String::as_str), Some("step 4"));
+  stage.key("Home");
+  assert_eq!(focused(&stage).as_deref(), Some("s1"));
+  stage.key("d");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("s4"),
+    "a letter goes to the title it starts"
+  );
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("after"),
+    "one stop: Tab leaves the items"
+  );
+}
+
+/// The small size: a dot of 8, a title of 13 with its time beside it at the end, items 28 apart as rows of the
+/// default density, and as rows of the others; the board's size does not move with the density.
+#[test]
+fn the_small_size_is_a_log_whose_rows_follow_the_density() {
+  let log = || {
+    Timeline::new([
+      TimelineItem::new("Deployed").time("14:02").id("a"),
+      TimelineItem::new("Built").time("13:58").id("b"),
+      TimelineItem::new("Started").time("13:51").id("c"),
+    ])
+    .size(TimelineSize::Sm)
+  };
+  let mut stage = stage_of(log);
+  let (x, y, width, _) = stage.bounds("a");
+  assert_eq!(rects(&stage, light(PaletteColor::Primary), 8.0).len(), 3);
+  assert_eq!(stage.text("Deployed").1, 13.0);
+  let (title, time) = (stage.text_quad("Deployed").unwrap(), stage.text_quad("14:02").unwrap());
+  assert!(
+    (title.x - (x + 18.0)).abs() < 0.5,
+    "a rail of 8 and 10 to the text: {}",
+    title.x - x
+  );
+  assert!(
+    (time.x + time.width - (x + width)).abs() < 1.0,
+    "the time at the end of the title's row"
+  );
+  assert!(time.y < title.y + title.height, "beside the title, not under it");
+  let (_, b_y, ..) = stage.bounds("b");
+  assert!((b_y - y - 28.0).abs() < 0.5, "a row of 28: {}", b_y - y);
+
+  for (density, pitch) in [
+    (Density::Compact, 21.0),
+    (Density::Comfortable, 36.0),
+    (Density::Touch, 40.0),
+  ] {
+    let app = App::new();
+    app.theme().set_density(density);
+    let mut stage = Stage::in_app(app, move |_| Column::new().width(316.0).child(log()).into());
+    let (_, a_y, ..) = stage.bounds("a");
+    let (_, b_y, ..) = stage.bounds("b");
+    assert!(
+      (b_y - a_y - pitch).abs() < 1.5,
+      "{density:?}: {} against {pitch}",
+      b_y - a_y
+    );
+  }
+  let app = App::new();
+  app.theme().set_density(Density::Touch);
+  let mut stage = Stage::in_app(app, |_| Column::new().width(316.0).child(board()).into());
+  let (_, a_y, _, a_height) = stage.bounds("a");
+  let mut plain = stage_of(board);
+  assert_eq!(
+    a_height,
+    plain.bounds("a").3,
+    "the board's size keeps its height: {a_y}"
+  );
+}
+
+/// The time column: the times in a column of 80 before the line, at its end, the rest after the line.
+#[test]
+fn the_time_column_stands_before_the_line() {
+  let mut stage = stage_of(|| board().align(TimelineAlign::TimeColumn));
+  let (x, ..) = stage.bounds("a");
+  let dot = rects(&stage, light(PaletteColor::Primary), 10.0).remove(0);
+  assert!(
+    (dot.x - (x + 80.0 + 12.0 + 1.0)).abs() < 0.5,
+    "the rail after the column: {}",
+    dot.x - x
+  );
+  let time = stage.text_quad("Nov 10").unwrap();
+  assert!(
+    (time.x + time.width - (x + 80.0)).abs() < 1.0,
+    "the time at the column's end"
+  );
+  let title = stage.text_quad("Released 0.60").unwrap();
+  assert!(
+    (title.x - (dot.x - 1.0 + 12.0 + 12.0)).abs() < 0.5,
+    "the title after the line"
+  );
+  assert!(time.y < title.y + title.height, "the time by the title");
+}
+
+/// Alternate sides: from the medium breakpoint up the second item's text is before the line, at its end, and its
+/// time after it; in a narrower window every item's text is after the line.
+#[test]
+fn alternate_sides_fall_back_to_one_side_in_a_narrow_window() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(600.0)
+      .child(board().align(TimelineAlign::Alternate))
+      .into()
+  });
+  stage.tree.resize(900, 600);
+  stage.pass();
+  let (x, _, width, _) = stage.bounds("b");
+  let middle = x + width / 2.0;
+  let first = stage.text_quad("Released 0.60").unwrap();
+  let second = stage.text_quad("Merged node-blur").unwrap();
+  assert!(first.x > middle, "the first after the line");
+  assert!(second.x + second.width < middle, "the second before it");
+  assert!(
+    (second.x + second.width - (middle - 6.0 - 12.0)).abs() < 1.5,
+    "at the end of its side, 12 from the rail: {}",
+    middle - second.x - second.width
+  );
+  let time = stage.text_quad("Nov 8").unwrap();
+  assert!(time.x > middle, "its time on the other side");
+  let dots = rects(&stage, light(PaletteColor::Primary), 10.0);
+  assert!(
+    dots.iter().all(|dot| (dot.x + 5.0 - middle).abs() < 0.5),
+    "the line down the middle"
+  );
+
+  stage.tree.resize(500, 600);
+  stage.pass();
+  let (x, ..) = stage.bounds("b");
+  let second = stage.text_quad("Merged node-blur").unwrap();
+  assert!((second.x - (x + 24.0)).abs() < 0.5, "500 wide: after the line");
+  let time = stage.text_quad("Nov 8").unwrap();
+  assert!(time.y > second.y, "and its time under it");
+}
+
+/// Across: the marks on a line, each item's text under its mark, the items sharing the width and wrapping their
+/// text; more than the room scrolls sideways, and the keys bring the focused item into view.
+#[test]
+fn across_the_items_share_the_width_and_scroll_to_the_focused_one() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(600.0)
+      .child(
+        Timeline::new([
+          TimelineItem::new("Ordered").time("Nov 1").id("a"),
+          TimelineItem::new("Packed and handed to the courier at the warehouse in Lviv").id("b"),
+          TimelineItem::new("Delivered").upcoming(true).id("c"),
+        ])
+        .orientation(Orientation::Horizontal)
+        .id("order"),
+      )
+      .into()
+  });
+  let (a_x, a_y, a_width, _) = stage.bounds("a");
+  let (b_x, b_y, b_width, _) = stage.bounds("b");
+  assert!(
+    (a_width - 200.0).abs() < 0.5 && (b_width - 200.0).abs() < 0.5,
+    "{a_width} {b_width}"
+  );
+  assert!((b_x - (a_x + 200.0)).abs() < 0.5 && (a_y - b_y).abs() < 0.5);
+  let dots = rects(&stage, light(PaletteColor::Primary), 10.0);
+  assert_eq!(dots.len(), 2);
+  assert!((dots[0].y - dots[1].y).abs() < 0.5, "the marks on one line");
+  assert!((dots[0].x - a_x).abs() < 0.5);
+  let lines: Vec<Quad> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Border))
+        && (quad.height - 1.0).abs() < 0.01
+    })
+    .collect();
+  assert_eq!(lines.len(), 2, "a line across from each mark but the last");
+  assert!((lines[0].x - (a_x + 14.0)).abs() < 0.5, "4 after the mark");
+  assert!(
+    (lines[0].x + lines[0].width - (a_x + 196.0)).abs() < 0.5,
+    "4 short of the next"
+  );
+  let title = stage.text_quad("Ordered").unwrap();
+  let running = stage.text_quad("Delivered").unwrap();
+  assert!(
+    (running.y - title.y).abs() < 0.5,
+    "every title on one line, the hollow mark's too"
+  );
+  assert!(
+    (title.y - (dots[0].y - 1.0 + 12.0 + 8.0)).abs() < 1.0,
+    "8 under the rail of 12, the dot in its middle: {}",
+    title.y - dots[0].y
+  );
+  let long = stage
+    .text_quad("Packed and handed to the courier at the warehouse in Lviv")
+    .unwrap();
+  assert!(
+    long.width <= 200.0 - 12.0 + 0.5 && long.height > 30.0,
+    "it wraps in its item"
+  );
+
+  // Ten items: each at its least, 160, the row wider than the room, and the focused one brought into view.
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(600.0)
+      .child(
+        Timeline::new((0..10u32).map(|index| {
+          TimelineItem::new(&if index == 3 {
+            "Step 3 waited at the warehouse for a courier".to_owned()
+          } else {
+            format!("Step {index}")
+          })
+          .value(index)
+          .id(format!("s{index}"))
+        }))
+        .orientation(Orientation::Horizontal)
+        .on_select(|_| {}),
+      )
+      .into()
+  });
+  assert!((stage.bounds("s0").2 - 160.0).abs() < 0.5);
+  // A pressed item's long title wraps in it, short of the next.
+  let long = stage.text_quad("Step 3 waited at the warehouse for a courier").unwrap();
+  let (s4_x, ..) = stage.bounds("s4");
+  assert!(
+    long.x + long.width <= s4_x && long.height > 30.0,
+    "{} against {s4_x}",
+    long.x + long.width
+  );
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("s0"));
+  stage.key("ArrowRight");
+  assert_eq!(focused(&stage).as_deref(), Some("s1"), "the arrows go across");
+  stage.key("End");
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("s9"));
+  let last = stage.text_quad("Step 9").unwrap();
+  assert!(
+    last.x + last.width <= 600.5 && last.x >= 0.0,
+    "scrolled into view: {}",
+    last.x
+  );
+}
+
+/// With `on_load_more` the line runs on to an item that shows more: its button calls the handler; while loading
+/// its mark is a spinner and the button says so and takes no press.
+#[test]
+fn the_item_that_shows_more_loads_the_next_page() {
+  let calls = Arc::new(AtomicUsize::new(0));
+  let loading = Arc::new(std::sync::atomic::AtomicBool::new(false));
+  let (count, busy) = (calls.clone(), loading.clone());
+  let mut stage = stage_of(move || {
+    let count = count.clone();
+    board()
+      .on_load_more(move || {
+        count.fetch_add(1, Ordering::Relaxed);
+      })
+      .loading(busy.load(Ordering::Relaxed))
+  });
+  assert_eq!(
+    rects(&stage, light(PaletteColor::Border), 1.0).len(),
+    3,
+    "the last item's line runs on"
+  );
+  assert!(stage.paints("Show more"));
+  let (x, y, ..) = stage.bounds("c");
+  let (_, c_y, _, c_height) = stage.bounds("c");
+  assert!(c_height > 0.0 && c_y >= y && x >= 0.0);
+  let button = stage.text_quad("Show more").unwrap();
+  let center = (button.x + button.width / 2.0, button.y + button.height / 2.0);
+  stage.tree.mouse_move(center.0, center.1);
+  stage
+    .tree
+    .mouse_down(center.0, center.1, lurq::app::events::MouseButton::Left);
+  stage
+    .tree
+    .mouse_up(center.0, center.1, lurq::app::events::MouseButton::Left);
+  stage.pass();
+  assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+  loading.store(true, Ordering::Relaxed);
+  let mut stage = {
+    let busy = loading.clone();
+    stage_of(move || {
+      board()
+        .on_load_more(|| {})
+        .loading(busy.load(Ordering::Relaxed))
+        .more_label("Older")
+    })
+  };
+  assert!(stage.paints("Loading") && !stage.paints("Older"));
+  let glyphs = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.chars().all(|c| ('\u{E000}'..='\u{F8FF}').contains(&c))))
+    .count();
+  assert!(glyphs >= 1, "a spinner for its mark");
+  let _ = stage.bounds("c");
+}
+
+/// The item that shows more stands on the line where the items' marks are: after the time column, or in the middle.
+#[test]
+fn the_item_that_shows_more_stands_on_the_line() {
+  for align in [TimelineAlign::TimeColumn, TimelineAlign::Alternate] {
+    let mut stage = Stage::new(move |_| {
+      Column::new()
+        .width(600.0)
+        .child(board().align(align).on_load_more(|| {}))
+        .into()
+    });
+    stage.tree.resize(900, 600);
+    stage.pass();
+    let dot = rects(&stage, light(PaletteColor::Primary), 10.0).remove(0);
+    let edges: Vec<Quad> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        (quad.width - 10.0).abs() < 0.01
+          && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Input))
+      })
+      .collect();
+    let more = edges.last().expect("the hollow dot of the item that shows more");
+    assert!((more.x - dot.x).abs() < 0.5, "{align:?}: {} against {}", more.x, dot.x);
+  }
 }

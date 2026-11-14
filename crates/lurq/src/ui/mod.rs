@@ -349,7 +349,8 @@ pub use textarea::{
   TextareaView,
 };
 pub use timeline::{
-  Timeline, TimelineItem, TimelineItemView, TimelinePart, TimelineRenderer, TimelineState, TimelineVariant, TimelineView,
+  Timeline, TimelineAlign, TimelineItem, TimelineItemView, TimelineMore, TimelinePart, TimelineRenderer, TimelineSize,
+  TimelineState, TimelineVariant, TimelineView,
 };
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_date_locale, current_theme, in_theme};
 pub(crate) use toast::keyframes as toast_keyframes;
