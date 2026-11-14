@@ -154,11 +154,10 @@ fn of_one_a_press_chooses_and_the_choice_follows_the_keys() {
   stage.click("box-3");
   assert_eq!(chosen.get(), "metal", "a disabled option is not chosen");
 
-  if let Some(id) = focused(&stage) {
-    stage.tree.get_element_by_id_mut(&id).unwrap().blur();
-  }
-  stage.pass();
+  // Tab goes on from the options out of the listbox, and Shift+Tab comes back into it at the chosen option.
   stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("after"));
+  key_with(&mut stage, "Tab", true, false);
   assert_eq!(
     focused(&stage).as_deref(),
     Some("box-2"),
