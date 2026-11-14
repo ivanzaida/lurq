@@ -164,6 +164,23 @@ starting under the window's own title bar.
   `ui::Chip`, `ui::Avatar`, `ui::Card`, `ui::Separator`, `ui::Progress`, `ui::Spinner`, `ui::Skeleton` in what your
   component is made of, and in the gallery's pages in place of anything drawn by hand.
 
+## What the seventh batch taught
+
+- **A scene made for a stage fills it.** The stage scrolls what is larger than it, but a scene of a fixed width
+  wider than the stage at a window of 1280 by 800 is a scene made wrong: give it `fill: true` and let what is in
+  it share the stage's width.
+- **An app's own part moved onto a component keeps its look.** The component is the board's; where the app's part
+  looked another way (the gallery's side bar on the canvas, the board's on `Muted`), the app lays a recipe over the
+  component, and the brief says which look is kept.
+- **A color the engine draws is the theme's.** A scroll bar's thumb and a selection were literals of the engine and
+  wrong on a dark theme: nothing lurq draws has a color that a palette does not give it.
+- **A session writes the docs of what it gave the engine**, in the page an app's author looks in
+  (`focus-navigation.md`, `layout.md`, `styling-events.md`), with a line of the changelog for each, and not only in
+  its handoff: the handoff is deleted at the merge.
+- **What a batch may use now**: `FocusGroup::nested`, `menu_row` and `FocusRows`; `.inert(bool)`;
+  `.interaction_group(true)` with `.within_style(..)`; a row's drop marker; a held drag; `ui::Sidebar`,
+  `ui::Menubar`, `ui::Toolbar`, `ui::ActionBar`, `ui::TreeView`, `ui::Splitter`, and `TokenInput::list`.
+
 ## What the engine does that surprises
 
 - A container clips what is in it (`Overflow::Hidden` is the default): a shadow or a ring outside a part
