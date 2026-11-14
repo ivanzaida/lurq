@@ -25,15 +25,19 @@
 //!   (before Windows 10 2004), the screen is read once as the pick starts. The thread is aware of each monitor's scale,
 //!   so at 150% and across monitors of different scales the pixel taken is the physical pixel under the pointer, and
 //!   the loupe is as large on each monitor.
-//! - **macOS, Linux, iOS and a browser**: no picking yet. [`EyeDropper::is_supported`] says so, and
-//!   [`EyeDropper::pick`] gives `Err(Unsupported)` at once. (A browser's own `EyeDropper` is the way for the web build,
-//!   where there is one.)
+//! - **macOS**: the system's own sampler (`NSColorSampler`), shown from the main thread, with its own loupe: the
+//!   theme's colors are not used, and the keys are the system's. Its color is given in sRGB.
+//! - **Linux, iOS and a browser**: no picking yet. [`EyeDropper::is_supported`] says so, and [`EyeDropper::pick`] gives
+//!   `Err(Unsupported)` at once. (A browser's own `EyeDropper` is the way for the web build, where there is one.)
 //!
 //! A test, or a tool driving the app, puts a stand-in in place of the screen with [`EyeDropper::stand_in`].
 
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(any(windows, test))]
 pub(crate) mod geometry;
 
 use std::{
@@ -115,7 +119,7 @@ impl EyeDropper {
   /// Whether this platform picks colors from the screen, or a stand-in is set on this thread: what a component asks
   /// before it shows an eyedropper.
   pub fn is_supported() -> bool {
-    STAND_IN.with(|stand_in| stand_in.borrow().is_some()) || cfg!(windows)
+    STAND_IN.with(|stand_in| stand_in.borrow().is_some()) || cfg!(any(windows, target_os = "macos"))
   }
 
   /// Starts picking and gives what the person picked. The future does not borrow the window: it is for
@@ -171,7 +175,13 @@ fn native_pick(look: Look, then: Box<dyn FnOnce(Picked) + Send>) {
   windows::pick(look, then);
 }
 
-#[cfg(not(windows))]
+/// The system's own sampler, with its own loupe: the theme's colors are not used.
+#[cfg(target_os = "macos")]
+fn native_pick(_look: Look, then: Box<dyn FnOnce(Picked) + Send>) {
+  macos::pick(then);
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn native_pick(_look: Look, then: Box<dyn FnOnce(Picked) + Send>) {
   then(Err(Unsupported));
 }
@@ -254,7 +264,7 @@ mod tests {
     }
     assert_eq!(
       EyeDropper::is_supported(),
-      cfg!(windows),
+      cfg!(any(windows, target_os = "macos")),
       "the guards took the stand-ins away"
     );
   }
@@ -281,7 +291,7 @@ mod tests {
     assert_eq!(answer.as_mut().poll(&mut cx), Poll::Ready(Err(Unsupported)));
   }
 
-  #[cfg(not(windows))]
+  #[cfg(not(any(windows, target_os = "macos")))]
   #[test]
   fn a_platform_without_picking_says_so_at_once() {
     assert!(!EyeDropper::is_supported());
