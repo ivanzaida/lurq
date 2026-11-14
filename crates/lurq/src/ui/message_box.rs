@@ -536,27 +536,13 @@ impl MessageBoxView {
   /// The title in the style of its part, where there is one.
   pub fn title(&self) -> Option<Element> {
     let title = self.title.as_ref()?;
-    let part = self.part(MessageBoxPart::Title);
-    Some(
-      Row::new()
-        .width(Dimension::Pct(100.0))
-        .part(&part)
-        .child(part.text(title))
-        .into(),
-    )
+    Some(wrapping(&self.part(MessageBoxPart::Title), title).into())
   }
 
   /// The message in the style of its part, where there is one.
   pub fn message(&self) -> Option<Element> {
     let message = self.message.as_ref()?;
-    let part = self.part(MessageBoxPart::Message);
-    Some(
-      Row::new()
-        .width(Dimension::Pct(100.0))
-        .part(&part)
-        .child(part.text(message))
-        .into(),
-    )
+    Some(wrapping(&self.part(MessageBoxPart::Message), message).into())
   }
 
   /// What opens the detail, with what opens and closes under it: `None` for a message box with no detail.
@@ -764,6 +750,16 @@ impl MessageBoxView {
   }
 }
 
+/// A text in the style of `part`, as wide as the room it has: a longer one goes on to the next line. A row would
+/// lay it out as wide as it is and cut it.
+pub(crate) fn wrapping(part: &ResolvedPart, content: &str) -> Column {
+  let fill = Dimension::Pct(100.0);
+  Column::new()
+    .width(fill)
+    .part(part)
+    .child(part.text(content).width(fill))
+}
+
 /// Whether a key event is a plain Enter that nothing took yet.
 pub(crate) fn enter(event: &KeyboardEvent) -> bool {
   event.key == "Enter" && !event.composing && !event.default_prevented() && !(event.ctrl || event.alt || event.meta)
@@ -832,13 +828,7 @@ pub(crate) fn disclosure(
   if is_open {
     let part = recipe.part(parts.content);
     // Keyed, so that what the panel held is kept as it closes over it.
-    panel = panel.child(
-      Column::new()
-        .key("detail")
-        .align_items(Alignment::Stretch)
-        .part(&part)
-        .child(part.text(text)),
-    );
+    panel = panel.child(wrapping(&part, text).key("detail"));
   }
   (trigger, panel.width(Dimension::Pct(100.0)))
 }
