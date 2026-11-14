@@ -159,9 +159,11 @@ impl DialogPage {
         record(format!("on_click({label:?})"));
       })
     };
+    let dismissed = record.clone();
     let dialog = make(self.open.clone())
       .footer(footer("Cancel", ButtonVariant::Outline))
-      .footer(footer("Confirm", ButtonVariant::Primary));
+      .footer(footer("Confirm", ButtonVariant::Primary))
+      .on_dismiss(move || dismissed("on_dismiss()".to_owned()));
     let shown = Row::new().child(opener("Open dialog", &self.open)).child(dialog);
 
     let mut code = vec![
@@ -192,6 +194,7 @@ impl DialogPage {
     }
     code.push("    .footer(Button::new(\"Cancel\").variant(ButtonVariant::Outline))".to_owned());
     code.push("    .footer(Button::new(\"Confirm\"))".to_owned());
+    code.push("    .on_dismiss(|| ..)".to_owned());
 
     let width = if width > 0.0 {
       format!("{width} px")
@@ -233,7 +236,7 @@ impl DialogPage {
         fill: false,
         forceable: false,
         facts: format!("{size_name} · {}", if self.open.get() { "open" } else { "closed" }),
-        event: "on_click",
+        event: "on_click / on_dismiss",
         code,
         tree,
         controls: vec![
@@ -321,6 +324,12 @@ impl Component for DialogPage {
         "Whether it is shown. The app's: Escape, a press on the veil and the close button set it to false.",
       ),
       (
+        "label",
+        "&str",
+        "",
+        "What the dialog is called to tooling, over its title: for one whose title is drawn by what it holds.",
+      ),
+      (
         "title",
         "&str",
         "",
@@ -350,7 +359,7 @@ impl Component for DialogPage {
         "420 px",
         "Sm 360, Md 480, Lg 640, Full the window. Never wider than the window.",
       ),
-      ("width", "f32", "", "A width of its own, over its size's."),
+      ("width", "impl Into<Length>", "", "A width of its own, over its size's."),
       (
         "scrollable",
         "bool",
@@ -364,12 +373,24 @@ impl Component for DialogPage {
         "A ghost button with the close icon at the end of the header.",
       ),
       (
+        "close_label",
+        "&str",
+        "\"Close\"",
+        "What the close button is called to tooling.",
+      ),
+      (
         "dismiss_on_veil",
         "bool",
         "true",
         "Whether a press on the veil closes it.",
       ),
       ("dismiss_on_escape", "bool", "true", "Whether Escape closes it."),
+      (
+        "on_dismiss",
+        "Fn()",
+        "",
+        "Runs after a person closed it by the veil, the close button or Escape; not after a button of the app's. A second handler runs after the first.",
+      ),
       (
         "inline",
         "bool",

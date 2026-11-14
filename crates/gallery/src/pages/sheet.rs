@@ -156,9 +156,11 @@ impl SheetPage {
         record(format!("on_click({label:?})"));
       })
     };
+    let dismissed = record.clone();
     let sheet = make(self.open.clone())
       .footer(footer("Cancel", ButtonVariant::Outline))
-      .footer(footer("Save", ButtonVariant::Primary));
+      .footer(footer("Save", ButtonVariant::Primary))
+      .on_dismiss(move || dismissed("on_dismiss()".to_owned()));
     let shown = Row::new().child(opener("Open sheet", &self.open)).child(sheet);
 
     let mut code = vec![
@@ -189,6 +191,7 @@ impl SheetPage {
     code.push("    .child(paragraph)".to_owned());
     code.push("    .footer(Button::new(\"Cancel\").variant(ButtonVariant::Outline))".to_owned());
     code.push("    .footer(Button::new(\"Save\"))".to_owned());
+    code.push("    .on_dismiss(|| ..)".to_owned());
 
     let across = if side.is_side() {
       "320 px wide, the window high"
@@ -247,7 +250,7 @@ impl SheetPage {
           "{side_name} · {size_name} · {}",
           if self.open.get() { "open" } else { "closed" }
         ),
-        event: "on_click",
+        event: "on_click / on_dismiss",
         code,
         tree,
         controls: vec![
@@ -450,6 +453,12 @@ impl Component for SheetPage {
         "A ghost button with the close icon at the end of the header.",
       ),
       (
+        "close_label",
+        "&str",
+        "\"Close\"",
+        "What the close button is called to tooling.",
+      ),
+      (
         "grabber",
         "bool",
         "at the bottom",
@@ -462,6 +471,12 @@ impl Component for SheetPage {
         "Whether a press on the veil closes it.",
       ),
       ("dismiss_on_escape", "bool", "true", "Whether Escape closes it."),
+      (
+        "on_dismiss",
+        "Fn()",
+        "",
+        "Runs after a person closed it by the veil, the close button or Escape; not after a button of the app's, nor after a finger put a mounted sheet away. A second handler runs after the first.",
+      ),
       (
         "detents",
         "[SheetDetent]",

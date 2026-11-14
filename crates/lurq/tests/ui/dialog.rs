@@ -4,7 +4,7 @@
 //! a theme's rule and renderer.
 
 use std::sync::{
-  Arc,
+  Arc, Mutex,
   atomic::{AtomicUsize, Ordering},
 };
 
@@ -19,7 +19,7 @@ use lurq::{
   core::Signal,
   layout::quad::{Quad, QuadContent},
   node::{Element, color::Color},
-  ui::{Button, ButtonVariant, Dialog, DialogPart, DialogRenderer, DialogSize, DialogView},
+  ui::{Button, ButtonVariant, Dialog, DialogPart, DialogRenderer, DialogSize, DialogView, Interaction, Length},
 };
 
 use super::stage::Stage;
@@ -511,4 +511,104 @@ fn a_title_and_a_description_longer_than_the_panel_go_on_to_more_lines_inside_it
       assert!(quad.height > 30.0, "{text:?} on more lines: {}", quad.height);
     }
   }
+}
+
+#[test]
+fn every_handler_given_to_on_dismiss_runs_in_the_order_it_was_given() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let open = Signal::new(true);
+  let (held, told) = (open.clone(), heard.clone());
+  let mut stage = stage(move |_| {
+    let (first, second) = (told.clone(), told.clone());
+    window(
+      delete_workspace(held.clone())
+        .on_dismiss(move || first.lock().unwrap().push("first"))
+        .on_dismiss(move || second.lock().unwrap().push("second")),
+    )
+  });
+  press_at(&mut stage, 5.0, 5.0);
+  assert!(!open.get());
+  assert_eq!(*heard.lock().unwrap(), ["first", "second"], "a second handler adds");
+
+  open.set(true);
+  stage.pass();
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*heard.lock().unwrap(), ["first", "second", "first", "second"]);
+}
+
+/// What the element of `id` says to tooling by `name`.
+#[cfg(feature = "mcp")]
+fn said(stage: &mut Stage, id: &str, name: &str) -> Option<String> {
+  stage
+    .tree
+    .get_element_by_id_mut(id)
+    .and_then(|element| element.description(name))
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_label_names_it_over_its_title_and_the_close_button_has_a_label_of_its_own() {
+  let mut titled = stage(|_| window(delete_workspace(Signal::new(true))));
+  assert_eq!(
+    said(&mut titled, "dialog", "a11y_name").as_deref(),
+    Some("Delete workspace?")
+  );
+  let mut labelled = stage(|_| window(delete_workspace(Signal::new(true)).label("Delete the workspace")));
+  assert_eq!(
+    said(&mut labelled, "dialog", "a11y_name").as_deref(),
+    Some("Delete the workspace")
+  );
+
+  // The close button is "Close" unless the app says otherwise, and closes the dialog either way.
+  let app = App::new();
+  let renderer: DialogRenderer = Arc::new(|view: DialogView| {
+    let panel = view.panel().child(view.close().id("close"));
+    view.modal(panel)
+  });
+  app.theme().set_renderer::<Dialog>(renderer);
+  let open = Signal::new(true);
+  let held = open.clone();
+  let mut stage = stage_in(app, move |_| {
+    window(
+      Dialog::new(held.clone())
+        .id("dialog")
+        .close_button(true)
+        .close_label("Schließen"),
+    )
+  });
+  assert_eq!(said(&mut stage, "close", "a11y_name").as_deref(), Some("Schließen"));
+  stage.click("close");
+  assert!(!open.get());
+}
+
+#[test]
+fn a_width_of_its_own_is_any_length() {
+  let mut stage = stage(|_| {
+    window(
+      Dialog::new(Signal::new(true))
+        .id("dialog")
+        .title("Rename")
+        .width(Length::Fill),
+    )
+  });
+  // As wide as the window less the veil's margin of 16 on each side.
+  assert_eq!(stage.bounds("dialog").2, 368.0);
+}
+
+#[test]
+fn a_forced_focus_draws_the_ring_around_the_close_button() {
+  let ring = |forced: Option<Interaction>| {
+    let stage = stage(move |_| {
+      window(
+        delete_workspace(Signal::new(false))
+          .close_button(true)
+          .inline(true)
+          .force(forced),
+      )
+    });
+    stage.has_ring(light(PaletteColor::Ring))
+  };
+  assert!(!ring(None));
+  assert!(ring(Some(Interaction::FocusVisible)));
 }

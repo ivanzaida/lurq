@@ -8,9 +8,9 @@ use super::{
   collapsible::opening,
   dialog::{Dialog, DialogPart},
   icons, names,
-  part_style::PartStyle,
+  part_style::{Length, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::{glyph, pressable},
+  shared::{IconChoice, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -24,25 +24,26 @@ use crate::{
   node::{Element, NodeUpdate, dimension::Dimension, node::Node},
 };
 
-/// What a message box says it is about, by the icon it shows and its color.
+/// What a message box says it is about, by the icon it shows and its color:
+/// the variant of its recipe.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum MessageBoxKind {
+pub enum MessageBoxVariant {
   /// It says something: an operation is done, a version is installed.
   #[default]
-  Information,
+  Info,
   /// It asks something that has no wrong answer: open the file in a new window?
   Question,
   /// What is about to happen may lose something: replace an existing file?
   Warning,
   /// Something failed: the file could not be saved.
-  Error,
+  Destructive,
 }
 
-names!(MessageBoxKind {
-  Information => "information",
+names!(MessageBoxVariant {
+  Info => "info",
   Question => "question",
   Warning => "warning",
-  Error => "error",
+  Destructive => "destructive",
 });
 
 /// What an answer of a message box is: which button it is, and where it stands.
@@ -54,8 +55,8 @@ pub enum MessageBoxRole {
   /// give too: the outlined button before the others at the end.
   Cancel,
   /// An answer that removes something or cannot be undone: a button in the
-  /// destructive color. The focus goes to the cancel button of a message box
-  /// that has one.
+  /// destructive color. Where it is the confirming answer (there is no
+  /// default one) the focus goes to the cancel answer and not to it.
   Destructive,
   /// Another answer: an outlined button at the start of the row ("Don't Save").
   #[default]
@@ -69,24 +70,24 @@ pub enum MessageBoxPart {
   Veil,
   /// The panel, laid over the dialog's: its width and its padding.
   Panel,
-  /// What the panel holds: the body over the footer.
+  /// What the panel holds: the header over the footer.
   Content,
-  /// The icon beside the text.
-  Body,
-  /// The round field the icon is in, in the kind's muted color.
-  IconWell,
-  /// The icon of the kind, in the kind's color.
+  /// The row at the top: the mark beside the text.
+  Header,
+  /// The round field the icon is in, in the variant's muted color.
+  Mark,
+  /// The icon of the variant, in the variant's color.
   Icon,
-  /// The title over the message, and the detail under them.
+  /// The title over the description, and the detail under them.
   Text,
   /// What the message box asks or says, in a line.
   Title,
   /// More of it, under the title.
-  Message,
-  /// What opens the detail: an arrow and its label.
+  Description,
+  /// What opens the detail: a chevron and its label.
   DetailTrigger,
-  /// The arrow of the trigger, which points down while the detail is open.
-  DetailIcon,
+  /// The chevron of the trigger, which points down while the detail is open.
+  DetailChevron,
   /// The label of the trigger: "Details".
   DetailLabel,
   /// What opens and closes with the detail.
@@ -125,14 +126,14 @@ names!(MessageBoxPart {
   Veil => "veil",
   Panel => "panel",
   Content => "content",
-  Body => "body",
-  IconWell => "icon_well",
+  Header => "header",
+  Mark => "mark",
   Icon => "icon",
   Text => "text",
   Title => "title",
-  Message => "message",
+  Description => "description",
   DetailTrigger => "detail_trigger",
-  DetailIcon => "detail_icon",
+  DetailChevron => "detail_chevron",
   DetailLabel => "detail_label",
   DetailPanel => "detail_panel",
   Detail => "detail",
@@ -154,7 +155,7 @@ names!(MessageBoxPart {
 /// The states of a message box a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MessageBoxState {
-  /// One of its answers is destructive: its icon is in the destructive colors, whatever its kind.
+  /// One of its answers is destructive: its icon is in the destructive colors, whatever its variant.
   Destructive,
   /// Its detail is open.
   DetailOpen,
@@ -185,14 +186,14 @@ pub struct MessageBoxAnswer {
 /// ```
 /// use lurq::{
 ///   core::Signal,
-///   ui::{MessageBox, MessageBoxKind, MessageBoxRole},
+///   ui::{MessageBox, MessageBoxRole, MessageBoxVariant},
 /// };
 ///
 /// let (open, again) = (Signal::new(false), Signal::new(false));
 /// let replace = MessageBox::new(open)
-///   .kind(MessageBoxKind::Warning)
+///   .variant(MessageBoxVariant::Warning)
 ///   .title("Replace existing file?")
-///   .message("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
+///   .description("“theme.json” already exists in this folder. Replacing it overwrites its contents.")
 ///   .checkbox("Don't ask again", again)
 ///   .answer("Cancel", MessageBoxRole::Cancel, || {})
 ///   .answer("Replace", MessageBoxRole::Default, || println!("replaced"));
@@ -203,11 +204,14 @@ pub struct MessageBoxAnswer {
 /// [`Dialog`]: the veil, the focus going in as it opens and back as it
 /// closes, and Tab staying inside are the dialog's. Enter gives the default
 /// answer wherever the focus is, unless it is on another button; Escape and a
-/// press of the veil give the cancel answer where there is one, and do
-/// nothing where there is none. As it opens the focus goes to the default
-/// answer, or to the cancel answer of a box with a destructive one. To
-/// tooling that reads the tree it is an `alertdialog`, called by its title and
-/// described by its message.
+/// press of the veil give the cancel answer where there is one (unless
+/// [`MessageBox::dismiss_on_escape`] or [`MessageBox::dismiss_on_veil`] say
+/// otherwise), and do nothing where there is none. As it opens the focus goes
+/// to the confirming answer (the default one, or else a destructive one)
+/// unless that answer is destructive, and then to the cancel answer, so that
+/// Enter or Space does not confirm what cannot be undone. To tooling that
+/// reads the tree it is an `alertdialog`, called by its title and described
+/// by its description.
 ///
 /// Its answers are [`Button`]s styled by the message box's recipe:
 /// [`MessageBoxPart::DefaultButton`] is laid over the root of the default
@@ -216,14 +220,17 @@ pub struct MessageBoxAnswer {
 /// of their own without touching buttons elsewhere.
 pub struct MessageBox {
   open: Signal<bool>,
-  kind: Name,
-  icon: Option<Name>,
+  variant: Name,
+  icon: Option<IconChoice>,
   title: Option<Arc<str>>,
-  message: Option<Arc<str>>,
+  description: Option<Arc<str>>,
+  label: Option<Arc<str>>,
   detail: Option<(Arc<str>, Signal<bool>)>,
   detail_label: Arc<str>,
   checkbox: Option<(Arc<str>, Signal<bool>)>,
   answers: Vec<MessageBoxAnswer>,
+  dismiss_on_escape: bool,
+  dismiss_on_veil: bool,
   inline: bool,
   states: Vec<Name>,
   rules: Recipe,
@@ -236,14 +243,17 @@ impl MessageBox {
   pub fn new(open: Signal<bool>) -> Self {
     Self {
       open,
-      kind: MessageBoxKind::default().into(),
+      variant: MessageBoxVariant::default().into(),
       icon: None,
       title: None,
-      message: None,
+      description: None,
+      label: None,
       detail: None,
       detail_label: Arc::from("Details"),
       checkbox: None,
       answers: Vec::new(),
+      dismiss_on_escape: true,
+      dismiss_on_veil: true,
       inline: false,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -252,15 +262,16 @@ impl MessageBox {
     }
   }
 
-  /// A [`MessageBoxKind`], or a kind the theme's recipe names: the icon and its colors.
-  pub fn kind(mut self, kind: impl Into<Name>) -> Self {
-    self.kind = kind.into();
+  /// A [`MessageBoxVariant`], or a variant the theme's recipe names: the icon and its colors.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
     self
   }
 
-  /// An icon of the theme's set in place of the kind's: `trash` for a question that deletes.
-  pub fn icon(mut self, name: impl Into<Name>) -> Self {
-    self.icon = Some(name.into());
+  /// An icon of the theme's set in place of the variant's: `trash` for a
+  /// question that deletes. `None` for no icon, and no mark it stands in.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.icon = Some(icon.into());
     self
   }
 
@@ -272,12 +283,19 @@ impl MessageBox {
   }
 
   /// More of it, under the title, in the muted color.
-  pub fn message(mut self, message: &str) -> Self {
-    self.message = Some(Arc::from(message));
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = Some(Arc::from(description));
     self
   }
 
-  /// A text a person opens to see more, under the message: what failed and
+  /// What the message box is called to tooling that reads the tree, over its
+  /// title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// A text a person opens to see more, under the description: what failed and
   /// where. It is open while `open` holds `true`, and its trigger turns it.
   pub fn detail(mut self, detail: &str, open: Signal<bool>) -> Self {
     self.detail = Some((Arc::from(detail), open));
@@ -310,9 +328,24 @@ impl MessageBox {
     self
   }
 
-  /// A width of its own, in logical pixels, over the board's 400.
-  pub fn width(mut self, width: f32) -> Self {
+  /// A width of its own over the board's 400: logical pixels, or any [`Length`].
+  pub fn width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
     self.rules = self.rules.base(MessageBoxPart::Panel, |s| s.width(width));
+    self
+  }
+
+  /// Whether Escape gives the cancel answer. On by default; a message box
+  /// with no cancel answer is not closed by Escape either way.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press of the veil gives the cancel answer. On by default; a
+  /// message box with no cancel answer is not closed by the veil either way.
+  pub fn dismiss_on_veil(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_veil = dismiss;
     self
   }
 
@@ -366,7 +399,7 @@ impl MessageBox {
       .any(|answer| answer.role == MessageBoxRole::Destructive);
     let detail_open = self.detail.as_ref().is_some_and(|(_, open)| open.get());
     let case = Case {
-      variant: Some(self.kind),
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
@@ -375,16 +408,22 @@ impl MessageBox {
     .state(MessageBoxState::Destructive, destructive)
     .state(MessageBoxState::DetailOpen, detail_open);
     let view = MessageBoxView {
-      kind: self.kind,
-      icon: self.icon.unwrap_or_else(|| kind_icon(self.kind)),
+      variant: self.variant,
+      icon: match self.icon {
+        Some(IconChoice(icon)) => icon,
+        None => Some(variant_icon(self.variant)),
+      },
       title: self.title,
-      message: self.message,
+      description: self.description,
+      label: self.label,
       detail: self.detail.as_ref().map(|(detail, _)| detail.clone()),
       detail_label: self.detail_label,
       detail_open,
       checkbox_label: self.checkbox.as_ref().map(|(label, _)| label.clone()),
       checked: self.checkbox.as_ref().is_some_and(|(_, checked)| checked.get()),
       answers: self.answers,
+      dismiss_on_escape: self.dismiss_on_escape,
+      dismiss_on_veil: self.dismiss_on_veil,
       inline: self.inline,
       recipe: theme.resolve::<MessageBox>(&case, Some(&self.rules)),
       open: self.open,
@@ -406,13 +445,13 @@ impl From<MessageBox> for Element {
   }
 }
 
-/// The icon of a kind: an information sign for one the theme names.
-fn kind_icon(kind: Name) -> Name {
-  if kind == Name::from(MessageBoxKind::Warning) {
+/// The icon of a variant: an information sign for one the theme names.
+fn variant_icon(variant: Name) -> Name {
+  if variant == Name::from(MessageBoxVariant::Warning) {
     icons::WARNING.into()
-  } else if kind == Name::from(MessageBoxKind::Error) {
+  } else if variant == Name::from(MessageBoxVariant::Destructive) {
     icons::ALERT_CIRCLE.into()
-  } else if kind == Name::from(MessageBoxKind::Question) {
+  } else if variant == Name::from(MessageBoxVariant::Question) {
     icons::HELP_CIRCLE.into()
   } else {
     icons::INFO.into()
@@ -422,11 +461,13 @@ fn kind_icon(kind: Name) -> Name {
 /// A message box as a renderer sees it: what it was given, the style of its
 /// parts, and its behavior ready to be dressed.
 pub struct MessageBoxView {
-  pub kind: Name,
-  /// The icon it shows: the kind's, or the one it was given.
-  pub icon: Name,
+  pub variant: Name,
+  /// The icon it shows: the variant's, or the one it was given; `None` for none.
+  pub icon: Option<Name>,
   pub title: Option<Arc<str>>,
-  pub message: Option<Arc<str>>,
+  pub description: Option<Arc<str>>,
+  /// What it is called to tooling, over its title.
+  pub label: Option<Arc<str>>,
   pub detail: Option<Arc<str>>,
   pub detail_label: Arc<str>,
   pub detail_open: bool,
@@ -435,6 +476,8 @@ pub struct MessageBoxView {
   pub checked: bool,
   /// Its answers, in the order they were given.
   pub answers: Vec<MessageBoxAnswer>,
+  pub dismiss_on_escape: bool,
+  pub dismiss_on_veil: bool,
   pub inline: bool,
   /// The style of each part of this message box.
   pub recipe: ResolvedRecipe,
@@ -473,13 +516,15 @@ impl MessageBoxView {
     self.answers.iter().position(|answer| answer.role == role)
   }
 
-  /// The answer the focus goes to as the message box opens: the cancel one
-  /// where an answer is destructive, else the default one.
+  /// The answer the focus goes to as the message box opens: the confirming
+  /// one (the default one, or else a destructive one) unless it is
+  /// destructive, and then the cancel one, the least destructive answer.
+  /// The rule of every question the design system asks.
   pub fn focused_first(&self) -> Option<usize> {
-    if self.find(MessageBoxRole::Destructive).is_some() {
-      self.find(MessageBoxRole::Cancel)
-    } else {
-      self.find(MessageBoxRole::Default)
+    match self.find(MessageBoxRole::Default) {
+      Some(default) => Some(default),
+      None if self.find(MessageBoxRole::Destructive).is_some() => self.find(MessageBoxRole::Cancel),
+      None => None,
     }
   }
 
@@ -523,14 +568,18 @@ impl MessageBoxView {
     }
   }
 
-  /// The round field with the kind's icon in it.
-  pub fn icon(&self) -> Row {
-    Row::new()
-      .justify(Justify::Center)
-      .align_items(Alignment::Center)
-      .flex_shrink(0.0)
-      .part(&self.part(MessageBoxPart::IconWell))
-      .child(glyph(&self.part(MessageBoxPart::Icon), self.icon, false))
+  /// The round field with the variant's icon in it: `None` for a message box
+  /// with no icon.
+  pub fn mark(&self) -> Option<Row> {
+    let icon = self.icon?;
+    Some(
+      Row::new()
+        .justify(Justify::Center)
+        .align_items(Alignment::Center)
+        .flex_shrink(0.0)
+        .part(&self.part(MessageBoxPart::Mark))
+        .child(glyph(&self.part(MessageBoxPart::Icon), icon, false)),
+    )
   }
 
   /// The title in the style of its part, where there is one.
@@ -539,10 +588,10 @@ impl MessageBoxView {
     Some(wrapping(&self.part(MessageBoxPart::Title), title).into())
   }
 
-  /// The message in the style of its part, where there is one.
-  pub fn message(&self) -> Option<Element> {
-    let message = self.message.as_ref()?;
-    Some(wrapping(&self.part(MessageBoxPart::Message), message).into())
+  /// The description in the style of its part, where there is one.
+  pub fn description(&self) -> Option<Element> {
+    let description = self.description.as_ref()?;
+    Some(wrapping(&self.part(MessageBoxPart::Description), description).into())
   }
 
   /// What opens the detail, with what opens and closes under it: `None` for a message box with no detail.
@@ -552,7 +601,7 @@ impl MessageBoxView {
       &self.recipe,
       DisclosureParts {
         trigger: MessageBoxPart::DetailTrigger.into(),
-        icon: MessageBoxPart::DetailIcon.into(),
+        icon: MessageBoxPart::DetailChevron.into(),
         label: MessageBoxPart::DetailLabel.into(),
         panel: MessageBoxPart::DetailPanel.into(),
         content: MessageBoxPart::Detail.into(),
@@ -572,28 +621,30 @@ impl MessageBoxView {
     )
   }
 
-  /// The title, the message and the detail, one over another.
+  /// The title, the description and the detail, one over another.
   pub fn text(&self) -> Column {
     let mut text = Column::new()
       .flex(1.0)
       .align_items(Alignment::Stretch)
       .overflow_visible()
       .part(&self.part(MessageBoxPart::Text));
-    for element in [self.title(), self.message(), self.detail()].into_iter().flatten() {
+    for element in [self.title(), self.description(), self.detail()].into_iter().flatten() {
       text = text.child(element);
     }
     text
   }
 
-  /// The icon beside the text.
-  pub fn body(&self) -> Row {
-    Row::new()
+  /// The row at the top: the mark beside the text.
+  pub fn header(&self) -> Row {
+    let mut header = Row::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Start)
       .overflow_visible()
-      .part(&self.part(MessageBoxPart::Body))
-      .child(self.icon())
-      .child(self.text())
+      .part(&self.part(MessageBoxPart::Header));
+    if let Some(mark) = self.mark() {
+      header = header.child(mark);
+    }
+    header.child(self.text())
   }
 
   /// The checkbox, where there is one: Enter on it gives the default answer and does not turn it.
@@ -707,7 +758,7 @@ impl MessageBoxView {
   /// `content` in a [`Dialog`]: its panel and its veil in the message box's
   /// rules over the dialog's, its Escape and a press of its veil giving the
   /// cancel answer where there is one, and it an `alertdialog` called by the
-  /// title and described by the message.
+  /// label or the title and described by the description.
   pub fn dialog(&self, content: impl Into<Element>) -> Element {
     let rules = self
       .recipe
@@ -718,8 +769,8 @@ impl MessageBoxView {
       .alert(true)
       .rules(&rules)
       .inline(self.inline)
-      .dismiss_on_escape(cancel.is_some())
-      .dismiss_on_veil(cancel.is_some())
+      .dismiss_on_escape(cancel.is_some() && self.dismiss_on_escape)
+      .dismiss_on_veil(cancel.is_some() && self.dismiss_on_veil)
       .child(content);
     if let Some(cancel) = cancel
       && let Some(answer) = self.answers.get(cancel)
@@ -727,11 +778,11 @@ impl MessageBoxView {
       let handler = answer.handler.clone();
       dialog = dialog.on_dismiss(move || handler());
     }
-    if let Some(title) = &self.title {
-      dialog = dialog.named(title);
+    if let Some(label) = self.label.as_ref().or(self.title.as_ref()) {
+      dialog = dialog.label(label);
     }
-    if let Some(message) = &self.message {
-      dialog = dialog.described(message);
+    if let Some(description) = &self.description {
+      dialog = dialog.described(description);
     }
     if let Some(id) = &self.id {
       dialog = dialog.id(id.clone());
@@ -742,10 +793,10 @@ impl MessageBoxView {
     dialog.build(self.theme())
   }
 
-  /// How the default renderer builds a message box: the body over the
+  /// How the default renderer builds a message box: the header over the
   /// footer, in a dialog.
   pub fn render(self) -> Element {
-    let content = self.content().child(self.body()).child(self.footer());
+    let content = self.content().child(self.header()).child(self.footer());
     self.dialog(content)
   }
 }
@@ -869,9 +920,10 @@ impl Themed for MessageBox {
 
   /// The design's message box (`pencil/lurq-design-system.pen`, Message Box
   /// and Desktop Dialogs): a dialog's panel 400 wide, padded 20 with 16
-  /// between its body and its footer. The body is a round well of 36 in the
-  /// kind's muted color with its icon of 18 in the kind's color, 14 before the
-  /// title of 15/600 over the message of 13 in the muted color, 4 apart. The
+  /// between its header and its footer. The header is a round mark of 36 in
+  /// the variant's muted color with its icon of 18 in the variant's color, 14
+  /// before the title of 15/600 over the description of 13 in the muted
+  /// color, 4 apart. The
   /// footer has the checkbox, its label of 13, at its start and the buttons
   /// of 32 padded 14 at its end, 8 apart. A destructive question has its icon
   /// in the destructive colors.
@@ -881,19 +933,17 @@ impl Themed for MessageBox {
       Destructive as Danger, DestructiveMuted, Foreground, Info, InfoMuted, MutedForeground, Secondary,
       Warning as Caution, WarningMuted,
     };
-    let kind = |recipe: Recipe, kind: MessageBoxKind, well: PaletteColor, ink: PaletteColor| {
+    let variant = |recipe: Recipe, variant: MessageBoxVariant, well: PaletteColor, ink: PaletteColor| {
       recipe
-        .variant(kind, IconWell, |s| s.background(well))
-        .variant(kind, Icon, |s| s.foreground(ink))
+        .variant(variant, Mark, |s| s.background(well))
+        .variant(variant, Icon, |s| s.foreground(ink))
     };
     // Of the 20 the panel is padded, 4 are the dialog's body's, which is room for the ring of a focused button.
     let recipe = Recipe::new()
       .base(Panel, |s| s.width(400.0).padding_x(16.0).padding_y(16.0))
       .base(Content, |s| s.gap(16.0))
-      .base(Body, |s| s.gap(14.0))
-      .base(IconWell, |s| {
-        s.square(36.0).radius(RadiusSize::Full).background(InfoMuted)
-      })
+      .base(Header, |s| s.gap(14.0))
+      .base(Mark, |s| s.square(36.0).radius(RadiusSize::Full).background(InfoMuted))
       .base(Icon, |s| s.square(18.0).foreground(Info))
       .base(Text, |s| s.gap(4.0))
       .base(Title, |s| {
@@ -902,7 +952,7 @@ impl Themed for MessageBox {
           .weight(FontWeight::SemiBold)
           .foreground(Foreground)
       })
-      .base(Message, |s| {
+      .base(Description, |s| {
         s.typography(TypographyStyle::Description)
           .font_size(13.0)
           .line_height(1.5)
@@ -916,19 +966,17 @@ impl Themed for MessageBox {
       .base(CancelButton, |s| s.padding_x(14.0))
       .base(DestructiveButton, |s| s.padding_x(14.0))
       .base(PlainButton, |s| s.padding_x(14.0));
-    let recipe = kind(recipe, MessageBoxKind::Question, Secondary, Foreground);
-    let recipe = kind(recipe, MessageBoxKind::Warning, WarningMuted, Caution);
-    let recipe = kind(recipe, MessageBoxKind::Error, DestructiveMuted, Danger);
+    let recipe = variant(recipe, MessageBoxVariant::Question, Secondary, Foreground);
+    let recipe = variant(recipe, MessageBoxVariant::Warning, WarningMuted, Caution);
+    let recipe = variant(recipe, MessageBoxVariant::Destructive, DestructiveMuted, Danger);
     let recipe = recipe
-      .state(MessageBoxState::Destructive, IconWell, |s| {
-        s.background(DestructiveMuted)
-      })
+      .state(MessageBoxState::Destructive, Mark, |s| s.background(DestructiveMuted))
       .state(MessageBoxState::Destructive, Icon, |s| s.foreground(Danger));
     disclosure_recipe(
       recipe,
       &DisclosureParts {
         trigger: DetailTrigger.into(),
-        icon: DetailIcon.into(),
+        icon: DetailChevron.into(),
         label: DetailLabel.into(),
         panel: DetailPanel.into(),
         content: Detail.into(),
