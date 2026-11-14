@@ -62,6 +62,22 @@ pub(crate) fn ranges(text: &str) -> Vec<Range<usize>> {
   ranges
 }
 
+/// Where Left or Right takes a caret at `caret`, where it is not where the input would take it by itself: an
+/// item and the mark that ends it are one step, so the caret does not rest between a token and its mark, 3 pixels
+/// from where it was. Back from after a mark it goes to before the item the mark ends; on from before an item
+/// it goes to after the item's mark.
+pub(crate) fn step(text: &str, caret: usize, on: bool) -> Option<usize> {
+  let at_start = caret == 0 || text[..caret].ends_with(END);
+  if on {
+    let end = text[caret..].find(END)?;
+    // Before a mark with nothing between: the input's own step goes past it.
+    (at_start && end > 0).then(|| caret + end + END.len_utf8())
+  } else {
+    let mark = caret.checked_sub(END.len_utf8()).filter(|_| caret > 0 && at_start)?;
+    Some(text[..mark].rfind(END).map_or(0, |before| before + END.len_utf8()))
+  }
+}
+
 /// What makes an item of what is typed.
 #[derive(Clone)]
 pub(crate) struct Rules {
@@ -221,6 +237,25 @@ pub(crate) fn kept(binding: usize) -> (Signal<String>, TextInputController, Arc<
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn an_arrow_takes_the_caret_past_an_item_and_its_mark_in_one_step() {
+    let text = list(&["rust", "wgpu"], "dr");
+    let mark = END.len_utf8();
+    let (first, second) = (4 + mark, 4 + mark + 4 + mark);
+    // Back from the start of the draft: before "wgpu"; back again: before "rust"; and no further.
+    assert_eq!(step(&text, second, false), Some(first));
+    assert_eq!(step(&text, first, false), Some(0));
+    assert_eq!(step(&text, 0, false), None);
+    // On from before an item: after its mark.
+    assert_eq!(step(&text, 0, true), Some(first));
+    assert_eq!(step(&text, first, true), Some(second));
+    // In the draft the input steps by itself, and so it does from between a token and its mark.
+    assert_eq!(step(&text, second, true), None);
+    assert_eq!(step(&text, second + 1, false), None);
+    assert_eq!(step(&text, 4, true), None);
+    assert_eq!(step(&text, 4, false), None);
+  }
 
   fn rules(separators: &[char]) -> Rules {
     Rules {

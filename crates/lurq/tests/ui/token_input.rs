@@ -731,3 +731,37 @@ fn what_is_typed_among_the_tokens_goes_to_the_draft_after_them() {
   type_text(&mut stage, &controller, "y");
   assert_eq!(draft.get(), "xy", "the caret followed the draft");
 }
+
+#[test]
+fn left_and_right_take_the_caret_past_a_token_and_its_mark_in_one_step() {
+  let (items, draft) = (Signal::new(strings(&["rust", "wgpu"])), Signal::new(String::new()));
+  let (controller, told) = (TextInputController::new(), Arc::new(Mutex::new(Vec::new())));
+  let mut stage = listed(&items, &draft, &controller, &told);
+  type_text(&mut stage, &controller, "ve");
+  let caret = |controller: &TextInputController| controller.selection().unwrap().caret;
+  let end = caret(&controller);
+
+  // Through the draft a letter at a time, then past each token whole: no stop between a token and its mark.
+  stage.key("ArrowLeft");
+  stage.key("ArrowLeft");
+  let draft_start = caret(&controller);
+  assert_eq!(draft_start, end - 2);
+  stage.key("ArrowLeft");
+  let second = caret(&controller);
+  stage.key("ArrowLeft");
+  assert_eq!(caret(&controller), 0, "before the first token");
+  assert!(0 < second && second < draft_start, "before the second token: {second}");
+  stage.key("ArrowLeft");
+  assert_eq!(caret(&controller), 0);
+
+  stage.key("ArrowRight");
+  assert_eq!(caret(&controller), second, "after the first token and its mark");
+  stage.key("ArrowRight");
+  assert_eq!(
+    caret(&controller),
+    draft_start,
+    "after the second, where the draft starts"
+  );
+  assert_eq!(items.get(), strings(&["rust", "wgpu"]));
+  assert_eq!(draft.get(), "ve");
+}
