@@ -6,7 +6,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, pressable},
+  shared::{Orientation, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -39,7 +39,7 @@ pub enum StepsPart {
   /// The icon in the mark: the check of a step done, the cross of one in error, or the step's own.
   Icon,
   /// The title and the description, one under the other.
-  Body,
+  Text,
   /// What the step is called.
   Title,
   /// A line under the title that says more.
@@ -58,7 +58,7 @@ names!(StepsPart {
   Marker => "marker",
   Number => "number",
   Icon => "icon",
-  Body => "body",
+  Text => "text",
   Title => "title",
   Description => "description",
   Rail => "rail",
@@ -78,69 +78,66 @@ pub enum StepsState {
   /// A step after the current one.
   Upcoming,
   /// A step the app says has gone wrong.
-  Error,
-  /// A step a press of which selects it.
+  Invalid,
+  /// A step a press of which makes it current.
   Pressable,
-  /// The steps take no input.
+  /// The steps take no input; on a step, that step takes none.
   Disabled,
+  /// The steps run in a row.
+  Horizontal,
+  /// The steps run in a column.
+  Vertical,
 }
 
 names!(StepsState {
   Done => "done",
   Current => "current",
   Upcoming => "upcoming",
-  Error => "error",
+  Invalid => "invalid",
   Pressable => "pressable",
   Disabled => "disabled",
-});
-
-/// Which way the steps run: the variant of their recipe.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum StepsOrientation {
-  /// In a row, a line between each step and the next.
-  #[default]
-  Horizontal,
-  /// In a column, a line running down from each step's mark to the next.
-  Vertical,
-}
-
-names!(StepsOrientation {
   Horizontal => "horizontal",
   Vertical => "vertical",
 });
 
+/// Which way the steps run: in a row, a line between each step and the
+/// next; in a column, a line running down from each step's mark to the next.
+/// The state `Horizontal` or `Vertical` of their recipe.
+pub type StepsOrientation = Orientation;
+
 /// One stage of a process: a title, and a description, an icon in place of
-/// its number, or an error where it has them.
+/// its number, or a mark of what went wrong where it has them.
 ///
 /// ```
 /// use lurq::ui::{Step, icons};
 ///
 /// let account = Step::new("Account").description("Your name and email");
-/// let billing = Step::new("Billing").icon(icons::USER).error(true);
+/// let billing = Step::new("Billing").icon(icons::USER).invalid(true);
 /// let plain: Step = "Finish".into();
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Step {
   pub title: Arc<str>,
   pub description: Option<Arc<str>>,
   pub icon: Option<Name>,
-  pub error: bool,
+  pub invalid: bool,
+  pub disabled: bool,
+  pub id: Option<Arc<str>>,
+  pub key: Option<Arc<str>>,
 }
 
 impl Step {
   /// A step called `title`.
-  pub fn new(title: impl AsRef<str>) -> Self {
+  pub fn new(title: &str) -> Self {
     Self {
-      title: Arc::from(title.as_ref()),
-      description: None,
-      icon: None,
-      error: false,
+      title: Arc::from(title),
+      ..Self::default()
     }
   }
 
   /// A line under the title that says more.
-  pub fn description(mut self, description: impl AsRef<str>) -> Self {
-    self.description = Some(Arc::from(description.as_ref()));
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = Some(Arc::from(description));
     self
   }
 
@@ -151,8 +148,27 @@ impl Step {
   }
 
   /// Whether the step has gone wrong: its mark and its title say so, whatever else it is.
-  pub fn error(mut self, error: bool) -> Self {
-    self.error = error;
+  pub fn invalid(mut self, invalid: bool) -> Self {
+    self.invalid = invalid;
+    self
+  }
+
+  /// Whether the step takes no input: it is not pressed, Tab and the arrows pass it by, and it is dimmed.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
+  /// The id of the step's element, in place of `<id>-<index>`. Its mark and the line after it keep the ids
+  /// of its index.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// The key of the step's element, for the engine to tell it from the others when steps come and go.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 }
@@ -165,67 +181,52 @@ impl From<&str> for Step {
 
 impl From<String> for Step {
   fn from(title: String) -> Self {
-    Self::new(title)
+    Self::new(&title)
   }
 }
 
-/// Which step is current: an index the app holds, or a signal a press sets.
+/// Which step is current: a signal a press sets, or an index the app holds.
 #[derive(Clone)]
-pub enum CurrentStep {
-  Index(usize),
+enum CurrentStep {
   Signal(Signal<usize>),
-}
-
-impl From<usize> for CurrentStep {
-  fn from(index: usize) -> Self {
-    Self::Index(index)
-  }
-}
-
-impl From<Signal<usize>> for CurrentStep {
-  fn from(signal: Signal<usize>) -> Self {
-    Self::Signal(signal)
-  }
-}
-
-impl From<&Signal<usize>> for CurrentStep {
-  fn from(signal: &Signal<usize>) -> Self {
-    Self::Signal(signal.clone())
-  }
+  Index(usize),
 }
 
 /// What builds the nodes of steps: a theme's in place of the default one.
 pub type StepsRenderer = Arc<dyn Fn(StepsView) -> Element + Send + Sync>;
 
-type Select = Arc<dyn Fn(usize) + Send + Sync>;
+type Change = Arc<dyn Fn(usize) + Send + Sync>;
 
 /// The stages of a process in order, with one current: those before it are
 /// done, those after it are to come. A wizard's account, billing and finish.
 ///
 /// ```
-/// use lurq::{core::Signal, ui::{Step, Steps, StepsOrientation}};
+/// use lurq::{core::Signal, ui::{Orientation, Step, Steps}};
 ///
-/// # fn steps(at: Signal<usize>) {
+/// # fn steps(at: Signal<usize>, page: usize, go: fn(usize)) {
 /// // Read, not operated: the app moves the current step itself.
-/// let progress = Steps::new(1, ["Account", "Workspace", "Finish"]);
+/// let progress = Steps::new(at.clone(), ["Account", "Workspace", "Finish"]);
 /// // A wizard that lets a person go back to a step that is done: a press sets the signal.
-/// let wizard = Steps::new(&at, [
+/// let wizard = Steps::new(at.clone(), [
 ///   Step::new("Account").description("Name and email"),
 ///   Step::new("Billing").description("Card and address"),
 ///   Step::new("Finish"),
 /// ])
-/// .orientation(StepsOrientation::Vertical)
-/// .on_select(|index| println!("back to step {index}"));
+/// .orientation(Orientation::Vertical)
+/// .on_change(|index| println!("back to step {index}"));
+/// // The current step held by the app, which answers a press itself.
+/// let held = Steps::controlled(page, ["Account", "Finish"], move |index| go(index));
 /// # }
 /// ```
 ///
-/// The current step is the app's: an index, or a `Signal<usize>` that a
-/// press of a step sets. An index past the last step has every step done.
-/// Steps are pressed only where the app says so, with [`Steps::on_select`]
-/// or [`Steps::pressable`]: then a step that is done is pressed to go back
-/// to it, and a step to come only with [`Steps::ahead`]. Pressed steps are
-/// one stop of Tab, at the current step, and the arrow keys of their
-/// orientation move between them.
+/// The current step is the app's: a `Signal<usize>` that a press of a step
+/// sets ([`Steps::new`]), or an index it holds and changes itself when
+/// told ([`Steps::controlled`]). An index past the last step has every step
+/// done. Steps are pressed only where the app says so, with
+/// [`Steps::on_change`], [`Steps::controlled`] or [`Steps::pressable`]: then
+/// a step that is done is pressed to go back to it, and a step to come only
+/// with [`Steps::ahead`]. Pressed steps are one stop of Tab, at the current
+/// step, and the arrow keys of their orientation move between them.
 pub struct Steps {
   current: CurrentStep,
   steps: Vec<Step>,
@@ -237,16 +238,32 @@ pub struct Steps {
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
-  on_select: Vec<Select>,
+  on_change: Vec<Change>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
 
 impl Steps {
-  /// The steps of a process, of which the one at `current` is current.
-  pub fn new(current: impl Into<CurrentStep>, steps: impl IntoIterator<Item = impl Into<Step>>) -> Self {
+  /// The steps of a process, of which the one `current` holds is current. A
+  /// press of a step, where steps are pressed, sets it.
+  pub fn new(current: Signal<usize>, steps: impl IntoIterator<Item = impl Into<Step>>) -> Self {
+    Self::with(CurrentStep::Signal(current), steps)
+  }
+
+  /// The steps of a process, of which the one at `current` is current, held
+  /// by the app: a press of a step tells `on_change` and shows what the app
+  /// answers with, the next time it builds the steps.
+  pub fn controlled(
+    current: usize,
+    steps: impl IntoIterator<Item = impl Into<Step>>,
+    on_change: impl Fn(usize) + Send + Sync + 'static,
+  ) -> Self {
+    Self::with(CurrentStep::Index(current), steps).on_change(on_change)
+  }
+
+  fn with(current: CurrentStep, steps: impl IntoIterator<Item = impl Into<Step>>) -> Self {
     Self {
-      current: current.into(),
+      current,
       steps: steps.into_iter().map(Into::into).collect(),
       orientation: StepsOrientation::default(),
       pressable: false,
@@ -256,7 +273,7 @@ impl Steps {
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
-      on_select: Vec::new(),
+      on_change: Vec::new(),
       id: None,
       key: None,
     }
@@ -269,7 +286,7 @@ impl Steps {
   }
 
   /// Whether a step that is done is pressed to go back to it. A handler
-  /// given with [`Steps::on_select`] says so too; this is for steps bound to
+  /// given with [`Steps::on_change`] says so too; this is for steps bound to
   /// a signal that need no handler.
   pub fn pressable(mut self, pressable: bool) -> Self {
     self.pressable = pressable;
@@ -290,8 +307,8 @@ impl Steps {
   }
 
   /// What the steps are called to what reads the tree: "Checkout".
-  pub fn label(mut self, label: impl AsRef<str>) -> Self {
-    self.label = Some(Arc::from(label.as_ref()));
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -305,11 +322,13 @@ impl Steps {
     self
   }
 
-  /// Called on a press of a step with its index, from 0. Makes the steps
-  /// that are done pressable; where the current step is a signal, the press
-  /// sets it first.
-  pub fn on_select(mut self, handler: impl Fn(usize) + Send + Sync + 'static) -> Self {
-    self.on_select.push(Arc::new(handler));
+  /// Called when a person makes another step current, with its index from
+  /// 0: a press of it, or Enter or Space on it. Not when the app sets the
+  /// signal. Makes the steps that are done pressable; where the current step
+  /// is a signal, the press sets it first. A second handler is called after
+  /// the first.
+  pub fn on_change(mut self, handler: impl Fn(usize) + Send + Sync + 'static) -> Self {
+    self.on_change.push(Arc::new(handler));
     self
   }
 
@@ -345,23 +364,27 @@ impl Steps {
     self
   }
 
-  /// The case of the whole, or of one step: its state, whether it is in error and whether it is pressed.
+  /// The case of the whole, or of one step: its state, whether it is wrong, pressed or disabled.
   fn case(&self, step: Option<(&Step, StepsState, bool)>) -> Case {
-    let mut case = Case {
-      variant: Some(self.orientation.into()),
+    let vertical = self.orientation == Orientation::Vertical;
+    let case = Case {
+      variant: None,
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(StepsState::Disabled, self.disabled);
-    if let Some((step, status, pressable)) = step {
-      case = case
+    .state(StepsState::Horizontal, !vertical)
+    .state(StepsState::Vertical, vertical);
+    match step {
+      // The whole is dimmed once, on its root; a step is dimmed on its own where it alone is disabled.
+      None => case.state(StepsState::Disabled, self.disabled),
+      Some((step, status, pressable)) => case
         .state(status, true)
-        .state(StepsState::Error, step.error)
-        .state(StepsState::Pressable, pressable);
+        .state(StepsState::Invalid, step.invalid)
+        .state(StepsState::Pressable, pressable)
+        .state(StepsState::Disabled, step.disabled && !self.disabled),
     }
-    case
   }
 
   /// Builds the steps in `theme`. Converting steps into an element does this
@@ -371,24 +394,32 @@ impl Steps {
       CurrentStep::Index(index) => *index,
       CurrentStep::Signal(signal) => signal.get(),
     };
-    let select: Option<Select> = ((self.pressable || !self.on_select.is_empty()) && !self.disabled).then(|| {
-      let handlers = self.on_select.clone();
+    let select: Option<Change> = ((self.pressable || !self.on_change.is_empty()) && !self.disabled).then(|| {
+      let handlers = self.on_change.clone();
       let signal = match &self.current {
         CurrentStep::Signal(signal) => Some(signal.clone()),
         CurrentStep::Index(_) => None,
       };
       Arc::new(move |index: usize| {
-        if let Some(signal) = &signal
-          && signal.get() != index
-        {
+        if let Some(signal) = &signal {
+          // Nothing changes where the step is current already.
+          if signal.get_untracked() == index {
+            return;
+          }
           signal.set(index);
         }
         for handler in &handlers {
           handler(index);
         }
-      }) as Select
+      }) as Change
     });
-    let pressable = |index: usize| select.is_some() && index != current && (index < current || self.ahead);
+    let steps_of = &self.steps;
+    let pressable = |index: usize| {
+      select.is_some()
+        && index != current
+        && (index < current || self.ahead)
+        && !steps_of.get(index).is_some_and(|step| step.disabled)
+    };
     let steps: Vec<StepView> = self
       .steps
       .iter()
@@ -462,7 +493,7 @@ pub struct StepsView {
   /// The style of the parts of the whole: its root.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
-  select: Option<Select>,
+  select: Option<Change>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -509,7 +540,7 @@ impl StepsView {
       StepsState::Current => "current",
       _ => "to come",
     };
-    let error = if step.step.error { ", error" } else { "" };
+    let error = if step.step.invalid { ", error" } else { "" };
     format!(
       "Step {} of {}, {}, {status}{error}",
       index + 1,
@@ -526,7 +557,7 @@ impl StepsView {
   /// where it is done, its icon or its number where it is not.
   pub fn marker(&self, index: usize) -> Row {
     let step = &self.steps[index];
-    let icon = if step.step.error {
+    let icon = if step.step.invalid {
       Some(Name::new(icons::CLOSE))
     } else if step.status == StepsState::Done {
       Some(Name::new(icons::CHECK))
@@ -551,13 +582,13 @@ impl StepsView {
   }
 
   /// The title of the step at `index`, with its description under it.
-  pub fn body(&self, index: usize) -> Column {
+  pub fn text(&self, index: usize) -> Column {
     let step = &self.steps[index].step;
     let title = self.step_part(index, StepsPart::Title);
     // It gives way where the steps do not fit: the description goes on to more lines, down to the title's width
     // (its least is 0, the title's is its own), and only then is the title cut with an ellipsis.
     let mut body = Column::new()
-      .part(&self.step_part(index, StepsPart::Body))
+      .part(&self.step_part(index, StepsPart::Text))
       .flex_shrink(1.0)
       .shrink_limit(ShrinkLimit::ContentFirst)
       .min_width(Dimension::Px(0.0))
@@ -632,7 +663,13 @@ impl StepsView {
     };
     let name = self.step_name(index);
     let horizontal = self.orientation == StepsOrientation::Horizontal;
-    let id = self.child_id(index, "");
+    let id = step
+      .step
+      .id
+      .as_ref()
+      .map(|id| id.to_string())
+      .or_else(|| self.child_id(index, ""));
+    let key = step.step.key.clone();
     let current = step.status == StepsState::Current;
     let focused = step.pressable || (current && self.interactive());
     macro_rules! dressed {
@@ -651,6 +688,9 @@ impl StepsView {
         }
         if let Some(id) = id {
           holder = holder.id(id);
+        }
+        if let Some(key) = key {
+          holder = holder.key(key);
         }
         holder.into()
       }};
@@ -681,7 +721,7 @@ impl StepsView {
       let last = index + 1 == count;
       match self.orientation {
         StepsOrientation::Horizontal => {
-          children.push(self.step(index, [self.marker(index).into(), self.body(index).into()]));
+          children.push(self.step(index, [self.marker(index).into(), self.text(index).into()]));
           if !last {
             children.push(self.connector(index));
           }
@@ -694,7 +734,7 @@ impl StepsView {
           if !last {
             rail = rail.child(self.connector(index));
           }
-          children.push(self.step(index, [rail.into(), self.body(index).into()]));
+          children.push(self.step(index, [rail.into(), self.text(index).into()]));
         }
       }
     }
@@ -750,30 +790,29 @@ impl Themed for Steps {
   /// so the line is 12 from the mark and the title as the board has it.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use StepsOrientation::{Horizontal, Vertical};
-    use StepsPart::{Body, Connector, Description, Icon, Line, Marker, Number, Rail, Root, Step, Title};
-    use StepsState::{Current, Disabled, Done, Error, Pressable, Upcoming};
+    use StepsPart::{Connector, Description, Icon, Line, Marker, Number, Rail, Root, Step, Text, Title};
+    use StepsState::{Current, Disabled, Done, Horizontal, Invalid, Pressable, Upcoming, Vertical};
     let filled = |s: super::PartStyle| s.background(Primary).foreground(PrimaryForeground);
     Recipe::new()
-      .variant(Horizontal, Root, |s| s.width(Length::Fill).gap(8.0))
+      .state(Horizontal, Root, |s| s.width(Length::Fill).gap(8.0))
       .base(Step, |s| {
         fading(s.gap(8.0).padding_x(4.0).padding_y(4.0).radius(RadiusSize::Md))
       })
       .base(Marker, |s| s.square(24.0).radius(RadiusSize::Full))
       .base(Number, |s| s.typography(TypographyStyle::Caption).weight(FontWeight::Medium))
       .base(Icon, |s| s.square(14.0))
-      .base(Body, |s| s.gap(2.0))
+      .base(Text, |s| s.gap(2.0))
       // As high as the mark, so that the title stands level with its middle and a description goes under both.
       .base(Title, |s| s.height(24.0).typography(TypographyStyle::Label).foreground(Foreground))
       .base(Description, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
       .base(Rail, |s| s.gap(4.0))
       // In a row, as high as a step with its padding, so that the line is level with the middle of the mark.
-      .variant(Horizontal, Connector, |s| s.height(32.0))
+      .state(Horizontal, Connector, |s| s.height(32.0))
       // In a column, as wide as the mark, and long enough to be seen between two steps without descriptions.
-      .variant(Vertical, Connector, |s| s.width(24.0).height(12.0))
+      .state(Vertical, Connector, |s| s.width(24.0).height(12.0))
       .base(Line, |s| s.background(PaletteColor::Border))
-      .variant(Horizontal, Line, |s| s.height(1.0))
-      .variant(Vertical, Line, |s| s.width(1.0))
+      .state(Horizontal, Line, |s| s.height(1.0))
+      .state(Vertical, Line, |s| s.width(1.0))
       .state(Done, Marker, filled)
       .state(Current, Marker, filled)
       .state(Upcoming, Marker, |s| {
@@ -781,16 +820,17 @@ impl Themed for Steps {
       })
       .state(Upcoming, Title, |s| s.foreground(MutedForeground))
       .state(Done, Line, |s| s.background(Primary))
-      .state(Error, Marker, |s| {
+      .state(Invalid, Marker, |s| {
         s.background(Destructive)
           .border(border::Border::inside(BorderSize::Sm, Destructive))
           .foreground(DestructiveForeground)
       })
-      .state(Error, Title, |s| s.foreground(Destructive))
+      .state(Invalid, Title, |s| s.foreground(Destructive))
       .state(Pressable, Step, |s| s.cursor(CursorIcon::Pointer))
       .when(Selector::new().state(Pressable).hovered(), Step, |s| s.veil(StateHover))
       .when(Selector::new().state(Pressable).pressed(), Step, |s| s.veil(StatePressed))
       .focus_visible(Step, |s| s.focus_ring())
       .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
+      .state(Disabled, Step, |s| s.opacity(OpacityLevel::Disabled))
   }
 }

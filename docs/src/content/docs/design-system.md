@@ -1324,40 +1324,44 @@ Pagination::controlled(current, 12, move |to| go(to));
 The stages of a process in order, with one current: those before it are done, those after it are to come.
 
 ```rust
-use lurq::ui::{Step, Steps, StepsOrientation};
+use lurq::ui::{Orientation, Step, Steps};
 
-// Read, not operated: the app moves the current step itself.
-Steps::new(1, ["Account", "Workspace", "Finish"]);
+// Read, not operated: the app moves the current step itself. at: Signal<usize>.
+Steps::new(at.clone(), ["Account", "Workspace", "Finish"]);
 
-// A wizard that lets a person go back to a step that is done. at: Signal<usize>, which a press sets.
-Steps::new(&at, [
+// A wizard that lets a person go back to a step that is done: a press sets the signal.
+Steps::new(at.clone(), [
   Step::new("Account").description("Name and email"),
-  Step::new("Billing").description("Card and address").error(billing_failed),
+  Step::new("Billing").description("Card and address").invalid(billing_failed),
   Step::new("Finish"),
 ])
-.orientation(StepsOrientation::Vertical)
+.orientation(Orientation::Vertical)
 .label("Sign up")
-.on_select(|index| println!("back to step {index}"));
+.on_change(|index| println!("back to step {index}"));
+
+// The current step held by the app, which answers a press itself.
+Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 ```
 
 | Builder | |
 | --- | --- |
-| `Steps::new(current, steps)` | `current` is the index of the current step, from 0, or a `Signal<usize>` (or `&Signal<usize>`) that a press of a step sets. Past the last step every step is done. A step is a `&str`, a `String` or a `Step` |
-| `orientation(StepsOrientation)` | `Horizontal` (the default): in a row, a line between each step and the next. `Vertical`: in a column, a line down from each step's mark to the next |
-| `on_select(Fn(usize))` | Called with the index of a step pressed, after a signal given as `current` is set. Makes the steps that are done pressable |
+| `Steps::new(current, steps)` | `current` is a `Signal<usize>` that holds the index of the current step, from 0, and that a press of a step sets. Past the last step every step is done. A step is a `&str`, a `String` or a `Step` |
+| `Steps::controlled(current, steps, on_change)` | The index held by the app: a press tells `on_change`, and the steps show what the app answers with |
+| `orientation(Orientation)` | `Horizontal` (the default): in a row, a line between each step and the next. `Vertical`: in a column, a line down from each step's mark to the next. `StepsOrientation` is a name of `ui::Orientation` |
+| `on_change(Fn(usize))` | Called with the index of the step a person made current, after a signal given to `new` is set; not when the app sets it. Makes the steps that are done pressable. A second handler is called after the first |
 | `pressable(bool)` | Makes the steps that are done pressable with no handler: for steps bound to a signal |
 | `ahead(bool)` | Where steps are pressed, a step to come is pressed too: a process whose steps can be taken in any order |
 | `label(&str)` | What the list of steps is called to what reads the tree |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the step Tab would enter at in the state. With an `id`, each step has the id `<id>-<index>`, its mark `<id>-<index>-marker`, and the line after it `<id>-<index>-line` |
-| `Step::new(title)` | A step. `description(&str)` a line under the title, `icon(name)` an icon of the theme's set in place of its number until it is done, `error(bool)` that it has gone wrong |
+| `Step::new(title)` | A step. `description(&str)` a line under the title, `icon(name)` an icon of the theme's set in place of its number until it is done, `invalid(bool)` that it has gone wrong, `disabled(bool)` that it takes no press and is dimmed, `id` the id of its element in place of `<id>-<index>`, `key` |
 
 - In a row the steps share the width: where they do not fit, a step gives way before the lines, which are never shorter than 24. The descriptions wrap first, each step down to its title; only when every step is at its title is a title cut with an ellipsis, the last step's first (`ShrinkLimit::ContentFirst`).
-- Steps are read, not operated, unless the app says they are pressed (`on_select` or `pressable`). Then a step that is done is pressed to go back to it, and a step to come only with `ahead(true)`; the current step selects nothing. The steps are one stop of Tab, entered at the current step (at the last one pressed where every step is done); the arrow keys of the orientation, Home and End move between the current step and those that are pressed, and Space and Enter press. Steps that are only read take no press and no focus.
-- Parts: `StepsPart::Root` (the steps and the lines), `Step` (a step: what is pressed and focused), `Marker` (its round mark), `Number`, `Icon` (the check, the cross, or the step's own icon), `Body` (the title and the description), `Title`, `Description`, `Rail` (in a column, the mark with the line down from it), `Connector` (what holds a line) and `Line`. Each step's parts are styled in that step's states: `StepsState::Done`, `Current` or `Upcoming`, and `Error`, `Pressable`; the whole has `Disabled`. The orientation is the recipe's variant (`StepsOrientation::Horizontal`, `Vertical`).
-- In the design the mark is 24 and round: in `Primary` with a check of 14 in `PrimaryForeground` once the step is done, in `Primary` with its number (12, medium) while it is current, and with a 1 px edge in `Input` and the number in `MutedForeground` while it is to come. The title is 8 beside the mark in the label's type (13, medium), `Foreground`, and `MutedForeground` while the step is to come. A line of 1 runs from 12 after one step to 12 before the next, in `Primary` up to the current step and in `Border` after it; in a row the lines share what the steps leave of the width. A description is under the title in the caption's 12, `MutedForeground`. A step in error has a cross on `Destructive` and its title in `Destructive`, whatever else it is.
+- Steps are read, not operated, unless the app says they are pressed (`on_change`, `controlled` or `pressable`). Then a step that is done is pressed to go back to it, and a step to come only with `ahead(true)`; the current step and a disabled one change nothing. The steps are one stop of Tab, entered at the current step (at the last one pressed where every step is done); the arrow keys of the orientation, Home and End move between the current step and those that are pressed, and Space and Enter press. Steps that are only read take no press and no focus.
+- Parts: `StepsPart::Root` (the steps and the lines), `Step` (a step: what is pressed and focused), `Marker` (its round mark), `Number`, `Icon` (the check, the cross, or the step's own icon), `Text` (the title and the description), `Title`, `Description`, `Rail` (in a column, the mark with the line down from it), `Connector` (what holds a line) and `Line`. Each step's parts are styled in that step's states: `StepsState::Done`, `Current` or `Upcoming`, and `Invalid`, `Pressable` and `Disabled` (that step alone); the whole has `Disabled`. The orientation is the state `StepsState::Horizontal` or `Vertical`.
+- In the design the mark is 24 and round: in `Primary` with a check of 14 in `PrimaryForeground` once the step is done, in `Primary` with its number (12, medium) while it is current, and with a 1 px edge in `Input` and the number in `MutedForeground` while it is to come. The title is 8 beside the mark in the label's type (13, medium), `Foreground`, and `MutedForeground` while the step is to come. A line of 1 runs from 12 after one step to 12 before the next, in `Primary` up to the current step and in `Border` after it; in a row the lines share what the steps leave of the width. A description is under the title in the caption's 12, `MutedForeground`. An invalid step has a cross on `Destructive` and its title in `Destructive`, whatever else it is.
 - A pressed step has a veil of `StateHover` under the pointer and of `StatePressed` held down; the ring of the focus is around the step, which is padded 4 for it. Disabled steps are dimmed and take nothing.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is in error); the current step has `a11y_current` `step`.
-- A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.body(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `list` (called by `label`), each step a `listitem`, or a `button` where it is pressed, called by its place, title and state ("Step 2 of 4, Billing, current", with ", error" where it is invalid); the current step has `a11y_current` `step`.
+- A renderer that draws other steps has `view.steps` (each step with its `status`, whether it is `pressable` and its resolved recipe), `view.step_part(index, part)`, `view.step(index, content)` (a step with its behavior and its name to tooling), `view.marker(index)`, `view.text(index)`, `view.connector(index)` and `view.step_name(index)`. A bar of segments, as the mobile skin draws progress, is such a renderer: a `Line` of each step, and the current step's title under them.
 
 ## Badge
 
@@ -3253,16 +3257,17 @@ Stack::new()
 Panes that share a room by the dividers between them, which a person drags: the side bar, the editor and the terminal of a window.
 
 ```rust
-use lurq::ui::{Splitter, SplitterPane};
+use lurq::ui::{Orientation, Splitter, SplitterPane};
 
 // layout: Signal<Vec<f32>>, saved with the window.
-Splitter::horizontal()
+Splitter::new()
   .sizes(layout.clone())
-  .pane(SplitterPane::new(files).size(240.0).min(160.0).max(480.0).collapsible(true).label("Files"))
+  .pane(SplitterPane::new(files).length(240.0).min(160.0).max(480.0).collapsible(true).label("Files"))
   .pane(SplitterPane::new(
-    Splitter::vertical()
+    Splitter::new()
+      .orientation(Orientation::Vertical)
       .pane(SplitterPane::new(editor).min(120.0))
-      .pane(SplitterPane::new(terminal).size(160.0).min(80.0).collapsible(true))
+      .pane(SplitterPane::new(terminal).length(160.0).min(80.0).collapsible(true))
       .mount(ctx),
   ))
   .pane(SplitterPane::new(outline).share(0.2).min(100.0))
@@ -3270,18 +3275,19 @@ Splitter::horizontal()
   .mount(ctx);
 
 // The board's Resizable: a grip on each divider, in a box of its own.
-Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
+Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 ```
 
 | Builder | |
 | --- | --- |
-| `Splitter::horizontal()`, `vertical()`, `new(orientation)` | Panes side by side, or one over the other |
+| `Splitter::new()`, `orientation(Orientation)` | Panes side by side (`Horizontal`, the default), or one over the other (`Vertical`). `SplitterOrientation` is a name of `ui::Orientation` |
 | `pane(SplitterPane)`, `panes(..)` | A pane after the others, with a divider before it |
 | `SplitterPane::new(content)` | A pane holding `content`, laid out in its whole width from its top: a height of `Dimension::Pct(100.0)` fills it |
-| `SplitterPane::size(px)`, `share(0..1)` | How large it is to begin with: pixels it keeps as the splitter grows and shrinks, or a share it keeps. A pane with neither takes the rest; where all have one, the last does |
+| `SplitterPane::length(px)`, `share(0..1)` | How large it is to begin with: pixels it keeps as the splitter grows and shrinks, or a share it keeps. A pane with neither takes the rest; where all have one, the last does |
 | `SplitterPane::min(px)`, `max(px)` | The least and the most it is |
 | `SplitterPane::collapsible(bool)` | It closes when a divider is dragged under half its least size, and opens by a drag back, a double press on the divider or Enter. The pane that takes the rest does not close |
-| `SplitterPane::label(&str)`, `key(..)` | What it is called: the divider after it is called so to tooling |
+| `SplitterPane::label(&str)`, `id(..)`, `key(..)` | What it is called: the divider after it is called so to tooling. The id of the pane's element, and what tells it apart where panes come and go |
+| `SplitterPane::disabled(bool)` | It keeps its size: no divider beside it moves it, by the pointer or the keys, and it does not close |
 | `sizes(Signal<Vec<f32>>)` | The sizes of the panes, the app's: pixels along the splitter as a divider last left them, 0 for a closed pane, written as a divider moves and once it is first laid out |
 | `on_resize(handler)` | Called with the sizes each time a divider moves: while it is dragged, and for each key |
 | `on_resize_end(handler)` | Called with the sizes once a divider has moved: let go after a drag, or moved by a key, a double press or Enter |
@@ -3297,7 +3303,7 @@ Splitter::horizontal().grip(true).framed(true).pane(sidebar).pane(content);
 - The panes say what gives way when the window grows or shrinks: one of pixels keeps them, one of a share keeps its share, and the pane given no size takes the rest. No open pane is made smaller than its least size while there is room: where the rest would be, the panes nearest it give way down to theirs.
 - Converted into an element, a splitter keeps its sizes while what holds it does not render again, unless it is given `sizes`; mounted, it keeps them, and an app that sets `sizes` from outside (to restore a layout) sees the panes take them. Pixels set from a saved layout are the pane's pixels, and a pane of a share takes the share its pixels were of the room they were saved in.
 - A drag renders nothing again while it moves: the panes are resized by sizes their element refs are given (`ElementRefMut::set_size`), and what is in them is only laid out again at the next pass. Nor does letting it go: tooling reads where it stands from the divider at once (`ElementRefMut::describe`).
-- Parts: `SplitterPart::Root`, `Pane`, `Handle` (the room around a divider's line that takes the pointer and the focus), `Line`, `Bar` (the wider line under the pointer, dragged and focused), `Grip`, `GripIcon`. States: `SplitterState::Vertical`, `Framed`, `Disabled`.
+- Parts: `SplitterPart::Root`, `Pane`, `Handle` (the room around a divider's line that takes the pointer and the focus), `Line`, `Bar` (the wider line under the pointer, dragged and focused), `Grip`, `GripIcon`. States: `SplitterState::Horizontal` or `Vertical`, `Framed`, `Disabled`.
 - In the design a divider is a line of 1 in the `Border` color; under the pointer and focused from the keyboard it is 3 wide in `Ring`, and dragged in `Primary`. The room that takes the pointer is 12 across the line, over the edges of the panes beside it. The grip is 12 by 20 (20 by 12 across a vertical splitter), round by the small radius, in `Border`, with a grip icon of 10 in `Foreground`. Framed, the splitter has the `Background` fill, an edge of 1 in `Border` and the large radius.
 - To what reads the tree a divider is a `separator` that can be focused, with `a11y_orientation` (that of its line), `a11y_valuenow` (the pixels of the pane before it), `a11y_valuemin`, `a11y_valuemax` (where it has a most) and the name of the pane before it, or the splitter's `label`. `a11y_valuenow` follows the divider as it is dragged and moved by the keys.
 - Splitters nest, one orientation in the other: a pane holds a splitter of its own.

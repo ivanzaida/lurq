@@ -256,9 +256,7 @@ pub use spinner::{
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
 };
-pub use steps::{
-  CurrentStep, Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView,
-};
+pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView};
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
 pub use table::{
   BodyWindow, ColumnAlign, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
@@ -370,7 +368,6 @@ inspectable!(
   recipe::Interaction,
   skeleton::SkeletonAnimation,
   spinner::SpinnerKind,
-  splitter::SplitterOrientation,
   table::SortDirection,
   table::ColumnAlign,
   tabs::TabsOrientation,
