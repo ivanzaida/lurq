@@ -75,6 +75,8 @@ pub struct FloatingPanelPage {
   media: Signal<bool>,
   more: Signal<bool>,
   header_more: Signal<bool>,
+  /// Whether the playground's panel is active, as it tells.
+  active: Signal<bool>,
 }
 
 impl FloatingPanelPage {
@@ -88,6 +90,7 @@ impl FloatingPanelPage {
       self.media.get(),
     );
     let shown_panel = self.shown.get();
+    let active = self.active.clone();
     let (position, size, open, more, shown) = (
       self.position.clone(),
       self.size.clone(),
@@ -107,6 +110,14 @@ impl FloatingPanelPage {
           .resizable(resizable)
           .menu(more.clone(), || [MenuItem::new("Lock all"), MenuItem::new("Show all")])
           .child(layers());
+        let active = active.clone();
+        let told = record.clone();
+        panel = panel.on_active_change(move |now| {
+          active.set(now);
+          if let Some(record) = &told {
+            record(format!("on_active_change({now})"));
+          }
+        });
         if media {
           panel = panel.media(icon(icons::LAYERS, 14.0).color(PaletteColor::MutedForeground));
         }
@@ -214,7 +225,10 @@ impl FloatingPanelPage {
         shown,
         fill: true,
         forceable: false,
-        facts: format!("at {x}, {y}"),
+        facts: format!(
+          "at {x}, {y} · {}",
+          if self.active.get() { "active" } else { "not active" }
+        ),
         event: "on_position_change",
         code,
         tree,
@@ -264,6 +278,7 @@ impl Component for FloatingPanelPage {
       media: ctx.signal(false),
       more: ctx.signal(false),
       header_more: ctx.signal(false),
+      active: ctx.signal(false),
     }
   }
 
@@ -342,6 +357,14 @@ impl Component for FloatingPanelPage {
         "Called when its close button or Escape in it closes it; the app takes it away.",
       ),
       (
+        "on_active_change",
+        "Fn(bool)",
+        "",
+        "Called when a press in it or the focus coming into it makes it active, and when a press outside it or the \
+         focus going outside it makes it not. FloatingPanels has active(Signal<Option<Arc<str>>>) and \
+         on_active_change(Fn(Option<&str>)) for the panel of a layer that is active.",
+      ),
+      (
         "media",
         "impl Into<Element>",
         "",
@@ -413,8 +436,9 @@ impl Component for FloatingPanelPage {
         ),
         Section::new(
           "Several panels",
-          "FloatingPanels holds the panels over one content: a press anywhere in one brings it to the front, and its \
-           title is in the foreground while the others' are muted.",
+          "FloatingPanels holds the panels over one content: a press anywhere in one brings it to the front and makes \
+           it the active one, its title in the foreground while the others' are muted. A press on the canvas leaves \
+           none active, and the one in front stays in front.",
           self.frame.demo(
             0,
             several,

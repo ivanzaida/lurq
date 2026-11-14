@@ -78,9 +78,12 @@ fn at_rest_it_is_the_boards_panel_with_its_title_bar() {
   let (x, y, width, _) = stage.bounds("panel");
   assert_eq!((x, y, width), (40.0, 30.0, 240.0));
   assert_eq!(stage.fill_color("panel"), Some(light(PaletteColor::Popover)));
-  // The title bar: 30 high, its title at 12 in the foreground (the one panel is in front).
+  // The title bar: 30 high, its title at 12, muted until the panel is active and in the foreground once a press in
+  // it makes it so (the board draws the panel in front).
   let title = stage.text_quad("Layers").unwrap();
   assert!(title.y > y && title.y < y + 30.0);
+  assert_eq!(stage.text("Layers"), (light(PaletteColor::MutedForeground), 12.0));
+  stage.click("panel");
   assert_eq!(stage.text("Layers"), (light(PaletteColor::Foreground), 12.0));
   let (_, _, collapse_width, collapse_height) = stage.bounds("panel-collapse");
   assert_eq!((collapse_width, collapse_height), (22.0, 22.0));
@@ -274,8 +277,8 @@ fn a_press_brings_a_panel_of_a_layer_to_the_front() {
     ))));
   stage.tree.resize(600, 400);
   stage.pass();
-  // The last given is in front, its title in the foreground; the other's is muted.
-  assert_eq!(stage.text("Color").0, light(PaletteColor::Foreground));
+  // The last given is in front; neither is active until a press or the focus makes one so, and both titles are muted.
+  assert_eq!(stage.text("Color").0, light(PaletteColor::MutedForeground));
   assert_eq!(stage.text("Layers").0, light(PaletteColor::MutedForeground));
   let fill_at = |stage: &Stage, id_y: f32| {
     stage
@@ -422,4 +425,195 @@ fn over_a_stack_as_high_as_its_content_a_drag_moves_it_down_too() {
   let title = stage.text_quad("Layers").unwrap();
   drag(&mut stage, (title.x + 4.0, title.y + 4.0), (100.0, 60.0));
   assert_eq!(place.get(), (124.0, 84.0));
+}
+
+/// A window of 600 by 400: a button over the content, then a layer of two panels, Layers under Color, each telling
+/// `told` of the active panel.
+fn two_panels(told: &Arc<Mutex<Vec<Option<String>>>>) -> Stage {
+  let heard = told.clone();
+  let mut stage = Stage::new(move |ctx: &mut Ctx| -> Element {
+    let heard = heard.clone();
+    Stack::new()
+      .size(600.0, 400.0)
+      .child(
+        Column::new()
+          .size(600.0, 400.0)
+          .id("content")
+          .child(Row::new().child(lurq::components::Button::new("Before").id("before").tab_index(0))),
+      )
+      .child(
+        FloatingPanels::new()
+          .panel(
+            FloatingPanel::new("Layers")
+              .id("layers")
+              .default_position((40.0, 60.0))
+              .child(rows()),
+          )
+          .panel(
+            FloatingPanel::new("Color")
+              .id("color")
+              .default_position((300.0, 60.0))
+              .child(rows()),
+          )
+          .on_active_change(move |key| heard.lock().unwrap().push(key.map(str::to_owned)))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(lurq::layout::Constraints::loose(lurq::layout::Size::new(
+      600.0, 400.0,
+    ))));
+  stage.tree.resize(600, 400);
+  stage.pass();
+  stage
+}
+
+fn press_at(stage: &mut Stage, x: f32, y: f32) {
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+}
+
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+#[test]
+fn a_press_on_the_content_leaves_no_panel_active_and_a_press_in_one_makes_it_active_again() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let mut stage = two_panels(&told);
+  let (lx, ly, ..) = stage.bounds("layers");
+  press_at(&mut stage, lx + 60.0, ly + 50.0);
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::Foreground));
+  assert_eq!(stage.text("Color").0, light(PaletteColor::MutedForeground));
+  // A press on the content under the panels: no panel is active, every title muted.
+  press_at(&mut stage, 300.0, 350.0);
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::MutedForeground));
+  assert_eq!(stage.text("Color").0, light(PaletteColor::MutedForeground));
+  // The order is as it was: Layers, pressed last, is still painted after Color.
+  let painted = |stage: &Stage, title: &str| {
+    stage
+      .quads()
+      .iter()
+      .rposition(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if &**text == title))
+      .unwrap()
+  };
+  assert!(painted(&stage, "Layers") > painted(&stage, "Color"));
+  // A press in a panel makes it active again; one in the other moves the activity to it.
+  press_at(&mut stage, lx + 60.0, ly + 50.0);
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::Foreground));
+  let (cx, cy, ..) = stage.bounds("color");
+  press_at(&mut stage, cx + 60.0, cy + 50.0);
+  assert_eq!(stage.text("Color").0, light(PaletteColor::Foreground));
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::MutedForeground));
+  assert_eq!(
+    *told.lock().unwrap(),
+    [
+      Some("Layers".to_owned()),
+      None,
+      Some("Layers".to_owned()),
+      Some("Color".to_owned())
+    ]
+  );
+}
+
+#[test]
+fn the_focus_going_outside_every_panel_leaves_none_active_and_tab_into_one_makes_it_active() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let mut stage = two_panels(&told);
+  let tab = |stage: &mut Stage, shift: bool| {
+    stage
+      .tree
+      .key_down("Tab".to_owned(), "Tab".to_owned(), shift, false, false);
+    stage
+      .tree
+      .key_up("Tab".to_owned(), "Tab".to_owned(), shift, false, false);
+    stage.pass();
+  };
+  tab(&mut stage, false);
+  assert_eq!(focused(&stage).as_deref(), Some("before"));
+  assert!(
+    told.lock().unwrap().is_empty(),
+    "the focus on the content makes no panel active"
+  );
+  // Tab into Layers, at its grip: it is active.
+  tab(&mut stage, false);
+  assert_eq!(focused(&stage).as_deref(), Some("layers-grip"));
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::Foreground));
+  // Through it and out of it to the content, its last stop being the window's last: none is active.
+  tab(&mut stage, false);
+  tab(&mut stage, false);
+  assert_eq!(focused(&stage).as_deref(), Some("layers-resize"));
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::Foreground));
+  tab(&mut stage, false);
+  assert_eq!(focused(&stage).as_deref(), Some("before"));
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::MutedForeground));
+  assert_eq!(stage.text("Color").0, light(PaletteColor::MutedForeground));
+  // Shift+Tab back into it: active again.
+  tab(&mut stage, true);
+  assert_eq!(focused(&stage).as_deref(), Some("layers-resize"));
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::Foreground));
+  assert_eq!(
+    *told.lock().unwrap(),
+    [Some("Layers".to_owned()), None, Some("Layers".to_owned())]
+  );
+}
+
+#[test]
+fn a_panel_on_its_own_is_active_by_a_press_in_it_and_not_by_one_outside_it() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let heard = told.clone();
+  let mut stage = scene(move || {
+    let heard = heard.clone();
+    FloatingPanel::new("Layers")
+      .id("panel")
+      .default_position((40.0, 30.0))
+      .on_active_change(move |active| heard.lock().unwrap().push(active))
+      .child(rows())
+  });
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::MutedForeground));
+  stage.click("panel");
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::Foreground));
+  press_at(&mut stage, 500.0, 350.0);
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::MutedForeground));
+  assert_eq!(*told.lock().unwrap(), [true, false]);
+}
+
+#[test]
+fn the_active_panel_the_app_holds_is_shown_and_set() {
+  let active = Signal::new(Some(Arc::<str>::from("Color")));
+  let held = active.clone();
+  let mut stage = Stage::new(move |ctx: &mut Ctx| -> Element {
+    Stack::new()
+      .size(600.0, 400.0)
+      .child(Column::new().size(600.0, 400.0))
+      .child(
+        FloatingPanels::new()
+          .panel(FloatingPanel::new("Layers").id("layers").default_position((40.0, 60.0)))
+          .panel(FloatingPanel::new("Color").id("color").default_position((300.0, 60.0)))
+          .active(held.clone())
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(lurq::layout::Constraints::loose(lurq::layout::Size::new(
+      600.0, 400.0,
+    ))));
+  stage.tree.resize(600, 400);
+  stage.pass();
+  assert_eq!(stage.text("Color").0, light(PaletteColor::Foreground));
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::MutedForeground));
+  press_at(&mut stage, 300.0, 350.0);
+  assert_eq!(active.get_untracked(), None);
+  active.set(Some(Arc::from("Layers")));
+  stage.pass();
+  assert_eq!(stage.text("Layers").0, light(PaletteColor::Foreground));
 }

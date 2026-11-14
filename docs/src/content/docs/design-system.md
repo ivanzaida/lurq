@@ -595,7 +595,7 @@ Input::new(email.clone()).invalid(!email_ok);
 A control with what it is called above it, and under it what it is for or what is wrong with what it holds. The field finishes its control: the label names it, a press of the label focuses it, and an input in a field with an error is invalid without being told.
 
 ```rust
-use lurq::ui::{Field, Input, Orientation, Switch, Textarea};
+use lurq::ui::{Field, Input, Orientation, ShortcutRecorder, Switch, Textarea};
 
 Field::new("Display name", Input::new(name.clone()).full_width(true))
   .description("Shown in the title bar.")
@@ -609,6 +609,11 @@ Field::new("What happened", Textarea::new(story.clone()).full_width(true)).warni
 
 // Any element is a control; the label beside it, where a form lines its labels up.
 Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal);
+
+// A control that keeps state of its own: the field mounted where it is declared mounts it.
+Field::new("Command palette", ShortcutRecorder::new(palette.clone()))
+  .description("Opens the palette from anywhere.")
+  .mount(ctx);
 ```
 
 | Builder | |
@@ -623,9 +628,11 @@ Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orie
 | `orientation(Orientation)` | `Vertical` (the default): the label above the control. `Horizontal`: the label in a column of 110 beside the control and its description; the field is at least the label's column, the gap and the control. States `FieldState::Horizontal` and `Vertical` |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
+| `mount(ctx)` | The field built where it is declared, its control mounted: see below. Converting it (`.into()`) builds it with its control as it is |
 
+- A control that keeps state of its own between renders, which outside a field the app mounts, is mounted by a field the app mounts (`Field::mount(ctx)`): the field tells it what it says, then mounts it (`FieldControl::mount_in_field`), and it is the same control in the field as outside it, with the field's label, description and error. These are the [shortcut recorder](#shortcut-recorder) (it records), the [date field](#date-field) and the [time field](#time-field) (they keep what is half typed), the [date picker](#date-picker), the [date range picker](#date-range-picker) and the [time picker](#time-picker) (they open), the [month picker and the year picker](#month-picker) (they keep the year shown), the [password input](#password-input) (its eye turns), the [rating](#rating) (the stars under the pointer are lit), the [file upload](#file-upload) and the [drop zone](#drop-zone) (a drag over them shows) and the [listbox](#listbox) (a virtual list). A field converted into an element builds its control as it is converted, which keeps nothing: it shows its value and takes the field's words, but does none of that. Any other control is the same converted or mounted. A mounted field goes in a [fieldset](#fieldset) as a child: `.child(field.full_width(true).mount(ctx))`.
 - A field is at least as wide as its control: one wider than the recipe's 260 that does not fill the field (an [input OTP](#input-otp) of six cells) widens it, and the label and the description stay 260. Beside the label the field is at least the label's column of 110, the gap of 12 and the control, and the description wraps in the 238 the recipe's 360 leaves it. A description longer than the field wraps. Beside the label, a control lower than an input (a switch) stands in the middle of the label's height, level with it.
-- A field's control is a `FieldControl`: what the field tells it (`InField`: the label, the judgment, whether it is disabled, the description) it takes as far as it has the prop, and only where the app did not say it of the control itself: an input with a label of its own keeps it, and one the app judged keeps that judgment whatever the field says. A control of an app's own implements `FieldControl` and passes what it is told to the control in it. Any `Element` takes none of it.
+- A field's control is a `FieldControl`: what the field tells it (`InField`: the label, the judgment, whether it is disabled, the description) it takes as far as it has the prop, and only where the app did not say it of the control itself: an input with a label of its own keeps it, and one the app judged keeps that judgment whatever the field says. A control of an app's own implements `FieldControl` and passes what it is told to the control in it; one that keeps state of its own implements `mount_in_field(self, &InField, &mut Ctx)` too, which tells it the same and mounts it (by default it is `in_field`). Any `Element` takes none of it.
 
 | Control | Takes from a field |
 | --- | --- |
@@ -921,7 +928,7 @@ ShortcutRecorder::controlled(saved, move |shortcut| store(shortcut.to_string()))
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the box's |
 
 - A press of the box, or Enter or Space while it has the focus, starts recording. While it records it takes every key of the window ([`captures_keys`](../styling-events/#taking-every-key)): the app's own shortcuts and the accelerators of its menu are held back, and Tab is recorded with what is held. It shows the modifiers as they are held, and takes the combination when a key that is no modifier goes down ([`Accelerator::from_key_event`](../window-lifecycle-menus/#reactive-updates-and-shortcuts)). Escape gives up, the focus leaving it gives up, and Backspace and Delete with no modifier empty an optional one.
-- It records where it is mounted (`mount(ctx)`), which keeps whether it records, the modifiers held and the combination it refused. Converted into an element, or given to a [field](#field) as a builder, it shows its shortcut and its cross empties it, but a press does not record: in a field, mount it and give it the field's label and judgment.
+- It records where it is mounted (`mount(ctx)`), which keeps whether it records, the modifiers held and the combination it refused. Converted into an element it shows its shortcut and its cross empties it, but a press does not record. In a [field](#field) the app mounts (`Field::new("Shortcut", recorder).mount(ctx)`) the field mounts it: it records, is called by the field's label, judged as the field is, and disabled where it is, and a combination it refuses says why under it, over the field's description.
 - In the design the box is 230 by 32, a box's fill and edge with the medium radius, 8 in at its start and 6 at its end; its keys are [`Kbd`](#kbd)s 4 apart, and the cross at its end is 14 in `MutedForeground`. Recording, its edge is a line of 2 in `Ring`, and a dot of 8 in `Destructive` stands before "Press shortcut…" in `MutedForeground` at 13. A refused combination edges it in `Destructive` and says why 6 under it at 12 in `Destructive`. Under the pointer, judged, read only and disabled it is a box.
 - Parts: `ShortcutRecorderPart::Root`, `Control` (the box), `Keys`, `Dot`, `Hint`, `Clear`, `Message`. States: `ShortcutRecorderState::Recording`, `Empty`, `Refused`, `FullWidth`, and a box's `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`.
 - To what reads the tree the box is a `button` called by its label, with `a11y_value` its shortcut in the platform's words ("Ctrl+Shift+P", "Cmd+Shift+P"), `a11y_pressed` while it records, and a refusal as `a11y_invalid` and its `a11y_description`.
@@ -3637,7 +3644,7 @@ Stack::new()
       .mount(ctx),
   );
 
-// Several: the one pressed comes to the front.
+// Several: the one pressed comes to the front and is the active one; a press on the canvas leaves none active.
 FloatingPanels::new()
   .panel(FloatingPanel::new("Layers").default_position((16.0, 16.0)).child(layer_rows))
   .panel(FloatingPanel::new("Color").default_position((280.0, 16.0)).child(color))
@@ -3652,6 +3659,7 @@ FloatingPanels::new()
 | `on_position_change(handler)`, `on_size_change(handler)` | Called with its new place, its new size, when a person moves or resizes it. Not when the app sets the signal. Each call adds |
 | `open(Signal<bool>)`, `default_open(bool)`, `on_open_change(handler)` | Whether it shows what it holds or its title bar alone, which its collapse button turns; told when the button turns it |
 | `on_dismiss(handler)`, `close_button(bool)`, `dismiss_on_escape(bool)` | Called when its close button or Escape in it closes it: the app takes it away. It has both where it has `on_dismiss`, unless told |
+| `on_active_change(handler)` | Called with whether it is the active panel when a person makes it so or not (see below). Not when the app sets the active panel of a `FloatingPanels`. Each call adds |
 | `media(element)` | Between the grip and the title: an icon, a swatch |
 | `button(icon, label, handler)`, `menu(Signal<bool>, Fn() -> items)` | A button of its title bar, before its own; the menu its "more" button opens, of [`MenuItem`](#menu)s |
 | `collapsible(bool)`, `resizable(bool)` | Its collapse button; its edges and its corner. Both unless told |
@@ -3662,7 +3670,8 @@ FloatingPanels::new()
 - It is mounted (`mount(ctx)`): it keeps where a drag began, and its place, its size and whether it is open where the app gives no signal. Mounted, it is a layer as large as what holds it (a `Stack` over the content), which lets a press through where the panel is not, with the panel in it at its place. Converted into an element it is drawn where it stands, and a drag does not move it.
 - A drag of its title bar moves it, the pointer held; a drag of its start edge, its end edge, its bottom row or its corner resizes it. A drag keeps it inside its layer, and no smaller than its least size.
 - From the keyboard: its grip, at the start of its title bar, is a stop of Tab, and the arrow keys move the panel by 10, by 1 with Shift. The grip in its corner resizes it with the arrows the same way. Its buttons are pressed with Enter and Space, and Escape anywhere in it closes it. The platforms move a window from the keyboard by its own menu (Alt+Space on Windows) or not at all; a panel inside a window has a grip that takes the focus, as a splitter's divider does.
-- `FloatingPanels` holds the panels over one content, the one pressed last in front: a press anywhere in a panel brings it there. The panel in front is `Active`, its title in `Foreground`; the others' are in `MutedForeground`.
+- `FloatingPanels` holds the panels over one content, the one pressed last in front: a press anywhere in a panel, or the focus coming into it, brings it there.
+- The active panel is `Active`, its title in `Foreground`; the others' are in `MutedForeground`, as a tool window's title is while the document has the focus. A press in a panel, or the focus coming into it (Tab), makes it active; a press outside it (on the content the panels float over, on another panel) or the focus going to something outside it makes it not, and the one in front stays in front. A press in its menu, which opens outside it, leaves it active. A panel starts not active; one converted into an element is drawn active, as the board draws it. In a `FloatingPanels` one panel at most is active, which the app may hold: `active(Signal<Option<Arc<str>>>)` is the key of the active panel (its `key`, or its title where it has none), `None` where none is, set by a press or the focus and shown when the app sets it; `on_active_change(Fn(Option<&str>))` is told the key, or `None`, after it changes by what a person does. Each panel's `on_active_change` is told too.
 - In the design the panel is 240 wide on `Popover`, an edge of 1 in `Border` inside it, the large radius and the large shadow. Its title bar is 30 high on `Muted` with a line of 1 in `Border` along its bottom, 6 in at its start and 4 at its end, 4 between what it holds: a grip of 14 in `MutedForeground`, the title at 12 and semibold, and buttons of 22 with the small radius, an icon of 14 in `Foreground` in each, on `Highlight` under the pointer. What it holds is padded 4, its rows 2 apart; the row along its bottom is 22 high with a grip of 10 in `MutedForeground` 3 in from the corner.
 - Parts: `FloatingPanelPart::Root`, `Header`, `Grip`, `Media`, `Title`, `Actions`, `Button`, `Body`, `Footer`, `ResizeGrip`, `Edge`. States: `FloatingPanelState::Active`, `Collapsed`, `Sized`, `Resizable`, `Media`.
 - To what reads the tree it is a `dialog` called by its label; its grip and its corner's grip are buttons called "Move Layers" and "Resize Layers", and its collapse button says `a11y_expanded`.
@@ -4516,9 +4525,10 @@ use lurq::{
 // due: Signal<Option<Date>>
 DatePicker::new(due.clone()).placeholder("Pick a date").clearable(true).mount(ctx);
 
-// In a field, which names it and judges it, with what it keeps kept by the app (made once, in `create`).
-Field::new("Due date", DatePicker::new(due.clone()).min(Date::today()).memory(&self.memory))
-  .error("The due date has passed.");
+// In a field, which names it and judges it; the field mounted mounts the picker.
+Field::new("Due date", DatePicker::new(due.clone()).min(Date::today()))
+  .error("The due date has passed.")
+  .mount(ctx);
 
 // Written and read the app's way.
 DatePicker::new(due.clone()).format(|date| date.to_string()).parse(|text| text.parse().ok());
@@ -4553,7 +4563,7 @@ DatePicker::controlled(self.due.get(), move |date| due.set(date));
 - What is typed is read as it is typed, in the locale's short form (`Nov 12, 2026`), in its numbers (`11/12/2026`, `12.11.2026`) or as ISO 8601, a month by its name or the start of it in the locale's words or in English: a date that can be chosen is the value at once, and the field keeps what is half typed while it has the focus. The year has four digits, so `Nov 12, 20` is no date yet. When the focus leaves the field, or on Enter, the text is written again as the picker writes the value; an emptied field is no date, and anything else takes back the date it had.
 - The calendar opens in a [popover](#popover) under the field, from the button at its start or from Down in the field, with the focus on the chosen day, today or the first of the month. A choice closes it and the focus goes back to the field, as Escape and a press outside do.
 - To what reads the tree the field is a `combobox` that says `a11y_haspopup` `dialog` and `a11y_expanded`, as the date picker of the ARIA patterns is; the panel is a `dialog` called "Choose date". The button that opens it and the cross that empties it are pressed by the pointer and take no focus.
-- In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A picker in a field keeps what it keeps in a `DateMemory`, since a field is given the picker's builder.
+- In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A field the app mounts (`Field::mount(ctx)`) mounts the picker; a field converted into an element keeps what the picker keeps only where the app gives it a `DateMemory`.
 - Parts: `DatePickerPart::Control` (rules over the input's box), `Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's root), and a range picker's `Presets`, `Preset` and `Separator` (rules over the line beside them). The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`, and the input's size.
 - In the design the field is the input, 260 by 36, with a calendar's glyph of 16 in `MutedForeground` 12 from its start and the date 8 after it in the body's type. The glyph is in a button of 24 with `radius-sm`, on `Highlight` under the pointer. The calendar opens 4 under the field, in the popover's panel with no padding of its own, as wide as the calendar.
 - A theme's renderer is given `DatePickerView` (`PickerView<Date>`): `view.text`, `view.value`, `view.open`, and the pieces `control()`, `trigger()`, `clear()`, `field()`, `calendar()`, `panel()` and `render()`.
@@ -4807,8 +4817,8 @@ use lurq::{
 // born: Signal<Date>; mounted, so that it keeps what is half typed.
 DateField::new(born.clone()).label("Date of birth").mount(ctx);
 
-// A date that may be none, in a field, with what it keeps kept by the app (made once, in `create`).
-Field::new("Due date", DateField::optional(due.clone()).min(Date::today()).memory(&self.memory));
+// A date that may be none, in a field; the field mounted mounts the date field.
+Field::new("Due date", DateField::optional(due.clone()).min(Date::today())).mount(ctx);
 ```
 
 | Builder | |
