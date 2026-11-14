@@ -13,7 +13,7 @@ use super::{
   part_style::{Length, PartStyle},
   popover::{Popover, PopoverPart},
   recipe::{Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  separator::{Separator, SeparatorOrientation},
+  separator::Separator,
   shared::fading,
   text_box::{BoxStates, Judgment},
   theme::{Themed, current_theme},
@@ -749,7 +749,7 @@ impl<V: Picked> PickerView<V> {
       Some(presets) => Row::new()
         .align_items(Alignment::Stretch)
         .child(presets)
-        .child(Separator::new(SeparatorOrientation::Vertical))
+        .child(Separator::vertical())
         .child(self.calendar())
         .into(),
       None => self.calendar(),

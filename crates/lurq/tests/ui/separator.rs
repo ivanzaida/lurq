@@ -1,15 +1,19 @@
 //! A separator: a line of 1 in the border's color across a column or down a
-//! row, a label in its middle, a length of its own, and a theme's rule.
+//! row, a label in its middle, a length of its own whichever way it is told, a recipe by its state, and a theme's
+//! rule.
 
 use lurq::{
-  app::theme::{PaletteColor, ThemePalette},
+  app::{
+    App,
+    theme::{PaletteColor, ThemePalette},
+  },
   components::{Column, Row},
   layout::{
     Alignment,
     quad::{Quad, QuadContent},
   },
   node::color::Color,
-  ui::{Separator, SeparatorPart},
+  ui::{Orientation, Separator, SeparatorPart, SeparatorState},
 };
 
 use super::stage::Stage;
@@ -101,6 +105,52 @@ fn a_label_stands_in_the_middle_with_the_line_on_either_side() {
   // The lines run through the middle of the label.
   let middle = label.y + label.height / 2.0;
   assert!((before.y - middle).abs() < 1.5, "{} {middle}", before.y);
+}
+
+#[test]
+fn an_orientation_given_after_the_length_still_takes_it_along_its_way() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .align_items(Alignment::Center)
+      .child(
+        Separator::new()
+          .length(20.0)
+          .orientation(Orientation::Vertical)
+          .id("down"),
+      )
+      .child(Separator::new().length(30.0).id("across"))
+      .into()
+  });
+  let (.., width, height) = stage.bounds("down");
+  assert_eq!((width, height), (1.0, 20.0));
+  let (.., width, height) = stage.bounds("across");
+  assert_eq!((width, height), (30.0, 1.0));
+}
+
+#[test]
+fn a_recipe_styles_each_way_by_its_state() {
+  let app = App::new();
+  app.theme().patch_recipe::<Separator>(|rules| {
+    rules.state(SeparatorState::Vertical, SeparatorPart::Line, |s| {
+      s.background(PaletteColor::Primary)
+    })
+  });
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .height(24.0)
+      .align_items(Alignment::Stretch)
+      .child(Separator::vertical())
+      .child(Column::new().width(80.0).child(Separator::horizontal()))
+      .into()
+  });
+  let down = fills(&stage, light(PaletteColor::Primary));
+  assert_eq!(down.len(), 1, "the vertical one alone");
+  assert_eq!((down[0].width, down[0].height), (1.0, 24.0));
+  assert_eq!(
+    fills(&stage, light(PaletteColor::Border)).len(),
+    1,
+    "the horizontal one keeps its color"
+  );
 }
 
 #[test]

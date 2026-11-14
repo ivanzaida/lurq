@@ -1618,7 +1618,8 @@ Row::new()
 
 | Builder | |
 | --- | --- |
-| `Separator::horizontal()`, `vertical()`, `new(orientation)` | A line across a column, or down a row |
+| `Separator::new()`, `horizontal()`, `vertical()` | A line across a column (`new` and `horizontal`), or down a row |
+| `orientation(Orientation)` | Which way it runs: `Horizontal` (unless told) or `Vertical`. `SeparatorOrientation` is `ui::Orientation` |
 | `label(&str)` | A word in the middle, with the line on either side of it |
 | `length(f32)` | How long it is: its width across a column, its height down a row |
 | `decorative(bool)` | Whether tooling passes it by. On by default |
@@ -1626,7 +1627,7 @@ Row::new()
 
 - A label longer than the room is cut with an ellipsis on one line, and a line of 24 at least stays on either side of it.
 - A separator across a column is as wide as the room it is given. One down a row is as high as the row where the row stretches its children (`align_items(Alignment::Stretch)`); in a row that does not, it is given a `length`. An inset is the root's padding: `style(SeparatorPart::Root, |s| s.padding_x(16.0))`.
-- Parts: `SeparatorPart::Root` (the line, or the lines and the label), `Line`, `Label`. Its orientation is the variant of its recipe: `SeparatorOrientation::Horizontal`, `Vertical`.
+- Parts: `SeparatorPart::Root` (the line, or the lines and the label), `Line`, `Label`. States: `SeparatorState::Horizontal` and `Vertical`, one of them on, which a recipe styles each way by.
 - In the design the line is 1 in `Border`. A label is in the caption's type in `MutedForeground`, 8 from the line on either side.
 - A separator is decoration to what reads the tree. One given `decorative(false)` is a `separator` with `a11y_orientation`, called by its label where it has one: for one between parts a person moves between.
 - Tabs, the dialog and the menu draw lines of their own from their recipes.
@@ -1735,7 +1736,8 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 | `variant(ProgressVariant)` | The color of what is filled: `Default` (primary), `Success`, `Warning`, `Destructive` |
 | `size(ProgressSize)` | The rail's height: `Sm` 4, `Md` 6, `Lg` 8 (the default). A ring of 40, 56 or 72 |
 | `label(&str)` | What the work is, over the start of the rail, and what the progress is called |
-| `show_value(bool)` | The value over the end of the rail, as a percentage or as `format` says it. None while it is not known. A ring shows it unless told not to |
+| `label_hidden(bool)` | The label is what the progress is called, and is not drawn |
+| `show_value(bool)` | The value over the end of the rail, as a percentage or as `format` says it. Off unless told, as the design's bar draws none; none while it is not known. A ring shows it unless told not to, as the design's ring does |
 | `format(Fn(f32, f32) -> String)` | Says the value, given the value and `max`: "42 of 128" |
 | `top_bar(bool)` | The thin bar across the top of a window or a surface: 3 high, no rail, as wide as what holds it |
 | `width(impl Into<Length>)` | How wide the progress is: 240 when not given |

@@ -61,7 +61,7 @@ impl SeparatorPage {
     let plain = {
       let label = label.clone();
       move || {
-        let mut separator = Separator::new(orientation).decorative(decorative);
+        let mut separator = Separator::new().orientation(orientation).decorative(decorative);
         if !label.is_empty() {
           separator = separator.label(&label);
         }
@@ -226,6 +226,12 @@ impl Component for SeparatorPage {
         "",
         "A line across a column, as wide as the room it is given; or down a row, as high as a row that stretches \
          its children.",
+      ),
+      (
+        "orientation",
+        "Orientation",
+        "Horizontal",
+        "Which way it runs, on Separator::new(): Horizontal or Vertical.",
       ),
       (
         "label",
