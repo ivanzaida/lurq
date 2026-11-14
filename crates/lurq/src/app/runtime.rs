@@ -88,6 +88,7 @@ mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
 mod inline_link_keys;
 mod input_token_paint;
+mod interaction_groups;
 mod leaving_layers;
 #[cfg(feature = "image")]
 mod loading_images;
@@ -144,8 +145,8 @@ impl HasDisplayHandle for HeadlessSurface {
   }
 }
 
-const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
-const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
+pub(crate) const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+pub(crate) const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 /// How long a vertical wheel delta tells the slant of the horizontal deltas
 /// that follow it at the same pointer (see [`Tree::wheel_gesture_vertical`]).
 const WHEEL_AXIS_LOCK_WINDOW: Duration = Duration::from_millis(150);
@@ -760,6 +761,10 @@ pub struct Tree {
   /// there after a layout moves content.
   pointer: Option<hover::PointerAt>,
   hover_path: Vec<NodeId>,
+  /// The row a group of rows stepped to that its list had not built: focused once it is (`nested_focus`).
+  pending_row_focus: Option<nested_focus::PendingRowFocus>,
+  /// The states of the nodes an interaction group around them lights: see `interaction_groups`.
+  within_states: Vec<crate::node::interaction_state::InteractionState>,
   /// The disabled element the pointer is on: not hovered, but it heard the pointer come (`hover::enter_disabled`).
   disabled_hover: Option<NodeId>,
   active_path: Vec<NodeId>,
@@ -1220,6 +1225,8 @@ impl Tree {
       window: crate::app::window::Window::new(),
       pointer: None,
       hover_path: Vec::new(),
+      pending_row_focus: None,
+      within_states: Vec::new(),
       disabled_hover: None,
       active_path: Vec::new(),
       dragging_scroll: None,
@@ -2658,6 +2665,7 @@ impl Tree {
 
     let now = Instant::now();
     self.flush_due_pending_click(now);
+    self.refresh_interaction_groups();
 
     let initial_cache_start = Instant::now();
     let initial_cache_result = if self.root.is_some()
@@ -2722,6 +2730,8 @@ impl Tree {
     if layout_updated && self.refresh_hover_at_pointer() {
       self.update_layout(app);
     }
+    // The tree may have been built again, and the pointer may be on something else now.
+    self.refresh_interaction_groups();
     self.update_text_input_caret_blink(now, caret_mode);
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
@@ -3811,6 +3821,8 @@ impl Tree {
   ) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
+    // A press is where the keys go on from: a row a group of rows waited for is no longer awaited.
+    self.pending_row_focus = None;
     self.dispatch_mouse_down(x, y, button, MouseModifiers { shift, ctrl, alt, meta });
     #[cfg(feature = "perf_profile")]
     self.end_profiled_input(input);
@@ -4273,6 +4285,10 @@ impl Tree {
   /// the group's choice follows its focus. `false` when the key is not the group's, the focus is in no
   /// group, or it is on a control that takes the arrow keys itself.
   fn focus_group_key(&mut self, key: &str, modifiers: MouseModifiers) -> bool {
+    // While a group of rows waits for the row it stepped to, the keys go on from that row: see `nested_focus`.
+    if let Some(handled) = self.pending_rows_key(key) {
+      return handled;
+    }
     let (Some(focused), Some(path)) = (self.focused_node, self.focused_path.clone()) else {
       return false;
     };
@@ -4290,6 +4306,8 @@ impl Tree {
       if let Some((group, step)) = node
         .focus_group_value()
         .and_then(|group| Some((group, group.step(key)?)))
+        // PageUp and PageDown are a group's only where it steps over rows of its own.
+        .filter(|(_, step)| !step.is_page() || node.focus_branch().is_some_and(|branch| branch.rows.is_some()))
       {
         found = Some((node, group, step));
       }
@@ -4308,6 +4326,13 @@ impl Tree {
     let Some((group_node, group, step)) = found else {
       return false;
     };
+    // A group of rows a list builds only in part steps over its rows: see `nested_focus`.
+    if let Some(rows) = group_node.focus_branch().and_then(|branch| branch.rows.clone())
+      && let Some(row) = node.focus_branch().and_then(|branch| branch.row)
+    {
+      let group_id = group_node.node_id();
+      return self.focus_rows_key(group_id, rows, group, row, step);
+    }
     // Right, Left and `*` in a nested group open, close and climb: see `nested_focus`.
     if step.is_nested() {
       let group_id = group_node.node_id();
@@ -4329,7 +4354,9 @@ impl Tree {
       | crate::node::FocusStep::On
       | crate::node::FocusStep::Open
       | crate::node::FocusStep::Close
-      | crate::node::FocusStep::OpenSiblings => current,
+      | crate::node::FocusStep::OpenSiblings
+      | crate::node::FocusStep::PageBack
+      | crate::node::FocusStep::PageOn => current,
     };
     // The key is the group's even where it moves nothing: at an end of a group that does not wrap.
     if next != current {
@@ -4351,6 +4378,8 @@ impl Tree {
   }
 
   fn focus_tab(&mut self, reverse: bool) -> bool {
+    // Tab is where the keys go on from: a row a group of rows waited for is no longer awaited.
+    self.pending_row_focus = None;
     self.set_input_modality(focus_visible::InputModality::Keyboard);
     // A range's thumbs are a stop of Tab each: Tab goes from its low thumb to its high one before it leaves.
     if let Some(state) = self.focused_node.and_then(|id| self.current_slider_state(id))
@@ -6024,6 +6053,8 @@ impl Tree {
       self.root_ctx.as_ref().unwrap().take_focus_request();
     }
     if let Some(target) = target {
+      // The app's focus is where the keys go on from: a row a group of rows waited for is no longer awaited.
+      self.pending_row_focus = None;
       self.focus_node(target);
       if self.focused_node == Some(target.input_id) {
         self.request_scroll_into_view(target.input_id);
@@ -6775,6 +6806,7 @@ impl Tree {
       self.rebuild_if_dirty();
     }
     self.apply_focus_request();
+    self.refresh_interaction_groups();
   }
 
   fn reset_text_input_caret_blink(&mut self) {
@@ -7290,6 +7322,7 @@ impl Tree {
       }
       self.last_layout = Some(layout);
       self.blur_focus_in_dropped_child();
+      self.apply_pending_row_focus();
       self.tree_rebuilt_since_layout = false;
       // All tick walks for this frame ran (base tree + overlay subtrees), so
       // the engines can now drop runs whose nodes left the tree; otherwise an

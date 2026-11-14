@@ -208,12 +208,21 @@ pub(crate) enum FocusStep {
   Close,
   /// `*` in a nested group: open every element at the level of the focused one, in the element it is in.
   OpenSiblings,
+  /// PageUp in a group of [`FocusRows`]: a page of rows back.
+  PageBack,
+  /// PageDown in a group of [`FocusRows`]: a page of rows on.
+  PageOn,
 }
 
 impl FocusStep {
   /// Whether it is a key of a nested group: open, close or open the siblings.
   pub(crate) fn is_nested(self) -> bool {
     matches!(self, Self::Open | Self::Close | Self::OpenSiblings)
+  }
+
+  /// Whether it is PageUp or PageDown, which only a group of [`FocusRows`] takes.
+  pub(crate) fn is_page(self) -> bool {
+    matches!(self, Self::PageBack | Self::PageOn)
   }
 }
 
@@ -235,6 +244,8 @@ impl FocusGroup {
       "ArrowRight" if horizontal => Some(FocusStep::On),
       "ArrowUp" if vertical => Some(FocusStep::Back),
       "ArrowDown" if vertical => Some(FocusStep::On),
+      "PageUp" if vertical => Some(FocusStep::PageBack),
+      "PageDown" if vertical => Some(FocusStep::PageOn),
       "Home" => Some(FocusStep::First),
       "End" => Some(FocusStep::Last),
       _ => None,
@@ -242,13 +253,98 @@ impl FocusGroup {
   }
 }
 
-/// Where an element stands in a nested [`FocusGroup`]: its level, and, for one
-/// that opens and closes, whether it is open and what asks it to be.
+/// The rows of a [`FocusGroup`] that a list builds only in part: a virtual list of thousands, of which the rows
+/// near its view are in the tree. The group's keys step over these rows, not over the elements that are built,
+/// and a row that is not built is asked for ([`reveal`](Self::reveal)) and focused once it is: its first stop of
+/// Tab, the element that says it is that row with `.focus_row(index)`.
+///
+/// `.focus_rows(rows)` on the element of the group gives them. The same `Arc` from one render to the next is one
+/// group: the engine knows the row it is waiting for by it.
+///
+/// What it answers for a row is what the row's element would say of itself in a group that builds every row: its
+/// label for typeahead, its level and whether it is open in a [nested](FocusGroup::nested) group.
+pub trait FocusRows: Send + Sync {
+  /// How many rows there are.
+  fn count(&self) -> usize;
+
+  /// What typeahead matches the row by.
+  fn label(&self, row: usize) -> Option<String>;
+
+  /// Whether the row takes the focus: a disabled one is passed by.
+  fn enabled(&self, _row: usize) -> bool {
+    true
+  }
+
+  /// Its level in a nested group: 1 at the top.
+  fn level(&self, _row: usize) -> u32 {
+    1
+  }
+
+  /// Whether the row is open, for a row that opens.
+  fn expanded(&self, _row: usize) -> Option<bool> {
+    None
+  }
+
+  /// Asks for the row to be opened or closed.
+  fn set_expanded(&self, _row: usize, _open: bool) {}
+
+  /// How many rows PageUp and PageDown move by: as many as the view holds.
+  fn page(&self) -> usize {
+    10
+  }
+
+  /// Asks for the row to be built and brought into view. The engine focuses it after the layout it is in.
+  fn reveal(&self, row: usize);
+}
+
+/// Where a step of `step` goes from `current` among `count` rows that take the focus where `enabled` says, in a
+/// group that goes round its ends where `wrap` says: `None` where it moves nothing. PageUp and PageDown go `page`
+/// rows, to the nearest that takes the focus, and stop at the ends.
+pub(crate) fn step_rows(
+  step: FocusStep,
+  current: usize,
+  count: usize,
+  page: usize,
+  wrap: bool,
+  enabled: impl Fn(usize) -> bool,
+) -> Option<usize> {
+  if count == 0 {
+    return None;
+  }
+  let last = count - 1;
+  let forward = |from: usize| (from..count).find(|&row| enabled(row));
+  let backward = |from: usize| (0..=from.min(last)).rev().find(|&row| enabled(row));
+  let target = match step {
+    FocusStep::First => forward(0),
+    FocusStep::Last => backward(last),
+    FocusStep::On => forward(current + 1).or_else(|| wrap.then(|| forward(0)).flatten()),
+    FocusStep::Back => current
+      .checked_sub(1)
+      .and_then(backward)
+      .or_else(|| wrap.then(|| backward(last)).flatten()),
+    FocusStep::PageOn => {
+      let to = (current + page.max(1)).min(last);
+      backward(to).filter(|&row| row > current).or_else(|| forward(to))
+    }
+    FocusStep::PageBack => {
+      let to = current.saturating_sub(page.max(1));
+      forward(to).filter(|&row| row < current).or_else(|| backward(to))
+    }
+    FocusStep::Open | FocusStep::Close | FocusStep::OpenSiblings => None,
+  };
+  target.filter(|&row| row != current)
+}
+
+/// What an element says to the keys of the focus group it is in: its level in a nested group and, for one that
+/// opens and closes, whether it is open and what asks it to be; the row of [`FocusRows`] it is; and, on the
+/// element of a group, the rows the group steps over.
 #[derive(Clone, Default)]
 pub(crate) struct FocusBranch {
   pub(crate) level: Option<u32>,
   pub(crate) expanded: Option<bool>,
   pub(crate) toggle: Option<std::sync::Arc<dyn Fn(bool) + Send + Sync>>,
+  pub(crate) row: Option<usize>,
+  pub(crate) rows: Option<std::sync::Arc<dyn FocusRows>>,
 }
 
 impl FocusBranch {

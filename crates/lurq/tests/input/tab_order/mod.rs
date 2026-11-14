@@ -2,6 +2,7 @@ use lurq::app::{App, Tree};
 
 mod dropped;
 mod focus_group;
+mod focus_rows;
 mod focusable;
 mod inert;
 #[cfg(feature = "form")]

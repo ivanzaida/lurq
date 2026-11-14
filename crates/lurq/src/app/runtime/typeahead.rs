@@ -15,7 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use super::{FocusTarget, NodeKind, Tree, focus_visible, tab_navigation};
+use super::{NodeKind, Tree, focus_visible, tab_navigation};
 use crate::node::Node;
 
 /// How long after a letter the next one goes on the same prefix.
@@ -82,10 +82,25 @@ impl Tree {
       at: now,
     });
 
+    // A group of rows a list builds only in part: the rows, built or not.
+    if let Some(rows) = group.focus_branch().and_then(|branch| branch.rows.clone())
+      && let Some(current) = node.focus_branch().and_then(|branch| branch.row)
+    {
+      let group = group.node_id();
+      let target = find(rows.count(), Some(current), &prefix, |row| {
+        rows.enabled(row).then(|| rows.label(row)).flatten()
+      });
+      if let Some(target) = target
+        && target != current
+      {
+        self.focus_row(group, rows, target);
+      }
+      return true;
+    }
     // The stops with their nodes, in one walk: a tree of thousands of rows is not searched again for each.
     let (stops, nodes) = tab_navigation::group_stop_nodes(group, &self.dropped_nodes);
     let current = stops.iter().position(|stop| stop.input_id == focused);
-    let target = find(&stops, &nodes, current, &prefix);
+    let target = find(stops.len(), current, &prefix, |index| label(nodes[index])).map(|index| stops[index]);
     if let Some(target) = target
       && Some(target.input_id) != Some(focused)
     {
@@ -97,10 +112,10 @@ impl Tree {
   }
 }
 
-/// The stop of `stops` whose label starts with `prefix`, looked for round the
-/// group: from `current` on for a prefix of more than one letter, from the one
-/// after it for one letter, or one letter typed again and again.
-fn find(stops: &[FocusTarget], nodes: &[&Node], current: Option<usize>, prefix: &str) -> Option<FocusTarget> {
+/// Which of `count` elements has a label (`label`) that starts with `prefix`, looked for round the group: from
+/// `current` on for a prefix of more than one letter, from the one after it for one letter, or one letter typed
+/// again and again.
+fn find(count: usize, current: Option<usize>, prefix: &str, label: impl Fn(usize) -> Option<String>) -> Option<usize> {
   let mut letters = prefix.chars();
   let first = letters.next()?;
   let repeated = letters.all(|letter| letter == first);
@@ -109,10 +124,9 @@ fn find(stops: &[FocusTarget], nodes: &[&Node], current: Option<usize>, prefix: 
     (false, Some(current)) => (prefix.to_owned(), current),
     (_, None) => (prefix.to_owned(), 0),
   };
-  (0..stops.len())
-    .map(|step| (start + step) % stops.len())
-    .find(|&index| label(nodes[index]).is_some_and(|label| label.to_lowercase().starts_with(&wanted)))
-    .map(|index| stops[index])
+  (0..count)
+    .map(|step| (start + step) % count)
+    .find(|&index| label(index).is_some_and(|label| label.to_lowercase().starts_with(&wanted)))
 }
 
 /// The label of an element: its `focus_label`, or, for a button, the one text in it.
