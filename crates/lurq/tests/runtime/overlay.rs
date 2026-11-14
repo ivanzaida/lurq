@@ -1113,3 +1113,63 @@ fn overlay_at_a_point_is_kept_inside_the_window() {
   assert_eq!(overlay.x, 0.0);
   assert_eq!(overlay.y, 13.0);
 }
+
+/// A popup at the point 200, 100 of a window of 400 by 300, open while its signal is, which counts its dismissals.
+struct DismissedPointRoot {
+  anchor: ElementRef,
+}
+
+impl Component for DismissedPointRoot {
+  type Props = Shared<(Signal<bool>, std::sync::Arc<std::sync::atomic::AtomicUsize>)>;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      anchor: ElementRef::new(),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let (open, dismissed) = (*ctx.props::<Self::Props>().0).clone();
+    Stack::new()
+      .size(400.0, 300.0)
+      .child(
+        Rect::new(80.0, 30.0)
+          .background("#22c55e")
+          .absolute_position(10.0, 10.0)
+          .ref_element(self.anchor.clone()),
+      )
+      .child(
+        Popup::new(self.anchor.clone(), Rect::new(60.0, 20.0).background("#ef4444"))
+          .open(open)
+          .at(Some((200.0, 100.0)))
+          .on_dismiss(move || {
+            dismissed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+          }),
+      )
+  }
+}
+
+#[test]
+fn overlay_at_a_point_is_outside_where_it_stands_and_dismisses_as_any() {
+  let open = Signal::new(true);
+  let dismissed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(400, 300);
+  tree.mount_root::<DismissedPointRoot>(&mut app, Shared(std::sync::Arc::new((open.clone(), dismissed.clone()))));
+  run_pass(&mut tree);
+
+  // A press on it where it stands, away from its anchor, is inside it; one on its anchor is not outside it either.
+  pointer_click(&mut tree, 230.0, 110.0, MouseButton::Left);
+  run_pass(&mut tree);
+  pointer_click(&mut tree, 40.0, 20.0, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(open.get(), "a press on the popup or its anchor keeps it");
+  assert_eq!(dismissed.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+  // A press where it would stand by its anchor is outside it: it closes, and says so.
+  pointer_click(&mut tree, 20.0, 50.0, MouseButton::Left);
+  run_pass(&mut tree);
+  assert!(!open.get());
+  assert_eq!(dismissed.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

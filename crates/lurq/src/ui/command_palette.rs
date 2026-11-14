@@ -7,6 +7,7 @@ use std::{
 
 use super::{
   input::{Input, InputPart},
+  kbd::{Kbd, KbdPart, KbdVariant, KeyPlatform},
   menu::{MenuItem, MenuItemPart, MenuItemState},
   names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -46,7 +47,7 @@ pub enum CommandPalettePart {
   SearchIcon,
   /// The box that is typed in, laid over the theme's input: it has no edge or fill of its own.
   Input,
-  /// A key written as a key: the Escape at the end of the search row, and those of the footer.
+  /// A key of the search row's Escape and of the footer, laid over a [`Kbd`]'s key.
   Key,
   /// What scrolls when the commands are more than it has room for: its most height.
   Results,
@@ -696,13 +697,18 @@ impl CommandPaletteView {
     panel
   }
 
-  /// A key written as a key, in the style of [`CommandPalettePart::Key`]: "Esc", "↵".
-  pub fn key(&self, label: &str) -> Element {
-    let part = self.part(CommandPalettePart::Key);
+  /// A key as the theme's [`Kbd`] draws one, in the platform's names, with [`CommandPalettePart::Key`] laid over its
+  /// key: "Esc", "Enter" (↩ on a Mac). It keeps its width in a row that has too little room.
+  pub fn key(&self, key: &str) -> Element {
     Row::new()
+      .flex_full(0.0, 0.0, None)
       .align_items(Alignment::Center)
-      .part(&part)
-      .child(part.text(label).nowrap())
+      .child(
+        Kbd::new(key)
+          .platform(KeyPlatform::current())
+          .rules(&self.recipe.rules_for(CommandPalettePart::Key, KbdPart::Key))
+          .build(self.theme()),
+      )
       .into()
   }
 
@@ -820,7 +826,13 @@ impl CommandPaletteView {
         Name::new(super::icons::SEARCH),
         false,
       ))
-      .child(Row::new().flex(1.0).align_items(Alignment::Center).child(self.input()))
+      // The input takes the room the icon and the key leave, and gives way first.
+      .child(
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .align_items(Alignment::Center)
+          .child(self.input()),
+      )
       .child(self.key("Esc"))
   }
 
@@ -881,7 +893,11 @@ impl CommandPaletteView {
       root = root.key(key.clone());
     }
     let gap = part(MenuItemPart::Root).rest().gap.unwrap_or_default();
-    let mut start = Row::new().flex(1.0).spacing(gap.clone()).align_items(Alignment::Center);
+    // The texts take the room the shortcut leaves, and give way before it.
+    let mut start = Row::new()
+      .flex_full(1.0, 1.0, Some(0.0))
+      .spacing(gap.clone())
+      .align_items(Alignment::Center);
     if let Some(icon) = command.icon {
       start = start.child(glyph(&part(MenuItemPart::Icon), icon, false));
     }
@@ -895,15 +911,26 @@ impl CommandPaletteView {
       let part = self.part(CommandPalettePart::Detail);
       start = start.child(
         Row::new()
-          .flex(1.0)
+          .flex_full(1.0, 1.0, Some(0.0))
           .part(&part)
           .child(part.text(detail).nowrap().text_overflow(TextOverflow::Elipsis)),
       );
     }
     root = root.child(start);
+    // The shortcut as a menu writes it: the theme's keys in one text, with the menu item's shortcut over its label.
     if let Some(shortcut) = &command.shortcut {
-      let part = part(MenuItemPart::Shortcut);
-      root = root.child(Row::new().part(&part).child(part.text(shortcut).nowrap()));
+      root = root.child(
+        Row::new()
+          .flex_full(0.0, 0.0, None)
+          .align_items(Alignment::Center)
+          .child(
+            Kbd::shortcut(shortcut)
+              .variant(KbdVariant::Plain)
+              .platform(KeyPlatform::current())
+              .rules(&item.rules_for(MenuItemPart::Shortcut, KbdPart::Label))
+              .build(self.theme()),
+          ),
+      );
     }
     root.into()
   }
@@ -986,7 +1013,7 @@ impl CommandPaletteView {
           .align_items(Alignment::Center)
           .part(&self.part(CommandPalettePart::Footer))
           .child(hint(&["↑", "↓"], "to move"))
-          .child(hint(&["↵"], "to run"))
+          .child(hint(&["Enter"], "to run"))
           .child(hint(&["Esc"], "to close")),
       )
       .into()
@@ -1039,11 +1066,11 @@ impl Themed for CommandPalette {
   /// color with an edge of the border's color, corners of `radius-xl` and the large shadow, 72 from the top of the
   /// window over the scrim. Its search row is 44 high, 14 in from the sides with 10 between the magnifier of 16, the
   /// input in the body's type and the key that closes it, and a line under it. Its list is padded 4, a group's label
-  /// 12/500 in the muted foreground, padded 6 and 8, and its rows are a menu's items. A key is 20 high on the muted
-  /// fill in an edge of the border's color, 4 round, its text the mono type at 11, muted. The list scrolls past 320.
+  /// 12/500 in the muted foreground, padded 6 and 8, and its rows are a menu's items. Its keys are the theme's Kbd,
+  /// and a row's shortcut the Kbd's plain text, as a menu writes it. The list scrolls past 320.
   fn recipe() -> Recipe {
     use CommandPalettePart::*;
-    use PaletteColor::{Muted, MutedForeground, Popover, PopoverForeground, Scrim};
+    use PaletteColor::{MutedForeground, Popover, PopoverForeground, Scrim};
     let clear = Color::new(0, 0, 0, 0);
     let unedged = move |s: super::PartStyle| s.background(clear).border(Border::inside(1.0, clear));
     Recipe::new()
@@ -1072,16 +1099,6 @@ impl Themed for CommandPalette {
       .base(Input, move |s| unedged(s).padding_x(0.0).typography(TypographyStyle::Body))
       .hovered(Input, move |s| s.border(Border::inside(1.0, clear)))
       .focus_visible(Input, move |s| s.outline(Outline::new(0.0, clear)))
-      .base(Key, |s| {
-        s.height(20.0)
-          .padding_x(6.0)
-          .radius(RadiusSize::Sm)
-          .background(Muted)
-          .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
-          .typography(TypographyStyle::Mono)
-          .font_size(11.0)
-          .foreground(MutedForeground)
-      })
       .base(Results, |s| s.max_height(320.0))
       .base(List, |s| s.padding_x(4.0).padding_y(4.0))
       .base(GroupLabel, |s| {

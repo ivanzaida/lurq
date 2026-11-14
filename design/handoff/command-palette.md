@@ -24,7 +24,8 @@ This session owns a popup placed at a point of the window rather than at an elem
   Files: `app/ctx.rs` (field `at` on `Overlay` and `OverlaySpec`, in `clone_with_node` and `into_spec`, the builder),
   `components/popup.rs` (the builder), `app/runtime.rs` (`OverlayPlacing::at`, set in `build_overlay_node`;
   `place_overlay` calls the new `point_position` in place of `resolve_overlay_collision` and `overlay_position` when
-  it is set). Tests in `crates/lurq/tests/runtime/overlay.rs` (`overlay_at_a_point_*`, three), written and not run.
+  it is set). Tests in `crates/lurq/tests/runtime/overlay.rs` (`overlay_at_a_point_*`, four: where it stands, flipped, kept
+  inside, and that a press is outside it by where it stands, which closes it and calls its `on_dismiss`).
 - `crates/lurq/src/ui/menu.rs`: `Menu::context(point)` (`pub(crate)`) and the field it sets on `Menu` and `MenuView`:
   the menu's popup stands at the point (`Popup::at`) with no offset, or, for `None` (opened from the keyboard), at its
   anchor as a menu does; either way its anchor is no trigger of a dropdown (`switch_on_anchor_press(false)`). A menu
@@ -36,9 +37,7 @@ This session owns a popup placed at a point of the window rather than at an elem
   (a press, Enter or Space; it looks as the field did), Ctrl+K opens it, and its commands are the pages in the side
   bar's groups, found by name and by their `about` words; running one goes to the page. The side bar is no longer
   filtered, and the shell keeps `search_open` in place of the search's text, field, focus and the `find` counter.
-  **Merge note**: the empty-state session also changes this file (`keys(find_chord())` becomes
-  `Kbd::shortcut("Mod+K").platform(KeyPlatform::current())`, `find_chord` removed). Take this session's
-  `search_field` and put their `Kbd` in place of `keys(find_chord())` in it.
+  The header's field says its keys with `ui::Kbd` (`Kbd::shortcut("Mod+K")`), as the empty-state session made it.
 
 No keyframes were added.
 
@@ -91,8 +90,8 @@ CommandPalette::new(open.clone())
 - It stands near the top of the window over the veil, as the engine's `Modal`: the focus goes to its input as it opens and back to what had it as it closes, and Tab stays inside it, as a [dialog](#dialog)'s does.
 - The focus stays in the input. Down and Up move the highlight through the rows that are shown, across groups and round at the ends, past a disabled one, and scroll the list to it; the pointer moves it too, and a row shows it as a menu item shows the keyboard's focus. Enter runs the highlighted command and closes the palette; a click on a row does the same. Escape clears what was typed, and closes the palette when nothing is. Typing puts the highlight on the first row it shows.
 - To what reads the tree it is a `dialog` holding a `combobox` (the input, `expanded`, with the highlighted command's label as its `a11y_activedescendant`) and a `listbox` of `option`s with `a11y_selected`.
-- Parts: `CommandPalettePart::Veil`, `Panel`, `Search` (the row at the top), `SearchIcon`, `Input` (laid over the theme's input), `Key` (the Escape at the end of the search row and the keys of the footer), `Results` (what scrolls: its most height), `List` (the room around the rows), `GroupLabel`, `Row` (laid over a menu item's root), `Detail`, `Empty`, `Status`, `Footer`, `FooterHint`. The rows are a [menu](#menu)'s items: a theme's rules for `MenuItem` style them too. States: `CommandPaletteState::Loading`, `Empty`.
-- In the design the panel is 420 wide on `Popover` in an edge of 1 in `Border`, `radius-xl`, the large shadow, 72 from the top of the window over `Scrim`. The search row is 44 high, 14 in, with 10 between the magnifier of 16 in `MutedForeground`, the input in the body's type (no edge or fill of its own) and the key, and a line of `Border` under it. The list is padded 4 and scrolls past 320; a group's label is 12/500 in `MutedForeground`, padded 6 and 8; a row is a menu item, 32 high on `Highlight` while it is highlighted. A key is 20 high, padded 6, 4 round, on `Muted` in an edge of `Border`, in the mono type at 11 in `MutedForeground`.
+- Parts: `CommandPalettePart::Veil`, `Panel`, `Search` (the row at the top), `SearchIcon`, `Input` (laid over the theme's input), `Key` (laid over the [Kbd](#kbd) key of the search row's Escape and of the footer), `Results` (what scrolls: its most height), `List` (the room around the rows), `GroupLabel`, `Row` (laid over a menu item's root), `Detail`, `Empty`, `Status`, `Footer`, `FooterHint`. The rows are a [menu](#menu)'s items: a theme's rules for `MenuItem` style them too. States: `CommandPaletteState::Loading`, `Empty`.
+- In the design the panel is 420 wide on `Popover` in an edge of 1 in `Border`, `radius-xl`, the large shadow, 72 from the top of the window over `Scrim`. The search row is 44 high, 14 in, with 10 between the magnifier of 16 in `MutedForeground`, the input in the body's type (no edge or fill of its own) and the key, and a line of `Border` under it. The list is padded 4 and scrolls past 320; a group's label is 12/500 in `MutedForeground`, padded 6 and 8; a row is a menu item, 32 high on `Highlight` while it is highlighted. The keys are the theme's [Kbd](#kbd), in the platform's names (`Enter` is ↩ on a Mac), and a row's shortcut is a Kbd's plain text, as a menu writes it, with the menu item's `Shortcut` part laid over its label.
 - A renderer that draws another palette has `view.panel()`, `view.search()`, `view.input()`, `view.key(label)`, `view.results()`, `view.group_label(label)`, `view.row(index)`, `view.empty_state()`, `view.status()`, `view.footer_row()`, `view.veil(panel)` and `view.modal(panel)`, with `view.shown()`, `view.command(index)` and `view.highlighted`.
 
 ## Context Menu
@@ -137,6 +136,7 @@ ContextMenu::new(editor, editing.clone())
 ## Decided
 
 - **The palette's rows are a menu's items drawn by the palette**: it resolves the theme's `MenuItem` recipe (with the palette's `Row` laid over the root) and draws the root, the icon, the label and the shortcut with those parts, so rows look as menu items do and a theme's menu item rules reach them. It does not use `MenuItem`'s own renderer, whose root is a button and a stop of Tab: the focus is to stay in the input. The highlight is the menu item's focus style, forced on the highlighted row; the hover style is taken off the rows, so that the pointer and the keys never highlight two rows at once.
+- **The keys are `ui::Kbd`**: the Escape of the search row and the footer's keys are `Kbd::new(..)` in the platform's names, with the palette's `Key` part laid over the Kbd's key; a row's shortcut is `Kbd::shortcut(..)` in the plain variant, with the menu item's `Shortcut` part over its label, so it reads as a menu's. The key and the shortcut keep their width in their row, and what is typed, a label and a detail give way first.
 - **The input is `ui::Input`** in its view (`Input::view`, `InputView::control`, `render_with_end`), with the palette's `Input` part laid over the control: no edge, no fill and no ring of its own, as the board's search row has none. The control takes the palette's keys and says to tooling it is a `combobox`.
 - **What a palette keeps (what is typed, the highlight, where its list is scrolled) is kept for its open signal**, while the palette is in the tree, as a combobox keeps what is typed for its value: a map of the crate, keyed by the signal, whose entry goes when nothing holds it. The input's handlers hold it, so it goes when the palette closes, and the palette opens empty. A mounted component would have needed a `Ctx` at the call site, which `CommandPalette::new(open)` has not. The context menu keeps the point it was asked for in the same way, held by its element's handlers.
 - **The default filter keeps the app's order.** Every word typed must be in the label, the detail or the keywords; there is no ranking, because no rank of "best" would be right for every app, and a palette whose rows move about as one types is harder to aim at. An app that ranks gives `filter(|_, _| true)` and its commands in its order.
@@ -152,11 +152,11 @@ ContextMenu::new(editor, editing.clone())
 
 ## Not done
 
-- **The keys are not `ui::Kbd`**: the Escape at the end of the search row and the keys of the footer are drawn by the palette's own `Key` part, in the board's Kbd style (20 high, padded 6, 4 round, `Muted` in an edge of `Border`, mono 11 in `MutedForeground`). `ui::Kbd` is on the empty-state session's branch, not on this one's base. At the merge: make `CommandPaletteView::key(label)` return `Kbd::new(label).build(self.theme())` and drop the `Key` part and its recipe rule (or keep the part as rules laid over the Kbd's root, `self.recipe.rules_for(CommandPalettePart::Key, KbdPart::Root)`, if a palette is to style its keys apart).
+Nothing.
 
 ## Differs from the board
 
-- **What the board does not draw was built in its manner**: the board's palette has the search row, one group label and three rows. The second text of a row is after its label, 12 in `MutedForeground`; the empty state is the empty text, centered, in the body's type in `MutedForeground` with 24 above and under it; the loading row is a combobox's (32 high, 8 in, a spinner of 16 and "Loading…" at 13, muted); the footer is 36 high, 12 in, under a line, its keys as the search row's key with their words at 12 in `MutedForeground`; the veil is the dialog's `Scrim`, with the panel 72 from the top.
+- **What the board does not draw was built in its manner**: the board's palette has the search row, one group label and three rows. The second text of a row is after its label, 12 in `MutedForeground`; the empty state is the empty text, centered, in the body's type in `MutedForeground` with 24 above and under it; the loading row is a combobox's (32 high, 8 in, a spinner of 16 and "Loading…" at 13, muted); the footer is 36 high, 12 in, under a line, its keys Kbds with their words at 12 in `MutedForeground`; the veil is the dialog's `Scrim`, with the panel 72 from the top.
 - **Group labels are 12/500**, as the palette draws them, not the menu's 11/600.
 - **The palette's shadow is the theme's large one**, and the context menu's the menu's medium one, as the board's two layers of shadow are drawn by those steps elsewhere.
 - **The mobile context menu's preview** (the card over the menu in `GO5Be`) is not drawn: it is the app's element, shown by the app.
