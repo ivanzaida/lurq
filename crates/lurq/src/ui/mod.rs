@@ -39,13 +39,16 @@ mod input_otp;
 mod link;
 mod mentions;
 mod menu;
+mod message_box;
 mod multi_select;
 mod number_input;
 mod pagination;
 mod part_style;
 mod password_input;
+mod popconfirm;
 mod popover;
 mod progress;
+mod progress_dialog;
 mod radio;
 mod recipe;
 mod search_field;
@@ -120,6 +123,10 @@ pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
+pub use message_box::{
+  MessageBox, MessageBoxAnswer, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState,
+  MessageBoxView,
+};
 pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
@@ -133,12 +140,16 @@ pub use part_style::{
 pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputState, PasswordInputView, PasswordStrength,
 };
+pub use popconfirm::{Popconfirm, PopconfirmPart, PopconfirmRenderer, PopconfirmState, PopconfirmView};
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub(crate) use progress::keyframes as progress_keyframes;
 pub use progress::{
   PROGRESS_LEAD, PROGRESS_PERIOD, PROGRESS_SEGMENT, Progress, ProgressFormat, ProgressPart, ProgressRenderer,
   ProgressSize, ProgressState, ProgressVariant, ProgressView, RingProgress, RingProgressPart, RingProgressRenderer,
   RingProgressView,
+};
+pub use progress_dialog::{
+  ProgressDialog, ProgressDialogPart, ProgressDialogRenderer, ProgressDialogState, ProgressDialogView,
 };
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
 pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};

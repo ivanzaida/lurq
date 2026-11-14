@@ -1185,6 +1185,14 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether the focus goes to this element as the modal or the overlay that takes the focus it is in
+      /// opens, in place of its first stop of Tab: the default button of a message box. It is a stop of Tab
+      /// as it was, in its place.
+      pub fn autofocus(mut self, autofocus: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::autofocus(node, autofocus));
+        self
+      }
+
       /// What typing a letter in a [`FocusGroup`]($crate::node::FocusGroup)
       /// with typeahead matches the element by: a menu item's label, where
       /// its text is not only that.

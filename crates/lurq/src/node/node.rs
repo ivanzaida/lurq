@@ -681,6 +681,7 @@ pub(crate) trait NodeUpdate {
   fn focus_group(&mut self, group: crate::node::FocusGroup);
   fn focus_entry(&mut self, entry: bool);
   fn stops_inside(&mut self, stops: bool);
+  fn autofocus(&mut self, autofocus: bool);
   fn focus_label(&mut self, label: Arc<str>);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
@@ -1005,6 +1006,8 @@ pub(crate) struct Node {
   pub(crate) focus_entry: bool,
   /// Whether Tab also stops at what takes the focus inside this button, after the button itself.
   pub(crate) stops_inside: bool,
+  /// Whether the focus goes to this node as the modal or the overlay it is in opens, in place of the first stop.
+  pub(crate) autofocus: bool,
   /// What typing in a focus group with typeahead matches this node by. An `Arc<String>` and not an `Arc<str>`:
   /// it is one pointer, and few nodes have one.
   pub(crate) focus_label: Option<Arc<String>>,
@@ -2057,6 +2060,10 @@ impl NodeUpdate for Node {
     self.stops_inside = stops;
   }
 
+  fn autofocus(&mut self, autofocus: bool) {
+    self.autofocus = autofocus;
+  }
+
   fn focus_label(&mut self, label: Arc<str>) {
     self.focus_label = Some(Arc::new(label.to_string()));
   }
@@ -2413,6 +2420,7 @@ impl Node {
       focus_group: None,
       focus_entry: false,
       stops_inside: false,
+      autofocus: false,
       focus_label: None,
       button_kind: None,
       #[cfg(feature = "form")]
@@ -4039,6 +4047,10 @@ impl Node {
 
   pub(crate) fn has_stops_inside(&self) -> bool {
     self.stops_inside
+  }
+
+  pub(crate) fn is_autofocus(&self) -> bool {
+    self.autofocus
   }
 
   /// What typing in a focus group with typeahead matches this node by, if it has its own.
@@ -5895,6 +5907,7 @@ impl Node {
       focus_group: self.focus_group,
       focus_entry: self.focus_entry,
       stops_inside: self.stops_inside,
+      autofocus: self.autofocus,
       focus_label: self.focus_label.clone(),
       button_kind: self.button_kind,
       #[cfg(feature = "form")]

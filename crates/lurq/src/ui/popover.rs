@@ -101,6 +101,9 @@ pub struct Popover {
   offset: SpacingValue,
   collision: CollisionStrategy,
   width: Option<Length>,
+  alert: bool,
+  name: Option<Arc<str>>,
+  described: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -121,6 +124,9 @@ impl Popover {
       offset: SpacingSize::Xs.into(),
       collision: CollisionStrategy::FlipThenClamp,
       width: None,
+      alert: false,
+      name: None,
+      described: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -187,6 +193,26 @@ impl Popover {
     self
   }
 
+  /// Whether the popover asks something that has to be answered: an
+  /// `alertdialog`, and not a `dialog`, to tooling that reads the tree.
+  pub fn alert(mut self, alert: bool) -> Self {
+    self.alert = alert;
+    self
+  }
+
+  /// What the popover is called to tooling that reads the tree, for one
+  /// whose title is drawn by what it holds and not given to [`Popover::title`].
+  pub fn named(mut self, name: &str) -> Self {
+    self.name = Some(Arc::from(name));
+    self
+  }
+
+  /// What the popover is described by to tooling that reads the tree.
+  pub fn described(mut self, description: &str) -> Self {
+    self.described = Some(Arc::from(description));
+    self
+  }
+
   /// Puts the popover in a state the theme's recipe names, or takes it out.
   pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
     let state = state.into();
@@ -241,6 +267,9 @@ impl Popover {
       description: self.description,
       children: self.children,
       recipe: theme.resolve::<Popover>(&case, Some(&rules)),
+      alert: self.alert,
+      name: self.name,
+      described: self.described,
       id: self.id,
       key: self.key,
     };
@@ -300,6 +329,9 @@ pub struct PopoverView {
   pub children: Vec<Element>,
   /// The style of each part of this popover.
   pub recipe: ResolvedRecipe,
+  alert: bool,
+  name: Option<Arc<str>>,
+  described: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -343,9 +375,12 @@ impl PopoverView {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(PopoverPart::Root))
-      .describe("a11y_role", "dialog");
-    if let Some(title) = &self.title {
-      panel = panel.describe("a11y_name", title.clone());
+      .describe("a11y_role", if self.alert { "alertdialog" } else { "dialog" });
+    if let Some(name) = self.name.as_ref().or(self.title.as_ref()) {
+      panel = panel.describe("a11y_name", name.clone());
+    }
+    if let Some(description) = &self.described {
+      panel = panel.describe("a11y_description", description.clone());
     }
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());

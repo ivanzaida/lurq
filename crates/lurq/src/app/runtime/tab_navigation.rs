@@ -37,6 +37,8 @@ struct Stop {
   key: StopKey,
   /// Where Tab enters the one-stop focus group the stop is in.
   entry: bool,
+  /// Where the focus goes as a modal opens, in place of its first stop (`autofocus`).
+  autofocus: bool,
 }
 
 struct Walk<'a> {
@@ -196,7 +198,8 @@ fn next_stop<'a>(
       }
     }
     (None, None) if reverse => last,
-    (None, None) => 0,
+    // Nothing has the focus: a modal opening, or Tab in a window with no focus. A stop marked to take it first.
+    (None, None) => stops.iter().position(|stop| stop.autofocus).unwrap_or(0),
   };
   Some(stops[next].target)
 }
@@ -266,6 +269,7 @@ fn collect_node<'a>(
       },
       key: stop_key(tab_index, order),
       entry: node.is_focus_entry(),
+      autofocus: node.is_autofocus(),
     });
     // A button's content is part of the button, not separate stops, unless the button says otherwise.
     if node.button_kind_value().is_some() && !node.has_stops_inside() {
