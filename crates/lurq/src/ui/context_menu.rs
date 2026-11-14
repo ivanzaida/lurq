@@ -23,7 +23,7 @@ use crate::{
   components::{Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::LayoutKind},
-  node::{Element, FocusGroup, Node, NodeUpdate, border::Border},
+  node::{Element, FocusGroup, Node, NodeUpdate, SpacingValue, border::Border},
 };
 
 /// The parts of a context menu a recipe styles, laid over the parts of the [`Menu`] it is.
@@ -149,7 +149,7 @@ pub struct ContextMenu {
   on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
   dismiss_on_escape: bool,
   dismiss_on_outside_press: bool,
-  offset: Option<(f32, f32)>,
+  offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   states: Vec<Name>,
   rules: Recipe,
@@ -238,10 +238,10 @@ impl ContextMenu {
     self
   }
 
-  /// How far the menu's corner stands from the point it was asked for, or from where it stands under its element
-  /// when the keyboard asked for it.
-  pub fn offset(mut self, x: f32, y: f32) -> Self {
-    self.offset = Some((x, y));
+  /// How far the menu's corner is from the point it was asked for, down and toward the end, or how far it is under
+  /// its element when the keyboard asked for it.
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
     self
   }
 
@@ -373,7 +373,7 @@ pub struct ContextMenuView {
   on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
   dismiss_on_escape: bool,
   dismiss_on_outside_press: bool,
-  offset: Option<(f32, f32)>,
+  offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   /// The point of the window it stands at, where a press or a finger asked for it; `None` where the keyboard did, and
   /// it stands at its element.
@@ -430,8 +430,8 @@ impl ContextMenuView {
     if let Some(label) = &self.label {
       menu = menu.label(label);
     }
-    if let Some((x, y)) = self.offset {
-      menu = menu.offset(x, y);
+    if let Some(offset) = self.offset {
+      menu = menu.offset(offset);
     }
     if let Some(collision) = self.collision {
       menu = menu.collision(collision);
@@ -512,7 +512,10 @@ impl ContextMenuView {
       return panel.into();
     }
     // The focus goes to the first item as the bar opens, and back to what had it as it closes.
-    let (x, y) = self.offset.unwrap_or_default();
+    let gap = self
+      .offset
+      .map_or(0.0, |offset| offset.resolve(&self.theme().spacing(), 0.0));
+    let (x, y) = (gap, gap);
     let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())
       .at(self.point)

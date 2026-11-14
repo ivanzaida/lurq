@@ -918,7 +918,7 @@ Popover::new(open.clone(), anchor.clone())
 | `child(..)`, `children(..)` | What it holds, one under another, as wide as the panel |
 | `placement(Placement)` | The side of the anchor it is on and the edge it lines up with. `BottomStart` by default |
 | `width(..)` | How wide the panel is, over the recipe's 292 |
-| `offset(x, y)` | How far it is moved, across and down, from where its placement puts it, as `Popup::offset` takes it. By default `SpacingSize::Xs` (4) away from the anchor, along the side it is on |
+| `offset(impl Into<SpacingValue>)` | How far it is from its anchor, along the side it is on: `SpacingSize::Xs` (4) by default |
 | `collision(CollisionStrategy)` | What it does where there is no room on its side: `FlipThenClamp` by default |
 | `label(&str)`, `described(&str)`, `alert(bool)` | What tooling calls it (its title by default), what it is described by, and whether it is an `alertdialog` |
 | `on_dismiss(Fn())` | Runs after a person closed it by a press outside or Escape, not when the app sets the signal. Each handler given runs, in order |
@@ -978,7 +978,7 @@ Menu::new(open, anchor)
 | `heading(&str)` | A heading over the items after it: what they are about |
 | `label(&str)` | The menu's name to what reads the tree |
 | `placement(Placement)` | Where the panel opens beside its anchor, 4 from it. `BottomStart` by default, `RightStart` for a submenu |
-| `offset(x, y)`, `collision(CollisionStrategy)` | How far the panel stands from where its placement puts it, in place of the design's 4; and what it does where the window has no room on that side (`FlipThenClamp`, the other side, by default) |
+| `offset(impl Into<SpacingValue>)`, `collision(CollisionStrategy)` | How far the panel is from its anchor, along the side it opens on, in place of the design's 4 (a submenu's first item stays level with its item); and what it does where the window has no room on that side (`FlipThenClamp`, the other side, by default) |
 | `on_dismiss(Fn())` | A person closed it other than by a choice: Escape, a press outside it, Tab. Not the app setting the signal. Each handler is called, in order |
 | `on_open_change(Fn(bool))` | Told `false` when a person closes it, by a choice too. Each handler is called, in order |
 | `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape and a press outside close it: both by default |
@@ -2777,7 +2777,7 @@ Popconfirm::new(open.clone(), anchor.clone())
 | `icon(impl Into<IconChoice>)` | An icon of the theme's set before the title, in place of the warning sign, or `None` for no icon |
 | `confirm(&str, handler)`, `cancel(&str, handler)` | The two buttons: their labels ("Yes" and "No" when not given) and what each runs after it closes the popconfirm. Escape and a press outside run the cancel one |
 | `destructive(bool)` | The confirm button and the icon in the destructive color, and the focus on the cancel button as it opens |
-| `placement(Placement)`, `offset(x, y)`, `collision(CollisionStrategy)` | Where it is beside its anchor, as a [popover](#popover) has them: under it at its start, 4 from it, by default |
+| `placement(Placement)`, `offset(impl Into<SpacingValue>)`, `collision(CollisionStrategy)` | Where it is beside its anchor and how far from it, as a [popover](#popover) has them: under it at its start, 4 from it, by default |
 | `width(..)` | How wide the panel is, over the recipe's 250 |
 | `label(&str)` | What tooling calls it: its title by default |
 | `on_dismiss(Fn())` | Runs after a person closed it by Escape or a press outside, after what the cancel button runs; not on a press of either button, nor when the app sets the signal. Each handler given runs, in order |
@@ -3158,7 +3158,7 @@ ContextMenu::new(editing.clone(), editor)
 | `label(&str)` | The menu's name to what reads the tree: what it is the menu of |
 | `inline(bool)` | The panel drawn in place of its element, open or not, and not over the window: for a gallery or a test |
 | `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | As a [menu](#menu) has them |
-| `offset(x, y)`, `collision(CollisionStrategy)` | How far its corner stands from the point it was asked for, and what it does where the window has no room there (opens up or back, by default) |
+| `offset(impl Into<SpacingValue>)`, `collision(CollisionStrategy)` | How far its corner is from the point it was asked for, down and toward the end (under its element, from the keyboard), and what it does where the window has no room there (opens up or back, by default) |
 | `bar(bool)` | The commands in one row, as the board's edit menu over selected text has them. Left and Right move between them; a separator is a line down the row, and a heading is left out |
 | `disabled(bool)` | The element has no menu now |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |

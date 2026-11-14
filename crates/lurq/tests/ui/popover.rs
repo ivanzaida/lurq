@@ -210,7 +210,7 @@ fn a_popover_is_on_the_side_it_is_placed_on() {
       .id("panel")
       .title("Wide")
       .width(340.0)
-      .offset(0.0, 8.0)
+      .offset(8.0)
   }));
   let (_, y, width, _) = stage.bounds("panel");
   assert_eq!((y, width), (20.0 + 32.0 + 8.0, 340.0));

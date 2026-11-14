@@ -17,7 +17,7 @@ use crate::{
   components::{self, Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, border::Border, node_kind::TextOverflow},
+  node::{CursorIcon, Element, FocusGroup, SpacingValue, border::Border, node_kind::TextOverflow},
 };
 
 /// How far the panel stands from its anchor, in the direction it opens.
@@ -125,7 +125,7 @@ pub struct Menu {
   open: OpenState,
   entries: Vec<MenuEntry>,
   placement: Option<Placement>,
-  offset: Option<(f32, f32)>,
+  offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   inline: bool,
   submenu: bool,
@@ -228,10 +228,11 @@ impl Menu {
     self
   }
 
-  /// How far the panel stands from where its placement puts it, in place of the design's: 4 from its anchor
-  /// along the side it opens on, and a submenu's first item level with its item.
-  pub fn offset(mut self, x: f32, y: f32) -> Self {
-    self.offset = Some((x, y));
+  /// How far the panel is from its anchor, along the side it opens on, in place of the design's 4. A submenu's
+  /// first item stays level with its item. For a context menu, how far its corner is from the point it was asked
+  /// for, down and toward the end.
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
     self
   }
 
@@ -399,7 +400,7 @@ pub struct MenuView {
   pub recipe: ResolvedRecipe,
   anchor: ElementRef,
   open: OpenState,
-  offset: Option<(f32, f32)>,
+  offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   on_dismiss: Vec<Handler>,
@@ -555,10 +556,16 @@ impl MenuView {
     item.in_menu(self.closes(), self.submenus.clone()).build(self.theme())
   }
 
-  /// How far the panel stands from its anchor: along the axis it opens on, and
-  /// for a submenu back by the panel's padding, so that its first item is
-  /// level with the item it hangs from.
+  /// How far the panel stands from its anchor: along the axis it opens on, its `offset` or the design's 4, and
+  /// for a submenu back by the panel's padding, so that its first item is level with the item it hangs from. A
+  /// context menu's corner is at the point it was asked for, or its `offset` from it on both axes.
   fn offset(&self) -> (f32, f32) {
+    let gap = self.offset.map(|offset| offset.resolve(&self.theme().spacing(), 0.0));
+    if let Some(Some(_)) = self.context {
+      let gap = gap.unwrap_or(0.0);
+      return (gap, gap);
+    }
+    let gap = gap.unwrap_or(ANCHOR_GAP);
     let beside = matches!(
       self.placement,
       Placement::LeftStart
@@ -568,10 +575,10 @@ impl MenuView {
         | Placement::Right
         | Placement::RightEnd
     );
-    let (mut x, mut y) = if beside { (ANCHOR_GAP, 0.0) } else { (0.0, ANCHOR_GAP) };
+    let (mut x, mut y) = if beside { (gap, 0.0) } else { (0.0, gap) };
     if self.submenu {
       let (theme, panel) = (self.theme(), self.part(MenuPart::Panel).rest());
-      let padding = |padding: Option<crate::node::SpacingValue>| {
+      let padding = |padding: Option<SpacingValue>| {
         padding
           .map(|padding| padding.resolve(&theme.spacing(), 0.0))
           .unwrap_or(0.0)
@@ -602,12 +609,7 @@ impl MenuView {
     if self.inline {
       return panel.into();
     }
-    // A context menu's corner is at the point it was asked for.
-    let (x, y) = match (self.offset, self.context) {
-      (Some(offset), _) => offset,
-      (None, Some(Some(_))) => (0.0, 0.0),
-      (None, _) => self.offset(),
-    };
+    let (x, y) = self.offset();
     // The focus goes to the first item that takes it as the menu opens, and back to what had it as it closes.
     let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())

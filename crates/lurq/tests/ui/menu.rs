@@ -1202,21 +1202,36 @@ fn a_menus_label_is_its_name_and_a_heading_is_drawn_over_the_items_after_it() {
 }
 
 #[test]
-fn offset_moves_the_panel_from_where_its_placement_puts_it() {
+fn offset_is_how_far_the_panel_is_from_its_anchor_along_its_side() {
   let anchor = ElementRef::new();
   let mut stage = Stage::new(move |_| {
     page(
       anchor.clone(),
       Menu::controlled(true, anchor.clone(), |_| {})
         .id("menu")
-        .offset(10.0, 20.0)
+        .offset(20.0)
         .collision(lurq::components::CollisionStrategy::None)
         .item(MenuItem::new("Fit")),
     )
   });
-  // The anchor is 120 by 30 at 20, 20: the panel is under it from its start, 10 along and 20 down.
+  // The anchor is 120 by 30 at 20, 20: the panel is under it from its start, 20 down in place of 4.
   let (x, y, ..) = stage.bounds("menu");
-  assert_eq!((x, y), (30.0, 70.0));
+  assert_eq!((x, y), (20.0, 70.0));
+  // Beside its anchor, it is that far along.
+  let anchor = ElementRef::new();
+  let mut stage = Stage::new(move |_| {
+    page(
+      anchor.clone(),
+      Menu::controlled(true, anchor.clone(), |_| {})
+        .id("menu")
+        .placement(lurq::components::Placement::RightStart)
+        .offset(10.0)
+        .collision(lurq::components::CollisionStrategy::None)
+        .item(MenuItem::new("Fit")),
+    )
+  });
+  let (x, y, ..) = stage.bounds("menu");
+  assert_eq!((x, y), (20.0 + 120.0 + 10.0, 20.0));
 }
 
 #[test]

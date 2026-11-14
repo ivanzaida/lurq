@@ -339,3 +339,14 @@ fn an_inline_context_menu_is_its_panel_in_place_of_its_element_with_its_heading(
   stage.click("back");
   assert_eq!(*chosen.lock().unwrap(), ["back"]);
 }
+
+#[test]
+fn offset_is_how_far_its_corner_is_from_the_point_it_was_asked_for() {
+  let open = Signal::new(false);
+  let (_, tell) = log();
+  let held = open.clone();
+  let mut stage = stage(move |_| placed(area(held.clone(), tell.clone()).offset(8.0)));
+  secondary_press(&mut stage, 100.0, 60.0);
+  let (x, y, ..) = stage.bounds("menu");
+  assert_eq!((x, y), (108.0, 68.0), "down and toward the end");
+}

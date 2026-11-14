@@ -100,7 +100,7 @@ pub struct Popover {
   description: Option<Arc<str>>,
   children: Vec<Element>,
   placement: Placement,
-  offset: Option<(f32, f32)>,
+  offset: SpacingValue,
   collision: CollisionStrategy,
   width: Option<Length>,
   alert: bool,
@@ -127,7 +127,7 @@ impl Popover {
       description: None,
       children: Vec::new(),
       placement: Placement::BottomStart,
-      offset: None,
+      offset: SpacingSize::Xs.into(),
       collision: CollisionStrategy::FlipThenClamp,
       width: None,
       alert: false,
@@ -184,12 +184,9 @@ impl Popover {
     self
   }
 
-  /// How far the popover is moved from where its placement puts it, across
-  /// (`x`) and down (`y`), in logical pixels, as the engine's [`Popup`]
-  /// takes them. By default it is the theme's smallest spacing away from its
-  /// anchor, along the side it is on.
-  pub fn offset(mut self, x: f32, y: f32) -> Self {
-    self.offset = Some((x, y));
+  /// How far the popover is from its anchor, along the side it is on: the theme's smallest spacing by default.
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = offset.into();
     self
   }
 
@@ -323,19 +320,17 @@ impl Popover {
     if self.inline {
       return panel;
     }
-    // The default offset is away from the anchor: along the side the popover is on.
-    let (x, y) = self.offset.unwrap_or_else(|| {
-      let offset = SpacingValue::from(SpacingSize::Xs).resolve(&theme.spacing(), 0.0);
-      match self.placement {
-        Placement::LeftStart
-        | Placement::Left
-        | Placement::LeftEnd
-        | Placement::RightStart
-        | Placement::Right
-        | Placement::RightEnd => (offset, 0.0),
-        _ => (0.0, offset),
-      }
-    });
+    // The offset is away from the anchor: along the side the popover is on.
+    let offset = self.offset.resolve(&theme.spacing(), 0.0);
+    let (x, y) = match self.placement {
+      Placement::LeftStart
+      | Placement::Left
+      | Placement::LeftEnd
+      | Placement::RightStart
+      | Placement::Right
+      | Placement::RightEnd => (offset, 0.0),
+      _ => (0.0, offset),
+    };
     let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())
       .placement(self.placement)

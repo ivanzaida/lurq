@@ -299,9 +299,9 @@ impl Component for PopconfirmPage {
       ),
       (
         "offset",
-        "f32, f32",
-        "0, 4",
-        "How far it is moved, across and down, from where its placement puts it.",
+        "impl Into<SpacingValue>",
+        "SpacingSize::Xs",
+        "How far it is from its anchor, along the side it is on, as a popover's.",
       ),
       (
         "collision",

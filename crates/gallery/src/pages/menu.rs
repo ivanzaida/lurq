@@ -543,9 +543,9 @@ impl Component for MenuPage {
       ),
       (
         "offset",
-        "f32, f32",
-        "",
-        "How far the panel stands from where its placement puts it.",
+        "impl Into<SpacingValue>",
+        "4",
+        "How far the panel is from its anchor, along the side it opens on.",
       ),
       (
         "collision",
