@@ -1243,37 +1243,40 @@ The way to where one is: a step for each place on it, each but the last a link b
 ```rust
 use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, icons};
 
-Breadcrumb::new()
-  .step(BreadcrumbStep::new("Settings").value("/settings"))
-  .step(BreadcrumbStep::new("Appearance").value("/settings/appearance"))
-  .step("Theme")
-  .on_select(|route| go_to(route));
+Breadcrumb::new([
+  BreadcrumbStep::new("Settings").value("/settings"),
+  BreadcrumbStep::new("Appearance").value("/settings/appearance"),
+])
+.step("Theme")
+.on_select(|route| go_to(route));
 
-// More steps than four: the first, an ellipsis that opens a menu of the hidden ones, and the last three.
-// anchor: ElementRef, open: Signal<bool>, kept by the app as for any menu.
-Breadcrumb::new()
-  .step(BreadcrumbStep::new("Home").icon(icons::HOME).value("/"))
+// More steps than four: the first, an ellipsis that opens a menu of the hidden ones, and the last three. Mounted,
+// it keeps whether the menu is open.
+Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
   .steps(["Projects", "lurq", "crates", "ui", "breadcrumb.rs"])
-  .max_items(4)
-  .menu(anchor.clone(), open.clone())
-  .separator(BreadcrumbSeparator::slash());
+  .max_shown(4)
+  .separator(BreadcrumbSeparator::slash())
+  .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
-| `step(impl Into<BreadcrumbStep>)`, `steps(iter)` | Steps, in order, after those it has. The last is the page one is on: text, not a link. A `&str` is a step of that label |
+| `new(steps)` | A breadcrumb of these steps, in order. The last is the page one is on: text, not a link. A `&str` is a step of that label. `Breadcrumb::default()` has none |
+| `step(impl Into<BreadcrumbStep>)`, `steps(iter)` | Steps, in order, after those it has |
 | `on_select(Fn(&str))` | Called with the value of the step followed, after the step's own handlers |
-| `max_items(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_items - 1`; never fewer than two. All of them without it |
-| `menu(ElementRef, Signal<bool>)` | What the menu of the hidden steps hangs from, and whether it is open: the app's, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
+| `max_shown(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_shown - 1`; never fewer than two. All of them without it |
+| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu` |
+| `menu(Signal<bool>, ElementRef)` | Whether the menu of the hidden steps is open, and what it hangs from, where the app keeps them, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
+| `label(&str)`, `more_label(&str)` | What the whole and the ellipsis are called to what reads the tree: "Breadcrumb" and "Show the hidden steps" unless told otherwise |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first link, the one Tab stops on first, in the state. The ellipsis's id is the root's with `-ellipsis` after it |
-| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `id` the id of its link, of the page, or of its item in the menu while it is hidden |
+| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `disabled(bool)` dimmed and not followed (Tab passes it, and its item in the menu is disabled), `id` the id of its link, of the page, or of its item in the menu while it is hidden, `key` the key of its link |
 
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
-- Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled`.
+- Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself).
 - In the design the steps are 8 apart in the body's 14; the links are in `MutedForeground` and the page in `Foreground` at 500; a chevron of 14 in `MutedForeground` stands between each two. The ellipsis is a square of 24 filled with `Highlight` (the board's `$accent`), with the small radius and an icon of 16 in `Foreground`. Under the pointer a link is in `Foreground`; the ring of the focus is around the link. A step's icon is 14, 4 before its text. A disabled breadcrumb is dimmed, follows nothing and is no stop of Tab.
 - A theme gives the separator a renderer of its own with `set_part_renderer::<Breadcrumb, BreadcrumbPartRenderer>(BreadcrumbPart::Separator, ..)`, built once for each place between two steps; or restyles it by the recipe.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `navigation` called "Breadcrumb", each link a `link` called by its label, the page has `a11y_current` `page`, and the ellipsis says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `navigation` called "Breadcrumb" (or its `label`), each link a `link` called by its label, the page has `a11y_current` `page`, and the ellipsis, called "Show the hidden steps" (or its `more_label`), says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
 - A renderer that draws another breadcrumb has `view.shown()` (the steps to draw, by index), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
 
 ## Pagination
@@ -1291,7 +1294,7 @@ Pagination::for_items(page.clone(), 284, size.get())
   .compact(true)
   .page_size("Rows per page", Select::new(size.clone(), [(10, "10"), (20, "20"), (50, "50")]));
 
-// The app holds the page: go is told the page of each press.
+// The app holds the page: on_change is told the page of each press.
 Pagination::controlled(current, 12, move |to| go(to));
 ```
 
@@ -1299,23 +1302,24 @@ Pagination::controlled(current, 12, move |to| go(to));
 | --- | --- |
 | `new(Signal<usize>, pages)` | `pages` pages, of which the current one is the signal's, counted from 1 |
 | `for_items(Signal<usize>, total, page_size)` | The pages of `total` items, `page_size` to a page |
-| `controlled(current, pages, go)` | The app holds the page: `current`, counted from 1, and `go` told the page of each press |
+| `controlled(current, pages, on_change)` | The app holds the page: `current`, counted from 1, and `on_change` told the page of each press |
 | `items(total, page_size)` | The pages of so many items, in place of a number of pages; the compact form then says "1–20 of 284" |
 | `siblings(usize)` | How many pages are drawn on each side of the current one: 1 unless it is said |
 | `compact(bool)` | Previous and next with where the list is, and no pages |
 | `page_size(label, Select)` | A select of how many to a page, after its label, at the start; the pagination is then as wide as what holds it |
-| `summary(&str)` | What is said of where the list is, in place of "1–20 of 284" or "Page 3 of 12": in another language |
+| `summary_text(&str)` | What is said of where the list is, in place of "1–20 of 284" or "Page 3 of 12": in another language |
+| `previous_label(&str)`, `next_label(&str)`, `page_label(&str)` | What previous and next are called, "Previous page" and "Next page", and the word before a page's number, "Page" of "Page 3", unless told otherwise |
 | `label(&str)` | What the whole is called to what reads the tree: "Pagination" unless it is said |
 | `on_change(handler)` | Called with the page of each press |
-| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Its buttons have ids after the pagination's: `{id}-previous`, `{id}-next`, `{id}-page-3` |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first button that takes input (previous, or the first page that is not the current one) in the state. Its buttons have ids after the pagination's: `{id}-previous`, `{id}-next`, `{id}-page-3` |
 
 - Which pages are drawn is the pagination's: the first and the last always, the current one with its siblings on each side, and an ellipsis where pages are left out. While every page fits in `2 × siblings + 5` every page is drawn; once they do not, that many things are drawn wherever the current page is, so that the row does not change its length as a person goes through it. Near an end the pages run on to that end and take the room of the ellipsis that is not needed there: on page 1 of 20, `1 2 3 4 5 … 20`; on page 10, `1 … 9 10 11 … 20`; on page 20, `1 … 16 17 18 19 20`. An ellipsis always stands for two pages or more. `Pagination::pages_shown(current, pages, siblings)` says what is drawn, as `PageItem::Page(n)` and `PageItem::Ellipsis`.
 - A current page past the ends is drawn as the end it is past; the signal is not changed. With no pages, previous and next are drawn, disabled, and nothing between them.
 - Previous is disabled on the first page and next on the last. A press of a page goes to it; a press of the current one does nothing.
 - Each page, previous and next is a button and a stop of Tab of its own; Left and Right move along the row (`FocusGroup::horizontal()`), from the last on to the first, and Home and End go to its ends. Enter and Space press the button the focus is on. A disabled button is passed by, and one that is disabled while the focus is on it, as next is by Enter on the page before the last, passes the focus to the button before it: the keyboard stays in the pagination.
 - The page-size select is the app's `ui::Select`, bound to its own signal; the pagination gives its trigger the board's size over the select's recipe (`PaginationPart::PageSize`, laid over `SelectPart::Trigger`), and calls it by the label beside it.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the whole is a `navigation` called "Pagination" (or its `label`), each page a button called "Page 3", and the current one has `a11y_current` "page". Previous and next are called "Previous page" and "Next page".
-- Parts: `PaginationPart::Root`, `Nav` (the row of buttons the arrow keys move along), `Item` (laid over each button's root), `Current` (laid over the current page's, after `Item`), `Ellipsis`, `EllipsisIcon`, `Summary`, `PageSizeLabel`, `PageSize` (laid over the select's trigger). States: `PaginationState::Compact`, `PageSize`, `Disabled`.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the whole is a `navigation` called "Pagination" (or its `label`), each page a button called "Page 3" (after its `page_label`), and the current one has `a11y_current` "page". Previous and next are called "Previous page" and "Next page" (or their labels).
+- Parts: `PaginationPart::Root`, `Nav` (the row of buttons the arrow keys move along), `Item` (laid over each button's root), `Ellipsis`, `EllipsisIcon`, `Summary`, `PageSizeLabel`, `PageSize` (laid over the select's trigger). States: `PaginationState::Compact`, `PageSize`, `Disabled`, and `Current` of an item: the current page's button.
 - In the design the pages are ghost buttons of 36, 4 apart, the current one an outline button; previous and next are ghost buttons of 36 with a chevron of 16. The ellipsis is a box of 36 with `more-horizontal` of 16 in `MutedForeground`. A page button is at least 36 wide and 6 from its sides, so that a number of four digits or more still fits. The compact form has outline buttons of 30 for previous and next, 12 after where the list is, in the body's type at 13 in `Foreground`; its page-size select is 72 by 30 with its text at 13, 12 after its label in `MutedForeground`. A disabled button is dimmed as a button is.
 - A renderer is given a `PaginationView`: where the list is (`current`, `pages`, `shown`, `summary`), and `view.previous()`, `view.next()`, `view.page(n)`, `view.ellipsis(i)`, `view.summary()`, `view.nav()` (the row of buttons) and `view.page_size()` (its label and the select) built in the recipe's style with their behavior.
 
@@ -3010,7 +3014,7 @@ let heading = |collapsed| SidebarHeading::new("lurq").description("Workspace").i
 let account = SidebarHeading::new("Ivan Zaida")
   .variant(SidebarHeadingVariant::Account)
   .description("ivan@lurq.dev")
-  .mark(Avatar::new("Ivan Zaida"));
+  .media(Avatar::new("Ivan Zaida"));
 
 Sidebar::new()
   .label("Workspace")
@@ -3028,7 +3032,7 @@ Sidebar::new()
       ),
   )
   .footer(account)
-  .collapsed(collapsed.clone())
+  .collapsed(collapsed.get())
   .open(open.clone())
   .mount(ctx);
 
@@ -3039,21 +3043,22 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 | Builder | |
 | --- | --- |
 | `label(&str)` | What the navigation region is called to tooling. "Sidebar" unless told |
-| `header(element)`, `footer(element)` | What stays at its top and its bottom while its items scroll: a `SidebarHeading`, a search. The footer has a line over it |
+| `header(element)`, `footer(element)` | What stays at its top and its bottom while its items scroll: a `SidebarHeading`, a search. The footer has a line over it. It has one of each: a second call takes the place of the first, where a card's or a dialog's `footer` adds to a row of buttons |
 | `header_collapsed(element)`, `footer_collapsed(element)` | What the rail shows in their place: the mark alone, an avatar. Nothing unless told |
-| `group(SidebarGroup)`, `groups(..)`, `item(SidebarItem)` | Groups of items; `item` adds to a group of no label |
-| `collapsed(bool \| Signal<bool>)` | The rail of the items' icons, 52 wide. Its width moves between the two over the theme's slow duration |
+| `group(SidebarGroup)`, `groups(..)`, `item(SidebarItem)`, `items(..)` | Groups of items; `item` and `items` add to a group of no label |
+| `collapsed(bool)` | The rail of the items' icons, 52 wide: the value of the signal `SidebarTrigger` turns, `collapsed.get()`. Its width moves between the two over the theme's slow duration |
 | `open(Signal<bool>)` | On a narrow window, whether it is open over the page. `SidebarTrigger` sets it; choosing an item, Escape and a press on the veil clear it |
 | `narrow(bool)` | Whether it lies over the page whatever the window's width: it does below the `md` breakpoint unless told |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root |
-| `mount(ctx)` | Puts it where it goes. Converted into an element on its own it is drawn as it is at rest, with no tooltips on the rail: for a gallery or a test |
+| `mount(ctx)` | Puts it where it goes, keeping which lists are open and the rail's menus |
+| `build(&theme)` | The sidebar as it is at rest in that theme, with no tooltips on the rail and nothing kept: for a gallery or a test. Converted into an element on its own (`.into()`) it is the same in the theme of what is being rendered |
 
 | `SidebarGroup` | |
 | --- | --- |
 | `new(&str)` | A group under a label, written in capitals; an empty one has none |
 | `count(usize)` | How many it has, at the end of its label |
 | `action(element)` | An action at the end of its label: a small ghost button. The arrow keys of the items pass it by |
-| `collapsible(bool)`, `open(bool)` | Its label opens and closes it; `open` is how it starts, and the sidebar keeps it from then on |
+| `collapsible(bool)`, `default_open(bool)` | Its label opens and closes it; `default_open` is how it starts, and the sidebar keeps it from then on |
 | `item(SidebarItem)`, `items(..)`, `key` | Its items; `key` tells two groups of one label apart |
 
 | `SidebarItem` | |
@@ -3063,7 +3068,7 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 | `selected(bool)` | It is where the app is: the app's, following its route |
 | `disabled(bool)` | It is dimmed and takes nothing |
 | `on_select(handler)`, `href(path)` | What choosing it does: the handler, and with the `router` feature the path the router goes to. A press, Enter and Space choose |
-| `child(SidebarItem)`, `children(..)`, `open(bool)` | Nested items, which open and close with their height under it; `open` is how they start, open where one of them is selected unless told |
+| `child(SidebarItem)`, `children(..)`, `default_open(bool)` | Nested items, which open and close with their height under it; `default_open` is how they start, open where one of them is selected unless told |
 | `force(..)`, `id`, `key` | As a button's. `key` tells two items of one name apart |
 
 - The items are a tree to the keyboard (`FocusGroup::vertical().one_stop(true).typeahead(true).nested(true)`, each item at its `focus_level`, one with nested items `focus_expanded`): Tab stops at it once, on the selected item; Up and Down move through the items shown, nested ones included, Home and End go to the first and the last, and a letter to the item whose name starts with it. Right opens a closed item and on an open one goes to its first nested item; Left closes an open one and on a nested item goes to the item it is in. A group that opens and closes is an item its items are in. On the rail the items are a list, and Right opens an item's menu.
@@ -3071,9 +3076,9 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 - A closed item that holds the selected item is marked as the selected one is, and a closed group that holds it has its label and its chevron in `Foreground`: what is selected shows where it is hidden. Tab stops on what marks it, and it is what is scrolled into view. To what reads the tree such an item has `a11y_current` `location`.
 - On a window narrower than the `md` breakpoint it lies over the page in a `Drawer` with `overlay(true)` and `scroll(false)`, as wide as it is beside the page, its header and footer staying while its items scroll; whatever `collapsed` says, it is whole there. Choosing an item closes it.
 - Which item is selected is the app's: with a router, `.selected(ctx.route_path() == path)` on each, and `.href(path)` to go there. The gallery's shell does this for its pages. Where the selected item moves (the app selects another: a router, a search, a link of the page), it is scrolled into view, the lists it is in opened; the item selected at the start is scrolled to as well.
-- `SidebarTrigger::new(collapsed).open(open)` is a ghost button of the `panel-left` icon, called by which way it goes: "Collapse sidebar", "Expand sidebar", or on a narrow window "Open sidebar", "Close sidebar". `narrow(bool)` tells it as the sidebar is told.
-- `SidebarHeading::new(title)` is the row of the header and the footer: `description`, `icon(name)` (a mark on the primary fill) or `mark(element)` (an avatar), `trailing_icon(name)`, `variant(SidebarHeadingVariant::Workspace | Account)`, `collapsed(bool)` (the mark alone, for the rail), `on_click` and `anchor(ElementRef)` (a button, from which a switcher's menu can hang).
-- Parts: `SidebarPart::Root`, `Header`, `Body` (what scrolls), `Footer` (its room at the sidebar's sides), `FooterContent` (the line and what is under it), `Group`, `GroupLabel`, `GroupText`, `GroupCount`, `GroupChevron`, `GroupAction`, `Item`, `ItemIcon`, `ItemLabel`, `ItemCount`, `ItemBadge`, `ItemShortcut`, `ItemChevron`, `ItemIndent` (one for each level an item is nested), `Nested`, `NestedContent`, `Heading`, `HeadingMark`, `HeadingText`, `HeadingTitle`, `HeadingDescription`, `HeadingTrailing`. States: `SidebarState::Collapsed`, `Overlay`, `Selected`, `Disabled`, `Open`, `Interactive` (a group's label that is pressed, a heading with a handler). Variants of a heading: `SidebarHeadingVariant::Workspace`, `Account`.
+- `SidebarTrigger::new(collapsed).open(open)` is a ghost button of the `panel-left` icon, called by which way it goes: "Collapse sidebar", "Expand sidebar", or on a narrow window "Open sidebar", "Close sidebar", each of which `collapse_label`, `expand_label`, `open_label` and `close_label` say otherwise. `narrow(bool)` tells it as the sidebar is told; `force(..)`, `id` and `key` are a button's.
+- `SidebarHeading::new(title)` is the row of the header and the footer: `description`, `icon(name)` (a mark on the primary fill) or `media(element)` (an avatar), `trailing_icon(name)`, `variant(name)` (`SidebarHeadingVariant::Workspace`, the default, or `Account`, or a theme's), `collapsed(bool)` (the mark alone, for the rail), `on_click(|event| ..)` and `anchor(ElementRef)` (a button, from which a switcher's menu can hang), and `state`, `style`, `rules`, `force`, `id`, `key` as a button has them.
+- Parts: `SidebarPart::Root`, `Header`, `Body` (what scrolls), `Footer` (its room at the sidebar's sides), `FooterContent` (the line and what is under it), `Group`, `GroupLabel`, `GroupText`, `GroupCount`, `GroupChevron`, `GroupAction`, `Item`, `ItemIcon`, `ItemLabel`, `ItemCount`, `ItemBadge`, `ItemShortcut`, `ItemChevron`, `ItemIndent` (one for each level an item is nested), `Nested`, `NestedContent`, `Heading`, `HeadingMark`, `HeadingText`, `HeadingTitle`, `HeadingDescription`, `HeadingTrailing`. States: `SidebarState::Collapsed`, `Overlay`, `Selected`, `Disabled`, `Open`, `Pressable` (a group's label that is pressed, a heading with a handler). Variants of a heading: `SidebarHeadingVariant::Workspace`, `Account`.
 - In the design the sidebar is 260 wide on `Muted` with a line of 1 in `Border` along its end, padded 8, 2 between rows. The 8 at its sides is its header's, body's and footer's: the body reaches the sidebar's edge, and at its end it has the lane of the theme's scroll bar (its width and its inset on either side, 12 with the default bar) where that is more than 8, so that the bar, which is drawn over what scrolls, lies beside the rows and not over them. The rail shows no bar: it scrolls with the wheel and the keys. An item is 32 high (it follows the density: 24, 40 and 44 at compact, comfortable and touch), padded 8 across, 8 between an icon of 16 in `MutedForeground` and its name in 13; the selected one is on `Background` with an edge of `Border`, its name in the medium weight and its icon in `Foreground`. Under the pointer an item has the `StateHover` veil, held down `StatePressed`, and the ring of the focus is inside it. A group's label is 11/600 in capitals, 0.6 apart, in `MutedForeground`, 10 over it and 4 under it. A nested item is 18 further in, after the chevron of 14 of the item it is in. The heading of the header is 44 high with a mark of 28 on `Primary`, its title 13/600 over a description of 11 in `MutedForeground`; the footer's is under a line of 1 and 48 high, its name in the medium weight. The rail is 52 wide, its items 36 by 32, 4 apart.
 - It is a mounted component: the tooltips of the rail are mounted, and it keeps which nested lists and groups are open and the anchor and the open signal of each menu of the rail.
 - To what reads the tree it is a `navigation` called by its label, its items `link` (with `href`) or `button`, the selected one with `a11y_current` `page`, an item with nested items with `a11y_expanded`, and a nested list a `group`.

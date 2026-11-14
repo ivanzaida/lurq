@@ -12,8 +12,9 @@ use lurq::{
   core::Signal,
   node::color::Color,
   ui::{
+    Interaction,
     PageItem::{self, Ellipsis, Page},
-    Pagination, PaginationPart, PaginationRenderer, PaginationView, Select,
+    Pagination, PaginationPart, PaginationRenderer, PaginationState, PaginationView, Select,
   },
 };
 
@@ -377,4 +378,73 @@ fn a_theme_gives_the_pagination_another_anatomy_and_it_still_goes_to_pages() {
   stage.click("p-next");
   assert_eq!(page.get(), 4);
   assert!(stage.paints("4 / 12"));
+}
+
+#[test]
+fn the_current_page_s_button_is_in_the_current_state_of_an_item() {
+  let app = App::new();
+  app.theme().patch_recipe::<Pagination>(|rules| {
+    rules.state(PaginationState::Current, PaginationPart::Item, |s| {
+      s.background(PaletteColor::Primary)
+    })
+  });
+  let page = Signal::new(2_usize);
+  let read = page.clone();
+  let mut stage = Stage::in_app(app, move |_| {
+    Row::new().child(Pagination::new(read.clone(), 5).id("p")).into()
+  });
+  assert_eq!(stage.fill_color("p-page-2"), Some(light(PaletteColor::Primary)));
+  assert_ne!(stage.fill_color("p-page-3"), Some(light(PaletteColor::Primary)));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn the_words_it_writes_can_be_said_otherwise() {
+  let page = Signal::new(2_usize);
+  let read = page.clone();
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .child(
+        Pagination::new(read.clone(), 5)
+          .id("p")
+          .previous_label("Zurück")
+          .next_label("Weiter")
+          .page_label("Seite")
+          .summary_text("Seite 2 von 5"),
+      )
+      .into()
+  });
+  let mut said = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(said("p-previous").as_deref(), Some("Zurück"));
+  assert_eq!(said("p-next").as_deref(), Some("Weiter"));
+  assert_eq!(said("p-page-3").as_deref(), Some("Seite 3"));
+  assert!(
+    stage.paints("Seite 2 von 5"),
+    "the summary, said in the full form once it is given"
+  );
+}
+
+#[test]
+fn a_forced_state_draws_the_first_button_that_takes_input() {
+  let page = Signal::new(1_usize);
+  let read = page.clone();
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(
+        Pagination::new(read.clone(), 5)
+          .id("p")
+          .force(Some(Interaction::Hovered)),
+      )
+      .into()
+  });
+  // On the first page previous takes nothing: the first page that is not the current one is drawn under the pointer.
+  let hovered = stage.fill_color("p-page-2");
+  assert!(hovered.is_some(), "page 2 is drawn as it is under the pointer");
+  assert_eq!(stage.fill_color("p-page-3"), None);
 }

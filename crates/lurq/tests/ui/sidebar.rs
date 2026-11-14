@@ -502,7 +502,7 @@ fn on_the_rail_an_item_with_nested_items_opens_them_in_a_menu() {
 fn its_width_moves_between_the_sidebar_and_the_rail() {
   let collapsed = Signal::new(false);
   let held = collapsed.clone();
-  let mut stage = stage(move |ctx| layout(ctx, board().collapsed(held.clone())));
+  let mut stage = stage(move |ctx| layout(ctx, board().collapsed(held.get())));
   assert_eq!(stage.bounds("sidebar").2, 260.0);
   collapsed.set(true);
   stage.pass_after(Duration::ZERO);
@@ -523,7 +523,7 @@ fn the_trigger_collapses_it_and_brings_it_back() {
   let mut stage = stage(move |ctx| {
     Row::new()
       .size(1024.0, 600.0)
-      .child(board().collapsed(held.clone()).mount(ctx))
+      .child(board().collapsed(held.get()).mount(ctx))
       .child(
         Column::new()
           .flex(1.0)
@@ -584,7 +584,7 @@ fn on_a_narrow_window_the_trigger_opens_it_over_the_page() {
       .child(
         board()
           .narrow(true)
-          .collapsed(held.clone())
+          .collapsed(held.get())
           .open(shown.clone())
           .mount(ctx),
       )
@@ -802,7 +802,7 @@ fn a_closed_item_holding_the_selected_item_is_marked_as_it_is() {
         .item(
           SidebarItem::new("Components")
             .id("components")
-            .open(false)
+            .default_open(false)
             .child(SidebarItem::new("Buttons").id("buttons").selected(true)),
         ),
     )
@@ -833,7 +833,7 @@ fn a_closed_group_holding_the_selected_item_has_its_label_in_the_foreground() {
         .group(
           SidebarGroup::new("Team")
             .collapsible(true)
-            .open(false)
+            .default_open(false)
             .item(SidebarItem::new("Members").id("members").selected(true)),
         ),
     )
@@ -870,4 +870,106 @@ fn an_items_height_follows_the_density() {
     let mut stage = stage_in(app, |ctx| layout(ctx, board()));
     assert_eq!(stage.bounds("overview").3, height, "{density:?}");
   }
+}
+
+#[test]
+fn a_heading_s_handlers_are_given_the_press_and_each_is_called() {
+  let (first, one) = counter();
+  let (second, two) = counter();
+  let mut stage = stage(move |_| {
+    let (one, two) = (one.clone(), two.clone());
+    Row::new()
+      .child(
+        SidebarHeading::new("lurq")
+          .icon(icons::BOX)
+          .id("heading")
+          .on_click(move |_| one())
+          .on_click(move |_| two()),
+      )
+      .into()
+  });
+  stage.click("heading");
+  assert_eq!(
+    (first.load(Ordering::SeqCst), second.load(Ordering::SeqCst)),
+    (1, 1),
+    "a second handler is called after the first, not in its place"
+  );
+}
+
+#[test]
+fn a_heading_takes_rules_a_forced_state_and_a_variant_by_its_name() {
+  let mut stage = stage(|_| {
+    let rules = lurq::ui::Recipe::new().base(SidebarPart::HeadingTitle, |s| s.foreground(PaletteColor::Primary));
+    Column::new()
+      .child(
+        SidebarHeading::new("lurq")
+          .icon(icons::BOX)
+          .id("heading")
+          .rules(&rules)
+          .on_click(|_| {})
+          .force(Some(lurq::ui::Interaction::Hovered)),
+      )
+      .child(SidebarHeading::new("Ivan Zaida").variant("account").key("account"))
+      .into()
+  });
+  assert_eq!(stage.text("lurq").0, light(PaletteColor::Primary));
+  assert_eq!(stage.fill_color("heading"), Some(light(PaletteColor::StateHover)));
+  // The footer's heading, named as a theme would name it: its name in the medium weight, as the board draws it.
+  assert!(stage.paints("Ivan Zaida"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn the_trigger_s_names_can_be_said_otherwise() {
+  let collapsed = Signal::new(false);
+  let held = collapsed.clone();
+  let mut stage = stage(move |_| {
+    Row::new()
+      .child(
+        SidebarTrigger::new(held.clone())
+          .narrow(false)
+          .collapse_label("Seitenleiste einklappen")
+          .expand_label("Seitenleiste ausklappen")
+          .id("trigger"),
+      )
+      .into()
+  });
+  let said = |stage: &mut Stage| {
+    stage
+      .tree
+      .get_element_by_id_mut("trigger")
+      .and_then(|element| element.description("a11y_name"))
+  };
+  assert_eq!(said(&mut stage).as_deref(), Some("Seitenleiste einklappen"));
+  stage.click("trigger");
+  assert!(collapsed.get());
+  assert_eq!(said(&mut stage).as_deref(), Some("Seitenleiste ausklappen"));
+}
+
+#[test]
+fn items_adds_items_in_a_group_of_no_label() {
+  let stage = stage(|ctx| {
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(SidebarItem::new("Overview"))
+        .items([SidebarItem::new("Inbox"), SidebarItem::new("Drafts")]),
+    )
+  });
+  for name in ["Overview", "Inbox", "Drafts"] {
+    assert!(stage.paints(name), "{name}");
+  }
+}
+
+#[test]
+fn built_in_a_theme_it_takes_that_theme_s_recipe() {
+  let wide = lurq::app::theme::Theme::new();
+  wide.patch_recipe::<Sidebar>(|rules| rules.base(SidebarPart::Root, |s| s.width(300.0)));
+  let mut stage = stage(move |_| Row::new().size(1024.0, 600.0).child(board().build(&wide)).into());
+  assert_eq!(
+    stage.bounds("sidebar").2,
+    300.0,
+    "the recipe of the theme it was built in"
+  );
 }

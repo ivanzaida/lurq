@@ -130,7 +130,7 @@ fn a_menubar_draws_it_on_the_first_title() {
 #[test]
 fn a_breadcrumb_draws_it_on_the_first_link() {
   let mut stage = stage(|| {
-    Breadcrumb::new()
+    Breadcrumb::default()
       .step(BreadcrumbStep::new("Settings").id("settings"))
       .step(BreadcrumbStep::new("Appearance").id("appearance"))
       .step(BreadcrumbStep::new("Theme").id("theme"))
