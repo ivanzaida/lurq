@@ -16,7 +16,7 @@ use lurq::{
   },
   components::{Button, Column, Row, ScrollVertical},
   core::Signal,
-  layout::quad::QuadContent,
+  layout::{Constraints, Size, quad::QuadContent},
   node::{Element, color::Color},
   ui::{Avatar, NavItem, NavLink, NavPanel, Navbar, NavbarBrand, NavbarPart, icons},
 };
@@ -34,6 +34,11 @@ fn close(a: f32, b: f32) -> bool {
 /// The board's navbar, 760 wide: the brand, Docs (the page shown, with a panel), Components and Blog, and an avatar
 /// at its end.
 fn board() -> Navbar {
+  board_with(|| {})
+}
+
+/// The board's navbar, with `on_blog` run when Blog is chosen.
+fn board_with(on_blog: impl Fn() + Send + Sync + 'static) -> Navbar {
   Navbar::new()
     .id("bar")
     .label("Site")
@@ -44,7 +49,7 @@ fn board() -> Navbar {
         .panel(NavPanel::new().link(NavLink::new("Getting started").id("start"))),
     )
     .item(NavItem::new("Components").id("components"))
-    .item(NavItem::new("Blog").id("blog"))
+    .item(NavItem::new("Blog").id("blog").on_select(on_blog))
     .end(Avatar::new("Ivan Zaida").id("avatar"))
 }
 
@@ -61,6 +66,9 @@ fn stage_in(app: App, make: impl Fn() -> Navbar + Send + Sync + 'static) -> Stag
       .child(Row::new().child(Button::new("Page").id("page").tab_index(0)))
       .into()
   });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 500.0))));
   stage.tree.resize(800, 500);
   stage.pass();
   stage
@@ -163,8 +171,16 @@ fn tab_goes_through_the_brand_and_each_link() {
 #[test]
 fn on_a_narrow_window_the_links_are_behind_the_menu_button() {
   let menu_open = Signal::new(false);
-  let held = menu_open.clone();
-  let mut stage = stage(move || board().narrow(true).menu_open(held.clone()));
+  let chosen = Arc::new(AtomicUsize::new(0));
+  let (held, told) = (menu_open.clone(), chosen.clone());
+  let mut stage = stage(move || {
+    let told = told.clone();
+    board_with(move || {
+      told.fetch_add(1, Ordering::SeqCst);
+    })
+    .narrow(true)
+    .menu_open(held.clone())
+  });
   assert!(!stage.paints("Blog"), "no links in the bar");
   let (x, ..) = stage.bounds("bar");
   let (mx, ..) = stage.bounds("bar-menu");
@@ -177,6 +193,7 @@ fn on_a_narrow_window_the_links_are_behind_the_menu_button() {
   assert!(stage.paints("Blog") && stage.paints("Getting started"));
   stage.tree.get_element_by_id_mut("blog").unwrap().click();
   stage.pass();
+  assert_eq!(chosen.load(Ordering::SeqCst), 1, "the link is chosen");
   assert!(!menu_open.get(), "choosing a link closes it");
 }
 

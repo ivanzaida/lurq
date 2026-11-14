@@ -430,6 +430,9 @@ impl Navbar {
           if let Some(href) = &item.href {
             link = link.href(href);
           }
+          if let Some(id) = &item.id {
+            link = link.id(id.clone());
+          }
           let handlers = item.on_select.clone();
           if !handlers.is_empty() {
             link = link.on_select(move || handlers.iter().for_each(|handler| handler()));
@@ -502,6 +505,9 @@ fn sidebar_link(link: &NavLink) -> SidebarItem {
   }
   if let Some(href) = &link.href {
     item = item.href(href);
+  }
+  if let Some(id) = &link.id {
+    item = item.id(id.clone());
   }
   let handlers = link.on_select.clone();
   if !handlers.is_empty() {
