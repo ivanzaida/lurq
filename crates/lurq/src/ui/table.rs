@@ -30,6 +30,7 @@ use super::{
 mod columns;
 mod groups;
 mod range;
+mod summary;
 
 pub use columns::{ColumnLayout, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
@@ -37,6 +38,8 @@ pub use groups::{GroupKey, TableGroup};
 use groups::{Lines, Shown};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
+use summary::{Summary, summarize, summary_content};
+pub use summary::{SummaryKind, TableSummary};
 
 use crate::{
   app::{
@@ -90,6 +93,12 @@ pub enum TablePart {
   GroupLabel,
   /// How many rows a group holds.
   GroupCount,
+  /// A summary row: at the bottom of the grid, where it stays, and at the end of each group open.
+  Summary,
+  /// What a summary cell says its value is: "Sum", "Average".
+  SummaryLabel,
+  /// A summary cell's value.
+  SummaryValue,
   /// One row: its height, its padding, the room between columns, the line under it. What is pressed,
   /// selected and focused.
   Row,
@@ -121,6 +130,9 @@ names!(TablePart {
   Chevron => "chevron",
   GroupLabel => "group_label",
   GroupCount => "group_count",
+  Summary => "summary",
+  SummaryLabel => "summary_label",
+  SummaryValue => "summary_value",
   Row => "row",
   Cell => "cell",
   Select => "select",
@@ -344,6 +356,7 @@ pub struct TableColumn<R> {
   content: Content<R>,
   compare: Option<CompareFn<R>>,
   editor: Option<CellEditor<R>>,
+  summary: Option<Summary<R>>,
 }
 
 impl<R> Clone for TableColumn<R> {
@@ -362,6 +375,7 @@ impl<R> Clone for TableColumn<R> {
       content: self.content.clone(),
       compare: self.compare.clone(),
       editor: self.editor.clone(),
+      summary: self.summary.clone(),
     }
   }
 }
@@ -384,6 +398,7 @@ impl<R: 'static> TableColumn<R> {
       content: Content::Nothing,
       compare: None,
       editor: None,
+      summary: None,
     }
   }
 
@@ -523,6 +538,20 @@ impl<R: 'static> TableColumn<R> {
   /// own shows the box.
   pub fn editor(mut self, editor: CellEditor<R>) -> Self {
     self.editor = Some(editor);
+    self
+  }
+
+  /// What the column says in a [`DataGrid`](super::DataGrid)'s summary rows, of a column of numbers: the sum, the
+  /// average, the count, the least or the most of the rows summed up, the grid's whole or a group's. Its numbers
+  /// are the values its editor edits, or those its text starts with ("12 KB"). A count is of any column.
+  pub fn summary(mut self, kind: SummaryKind) -> Self {
+    self.summary = Some(Summary::Kind(kind));
+    self
+  }
+
+  /// What the column says in a data grid's summary rows, as the app computes it from the rows summed up.
+  pub fn summary_text(mut self, text: impl Fn(&[&R]) -> String + Send + Sync + 'static) -> Self {
+    self.summary = Some(Summary::Text(Arc::new(text)));
     self
   }
 
@@ -1211,9 +1240,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     Lines::grouped(
       self.rows.len(),
       &ids,
+      self.summarized(),
       &|row, level| column_text(&self.grouping[level], &self.rows[row]),
       &|key| open.contains(key),
     )
+  }
+
+  /// Whether a column says something in the summary rows: then the grid has one at its bottom, and one at the end
+  /// of each group open.
+  fn summarized(&self) -> bool {
+    self.grid && self.columns.iter().any(|column| column.summary.is_some())
   }
 
   /// Opens or closes the group `key`: asks for the groups open with it in or out, and tells every handler.
@@ -1592,6 +1628,63 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         })
       })
       .collect();
+    // The summary rows: one at the end of each group open, built where it is in view, and the grid's at its bottom.
+    let summary_recipe = row_recipe(false, false);
+    let summary_fill = summary_recipe.part(TablePart::Summary).rest().background;
+    let summary_of = |rows: &[&R], id: Option<Arc<str>>, position: Option<usize>| TableSummary {
+      position,
+      cells: self
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(column_index, _)| built(*column_index))
+        .map(|(column_index, column)| TableCell {
+          column: column_index,
+          content: summary_content(&summary_recipe, summarize(column, rows)),
+          grid: None,
+          part: summary_recipe.part(TablePart::Cell),
+          align: column.align,
+          pinned: sticky_of(column_index),
+          fill: sticky_of(column_index).and(summary_fill.clone()),
+          controls: false,
+          last: cell_ends(column_index),
+          gap: geometry.gap,
+          lead: if column_index == 0 && sticky && !checkboxes {
+            geometry.padding_start
+          } else {
+            0.0
+          },
+          trail: trail_of(column_index),
+        })
+        .collect(),
+      recipe: summary_recipe.clone(),
+      tracks: tracks.clone(),
+      columns_built: columns_built.clone(),
+      geometry,
+      checkbox: checkboxes,
+      pinned_start: sticky,
+      pinned_end: end_pins > 0,
+      fill: summary_fill.clone(),
+      id,
+    };
+    let summaries: Vec<TableSummary> = shown
+      .iter()
+      .filter_map(|&position| {
+        let Shown::Summary(group) = lines.lines[position] else {
+          return None;
+        };
+        let rows: Vec<&R> = lines.groups[group]
+          .rows
+          .iter()
+          .map(|index| &self.rows[*index])
+          .collect();
+        Some(summary_of(&rows, id_of(&format!("summary-{position}")), Some(position)))
+      })
+      .collect();
+    let summary = (self.summarized() && count > 0 && !self.loading).then(|| {
+      let rows: Vec<&R> = self.rows.iter().collect();
+      summary_of(&rows, id_of("summary"), None)
+    });
     let rows = shown
       .iter()
       .filter_map(|&position| lines.rank_at(position).map(|rank| (position, rank)))
@@ -2001,6 +2094,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       rows,
       groups,
       grouped,
+      summaries,
+      summary,
       selectable,
       checkboxes,
       grid: grid_model.is_some(),
@@ -2265,6 +2360,10 @@ pub struct TableView {
   pub groups: Vec<TableGroup>,
   /// Whether the rows are grouped: the body is a nested list, Right opening a group and Left closing it.
   pub grouped: bool,
+  /// The summary rows at the end of the groups open that are built, each with its line.
+  pub summaries: Vec<TableSummary>,
+  /// The grid's summary row, which stays at its bottom.
+  pub summary: Option<TableSummary>,
   /// Whether its rows are selected.
   pub selectable: bool,
   /// Whether it has the column of checkboxes.
@@ -2429,6 +2528,11 @@ impl TableView {
           .into_iter()
           .map(|group| (group.position, group.render())),
       )
+      .chain(
+        std::mem::take(&mut self.summaries)
+          .into_iter()
+          .map(|summary| (summary.position.unwrap_or(0), summary.render())),
+      )
       .collect();
     lines.sort_by_key(|(position, _)| *position);
     let group = FocusGroup::vertical().one_stop(true).wrap(false).nested(self.grouped);
@@ -2542,6 +2646,10 @@ impl TableView {
       content = content.child(self.skeletons());
     } else if empty.is_none() {
       content = content.child(self.body());
+      // The summary of every row stays at the bottom of what scrolls, under the rows.
+      if let Some(summary) = self.summary.take() {
+        content = content.child(summary.render());
+      }
     }
     // Its bars run beside the rows: the one down under the header that stays, the one across after the first
     // column that stays.
@@ -4173,8 +4281,8 @@ impl FocusRows for HostState {
     None
   }
 
-  fn enabled(&self, _row: usize) -> bool {
-    !self.metrics.lock().disabled
+  fn enabled(&self, row: usize) -> bool {
+    !self.metrics.lock().disabled && !matches!(self.lines.lock().lines.get(row), Some(Shown::Summary(_)))
   }
 
   fn level(&self, row: usize) -> u32 {
@@ -4185,7 +4293,7 @@ impl FocusRows for HostState {
     let lines = self.lines.lock();
     match lines.lines.get(row)? {
       Shown::Group(group) => Some(lines.groups[*group].open),
-      Shown::Row(_) => None,
+      Shown::Row(_) | Shown::Summary(_) => None,
     }
   }
 
@@ -4830,6 +4938,30 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .density(Density::Compact, TablePart::GroupRow, |s| s.height(Density::Default))
       .density(Density::Comfortable, TablePart::GroupRow, |s| s.height(52.0))
       .density(Density::Touch, TablePart::GroupRow, |s| s.height(52.0))
+      // A summary row: as high as a row, on the muted fill with a line over it, its labels 12 in the muted foreground
+      // and its values 13/500 in the foreground.
+      .base(TablePart::Summary, |s| {
+        s.height(44.0)
+          .padding_x(16.0)
+          .gap(16.0)
+          .background(Muted)
+          .top_line(line())
+      })
+      .state(Selectable, TablePart::Summary, |s| s.gap(12.0))
+      .base(TablePart::SummaryLabel, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(12.0)
+          .foreground(MutedForeground)
+      })
+      .base(TablePart::SummaryValue, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(13.0)
+          .weight(FontWeight::Medium)
+          .foreground(Foreground)
+      })
+      .density(Density::Compact, TablePart::Summary, |s| s.height(Density::Default))
+      .density(Density::Comfortable, TablePart::Summary, |s| s.height(52.0))
+      .density(Density::Touch, TablePart::Summary, |s| s.height(52.0))
       .base(Empty, |s| s.width(Length::Fill))
       .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {

@@ -96,6 +96,10 @@ use crate::{
 /// row with its value and its count that opens and closes ([`open`](Self::open)), the rows of a closed one not
 /// built.
 ///
+/// **Summary rows** ([`TableColumn::summary`]): a row at the bottom of the grid that stays there, and one at the end
+/// of each group open, with a sum, an average, a count, the least or the most the grid computes of a column of
+/// numbers, or the app's text.
+///
 /// **A cell is edited in place** with its column's editor ([`CellEditor`]): an input for a text, a number input,
 /// a select of the column's choices, or a box ticked in the cell itself. Enter or F2 on a cell, a double press of
 /// it, or a letter typed on it (which the edit starts from) opens the editor; Enter commits and goes to the cell
