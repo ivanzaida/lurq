@@ -107,18 +107,37 @@ fn the_panel_is_232_wide_with_an_area_of_208_by_120_and_a_rail_of_10_under_it() 
   let hue = stage.bounds("picker-hue");
   assert_eq!((hue.2, hue.3), (208.0, 10.0));
   assert_eq!(hue.1 - (area.1 + area.3), 12.0, "12 under the area");
-  // Under the hue's pure color: white across from the start, black up from the bottom, and the rail of every hue.
+  // One box, the blend of its four corners: white, the hue's pure color, black and black. And the rail of every hue.
   let pure = Color::from(lurq::node::color::Hsv {
     h: blue().to_hsv().h,
     s: 1.0,
     v: 1.0,
     a: 1.0,
   });
-  assert!(stage.quads().iter().any(|quad| {
-    matches!(&quad.content, QuadContent::Rect { color, gradient: None } if *color == pure)
-      && (quad.width, quad.height) == (208.0, 120.0)
-  }));
-  assert_eq!(rects_with_gradient(&stage).len(), 3, "white, black and the hues");
+  let area_fill = stage
+    .quads()
+    .into_iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Rect {
+        gradient: Some(gradient),
+        ..
+      } if (quad.width, quad.height) == (208.0, 120.0) => Some(gradient.clone()),
+      _ => None,
+    })
+    .expect("the area's fill");
+  assert_eq!(area_fill.kind, 3, "the blend of four corners");
+  let corners: Vec<[f32; 4]> = area_fill.stops.iter().map(|stop| stop.color).collect();
+  let (white, black) = (Color::new(255, 255, 255, 255), Color::new(0, 0, 0, 255));
+  let expected: Vec<[f32; 4]> = [white, pure, black, black]
+    .iter()
+    .map(Color::to_linear_f32_array)
+    .collect();
+  assert_eq!(corners, expected);
+  assert_eq!(
+    rects_with_gradient(&stage).len(),
+    2,
+    "the area and the rail of the hues"
+  );
   // The hex is the field's, in capitals.
   assert_eq!(stage.text("#2563EB").0, light(PaletteColor::Foreground));
 }

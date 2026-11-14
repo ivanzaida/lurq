@@ -667,13 +667,27 @@ fn box_shadow_alpha(
 ///   [count, kind, flags, from_angle]
 ///   [dir.x, dir.y, center.x, center.y]
 ///   then per stop: [r, g, b, a], [position, _, _, _]
-/// kind: 0 = linear, 1 = radial (flags bit0 = ellipse), 2 = conic.
+/// kind: 0 = linear, 1 = radial (flags bit0 = ellipse), 2 = conic, 3 = corners
+/// (the four stops at the top left, top right, bottom right and bottom left).
 fn sample_gradient(off: i32, local: vec2<f32>, half: vec2<f32>) -> vec4<f32> {
     let h0 = gradient_at(off);
     let h1 = gradient_at(off + 1);
     let count = i32(h0.x);
     let kind = i32(h0.y);
     let pi = 3.14159265359;
+
+    if (kind == 3) {
+        // The four corners mixed across and then down, in sRGB-encoded values as
+        // a picture's colors are written, back in linear light for the rest.
+        let uv = clamp((local + half) / max(2.0 * half, vec2<f32>(1e-5, 1e-5)), vec2<f32>(0.0), vec2<f32>(1.0));
+        let top_left = encode_srgb(gradient_at(off + 2));
+        let top_right = encode_srgb(gradient_at(off + 4));
+        let bottom_right = encode_srgb(gradient_at(off + 6));
+        let bottom_left = encode_srgb(gradient_at(off + 8));
+        let top = mix(top_left, top_right, uv.x);
+        let bottom = mix(bottom_left, bottom_right, uv.x);
+        return decode_srgb(mix(top, bottom, uv.y));
+    }
 
     var t: f32;
     if (kind == 0) {
@@ -733,6 +747,13 @@ fn sample_gradient(off: i32, local: vec2<f32>, half: vec2<f32>) -> vec4<f32> {
 // The render target is not sRGB, so the fixed-function blend mixes
 // sRGB-encoded values, as CSS and design tools do. `fs_main` works in linear
 // light like the rest of the pipeline and encodes each result it returns.
+fn decode_srgb(color: vec4<f32>) -> vec4<f32> {
+    let c = clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let low = c / 12.92;
+    let high = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
+    return vec4<f32>(select(high, low, c <= vec3<f32>(0.04045)), color.a);
+}
+
 fn encode_srgb(color: vec4<f32>) -> vec4<f32> {
     let c = clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let low = c * 12.92;

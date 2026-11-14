@@ -11174,6 +11174,26 @@ fn screenshot_rect_fill_color(rect: &RectCmd, fallback: [u8; 4], world_x: f32, w
 
 #[cfg(feature = "devtools")]
 fn screenshot_sample_gradient(gradient: &RenderGradient, local: [f32; 2], half: [f32; 2]) -> [u8; 4] {
+  if gradient.kind == 3 && gradient.stops.len() == 4 {
+    // The four corners mixed across and then down, in sRGB-encoded values.
+    let u = ((local[0] + half[0]) / (2.0 * half[0]).max(1e-5)).clamp(0.0, 1.0);
+    let v = ((local[1] + half[1]) / (2.0 * half[1]).max(1e-5)).clamp(0.0, 1.0);
+    let encoded = |stop: usize, channel: usize| {
+      let value = gradient.stops[stop].color[channel];
+      if channel == 3 {
+        value
+      } else {
+        f32::from(screenshot_linear_to_srgb_u8(value)) / 255.0
+      }
+    };
+    let mut out = [0_u8; 4];
+    for (channel, slot) in out.iter_mut().enumerate() {
+      let top = encoded(0, channel) + (encoded(1, channel) - encoded(0, channel)) * u;
+      let bottom = encoded(3, channel) + (encoded(2, channel) - encoded(3, channel)) * u;
+      *slot = ((top + (bottom - top) * v).clamp(0.0, 1.0) * 255.0).round() as u8;
+    }
+    return out;
+  }
   let mut t = match gradient.kind {
     0 => {
       let dir = gradient.dir;

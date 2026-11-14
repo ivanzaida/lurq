@@ -114,7 +114,8 @@ impl RectShadow {
 
 /// A palette-resolved, encode-ready gradient attached to a rect fill.
 ///
-/// `kind`: 0 = linear, 1 = radial, 2 = conic. `flags` bit0 marks a radial
+/// `kind`: 0 = linear, 1 = radial, 2 = conic, 3 = corners (the stops are the colors at the top left, top right,
+/// bottom right and bottom left, mixed bilinearly in sRGB-encoded values). `flags` bit0 marks a radial
 /// ellipse (vs. circle). `dir` is the linear unit direction; `center` is the
 /// radial/conic center normalized in `0..1`; `from_angle` is the conic start
 /// angle in radians.
@@ -136,7 +137,7 @@ pub struct RenderGradientStop {
 
 impl RenderGradient {
   pub fn resolve(gradient: &Gradient, palette: &ThemePalette) -> Option<Self> {
-    if gradient.stops.is_empty() {
+    if gradient.stops.is_empty() || (gradient.kind == GradientKind::Corners && gradient.stops.len() != 4) {
       return None;
     }
     let positions = normalize_positions(gradient);
@@ -157,6 +158,7 @@ impl RenderGradient {
       GradientKind::Linear => (0, 0),
       GradientKind::Radial => (1, u32::from(gradient.radial_ellipse)),
       GradientKind::Conic => (2, 0),
+      GradientKind::Corners => (3, 0),
     };
     let theta = gradient.angle_deg.to_radians();
     Some(Self {

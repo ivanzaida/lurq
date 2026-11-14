@@ -869,23 +869,14 @@ impl ColorPickerView {
       v: 1.0,
       a: 1.0,
     });
+    // One picture, the blend of its four corners, in one box with one edge: boxes stacked under the area's round
+    // corners would each be cut by it on their own, and the hue under the black would show at the edge.
     let white = Color::new(255, 255, 255, 255);
     let black = Color::new(0, 0, 0, 255);
-    let field = Stack::new()
-      .stack_align(StackAlignment::TopStart)
+    let field = Row::new()
       .part(&part)
       .size(width, height)
-      .child(Row::new().size(width, height).background(hue))
-      .child(
-        Row::new()
-          .size(width, height)
-          .background_gradient(Gradient::linear(90.0, [white, white.with_alpha(0)])),
-      )
-      .child(
-        Row::new()
-          .size(width, height)
-          .background_gradient(Gradient::linear(180.0, [black.with_alpha(0), black])),
-      );
+      .background_gradient(Gradient::corners(white, hue, black, black));
     let circle = Row::new()
       .part(&thumb)
       .offset(
