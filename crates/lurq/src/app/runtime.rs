@@ -940,6 +940,8 @@ struct OverlayDismissEntry {
   dismiss_on_outside_click: bool,
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
+  /// What runs after a press outside it or Escape closed it.
+  on_dismiss: Option<crate::app::ctx::OverlayDismiss>,
   /// The overlay's index among the overlay host's children (the page is 0).
   /// A press on a layer above it, such as a select menu or a popup opened
   /// from inside it, is not outside it.
@@ -4228,6 +4230,9 @@ impl Tree {
     };
 
     entry.open.set(false);
+    if let Some(on_dismiss) = entry.on_dismiss.clone() {
+      on_dismiss();
+    }
     true
   }
 
@@ -5489,8 +5494,11 @@ impl Tree {
       self.needs_redraw = true;
     }
     if !evt.default_prevented() {
-      for open in overlay_dismiss_signals {
+      for (open, on_dismiss) in overlay_dismiss_signals {
         open.set(false);
+        if let Some(on_dismiss) = on_dismiss {
+          on_dismiss();
+        }
         self.needs_redraw = true;
       }
     }
@@ -8177,6 +8185,7 @@ fn build_overlays_from_layout_index(
             open: spec.open_signal.clone(),
             on_outside_click: spec.dismiss_on_outside_click,
             on_escape: spec.dismiss_on_escape,
+            on_dismiss: spec.on_dismiss.clone(),
           };
           layers.hide(&spec.anchor, dismiss, overlays.len() + 1);
           continue;
@@ -8191,6 +8200,7 @@ fn build_overlays_from_layout_index(
         let dismiss_on_outside_click = spec.dismiss_on_outside_click;
         let outside_press = spec.outside_press;
         let dismiss_on_escape = spec.dismiss_on_escape;
+        let on_dismiss = spec.on_dismiss.clone();
         let (mut overlay, bounds, placing) = build_overlay_node(
           spec,
           anchor,
@@ -8213,6 +8223,7 @@ fn build_overlays_from_layout_index(
             dismiss_on_outside_click,
             outside_press,
             dismiss_on_escape,
+            on_dismiss,
             layer: overlays.len() + 1,
             shown: true,
           });
@@ -8237,6 +8248,7 @@ fn build_overlays_from_layout_index(
             open: spec.open_signal.clone(),
             on_outside_click: false,
             on_escape: spec.dismiss_on_escape,
+            on_dismiss: None,
           };
           layers.hide(target, dismiss, overlays.len() + 1);
           continue;
@@ -8268,6 +8280,7 @@ fn build_overlays_from_layout_index(
             dismiss_on_outside_click: false,
             outside_press: OutsidePress::default(),
             dismiss_on_escape,
+            on_dismiss: None,
             layer: overlays.len() + 1,
             shown: true,
           });

@@ -97,6 +97,13 @@ impl Popup {
     self
   }
 
+  /// What runs after a press outside the popup or Escape closed it: see
+  /// [`Overlay::on_dismiss`](crate::app::ctx::Overlay::on_dismiss).
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.overlay = self.overlay.on_dismiss(handler);
+    self
+  }
+
   /// Whether the anchor is this popup's trigger, which a left press opens.
   /// While another dropdown is open, a press on a trigger closes it and goes
   /// on to the trigger, so one press switches dropdowns. Defaults to `true`;

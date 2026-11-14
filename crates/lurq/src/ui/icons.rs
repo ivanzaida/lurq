@@ -160,6 +160,7 @@ pub const PLAY_CIRCLE: &str = "play-circle";
 pub const PULSE: &str = "pulse";
 pub const SHARE_NODES: &str = "share-nodes";
 pub const EYE_OFF: &str = "eye-off";
+pub const HELP_CIRCLE: &str = "help-circle";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -316,4 +317,5 @@ pub const ALL: &[(&str, char)] = &[
   (PULSE, '\u{E096}'),
   (SHARE_NODES, '\u{E097}'),
   (EYE_OFF, '\u{E098}'),
+  (HELP_CIRCLE, '\u{E099}'),
 ];

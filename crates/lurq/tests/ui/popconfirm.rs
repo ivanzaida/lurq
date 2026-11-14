@@ -157,7 +157,7 @@ fn the_confirm_button_closes_it_and_confirms() {
 }
 
 #[test]
-fn escape_cancels_and_a_press_outside_closes_it() {
+fn escape_and_a_press_outside_cancel() {
   let open = Signal::new(false);
   let (confirmed, confirm) = counter();
   let (cancelled, cancel) = counter();
@@ -172,11 +172,12 @@ fn escape_cancels_and_a_press_outside_closes_it() {
   assert!(!open.get());
   assert_eq!((count(&confirmed), count(&cancelled)), (0, 1));
 
+  // A press outside cancels too.
   open.set(true);
   stage.pass();
   stage.click("outside");
   assert!(!open.get());
-  assert_eq!(count(&confirmed), 0);
+  assert_eq!((count(&confirmed), count(&cancelled)), (0, 2));
 }
 
 #[test]

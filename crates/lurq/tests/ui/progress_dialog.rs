@@ -19,7 +19,10 @@ use lurq::{
   },
   components::Column,
   core::Signal,
-  layout::quad::{Quad, QuadContent},
+  layout::{
+    Constraints, Size,
+    quad::{Quad, QuadContent},
+  },
   node::{Element, color::Color},
   ui::{ProgressDialog, ProgressDialogPart, icons},
 };
@@ -39,6 +42,10 @@ fn stage_in(app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'stati
   let mut stage = Stage::in_app(app, move |ctx| {
     Column::new().size(600.0, 400.0).child(scene(ctx)).into()
   });
+  // The stage lays its scene out in 400 by 300 and culls what is outside that: a window of 600 by 400 is that too.
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(600.0, 400.0))));
   stage.tree.resize(600, 400);
   stage.pass();
   stage
@@ -184,10 +191,7 @@ fn nothing_dismisses_it_and_cancel_asks_the_app_to_stop() {
   let (paused, pause) = counter();
   let held = open.clone();
   let mut stage = stage(move |_| copying(held.clone(), Signal::new(false), cancel.clone(), pause.clone()).into());
-  press_at(&mut stage, 5.0, 5.0);
-  assert!(open.get(), "a press of the veil does not close it");
-
-  // The focus is on the cancel button: Space presses it, and it stays open.
+  // As it opens the focus is on the cancel button: Space presses it, and it stays open.
   stage.key(" ");
   assert_eq!(count(&cancelled), 1);
   assert!(open.get());
@@ -196,6 +200,8 @@ fn nothing_dismisses_it_and_cancel_asks_the_app_to_stop() {
   assert_eq!(count(&cancelled), 2);
   assert!(open.get());
 
+  press_at(&mut stage, 5.0, 5.0);
+  assert!(open.get(), "a press of the veil does not close it");
   press_text(&mut stage, "Pause");
   assert_eq!((count(&cancelled), count(&paused)), (2, 1));
 

@@ -189,6 +189,9 @@ pub enum OutsidePress {
   PassThrough,
 }
 
+/// What runs when a press outside an overlay or Escape closes it: see [`Overlay::on_dismiss`].
+pub(crate) type OverlayDismiss = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 pub(crate) struct OverlaySpec {
   pub(crate) anchor: ElementRef,
   pub(crate) node: Node,
@@ -202,6 +205,8 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_outside_click: bool,
   pub(crate) outside_press: OutsidePress,
   pub(crate) dismiss_on_escape: bool,
+  /// What runs when a press outside the overlay or Escape closes it.
+  pub(crate) on_dismiss: Option<OverlayDismiss>,
   /// Whether the focus goes into the overlay as it opens and back as it closes: see [`Overlay::takes_focus`].
   pub(crate) takes_focus: bool,
   /// Whether Tab goes through the overlay right after its anchor, the focus staying where it is as it opens:
@@ -305,6 +310,7 @@ impl OverlaySpec {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      on_dismiss: self.on_dismiss.clone(),
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
     }
@@ -415,6 +421,7 @@ pub struct Overlay {
   dismiss_on_outside_click: bool,
   outside_press: OutsidePress,
   dismiss_on_escape: bool,
+  on_dismiss: Option<OverlayDismiss>,
   switch_on_anchor_press: bool,
   takes_focus: bool,
   tab_after_anchor: bool,
@@ -435,6 +442,7 @@ impl Overlay {
       dismiss_on_outside_click: false,
       outside_press: OutsidePress::default(),
       dismiss_on_escape: false,
+      on_dismiss: None,
       switch_on_anchor_press: true,
       takes_focus: false,
       tab_after_anchor: false,
@@ -501,6 +509,13 @@ impl Overlay {
     self
   }
 
+  /// What runs after a press outside the overlay or Escape closed it, its open signal set to `false`: what a
+  /// dismissal means to the app, beyond the overlay closing. Only an overlay driven by a signal is dismissed.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss = Some(std::sync::Arc::new(handler));
+    self
+  }
+
   /// Whether the anchor is this overlay's trigger, which a left press opens.
   /// While another dropdown is open, a press on a trigger closes it and goes
   /// on to the trigger, so one press switches dropdowns. Defaults to `true`;
@@ -562,6 +577,7 @@ impl Overlay {
       dismiss_on_outside_click: self.dismiss_on_outside_click,
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
+      on_dismiss: self.on_dismiss,
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
     })

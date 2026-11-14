@@ -33,6 +33,22 @@ three `mod.rs` files. No keyframes taken.
   its icon, where the dialog's header has no room for an icon.
 - **`ui::Popover`** (`crates/lurq/src/ui/popover.rs`): `alert(bool)`, `named(&str)`, `described(&str)`, as the
   dialog has them, for the popconfirm's question beside its icon.
+- **Engine: what runs as an overlay is dismissed.** `Overlay::on_dismiss(handler)` and `Popup::on_dismiss`
+  (`app/ctx.rs`, `components/popup.rs`; `OverlaySpec::on_dismiss` and `ctx::OverlayDismiss`, the handler's type), run
+  after a press outside the overlay or Escape set its open signal to `false`. The functions touched, on the dismiss
+  path only: in `app/ctx.rs` the `Overlay` and `OverlaySpec` structs, `Overlay::new`, `Overlay::on_dismiss` (new),
+  `Overlay::into_spec` and `OverlaySpec::clone_with_node`; in `app/runtime.rs` the `OverlayDismissEntry` struct (a
+  field `on_dismiss`), `build_overlays_from_layout_index` (the overlay's and the modal's `HiddenDismiss` and
+  `OverlayDismissEntry`, a modal's with none), `dismiss_top_overlay_on_escape` (runs it) and, for a left press, in
+  `dispatch_mouse_with_click_target` (the loop over `overlay_dismiss_signals`, which now holds pairs); in
+  `app/runtime/overlay_layers.rs` the `HiddenDismiss` struct and `OverlayLayers::hide`; in
+  `app/runtime/outside_press.rs` `consume_outside_press` and `overlay_dismiss_signals_at` (which returns each signal
+  with its handler). `ui::Popover::on_dismiss` hands it on; a popconfirm gives it its cancel handler.
+- **The icon font: `help-circle`**, a question mark in the circle of `info`'s weight, for `MessageBoxKind::Question`.
+  `design/icons/svg/help-circle.svg` (the ring of `info.svg`, the hook and the dot of a stroke of 2 with round ends,
+  outlined), its codepoint U+E099 in `design/icons/codepoints.json`, `crates/lurq/assets/lurq-icons.ttf` and
+  `crates/lurq/src/ui/icons.rs` (`icons::HELP_CIRCLE`) built by `python scripts/build-icon-font.py`. The board has no
+  `Icon/help-circle`: a `--from-board` build keeps the source and names it as gone from the board.
 - `crates/lurq/src/ui/message_box.rs` has, for the progress dialog too, `disclosure` and `disclosure_recipe`
   (`pub(crate)`): the board's "Details", a chevron and a label that open a text under them; and `autofocus`, which
   marks the first focusable node of an element. `ui::Collapsible` was not used: its indicator is at the end of its
@@ -67,7 +83,7 @@ MessageBox::new(open.clone())
 | Builder | |
 | --- | --- |
 | `MessageBox::new(Signal<bool>)` | Shown while the signal holds `true`. The message box does not keep it: every answer sets it to `false` before what the answer does runs |
-| `kind(MessageBoxKind)` | `Information` (the default), `Question`, `Warning`, `Error`: the icon in the well and their colors. A theme may add kinds by name |
+| `kind(MessageBoxKind)` | `Information` (the default, `info`), `Question` (`help-circle`), `Warning` (`warning`), `Error` (`alert-circle`): the icon in the well and their colors. A theme may add kinds by name |
 | `icon(&str)` | An icon of the theme's set in place of the kind's: `trash` for a question that deletes |
 | `title(&str)`, `message(&str)` | What it asks or says, and more of it in the muted color. The title is what it is called, the message what describes it |
 | `detail(&str, Signal<bool>)` | A text behind "Details" under the message, open while the signal holds `true`; `detail_label(&str)` names the trigger |
@@ -108,13 +124,13 @@ Popconfirm::new(anchor.clone(), open.clone())
 | `trigger(element)` | A button that asks: it is the anchor, and a press of it turns the signal |
 | `title(&str)`, `description(&str)` | The question, and more of it in the muted color |
 | `icon(&str)` | An icon of the theme's set before the title, in place of the warning sign |
-| `confirm(&str, handler)`, `cancel(&str, handler)` | The two buttons: their labels ("Yes" and "No" when not given) and what each runs after it closes the popconfirm |
+| `confirm(&str, handler)`, `cancel(&str, handler)` | The two buttons: their labels ("Yes" and "No" when not given) and what each runs after it closes the popconfirm. Escape and a press outside run the cancel one |
 | `destructive(bool)` | The confirm button and the icon in the destructive color |
 | `placement(Placement)`, `offset(..)` | Where it is beside its anchor: under it at its start, 4 from it, by default |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of the panel |
 
 - It is a [popover](#popover): kept in the window, gone to the other side where there is no room, the focus back on the anchor as it closes. As it opens the focus goes to the cancel button, so that Enter or Space does not confirm what was not read.
-- Escape with the focus in it runs what the cancel button runs; a press outside closes it, confirming nothing.
+- Escape and a press outside close it and run what the cancel button runs.
 - Parts: `PopconfirmPart::Panel` and `Body` (laid over the popover's root and body), `Content`, `Message`, `Icon`, `Text`, `Title`, `Description`, `Actions`, `CancelButton`, `CancelLabel`, `ConfirmButton`, `ConfirmLabel`. States: `PopconfirmState::Destructive`.
 - In the design the panel is 250 wide, padded 12 with 12 between the message and the buttons, in the popover's colors, edge, large radius and medium shadow; the icon is the warning sign of 16 in `Warning`, 8 before the title of 13/500 over the description of 12 in `MutedForeground`, 2 apart; the buttons are 28 high, padded 10, their labels 13, 8 apart at the end.
 - To what reads the tree it is an `alertdialog` called by its title and described by its description.
@@ -160,7 +176,7 @@ ProgressDialog::new(open.clone())
 ## For `CHANGELOG.md`
 
 - `ui::MessageBox`: a dialog that asks one question or says one thing, with an icon by kind (information, question, warning, error), a title, a message, a detail behind "Details", a "Don't ask again" checkbox, and answers by role (default, cancel, destructive, plain) whose buttons the message box's recipe styles apart from buttons elsewhere; Enter gives the default answer, Escape and the veil the cancel one, and the focus goes to the default answer or, for a destructive question, to cancel. Every element has `.autofocus(bool)`, where the focus goes first as the modal or the overlay it is in opens; `ui::Dialog` has `on_dismiss`, `alert`, `named` and `described`.
-- `ui::Popconfirm`: a question in a small panel hung from what was pressed, over `ui::Popover`, with a confirm and a cancel button, the focus on cancel as it opens, Escape that cancels, and a destructive look; `ui::Popover` has `alert`, `named` and `described`.
+- `ui::Popconfirm`: a question in a small panel hung from what was pressed, over `ui::Popover`, with a confirm and a cancel button, the focus on cancel as it opens, Escape and a press outside that cancel, and a destructive look; `ui::Popover` has `alert`, `named`, `described` and `on_dismiss`, and `Overlay` and `Popup` have `on_dismiss`, what runs after a press outside or Escape closed them.
 - `ui::ProgressDialog`: a dialog that nothing but the app closes while work runs, with what is being done, a `ui::Progress` with a value or without one, how much is done and what is left, a detail behind "Details", buttons of the app's, and a cancel button that Escape presses.
 
 ## Decided
@@ -177,12 +193,11 @@ ProgressDialog::new(open.clone())
 
 ## Not done
 
-- **A question mark for `MessageBoxKind::Question`.** The icon set has none, and the board draws no `Icon/help-circle`: a question shows the information sign, in a well of `Secondary`. Smallest change: draw `Icon/help-circle` on the board, build the font with `python scripts/build-icon-font.py --from-board`, add `icons::HELP_CIRCLE`, and return it from `kind_icon` in `ui/message_box.rs` for a question.
-- **A press outside a popconfirm runs nothing of the app's.** It closes it, through the overlay's open signal, and the engine has no hook to run the cancel handler with it, as Escape does. Smallest change: `Overlay::on_dismiss(handler)` and `Popup::on_dismiss` in `app/ctx.rs` and `components/popup.rs`, kept in `OverlaySpec` and `OverlayDismissEntry` (`app/runtime.rs`, `app/runtime/overlay_layers.rs`) and called where `outside_press.rs` sets the signals to `false`; `Popover::on_dismiss` handing it on; `Popconfirm::build` giving it `view.canceller()`. Not built here because it changes the overlay that the ContextMenu session changes in this batch.
+Nothing.
 
 ## Differs from the board
 
-- The board draws two kinds of message box (warning, and a destructive question). The information, question and error kinds and their colors are decided here: `InfoMuted`/`Info`, `Secondary`/`Foreground`, `DestructiveMuted`/`Destructive`.
+- The board draws two kinds of message box (warning, and a destructive question). The information, question and error kinds, their icons and their colors are decided here: `info` on `InfoMuted`/`Info`, `help-circle` (drawn here, after `info`) on `Secondary`/`Foreground`, `alert-circle` on `DestructiveMuted`/`Destructive`.
 - The board's three-choice prompt has an app icon in a primary square of radius 8 and a title with a line height of 1.35; here every message box has the kind's round well, and the gallery draws that prompt as a question with `icons::BOX` and a width of 440.
 - The board's message box has no detail. Its "Details" is the progress dialog's (a chevron of 14 and 13 of text); the detail it opens, in the mono type of 11 on the muted fill, is decided here.
 - The board's progress dialog shows "Details" closed only: what it opens, under the footer, is decided here.
