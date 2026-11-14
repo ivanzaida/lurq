@@ -1968,6 +1968,11 @@ impl Component for GridMount {
       .reveal_key(self.rows.reveal_key.get())
       .reveal_request(self.rows.reveal_request.get())
       .estimate_height(|item: &GridItem| item.height)
+      // The bar has a lane of its own beside the rows: no editor, reset or mark is under it, at rest or shown.
+      .scrollbar(crate::layout::scrollbar::ScrollBarStyle {
+        placement: crate::layout::scrollbar::ScrollBarPlacement::Reserved,
+        ..crate::layout::scrollbar::ScrollBarStyle::default()
+      })
       .width(Dimension::Pct(100.0))
       .flex(1.0)
       .mount_keyed::<GridRowHost, _, _, _>(
