@@ -24,6 +24,7 @@ mod drop_zone;
 mod empty_state;
 mod family;
 mod fieldset;
+mod file_upload;
 mod forced_on_one_item;
 mod hover_card;
 mod icon;

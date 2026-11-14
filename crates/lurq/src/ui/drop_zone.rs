@@ -146,7 +146,7 @@ impl Takes {
   }
 
   /// The files of a drag as the zone sorts them.
-  fn sort_dragged(&self, paths: &crate::app::events::DraggedPaths) -> (Vec<DroppedFile>, Vec<RejectedFile>) {
+  pub(crate) fn sort_dragged(&self, paths: &crate::app::events::DraggedPaths) -> (Vec<DroppedFile>, Vec<RejectedFile>) {
     self.sort(
       paths
         .items()
@@ -214,11 +214,24 @@ pub struct DropZone {
   host: Option<Hosted>,
 }
 
-/// What a mounted zone gives its still form.
+/// What a mounted taker of files gives its still form: the drag over it, and what opens its dialog.
 #[derive(Clone)]
-struct Hosted {
-  over: Signal<Option<bool>>,
-  choose: Arc<dyn Fn(FileDialog) + Send + Sync>,
+pub(crate) struct Hosted {
+  pub(crate) over: Signal<Option<bool>>,
+  pub(crate) choose: Arc<dyn Fn(FileDialog) + Send + Sync>,
+  /// Where the focus is to go at the next render, once what had it is gone: set by a handler.
+  pub(crate) refocus: Arc<Mutex<Option<Refocus>>>,
+  /// Where the focus goes in this render, and the ref the element there is to carry.
+  pub(crate) focus: Option<(Refocus, crate::core::ElementRef)>,
+}
+
+/// Where the focus goes once what had it is gone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Refocus {
+  /// The control of the file with this id.
+  Control(Arc<str>),
+  /// What files are given by: the button or the zone.
+  Trigger,
 }
 
 impl Default for DropZone {
@@ -400,12 +413,13 @@ impl DropZone {
   /// The zone mounted where it is declared: it shows whether files dragged over it are taken, and a press opens
   /// the system's dialog.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
-    let key = self.key.clone();
-    let props = DropZoneProps { zone: Arc::new(self) };
-    match key {
-      Some(key) => ctx.mount_keyed::<DropZoneHost>(&key, props),
-      None => ctx.mount::<DropZoneHost>(props),
-    }
+    mount_files(self, ctx)
+  }
+
+  /// The zone with what a host keeps: for a component that holds a zone and is mounted itself.
+  pub(crate) fn with_host(mut self, host: Option<Hosted>) -> Self {
+    self.host = host;
+    self
   }
 
   /// Builds the zone in `theme`. Converting a zone into an element does this in the theme of what is being
@@ -523,6 +537,13 @@ impl DropZoneView {
     }
     if let Some(key) = &self.key {
       zone = zone.key(key.clone());
+    }
+    if let Some(Hosted {
+      focus: Some((Refocus::Trigger, element)),
+      ..
+    }) = &self.host
+    {
+      zone = zone.ref_element(element.clone());
     }
     zone
   }
@@ -683,65 +704,122 @@ impl Themed for DropZone {
   }
 }
 
-/// A drop zone to mount.
-#[derive(Clone)]
-struct DropZoneProps {
-  zone: Arc<DropZone>,
+/// A component that takes files from a drop and from the system's dialog, and keeps, mounted, the drag over it
+/// and the dialog it opened: a drop zone, a file upload.
+pub(crate) trait TakesFiles: Clone + Send + Sync + 'static {
+  /// What it takes now.
+  fn takes_now(&self) -> Takes;
+  /// Tells it what it took and what it did not.
+  fn deliver(&self, taken: &[DroppedFile], rejected: &[RejectedFile]);
+  /// The element it is, with what its host keeps.
+  fn hosted(self, host: Hosted) -> Element;
+  fn host_key(&self) -> Option<Arc<str>>;
 }
 
-impl PartialEq for DropZoneProps {
+impl TakesFiles for DropZone {
+  fn takes_now(&self) -> Takes {
+    self.takes.clone()
+  }
+
+  fn deliver(&self, taken: &[DroppedFile], rejected: &[RejectedFile]) {
+    deliver(&self.on_files, &self.on_reject, taken, rejected);
+  }
+
+  fn hosted(mut self, host: Hosted) -> Element {
+    self.host = Some(host);
+    self.into()
+  }
+
+  fn host_key(&self) -> Option<Arc<str>> {
+    self.key.clone()
+  }
+}
+
+/// Mounts `taker` where it is declared; see [`DropZone::mount`].
+pub(crate) fn mount_files<C: TakesFiles>(taker: C, ctx: &mut Ctx) -> Element {
+  let key = taker.host_key();
+  let props = FilesProps { taker: Arc::new(taker) };
+  match key {
+    Some(key) => ctx.mount_keyed::<FilesHost<C>>(&key, props),
+    None => ctx.mount::<FilesHost<C>>(props),
+  }
+}
+
+/// What takes files, to mount.
+struct FilesProps<C> {
+  taker: Arc<C>,
+}
+
+impl<C> Clone for FilesProps<C> {
+  fn clone(&self) -> Self {
+    Self {
+      taker: self.taker.clone(),
+    }
+  }
+}
+
+impl<C> PartialEq for FilesProps<C> {
   fn eq(&self, _: &Self) -> bool {
     false
   }
 }
 
-impl crate::app::component::DevtoolsInspectable for DropZoneProps {}
+impl<C> crate::app::component::DevtoolsInspectable for FilesProps<C> {}
 
-/// What a mounted drop zone keeps: the drag over it, and the dialog it opened.
-struct DropZoneHost {
+/// What a mounted taker of files keeps: the drag over it, and the dialog it opened.
+struct FilesHost<C> {
   over: Signal<Option<bool>>,
+  refocus: Arc<Mutex<Option<Refocus>>>,
   choose: FutureAction<FileDialog, Vec<DroppedFile>, ()>,
-  /// The handlers of the zone as it was rendered last, which the dialog's answer is told to.
-  handlers: Arc<Mutex<(Takes, Vec<FilesHandler>, Vec<RejectHandler>)>>,
+  /// The taker as it was rendered last, which the dialog's answer is told to.
+  latest: Arc<Mutex<Option<C>>>,
 }
 
-impl Component for DropZoneHost {
-  type Props = DropZoneProps;
+impl<C: TakesFiles> Component for FilesHost<C> {
+  type Props = FilesProps<C>;
 
   fn create(ctx: &mut Ctx) -> Self {
     let window = ctx.window();
     let choose = ctx.future_action(move |dialog: FileDialog| dialog.pick_result(&window));
-    let handlers: Arc<Mutex<(Takes, Vec<FilesHandler>, Vec<RejectHandler>)>> = Arc::default();
+    let latest: Arc<Mutex<Option<C>>> = Arc::new(Mutex::new(None));
     ctx.watch(&choose.state(), {
-      let handlers = handlers.clone();
+      let latest = latest.clone();
       move |state| {
         let Some(Ok(chosen)) = state.outcome() else {
           return;
         };
-        let (takes, on_files, on_reject) = handlers.lock().unwrap().clone();
-        let (taken, rejected) = takes.sort(chosen.iter().map(|file| (file.clone(), false)));
-        deliver(&on_files, &on_reject, &taken, &rejected);
+        let Some(taker) = latest.lock().unwrap().clone() else {
+          return;
+        };
+        let (taken, rejected) = taker.takes_now().sort(chosen.iter().map(|file| (file.clone(), false)));
+        taker.deliver(&taken, &rejected);
       }
     });
     Self {
       over: ctx.signal(None),
+      refocus: Arc::default(),
       choose,
-      handlers,
+      latest,
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let mut zone = (*ctx.props::<DropZoneProps>().zone).clone();
-    *self.handlers.lock().unwrap() = (zone.takes.clone(), zone.on_files.clone(), zone.on_reject.clone());
+    let taker = (*ctx.props::<FilesProps<C>>().taker).clone();
+    *self.latest.lock().unwrap() = Some(taker.clone());
     let choose = self.choose.clone();
-    zone.host = Some(Hosted {
+    let focus = self.refocus.lock().unwrap().take().map(|target| {
+      let element = crate::core::ElementRef::new();
+      ctx.focus(&element);
+      (target, element)
+    });
+    taker.hosted(Hosted {
       over: self.over.clone(),
+      refocus: self.refocus.clone(),
+      focus,
       choose: Arc::new(move |dialog| {
         // A second press while the dialog is open opens no second one.
         choose.run_if_idle(dialog);
       }),
-    });
-    let element: Element = zone.into();
-    element
+    })
   }
 }

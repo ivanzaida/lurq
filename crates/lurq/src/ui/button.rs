@@ -193,6 +193,7 @@ pub struct Button {
   on_click: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  element_ref: Option<crate::core::ElementRef>,
   #[cfg(feature = "form")]
   submit: bool,
 }
@@ -219,6 +220,7 @@ impl Button {
       on_click: Vec::new(),
       id: None,
       key: None,
+      element_ref: None,
       #[cfg(feature = "form")]
       submit: false,
     }
@@ -346,6 +348,12 @@ impl Button {
     self
   }
 
+  /// The ref of the button's element: what an app focuses or measures.
+  pub fn ref_element(mut self, element: crate::core::ElementRef) -> Self {
+    self.element_ref = Some(element);
+    self
+  }
+
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
@@ -424,6 +432,7 @@ impl Button {
       on_click: self.on_click,
       id: self.id,
       key: self.key,
+      element_ref: self.element_ref,
       #[cfg(feature = "form")]
       submit: self.submit,
     };
@@ -469,6 +478,7 @@ pub struct ButtonView {
   on_click: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  element_ref: Option<crate::core::ElementRef>,
   #[cfg(feature = "form")]
   submit: bool,
 }
@@ -516,6 +526,9 @@ impl ButtonView {
     }
     if let Some(key) = &self.key {
       root = root.key(key.clone());
+    }
+    if let Some(element) = &self.element_ref {
+      root = root.ref_element(element.clone());
     }
     root
   }
