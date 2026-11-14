@@ -260,16 +260,16 @@ impl TablePage {
     let (table, sort_now, selected_now) = build(Some(recorded));
     let mut shown = table
       .force(self.playground.forced())
-      .sorted_by(sort_now.clone(), move |next| {
-        sorted_to(format!("on_sort({next:?})"));
+      .sort_controlled(sort_now.clone(), move |next| {
+        sorted_to(format!("on_sort_change({next:?})"));
         set_sort.set(next);
       })
       .on_row_click(move |key| clicked(format!("on_row_click({key:?})")))
       .on_row_activate(move |key| activated(format!("on_row_activate({key:?})")));
     if selection > 0 {
       shown = shown
-        .selected_keys(selected_now.clone(), move |next| {
-          changed(format!("select({next:?})"));
+        .selected_controlled(selected_now.clone(), move |next| {
+          changed(format!("on_selection_change({next:?})"));
           set_selected.set(next);
         })
         .checkboxes(selection == 1);
@@ -279,9 +279,9 @@ impl TablePage {
       let build = build.clone();
       move || {
         let (table, sort, selected) = build(None);
-        let mut table = table.sorted_by(sort, |_| {});
+        let mut table = table.sort_controlled(sort, |_| {});
         if selection > 0 {
-          table = table.selected_keys(selected, |_| {}).checkboxes(selection == 1);
+          table = table.selected_controlled(selected, |_| {}).checkboxes(selection == 1);
         }
         table.into()
       }
@@ -396,7 +396,7 @@ impl TablePage {
             None => String::new(),
           }
         ),
-        event: "on_sort / select / on_row_click",
+        event: "on_sort_change / on_selection_change / on_row_click",
         code,
         tree,
         controls: vec![
@@ -657,7 +657,7 @@ impl Component for TablePage {
     let state = |forced: Option<Interaction>| {
       Table::new(board_columns(), crates(2))
         .row_key(|row: &Krate| row.name)
-        .selected_keys(["crates/lurq_macros"], |_| {})
+        .selected_controlled(["crates/lurq_macros"], |_| {})
         .checkboxes(false)
         .force(forced)
         .style(TablePart::Root, |s| s.width(420.0))
@@ -699,13 +699,13 @@ impl Component for TablePage {
         "Signal<Option<TableSort>>",
         "none",
         "What the rows are sorted by: a press of a sortable header sets it to ascending, descending, none. \
-         `sorted_by(sort, change)` is the same held by the app; `TableSort::sort` sorts rows by a column.",
+         `sort_controlled(sort, on_change)` is the same held by the app; `TableSort::sort` sorts rows by a column.",
       ),
       (
         "selected",
         "Signal<Vec<K>>",
         "none",
-        "The rows selected, with a column of checkboxes. `selected_keys(keys, change)` is the same held by the app.",
+        "The rows selected, with a column of checkboxes. `selected_controlled(keys, on_change)` is the same held by the app.",
       ),
       (
         "checkboxes",
@@ -729,7 +729,19 @@ impl Component for TablePage {
         "empty",
         "impl Into<Element>",
         "No rows",
-        "What stands under the header where there are no rows.",
+        "What stands under the header where there are no rows; empty_text(..) says it in other words.",
+      ),
+      (
+        "on_sort_change / on_selection_change",
+        "impl Fn(Option<&TableSort>) / impl Fn(&[K])",
+        "",
+        "Told the new sort, and the whole new selection where it changed, bound or not.",
+      ),
+      (
+        "select_all_label / select_row_label / count_text",
+        "&str / impl Fn(usize, Option<usize>) -> String",
+        "English",
+        "The words the table writes itself: its checkboxes' names, the footer's count.",
       ),
       (
         "loading",
@@ -932,7 +944,7 @@ impl Component for TablePage {
             ".force(Some(Interaction::FocusVisible))",
             &[
               "Table::new(columns, rows)",
-              "    .selected_keys([\"crates/lurq_macros\"], |_| {})",
+              "    .selected_controlled([\"crates/lurq_macros\"], |_| {})",
               "    .checkboxes(false)",
               "",
               "// Drawn as under the pointer or focused, with nothing pointing at it: for a gallery, a test.",

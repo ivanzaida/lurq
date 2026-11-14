@@ -259,7 +259,7 @@ fn a_press_of_a_sortable_header_goes_through_ascending_descending_and_none() {
     Table::new(columns, rows)
       .id("t")
       .sort(scene_sort.clone())
-      .on_sort(move |next| told.lock().unwrap().push(next))
+      .on_sort_change(move |next| told.lock().unwrap().push(next.cloned()))
       .into()
   });
   // A column that sorts has the mark that it does; one that does not, nothing.
@@ -728,6 +728,95 @@ fn the_footer_counts_the_rows_and_what_is_selected() {
 }
 
 #[test]
+fn on_selection_change_hears_each_new_selection_and_not_what_is_already_so_nor_the_app() {
+  let selected = Signal::new(Vec::<&'static str>::new());
+  let heard: Arc<Mutex<Vec<Vec<&'static str>>>> = Arc::default();
+  let (scene_selected, scene_heard) = (selected.clone(), heard.clone());
+  let mut stage = wide(move || {
+    let (first, second) = (scene_heard.clone(), scene_heard.clone());
+    table(crates())
+      .selected(scene_selected.clone())
+      .on_selection_change(move |keys| first.lock().unwrap().push(keys.to_vec()))
+      // A second handler is called after the first, with the same set.
+      .on_selection_change(move |keys| second.lock().unwrap().push(keys.to_vec()))
+      .into()
+  });
+  stage.click("t-row-0");
+  assert_eq!(selected.get(), ["crates/lurq"]);
+  press_with(&mut stage, "t-row-2", false, true);
+  assert_eq!(
+    *heard.lock().unwrap(),
+    [
+      vec!["crates/lurq"],
+      vec!["crates/lurq"],
+      vec!["crates/lurq", "crates/mobile_demo"],
+      vec!["crates/lurq", "crates/mobile_demo"],
+    ],
+    "the whole new set, to each handler"
+  );
+
+  // A press that leaves the selection as it is tells nothing, and nor does the app setting the signal.
+  selected.set(vec!["crates/lurq"]);
+  stage.pass();
+  heard.lock().unwrap().clear();
+  press_with(&mut stage, "t-row-0", false, false);
+  assert!(heard.lock().unwrap().is_empty(), "already selected alone");
+  selected.set(vec!["crates/lurq_macros"]);
+  stage.pass();
+  assert!(heard.lock().unwrap().is_empty(), "the app's own change");
+}
+
+#[test]
+fn a_controlled_selection_shows_what_the_app_answers_not_what_was_pressed() {
+  let asked = Arc::new(Mutex::new(Vec::new()));
+  let told = asked.clone();
+  let mut stage = wide(move || {
+    let told = told.clone();
+    // The app keeps the first row selected whatever is asked.
+    table(crates())
+      .selected_controlled(["crates/lurq"], move |next| told.lock().unwrap().push(next))
+      .into()
+  });
+  stage.click("t-row-2");
+  assert_eq!(*asked.lock().unwrap(), [vec!["crates/mobile_demo"]]);
+  assert_eq!(stage.fill_color("t-row-0"), Some(light(PaletteColor::Highlight)));
+  assert_ne!(stage.fill_color("t-row-2"), Some(light(PaletteColor::Highlight)));
+}
+
+#[test]
+fn the_words_a_table_writes_are_said_otherwise() {
+  let stage = wide(|| {
+    table(crates())
+      .selected(Signal::new(vec!["crates/lurq"]))
+      .count(true)
+      .count_text(|rows, selected| format!("{} von {rows}", selected.unwrap_or(0)))
+      .into()
+  });
+  assert!(stage.paints("1 von 3"));
+  assert!(!stage.paints("1 of 3 rows selected"));
+  let stage = wide(|| table(Vec::new()).empty_text("Keine Zeilen").into());
+  assert!(stage.paints("Keine Zeilen"));
+  assert!(!stage.paints("No rows"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn the_checkboxes_are_called_as_the_app_says() {
+  let mut stage = wide(|| {
+    table(crates())
+      .selected(Signal::new(Vec::new()))
+      .select_all_label("Alle auswählen")
+      .select_row_label("Zeile auswählen")
+      .into()
+  });
+  let name = stage
+    .tree
+    .get_element_by_id_mut("t-select-all")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(name.as_deref(), Some("Alle auswählen"));
+}
+
+#[test]
 fn a_compact_table_has_rows_of_36() {
   let mut stage = wide(|| table(crates()).density(Density::Compact).into());
   assert_eq!(stage.bounds("t-row-0").3, 36.0);
@@ -743,7 +832,7 @@ fn a_table_tells_tooling_its_rows_its_sort_and_what_is_selected() {
     table(crates())
       .label("Crates")
       .selected(scene_selected.clone())
-      .sorted_by(Some(TableSort::ascending("name")), |_| {})
+      .sort_controlled(Some(TableSort::ascending("name")), |_| {})
       .into()
   });
   let said = |stage: &mut Stage, id: &str, name: &str| {
