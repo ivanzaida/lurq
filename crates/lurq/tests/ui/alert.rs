@@ -251,15 +251,21 @@ fn a_long_description_wraps_beside_the_action_and_the_close_control() {
   // The close control at the end, 16 from the edge, the action 12 before it.
   assert!((x + width - (mark.x + mark.width) - 16.0).abs() < 0.5);
   assert!(retry_x < mark.x);
-  // The description is on more than one line, and none runs under the action.
-  let lines: Vec<Quad> = lines_in(&stage, bounds)
-    .into_iter()
-    .filter(|quad| quad.x < retry_x && quad.x > x + 20.0)
-    .collect();
-  assert!(lines.len() >= 3, "a title and a description of two lines at least");
-  for line in lines {
-    assert!(line.x + line.width <= retry_x + 0.5, "beside the action");
-  }
+  // The description goes on to more lines in the room the action leaves it, and none runs under the action. A
+  // wrapped text is painted as one quad as high as its lines.
+  let title = stage.text_quad("Could not save").unwrap();
+  let description = stage.text_quad(LONG).unwrap();
+  assert!(
+    description.height > title.height * 2.0,
+    "on more than one line: {} high",
+    description.height
+  );
+  assert!((description.x - (x + 44.0)).abs() < 0.5);
+  assert!(
+    description.x + description.width <= retry_x - 11.5,
+    "12 before the action: {} {retry_x}",
+    description.x + description.width
+  );
 }
 
 #[test]
