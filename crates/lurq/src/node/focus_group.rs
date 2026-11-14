@@ -45,6 +45,7 @@ pub struct FocusGroup {
   pub(crate) one_stop: bool,
   pub(crate) follow_pointer: bool,
   pub(crate) typeahead: bool,
+  pub(crate) menu_row: bool,
 }
 
 impl FocusGroup {
@@ -56,6 +57,7 @@ impl FocusGroup {
       one_stop: false,
       follow_pointer: false,
       typeahead: false,
+      menu_row: false,
     }
   }
 
@@ -136,6 +138,18 @@ impl FocusGroup {
   /// presses what has the focus.
   pub fn typeahead(mut self, typeahead: bool) -> Self {
     self.typeahead = typeahead;
+    self
+  }
+
+  /// Whether the group is a row of menus, as the File, Edit and View of a menubar: each of its elements opens a
+  /// menu hung from it (a popup whose anchor is the element) when it is pressed. While one of those menus has the
+  /// focus, Left and Right that nothing in the menu takes (a submenu's Left closes the submenu, an item's Right
+  /// opens its own) close it and press the element before or after it, which opens its menu. Alt with a letter
+  /// presses the element of the first row of the window whose label starts with it; Alt pressed and let go alone
+  /// puts the focus on that row, at its entry, and from the row gives it back. On a Mac, where Option with a letter
+  /// types a character, Alt does neither.
+  pub fn menu_row(mut self, menu_row: bool) -> Self {
+    self.menu_row = menu_row;
     self
   }
 

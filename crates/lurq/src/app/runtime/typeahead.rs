@@ -115,7 +115,7 @@ fn find(group: &Node, stops: &[FocusTarget], current: Option<usize>, prefix: &st
 
 /// The label of the element `id` in `group`: its `focus_label`, or, for a
 /// button, the one text in it.
-fn label(group: &Node, id: crate::core::NodeId) -> Option<String> {
+pub(super) fn label(group: &Node, id: crate::core::NodeId) -> Option<String> {
   let node = find_node_by_id(group, id)?;
   if let Some(label) = node.focus_label() {
     return Some(label.to_owned());

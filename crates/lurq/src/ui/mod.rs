@@ -48,6 +48,7 @@ mod kbd;
 mod link;
 mod mentions;
 mod menu;
+mod menubar;
 mod message_box;
 mod multi_select;
 mod number_input;
@@ -154,6 +155,7 @@ pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
+pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarState, MenubarView};
 pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState,
   MessageBoxView,

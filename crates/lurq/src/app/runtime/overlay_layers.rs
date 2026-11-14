@@ -240,7 +240,7 @@ fn first_focusable(node: &Node) -> Option<NodeId> {
   node.children().iter().find_map(first_focusable)
 }
 
-fn path_to_ref(node: &Node, anchor: &OwnedElementRef) -> Option<Vec<usize>> {
+pub(super) fn path_to_ref(node: &Node, anchor: &OwnedElementRef) -> Option<Vec<usize>> {
   if node
     .element_ref
     .as_ref()
