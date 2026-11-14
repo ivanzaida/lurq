@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::{
-  menu::{Menu, MenuEntry, MenuItem, MenuItemPart, MenuPart},
+  menu::{Closer, Menu, MenuEntry, MenuItem, MenuItemPart, MenuPart},
   names,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
   separator::Separator,
@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
   app::{
+    ctx::CollisionStrategy,
     events::{KeyboardEvent, LongPressEvent, MouseButton, MouseEvent},
     theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme},
   },
@@ -118,7 +119,8 @@ fn take_turn(open: &Signal<bool>) {
 /// };
 ///
 /// let open = Signal::new(false);
-/// let file = ContextMenu::new(Text::new("report.pdf"), open)
+/// let file = ContextMenu::new(open, Text::new("report.pdf"))
+///   .label("report.pdf")
 ///   .item(MenuItem::new("Open").icon(icons::FILE))
 ///   .item(MenuItem::new("Rename").icon(icons::PENCIL).shortcut("F2"))
 ///   .separator()
@@ -126,7 +128,7 @@ fn take_turn(open: &Signal<bool>) {
 /// ```
 ///
 /// It is built of what a menu is built of: the same [`MenuItem`]s, with their icons, shortcuts, checks and submenus,
-/// separators and labels. It wraps the element it is for, which lays out as it would without it, and opens:
+/// separators and headings. It wraps the element it is for, which lays out as it would without it, and opens:
 ///
 /// - at the pointer, on a press of the secondary button on the element (and on Control and a press on macOS);
 /// - at the finger, on a long press of the element;
@@ -134,14 +136,21 @@ fn take_turn(open: &Signal<bool>) {
 ///
 /// It stays inside the window, opening up or back from the point where there is no room down or toward the end. As
 /// it opens the focus goes to its first item, and as it closes back to what had it. It closes as a menu does: an item
-/// chosen, a press outside it, Escape. One context menu is open at a time. A context menu does not keep whether it is
-/// open: the app's signal does, which it sets.
+/// chosen, a press outside it, Escape, Tab. One context menu is open at a time. A context menu does not keep whether it
+/// is open: the app's signal does, which it sets.
 pub struct ContextMenu {
   target: Element,
   open: Signal<bool>,
   entries: Vec<MenuEntry>,
   bar: bool,
   disabled: bool,
+  inline: bool,
+  label: Option<Arc<str>>,
+  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
+  dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
+  offset: Option<(f32, f32)>,
+  collision: Option<CollisionStrategy>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -149,15 +158,23 @@ pub struct ContextMenu {
 }
 
 impl ContextMenu {
-  /// The context menu of `target`, the element it is for, open while `open` is: the app's signal, which the presses
-  /// and keys that ask for the menu set to `true`, and choosing an item, a press outside and Escape to `false`.
-  pub fn new(target: impl Into<Element>, open: Signal<bool>) -> Self {
+  /// The context menu open while `open` is, the app's signal, of `target`, the element it is for. The presses and
+  /// keys that ask for the menu set the signal to `true`, and choosing an item, a press outside, Escape and Tab to
+  /// `false`.
+  pub fn new(open: Signal<bool>, target: impl Into<Element>) -> Self {
     Self {
       target: target.into(),
       open,
       entries: Vec::new(),
       bar: false,
       disabled: false,
+      inline: false,
+      label: None,
+      on_dismiss: Vec::new(),
+      dismiss_on_escape: true,
+      dismiss_on_outside_press: true,
+      offset: None,
+      collision: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -183,9 +200,55 @@ impl ContextMenu {
     self
   }
 
-  /// A text over the items after it, which says what they are about.
+  /// A heading over the items after it, which says what they are about.
+  pub fn heading(mut self, heading: &str) -> Self {
+    self.entries.push(MenuEntry::Heading(Arc::from(heading)));
+    self
+  }
+
+  /// The menu's name to what reads the tree: what it is the menu of, "report.pdf".
   pub fn label(mut self, label: &str) -> Self {
-    self.entries.push(MenuEntry::Label(Arc::from(label)));
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Draws the panel in place of the element, open or not, and not over the window: for a gallery or a test.
+  /// Choosing an item still calls its handler and sets the open signal to `false`.
+  pub fn inline(mut self, inline: bool) -> Self {
+    self.inline = inline;
+    self
+  }
+
+  /// Called when a person closes the menu other than by choosing: Escape, a press outside it, or Tab. Not when the
+  /// app sets its signal. A second handler is called after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether Escape closes the menu. On by default.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press outside the menu closes it. On by default.
+  pub fn dismiss_on_outside_press(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_outside_press = dismiss;
+    self
+  }
+
+  /// How far the menu's corner stands from the point it was asked for, or from where it stands under its element
+  /// when the keyboard asked for it.
+  pub fn offset(mut self, x: f32, y: f32) -> Self {
+    self.offset = Some((x, y));
+    self
+  }
+
+  /// What the menu does where the window has no room for it down or toward the end from the point: the engine's
+  /// [`CollisionStrategy`], which opens it up or back by default.
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = Some(collision);
     self
   }
 
@@ -257,6 +320,13 @@ impl ContextMenu {
     let view = ContextMenuView {
       entries: self.entries,
       bar: self.bar,
+      inline: self.inline,
+      label: self.label,
+      on_dismiss: self.on_dismiss,
+      dismiss_on_escape: self.dismiss_on_escape,
+      dismiss_on_outside_press: self.dismiss_on_outside_press,
+      offset: self.offset,
+      collision: self.collision,
       point: if self.open.get() { point.get() } else { None },
       recipe: theme.resolve::<ContextMenu>(&case, Some(&self.rules)),
       target: Some(target),
@@ -296,6 +366,15 @@ pub struct ContextMenuView {
   pub entries: Vec<MenuEntry>,
   /// Whether its commands are in one row.
   pub bar: bool,
+  /// Whether it is drawn in place of its element, and not over the window.
+  pub inline: bool,
+  /// Its name to what reads the tree, if the app gave it one.
+  pub label: Option<Arc<str>>,
+  on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
+  dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
+  offset: Option<(f32, f32)>,
+  collision: Option<CollisionStrategy>,
   /// The point of the window it stands at, where a press or a finger asked for it; `None` where the keyboard did, and
   /// it stands at its element.
   pub point: Option<(f32, f32)>,
@@ -338,14 +417,30 @@ impl ContextMenuView {
 
   /// The menu as a [`Menu`] would draw it, in a column at the point it was asked for.
   fn menu(&mut self) -> Element {
-    let mut menu = Menu::new(self.anchor.clone(), self.open.clone())
+    let mut menu = Menu::new(self.open.clone(), self.anchor.clone())
       .context(self.point)
+      .inline(self.inline)
+      .dismiss_on_escape(self.dismiss_on_escape)
+      .dismiss_on_outside_press(self.dismiss_on_outside_press)
       .rules(&self.recipe.rules_for(ContextMenuPart::Panel, MenuPart::Panel));
+    for handler in &self.on_dismiss {
+      let handler = handler.clone();
+      menu = menu.on_dismiss(move || handler());
+    }
+    if let Some(label) = &self.label {
+      menu = menu.label(label);
+    }
+    if let Some((x, y)) = self.offset {
+      menu = menu.offset(x, y);
+    }
+    if let Some(collision) = self.collision {
+      menu = menu.collision(collision);
+    }
     for entry in std::mem::take(&mut self.entries) {
       menu = match entry {
         MenuEntry::Item(item) => menu.item(item),
         MenuEntry::Separator => menu.separator(),
-        MenuEntry::Label(label) => menu.label(&label),
+        MenuEntry::Heading(heading) => menu.heading(&heading),
       };
     }
     if let Some(id) = &self.id {
@@ -370,31 +465,67 @@ impl ContextMenuView {
       .focus_group(FocusGroup::horizontal().one_stop(true).follow_pointer(true))
       .describe("a11y_role", "menu")
       .describe("a11y_orientation", "horizontal");
+    if let Some(label) = &self.label {
+      panel = panel.describe("a11y_name", label.clone());
+    }
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
+    let close: Closer = {
+      let open = self.open.clone();
+      Arc::new(move || open.set(false))
+    };
+    let dismissed = {
+      let handlers = self.on_dismiss.clone();
+      move || {
+        for handler in &handlers {
+          handler();
+        }
+      }
+    };
     for entry in std::mem::take(&mut self.entries) {
       panel = match entry {
         MenuEntry::Item(item) => panel.child(
           item
             .rules(&item_rules)
-            .in_menu(vec![self.open.clone()], Vec::new())
+            .in_menu(vec![close.clone()], Vec::new())
             .build(self.theme()),
         ),
         MenuEntry::Separator => panel.child(Separator::vertical().build(self.theme())),
-        MenuEntry::Label(_) => panel,
+        MenuEntry::Heading(_) => panel,
       };
     }
     if let Some(key) = &self.key {
       panel = panel.key(key.clone());
     }
+    // Tab closes the bar and goes on from its element, as it does from a menu.
+    {
+      let (open, dismissed) = (self.open.clone(), dismissed.clone());
+      panel = panel.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && event.key == "Tab" && !event.ctrl && !event.alt && !event.meta {
+          open.set(false);
+          dismissed();
+        }
+      });
+    }
+    if self.inline {
+      return panel.into();
+    }
     // The focus goes to the first item as the bar opens, and back to what had it as it closes.
-    Popup::new(self.anchor.clone(), panel)
+    let (x, y) = self.offset.unwrap_or_default();
+    let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())
       .at(self.point)
+      .offset(x, y)
       .switch_on_anchor_press(false)
       .takes_focus(true)
-      .into()
+      .dismiss_on_escape(self.dismiss_on_escape)
+      .dismiss_on_outside_click(self.dismiss_on_outside_press)
+      .on_dismiss(dismissed);
+    if let Some(collision) = self.collision {
+      popup = popup.collision(collision);
+    }
+    popup.into()
   }
 
   /// What opens the menu (`open`), put on `node`, the root of its element, which is `anchor`, with `menu`, its layer,
@@ -453,6 +584,10 @@ impl ContextMenuView {
   /// declared in it, a column of items or a bar.
   pub fn render(mut self) -> Element {
     let menu = if self.bar { self.bar() } else { self.menu() };
+    // Drawn in place of its element.
+    if self.inline {
+      return menu;
+    }
     // An element is not shared between threads as it is: the decoration, which is, holds it in a lock.
     let menu = Arc::new(Mutex::new(menu));
     let target = self.target.take().unwrap_or_else(Element::new);

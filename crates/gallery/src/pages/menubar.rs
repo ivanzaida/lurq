@@ -8,7 +8,7 @@ use lurq::{
   components::{Column, Row},
   core::{ElementRef, Signal},
   node::Element,
-  ui::{Menu, MenuEntry, MenuItem, Menubar, icons},
+  ui::{Menu, MenuEntry, MenuItem, Menubar, MenubarMenu, icons},
 };
 
 use crate::{
@@ -79,7 +79,7 @@ impl MenubarPage {
           file.push(
             MenuItem::new("Export as")
               .submenu(
-                Menu::new(export.0, export.1)
+                Menu::new(export.1, export.0)
                   .items(["PNG", "SVG", "PDF"].map(|format| MenuItem::new(format).on_select(told(format)))),
               )
               .into(),
@@ -89,20 +89,19 @@ impl MenubarPage {
         Menubar::new(open)
           .disabled(disabled)
           .force(forced)
-          .menu(&first, file)
-          .menu(
+          .menu(MenubarMenu::new(&first, file))
+          .menu(MenubarMenu::new(
             "Edit",
             [
               MenuItem::new("Undo").shortcut("Ctrl+Z").on_select(told("Undo")),
               MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true),
             ],
-          )
-          .menu(
+          ))
+          .menu(MenubarMenu::new(
             "View",
             [MenuItem::new("Show grid").checked(true).on_select(told("Show grid"))],
-          )
-          .menu("Help", [MenuItem::new("About").on_select(told("About"))])
-          .title_disabled("Help", help_disabled)
+          ))
+          .menu(MenubarMenu::new("Help", [MenuItem::new("About").on_select(told("About"))]).disabled(help_disabled))
       }
     };
     let told = |name: &str| -> Box<dyn Fn() + Send + Sync> {
@@ -118,35 +117,36 @@ impl MenubarPage {
     if disabled {
       code.push("    .disabled(true)".to_owned());
     }
-    code.push(format!("    .menu({first:?}, ["));
+    code.push(format!("    .menu(MenubarMenu::new({first:?}, ["));
     code.push("        MenuItem::new(\"New\").icon(icons::FILE).shortcut(\"Ctrl+N\").on_select(..).into(),".to_owned());
     code.push("        MenuItem::new(\"Open…\").shortcut(\"Ctrl+O\").on_select(..).into(),".to_owned());
     code.push("        MenuEntry::Separator,".to_owned());
     if submenu {
       code.push("        MenuItem::new(\"Export as\")".to_owned());
       code.push(
-        "            .submenu(Menu::new(export, exporting).items([\"PNG\", \"SVG\", \"PDF\"].map(MenuItem::new)))"
+        "            .submenu(Menu::new(exporting, export).items([\"PNG\", \"SVG\", \"PDF\"].map(MenuItem::new)))"
           .to_owned(),
       );
       code.push("            .into(),".to_owned());
     }
     code.push("        MenuItem::new(\"Quit\").shortcut(\"Ctrl+Q\").on_select(..).into(),".to_owned());
-    code.push("    ])".to_owned());
+    code.push("    ]))".to_owned());
     code.push(
-      "    .menu(\"Edit\", [MenuItem::new(\"Undo\").shortcut(\"Ctrl+Z\"), MenuItem::new(\"Redo\").disabled(true)])"
+      "    .menu(MenubarMenu::new(\"Edit\", [MenuItem::new(\"Undo\").shortcut(\"Ctrl+Z\"), MenuItem::new(\"Redo\").disabled(true)]))"
         .to_owned(),
     );
-    code.push("    .menu(\"View\", [MenuItem::new(\"Show grid\").checked(true)])".to_owned());
-    code.push("    .menu(\"Help\", [MenuItem::new(\"About\")])".to_owned());
+    code.push("    .menu(MenubarMenu::new(\"View\", [MenuItem::new(\"Show grid\").checked(true)]))".to_owned());
     if help_disabled {
-      code.push("    .title_disabled(\"Help\", true)".to_owned());
+      code.push("    .menu(MenubarMenu::new(\"Help\", [MenuItem::new(\"About\")]).disabled(true))".to_owned());
+    } else {
+      code.push("    .menu(MenubarMenu::new(\"Help\", [MenuItem::new(\"About\")]))".to_owned());
     }
     let tree = vec![
       format!("bar      {} · 36 tall · padding 4 · gap 2", self.playground.measured()),
-      format!("├─ title  28 tall · padding 10 · {first:?} 13/500"),
-      "├─ title  \"Edit\"".to_owned(),
-      "├─ title  \"View\"".to_owned(),
-      format!("└─ title  \"Help\"{}", if help_disabled { "  disabled" } else { "" }),
+      format!("├─ item   28 tall · padding 10 · {first:?} 13/500"),
+      "├─ item   \"Edit\"".to_owned(),
+      "├─ item   \"View\"".to_owned(),
+      format!("└─ item   \"Help\"{}", if help_disabled { "  disabled" } else { "" }),
     ];
     let mut facts = vec![match self.play_open.get() {
       Some(index) => format!("open: {index}"),
@@ -231,7 +231,7 @@ impl Component for MenubarPage {
         .on_select(move || grid.set(!show_grid))
         .into(),
       MenuEntry::Separator,
-      MenuEntry::Label(Arc::from("Zoom")),
+      MenuEntry::Heading(Arc::from("Zoom")),
     ];
     for (index, name) in ZOOMS.iter().enumerate() {
       let pick = self.zoom.clone();
@@ -243,7 +243,7 @@ impl Component for MenubarPage {
       );
     }
     let app = Menubar::new(self.app_open.clone())
-      .menu(
+      .menu(MenubarMenu::new(
         "File",
         [
           MenuItem::new("New")
@@ -258,15 +258,15 @@ impl Component for MenubarPage {
           MenuEntry::Separator,
           MenuItem::new("Export as")
             .submenu(
-              Menu::new(self.app_export.0.clone(), self.app_export.1.clone())
+              Menu::new(self.app_export.1.clone(), self.app_export.0.clone())
                 .items(["PNG", "SVG", "PDF"].map(|format| MenuItem::new(format).on_select(says(format)))),
             )
             .into(),
           MenuEntry::Separator,
           MenuItem::new("Quit").shortcut("Ctrl+Q").on_select(says("Quit")).into(),
         ],
-      )
-      .menu(
+      ))
+      .menu(MenubarMenu::new(
         "Edit",
         [
           MenuItem::new("Undo")
@@ -278,9 +278,9 @@ impl Component for MenubarPage {
           MenuItem::new("Copy").shortcut("Ctrl+C").on_select(says("Copy")),
           MenuItem::new("Paste").shortcut("Ctrl+V").on_select(says("Paste")),
         ],
-      )
-      .menu("View", view)
-      .menu(
+      ))
+      .menu(MenubarMenu::new("View", view))
+      .menu(MenubarMenu::new(
         "Help",
         [
           MenuItem::new("Keyboard shortcuts")
@@ -288,7 +288,7 @@ impl Component for MenubarPage {
             .on_select(says("Keyboard shortcuts")),
           MenuItem::new("About").on_select(says("About")),
         ],
-      );
+      ));
     let app = Column::new().spacing(9.0).child(Row::new().child(app)).child(quiet(
       &match self.chosen.get() {
         chosen if chosen.is_empty() => "nothing chosen yet".to_owned(),
@@ -299,10 +299,9 @@ impl Component for MenubarPage {
 
     let disabled = Row::new().child(
       Menubar::new(self.quiet_open.clone())
-        .menu("File", [MenuItem::new("New"), MenuItem::new("Open…")])
-        .menu("Edit", [MenuItem::new("Undo")])
-        .menu("Tools", [MenuItem::new("Run")])
-        .title_disabled("Tools", true),
+        .menu(MenubarMenu::new("File", [MenuItem::new("New"), MenuItem::new("Open…")]))
+        .menu(MenubarMenu::new("Edit", [MenuItem::new("Undo")]))
+        .menu(MenubarMenu::new("Tools", [MenuItem::new("Run")]).disabled(true)),
     );
 
     let rows = [
@@ -310,28 +309,35 @@ impl Component for MenubarPage {
         "Menubar::new(open)",
         "Signal<Option<usize>>",
         "",
-        "Which menu is open, by its index: the app's. A press of a title sets it; choosing an item, a press \
-         outside and Escape set it to None.",
+        "Which menu is open, by its index: the app's. A press of an item sets it; choosing in a menu, a press \
+         outside, Escape and Tab set it to None.",
       ),
       (
         "menu",
-        "&str, impl IntoIterator<Item = impl Into<MenuEntry>>",
+        "MenubarMenu",
         "",
-        "A menu called by its title, after the bar's others: MenuItems, with MenuEntry::Separator and \
-         MenuEntry::Label between them.",
+        "A menu, after the bar's others: MenubarMenu::new(title, entries), MenuItems with MenuEntry::Separator and \
+         MenuEntry::Heading between them; menus takes several.",
       ),
       (
-        "title_disabled",
-        "&str, bool",
+        "MenubarMenu::disabled",
+        "bool",
         "false",
-        "The menu of that title cannot be opened: its title is dimmed and the arrows pass it by.",
+        "The menu cannot be opened: its item is dimmed and the arrows pass it by.",
       ),
+      (
+        "MenubarMenu::id",
+        "impl Into<Arc<str>>",
+        "",
+        "The id of the menu's item on the bar, in place of {id}-{index}; its panel is {id}-menu.",
+      ),
+      ("label", "&str", "", "The bar's name to what reads the tree."),
       ("disabled", "bool", "false", "No menu of the bar can be opened."),
       (
         "id",
         "impl Into<Arc<str>>",
         "",
-        "The bar's id; its titles are {id}-0, {id}-1 and on, each menu's panel {id}-0-menu.",
+        "The bar's id; its items are {id}-0, {id}-1 and on, each menu's panel {id}-0-menu.",
       ),
     ];
     let playground = self.play(ctx);
@@ -342,7 +348,7 @@ impl Component for MenubarPage {
         title: "Menubar",
         description: "The menus of an app in a row, File, Edit, View, as a window's title bar holds them on Windows \
                       and Linux: each opens from its title, and the keyboard and the pointer go from one to the next.",
-        import: Some("use lurq::ui::{MenuEntry, MenuItem, Menubar};"),
+        import: Some("use lurq::ui::{MenuEntry, MenuItem, Menubar, MenubarMenu};"),
         status: Some("Beta"),
         since: Some("0.62"),
         source: file!(),
@@ -364,57 +370,56 @@ impl Component for MenubarPage {
           self.frame.demo(
             0,
             app,
-            "Menubar::new(open).menu(\"File\", [..])",
+            "Menubar::new(open).menu(MenubarMenu::new(\"File\", [..]))",
             &[
               "// open: Signal<Option<usize>>; export: ElementRef, exporting: Signal<bool>",
               "Menubar::new(open)",
-              "    .menu(\"File\", [",
+              "    .menu(MenubarMenu::new(\"File\", [",
               "        MenuItem::new(\"New\").icon(icons::FILE).shortcut(\"Ctrl+N\").on_select(..).into(),",
               "        MenuItem::new(\"Open…\").shortcut(\"Ctrl+O\").on_select(..).into(),",
               "        MenuEntry::Separator,",
               "        MenuItem::new(\"Export as\")",
-              "            .submenu(Menu::new(export, exporting).items([\"PNG\", \"SVG\", \"PDF\"].map(MenuItem::new)))",
+              "            .submenu(Menu::new(exporting, export).items([\"PNG\", \"SVG\", \"PDF\"].map(MenuItem::new)))",
               "            .into(),",
               "        MenuEntry::Separator,",
               "        MenuItem::new(\"Quit\").shortcut(\"Ctrl+Q\").on_select(..).into(),",
-              "    ])",
-              "    .menu(\"Edit\", [",
+              "    ]))",
+              "    .menu(MenubarMenu::new(\"Edit\", [",
               "        MenuItem::new(\"Undo\").icon(icons::UNDO).shortcut(\"Ctrl+Z\").on_select(..),",
               "        MenuItem::new(\"Redo\").shortcut(\"Ctrl+Y\").disabled(true),",
               "        MenuItem::new(\"Cut\").shortcut(\"Ctrl+X\").on_select(..),",
               "        MenuItem::new(\"Copy\").shortcut(\"Ctrl+C\").on_select(..),",
               "        MenuItem::new(\"Paste\").shortcut(\"Ctrl+V\").on_select(..),",
-              "    ])",
-              "    .menu(\"View\", [",
+              "    ]))",
+              "    .menu(MenubarMenu::new(\"View\", [",
               "        MenuItem::new(\"Show grid\").checked(grid.get()).on_select(..).into(),",
               "        MenuEntry::Separator,",
-              "        MenuEntry::Label(\"Zoom\".into()),",
+              "        MenuEntry::Heading(\"Zoom\".into()),",
               "        MenuItem::new(\"50%\").radio(zoom.get() == 0).on_select(..).into(),",
               "        MenuItem::new(\"100%\").radio(zoom.get() == 1).on_select(..).into(),",
               "        MenuItem::new(\"200%\").radio(zoom.get() == 2).on_select(..).into(),",
-              "    ])",
-              "    .menu(\"Help\", [",
+              "    ]))",
+              "    .menu(MenubarMenu::new(\"Help\", [",
               "        MenuItem::new(\"Keyboard shortcuts\").icon(icons::KEYBOARD).on_select(..),",
               "        MenuItem::new(\"About\").on_select(..),",
-              "    ])",
+              "    ]))",
             ],
           ),
         ),
         Section::new(
-          "A disabled title",
-          "A menu that cannot be opened now: its title is dimmed, a press and the pointer open nothing, and the \
+          "A disabled menu",
+          "A menu that cannot be opened now: its item is dimmed, a press and the pointer open nothing, and the \
            arrows and Alt pass it by.",
           self.frame.demo(
             1,
             disabled,
-            ".title_disabled(\"Tools\", true)",
+            "MenubarMenu::new(\"Tools\", [..]).disabled(true)",
             &[
               "// open: Signal<Option<usize>>",
               "Menubar::new(open)",
-              "    .menu(\"File\", [MenuItem::new(\"New\"), MenuItem::new(\"Open…\")])",
-              "    .menu(\"Edit\", [MenuItem::new(\"Undo\")])",
-              "    .menu(\"Tools\", [MenuItem::new(\"Run\")])",
-              "    .title_disabled(\"Tools\", true)",
+              "    .menu(MenubarMenu::new(\"File\", [MenuItem::new(\"New\"), MenuItem::new(\"Open…\")]))",
+              "    .menu(MenubarMenu::new(\"Edit\", [MenuItem::new(\"Undo\")]))",
+              "    .menu(MenubarMenu::new(\"Tools\", [MenuItem::new(\"Run\")]).disabled(true))",
             ],
           ),
         ),

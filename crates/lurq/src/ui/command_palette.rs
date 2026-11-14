@@ -322,7 +322,8 @@ fn kept(
 ///       CommandItem::new("New window").icon(icons::PLUS).shortcut("Ctrl+N"),
 ///     ],
 ///   )
-///   .footer(true);
+///   .label("Commands")
+///   .key_hints(true);
 /// ```
 ///
 /// A palette does not keep whether it is open: the app's signal does, and the app opens it (a shortcut, a button).
@@ -333,19 +334,25 @@ fn kept(
 ///
 /// The focus stays in the input. Down and Up move the highlight through the rows that are shown, across groups and
 /// round at the ends, passing a disabled one by; the pointer moves it too. Enter runs the highlighted command and
-/// closes the palette, as a click on a row does. Escape clears what was typed, and closes the palette when nothing is.
-/// A press on the veil closes it. To tooling it is a dialog holding a combobox and a listbox of options.
+/// closes the palette, as a click on a row does: it closes first, then the command runs. Escape clears what was typed,
+/// and closes the palette when nothing is. A press on the veil closes it. To tooling it is a dialog holding a combobox
+/// and a listbox of options.
 pub struct CommandPalette {
   open: Signal<bool>,
   placeholder: Arc<str>,
   groups: Vec<CommandGroup>,
   filter: Option<CommandFilter>,
-  on_input: Vec<QueryHandler>,
+  on_query: Vec<QueryHandler>,
   query: Option<Signal<String>>,
   loading: bool,
-  empty: Arc<str>,
-  footer: bool,
+  empty_text: Arc<str>,
+  loading_text: Arc<str>,
+  key_hints: bool,
   inline: bool,
+  label: Option<Arc<str>>,
+  on_dismiss: Vec<Handler>,
+  dismiss_on_escape: bool,
+  dismiss_on_veil: bool,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -361,12 +368,17 @@ impl CommandPalette {
       placeholder: Arc::from("Type a command or search"),
       groups: Vec::new(),
       filter: None,
-      on_input: Vec::new(),
+      on_query: Vec::new(),
       query: None,
       loading: false,
-      empty: Arc::from("No results"),
-      footer: false,
+      empty_text: Arc::from("No results"),
+      loading_text: Arc::from("Loading…"),
+      key_hints: false,
       inline: false,
+      label: None,
+      on_dismiss: Vec::new(),
+      dismiss_on_escape: true,
+      dismiss_on_veil: true,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -408,16 +420,16 @@ impl CommandPalette {
   }
 
   /// Which commands are shown while something is typed, in place of the palette's own filter
-  /// ([`matches_every_word`]): a fuzzy match, or every command for an app that fetches its own ([`Self::on_input`]).
+  /// ([`matches_every_word`]): a fuzzy match, or every command for an app that fetches its own ([`Self::on_query`]).
   pub fn filter(mut self, filter: impl Fn(&CommandItem, &str) -> bool + Send + Sync + 'static) -> Self {
     self.filter = Some(Arc::new(filter));
     self
   }
 
   /// Called with what the input will hold, each time it is edited: an app that fetches its commands asks for those of
-  /// the new text, and gives the palette what it found.
-  pub fn on_input(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
-    self.on_input.push(Arc::new(handler));
+  /// the new text, and gives the palette what it found. A second handler is called after the first.
+  pub fn on_query(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_query.push(Arc::new(handler));
     self
   }
 
@@ -435,14 +447,45 @@ impl CommandPalette {
   }
 
   /// What the list says when nothing is found for what is typed. "No results" by default.
-  pub fn empty(mut self, text: &str) -> Self {
-    self.empty = Arc::from(text);
+  pub fn empty_text(mut self, text: &str) -> Self {
+    self.empty_text = Arc::from(text);
+    self
+  }
+
+  /// What the list says beside its spinner while more commands are on their way. "Loading…" by default.
+  pub fn loading_text(mut self, text: &str) -> Self {
+    self.loading_text = Arc::from(text);
     self
   }
 
   /// Whether the palette ends with a row of the keys that work in it: the arrows, Enter and Escape.
-  pub fn footer(mut self, footer: bool) -> Self {
-    self.footer = footer;
+  pub fn key_hints(mut self, key_hints: bool) -> Self {
+    self.key_hints = key_hints;
+    self
+  }
+
+  /// The palette's name to what reads the tree: "Commands", "Go to page". What its input says otherwise.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Called when a person closes the palette other than by running a command: Escape on an empty input, a press on
+  /// the veil. Not when the app sets its signal. A second handler is called after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether Escape on an empty input closes the palette. On by default; off, Escape only clears what is typed.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press on the veil closes the palette. On by default.
+  pub fn dismiss_on_veil(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_veil = dismiss;
     self
   }
 
@@ -513,16 +556,21 @@ impl CommandPalette {
     let view = CommandPaletteView {
       placeholder: self.placeholder,
       loading: self.loading,
-      empty: self.empty,
-      footer: self.footer,
+      empty_text: self.empty_text,
+      loading_text: self.loading_text,
+      key_hints: self.key_hints,
       inline: self.inline,
+      label: self.label,
+      on_dismiss: self.on_dismiss,
+      dismiss_on_escape: self.dismiss_on_escape,
+      dismiss_on_veil: self.dismiss_on_veil,
       highlighted,
       recipe: theme.resolve::<CommandPalette>(&case, Some(&self.rules)),
       groups: self.groups,
       shown,
       enabled,
       filter,
-      on_input: self.on_input,
+      on_query: self.on_query,
       open: self.open,
       query,
       highlight,
@@ -598,9 +646,14 @@ pub struct CommandPaletteView {
   pub placeholder: Arc<str>,
   pub loading: bool,
   /// What the list says when nothing is found.
-  pub empty: Arc<str>,
-  pub footer: bool,
+  pub empty_text: Arc<str>,
+  /// What the list says while more commands are on their way.
+  pub loading_text: Arc<str>,
+  /// Whether it ends with a row of the keys that work in it.
+  pub key_hints: bool,
   pub inline: bool,
+  /// Its name to what reads the tree, if the app gave it one.
+  pub label: Option<Arc<str>>,
   /// The row that is highlighted, among those shown.
   pub highlighted: Option<usize>,
   /// The style of each part of this palette.
@@ -610,7 +663,10 @@ pub struct CommandPaletteView {
   shown: Vec<(usize, usize)>,
   enabled: Vec<bool>,
   filter: CommandFilter,
-  on_input: Vec<QueryHandler>,
+  on_query: Vec<QueryHandler>,
+  on_dismiss: Vec<Handler>,
+  dismiss_on_escape: bool,
+  dismiss_on_veil: bool,
   open: Signal<bool>,
   query: Signal<String>,
   highlight: Signal<usize>,
@@ -648,7 +704,8 @@ impl CommandPaletteView {
     &self.open
   }
 
-  /// What runs the command of row `row` and closes the palette: nothing for one that is disabled.
+  /// What closes the palette and runs the command of row `row`: nothing for one that is disabled. It closes first,
+  /// so that a command that opens a dialog keeps the focus the dialog takes.
   fn runner(&self, row: usize) -> Option<impl Fn() + Send + Sync + Clone + 'static> {
     let command = self.command(row);
     if command.disabled {
@@ -656,11 +713,22 @@ impl CommandPaletteView {
     }
     let (handlers, open) = (command.on_select.clone(), self.open.clone());
     Some(move || {
+      open.set(false);
       for handler in &handlers {
         handler();
       }
-      open.set(false);
     })
+  }
+
+  /// What a person closing the palette other than by a command does: closes it and calls `on_dismiss`.
+  fn dismisser(&self) -> impl Fn() + Send + Sync + Clone + 'static {
+    let (open, handlers) = (self.open.clone(), self.on_dismiss.clone());
+    move || {
+      open.set(false);
+      for handler in &handlers {
+        handler();
+      }
+    }
   }
 
   /// Scrolls the list by the least that shows row `row` whole.
@@ -690,7 +758,7 @@ impl CommandPaletteView {
       .max_height(Dimension::Pct(100.0))
       .on_click(|event: MouseEvent| event.stop_propagation())
       .describe("a11y_role", "dialog")
-      .describe("a11y_name", self.placeholder.clone());
+      .describe("a11y_name", self.label.clone().unwrap_or_else(|| self.placeholder.clone()));
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
@@ -727,7 +795,7 @@ impl CommandPaletteView {
         self.groups.clone(),
         self.filter.clone(),
         self.highlight.clone(),
-        self.on_input.clone(),
+        self.on_query.clone(),
       );
       typed = typed.on_input(move |event: &TextInputEvent| {
         let shown = shown(&groups, &event.new_value, &filter);
@@ -766,7 +834,8 @@ impl CommandPaletteView {
       .map(|row| self.runner(row).map(|run| Arc::new(run) as Handler))
       .collect();
     let (enabled, highlighted) = (self.enabled.clone(), self.highlighted);
-    let (highlight, query, open) = (self.highlight.clone(), self.query.clone(), self.open.clone());
+    let (highlight, query, dismiss) = (self.highlight.clone(), self.query.clone(), self.dismisser());
+    let dismiss_on_escape = self.dismiss_on_escape;
     let (groups, filter) = (self.groups.clone(), self.filter.clone());
     let (scroll, results, rows, alive) = (
       self.scroll.clone(),
@@ -799,7 +868,9 @@ impl CommandPaletteView {
         "Escape" => {
           event.prevent_default();
           if query.get_untracked().is_empty() {
-            open.set(false);
+            if dismiss_on_escape {
+              dismiss();
+            }
           } else {
             query.set(String::new());
             let all = shown(&groups, "", &filter);
@@ -941,7 +1012,7 @@ impl CommandPaletteView {
     Row::new()
       .justify(Justify::Center)
       .part(&part)
-      .child(part.text(&self.empty))
+      .child(part.text(&self.empty_text))
       .into()
   }
 
@@ -953,7 +1024,7 @@ impl CommandPaletteView {
       .part(&part)
       .describe("a11y_role", "status")
       .child(Spinner::new().decorative(true).build(self.theme()))
-      .child(part.text("Loading…").nowrap())
+      .child(part.text(&self.loading_text).nowrap())
       .into()
   }
 
@@ -1019,15 +1090,20 @@ impl CommandPaletteView {
       .into()
   }
 
-  /// The veil over the window with the panel near its top. A press on it closes the palette.
+  /// The veil over the window with the panel near its top. A press on it closes the palette, unless
+  /// `dismiss_on_veil(false)`.
   pub fn veil(&self, panel: impl Into<Element>) -> Column {
-    let open = self.open.clone();
+    let (dismiss, on_veil) = (self.dismisser(), self.dismiss_on_veil);
     let mut veil = Column::new()
       .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
       .align_items(Alignment::Center)
       .justify(Justify::Start)
       .part(&self.part(CommandPalettePart::Veil))
-      .on_click(move |_| open.set(false))
+      .on_click(move |_| {
+        if on_veil {
+          dismiss();
+        }
+      })
       .child(panel);
     if let Some(key) = &self.key {
       veil = veil.key(key.clone());
@@ -1051,7 +1127,7 @@ impl CommandPaletteView {
   /// over the veil.
   pub fn render(self) -> Element {
     let mut panel = self.panel().child(self.search()).child(self.results());
-    if self.footer {
+    if self.key_hints {
       panel = panel.child(self.footer_row());
     }
     if self.inline { panel.into() } else { self.modal(panel) }

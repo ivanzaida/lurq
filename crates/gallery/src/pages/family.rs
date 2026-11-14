@@ -290,7 +290,7 @@ impl Component for ButtonGroupPage {
     let mut filled = items();
     for ((label, variant, ways), (anchor, open, chosen)) in SPLITS.into_iter().zip(&self.splits) {
       let way = chosen.get().min(ways.len() - 1);
-      let mut how = Menu::new(anchor.clone(), open.clone()).placement(Placement::BottomEnd);
+      let mut how = Menu::new(open.clone(), anchor.clone()).placement(Placement::BottomEnd);
       for (index, name) in ways.iter().enumerate() {
         let pick = chosen.clone();
         how = how.item(
@@ -414,7 +414,7 @@ impl Component for ButtonGroupPage {
               ")",
               "",
               "// The menu hangs from the group, at its end.",
-              "Menu::new(anchor, open)",
+              "Menu::new(open, anchor)",
               "    .placement(Placement::BottomEnd)",
               "    .item(MenuItem::new(\"Create a merge commit\").checked(way.get() == 0).on_select(..))",
               "    .item(MenuItem::new(\"Squash and merge\").checked(way.get() == 1).on_select(..))",

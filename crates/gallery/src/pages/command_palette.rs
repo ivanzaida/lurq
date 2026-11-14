@@ -107,8 +107,8 @@ impl CommandPalettePage {
         }
         CommandPalette::new(open)
           .placeholder(&placeholder)
-          .empty(&empty)
-          .footer(footer)
+          .empty_text(&empty)
+          .key_hints(footer)
           .loading(loading)
           .inline(inline)
           .group("Suggestions", commands)
@@ -147,10 +147,10 @@ impl CommandPalettePage {
       code.push(format!("    .placeholder({placeholder:?})"));
     }
     if empty != "No results" {
-      code.push(format!("    .empty({empty:?})"));
+      code.push(format!("    .empty_text({empty:?})"));
     }
     for (on, call) in [
-      (footer, ".footer(true)"),
+      (footer, ".key_hints(true)"),
       (loading, ".loading(true)"),
       (inline, ".inline(true)"),
     ] {
@@ -185,7 +185,7 @@ impl CommandPalettePage {
       tree.push("│  └─ status   spinner 16 · \"Loading…\"".to_owned());
     }
     if footer {
-      tree.push("└─ footer     36 tall  ↑ ↓ · ↵ · Esc".to_owned());
+      tree.push("└─ key hints  36 tall  ↑ ↓ · ↵ · Esc".to_owned());
     }
 
     let (to_placeholder, to_empty) = (self.placeholder.clone(), self.empty.clone());
@@ -214,9 +214,9 @@ impl CommandPalettePage {
         tree,
         controls: vec![
           prop("placeholder", "&str", field(&self.placeholder)),
-          prop("empty", "&str", field(&self.empty)),
+          prop("empty_text", "&str", field(&self.empty)),
           divider(),
-          flag("footer", &self.footer),
+          flag("key_hints", &self.footer),
           flag("loading", &self.loading),
           flag("detail", &self.details),
           flag("disabled", &self.disabled),
@@ -238,7 +238,7 @@ impl CommandPalettePage {
           to_placeholder.set("Type a command or search".to_owned());
           to_empty.set("No results".to_owned());
           for (index, flag) in flags.iter().enumerate() {
-            // The footer and inline are on to start with; the rest are off.
+            // The key hints and inline are on to start with; the rest are off.
             flag.set(index == 0 || index == 4);
           }
         }),
@@ -302,7 +302,7 @@ impl Component for CommandPalettePage {
         .child(
           CommandPalette::new(self.window_open.clone())
             .group("Suggestions", suggestions(&says, true))
-            .footer(true),
+            .key_hints(true),
         ),
       &Self::ran(&self.window_ran),
     );
@@ -358,7 +358,7 @@ impl Component for CommandPalettePage {
         .placeholder("Find a city")
         .query(self.fetch_query.clone())
         .filter(|_, _| true)
-        .empty(if wanted.is_empty() {
+        .empty_text(if wanted.is_empty() {
           "Type a city's first letters"
         } else {
           "No city starts so"
@@ -375,6 +375,7 @@ impl Component for CommandPalettePage {
         "Whether it is open: the app's. Running a command, Escape on an empty input and a press on the veil set \
          it to false.",
       ),
+      ("label", "&str", "the placeholder", "Its name to what reads the tree."),
       (
         "placeholder",
         "&str",
@@ -401,10 +402,10 @@ impl Component for CommandPalettePage {
          every word, in the app's order.",
       ),
       (
-        "on_input",
+        "on_query",
         "Fn(&str)",
         "",
-        "Called with what the input will hold: an app that fetches asks here.",
+        "Called with what the input will hold: an app that fetches asks here. Adds.",
       ),
       ("query", "Signal<String>", "", "The app's own signal for what is typed."),
       (
@@ -414,18 +415,37 @@ impl Component for CommandPalettePage {
         "The list ends with a spinner while more are on their way.",
       ),
       (
-        "empty",
+        "empty_text",
         "&str",
         "No results",
         "What the list says when nothing is found.",
       ),
       (
-        "footer",
+        "loading_text",
+        "&str",
+        "Loading…",
+        "What the list says beside its spinner.",
+      ),
+      (
+        "key_hints",
         "bool",
         "false",
         "A row of the keys that work in it, at the bottom.",
       ),
       ("inline", "bool", "false", "The panel drawn in place, without the veil."),
+      (
+        "on_dismiss",
+        "Fn()",
+        "",
+        "A person closed it other than by a command: Escape on an empty input, a press on the veil. Adds.",
+      ),
+      (
+        "dismiss_on_escape",
+        "bool",
+        "true",
+        "Escape on an empty input closes it.",
+      ),
+      ("dismiss_on_veil", "bool", "true", "A press on the veil closes it."),
       ("CommandItem::new(label)", "&str", "", "A command, called by its label."),
       ("icon", "impl Into<Name>", "", "An icon of 16 before the label, muted."),
       ("detail", "&str", "", "A second text after the label, muted."),
@@ -491,7 +511,7 @@ impl Component for CommandPalettePage {
               "        CommandItem::new(\"Open DevTools\").icon(icons::TERMINAL).shortcut(\"F12\").on_select(..),",
               "        CommandItem::new(\"New window\").icon(icons::PLUS).shortcut(\"Ctrl+N\").on_select(..),",
               "    ])",
-              "    .footer(true)",
+              "    .key_hints(true)",
             ],
           ),
         ),
@@ -537,7 +557,7 @@ impl Component for CommandPalettePage {
               "    .placeholder(\"Find a city\")",
               "    .query(query)",
               "    .filter(|_, _| true)",
-              "    .empty(\"No city starts so\")",
+              "    .empty_text(\"No city starts so\")",
               "    .group(\"Cities\", found)",
             ],
           ),

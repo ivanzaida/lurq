@@ -315,7 +315,11 @@ fn nothing_found_says_so_and_more_on_the_way_shows_a_spinner() {
   let open = Signal::new(true);
   let (_, tell) = log();
   let held = open.clone();
-  let mut empty = stage(move |_| palette(held.clone(), tell.clone()).empty("Nothing like that").into());
+  let mut empty = stage(move |_| {
+    palette(held.clone(), tell.clone())
+      .empty_text("Nothing like that")
+      .into()
+  });
   type_in(&mut empty, "zzz");
   assert_eq!(empty.text("Nothing like that").0, light(PaletteColor::MutedForeground));
 
@@ -347,7 +351,7 @@ fn an_app_that_fetches_hears_what_is_typed_and_shows_every_command_it_gives() {
     CommandPalette::new(held.clone())
       .query(typed.clone())
       .filter(|_, _| true)
-      .on_input(move |text| told.lock().unwrap().push(text.to_owned()))
+      .on_query(move |text| told.lock().unwrap().push(text.to_owned()))
       .items(found)
       .into()
   });
@@ -474,4 +478,115 @@ fn a_palette_opened_over_an_open_dialog_takes_the_focus_and_the_keys_and_gives_t
   // And the dialog's own Escape, once the palette is gone.
   stage.key("Escape");
   assert!(!dialog.get());
+}
+
+#[test]
+fn running_a_command_closes_the_palette_first_and_then_calls_the_handler() {
+  let open = Signal::new(true);
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let (held, told) = (open.clone(), seen.clone());
+  let mut stage = stage(move |_| {
+    let (told, shut) = (told.clone(), held.clone());
+    CommandPalette::new(held.clone())
+      .item(
+        CommandItem::new("Open DevTools")
+          .id("devtools")
+          .on_select(move || told.lock().unwrap().push(shut.get_untracked())),
+      )
+      .into()
+  });
+  stage.key("Enter");
+  assert_eq!(*seen.lock().unwrap(), [false], "closed when the handler runs");
+}
+
+#[test]
+fn on_dismiss_hears_escape_and_the_veil_and_each_can_be_turned_off() {
+  let open = Signal::new(true);
+  let dismissed = Arc::new(Mutex::new(Vec::new()));
+  let (_, tell) = log();
+  let (held, told) = (open.clone(), dismissed.clone());
+  let mut stage = stage(move |_| {
+    let (first, second) = (told.clone(), told.clone());
+    palette(held.clone(), tell.clone())
+      .on_dismiss(move || first.lock().unwrap().push("first"))
+      .on_dismiss(move || second.lock().unwrap().push("second"))
+      .into()
+  });
+  stage.key("Escape");
+  assert!(!open.get());
+  assert_eq!(*dismissed.lock().unwrap(), ["first", "second"]);
+  open.set(true);
+  stage.pass();
+  stage.tree.mouse_move(20.0, 380.0);
+  stage.tree.mouse_down(20.0, 380.0, MouseButton::Left);
+  stage.tree.mouse_up(20.0, 380.0, MouseButton::Left);
+  stage.pass();
+  assert!(!open.get(), "the veil");
+  assert_eq!(dismissed.lock().unwrap().len(), 4);
+  // Running a command is no dismissal.
+  open.set(true);
+  stage.pass();
+  stage.key("Enter");
+  assert!(!open.get());
+  assert_eq!(dismissed.lock().unwrap().len(), 4);
+
+  let open = Signal::new(true);
+  let (_, tell) = log();
+  let held = open.clone();
+  let mut kept = self::stage(move |_| {
+    palette(held.clone(), tell.clone())
+      .dismiss_on_escape(false)
+      .dismiss_on_veil(false)
+      .into()
+  });
+  type_in(&mut kept, "dev");
+  kept.key("Escape");
+  assert!(kept.paints("New window"), "Escape still clears what is typed");
+  kept.key("Escape");
+  assert!(open.get(), "and no more");
+  kept.tree.mouse_move(20.0, 380.0);
+  kept.tree.mouse_down(20.0, 380.0, MouseButton::Left);
+  kept.tree.mouse_up(20.0, 380.0, MouseButton::Left);
+  kept.pass();
+  assert!(open.get(), "nor does the veil");
+}
+
+#[test]
+fn every_text_the_palette_writes_can_be_said_otherwise_and_on_query_adds() {
+  let heard = Arc::new(Mutex::new(Vec::new()));
+  let (told, open) = (heard.clone(), Signal::new(true));
+  let mut stage = stage(move |_| {
+    let (first, second) = (told.clone(), told.clone());
+    CommandPalette::new(open.clone())
+      .empty_text("Nothing here")
+      .on_query(move |text| first.lock().unwrap().push(format!("1 {text}")))
+      .on_query(move |text| second.lock().unwrap().push(format!("2 {text}")))
+      .into()
+  });
+  assert!(stage.paints("Nothing here"));
+  stage.key("a");
+  assert_eq!(*heard.lock().unwrap(), ["1 a", "2 a"]);
+  let stage = self::stage(|_| {
+    CommandPalette::new(Signal::new(true))
+      .loading(true)
+      .loading_text("Asking the server…")
+      .into()
+  });
+  assert!(stage.paints("Asking the server…"));
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn a_palettes_label_is_its_name() {
+  let mut stage = stage(|_| {
+    CommandPalette::new(Signal::new(true))
+      .id("palette")
+      .label("Go to page")
+      .into()
+  });
+  let named = stage
+    .tree
+    .get_element_by_id_mut("palette")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(named.as_deref(), Some("Go to page"));
 }

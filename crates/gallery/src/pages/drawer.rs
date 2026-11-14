@@ -42,7 +42,7 @@ fn navigation() -> Vec<Element> {
         .child(text("Ivan Zaida", 16.0, FontWeight::SemiBold))
         .child(text("ivan@lurq.dev", 13.0, FontWeight::Normal).color(PaletteColor::MutedForeground)),
     );
-  let places = Menu::new(ElementRef::default(), Signal::new(true))
+  let places = Menu::new(Signal::new(true), ElementRef::default())
     .inline(true)
     .items([
       MenuItem::new("Inbox").icon(icons::INBOX).checked(true),

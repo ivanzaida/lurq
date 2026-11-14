@@ -52,7 +52,7 @@ fn account(props: &Props, record: impl Fn(String) + Clone + Send + Sync + 'stati
     let record = record.clone();
     move || record(format!("on_select({name:?})"))
   };
-  let menu = Menu::new(anchor.clone(), open)
+  let menu = Menu::new(open, anchor.clone())
     .item(MenuItem::new("Profile").icon(icons::USER).on_select(told("Profile")))
     .item(
       MenuItem::new("Settings")

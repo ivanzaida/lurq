@@ -1041,7 +1041,7 @@ impl ToolbarView {
   /// The menu of what did not fit, in the order of the bar: a line where one
   /// stood between them, a labelled group under its label.
   pub fn menu(&self) -> Menu {
-    let mut menu = Menu::new(self.anchor.clone(), self.open.clone()).placement(Placement::BottomEnd);
+    let mut menu = Menu::new(self.open.clone(), self.anchor.clone()).placement(Placement::BottomEnd);
     if let Some(id) = &self.id {
       menu = menu.id(format!("{id}-menu"));
     }
@@ -1054,7 +1054,7 @@ impl ToolbarView {
         menu = menu.separator();
       }
       if let Some(label) = &slot.label {
-        menu = menu.label(label);
+        menu = menu.heading(label);
       }
       let shortcut = if slot.commands.len() == 1 {
         slot.shortcut.as_deref()

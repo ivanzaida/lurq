@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
   app::{
-    ctx::{OpenState, OutsidePress, Placement},
+    ctx::{CollisionStrategy, OpenState, OutsidePress, Placement},
     events::KeyboardEvent,
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
@@ -68,9 +68,15 @@ pub enum MenuEntry {
   Item(MenuItem),
   /// A line between two groups of items.
   Separator,
-  /// A text over the items after it.
-  Label(Arc<str>),
+  /// A heading over the items after it.
+  Heading(Arc<str>),
 }
+
+/// What closes a menu: sets its open signal to `false` and tells the app's `on_open_change`.
+pub(crate) type Closer = Arc<dyn Fn() + Send + Sync>;
+
+/// A handler of the menu's own, kept to be called in order.
+type Handler = Arc<dyn Fn() + Send + Sync>;
 
 impl From<MenuItem> for MenuEntry {
   fn from(item: MenuItem) -> Self {
@@ -89,13 +95,14 @@ impl From<MenuItem> for MenuEntry {
 /// };
 ///
 /// # fn build(anchor: ElementRef, open: Signal<bool>, export: ElementRef, exporting: Signal<bool>) {
-/// let menu = Menu::new(anchor, open)
+/// let menu = Menu::new(open, anchor)
 ///   .label("File")
+///   .heading("File")
 ///   .item(MenuItem::new("Rename").icon(icons::PENCIL).shortcut("F2").on_select(|| println!("rename")))
 ///   .item(MenuItem::new("Duplicate").icon(icons::COPY).shortcut("Ctrl+D"))
 ///   .item(
 ///     MenuItem::new("Export as")
-///       .submenu(Menu::new(export, exporting).item(MenuItem::new("PNG")).item(MenuItem::new("SVG"))),
+///       .submenu(Menu::new(exporting, export).item(MenuItem::new("PNG")).item(MenuItem::new("SVG"))),
 ///   )
 ///   .separator()
 ///   .item(MenuItem::new("Delete").icon(icons::TRASH).destructive(true));
@@ -104,8 +111,9 @@ impl From<MenuItem> for MenuEntry {
 ///
 /// A menu does not keep whether it is open: the app does, in the
 /// `Signal<bool>` it gives the menu, and opens it from its anchor (a press of
-/// the button the menu hangs from sets it). Choosing an item calls the item's
-/// handler and closes the menu; a press outside it and Escape close it too.
+/// the button the menu hangs from sets it). Choosing an item closes the menu
+/// and then calls the item's handler; a press outside it, Escape and Tab close
+/// it too.
 /// The menu is declared where its anchor is, open or not, so that lurq knows
 /// the anchor is its trigger.
 ///
@@ -117,9 +125,16 @@ pub struct Menu {
   open: OpenState,
   entries: Vec<MenuEntry>,
   placement: Option<Placement>,
+  offset: Option<(f32, f32)>,
+  collision: Option<CollisionStrategy>,
   inline: bool,
   submenu: bool,
-  closes_too: Vec<Signal<bool>>,
+  label: Option<Arc<str>>,
+  on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  on_dismiss: Vec<Handler>,
+  dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
+  closes_too: Vec<Closer>,
   context: Option<Option<(f32, f32)>>,
   states: Vec<Name>,
   rules: Recipe,
@@ -128,21 +143,45 @@ pub struct Menu {
 }
 
 impl Menu {
-  /// A menu that hangs from `anchor` and is open while `open` is: the app's
-  /// `Signal<bool>`, which choosing an item, a press outside and Escape set
-  /// to `false`. A `bool` holds it open or closed whatever is done to it: for
-  /// a gallery or a test.
+  /// A menu that is open while `open` is, the app's `Signal<bool>`, and hangs
+  /// from `anchor`. Choosing an item, a press outside, Escape and Tab set the
+  /// signal to `false`.
   ///
   /// The menu of an item's [`submenu`](MenuItem::submenu) hangs from that
   /// item: `anchor` is given to the item, which opens the submenu.
-  pub fn new(anchor: impl Into<ElementRef>, open: impl Into<OpenState>) -> Self {
+  pub fn new(open: Signal<bool>, anchor: impl Into<ElementRef>) -> Self {
+    Self::with_open(OpenState::Signal(open), anchor.into())
+  }
+
+  /// A menu the app holds open or closed itself: it is open while `open` is, and a person closing it (a choice,
+  /// a press outside, Escape, Tab) is told to `on_open_change` with `false`, which the app answers with the
+  /// `open` of its next render. A menu given `true` and a handler that does nothing stays open: for a gallery
+  /// or a test.
+  pub fn controlled(
+    open: bool,
+    anchor: impl Into<ElementRef>,
+    on_open_change: impl Fn(bool) + Send + Sync + 'static,
+  ) -> Self {
+    // The menu closes through a signal of its own, made anew from the app's value in each render: what a person
+    // does sets it, which renders the app again, and the app's `open` is what is drawn.
+    Self::with_open(OpenState::Signal(Signal::new(open)), anchor.into()).on_open_change(on_open_change)
+  }
+
+  fn with_open(open: OpenState, anchor: ElementRef) -> Self {
     Self {
-      anchor: anchor.into(),
-      open: open.into(),
+      anchor,
+      open,
       entries: Vec::new(),
       placement: None,
+      offset: None,
+      collision: None,
       inline: false,
       submenu: false,
+      label: None,
+      on_open_change: Vec::new(),
+      on_dismiss: Vec::new(),
+      dismiss_on_escape: true,
+      dismiss_on_outside_press: true,
       closes_too: Vec::new(),
       context: None,
       states: Vec::new(),
@@ -170,9 +209,15 @@ impl Menu {
     self
   }
 
-  /// A text over the items after it, which says what they are about: "Zoom", "Workspace".
+  /// A heading over the items after it, which says what they are about: "Zoom", "Workspace".
+  pub fn heading(mut self, heading: &str) -> Self {
+    self.entries.push(MenuEntry::Heading(Arc::from(heading)));
+    self
+  }
+
+  /// The menu's name to what reads the tree: "File", "Account".
   pub fn label(mut self, label: &str) -> Self {
-    self.entries.push(MenuEntry::Label(Arc::from(label)));
+    self.label = Some(Arc::from(label));
     self
   }
 
@@ -180,6 +225,46 @@ impl Menu {
   /// default, and a submenu beside its item from its top.
   pub fn placement(mut self, placement: Placement) -> Self {
     self.placement = Some(placement);
+    self
+  }
+
+  /// How far the panel stands from where its placement puts it, in place of the design's: 4 from its anchor
+  /// along the side it opens on, and a submenu's first item level with its item.
+  pub fn offset(mut self, x: f32, y: f32) -> Self {
+    self.offset = Some((x, y));
+    self
+  }
+
+  /// What the panel does where the window has no room for it on the side it asks for: the engine's
+  /// [`CollisionStrategy`], which turns it to the other side by default.
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = Some(collision);
+    self
+  }
+
+  /// Called when a person closes the menu other than by choosing: Escape, a press outside it, or Tab. Not
+  /// when the app sets its signal. A second handler is called after the first.
+  pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with `false` when a person closes the menu: a choice, Escape, a press outside it, or Tab. The menu
+  /// is opened by its anchor, which the app wires. A second handler is called after the first.
+  pub fn on_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.on_open_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether Escape closes the menu. On by default.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press outside the menu closes it. On by default.
+  pub fn dismiss_on_outside_press(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_outside_press = dismiss;
     self
   }
 
@@ -225,9 +310,9 @@ impl Menu {
     self
   }
 
-  /// Makes this menu the submenu of an item of a menu that `closes` is the
-  /// open signals of: choosing one of its items closes those too.
-  pub(crate) fn nested(mut self, closes: Vec<Signal<bool>>) -> Self {
+  /// Makes this menu the submenu of an item of a menu that `closes` close:
+  /// choosing one of its items closes those too.
+  pub(crate) fn nested(mut self, closes: Vec<Closer>) -> Self {
     self.submenu = true;
     self.closes_too = closes;
     self
@@ -271,9 +356,16 @@ impl Menu {
       placement: self.placement.unwrap_or(default),
       inline: self.inline,
       submenu: self.submenu,
+      label: self.label,
       recipe: theme.resolve::<Menu>(&case, Some(&self.rules)),
       anchor: self.anchor,
       open: self.open,
+      offset: self.offset,
+      collision: self.collision,
+      on_open_change: self.on_open_change,
+      on_dismiss: self.on_dismiss,
+      dismiss_on_escape: self.dismiss_on_escape,
+      dismiss_on_outside_press: self.dismiss_on_outside_press,
       closes_too: self.closes_too,
       context: self.context,
       id: self.id,
@@ -301,11 +393,19 @@ pub struct MenuView {
   pub inline: bool,
   /// Whether it is the submenu of an item of another menu.
   pub submenu: bool,
+  /// Its name to what reads the tree, if the app gave it one.
+  pub label: Option<Arc<str>>,
   /// The style of each part of this menu.
   pub recipe: ResolvedRecipe,
   anchor: ElementRef,
   open: OpenState,
-  closes_too: Vec<Signal<bool>>,
+  offset: Option<(f32, f32)>,
+  collision: Option<CollisionStrategy>,
+  on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  on_dismiss: Vec<Handler>,
+  dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
+  closes_too: Vec<Closer>,
   submenus: Vec<Signal<bool>>,
   context: Option<Option<(f32, f32)>>,
   id: Option<Arc<str>>,
@@ -332,15 +432,43 @@ impl MenuView {
     self.open.signal()
   }
 
-  /// The signals choosing an item of this menu sets to `false`: its own, and
-  /// those of the menus it is a submenu of.
-  fn closes(&self) -> Vec<Signal<bool>> {
+  /// What closes this menu: its signal set to `false`, and its `on_open_change` told.
+  fn closer(&self) -> Option<Closer> {
+    let open = self.open.signal();
+    let told = self.on_open_change.clone();
+    (open.is_some() || !told.is_empty()).then(|| {
+      Arc::new(move || {
+        if let Some(open) = &open {
+          open.set(false);
+        }
+        for tell in &told {
+          tell(false);
+        }
+      }) as Closer
+    })
+  }
+
+  /// What choosing an item of this menu closes: this menu, and the menus it is a submenu of.
+  fn closes(&self) -> Vec<Closer> {
     self
-      .open
-      .signal()
+      .closer()
       .into_iter()
       .chain(self.closes_too.iter().cloned())
       .collect()
+  }
+
+  /// What a person closing the menu other than by a choice calls: its `on_dismiss` handlers, then its
+  /// `on_open_change` with `false`. Its signal is set by what closed it.
+  fn dismissed(&self) -> impl Fn() + Send + Sync + 'static {
+    let (dismiss, told) = (self.on_dismiss.clone(), self.on_open_change.clone());
+    move || {
+      for handler in &dismiss {
+        handler();
+      }
+      for tell in &told {
+        tell(false);
+      }
+    }
   }
 
   /// The panel in the style of its part, with nothing in it yet. It is a menu
@@ -358,6 +486,9 @@ impl MenuView {
           .typeahead(true),
       )
       .describe("a11y_role", "menu");
+    if let Some(label) = &self.label {
+      panel = panel.describe("a11y_name", label.clone());
+    }
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
@@ -368,21 +499,29 @@ impl MenuView {
     if self.submenu
       && let Some(open) = self.open.signal()
     {
+      let dismissed = self.dismissed();
       panel = panel.on_key_down(move |event: KeyboardEvent| {
         if event.focus_within && plain(&event) && event.key == "ArrowLeft" {
           event.prevent_default();
           open.set(false);
+          dismissed();
         }
       });
     }
     // Tab closes the menu and the menus it is a submenu of, as a select closes its list, and goes on: the menu is
     // walked right after what opened it, so the focus goes on from there.
-    let closes = self.closes();
-    if !closes.is_empty() {
+    let closes = self.closes_too.clone();
+    let (own, dismissed) = (self.open.signal(), self.dismissed());
+    if own.is_some() || !closes.is_empty() {
       panel = panel.on_key_down(move |event: KeyboardEvent| {
         if event.focus_within && event.key == "Tab" && !event.ctrl && !event.alt && !event.meta {
-          for open in &closes {
-            open.set(false);
+          // A person closed this one, and the menus it hangs from close with it.
+          if let Some(own) = &own {
+            own.set(false);
+          }
+          dismissed();
+          for close in &closes {
+            close();
           }
         }
       });
@@ -404,10 +543,10 @@ impl MenuView {
       .into()
   }
 
-  /// The text over a group of items.
-  pub fn label(&self, label: &str) -> Element {
+  /// The heading over a group of items.
+  pub fn heading(&self, heading: &str) -> Element {
     let part = self.part(MenuPart::Label);
-    Row::new().part(&part).child(part.text(label).nowrap()).into()
+    Row::new().part(&part).child(part.text(heading).nowrap()).into()
   }
 
   /// An item as this menu draws it, in its theme: choosing it closes the
@@ -457,23 +596,30 @@ impl MenuView {
       panel = panel.child(match entry {
         MenuEntry::Item(item) => self.item(item),
         MenuEntry::Separator => self.separator(),
-        MenuEntry::Label(label) => self.label(&label),
+        MenuEntry::Heading(heading) => self.heading(&heading),
       });
     }
     if self.inline {
       return panel.into();
     }
     // A context menu's corner is at the point it was asked for.
-    let (x, y) = match self.context {
-      Some(Some(_)) => (0.0, 0.0),
-      _ => self.offset(),
+    let (x, y) = match (self.offset, self.context) {
+      (Some(offset), _) => offset,
+      (None, Some(Some(_))) => (0.0, 0.0),
+      (None, _) => self.offset(),
     };
     // The focus goes to the first item that takes it as the menu opens, and back to what had it as it closes.
-    let mut popup = Popup::new(self.anchor, panel)
-      .open(self.open)
+    let mut popup = Popup::new(self.anchor.clone(), panel)
+      .open(self.open.clone())
       .placement(self.placement)
       .offset(x, y)
-      .takes_focus(true);
+      .takes_focus(true)
+      .dismiss_on_escape(self.dismiss_on_escape)
+      .dismiss_on_outside_click(self.dismiss_on_outside_press)
+      .on_dismiss(self.dismissed());
+    if let Some(collision) = self.collision {
+      popup = popup.collision(collision);
+    }
     if self.submenu {
       // A press on the menu it hangs from closes the submenu and still reaches the item pressed there; the item
       // it hangs from opens it, and is no trigger of another dropdown.
@@ -560,24 +706,27 @@ names!(MenuItemPart {
 /// the keyboard do to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MenuItemState {
-  /// What it turns on is on, or it is the one chosen of several: it has a mark at its end.
+  /// What it turns on is on: it has a check at its end.
   Checked,
-  /// It is one of several of which one is chosen: its mark is a dot.
+  /// It is the one selected of several: it has a dot at its end.
+  Selected,
+  /// It is one of several of which one is selected: its mark is a dot.
   Radio,
   /// It removes, or cannot be undone: it is in the destructive color.
   Destructive,
   /// It cannot be chosen.
   Disabled,
   /// Its submenu is open.
-  Expanded,
+  Open,
 }
 
 names!(MenuItemState {
   Checked => "checked",
+  Selected => "selected",
   Radio => "radio",
   Destructive => "destructive",
   Disabled => "disabled",
-  Expanded => "expanded",
+  Open => "open",
 });
 
 /// What builds a menu item's nodes: a theme's in place of the default one.
@@ -610,7 +759,7 @@ pub struct MenuItem {
   rules: Recipe,
   forced: Option<Interaction>,
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
-  closes: Vec<Signal<bool>>,
+  closes: Vec<Closer>,
   submenus: Vec<Signal<bool>>,
   autofocus: bool,
   id: Option<Arc<str>>,
@@ -662,12 +811,12 @@ impl MenuItem {
     self
   }
 
-  /// Whether the item is the one chosen of several that follow one another,
+  /// Whether the item is the one selected of several that follow one another,
   /// as a zoom of 50%, 100% or 200%: a dot at its end. An item given this is
-  /// a radio, chosen or not, to what reads the tree. The app says which is
-  /// chosen, and is told by [`on_select`](Self::on_select).
-  pub fn radio(mut self, chosen: bool) -> Self {
-    self.checked = Some(chosen);
+  /// a radio, selected or not, to what reads the tree. The app says which is
+  /// selected, and is told by [`on_select`](Self::on_select).
+  pub fn radio(mut self, selected: bool) -> Self {
+    self.checked = Some(selected);
     self.radio = true;
     self
   }
@@ -705,7 +854,8 @@ impl MenuItem {
     self
   }
 
-  /// Called when the item is chosen, before its menu closes.
+  /// Called when the item is chosen, after its menu closed: a handler that opens a dialog keeps the focus the
+  /// dialog takes. A second handler is called after the first.
   pub fn on_select(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_select.push(Arc::new(handler));
     self
@@ -741,10 +891,10 @@ impl MenuItem {
     self
   }
 
-  /// What the menu the item is in gives it: the signals choosing it sets to
-  /// `false`, and the open signals of the submenus of the menu's items, which
-  /// the pointer on it closes but for its own.
-  pub(crate) fn in_menu(mut self, closes: Vec<Signal<bool>>, submenus: Vec<Signal<bool>>) -> Self {
+  /// What the menu the item is in gives it: what choosing it closes, and the
+  /// open signals of the submenus of the menu's items, which the pointer on it
+  /// closes but for its own.
+  pub(crate) fn in_menu(mut self, closes: Vec<Closer>, submenus: Vec<Signal<bool>>) -> Self {
     self.closes = closes;
     self.submenus = submenus;
     self
@@ -765,7 +915,7 @@ impl MenuItem {
   /// Builds the item in `theme`. Converting an item into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let expanded = self.submenu.as_ref().is_some_and(|menu| menu.open.is_open());
+    let open = self.submenu.as_ref().is_some_and(|menu| menu.open.is_open());
     let case = Case {
       variant: None,
       size: None,
@@ -773,11 +923,12 @@ impl MenuItem {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(MenuItemState::Checked, self.checked == Some(true))
+    .state(MenuItemState::Checked, !self.radio && self.checked == Some(true))
+    .state(MenuItemState::Selected, self.radio && self.checked == Some(true))
     .state(MenuItemState::Radio, self.radio)
     .state(MenuItemState::Destructive, self.destructive)
     .state(MenuItemState::Disabled, self.disabled)
-    .state(MenuItemState::Expanded, expanded);
+    .state(MenuItemState::Open, open);
     let view = MenuItemView {
       label: self.label,
       icon: self.icon,
@@ -786,7 +937,7 @@ impl MenuItem {
       radio: self.radio,
       destructive: self.destructive,
       disabled: self.disabled,
-      expanded,
+      open,
       recipe: theme.resolve::<MenuItem>(&case, Some(&self.rules)),
       submenu: self.submenu,
       forced: self.forced,
@@ -818,20 +969,20 @@ pub struct MenuItemView {
   pub icon: Option<Name>,
   /// The keys written at its end, if it has them.
   pub shortcut: Option<Arc<str>>,
-  /// Whether it is on (checked, or the chosen radio), for an item that is on or off.
+  /// Whether it is on (checked, or the selected radio), for an item that is on or off.
   pub checked: Option<bool>,
-  /// Whether it is one of several of which one is chosen.
+  /// Whether it is one of several of which one is selected.
   pub radio: bool,
   pub destructive: bool,
   pub disabled: bool,
   /// Whether its submenu is open.
-  pub expanded: bool,
+  pub open: bool,
   /// The style of each part of this item.
   pub recipe: ResolvedRecipe,
   submenu: Option<Menu>,
   forced: Option<Interaction>,
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
-  closes: Vec<Signal<bool>>,
+  closes: Vec<Closer>,
   submenus: Vec<Signal<bool>>,
   autofocus: bool,
   id: Option<Arc<str>>,
@@ -881,8 +1032,8 @@ impl MenuItemView {
     }
   }
 
-  /// What choosing the item does: its handlers are called, then its menu
-  /// closes. An item with a submenu opens it instead.
+  /// What choosing the item does: its menu closes, and the menus it is in,
+  /// then its handlers are called. An item with a submenu opens it instead.
   fn choose(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
     if self.disabled {
       return None;
@@ -893,11 +1044,11 @@ impl MenuItemView {
     let (handlers, closes) = (self.on_select.clone(), self.closes.clone());
     (!handlers.is_empty() || !closes.is_empty()).then(|| {
       Arc::new(move || {
+        for close in &closes {
+          close();
+        }
         for handler in &handlers {
           handler();
-        }
-        for open in &closes {
-          open.set(false);
         }
       }) as Arc<dyn Fn() + Send + Sync>
     })
@@ -926,7 +1077,7 @@ impl MenuItemView {
       root = root
         .ref_element(submenu.anchor.clone())
         .describe("a11y_haspopup", "menu")
-        .describe("a11y_expanded", if self.expanded { "true" } else { "false" });
+        .describe("a11y_expanded", if self.open { "true" } else { "false" });
     }
     if let Some(choose) = self.choose() {
       root = root.on_click(move |_| choose());
@@ -1088,7 +1239,7 @@ impl Themed for MenuItem {
       .row_density(super::Selector::new(), Root, 32.0)
       .hovered(Root, |s| s.background(Highlight))
       .focus_visible(Root, |s| s.background(Highlight))
-      .state(MenuItemState::Expanded, Root, |s| s.background(Highlight))
+      .state(MenuItemState::Open, Root, |s| s.background(Highlight))
       .state(MenuItemState::Destructive, Root, |s| s.foreground(Destructive))
       .state(MenuItemState::Destructive, Icon, |s| s.foreground(Destructive))
       .state(MenuItemState::Disabled, Root, |s| {

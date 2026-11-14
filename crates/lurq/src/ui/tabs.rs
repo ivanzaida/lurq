@@ -749,7 +749,7 @@ impl TabsView {
     if let Some(id) = &self.id {
       button = button.id(format!("{id}-more"));
     }
-    let mut menu = Menu::new(overflow.anchor.clone(), overflow.open.clone()).placement(Placement::BottomEnd);
+    let mut menu = Menu::new(overflow.open.clone(), overflow.anchor.clone()).placement(Placement::BottomEnd);
     for (index, entry) in self.tabs.iter().enumerate() {
       let select = entry.select.clone();
       let reveal = self.reveal(overflow, index);

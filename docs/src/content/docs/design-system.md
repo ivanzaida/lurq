@@ -416,7 +416,7 @@ ButtonGroup::new()
 
 - The group gives its buttons their variant and their size and squares their corners: the corners of the group are the round ones. A button keeps the rest of what it was given: its icon, what a press does, whether it is disabled.
 - Parts: `ButtonGroupPart::Root`, the group; `Item`, what the group says of each button, laid over the theme's recipe for a button's root (padded 14 in the design); `Separator`, the line between two.
-- A split button is a filled group of two: the action, and a button that opens a [menu](#menu) hung from the group (`Menu::new(anchor, open).placement(Placement::BottomEnd)`, the group in an element that carries the anchor's ref).
+- A split button is a filled group of two: the action, and a button that opens a [menu](#menu) hung from the group (`Menu::new(open, anchor).placement(Placement::BottomEnd)`, the group in an element that carries the anchor's ref).
 
 ## Toggle Group
 
@@ -905,28 +905,34 @@ Row::new()
   .ref_element(anchor.clone())
   .child(Button::new("View").variant(ButtonVariant::Ghost).on_click(move |_| toggle.update(|open| *open = !*open)));
 
-Menu::new(anchor, open)
+Menu::new(open, anchor)
   .item(MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z").on_select(move || undo()))
   .item(MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true))
   .separator()
   .item(MenuItem::new("Show grid").checked(grid.get()).on_select(move || toggle_grid()))
   .separator()
-  .label("Zoom")
+  .heading("Zoom")
   .item(MenuItem::new("Fit to window").radio(zoom.get() == Zoom::Fit).on_select(move || fit()))
   .item(MenuItem::new("100%").radio(zoom.get() == Zoom::Actual).on_select(move || actual()))
   .separator()
   // export: ElementRef, exporting: Signal<bool>: the submenu hangs from its item.
-  .item(MenuItem::new("Export as").submenu(Menu::new(export, exporting).items(["PNG", "SVG", "PDF"].map(MenuItem::new))))
+  .item(MenuItem::new("Export as").submenu(Menu::new(exporting, export).items(["PNG", "SVG", "PDF"].map(MenuItem::new))))
   .item(MenuItem::new("Delete").icon(icons::TRASH).destructive(true).on_select(move || delete()));
 ```
 
 | `Menu` | |
 | --- | --- |
-| `new(anchor, open)` | What it hangs from (an `ElementRef`) and whether it is open: the app's `Signal<bool>`, or a `bool` that holds it open or closed |
+| `new(open, anchor)` | Whether it is open, the app's `Signal<bool>`, and what it hangs from (an `ElementRef`). Choosing an item, a press outside, Escape and Tab set the signal to `false` |
+| `controlled(open, anchor, on_open_change)` | A menu the app holds open itself, with a `bool`: a person closing it is told `false`, and what the app's next render says is drawn. `true` and a handler that does nothing hold it open, for a gallery or a test |
 | `item(MenuItem)`, `items(..)` | Commands, after what the menu holds already |
 | `separator()` | A line that ends one group of items and starts the next |
-| `label(&str)` | A text over the items after it: what they are about |
+| `heading(&str)` | A heading over the items after it: what they are about |
+| `label(&str)` | The menu's name to what reads the tree |
 | `placement(Placement)` | Where the panel opens beside its anchor, 4 from it. `BottomStart` by default, `RightStart` for a submenu |
+| `offset(x, y)`, `collision(CollisionStrategy)` | How far the panel stands from where its placement puts it, in place of the design's 4; and what it does where the window has no room on that side (`FlipThenClamp`, the other side, by default) |
+| `on_dismiss(Fn())` | A person closed it other than by a choice: Escape, a press outside it, Tab. Not the app setting the signal. Each handler is called, in order |
+| `on_open_change(Fn(bool))` | Told `false` when a person closes it, by a choice too. Each handler is called, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape and a press outside close it: both by default |
 | `inline(bool)` | The panel drawn where the menu is in the tree, open or not, and not over the window: for a gallery, a test, a list of commands in a page |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
 
@@ -935,23 +941,23 @@ Menu::new(anchor, open)
 | `icon(name)` | An icon before the label, by its name in the theme's set |
 | `shortcut(&str)` | The keys that do the same, written at the end: "Ctrl+Z". The item only shows them; the app binds the keys |
 | `checked(bool)` | Whether what it turns on is on: a check at its end |
-| `radio(bool)` | One of several of which one is chosen: a dot at the end of the chosen one |
+| `radio(bool)` | One of several of which one is selected: a dot at the end of the selected one |
 | `submenu(Menu)` | A menu the item opens beside it, with a chevron at its end. The submenu's anchor is given to the item |
 | `destructive(bool)` | It removes or cannot be undone: drawn in the destructive color, icon and all |
-| `on_select(handler)` | Called when it is chosen, before its menu closes |
+| `on_select(handler)` | Called when it is chosen, after its menu (and the menus it is in) closed, so that a handler that opens a dialog keeps the focus the dialog takes. Each handler is called, in order |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the item |
 
-- The menu does not keep whether it is open: the app does, in the signal it gives it, and the anchor's own handler opens it. Choosing an item calls the item's handler and sets the signal to `false`; a press outside the panel and Escape do too (the engine's `Popup`). Declare the menu always, open or not, beside its anchor: lurq then knows the anchor is its trigger.
+- The menu does not keep whether it is open: the app does, in the signal it gives it, and the anchor's own handler opens it. Choosing an item sets the signal to `false` and then calls the item's handler; a press outside the panel, Escape and Tab set it too (the engine's `Popup`). Declare the menu always, open or not, beside its anchor: lurq then knows the anchor is its trigger.
 - The keyboard: a menu opened from the keyboard (Enter or Space on its button) has its first item focused and lit; opened by the pointer it has the focus there too, unlit. Up and Down move between its items and go round at the ends, Home and End go to the first and the last, and a disabled item is passed by. Typing a letter goes to the item whose label starts with it, letters typed quickly to the one a word starts, the same letter again to the next. Enter or Space chooses the focused item; the arrows only move the focus. Escape, or choosing, closes it and gives the focus back to its button. Tab closes it, and every menu it hangs from, and goes on from its button to the next stop, as Tab in an open [select](#select) does (the panel is a [focus group](../focus-navigation/#focus-groups) of one stop).
 - The pointer and the keyboard are on one item: the pointer coming onto an item moves the focus there, and an arrow key moves the light off the item under a pointer that holds still.
 - Under the pointer or focused from the keyboard an item is highlighted: filled with `Highlight`, the board's `accent`. An item whose submenu is open stays highlighted.
 - A submenu opens beside its item, its first item level with it, under the pointer, on a press of the item, or on Right, Enter or Space while the item is focused, with the focus on its first item; the pointer on another item of the menu closes it, and so do Left and Escape while the focus is in it, giving the focus back to its item. Choosing in it closes it and every menu it hangs from, and gives the focus back to what opened the outermost, as choosing in the menu itself does. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
-- Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Label`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (checked, or the chosen radio), `Radio`, `Destructive`, `Disabled`, `Expanded` (its submenu is open).
+- Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Label`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (a checked item), `Selected` (the selected radio), `Radio`, `Destructive`, `Disabled`, `Open` (its submenu is open).
 - A menu is as wide as its widest item, and at least as wide as the design says; never as wide as the window. In the design the panel is at least 230 wide (a submenu 160) and, where the design has no longer label, at most 360: a label longer than that gives way with an ellipsis, and the shortcut, the check and the chevron keep their room and the 8 before them. The panel is in `Popover` with `PopoverForeground`, padded 4, with the large radius, an edge of 1 in `Border` and the medium shadow. An item is 32 tall, padded 8, with the small radius and 8 between what it holds: an icon of 16 in `MutedForeground`, the label in the body's type, and at the end the shortcut in the mono type at 11 in `MutedForeground`, the check or the dot of 16, and the chevron of 16 in `MutedForeground`. A separator is a line of 1 in `Border` with 4 above and below; a group's label is 11/600 in `MutedForeground`, 8 in from the side. A destructive item is in `Destructive`, its icon too; a disabled one is dimmed.
 - Its items follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch. A context menu's, a menubar's and a command palette's are menu items, and follow it with them.
 - To what reads the tree the panel is a `menu`; an item a `menuitem`, a `menuitemcheckbox` or a `menuitemradio` (these two with `a11y_checked`) called by its label; an item with a submenu has `a11y_haspopup` `menu` and `a11y_expanded`; a separator is a `separator`.
-- What a menu holds, in order, is a `MenuEntry`: `Item(MenuItem)`, `Separator`, or `Label(text)`, as `MenuView::entries` has them. A `MenuItem` converts into one with `.into()`, for a list that mixes items with separators and labels, as a [menubar](#menubar)'s `menu(title, entries)` takes.
-- A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.label(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()`, `view.label()`, `view.shortcut()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
+- What a menu holds, in order, is a `MenuEntry`: `Item(MenuItem)`, `Separator`, or `Heading(text)`, as `MenuView::entries` has them. A `MenuItem` converts into one with `.into()`, for a list that mixes items with separators and labels, as a [menubar](#menubar)'s `menu(title, entries)` takes.
+- A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.heading(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()`, `view.label()`, `view.shortcut()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
 
 ## Dialog
 
@@ -2926,12 +2932,13 @@ CommandPalette::new(open.clone())
     CommandItem::new("Open DevTools").icon(icons::TERMINAL).shortcut("F12").on_select(devtools),
   ])
   .group("Files", files.iter().map(|file| CommandItem::new(&file.name).icon(icons::FILE).detail(&file.folder)))
-  .footer(true);
+  .label("Commands")
+  .key_hints(true);
 
 // Commands an app fetches as a person types: it keeps every one it was given.
 CommandPalette::new(open.clone())
   .query(query.clone())
-  .on_input(move |typed| fetched.set(search(typed)))
+  .on_query(move |typed| fetched.set(search(typed)))
   .filter(|_, _| true)
   .loading(searching.get())
   .items(fetched.get().iter().map(|hit| CommandItem::new(&hit.title)));
@@ -2944,17 +2951,20 @@ CommandPalette::new(open.clone())
 | `item(CommandItem)`, `items(..)` | Commands with no group |
 | `group(&str, items)` | Commands under a label: "Suggestions". A group with nothing shown for what is typed is not shown |
 | `filter(Fn(&CommandItem, &str) -> bool)` | Which commands are shown while something is typed. By default (`matches_every_word`) those whose label, detail or keywords hold every word typed, without regard to case, in the order the app gave them |
-| `on_input(Fn(&str))` | Called with what the input will hold at each edit: for an app that fetches its commands |
+| `on_query(Fn(&str))` | Called with what the input will hold at each edit: for an app that fetches its commands. Each handler is called, in order |
 | `query(Signal<String>)` | Where the app keeps what is typed. Without one the palette keeps it while it is open, and it is empty when it opens again |
-| `loading(bool)` | The list ends with a spinner and "Loading…" |
-| `empty(&str)` | What the list says when nothing is found: "No results" |
-| `footer(bool)` | A row at the bottom, under a line, of the keys that work in it: ↑ ↓ to move, ↵ to run, Esc to close |
+| `loading(bool)`, `loading_text(&str)` | The list ends with a spinner and what `loading_text` says: "Loading…" |
+| `empty_text(&str)` | What the list says when nothing is found: "No results" |
+| `key_hints(bool)` | A row at the bottom, under a line, of the keys that work in it: ↑ ↓ to move, ↵ to run, Esc to close |
+| `label(&str)` | Its name to what reads the tree: what its input says, unless told |
+| `on_dismiss(Fn())` | A person closed it other than by a command: Escape on an empty input, a press on the veil. Each handler is called, in order |
+| `dismiss_on_escape(bool)`, `dismiss_on_veil(bool)` | Whether Escape on an empty input and a press on the veil close it: both by default. Off, Escape still clears what is typed |
 | `inline(bool)` | The panel drawn where it is declared, open or not, without the veil: for a gallery or a test |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
 | `CommandItem::new(label)` | A command: what it does, or where it goes |
 | `icon(name)`, `detail(&str)`, `shortcut(&str)` | An icon of 16 before the label; a second text after it, muted; the keys that do the same at the end, as a [menu](#menu) writes them (the app binds them) |
 | `keywords([..])` | Words that find it and are not shown |
-| `disabled(bool)`, `on_select(Fn())`, `id`, `key` | Dimmed, and passed by; called when it is run, before the palette closes; the row's id and key |
+| `disabled(bool)`, `on_select(Fn())`, `id`, `key` | Dimmed, and passed by; called when it is run, after the palette closed; the row's id and key |
 
 - It stands near the top of the window over the veil, as the engine's `Modal`: the focus goes to its input as it opens and back to what had it as it closes, and Tab stays inside it, as a [dialog](#dialog)'s does.
 - The focus stays in the input. Down and Up move the highlight through the rows that are shown, across groups and round at the ends, past a disabled one, and scroll the list to it; the pointer moves it too, and a row shows it as a menu item shows the keyboard's focus. Enter runs the highlighted command and closes the palette; a click on a row does the same. Escape clears what was typed, and closes the palette when nothing is. Typing puts the highlight on the first row it shows.
@@ -2962,7 +2972,7 @@ CommandPalette::new(open.clone())
 - Parts: `CommandPalettePart::Veil`, `Panel`, `Search` (the row at the top), `SearchIcon`, `Input` (laid over the theme's input), `Key` (laid over the [Kbd](#kbd) key of the search row's Escape and of the footer), `Results` (what scrolls: its most height), `List` (the room around the rows), `GroupLabel`, `Row` (laid over a menu item's root), `Detail`, `Empty`, `Status`, `Footer`, `FooterHint`. The rows are a [menu](#menu)'s items: a theme's rules for `MenuItem` style them too. States: `CommandPaletteState::Loading`, `Empty`.
 - In the design the panel is 420 wide on `Popover` in an edge of 1 in `Border`, `radius-xl`, the large shadow, 72 from the top of the window over `Scrim`. The search row is 44 high, 14 in, with 10 between the magnifier of 16 in `MutedForeground`, the input in the body's type (no edge or fill of its own) and the key, and a line of `Border` under it. The list is padded 4 and scrolls past 320; a group's label is 12/500 in `MutedForeground`, padded 6 and 8; a row is a menu item, 32 high on `Highlight` while it is highlighted. The keys are the theme's [Kbd](#kbd), in the platform's names (`Enter` is ↩ on a Mac), and a row's shortcut is a Kbd's plain text, as a menu writes it, with the menu item's `Shortcut` part laid over its label.
 - Its rows, a menu's items, follow the [density](../theme/#density) as a menu's do: 24, 32, 40 and 44 high, and the status row with them. The search row and the footer keep their heights.
-- A renderer that draws another palette has `view.panel()`, `view.search()`, `view.input()`, `view.key(label)`, `view.results()`, `view.group_label(label)`, `view.row(index)`, `view.empty_state()`, `view.status()`, `view.footer_row()`, `view.veil(panel)` and `view.modal(panel)`, with `view.shown()`, `view.command(index)` and `view.highlighted`.
+- A renderer that draws another palette has `view.panel()`, `view.search()`, `view.input()`, `view.key(label)`, `view.results()`, `view.group_label(label)`, `view.row(index)`, `view.empty_state()`, `view.status()`, `view.footer_row()` (the key hints), `view.veil(panel)` and `view.modal(panel)`, with `view.shown()`, `view.command(index)` and `view.highlighted`.
 
 ## Context Menu
 
@@ -2971,23 +2981,27 @@ A [menu](#menu) of what can be done with an element, opened where the element is
 ```rust
 use lurq::ui::{ContextMenu, MenuItem, icons};
 
-ContextMenu::new(file_row, open.clone())
+ContextMenu::new(open.clone(), file_row)
   .item(MenuItem::new("Open").icon(icons::FOLDER_OPEN).on_select(open_file))
   .item(MenuItem::new("Rename").icon(icons::PENCIL).shortcut("F2").on_select(rename))
   .separator()
   .item(MenuItem::new("Delete").icon(icons::TRASH).destructive(true).on_select(delete));
 
 // The board's edit menu: the commands of selected text in one row.
-ContextMenu::new(editor, editing.clone())
+ContextMenu::new(editing.clone(), editor)
   .bar(true)
   .items(["Cut", "Copy", "Paste", "Select All"].map(MenuItem::new));
 ```
 
 | Builder | |
 | --- | --- |
-| `ContextMenu::new(target, open)` | The element the menu is for, which lays out as it would without it, and the app's `Signal<bool>`: what asks for the menu sets it, and choosing an item, a press outside and Escape clear it |
-| `item(MenuItem)`, `items(..)`, `separator()`, `label(&str)` | As a [menu](#menu) has them: icons, shortcuts, checks, radios, submenus, a destructive item |
-| `bar(bool)` | The commands in one row, as the board's edit menu over selected text has them. Left and Right move between them; a separator is a line down the row, and a label is left out |
+| `ContextMenu::new(open, target)` | The app's `Signal<bool>`, and the element the menu is for, which lays out as it would without it: what asks for the menu sets the signal, and choosing an item, a press outside, Escape and Tab clear it |
+| `item(MenuItem)`, `items(..)`, `separator()`, `heading(&str)` | As a [menu](#menu) has them: icons, shortcuts, checks, radios, submenus, a destructive item |
+| `label(&str)` | The menu's name to what reads the tree: what it is the menu of |
+| `inline(bool)` | The panel drawn in place of its element, open or not, and not over the window: for a gallery or a test |
+| `on_dismiss(Fn())`, `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | As a [menu](#menu) has them |
+| `offset(x, y)`, `collision(CollisionStrategy)` | How far its corner stands from the point it was asked for, and what it does where the window has no room there (opens up or back, by default) |
+| `bar(bool)` | The commands in one row, as the board's edit menu over selected text has them. Left and Right move between them; a separator is a line down the row, and a heading is left out |
 | `disabled(bool)` | The element has no menu now |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
 
@@ -3084,45 +3098,51 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 The menus of an app in a row, File, Edit, View, each opened from its title, as the title bar of a window holds them on Windows and Linux.
 
 ```rust
-use lurq::ui::{Menu, MenuEntry, MenuItem, Menubar, icons};
+use lurq::ui::{Menu, MenuEntry, MenuItem, Menubar, MenubarMenu, icons};
 
 // open: Signal<Option<usize>>, the menu open now; export: ElementRef, exporting: Signal<bool> for a submenu.
 Menubar::new(open)
-  .menu("File", [
+  .label("Application")
+  .menu(MenubarMenu::new("File", [
     MenuItem::new("New").icon(icons::FILE).shortcut("Ctrl+N").on_select(move || new_file()).into(),
     MenuItem::new("Open…").shortcut("Ctrl+O").on_select(move || open_file()).into(),
     MenuEntry::Separator,
-    MenuItem::new("Export as").submenu(Menu::new(export, exporting).items(["PNG", "SVG", "PDF"].map(MenuItem::new))).into(),
+    MenuItem::new("Export as").submenu(Menu::new(exporting, export).items(["PNG", "SVG", "PDF"].map(MenuItem::new))).into(),
     MenuEntry::Separator,
     MenuItem::new("Quit").shortcut("Ctrl+Q").on_select(move || quit()).into(),
-  ])
-  .menu("Edit", [
+  ]))
+  .menu(MenubarMenu::new("Edit", [
     MenuItem::new("Undo").icon(icons::UNDO).shortcut("Ctrl+Z").on_select(move || undo()),
     MenuItem::new("Redo").shortcut("Ctrl+Y").disabled(true),
-  ])
-  .menu("View", [MenuItem::new("Show grid").checked(grid.get()).on_select(move || toggle_grid())])
-  .menu("Help", [MenuItem::new("About")])
-  .title_disabled("Help", !online.get());
+  ]))
+  .menu(MenubarMenu::new("View", [MenuItem::new("Show grid").checked(grid.get()).on_select(move || toggle_grid())]))
+  .menu(MenubarMenu::new("Help", [MenuItem::new("About")]).disabled(!online.get()));
 ```
 
 | `Menubar` | |
 | --- | --- |
-| `new(open)` | Which menu is open, by its index among the bar's: the app's `Signal<Option<usize>>`. A press of a title sets it; choosing an item, a press outside and Escape set it to `None`; the app may set it too |
-| `menu(title, entries)` | A menu called `title`, after the bar's others, holding [menu](#menu) items: `MenuItem`s, with `MenuEntry::Separator` and `MenuEntry::Label` between them (`.into()` each where the list mixes them) |
-| `title_disabled(title, bool)` | The menu of that title cannot be opened: its title is dimmed, and the pointer, the arrows and Alt pass it by |
+| `new(open)` | Which menu is open, by its index among the bar's: the app's `Signal<Option<usize>>`. A press of an item sets it; choosing in a menu, a press outside, Escape and Tab set it to `None`; the app may set it too |
+| `menu(MenubarMenu)`, `menus(..)` | Menus, after the bar's others |
+| `label(&str)` | The bar's name to what reads the tree |
 | `disabled(bool)` | No menu of the bar can be opened |
-| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first title that is not disabled, the one Tab stops on. `id` is the bar's; its titles are `{id}-0`, `{id}-1` and on, and each menu's panel `{id}-0-menu` |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first item that is not disabled, the one Tab stops on. `id` is the bar's; its items are `{id}-0`, `{id}-1` and on, and each menu's panel `{id}-0-menu` |
 
-- Its menus are [menus](#menu), with all their items have: icons, shortcuts, checks, radio items, submenus, disabled and destructive items, separators and labels. One is open at a time.
+| `MenubarMenu` | |
+| --- | --- |
+| `new(title, entries)` | A menu called `title` holding [menu](#menu) items: `MenuItem`s, with `MenuEntry::Separator` and `MenuEntry::Heading` between them (`.into()` each where the list mixes them). Its panel is called by its title to what reads the tree |
+| `disabled(bool)` | The menu cannot be opened: its item is dimmed, and the pointer, the arrows and Alt pass it by |
+| `id`, `key` | The id and key of its item on the bar, in place of `{id}-{index}`; its panel is `{id}-menu` |
+
+- Its menus are [menus](#menu), with all their items have: icons, shortcuts, checks, radio items, submenus, disabled and destructive items, separators and headings. One is open at a time.
 - The pointer: a press of a title opens its menu, and a press of it again closes it. While a menu is open the pointer coming onto another title opens that one, with no press. Choosing an item, a press outside and Escape close the menu.
 - The keyboard: the bar is one stop of Tab (a [focus group](../focus-navigation/#focus-groups) of one stop). Left and Right move between the titles and go round at the ends, a letter goes to the title that starts with it, and a disabled title is passed by. Down, Enter and Space open the focused title's menu with the focus on its first item, Up on its last that can be chosen. In an open menu Left and Right close it and open the menu beside it, at its first item: Left in a submenu closes the submenu first, Right on an item with a submenu opens it, and Right on one without goes to the next title from a submenu too. Escape closes the menu and gives the focus back to its title.
 - Alt: pressed and let go alone, Alt puts the focus on the first title and underlines the first letter of each title; Alt alone again gives the focus back to what had it, closing a menu that was open. The letters show while Alt is held down too. Alt with a title's first letter opens its menu from wherever the focus is, and from a menu of the bar opens the other; several titles with one first letter are gone round. On a Mac, where Option with a letter types a character and the app's menus are the system's, Alt does neither.
 - Under the pointer, focused from the keyboard, or with its menu open, a title is filled with `Highlight`, the board's `accent`. In the design the bar is 36 tall in `Background`, padded 4, with the medium radius and an edge of 1 in `Border`, its titles 2 apart; a title is 28 tall, padded 10 at its sides, with the small radius, its text 13/500 in `Foreground`. A disabled title is dimmed. A menu opens under its title from its start, 4 below it.
 - The engine's part is `FocusGroup::menu_row(true)`, which the bar's row has: a row of elements each of which opens a menu hung from it when it is pressed. While one of those menus has the focus, the Left and Right that nothing in the menu takes close it, with the menus opened from it, and press the element beside it; Alt with a letter and Alt alone act on the first such row of the window. A bar of your own, of buttons and [menus](#menu), gets the same keys from it.
 - The bar keeps, for the signal it is given, a signal for each menu kept as one with the app's, the anchor each menu hangs from, and what Alt shows, while it is in the tree.
-- Parts: `MenubarPart::Bar`, `Title` (what is pressed, and what is lit), `Label` (its text). States: `MenubarState::Open` (the title's menu is open) and `Disabled` (the bar, or the title, cannot be opened); a title is resolved in the states of the bar and its own.
+- Parts: `MenubarPart::Bar`, `Item` (a menu's title on the bar: what is pressed, and what is lit), `Label` (its text). States: `MenubarState::Open` (the item's menu is open) and `Disabled` (the bar, or the item, cannot be opened); an item is resolved in the states of the bar and its own.
 - To what reads the tree the bar is a `menubar`, each title a `menuitem` called by its text with `a11y_haspopup` `menu` and `a11y_expanded`.
-- A renderer for `Menubar` gets a `MenubarView`: `view.bar()` is the row with its style, its focus group and its handlers; `view.title(index)` a title's behavior with its style, `view.label(index)` its text, and `view.menu(index)` its menu, hung from the title, to put after it; `view.title_part(index, part)` is the style of a part of one title. `view.render()` builds the bar.
+- A renderer for `Menubar` gets a `MenubarView`: `view.bar()` is the row with its style, its focus group and its handlers; `view.item(index)` an item's behavior with its style, `view.label(index)` its text, and `view.menu(index)` its menu, hung from the item, to put after it; `view.item_part(index, part)` is the style of a part of one item. `view.render()` builds the bar.
 
 On a Mac an app's menus belong in the system's menu bar, which `App::set_menu_bar` fills (see [native menus](../window-lifecycle-menus/#building-a-native-menu)): there `app.menu_bar_support()` is `MenuBarSupport::Native`, and the app shows no `Menubar`. The native model routes a command by its id (`MenuAction::new(id, label)`, `app.on_menu_activate`), where a `MenuItem` calls a handler and has no id; and it has no check or radio item. So one list feeds both from the app's own description of its commands, built into each:
 

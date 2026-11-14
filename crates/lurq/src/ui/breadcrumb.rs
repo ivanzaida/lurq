@@ -551,7 +551,7 @@ impl BreadcrumbView {
 
   /// The menu of the hidden steps: an item for each, which follows it.
   fn hidden_menu(&self, anchor: ElementRef, open: Signal<bool>) -> Menu {
-    let mut menu = Menu::new(anchor, open).placement(Placement::BottomStart);
+    let mut menu = Menu::new(open, anchor).placement(Placement::BottomStart);
     for index in self.hidden.clone().unwrap_or(0..0) {
       let step = &self.steps[index];
       let mut item = MenuItem::new(&step.label).disabled(self.disabled);

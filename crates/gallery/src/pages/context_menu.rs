@@ -99,7 +99,7 @@ impl ContextMenuPage {
         }
         command
       };
-      let mut menu = ContextMenu::new(target, open)
+      let mut menu = ContextMenu::new(open, target)
         .bar(bar)
         .disabled(disabled)
         .item(command("Back", icons::ARROW_LEFT, "Alt+←"))
@@ -109,7 +109,7 @@ impl ContextMenuPage {
       if let Some((anchor, open)) = tools {
         menu = menu.item(
           MenuItem::new("More tools").submenu(
-            Menu::new(anchor, open)
+            Menu::new(open, anchor)
               .item(MenuItem::new("Task manager").on_select(told("Task manager")))
               .item(MenuItem::new("Developer tools").on_select(told("Developer tools"))),
           ),
@@ -148,7 +148,7 @@ impl ContextMenuPage {
       line
     };
     let mut code = vec!["// open: Signal<bool>; the menu sets it when it is asked for".to_owned()];
-    code.push("ContextMenu::new(card, open)".to_owned());
+    code.push("ContextMenu::new(open, card)".to_owned());
     if bar {
       code.push("    .bar(true)".to_owned());
     }
@@ -160,7 +160,7 @@ impl ContextMenuPage {
     code.push("    .separator()".to_owned());
     code.push("    .item(MenuItem::new(\"Show grid\").checked(true))".to_owned());
     if submenu {
-      code.push("    .item(MenuItem::new(\"More tools\").submenu(Menu::new(tools, tools_open).items(..)))".to_owned());
+      code.push("    .item(MenuItem::new(\"More tools\").submenu(Menu::new(tools_open, tools).items(..)))".to_owned());
     }
     code.push(item_code("Inspect", "CODE", "F12"));
     code.push("    .separator()".to_owned());
@@ -262,11 +262,11 @@ impl Component for ContextMenuPage {
       let did = |what: &str| says(&self.files_did, &format!("{what} {file}"));
       list = list.child(
         ContextMenu::new(
+          open.clone(),
           Button::new(file)
             .variant(ButtonVariant::Ghost)
             .icon(icons::FILE)
             .full_width(true),
-          open.clone(),
         )
         .item(MenuItem::new("Open").icon(icons::FOLDER_OPEN).on_select(did("Open")))
         .item(
@@ -296,7 +296,7 @@ impl Component for ContextMenuPage {
     // The board's edit menu: a bar over a field.
     let edit = |name: &str| says(&self.edit_did, name);
     let field = item(
-      ContextMenu::new(Input::new(self.text.clone()).full_width(true), self.edit_open.clone())
+      ContextMenu::new(self.edit_open.clone(), Input::new(self.text.clone()).full_width(true))
         .bar(true)
         .items(["Cut", "Copy", "Paste", "Select All"].map(|name| MenuItem::new(name).on_select(edit(name)))),
       &did(&self.edit_did),
@@ -318,7 +318,7 @@ impl Component for ContextMenuPage {
           ),
         )
         .child(
-          Menu::new(self.more_anchor.clone(), self.more_open.clone())
+          Menu::new(self.more_open.clone(), self.more_anchor.clone())
             .style(MenuPart::Panel, |s| s.min_width(180.0))
             .item(MenuItem::new("Rename").on_select(more("Rename")))
             .item(MenuItem::new("Duplicate").on_select(more("Duplicate")))
@@ -329,11 +329,11 @@ impl Component for ContextMenuPage {
 
     let rows = [
       (
-        "ContextMenu::new(target, open)",
-        "impl Into<Element>, Signal<bool>",
+        "ContextMenu::new(open, target)",
+        "Signal<bool>, impl Into<Element>",
         "",
-        "The element the menu is for, which lays out as without it, and whether the menu is open: the app's. \
-         The presses and keys that ask for it set it; choosing, a press outside and Escape clear it.",
+        "Whether the menu is open, the app's signal, and the element the menu is for, which lays out as without \
+         it. The presses and keys that ask for it set it; choosing, a press outside, Escape and Tab clear it.",
       ),
       (
         "item",
@@ -347,7 +347,8 @@ impl Component for ContextMenuPage {
         "",
         "A line that ends one group of items and starts the next.",
       ),
-      ("label", "&str", "", "A text over the items after it."),
+      ("heading", "&str", "", "A heading over the items after it."),
+      ("label", "&str", "", "The menu's name to what reads the tree."),
       (
         "bar",
         "bool",
@@ -355,6 +356,37 @@ impl Component for ContextMenuPage {
         "The commands in one row, as the board's edit menu over selected text has them.",
       ),
       ("disabled", "bool", "false", "The element has no menu now."),
+      (
+        "inline",
+        "bool",
+        "false",
+        "The panel drawn in place of the element, not over the window: for a gallery or a test.",
+      ),
+      (
+        "on_dismiss",
+        "Fn()",
+        "",
+        "A person closed it other than by a choice: Escape, a press outside, Tab. Adds.",
+      ),
+      ("dismiss_on_escape", "bool", "true", "Escape closes it."),
+      (
+        "dismiss_on_outside_press",
+        "bool",
+        "true",
+        "A press outside it closes it.",
+      ),
+      (
+        "offset",
+        "f32, f32",
+        "",
+        "How far its corner stands from the point it was asked for.",
+      ),
+      (
+        "collision",
+        "CollisionStrategy",
+        "",
+        "What it does where the window has no room: opens up or back by default.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -385,12 +417,12 @@ impl Component for ContextMenuPage {
           self.frame.demo(
             0,
             files,
-            "ContextMenu::new(file, open).item(MenuItem::new(\"Rename\"))",
+            "ContextMenu::new(open, file).item(MenuItem::new(\"Rename\"))",
             &[
               "// open: Signal<bool>, one for each file",
               "ContextMenu::new(",
-              "    Button::new(\"report.pdf\").variant(ButtonVariant::Ghost).icon(icons::FILE).full_width(true),",
               "    open,",
+              "    Button::new(\"report.pdf\").variant(ButtonVariant::Ghost).icon(icons::FILE).full_width(true),",
               ")",
               ".item(MenuItem::new(\"Open\").icon(icons::FOLDER_OPEN).on_select(..))",
               ".item(MenuItem::new(\"Rename\").icon(icons::PENCIL).shortcut(\"F2\").on_select(..))",
@@ -410,7 +442,7 @@ impl Component for ContextMenuPage {
             ".bar(true)",
             &[
               "// text: Signal<String>, open: Signal<bool>",
-              "ContextMenu::new(Input::new(text).full_width(true), open)",
+              "ContextMenu::new(open, Input::new(text).full_width(true))",
               "    .bar(true)",
               "    .items([\"Cut\", \"Copy\", \"Paste\", \"Select All\"].map(MenuItem::new))",
             ],
@@ -423,7 +455,7 @@ impl Component for ContextMenuPage {
           self.frame.demo(
             2,
             overflow,
-            "Menu::new(anchor, open).style(MenuPart::Panel, |s| s.min_width(180.0))",
+            "Menu::new(open, anchor).style(MenuPart::Panel, |s| s.min_width(180.0))",
             &[
               "// anchor: ElementRef, open: Signal<bool>",
               "Row::new().ref_element(anchor.clone()).child(",
@@ -435,7 +467,7 @@ impl Component for ContextMenuPage {
               "        .on_click(move |_| toggle.update(|open| *open = !*open)),",
               ")",
               "",
-              "Menu::new(anchor, open)",
+              "Menu::new(open, anchor)",
               "    .style(MenuPart::Panel, |s| s.min_width(180.0))",
               "    .item(MenuItem::new(\"Rename\").on_select(..))",
               "    .item(MenuItem::new(\"Duplicate\").on_select(..))",
@@ -446,7 +478,7 @@ impl Component for ContextMenuPage {
         Section::new(
           "Props",
           "What a context menu is given; its items are a menu's.",
-          props_table(&rows, &["ContextMenu::new(target, open)"], self.frame.room()),
+          props_table(&rows, &["ContextMenu::new(open, target)"], self.frame.room()),
         ),
       ],
     )
