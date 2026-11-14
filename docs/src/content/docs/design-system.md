@@ -60,6 +60,7 @@ let recipe = Recipe::new()
 | `at(breakpoint, part, style)` | In a window at a [breakpoint](../theme/#breakpoints) or wider |
 | `state(state, part, style)` | While the component is in a state: disabled, checked, loading |
 | `hovered(part, style)`, `pressed(...)`, `focus_visible(...)` | Under the pointer, held down, focused from the keyboard |
+| `within(part, style)` | While the [interaction group](../styling-events/#within-an-interaction-group) the part is in is under the pointer or holds the focus: what a row shows only then |
 | `when(selector, part, style)` | In the case a `Selector` describes: several of the above together |
 
 - The rules that hold are laid one over another, the more specific over the less: always, then a variant, then a size, then a density, then a breakpoint (a wider one over a narrower), then states (more of them over fewer). Rules of one rank apply in the order they were written.
@@ -67,6 +68,24 @@ let recipe = Recipe::new()
 - Variants, sizes, states and parts are names. A component gives its own as enums, which are accepted where a name is, and an app adds any others: `.variant("brand", ...)`, `.state("pinned", ...)`.
 - Rules for the pointer and the keyboard become [state styles](../styling-events/) of the node. A hover renders nothing again, and changes only what is painted: no size, padding or text.
 - `Recipe::extend(&other)` adds another recipe's rules after this one's.
+
+A part that shows only while the element it is in is pointed at or focused, as the action at the end of a tree's row,
+is styled `within`: the component makes that element an interaction group (`.interaction_group(true)`), and the rule
+becomes the part's `within_style`. `Selector::within()` joins it with a variant or a state, `PartStyles::within` is what
+the rules gave it, and a part drawn with a forced interaction shows it too.
+
+```rust
+use lurq::{
+  app::theme::Density,
+  ui::{Recipe, TreeViewPart},
+};
+
+// Hidden at rest, shown in its row's light, and always under a finger, which points at nothing.
+let rules = Recipe::new()
+  .base(TreeViewPart::Reveal, |s| s.opacity(0.0))
+  .within(TreeViewPart::Reveal, |s| s.opacity(1.0))
+  .density(Density::Touch, TreeViewPart::Reveal, |s| s.opacity(1.0));
+```
 
 ### Breakpoints
 

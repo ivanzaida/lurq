@@ -502,6 +502,20 @@ estimated row heights and settles on the exact offset over the next few frames a
 key that is not among the items is dropped, except while the list has no items yet, so a list mounted before its data
 loads still opens on the row.
 
+`.reveal_request(n)` reveals the `reveal_key`'s row again each time `n` changes, whether the key changed or not: for a
+list asked for one row twice, scrolled away from it between the two, as a focus group over rows the list builds only in
+part asks for the row its keys step to (see [Focus And Keyboard
+Navigation](../focus-navigation/#rows-a-list-builds-in-part)).
+
+```rust
+// reveal: Signal<Option<String>>, asked: Signal<u64>; asking again adds one to `asked`.
+VirtualizedList::new(ctx, items)
+  .height(480.0)
+  .reveal_key(reveal.get())
+  .reveal_request(asked.get())
+  .mount_keyed::<ItemRow, _, _, _>(|item| item.id, |item| item.clone())
+```
+
 When the items change so that the row keys differ (a row added, removed or moved), the list keeps the first visible row
 where it was, and a list at its end stays at its end. Rows added or removed below that row (a message appended to a
 chat, a trailing row dropped) cost no more than the rows in view. A change above it measures the rows not measured yet
