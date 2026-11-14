@@ -42,10 +42,12 @@ mod date_picker;
 mod date_range_picker;
 mod dialog;
 mod drawer;
+mod drop_zone;
 mod empty_state;
 mod fab;
 mod field;
 mod fieldset;
+mod file_upload;
 mod hover_card;
 mod icon;
 pub mod icons;
@@ -176,6 +178,9 @@ pub use date_picker::{
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
+pub use drop_zone::{
+  DropZone, DropZonePart, DropZoneRenderer, DropZoneState, DropZoneView, RejectReason, RejectedFile,
+};
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };
@@ -184,6 +189,9 @@ pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, Field
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
   FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
+};
+pub use file_upload::{
+  FileUpload, FileUploadPart, FileUploadRenderer, FileUploadState, FileUploadView, UploadFile, UploadState,
 };
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};

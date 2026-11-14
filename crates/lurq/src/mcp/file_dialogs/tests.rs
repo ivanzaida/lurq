@@ -305,3 +305,47 @@ fn file_dialogs_opt_in_tools_and_actual_drain_cancel_without_later_mcp_call() {
     Err(FileDialogError::Unavailable)
   ));
 }
+
+#[test]
+fn lurqs_own_file_dialog_asks_the_registered_broker_and_never_opens_a_native_one() {
+  // Brokers of other tests register in parallel; the dialog asks the last one, so this tries until the one it
+  // made is the one asked.
+  for _ in 0..100 {
+    let (broker, _shared, tree) = fixture();
+    let picked = crate::files::FileDialog::new()
+      .title("Add files")
+      .filter("Text", &["txt"])
+      .multiple(true)
+      .pick(&tree.window().handle());
+    let pending: Vec<(String, FileDialogRequest)> = broker
+      .0
+      .lock()
+      .unwrap()
+      .pending
+      .iter()
+      .map(|(id, pending)| (id.clone(), pending.request.clone()))
+      .collect();
+    let Some((id, request)) = pending.into_iter().next() else {
+      continue;
+    };
+    assert_eq!(
+      request.operation,
+      FileDialogOperation::OpenFiles,
+      "several files: multiple"
+    );
+    assert_eq!(request.title, "Add files");
+    assert_eq!(request.filters, vec![("Text".to_owned(), vec!["txt".to_owned()])]);
+    broker
+      .respond(&id, tree.window(), FileDialogOperation::OpenFiles, Some(selected()))
+      .unwrap();
+    let files = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap()
+      .block_on(picked);
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].name(), "Unicode-α.txt");
+    assert_eq!(files[0].path(), Some(path().as_path()));
+    return;
+  }
+  panic!("the dialog never asked the broker this test registered");
+}
