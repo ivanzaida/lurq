@@ -58,6 +58,8 @@ struct ElementRefInner {
   size_override: (Option<Dimension>, Option<Dimension>),
   /// What the element is said to be since it was built, by name ([`ElementRefMut::describe`]).
   descriptions: Vec<(Arc<str>, Arc<str>)>,
+  /// Whether the element is out of the focus and the pointer ([`ElementRefMut::set_inert`]).
+  inert: bool,
   override_clear_generation: u64,
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
@@ -279,6 +281,11 @@ impl ElementRef {
     self.inner.read().unwrap().size_override
   }
 
+  /// Whether [`ElementRefMut::set_inert`] made the element inert.
+  pub(crate) fn is_inert(&self) -> bool {
+    self.inner.read().unwrap().inert
+  }
+
   /// What [`ElementRefMut::describe`] said of the element.
   pub(crate) fn descriptions(&self) -> Vec<(Arc<str>, Arc<str>)> {
     self.inner.read().unwrap().descriptions.clone()
@@ -437,6 +444,21 @@ impl ElementRefMut {
       Some((_, held)) => *held = value,
       None => inner.descriptions.push((name, value)),
     }
+  }
+
+  /// Makes the element inert, or not, as `.inert(..)` does where it was built, with nothing rendered again: Tab and
+  /// a focus group's keys pass by everything in it, no pointer reaches it, and the focus in it leaves at the next
+  /// pass, which this asks for. Built inert, it stays inert whatever this says. A splitter makes a pane it closes
+  /// inert so while a divider is dragged.
+  pub fn set_inert(&self, inert: bool) {
+    let mut inner = self.inner.write().unwrap();
+    if inner.inert == inert {
+      return;
+    }
+    inner.inert = inert;
+    // A pass, after whose layout the focus leaves what became inert.
+    inner.layout_dirty = true;
+    inner.layout_subscribers.mark();
   }
 
   /// The width and the height [`Self::set_size`] gave the element.

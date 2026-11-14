@@ -709,6 +709,8 @@ impl Panes {
         SplitterOrientation::Vertical => (None, dimension),
       };
       self.panes[index].set_size(width, height);
+      // What is in a closed pane takes neither the focus nor the pointer.
+      self.panes[index].set_inert(self.specs[index].collapsible && *size <= 0.0);
       self.shadows[index].set_size(width, height);
     }
     self.keep(sizes.to_vec());
@@ -1070,6 +1072,8 @@ impl SplitterView {
     let mut below: Vec<Element> = Vec::with_capacity(count);
     let mut above: Vec<Element> = Vec::with_capacity(count * 2);
     for (index, content) in self.contents.iter().enumerate() {
+      // A closed pane is inert through its ref, which a drag that opens it makes not inert again.
+      panes[index].set_inert(self.specs[index].collapsible && model.len() == count && model[index] <= 0.0);
       let mut pane = self.pane_box(dimensions[index], &panes[index]).child(content.clone());
       if let Some(key) = &self.keys[index] {
         pane = pane.key(key.clone());

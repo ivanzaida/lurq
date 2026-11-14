@@ -7,8 +7,7 @@
 //! An open modal traps Tab: focus behind it is never a stop, and Tab stays put when the modal has no stops.
 //!
 //! A child its Row/Column dropped to make room (`ShrinkLimit::Drop`) is not drawn, so nothing inside it is a stop. Nor
-//! is anything inside an element that clips and is laid out with no width or no height (a closed pane of a splitter,
-//! a closed drawer): it is cut away whole.
+//! is anything inside an inert element (`.inert(true)`).
 //!
 //! The stops of an overlay that takes the focus (`Overlay::takes_focus`: a popover, a menu) come right after its
 //! anchor's, as a web popover's come after its invoker's: Tab from the trigger goes into it, and Tab from its last
@@ -18,7 +17,7 @@
 use super::{FocusTarget, find_node_by_path};
 use crate::{
   core::{ElementRef as OwnedElementRef, NodeId},
-  layout::{layout_kind::Overflow, layout_result::LayoutResult},
+  layout::layout_result::LayoutResult,
   node::{Node, SyntheticNodeRole},
 };
 
@@ -99,33 +98,20 @@ fn top_modal_path(root: &Node) -> Option<Vec<usize>> {
 }
 
 /// The nodes `layout` (the layout of `root`) dropped from their Row/Column,
-/// outermost only: what lies inside them is dropped with them. An element
-/// that clips and was laid out with no width or no height counts as dropped
-/// too: what is in it is cut away whole, so it is neither shown nor a stop.
+/// outermost only: what lies inside them is dropped with them.
 pub(super) fn dropped_node_ids(root: &Node, layout: &LayoutResult) -> Vec<NodeId> {
-  // The root is the window's, whatever size a headless tree gives it.
-  fn collect(node: &Node, layout: &LayoutResult, dropped: &mut Vec<NodeId>, root: bool) {
-    if layout.dropped || (!root && cuts_away(node, layout)) {
+  fn collect(node: &Node, layout: &LayoutResult, dropped: &mut Vec<NodeId>) {
+    if layout.dropped {
       dropped.push(node.node_id());
       return;
     }
     for (child, child_layout) in node.children().iter().zip(&layout.children) {
-      collect(child, &child_layout.result, dropped, false);
+      collect(child, &child_layout.result, dropped);
     }
   }
   let mut dropped = Vec::new();
-  collect(root, layout, &mut dropped, true);
+  collect(root, layout, &mut dropped);
   dropped
-}
-
-/// Whether `node`, laid out as `layout`, clips all it holds away: it clips, holds something, and has no width or
-/// no height. An overlay's declaration is laid out elsewhere and is not one.
-fn cuts_away(node: &Node, layout: &LayoutResult) -> bool {
-  node.overflow == Overflow::Hidden
-    && !node.children().is_empty()
-    && !node.is_overlay_declaration()
-    && !node.has_synthetic_role(SyntheticNodeRole::OverlayHost)
-    && (layout.size.width <= 0.0 || layout.size.height <= 0.0)
 }
 
 /// Whether the node at `path` (child indices from `root`) is one of the
@@ -142,6 +128,24 @@ pub(super) fn path_is_disabled(root: &Node, path: &[usize]) -> bool {
     };
     node = child;
     if node.is_disabled() {
+      return true;
+    }
+  }
+  false
+}
+
+/// Whether the node at `path`, or an element it is in, is inert.
+pub(super) fn path_is_inert(root: &Node, path: &[usize]) -> bool {
+  let mut node = root;
+  if node.is_inert() {
+    return true;
+  }
+  for &index in path {
+    let Some(child) = node.children().get(index) else {
+      return false;
+    };
+    node = child;
+    if node.is_inert() {
       return true;
     }
   }
@@ -258,7 +262,7 @@ fn collect_node<'a>(
 ) {
   // Nothing in a disabled element takes focus, so Tab passes all of it by.
   // Nor in a layer that is on its way out, which is only painted.
-  if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
+  if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_inert() || node.is_leaving_layer() {
     return;
   }
   let order = walk.visited;
@@ -368,7 +372,7 @@ fn walk_group<'a>(group: &'a Node, dropped: &[NodeId], around: Option<NodeId>) -
     if walk.around == Some(node.node_id()) {
       walk.before = Some(walk.stops.len());
     }
-    if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_leaving_layer() {
+    if dropped.contains(&node.node_id()) || node.is_disabled() || node.is_inert() || node.is_leaving_layer() {
       return;
     }
     if !root && node.focus_group_value().is_some_and(|group| group.is_none()) {

@@ -46,6 +46,23 @@ Row::new()
   .child(Button::new("Open").tab_index(0).on_click(|_| open_file()));
 ```
 
+### Inert Elements
+
+`.inert(true)` takes an element and everything in it out of the focus and the pointer, while it is still painted: a splitter's closed pane, a panel on its way out.
+
+```rust
+use lurq::components::Column;
+
+Column::new().inert(!open).child(panel_content);
+```
+
+- Tab and Shift+Tab pass by everything in it, and so do a focus group's arrows and typeahead.
+- A focus request for anything in it (`ctx.focus`, `ElementHandle::focus`) is refused, and a press does not focus it.
+- No pointer reaches it or anything in it: no press, click, hover or drop. Hit testing passes through it, so what is under it gets them.
+- When it becomes inert with the focus inside it, the focus leaves it as it leaves an element taken out of the tree: to the stop of the focus group it was in that takes its place (the next one, or the last), or to nothing.
+- Unlike `disabled(true)`, it sets no disabled state on what is in it: no disabled style is drawn, and controls in it look as they did.
+- An element ref makes its element inert with nothing rendered again: `ElementRefMut::set_inert(bool)`. It takes effect at the next pass, which it asks for. An element built inert stays inert whatever its ref says.
+
 ## Focus Groups
 
 `.focus_group(FocusGroup::..)` on an element makes what is in it a group the arrow keys move the focus within, while the focus is on one of them: the buttons of a toolbar, the choices of a radio group, the items of a menu.

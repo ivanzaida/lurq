@@ -582,6 +582,10 @@ pub(crate) trait NodeUpdate {
   fn focus_visible(&mut self, f: impl FnOnce(Style) -> Style);
   fn drag_over(&mut self, f: impl FnOnce(Style) -> Style);
   fn disabled(&mut self, disabled: bool);
+  /// Takes the node and everything in it out of the focus and the pointer: Tab and a focus group's keys pass it by,
+  /// no focus request reaches it, no pointer hits it, and the focus in it leaves when it becomes inert. It is painted
+  /// as before. A splitter's closed pane is inert.
+  fn inert(&mut self, inert: bool);
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
@@ -900,6 +904,8 @@ pub(crate) struct RareStyle {
   pub(crate) outline: Option<crate::node::outline::Outline>,
   /// The node and its subtree take no input; see [`Node::disabled`].
   pub(crate) disabled: bool,
+  /// The node and its subtree are out of the focus and the pointer; see `NodeUpdate::inert`.
+  pub(crate) inert: bool,
   /// A child removed from the node stays until its exit animation ends; see `node/presence.rs`.
   pub(crate) presence: bool,
   /// Where the node sticks in the scroll container it is in. Here, and not in `Position`, because every
@@ -1047,6 +1053,13 @@ impl Default for Node {
 }
 
 impl NodeUpdate for Node {
+  fn inert(&mut self, inert: bool) {
+    // Writing through the lazy box would allocate it for a node that is not, and stays not, inert.
+    if self.rare_style.inert != inert {
+      self.rare_style.inert = inert;
+    }
+  }
+
   fn describe(&mut self, name: Arc<str>, value: Arc<str>) {
     #[cfg(any(feature = "devtools", feature = "mcp"))]
     self.debug_attrs.push((name, value));
@@ -4793,6 +4806,12 @@ impl Node {
   /// see [`InteractionState::is_disabled`](crate::node::interaction_state::InteractionState::is_disabled).
   pub(crate) fn is_disabled(&self) -> bool {
     self.rare_style.disabled
+  }
+
+  /// The node was built inert, or its ref made it so (`ElementRefMut::set_inert`). An element it is in may make it
+  /// inert too: see `tab_navigation::path_is_inert`.
+  pub(crate) fn is_inert(&self) -> bool {
+    self.rare_style.inert || self.element_ref.as_ref().is_some_and(CoreElementRef::is_inert)
   }
 
   /// Records in this node and in every node under it whether it is disabled,

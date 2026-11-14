@@ -1166,6 +1166,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Takes the element and everything in it out of the focus and the pointer, while it is still painted: Tab
+      /// and a focus group's arrows pass it by, no focus request reaches it, no press, hover or drop reaches it
+      /// (what is under it gets them), and the focus in it leaves when it becomes inert, to the next stop of the
+      /// focus group it was in or to nothing. A splitter's closed pane, a panel on its way out. An element ref
+      /// makes it so with no render: `ElementRefMut::set_inert`.
+      pub fn inert(mut self, inert: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::inert(node, inert));
+        self
+      }
+
       /// HTML `tabindex`. Inside a form, controls are in the Tab order
       /// without one; outside a form, only elements with `tab_index(0)` or
       /// higher are. Positive values come first in ascending order, then `0`

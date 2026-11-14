@@ -459,3 +459,39 @@ fn nothing_in_a_closed_pane_is_a_stop_of_tab() {
   assert_eq!(pressed.load(Ordering::Relaxed), 1);
   assert_eq!(stage.bounds("b").0, 121.0, "opened again");
 }
+
+/// What a divider says to tooling follows a drag and a key at once, in a splitter that is not rendered again.
+#[cfg(feature = "mcp")]
+#[test]
+fn a_divider_tells_tooling_where_it_is_as_it_moves() {
+  let mut stage = Stage::new(|_| three().into());
+  let said = |stage: &mut Stage, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("s-divider-0")
+      .and_then(|divider| divider.description(name))
+  };
+  assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("separator"));
+  assert_eq!(said(&mut stage, "a11y_orientation").as_deref(), Some("vertical"));
+  assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Files"));
+  assert_eq!(said(&mut stage, "a11y_valuenow").as_deref(), Some("120"));
+  assert_eq!(said(&mut stage, "a11y_valuemin").as_deref(), Some("80"));
+  assert_eq!(said(&mut stage, "a11y_valuemax").as_deref(), Some("240"));
+  stage.tree.mouse_move(120.5, 150.0);
+  stage.tree.mouse_down(120.5, 150.0, MouseButton::Left);
+  stage.tree.mouse_move(180.5, 150.0);
+  assert_eq!(
+    said(&mut stage, "a11y_valuenow").as_deref(),
+    Some("180"),
+    "while it is dragged"
+  );
+  stage.tree.mouse_up(180.5, 150.0, MouseButton::Left);
+  // A drag focuses nothing; Tab reaches the divider.
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(
+    said(&mut stage, "a11y_valuenow").as_deref(),
+    Some("190"),
+    "and moved by a key"
+  );
+}
