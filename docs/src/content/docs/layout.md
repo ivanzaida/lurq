@@ -338,9 +338,25 @@ lurq::components::Row::new()
 Flex layout:
 
 1. Lay out non-flex children first.
-2. Subtract fixed child sizes and spacing from available space.
-3. Divide remaining space by flex factor.
+2. Subtract fixed child sizes, spacing and flex bases from available space.
+3. Divide remaining space by flex factor, on top of each basis.
 4. Lay out flex children with tight constraints for their assigned size.
+
+`.flex_full(grow, shrink, basis)` gives a child a basis: the length it starts from, as `flex-basis` does on the web.
+The bases come out of the free room first, so a growing child is its basis and its share of what is left after the
+gaps, the children sized on their own and every basis. Where nothing is left, a child is its basis, and the line
+shrinks what may shrink by the shortage.
+
+```rust
+// 200 wide: the first is 50 + (200 - 50 - 50) = 150, the second 50.
+lurq::components::Row::new()
+  .width(200.0)
+  .child(lurq::components::Spacer::new().flex_full(1.0, 0.0, Some(50.0)))
+  .child(lurq::components::Spacer::new().width(50.0))
+```
+
+A basis is a least length for a child that grows and does not shrink: the line between two steps, which the steps give
+way before.
 
 In an unbounded main axis (for example a column inside `ScrollVertical`, or a column measured by its own content) there
 is no remaining space: a flex child gets its `basis`, or its natural size when it has none.

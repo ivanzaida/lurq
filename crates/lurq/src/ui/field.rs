@@ -472,16 +472,36 @@ impl FieldView {
     let body_part = self.part(FieldPart::Body);
     // A control that fills the field (`full_width`), or a component, which may fill it from inside, is held at the
     // field's width. Any other keeps its own, and the field is at least as wide as it: as wide as the recipe says,
-    // or wider for a wider control, with the label and the description as wide as the recipe says.
+    // or wider for a wider control, with the description as wide as the recipe leaves it. Beside the label, the
+    // field is the label's column, the gap and the wider of that room and the control.
     let fills =
       matches!(self.control.node.frame.width, Some(Dimension::Pct(_))) || self.control.node.component_key().is_some();
-    let least = match root_part.rest().width.and_then(|width| width.resolve(self.theme())) {
-      Some(Dimension::Px(width)) if !fills && !self.horizontal => Some(width),
+    let px = |length: Option<Length>| match length.and_then(|length| length.resolve(self.theme())) {
+      Some(Dimension::Px(px)) => Some(px),
       _ => None,
     };
-    let (label, description) = match least {
+    let least = px(root_part.rest().width).filter(|_| !fills);
+    // The room of the label and of what is under it: the field's width, or beside the label what the label's
+    // column and the gap leave of it.
+    let room = least.and_then(|width| {
+      if !self.horizontal {
+        return Some(width);
+      }
+      let label_width = px(self.part(FieldPart::Label).rest().width)?;
+      let gap = root_part
+        .rest()
+        .gap
+        .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+        .unwrap_or(0.0);
+      Some((width - label_width - gap).max(0.0))
+    });
+    let (label, description) = match room {
       Some(width) => (
-        label.width(Dimension::Px(width)),
+        if self.horizontal {
+          label
+        } else {
+          label.width(Dimension::Px(width))
+        },
         description.map(|description| description.width(Dimension::Px(width))),
       ),
       None => (label, description),
@@ -516,24 +536,28 @@ impl FieldView {
       }};
     }
     if self.horizontal {
-      let mut body = Column::new()
-        .flex(1.0)
-        .align_items(Alignment::Stretch)
-        .part(&body_part)
-        .child(control);
+      let mut body = Column::new().align_items(Alignment::Stretch).part(&body_part);
+      let mut root = Row::new().align_items(Alignment::Start).part(&root_part);
+      match (least, room) {
+        (Some(width), Some(room)) => {
+          // As wide as the wider of the room the recipe leaves it and the control, and the field with it; not
+          // stretched by what holds the field.
+          body = body.min_width(Dimension::Px(room));
+          root = root
+            .width(Dimension::Auto)
+            .min_width(Dimension::Px(width))
+            .align(Alignment::Start);
+        }
+        _ => body = body.flex(1.0),
+      }
+      let mut body = body.child(control);
       if let Some(description) = description {
         body = body.child(description);
       }
-      named!(
-        Row::new()
-          .align_items(Alignment::Start)
-          .part(&root_part)
-          .child(label)
-          .child(body)
-      )
+      named!(root.child(label).child(body))
     } else {
       let mut root = Column::new().align_items(Alignment::Stretch).part(&root_part);
-      if let Some(width) = least {
+      if let Some(width) = room {
         // Not stretched by what holds it either: as wide as the wider of the recipe's width and the control.
         root = root
           .width(Dimension::Auto)

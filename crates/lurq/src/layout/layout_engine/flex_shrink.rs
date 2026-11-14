@@ -40,6 +40,9 @@ pub(super) struct FreeRoom {
   /// own; negative when those overflow the line, infinite on an unbounded
   /// main axis.
   pub(super) remaining: f32,
+  /// What `remaining` leaves after the bases of the children that wait for
+  /// room: what the growing children share, on top of their bases.
+  pub(super) free: f32,
   pub(super) grow_total: f32,
 }
 
@@ -47,12 +50,12 @@ pub(super) struct FreeRoom {
 /// shrinks, summed up as the line lays out each child it grants a main size
 /// to; a child sized on its own is already out of the free room.
 ///
-/// The growing children are granted the free room in shares, so together
-/// they take exactly that room: it is not summed back up from their sizes.
-/// In `f32` that sum can come out a few micro-pixels over the line, and the
-/// rounding would pass for an overflow: the line would shrink a text by it
-/// and ellipsize the text, with the room still free beside it. What the room
-/// did not account for still counts: a flex basis, and whatever a child takes
+/// The growing children are granted their bases and the free room in shares,
+/// so together they take exactly the room: it is not summed back up from
+/// their sizes. In `f32` that sum can come out a few micro-pixels over the
+/// line, and the rounding would pass for an overflow: the line would shrink a
+/// text by it and ellipsize the text, with the room still free beside it.
+/// What the room did not account for still counts: whatever a child takes
 /// beyond its grant.
 pub(super) struct LineOverflow {
   room: FreeRoom,
@@ -70,17 +73,13 @@ impl LineOverflow {
   }
 
   fn shares_room(&self) -> bool {
-    self.room.remaining > 0.0 && self.room.grow_total > 0.0
+    self.room.free > 0.0 && self.room.grow_total > 0.0
   }
 
   /// Counts a flex child laid out as `result` at the main size `grant`.
-  pub(super) fn add_granted(&mut self, result: &LayoutResult, grant: f32, basis: Option<f32>) {
+  pub(super) fn add_granted(&mut self, result: &LayoutResult, grant: f32) {
     let size = main_size(result, self.vertical);
-    self.granted += if self.shares_room() {
-      size - grant + basis.unwrap_or(0.0)
-    } else {
-      size
-    };
+    self.granted += if self.shares_room() { size - grant } else { size };
   }
 
   pub(super) fn total(&self) -> f32 {

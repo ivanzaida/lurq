@@ -702,6 +702,51 @@ fn a_control_wider_than_the_field_widens_it_and_is_not_cut() {
 }
 
 #[test]
+fn beside_the_label_a_control_wider_than_the_room_the_label_leaves_widens_the_field() {
+  const DESCRIPTION: &str = "The room a panel keeps beside the editor, and what it shows there while it is open.";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(
+        Field::new("Panel", Row::new().width(250.0).height(36.0).id("wide"))
+          .description(DESCRIPTION)
+          .horizontal(true)
+          .id("field"),
+      )
+      .child(
+        Field::new("Notifications", Switch::new("Pause notifications"))
+          .horizontal(true)
+          .id("narrow"),
+      )
+      .into()
+  });
+  // The label's column of 110, 12 to the control, and the control whole: 372, wider than the recipe's 360.
+  let (x, _, width, _) = stage.bounds("field");
+  let (wide_x, _, wide_width, _) = stage.bounds("wide");
+  assert!(
+    (wide_x - (x + 110.0 + 12.0)).abs() < 0.5,
+    "after the label's column: {wide_x} {x}"
+  );
+  assert_eq!(wide_width, 250.0);
+  assert!(
+    wide_x + wide_width <= x + width + 0.5,
+    "the field holds the control: {} in {}",
+    wide_x + wide_width,
+    x + width
+  );
+  let label = stage.text_quad("Panel").unwrap();
+  assert!((label.x - x).abs() < 0.5, "the label at the start");
+  // The description wraps in the room the recipe leaves it, 360 less the label's column and the gap.
+  let description = stage.text_quad(DESCRIPTION).unwrap();
+  assert!((description.x - wide_x).abs() < 0.5);
+  assert!(description.width <= 238.0 + 0.5, "{}", description.width);
+  assert!(description.height > 20.0, "on more lines: {}", description.height);
+  // A field whose control is narrower keeps the recipe's 360.
+  assert_eq!(stage.bounds("narrow").2, 360.0);
+}
+
+#[test]
 fn beside_the_label_a_control_lower_than_an_input_is_level_with_it() {
   let mut stage = Stage::new(|_| {
     Column::new()

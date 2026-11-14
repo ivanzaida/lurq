@@ -588,13 +588,10 @@ impl StepsView {
         if let Some(id) = id {
           line = line.id(id);
         }
-        // The room the steps leave, and never less than 24, so that a line is seen between steps that do not
-        // fit: the engine grants a basis on top of the free room, and the line gives it back first, down to
-        // its least, before the steps give way.
+        // A basis of 24 and a share of the room the steps leave: a line is seen between steps that do not fit,
+        // which give way before it.
         Row::new()
-          .flex_full(1.0, 1.0, Some(MIN_CONNECTOR))
-          .min_width(Dimension::Px(MIN_CONNECTOR))
-          .shrink_order(-1)
+          .flex_full(1.0, 0.0, Some(MIN_CONNECTOR))
           .align_items(Alignment::Center)
           .part(&connector)
           .child(line)

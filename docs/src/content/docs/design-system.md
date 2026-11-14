@@ -604,7 +604,7 @@ Field::new("Notifications", Switch::new("Pause notifications")).horizontal(true)
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the field's root |
 
-- A field is at least as wide as its control: one wider than the recipe's 260 that does not fill the field (an [input OTP](#input-otp) of six cells) widens it, and the label and the description stay 260. A description longer than the field wraps. Beside the label, a control lower than an input (a switch) stands in the middle of the label's height, level with it.
+- A field is at least as wide as its control: one wider than the recipe's 260 that does not fill the field (an [input OTP](#input-otp) of six cells) widens it, and the label and the description stay 260. Beside the label the field is at least the label's column of 110, the gap of 12 and the control, and the description wraps in the 238 the recipe's 360 leaves it. A description longer than the field wraps. Beside the label, a control lower than an input (a switch) stands in the middle of the label's height, level with it.
 - A field's control is a `FieldControl`: what the field tells it (`InField`: the label, the judgment, whether it is disabled, the description) it takes as far as it has the prop, and only where the app did not say it of the control itself: an input with a label of its own keeps it, and one the app judged keeps that judgment whatever the field says. A control of an app's own implements `FieldControl` and passes what it is told to the control in it. Any `Element` takes none of it.
 
 | Control | Takes from a field |
