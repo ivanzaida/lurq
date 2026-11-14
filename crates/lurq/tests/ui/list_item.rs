@@ -193,15 +193,12 @@ fn a_pressed_row_is_a_stop_of_tab_and_one_that_is_not_is_passed_by() {
       }))
       .item(ListItem::new("Dark mode").trailing(Switch::new("Dark mode").label_hidden(true).id("switch")))
   });
-  stage.click("plain");
-  assert_eq!(presses.load(Ordering::Relaxed), 0);
   stage.click("pressed");
   assert_eq!(presses.load(Ordering::Relaxed), 1);
-
-  if let Some(id) = focused(&stage) {
-    stage.tree.get_element_by_id_mut(&id).unwrap().blur();
-  }
-  stage.pass();
+  // A row that is not pressed presses nothing and takes no focus: Tab goes on from it.
+  stage.click("plain");
+  assert_eq!(presses.load(Ordering::Relaxed), 1);
+  assert_eq!(focused(&stage), None, "the row that is not pressed takes no focus");
   stage.key("Tab");
   assert_eq!(
     focused(&stage).as_deref(),
