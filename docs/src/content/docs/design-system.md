@@ -2478,12 +2478,13 @@ InlineCode::new("ctx.theme()");
 | `platform(KeyPlatform)` | `Standard` (words, the default) or `Mac` (⌃ ⌥ ⇧ ⌘, ↩ ⌫ ⇥ ⌦, the modifiers first in a Mac's order). `KeyPlatform::current()` is the platform the app is built for |
 | `variant(KbdVariant)` | `Default` (a box for each key) or `Plain` (each step as one text in the muted color, with no box: "Ctrl+K", "⌘K") |
 | `size(KbdSize)` | `Sm` 16 high at 10, `Md` 20 at 11, `Lg` 24 at 12 |
-| `separator(&str)` | What stands between the steps of a sequence: "then" unless told |
+| `separator_text(&str)` | The word between the steps of a sequence: "then" unless told |
+| `label(&str)` | What the keys are called to what reads the tree, in place of their words |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
 
 - Keys are named as lurq names them in a `KeyboardEvent` (`Escape`, `ArrowUp`, `Backspace`, `PageUp`) or as a person writes them, in any case and with spaces or none: `Esc`, `Del`, `Page Up`. `Mod` is Ctrl, and ⌘ on a Mac; `Meta`, `Cmd`, `Super` and `Win` are ⌘ on a Mac. Arrows are drawn as ↑ ↓ ← →. A single letter is drawn in capitals; a key lurq does not name is drawn as it is written (`Up` stays `Up`).
 - On a Mac the modifiers are glyphs and stand first, in the order `Accelerator::display` writes them: ⌃ ⌥ ⇧ ⌘. In words they keep the order they are given in.
-- Keys are read and not operated: they take no press, no focus and no stop of Tab. To what reads the tree (`lurq_snapshot` of the MCP server) they are one `text`, called by their keys in words: "Ctrl+K", "Cmd+Shift+P", "G then D".
+- Keys are read and not operated: they take no press, no focus and no stop of Tab. To what reads the tree (`lurq_snapshot` of the MCP server) they are one `text`, called by their label or their keys in words: "Ctrl+K", "Cmd+Shift+P", "G then D".
 - Parts: `KbdPart::Root` (the row of keys, its gap), `Key` (a key's box), `Label` (the text on a key, or of a plain step), `Separator` (what stands between steps). Variants: `KbdVariant`. Sizes: `KbdSize`. States: `KbdState::Sequence`, `Mac`.
 - In the design a key is 20 high, padded 6, on `Muted` with an edge of 1 in `Border` and the radius `Sm`, its text 11 in the family of code in `MutedForeground`. The keys of a shortcut are 4 apart with nothing between them; large ones are 24 high, padded 7, at 12 and 6 apart, as the list of an app's shortcuts has them. Plain is the text of a menu's shortcut: 11 in the family of code in `MutedForeground`.
 - A renderer that draws other keys has `view.steps` (each step's keys, with what is drawn on each and what it is called), `view.root()`, `view.key_cap(key)`, `view.label(text)`, `view.between()` and `view.written(step)` (a step as one text).

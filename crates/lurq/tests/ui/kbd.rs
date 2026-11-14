@@ -156,7 +156,7 @@ fn a_sequence_says_then_between_its_steps() {
     scene(vec![
       Kbd::sequence(["G", "D"]).id("go").into(),
       Kbd::sequence(["Ctrl+K", "Ctrl+S"])
-        .separator("and then")
+        .separator_text("and then")
         .id("chord")
         .into(),
     ])
@@ -301,4 +301,23 @@ fn inline_code_is_13_in_the_family_of_code_on_the_muted_fill() {
   assert!((text.y - y - 1.0).abs() < 0.01, "padded 1 above: {}", text.y - y);
   assert!((height - text.height - 2.0).abs() < 0.01, "and 1 below");
   assert!(stage.border("code").is_none(), "no edge");
+}
+
+#[test]
+fn the_keys_are_called_by_their_words_and_their_separators_word_or_by_the_apps_label() {
+  let app = App::new();
+  let renderer: KbdRenderer = Arc::new(|view: KbdView| {
+    let name = view.name();
+    view.root().child(view.label(&name)).into()
+  });
+  app.theme().set_renderer::<Kbd>(renderer);
+  let stage = Stage::in_app(app, |_| {
+    scene(vec![
+      Kbd::sequence(["G", "D"]).separator_text("puis").into(),
+      Kbd::shortcut("Ctrl+K").label("Search").into(),
+    ])
+  });
+  assert!(stage.paints("G puis D"));
+  assert!(stage.paints("Search"));
+  assert!(!stage.paints("Ctrl+K"));
 }

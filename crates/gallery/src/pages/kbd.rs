@@ -307,10 +307,16 @@ impl Component for KbdPage {
       ),
       ("size", "KbdSize", "Md", "16, 20 or 24 high, at 10, 11 or 12."),
       (
-        "separator",
+        "separator_text",
         "&str",
         "\"then\"",
-        "What stands between the steps of a sequence.",
+        "The word between the steps of a sequence.",
+      ),
+      (
+        "label",
+        "&str",
+        "the keys' words",
+        "What the keys are called to what reads the tree.",
       ),
       ("InlineCode::new", "&str", "", "A short text of code in a run of text."),
     ];
