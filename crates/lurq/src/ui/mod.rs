@@ -77,6 +77,7 @@ mod popconfirm;
 mod popover;
 mod progress;
 mod progress_dialog;
+mod property_grid;
 mod radio;
 mod rating;
 mod recipe;
@@ -271,6 +272,10 @@ pub use progress::{
 };
 pub use progress_dialog::{
   ProgressDialog, ProgressDialogPart, ProgressDialogRenderer, ProgressDialogState, ProgressDialogView,
+};
+pub use property_grid::{
+  CategoryView, EditorContext, PROPERTY_NAME_WIDTH, Property, PropertyCategory, PropertyGrid, PropertyGridPart,
+  PropertyGridRenderer, PropertyGridState, PropertyGridView, PropertyRow, PropertyView,
 };
 pub use radio::{
   Radio, RadioGroup, RadioGroupPart, RadioGroupRenderer, RadioGroupState, RadioGroupView, RadioPart, RadioRenderer,

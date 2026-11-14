@@ -108,6 +108,8 @@ pub struct Input {
   forced: Option<Interaction>,
   on_input: Vec<EditHandler>,
   on_submit: Vec<SubmitHandler>,
+  /// Called as the focus leaves the control: for a component that commits a text then.
+  pub(crate) on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   pub(crate) key: Option<Arc<str>>,
@@ -130,6 +132,7 @@ impl Input {
       forced: None,
       on_input: Vec::new(),
       on_submit: Vec::new(),
+      on_leave: Vec::new(),
       name: None,
       id: None,
       key: None,
@@ -296,6 +299,7 @@ impl Input {
       boxed: self.boxed,
       on_input: self.on_input,
       on_submit: self.on_submit,
+      on_leave: self.on_leave,
       name: self.name,
       id: self.id,
       key: self.key,
@@ -337,6 +341,7 @@ pub struct InputView {
   boxed: BoxStates,
   on_input: Vec<EditHandler>,
   pub(crate) on_submit: Vec<SubmitHandler>,
+  on_leave: Vec<Arc<dyn Fn() + Send + Sync>>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
   name: Option<Arc<str>>,
@@ -429,6 +434,14 @@ impl InputView {
           for handler in &submit {
             handler(&held);
           }
+        }
+      });
+    }
+    if !self.on_leave.is_empty() {
+      let leave = self.on_leave.clone();
+      control = control.on_blur(move || {
+        for handler in &leave {
+          handler();
         }
       });
     }

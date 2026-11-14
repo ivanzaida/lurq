@@ -3628,6 +3628,69 @@ Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 - Splitters nest, one orientation in the other: a pane holds a splitter of its own.
 - A renderer that draws another splitter is given the view: `view.part(..)`, `view.thickness()` (the room between two panes), `view.sizes()`, and `view.render()` the default.
 
+## Property Grid
+
+An inspector: the names of what is selected and the editors of their values, in categories that open and close. The position and the size of a shape on a canvas, its fill, its opacity.
+
+```rust
+use lurq::{components::SelectOption, ui::{Property, PropertyCategory, PropertyGrid}};
+
+PropertyGrid::new()
+  .title("Properties")
+  .category(
+    PropertyCategory::new("Transform")
+      .property(Property::xy("Position", x.clone(), y.clone()))
+      .property(Property::pair("Size", ("W", w.clone()), ("H", h.clone())))
+      .property(Property::number_with("Rotation", rotation.clone(), "°").stepper(true).default(0.0)),
+  )
+  .category(
+    PropertyCategory::new("Appearance")
+      .property(Property::color("Fill", fill.clone()))
+      .property(Property::slider("Opacity", opacity.clone(), 0.0, 100.0, "%"))
+      .property(Property::number("Radius", radius.clone()).default(8.0))
+      .property(Property::choice("Blend", blend.clone(), [SelectOption::new(0, "Normal"), SelectOption::new(1, "Multiply")]))
+      .property(Property::toggle("Visible", visible.clone())),
+  )
+  .on_change(|id| save(id))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `PropertyGrid::new()` | A grid with no category yet |
+| `category(PropertyCategory)`, `categories(..)` | Adds categories after those it has |
+| `title(&str)`, `trailing(Fn() -> Element)` | The header over the categories, its title in capitals, and its buttons at its end |
+| `name_width(f32)` | The width of the names, 84 unless told: where the mounted grid's divider starts |
+| `read_only(bool)`, `disabled(bool)` | Every value read and not changed; or nothing takes input, dimmed |
+| `full_width(bool)` | As wide as what holds it, in place of 300: an inspector's column |
+| `label(&str)` | What it is called to tooling: its title, else "Properties" |
+| `on_change(Fn(&str))` | Called with the id of a property a person changed (its `id`, else its name), after its value is set; not when the app sets a value |
+| `mount(ctx)` | The grid mounted where it is declared: it keeps which categories are open and where the divider is, Escape gives an editor's focus back to its row, and a text is told as the focus leaves it |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. With an `id`, a category's row is `<id>-<category>`, a property's `<id>-<property>`, its editor's holder `<id>-<property>-editor`, its reset `<id>-<property>-reset`, the divider `<id>-divider` |
+
+| `Property<V>` | |
+| --- | --- |
+| `Property::text(name, Signal<String>)` | A text in an input |
+| `Property::number(name, Signal<f64>)`, `number_with(name, value, unit)` | A number in a number input, stepped with Up and Down; with a unit written after it (`°`, `%`). `stepper(true)` gives it its buttons |
+| `Property::slider(name, Signal<f32>, min, max, unit)` | A slider with the number typed beside it |
+| `Property::toggle(name, Signal<bool>)` | A checkbox |
+| `Property::choice(name, Signal<T>, options)` | One of the options in a select |
+| `Property::color(name, Signal<Color>)` | A [color field](#color-field) |
+| `Property::xy(name, x, y)`, `pair(name, (letter, a), (letter, b))` | Two numbers side by side, each with its letter in its box: X and Y in the axes' colors, or W and H |
+| `Property::custom(name, Fn() -> Element)` | Any element as the editor: it has no default and tells the grid nothing |
+| `default(V)` | What the reset puts back; while the value is another, the name is marked and the reset is shown. Of the property's type: a default of another type does not compile |
+| `description(&str)`, `read_only(bool)`, `disabled(bool)`, `id`, `key` | Said of its row to tooling; its value read and not changed; dimmed; what `on_change` is told and its row's id; its row's key |
+| `PropertyCategory::new(title)` | A category, open. `property`, `properties` add to it; `default_open(bool)` whether it is open as it is first shown; `disabled`, `id`, `key` (what the mounted grid keeps it open by: its title unless told) |
+
+- Every value is the app's signal, edited at once by its editor: `ui`'s own controls, the [input](#input), the [number input](#number-input), the [select](#select), the [checkbox](#checkbox), the [color field](#color-field) and the [slider](#slider), each with the grid's `Editor` part laid over its box. A choice, a box, a color, a slider and a number are told to `on_change` as each change is made; a text as it is committed, with Enter, or (mounted) as the focus leaves it after an edit.
+- To the keys it is a tree ([a nested group](../focus-navigation/#a-nested-list)): Tab enters at one row, Up and Down go between the rows, Right opens a closed category and Left closes an open one or goes from a property to its category, typing a letter goes to the row it starts. Tab or Enter on a property's row go into its editor, where its own keys work (Up steps a number), and Escape gives the focus back to the row (mounted). A press of a name gives its editor the focus; a press of a category opens or closes it.
+- The divider between the names and the editors is dragged, or moved by 8 with Left and Right while it has the focus (40 with Shift); it is a stop of Tab after the rows, a `separator` to tooling with its value. It moves nothing where the grid is not mounted.
+- To tooling it is a `treegrid`: a category is a `row` at level 1 with `a11y_expanded`, a property a `row` at level 2 called by its name, with its value in `a11y_value` ("X 120, Y 64") and its description; its editor is called by the name too ("Position X"), so the name is heard with the value from the row and from the editor alike. A group of labelled controls would say the value only in the editor, and the arrows of a tree need rows.
+- A long inspector is built whole: each row holds live controls (an input keeps what is half typed, a select its list), and an inspector holds tens of properties, not thousands. The engine's `FocusRows` would let it build only the rows in view; it is not used.
+- Parts: `PropertyGridPart::Root`, `Header`, `Title`, `Category`, `Chevron`, `CategoryTitle`, `Row`, `Label` (a property's name), `Modified` (its mark), `Value`, `Editor` (laid over each control's box), `Axis`, `AxisX`, `AxisY`, `Reset`, `Divider`. States: `PropertyGridState::Disabled`, `FullWidth`, and on a category's or a property's parts `Open`, `Modified`, `ReadOnly`, `Unavailable`.
+- In the design the grid is 300 wide on `Background` with an edge of 1 in `Border` and the large radius. Its header is 30 high on `Muted`, its title in 11 semibold capitals spaced 0.6 in `MutedForeground`. A category's row is 28 high on `Muted` with a line under it, its chevron of 14 in `MutedForeground` 6 before its title in 12 semibold. A property's row is 32 high with a line under it, padded 12 at its start and 8 at its end, its name 84 wide in 12 in `MutedForeground` and its editors 8 after it, 6 apart. An editor is 24 high on `Background` with an edge of 1 in `Input`, the small radius, padded 6 across, its text in 12 mono; the letter of a value of two is 11 semibold mono, X in `Destructive`, Y in `Success`, others in `MutedForeground`. A changed value's name is 12 semibold in `Foreground` with a dot of 5 in `Info` after it, and the reset of 13 in `MutedForeground` ends its row. The board draws no row under the pointer or focused: a row under the pointer is on `Muted`, a focused one has the focus ring inside it. Rows follow the theme's density; editors keep their 24.
+- A renderer that draws another grid has `view.header()`, `view.category_row(index, entry)`, `view.property_row(category, row, entry)`, `view.divider()` and `view.categories`, each category's and property's view with its recipe in its state.
+
 ## Tree View
 
 Things inside things, one level under the other: the files of a project in their folders, the layers of a scene, settings in their groups.
