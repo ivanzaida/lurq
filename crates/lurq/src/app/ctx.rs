@@ -212,6 +212,8 @@ pub(crate) struct OverlaySpec {
   /// Whether Tab goes through the overlay right after its anchor, the focus staying where it is as it opens:
   /// see [`Overlay::tab_after_anchor`].
   pub(crate) tab_after_anchor: bool,
+  /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
+  pub(crate) at: Option<(f32, f32)>,
 }
 
 #[derive(Clone)]
@@ -313,6 +315,7 @@ impl OverlaySpec {
       on_dismiss: self.on_dismiss.clone(),
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
+      at: self.at,
     }
   }
 }
@@ -425,6 +428,7 @@ pub struct Overlay {
   switch_on_anchor_press: bool,
   takes_focus: bool,
   tab_after_anchor: bool,
+  at: Option<(f32, f32)>,
 }
 
 impl Overlay {
@@ -446,6 +450,7 @@ impl Overlay {
       switch_on_anchor_press: true,
       takes_focus: false,
       tab_after_anchor: false,
+      at: None,
     }
   }
 
@@ -557,6 +562,21 @@ impl Overlay {
     self
   }
 
+  /// A point of the window, in logical pixels, that the overlay stands at in
+  /// place of its anchor: where a secondary press or a long press was, for a
+  /// context menu. `None`, the default, places it by its anchor.
+  ///
+  /// It opens down and toward the end from the point, `offset` away from it,
+  /// and on the other side of the point along an axis where the window has no
+  /// room that way; then the collision strategy keeps it inside the window as
+  /// it does an anchored one. The placement is not used. The anchor is still
+  /// what it hangs from: a press on it is not outside it, the focus goes back
+  /// to it, and it is hidden while the anchor is out of view.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.at = point;
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -580,6 +600,7 @@ impl Overlay {
       on_dismiss: self.on_dismiss,
       takes_focus: self.takes_focus,
       tab_after_anchor: self.tab_after_anchor,
+      at: self.at,
     })
   }
 }

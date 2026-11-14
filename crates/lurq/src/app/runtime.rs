@@ -8381,6 +8381,7 @@ fn build_overlay_node(
     offset_x: spec.offset_x,
     offset_y: spec.offset_y,
     collision: spec.collision,
+    at: spec.at,
   };
   let (node, bounds) = place_overlay(
     node,
@@ -8404,6 +8405,8 @@ pub(super) struct OverlayPlacing {
   offset_x: f32,
   offset_y: f32,
   collision: CollisionStrategy,
+  /// The point of the window it stands at in place of its anchor (`Overlay::at`).
+  at: Option<(f32, f32)>,
 }
 
 /// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
@@ -8425,6 +8428,7 @@ fn place_overlay(
     offset_x,
     offset_y,
     collision,
+    at,
   } = placing;
   let measure_constraints = Constraints::loose(Size::new(
     constraints.max_width.min(viewport.width).max(0.0),
@@ -8442,8 +8446,14 @@ fn place_overlay(
     invalidate_layout_cache_recursive(&node);
   }
   let overlay_size = measured.size;
-  let placement = resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
-  let (x, y) = overlay_position(anchor, overlay_size, placement, offset_x, offset_y);
+  let (x, y) = match at {
+    Some(point) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
+    None => {
+      let placement =
+        resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
+      overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
+    }
+  };
   let (x, y) = if matches!(collision, CollisionStrategy::Clamp | CollisionStrategy::FlipThenClamp) {
     clamp_overlay_position(x, y, overlay_size, viewport)
   } else {
@@ -8560,6 +8570,33 @@ fn overlay_position(
     Placement::Right => (right + offset_x, center_y - overlay.height * 0.5 + offset_y),
     Placement::RightEnd => (right + offset_x, bottom - overlay.height + offset_y),
   }
+}
+
+/// Where an overlay that stands at `point` of the window is: down and toward the end from the point, `offset_x` and
+/// `offset_y` away from it, and on the other side of the point along an axis where the window has no room that way
+/// and the other side has, as a context menu opens. Kept inside the window by the clamp that follows.
+fn point_position(
+  point: (f32, f32),
+  overlay: Size,
+  viewport: Size,
+  offset_x: f32,
+  offset_y: f32,
+  collision: CollisionStrategy,
+) -> (f32, f32) {
+  let flips = matches!(collision, CollisionStrategy::Flip | CollisionStrategy::FlipThenClamp);
+  let along = |at: f32, offset: f32, size: f32, room: f32| {
+    let after = at + offset;
+    let before = at - offset - size;
+    if flips && after + size > room && before >= 0.0 {
+      before
+    } else {
+      after
+    }
+  };
+  (
+    along(point.0, offset_x, overlay.width, viewport.width),
+    along(point.1, offset_y, overlay.height, viewport.height),
+  )
 }
 
 fn clamp_overlay_position(x: f32, y: f32, overlay: Size, viewport: Size) -> (f32, f32) {

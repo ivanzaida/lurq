@@ -16,6 +16,8 @@ mod card;
 mod checkbox;
 mod checkbox_card;
 mod combobox;
+mod command_palette;
+mod context_menu;
 mod dialog;
 mod drawer;
 mod empty_state;
@@ -448,6 +450,22 @@ pub const PAGES: &[Page] = &[
     about: "teaching tip coach mark onboarding tour step next back guide callout feature discovery arrow",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
+  },
+  Page {
+    path: "/command-palette",
+    name: "Command Palette",
+    icon: None,
+    about: "command palette search find run go to quick open launcher spotlight ctrl k filter group shortcut keywords",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<command_palette::CommandPalettePage>(()),
+  },
+  Page {
+    path: "/context-menu",
+    name: "Context Menu",
+    icon: None,
+    about: "context menu right click secondary press long press shift f10 menu key edit bar cut copy paste overflow more",
+    group: Group::Surfaces,
+    mount: |ctx| ctx.mount::<context_menu::ContextMenuPage>(()),
   },
   Page {
     path: "/tabs",

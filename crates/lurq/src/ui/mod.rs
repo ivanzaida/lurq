@@ -30,6 +30,8 @@ mod chip;
 mod choice_card;
 mod collapsible;
 mod combobox;
+mod command_palette;
+mod context_menu;
 mod dialog;
 mod drawer;
 mod empty_state;
@@ -114,6 +116,11 @@ pub use choice_card::{
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
+pub use command_palette::{
+  CommandFilter, CommandItem, CommandPalette, CommandPalettePart, CommandPaletteRenderer, CommandPaletteState,
+  CommandPaletteView, matches_every_word,
+};
+pub use context_menu::{ContextMenu, ContextMenuPart, ContextMenuRenderer, ContextMenuState, ContextMenuView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use empty_state::{

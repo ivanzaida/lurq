@@ -114,6 +114,7 @@ pub struct Menu {
   inline: bool,
   submenu: bool,
   closes_too: Vec<Signal<bool>>,
+  context: Option<Option<(f32, f32)>>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -137,6 +138,7 @@ impl Menu {
       inline: false,
       submenu: false,
       closes_too: Vec::new(),
+      context: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -225,6 +227,13 @@ impl Menu {
     self
   }
 
+  /// Makes this menu a context menu: it stands at `point` of the window, where it was asked for, or by its anchor
+  /// where the keyboard asked for it (`None`), and a left press on its anchor is no press of a trigger.
+  pub(crate) fn context(mut self, point: Option<(f32, f32)>) -> Self {
+    self.context = Some(point);
+    self
+  }
+
   /// Builds the menu in `theme`. Converting a menu into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
@@ -260,6 +269,7 @@ impl Menu {
       anchor: self.anchor,
       open: self.open,
       closes_too: self.closes_too,
+      context: self.context,
       id: self.id,
       key: self.key,
     };
@@ -291,6 +301,7 @@ pub struct MenuView {
   open: OpenState,
   closes_too: Vec<Signal<bool>>,
   submenus: Vec<Signal<bool>>,
+  context: Option<Option<(f32, f32)>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -434,7 +445,11 @@ impl MenuView {
     if self.inline {
       return panel.into();
     }
-    let (x, y) = self.offset();
+    // A context menu's corner is at the point it was asked for.
+    let (x, y) = match self.context {
+      Some(Some(_)) => (0.0, 0.0),
+      _ => self.offset(),
+    };
     // The focus goes to the first item that takes it as the menu opens, and back to what had it as it closes.
     let mut popup = Popup::new(self.anchor, panel)
       .open(self.open)
@@ -447,6 +462,9 @@ impl MenuView {
       popup = popup
         .outside_press(OutsidePress::PassThrough)
         .switch_on_anchor_press(false);
+    }
+    if let Some(point) = self.context {
+      popup = popup.at(point).switch_on_anchor_press(false);
     }
     popup.into()
   }

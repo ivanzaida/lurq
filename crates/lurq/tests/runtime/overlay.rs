@@ -1036,3 +1036,80 @@ fn modal_declaration_closes_on_escape_when_open_is_signal() {
 
   assert!(!open.get());
 }
+
+/// An overlay of 60 by 20 that stands at a point of a window of 400 by 300, hung from an anchor elsewhere.
+struct PointOverlayRoot {
+  anchor: ElementRef,
+}
+
+impl Component for PointOverlayRoot {
+  type Props = Shared<(f32, f32)>;
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self {
+      anchor: ElementRef::new(),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let point = *ctx.props::<Self::Props>().0;
+    Stack::new()
+      .size(400.0, 300.0)
+      .child(
+        Rect::new(80.0, 30.0)
+          .background("#22c55e")
+          .absolute_position(10.0, 10.0)
+          .ref_element(self.anchor.clone()),
+      )
+      .child(
+        Popup::new(self.anchor.clone(), Rect::new(60.0, 20.0).background("#ef4444"))
+          .open_when(true)
+          .offset(2.0, 3.0)
+          .at(Some(point)),
+      )
+  }
+}
+
+/// Where the overlay stands at `point` of the window: its x, y, width and height.
+fn overlay_at(point: (f32, f32)) -> (f32, f32, f32, f32) {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(400, 300);
+  tree.mount_root::<PointOverlayRoot>(&mut app, Shared(std::sync::Arc::new(point)));
+  run_pass(&mut tree);
+  let bounds = tree
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .unwrap()
+    .bounds();
+  (bounds.x, bounds.y, bounds.width, bounds.height)
+}
+
+#[test]
+fn overlay_at_a_point_opens_down_and_to_the_end_from_it() {
+  // At the point and its offset, not by the anchor at 10,10.
+  assert_eq!(overlay_at((200.0, 100.0)), (202.0, 103.0, 60.0, 20.0));
+}
+
+#[test]
+fn overlay_at_a_point_opens_to_the_other_side_where_the_window_has_no_room() {
+  // Up and back from the point: the window ends 20 to its right and 10 under it.
+  let (x, y, ..) = overlay_at((380.0, 290.0));
+  assert_eq!((x, y), (380.0 - 2.0 - 60.0, 290.0 - 3.0 - 20.0));
+}
+
+#[test]
+fn overlay_at_a_point_is_kept_inside_the_window() {
+  // No room after the point and none before it along x: the clamp keeps it whole in the window.
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(50, 300);
+  tree.mount_root::<PointOverlayRoot>(&mut app, Shared(std::sync::Arc::new((40.0, 10.0))));
+  run_pass(&mut tree);
+  let overlay = tree
+    .find_element(|el| el.color() == Some(Color::from_hex("#ef4444")))
+    .unwrap()
+    .bounds();
+
+  assert_eq!(overlay.x, 0.0);
+  assert_eq!(overlay.y, 13.0);
+}

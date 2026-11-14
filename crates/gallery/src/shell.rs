@@ -1,26 +1,24 @@
 //! The gallery's shell: its own title bar, the header across the top, the
 //! side bar with the pages, and the page beside it.
 
-use std::sync::{
-  Arc,
-  atomic::{AtomicBool, Ordering},
-};
-
 use lurq::{
   app::{
     ctx::Ctx,
     events::KeyboardEvent,
-    theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme, TypographyStyle},
+    theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme},
     window::Appearance,
   },
   components::{
-    ChromeTitleBar, Column, Link, Outlet, Popup, Row, ScrollVertical, TextInput, WindowControlColors,
-    WindowControlContent, WindowControlKind, WindowControls,
+    ChromeTitleBar, Column, Link, Outlet, Popup, Row, ScrollVertical, WindowControlColors, WindowControlContent,
+    WindowControlKind, WindowControls,
   },
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
-  ui::{Badge, BadgePart, BadgeVariant, Button, ButtonVariant, FontFamily, Kbd, KeyPlatform, SegmentedControl, icons},
+  ui::{
+    Badge, BadgePart, BadgeVariant, Button, ButtonVariant, CommandItem, CommandPalette, FontFamily, Kbd, KeyPlatform,
+    SegmentedControl, icons,
+  },
 };
 
 use crate::{
@@ -32,16 +30,11 @@ const TITLE_BAR: f32 = 36.0;
 const HEADER: f32 = 56.0;
 const SIDEBAR: f32 = 248.0;
 
-/// What the shell keeps between renders: what is searched for, and which of
-/// its popups is open.
+/// What the shell keeps between renders: whether the search is open, and which of its popups is.
 #[derive(Clone)]
 pub struct Shell {
-  search: Signal<String>,
-  search_field: ElementRef,
-  search_focused: Signal<bool>,
-  /// Bumped when the search is asked for from the keyboard, so that the shell renders and focuses it.
-  find: Signal<u32>,
-  find_asked: Arc<AtomicBool>,
+  /// Whether the search across the pages, a command palette, is open.
+  search_open: Signal<bool>,
   density_anchor: ElementRef,
   density_open: Signal<bool>,
   settings_anchor: ElementRef,
@@ -57,11 +50,7 @@ const TEXT_SCALE: [(&str, f32); 3] = [("100%", 1.0), ("115%", 1.15), ("130%", 1.
 impl Shell {
   pub fn new(ctx: &mut Ctx) -> Self {
     Self {
-      search: ctx.signal(String::new()),
-      search_field: ElementRef::new(),
-      search_focused: ctx.signal(false),
-      find: ctx.signal(0),
-      find_asked: Arc::default(),
+      search_open: ctx.signal(false),
       density_anchor: ElementRef::new(),
       density_open: ctx.signal(false),
       settings_anchor: ElementRef::new(),
@@ -115,12 +104,7 @@ pub fn title_bar() -> ChromeTitleBar {
 /// The shell around the page the route is at.
 pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
   let current = page_at(&ctx.route_path()).path;
-  // Reading the signal is what renders the shell when the search is asked for.
-  let _ = state.find.get();
-  if state.find_asked.swap(false, Ordering::Relaxed) {
-    ctx.focus(&state.search_field);
-  }
-  let (find, asked) = (state.find.clone(), state.find_asked.clone());
+  let find = state.search_open.clone();
   // What is behind the cards and beside them is the theme's canvas: the page, the side bar. A card, the
   // header and a control are surfaces on it, so each stands out from what it is on.
   Column::new()
@@ -130,18 +114,18 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
     // Every key pressed in the window comes by here, whatever has the focus.
     .on_key_down(move |event: KeyboardEvent| {
       if (event.ctrl || event.meta) && (event.code == "KeyK" || event.key.eq_ignore_ascii_case("k")) {
-        asked.store(true, Ordering::Relaxed);
-        find.update(|count| *count += 1);
+        find.set(true);
         event.prevent_default();
       }
     })
     .child(header(ctx, state))
+    .child(search(ctx, state))
     .child(
       Row::new()
         .width(FILL)
         .flex(1.0)
         .align_items(Alignment::Stretch)
-        .child(sidebar(ctx, current, &state.search.get()))
+        .child(sidebar(ctx, current))
         .child(
           // Each page has a scroll of its own: a page opened from another starts at its top, wherever the
           // one before it was scrolled to.
@@ -154,15 +138,11 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
     .into()
 }
 
-/// The search across the pages: a field with what it is for before it and the keys that go to it after.
-fn search_field(theme: &Theme, state: &Shell, roomy: bool) -> Row {
-  let body = theme.typography_style(TypographyStyle::Body);
-  let hint = lurq::layout::text_style::TextStyle {
-    color: theme.palette_color(PaletteColor::MutedForeground),
-    ..body.clone()
-  };
-  let focused = state.search_focused.get();
-  let (on, off) = (state.search_focused.clone(), state.search_focused.clone());
+/// What opens the search across the pages: a box that looks like the field it was, with what it is for in it and
+/// the keys that open it after. A press, Enter or Space opens it.
+fn search_field(state: &Shell, roomy: bool) -> Row {
+  let open = state.search_open.clone();
+  let pressed = state.search_open.clone();
   let mut field = Row::new()
     .width(FILL)
     .max_width(360.0)
@@ -173,38 +153,66 @@ fn search_field(theme: &Theme, state: &Shell, roomy: bool) -> Row {
     .align_items(Alignment::Center)
     .rounded(RadiusSize::Md)
     .background(PaletteColor::Background)
-    .border(Border::inside(
-      BorderSize::Sm,
-      if focused {
-        PaletteColor::Ring
-      } else {
-        PaletteColor::Input
-      },
-    ))
+    .border(Border::inside(BorderSize::Sm, PaletteColor::Input))
+    .hovered(|style| style.border(Border::inside(BorderSize::Sm, PaletteColor::Ring)))
+    .cursor(CursorIcon::Pointer)
+    .tab_index(0)
+    .describe("a11y_role", "button")
+    .describe("a11y_name", "Search")
+    .on_click(move |_| open.set(true))
+    .on_key_down(move |event: KeyboardEvent| {
+      if event.focus_within && (event.key == "Enter" || event.key == " ") {
+        event.prevent_default();
+        pressed.set(true);
+      }
+    })
     .child(icon("search", 16.0).color(PaletteColor::MutedForeground))
     .child(
-      TextInput::styled(state.search.clone(), body)
-        .placeholder(if roomy {
-          "Search components and props…"
-        } else {
-          "Search…"
-        })
-        .placeholder_style(hint)
-        .flex(1.0)
-        .height(FILL)
-        .ref_element(state.search_field.clone())
-        .on_focus(move || on.set(true))
-        .on_blur(move || off.set(false))
-        .tab_index(0),
+      Row::new().flex(1.0).child(
+        text(
+          if roomy {
+            "Search components and props…"
+          } else {
+            "Search…"
+          },
+          14.0,
+          FontWeight::Normal,
+        )
+        .color(PaletteColor::MutedForeground),
+      ),
     );
-  // The keys that go to it are said where there is room to say them.
+  // The keys that open it are said where there is room to say them.
   if roomy {
     field = field.child(Kbd::shortcut("Mod+K").platform(KeyPlatform::current()));
   }
-  if focused {
-    field = field.outline(theme.focus_ring().outline());
-  }
   field
+}
+
+/// The search across the pages: a command palette of every page, in the groups of the side bar, found by its name
+/// and by what it is about. Running one goes to it.
+fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
+  let navigator = ctx.navigator();
+  let mut palette = CommandPalette::new(state.search_open.clone())
+    .placeholder("Search components and props…")
+    .empty("No page for that.")
+    .footer(true);
+  for group in Group::ALL {
+    let pages = PAGES.iter().filter(|page| page.group == group).map(|page| {
+      let mut command = CommandItem::new(page.name)
+        .keywords(page.about.split_whitespace())
+        .key(page.path);
+      if let Some(name) = page.icon {
+        command = command.icon(name);
+      }
+      if let Some(navigator) = navigator.clone() {
+        let path = page.path;
+        command = command.on_select(move || navigator.push(path));
+      }
+      command
+    });
+    palette = palette.group(group.name(), pages);
+  }
+  palette
 }
 
 /// What the gear opens: what a theme can be told that is not a color.
@@ -361,7 +369,7 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
       Row::new()
         .flex(1.0)
         .justify(Justify::Center)
-        .child(search_field(&theme, state, roomy)),
+        .child(search_field(state, roomy)),
     )
     .child(controls)
 }
@@ -379,26 +387,19 @@ fn density_name(density: Density) -> &'static str {
 
 /// The pages in the design system's groups, each group with how many it has.
 /// A row of it is 32 high at the default density, and follows the density.
-fn sidebar(ctx: &mut Ctx, current: &str, search: &str) -> ScrollVertical {
+fn sidebar(ctx: &mut Ctx, current: &str) -> ScrollVertical {
   let theme = ctx.theme().clone();
   let row_height = row_height(&theme);
-  let wanted = search.trim().to_lowercase();
   let mut groups = Column::new()
     .width(FILL)
     .padding_vertical(20.0)
     .padding_horizontal(16.0)
     .spacing(20.0);
-  let mut found = 0;
   for group in Group::ALL {
-    let pages: Vec<_> = PAGES
-      .iter()
-      .filter(|page| page.group == group)
-      .filter(|page| wanted.is_empty() || page.name.to_lowercase().contains(&wanted) || page.about.contains(&wanted))
-      .collect();
+    let pages: Vec<_> = PAGES.iter().filter(|page| page.group == group).collect();
     if pages.is_empty() {
       continue;
     }
-    found += pages.len();
     let mut list = Column::new().width(FILL).spacing(2.0).child(
       Row::new()
         .width(FILL)
@@ -445,13 +446,6 @@ fn sidebar(ctx: &mut Ctx, current: &str, search: &str) -> ScrollVertical {
       list = list.child(Link::build_empty(ctx, page.path).child(row));
     }
     groups = groups.child(list);
-  }
-  if found == 0 {
-    groups = groups.child(
-      text("No page for that.", 14.0, FontWeight::Normal)
-        .color(PaletteColor::MutedForeground)
-        .width(FILL),
-    );
   }
   ScrollVertical::new(groups).width(SIDEBAR)
 }
