@@ -437,13 +437,13 @@ fn a_rule_and_a_renderer_of_a_theme_change_it() {
   assert_eq!(stage.fill_color("card"), Some(light(PaletteColor::Secondary)));
   assert_eq!(stage.text("Ruled").1, 20.0);
 
-  // A card that draws its body alone, without its footer: other nodes, the same recipe.
+  // A card that draws its content alone, without its footer: other nodes, the same recipe.
   let app = App::new();
   let renderer: CardRenderer = Arc::new(|mut view: CardView| {
-    let body = view.body();
+    let content = view.content();
     let mut root = view.read_root();
-    if let Some(body) = body {
-      root = root.child(body);
+    if let Some(content) = content {
+      root = root.child(content);
     }
     root.into()
   });
@@ -466,4 +466,31 @@ fn a_rule_and_a_renderer_of_a_theme_change_it() {
     Some(light(PaletteColor::Card)),
     "the recipe still styles it"
   );
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn tooling_reads_a_card_called_by_its_title_or_its_label() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(Card::new().title("Appearance").id("titled"))
+      .child(
+        Card::new()
+          .title("lurq")
+          .label("Open lurq")
+          .on_click(|_| {})
+          .id("labelled"),
+      )
+      .into()
+  });
+  let mut said = |id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said("titled", "a11y_role").as_deref(), Some("group"));
+  assert_eq!(said("titled", "a11y_name").as_deref(), Some("Appearance"));
+  assert_eq!(said("labelled", "a11y_role").as_deref(), Some("button"));
+  assert_eq!(said("labelled", "a11y_name").as_deref(), Some("Open lurq"));
 }
