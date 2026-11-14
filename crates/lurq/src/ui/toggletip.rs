@@ -384,7 +384,7 @@ impl ToggletipView {
   /// The link under the text, with an arrow after it. `None` without one.
   pub fn link(&self) -> Option<super::Link> {
     let label = self.link.as_ref()?;
-    let mut link = super::Link::new(label).icon(icons::ARROW_UP_RIGHT).rules(
+    let mut link = super::Link::new(label).trailing_icon(icons::ARROW_UP_RIGHT).rules(
       &self
         .recipe
         .rules_for(ToggletipPart::Link, LinkPart::Root)

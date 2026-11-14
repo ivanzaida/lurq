@@ -829,13 +829,13 @@ impl Component for LinkPage {
     let live = items()
       .child(item(
         Link::new("Read the docs")
-          .external()
+          .external(true)
           .on_click(move |_| count.update(|presses| *presses += 1)),
         &format!("pressed {} times", self.presses.get()),
       ))
       .child(item(Link::new("Privacy policy"), "no icon"))
       .child(item(
-        Link::new("Next page").icon(icons::ARROW_RIGHT),
+        Link::new("Next page").trailing_icon(icons::ARROW_RIGHT),
         "icon(icons::ARROW_RIGHT)",
       ));
     let states = items()
@@ -859,7 +859,7 @@ impl Component for LinkPage {
       ))
       .child(Link::new("terms of use"))
       .child(text("and the", 14.0, lurq::layout::text_style::FontWeight::Normal))
-      .child(Link::new("privacy policy").external());
+      .child(Link::new("privacy policy").external(true));
     let rows = [
       ("label", "&str", "", "The text of the link."),
       (
@@ -869,16 +869,16 @@ impl Component for LinkPage {
         "A click, and Enter and Space while it is focused. Where the link goes is what its press does.",
       ),
       (
-        "icon",
+        "trailing_icon",
         "impl Into<Name>",
         "none",
         "An icon of the theme's set after the text.",
       ),
       (
         "external",
-        "",
-        "",
-        "The icon of a link that leaves the app: an arrow up and to the right.",
+        "bool",
+        "false",
+        "A link that leaves the app: an arrow up and to the right after its text, where it has no trailing icon.",
       ),
       ("disabled", "bool", "false", "Half the opacity; it takes no input."),
     ];
@@ -908,16 +908,16 @@ impl Component for LinkPage {
           self.frame.demo(
             0,
             live,
-            "Link::new(\"Read the docs\").external().on_click(..)",
+            "Link::new(\"Read the docs\").external(true).on_click(..)",
             &[
               "// presses: Signal<u32>",
               "let count = presses.clone();",
               "Link::new(\"Read the docs\")",
-              "    .external()",
+              "    .external(true)",
               "    .on_click(move |_| count.update(|presses| *presses += 1))",
               "",
               "Link::new(\"Privacy policy\")",
-              "Link::new(\"Next page\").icon(icons::ARROW_RIGHT)",
+              "Link::new(\"Next page\").trailing_icon(icons::ARROW_RIGHT)",
             ],
           ),
         ),
@@ -952,7 +952,7 @@ impl Component for LinkPage {
               "    .child(Text::new(\"By going on you agree to the\"))",
               "    .child(Link::new(\"terms of use\"))",
               "    .child(Text::new(\"and the\"))",
-              "    .child(Link::new(\"privacy policy\").external())",
+              "    .child(Link::new(\"privacy policy\").external(true))",
             ],
           ),
         ),

@@ -313,7 +313,7 @@ fn a_link_is_text_with_an_icon_after_it_and_a_line_under_the_pointer() {
     let counted = counted.clone();
     Row::new()
       .padding(20.0)
-      .child(Link::new("Read the docs").external().id("docs").on_click(move |_| {
+      .child(Link::new("Read the docs").external(true).id("docs").on_click(move |_| {
         counted.fetch_add(1, Ordering::SeqCst);
       }))
       .into()
@@ -549,4 +549,55 @@ fn a_toggle_narrower_than_its_label_cuts_it() {
     .expect("the label");
   assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
   assert!(label_x + label_width <= x + width + 0.5, "inside the toggle");
+}
+
+#[test]
+fn a_links_trailing_icon_stands_after_its_text_and_takes_the_place_of_the_external_arrow() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(Link::new("Next page").trailing_icon(icons::ARROW_RIGHT))
+      .child(Link::new("Out").trailing_icon(icons::LINK).external(true))
+      .child(Link::new("Stays").external(false))
+      .into()
+  });
+  let (label, arrow) = (
+    stage.text_quad("Next page").unwrap(),
+    stage.text_quad(&glyph(icons::ARROW_RIGHT)).unwrap(),
+  );
+  assert!(arrow.x > label.x + label.width, "after the text");
+  assert!(stage.paints(&glyph(icons::LINK)), "its own icon");
+  assert!(
+    !stage.paints(&glyph(icons::ARROW_UP_RIGHT)),
+    "no external arrow beside its own icon, and none for external(false)"
+  );
+}
+
+#[test]
+fn a_fab_takes_a_state_of_the_themes_recipe_and_the_rules_of_its_place() {
+  use lurq::{
+    app::App,
+    ui::{Fab, FabPart, Recipe},
+  };
+  let app = App::new();
+  app
+    .theme()
+    .patch_recipe::<Fab>(|recipe| recipe.state("urgent", FabPart::Root, |s| s.background(PaletteColor::Destructive)));
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(Fab::new("Compose", icons::COMPOSE).id("plain"))
+      .child(Fab::new("Compose", icons::COMPOSE).state("urgent", true).id("urgent"))
+      .child(
+        Fab::new("Compose", icons::COMPOSE)
+          .rules(&Recipe::new().base(FabPart::Root, |s| s.background(PaletteColor::Success)))
+          .id("placed"),
+      )
+      .into()
+  });
+  assert_eq!(stage.fill_color("plain"), Some(light(PaletteColor::Primary)));
+  assert_eq!(stage.fill_color("urgent"), Some(light(PaletteColor::Destructive)));
+  assert_eq!(stage.fill_color("placed"), Some(light(PaletteColor::Success)));
 }

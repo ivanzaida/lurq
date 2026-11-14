@@ -334,7 +334,7 @@ Button::new("Saving…").loading(saving.get());
 | `state(name, on)` | A state the theme's recipe names |
 | `style(part, \|s\| ...)`, `rules(&recipe)` | One instance over the theme; the rules of the place it is in |
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
-| `id(id)`, `key(key)`, `submit()` | Its id and key; with the `form` feature, the button that submits the form it is in |
+| `id(id)`, `key(key)`, `submit(bool)` | Its id and key; with the `form` feature, the button that submits the form it is in |
 
 | Size | Height | Padding | Label | Icon |
 | --- | --- | --- | --- | --- |
@@ -353,7 +353,7 @@ Button::new("Saving…").loading(saving.get());
 | `ButtonPart::Description` | The line under the label: 12, at the theme's muted opacity, so that it is quieter than the label on any fill |
 | `ButtonPart::Leading`, `ButtonPart::Trailing` | The elements put before and after the label |
 
-States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly`, `Pill` and `Compound` (it has a description), and hovered, pressed and focus-visible.
+States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOnly`, `Pill` and `Description` (it has a description), and hovered, pressed and focus-visible.
 
 - In the design a button under the pointer has its variant's hover fill (`PrimaryHover`, `SecondaryHover`, `DestructiveHover`, and `Highlight` for an outline or a ghost button), a button held down has the `StatePressed` veil over that, and one focused from the keyboard has the theme's focus ring. A primary button held down has the veil over its `Primary` fill: over `PrimaryHover` the veil is lost (black on near black in the light palette, white on near white in the dark), and a press would look like a hover. The board draws a pressed button in its hover fill.
 - A button is as wide as its label where it has room. In a room narrower than it (a fixed width, `full_width` in something narrow, a panel that cannot grow, a line of a row that wraps) it is never wider than what holds it: it keeps its padding and its icon, and its label (and its description) is cut with an ellipsis. The board draws no button with a long label; the ellipsis is what every one-line label of the design system does. A toggle does the same. An icon alone keeps its square.
@@ -478,13 +478,13 @@ Text that goes somewhere when it is pressed. It has no box, so it sits in a line
 ```rust
 use lurq::ui::Link;
 
-Link::new("Read the docs").external().on_click(move |_| navigator.push("/docs"));
+Link::new("Read the docs").external(true).on_click(move |_| navigator.push("/docs"));
 ```
 
 | Builder | |
 | --- | --- |
 | `on_click(handler)` | A click, and Enter and Space while it is focused. Where the link goes is what its press does |
-| `icon(name)`, `external()` | An icon after the text; `external()` is the arrow of a link that leaves the app |
+| `trailing_icon(name)`, `external(bool)` | An icon after the text; `external(true)` is the arrow of a link that leaves the app, where it has no trailing icon of its own |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `force(..)`, `id`, `key` | As a button has them |
 
 Parts: `LinkPart::Root`, `Label` (14/500), `Icon` (14, four after the text). While the pointer is on the link or the focus is in it, the label has an `underline` (a `within` rule: the root is an interaction group): a straight line under the text alone, not under the icon. The root's own edge would curl up at its ends, rounded as it is for the focus ring.
@@ -501,7 +501,7 @@ Fab::new("Compose", icons::COMPOSE).extended(true); // with its label
 ```
 
 - It is a [button](#button) that is an icon alone, round, 48 across, with an icon of 20 and the theme's large shadow, and takes what a button takes: `variant`, `on_click`, `disabled`, `loading`.
-- Parts: `FabPart::Root`, `Icon`, `Label`, each laid over the theme's recipe for the same part of a button. State: `FabState::Extended`.
+- Parts: `FabPart::Root`, `Icon`, `Label`, each laid over the theme's recipe for the same part of a button. States: `FabState::Extended`, `Disabled`, `Loading` (a button's own rules dim it and turn its spinner). `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id` and `key` as a [button](#button) has them.
 - Where it floats is the app's to say: it is an element, put in a corner of a `Stack`. A container clips what is in it, so give its shadow room, or let the container show what is outside it (`.overflow_visible()`).
 
 ## Switch

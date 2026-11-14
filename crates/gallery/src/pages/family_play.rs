@@ -181,8 +181,12 @@ impl TogglePlay {
 
 const LINK_ICONS: [(&str, Option<&str>, &str); 3] = [
   ("None", None, ""),
-  ("External", Some(icons::ARROW_UP_RIGHT), "    .external()"),
-  ("Arrow right", Some(icons::ARROW_RIGHT), "    .icon(icons::ARROW_RIGHT)"),
+  ("External", Some(icons::ARROW_UP_RIGHT), "    .external(true)"),
+  (
+    "Arrow right",
+    Some(icons::ARROW_RIGHT),
+    "    .trailing_icon(icons::ARROW_RIGHT)",
+  ),
 ];
 
 pub struct LinkPlay {
@@ -209,9 +213,10 @@ impl LinkPlay {
       let label = label.clone();
       move || {
         let link = Link::new(&label).disabled(disabled);
-        match LINK_ICONS[icon].1 {
-          Some(name) => link.icon(name),
-          None => link,
+        match (icon, LINK_ICONS[icon].1) {
+          (1, _) => link.external(true),
+          (_, Some(name)) => link.trailing_icon(name),
+          _ => link,
         }
       }
     };
@@ -262,7 +267,7 @@ impl LinkPlay {
         controls: vec![
           prop("label", "&str", field(&self.label)),
           prop(
-            "icon",
+            "trailing_icon",
             "impl Into<Name>",
             self.playground.select(0, &glyphs, &icon, move |index| pick.set(index)),
           ),

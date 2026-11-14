@@ -120,7 +120,7 @@ pub enum ButtonState {
   /// Its corners are rounded all the way ([`ButtonShape::Pill`]).
   Pill,
   /// It has a description under its label, and is as high as the two lines are.
-  Compound,
+  Description,
 }
 
 names!(ButtonState {
@@ -129,7 +129,7 @@ names!(ButtonState {
   Loading => "loading",
   IconOnly => "icon_only",
   Pill => "pill",
-  Compound => "compound",
+  Description => "description",
 });
 
 /// How much of a button shows while it is loading, in the design's recipe.
@@ -351,10 +351,10 @@ impl Button {
     self
   }
 
-  /// Makes the button the one that submits the form it is in.
+  /// Whether the button is the one that submits the form it is in.
   #[cfg(feature = "form")]
-  pub fn submit(mut self) -> Self {
-    self.submit = true;
+  pub fn submit(mut self, submit: bool) -> Self {
+    self.submit = submit;
     self
   }
 
@@ -402,7 +402,7 @@ impl Button {
     .state(ButtonState::Loading, self.loading)
     .state(ButtonState::IconOnly, self.icon_only)
     .state(ButtonState::Pill, self.shape == ButtonShape::Pill)
-    .state(ButtonState::Compound, self.description.is_some());
+    .state(ButtonState::Description, self.description.is_some());
     let recipe = theme.resolve::<Button>(&case, Some(&self.rules));
     let view = ButtonView {
       label: self.label,
@@ -693,12 +693,12 @@ impl Themed for Button {
       .base(Description, |s| {
         s.typography(TypographyStyle::Caption).opacity(OpacityLevel::Muted)
       })
-      .state(ButtonState::Compound, Root, |s| {
+      .state(ButtonState::Description, Root, |s| {
         s.height(Length::Auto).padding_x(16.0).padding_y(10.0).gap(12.0)
       })
-      .state(ButtonState::Compound, Label, |s| s.font_size(14.0))
-      .state(ButtonState::Compound, Icon, |s| s.square(IconSize::Lg))
-      .state(ButtonState::Compound, Spinner, |s| s.square(IconSize::Lg))
+      .state(ButtonState::Description, Label, |s| s.font_size(14.0))
+      .state(ButtonState::Description, Icon, |s| s.square(IconSize::Lg))
+      .state(ButtonState::Description, Spinner, |s| s.square(IconSize::Lg))
       // An icon alone: no padding, and as wide as the button of its size is high.
       .state(ButtonState::IconOnly, Root, |s| s.padding_x(0.0).width(ControlSize::Md));
     // The icon of a size, and the width of a button of that size that is an icon alone.

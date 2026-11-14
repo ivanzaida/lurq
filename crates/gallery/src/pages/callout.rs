@@ -200,7 +200,7 @@ impl Component for CalloutPage {
           Callout::new("The key is shown once. Keep it where your team keeps its secrets.")
             .title("Before you go on")
             .variant(AlertVariant::Warning)
-            .child(Link::new("How keys are stored").external()),
+            .child(Link::new("How keys are stored").external(true)),
         ),
       "in a form · title · child",
       380.0,
@@ -310,7 +310,7 @@ impl Component for CalloutPage {
               "Callout::new(\"The key is shown once. Keep it where your team keeps its secrets.\")",
               "    .title(\"Before you go on\")",
               "    .variant(AlertVariant::Warning)",
-              "    .child(Link::new(\"How keys are stored\").external())",
+              "    .child(Link::new(\"How keys are stored\").external(true))",
             ],
           ),
         ),
