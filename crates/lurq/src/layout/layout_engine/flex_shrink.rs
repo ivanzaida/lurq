@@ -33,6 +33,15 @@ pub(super) struct FlexShrinkLine<'a> {
   pub(super) collapsed: bool,
 }
 
+/// A line whose children dropped out, as [`LayoutEngine::grow_into_dropped_room`] reads it.
+#[derive(Clone, Copy)]
+pub(super) struct DroppedRoom {
+  pub(super) constraints: Constraints,
+  pub(super) max_main: f32,
+  pub(super) spacing: f32,
+  pub(super) vertical: bool,
+}
+
 /// The room a Row/Column grants its growing children.
 #[derive(Clone, Copy)]
 pub(super) struct FreeRoom {
@@ -166,6 +175,84 @@ impl LayoutEngine {
       }
     }
     collapsed
+  }
+
+  /// Gives the room the children that dropped out of a line left to the
+  /// children that grow, by their factors: a spacer still pushes what follows
+  /// it to the end of a line some of whose children went into a menu. The
+  /// growing children were laid out before the shrink step, while the line
+  /// overflowed, at their bases.
+  pub(super) fn grow_into_dropped_room(
+    &self,
+    glyph_engine: &mut GlyphEngine,
+    children: &[Node],
+    results: &mut [ChildLayout],
+    child_overrides: Option<&[Option<ChildLayoutOverride>]>,
+    collapsed: &[bool],
+    line: DroppedRoom,
+  ) {
+    let DroppedRoom {
+      constraints,
+      max_main,
+      spacing,
+      vertical,
+    } = line;
+    if !max_main.is_finite() || !results.iter().any(|layout| layout.result.dropped) {
+      return;
+    }
+    let growing = |index: usize, child: &Node, result: &LayoutResult| {
+      occupies_line(child, result)
+        && collapsed.get(index) != Some(&true)
+        && child.state_flex().is_some_and(|params| params.grow > 0.0)
+    };
+    let grow_total: f32 = children
+      .iter()
+      .enumerate()
+      .filter(|(index, child)| growing(*index, child, &results[*index].result))
+      .filter_map(|(_, child)| child.state_flex().map(|params| params.grow))
+      .sum();
+    if grow_total <= 0.0 {
+      return;
+    }
+    let occupying = children
+      .iter()
+      .zip(results.iter())
+      .filter(|(child, layout)| occupies_line(child, &layout.result))
+      .count();
+    let used: f32 = children
+      .iter()
+      .zip(results.iter())
+      .filter(|(child, layout)| occupies_line(child, &layout.result))
+      .map(|(_, layout)| main_size(&layout.result, vertical))
+      .sum::<f32>()
+      + spacing * (occupying as f32 - 1.0).max(0.0);
+    let left = max_main - used;
+    if left <= 0.5 {
+      return;
+    }
+    for (index, child) in children.iter().enumerate() {
+      if !growing(index, child, &results[index].result) {
+        continue;
+      }
+      let grow = child.state_flex().map_or(0.0, |params| params.grow);
+      let main = main_size(&results[index].result, vertical) + left * grow / grow_total;
+      let child_constraints = if vertical {
+        Constraints {
+          min_width: 0.0,
+          max_width: constraints.max_width,
+          min_height: main,
+          max_height: main,
+        }
+      } else {
+        Constraints {
+          min_width: main,
+          max_width: main,
+          min_height: 0.0,
+          max_height: constraints.max_height,
+        }
+      };
+      results[index].result = self.layout_child_node(glyph_engine, child_overrides, index, child, child_constraints);
+    }
   }
 
   /// Lays `child` out with its line (through logical wrappers) collapsed:

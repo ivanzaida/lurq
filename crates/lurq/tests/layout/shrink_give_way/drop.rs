@@ -257,3 +257,29 @@ fn give_way_last_child_drop_leaves_no_slack_at_the_end() {
     "the fixed item ends at the line's end",
   );
 }
+
+#[test]
+fn a_growing_child_takes_the_room_a_dropped_one_left() {
+  // A label that drops, a spacer, and a button at the end: with the label gone the spacer takes its room, and the
+  // button stays at the end of the line, as a toolbar's More button stays at the end of a bar with a spacer.
+  let natural = natural_widths();
+  let width = natural[1] + STOP - 4.0;
+  let row = Row::new()
+    .spacing(SPACING)
+    .child(label(TIME).flex_shrink(1.0).shrink_limit(ShrinkLimit::Drop))
+    .child(Spacer::new().flex(1.0))
+    .child(Rect::new(STOP, 10.0));
+  let (_, layout) = layout_once(row, width, LINE_HEIGHT);
+
+  assert!(layout.children[0].result.is_dropped(), "the label is dropped");
+  assert_close(
+    layout.children[2].offset.x + STOP,
+    width,
+    "the button ends where the line does",
+  );
+  assert_close(
+    layout.children[1].result.size.width,
+    width - STOP - SPACING,
+    "the spacer has the rest",
+  );
+}
