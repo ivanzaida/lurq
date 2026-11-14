@@ -4065,6 +4065,61 @@ DataList::new().orientation(Orientation::Vertical).text("Ship to", "Ivan Zaida, 
 - In the design each term and its value are 10 from the lines over and under them and 12 apart, both in the body's type at 13, the term in `MutedForeground` and the value in `Foreground`; the line is 1 in `Border`. One over the other the term is 12, 2 over its value.
 - A theme's renderer is given `DataListView`: `view.items` (each a term with its text or its element), `view.orientation`, `view.term(item, lined)`, `view.value(item, lined)` and `view.render()`.
 
+## Timeline
+
+What happened, in its order: the releases of a project, the history of a deploy, the tracking of an order, the activity of a document.
+
+```rust
+use lurq::ui::{Avatar, Button, Card, Timeline, TimelineItem, TimelineVariant};
+
+Timeline::new([
+  TimelineItem::new("Released 0.60").description("Blur and frosted glass land in the renderer.").time("Nov 10"),
+  TimelineItem::new("Merged node-blur").description("Blurs follow transforms and rounded clips.").time("Nov 8"),
+  TimelineItem::new("Opened pull request").time("Nov 3").upcoming(true),
+])
+.label("History");
+
+// A deploy: an icon for each mark, in the item's tone; the current item running.
+Timeline::new([
+  TimelineItem::new("Built").icon("box").variant(TimelineVariant::Success),
+  TimelineItem::new("Tests failed").icon("close").variant(TimelineVariant::Destructive),
+  TimelineItem::new("Retrying").pending(true).current(true),
+  TimelineItem::new("Deploy").upcoming(true),
+]);
+
+// Activity: an avatar for the mark, a comment under the item, an action at its end.
+TimelineItem::new("Olena Koval commented")
+  .media(Avatar::new("Olena Koval").size("xs"))
+  .time("2 hours ago")
+  .child(Card::new().child(comment))
+  .action(Button::new("Reply"));
+```
+
+| Builder | |
+| --- | --- |
+| `Timeline::new(items)` | The items, the first at the top; `item(item)` and `items(items)` add more |
+| `label(&str)` | What the timeline is called, to what reads the tree |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first item that is pressed |
+| `TimelineItem::new(&str)` | What happened: its title |
+| `description(&str)`, `time(&str)` | The text under the title, and when it happened as the app writes it ("Nov 10", "2 hours ago"), under the description |
+| `icon(name)`, `media(element)` | In place of the dot: an icon in a well, or the app's mark, an avatar |
+| `variant(impl Into<Name>)` | A `TimelineVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), or a variant a theme adds: the color of the mark. One that failed is `Destructive` |
+| `current(bool)`, `upcoming(bool)`, `pending(bool)` | The one that is now, its dot ringed; one to come, its dot hollow; one running, a spinner for its mark |
+| `child(..)`, `children(..)` | Content under the time: a card, a comment, a list of files |
+| `action(element)` | The one action, at the end of the item beside its title; a second takes the place of the first |
+| `on_select(Fn())` | The item is pressed and a stop of Tab: a press, Enter or Space calls it. A second handler is called after the first |
+| `disabled(bool)`, `id`, `key` | An item that is pressed takes nothing, faded and passed by Tab |
+
+- Each item is its rail beside its content. The rail is the mark over a line that runs down to the next item's mark: the line is as long as the item, so a title or a description that wraps, or content under the time, makes it longer. The last item has no line and no room under its content.
+- The titles and the descriptions wrap in the room the rail and the action leave them; the action keeps its room at the end of the item, beside the title.
+- A timeline is read, not operated: an item is a stop of Tab only where it has `on_select`, and is then pressed as a button is.
+- A timeline builds every item it is given: a long history is the app's to page, with a button after the last item that shows more. It is not in a virtual list: its items hold the app's elements (a card, a comment) and are as high as they wrap.
+- To what reads the tree it is a `list` called by its label, of `listitem`s called by their titles and described by their descriptions; the current one says `a11y_current`, a pending one `a11y_busy`, and inside an item that is pressed is a `button`.
+- Parts: `TimelinePart::Root`, `Item`, `Rail`, `Dot`, `Mark` (the well of an icon, what holds the media, the spinner), `Icon`, `Separator` (the line), `Content` (the title, the description, the time and the body), `Title`, `Action` (at the end of the item), `Description`, `Time`, `Body`. States: `TimelineState::Mark` (of the timeline: an item has an icon or media), and of an item `Current`, `Upcoming`, `Pending`, `Last`, `Icon`, `Media`, `Pressable`, `Disabled`.
+- In the design an item's rail is 12 and its content 12 from it. The rail is 4 down to a dot of 10 in `Primary` and, 4 under it, a line of 1 in `Border`. The title is the body's type at 14 at 500 in `Foreground`, the description 13 in `MutedForeground` with lines 1.4 high, the time the mono type at 11 in `MutedForeground`, 2 apart, with 20 under them. The board's last item has a hollow dot, `Background` with an edge of 1.5 in `Input` inside it.
+- The board draws nothing else of it, and these follow its parts: a tone colors the dot (`Primary`, `Info`, `Success`, `Warning`, `Destructive`), and the edge of a hollow one; the current dot has a ring of 2 in its color, 2 out from it; an icon is 14 in a well of 24 on `Muted`, in the tone's color; media stands in a mark of 24, and every rail of a timeline with a mark is 24 wide, its line stopping 4 over the next mark; a pending item's mark is a spinner of 12; the mark of a current item is ringed as its dot would be, and the well of an upcoming one is hollow. A body is 8 under the time. An item that is pressed has the `StateHover` and `StatePressed` veils and a ring of 2 in `Ring` inside it, with the medium radius, and is half opaque where it is disabled.
+- A theme's renderer is given `TimelineView`: `view.items` (each a `TimelineItemView` with its title, description, time, whether it is current, pending and the last, and `item.mark()`, `item.rail()`, `item.content()`, `item.action()`, `item.root(children)`, `item.render()`) and `view.root(items)`.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.

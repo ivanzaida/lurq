@@ -70,6 +70,7 @@ mod switch;
 mod table;
 mod tabs;
 mod tag;
+mod timeline;
 mod teaching_tip;
 mod textarea;
 mod toast;
@@ -749,6 +750,14 @@ pub const PAGES: &[Page] = &[
     about: "table data rows columns sort sortable select selection checkbox header sticky scroll virtualized thousands density empty loading skeleton pagination footer grid row_key selected checkboxes height max_height count total on_row_click on_row_activate mount label disabled style rules",
     group: Group::Data,
     mount: |ctx| ctx.mount::<table::TablePage>(()),
+  },
+  Page {
+    path: "/timeline",
+    name: "Timeline",
+    icon: Some("history"),
+    about: "timeline history activity feed log events release deploy tracking order steps dot line rail mark avatar new item items label description time icon media variant current upcoming pending child children action on_select disabled style rules",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<timeline::TimelinePage>(()),
   },
   Page {
     path: "/splitter",

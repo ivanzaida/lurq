@@ -93,6 +93,7 @@ mod teaching_tip;
 mod text_box;
 mod textarea;
 pub(crate) mod theme;
+mod timeline;
 mod tip;
 mod toast;
 mod toggle;
@@ -301,6 +302,9 @@ pub use text_box::{Judgment, TextBoxSize, TextBoxState};
 pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
   TextareaView,
+};
+pub use timeline::{
+  Timeline, TimelineItem, TimelineItemView, TimelinePart, TimelineRenderer, TimelineState, TimelineVariant, TimelineView,
 };
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_date_locale, current_theme, in_theme};
 pub(crate) use toast::keyframes as toast_keyframes;

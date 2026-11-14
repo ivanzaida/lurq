@@ -61,6 +61,7 @@ mod switch;
 mod table;
 mod tabs;
 mod tag;
+mod timeline;
 mod teaching_tip;
 mod textarea;
 mod theming;
