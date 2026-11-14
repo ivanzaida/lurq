@@ -453,7 +453,7 @@ pub type RadioGroupRenderer = Arc<dyn Fn(RadioGroupView) -> Element + Send + Syn
 /// The group is one stop of Tab, at the selected radio or the first; the arrow
 /// keys move the focus to the next radio and select it, Home and End the
 /// first and the last, and a disabled one is passed by.
-pub struct RadioGroup<T> {
+pub struct RadioGroup<T = ()> {
   choices: Vec<Choice<T>>,
   selected: Option<T>,
   set: Option<Arc<dyn Fn(T) + Send + Sync>>,

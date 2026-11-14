@@ -609,3 +609,40 @@ fn a_group_the_app_holds_shows_what_the_app_answers_and_a_forced_card() {
   // The forced focus is the first card's.
   assert!(stage.has_ring(light(PaletteColor::Ring)));
 }
+
+#[test]
+fn a_theme_names_the_card_groups_without_their_type() {
+  use lurq::ui::ChoiceCardGroupPart;
+  let app = App::new();
+  app
+    .theme()
+    .patch_recipe::<RadioCardGroup>(|rules| rules.base(ChoiceCardGroupPart::Root, |s| s.gap(30.0)));
+  app
+    .theme()
+    .patch_recipe::<CheckboxCardGroup>(|rules| rules.base(ChoiceCardGroupPart::Root, |s| s.gap(40.0)));
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .padding(8.0)
+      .child(RadioCardGroup::controlled(
+        Some(1u8),
+        [
+          (0u8, RadioCard::new("Free").id("free")),
+          (1, RadioCard::new("Team").id("team")),
+        ],
+        |_| {},
+      ))
+      .child(CheckboxCardGroup::controlled(
+        Vec::<u8>::new(),
+        [
+          (0u8, CheckboxCard::new("Backups").id("backups")),
+          (1, CheckboxCard::new("Support").id("support")),
+        ],
+        |_| {},
+      ))
+      .into()
+  });
+  let (free, team) = (stage.bounds("free"), stage.bounds("team"));
+  assert_eq!(team.1 - (free.1 + free.3), 30.0);
+  let (backups, support) = (stage.bounds("backups"), stage.bounds("support"));
+  assert_eq!(support.1 - (backups.1 + backups.3), 40.0);
+}

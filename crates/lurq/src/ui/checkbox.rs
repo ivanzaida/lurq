@@ -500,7 +500,7 @@ pub type CheckboxGroupRenderer = Arc<dyn Fn(CheckboxGroupView) -> Element + Send
 ///
 /// Each checkbox is its own stop of Tab, and Space or Enter presses the one
 /// the focus is on. A choice's icon is not drawn.
-pub struct CheckboxGroup<T> {
+pub struct CheckboxGroup<T = ()> {
   choices: Vec<Choice<T>>,
   checked: Vec<T>,
   bound: Option<Turn<T>>,
