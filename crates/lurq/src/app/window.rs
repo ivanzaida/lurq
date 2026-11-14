@@ -307,6 +307,14 @@ impl WindowIcon {
   }
 }
 
+/// The icon as an image, to draw in the window: a title bar the app draws itself shows the window's icon so.
+#[cfg(feature = "raster")]
+impl From<&WindowIcon> for crate::images::ImageData {
+  fn from(icon: &WindowIcon) -> Self {
+    Self::from_rgba(icon.rgba.clone(), icon.width, icon.height)
+  }
+}
+
 /// Origin of a vetoable close request. Programmatic `close()` bypasses this path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseRequestSource {
@@ -465,6 +473,26 @@ struct WindowInner {
   parent: Option<parent::ParentWindow>,
   close_handler: Option<CloseHandler>,
   app_event_handler: Option<AppEventHandler>,
+  /// The element the app draws as the window's maximize control, where it draws its own title bar.
+  maximize_control: Option<crate::core::ElementRef>,
+  /// Whether the pointer is on that control, or holds it down, where the system has it for its own (Windows'
+  /// snap layouts), so that the element does not hear it.
+  maximize_control_look: MaximizeControlLook,
+  /// The window's icon as the app set it, and as an image to draw in a title bar the app draws itself.
+  icon: Option<WindowIcon>,
+  #[cfg(feature = "raster")]
+  icon_image: Option<crate::images::ImageData>,
+}
+
+/// How the app's maximize control is to look while the system has the pointer on it: on Windows 11 the system
+/// takes the pointer over the control, to open its snap layouts there, and tells the app what it would have heard.
+/// See [`WindowHandle::set_maximize_control`](handle::WindowHandle::set_maximize_control).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MaximizeControlLook {
+  /// The pointer is on the control.
+  pub hovered: bool,
+  /// The left button is held down on it.
+  pub pressed: bool,
 }
 
 impl WindowInner {
@@ -525,6 +553,11 @@ impl Window {
         parent: None,
         close_handler: None,
         app_event_handler: None,
+        maximize_control: None,
+        maximize_control_look: MaximizeControlLook::default(),
+        icon: None,
+        #[cfg(feature = "raster")]
+        icon_image: None,
       })),
       version_signal: Signal::new(0),
     }
@@ -590,6 +623,37 @@ impl Window {
   #[cfg(feature = "mcp")]
   pub(crate) fn focus_losses(&self) -> u64 {
     self.inner.read().unwrap().focus_losses
+  }
+
+  /// Records the window's icon, which the app set; what reads it is told, and the loop woken.
+  pub(crate) fn set_icon(&self, icon: Option<WindowIcon>) {
+    let (version, waker) = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.icon == icon {
+        return;
+      }
+      #[cfg(feature = "raster")]
+      {
+        inner.icon_image = icon.as_ref().map(crate::images::ImageData::from);
+      }
+      inner.icon = icon;
+      (Self::bump_version(&mut inner), inner.waker.clone())
+    };
+    self.version_signal.set(version);
+    if let Some(waker) = waker {
+      waker();
+    }
+  }
+
+  /// The window's icon, as the app set it.
+  pub(crate) fn icon(&self) -> Option<WindowIcon> {
+    self.inner.read().unwrap().icon.clone()
+  }
+
+  /// The window's icon as an image, the same one each time it is asked for, so that it is uploaded once.
+  #[cfg(feature = "raster")]
+  pub(crate) fn icon_image(&self) -> Option<crate::images::ImageData> {
+    self.inner.read().unwrap().icon_image.clone()
   }
 
   pub(crate) fn track_access(&self) {
@@ -874,6 +938,41 @@ impl Window {
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);
+  }
+
+  /// Records the element the app draws as the window's maximize control, or that it draws none.
+  pub(crate) fn set_maximize_control(&self, control: Option<crate::core::ElementRef>) {
+    self.inner.write().unwrap().maximize_control = control;
+  }
+
+  /// Where the app's maximize control is, in logical pixels of the window, if it draws one that is laid out.
+  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  pub(crate) fn maximize_control_rect(&self) -> Option<crate::core::ElementRect> {
+    let control = self.inner.read().unwrap().maximize_control.clone()?;
+    let rect = control.bounds();
+    (rect.width > 0.0 && rect.height > 0.0).then_some(rect)
+  }
+
+  /// How the app's maximize control is to look while the system has the pointer on it.
+  pub(crate) fn maximize_control_look(&self) -> MaximizeControlLook {
+    self.inner.read().unwrap().maximize_control_look
+  }
+
+  /// The shell says how the maximize control is to look; what reads the window is told, and the loop woken.
+  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  pub(crate) fn set_maximize_control_look(&self, look: MaximizeControlLook) {
+    let (version, waker) = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.maximize_control_look == look {
+        return;
+      }
+      inner.maximize_control_look = look;
+      (Self::bump_version(&mut inner), inner.waker.clone())
+    };
+    self.version_signal.set(version);
+    if let Some(waker) = waker {
+      waker();
+    }
   }
 
   pub(crate) fn set_title_bar_inset(&self, inset: f32) {

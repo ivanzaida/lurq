@@ -413,7 +413,7 @@ pub use tree_view::{
   TreeViewView,
 };
 pub use window_chrome::{
-  WindowChrome, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView, WindowControl,
+  WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView, WindowControl,
   WindowControls, WindowPlatform,
 };
 pub use window_tabs::{

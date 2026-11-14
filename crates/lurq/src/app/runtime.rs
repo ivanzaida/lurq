@@ -4060,7 +4060,7 @@ impl Tree {
     if self.active_drag.as_ref().is_some_and(|drag| drag.button == button) {
       let drag = self.active_drag.take().unwrap();
       let scale = self.scale_factor();
-      let event = drag.event(x / scale, y / scale, Some(DropResult::Missed));
+      let event = drag.event(x / scale, y / scale, Some(DropResult::Missed), self.viewport_logical());
       for handler in drag.on_end {
         handler.call(&event);
       }
@@ -5101,8 +5101,9 @@ impl Tree {
       match evt.kind {
         MouseEventKind::Move => {
           let (event, handlers) = {
+            let window = self.viewport_logical();
             let drag = self.active_drag.as_mut().unwrap();
-            let event = drag.event(lx, ly, None);
+            let event = drag.event(lx, ly, None, window);
             drag.last_x = lx;
             drag.last_y = ly;
             (event, drag.on_move.clone())
@@ -5124,7 +5125,7 @@ impl Tree {
             .as_ref()
             .map(|(target_id, _)| DropResult::Accepted { target_id: *target_id })
             .unwrap_or(DropResult::Missed);
-          let drag_event = drag.event(lx, ly, Some(drop_result));
+          let drag_event = drag.event(lx, ly, Some(drop_result), self.viewport_logical());
           if let Some((target_id, handlers)) = drop_target {
             let drop_event = DropEvent {
               x: lx,
@@ -5687,6 +5688,7 @@ impl Tree {
             button,
             target_id: node.node_id(),
             drop_result: None,
+            outside_window: false,
           };
           (
             event,
@@ -6398,7 +6400,9 @@ impl Tree {
     let mut horizontal_taken = false;
     for (node, _) in &hits {
       if let Some((state, direction)) = node.scroll_container() {
-        let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy, gesture_dy);
+        let (dx, dy) = node_scroll_deltas(node, direction, remaining_dx, remaining_dy, gesture_dy);
+        // A wheel turned up and down that this container takes across.
+        let across = node.wheels_across() && dx != 0.0 && remaining_dx == 0.0;
         if dx == 0.0 && dy == 0.0 {
           continue;
         }
@@ -6429,7 +6433,15 @@ impl Tree {
           previous_scroll_y,
           previous_max_scroll_y,
         ));
-        if dx != 0.0 {
+        if across {
+          // The turn was the vertical one: what is left of it is left vertical, and nothing is left where it moved.
+          let moved = overflow_dx != dx;
+          remaining_dy = if one_container_per_axis && moved {
+            0.0
+          } else {
+            overflow_dx
+          };
+        } else if dx != 0.0 {
           let moved = overflow_dx != dx;
           horizontal_taken |= moved;
           remaining_dx = if one_container_per_axis && moved {
@@ -8959,7 +8971,7 @@ fn scroll_delta_can_be_consumed_by_hits(
     let Some((state, direction)) = node.scroll_container() else {
       continue;
     };
-    let (dx, dy) = scroll_container_deltas(direction, remaining_dx, remaining_dy, gesture_dy);
+    let (dx, dy) = node_scroll_deltas(node, direction, remaining_dx, remaining_dy, gesture_dy);
     if scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Horizontal, dx, animated)
       || scroll_axis_delta_can_be_consumed(&state, ScrollAxis::Vertical, dy, animated)
     {
@@ -8980,8 +8992,24 @@ fn scroll_delta_targets_scroll_container(
     let Some((_, direction)) = node.scroll_container() else {
       return false;
     };
-    scroll_container_deltas(direction, -delta_x, -delta_y, gesture_dy) != (0.0, 0.0)
+    node_scroll_deltas(node, direction, -delta_x, -delta_y, gesture_dy) != (0.0, 0.0)
   })
+}
+
+/// The part of a wheel or swipe delta the scroll container `node` takes, as [`scroll_container_deltas`] says,
+/// but for a container that is scrolled sideways by a wheel turned up and down (`wheel_across`): a delta with no
+/// sideways part is taken across.
+fn node_scroll_deltas(
+  node: &Node,
+  direction: ScrollDirection,
+  delta_x: f32,
+  delta_y: f32,
+  gesture_dy: f32,
+) -> (f32, f32) {
+  if node.wheels_across() && delta_x == 0.0 && delta_y != 0.0 && direction != ScrollDirection::Vertical {
+    return (delta_y, 0.0);
+  }
+  scroll_container_deltas(direction, delta_x, delta_y, gesture_dy)
 }
 
 /// The part of a wheel or swipe delta a scroll container takes: the axes it
@@ -9249,7 +9277,8 @@ struct ActiveDrag {
 }
 
 impl ActiveDrag {
-  fn event(&self, x: f32, y: f32, drop_result: Option<DropResult>) -> DragEvent {
+  /// The drag's event at `x`, `y` in a window `window` large, both logical.
+  fn event(&self, x: f32, y: f32, drop_result: Option<DropResult>, window: Size) -> DragEvent {
     DragEvent {
       x,
       y,
@@ -9262,6 +9291,7 @@ impl ActiveDrag {
       button: self.button,
       target_id: self.target_id,
       drop_result,
+      outside_window: x < 0.0 || y < 0.0 || x >= window.width || y >= window.height,
     }
   }
 }

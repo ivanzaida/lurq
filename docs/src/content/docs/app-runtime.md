@@ -110,7 +110,7 @@ WinitWindow::new(app, tree)
   .run();
 ```
 
-`with_icon` sets the window icon: on Windows the title bar's small icon and the taskbar's and Alt+Tab's big icon, on X11 the window icon; macOS shows the application bundle's icon instead and ignores it.
+`with_icon` sets the window icon: on Windows the title bar's small icon and the taskbar's and Alt+Tab's big icon, on X11 the window icon; macOS shows the application bundle's icon instead and ignores it. A title bar the app draws with `ui::WindowChrome` shows it too, on every platform.
 
 The shell drives timers, async work, animation deadlines, and requested redraws. It waits when idle; continuous video or an installed `on_tick` callback can keep the loop polling. Use `on_tick` only when the app needs continuous custom work.
 

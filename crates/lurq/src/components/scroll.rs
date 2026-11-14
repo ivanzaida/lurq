@@ -48,6 +48,14 @@ impl ScrollHorizontal {
     Self::from_node(crate::node::dsl::scroll_horizontal(child.into().into_node()))
   }
 
+  /// Scrolls sideways by a wheel turned up and down, where the wheel is not also turned sideways, as a browser's
+  /// strip of tabs does: the wheel's turn is taken across, and nothing around it scrolls with it. Off by default:
+  /// a list across inside a page lets the page take the wheel.
+  pub fn wheel_across(mut self, across: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::wheel_across(node, across));
+    self
+  }
+
   /// Lays the content out at least as wide as the viewport, as [`ScrollBoth::fill_width`] does: items that share
   /// the room there is, and scroll sideways only where they need more (a timeline across).
   pub fn fill_width(mut self, fills: bool) -> Self {
@@ -99,6 +107,13 @@ impl Default for ScrollHorizontal {
 impl ScrollBoth {
   pub fn new(child: impl Into<Element>) -> Self {
     Self::from_node(crate::node::dsl::scroll_both(child.into().into_node()))
+  }
+  /// Scrolls sideways by a wheel turned up and down, where the wheel is not also turned sideways, as a browser's
+  /// strip of tabs does: the wheel's turn is taken across, and nothing around it scrolls with it. Off by default:
+  /// a list across inside a page lets the page take the wheel.
+  pub fn wheel_across(mut self, across: bool) -> Self {
+    self.update_node(|node| crate::node::NodeUpdate::wheel_across(node, across));
+    self
   }
 
   /// Lays the content out at least as wide as the viewport: what is in it fills the width it is shown in, and

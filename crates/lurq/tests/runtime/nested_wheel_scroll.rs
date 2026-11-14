@@ -318,3 +318,55 @@ fn a_fingers_scroll_still_hands_on_what_a_container_inside_could_not_take() {
   assert_eq!(vertical(&page, &list), (0.0, 20.0));
   tree.touch_scroll(POINTER.0, POINTER.1, 0.0, 0.0, ScrollPhase::End, false);
 }
+
+/// A 300x200 page scrolling down, with a strip 300x50 across at its top whose content is `wide` wide, scrolled
+/// sideways by a wheel turned up and down where `across`. Gives the page's state and the strip's.
+fn wheeling_strip(across: bool, wide: f32) -> (Tree, ScrollState, ScrollState) {
+  let (page, strip) = (ScrollState::new(), ScrollState::new());
+  let mut tree = Tree::new();
+  tree.set_root(
+    ScrollVertical::new(
+      Column::new()
+        .child(
+          ScrollHorizontal::new(Rect::new(wide, 50.0).background("#1f2937"))
+            .with_scroll_state(strip.clone())
+            .wheel_across(across)
+            .size(300.0, 50.0),
+        )
+        .child(Rect::new(300.0, 1000.0).background("#111827")),
+    )
+    .with_scroll_state(page.clone())
+    .size(300.0, 200.0),
+  );
+  run_pass(&mut tree);
+  (tree, page, strip)
+}
+
+#[test]
+fn a_strip_that_wheels_across_takes_a_wheel_turned_up_and_down_sideways() {
+  let (mut tree, page, strip) = wheeling_strip(true, 300.0 + OVERFLOW);
+  wheel(&mut tree, 0.0, -10.0);
+  assert_eq!(
+    (strip.scroll_x(), page.scroll_y()),
+    (10.0, 0.0),
+    "the strip takes it across, and the page stays"
+  );
+  // At its end, what it cannot take is dropped, as on its own axis.
+  wheel(&mut tree, 0.0, -40.0);
+  assert_eq!((strip.scroll_x(), page.scroll_y()), (OVERFLOW, 0.0));
+  // Turned back, it scrolls the strip back.
+  wheel(&mut tree, 0.0, 10.0);
+  assert_eq!((strip.scroll_x(), page.scroll_y()), (OVERFLOW - 10.0, 0.0));
+  // Turned on at its end, the next turn goes on to the page.
+  wheel(&mut tree, 0.0, -40.0);
+  wheel(&mut tree, 0.0, -40.0);
+  assert_eq!((strip.scroll_x(), page.scroll_y()), (OVERFLOW, 40.0));
+
+  // A strip without it leaves the wheel to the page, and one that has nothing to scroll does too.
+  let (mut tree, page, strip) = wheeling_strip(false, 300.0 + OVERFLOW);
+  wheel(&mut tree, 0.0, -10.0);
+  assert_eq!((strip.scroll_x(), page.scroll_y()), (0.0, 10.0));
+  let (mut tree, page, strip) = wheeling_strip(true, 300.0);
+  wheel(&mut tree, 0.0, -10.0);
+  assert_eq!((strip.scroll_x(), page.scroll_y()), (0.0, 10.0));
+}

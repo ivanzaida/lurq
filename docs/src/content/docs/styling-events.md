@@ -1410,7 +1410,7 @@ Low-level node drag handlers are also available: `.on_drag_start`, `.on_drag_mov
 
 A press on an element with `on_drag_*` handlers starts a drag that holds the pointer until the button is let go, as a pointer capture does in a browser:
 
-- Every move reaches `on_drag_move`, wherever the pointer is: over other elements, and out of the window too, where the shell goes on passing the moves of a held button. `DragEvent::total_delta_x` and `total_delta_y` count from where the press was.
+- Every move reaches `on_drag_move`, wherever the pointer is: over other elements, and out of the window too, where the shell goes on passing the moves of a held button. `DragEvent::total_delta_x` and `total_delta_y` count from where the press was, and `DragEvent::outside_window` says the pointer is out of the window, past any of its edges (where a tab let go is taken out into a window of its own).
 - Nothing is hovered meanwhile and no text is selected by the move.
 - The window shows the cursor that was under the pointer at the press for the whole drag (`Tree::cursor`), over elements with cursors of their own and out of the window, until the release; then it is that of what is under the pointer again.
 - A drag that moved clicks nothing when it is let go. `.start_drag_buttons(MouseButtonMask::LEFT)` keeps the other buttons from starting one.

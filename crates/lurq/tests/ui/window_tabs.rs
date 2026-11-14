@@ -668,6 +668,13 @@ fn a_tab_let_go_away_from_the_strip_is_detached() {
       ["change 1 (the signal has 1)", "detach 1"],
       "mounted: {mounted}"
     );
+    // And out of the window past its end edge, beside the strip: the engine says the pointer is out of it.
+    drag(&mut stage, "canvas", 3000.0, 0.0);
+    assert_eq!(
+      said(&told),
+      ["change 2 (the signal has 2)", "detach 2"],
+      "mounted: {mounted}"
+    );
   }
 }
 
@@ -693,6 +700,11 @@ fn a_label_longer_than_its_room_ends_in_an_ellipsis_and_the_close_slot_keeps_its
 
 /// `count` tabs of ids `t0`.. in a room `room` wide, the first selected.
 fn many(count: usize, room: f32, mounted: bool) -> (Stage, Signal<usize>) {
+  many_in(count, room, mounted, false)
+}
+
+/// As [`many`], in a column of `room` where `column`, in a row of it where not.
+fn many_in(count: usize, room: f32, mounted: bool, column: bool) -> (Stage, Signal<usize>) {
   let value = Signal::new(0_usize);
   let bound = value.clone();
   let stage = wide(move |ctx| {
@@ -703,9 +715,43 @@ fn many(count: usize, room: f32, mounted: bool) -> (Stage, Signal<usize>) {
     .id("strip")
     .on_add(|| {});
     let tabs = if mounted { tabs.mount(ctx) } else { tabs.into() };
-    Row::new().width(room).child(tabs).into()
+    if column {
+      lurq::components::Column::new().width(room).child(tabs).into()
+    } else {
+      Row::new().width(room).child(tabs).into()
+    }
   });
   (stage, value)
+}
+
+#[test]
+fn in_a_column_too_the_tabs_share_its_room_and_the_strip_is_no_wider() {
+  let (mut stage, _) = many_in(4, 400.0, false, true);
+  let widths: Vec<f32> = (0..4).map(|index| stage.bounds(&format!("t{index}")).2).collect();
+  assert!(
+    widths
+      .iter()
+      .all(|width| *width < 128.0 && *width >= 72.0 && close_to(*width, widths[0])),
+    "{widths:?}"
+  );
+  let (_, _, strip, _) = stage.bounds("strip");
+  assert!(close_to(strip, 400.0), "{strip}");
+  let (add, _, add_width, _) = stage.bounds("strip-add");
+  assert!(close_to(add + add_width, 400.0), "the add button stays at the end");
+}
+
+#[test]
+fn a_wheel_turned_up_and_down_over_the_strip_scrolls_its_tabs_sideways() {
+  let (mut stage, _) = many(10, 400.0, true);
+  let (x0, ..) = stage.bounds("t0");
+  let (cx, cy) = stage.center("t1");
+  stage.tree.mouse_move(cx, cy);
+  stage
+    .tree
+    .scroll(cx, cy, 0.0, -60.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  let (x1, ..) = stage.bounds("t0");
+  assert!(x1 < x0 - 30.0, "the tabs moved along: {x0} -> {x1}");
 }
 
 #[test]

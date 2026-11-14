@@ -255,6 +255,24 @@ impl WindowControls {
     let width = self.button_width;
     let button_height = self.button_height.unwrap_or(height);
     let middle = if maximized { self.restore } else { self.maximize };
+    // Windows 11 opens its snap layouts over the maximize control: the window is told which it is, and says how it
+    // is to look while the system has the pointer on it.
+    let control = crate::core::ElementRef::new();
+    window.set_maximize_control(Some(control.clone()));
+    let look = window.maximize_control_look();
+    let (looked, looked_foreground) = if look.pressed {
+      (
+        Some(middle.colors.active_background.clone()),
+        middle.hover_foreground.clone(),
+      )
+    } else if look.hovered {
+      (
+        Some(middle.colors.hover_background.clone()),
+        middle.hover_foreground.clone(),
+      )
+    } else {
+      (None, None)
+    };
 
     Row::new()
       .height(height)
@@ -266,13 +284,22 @@ impl WindowControls {
           event.stop_immediate_propagation();
         }),
       )
-      .child(
-        control_button(middle, width, button_height).on_click(move |event: MouseEvent| {
-          maximize_window.set_maximized(!maximized);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
-      )
+      .child({
+        let mut button = control_button(middle, width, button_height)
+          .ref_element(control)
+          .on_click(move |event: MouseEvent| {
+            maximize_window.set_maximized(!maximized);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          });
+        if let Some(background) = looked {
+          button = button.background(background);
+        }
+        if let Some(foreground) = looked_foreground {
+          button = button.foreground(foreground);
+        }
+        button
+      })
       .child(
         control_button(self.close, width, button_height).on_click(move |event: MouseEvent| {
           if let Some(on_close) = &on_close {
@@ -287,6 +314,8 @@ impl WindowControls {
   }
 
   fn render_macos(self, window: &WindowHandle, height: f32) -> Element {
+    // The lights are no maximize control the system opens its snap layouts over.
+    window.set_maximize_control(None);
     let close_window = window.clone();
     let minimize_window = window.clone();
     let maximize_window = window.clone();

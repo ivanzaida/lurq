@@ -6,6 +6,7 @@
 //! breakpoint.
 
 mod doc;
+mod icon;
 mod kit;
 mod pages;
 mod playground;
@@ -145,6 +146,7 @@ fn run(mut app: App, route: String, engine: impl Fn() -> WgpuRenderEngine + 'sta
   let (width, height) = size();
   WinitWindow::new(app, tree)
     .with_title("lurq gallery")
+    .with_icon(icon::icon())
     .with_size(width, height)
     .with_min_size(720, 480)
     .with_decorations(false)

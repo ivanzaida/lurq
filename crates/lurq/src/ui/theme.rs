@@ -271,6 +271,8 @@ struct Surroundings {
   breakpoint: Option<Memo<Option<Breakpoint>>>,
   /// How the app writes dates: what a component's render was given of its app.
   dates: Option<crate::core::AppDateText>,
+  /// The window what is being built is in.
+  window: Option<crate::app::window::Window>,
 }
 
 thread_local! {
@@ -309,14 +311,27 @@ pub(crate) fn enter_theme(
   theme: Theme,
   breakpoint: Option<Memo<Option<Breakpoint>>>,
   dates: Option<crate::core::AppDateText>,
+  window: Option<crate::app::window::Window>,
 ) {
   RENDERING_IN.with(|rendering| {
     rendering.borrow_mut().push(Surroundings {
       theme,
       breakpoint,
       dates,
+      window,
     })
   });
+}
+
+/// The window what is being built is in, in a component's render; `None` outside one. What reads the window
+/// through it is rendered again as the window changes.
+pub(crate) fn current_window() -> Option<crate::app::window::Window> {
+  RENDERING_IN.with(|rendering| {
+    rendering
+      .borrow()
+      .last()
+      .and_then(|surroundings| surroundings.window.clone())
+  })
 }
 
 /// How the app of what is being built writes and reads dates: what
@@ -349,12 +364,16 @@ pub fn in_theme<R>(theme: &Theme, build: impl FnOnce() -> R) -> R {
     }
   }
   // The window and the app are the ones around: only the theme changes.
-  let (breakpoint, dates) = RENDERING_IN.with(|rendering| {
-    rendering.borrow().last().map_or((None, None), |surroundings| {
-      (surroundings.breakpoint.clone(), surroundings.dates.clone())
+  let (breakpoint, dates, window) = RENDERING_IN.with(|rendering| {
+    rendering.borrow().last().map_or((None, None, None), |surroundings| {
+      (
+        surroundings.breakpoint.clone(),
+        surroundings.dates.clone(),
+        surroundings.window.clone(),
+      )
     })
   });
-  enter_theme(theme.clone(), breakpoint, dates);
+  enter_theme(theme.clone(), breakpoint, dates, window);
   let _leave = Leave;
   build()
 }

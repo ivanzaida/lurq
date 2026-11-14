@@ -135,8 +135,24 @@ impl WindowHandle {
   /// the small icon (title bar) and the big one (taskbar button, Alt+Tab). On
   /// macOS this does nothing: the Dock and the app switcher show the
   /// application bundle's icon.
+  ///
+  /// A title bar the app draws itself shows it too: `ui::WindowChrome` draws it as its icon unless told another.
   pub fn set_icon(&self, icon: impl Into<Option<WindowIcon>>) {
-    self.window.push_command(WindowCommand::SetIcon(icon.into()));
+    let icon = icon.into();
+    self.window.set_icon(icon.clone());
+    self.window.push_command(WindowCommand::SetIcon(icon));
+  }
+
+  /// The window's state this handle reads and writes.
+  pub(crate) fn state(&self) -> Window {
+    self.window.clone()
+  }
+
+  /// The window's icon, as the app set it (`set_icon`, or the shell's `with_icon`), or `None`. Reading it in a
+  /// render renders again as it changes.
+  pub fn icon(&self) -> Option<WindowIcon> {
+    self.window.track_access();
+    self.window.icon()
   }
 
   pub fn clear_icon(&self) {
@@ -191,6 +207,21 @@ impl WindowHandle {
 
   pub fn stop_drag(&self) {
     self.window.push_command(WindowCommand::StopDrag);
+  }
+
+  /// Tells the window which element the app draws as its maximize control, in a title bar of its own, or `None`
+  /// where it draws none. On Windows 11 the system then opens its snap layouts over it as the pointer rests there,
+  /// as over a title bar's own: the pointer over it is the system's, and the app hears it through
+  /// [`maximize_control_look`](Self::maximize_control_look), while a press on it still maximizes and restores the
+  /// window. Elsewhere this does nothing. `ui::WindowChrome` tells it of its own.
+  pub fn set_maximize_control(&self, control: Option<crate::core::ElementRef>) {
+    self.window.set_maximize_control(control);
+  }
+
+  /// How the app's maximize control is to look while the system has the pointer on it (Windows' snap layouts):
+  /// under the pointer, held down, or neither. Reading it in a render renders again as it changes.
+  pub fn maximize_control_look(&self) -> super::MaximizeControlLook {
+    self.window.maximize_control_look()
   }
 
   /// Shows the system's menu of the window where the pointer is: Restore, Move, Size, Minimize, Maximize and

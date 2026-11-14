@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::{
   IconChoice, icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, one_line, shown_icon},
+  shared::{fading, glyph, one_line},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -17,6 +17,7 @@ use crate::{
     window::WindowHandle,
   },
   components::{self, ChromeBorderPolicy, ChromeTitleBar, Column, ResizeHandlePolicy, Row, WindowChromeMode},
+  core::ElementRef,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, Element, border::Border, color::Color, dimension::Dimension},
 };
@@ -249,7 +250,7 @@ impl WindowControls {
 /// as a picture, for a gallery or a test, in the states the app gives it with `state(..)`.
 pub struct WindowChrome {
   platform: Option<WindowPlatform>,
-  icon: Option<IconChoice>,
+  icon: WindowChromeIcon,
   title: Option<Arc<str>>,
   label: Option<Arc<str>>,
   leading: Option<Element>,
@@ -275,11 +276,11 @@ impl Default for WindowChrome {
 }
 
 impl WindowChrome {
-  /// The chrome of the platform the app runs on, with the app's box as its icon and the window's controls.
+  /// The chrome of the platform the app runs on, with the window's icon and the window's controls.
   pub fn new() -> Self {
     Self {
       platform: None,
-      icon: None,
+      icon: WindowChromeIcon::Window,
       title: None,
       label: None,
       leading: None,
@@ -305,10 +306,13 @@ impl WindowChrome {
     self
   }
 
-  /// The app's icon in the bar, where the platform shows one (Windows and KDE): a name of the theme's icons, or
-  /// `None` for none. A box by default.
-  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
-    self.icon = Some(icon.into());
+  /// The app's icon in the bar, where the platform shows one (Windows and KDE): a name of the theme's icons, an
+  /// image of the app's ([`ImageData`](crate::images::ImageData), with the `raster` feature), or `None` for none.
+  /// By default the window's own: the image the app set as the window's icon
+  /// ([`WindowHandle::set_icon`](crate::app::window::WindowHandle::set_icon) or the shell's `with_icon`), or a box
+  /// where it has none. See [`WindowChromeIcon`].
+  pub fn icon(mut self, icon: impl Into<WindowChromeIcon>) -> Self {
+    self.icon = icon.into();
     self
   }
 
@@ -419,7 +423,8 @@ impl WindowChrome {
     self
   }
 
-  /// The id of the bar. Its title is `{id}-title`, its controls `{id}-minimize`, `{id}-maximize` and `{id}-close`.
+  /// The id of the bar. Its icon is `{id}-icon`, its title `{id}-title`, its controls `{id}-minimize`, `{id}-maximize`
+  /// and `{id}-close`.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -451,9 +456,37 @@ impl WindowChrome {
     .state(WindowChromeState::Maximized, maximized)
     .state(WindowChromeState::Tabs, self.tabs.is_some());
     let tabbed = self.tabs.is_some();
+    // Windows 11 opens its snap layouts over the maximize control of a Windows bar: the window is told where it is,
+    // and says how it is to look while the system has the pointer on it.
+    let snaps = platform == WindowPlatform::Windows && self.controls.maximizable;
+    let maximize_control = window.as_ref().filter(|_| snaps).map(|window| {
+      let control = ElementRef::new();
+      window.set_maximize_control(Some(control.clone()));
+      control
+    });
+    if !snaps && let Some(window) = &window {
+      window.set_maximize_control(None);
+    }
+    let maximize_look = window.as_ref().filter(|_| snaps).and_then(|window| {
+      let look = window.maximize_control_look();
+      if look.pressed {
+        Some(Interaction::Pressed)
+      } else if look.hovered {
+        Some(Interaction::Hovered)
+      } else {
+        None
+      }
+    });
+    // The window whose icon the bar shows by default: its own where it is mounted, the one it is drawn in where it
+    // is a picture.
+    let shown_in = window
+      .as_ref()
+      .map(WindowHandle::state)
+      .or_else(super::theme::current_window);
+    let icon = self.icon.shown(shown_in.as_ref());
     let view = WindowChromeView {
       platform,
-      icon: shown_icon(self.icon, icons::BOX),
+      icon,
       title: self.title,
       label: self.label,
       leading: self.leading,
@@ -465,6 +498,8 @@ impl WindowChrome {
       tabbed,
       recipe: theme.resolve::<WindowChrome>(&case, Some(&self.rules)),
       forced: self.forced,
+      maximize_control,
+      maximize_look,
       window,
       id: self.id,
       key: self.key,
@@ -556,13 +591,116 @@ fn bar_height(platform: WindowPlatform, tabs: bool) -> f32 {
   }
 }
 
+/// The icon of a window's title bar: what [`WindowChrome::icon`] takes.
+///
+/// ```
+/// use lurq::ui::{WindowChromeIcon, icons};
+///
+/// let glyph: WindowChromeIcon = icons::FILE_CODE.into();
+/// let none: WindowChromeIcon = None.into();
+/// assert_eq!(WindowChromeIcon::default(), WindowChromeIcon::Window);
+/// # let _ = (glyph, none);
+/// ```
+#[derive(Clone, Default)]
+pub enum WindowChromeIcon {
+  /// The window's own: the image the app set as the window's icon, followed as it changes; the board's box where
+  /// the window has none. A bar drawn as a picture shows the icon of the window it is drawn in. The default.
+  #[default]
+  Window,
+  /// One of the theme's icons, by its name.
+  Glyph(Name),
+  /// An image of the app's: its logo. Kept by the app and given again at each render, it is uploaded once.
+  #[cfg(feature = "raster")]
+  Image(crate::images::ImageData),
+  /// No icon.
+  None,
+}
+
+impl std::fmt::Debug for WindowChromeIcon {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Window => f.write_str("Window"),
+      Self::Glyph(name) => f.debug_tuple("Glyph").field(name).finish(),
+      #[cfg(feature = "raster")]
+      Self::Image(image) => write!(f, "Image({}x{})", image.width(), image.height()),
+      Self::None => f.write_str("None"),
+    }
+  }
+}
+
+impl PartialEq for WindowChromeIcon {
+  fn eq(&self, other: &Self) -> bool {
+    match (self, other) {
+      (Self::Window, Self::Window) | (Self::None, Self::None) => true,
+      (Self::Glyph(a), Self::Glyph(b)) => a == b,
+      #[cfg(feature = "raster")]
+      (Self::Image(a), Self::Image(b)) => a.id() == b.id(),
+      _ => false,
+    }
+  }
+}
+
+impl WindowChromeIcon {
+  /// The icon drawn: the window's own found in `window`, or the board's box; `None` for none.
+  fn shown(self, window: Option<&crate::app::window::Window>) -> Option<Self> {
+    match self {
+      Self::Window => {
+        #[cfg(feature = "raster")]
+        if let Some(image) = window.and_then(|window| {
+          window.track_access();
+          window.icon_image()
+        }) {
+          return Some(Self::Image(image));
+        }
+        #[cfg(not(feature = "raster"))]
+        let _ = window;
+        Some(Self::Glyph(Name::from(icons::BOX)))
+      }
+      Self::None => None,
+      icon => Some(icon),
+    }
+  }
+}
+
+impl From<&str> for WindowChromeIcon {
+  fn from(name: &str) -> Self {
+    Self::Glyph(Name::from(name))
+  }
+}
+
+impl From<Name> for WindowChromeIcon {
+  fn from(name: Name) -> Self {
+    Self::Glyph(name)
+  }
+}
+
+impl From<Option<Name>> for WindowChromeIcon {
+  fn from(name: Option<Name>) -> Self {
+    name.map_or(Self::None, Self::Glyph)
+  }
+}
+
+impl From<IconChoice> for WindowChromeIcon {
+  fn from(choice: IconChoice) -> Self {
+    choice.0.into()
+  }
+}
+
+#[cfg(feature = "raster")]
+impl From<crate::images::ImageData> for WindowChromeIcon {
+  fn from(image: crate::images::ImageData) -> Self {
+    Self::Image(image)
+  }
+}
+
 /// A chrome as a renderer sees it: what its bar holds, the window's state, the style of its parts, and the
 /// window's controls ready to be put in it.
 pub struct WindowChromeView {
   /// The platform the bar is drawn as.
   pub platform: WindowPlatform,
-  /// The app's icon, if it shows one.
-  pub icon: Option<Name>,
+  /// The app's icon, if it shows one: a glyph or an image, the window's own already found
+  /// ([`WindowChromeIcon::Glyph`] or [`WindowChromeIcon::Image`]).
+  pub icon: Option<WindowChromeIcon>,
   pub title: Option<Arc<str>>,
   /// Its name to what reads the tree, if the app gave it one; its title otherwise.
   pub label: Option<Arc<str>>,
@@ -579,6 +717,10 @@ pub struct WindowChromeView {
   tabs: Option<Element>,
   controls: WindowControls,
   forced: Option<Interaction>,
+  /// The element the window is told is its maximize control, for Windows' snap layouts, and how the system says
+  /// it is to look while it has the pointer on it.
+  maximize_control: Option<ElementRef>,
+  maximize_look: Option<Interaction>,
   window: Option<WindowHandle>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -634,15 +776,29 @@ impl WindowChromeView {
 
   /// The app's icon, where it has one.
   pub fn icon(&self) -> Option<Element> {
-    let name = self.icon.clone()?;
     let part = self.part(WindowChromePart::Icon);
-    Some(
-      Column::new()
-        .justify(Justify::Center)
-        .height(Dimension::Pct(100.0))
-        .child(glyph(&part, name, false))
+    let drawn = match self.icon.clone()? {
+      WindowChromeIcon::Glyph(name) => glyph(&part, name, false),
+      #[cfg(feature = "raster")]
+      WindowChromeIcon::Image(image) => Row::new()
+        .part(&part)
+        .child(
+          components::Image::new(image)
+            .contain()
+            .width(Dimension::Pct(100.0))
+            .height(Dimension::Pct(100.0)),
+        )
         .into(),
-    )
+      WindowChromeIcon::Window | WindowChromeIcon::None => return None,
+    };
+    let mut icon = Column::new()
+      .justify(Justify::Center)
+      .height(Dimension::Pct(100.0))
+      .child(drawn);
+    if let Some(id) = &self.id {
+      icon = icon.id(format!("{id}-icon"));
+    }
+    Some(icon.into())
   }
 
   /// The title, on one line, ending with an ellipsis where it has no room; centred where the platform centres it.
@@ -731,9 +887,12 @@ impl WindowChromeView {
         self.controls.close_label.clone(),
       ),
     };
-    let forced = self
-      .forced
-      .filter(|_| kind == WindowControl::Close || self.platform == WindowPlatform::Macos);
+    let forced = match kind {
+      WindowControl::Maximize if self.maximize_look.is_some() => self.maximize_look,
+      _ => self
+        .forced
+        .filter(|_| kind == WindowControl::Close || self.platform == WindowPlatform::Macos),
+    };
     let mut button = components::Button::empty()
       .justify(Justify::Center)
       .align_items(Alignment::Center)
@@ -752,6 +911,11 @@ impl WindowChromeView {
         WindowControl::Close => "close",
       };
       button = button.id(format!("{id}-{which}"));
+    }
+    if kind == WindowControl::Maximize
+      && let Some(control) = &self.maximize_control
+    {
+      button = button.ref_element(control.clone());
     }
     if let Some(window) = self.window.clone() {
       let (maximized, on_close) = (self.maximized, self.controls.on_close.clone());
@@ -960,7 +1124,7 @@ impl Themed for WindowChrome {
   fn recipe() -> Recipe {
     use PaletteColor::{
       Background, Destructive, DestructiveForeground, DestructiveHover, Foreground, Input, Muted, MutedForeground,
-      SecondaryHover,
+      SecondaryHover, StateHover, StatePressed,
     };
     use WindowChromePart::{
       Balance, Bar, Close, CloseGlyph, Controls, Icon, Maximize, MaximizeGlyph, Minimize, MinimizeGlyph, Root, Title,
@@ -1043,12 +1207,13 @@ impl Themed for WindowChrome {
         .when(on(Macos).state(WindowChromeState::Inactive), part, |s| s.background(Input))
         // GNOME: round and filled.
         .when(on(Gnome), part, |s| fading(s.square(24.0).radius(RadiusSize::Full).background(SecondaryHover)))
-        .when(on(Gnome).hovered(), part, |s| s.background(PaletteColor::Border))
-        .when(on(Gnome).pressed(), part, |s| s.background(Input))
+        // Stronger under the pointer and held, in the light appearance and the dark: a veil over the fill.
+        .when(on(Gnome).hovered(), part, |s| s.veil(StateHover))
+        .when(on(Gnome).pressed(), part, |s| s.veil(StatePressed))
         // KDE: round, filled only under the pointer.
         .when(on(Kde), part, |s| fading(s.square(22.0).radius(RadiusSize::Full)))
         .when(on(Kde).hovered(), part, |s| s.background(SecondaryHover))
-        .when(on(Kde).pressed(), part, |s| s.background(PaletteColor::Border));
+        .when(on(Kde).pressed(), part, |s| s.background(SecondaryHover).veil(StatePressed));
     }
     for part in glyphs {
       // macOS: the lights' glyphs, shown under the pointer on the group.
@@ -1067,10 +1232,10 @@ impl Themed for WindowChrome {
       // The close control's own colors: red under the pointer, darker held down, its cross white.
       .when(on(Windows).hovered(), Close, |s| s.background(Destructive))
       .when(on(Windows).pressed(), Close, |s| s.background(DestructiveHover))
-      .when(on(Gnome).hovered(), Close, |s| s.background(Destructive))
-      .when(on(Gnome).pressed(), Close, |s| s.background(DestructiveHover))
+      .when(on(Gnome).hovered(), Close, |s| s.background(Destructive).veil(Color::new(0, 0, 0, 0)))
+      .when(on(Gnome).pressed(), Close, |s| s.background(DestructiveHover).veil(Color::new(0, 0, 0, 0)))
       .when(on(Kde).hovered(), Close, |s| s.background(Destructive))
-      .when(on(Kde).pressed(), Close, |s| s.background(DestructiveHover))
+      .when(on(Kde).pressed(), Close, |s| s.background(DestructiveHover).veil(Color::new(0, 0, 0, 0)))
       .when(Selector::new().within().hovered(), CloseGlyph, |s| s.foreground(DestructiveForeground))
       .when(Selector::new().within().pressed(), CloseGlyph, |s| s.foreground(DestructiveForeground))
       // macOS: the lights' colors are the system's; their glyphs show under the pointer on the group.
@@ -1167,6 +1332,139 @@ mod tests {
     assert!(commands.contains(&WindowCommand::StartDrag), "{commands:?}");
   }
 
+  /// A window whose chrome shows the window's icon (0), a glyph (1) or none (2).
+  struct Iconed;
+
+  impl Component for Iconed {
+    type Props = u8;
+
+    fn create(_ctx: &mut Ctx) -> Self {
+      Self
+    }
+
+    fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+      let chrome = WindowChrome::new()
+        .platform(WindowPlatform::Windows)
+        .mode(WindowChromeMode::AlwaysCustom)
+        .id("bar")
+        .title("Notes")
+        .content(Rect::new(800.0, 564.0));
+      let chrome = match *ctx.props::<u8>() {
+        0 => chrome,
+        1 => chrome.icon(icons::FILE_CODE),
+        _ => chrome.icon(None),
+      };
+      chrome.mount(ctx)
+    }
+  }
+
+  /// The tags of what the bar's icon is drawn with, or `None` where the bar has no icon.
+  fn icon_tags(tree: &Tree) -> Option<Vec<String>> {
+    use crate::node::element::ElementRef as Seen;
+    fn find<'a>(element: Seen<'a>, id: &str) -> Option<Seen<'a>> {
+      if element.id() == Some(id) {
+        return Some(element);
+      }
+      element.children().into_iter().find_map(|child| find(child, id))
+    }
+    fn tags(element: Seen<'_>, into: &mut Vec<String>) {
+      into.push(element.tag_name().to_owned());
+      for child in element.children() {
+        tags(child, into);
+      }
+    }
+    let icon = find(tree.root()?, "bar-icon")?;
+    let mut into = Vec::new();
+    tags(icon, &mut into);
+    Some(into)
+  }
+
+  fn red_icon() -> crate::app::window::WindowIcon {
+    crate::app::window::WindowIcon::from_rgba([255, 0, 0, 255].repeat(16 * 16), 16, 16)
+  }
+
+  #[cfg(feature = "raster")]
+  #[test]
+  fn the_bar_shows_the_windows_icon_and_follows_it() {
+    let mut app = App::new();
+    let mut tree = Tree::new();
+    tree.resize(800, 600);
+    tree.mount_root::<Iconed>(&mut app, 0);
+    tree.pass_headless(&mut app);
+    // No icon of the window's: the board's box, a glyph.
+    let tags = icon_tags(&tree).expect("an icon");
+    assert!(!tags.iter().any(|tag| tag == "Image"), "{tags:?}");
+    // The app sets one: the bar draws it, at the icon's size.
+    tree.window().handle().set_icon(red_icon());
+    tree.pass_headless(&mut app);
+    let tags = icon_tags(&tree).expect("an icon");
+    assert!(tags.iter().any(|tag| tag == "Image"), "{tags:?}");
+    let icon = tree
+      .get_element_by_id_mut("bar-icon")
+      .and_then(|element| element.bounds())
+      .unwrap();
+    assert_eq!(icon.width, 16.0);
+    // And clears it: the box again.
+    tree.window().handle().set_icon(None);
+    tree.pass_headless(&mut app);
+    let tags = icon_tags(&tree).expect("an icon");
+    assert!(!tags.iter().any(|tag| tag == "Image"), "{tags:?}");
+  }
+
+  #[test]
+  fn a_glyph_or_none_is_shown_in_place_of_the_windows_icon() {
+    for (shown, has_icon) in [(1, true), (2, false)] {
+      let mut app = App::new();
+      let mut tree = Tree::new();
+      tree.resize(800, 600);
+      tree.window().handle().set_icon(red_icon());
+      tree.mount_root::<Iconed>(&mut app, shown);
+      tree.pass_headless(&mut app);
+      let tags = icon_tags(&tree);
+      assert_eq!(tags.is_some(), has_icon, "{shown}: {tags:?}");
+      assert!(!tags.unwrap_or_default().iter().any(|tag| tag == "Image"));
+    }
+  }
+
+  #[cfg(feature = "raster")]
+  #[test]
+  fn the_icon_is_the_windows_image_a_glyph_or_none() {
+    let theme = Theme::new();
+    let tree = Tree::new();
+    let handle = || Some(tree.window().handle());
+    let shown = |chrome: WindowChrome, window| chrome.view(&theme, window).0.icon;
+    // A window with no icon: the box.
+    assert_eq!(
+      shown(WindowChrome::new(), handle()),
+      Some(WindowChromeIcon::Glyph(Name::from(icons::BOX)))
+    );
+    tree.window().handle().set_icon(red_icon());
+    // The window's image, the same one at every render, so that it is uploaded once.
+    let (Some(WindowChromeIcon::Image(first)), Some(WindowChromeIcon::Image(again))) = (
+      shown(WindowChrome::new(), handle()),
+      shown(WindowChrome::new(), handle()),
+    ) else {
+      panic!("the window's image");
+    };
+    assert_eq!((first.width(), first.height(), first.id()), (16, 16, again.id()));
+    assert_eq!(
+      shown(WindowChrome::new().icon(icons::FILE_CODE), handle()),
+      Some(WindowChromeIcon::Glyph(Name::from(icons::FILE_CODE)))
+    );
+    assert_eq!(shown(WindowChrome::new().icon(None), handle()), None);
+    // An image of the app's.
+    let logo = crate::images::ImageData::from_rgba(vec![0; 4 * 4], 2, 2);
+    assert_eq!(
+      shown(WindowChrome::new().icon(logo.clone()), handle()),
+      Some(WindowChromeIcon::Image(logo))
+    );
+    // A picture drawn outside any window: the box.
+    assert_eq!(
+      shown(WindowChrome::new(), None),
+      Some(WindowChromeIcon::Glyph(Name::from(icons::BOX)))
+    );
+  }
+
   fn window() -> (Tree, App) {
     let mut app = App::new();
     let mut tree = Tree::new();
@@ -1231,6 +1529,45 @@ mod tests {
     let (x, y) = centre(&mut tree, "menus");
     let commands = press(&mut tree, &mut app, x, y, MouseButton::Left);
     assert!(commands.is_empty(), "{commands:?}");
+  }
+
+  #[test]
+  fn the_window_knows_its_maximize_control_and_draws_it_as_the_system_says() {
+    use crate::{
+      app::{theme::ThemePalette, window::MaximizeControlLook},
+      layout::quad::QuadContent,
+    };
+    let (mut tree, mut app) = window();
+    let bounds = tree
+      .get_element_by_id_mut("bar-maximize")
+      .and_then(|element| element.bounds())
+      .unwrap();
+    let rect = tree
+      .window()
+      .maximize_control_rect()
+      .expect("the window knows its maximize control");
+    assert_eq!(
+      (rect.x, rect.y, rect.width, rect.height),
+      (bounds.x, bounds.y, bounds.width, bounds.height)
+    );
+    // The system has the pointer over it (Windows' snap layouts): the control is drawn under the pointer.
+    let hover = ThemePalette::light().get(PaletteColor::SecondaryHover);
+    let filled = |tree: &mut Tree| {
+      let layout = tree.last_layout().unwrap().clone();
+      tree.resolve_quads(&layout).into_iter().any(|quad| {
+        (quad.x, quad.y, quad.width, quad.height) == (bounds.x, bounds.y, bounds.width, bounds.height)
+          && matches!(quad.content, QuadContent::Rect { color, .. } if color == hover)
+      })
+    };
+    assert!(!filled(&mut tree));
+    tree.window().set_maximize_control_look(MaximizeControlLook {
+      hovered: true,
+      pressed: false,
+    });
+    for _ in 0..3 {
+      tree.pass_headless(&mut app);
+    }
+    assert!(filled(&mut tree), "drawn under the pointer");
   }
 
   #[test]
