@@ -5,6 +5,7 @@
 use lurq::{app::ctx::Ctx, node::Element};
 
 mod accordion;
+mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
@@ -63,6 +64,7 @@ mod toast;
 mod toggletip;
 mod token_input;
 mod tokens;
+mod toolbar;
 mod tooltip;
 mod tree_view;
 
@@ -524,6 +526,22 @@ pub const PAGES: &[Page] = &[
     about: "menubar menu bar file edit view help title bar app menus mnemonic alt keyboard shortcut submenu",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<menubar::MenubarPage>(()),
+  },
+  Page {
+    path: "/toolbar",
+    name: "Toolbar",
+    icon: None,
+    about: "toolbar tools bar row buttons toggles group separator spacer overflow more menu command bar ribbon table formatting",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<toolbar::ToolbarPage>(()),
+  },
+  Page {
+    path: "/action-bar",
+    name: "Action Bar",
+    icon: None,
+    about: "action bar selection selected bulk actions count clear escape floating bottom top contextual",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<action_bar::ActionBarPage>(()),
   },
   Page {
     path: "/badge",

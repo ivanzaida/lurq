@@ -154,6 +154,25 @@ impl ToggleGroup {
     self
   }
 
+  /// What the items of a menu that stand for this group's toggles take from
+  /// them, each checked while its toggle is on: a toolbar moves a group that
+  /// does not fit into its menu with these.
+  pub(crate) fn commands(&self) -> Vec<super::toolbar::ToolbarCommand> {
+    self
+      .items
+      .iter()
+      .map(|item| super::toolbar::ToolbarCommand {
+        label: item.label.clone(),
+        icon: item.icon,
+        icon_only: item.icon_only,
+        disabled: self.disabled || item.disabled,
+        checked: Some(item.on),
+        run: item.pick.clone(),
+        id: None,
+      })
+      .collect()
+  }
+
   /// Builds the group in `theme`. Converting a group into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {

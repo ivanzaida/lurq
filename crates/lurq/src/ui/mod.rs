@@ -16,6 +16,7 @@
 //! what renders it renders again when the theme changes.
 
 mod accordion;
+mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
@@ -86,10 +87,14 @@ mod toggle_group;
 mod toggletip;
 mod token_input;
 mod token_list;
+mod toolbar;
 mod tooltip;
 mod tree_view;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
+pub use action_bar::{
+  ActionBar, ActionBarAction, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarState, ActionBarView,
+};
 pub use alert::{Alert, AlertIcon, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupView, AvatarPart, AvatarPresence,
@@ -240,6 +245,10 @@ pub use toggle_group::{ToggleGroup, ToggleGroupPart};
 pub use toggletip::{Toggletip, ToggletipPart, ToggletipRenderer, ToggletipState, ToggletipView};
 pub use token_input::{
   MENTION, Token, TokenInput, TokenInputPart, TokenInputRenderer, TokenInputSize, TokenInputState, TokenInputView,
+};
+pub use toolbar::{
+  Toolbar, ToolbarCommand, ToolbarGroup, ToolbarItem, ToolbarPart, ToolbarRenderer, ToolbarSlot, ToolbarState,
+  ToolbarVariant, ToolbarView,
 };
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,

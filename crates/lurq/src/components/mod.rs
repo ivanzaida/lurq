@@ -463,6 +463,20 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Makes this child of a single-line `Row`/`Column` the one that stands
+      /// for what the line dropped
+      /// ([`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop)):
+      /// it takes its room only while another child of the line is dropped,
+      /// and is dropped itself while none is. The More button at the end of a
+      /// toolbar, which opens a menu of the controls that did not fit. The line
+      /// gives way as it would without it, and when that drops a child, gives
+      /// way again with its room taken: what fits beside it stays, the rest
+      /// drops. It does not shrink; one marker to a line.
+      pub fn drop_marker(mut self, marker: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drop_marker(node, marker));
+        self
+      }
+
       pub fn corner_radius(mut self, radius: impl Into<$crate::node::RadiusValue>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::corner_radius(node, radius));
         self

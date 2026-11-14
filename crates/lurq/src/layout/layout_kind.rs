@@ -1080,7 +1080,8 @@ pub enum ShrinkLimit {
 }
 
 /// When and how far a shrinking flex child gives way: a node's
-/// `.shrink_order(...)`, `.shrink_limit(...)` and `.shrink_drop_below(...)`.
+/// `.shrink_order(...)`, `.shrink_limit(...)` and `.shrink_drop_below(...)`;
+/// and whether a child stands for what its line dropped (`.drop_marker(...)`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ShrinkRule {
   pub(crate) order: i32,
@@ -1088,6 +1089,9 @@ pub(crate) struct ShrinkRule {
   /// Shrink no further than this main size, then drop (see
   /// `.shrink_drop_below`).
   pub(crate) drop_below: Option<f32>,
+  /// Takes room only while another child of the line is dropped (see
+  /// `.drop_marker`).
+  pub(crate) marker: bool,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]

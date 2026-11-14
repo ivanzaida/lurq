@@ -114,7 +114,8 @@ impl LayoutEngine {
     node.children().iter().any(|child| {
       !child.is_overlay_declaration()
         && child.layout_cache.is_dirty()
-        && child.state_flex().is_some_and(|params| params.shrink > 0.0)
+        // A drop marker is laid out at zero size while the line drops nothing: that too is the line's choice.
+        && (child.state_flex().is_some_and(|params| params.shrink > 0.0) || child.shrink_rule().marker)
         && child.layout_cache.constraints().is_some_and(|constraints| {
           if vertical {
             constraints.min_height == constraints.max_height
@@ -198,17 +199,52 @@ impl LayoutEngine {
     self.collapsed_lines.borrow().contains(&node_key(node))
   }
 
-  /// What the overflow does to each shrinking child, by child index.
+  /// What the overflow does to each shrinking child, by child index; and to
+  /// the line's drop marker (`.drop_marker`), if it has one: the line gives
+  /// way without the marker's room first, and only when that drops a child
+  /// does it give way again with the marker in it. Otherwise the marker is
+  /// dropped.
   fn shrink_outcomes(&self, line: &FlexShrinkLine<'_>, results: &[ChildLayout]) -> Vec<(usize, ShrinkOutcome)> {
-    if line.shrink_total <= 0.0 || !line.max_main.is_finite() {
-      return Vec::new();
-    }
     let occupied = line
       .children
       .iter()
       .filter(|child| !child.is_overlay_declaration())
       .count();
-    let overflow = line.overflow;
+    let marker = line
+      .children
+      .iter()
+      .position(|child| !child.is_overlay_declaration() && child.shrink_rule().marker);
+    let Some(marker) = marker else {
+      return self.give_way(line, results, line.overflow, occupied);
+    };
+    // The marker's room: its size, and the spacing it takes beside another child.
+    let gap = if occupied > 1 { line.spacing } else { 0.0 };
+    let room = main_size(&results[marker].result, line.vertical) + gap;
+    let without = self.give_way(line, results, line.overflow - room, occupied - 1);
+    let dropped = without
+      .iter()
+      .any(|(_, outcome)| matches!(outcome, ShrinkOutcome::Drop | ShrinkOutcome::Collapsed(_)));
+    if dropped {
+      self.give_way(line, results, line.overflow, occupied)
+    } else {
+      let mut outcomes = without;
+      outcomes.push((marker, ShrinkOutcome::Drop));
+      outcomes
+    }
+  }
+
+  /// What `overflow` does to each shrinking child of a line that `occupied`
+  /// children take room in, by child index.
+  fn give_way(
+    &self,
+    line: &FlexShrinkLine<'_>,
+    results: &[ChildLayout],
+    overflow: f32,
+    occupied: usize,
+  ) -> Vec<(usize, ShrinkOutcome)> {
+    if line.shrink_total <= 0.0 || !line.max_main.is_finite() {
+      return Vec::new();
+    }
     // A collapsed line drops and collapses its children even when it fits.
     if overflow <= 0.0 && !line.collapsed {
       return Vec::new();
