@@ -39,7 +39,7 @@ const WIDTHS: [(&str, f32); 3] = [("240", 240.0), ("292", 292.0), ("340", 340.0)
 
 /// A popover opened and closed by an outlined button called `label`.
 fn with_trigger(label: &str, anchor: &ElementRef, open: &Signal<bool>) -> Popover {
-  Popover::new(anchor.clone(), open.clone()).trigger(Button::new(label).variant(ButtonVariant::Outline))
+  Popover::new(open.clone(), anchor.clone()).trigger(Button::new(label).variant(ButtonVariant::Outline))
 }
 
 /// The popover of the design: what it is about, and a field to set it.
@@ -58,6 +58,8 @@ pub struct PopoverPage {
   placement: Signal<Placement>,
   width: Signal<f32>,
   header: Signal<bool>,
+  dismiss_on_escape: Signal<bool>,
+  dismiss_on_outside_press: Signal<bool>,
   layer: Signal<String>,
   /// The popover of the design and the field in it.
   design: (ElementRef, Signal<bool>),
@@ -79,15 +81,18 @@ impl PopoverPage {
       self.header.get(),
       self.open.get(),
     );
+    let (on_escape, on_outside) = (self.dismiss_on_escape.get(), self.dismiss_on_outside_press.get());
     let placement_name = PLACEMENTS
       .iter()
       .find_map(|(name, held)| (*held == placement).then_some(*name))
       .unwrap_or("BottomStart");
     let plain = move |anchor: &ElementRef, open: &Signal<bool>, layer: &Signal<String>, trigger: Button| {
-      let mut popover = Popover::new(anchor.clone(), open.clone())
+      let mut popover = Popover::new(open.clone(), anchor.clone())
         .trigger(trigger)
         .placement(placement)
         .width(width)
+        .dismiss_on_escape(on_escape)
+        .dismiss_on_outside_press(on_outside)
         .child(Field::new("Width", Input::new(layer.clone()).full_width(true)).full_width(true));
       if header {
         popover = popover.title("Dimensions").description("Set the size of the layer.");
@@ -97,6 +102,7 @@ impl PopoverPage {
     let button = || Button::new("Dimensions").variant(ButtonVariant::Outline);
     // The trigger turns the signal; this handler of the page's is told of the press as well, before it.
     let (record, told) = (self.playground.recorder(), self.open.clone());
+    let dismissed = record.clone();
     let trigger = button().on_click(move |_| record(format!("open: {}", !told.get())));
     // Built on the stage, in the stage's theme: the field in it types in that theme's color.
     let shown = {
@@ -106,12 +112,16 @@ impl PopoverPage {
         self.open.clone(),
         self.layer.clone(),
       );
-      Shown::built(move |_| plain(&anchor, &open, &layer, trigger).into())
+      Shown::built(move |_| {
+        plain(&anchor, &open, &layer, trigger)
+          .on_dismiss(move || dismissed("on_dismiss()".to_owned()))
+          .into()
+      })
     };
 
     let mut code = vec![
-      "// anchor: ElementRef, open: Signal<bool>".to_owned(),
-      "Popover::new(anchor.clone(), open.clone())".to_owned(),
+      "// open: Signal<bool>, anchor: ElementRef".to_owned(),
+      "Popover::new(open.clone(), anchor.clone())".to_owned(),
       "    .trigger(Button::new(\"Dimensions\").variant(ButtonVariant::Outline))".to_owned(),
     ];
     if header {
@@ -124,6 +134,13 @@ impl PopoverPage {
     if width != 292.0 {
       code.push(format!("    .width({width:.1})"));
     }
+    if !on_escape {
+      code.push("    .dismiss_on_escape(false)".to_owned());
+    }
+    if !on_outside {
+      code.push("    .dismiss_on_outside_press(false)".to_owned());
+    }
+    code.push("    .on_dismiss(|| ..)".to_owned());
     code.push("    .child(Field::new(\"Width\", Input::new(width).full_width(true)).full_width(true))".to_owned());
 
     let mut tree = vec![format!("trigger   {}", self.playground.measured())];
@@ -133,7 +150,7 @@ impl PopoverPage {
       if open { "open" } else { "closed" }
     ));
     if header {
-      tree.push("├─ header".to_owned());
+      tree.push("├─ text".to_owned());
       tree.push("│  ├─ title         \"Dimensions\"".to_owned());
       tree.push("│  └─ description   \"Set the size of the layer.\"".to_owned());
     }
@@ -146,6 +163,7 @@ impl PopoverPage {
       self.header.clone(),
       self.open.clone(),
     );
+    let (to_escape, to_outside) = (self.dismiss_on_escape.clone(), self.dismiss_on_outside_press.clone());
     let (set_placement, set_width) = (self.placement.clone(), self.width.clone());
     self.playground.card(
       ctx,
@@ -159,7 +177,7 @@ impl PopoverPage {
         fill: false,
         forceable: false,
         facts: if open { "open".to_owned() } else { "closed".to_owned() },
-        event: "open",
+        event: "open / on_dismiss",
         code,
         tree,
         controls: vec![
@@ -179,16 +197,27 @@ impl PopoverPage {
           ),
           divider(),
           flag("title and description", &self.header),
+          flag("dismiss_on_escape", &self.dismiss_on_escape),
+          flag("dismiss_on_outside_press", &self.dismiss_on_outside_press),
           flag("open", &self.open),
         ],
-        changed: [placement != Placement::BottomStart, width != 292.0, !header, open]
-          .into_iter()
-          .filter(|changed| *changed)
-          .count(),
+        changed: [
+          placement != Placement::BottomStart,
+          width != 292.0,
+          !header,
+          !on_escape,
+          !on_outside,
+          open,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
         reset: Arc::new(move || {
           to_placement.set(Placement::BottomStart);
           to_width.set(292.0);
           to_header.set(true);
+          to_escape.set(true);
+          to_outside.set(true);
           to_open.set(false);
         }),
       },
@@ -208,6 +237,8 @@ impl Component for PopoverPage {
       placement: ctx.signal(Placement::BottomStart),
       width: ctx.signal(292.0),
       header: ctx.signal(true),
+      dismiss_on_escape: ctx.signal(true),
+      dismiss_on_outside_press: ctx.signal(true),
       layer: ctx.signal("320px".to_owned()),
       design: (ElementRef::new(), ctx.signal(false)),
       design_width: ctx.signal("320px".to_owned()),
@@ -262,16 +293,16 @@ impl Component for PopoverPage {
 
     let rows = [
       (
-        "anchor",
-        "impl Into<ElementRef>",
-        "",
-        "The element the popover is shown beside. A press of it is not a press outside the popover.",
-      ),
-      (
         "open",
         "Signal<bool>",
         "",
         "Whether it is shown. The app's: a press outside it or Escape sets it to false.",
+      ),
+      (
+        "anchor",
+        "impl Into<ElementRef>",
+        "",
+        "The element the popover is shown beside. A press of it is not a press outside the popover.",
       ),
       (
         "trigger",
@@ -290,7 +321,8 @@ impl Component for PopoverPage {
         "child",
         "impl Into<Element>",
         "",
-        "Something it holds, under the header: a field, a row of settings, anything.",
+        "Something it holds, under the title and the description: a field, a row of settings, anything. \
+         children adds several.",
       ),
       (
         "placement",
@@ -301,15 +333,49 @@ impl Component for PopoverPage {
       ("width", "impl Into<Length>", "292", "How wide the panel is."),
       (
         "offset",
-        "impl Into<SpacingValue>",
+        "f32, f32",
         "SpacingSize::Xs",
-        "How far it is from its anchor: 4 in the design's theme.",
+        "How far it is moved, across and down, from where its placement puts it. By default the theme's \
+         smallest spacing away from the anchor: 4 in the design's theme.",
       ),
       (
         "collision",
         "CollisionStrategy",
         "FlipThenClamp",
         "What it does where there is no room on its side.",
+      ),
+      (
+        "label",
+        "&str",
+        "the title",
+        "What tooling calls it, for one whose title is drawn by what it holds.",
+      ),
+      ("described", "&str", "", "What tooling says it is described by."),
+      (
+        "alert",
+        "bool",
+        "false",
+        "An alertdialog to tooling, and not a dialog: it asks something that has to be answered.",
+      ),
+      (
+        "on_dismiss",
+        "Fn()",
+        "",
+        "Runs after a person closed it by a press outside or Escape; not when the app sets the signal. Each one \
+         given runs, in order.",
+      ),
+      ("dismiss_on_escape", "bool", "true", "Whether Escape closes it."),
+      (
+        "dismiss_on_outside_press",
+        "bool",
+        "true",
+        "Whether a press outside it and its anchor closes it.",
+      ),
+      (
+        "inline",
+        "bool",
+        "false",
+        "Draws the panel where it is declared, open or not, without its trigger: for a gallery or a test.",
       ),
     ];
     let playground = self.play(ctx);
@@ -340,10 +406,10 @@ impl Component for PopoverPage {
           self.frame.demo(
             0,
             design,
-            "Popover::new(anchor, open).trigger(..).title(..).description(..).child(..)",
+            "Popover::new(open, anchor).trigger(..).title(..).description(..).child(..)",
             &[
-              "// anchor: ElementRef, open: Signal<bool>, width: Signal<String>",
-              "Popover::new(anchor.clone(), open.clone())",
+              "// open: Signal<bool>, anchor: ElementRef, width: Signal<String>",
+              "Popover::new(open.clone(), anchor.clone())",
               "    .trigger(Button::new(\"Dimensions\").variant(ButtonVariant::Outline))",
               "    .title(\"Dimensions\")",
               "    .description(\"Set the size of the layer.\")",
@@ -359,7 +425,7 @@ impl Component for PopoverPage {
             sides,
             ".placement(Placement::Top)",
             &[
-              "Popover::new(anchor.clone(), open.clone())",
+              "Popover::new(open.clone(), anchor.clone())",
               "    .trigger(Button::new(\"Top\").variant(ButtonVariant::Outline))",
               "    .placement(Placement::Top)",
               "    .width(200.0)",
@@ -377,7 +443,7 @@ impl Component for PopoverPage {
             ".child(Switch::new(\"Mentions\"))",
             &[
               "// mentions, replies: Signal<bool>",
-              "Popover::new(anchor.clone(), open.clone())",
+              "Popover::new(open.clone(), anchor.clone())",
               "    .trigger(Button::new(\"Notifications\").variant(ButtonVariant::Outline))",
               "    .title(\"Notifications\")",
               "    .description(\"What you are told of while you are away.\")",
@@ -389,7 +455,7 @@ impl Component for PopoverPage {
         Section::new(
           "Props",
           "What a popover is given.",
-          props_table(&rows, &["anchor", "open"], self.frame.room()),
+          props_table(&rows, &["open", "anchor"], self.frame.room()),
         ),
       ],
     )

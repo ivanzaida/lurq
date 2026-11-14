@@ -44,7 +44,7 @@ pub enum DatePickerPart {
   Clear,
   /// The glyph in it.
   ClearIcon,
-  /// What the picker says of the popover's panel the calendar is in: rules over its root.
+  /// What the picker says of the popover's panel the calendar is in: rules over its `Panel` part.
   Panel,
   /// The column of a range picker's presets, beside the calendar.
   Presets,
@@ -744,7 +744,7 @@ impl<V: Picked> PickerView<V> {
   /// The panel: a popover under the field, holding the presets, where there are any, beside the calendar. Escape and
   /// a press outside close it, and with the focus in it give the focus back to the field.
   pub fn panel(&self) -> Element {
-    let rules = self.recipe.rules_for(DatePickerPart::Panel, PopoverPart::Root);
+    let rules = self.recipe.rules_for(DatePickerPart::Panel, PopoverPart::Panel);
     let content: Element = match self.presets() {
       Some(presets) => Row::new()
         .align_items(Alignment::Stretch)
@@ -755,9 +755,9 @@ impl<V: Picked> PickerView<V> {
       None => self.calendar(),
     };
     let (draft, hover) = (self.model.draft.clone(), self.model.hover.clone());
-    let mut popover = Popover::new(self.kept.anchor.clone(), self.kept.open.clone())
+    let mut popover = Popover::new(self.kept.open.clone(), self.kept.anchor.clone())
       .placement(Placement::BottomStart)
-      .named(if self.calendar.is_range() {
+      .label(if self.calendar.is_range() {
         "Choose dates"
       } else {
         "Choose date"
