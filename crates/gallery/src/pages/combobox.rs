@@ -94,9 +94,11 @@ pub struct ComboboxPage {
   warning: Signal<bool>,
   valid: Signal<bool>,
   disabled: Signal<bool>,
+  read_only: Signal<bool>,
   full_width: Signal<bool>,
   loading: Signal<bool>,
   allow_custom: Signal<bool>,
+  clearable: Signal<bool>,
   framework: Signal<String>,
   country: Signal<String>,
   fetched: Signal<Vec<String>>,
@@ -115,10 +117,12 @@ impl ComboboxPage {
       ("invalid", self.invalid.get()),
       ("warning", self.warning.get()),
       ("valid", self.valid.get()),
+      ("read_only", self.read_only.get()),
       ("disabled", self.disabled.get()),
       ("full_width", self.full_width.get()),
       ("loading", self.loading.get()),
       ("allow_custom", self.allow_custom.get()),
+      ("clearable", self.clearable.get()),
     ];
     let on = |name: &str| flags.iter().any(|(flag, set)| *flag == name && *set);
     let make = {
@@ -127,18 +131,23 @@ impl ComboboxPage {
       move || {
         Combobox::new(value.clone(), frameworks())
           .placeholder(&placeholder)
-          .empty(&empty)
+          .empty_text(&empty)
           .size(size)
           .invalid(set[0])
           .warning(set[1])
           .valid(set[2])
-          .disabled(set[3])
-          .full_width(set[4])
-          .loading(set[5])
-          .allow_custom(set[6])
+          .read_only(set[3])
+          .disabled(set[4])
+          .full_width(set[5])
+          .loading(set[6])
+          .allow_custom(set[7])
+          .clearable(set[8])
       }
     };
-    let shown = make().force(self.playground.forced());
+    let record = self.playground.recorder();
+    let shown = make()
+      .on_change(move |value: &String| record(format!("on_change({value:?})")))
+      .force(self.playground.forced());
 
     let mut code = vec![
       "// framework: Signal<String>".to_owned(),
@@ -150,7 +159,7 @@ impl ComboboxPage {
     code.push("])".to_owned());
     code.push(format!("    .placeholder({placeholder:?})"));
     if empty != "No results" {
-      code.push(format!("    .empty({empty:?})"));
+      code.push(format!("    .empty_text({empty:?})"));
     }
     if size != ComboboxSize::Md {
       code.push(format!("    .size({size_code})"));
@@ -192,9 +201,11 @@ impl ComboboxPage {
         self.warning.clone(),
         self.valid.clone(),
         self.disabled.clone(),
+        self.read_only.clone(),
         self.full_width.clone(),
         self.loading.clone(),
         self.allow_custom.clone(),
+        self.clearable.clone(),
       ];
       move || {
         value.set(String::new());
@@ -225,7 +236,7 @@ impl ComboboxPage {
         fill: on("full_width"),
         forceable: true,
         facts: format!("{size_name} · radius 6"),
-        event: "value",
+        event: "on_change",
         code,
         tree,
         controls: vec![
@@ -240,7 +251,7 @@ impl ComboboxPage {
             ),
           ),
           prop("placeholder", "&str", field(&self.placeholder)),
-          prop("empty", "&str", field(&self.empty)),
+          prop("empty_text", "&str", field(&self.empty)),
           prop(
             "size",
             "ComboboxSize",
@@ -250,10 +261,12 @@ impl ComboboxPage {
           flag("invalid", &self.invalid),
           flag("warning", &self.warning),
           flag("valid", &self.valid),
+          flag("read_only", &self.read_only),
           flag("disabled", &self.disabled),
           flag("full_width", &self.full_width),
           flag("loading", &self.loading),
           flag("allow_custom", &self.allow_custom),
+          flag("clearable", &self.clearable),
         ],
         changed,
         reset: Arc::new(reset),
@@ -280,9 +293,11 @@ impl Component for ComboboxPage {
       warning: ctx.signal(false),
       valid: ctx.signal(false),
       disabled: ctx.signal(false),
+      read_only: ctx.signal(false),
       full_width: ctx.signal(false),
       loading: ctx.signal(false),
       allow_custom: ctx.signal(false),
+      clearable: ctx.signal(false),
       framework: ctx.signal("lurq".to_owned()),
       country: ctx.signal(String::new()),
       fetched: ctx.signal(Vec::new()),
@@ -328,8 +343,8 @@ impl Component for ComboboxPage {
       )
       .placeholder("Search countries")
       .filter(|_, _| true)
-      .empty("Type to search")
-      .on_input(move |typed| {
+      .empty_text("Type to search")
+      .on_query(move |typed| {
         let typed = typed.trim().to_lowercase();
         let found = COUNTRIES
           .iter()
@@ -406,7 +421,15 @@ impl Component for ComboboxPage {
         "value",
         "Signal<T>",
         "",
-        "What the combobox is bound to: the option with its value is chosen, and choosing another sets it.",
+        "What the combobox is bound to: the option with its value is chosen, and choosing another sets it. \
+         Combobox::optional binds a Signal<Option<T>>.",
+      ),
+      (
+        "controlled",
+        "(T, options, Fn(&T))",
+        "",
+        "Combobox::controlled: the app holds the value. A choice is told, and the box shows what the app answers \
+         with.",
       ),
       (
         "options",
@@ -429,10 +452,37 @@ impl Component for ComboboxPage {
          without regard to case.",
       ),
       (
-        "on_input",
+        "on_query",
         "Fn(&str)",
         "",
         "Called with what the box will hold at each edit: for an app that fetches its options.",
+      ),
+      (
+        "on_change",
+        "Fn(&T)",
+        "",
+        "Called with the new value when a person chooses, keeps a value of their own or clears it: not when the \
+         app sets it.",
+      ),
+      (
+        "on_submit",
+        "Fn(&str)",
+        "",
+        "Called on Enter with what the box holds, where Enter chooses nothing: the list closed, or nothing in it \
+         highlighted.",
+      ),
+      (
+        "clearable",
+        "bool",
+        "false",
+        "A cross at the end of the box that takes the value and what is typed away: None of an optional one, the \
+         empty text of a String.",
+      ),
+      (
+        "clear_label",
+        "&str",
+        "\"Clear\"",
+        "What the clear control is called to tooling.",
       ),
       (
         "loading",
@@ -441,7 +491,7 @@ impl Component for ComboboxPage {
         "The list ends in a row with a spinner that says more are loading.",
       ),
       (
-        "empty",
+        "empty_text",
         "&str",
         "\"No results\"",
         "What the list says while what is typed leaves no option.",
@@ -475,6 +525,12 @@ impl Component for ComboboxPage {
         "bool",
         "false",
         "Half the opacity on the muted fill; it does not open, and Tab passes it by.",
+      ),
+      (
+        "read_only",
+        "bool",
+        "false",
+        "What is chosen is read and not changed: the list does not open, and what is typed is not taken.",
       ),
       (
         "full_width",
@@ -581,12 +637,12 @@ impl Component for ComboboxPage {
         ),
         Section::new(
           "Options an app fetches",
-          "An app that asks a server hears what is typed (on_input), gives the options it fetched, and keeps every \
+          "An app that asks a server hears what is typed (on_query), gives the options it fetched, and keeps every \
            one of them (a filter that keeps all). Until something is typed the list says so.",
           self.frame.demo(
             3,
             fetching,
-            ".on_input(|typed| fetch(typed)).filter(|_, _| true)",
+            ".on_query(|typed| fetch(typed)).filter(|_, _| true)",
             &[
               "// country: Signal<String>, fetched: Signal<Vec<String>>",
               "Combobox::new(",
@@ -595,8 +651,8 @@ impl Component for ComboboxPage {
               ")",
               ".placeholder(\"Search countries\")",
               ".filter(|_, _| true)",
-              ".empty(\"Type to search\")",
-              ".on_input(move |typed| fetched.set(search(typed)))",
+              ".empty_text(\"Type to search\")",
+              ".on_query(move |typed| fetched.set(search(typed)))",
             ],
           ),
         ),

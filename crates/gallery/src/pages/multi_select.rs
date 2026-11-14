@@ -91,6 +91,7 @@ pub struct MultiSelectPage {
   warning: Signal<bool>,
   valid: Signal<bool>,
   disabled: Signal<bool>,
+  read_only: Signal<bool>,
   full_width: Signal<bool>,
   clearable: Signal<bool>,
   loading: Signal<bool>,
@@ -110,6 +111,7 @@ impl MultiSelectPage {
       ("invalid", self.invalid.get()),
       ("warning", self.warning.get()),
       ("valid", self.valid.get()),
+      ("read_only", self.read_only.get()),
       ("disabled", self.disabled.get()),
       ("full_width", self.full_width.get()),
       ("clearable", self.clearable.get()),
@@ -126,17 +128,21 @@ impl MultiSelectPage {
           .invalid(set[0])
           .warning(set[1])
           .valid(set[2])
-          .disabled(set[3])
-          .full_width(set[4])
-          .clearable(set[5])
-          .loading(set[6]);
+          .read_only(set[3])
+          .disabled(set[4])
+          .full_width(set[5])
+          .clearable(set[6])
+          .loading(set[7]);
         if let Some(most) = most {
           select = select.max_shown(most);
         }
         select
       }
     };
-    let shown = make().force(self.playground.forced());
+    let record = self.playground.recorder();
+    let shown = make()
+      .on_change(move |values: &[String]| record(format!("on_change({values:?})")))
+      .force(self.playground.forced());
 
     let mut code = vec![
       "// languages: Signal<Vec<String>>".to_owned(),
@@ -186,6 +192,7 @@ impl MultiSelectPage {
         self.warning.clone(),
         self.valid.clone(),
         self.disabled.clone(),
+        self.read_only.clone(),
         self.full_width.clone(),
         self.clearable.clone(),
         self.loading.clone(),
@@ -223,7 +230,7 @@ impl MultiSelectPage {
         fill: on("full_width"),
         forceable: true,
         facts: format!("{size_name} · radius 6"),
-        event: "value",
+        event: "on_change",
         code,
         tree,
         controls: vec![
@@ -249,6 +256,7 @@ impl MultiSelectPage {
           flag("invalid", &self.invalid),
           flag("warning", &self.warning),
           flag("valid", &self.valid),
+          flag("read_only", &self.read_only),
           flag("disabled", &self.disabled),
           flag("full_width", &self.full_width),
           flag("clearable", &self.clearable),
@@ -267,7 +275,6 @@ impl Component for MultiSelectPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 1);
     let value = ctx.signal(owned(&["rust", "wgsl"]));
-    playground.watch(ctx, &value, |value: &Vec<String>| format!("value = {value:?}"));
     Self {
       frame: Frame::new(ctx),
       playground,
@@ -279,6 +286,7 @@ impl Component for MultiSelectPage {
       warning: ctx.signal(false),
       valid: ctx.signal(false),
       disabled: ctx.signal(false),
+      read_only: ctx.signal(false),
       full_width: ctx.signal(false),
       clearable: ctx.signal(false),
       loading: ctx.signal(false),
@@ -398,20 +406,39 @@ impl Component for MultiSelectPage {
         "Which options are shown while something is typed: (label, typed).",
       ),
       (
-        "on_input",
+        "on_query",
         "Fn(&str)",
         "",
         "Called with what the box will hold at each edit.",
       ),
       (
-        "loading / empty",
+        "on_change",
+        "Fn(&[T])",
+        "",
+        "Called with the whole new set when a person chooses, takes a tag away or clears: not when the app sets it.",
+      ),
+      (
+        "controlled",
+        "(Vec<T>, options, Fn(&[T]))",
+        "",
+        "MultiSelect::controlled: the app holds the values. A change is told, and the box shows what the app \
+         answers with.",
+      ),
+      (
+        "clear_label",
+        "&str",
+        "\"Clear\"",
+        "What the clear control is called to tooling.",
+      ),
+      (
+        "loading / empty_text",
         "bool / &str",
         "false / \"No results\"",
         "The row at the end of the list: a spinner while more are loading, or what it says while there are none.",
       ),
       (
         "size",
-        "ComboboxSize",
+        "MultiSelectSize",
         "Md",
         "Sm 32, Md 36, Lg 40 high at least, with tags of 20, 24, 28.",
       ),
@@ -426,6 +453,12 @@ impl Component for MultiSelectPage {
         "bool",
         "false",
         "Half the opacity on the muted fill; it does not open, and its tags stay.",
+      ),
+      (
+        "read_only",
+        "bool",
+        "false",
+        "What is chosen is read and not changed: the list does not open, and the tags have no cross.",
       ),
       (
         "full_width",

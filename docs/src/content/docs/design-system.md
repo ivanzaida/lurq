@@ -824,13 +824,20 @@ Select::new(platform.clone(), [
   SelectOption::new("linux".to_owned(), "Linux"),
   SelectOption::new("ios".to_owned(), "iOS").group("Mobile").hint("beta"),
 ]);
+
+// Held by the app: it is told of a choice, and the trigger shows what it answers with.
+Select::controlled(rows, [(10, "10"), (20, "20"), (50, "50")], move |rows| set_rows(*rows));
 ```
 
 | Builder | |
 | --- | --- |
 | `new(Signal<T>, options)` | What it is bound to, and its options: `(value, label)` pairs or `SelectOption`s (`detail`, a second line; `hint`, a note at its end; `leading` and `trailing`, an element before and after the label, which the closed select shows for the chosen option, and `leading_with` and `trailing_with` for one built for the state of its row, as an [icon](#icon) in the color of the label is; `group(label)`, the group it starts; `disabled`). The option whose value the signal has is chosen; choosing another sets the signal |
+| `optional(Signal<Option<T>>, options)` | Bound to a value that may be none: `None` is no option's, and the trigger shows the placeholder |
+| `controlled(value, options, on_change)` | The app holds the value: a choice is told to `on_change`, and the trigger shows what the app answers with. Two built at one place in the app's code, in a loop, are told apart by their `id` or `key` |
+| `on_change(Fn(&T))` | Called with the new value when a person chooses: not when the app sets the signal, and not for the option chosen already. The handler names the type of the value, `on_change(\|theme: &String\| ..)`, `&Option<T>` of an optional one; a handler of another type panics. A second handler is called after the first |
 | `placeholder(&str)` | What the trigger says while no option is chosen |
-| `size(SelectSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15: an input's sizes |
+| `size(SelectSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15: an input's sizes. `SelectSize` is `TextBoxSize` |
+| `read_only(bool)` | What is chosen is read and not changed: the list does not open. It keeps the focus; the trigger is on `Muted` in an edge of `Border`, as a read only input is |
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what is chosen: the edge and the ring in the destructive, warning or success color. One is shown, in that order, as an input shows them |
 | `full_width(bool)` | As wide as what holds it, in place of 260 |
 | `label(&str)` | What it is called, to what reads the tree. The field it is in shows its label |
@@ -839,10 +846,10 @@ Select::new(platform.clone(), [
 
 - It is the engine's [`Select`](../styling-events/#select) dressed by the recipe, not a second one: a press, or Enter, Space and the arrows from the keyboard, open the list under it (over it where there is no room); the arrows, Home, End and the first letters move through it, skipping disabled options and the groups' labels; Enter or a press chooses, and Escape closes. Tab closes it too and goes on to the next stop, as from a closed select. Tab reaches it wherever it is (`tab_index(0)`); a disabled one does not open and Tab passes it by.
 - It stands beside an [input](#input): the same box, sizes, edge, ring and judgments. The ring is a line of 2 inside the box in `Ring`, shown from the keyboard and while the list is open.
-- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Menu` (the panel: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `Disabled`, `FullWidth`, and of an item `Chosen` and `ItemDisabled`. Sizes: `SelectSize::Sm`, `Md`, `Lg`.
+- Parts: `SelectPart::Trigger` (the select's node and box: its size, edge, fill, padding, ring, opacity, cursor, the type of what it says, and in its gap the room before the chevron), `Value` and `Placeholder` (laid over the trigger's type and color), `Chevron` (its side and color), `Panel` (the panel of the list: fill, edge, corners, shadow, padding; its gap is the room under the trigger, its height the most it is before it scrolls), `Item` (an option: height, padding, corners, type, color; `hovered` is the item under the pointer or the keys; its gap is the room before the check), `Check` (the chosen item's mark), `Detail`, `Hint`, `Group` (a group's label), `Separator` (the line between groups: its fill, its height, and in its padding the room around it). States: `SelectState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts (`Item`, `Check`). Sizes: `SelectSize::Sm`, `Md`, `Lg`.
 - In the design the trigger is 260 by 36, `Background` in an edge of 1 in the `Input` color, `radius-md`, the text 12 from the edge in the body's type, the placeholder and a chevron of 16 in `MutedForeground`, 8 apart; `Ring` under the pointer; `Destructive`, `Warning` or `Success` for a judgment, under the pointer, in the focus and open too; disabled is half opaque on `Muted`. The list is 4 under it and as wide, on `Popover` in an edge of `Border`, `radius-lg`, with the theme's middle shadow and 4 of padding. An item is 32 high, its text 8 in, `radius-sm`, in the body's type, on `Highlight` under the pointer or the keys; the chosen one has a check of 16 in `Foreground` at its end, 8 after the label; a disabled one is at 0.45. A hint is 11 in the mono type in `MutedForeground`. A group's label is 11, semibold, in `MutedForeground`, in line with the items' text; a line of 1 in `Border` is between groups, 4 from each.
 - Its options follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch, the steps of a row of 36 (28, 36, 44, 48). The trigger is a control and keeps its size.
-- The engine paints the trigger, the panel and the rows itself, from its `SelectStyle`, not from nodes the recipe styles: of the trigger it takes the fill, the edge, the corners, the shadow, the ring and the padding, at rest, `hovered`, `focus_visible` and in the state `Open`; of an item, the fill, edge, corners, padding, height (at least), type, color and opacity, at rest, `hovered` and in the states `Chosen` and `ItemDisabled`; of a group's label, its padding, fill, type and color; of the separator, its fill, height and padding. A transition is not painted.
+- The engine paints the trigger, the panel and the rows itself, from its `SelectStyle`, not from nodes the recipe styles: of the trigger it takes the fill, the edge, the corners, the shadow, the ring and the padding, at rest, `hovered`, `focus_visible` and in the state `Open`; of an item, the fill, edge, corners, padding, height (at least), type, color and opacity, at rest, `hovered` and in the states `Selected` and `Disabled`; of a group's label, its padding, fill, type and color; of the separator, its fill, height and padding. A transition is not painted.
 - To what reads the tree (`lurq_snapshot` of the MCP server) it is a `combobox`, called by its label where it has one.
 - A renderer that draws another select starts from `view.select_style()`, the engine's `SelectStyle` the recipe makes, changes what it likes (another chevron, a menu as wide as its widest option), and builds it with `view.select(style)`, the engine's select bound to the value with the trigger's size, opacity and cursor.
 
@@ -2109,22 +2116,32 @@ Combobox::new(framework.clone(), [
 
 // Options an app fetches as a person types: it keeps all it was given.
 Combobox::new(country.clone(), fetched.get().iter().map(|name| (name.clone(), name.as_str())).collect::<Vec<_>>())
-  .on_input(move |typed| fetched.set(search(typed)))
+  .on_query(move |typed| fetched.set(search(typed)))
   .filter(|_, _| true)
   .loading(searching.get());
 
 // A value that is no option's: what is typed becomes the value of a combobox of String.
 Combobox::new(label.clone(), [SelectOption::new("bug".to_owned(), "bug")]).allow_custom(true);
+
+// One that may hold none, with a cross that takes it away, and Enter that submits what is typed.
+Combobox::optional(assignee.clone(), people)
+  .clearable(true)
+  .on_submit(|typed| search(typed));
 ```
 
 | Builder | |
 | --- | --- |
 | `Combobox::new(value, options)` | Bound to a `Signal<T>`: the option with its value is chosen, and choosing another sets it. The options are a [select](#select)'s: `(value, label)` or `SelectOption`s with a detail, a hint, elements before and after the label, a group they start, or disabled |
+| `optional(Signal<Option<T>>, options)`, `controlled(value, options, on_change)` | As a [select](#select)'s: a value that may be none; a value the app holds, whose answer the box shows |
+| `on_change(Fn(&T))` | Called with the new value when a person chooses an option, keeps a value of their own (`allow_custom`) or clears it: not when the app sets the signal, and not for what is chosen already. Its handler names the type of the value, as a select's does |
+| `on_submit(Fn(&str))` | Called on Enter with what the box holds, where Enter chooses nothing: the list is closed, or nothing in it is highlighted |
+| `clearable(bool)` | A cross at the end of the box, while something is chosen or typed, that takes the value and what is typed away: `None` of an optional combobox, the empty text of a combobox of `String`. One of a value that cannot be none has no cross. `clear_label(&str)` is what tooling calls it, "Clear" |
+| `read_only(bool)` | What is chosen is read and not changed: the list does not open, what is typed is not taken, and there is no cross |
 | `placeholder(&str)` | What the box says while nothing is typed |
 | `filter(Fn(&str, &str) -> bool)` | Which options are shown while something is typed, given the label and what is typed. By default the labels that contain it, without regard to case |
-| `on_input(Fn(&str))` | Called with what the box will hold at each edit: for an app that fetches its options |
+| `on_query(Fn(&str))` | Called with what the box will hold at each edit: for an app that fetches its options |
 | `loading(bool)` | The list ends in a row with a spinner, "Loading results…" (`loading_text(&str)` says otherwise) |
-| `empty(&str)` | What the list says while what is typed leaves no option: "No results" |
+| `empty_text(&str)` | What the list says while what is typed leaves no option: "No results" |
 | `allow_custom(bool)` | What is typed may be no option's: typing highlights nothing, and Enter or leaving keeps it. A label of an option, in any case, chooses the option; anything else becomes the value of a combobox of `String` |
 | `query(Signal<String>)` | Where the app keeps what is typed, to read or set it. Without one the combobox keeps it while it is in the tree, one for each signal of a value |
 | `size(ComboboxSize)` | `Sm` 32, `Md` 36 (the default), `Lg` 40 high, with text of 13, 14, 15 |
@@ -2135,11 +2152,11 @@ Combobox::new(label.clone(), [SelectOption::new("bug".to_owned(), "bug")]).allow
 - The box is a select's with a text input in it, which keeps the focus the whole time. A press anywhere on the box focuses the input and opens the list; typing opens it too and filters it, with the first option that can be chosen highlighted. Down and Up move the highlight, which a row shows as it shows the pointer; Enter chooses; Escape closes the list and a second Escape clears what was typed; Tab chooses nothing, closes the list and goes on.
 - Choosing puts the option's label in the box. While the box shows the chosen label the list opens whole; what is typed otherwise filters it. When the focus leaves, what was typed goes back to the chosen label, unless custom values are allowed. A group keeps its label over the first of its options that what is typed leaves.
 - It is a control a [field](#field) holds (`FieldControl`): the field names it, judges it and disables it.
-- Parts: `ComboboxPart::Trigger` (the box), `Value` (what is typed), `Placeholder`, `Chevron`, `Menu` (the panel of the list), `Item`, `Check`, `Detail`, `Hint`, `Group`, `Separator` (a select's, by the same names), `Status` (the row of no results or of loading) and `Spinner`. States: `ComboboxState::Open`, `Invalid`, `Warning`, `Valid`, `Disabled`, `FullWidth`, and of an item `Chosen` and `ItemDisabled`.
+- Parts: `ComboboxPart::Trigger` (the box), `Value` (what is typed), `Placeholder`, `Chevron`, `Panel` (the panel of the list), `Item`, `Check`, `Detail`, `Hint`, `Group`, `Separator` (a select's, by the same names), `Status` (the row of no results or of loading), `Spinner`, and `Clear` and `ClearIcon` (the cross of `clearable`). States: `ComboboxState::Open`, `Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`; an item's own `Selected` and `Disabled` are resolved on its parts.
 - In the design the box is a select's: 260 by 36, `Background` in an edge of 1 in `Input`, 6 round, its text 12 in, the placeholder in `MutedForeground`, two chevrons of 16 at its end; the ring's color under the pointer and a line of 2 inside it while the focus is in it or the list is open. The list is a select's: 4 under the box on `Popover`, 8 round, items of 32 on `Highlight` under the pointer or the keys, the chosen one with a check of 16 at its end. The status row is 32 high, 8 in, in `MutedForeground` at 13, its spinner 16 in `Foreground`.
 - Its options and the row that says there are none or that more are loading follow the [density](../theme/#density) as a select's do; the box is a control and keeps its size.
 - It is the engine's `Select` in its combobox mode (`Select::combobox`): one implementation of the list, its rows, groups, checks and adornments with the select's. To what reads the tree (`lurq_snapshot` of the MCP server) the box is a `combobox` with `expanded` while its list is open, the input in it a `textbox` called by the combobox's label, and the list a `listbox` of `option`s with `a11y_selected`, which says in `a11y_activedescendant` which option the keys are on.
-- A renderer that draws another combobox has `view.select_style()`, `view.input()` (the text input, with what leaving it does), `view.chevron()`, `view.status()`, `view.query()`, `view.shown()` (the labels the list shows) and `view.select(style, trigger)`, which builds the combobox and calls `trigger` with a `SelectTriggerState` whose `input` is the input to place.
+- A renderer that draws another combobox has `view.select_style()`, `view.input()` (the text input, with what leaving it and Enter do), `view.clear()`, `view.chevron()`, `view.status()`, `view.query()`, `view.shown()` (the labels the list shows) and `view.select(style, trigger)`, which builds the combobox and calls `trigger` with a `SelectTriggerState` whose `input` is the input to place.
 
 ## Multi Select
 
@@ -2156,27 +2173,31 @@ MultiSelect::new(languages.clone(), [
 ])
 .placeholder("Select languages")
 .max_shown(3)
-.clearable(true);
+.clearable(true)
+.on_change(|languages: &[String]| save(languages));
 ```
 
 | Builder | |
 | --- | --- |
 | `MultiSelect::new(value, options)` | Bound to a `Signal<Vec<T>>`: the options with its values are chosen, shown as tags in the order they were chosen; choosing one adds its value, or takes it out. The options are a select's |
+| `controlled(values, options, on_change)` | The app holds the values: a change is told to `on_change` with the whole new set, and the box shows what the app answers with |
+| `on_change(Fn(&[T]))` | Called with the whole new set when a person chooses an option, takes one back or away, or clears them: not when the app sets the signal. Its handler names the type of the values, `on_change(\|languages: &[String]\| ..)` |
+| `read_only(bool)` | What is chosen is read and not changed: the list does not open, what is typed is not taken, the tags have no cross and there is no clear control |
 | `placeholder(&str)` | What the box says while nothing is chosen and nothing is typed |
 | `max_shown(usize)` | How many tags the box shows: the rest are one tag that counts them, "+3" |
-| `clearable(bool)` | A cross at the end of the box, while something is chosen, that takes every value away |
-| `filter(..)`, `on_input(..)`, `loading(bool)`, `loading_text(&str)`, `empty(&str)`, `query(..)` | As a [combobox](#combobox) has them |
-| `size(ComboboxSize)` | `Sm` 32, `Md` 36, `Lg` 40 high at least, with tags of 20, 24, 28 |
+| `clearable(bool)` | A cross at the end of the box, while something is chosen, that takes every value away. `clear_label(&str)` is what tooling calls it, "Clear" |
+| `filter(..)`, `on_query(..)`, `loading(bool)`, `loading_text(&str)`, `empty_text(&str)`, `query(..)` | As a [combobox](#combobox) has them |
+| `size(MultiSelectSize)` | `Sm` 32, `Md` 36, `Lg` 40 high at least, with tags of 20, 24, 28 |
 | `invalid`, `warning`, `valid`, `disabled`, `full_width`, `label`, `name`, `state`, `style`, `rules`, `force`, `id`, `key` | As a combobox has them. A disabled one keeps its tags and takes none away; `full_width` is in place of 280 |
 
 - The box holds the chosen values as tags ([tag](#tag)s with `pill`), and a text input after them, which keeps the focus while the list is open. The tags go on to the next line where they do not fit, and the box grows with them.
 - Typing opens the list and filters it; Down and Up move the highlight; Enter or a press chooses an option or takes it back, and the list stays open while one chooses; a choice clears what was typed, and the list shows every option again. A tag's cross takes its value away, and so does Backspace in the empty input, the last one's. Escape closes the list and a second Escape clears what was typed; Tab goes on, and what was typed is cleared when the focus leaves. A press of a tag or of the clear control does not open the list.
 - The input is the one stop of Tab, as a [token input](#token-input)'s is: the tags are reached from it. With nothing typed, Left goes onto the last tag, drawn as its cross is when focused, and on to the ones before; Right goes back towards the input; Backspace or Delete takes away the tag the arrows are on, and they stay on the tag that takes its place. Typing leaves the tags.
 - It is a control a [field](#field) holds.
-- Parts: a combobox's, by the same names, and `MultiSelectPart::Check` (the box before a chosen option), `CheckIcon`, `Unchecked` (the box before one that is not), `Tags` (the lines of the tags and the input: its gap), `Tag` and `TagLabel` (what is laid over a tag's root and label), `Clear` and `ClearIcon`. Its states and sizes are a combobox's (`ComboboxState`, `ComboboxSize`).
+- Parts: a combobox's, by the same names, and `MultiSelectPart::Check` (the box before a chosen option), `CheckIcon`, `Unchecked` (the box before one that is not), `Tags` (the lines of the tags and the input: its gap), `Tag` and `TagLabel` (what is laid over a tag's root and label), `Clear` and `ClearIcon`. Its states and sizes are a combobox's: `MultiSelectState` is `ComboboxState`, `MultiSelectSize` is `ComboboxSize`.
 - In the design the box is a select's, 280 wide and at least 36 high, padded 6 at its start, 10 at its end and 6 over and under, a chevron down of 16 at its end. A tag is 24 high on `Secondary`, 4 round, padded 8 before its text of 13 in `SecondaryForeground` and 6 after its cross of 12 in `MutedForeground`; the tags are 6 apart, across and down, and what is typed keeps 48 on their line. The list is a select's, with a box of 16 before each option, 8 before its label, 4 round: `Background` in an edge of `Input`, and, chosen, `Primary` with a check of 12 in `PrimaryForeground`.
 - Its options follow the [density](../theme/#density) as a select's do.
-- It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear".
+- It is the engine's multiple `Select` in its combobox mode. To what reads the tree it is a `combobox` with `expanded`, its list a `listbox` of `option`s with `a11y_selected`, and each tag's cross a `button` called "Remove" and the tag's text; the clear control is a `button` called "Clear", or its `clear_label`.
 - A renderer that draws another multi select has `view.select_style()`, `view.input()`, `view.tags()`, `view.tag_rules()`, `view.clear()`, `view.chevron()`, `view.status()`, `view.chosen()`, `view.shown()`, `view.query()` and `view.select(style, trigger)`.
 
 ## Token Input

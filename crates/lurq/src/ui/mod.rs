@@ -192,7 +192,9 @@ pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState,
   MessageBoxView,
 };
-pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
+pub use multi_select::{
+  MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectSize, MultiSelectState, MultiSelectView,
+};
 pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, NavbarView};
 pub use navigation_menu::{
   NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,

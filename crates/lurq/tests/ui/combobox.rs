@@ -294,7 +294,7 @@ fn the_arrows_move_the_highlight_and_escape_closes_then_clears() {
 #[test]
 fn what_leaves_no_option_says_no_results_and_leaving_takes_back_what_was_typed() {
   let value = Signal::new("iced".to_owned());
-  let mut stage = page(&value, |combobox| combobox.empty("Nothing like it"));
+  let mut stage = page(&value, |combobox| combobox.empty_text("Nothing like it"));
   stage.key("Tab");
   stage.key("End");
   type_in(&mut stage, "zz");
@@ -330,7 +330,7 @@ fn the_app_filters_and_hears_what_is_typed() {
     let told = told.clone();
     combobox
       .filter(|label, typed| label.to_lowercase().starts_with(&typed.to_lowercase()))
-      .on_input(move |text| told.set(text.to_owned()))
+      .on_query(move |text| told.set(text.to_owned()))
   });
   stage.key("Tab");
   type_in(&mut stage, "e");
@@ -521,4 +521,165 @@ fn the_options_follow_the_density() {
       gpui.1 - lurq.1
     );
   }
+}
+
+/// What `told` was told, as it was told it.
+fn heard(told: &Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
+  told.lock().unwrap().clone()
+}
+
+/// A handler that keeps what it is told in `told`.
+fn hearing(told: &Arc<std::sync::Mutex<Vec<String>>>) -> impl Fn(&String) + Send + Sync + Clone + 'static {
+  let told = told.clone();
+  move |value: &String| told.lock().unwrap().push(value.clone())
+}
+
+#[test]
+fn on_change_is_told_a_persons_choice_and_a_kept_value_and_not_what_the_app_sets() {
+  let value = Signal::new(String::new());
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let hear = hearing(&told);
+  let mut stage = page(&value, move |combobox| {
+    combobox.allow_custom(true).on_change(hear.clone())
+  });
+  stage.click("framework");
+  let iced = middle_of(&stage, "Iced");
+  press_at(&mut stage, iced);
+  assert_eq!(value.get(), "iced");
+  assert_eq!(heard(&told), ["iced"]);
+
+  // A value of its own, kept on Enter. The list is closed: Escape clears what the box shows.
+  stage.key("Escape");
+  type_in(&mut stage, "Bevy");
+  stage.key("Enter");
+  assert_eq!(value.get(), "Bevy");
+  assert_eq!(heard(&told), ["iced", "Bevy"]);
+
+  // What the app sets is not told.
+  value.set("lurq".to_owned());
+  stage.pass();
+  assert_eq!(typed(&mut stage), "lurq");
+  assert_eq!(heard(&told).len(), 2);
+}
+
+#[test]
+fn a_controlled_combobox_shows_what_the_app_answers_with() {
+  // The app holds the framework, and answers Slint with lurq.
+  let held = Signal::new("gpui".to_owned());
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let (value, hear) = (held.clone(), hearing(&told));
+  let mut stage = Stage::new(move |_| {
+    let (answer, hear) = (value.clone(), hear.clone());
+    window()
+      .padding(8.0)
+      .child(
+        Combobox::controlled(value.get(), frameworks(), move |framework: &String| {
+          hear(framework);
+          answer.set(if framework == "slint" {
+            "lurq".to_owned()
+          } else {
+            framework.clone()
+          });
+        })
+        .id("framework"),
+      )
+      .into()
+  });
+  assert_eq!(typed(&mut stage), "GPUI");
+  stage.key("Tab");
+  stage.key("Escape");
+  type_in(&mut stage, "sli");
+  stage.key("Enter");
+  assert_eq!(heard(&told), ["slint"]);
+  assert_eq!(held.get(), "lurq");
+  stage.pass();
+  assert_eq!(
+    typed(&mut stage),
+    "lurq",
+    "the box shows the app's answer, not what was chosen"
+  );
+  assert_eq!(focused(&stage).as_deref(), Some("framework-input"));
+}
+
+#[test]
+fn enter_submits_what_the_box_holds_where_it_chooses_nothing() {
+  let value = Signal::new(String::new());
+  let submitted = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let submit = submitted.clone();
+  let mut stage = page(&value, move |combobox| {
+    let submit = submit.clone();
+    combobox.on_submit(move |text| submit.lock().unwrap().push(text.to_owned()))
+  });
+  stage.key("Tab");
+  type_in(&mut stage, "sli");
+  // The list is open on Slint, highlighted: Enter chooses it and submits nothing.
+  stage.key("Enter");
+  assert_eq!(value.get(), "slint");
+  assert!(heard(&submitted).is_empty());
+  // The list is closed: Enter submits what the box holds.
+  stage.key("Enter");
+  assert_eq!(heard(&submitted), ["Slint"]);
+}
+
+#[test]
+fn a_clearable_combobox_takes_the_value_and_what_is_typed_away() {
+  let value = Signal::new("gpui".to_owned());
+  let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let hear = hearing(&told);
+  let mut stage = page(&value, move |combobox| combobox.clearable(true).on_change(hear.clone()));
+  let close = glyph(&stage, icons::CLOSE);
+  assert!(stage.paints(&close), "a cross while something is chosen");
+  let cross = middle_of(&stage, &close);
+  press_at(&mut stage, cross);
+  assert_eq!(value.get(), "", "a combobox of String is cleared to the empty text");
+  assert_eq!(typed(&mut stage), "");
+  assert_eq!(heard(&told), [""]);
+  assert!(!is_open(&mut stage), "a press of the cross does not open the list");
+  assert!(!stage.paints(&close), "nothing is chosen: no cross");
+}
+
+#[test]
+fn an_optional_combobox_is_cleared_to_none_and_one_that_cannot_be_none_has_no_cross() {
+  let value: Signal<Option<String>> = Signal::new(Some("iced".to_owned()));
+  let (bound, count) = (value.clone(), Signal::new(3_u32));
+  let mut stage = Stage::new(move |_| {
+    window()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(
+        Combobox::optional(bound.clone(), frameworks())
+          .clearable(true)
+          .id("framework"),
+      )
+      .child(
+        Combobox::new(count.clone(), [(3_u32, "Three"), (4, "Four")])
+          .clearable(true)
+          .id("count"),
+      )
+      .into()
+  });
+  let close = glyph(&stage, icons::CLOSE);
+  let crosses = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == close))
+    .count();
+  assert_eq!(crosses, 1, "a value of u32 cannot be none: its combobox has no cross");
+  let cross = middle_of(&stage, &close);
+  press_at(&mut stage, cross);
+  assert_eq!(value.get(), None);
+}
+
+#[test]
+fn a_read_only_combobox_shows_its_value_and_takes_no_choice_and_no_typing() {
+  let value = Signal::new("gpui".to_owned());
+  let mut stage = page(&value, |combobox| combobox.read_only(true).clearable(true));
+  assert!(!stage.paints(&glyph(&stage, icons::CLOSE)), "no clear control");
+  stage.click("framework");
+  assert!(!is_open(&mut stage), "a press does not open the list");
+  stage.key("ArrowDown");
+  assert!(!is_open(&mut stage), "nor does Down");
+  type_in(&mut stage, "x");
+  assert_eq!(typed(&mut stage), "GPUI", "what is typed is not taken");
+  assert_eq!(value.get(), "gpui");
 }
