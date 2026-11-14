@@ -924,10 +924,9 @@ impl Component for ToolbarHost {
       let expanded = if self.open.get() { "true" } else { "false" };
       NodeUpdate::describe(&mut *element.node, Arc::from("a11y_expanded"), Arc::from(expanded));
       mark_stops(&mut element.node, &mut next, last, &self.last);
-      let element = Tooltip::new("More").side(TooltipSide::Bottom).mount(ctx, element);
-      // The menu hangs from a row of its own around the button: a tooltip anchored where the menu is would stand
-      // for it where the runtime looks for the layer that takes the focus, and Enter would leave it on More.
-      Some(Row::new().ref_element(self.anchor.clone()).child(element).into())
+      // The menu hangs from the button, and its tooltip is anchored to it too.
+      NodeUpdate::ref_element(&mut *element.node, self.anchor.clone());
+      Some(Tooltip::new("More").side(TooltipSide::Bottom).mount(ctx, element))
     } else {
       None
     };
