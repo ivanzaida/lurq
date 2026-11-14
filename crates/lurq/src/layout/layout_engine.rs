@@ -957,15 +957,16 @@ impl LayoutEngine {
     // cached constraints would have permitted count as conflicts, so nodes
     // legitimately clamped by their parent are left alone.
     if !local_dirty && let Some((cached_constraints, cached_size)) = node.layout_cache.cached_entry() {
+      let (fixed_width, fixed_height) = node.fixed_frame_size();
       let width_conflicts = matches!(
-        node.frame.width,
+        fixed_width,
         Some(Dimension::Px(px))
           if (cached_size.width - px).abs() > 0.5
             && px <= cached_constraints.max_width + 0.5
             && px >= cached_constraints.min_width - 0.5
       );
       let height_conflicts = matches!(
-        node.frame.height,
+        fixed_height,
         Some(Dimension::Px(px))
           if (cached_size.height - px).abs() > 0.5
             && px <= cached_constraints.max_height + 0.5
@@ -2417,12 +2418,13 @@ impl LayoutEngine {
     // per-node frame/cache check in `mark_layout_dirty` cannot catch this:
     // the stale geometry lives in the PARENT's cached tree, not in the
     // mismatched child's own cache.
-    if let Some(Dimension::Px(px)) = node.frame.width
+    let (fixed_width, fixed_height) = node.fixed_frame_size();
+    if let Some(Dimension::Px(px)) = fixed_width
       && (result.size.width - px).abs() > 0.5
     {
       return false;
     }
-    if let Some(Dimension::Px(px)) = node.frame.height
+    if let Some(Dimension::Px(px)) = fixed_height
       && (result.size.height - px).abs() > 0.5
     {
       return false;

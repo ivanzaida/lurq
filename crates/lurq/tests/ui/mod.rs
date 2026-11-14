@@ -42,6 +42,7 @@ mod sheet;
 mod skeleton;
 mod slider;
 mod spinner;
+mod splitter;
 mod stage;
 mod steps;
 mod switch;

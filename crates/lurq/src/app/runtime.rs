@@ -4602,8 +4602,14 @@ impl Tree {
     }
   }
 
+  /// The cursor the window shows: that of what is under the pointer, or, while an `on_drag_*` session holds
+  /// the pointer, the one it had where the drag began, over whatever the pointer crosses and outside the
+  /// window too.
   pub fn cursor(&self) -> CursorIcon {
-    self.cursor
+    match &self.active_drag {
+      Some(drag) => drag.cursor,
+      None => self.cursor,
+    }
   }
 
   pub fn clear_needs_redraw(&mut self) {
@@ -5506,6 +5512,7 @@ impl Tree {
               on_move: node.events.on_drag_move.clone(),
               on_end: node.events.on_drag_end.clone(),
               payload: node.drag_payload.clone(),
+              cursor: CursorIcon::Default,
             },
           )
         })
@@ -5600,10 +5607,12 @@ impl Tree {
     if let Some(drag) = pending_text_selection_drag {
       self.dragging_text_selection = Some(drag);
     }
-    if let Some((event, handler, drag)) = pending_drag {
+    if let Some((event, handler, mut drag)) = pending_drag {
       for handler in handler {
         handler.call(&event);
       }
+      // The cursor of the press is the drag's until the release, wherever the pointer goes.
+      drag.cursor = self.cursor;
       self.active_drag = Some(drag);
       self.needs_redraw = true;
     }
@@ -8962,6 +8971,8 @@ struct ActiveDrag {
   on_move: Vec<DragCallback>,
   on_end: Vec<DragCallback>,
   payload: Option<crate::app::events::DragPayload>,
+  /// The cursor under the pointer where the drag began, which the window shows until the release.
+  cursor: CursorIcon,
 }
 
 impl ActiveDrag {

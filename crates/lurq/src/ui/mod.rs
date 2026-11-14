@@ -72,6 +72,7 @@ mod sheet;
 mod skeleton;
 mod slider;
 mod spinner;
+mod splitter;
 mod steps;
 mod switch;
 mod tabs;
@@ -216,6 +217,9 @@ pub use spinner::{
   LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
   SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
   SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
+};
+pub use splitter::{
+  Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
 };
 pub use steps::{
   CurrentStep, Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView,

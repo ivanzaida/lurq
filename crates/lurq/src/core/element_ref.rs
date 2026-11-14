@@ -3,6 +3,8 @@ use std::sync::{
   atomic::{AtomicU64, Ordering},
 };
 
+use crate::node::dimension::Dimension;
+
 static OVERRIDE_CLEAR_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Default)]
@@ -51,6 +53,9 @@ struct ElementRefInner {
   focus_visible_within: bool,
   focus_visible_within_signal: Option<crate::core::Signal<bool>>,
   override_rect: Option<ElementRect>,
+  /// The width and the height the element is laid out at in place of those it was built with
+  /// ([`ElementRefMut::set_size`]).
+  size_override: (Option<Dimension>, Option<Dimension>),
   override_clear_generation: u64,
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
@@ -266,6 +271,12 @@ impl ElementRef {
     self.inner.read().unwrap().override_rect
   }
 
+  /// The width and the height [`ElementRefMut::set_size`] gave the element, each `None` where it is laid out
+  /// as it was built.
+  pub(crate) fn size_override(&self) -> (Option<Dimension>, Option<Dimension>) {
+    self.inner.read().unwrap().size_override
+  }
+
   pub(crate) fn override_clear_generation(&self) -> u64 {
     self.inner.read().unwrap().override_clear_generation
   }
@@ -392,6 +403,26 @@ impl ElementRefMut {
       width,
       height,
     });
+  }
+
+  /// Lays the element out `width` wide and `height` high in place of the width and the height it was built
+  /// with, until this is called again: `None` leaves that side as it was built. The least and the most size
+  /// it was built with still hold, and its parent places it as it would any element of that size. Nothing is
+  /// rendered again: the element and what holds it are laid out again at the next pass, which this asks for.
+  /// A splitter moves its panes so while a divider is dragged, without building what is in them again.
+  pub fn set_size(&self, width: Option<Dimension>, height: Option<Dimension>) {
+    let mut inner = self.inner.write().unwrap();
+    if inner.size_override == (width, height) {
+      return;
+    }
+    inner.size_override = (width, height);
+    inner.layout_dirty = true;
+    inner.layout_subscribers.mark();
+  }
+
+  /// The width and the height [`Self::set_size`] gave the element.
+  pub fn size(&self) -> (Option<Dimension>, Option<Dimension>) {
+    self.as_ref().size_override()
   }
 
   pub fn clear_bounds_override(&self) {

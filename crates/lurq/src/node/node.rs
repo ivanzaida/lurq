@@ -5054,6 +5054,21 @@ impl Node {
     &self.children
   }
 
+  /// The width and the height the node's ref gives it in place of those it was built with
+  /// (`ElementRefMut::set_size`).
+  pub(crate) fn size_override(&self) -> (Option<Dimension>, Option<Dimension>) {
+    self
+      .element_ref
+      .as_ref()
+      .map_or((None, None), CoreElementRef::size_override)
+  }
+
+  /// The width and the height the node is fixed at: those its ref gives it, or those it was built with.
+  pub(crate) fn fixed_frame_size(&self) -> (Option<Dimension>, Option<Dimension>) {
+    let (width, height) = self.size_override();
+    (width.or(self.frame.width), height.or(self.frame.height))
+  }
+
   pub(crate) fn element_override_rect(&self) -> Option<crate::core::ElementRect> {
     self.element_ref.as_ref().and_then(CoreElementRef::override_rect)
   }
@@ -5205,6 +5220,14 @@ impl Node {
       .state_styles
       .layout_frame(&self.style_state)
       .map_or(base, |frame| merge_frame(base, frame));
+    // A size its ref was given stands for the one it was built with (`ElementRefMut::set_size`).
+    let (width, height) = self.size_override();
+    if width.is_some() {
+      result.width = width;
+    }
+    if height.is_some() {
+      result.height = height;
+    }
     for (prop, val) in self.animation_overrides.iter() {
       match (prop, val) {
         (crate::animation::AnimatableProperty::Width, crate::animation::AnimatableValue::Float(v)) => {
