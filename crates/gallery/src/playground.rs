@@ -7,7 +7,10 @@
 //! page: the switch that draws the component in a state with nothing pointing
 //! at it, its measured size, the count of what it did, the tabs and Copy.
 
-use std::sync::Arc;
+use std::sync::{
+  Arc,
+  atomic::{AtomicU32, Ordering},
+};
 
 use lurq::{
   app::{
@@ -49,6 +52,8 @@ const FACTS: f32 = 36.0;
 const STAGE_PADDING: f32 = 32.0;
 /// How wide the panel of props is beside the stage.
 const PANEL: f32 = 320.0;
+/// How wide the card of the last playground laid out was, as the bits of an `f32`: 0 until one was.
+static LAST_ROOM: AtomicU32 = AtomicU32::new(0);
 
 /// What a page keeps between renders for its playground.
 pub struct Playground {
@@ -152,7 +157,8 @@ impl Playground {
       measured: ctx.signal("0 × 0 px".to_owned()),
       selects: (0..selects).map(|_| (ElementRef::new(), ctx.signal(false))).collect(),
       card: ElementRef::new(),
-      room: ctx.signal(0.0),
+      // A page opened after another starts with the width the last one measured: its card is as wide.
+      room: ctx.signal(f32::from_bits(LAST_ROOM.load(Ordering::Relaxed))),
       other: ctx.signal(false),
       opposite: Theme::new(),
     }
@@ -280,15 +286,22 @@ impl Playground {
     }
     // The canvas is at least the stage, so what fits is in its middle, and as large as what is on it, so
     // what does not fit is reached by scrolling and nothing of it is cut.
-    let mut canvas = Row::new()
-      .min_height(STAGE - FACTS)
+    let canvas = Row::new()
       .padding_horizontal(STAGE_PADDING)
       .align_items(Alignment::Center)
       .justify(Justify::Center)
       .child(held);
-    if room > 0.0 {
-      canvas = canvas.min_width(room);
-    }
+    // Until the card was laid out once nothing says how wide the stage is: the canvas is the stage then, which
+    // is where what fits stands on a canvas that scrolls too, so nothing moves when the width is known.
+    let canvas: Element = if room > 0.0 {
+      ScrollBoth::new(canvas.min_width(room).min_height(STAGE - FACTS))
+        .key("stage")
+        .width(FILL)
+        .height(STAGE - FACTS)
+        .into()
+    } else {
+      canvas.width(FILL).height(STAGE - FACTS).into()
+    };
     let measured = if spec.facts.is_empty() {
       self.measured()
     } else {
@@ -299,7 +312,7 @@ impl Playground {
       .height(STAGE)
       .background(PaletteColor::Canvas)
       .foreground(PaletteColor::Foreground)
-      .child(ScrollBoth::new(canvas).key("stage").width(FILL).height(STAGE - FACTS))
+      .child(canvas)
       .child(
         Row::new()
           .width(FILL)
@@ -432,6 +445,7 @@ impl Playground {
     self.card.observe_rect(move |rect| {
       if (room.get() - rect.width).abs() >= 0.5 {
         room.set(rect.width);
+        LAST_ROOM.store(rect.width.to_bits(), Ordering::Relaxed);
       }
     });
     // The window says whether the panel is beside the stage until the card was laid out once; from then
