@@ -182,6 +182,7 @@ pub struct TeachingTip {
   secondary: Option<Action>,
   on_dismiss: Vec<Closer>,
   dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
   close_button: bool,
   variant: Name,
   placement: Placement,
@@ -215,6 +216,7 @@ impl TeachingTip {
       secondary: None,
       on_dismiss: Vec::new(),
       dismiss_on_escape: true,
+      dismiss_on_outside_press: false,
       close_button: true,
       variant: TeachingTipVariant::Plain.into(),
       placement: Placement::Bottom,
@@ -294,8 +296,9 @@ impl TeachingTip {
     self
   }
 
-  /// What is told after its close control or Escape closed it: the signal is
-  /// `false` already. A second handler is called after the first.
+  /// What is told after its close control, Escape or a press outside it (where
+  /// [`dismiss_on_outside_press`](Self::dismiss_on_outside_press) says so) closed it: the signal is `false` already.
+  /// A second handler is called after the first.
   pub fn on_dismiss(mut self, on_dismiss: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_dismiss.push(Arc::new(on_dismiss));
     self
@@ -304,6 +307,13 @@ impl TeachingTip {
   /// Whether Escape closes it, as its close control does. It does by default.
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press outside it closes it, as its close control does. It does not by default: a press elsewhere
+  /// is the person going on with what they do beside it.
+  pub fn dismiss_on_outside_press(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_outside_press = dismiss;
     self
   }
 
@@ -935,14 +945,15 @@ impl Component for TeachingTipHost {
     let popup = Popup::new(tip.anchor.clone(), shown)
       .placement(tip.placement)
       .collision(tip.collision)
-      // A press elsewhere is the person going on with what they do beside it.
-      .dismiss_on_outside_click(false)
       .takes_focus(tip.takes_focus)
       // Without taking the focus, Tab goes from what it points at into its buttons.
       .tab_after_anchor(!tip.takes_focus);
     let popup = match layer {
-      Some(open) => popup.open(open).dismiss_on_escape(tip.dismiss_on_escape),
-      None => popup.open_when(false),
+      Some(open) => popup
+        .open(open)
+        .dismiss_on_escape(tip.dismiss_on_escape)
+        .dismiss_on_outside_click(tip.dismiss_on_outside_press),
+      None => popup.open_when(false).dismiss_on_outside_click(false),
     };
     Row::new().child(popup)
   }
@@ -1048,6 +1059,7 @@ pub struct Tour {
   collision: CollisionStrategy,
   arrow: bool,
   dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
   on_finish: Vec<Closer>,
   on_dismiss: Vec<Closer>,
   states: Vec<(Name, bool)>,
@@ -1071,6 +1083,7 @@ impl Tour {
       collision: CollisionStrategy::FlipThenClamp,
       arrow: true,
       dismiss_on_escape: true,
+      dismiss_on_outside_press: false,
       on_finish: Vec::new(),
       on_dismiss: Vec::new(),
       states: Vec::new(),
@@ -1150,6 +1163,12 @@ impl Tour {
     self
   }
 
+  /// Whether a press outside the step's tip leaves the tour. It does not by default.
+  pub fn dismiss_on_outside_press(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_outside_press = dismiss;
+    self
+  }
+
   /// What is told when the last step's button is pressed, after the signal is
   /// `None`; not when Escape leaves the tour. A second handler is called
   /// after the first.
@@ -1220,6 +1239,7 @@ impl Tour {
       .collision(self.collision)
       .arrow(self.arrow)
       .dismiss_on_escape(self.dismiss_on_escape)
+      .dismiss_on_outside_press(self.dismiss_on_outside_press)
       .rules(&self.rules);
     for (state, on) in &self.states {
       tip = tip.state(*state, *on);

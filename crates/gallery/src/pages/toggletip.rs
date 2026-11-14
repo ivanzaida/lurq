@@ -292,6 +292,12 @@ impl Component for ToggletipPage {
       ),
       ("dismiss_on_escape", "bool", "true", "Whether Escape closes it."),
       (
+        "dismiss_on_outside_press",
+        "bool",
+        "true",
+        "Whether a press outside it and its button closes it.",
+      ),
+      (
         "force_open",
         "Option<bool>",
         "None",

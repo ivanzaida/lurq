@@ -892,8 +892,8 @@ impl Build<'_> {
       .clone()
   }
 
-  /// What choosing `item` does: its handlers, its path, and closing the sidebar over the page. `None` for an
-  /// item that does nothing when it is chosen.
+  /// What choosing `item` does: closing the sidebar over the page first, then its handlers and its path, so that a
+  /// handler that reads the signal sees it closed. `None` for an item that does nothing when it is chosen.
   fn choose(&self, item: &SidebarItem) -> Option<Handler> {
     if item.disabled {
       return None;
@@ -905,15 +905,15 @@ impl Build<'_> {
     }
     let close = self.close.clone();
     Some(Arc::new(move || {
+      if let Some(close) = &close {
+        close.set(false);
+      }
       for handler in &handlers {
         handler();
       }
       #[cfg(feature = "router")]
       if let Some((path, navigator)) = &go {
         navigator.push(path.to_string());
-      }
-      if let Some(close) = &close {
-        close.set(false);
       }
     }))
   }

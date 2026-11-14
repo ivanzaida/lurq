@@ -317,6 +317,24 @@ fn without_dismiss_on_escape_escape_leaves_it_open() {
 }
 
 #[test]
+fn without_dismiss_on_outside_press_a_press_outside_leaves_it_open() {
+  let mut stage = stage(|| {
+    Toggletip::new("Help")
+      .text(SAYS)
+      .id("help")
+      .dismiss_on_outside_press(false)
+  });
+  stage.click("help");
+  stage.pass();
+  stage.click("outside");
+  stage.pass();
+  assert!(says(&stage).is_some(), "a press outside does not close it");
+  stage.key("Escape");
+  stage.pass();
+  assert!(says(&stage).is_none(), "Escape still does");
+}
+
+#[test]
 fn an_offset_stands_the_panel_that_far_from_the_button() {
   let mut stage = stage(|| {
     Toggletip::new("Help")

@@ -80,7 +80,7 @@ pub(crate) enum Content {
 ///
 /// let crates = Collapsible::new("3 crates in this workspace", Column::new())
 ///   .open(true)
-///   .on_change(|open| println!("open: {open}"));
+///   .on_open_change(|open| println!("open: {open}"));
 /// // A text in the body's type.
 /// let note = Collapsible::text("Why is this here?", "Because the build needs it.");
 /// # fn bound(details: lurq::core::Signal<bool>) {
@@ -91,7 +91,7 @@ pub(crate) enum Content {
 ///
 /// A collapsible does not keep whether it is open: the app says so with
 /// [`Collapsible::open`], or binds it to a signal with [`Collapsible::bind`],
-/// and is told of a press of the header with [`Collapsible::on_change`].
+/// and is told of a press of the header with [`Collapsible::on_open_change`].
 /// What it holds opens and closes with its height
 /// over the theme's duration, at once where motion is reduced; while it is
 /// closed it is not there, and the controls in it are not stops of Tab.
@@ -105,7 +105,7 @@ pub struct Collapsible {
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
-  on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   bound: Option<Signal<bool>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -133,7 +133,7 @@ impl Collapsible {
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
-      on_change: Vec::new(),
+      on_open_change: Vec::new(),
       bound: None,
       id: None,
       key: None,
@@ -147,8 +147,8 @@ impl Collapsible {
   }
 
   /// Open while `open` is true, which a press of the header turns. The handlers of
-  /// [`on_change`](Self::on_change) are told of a press after the signal is set; a value the app sets is told to
-  /// none of them.
+  /// [`on_open_change`](Self::on_open_change) are told of a press after the signal is set; a value the app sets is told
+  /// to none of them.
   pub fn bind(mut self, open: Signal<bool>) -> Self {
     self.open = open.get();
     self.bound = Some(open);
@@ -186,8 +186,8 @@ impl Collapsible {
   }
 
   /// Called on a press of the header, with what the collapsible is to be: open if it was closed.
-  pub fn on_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
-    self.on_change.push(Arc::new(handler));
+  pub fn on_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.on_open_change.push(Arc::new(handler));
     self
   }
 
@@ -241,9 +241,9 @@ impl Collapsible {
       _ => closed,
     };
     // A bound collapsible sets its signal first: its handlers are told of a press once it is so.
-    let mut on_change = self.on_change;
+    let mut on_open_change = self.on_open_change;
     if let Some(bound) = self.bound {
-      on_change.insert(0, Arc::new(move |next| bound.set(next)));
+      on_open_change.insert(0, Arc::new(move |next| bound.set(next)));
     }
     let view = CollapsibleView {
       label: self.label,
@@ -254,7 +254,7 @@ impl Collapsible {
       root: CollapsiblePart::Root.into(),
       body: Some(self.body),
       forced: self.forced,
-      on_change,
+      on_open_change,
       id: self.id,
       key: self.key,
     };
@@ -286,7 +286,7 @@ pub struct CollapsibleView {
   pub(crate) root: Name,
   body: Option<Content>,
   forced: Option<Interaction>,
-  on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -316,7 +316,7 @@ impl CollapsibleView {
       root,
       body: Some(body),
       forced,
-      on_change: vec![press],
+      on_open_change: vec![press],
       id,
       key,
     }
@@ -333,7 +333,7 @@ impl CollapsibleView {
 
   /// What a press does: every handler is told what the collapsible is to be.
   fn press(&self) -> Option<impl Fn() + Send + Sync + Clone + 'static> {
-    let (handlers, next) = (self.on_change.clone(), !self.open);
+    let (handlers, next) = (self.on_open_change.clone(), !self.open);
     (!handlers.is_empty() && !self.disabled).then(|| {
       move || {
         for handler in &handlers {

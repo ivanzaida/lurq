@@ -54,7 +54,7 @@ fn faq(open: &Signal<Option<u8>>) -> Stage {
     Column::new()
       .padding(8.0)
       .child(
-        Accordion::new(open.clone(), items())
+        Accordion::optional(open.clone(), items())
           .style(AccordionPart::Root, |s| s.width(360.0))
           .id("faq"),
       )
@@ -192,22 +192,24 @@ fn any_number_are_open_in_an_accordion_of_several() {
 
 #[test]
 fn a_controlled_accordion_shows_what_the_app_says_and_tells_it_what_is_to_be_open() {
-  let told: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+  let told: Arc<Mutex<Vec<Option<u8>>>> = Arc::new(Mutex::new(Vec::new()));
   let tell = told.clone();
   let mut stage = Stage::new(move |_| {
     let tell = tell.clone();
     Column::new()
       .padding(8.0)
-      .child(Accordion::controlled([1], items(), move |open| {
-        tell.lock().unwrap().push(open.to_vec())
-      }))
+      .child(Accordion::controlled_optional(
+        Some(1),
+        items(),
+        move |open: &Option<u8>| tell.lock().unwrap().push(*open),
+      ))
       .into()
   });
   assert!(stage.paints(DARK_ANSWER));
-  // One at a time: a press of another is told that one alone, a press of the open one none.
+  // One at a time: a press of another is told that one, a press of the open one none.
   press(&mut stage, GPU);
   press(&mut stage, DARK);
-  assert_eq!(*told.lock().unwrap(), [vec![0], vec![]]);
+  assert_eq!(*told.lock().unwrap(), [Some(0), None]);
   // The app opened nothing and closed nothing.
   assert!(stage.paints(DARK_ANSWER) && !stage.paints(GPU_ANSWER));
 }
@@ -236,7 +238,8 @@ fn a_controlled_accordion_of_several_is_told_the_whole_set() {
 
 #[test]
 fn on_change_is_told_what_a_person_opens_and_not_what_the_app_sets() {
-  let told: Arc<Mutex<Vec<(&str, Vec<u8>)>>> = Arc::new(Mutex::new(Vec::new()));
+  // One at a time: the accordion's value, the item open or none.
+  let told: Arc<Mutex<Vec<(&str, Option<u8>)>>> = Arc::new(Mutex::new(Vec::new()));
   let (tell, open) = (told.clone(), Signal::new(None));
   let read = open.clone();
   let mut stage = Stage::new(move |_| {
@@ -244,18 +247,18 @@ fn on_change_is_told_what_a_person_opens_and_not_what_the_app_sets() {
     Column::new()
       .padding(8.0)
       .child(
-        Accordion::new(read.clone(), items())
-          .on_change(move |open| first.lock().unwrap().push(("first", open.to_vec())))
-          .on_change(move |open| second.lock().unwrap().push(("second", open.to_vec()))),
+        Accordion::optional(read.clone(), items())
+          .on_change(move |open: &Option<u8>| first.lock().unwrap().push(("first", *open)))
+          .on_change(move |open: &Option<u8>| second.lock().unwrap().push(("second", *open))),
       )
       .into()
   });
   press(&mut stage, GPU);
   assert_eq!(open.get(), Some(0), "the signal is set");
-  assert_eq!(*told.lock().unwrap(), [("first", vec![0]), ("second", vec![0])]);
+  assert_eq!(*told.lock().unwrap(), [("first", Some(0)), ("second", Some(0))]);
   press(&mut stage, GPU);
   assert_eq!(open.get(), None);
-  assert_eq!(told.lock().unwrap()[2..], [("first", vec![]), ("second", vec![])]);
+  assert_eq!(told.lock().unwrap()[2..], [("first", None), ("second", None)]);
   // The app opens one: nothing is told.
   open.set(Some(2));
   stage.pass();
@@ -284,7 +287,7 @@ fn a_named_accordion_is_a_group_of_that_name() {
   let mut stage = Stage::new(move |_| {
     Column::new()
       .padding(8.0)
-      .child(Accordion::new(read.clone(), items()).label("Questions").id("faq"))
+      .child(Accordion::optional(read.clone(), items()).label("Questions").id("faq"))
       .into()
   });
   let mut said = |name: &str| {
@@ -304,7 +307,7 @@ fn a_forced_focus_draws_the_ring_on_the_first_header_tab_stops_on() {
     Column::new()
       .padding(8.0)
       .child(
-        Accordion::controlled(
+        Accordion::controlled_optional(
           None,
           [gpu.disabled(true).id("gpu"), dark.id("dark"), theme.id("theme")],
           |_| {},
@@ -338,7 +341,7 @@ fn a_state_of_the_app_styles_every_item() {
     Column::new()
       .padding(8.0)
       .child(
-        Accordion::controlled([0], items(), |_| {})
+        Accordion::controlled_optional(Some(0), items(), |_| {})
           .rules(&Recipe::new().state("roomy", AccordionPart::Label, |s| s.font_size(16.0)))
           .state("roomy", true),
       )
@@ -385,7 +388,7 @@ fn with_a_button(open: &Signal<Option<u8>>, pressed: &Arc<Mutex<u32>>) -> Stage 
     );
     Column::new()
       .padding(8.0)
-      .child(Accordion::new(
+      .child(Accordion::optional(
         read.clone(),
         [
           AccordionItem::new(0, GPU, inside),
@@ -448,7 +451,7 @@ fn a_disabled_item_or_accordion_takes_nothing() {
     let [gpu, dark, theme] = items();
     Column::new()
       .padding(8.0)
-      .child(Accordion::new(read.clone(), [gpu, dark.disabled(true), theme]))
+      .child(Accordion::optional(read.clone(), [gpu, dark.disabled(true), theme]))
       .into()
   });
   press(&mut stage, DARK);
@@ -464,7 +467,7 @@ fn a_disabled_item_or_accordion_takes_nothing() {
   let mut stage = Stage::new(move |_| {
     Column::new()
       .padding(8.0)
-      .child(Accordion::new(read.clone(), items()).disabled(true))
+      .child(Accordion::optional(read.clone(), items()).disabled(true))
       .into()
   });
   press(&mut stage, GPU);
@@ -542,7 +545,7 @@ fn a_rule_of_the_app_styles_a_part_of_every_item() {
     Column::new()
       .padding(8.0)
       .child(
-        Accordion::new(read.clone(), items())
+        Accordion::optional(read.clone(), items())
           .style(AccordionPart::Label, |s| s.font_size(16.0))
           .style(AccordionPart::Body, |s| s.foreground(PaletteColor::Primary)),
       )
@@ -565,7 +568,7 @@ fn crates(open: &Signal<bool>, disabled: bool) -> Stage {
           .disabled(disabled)
           .id("crates")
           .style(CollapsiblePart::Root, |s| s.width(280.0))
-          .on_change(move |next| set.set(next)),
+          .on_open_change(move |next| set.set(next)),
       )
       .into()
   })
@@ -662,7 +665,7 @@ fn a_theme_gives_the_collapsible_another_anatomy_and_it_still_opens() {
       .child(
         Collapsible::text("Details", "More")
           .id("details")
-          .on_change(move |next| told.lock().unwrap().push(next)),
+          .on_open_change(move |next| told.lock().unwrap().push(next)),
       )
       .into()
   });
@@ -682,7 +685,7 @@ fn a_headers_height_follows_the_density() {
     let stage = Stage::in_app(app, move |_| {
       Column::new()
         .padding(8.0)
-        .child(Accordion::new(open.clone(), items()).style(AccordionPart::Root, |s| s.width(360.0)))
+        .child(Accordion::optional(open.clone(), items()).style(AccordionPart::Root, |s| s.width(360.0)))
         .into()
     });
     top(&stage, DARK) - top(&stage, GPU)

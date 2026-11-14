@@ -1231,26 +1231,26 @@ form, settings in groups. One item is open at a time, or any number.
 use lurq::ui::{Accordion, AccordionItem};
 
 // One open at a time, or none: open is a Signal<Option<u8>>, which a press sets.
-Accordion::new(open, [
+Accordion::optional(open, [
   AccordionItem::text(0, "Is lurq GPU-accelerated?", "Yes. Rendering goes through wgpu."),
   AccordionItem::text(1, "Does it support dark mode?", "Every theme has two appearances."),
   AccordionItem::new(2, "Can I bring my own theme?", theme_form).disabled(locked),
 ]);
 
-// Any number open: sections is a Signal<Vec<&str>>. Each press is told what is open after it.
+// Any number open: sections is a Signal<Vec<&str>>. Each press is told the whole set open after it.
 Accordion::multiple(sections, [
   AccordionItem::text("billing", "Billing", "Card, address and invoices."),
   AccordionItem::text("shipping", "Shipping", "Where the order goes."),
 ])
-.on_change(|open| save(open));
+.on_change(|open: &[&str]| save(open));
 ```
 
 | Builder | |
 | --- | --- |
-| `Accordion::new(Signal<Option<T>>, items)` | One item open at a time: the one whose value the signal has, or none. A press of another opens it and closes the one that was open; a press of the open one closes it |
+| `Accordion::optional(Signal<Option<T>>, items)` | One item open at a time: the one whose value the signal has, or none. A press of another opens it and closes the one that was open; a press of the open one closes it. An accordion has no form of which one must be open, so it has no plain `new` |
 | `Accordion::multiple(Signal<Vec<T>>, items)` | Any number open: those whose values the signal has. A press opens an item, or closes it |
-| `Accordion::controlled(open, items, on_change)`, `Accordion::controlled_multiple(open, items, on_change)` | The app holds what is open, one at a time or any number: the items of `open` are, and `on_change` is told the values that are to be open after a press of a header. The accordion opens and closes nothing itself |
-| `on_change(Fn(&[T]))` | Told the values of every item open after a press of a header, the whole set, once the signal is set. Not what the app sets. A second one is called after the first |
+| `Accordion::controlled_optional(Option<T>, items, on_change)`, `Accordion::controlled_multiple(open, items, on_change)` | The app holds what is open, one at a time or any number, and `on_change` is told what is to be open after a press of a header: the item or none, or the whole set. The accordion opens and closes nothing itself |
+| `on_change(Fn(&Option<T>))`, `on_change(Fn(&[T]))` | Told the accordion's value after a press of a header, once the signal is set: the item open or none for one at a time (an `Accordion<T>`), every item open for any number (an `Accordion<T, [T]>`), checked by the compiler. Not what the app sets. A second one is called after the first |
 | `label(&str)` | What the accordion is called, to what reads the tree: a `group` of that name |
 | `AccordionItem::new(value, label, content)`, `AccordionItem::text(value, label, body)` | An item: its value, what its header says, and what it shows while it is open, an element or a text. `disabled(bool)`, `id` (its header's) and `key` on an item |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` is every header's; `state` is every item's; `force` draws the header Tab stops on first, that of the first item that is not disabled |
@@ -1292,15 +1292,15 @@ Collapsible::new("3 crates in this workspace", crates).bind(open);
 // The app holds whether it is open.
 Collapsible::text("Why is this here?", "Because the build needs it.")
   .open(shown)
-  .on_change(move |next| show(next));
+  .on_open_change(move |next| show(next));
 ```
 
 | Builder | |
 | --- | --- |
 | `Collapsible::new(label, content)`, `Collapsible::text(label, body)` | A header that says `label`, and what it shows while it is open: an element or a text |
 | `open(bool)` | Whether what it holds is shown. The collapsible does not keep it: the app says so |
-| `bind(Signal<bool>)` | Open while the signal is true, which a press of the header turns; the handlers of `on_change` are told after it is set |
-| `on_change(handler)` | Called on a press of the header with what the collapsible is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
+| `bind(Signal<bool>)` | Open while the signal is true, which a press of the header turns; the handlers of `on_open_change` are told after it is set |
+| `on_open_change(Fn(bool))` | Called on a press of the header with what the collapsible is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
 | `icon(..)`, `open_icon(..)` | The icon of the chevron by its name in the theme's set, `chevrons-vertical` unless told otherwise, and the one while it is open, the same unless told otherwise. `icon(None)` takes the chevron away |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the header |
 
@@ -3011,7 +3011,7 @@ let help = Toggletip::new("What is a workspace?")
 | `offset(..)`, `collision(CollisionStrategy)` | How far the panel stands from the button in place of the theme's 6, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle from the panel to the button: the tooltip's |
 | `on_dismiss(Fn())` | Told after a person closed it: another press of its button, a press outside it, Escape. A second handler is called after the first |
-| `dismiss_on_escape(bool)` | Whether Escape closes it: on by default |
+| `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape, and a press outside it and its button, close it: both on by default |
 | `force_open(Option<bool>)` | `Some(true)` shows the panel whatever the button says, `Some(false)` never |
 | `disabled(bool)` | The button takes nothing |
 | `force(Option<Interaction>)` | Draws its button hovered, pressed or focused with nothing on it |
@@ -3057,8 +3057,9 @@ let tour = Tour::new(step.clone())
 | `child(element)`, `children(..)` | What it holds under the description |
 | `step(n, of)` | That it is a step of several: "2 of 4" in its footer, in the tour's look |
 | `primary(&str, Fn())`, `secondary(&str, Fn())` | The button that goes on, and the one before it, and what a press of each does |
-| `on_dismiss(Fn())` | Told after its close control or Escape closed it: the signal is `false` already. A second handler is called after the first |
+| `on_dismiss(Fn())` | Told after its close control, Escape or a press outside it closed it: the signal is `false` already. A second handler is called after the first |
 | `dismiss_on_escape(bool)` | Whether Escape closes it, as its close control does: on by default |
+| `dismiss_on_outside_press(bool)` | Whether a press outside it closes it: off by default, since a press elsewhere is the person going on with what they do beside it |
 | `close_button(bool)` | A close control at the end of its title: on by default |
 | `variant(TeachingTipVariant)` | `Plain` (the default), in the popover's colors, or `Primary` |
 | `placement(Placement)` | The side of what it points at it is on and the edge it lines up with: `Bottom`, centered, by default |
@@ -3072,7 +3073,7 @@ let tour = Tour::new(step.clone())
 - It does not keep whether it is open: the app's signal does. Its close control and Escape close it: they set the signal to `false` and then tell `on_dismiss`, so that a handler that opens something else does not have it closed under it. A press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
 - It does not take the focus unless the app says so: Tab goes from what it points at into its buttons and on (`Overlay::tab_after_anchor`). With `takes_focus(true)` the focus goes into it as it opens and back to what had it as it closes.
 - To what reads the tree it is a `dialog` called by its label or else its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
-- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on). `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
+- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on; `dismiss_on_outside_press(true)` leaves it on a press outside the tip, as Escape does). `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
 - Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows, and a `Tour` the panel of the step its signal says, or of its first step while it says none.
 - Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
 - In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
@@ -3243,7 +3244,7 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 - The items are a tree to the keyboard (`FocusGroup::vertical().one_stop(true).typeahead(true).nested(true)`, each item at its `focus_level`, one with nested items `focus_expanded`): Tab stops at it once, on the selected item; Up and Down move through the items shown, nested ones included, Home and End go to the first and the last, and a letter to the item whose name starts with it. Right opens a closed item and on an open one goes to its first nested item; Left closes an open one and on a nested item goes to the item it is in. A group that opens and closes is an item its items are in. On the rail the items are a list, and Right opens an item's menu.
 - Collapsed, it is the rail: each item is its icon, says its name (and its keys) in a `Tooltip` at its right, and an item with nested items opens them in a `Menu` there, the selected one marked. An item whose nested item is selected is the selected one on the rail.
 - A closed item that holds the selected item is marked as the selected one is, and a closed group that holds it has its label and its chevron in `Foreground`: what is selected shows where it is hidden. Tab stops on what marks it, and it is what is scrolled into view. To what reads the tree such an item has `a11y_current` `location`.
-- On a window narrower than the `md` breakpoint it lies over the page in a `Drawer` with `overlay(true)` and `scroll(false)`, as wide as it is beside the page, its header and footer staying while its items scroll; whatever `collapsed` says, it is whole there. Choosing an item closes it.
+- On a window narrower than the `md` breakpoint it lies over the page in a `Drawer` with `overlay(true)` and `scroll(false)`, as wide as it is beside the page, its header and footer staying while its items scroll; whatever `collapsed` says, it is whole there. Choosing an item closes it first, and then calls the item's handlers and goes to its path, so a handler that reads the signal sees it closed.
 - Which item is selected is the app's: with a router, `.selected(ctx.route_path() == path)` on each, and `.href(path)` to go there. The gallery's shell does this for its pages. Where the selected item moves (the app selects another: a router, a search, a link of the page), it is scrolled into view, the lists it is in opened; the item selected at the start is scrolled to as well.
 - `SidebarTrigger::new(collapsed).open(open)` is a ghost button of the `panel-left` icon, called by which way it goes: "Collapse sidebar", "Expand sidebar", or on a narrow window "Open sidebar", "Close sidebar", each of which `collapse_label`, `expand_label`, `open_label` and `close_label` say otherwise. `narrow(bool)` tells it as the sidebar is told; `force(..)`, `id` and `key` are a button's.
 - `SidebarHeading::new(title)` is the row of the header and the footer: `description`, `icon(name)` (a mark on the primary fill) or `media(element)` (an avatar), `trailing_icon(name)`, `variant(name)` (`SidebarHeadingVariant::Workspace`, the default, or `Account`, or a theme's), `collapsed(bool)` (the mark alone, for the rail), `on_click(|event| ..)` and `anchor(ElementRef)` (a button, from which a switcher's menu can hang), and `state`, `style`, `rules`, `force`, `id`, `key` as a button has them.

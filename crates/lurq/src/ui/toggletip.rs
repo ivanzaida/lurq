@@ -133,6 +133,7 @@ pub struct Toggletip {
   force_open: Option<bool>,
   on_dismiss: Vec<Handler>,
   dismiss_on_escape: bool,
+  dismiss_on_outside_press: bool,
   disabled: bool,
   width: Option<Length>,
   states: Vec<Name>,
@@ -160,6 +161,7 @@ impl Toggletip {
       force_open: None,
       on_dismiss: Vec::new(),
       dismiss_on_escape: true,
+      dismiss_on_outside_press: true,
       disabled: false,
       width: None,
       states: Vec::new(),
@@ -250,6 +252,12 @@ impl Toggletip {
   /// Whether Escape closes the panel. It does by default.
   pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
     self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// Whether a press outside the panel and its button closes it. It does by default.
+  pub fn dismiss_on_outside_press(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_outside_press = dismiss;
     self
   }
 
@@ -676,6 +684,7 @@ impl Component for ToggletipHost {
       None => popup
         .open(self.open.clone())
         .dismiss_on_escape(tip.dismiss_on_escape)
+        .dismiss_on_outside_click(tip.dismiss_on_outside_press)
         .on_dismiss(dismissed),
     };
     Row::new().align_items(Alignment::Center).child(trigger).child(popup)

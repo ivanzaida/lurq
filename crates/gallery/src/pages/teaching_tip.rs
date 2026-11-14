@@ -461,6 +461,12 @@ impl Component for TeachingTipPage {
       ),
       ("dismiss_on_escape", "bool", "true", "Whether Escape closes it."),
       (
+        "dismiss_on_outside_press",
+        "bool",
+        "false",
+        "Whether a press outside it closes it: a press elsewhere is the person going on beside it.",
+      ),
+      (
         "close_button",
         "bool",
         "true",
@@ -548,6 +554,12 @@ impl Component for TeachingTipPage {
         "Told after Escape left the tour, the signal None already.",
       ),
       ("dismiss_on_escape", "bool", "true", "Whether Escape leaves the tour."),
+      (
+        "dismiss_on_outside_press",
+        "bool",
+        "false",
+        "Whether a press outside the step's tip leaves the tour.",
+      ),
       (
         "variant, placement, offset, collision, arrow",
         "",
