@@ -40,6 +40,9 @@ pub(super) struct FreeRoom {
   /// own; negative when those overflow the line, infinite on an unbounded
   /// main axis.
   pub(super) remaining: f32,
+  /// What `remaining` leaves after the bases of the children that wait for
+  /// room: what the growing children share, on top of their bases.
+  pub(super) free: f32,
   pub(super) grow_total: f32,
 }
 
@@ -47,12 +50,12 @@ pub(super) struct FreeRoom {
 /// shrinks, summed up as the line lays out each child it grants a main size
 /// to; a child sized on its own is already out of the free room.
 ///
-/// The growing children are granted the free room in shares, so together
-/// they take exactly that room: it is not summed back up from their sizes.
-/// In `f32` that sum can come out a few micro-pixels over the line, and the
-/// rounding would pass for an overflow: the line would shrink a text by it
-/// and ellipsize the text, with the room still free beside it. What the room
-/// did not account for still counts: a flex basis, and whatever a child takes
+/// The growing children are granted their bases and the free room in shares,
+/// so together they take exactly the room: it is not summed back up from
+/// their sizes. In `f32` that sum can come out a few micro-pixels over the
+/// line, and the rounding would pass for an overflow: the line would shrink a
+/// text by it and ellipsize the text, with the room still free beside it.
+/// What the room did not account for still counts: whatever a child takes
 /// beyond its grant.
 pub(super) struct LineOverflow {
   room: FreeRoom,
@@ -70,17 +73,13 @@ impl LineOverflow {
   }
 
   fn shares_room(&self) -> bool {
-    self.room.remaining > 0.0 && self.room.grow_total > 0.0
+    self.room.free > 0.0 && self.room.grow_total > 0.0
   }
 
   /// Counts a flex child laid out as `result` at the main size `grant`.
-  pub(super) fn add_granted(&mut self, result: &LayoutResult, grant: f32, basis: Option<f32>) {
+  pub(super) fn add_granted(&mut self, result: &LayoutResult, grant: f32) {
     let size = main_size(result, self.vertical);
-    self.granted += if self.shares_room() {
-      size - grant + basis.unwrap_or(0.0)
-    } else {
-      size
-    };
+    self.granted += if self.shares_room() { size - grant } else { size };
   }
 
   pub(super) fn total(&self) -> f32 {
@@ -114,7 +113,8 @@ impl LayoutEngine {
     node.children().iter().any(|child| {
       !child.is_overlay_declaration()
         && child.layout_cache.is_dirty()
-        && child.state_flex().is_some_and(|params| params.shrink > 0.0)
+        // A drop marker is laid out at zero size while the line drops nothing: that too is the line's choice.
+        && (child.state_flex().is_some_and(|params| params.shrink > 0.0) || child.shrink_rule().marker)
         && child.layout_cache.constraints().is_some_and(|constraints| {
           if vertical {
             constraints.min_height == constraints.max_height
@@ -198,17 +198,52 @@ impl LayoutEngine {
     self.collapsed_lines.borrow().contains(&node_key(node))
   }
 
-  /// What the overflow does to each shrinking child, by child index.
+  /// What the overflow does to each shrinking child, by child index; and to
+  /// the line's drop marker (`.drop_marker`), if it has one: the line gives
+  /// way without the marker's room first, and only when that drops a child
+  /// does it give way again with the marker in it. Otherwise the marker is
+  /// dropped.
   fn shrink_outcomes(&self, line: &FlexShrinkLine<'_>, results: &[ChildLayout]) -> Vec<(usize, ShrinkOutcome)> {
-    if line.shrink_total <= 0.0 || !line.max_main.is_finite() {
-      return Vec::new();
-    }
     let occupied = line
       .children
       .iter()
       .filter(|child| !child.is_overlay_declaration())
       .count();
-    let overflow = line.overflow;
+    let marker = line
+      .children
+      .iter()
+      .position(|child| !child.is_overlay_declaration() && child.shrink_rule().marker);
+    let Some(marker) = marker else {
+      return self.give_way(line, results, line.overflow, occupied);
+    };
+    // The marker's room: its size, and the spacing it takes beside another child.
+    let gap = if occupied > 1 { line.spacing } else { 0.0 };
+    let room = main_size(&results[marker].result, line.vertical) + gap;
+    let without = self.give_way(line, results, line.overflow - room, occupied - 1);
+    let dropped = without
+      .iter()
+      .any(|(_, outcome)| matches!(outcome, ShrinkOutcome::Drop | ShrinkOutcome::Collapsed(_)));
+    if dropped {
+      self.give_way(line, results, line.overflow, occupied)
+    } else {
+      let mut outcomes = without;
+      outcomes.push((marker, ShrinkOutcome::Drop));
+      outcomes
+    }
+  }
+
+  /// What `overflow` does to each shrinking child of a line that `occupied`
+  /// children take room in, by child index.
+  fn give_way(
+    &self,
+    line: &FlexShrinkLine<'_>,
+    results: &[ChildLayout],
+    overflow: f32,
+    occupied: usize,
+  ) -> Vec<(usize, ShrinkOutcome)> {
+    if line.shrink_total <= 0.0 || !line.max_main.is_finite() {
+      return Vec::new();
+    }
     // A collapsed line drops and collapses its children even when it fits.
     if overflow <= 0.0 && !line.collapsed {
       return Vec::new();

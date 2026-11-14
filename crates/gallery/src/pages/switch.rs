@@ -19,7 +19,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, line, props_table, quiet, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -97,7 +97,7 @@ impl SwitchPage {
       Spec {
         title: "Switch",
         make: Arc::new(move || plain().into()),
-        shown: switch.into(),
+        shown: Shown::of(switch),
         fill: false,
         forceable: true,
         facts: if on { "on".to_owned() } else { "off".to_owned() },

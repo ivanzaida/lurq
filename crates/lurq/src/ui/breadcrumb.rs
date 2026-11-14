@@ -328,9 +328,10 @@ impl Breadcrumb {
     self
   }
 
-  /// Draws the links and the ellipsis as they are under the pointer, held
-  /// down or focused from the keyboard, with nothing pointing at them: for a
-  /// gallery or a test.
+  /// Draws the link Tab would stop on first (the first step's) as it is under
+  /// the pointer, held down or focused from the keyboard, with nothing
+  /// pointing at it: for a gallery or a test. The other links and the ellipsis
+  /// are drawn as they are.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
@@ -413,7 +414,23 @@ pub struct BreadcrumbView {
 impl BreadcrumbView {
   /// The style of a part, as this breadcrumb is to be drawn.
   pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
-    self.recipe.part(part).forced(self.forced)
+    self.recipe.part(part)
+  }
+
+  /// The style of a part of the step at `index`: in the interaction forced where it is the link Tab stops on
+  /// first.
+  pub fn step_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
+    let forced = self.forced.filter(|_| self.entry() == Some(index));
+    self.recipe.part(part).forced(forced)
+  }
+
+  /// The step whose link Tab stops on first: the first shown, unless it is the page one is on. None while
+  /// disabled.
+  pub fn entry(&self) -> Option<usize> {
+    if self.disabled {
+      return None;
+    }
+    self.shown().first().copied().filter(|&index| !self.is_current(index))
   }
 
   pub fn theme(&self) -> &Theme {
@@ -472,7 +489,7 @@ impl BreadcrumbView {
   /// The icon of the step at `index`, if it has one.
   fn icon(&self, index: usize) -> Option<Element> {
     let name = self.steps.get(index)?.icon.clone()?;
-    Some(glyph(&self.part(BreadcrumbPart::Icon), name, false))
+    Some(glyph(&self.step_part(index, BreadcrumbPart::Icon), name, false))
   }
 
   /// The step at `index`: a link that a press follows, or the page one is on
@@ -495,7 +512,7 @@ impl BreadcrumbView {
       }
       return page.into();
     }
-    let part = self.part(BreadcrumbPart::Link);
+    let part = self.step_part(index, BreadcrumbPart::Link);
     let mut link = pressable(&part, self.disabled)
       .describe("a11y_role", "link")
       .describe("a11y_name", step.label.clone());

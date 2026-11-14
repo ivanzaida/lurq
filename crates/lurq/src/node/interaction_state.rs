@@ -15,6 +15,12 @@ struct InteractionStateInner {
   focus_visible: bool,
   drag_over: bool,
   disabled: bool,
+  /// The interaction group the node is in is under the pointer or holds the focus.
+  within: bool,
+  /// The interaction group the node is in is under the pointer.
+  within_hovered: bool,
+  /// The interaction group the node is in is held down.
+  within_pressed: bool,
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
 }
@@ -89,6 +95,50 @@ impl InteractionState {
 
   pub(crate) fn set_disabled(&self, val: bool) {
     self.shared_inner().lock().unwrap().disabled = val;
+  }
+
+  /// The interaction group the node is in (`interaction_group`) is under the pointer, or the focus is in it:
+  /// what a part shown only then (`within_style`) reads. Paint only.
+  pub fn is_within(&self) -> bool {
+    self.inner.get().is_some_and(|inner| inner.lock().unwrap().within)
+  }
+
+  /// The interaction group the node is in is under the pointer: what a part styled by the group's hover
+  /// (`within_hovered_style`) reads. Paint only.
+  pub fn is_within_hovered(&self) -> bool {
+    self
+      .inner
+      .get()
+      .is_some_and(|inner| inner.lock().unwrap().within_hovered)
+  }
+
+  /// The interaction group the node is in is held down: what a part styled by the group's press
+  /// (`within_pressed_style`) reads. Paint only.
+  pub fn is_within_pressed(&self) -> bool {
+    self
+      .inner
+      .get()
+      .is_some_and(|inner| inner.lock().unwrap().within_pressed)
+  }
+
+  /// Lights the node by its interaction group (`within`), with whether the group is under the pointer and held
+  /// down, or puts it out with `within` false. Whether any of them changed.
+  pub(crate) fn set_within(&self, within: bool, hovered: bool, pressed: bool) -> bool {
+    let mut inner = self.shared_inner().lock().unwrap();
+    let (hovered, pressed) = (within && hovered, within && pressed);
+    let changed = inner.within != within || inner.within_hovered != hovered || inner.within_pressed != pressed;
+    inner.within = within;
+    inner.within_hovered = hovered;
+    inner.within_pressed = pressed;
+    changed
+  }
+
+  /// Whether `other` is a handle of this same state.
+  pub(crate) fn same(&self, other: &Self) -> bool {
+    match (self.inner.get(), other.inner.get()) {
+      (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+      _ => false,
+    }
   }
 
   pub(crate) fn set_drag_over(&self, val: bool) {

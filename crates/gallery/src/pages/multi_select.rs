@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The languages the multi selects of the page choose from: the value, and its label.
@@ -219,7 +219,7 @@ impl MultiSelectPage {
       Spec {
         title: "Multi Select",
         make: Arc::new(move || make().into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: on("full_width"),
         forceable: true,
         facts: format!("{size_name} · radius 6"),
@@ -267,8 +267,7 @@ impl Component for MultiSelectPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 1);
     let value = ctx.signal(owned(&["rust", "wgsl"]));
-    let record = playground.recorder();
-    ctx.watch(&value, move |value: &Vec<String>| record(format!("value = {value:?}")));
+    playground.watch(ctx, &value, |value: &Vec<String>| format!("value = {value:?}"));
     Self {
       frame: Frame::new(ctx),
       playground,

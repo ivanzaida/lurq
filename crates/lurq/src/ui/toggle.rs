@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, pressable},
+  shared::{fading, glyph, one_line, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -176,9 +176,31 @@ impl Toggle {
     self
   }
 
+  /// What an item of a menu that stands for this toggle takes from it, checked
+  /// while the toggle is on: a toolbar moves a toggle that does not fit into
+  /// its menu with this. Choosing it turns the toggle, as a press would.
+  pub(crate) fn command(&self) -> super::toolbar::ToolbarCommand {
+    let (on, handlers) = (self.on, self.on_change.clone());
+    super::toolbar::ToolbarCommand {
+      label: self.label.clone(),
+      icon: self.icon,
+      icon_only: self.icon_only,
+      disabled: self.disabled,
+      checked: Some(on),
+      run: Arc::new(move || {
+        for handler in &handlers {
+          handler(!on);
+        }
+      }),
+      id: self.id.clone(),
+    }
+  }
+
   /// Builds the toggle in `theme`. Converting a toggle into an element does
   /// this in the theme of what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
+  pub fn build(mut self, theme: &Theme) -> Element {
+    // An icon with an empty label is an icon alone: no gap and no padding for a label.
+    self.icon_only = self.icon_only || self.label.is_empty() && self.icon.is_some();
     let case = Case {
       variant: None,
       size: Some(self.size),
@@ -247,6 +269,13 @@ impl ToggleView {
   /// pressed, focused and disabled, with nothing in it yet.
   pub fn root(&self) -> crate::components::Button {
     let mut root = pressable(&self.part(TogglePart::Root), self.disabled);
+    // As a button: in a room narrower than it, it gives way down to its padding and its icon, and its label is cut.
+    if !self.icon_only {
+      root = root
+        .flex_shrink(1.0)
+        .shrink_limit(crate::layout::layout_kind::ShrinkLimit::Content)
+        .max_width(crate::node::dimension::Dimension::Pct(100.0));
+    }
     let (handlers, next) = (self.on_change.clone(), !self.on);
     if !handlers.is_empty() {
       root = root.on_click(move |_| {
@@ -255,7 +284,7 @@ impl ToggleView {
         }
       });
     }
-    if self.icon_only {
+    if self.icon_only && !self.label.is_empty() {
       root = root.describe("a11y_name", self.label.clone());
     }
     if let Some(id) = &self.id {
@@ -275,7 +304,7 @@ impl ToggleView {
     }
     if !self.icon_only {
       let part = self.part(TogglePart::Label);
-      root = root.child(part.text(&self.label).nowrap().part(&part));
+      root = root.child(one_line(&part, &self.label));
     }
     root.into()
   }

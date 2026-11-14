@@ -88,6 +88,7 @@ pub struct Drawer {
   label: Option<Arc<str>>,
   body: Vec<Element>,
   overlay: bool,
+  scroll: bool,
   dismiss_on_veil: bool,
   dismiss_on_escape: bool,
   states: Vec<Name>,
@@ -105,6 +106,7 @@ impl Drawer {
       label: None,
       body: Vec::new(),
       overlay: false,
+      scroll: true,
       dismiss_on_veil: true,
       dismiss_on_escape: true,
       states: Vec::new(),
@@ -167,6 +169,15 @@ impl Drawer {
   /// veil close it, and it is a dialog to tooling.
   pub fn overlay(mut self, overlay: bool) -> Self {
     self.overlay = overlay;
+    self
+  }
+
+  /// Whether what the drawer holds scrolls where the drawer is too small for
+  /// it. It does unless told otherwise; what does not is laid out at the
+  /// panel's height, for what holds a scroll of its own with something that
+  /// stays beside it: a sidebar with its header and its footer.
+  pub fn scroll(mut self, scroll: bool) -> Self {
+    self.scroll = scroll;
     self
   }
 
@@ -238,6 +249,7 @@ impl Drawer {
       side: self.side,
       label: self.label,
       body: self.body,
+      scroll: self.scroll,
       is_open: open,
       recipe,
       open: self.open,
@@ -266,6 +278,7 @@ fn over_the_page(drawer: Drawer, recipe: &ResolvedRecipe) -> Element {
     .side(drawer.side)
     .dismiss_on_veil(drawer.dismiss_on_veil)
     .dismiss_on_escape(drawer.dismiss_on_escape)
+    .body_scrolls(drawer.scroll)
     .children(drawer.body)
     // What the drawer holds is laid out as in the drawer: the body's spacing is the drawer's.
     .style(SheetPart::Body, |s| {
@@ -309,6 +322,8 @@ pub struct DrawerView {
   pub label: Option<Arc<str>>,
   /// What the app put in the drawer.
   pub body: Vec<Element>,
+  /// Whether what the app put in the drawer scrolls.
+  pub scroll: bool,
   /// Whether the drawer is open now.
   pub is_open: bool,
   /// The style of each part of this drawer.
@@ -334,13 +349,17 @@ impl DrawerView {
   }
 
   /// The body: a column with what the app put there, which scrolls where the
-  /// panel is too small for it.
+  /// panel is too small for it, or is laid out at the panel's height where it
+  /// does not scroll.
   pub fn body(&mut self) -> Element {
     let body = Column::new()
       .width(Dimension::Pct(100.0))
       .part(&self.part(DrawerPart::Body))
       .with_children(std::mem::take(&mut self.body));
     let grow = if self.side.is_side() { 1.0 } else { 0.0 };
+    if !self.scroll {
+      return body.align_items(Alignment::Stretch).flex_full(grow, 1.0, None).into();
+    }
     ScrollVertical::new(body)
       .width(Dimension::Pct(100.0))
       .flex_full(grow, 1.0, None)

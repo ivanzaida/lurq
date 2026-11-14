@@ -212,7 +212,14 @@ fn a_press_goes_back_to_a_step_done_and_not_on_to_one_to_come() {
 fn a_press_sets_the_signal_of_the_current_step() {
   let at = Signal::new(2usize);
   let bound = at.clone();
-  let mut stage = Stage::new(move |_| Steps::new(&bound, WIZARD).id("steps").pressable(true).into());
+  // In a column: four steps in a row of 400 cut their titles to keep a line between them.
+  let mut stage = Stage::new(move |_| {
+    Steps::new(&bound, WIZARD)
+      .orientation(StepsOrientation::Vertical)
+      .id("steps")
+      .pressable(true)
+      .into()
+  });
   assert_eq!(stage.fill_color("steps-1-line"), Some(light(PaletteColor::Primary)));
   stage.click("steps-0");
   assert_eq!(at.get(), 0);
@@ -364,4 +371,53 @@ fn a_theme_gives_steps_another_anatomy_and_they_still_select() {
   assert!(!stage.paints("Account"));
   stage.click("steps-0");
   assert_eq!(*asked.lock().unwrap(), [0]);
+}
+
+#[test]
+fn steps_in_a_row_with_descriptions_share_the_width_and_keep_their_lines() {
+  const WIZARD: [(&str, &str); 4] = [
+    ("Account", "Name and email"),
+    ("Billing", "Card and address"),
+    ("Workspace", "Name and members"),
+    ("Finish", "Review and confirm"),
+  ];
+  let mut stage = Stage::new(|_| {
+    let steps = WIZARD.map(|(title, description)| Step::new(title).description(description));
+    Column::new()
+      .width(493.0)
+      .child(Steps::new(1, steps).id("steps"))
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("steps");
+  assert_eq!(width, 493.0);
+  for index in 0..4 {
+    let (step_x, _, step_width, _) = stage.bounds(&format!("steps-{index}"));
+    assert!(
+      step_x >= x - 0.5 && step_x + step_width <= x + width + 0.5,
+      "step {index} in the room: {step_x}..{} in {x}..{}",
+      step_x + step_width,
+      x + width
+    );
+  }
+  // A line between every two steps, long enough to be seen.
+  for index in 0..3 {
+    let (.., line_width, _) = stage.bounds(&format!("steps-{index}-line"));
+    assert!(line_width >= 8.0, "line {index}: {line_width}");
+  }
+  // A description that does not fit beside the others goes on to another line, inside its step.
+  let (step_x, _, step_width, _) = stage.bounds("steps-3");
+  let description = stage.text_quad("Review and confirm").unwrap();
+  assert!(
+    description.x + description.width <= step_x + step_width + 0.5,
+    "inside its step: {} in {}",
+    description.x + description.width,
+    step_x + step_width
+  );
+  let title = stage.text_quad("Finish").unwrap();
+  assert!(
+    description.height > title.height * 1.5,
+    "on two lines: {}",
+    description.height
+  );
+  assert!(title.x + title.width <= step_x + step_width + 0.5);
 }

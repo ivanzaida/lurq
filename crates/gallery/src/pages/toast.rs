@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The variants, by the names the code gives them.
@@ -49,8 +49,10 @@ fn named<T: PartialEq + Copy>(table: &[(&'static str, T)], value: T) -> &'static
 
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
+  // Nothing here cuts: a toast's shadow reaches past its box on every side.
   Column::new()
     .spacing(9.0)
+    .overflow_visible()
     .child(Row::new().overflow_visible().child(shown))
     .child(quiet(caption, 12.0))
 }
@@ -171,7 +173,7 @@ impl ToastPage {
       Spec {
         title: "Toast",
         make: Arc::new(move || plain().into()),
-        shown: stage.into(),
+        shown: Shown::of(stage),
         fill: false,
         forceable: true,
         facts: format!("{} · {}", named(&VARIANTS, variant), named(&POSITIONS, position)),

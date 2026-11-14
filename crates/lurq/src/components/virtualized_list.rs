@@ -85,6 +85,8 @@ struct VirtualizedListOptions {
   /// an already-visible row does not move. Used to restore a selection after
   /// navigation without persisting scroll offsets.
   reveal_key: Option<String>,
+  /// Reveals the `reveal_key` row again whenever it changes; see [`VirtualizedList::reveal_request`].
+  reveal_request: u64,
   /// Middle-button autoscroll; see [`VirtualizedList::middle_button_autoscroll`].
   middle_button_autoscroll: bool,
 }
@@ -208,6 +210,14 @@ impl<'a, T> VirtualizedList<'a, T> {
   /// revealed with [`Ctx::scroll_into_view`].
   pub fn reveal_key(mut self, key: Option<String>) -> Self {
     self.options.reveal_key = key;
+    self
+  }
+
+  /// Reveals the row of [`reveal_key`](Self::reveal_key) again each time this number changes, whether the key
+  /// changed or not: a list asked twice for one row, scrolled away from it between the two (a focus group that
+  /// steps to rows the list has not built).
+  pub fn reveal_request(mut self, request: u64) -> Self {
+    self.options.reveal_request = request;
     self
   }
 
@@ -401,6 +411,8 @@ struct VirtualizedRuntime<T> {
   pending_reveal: Option<String>,
   /// The last `reveal_key` acted on, so a reveal fires only when it changes.
   last_reveal: Option<String>,
+  /// The last `reveal_request` acted on.
+  last_reveal_request: u64,
   /// Scroll position at which the row window was last built; re-renders only
   /// happen once the position drifts past `rebuild_threshold`.
   last_render_scroll_y: f32,
@@ -470,6 +482,7 @@ impl<T> Default for VirtualizedRuntime<T> {
       pending_anchor: None,
       pending_reveal: None,
       last_reveal: None,
+      last_reveal_request: 0,
       last_render_scroll_y: 0.0,
       rebuild_threshold: DEFAULT_OVERSCAN_PX * 0.5,
       last_viewport_height: 0.0,
@@ -1058,8 +1071,9 @@ where
     // A new `reveal_key` (e.g. a selection restored by navigation) queues a
     // scroll-into-view, applied once heights above the row are known. Fires
     // only on change, so it never fights the user's scrolling.
-    if options.reveal_key != runtime.last_reveal {
+    if options.reveal_key != runtime.last_reveal || options.reveal_request != runtime.last_reveal_request {
       runtime.last_reveal = options.reveal_key.clone();
+      runtime.last_reveal_request = options.reveal_request;
       runtime.pending_reveal = options.reveal_key.clone();
     }
 

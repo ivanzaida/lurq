@@ -1,15 +1,20 @@
 //! The gallery's shell: its own title bar, the header across the top, the
-//! side bar with the pages, and the page beside it.
+//! sidebar with the pages, and the page beside it.
+
+use std::sync::{
+  Arc,
+  atomic::{AtomicBool, Ordering},
+};
 
 use lurq::{
   app::{
     ctx::Ctx,
     events::KeyboardEvent,
-    theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme},
+    theme::{BorderSize, Breakpoint, Density, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Appearance,
   },
   components::{
-    ChromeTitleBar, Column, Link, Outlet, Popup, Row, ScrollVertical, WindowControlColors, WindowControlContent,
+    ChromeTitleBar, Column, Outlet, Popup, Row, ScrollVertical, WindowControlColors, WindowControlContent,
     WindowControlKind, WindowControls,
   },
   core::{ElementRef, Signal},
@@ -17,12 +22,13 @@ use lurq::{
   node::{BackgroundColor, CursorIcon, Element, border::Border, color::Color},
   ui::{
     Badge, BadgePart, BadgeVariant, Button, ButtonVariant, CommandItem, CommandPalette, FontFamily, Kbd, KeyPlatform,
-    SegmentedControl, icons,
+    Length, Recipe, SegmentedControl, Selector, Sidebar, SidebarGroup, SidebarItem, SidebarPart, SidebarState,
+    SidebarTrigger, icons,
   },
 };
 
 use crate::{
-  kit::{FILL, icon, mono, overline, popover, row_height, segmented, select, text},
+  kit::{FILL, icon, mono, popover, segmented, select, text},
   pages::{Group, PAGES, page_at},
 };
 
@@ -41,6 +47,13 @@ pub struct Shell {
   settings_open: Signal<bool>,
   /// Which of [`MOTION`] is chosen.
   motion: Signal<usize>,
+  /// Whether the sidebar is its rail, and whether it is open over the page on a narrow window.
+  collapsed: Signal<bool>,
+  sidebar_open: Signal<bool>,
+  /// The page's own scroll, its main content: where the focus goes when the search has gone to a page.
+  page: ElementRef,
+  /// The search has gone to a page, and the focus is to go to it once it is built.
+  focus_page: Arc<AtomicBool>,
 }
 
 /// Whether motion is reduced: as the system says, or as the app does.
@@ -56,6 +69,10 @@ impl Shell {
       settings_anchor: ElementRef::new(),
       settings_open: ctx.signal(false),
       motion: ctx.signal(0),
+      collapsed: ctx.signal(false),
+      sidebar_open: ctx.signal(false),
+      page: ElementRef::new(),
+      focus_page: Arc::new(AtomicBool::new(false)),
     }
   }
 }
@@ -105,8 +122,13 @@ pub fn title_bar() -> ChromeTitleBar {
 pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
   let current = page_at(&ctx.route_path()).path;
   let find = state.search_open.clone();
-  // What is behind the cards and beside them is the theme's canvas: the page, the side bar. A card, the
-  // header and a control are surfaces on it, so each stands out from what it is on.
+  // The search went to this page: what it found has the focus, and the next Tab goes on from its start. Asked for
+  // here, by the render that builds the page, so that the page asked for is the new one.
+  if state.focus_page.swap(false, Ordering::SeqCst) {
+    ctx.focus(&state.page);
+  }
+  // What is behind the cards is the theme's canvas. A card, the header and a control are surfaces on it, so each
+  // stands out from what it is on.
   Column::new()
     .size(FILL, FILL)
     .background(PaletteColor::Canvas)
@@ -125,14 +147,17 @@ pub fn shell(ctx: &mut Ctx, state: &Shell) -> Element {
         .width(FILL)
         .flex(1.0)
         .align_items(Alignment::Stretch)
-        .child(sidebar(ctx, current))
+        .child(sidebar(ctx, state, current))
         .child(
           // Each page has a scroll of its own: a page opened from another starts at its top, wherever the
           // one before it was scrolled to.
+          // It takes the focus but is no stop of Tab.
           ScrollVertical::new(Outlet::mount(ctx))
             .key(current)
             .flex(1.0)
-            .border_left(Border::inside(BorderSize::Sm, PaletteColor::Border)),
+            .ref_element(state.page.clone())
+            .tab_index(-1)
+            .describe("a11y_role", "main"),
         ),
     )
     .into()
@@ -192,6 +217,7 @@ fn search_field(state: &Shell, roomy: bool) -> Row {
 /// and by what it is about. Running one goes to it.
 fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
   let navigator = ctx.navigator();
+  let focus_page = state.focus_page.clone();
   let mut palette = CommandPalette::new(state.search_open.clone())
     .placeholder("Search components and props…")
     .empty("No page for that.")
@@ -205,8 +231,11 @@ fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
         command = command.icon(name);
       }
       if let Some(navigator) = navigator.clone() {
-        let path = page.path;
-        command = command.on_select(move || navigator.push(path));
+        let (path, focus_page) = (page.path, focus_page.clone());
+        command = command.on_select(move || {
+          focus_page.store(true, Ordering::SeqCst);
+          navigator.push(path);
+        });
       }
       command
     });
@@ -284,9 +313,12 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
     ("Light", Some(Appearance::Light)),
     ("Dark", Some(Appearance::Dark)),
   ];
+  // What collapses the sidebar to its rail, or opens it over the page on a narrow window.
+  let trigger = SidebarTrigger::new(state.collapsed.clone()).open(state.sidebar_open.clone());
   let mut brand = Row::new()
     .spacing(10.0)
     .align_items(Alignment::Center)
+    .child(trigger)
     .child(
       Row::new()
         .size(28.0, 28.0)
@@ -385,67 +417,76 @@ fn density_name(density: Density) -> &'static str {
   }
 }
 
-/// The pages in the design system's groups, each group with how many it has.
-/// A row of it is 32 high at the default density, and follows the density.
-fn sidebar(ctx: &mut Ctx, current: &str) -> ScrollVertical {
-  let theme = ctx.theme().clone();
-  let row_height = row_height(&theme);
-  let mut groups = Column::new()
-    .width(FILL)
-    .padding_vertical(20.0)
-    .padding_horizontal(16.0)
-    .spacing(20.0);
-  for group in Group::ALL {
+/// The pages in the design system's groups, each group with how many it has, and the page the route is at
+/// selected. A row of it is 32 high at the default density, and follows the density.
+fn sidebar(ctx: &mut Ctx, state: &Shell, current: &str) -> Element {
+  let groups = Group::ALL.into_iter().filter_map(|group| {
     let pages: Vec<_> = PAGES.iter().filter(|page| page.group == group).collect();
     if pages.is_empty() {
-      continue;
+      return None;
     }
-    let mut list = Column::new().width(FILL).spacing(2.0).child(
-      Row::new()
-        .width(FILL)
-        // A line of 15 and 6 under it, as the design has it, whatever the font's own line is.
-        .height(21.0)
-        .padding_horizontal(8.0)
-        .padding_bottom(6.0)
-        .align_items(Alignment::Center)
-        .justify(Justify::SpaceBetween)
-        .child(overline(group.name()))
-        .child(mono(&pages.len().to_string(), 11.0).color(PaletteColor::MutedForeground)),
-    );
-    for page in pages {
-      let on = page.path == current;
-      let mut row = Row::new()
-        .width(FILL)
-        .height(row_height)
-        .padding_horizontal(8.0)
-        .spacing(8.0)
-        .align_items(Alignment::Center)
-        .rounded(RadiusSize::Md)
-        .cursor(CursorIcon::Pointer);
+    let items = pages.iter().map(|page| {
+      let mut item = SidebarItem::new(page.name)
+        .key(page.path)
+        .href(page.path)
+        .selected(page.path == current);
       if let Some(name) = page.icon {
-        row = row.child(icon(name, 16.0).color(PaletteColor::MutedForeground));
+        item = item.icon(name);
       }
-      row = row.child(text(
-        page.name,
-        14.0,
-        if on { FontWeight::Medium } else { FontWeight::Normal },
-      ));
-      // The page that is open is a card on the canvas of the side bar.
-      row = if on {
-        row
-          .background(PaletteColor::Card)
-          .foreground(PaletteColor::CardForeground)
-          .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
-      } else {
-        row.hovered(|style| {
-          style
-            .background(PaletteColor::Highlight)
-            .foreground(PaletteColor::HighlightForeground)
-        })
-      };
-      list = list.child(Link::build_empty(ctx, page.path).child(row));
-    }
-    groups = groups.child(list);
-  }
-  ScrollVertical::new(groups).width(SIDEBAR)
+      item
+    });
+    Some(SidebarGroup::new(group.name()).count(pages.len()).items(items))
+  });
+  // The gallery's side bar is its own, as it was drawn by hand: on the canvas of its window, the page that is open
+  // a card on it, 248 wide, padded 20 down and 16 across with 20 between its groups, a group's label in the mono
+  // family over 6, and its rows' names in 14. The component's own look is the board's sidebar, which stands beside
+  // a page of another color. The rail and the sidebar over the page keep the component's room.
+  let look = Recipe::new()
+    .base(SidebarPart::Root, |s| {
+      s.width(SIDEBAR).padding_y(20.0).background(PaletteColor::Canvas)
+    })
+    .state(SidebarState::Collapsed, SidebarPart::Root, |s| s.width(52.0).padding_y(8.0))
+    .state(SidebarState::Overlay, SidebarPart::Root, |s| {
+      s.width(Length::Fill).background(Color::new(0, 0, 0, 0))
+    })
+    .base(SidebarPart::Body, |s| s.padding_x(16.0).gap(20.0))
+    .state(SidebarState::Collapsed, SidebarPart::Body, |s| s.padding_x(8.0).gap(4.0))
+    // A line of 15 and 6 under it, as the design has it, whatever the font's own line is.
+    .base(SidebarPart::GroupLabel, |s| {
+      s.height(21.0).padding_top(0.0).padding_bottom(6.0)
+    })
+    .base(SidebarPart::GroupText, |s| {
+      s.typography(TypographyStyle::Mono)
+        .font_size(11.0)
+        .weight(FontWeight::Normal)
+        .letter_spacing(1.0)
+    })
+    .base(SidebarPart::ItemLabel, |s| s.font_size(14.0))
+    // The open page's icon stays muted: the card says which it is.
+    .state(SidebarState::Selected, SidebarPart::ItemIcon, |s| s.foreground(PaletteColor::MutedForeground))
+    .hovered(SidebarPart::Item, |s| {
+      s.background(PaletteColor::Highlight)
+        .foreground(PaletteColor::HighlightForeground)
+    })
+    .state(SidebarState::Selected, SidebarPart::Item, |s| {
+      s.background(PaletteColor::Card)
+        .foreground(PaletteColor::CardForeground)
+    })
+    .when(
+      Selector::new().state(SidebarState::Selected).hovered(),
+      SidebarPart::Item,
+      |s| s.background(PaletteColor::Card),
+    )
+    .when(
+      Selector::new().state(SidebarState::Selected).pressed(),
+      SidebarPart::Item,
+      |s| s.background(PaletteColor::Card),
+    );
+  Sidebar::new()
+    .label("Pages")
+    .rules(&look)
+    .groups(groups)
+    .collapsed(state.collapsed.clone())
+    .open(state.sidebar_open.clone())
+    .mount(ctx)
 }

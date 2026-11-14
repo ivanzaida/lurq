@@ -330,13 +330,45 @@ fn a_link_is_text_with_an_icon_after_it_and_a_line_under_the_pointer() {
   assert!(stage.border("docs").is_none(), "and no line at rest");
 
   stage.hover("docs");
-  let line = stage
-    .border("docs")
-    .and_then(|quad| quad.border)
+  assert!(
+    stage.border("docs").is_none(),
+    "the link's box, rounded for its ring, has no line"
+  );
+  // A straight line under the text alone: the label's own bottom edge, with no radius, not under the icon.
+  let edge = stage
+    .quads()
+    .into_iter()
+    .find(|quad| quad.border.is_some_and(|border| border.bottom.is_some()))
     .expect("a line under the link the pointer is on");
-  assert!(line.top.is_none(), "under it only");
+  let line = edge.border.unwrap();
+  assert!(
+    line.top.is_none() && line.left.is_none() && line.right.is_none(),
+    "under it only"
+  );
   let under = line.bottom.expect("the line");
   assert_eq!((under.width, under.color), (1.0, light(PaletteColor::Foreground)));
+  assert!(
+    edge
+      .border_radius
+      .is_none_or(|radius| radius.bottom_left == 0.0 && radius.bottom_right == 0.0),
+    "straight to its ends"
+  );
+  assert!(
+    (edge.x - label.x).abs() < 0.5 && (edge.width - label.width).abs() < 0.5,
+    "under the text"
+  );
+  assert!(edge.x + edge.width <= icon.x, "not under the icon");
+  // The pointer on the icon draws the line under the text too.
+  stage
+    .tree
+    .mouse_move(icon.x + icon.width / 2.0, icon.y + icon.height / 2.0);
+  stage.pass();
+  assert!(
+    stage
+      .quads()
+      .iter()
+      .any(|quad| quad.border.is_some_and(|border| border.bottom.is_some()))
+  );
 
   stage.click("docs");
   stage.key("Tab");
@@ -475,4 +507,46 @@ fn the_arrow_keys_move_between_the_toggles_of_a_group_and_space_turns_one() {
   stage.key("ArrowLeft");
   stage.key(" ");
   assert_eq!(marks.get(), ["italic"]);
+}
+
+#[test]
+fn a_toggle_with_an_empty_label_and_an_icon_is_a_square_as_an_icon_alone_is() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .spacing(8.0)
+      .child(Toggle::new("").icon(icons::BOLD).id("empty"))
+      .child(Toggle::new("Bold").icon(icons::BOLD).icon_only(true).id("alone"))
+      .into()
+  });
+  let alone = stage.bounds("alone").2;
+  assert_eq!(stage.bounds("empty").2, alone, "no gap and no padding of a label");
+}
+
+#[test]
+fn a_toggle_narrower_than_its_label_cuts_it() {
+  const LONG: &str = "Show the hidden files of every folder";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(140.0)
+          .child(Toggle::new(LONG).icon(icons::EYE).id("long")),
+      )
+      .into()
+  });
+  let (room_x, _, room_width, _) = stage.bounds("room");
+  let (x, _, width, _) = stage.bounds("long");
+  assert!(x + width <= room_x + room_width + 0.5, "in its room");
+  let (text, label_x, label_width) = stage
+    .quads()
+    .into_iter()
+    .find_map(|quad| match &quad.content {
+      QuadContent::Text { text, .. } if text.starts_with("Show") => Some((text.clone(), quad.x, quad.width)),
+      _ => None,
+    })
+    .expect("the label");
+  assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
+  assert!(label_x + label_width <= x + width + 0.5, "inside the toggle");
 }

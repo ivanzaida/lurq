@@ -137,7 +137,8 @@ fn hit_test_tree_with_transform<'a>(
     fold_disabled,
   } = walk;
   let behavior = node.hit_test_behavior();
-  if behavior == HitTestBehavior::None || result.dropped {
+  // An inert element and all it holds take no pointer: what is under them gets it.
+  if behavior == HitTestBehavior::None || result.dropped || node.is_inert() {
     return;
   }
   let own_hits = hits.len();

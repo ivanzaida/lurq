@@ -92,37 +92,9 @@ impl AlertVariant {
   }
 }
 
-/// The icon a message is given: one of the theme's set by its name, or none
-/// (`None`), in place of its variant's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AlertIcon(pub Option<Name>);
-
-impl From<&str> for AlertIcon {
-  fn from(name: &str) -> Self {
-    Self(Some(Name::from(name)))
-  }
-}
-
-impl From<Name> for AlertIcon {
-  fn from(name: Name) -> Self {
-    Self(Some(name))
-  }
-}
-
-impl From<Option<Name>> for AlertIcon {
-  fn from(name: Option<Name>) -> Self {
-    Self(name)
-  }
-}
-
-/// The icon a message shows: the one it was given, none where it was given
-/// none, and its variant's (`default`) where it was given nothing.
-pub(crate) fn shown_icon(given: Option<AlertIcon>, default: &'static str) -> Option<Name> {
-  match given {
-    Some(AlertIcon(icon)) => icon,
-    None => Some(Name::from(default)),
-  }
-}
+/// The icon a message is given: [`IconChoice`], under the name it had here first.
+pub use super::shared::IconChoice as AlertIcon;
+pub(crate) use super::shared::shown_icon;
 
 /// A text of a message in the style of `part`, as wide as the room it has: a
 /// longer one goes on to the next line. A row would lay it out as wide as it

@@ -17,7 +17,7 @@ use crate::{
   components::{self, Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, border::Border},
+  node::{CursorIcon, Element, FocusGroup, border::Border, node_kind::TextOverflow},
 };
 
 /// How far the panel stands from its anchor, in the direction it opens.
@@ -70,6 +70,12 @@ pub enum MenuEntry {
   Separator,
   /// A text over the items after it.
   Label(Arc<str>),
+}
+
+impl From<MenuItem> for MenuEntry {
+  fn from(item: MenuItem) -> Self {
+    Self::Item(item)
+  }
 }
 
 /// A menu: a list of commands in a panel over the window, opened from an
@@ -369,6 +375,18 @@ impl MenuView {
         }
       });
     }
+    // Tab closes the menu and the menus it is a submenu of, as a select closes its list, and goes on: the menu is
+    // walked right after what opened it, so the focus goes on from there.
+    let closes = self.closes();
+    if !closes.is_empty() {
+      panel = panel.on_key_down(move |event: KeyboardEvent| {
+        if event.focus_within && event.key == "Tab" && !event.ctrl && !event.alt && !event.meta {
+          for open in &closes {
+            open.set(false);
+          }
+        }
+      });
+    }
     panel
   }
 
@@ -475,7 +493,8 @@ impl Themed for Menu {
   type Renderer = MenuRenderer;
 
   /// The design's menu (`pencil/lurq-design-system.pen`, Menu): a panel of the
-  /// popover's color at least 230 wide, padded 4, with the large radius, an
+  /// popover's color at least 230 wide and at most 360, where a long label gives
+  /// way with an ellipsis (the board has no longer label), padded 4, with the large radius, an
   /// edge of 1 in the border's color and the medium shadow. A submenu is at
   /// least 160 wide. A separator is a line of 1 in the border's color with 4
   /// above and below; the label of a group is 11/600 in the muted foreground,
@@ -486,6 +505,7 @@ impl Themed for Menu {
     Recipe::new()
       .base(Panel, |s| {
         s.min_width(230.0)
+          .max_width(360.0)
           .padding_x(4.0)
           .padding_y(4.0)
           .radius(RadiusSize::Lg)
@@ -592,6 +612,7 @@ pub struct MenuItem {
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
   closes: Vec<Signal<bool>>,
   submenus: Vec<Signal<bool>>,
+  autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -614,6 +635,7 @@ impl MenuItem {
       on_select: Vec::new(),
       closes: Vec::new(),
       submenus: Vec::new(),
+      autofocus: false,
       id: None,
       key: None,
     }
@@ -728,6 +750,18 @@ impl MenuItem {
     self
   }
 
+  /// Makes the item the one the focus goes to as its menu opens, in place of the first: a menubar's menu opened
+  /// with Up opens at its last item.
+  pub(crate) fn autofocus(mut self, autofocus: bool) -> Self {
+    self.autofocus = autofocus;
+    self
+  }
+
+  /// Whether the item cannot be chosen.
+  pub(crate) fn is_disabled(&self) -> bool {
+    self.disabled
+  }
+
   /// Builds the item in `theme`. Converting an item into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
@@ -759,6 +793,7 @@ impl MenuItem {
       on_select: self.on_select,
       closes: self.closes,
       submenus: self.submenus,
+      autofocus: self.autofocus,
       id: self.id,
       key: self.key,
     };
@@ -798,6 +833,7 @@ pub struct MenuItemView {
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
   closes: Vec<Signal<bool>>,
   submenus: Vec<Signal<bool>>,
+  autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -909,6 +945,9 @@ impl MenuItemView {
         }
       });
     }
+    if self.autofocus {
+      root = root.autofocus(true);
+    }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -923,10 +962,15 @@ impl MenuItemView {
     self.icon.map(|name| glyph(&self.part(MenuItemPart::Icon), name, false))
   }
 
-  /// The item's text.
+  /// The item's text, on one line: where the menu has no room for it, it gives way with an ellipsis.
   pub fn label(&self) -> Element {
     let part = self.part(MenuItemPart::Label);
-    Row::new().part(&part).child(part.text(&self.label).nowrap()).into()
+    Row::new()
+      .flex_full(0.0, 1.0, None)
+      .min_width(0.0)
+      .part(&part)
+      .child(part.text(&self.label).nowrap().text_overflow(TextOverflow::Elipsis))
+      .into()
   }
 
   /// The keys written at the end, if the item has them.
@@ -970,7 +1014,13 @@ impl MenuItemView {
   pub fn render(mut self) -> Element {
     // The ends hold their parts as far apart as the item holds the ends.
     let gap = self.part(MenuItemPart::Root).rest().gap.unwrap_or_default();
-    let mut start = Row::new().spacing(gap.clone()).align_items(Alignment::Center);
+    // The start gives way where the menu has no room for the item, its label with an ellipsis; the end keeps its
+    // room, and the item's gap stays between them.
+    let mut start = Row::new()
+      .flex_full(0.0, 1.0, None)
+      .min_width(0.0)
+      .spacing(gap.clone())
+      .align_items(Alignment::Center);
     if let Some(icon) = self.icon() {
       start = start.child(icon);
     }
@@ -983,6 +1033,7 @@ impl MenuItemView {
     if !end.is_empty() {
       root = root.child(
         Row::new()
+          .flex_full(0.0, 0.0, None)
           .spacing(gap)
           .align_items(Alignment::Center)
           .with_children(end),
@@ -1033,6 +1084,8 @@ impl Themed for MenuItem {
       })
       .base(Check, |s| s.square(IconSize::Md))
       .base(Chevron, |s| s.square(IconSize::Md).foreground(MutedForeground))
+      // A row of the density's height: 32 at the default, 24, 40 and 44 at the others.
+      .row_density(super::Selector::new(), Root, 32.0)
       .hovered(Root, |s| s.background(Highlight))
       .focus_visible(Root, |s| s.background(Highlight))
       .state(MenuItemState::Expanded, Root, |s| s.background(Highlight))

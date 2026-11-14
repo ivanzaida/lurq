@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The kinds, as the code names them.
@@ -241,7 +241,7 @@ impl MessageBoxPage {
       Spec {
         title: "Message Box",
         make: Arc::new(move || make(Signal::new(true), None).inline(true).into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: format!(

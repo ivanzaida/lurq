@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// How wide the board draws mentions.
@@ -214,7 +214,7 @@ impl MentionsPage {
             .child(make(Signal::new(String::new()), &MentionsController::new()))
             .into()
         }),
-        shown: Column::new().width(FILL).child(shown).into(),
+        shown: Shown::of(shown),
         fill: true,
         forceable: true,
         facts: format!("{size_name} · {} mentions", mentioned.len()),

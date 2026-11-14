@@ -574,7 +574,7 @@ impl Component for ToggleGroupPage {
         ),
         Section::new(
           "Any number",
-          "Bound to a signal of a list: a press adds a value, and a press of a toggle that is on takes it out. Tab            stops in the group once; the arrow keys move between its toggles, and Space turns the one the focus is on.",
+          "Bound to a signal of a list: a press adds a value, and a press of a toggle that is on takes it out. Tab stops in the group once; the arrow keys move between its toggles, and Space turns the one the focus is on.",
           self.frame.demo(
             1,
             many,

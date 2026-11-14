@@ -20,7 +20,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The themes the selects of the page choose from: the value, and its label.
@@ -173,7 +173,7 @@ impl SelectPage {
       Spec {
         title: "Select",
         make: Arc::new(move || make().into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: on("full_width"),
         forceable: true,
         facts: format!("{size_name} · radius 6"),
@@ -217,8 +217,7 @@ impl Component for SelectPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 1);
     let value = ctx.signal(String::new());
-    let record = playground.recorder();
-    ctx.watch(&value, move |value| record(format!("value = {value:?}")));
+    playground.watch(ctx, &value, |value| format!("value = {value:?}"));
     Self {
       frame: Frame::new(ctx),
       playground,
@@ -345,7 +344,7 @@ impl Component for SelectPage {
         "options",
         "impl IntoIterator<Item = impl Into<SelectOption<T>>>",
         "",
-        "(value, label) pairs, or SelectOptions with a detail, a hint, an element beside the label, a group they          start, or disabled.",
+        "(value, label) pairs, or SelectOptions with a detail, a hint, an element beside the label, a group they start, or disabled.",
       ),
       (
         "placeholder",

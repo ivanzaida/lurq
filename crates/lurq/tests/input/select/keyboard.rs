@@ -232,7 +232,7 @@ fn enter_without_highlight_closes_without_change() {
 }
 
 #[test]
-fn escape_and_tab_close_without_change_and_keep_focus() {
+fn escape_and_tab_close_without_change() {
   for key in ["Escape", "Tab"] {
     let mut fixture = Fixture::new("sm", options());
     fixture.keyboard_open();
@@ -240,8 +240,48 @@ fn escape_and_tab_close_without_change_and_keep_focus() {
     fixture.key(key);
     assert_eq!(fixture.value.get(), "sm", "{key} discards the highlight");
     assert!(!fixture.menu_open(), "{key} closes the menu");
-    assert!(fixture.select.focused(), "{key} leaves focus on the trigger");
+    // Escape leaves the focus on the trigger; Tab goes on from it as from a closed select, and the window has no
+    // stop to go to: it stays.
+    assert!(fixture.select.focused(), "{key}");
   }
+}
+
+#[test]
+fn tab_in_an_open_select_closes_it_and_goes_on_to_the_next_stop() {
+  let value = Signal::new("sm".to_owned());
+  let mut tree = Tree::new();
+  tree.set_root(
+    lurq::components::Column::new()
+      .child(
+        Element::from(
+          Select::new(value.clone())
+            .options(options())
+            .width(200.0)
+            .height(40.0)
+            .style(style())
+            .tab_index(0),
+        )
+        .id(SELECT_ID),
+      )
+      .child(lurq::components::Button::new("After").id("after").tab_index(0)),
+  );
+  let mut app = App::new();
+  render_pass_with_app(&mut tree, &mut app);
+  focus(&mut tree);
+  press(&mut tree, "ArrowDown");
+  render_pass_with_app(&mut tree, &mut app);
+  assert!(tree.find_element(|el| el.tag_name() == "SelectMenu").is_some());
+  press(&mut tree, "Tab");
+  render_pass_with_app(&mut tree, &mut app);
+  assert!(
+    tree.find_element(|el| el.tag_name() == "SelectMenu").is_none(),
+    "Tab closes it"
+  );
+  let focused = tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned));
+  assert_eq!(focused.as_deref(), Some("after"), "and goes on from it");
+  assert_eq!(value.get(), "sm");
 }
 
 #[test]

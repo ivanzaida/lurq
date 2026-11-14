@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -272,7 +272,7 @@ impl MenuPage {
       Spec {
         title: "Menu",
         make: Arc::new(make),
-        shown,
+        shown: Shown::of(shown),
         fill: false,
         forceable: true,
         facts: facts.join(" · "),

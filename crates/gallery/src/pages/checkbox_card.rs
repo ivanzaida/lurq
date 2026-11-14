@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -141,7 +141,7 @@ impl CheckboxCardPage {
       Spec {
         title: "Checkbox Card",
         make: Arc::new(make),
-        shown: card.into(),
+        shown: Shown::of(card),
         fill: full_width,
         forceable: true,
         facts: format!("checked: {checked}"),

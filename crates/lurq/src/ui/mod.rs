@@ -16,6 +16,7 @@
 //! what renders it renders again when the theme changes.
 
 mod accordion;
+mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
@@ -23,6 +24,7 @@ mod banner;
 mod breadcrumb;
 mod button;
 mod button_group;
+mod calendar;
 mod callout;
 mod card;
 mod checkbox;
@@ -32,6 +34,9 @@ mod collapsible;
 mod combobox;
 mod command_palette;
 mod context_menu;
+mod data_list;
+mod date_picker;
+mod date_range_picker;
 mod dialog;
 mod drawer;
 mod empty_state;
@@ -46,10 +51,15 @@ mod input_group;
 mod input_otp;
 mod kbd;
 mod link;
+mod list_item;
+mod listbox;
 mod mentions;
 mod menu;
+mod menubar;
 mod message_box;
 mod multi_select;
+mod navbar;
+mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;
@@ -64,14 +74,18 @@ mod recipe;
 mod search_field;
 mod segmented;
 mod select;
+mod selection;
 mod separator;
 mod shared;
 mod sheet;
+mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;
+mod splitter;
 mod steps;
 mod switch;
+mod table;
 mod tabs;
 mod tag;
 mod teaching_tip;
@@ -84,9 +98,15 @@ mod toggle;
 mod toggle_group;
 mod toggletip;
 mod token_input;
+mod token_list;
+mod toolbar;
 mod tooltip;
+mod tree_view;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
+pub use action_bar::{
+  ActionBar, ActionBarAction, ActionBarPart, ActionBarPlacement, ActionBarRenderer, ActionBarState, ActionBarView,
+};
 pub use alert::{Alert, AlertIcon, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupView, AvatarPart, AvatarPresence,
@@ -103,6 +123,9 @@ pub use button::{
   ButtonView,
 };
 pub use button_group::{ButtonGroup, ButtonGroupPart, ButtonGroupVariant};
+pub use calendar::{
+  Calendar, CalendarChoice, CalendarMemory, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
+};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 pub use checkbox::{
@@ -121,6 +144,11 @@ pub use command_palette::{
   CommandPaletteView, matches_every_word,
 };
 pub use context_menu::{ContextMenu, ContextMenuPart, ContextMenuRenderer, ContextMenuState, ContextMenuView};
+pub use data_list::{DataList, DataListItem, DataListPart, DataListRenderer, DataListState, DataListView};
+pub use date_picker::{
+  DatePicker, DatePickerPart, DatePickerRenderer, DatePickerState, DatePickerView, Picked, PickerRenderer, PickerView,
+};
+pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
 pub use empty_state::{
@@ -146,6 +174,11 @@ pub use kbd::{
   KbdVariant, KbdView, KeyPlatform,
 };
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
+pub use list_item::{
+  List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
+  ListView,
+};
+pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxValue, ListboxView};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsState,
   MentionsView,
@@ -154,11 +187,17 @@ pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
+pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarState, MenubarView};
 pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxKind, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState,
   MessageBoxView,
 };
 pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
+pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, NavbarView};
+pub use navigation_menu::{
+  NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
+  NavigationMenuVariant, NavigationMenuView,
+};
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
   NumberInputState, NumberInputView,
@@ -184,17 +223,23 @@ pub use progress_dialog::{
   ProgressDialog, ProgressDialogPart, ProgressDialogRenderer, ProgressDialogState, ProgressDialogView,
 };
 pub use radio::{Radio, RadioGroup, RadioGroupPart, RadioGroupState, RadioPart, RadioRenderer, RadioState, RadioView};
-pub use recipe::{Case, Interaction, Name, PartStyles, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector};
+pub use recipe::{
+  Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
+};
 pub use search_field::{SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldState, SearchFieldView};
 pub use segmented::{SegmentedControl, SegmentedControlPart, SegmentedControlState};
 pub use select::{Select, SelectPart, SelectRenderer, SelectSize, SelectState, SelectView};
 pub use separator::{Separator, SeparatorOrientation, SeparatorPart, SeparatorRenderer, SeparatorView};
-pub use shared::{Choice, FADE_IN, FADE_OUT};
+pub use shared::{Choice, FADE_IN, FADE_OUT, IconChoice, Orientation};
 pub(crate) use sheet::keyframes as sheet_keyframes;
 pub use sheet::{
   SHEET_IN_FROM_BOTTOM, SHEET_IN_FROM_END, SHEET_IN_FROM_START, SHEET_IN_FROM_TOP, SHEET_OUT_TO_BOTTOM,
   SHEET_OUT_TO_END, SHEET_OUT_TO_START, SHEET_OUT_TO_TOP, Sheet, SheetPart, SheetRenderer, SheetSide, SheetSize,
   SheetState, SheetView,
+};
+pub use sidebar::{
+  Sidebar, SidebarGroup, SidebarHeading, SidebarHeadingVariant, SidebarItem, SidebarPart, SidebarRenderer,
+  SidebarState, SidebarTrigger, SidebarView,
 };
 pub(crate) use skeleton::keyframes as skeleton_keyframes;
 pub use skeleton::{
@@ -208,10 +253,17 @@ pub use spinner::{
   SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
   SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
 };
+pub use splitter::{
+  Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
+};
 pub use steps::{
   CurrentStep, Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView,
 };
 pub use switch::{Switch, SwitchPart, SwitchRenderer, SwitchState, SwitchView};
+pub use table::{
+  BodyWindow, ColumnAlign, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
+  TableRenderer, TableRow, TableSort, TableState, TableView,
+};
 pub use tabs::{
   Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
 };
@@ -237,8 +289,15 @@ pub use toggletip::{Toggletip, ToggletipPart, ToggletipRenderer, ToggletipState,
 pub use token_input::{
   MENTION, Token, TokenInput, TokenInputPart, TokenInputRenderer, TokenInputSize, TokenInputState, TokenInputView,
 };
+pub use toolbar::{
+  Toolbar, ToolbarCommand, ToolbarGroup, ToolbarItem, ToolbarPart, ToolbarRenderer, ToolbarSlot, ToolbarState,
+  ToolbarVariant, ToolbarView,
+};
 pub use tooltip::{
   TOOLTIP_DELAY, TOOLTIP_SKIP_DELAY, Tooltip, TooltipPart, TooltipRenderer, TooltipSide, TooltipState, TooltipView,
+};
+pub use tree_view::{
+  TreeItem, TreeRow, TreeSelection, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState, TreeViewView,
 };
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
@@ -264,6 +323,56 @@ macro_rules! names {
         $crate::ui::Name::new(name.as_str())
       }
     }
+
+    // A name of the design system goes in a signal with DevTools on, as any value an app keeps does: a
+    // playground's variant, a setting's size.
+    #[cfg(feature = "devtools")]
+    impl $crate::app::component::DevtoolsInspectable for $type {
+      fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
+        formatter.value_debug(&self.as_str());
+      }
+    }
   };
 }
 pub(crate) use names;
+
+/// Values of the design system that are no name of a recipe go in a signal with DevTools on too, shown as they are
+/// debugged: a shape, an orientation, a position.
+macro_rules! inspectable {
+  ($($type:ty),* $(,)?) => {
+    $(
+      #[cfg(feature = "devtools")]
+      impl $crate::app::component::DevtoolsInspectable for $type {
+        fn inspect(&self, formatter: &mut $crate::app::component::DevtoolsFormatter<'_>) {
+          formatter.value_debug(self);
+        }
+      }
+    )*
+  };
+}
+
+inspectable!(
+  avatar::AvatarShape,
+  badge::BadgeShape,
+  breadcrumb::BreadcrumbSeparator,
+  button::ButtonShape,
+  calendar::CalendarChoice,
+  choice_card::ChoiceCardKind,
+  input_otp::InputOtpKind,
+  kbd::KeyPlatform,
+  message_box::MessageBoxRole,
+  pagination::PageItem,
+  part_style::Length,
+  part_style::Opacity,
+  part_style::FontFamily,
+  part_style::TransitionDuration,
+  part_style::TransitionEasing,
+  recipe::Interaction,
+  skeleton::SkeletonAnimation,
+  spinner::SpinnerKind,
+  splitter::SplitterOrientation,
+  table::SortDirection,
+  table::ColumnAlign,
+  tabs::TabsOrientation,
+  toast::ToastPosition,
+);

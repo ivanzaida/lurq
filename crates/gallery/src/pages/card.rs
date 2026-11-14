@@ -23,7 +23,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, icon, mono, props_table, quiet, segmented_fill, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The variants, as the board names them and as the code does.
@@ -225,7 +225,7 @@ impl CardPage {
       Spec {
         title: "Card",
         make: Arc::new(make),
-        shown: card.into(),
+        shown: Shown::of(card),
         fill: false,
         forceable: pressable,
         facts: format!("{variant_name} · {size_name}"),
@@ -333,17 +333,22 @@ impl CardPage {
               .child(text("App theme", 13.0, FontWeight::Medium))
               .child(text("Choose how lurq looks.", 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground)),
           )
+          // The board's select is 110 wide: a select keeps a width of its own, which would leave the text beside
+          // it none.
           .child(
-            Select::new(
-              self.theme.clone(),
-              [
-                ("system".to_owned(), "System"),
-                ("light".to_owned(), "Light"),
-                ("dark".to_owned(), "Dark"),
-              ],
-            )
-            .size(SelectSize::Sm)
-            .label("App theme"),
+            Row::new().width(110.0).flex_shrink(0.0).child(
+              Select::new(
+                self.theme.clone(),
+                [
+                  ("system".to_owned(), "System"),
+                  ("light".to_owned(), "Light"),
+                  ("dark".to_owned(), "Dark"),
+                ],
+              )
+              .size(SelectSize::Sm)
+              .full_width(true)
+              .label("App theme"),
+            ),
           ),
       )
   }

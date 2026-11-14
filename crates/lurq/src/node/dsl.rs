@@ -89,6 +89,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     stops_inside: false,
     autofocus: false,
     focus_label: None,
+    focus_branch: None,
     button_kind: None,
     #[cfg(feature = "form")]
     form_name: None,

@@ -16,7 +16,7 @@ use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
   pages::alert::VARIANTS,
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// A banner on a stage with what it is under it, as wide as the stage.
@@ -144,7 +144,7 @@ impl BannerPage {
       Spec {
         title: "Banner",
         make: Arc::new(make),
-        shown: Column::new().width(FILL).child(banner).into(),
+        shown: Shown::built(move |_| Column::new().width(FILL).child(banner).into()),
         fill: true,
         forceable: closable,
         facts: format!("{variant_name} · {}", variant.role()),

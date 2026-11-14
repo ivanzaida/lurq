@@ -219,6 +219,7 @@ pub(super) fn stack_layers(overlays: Vec<Node>, leaving: Vec<(usize, Node)>, lay
   let mut stack = Vec::with_capacity(overlays.len() + leaving_count);
   let mut anchors = Vec::with_capacity(stack.capacity());
   let mut origins = Vec::with_capacity(stack.capacity());
+  let mut takes_focus = Vec::with_capacity(stack.capacity());
   // Where each open layer is in the stack.
   let mut places = Vec::with_capacity(overlays.len());
   let mut leaving = leaving.into_iter().peekable();
@@ -226,6 +227,7 @@ pub(super) fn stack_layers(overlays: Vec<Node>, leaving: Vec<(usize, Node)>, lay
     .into_iter()
     .zip(std::mem::take(&mut layers.anchors))
     .zip(std::mem::take(&mut layers.origins))
+    .zip(std::mem::take(&mut layers.takes_focus))
     .peekable();
   loop {
     let leaving_is_next = match (leaving.peek(), open.peek()) {
@@ -239,16 +241,19 @@ pub(super) fn stack_layers(overlays: Vec<Node>, leaving: Vec<(usize, Node)>, lay
       stack.push(layer);
       anchors.push(None);
       origins.push(None);
+      takes_focus.push(false);
     } else {
-      let ((layer, anchor), origin) = open.next().expect("peeked");
+      let (((layer, anchor), origin), takes) = open.next().expect("peeked");
       places.push(stack.len());
       stack.push(layer);
       anchors.push(anchor);
       origins.push(origin);
+      takes_focus.push(takes);
     }
   }
   layers.anchors = anchors;
   layers.origins = origins;
+  layers.takes_focus = takes_focus;
   // An entry's layer counts the host's children, the page first. A hidden layer's is where it would be.
   for entry in &mut layers.dismiss_entries {
     entry.layer = match entry.layer.checked_sub(1).and_then(|place| places.get(place)) {

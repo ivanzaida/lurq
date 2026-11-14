@@ -530,3 +530,72 @@ fn a_theme_gives_the_tabs_another_anatomy_and_they_still_select() {
   stage.click("shortcuts");
   assert_eq!(*asked.lock().unwrap(), [2]);
 }
+
+#[test]
+fn a_tabs_height_follows_the_density_in_each_form() {
+  use lurq::app::theme::Density;
+  for (density, step) in [
+    (Density::Compact, -8.0),
+    (Density::Default, 0.0),
+    (Density::Comfortable, 8.0),
+    (Density::Touch, 12.0),
+  ] {
+    for (variant, height) in [
+      (TabsVariant::Default, 28.0),
+      (TabsVariant::Line, 44.0),
+      (TabsVariant::Pill, 30.0),
+    ] {
+      let app = App::new();
+      app.theme().set_density(density);
+      let mut stage = Stage::in_app(app, move |_| {
+        Row::new()
+          .padding(8.0)
+          .child(Tabs::controlled(0, settings(), |_| {}).variant(variant))
+          .into()
+      });
+      assert_eq!(stage.bounds("general").3, height + step, "{variant:?} at {density:?}");
+    }
+  }
+}
+
+#[test]
+fn the_ring_of_a_focused_panel_stands_clear_of_its_text() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(16.0)
+      .width(400.0)
+      .child(Tabs::controlled(
+        0,
+        [
+          Tab::new(0, "General")
+            .id("general")
+            .panel(|| Text::new("General settings").into()),
+          Tab::new(1, "Appearance").id("appearance"),
+        ],
+        |_| {},
+      ))
+      .into()
+  });
+  // Tab reaches the selected tab, and then the panel.
+  stage.key("Tab");
+  stage.key("Tab");
+  let ring = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, gradient: None } if color.a() == 0)
+        && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Ring))
+    })
+    .expect("the panel's ring");
+  let width = ring.border.and_then(|border| border.top).map_or(0.0, |side| side.width);
+  let text = stage.text_quad("General settings").unwrap();
+  let (inner_x, inner_y) = (ring.x + width, ring.y + width);
+  let inner_bottom = ring.y + ring.height - width;
+  assert!(text.x - inner_x >= 4.0, "4 clear at its start: {}", text.x - inner_x);
+  assert!(text.y - inner_y >= 4.0, "4 clear above: {}", text.y - inner_y);
+  assert!(
+    inner_bottom - (text.y + text.height) >= 4.0,
+    "4 clear under: {}",
+    inner_bottom - (text.y + text.height)
+  );
+}

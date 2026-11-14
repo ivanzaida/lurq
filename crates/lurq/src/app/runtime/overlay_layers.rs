@@ -32,6 +32,9 @@ pub(super) struct OverlayLayers {
   /// The anchor of each layer built, in the order the host stacks them;
   /// `None` for a select menu or a modal.
   pub(super) anchors: Vec<Option<OwnedElementRef>>,
+  /// Whether each layer built, in the same order, is an overlay that takes the focus (`Overlay::takes_focus`):
+  /// what tells it from another layer on the same anchor, a tooltip's beside a menu's.
+  pub(super) takes_focus: Vec<bool>,
   /// The node that declares each layer built, in the same order, where it
   /// has an id.
   pub(super) origins: Vec<Option<NodeId>>,
@@ -95,16 +98,55 @@ impl Tree {
   }
 
   /// The anchor of the overlay that takes the focus (`Overlay::takes_focus`) and held keyboard focus in the
-  /// last layout, when it is not open in `layers` any more: the focus goes back to it.
+  /// last layout, when it is not open in `layers` any more: the focus goes back to it. Where the anchor was in
+  /// a layer that closed with it, as a submenu's item is in its menu when an item of the submenu is chosen, the
+  /// focus goes back from that layer instead, and so on out: to what opened the outermost that closed.
   pub(super) fn focused_overlay_closed(&self, had_host: bool, layers: &OverlayLayers) -> Option<OwnedElementRef> {
     if !had_host {
       return None;
     }
-    let layer = *self.focused_path.as_deref()?.first()?;
-    let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
-    let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
-    let open = layers.focus_movers.iter().any(|mover| mover.same_handle(anchor));
-    (moved && !open).then(|| anchor.clone())
+    let closed = |layer: usize| -> Option<&OwnedElementRef> {
+      let anchor = self.overlay_layer_anchors.get(layer.checked_sub(1)?)?.as_ref()?;
+      let moved = self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor));
+      let open = layers.focus_movers.iter().any(|mover| mover.same_handle(anchor));
+      (moved && !open).then_some(anchor)
+    };
+    let mut layer = *self.focused_path.as_deref()?.first()?;
+    let mut anchor = closed(layer)?;
+    // Bounded by the number of layers: a layer's anchor is in a layer under it.
+    for _ in 0..self.overlay_layer_parents.len() {
+      let Some(outer) = self.overlay_layer_parents.get(layer - 1).copied().flatten() else {
+        break;
+      };
+      let Some(outer_anchor) = closed(outer) else {
+        break;
+      };
+      (layer, anchor) = (outer, outer_anchor);
+    }
+    Some(anchor.clone())
+  }
+
+  /// For each layer of the host just built whose overlay takes the focus, the layer its anchor is in, where
+  /// that is a layer and not the page: see `overlay_layer_parents`. Only the layers are searched, not the page.
+  pub(super) fn focus_layer_parents(&self) -> Vec<Option<usize>> {
+    let Some(host) = self.root.as_ref() else {
+      return Vec::new();
+    };
+    let layers = host.children().get(1..).unwrap_or_default();
+    self
+      .overlay_layer_anchors
+      .iter()
+      .map(|anchor| {
+        let anchor = anchor.as_ref()?;
+        if !self.overlay_focus_movers.iter().any(|mover| mover.same_handle(anchor)) {
+          return None;
+        }
+        layers
+          .iter()
+          .position(|layer| path_to_ref(layer, anchor).is_some())
+          .map(|index| index + 1)
+      })
+      .collect()
   }
 
   /// The layers of the overlay host whose overlays take the focus, each with its anchor: what Tab walks right
@@ -129,7 +171,8 @@ impl Tree {
   }
 
   /// The first element that takes the focus in the topmost layer of the overlay host whose overlay takes the
-  /// focus and opened in this pass: where the focus goes. `layers` are the layers as the host stacks them.
+  /// focus and opened in this pass: where the focus goes. `layers` are the layers as the host stacks them. Of the
+  /// layers on one anchor it is the one that takes the focus, not a tooltip's on the same element.
   pub(super) fn opened_overlay_focus(&self, layers: &OverlayLayers) -> Option<NodeId> {
     let host = self.root.as_ref()?;
     layers
@@ -140,7 +183,8 @@ impl Tree {
         layers
           .anchors
           .iter()
-          .position(|anchor| anchor.as_ref().is_some_and(|anchor| anchor.same_handle(mover)))
+          .zip(&layers.takes_focus)
+          .rposition(|(anchor, takes)| *takes && anchor.as_ref().is_some_and(|anchor| anchor.same_handle(mover)))
       })
       .max()
       .and_then(|layer| host.children().get(layer + 1))
@@ -240,7 +284,7 @@ fn first_focusable(node: &Node) -> Option<NodeId> {
   node.children().iter().find_map(first_focusable)
 }
 
-fn path_to_ref(node: &Node, anchor: &OwnedElementRef) -> Option<Vec<usize>> {
+pub(super) fn path_to_ref(node: &Node, anchor: &OwnedElementRef) -> Option<Vec<usize>> {
   if node
     .element_ref
     .as_ref()

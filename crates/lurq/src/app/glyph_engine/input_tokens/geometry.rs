@@ -134,7 +134,16 @@ impl DecoratedInputLayout {
       band,
     } in visual
     {
+      let token = styles[glyph.metadata].checked_sub(1);
       let (left_pad, right_pad) = padding.edges.get(&range).copied().unwrap_or((0.0, 0.0));
+      // The caret at an end of a token stands where its text ends, inside its padding: what is typed there is
+      // the token's. An atomic token takes no caret in: the caret at its end is past its fill, clear of the room
+      // it keeps there for its icon.
+      let (left_pad, right_pad) = if token.is_some_and(|token| self.config.styles[token].chip.atomic) {
+        (0.0, 0.0)
+      } else {
+        (left_pad, right_pad)
+      };
       let body_left = left + left_pad + shift;
       let body_right = right - right_pad + shift;
       let (start, end) = if glyph.level.is_rtl() {
@@ -158,7 +167,6 @@ impl DecoratedInputLayout {
         right: right + shift,
         y: top,
       });
-      let token = styles[glyph.metadata].checked_sub(1);
       if fragment.as_ref().map(|part| part.0) != token
         && let Some(part) = fragment.take()
       {

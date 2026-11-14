@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// What the playground offers before the input, and how the code says it.
@@ -128,7 +128,8 @@ impl InputGroupPage {
         }
       }
     };
-    let shown = make();
+    let typed = record.clone();
+    let shown = make().on_input(move |event| typed(format!("on_input({:?})", event.new_value)));
 
     let mut code = vec![
       "// value: Signal<String>".to_owned(),
@@ -211,11 +212,11 @@ impl InputGroupPage {
       Spec {
         title: "Input Group",
         make: Arc::new(move || make().into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: on("full_width"),
         forceable: false,
         facts: format!("{size_name} · radius 6"),
-        event: if after == 3 { "on_click" } else { "" },
+        event: if after == 3 { "on_input / on_click" } else { "on_input" },
         code,
         tree,
         controls: vec![

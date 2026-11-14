@@ -238,10 +238,82 @@ fn tab_puts_the_focus_on_the_first_empty_cell_and_typing_fills_it_and_goes_on() 
   let full = cells(&stage, MD);
   assert_eq!(ringed(&stage, &full, light(PaletteColor::Ring)), Some(5));
   assert!(caret(&stage, 1.5, 18.0).is_none());
-  // A code is no longer than its cells: typing on the last cell replaces its character.
+  // Past the end of a full code typing goes nowhere, and the app is not told again.
+  type_in(&mut stage, "8");
+  type_in(&mut stage, "5");
+  assert_eq!(code.get(), "427193");
+  assert_eq!(completed.lock().unwrap().len(), 1, "told once");
+  // Moved back onto the last cell by the keys, a character typed replaces its own: a new code, told.
+  stage.key("ArrowLeft");
+  stage.key("ArrowRight");
   type_in(&mut stage, "8");
   assert_eq!(code.get(), "427198");
-  assert_eq!(completed.lock().unwrap().len(), 2, "the last cell was filled again");
+  assert_eq!(*completed.lock().unwrap(), ["427193", "427198"]);
+}
+
+#[test]
+fn digits_typed_past_the_end_go_nowhere_and_complete_once() {
+  let code = Signal::new("1".to_owned());
+  let completed = Arc::new(Mutex::new(Vec::new()));
+  let (bound, told) = (code.clone(), completed.clone());
+  let mut stage = staged(move || {
+    let told = told.clone();
+    InputOtp::new(bound.clone())
+      .id("code")
+      .on_complete(move |code| told.lock().unwrap().push(code.to_owned()))
+  });
+  stage.key("Tab");
+  for digit in "3456789".chars() {
+    type_in(&mut stage, &digit.to_string());
+  }
+  assert_eq!(code.get(), "134567");
+  assert_eq!(*completed.lock().unwrap(), ["134567"]);
+}
+
+#[test]
+fn ctrl_a_then_backspace_clears_the_code_and_typing_over_it_starts_again() {
+  let code = Signal::new("427193".to_owned());
+  let bound = code.clone();
+  let mut stage = staged(move || InputOtp::new(bound.clone()).id("code"));
+  stage.key("Tab");
+  let ctrl_a = |stage: &mut Stage| {
+    stage
+      .tree
+      .key_down("a".to_owned(), "KeyA".to_owned(), false, true, false);
+    stage.tree.key_up("a".to_owned(), "KeyA".to_owned(), false, true, false);
+    stage.pass();
+  };
+  ctrl_a(&mut stage);
+  stage.key("Backspace");
+  assert_eq!(code.get(), "", "the whole code goes");
+  assert_eq!(caret_in(&stage, &cells(&stage, MD)), Some(0));
+
+  for digit in ["4", "2", "7"] {
+    type_in(&mut stage, digit);
+  }
+  ctrl_a(&mut stage);
+  type_in(&mut stage, "9");
+  assert_eq!(code.get(), "9", "typed over the code selected, it starts again");
+  // Selected, then moved: Backspace empties one cell again.
+  type_in(&mut stage, "8");
+  ctrl_a(&mut stage);
+  stage.key("ArrowLeft");
+  stage.key("Backspace");
+  assert_eq!(code.get(), "9", "the 8 the arrow went back onto");
+}
+
+#[test]
+fn a_value_set_from_outside_is_taken_as_typing_is() {
+  let code = Signal::new("12ab34".to_owned());
+  let bound = code.clone();
+  let mut stage = staged(move || InputOtp::new(bound.clone()).id("code"));
+  stage.pass();
+  assert_eq!(shown(&stage), "1234", "the letters of a code of digits are dropped");
+  assert_eq!(code.get(), "1234");
+  code.set("9876543210".to_owned());
+  stage.pass();
+  assert_eq!(shown(&stage), "987654", "no more than its cells");
+  assert_eq!(code.get(), "987654");
 }
 
 #[test]

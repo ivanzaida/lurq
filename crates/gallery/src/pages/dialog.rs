@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The sizes, as the board names them, how the code names them, and how wide each is.
@@ -229,7 +229,7 @@ impl DialogPage {
             .footer(Button::new("Confirm"))
             .into()
         }),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: format!("{size_name} · {}", if self.open.get() { "open" } else { "closed" }),

@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -155,7 +155,7 @@ impl SliderPage {
       Spec {
         title: "Slider",
         make: Arc::new(move || plain().into()),
-        shown: slider.into(),
+        shown: Shown::of(slider),
         fill: false,
         forceable: true,
         facts: format!("value {value}"),
@@ -215,8 +215,7 @@ impl Component for SliderPage {
   fn create(ctx: &mut Ctx) -> Self {
     let playground = Playground::new(ctx, 4);
     let value = ctx.signal(40);
-    let record = playground.recorder();
-    ctx.watch(&value, move |value| record(format!("value = {value}")));
+    playground.watch(ctx, &value, |value| format!("value = {value}"));
     Self {
       frame: Frame::new(ctx),
       playground,

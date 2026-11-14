@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, flag},
+  playground::{Playground, Shown, Spec, divider, flag},
 };
 
 /// The choices of the playground, as the board draws them.
@@ -130,7 +130,7 @@ impl RadioPage {
       Spec {
         title: "Radio",
         make: Arc::new(move || plain(Box::new(|_| {})).into()),
-        shown: group.into(),
+        shown: Shown::of(group),
         fill: false,
         forceable: false,
         facts: format!("chosen: {}", DENSITIES[chosen]),

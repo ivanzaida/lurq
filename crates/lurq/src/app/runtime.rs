@@ -89,14 +89,19 @@ mod inline_link_copy_tests;
 #[cfg(feature = "markdown")]
 mod inline_link_keys;
 mod input_token_paint;
+mod interaction_groups;
+mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
 mod loading_images;
 #[cfg(feature = "image")]
 pub(crate) use loading_images::note_loading_image_built;
+mod menu_row;
 mod modal_focus;
+mod nested_focus;
 mod outside_press;
 mod overlay_layers;
+mod page_focus;
 mod paste;
 mod press_repeat;
 #[cfg(all(test, feature = "screenshot", feature = "perf_profile"))]
@@ -143,8 +148,8 @@ impl HasDisplayHandle for HeadlessSurface {
   }
 }
 
-const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
-const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
+pub(crate) const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+pub(crate) const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 /// How long a vertical wheel delta tells the slant of the horizontal deltas
 /// that follow it at the same pointer (see [`Tree::wheel_gesture_vertical`]).
 const WHEEL_AXIS_LOCK_WINDOW: Duration = Duration::from_millis(150);
@@ -759,6 +764,10 @@ pub struct Tree {
   /// there after a layout moves content.
   pointer: Option<hover::PointerAt>,
   hover_path: Vec<NodeId>,
+  /// The row a group of rows stepped to that its list had not built: focused once it is (`nested_focus`).
+  pending_row_focus: Option<nested_focus::PendingRowFocus>,
+  /// The states of the nodes an interaction group around them lights: see `interaction_groups`.
+  within_states: Vec<crate::node::interaction_state::InteractionState>,
   /// The disabled element the pointer is on: not hovered, but it heard the pointer come (`hover::enter_disabled`).
   disabled_hover: Option<NodeId>,
   active_path: Vec<NodeId>,
@@ -880,6 +889,9 @@ pub struct Tree {
   /// The anchor of each overlay host layer after the page, in host order;
   /// `None` for a select menu or a modal over the page.
   overlay_layer_anchors: Vec<Option<OwnedElementRef>>,
+  /// For each layer of `overlay_layer_anchors` whose overlay takes the focus, the layer its anchor is in (counted
+  /// from 1, as the host's children after the page are), where that is a layer: a submenu's is its menu's.
+  overlay_layer_parents: Vec<Option<usize>>,
   /// The anchors of the open overlays that take the focus, as the last layout had them: what tells an
   /// overlay that opens or closes from one that stays open.
   overlay_focus_movers: Vec<OwnedElementRef>,
@@ -895,14 +907,28 @@ pub struct Tree {
   overlay_layer_origins: Vec<Option<NodeId>>,
   /// The open modals that take the focus, by the node that declares each, the first opened first, with what
   /// had the focus before each opened: see [`modal_focus`].
-  modal_focus: Vec<(NodeId, Option<FocusTarget>)>,
+  modal_focus: Vec<(NodeId, Option<FocusTarget>, Option<tab_navigation::FocusStart>)>,
+  /// Where Tab goes on from while nothing has the focus, a browser's sequential focus navigation starting point:
+  /// the node that last had the focus and its path then, or the one a press that took no focus was on. See
+  /// [`tab_navigation::FocusStart`].
+  focus_start: Option<tab_navigation::FocusStart>,
   /// The modals that take the focus among the layers the last pass built.
   built_focus_modals: Vec<NodeId>,
+  /// The open modals (dialogs, not the window's chrome), by the node that declares each, in the order they opened:
+  /// the one opened last is stacked over the others whatever their order in the tree. See [`modal_focus`].
+  modal_open_order: Vec<NodeId>,
+  /// The open modals met by the pass being built, to forget those that closed.
+  modals_met: Vec<NodeId>,
   /// The arrow keys moved the focus in a group that follows the pointer, and took the hover away with it: the
   /// hover stays away, under a pointer that holds still, until the pointer moves.
   hover_held_by_keys: bool,
   /// What has been typed into the typeahead of a focus group, and when: see [`typeahead`].
   typeahead: Option<typeahead::Typeahead>,
+  /// Alt is down and nothing else was pressed since: its release puts the focus on a row of menus. See
+  /// [`menu_row`].
+  alt_alone: bool,
+  /// What had the focus before Alt alone put it on a row of menus, which Alt alone again gives it back to.
+  menu_row_return: Option<FocusTarget>,
   /// The closed layers the overlay host still draws, while their exit
   /// animations play: see [`leaving_layers`].
   leaving_layers: Vec<leaving_layers::LeavingLayer>,
@@ -1214,6 +1240,8 @@ impl Tree {
       window: crate::app::window::Window::new(),
       pointer: None,
       hover_path: Vec::new(),
+      pending_row_focus: None,
+      within_states: Vec::new(),
       disabled_hover: None,
       active_path: Vec::new(),
       dragging_scroll: None,
@@ -1306,14 +1334,20 @@ impl Tree {
       canvas_registry: Vec::new(),
       overlay_dismiss_entries: Vec::new(),
       overlay_layer_anchors: Vec::new(),
+      overlay_layer_parents: Vec::new(),
       overlay_focus_movers: Vec::new(),
       overlay_focus_entry: None,
       overlay_focus_returns: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
+      focus_start: None,
       built_focus_modals: Vec::new(),
+      modal_open_order: Vec::new(),
+      modals_met: Vec::new(),
       hover_held_by_keys: false,
       typeahead: None,
+      alt_alone: false,
+      menu_row_return: None,
       leaving_layers: Vec::new(),
       layers_left: Vec::new(),
       leaving_children: Vec::new(),
@@ -2279,6 +2313,7 @@ impl Tree {
     self.last_theme_version = u64::MAX;
     self.active_path.clear();
     self.clear_focus();
+    self.focus_start = None;
     self.apply_focus_request();
   }
 
@@ -2380,6 +2415,7 @@ impl Tree {
     self.active_path.clear();
     self.active_drag = None;
     self.clear_focus();
+    self.focus_start = None;
   }
 
   pub fn root(&self) -> Option<ElementRef<'_>> {
@@ -2650,6 +2686,7 @@ impl Tree {
 
     let now = Instant::now();
     self.flush_due_pending_click(now);
+    self.refresh_interaction_groups();
 
     let initial_cache_start = Instant::now();
     let initial_cache_result = if self.root.is_some()
@@ -2714,6 +2751,8 @@ impl Tree {
     if layout_updated && self.refresh_hover_at_pointer() {
       self.update_layout(app);
     }
+    // The tree may have been built again, and the pointer may be on something else now.
+    self.refresh_interaction_groups();
     self.update_text_input_caret_blink(now, caret_mode);
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
@@ -3803,6 +3842,8 @@ impl Tree {
   ) {
     #[cfg(feature = "perf_profile")]
     let input = self.profiling.input(crate::app::profiler::InputKind::Pointer);
+    // A press is where the keys go on from: a row a group of rows waited for is no longer awaited.
+    self.pending_row_focus = None;
     self.dispatch_mouse_down(x, y, button, MouseModifiers { shift, ctrl, alt, meta });
     #[cfg(feature = "perf_profile")]
     self.end_profiled_input(input);
@@ -3812,6 +3853,8 @@ impl Tree {
     self.track_pointer(x, y);
     self.lay_out_rebuilt_for_input();
     self.set_input_modality(focus_visible::InputModality::Pointer);
+    // A press between Alt and its release makes the release no Alt alone.
+    self.alt_alone = false;
     if self.swallowed_press == Some(button) {
       // Its release never arrived (the OS took it); this is a new press.
       self.swallowed_press = None;
@@ -4094,6 +4137,7 @@ impl Tree {
       return;
     }
     self.note_key_press_modality(&key, ctrl, alt, meta);
+    self.note_alt_press(&key, ctrl, meta);
     // Keys never reach a node that was dropped since it took focus.
     self.blur_focus_in_dropped_child();
     // The input method takes the keys it reports as `Process` (on Windows,
@@ -4120,6 +4164,11 @@ impl Tree {
     if let Some(root) = &self.root {
       fire_keyboard_recursive(root, &mut evt, self.focused_path.as_deref());
     }
+    // A handler that asked for an element of its group by its key has it focused after the render the key causes.
+    let keyed_focus = evt
+      .control
+      .take_focus_key()
+      .and_then(|key| Some((self.focus_group_around_focus()?, key)));
     // An Enter the input method passes on during a composition reaches
     // handlers marked `composing`, but no default acts on it (form submit,
     // button or select activation, newline, blur): it belongs to the
@@ -4143,6 +4192,8 @@ impl Tree {
         && !meta
         && (self.focus_group_key(&key, click_modifiers) || self.focus_group_typeahead(&key))
       {
+        true
+      } else if !ctrl && !meta && self.menu_row_key(&key, alt, click_modifiers) {
         true
       } else if matches!(
         (key.as_str(), code.as_str()),
@@ -4178,6 +4229,9 @@ impl Tree {
       }
     }
     self.apply_reactive_updates_after_event();
+    if let Some((group, key)) = keyed_focus {
+      self.focus_keyed_in_group(group, &key);
+    }
   }
 
   pub fn key_up(&mut self, key: String, code: String, shift: bool, ctrl: bool, alt: bool) {
@@ -4213,6 +4267,10 @@ impl Tree {
       None => return,
     };
     fire_keyboard_up_recursive(root, &mut evt, self.focused_path.as_deref());
+    // Alt let go with nothing pressed while it was down goes to a row of menus, unless a handler took it.
+    if evt.key == "Alt" && std::mem::take(&mut self.alt_alone) && !evt.default_prevented() && self.menu_row_alt() {
+      self.needs_redraw = true;
+    }
     self.apply_reactive_updates_after_event();
   }
 
@@ -4256,6 +4314,10 @@ impl Tree {
   /// the group's choice follows its focus. `false` when the key is not the group's, the focus is in no
   /// group, or it is on a control that takes the arrow keys itself.
   fn focus_group_key(&mut self, key: &str, modifiers: MouseModifiers) -> bool {
+    // While a group of rows waits for the row it stepped to, the keys go on from that row: see `nested_focus`.
+    if let Some(handled) = self.pending_rows_key(key, modifiers) {
+      return handled;
+    }
     let (Some(focused), Some(path)) = (self.focused_node, self.focused_path.clone()) else {
       return false;
     };
@@ -4273,6 +4335,10 @@ impl Tree {
       if let Some((group, step)) = node
         .focus_group_value()
         .and_then(|group| Some((group, group.step(key)?)))
+        // PageUp and PageDown are a group's only where it pages or steps over rows of its own.
+        .filter(|(group, step)| {
+          !step.is_page() || group.pages || node.focus_branch().is_some_and(|branch| branch.rows.is_some())
+        })
       {
         found = Some((node, group, step));
       }
@@ -4291,6 +4357,18 @@ impl Tree {
     let Some((group_node, group, step)) = found else {
       return false;
     };
+    // A group of rows a list builds only in part steps over its rows: see `nested_focus`.
+    if let Some(rows) = group_node.focus_branch().and_then(|branch| branch.rows.clone())
+      && let Some(row) = node.focus_branch().and_then(|branch| branch.row)
+    {
+      let group_id = group_node.node_id();
+      return self.focus_rows_key(group_id, rows, group, row, step, modifiers);
+    }
+    // Right, Left and `*` in a nested group open, close and climb: see `nested_focus`.
+    if step.is_nested() {
+      let group_id = group_node.node_id();
+      return self.focus_group_branch_key(group_id, focused, step);
+    }
     let stops = tab_navigation::group_stops(group_node, &self.dropped_nodes);
     let Some(current) = stops.iter().position(|stop| stop.input_id == focused) else {
       return false;
@@ -4303,7 +4381,14 @@ impl Tree {
       crate::node::FocusStep::Back if group.wrap => last,
       crate::node::FocusStep::On if current < last => current + 1,
       crate::node::FocusStep::On if group.wrap => 0,
-      _ => current,
+      // A page back or on: see `page_focus`.
+      crate::node::FocusStep::PageBack => self.focus_group_page(&stops, current, false),
+      crate::node::FocusStep::PageOn => self.focus_group_page(&stops, current, true),
+      crate::node::FocusStep::Back
+      | crate::node::FocusStep::On
+      | crate::node::FocusStep::Open
+      | crate::node::FocusStep::Close
+      | crate::node::FocusStep::OpenSiblings => current,
     };
     // The key is the group's even where it moves nothing: at an end of a group that does not wrap.
     if next != current {
@@ -4311,7 +4396,8 @@ impl Tree {
       self.set_input_modality(focus_visible::InputModality::Keyboard);
       self.focus_node(target);
       self.scroll_focused_into_view();
-      if group.activate {
+      // A move with Shift in a group that extends with it presses what it moved to with Shift: a range.
+      if group.activate || (group.shift_extends && modifiers.shift) {
         self.activate_focused_button(modifiers);
       }
       // In a group the focus follows the pointer in, what the keys moved to is the one item that is lit: the
@@ -4325,6 +4411,8 @@ impl Tree {
   }
 
   fn focus_tab(&mut self, reverse: bool) -> bool {
+    // Tab is where the keys go on from: a row a group of rows waited for is no longer awaited.
+    self.pending_row_focus = None;
     self.set_input_modality(focus_visible::InputModality::Keyboard);
     // A range's thumbs are a stop of Tab each: Tab goes from its low thumb to its high one before it leaves.
     if let Some(state) = self.focused_node.and_then(|id| self.current_slider_state(id))
@@ -4336,8 +4424,13 @@ impl Tree {
       return false;
     };
     let focused = self.focused_node.zip(self.focused_path.as_deref());
+    let start = self
+      .focus_start
+      .as_ref()
+      .filter(|_| focused.is_none())
+      .map(|start| start.point(root, &self.dropped_nodes));
     let moved = self.focus_moving_layers();
-    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, reverse) {
+    match tab_navigation::tab_move(root, &self.dropped_nodes, &moved, focused, start, reverse) {
       tab_navigation::TabMove::Focus(target) => {
         if let Some(state) = self.current_slider_state(target.input_id) {
           state.enter_by_tab(reverse);
@@ -4390,15 +4483,21 @@ impl Tree {
     // Nor does a disabled element keep the focus it had. In a focus group the focus stays in the group: on
     // the element before the one that was disabled, or the one after it. Next pressed onto the last page
     // disables itself, and the keyboard is still in the pagination.
-    if !tab_navigation::path_is_disabled(root, path) {
+    // Nor does an inert one: its focus goes where that of an element taken out of the tree goes, to the stop of its
+    // group that takes its place, or to nothing.
+    let inert = tab_navigation::path_is_inert(root, path);
+    if !inert && !tab_navigation::path_is_disabled(root, path) {
       return;
     }
     let mut group = None;
     let mut node = root;
+    // A group inside an inert element is inert with it.
+    let mut in_inert = false;
     for &index in path {
+      in_inert |= node.is_inert();
       match node.focus_group_value() {
         Some(held) if held.is_none() => group = None,
-        Some(_) if !node.is_disabled() => group = Some(node),
+        Some(_) if !node.is_disabled() && !in_inert => group = Some(node),
         _ => {}
       }
       let Some(child) = node.children().get(index) else {
@@ -4409,6 +4508,9 @@ impl Tree {
     let near = group.and_then(|group| {
       let (stops, before) = tab_navigation::group_stops_around(group, &self.dropped_nodes, self.focused_node);
       let before = before?;
+      if inert {
+        return stops.get(before).or(stops.last()).copied();
+      }
       before
         .checked_sub(1)
         .and_then(|index| stops.get(index))
@@ -4576,8 +4678,14 @@ impl Tree {
     }
   }
 
+  /// The cursor the window shows: that of what is under the pointer, or, while an `on_drag_*` session holds
+  /// the pointer, the one it had where the drag began, over whatever the pointer crosses and outside the
+  /// window too.
   pub fn cursor(&self) -> CursorIcon {
-    self.cursor
+    match &self.active_drag {
+      Some(drag) => drag.cursor,
+      None => self.cursor,
+    }
   }
 
   pub fn clear_needs_redraw(&mut self) {
@@ -5480,6 +5588,7 @@ impl Tree {
               on_move: node.events.on_drag_move.clone(),
               on_end: node.events.on_drag_end.clone(),
               payload: node.drag_payload.clone(),
+              cursor: CursorIcon::Default,
             },
           )
         })
@@ -5555,6 +5664,7 @@ impl Tree {
     if builtin_needs_redraw {
       self.needs_redraw = true;
     }
+    let pressed = hits.first().map(|(node, _)| node.node_id());
     drop(hits);
     if reset_text_input_caret_blink {
       self.reset_text_input_caret_blink();
@@ -5564,6 +5674,12 @@ impl Tree {
     let keeps_keyboard = self.touch_pointer.down && self.focused_text_input();
     if blur_on_press && !keeps_keyboard {
       self.blur_focus();
+      // Tab goes on from what was pressed, as a browser's does from a press on text: from the top of the window
+      // where the press was on nothing.
+      self.focus_start = pressed.and_then(|id| {
+        let root = self.root.as_ref()?;
+        Some(tab_navigation::FocusStart::new(root, id, find_path_by_id(root, id)?))
+      });
     }
     if clear_active_after_dispatch {
       self.clear_active_path();
@@ -5574,10 +5690,12 @@ impl Tree {
     if let Some(drag) = pending_text_selection_drag {
       self.dragging_text_selection = Some(drag);
     }
-    if let Some((event, handler, drag)) = pending_drag {
+    if let Some((event, handler, mut drag)) = pending_drag {
       for handler in handler {
         handler.call(&event);
       }
+      // The cursor of the press is the drag's until the release, wherever the pointer goes.
+      drag.cursor = self.cursor;
       self.active_drag = Some(drag);
       self.needs_redraw = true;
     }
@@ -5980,6 +6098,8 @@ impl Tree {
       self.root_ctx.as_ref().unwrap().take_focus_request();
     }
     if let Some(target) = target {
+      // The app's focus is where the keys go on from: a row a group of rows waited for is no longer awaited.
+      self.pending_row_focus = None;
       self.focus_node(target);
       if self.focused_node == Some(target.input_id) {
         self.request_scroll_into_view(target.input_id);
@@ -6005,6 +6125,10 @@ impl Tree {
     if tab_navigation::path_is_dropped(root, &self.dropped_nodes, &input_path) {
       return;
     }
+    // Nor does anything in an inert element.
+    if tab_navigation::path_is_inert(root, &input_path) {
+      return;
+    }
     let event_path = find_path_by_id(root, target.event_id).unwrap_or_else(|| input_path.clone());
     if self.focused_node == Some(target.input_id) && self.focused_event_node == Some(target.event_id) {
       return;
@@ -6014,6 +6138,7 @@ impl Tree {
       .map(|node| node.events.on_focus.clone())
       .unwrap_or_default();
     self.clear_focus();
+    self.focus_start = None;
     self.focused_node = Some(target.input_id);
     self.focused_event_node = Some(target.event_id);
     self.focused_path = Some(input_path);
@@ -6727,6 +6852,7 @@ impl Tree {
       self.rebuild_if_dirty();
     }
     self.apply_focus_request();
+    self.refresh_interaction_groups();
   }
 
   fn reset_text_input_caret_blink(&mut self) {
@@ -7242,6 +7368,7 @@ impl Tree {
       }
       self.last_layout = Some(layout);
       self.blur_focus_in_dropped_child();
+      self.apply_pending_row_focus();
       self.tree_rebuilt_since_layout = false;
       // All tick walks for this frame ran (base tree + overlay subtrees), so
       // the engines can now drop runs whose nodes left the tree; otherwise an
@@ -7309,10 +7436,12 @@ impl Tree {
       old_parts.free_ids(&self.id_gen);
       self.overlay_dismiss_entries.clear();
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_parents.clear();
       self.overlay_focus_movers.clear();
       self.overlay_focus_entry = None;
       self.overlay_layer_origins.clear();
       self.built_focus_modals.clear();
+      self.modal_open_order.clear();
       self.overlay_focus_returns.clear();
       self.leaving_layers.clear();
       self.dropdown_anchors.clear();
@@ -7324,6 +7453,8 @@ impl Tree {
     // the chrome itself lays over the window, its title bar and its overlays, has all of the window.
     let title_bar = self.window.handle().title_bar_inset().min(viewport.height);
     let mut layers = OverlayLayers::default();
+    self.modals_met.clear();
+    self.stack_modals_in_open_order(&mut base_overlay_index.overlays);
     let mut overlays = build_overlays_from_layout_index(
       &base_overlay_index,
       viewport,
@@ -7355,13 +7486,16 @@ impl Tree {
         Vec::new()
       } else {
         let overlay = &overlays[overlay_index];
+        // Laid out at the size the host gives it, as it is drawn: a menu's items are as wide as the menu, and a
+        // submenu hung from one is placed by the item as it is drawn.
+        let layer_constraints = LayoutEngine::absolute_child_constraints(overlay, constraints);
         let (_overlay_layout, mut overlay_layout_index) = crate::app::profiler::producer::layout_compute(
           #[cfg(feature = "perf_profile")]
           &mut self.profiling,
           || {
             self
               .layout_engine
-              .compute_with_overlay_index(glyph_engine, overlay, constraints, theme_changed)
+              .compute_with_overlay_index(glyph_engine, overlay, layer_constraints, theme_changed)
           },
         );
         let (origin_x, origin_y) = match overlay.position() {
@@ -7370,6 +7504,7 @@ impl Tree {
         };
         translate_overlay_layout_index(&mut overlay_layout_index, origin_x, origin_y);
         dropdown_anchors.append(&mut overlay_layout_index.dropdown_anchors);
+        self.stack_modals_in_open_order(&mut overlay_layout_index.overlays);
         let nested_entries_start = layers.dismiss_entries.len();
         let nested = build_overlays_from_layout_index(
           &overlay_layout_index,
@@ -7409,6 +7544,7 @@ impl Tree {
     }
 
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
+    self.forget_closed_modals();
     let leaving = self.leaving_layers(&mut old_parts, &layers, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
@@ -7425,6 +7561,7 @@ impl Tree {
       // Overlays hidden with their anchor are still dismissed.
       self.overlay_dismiss_entries = layers.dismiss_entries;
       self.overlay_layer_anchors.clear();
+      self.overlay_layer_parents.clear();
       self.dropdown_anchors.clear();
       return focus_return;
     }
@@ -7456,6 +7593,7 @@ impl Tree {
     self.overlay_focus_movers = std::mem::take(&mut layers.focus_movers);
     self.overlay_dismiss_entries = layers.dismiss_entries;
     self.overlay_layer_anchors = layers.anchors;
+    self.overlay_layer_parents = self.focus_layer_parents();
     self.overlay_layer_origins = layers.origins;
     self.dropdown_anchors = dropdown_anchors;
     focus_return
@@ -7776,10 +7914,20 @@ impl Tree {
     );
     self.refresh_focus_ids();
     self.refresh_file_drag_state();
+    // What a render made inert lets the focus in it go at once, as one removed does.
+    if let (Some(root), Some(path)) = (&self.root, &self.focused_path)
+      && tab_navigation::path_is_inert(root, path)
+    {
+      self.blur_focus_in_dropped_child();
+    }
   }
 
   fn clear_focus(&mut self) {
     let had_focus = self.focused_node.is_some() || self.focused_event_node.is_some();
+    // However the focus goes, Tab goes on from where it was.
+    if let (Some(root), Some(id), Some(path)) = (&self.root, self.focused_node, self.focused_path.as_ref()) {
+      self.focus_start = Some(tab_navigation::FocusStart::new(root, id, path.clone()));
+    }
     if let Some(root) = &self.root {
       for id in [self.focused_node, self.focused_event_node].into_iter().flatten() {
         if let Some(node) = find_node_by_id(root, id) {
@@ -8158,6 +8306,7 @@ fn build_overlays_from_layout_index(
         set_overlay_reuse_key(&mut menu, reuse_key.as_deref());
         overlays.push(menu);
         layers.anchors.push(None);
+        layers.takes_focus.push(false);
         layers.origins.push(origin);
         layers.placings.push(None);
       }
@@ -8202,6 +8351,7 @@ fn build_overlays_from_layout_index(
         let outside_press = spec.outside_press;
         let dismiss_on_escape = spec.dismiss_on_escape;
         let on_dismiss = spec.on_dismiss.clone();
+        let takes_focus = spec.takes_focus;
         let (mut overlay, bounds, placing) = build_overlay_node(
           spec,
           anchor,
@@ -8231,6 +8381,7 @@ fn build_overlays_from_layout_index(
         }
         overlays.push(overlay);
         layers.anchors.push(Some(layer_anchor));
+        layers.takes_focus.push(takes_focus);
         layers.origins.push(origin);
         layers.placings.push(Some(placing));
       }
@@ -8288,6 +8439,7 @@ fn build_overlays_from_layout_index(
         }
         overlays.push(modal);
         layers.anchors.push(owner);
+        layers.takes_focus.push(false);
         layers.origins.push(origin);
         layers.placings.push(None);
       }
@@ -8936,6 +9088,8 @@ struct ActiveDrag {
   on_move: Vec<DragCallback>,
   on_end: Vec<DragCallback>,
   payload: Option<crate::app::events::DragPayload>,
+  /// The cursor under the pointer where the drag began, which the window shows until the release.
+  cursor: CursorIcon,
 }
 
 impl ActiveDrag {
@@ -9338,6 +9492,19 @@ impl<'t> ElementHandle<'t> {
 
   pub fn text_content(&self) -> Option<&str> {
     self.node()?.text_content()
+  }
+
+  /// What the element is said to be under `name` to tooling: what its `describe(name, ..)` said when it was built,
+  /// or what its ref said since (`ElementRefMut::describe`), as `lurq_inspect` reads it. Kept only with the `mcp` or
+  /// `devtools` feature.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  pub fn description(&self, name: &str) -> Option<String> {
+    self
+      .node()?
+      .debug_attrs()
+      .iter()
+      .find(|(said, _)| said.as_ref() == name)
+      .map(|(_, value)| value.to_string())
   }
 
   pub fn has_class(&self, class: &str) -> bool {

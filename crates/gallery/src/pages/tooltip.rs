@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -141,7 +141,7 @@ impl TooltipPage {
       Spec {
         title: "Tooltip",
         make: Arc::new(move || plain().into()),
-        shown,
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: if open {

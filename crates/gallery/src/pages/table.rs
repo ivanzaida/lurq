@@ -1,0 +1,951 @@
+//! The page of the table: its playground, the board's table, rows selected with a footer, sorting, a header
+//! that stays in a height, ten thousand rows, the empty and the loading forms, the bar over a table, and its
+//! states.
+
+use std::sync::Arc;
+
+use lurq::{
+  app::{component::Component, ctx::Ctx, theme::Density},
+  components::{Column, Row},
+  core::Signal,
+  layout::Alignment,
+  node::Element,
+  ui::{
+    Avatar, AvatarSize, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Choice, EmptyState, EmptyStateSize,
+    InputSize, Interaction, Length, Pagination, SearchField, SearchFieldPart, Table, TableColumn, TablePart, TableSort,
+    Tag, TagVariant, ToggleGroup, Toolbar, ToolbarItem, ToolbarPart, icons,
+  },
+};
+
+use crate::{
+  doc::{Frame, Header, Section},
+  kit::{props_table, quiet},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Status {
+  Passing,
+  Building,
+  Modified,
+  Failed,
+}
+
+impl Status {
+  fn badge(self) -> Element {
+    let (label, variant) = match self {
+      Self::Passing => ("Passing", BadgeVariant::Success),
+      Self::Building => ("Building", BadgeVariant::Info),
+      Self::Modified => ("Modified", BadgeVariant::Warning),
+      Self::Failed => ("Failed", BadgeVariant::Destructive),
+    };
+    Badge::new(label).variant(variant).into()
+  }
+}
+
+/// A crate of a workspace, as a table of them shows it.
+#[derive(Clone, Debug, PartialEq)]
+struct Krate {
+  name: &'static str,
+  status: Status,
+  owner: &'static str,
+  size: u32,
+  updated: &'static str,
+}
+
+const NAMES: [&str; 12] = [
+  "crates/lurq",
+  "crates/lurq_macros",
+  "crates/mobile_demo",
+  "crates/gallery",
+  "crates/lurq_devtools",
+  "crates/lurq_mcp",
+  "crates/render_bench",
+  "crates/icon_font",
+  "crates/lurq_router",
+  "crates/lurq_form",
+  "crates/svg_loader",
+  "crates/text_shaping",
+];
+const OWNERS: [&str; 4] = ["Ivan Zaida", "Mira Holt", "Ada Kerr", "Tom Rios"];
+const UPDATED: [&str; 6] = [
+  "2 min ago",
+  "just now",
+  "1 h ago",
+  "yesterday",
+  "3 days ago",
+  "last week",
+];
+const STATUSES: [Status; 4] = [Status::Passing, Status::Building, Status::Failed, Status::Modified];
+
+/// The `index`th crate: the board's three first, then as many as asked for.
+fn krate(index: usize) -> Krate {
+  Krate {
+    name: NAMES[index % NAMES.len()],
+    status: STATUSES[index % STATUSES.len()],
+    owner: OWNERS[index % OWNERS.len()],
+    size: ((index * 37 + 11) % 120) as u32 + 4,
+    updated: UPDATED[index % UPDATED.len()],
+  }
+}
+
+fn crates(count: usize) -> Vec<Krate> {
+  (0..count).map(krate).collect()
+}
+
+/// The rows of the table of ten thousand: a name of its own each.
+fn many() -> Arc<Vec<Krate>> {
+  Arc::new(
+    (0..10_000)
+      .map(|index| Krate {
+        name: Box::leak(format!("crates/generated_{index:05}").into_boxed_str()),
+        ..krate(index)
+      })
+      .collect(),
+  )
+}
+
+/// The columns of the playground's table: a name that may stay, its status, its owner, its size and when it
+/// changed, and a button at the end that is told to `record`.
+fn columns(sticky: bool, record: Option<Arc<dyn Fn(String) + Send + Sync>>) -> Vec<TableColumn<Krate>> {
+  let mut columns = vec![
+    TableColumn::new("name", "Name")
+      .text(|row: &Krate| row.name.to_owned())
+      .mono(true)
+      .min_width(170.0)
+      .sticky(sticky)
+      .sortable(true),
+    TableColumn::new("status", "Status")
+      .width(110.0)
+      .cell(|row: &Krate| row.status.badge())
+      .sort_key(|row: &Krate| row.status),
+    TableColumn::new("owner", "Owner").fit().cell(|row: &Krate| {
+      Row::new()
+        .spacing(8.0)
+        .align_items(Alignment::Center)
+        .child(Avatar::new(row.owner).size(AvatarSize::Xs))
+        .child(quiet(row.owner, 13.0))
+        .into()
+    }),
+    TableColumn::new("size", "Size")
+      .width(70.0)
+      .numeric()
+      .text(|row: &Krate| format!("{} KB", row.size))
+      .sort_key(|row: &Krate| row.size),
+    TableColumn::new("updated", "Updated")
+      .width(100.0)
+      .muted(true)
+      .text(|row: &Krate| row.updated.to_owned()),
+  ];
+  if let Some(record) = record {
+    columns.push(TableColumn::actions("actions", move |row: &Krate| {
+      let (record, name) = (record.clone(), row.name);
+      Button::new("Open")
+        .variant(ButtonVariant::Ghost)
+        .size(ButtonSize::Xs)
+        .on_click(move |_| record(format!("Open {name:?}")))
+        .into()
+    }));
+  }
+  columns
+}
+
+/// The board's table: a name in the mono type, a status, when it changed.
+fn board_columns() -> Vec<TableColumn<Krate>> {
+  vec![
+    TableColumn::new("name", "Name")
+      .text(|row: &Krate| row.name.to_owned())
+      .mono(true),
+    TableColumn::new("status", "Status")
+      .width(120.0)
+      .cell(|row: &Krate| row.status.badge()),
+    TableColumn::new("updated", "Updated")
+      .width(120.0)
+      .muted(true)
+      .text(|row: &Krate| row.updated.to_owned()),
+  ]
+}
+
+/// The rows of `rows` in the order `sort` asks for.
+fn sorted(columns: &[TableColumn<Krate>], mut rows: Vec<Krate>, sort: &Option<TableSort>) -> Vec<Krate> {
+  if let Some(sort) = sort {
+    sort.sort(columns, &mut rows);
+  }
+  rows
+}
+
+const SELECTIONS: [&str; 3] = ["none", "with checkboxes", "by a press of a row"];
+const DENSITIES: [(&str, Density); 3] = [
+  ("compact", Density::Compact),
+  ("default", Density::Default),
+  ("comfortable", Density::Comfortable),
+];
+const FORMS: [&str; 3] = ["rows", "empty", "loading"];
+
+/// Something on a stage with what it is under it.
+fn item(shown: impl Into<Element>, caption: &str) -> Column {
+  Column::new()
+    .spacing(9.0)
+    .child(Row::new().overflow_visible().child(shown))
+    .child(quiet(caption, 12.0))
+}
+
+pub struct TablePage {
+  frame: Frame,
+  playground: Playground,
+  sortable: Signal<bool>,
+  selection: Signal<usize>,
+  density: Signal<usize>,
+  fixed_height: Signal<bool>,
+  form: Signal<usize>,
+  sticky: Signal<bool>,
+  footer: Signal<bool>,
+  played_sort: Signal<Option<TableSort>>,
+  played_selected: Signal<Vec<&'static str>>,
+  grid_selected: Signal<Vec<&'static str>>,
+  grid_sort: Signal<Option<TableSort>>,
+  page: Signal<usize>,
+  sort: Signal<Option<TableSort>>,
+  tall_selected: Signal<Vec<&'static str>>,
+  many: Arc<Vec<Krate>>,
+  many_selected: Signal<Vec<&'static str>>,
+  search: Signal<String>,
+  bar_density: Signal<u8>,
+}
+
+impl TablePage {
+  /// The playground: a table of crates as the panel's props make it.
+  fn play(&self, ctx: &mut Ctx) -> Element {
+    let (sortable, selection, sticky, footer) = (
+      self.sortable.get(),
+      self.selection.get().min(SELECTIONS.len() - 1),
+      self.sticky.get(),
+      self.footer.get(),
+    );
+    let (density_name, density) = DENSITIES[self.density.get().min(DENSITIES.len() - 1)];
+    let (fixed_height, form) = (self.fixed_height.get(), self.form.get().min(FORMS.len() - 1));
+    let (sort, selected) = (self.played_sort.get(), self.played_selected.get());
+    let record = self.playground.recorder();
+    let recorded: Arc<dyn Fn(String) + Send + Sync> = Arc::new(record.clone());
+
+    let build = {
+      let sort = sort.clone();
+      let selected = selected.clone();
+      move |record: Option<Arc<dyn Fn(String) + Send + Sync>>| {
+        let mut columns = columns(sticky, record);
+        if !sortable {
+          columns = columns.into_iter().map(|column| column.sortable(false)).collect();
+        }
+        let rows = match form {
+          1 => Vec::new(),
+          _ => sorted(&columns, crates(8), &sort),
+        };
+        let mut table = Table::new(columns, rows)
+          .row_key(|row: &Krate| row.name)
+          .label("Crates")
+          .density(density)
+          .loading(form == 2);
+        if fixed_height {
+          table = table.height(240.0);
+        }
+        if footer {
+          table = table.count(true).total(24);
+        }
+        (table, sort.clone(), selected.clone())
+      }
+    };
+
+    let (set_sort, set_selected) = (self.played_sort.clone(), self.played_selected.clone());
+    let (sorted_to, changed, clicked, activated) = (record.clone(), record.clone(), record.clone(), record);
+    let (table, sort_now, selected_now) = build(Some(recorded));
+    let mut shown = table
+      .force(self.playground.forced())
+      .sorted_by(sort_now.clone(), move |next| {
+        sorted_to(format!("on_sort({next:?})"));
+        set_sort.set(next);
+      })
+      .on_row_click(move |key| clicked(format!("on_row_click({key:?})")))
+      .on_row_activate(move |key| activated(format!("on_row_activate({key:?})")));
+    if selection > 0 {
+      shown = shown
+        .selected_keys(selected_now.clone(), move |next| {
+          changed(format!("select({next:?})"));
+          set_selected.set(next);
+        })
+        .checkboxes(selection == 1);
+    }
+
+    let make = {
+      let build = build.clone();
+      move || {
+        let (table, sort, selected) = build(None);
+        let mut table = table.sorted_by(sort, |_| {});
+        if selection > 0 {
+          table = table.selected_keys(selected, |_| {}).checkboxes(selection == 1);
+        }
+        table.into()
+      }
+    };
+
+    let mut code = vec![
+      "// sort: Signal<Option<TableSort>>".to_owned(),
+      if selection > 0 {
+        "// selected: Signal<Vec<&str>>".to_owned()
+      } else {
+        "// rows: Vec<Crate>, in the order of `sort`".to_owned()
+      },
+      "Table::new([".to_owned(),
+      format!(
+        "    TableColumn::new(\"name\", \"Name\").text(|row| row.name.into()).mono(true).min_width(170.0){}{},",
+        if sticky { ".sticky(true)" } else { "" },
+        if sortable { ".sortable(true)" } else { "" }
+      ),
+      format!(
+        "    TableColumn::new(\"status\", \"Status\").width(110.0).cell(|row| row.status.badge()){},",
+        if sortable { ".sort_key(|row| row.status)" } else { "" }
+      ),
+      "    TableColumn::new(\"owner\", \"Owner\").fit().cell(|row| /* avatar and name */),".to_owned(),
+      format!(
+        "    TableColumn::new(\"size\", \"Size\").width(70.0).numeric().text(|row| format!(\"{{}} KB\", row.size)){},",
+        if sortable { ".sort_key(|row| row.size)" } else { "" }
+      ),
+      "    TableColumn::new(\"updated\", \"Updated\").width(100.0).muted(true).text(|row| row.updated.into()),"
+        .to_owned(),
+      "    TableColumn::actions(\"actions\", |row| Button::new(\"Open\").variant(ButtonVariant::Ghost).into()),"
+        .to_owned(),
+      format!("], {})", if form == 1 { "Vec::new()" } else { "rows" }),
+      ".row_key(|row| row.name)".to_owned(),
+      ".label(\"Crates\")".to_owned(),
+      ".sort(sort)".to_owned(),
+    ];
+    match selection {
+      1 => code.push(".selected(selected)".to_owned()),
+      2 => code.push(".selected(selected).checkboxes(false)".to_owned()),
+      _ => {}
+    }
+    if density != Density::Default {
+      code.push(format!(".density(Density::{})", capitalized(density_name)));
+    }
+    if fixed_height {
+      code.push(".height(240.0)".to_owned());
+    }
+    if form == 2 {
+      code.push(".loading(true)".to_owned());
+    }
+    if footer {
+      code.push(".count(true).total(24)".to_owned());
+    }
+    code.push(".on_row_activate(|name| /* open the crate */)".to_owned());
+
+    let row_height = match density {
+      Density::Compact => 36,
+      Density::Default => 44,
+      _ => 52,
+    };
+    let tree = vec![
+      format!("root        {} · radius lg · edge 1", self.playground.measured()),
+      "├─ scroll   both ways · fills its width".to_owned(),
+      format!("│  ├─ header      {} high · muted · sticks to the top", row_height - 4),
+      "│  │  └─ header_cell  13/500 · sort_icon 14 · 4 apart".to_owned(),
+      format!(
+        "│  └─ row         {row_height} high · padding 16 · {} between columns",
+        if selection == 1 { 12 } else { 16 }
+      ),
+      format!("│     ├─ select    16{}", if selection == 1 { "" } else { "   (none)" }),
+      "│     └─ cell      13 · mono, muted, numeric by column".to_owned(),
+      format!("└─ footer    44 · count{}", if footer { "" } else { "   (none)" }),
+    ];
+
+    let (to_sortable, to_selection, to_density, to_height) = (
+      self.sortable.clone(),
+      self.selection.clone(),
+      self.density.clone(),
+      self.fixed_height.clone(),
+    );
+    let (to_form, to_sticky, to_footer, to_sort, to_selected) = (
+      self.form.clone(),
+      self.sticky.clone(),
+      self.footer.clone(),
+      self.played_sort.clone(),
+      self.played_selected.clone(),
+    );
+    let (set_selection, set_density, set_form) = (self.selection.clone(), self.density.clone(), self.form.clone());
+    let indexed = |names: &[&'static str]| -> Vec<(&'static str, usize)> {
+      names.iter().enumerate().map(|(index, name)| (*name, index)).collect()
+    };
+    let densities: Vec<(&str, usize)> = DENSITIES
+      .iter()
+      .enumerate()
+      .map(|(index, (name, _))| (*name, index))
+      .collect();
+    let shown = shown.mount(ctx);
+    self.playground.card(
+      ctx,
+      Spec {
+        title: "Table",
+        make: Arc::new(make),
+        shown: Shown::of(shown),
+        fill: true,
+        forceable: true,
+        facts: format!(
+          "{} rows, {} selected{}",
+          if form == 1 { 0 } else { 8 },
+          selected.len(),
+          match &sort {
+            Some(sort) => format!(", sorted by {} {:?}", sort.column, sort.direction).to_lowercase(),
+            None => String::new(),
+          }
+        ),
+        event: "on_sort / select / on_row_click",
+        code,
+        tree,
+        controls: vec![
+          flag("sortable", &self.sortable),
+          prop(
+            "selected",
+            "Signal<Vec<K>>",
+            self
+              .playground
+              .select(0, &indexed(&SELECTIONS), &selection, move |index| {
+                set_selection.set(index)
+              }),
+          ),
+          prop(
+            "density",
+            "Density",
+            self
+              .playground
+              .select(1, &densities, &self.density.get(), move |index| set_density.set(index)),
+          ),
+          divider(),
+          flag("height(240): the header stays", &self.fixed_height),
+          flag("sticky first column", &self.sticky),
+          flag("count in a footer", &self.footer),
+          prop(
+            "rows",
+            "empty / loading",
+            self
+              .playground
+              .select(2, &indexed(&FORMS), &form, move |index| set_form.set(index)),
+          ),
+        ],
+        changed: [
+          !sortable,
+          selection != 1,
+          density != Density::Default,
+          !fixed_height,
+          sticky,
+          footer,
+          form != 0,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
+        reset: Arc::new(move || {
+          to_sortable.set(true);
+          to_selection.set(1);
+          to_density.set(1);
+          to_height.set(true);
+          to_form.set(0);
+          to_sticky.set(false);
+          to_footer.set(false);
+          to_sort.set(None);
+          to_selected.set(Vec::new());
+        }),
+      },
+    )
+  }
+
+  /// The board's Table Toolbar over a table whose density it sets: a search field, the filters that are set,
+  /// Filter, and at the end the density, the columns and Export.
+  fn with_bar(&self, ctx: &mut Ctx) -> Element {
+    let density = match self.bar_density.get() {
+      4 => Density::Compact,
+      2 => Density::Comfortable,
+      _ => Density::Default,
+    };
+    let bar = Toolbar::new()
+      .label("Crates")
+      .overflow(true)
+      .style(ToolbarPart::Root, |s| {
+        s.width(Length::Fill)
+          .height(52.0)
+          .padding_x(12.0)
+          .gap(8.0)
+          .radius(lurq::app::theme::RadiusSize::Lg)
+      })
+      .child(
+        ToolbarItem::element(
+          SearchField::new(self.search.clone())
+            .placeholder("Filter crates")
+            .size(InputSize::Sm)
+            .style(SearchFieldPart::Root, |s| s.width(220.0)),
+        )
+        .stays(true),
+      )
+      .child(ToolbarItem::element(
+        Tag::new("Status: Passing").variant(TagVariant::Info).on_remove(|| {}),
+      ))
+      .child(
+        ToolbarItem::from(
+          Button::new("Filter")
+            .icon(icons::PLUS)
+            .variant(ButtonVariant::Outline)
+            .size(ButtonSize::Xs),
+        )
+        .as_given(true),
+      )
+      .child(Toolbar::spacer())
+      .child(ToggleGroup::new(
+        self.bar_density.clone(),
+        [
+          Choice::new(4u8, "Compact").icon(icons::ROWS_4).icon_only(true),
+          Choice::new(3u8, "Default").icon(icons::ROWS_3).icon_only(true),
+          Choice::new(2u8, "Comfortable").icon(icons::ROWS_2).icon_only(true),
+        ],
+      ))
+      .child(
+        ToolbarItem::from(
+          Button::new("Export")
+            .icon(icons::DOWNLOAD)
+            .variant(ButtonVariant::Outline),
+        )
+        .as_given(true),
+      )
+      .mount(ctx);
+    let query = self.search.get().to_lowercase();
+    let rows: Vec<Krate> = crates(6)
+      .into_iter()
+      .filter(|row| row.name.contains(query.as_str()))
+      .collect();
+    let search = self.search.clone();
+    let table = Table::new(board_columns(), rows)
+      .row_key(|row: &Krate| row.name)
+      .density(density)
+      .empty(
+        EmptyState::new(&format!("No crates match “{query}”"))
+          .description("Check the spelling or clear the filter.")
+          .icon(icons::SEARCH_CLOSE)
+          .size(EmptyStateSize::Sm)
+          .action(
+            Button::new("Clear filter")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm)
+              .on_click(move |_| search.set(String::new())),
+          ),
+      );
+    Column::new().spacing(12.0).child(bar).child(table).into()
+  }
+}
+
+fn capitalized(name: &str) -> String {
+  let mut chars = name.chars();
+  chars
+    .next()
+    .map(|first| first.to_uppercase().chain(chars).collect())
+    .unwrap_or_default()
+}
+
+impl Component for TablePage {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      frame: Frame::new(ctx),
+      playground: Playground::new(ctx, 3),
+      sortable: ctx.signal(true),
+      selection: ctx.signal(1),
+      density: ctx.signal(1),
+      fixed_height: ctx.signal(true),
+      form: ctx.signal(0),
+      sticky: ctx.signal(false),
+      footer: ctx.signal(false),
+      played_sort: ctx.signal(None),
+      played_selected: ctx.signal(Vec::new()),
+      grid_selected: ctx.signal(vec!["crates/lurq"]),
+      grid_sort: ctx.signal(Some(TableSort::ascending("name"))),
+      page: ctx.signal(1),
+      sort: ctx.signal(None),
+      tall_selected: ctx.signal(Vec::new()),
+      many: many(),
+      many_selected: ctx.signal(Vec::new()),
+      search: ctx.signal(String::new()),
+      bar_density: ctx.signal(3),
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let board = Table::new(board_columns(), crates(3))
+      .row_key(|row: &Krate| row.name)
+      .label("Crates")
+      .style(TablePart::Root, |s| s.width(640.0));
+
+    let grid_columns = vec![
+      TableColumn::new("name", "Name")
+        .text(|row: &Krate| row.name.to_owned())
+        .mono(true)
+        .sortable(true),
+      TableColumn::new("status", "Status")
+        .width(110.0)
+        .cell(|row: &Krate| row.status.badge()),
+      TableColumn::new("size", "Size")
+        .width(70.0)
+        .numeric()
+        .text(|row: &Krate| format!("{} KB", row.size))
+        .sort_key(|row: &Krate| row.size),
+    ];
+    let page = self.page.get();
+    let grid_sort = self.grid_sort.get();
+    let page_rows: Vec<Krate> = (0..3).map(|index| krate((page - 1) * 3 + index)).collect();
+    let grid = Table::new(grid_columns.clone(), sorted(&grid_columns, page_rows, &grid_sort))
+      .row_key(|row: &Krate| row.name)
+      .label("Files")
+      .sort(self.grid_sort.clone())
+      .selected(self.grid_selected.clone())
+      .total(24)
+      .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
+      .style(TablePart::Root, |s| s.width(640.0));
+
+    let sort = self.sort.get();
+    let sort_columns = columns(false, None);
+    let sorting = Table::new(sort_columns.clone(), sorted(&sort_columns, crates(6), &sort))
+      .row_key(|row: &Krate| row.name)
+      .label("Crates")
+      .sort(self.sort.clone());
+
+    let tall = Table::new(columns(true, None), crates(40))
+      .row_key(|row: &Krate| row.name)
+      .label("Crates")
+      .selected(self.tall_selected.clone())
+      .height(280.0)
+      .style(TablePart::Root, |s| s.width(560.0))
+      .mount(ctx);
+
+    let thousands = Table::new_shared(columns(false, None), self.many.clone())
+      .row_key(|row: &Krate| row.name)
+      .label("Generated crates")
+      .selected(self.many_selected.clone())
+      .count(true)
+      .height(360.0)
+      .mount(ctx);
+
+    let empty = Table::new(board_columns(), Vec::new())
+      .row_key(|row: &Krate| row.name)
+      .empty(
+        EmptyState::new("No crates match “blurr”")
+          .description("Check the spelling or clear the filter.")
+          .icon(icons::SEARCH_CLOSE)
+          .size(EmptyStateSize::Sm)
+          .action(
+            Button::new("Clear filter")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm),
+          ),
+      )
+      .style(TablePart::Root, |s| s.width(420.0));
+    let loading = Table::new(board_columns(), crates(3))
+      .row_key(|row: &Krate| row.name)
+      .loading(true)
+      .style(TablePart::Root, |s| s.width(420.0));
+    let forms = Row::new()
+      .spacing(28.0)
+      .wrap()
+      .align_items(Alignment::Start)
+      .child(item(empty, "empty: the table's empty state under the header"))
+      .child(item(loading, "loading: skeletons where the rows will be"));
+
+    let state = |forced: Option<Interaction>| {
+      Table::new(board_columns(), crates(2))
+        .row_key(|row: &Krate| row.name)
+        .selected_keys(["crates/lurq_macros"], |_| {})
+        .checkboxes(false)
+        .force(forced)
+        .style(TablePart::Root, |s| s.width(420.0))
+    };
+    let states = Row::new()
+      .spacing(28.0)
+      .wrap()
+      .align_items(Alignment::Start)
+      .child(item(state(None), "at rest, and a row selected"))
+      .child(item(state(Some(Interaction::Hovered)), "under the pointer"))
+      .child(item(
+        state(Some(Interaction::FocusVisible)),
+        "focused from the keyboard",
+      ));
+
+    let rows = [
+      (
+        "columns",
+        "impl IntoIterator<Item = TableColumn<R>>",
+        "",
+        "The columns: `TableColumn::new(id, title)` with `text` or `cell`, `width`, `share`, `fit`, `min_width`, \
+         `max_width`, `align`, `numeric`, `mono`, `muted`, `sortable`, `sort_by`, `sort_key`, `sticky`, \
+         `controls`; `TableColumn::actions(id, cell)` for a row's buttons.",
+      ),
+      (
+        "rows",
+        "impl IntoIterator<Item = R>",
+        "",
+        "The rows, in the order the app wants them. `new_shared` takes an `Arc<Vec<R>>` kept from render to render.",
+      ),
+      (
+        "row_key",
+        "impl Fn(&R) -> K",
+        "the row's place",
+        "What tells a row apart: the selection and the handlers name rows by it.",
+      ),
+      (
+        "sort",
+        "Signal<Option<TableSort>>",
+        "none",
+        "What the rows are sorted by: a press of a sortable header sets it to ascending, descending, none. \
+         `sorted_by(sort, change)` is the same held by the app; `TableSort::sort` sorts rows by a column.",
+      ),
+      (
+        "selected",
+        "Signal<Vec<K>>",
+        "none",
+        "The rows selected, with a column of checkboxes. `selected_keys(keys, change)` is the same held by the app.",
+      ),
+      (
+        "checkboxes",
+        "bool",
+        "true",
+        "Whether a table whose rows are selected has the column of checkboxes.",
+      ),
+      (
+        "density",
+        "Density",
+        "the theme's",
+        "Rows of 36 compact, 44, 52 comfortable.",
+      ),
+      (
+        "height / max_height",
+        "Length",
+        "its rows'",
+        "The table's height: the header stays and the rows scroll under it.",
+      ),
+      (
+        "empty",
+        "impl Into<Element>",
+        "No rows",
+        "What stands under the header where there are no rows.",
+      ),
+      (
+        "loading",
+        "bool",
+        "false",
+        "Rows of skeletons under the header; `loading_rows(n)` how many.",
+      ),
+      (
+        "pagination / count / total",
+        "Pagination / bool / usize",
+        "none",
+        "A footer that counts the rows and what is selected, with the pagination at its end.",
+      ),
+      (
+        "on_row_click / on_row_activate",
+        "impl Fn(&K)",
+        "",
+        "Told of a press of a row, and of a double press or Enter.",
+      ),
+      (
+        "mount",
+        "&mut Ctx",
+        "",
+        "Builds the rows in view and a few around them, keeps the measured widths, and takes PageUp and PageDown.",
+      ),
+      (
+        "label / disabled",
+        "&str / bool",
+        "",
+        "What the table is called to what reads the tree; no row takes input.",
+      ),
+      (
+        "style / rules",
+        "TablePart",
+        "",
+        "Root, Scroll, Header, HeaderCell, SortIcon, Row, Cell, Select, Empty, Footer, Count.",
+      ),
+    ];
+    let playground = self.play(ctx);
+    let with_bar = self.with_bar(ctx);
+    self.frame.page(
+      ctx,
+      Header {
+        breadcrumb: &["Components", "Data", "Table"],
+        title: "Table",
+        description: "Rows of the same things in columns: crates and their status, files and their sizes. The \
+                      columns of the header and of every row are the same widths whatever is in a cell.",
+        import: Some("use lurq::ui::{Table, TableColumn, TableSort};"),
+        status: Some("Preview"),
+        since: Some("0.63"),
+        source: file!(),
+      },
+      vec![
+        Section::new(
+          "Playground",
+          "Every prop of Table is a control on the right. The table on the stage is live: a press of a header \
+           sorts, a press of a row selects it, with Ctrl adds it, with Shift a range, and its button is its own.",
+          playground,
+        ),
+        Section::new(
+          "The board's table",
+          "A name in the mono type, a status as a badge, when it changed in the muted color. The header is 40 \
+           high on the muted fill, a row 44 with a line under it but the last.",
+          self.frame.demo(
+            0,
+            board,
+            "Table::new(columns, rows)",
+            &[
+              "Table::new([",
+              "    TableColumn::new(\"name\", \"Name\").text(|row| row.name.into()).mono(true),",
+              "    TableColumn::new(\"status\", \"Status\").width(120.0).cell(|row| row.status.badge()),",
+              "    TableColumn::new(\"updated\", \"Updated\").width(120.0).muted(true).text(|row| row.updated.into()),",
+              "], rows)",
+              ".row_key(|row| row.name)",
+              ".label(\"Crates\")",
+            ],
+          ),
+        ),
+        Section::new(
+          "Selecting rows",
+          "With a selection a table has a column of checkboxes. The header's selects every row shown, or none, \
+           and is mixed while some are. Up and Down move through the rows, Space selects the focused one, Enter \
+           activates it, Ctrl+A selects them all. The footer counts them, with the pagination at its end.",
+          self.frame.demo(
+            1,
+            grid,
+            ".selected(selected).pagination(..)",
+            &[
+              "// selected: Signal<Vec<&str>>, page: Signal<usize>, sort: Signal<Option<TableSort>>",
+              "Table::new(columns, rows_of_the_page)",
+              "    .row_key(|row| row.name)",
+              "    .sort(sort)",
+              "    .selected(selected)",
+              "    .total(24)",
+              "    .pagination(Pagination::for_items(page, 24, 3).compact(true))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Sorting",
+          "A press of a sortable header sorts the rows by it, ascending, then descending, then not at all. The \
+           app gives the rows in that order: `TableSort::sort` sorts them by the column's text or its key.",
+          self.frame.demo(
+            2,
+            sorting,
+            ".sort(sort)",
+            &[
+              "// sort: Signal<Option<TableSort>>",
+              "let mut rows = rows;",
+              "if let Some(by) = sort.get() {",
+              "    by.sort(&columns, &mut rows);",
+              "}",
+              "Table::new(columns, rows).sort(sort)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A header that stays",
+          "In a height of its own the rows scroll under the header, and a table wider than its box scrolls \
+           sideways with it; the sticky first column stays at the start.",
+          self.frame.demo(
+            3,
+            tall,
+            ".height(280.0)",
+            &[
+              "Table::new(columns_with_a_sticky_name, forty_crates)",
+              "    .selected(selected)",
+              "    .height(280.0)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Ten thousand rows",
+          "A mounted table builds the rows in view and a few around them: ten thousand cost what a screen of \
+           them does. Home and End reach the first and the last, PageUp and PageDown go a page at a time.",
+          self.frame.demo(
+            4,
+            thousands,
+            "Table::new_shared(columns, rows).mount(ctx)",
+            &[
+              "// rows: Arc<Vec<Crate>> of 10 000, kept from render to render",
+              "Table::new_shared(columns, rows.clone())",
+              "    .row_key(|row| row.name)",
+              "    .selected(selected)",
+              "    .count(true)",
+              "    .height(360.0)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Empty and loading",
+          "Where there are no rows an empty state stands under the header; while they are on their way, rows of \
+           skeletons. The header stays in both.",
+          self.frame.demo(
+            5,
+            forms,
+            ".empty(..) / .loading(true)",
+            &[
+              "Table::new(columns, Vec::new()).empty(",
+              "    EmptyState::new(\"No crates match “blurr”\")",
+              "        .description(\"Check the spelling or clear the filter.\")",
+              "        .icon(icons::SEARCH_CLOSE)",
+              "        .size(EmptyStateSize::Sm)",
+              "        .action(Button::new(\"Clear filter\").variant(ButtonVariant::Outline)),",
+              ")",
+              "",
+              "Table::new(columns, rows).loading(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "With its bar",
+          "The board's Table Toolbar is a `Toolbar`: the search filters the rows, and the density sets the \
+           table's.",
+          self.frame.demo(
+            6,
+            with_bar,
+            "Toolbar::new() over Table::new(..).density(density)",
+            &[
+              "// query: Signal<String>, density: Signal<u8>",
+              "Toolbar::new()",
+              "    .child(ToolbarItem::element(SearchField::new(query).placeholder(\"Filter crates\")).stays(true))",
+              "    .child(ToolbarItem::element(Tag::new(\"Status: Passing\").variant(TagVariant::Info)))",
+              "    .child(Toolbar::spacer())",
+              "    .child(ToggleGroup::new(density, [/* rows-4, rows-3, rows-2 */]))",
+              "    .mount(ctx)",
+              "Table::new(columns, filtered).density(Density::Compact)",
+            ],
+          ),
+        ),
+        Section::new(
+          "States",
+          "The board draws a row at rest and a selected one. Under the pointer and held down a row is veiled, and \
+           the focus from the keyboard is a ring inside the row.",
+          self.frame.demo(
+            7,
+            states,
+            ".force(Some(Interaction::FocusVisible))",
+            &[
+              "Table::new(columns, rows)",
+              "    .selected_keys([\"crates/lurq_macros\"], |_| {})",
+              "    .checkboxes(false)",
+              "",
+              "// Drawn as under the pointer or focused, with nothing pointing at it: for a gallery, a test.",
+              "    .force(Some(Interaction::FocusVisible))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Props",
+          "What a table is given.",
+          props_table(&rows, &["columns", "rows"], self.frame.room()),
+        ),
+      ],
+    )
+  }
+}

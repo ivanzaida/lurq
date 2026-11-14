@@ -606,6 +606,9 @@ fn push_flat_layout_rows(rows: &mut Vec<DevToolsShapeRow>, node: &crate::node::N
   if let Some(size) = shrink_rule.drop_below {
     push_shape_row(rows, "shrink drop below", format_px(size));
   }
+  if shrink_rule.marker {
+    push_shape_row(rows, "drop marker", "true".to_owned());
+  }
   match node.position() {
     Position::Static => {}
     Position::Absolute { x, y, width, height } => {

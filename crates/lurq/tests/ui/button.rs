@@ -461,3 +461,143 @@ fn what_is_before_and_after_the_label_is_in_the_button() {
   assert_eq!(chevron.0 + chevron.2, x + width - 16.0);
   assert!(icon.0 < chevron.0);
 }
+
+/// The color a person sees where the element with `id` is: each fill and veil as large as it laid over the last.
+fn seen(stage: &mut Stage, id: &str) -> [f32; 3] {
+  use lurq::layout::quad::QuadContent;
+  let (x, y, width, height) = stage.bounds(id);
+  let mut seen = [255.0, 255.0, 255.0];
+  for quad in stage.quads() {
+    let (color, whole) = match quad.content {
+      // A veil is an inset shadow that covers the box inside its edge.
+      QuadContent::BoxShadow(shadow) if shadow.inset => (shadow.color, false),
+      QuadContent::Rect { color, .. } => (color, true),
+      _ => continue,
+    };
+    let fits = if whole {
+      (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
+    } else {
+      quad.x >= x && quad.y >= y && quad.x + quad.width <= x + width && quad.y + quad.height <= y + height
+    };
+    if fits {
+      let alpha = f32::from(color.a()) / 255.0;
+      for (channel, value) in seen.iter_mut().zip([color.r(), color.g(), color.b()]) {
+        *channel = *channel * (1.0 - alpha) + f32::from(value) * alpha;
+      }
+    }
+  }
+  seen
+}
+
+#[test]
+fn a_pressed_button_is_not_the_picture_of_a_hovered_one_in_either_appearance() {
+  use lurq::app::{App, window::Appearance};
+  for appearance in [Appearance::Light, Appearance::Dark] {
+    for variant in [
+      ButtonVariant::Primary,
+      ButtonVariant::Secondary,
+      ButtonVariant::Outline,
+      ButtonVariant::Ghost,
+      ButtonVariant::Destructive,
+    ] {
+      let app = App::new();
+      app.theme().set_preferred_appearance(Some(appearance));
+      let mut stage = Stage::in_app(app, move |_| {
+        Column::new()
+          .padding(20.0)
+          .spacing(12.0)
+          .child(
+            Button::new("Hover")
+              .variant(variant)
+              .id("hover")
+              .force(Some(Interaction::Hovered)),
+          )
+          .child(
+            Button::new("Pressed")
+              .variant(variant)
+              .id("pressed")
+              .force(Some(Interaction::Pressed)),
+          )
+          .into()
+      });
+      let (hover, pressed) = (seen(&mut stage, "hover"), seen(&mut stage, "pressed"));
+      let apart = hover
+        .iter()
+        .zip(pressed)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f32::max);
+      assert!(
+        apart >= 10.0,
+        "{appearance:?} {variant:?}: hover {hover:?} and pressed {pressed:?} are {apart} apart"
+      );
+    }
+  }
+}
+
+#[test]
+fn an_empty_label_with_an_icon_is_a_square_as_an_icon_alone_is() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .spacing(8.0)
+      .child(Button::new("").icon(icons::SETTINGS).id("empty"))
+      .child(
+        Button::new("Settings")
+          .icon(icons::SETTINGS)
+          .icon_only(true)
+          .id("alone"),
+      )
+      .into()
+  });
+  let (.., width, height) = stage.bounds("empty");
+  assert_eq!((width, height), (36.0, 36.0), "no gap and no padding of a label");
+  assert_eq!(stage.bounds("alone").2, 36.0);
+}
+
+/// The text painted that starts with `start`, and its box.
+fn painted(stage: &Stage, start: &str) -> Option<(String, f32, f32)> {
+  use lurq::layout::quad::QuadContent;
+  stage.quads().into_iter().find_map(|quad| match &quad.content {
+    QuadContent::Text { text, .. } if text.starts_with(start) => Some((text.clone(), quad.x, quad.width)),
+    _ => None,
+  })
+}
+
+#[test]
+fn a_button_narrower_than_its_label_cuts_it_and_keeps_its_padding_and_its_icon() {
+  const LONG: &str = "Send the report and open the application again";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(160.0)
+          .child(Button::new(LONG).icon(icons::SEND).id("long"))
+          .child(Button::new(LONG).full_width(true).id("full")),
+      )
+      .child(Button::new("Save").id("save"))
+      .into()
+  });
+  let (room_x, _, room_width, _) = stage.bounds("room");
+  for id in ["long", "full"] {
+    let (x, _, width, height) = stage.bounds(id);
+    assert!(
+      x >= room_x && x + width <= room_x + room_width + 0.5,
+      "{id} is in its room: {x} {width}"
+    );
+    assert_eq!(height, 36.0);
+  }
+  // The label is cut with an ellipsis inside the padding of 16; the icon is whole before it.
+  let (text, label_x, label_width) = painted(&stage, "Send the").expect("the label is painted");
+  assert!(text.ends_with('…'), "cut with an ellipsis: {text}");
+  let (x, _, width, _) = stage.bounds("long");
+  assert!(label_x + label_width <= x + width - 16.0 + 0.5, "inside its padding");
+  assert!(
+    label_x >= x + 16.0 + 16.0 + 8.0 - 0.5,
+    "after the padding, the icon and the gap"
+  );
+  // A button with room is as wide as its label: 16, the label, 16.
+  let save = stage.text_quad("Save").expect("Save whole");
+  assert!((stage.bounds("save").2 - (save.width + 32.0)).abs() < 0.5);
+}

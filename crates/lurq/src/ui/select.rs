@@ -698,6 +698,8 @@ impl Themed for Select {
           .foreground(Foreground)
           .typography(TypographyStyle::Body)
       })
+      // A row of the density's height: 32 at the default, 24, 40 and 44 at the others. The box keeps its size.
+      .row_density(Selector::new(), Item, 32.0)
       .base(Check, |s| s.square(IconSize::Md).foreground(Foreground))
       .base(Detail, |s| {
         s.typography(TypographyStyle::Caption).foreground(MutedForeground)

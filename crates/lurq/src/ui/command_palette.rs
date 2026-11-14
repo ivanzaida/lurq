@@ -1128,6 +1128,8 @@ impl Themed for CommandPalette {
           .font_size(13.0)
           .foreground(MutedForeground)
       })
+      // As high as the rows, a menu's items, at each density.
+      .row_density(super::Selector::new(), Status, 32.0)
       .base(Footer, |s| s.height(36.0).padding_x(12.0).gap(16.0))
       .base(FooterHint, |s| {
         s.gap(4.0)

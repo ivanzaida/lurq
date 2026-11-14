@@ -368,6 +368,23 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Lays the element's children out side by side in the tracks of a table's columns, one child to a track,
+      /// each as wide as its track and the element's gap apart: a row of a table, which every other row of
+      /// the table lines up with whatever is in its cells. See
+      /// [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      pub fn column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::column_tracks(node, tracks.clone()));
+        self
+      }
+
+      /// Measures the cells of the rows in the element that lay their children out in `tracks`, its children
+      /// and the children of those: what holds the rows of a table. A track sized by its content is as wide as
+      /// the widest of them. See [`ColumnTracks`]($crate::layout::column_tracks::ColumnTracks).
+      pub fn measures_column_tracks(mut self, tracks: &$crate::layout::column_tracks::ColumnTracks) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::measures_column_tracks(node, tracks.clone()));
+        self
+      }
+
       pub fn absolute(
         mut self,
         x: f32,
@@ -460,6 +477,20 @@ macro_rules! impl_into_node {
       /// negative or NaN `size` counts as 0.
       pub fn shrink_drop_below(mut self, size: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::shrink_drop_below(node, size));
+        self
+      }
+
+      /// Makes this child of a single-line `Row`/`Column` the one that stands
+      /// for what the line dropped
+      /// ([`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop)):
+      /// it takes its room only while another child of the line is dropped,
+      /// and is dropped itself while none is. The More button at the end of a
+      /// toolbar, which opens a menu of the controls that did not fit. The line
+      /// gives way as it would without it, and when that drops a child, gives
+      /// way again with its room taken: what fits beside it stays, the rest
+      /// drops. It does not shrink; one marker to a line.
+      pub fn drop_marker(mut self, marker: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drop_marker(node, marker));
         self
       }
 
@@ -642,6 +673,37 @@ macro_rules! impl_into_node {
       /// Builder form of `disabled_style`.
       pub fn when_disabled(mut self, f: impl FnOnce($crate::node::Style) -> $crate::node::Style) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::when_disabled(node, f));
+        self
+      }
+
+      /// Merged over the element's style, under every other state style, while the
+      /// [interaction group](Self::interaction_group) it is in is under the pointer or holds the focus: an action
+      /// at the end of a row shown only then. It changes painting only.
+      pub fn within_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_style(node, style));
+        self
+      }
+
+      /// Merged over the element's [`within_style`](Self::within_style) while the interaction group it is in is
+      /// under the pointer, not while it only holds the focus: a cell that stays as a row scrolls, veiled with
+      /// its row under the pointer. It changes painting only.
+      pub fn within_hovered_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_hovered_style(node, style));
+        self
+      }
+
+      /// Merged over the element's [`within_hovered_style`](Self::within_hovered_style) while the interaction
+      /// group it is in is held down. It changes painting only.
+      pub fn within_pressed_style(mut self, style: $crate::node::Style) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::within_pressed_style(node, style));
+        self
+      }
+
+      /// Whether the element is an interaction group: while the pointer is on it, or the focus is on it or in
+      /// it, the elements in it show their [`within_style`](Self::within_style). An element in two groups answers
+      /// to the innermost.
+      pub fn interaction_group(mut self, group: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::interaction_group(node, group));
         self
       }
 
@@ -1152,6 +1214,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Takes the element and everything in it out of the focus and the pointer, while it is still painted: Tab
+      /// and a focus group's arrows pass it by, no focus request reaches it, no press, hover or drop reaches it
+      /// (what is under it gets them), and the focus in it leaves when it becomes inert, to the next stop of the
+      /// focus group it was in or to nothing. A splitter's closed pane, a panel on its way out. An element ref
+      /// makes it so with no render: `ElementRefMut::set_inert`.
+      pub fn inert(mut self, inert: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::inert(node, inert));
+        self
+      }
+
       /// HTML `tabindex`. Inside a form, controls are in the Tab order
       /// without one; outside a form, only elements with `tab_index(0)` or
       /// higher are. Positive values come first in ascending order, then `0`
@@ -1201,6 +1273,40 @@ macro_rules! impl_into_node {
       pub fn focus_label(mut self, label: impl Into<std::sync::Arc<str>>) -> Self {
         let label = label.into();
         self.update_node(|node| $crate::node::NodeUpdate::focus_label(node, label));
+        self
+      }
+
+      /// The level the element is at in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup): 1 at the top, 2 in an
+      /// element at the top, and so on. Left goes from it to the nearest
+      /// element before it at a lower level.
+      pub fn focus_level(mut self, level: u32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_level(node, level));
+        self
+      }
+
+      /// That the element opens and closes in a nested
+      /// [`FocusGroup`]($crate::node::FocusGroup), and whether it is open:
+      /// Right, Left and `*` call `toggle` with what it is to be. What it
+      /// holds is the elements after it at a higher level, there while it is
+      /// open.
+      pub fn focus_expanded(mut self, open: bool, toggle: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        let toggle: std::sync::Arc<dyn Fn(bool) + Send + Sync> = std::sync::Arc::new(toggle);
+        self.update_node(|node| $crate::node::NodeUpdate::focus_expanded(node, open, toggle));
+        self
+      }
+
+      /// Which row of the [`FocusRows`]($crate::node::FocusRows) of its focus group the element is: the group
+      /// steps over the rows, and focuses the element of the row it steps to.
+      pub fn focus_row(mut self, row: usize) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_row(node, row));
+        self
+      }
+
+      /// The rows the [`FocusGroup`]($crate::node::FocusGroup) of this element steps over, where a list builds
+      /// only some of them: see [`FocusRows`]($crate::node::FocusRows).
+      pub fn focus_rows(mut self, rows: std::sync::Arc<dyn $crate::node::FocusRows>) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::focus_rows(node, rows));
         self
       }
 

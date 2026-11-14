@@ -10,11 +10,81 @@ use super::{
 use crate::{
   animation::{KeyframesId, Transition},
   app::theme::{IconSize, MotionDuration},
-  components::{self, Row},
+  components::{self, Row, TextOverflow},
   core::{Signal, SignalValue},
   layout::layout_kind::Justify,
   node::Element,
 };
+
+/// Which way a component runs: along a row, or down a column. One type for every component that has a way, of
+/// which each component's own name (`TabsOrientation`, `SliderOrientation`) is an alias.
+///
+/// ```
+/// use lurq::ui::Orientation;
+///
+/// assert_eq!(Orientation::default(), Orientation::Horizontal);
+/// assert_eq!(Orientation::Vertical.as_str(), "vertical");
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Orientation {
+  /// Along a row.
+  #[default]
+  Horizontal,
+  /// Down a column.
+  Vertical,
+}
+
+super::names!(Orientation {
+  Horizontal => "horizontal",
+  Vertical => "vertical",
+});
+
+impl Orientation {
+  /// Whether it runs down a column.
+  pub fn is_vertical(self) -> bool {
+    self == Self::Vertical
+  }
+}
+
+/// The icon a component with an icon of its own is given: one of the theme's set by its name, or none (`None`),
+/// in place of the one it would show. What `icon(..)` of an alert, a banner, a toast or a message box takes.
+///
+/// ```
+/// use lurq::ui::{IconChoice, icons};
+///
+/// let named: IconChoice = icons::CHECK.into();
+/// let none: IconChoice = None.into();
+/// assert!(named.0.is_some() && none.0.is_none());
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IconChoice(pub Option<Name>);
+
+impl From<&str> for IconChoice {
+  fn from(name: &str) -> Self {
+    Self(Some(Name::from(name)))
+  }
+}
+
+impl From<Name> for IconChoice {
+  fn from(name: Name) -> Self {
+    Self(Some(name))
+  }
+}
+
+impl From<Option<Name>> for IconChoice {
+  fn from(name: Option<Name>) -> Self {
+    Self(name)
+  }
+}
+
+/// The icon a component shows: the one it was given, none where it was given none, and its own (`default`) where
+/// it was given nothing.
+pub(crate) fn shown_icon(given: Option<IconChoice>, default: &'static str) -> Option<Name> {
+  match given {
+    Some(IconChoice(icon)) => icon,
+    None => Some(Name::from(default)),
+  }
+}
 
 /// The keyframes of a fade in, from nothing to whole, which every window
 /// has: what a panel over the window plays as it opens.
@@ -49,6 +119,17 @@ pub(crate) fn pressable(part: &ResolvedPart, disabled: bool) -> components::Butt
     .tab_index(0)
     .disabled(disabled)
     .part(part)
+}
+
+/// `text` on one line in the style of `part`, which gives way first where
+/// what holds it is narrower than it and is cut with an ellipsis: the label
+/// of a button, which keeps its padding and its icon in a room too small.
+pub(crate) fn one_line(part: &ResolvedPart, text: &str) -> Element {
+  Row::new()
+    .flex_shrink(1.0)
+    .min_width(0.0)
+    .child(part.text(text).nowrap().text_overflow(TextOverflow::Elipsis).part(part))
+    .into()
 }
 
 /// An icon of the theme's set in the style of `part`, at the side the recipe gives that part.
@@ -174,5 +255,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T> {
   pub(crate) fn picker(&self, value: T) -> impl Fn() + Send + Sync + 'static {
     let pick = self.pick.clone();
     move || pick(value.clone())
+  }
+}
+
+/// A choice is an option of a list that is chosen from, a [`Listbox`](super::Listbox)'s: its label, its icon before
+/// it, and whether it cannot be chosen.
+impl<T> From<Choice<T>> for components::SelectOption<T> {
+  fn from(choice: Choice<T>) -> Self {
+    let mut option = components::SelectOption::new(choice.value, choice.label).disabled(choice.disabled);
+    if let Some(name) = choice.icon {
+      option = option.leading_with(move |_| Icon::new(name.clone()).build(&super::current_theme()));
+    }
+    option
   }
 }

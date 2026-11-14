@@ -499,3 +499,30 @@ fn a_rule_of_a_theme_changes_a_chosen_chip() {
   assert_eq!(stage.fill_color("on"), Some(light(PaletteColor::Success)));
   assert_eq!(stage.bounds("on").3, 28.0, "a chip of the design in everything else");
 }
+
+#[test]
+fn the_ring_of_a_focused_remove_button_stands_clear_of_the_label() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .padding(8.0)
+      .child(Tag::new("rust").id("rust").on_remove(|| {}))
+      .into()
+  });
+  stage.key("Tab");
+  let ring = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, gradient: None } if color.a() == 0)
+        && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Ring))
+    })
+    .expect("the ring of the remove button");
+  let label = stage.text_quad("rust").unwrap();
+  assert!(
+    ring.x - (label.x + label.width) >= 2.0,
+    "2 clear of the label: {}",
+    ring.x - (label.x + label.width)
+  );
+  let (x, _, width, _) = stage.bounds("rust");
+  assert!(ring.x + ring.width <= x + width, "inside the tag");
+}

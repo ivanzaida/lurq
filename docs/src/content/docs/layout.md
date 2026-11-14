@@ -50,6 +50,7 @@ Common modifiers:
 | `.flex_shrink(factor)`                                                  | Give up main-axis space when a row/column overflows                    |
 | `.shrink_order(order)` / `.shrink_limit(ShrinkLimit)`                   | When and how far a shrinking child gives way                           |
 | `.shrink_drop_below(size)`                                              | Shrink a child down to `size`, then drop it                            |
+| `.drop_marker(bool)`                                                    | Lay a child out only while another child of its line is dropped        |
 
 Sizing modifiers accept `Dimension` values. Passing a plain `f32` is shorthand for `Dimension::Px(value)`. Min/max
 sizing clamps a child's measured size without forcing both bounds. Padding accepts `f32`, `Dimension`, or `SpacingSize`.
@@ -198,6 +199,51 @@ A track, a column or a row, is a `GridTrack`:
 - `Auto` columns that do not fit the width give way in proportion, and their text wraps.
 - An absolutely positioned child takes no cell and is placed over the grid, as in a `Stack`.
 
+### Columns That Rows Share
+
+A table's header and each of its rows are elements of their own, each pressed, hovered and selected as one, and their
+cells line up in columns whatever is in them. `ColumnTracks` is the list of columns they share: a row given it with
+`.column_tracks(&tracks)` lays its children out side by side, one to a track, each as wide as its track; what holds the
+rows, given it with `.measures_column_tracks(&tracks)`, measures the cells of the rows in it.
+
+```rust
+use lurq::{
+  components::{Column, Row, Text},
+  layout::column_tracks::{ColumnTracks, TrackSpec},
+};
+
+// Kept from render to render, in a component's field: another list is other columns.
+let tracks = ColumnTracks::new([TrackSpec::share(1.0).min(120.0), TrackSpec::content(), TrackSpec::px(80.0)]);
+let row = |name: &str, kind: &str, size: &str| {
+  Row::new()
+    .spacing(16.0)
+    .column_tracks(&tracks)
+    .child(Text::new(name))
+    .child(Text::new(kind))
+    .child(Text::new(size))
+};
+Column::new()
+  .measures_column_tracks(&tracks)
+  .child(row("Name", "Kind", "Size"))
+  .child(row("blur.rs", "Rust", "12 KB"))
+```
+
+| Track | Width |
+|-------|-------|
+| `TrackSpec::px(120.0)` | A length in logical pixels. |
+| `TrackSpec::share(1.0)` | A share of the room the other tracks and the gaps leave, as a grid's `Fr`. Where the room is not known (a row as wide as its content), as wide as its content. |
+| `TrackSpec::content()` | As wide as the widest of its cells that has been measured. |
+
+- `.min(px)` and `.max(px)` hold a track between a least and a most. The shares split what is left between theirs; where
+  the tracks do not fit, none gives way below its least, and the row is wider than its room.
+- The row's `.spacing(..)` is the gap between two tracks. A cell is laid out as wide as its track, and the row is as
+  tall as its tallest cell; `.align_items(..)` says how the others sit in it.
+- What measures the tracks measures the rows that are its children and the rows in those, three deep, before it lays
+  them out, and a track keeps the widest cell it has had, so a column does not narrow as rows scroll by. Only rows that
+  are built are measured: in a list of thousands that builds those in view, a column is as wide as what has been seen.
+- A list is a handle: clones are the same list, and two lists are equal only where they are the same. A row whose list
+  is another than before is laid out again, so columns that change are a new list.
+
 ## Relative Positioning
 
 ```rust
@@ -292,9 +338,25 @@ lurq::components::Row::new()
 Flex layout:
 
 1. Lay out non-flex children first.
-2. Subtract fixed child sizes and spacing from available space.
-3. Divide remaining space by flex factor.
+2. Subtract fixed child sizes, spacing and flex bases from available space.
+3. Divide remaining space by flex factor, on top of each basis.
 4. Lay out flex children with tight constraints for their assigned size.
+
+`.flex_full(grow, shrink, basis)` gives a child a basis: the length it starts from, as `flex-basis` does on the web.
+The bases come out of the free room first, so a growing child is its basis and its share of what is left after the
+gaps, the children sized on their own and every basis. Where nothing is left, a child is its basis, and the line
+shrinks what may shrink by the shortage.
+
+```rust
+// 200 wide: the first is 50 + (200 - 50 - 50) = 150, the second 50.
+lurq::components::Row::new()
+  .width(200.0)
+  .child(lurq::components::Spacer::new().flex_full(1.0, 0.0, Some(50.0)))
+  .child(lurq::components::Spacer::new().width(50.0))
+```
+
+A basis is a least length for a child that grows and does not shrink: the line between two steps, which the steps give
+way before.
 
 In an unbounded main axis (for example a column inside `ScrollVertical`, or a column measured by its own content) there
 is no remaining space: a flex child gets its `basis`, or its natural size when it has none.
@@ -410,6 +472,52 @@ Row::new()
 As the row narrows, the time is dropped first, then the approval detail is ellipsized down to the icon and count, and
 only then does the run label shrink.
 
+### What did not fit: the drop marker
+
+A row whose children drop where it is too narrow often needs one more child that stands for them: a More button at
+the end of a toolbar that opens a menu of what went. `.drop_marker(true)` makes a child of a single-line `Row` or
+`Column` that one: it takes its room only while another child of the line is dropped, and is dropped itself (zero size,
+no spacing, not drawn, not hit, no Tab stop) while none is. The line gives way as it would without the marker, and only
+when that drops or collapses a child does it give way again with the marker's room taken, so what fits beside the
+marker stays and the rest drops. The marker itself does not shrink, and a line has one. In a wrapping row it has no
+effect.
+
+The row says what it dropped through the element refs of its children: a dropped child, and everything in it, reports
+a zero-size rect where the next child starts, and `ElementRef::observe_rect` is called when that changes. A component
+that keeps a menu of the dropped children puts a ref on each and sets a signal from the observer, which renders it
+again with the menu as the layout left it; the row itself needs no second pass.
+
+```rust
+use lurq::{
+  components::{Button, Row},
+  core::{ElementRef, Signal},
+  layout::layout_kind::ShrinkLimit,
+};
+
+// In a component: `tools` holds a ref for each tool, `dropped` is `ctx.signal(vec![false; tools.len()])`.
+let mut bar = Row::new().spacing(2.0);
+for (index, name) in ["Bold", "Italic", "Link", "Image"].into_iter().enumerate() {
+  let (at, dropped) = (tools[index].clone(), dropped.clone());
+  at.observe_rect(move |rect| {
+    let gone = rect.width == 0.0 && rect.height == 0.0;
+    if dropped.get_untracked()[index] != gone {
+      dropped.update(|dropped| dropped[index] = gone);
+    }
+  });
+  bar = bar.child(
+    Button::new(name)
+      .tab_index(0)
+      .ref_element(at)
+      .flex_shrink(1.0)
+      .shrink_limit(ShrinkLimit::Drop),
+  );
+}
+// Laid out only while a tool is dropped; its menu lists the tools `dropped` marks.
+bar.child(Button::new("More").tab_index(0).drop_marker(true))
+```
+
+`ui::Toolbar` with `overflow(true)` is built this way.
+
 ## Scroll
 
 ```rust
@@ -424,6 +532,10 @@ lurq::components::ScrollVertical::new(
 Scroll containers give their child unbounded constraints on the scroll axis and apply scroll offsets during
 layout/rendering. Without a fixed size on the scroll axis, a scroll container takes its content's size within its
 constraints, so `.max_height(...)` makes it grow with its content up to the cap and scroll beyond it.
+
+`ScrollBoth::fill_width(true)` lays the content out at least as wide as the viewport, and wider only where it needs
+more: a table's columns share the room there is, and it scrolls sideways only where they do not fit. Without it the
+content of a `ScrollBoth` is as wide as it is itself, as unbounded room makes it.
 
 To bring an element into view, request it from a component with `ctx.scroll_into_view(&element_ref)` (the ref attached
 with `.ref_element(...)`), or call `scroll_into_view()` on the `ElementHandle` from `tree.get_element_by_id_mut(id)`.
@@ -454,6 +566,20 @@ is scrolled to the top of the viewport. The row does not need to be mounted: the
 estimated row heights and settles on the exact offset over the next few frames as the rows around it are measured. A
 key that is not among the items is dropped, except while the list has no items yet, so a list mounted before its data
 loads still opens on the row.
+
+`.reveal_request(n)` reveals the `reveal_key`'s row again each time `n` changes, whether the key changed or not: for a
+list asked for one row twice, scrolled away from it between the two, as a focus group over rows the list builds only in
+part asks for the row its keys step to (see [Focus And Keyboard
+Navigation](../focus-navigation/#rows-a-list-builds-in-part)).
+
+```rust
+// reveal: Signal<Option<String>>, asked: Signal<u64>; asking again adds one to `asked`.
+VirtualizedList::new(ctx, items)
+  .height(480.0)
+  .reveal_key(reveal.get())
+  .reveal_request(asked.get())
+  .mount_keyed::<ItemRow, _, _, _>(|item| item.id, |item| item.clone())
+```
 
 When the items change so that the row keys differ (a row added, removed or moved), the list keeps the first visible row
 where it was, and a list at its end stays at its end. Rows added or removed below that row (a message appended to a

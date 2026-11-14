@@ -2,11 +2,18 @@ use lurq::app::{App, Tree};
 
 mod dropped;
 mod focus_group;
+mod focus_rows;
 mod focusable;
 #[cfg(feature = "form")]
 mod forms_in_scope;
+mod inert;
+mod keyed_focus;
+mod list_keys;
+mod menu_row;
 mod modal_trap;
+mod nested_focus_group;
 mod scroll_into_view;
+mod starting_point;
 mod typeahead;
 mod window_chrome;
 mod window_scope;

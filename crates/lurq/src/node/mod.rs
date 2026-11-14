@@ -53,8 +53,8 @@ pub use box_shadow::{BoxShadow, BoxShadowValue};
 pub use checkbox_style::CheckboxStyle;
 pub use cursor::CursorIcon;
 pub use element::{Element, ElementChildren, ElementRef};
-pub(crate) use focus_group::FocusStep;
-pub use focus_group::{FocusAxis, FocusGroup};
+pub use focus_group::{FocusAxis, FocusGroup, FocusRows};
+pub(crate) use focus_group::{FocusBranch, FocusStep, step_rows};
 pub use gradient::{Gradient, GradientKind, GradientStop};
 #[cfg(feature = "form")]
 pub use node::FormData;

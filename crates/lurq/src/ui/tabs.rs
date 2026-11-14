@@ -438,8 +438,11 @@ impl Tabs {
     self
   }
 
-  /// Draws every tab as it is under the pointer, held down or focused from
-  /// the keyboard, with nothing pointing at it: for a gallery or a test.
+  /// Draws the tab Tab would stop on (the selected one, else the first that is
+  /// not disabled) as it is under the pointer, held down or focused from the
+  /// keyboard, with nothing pointing at it: for a gallery or a test. The other
+  /// tabs, the panel and the buttons of the overflowing form are drawn as they
+  /// are.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
     self.forced = interaction;
     self
@@ -545,16 +548,31 @@ pub struct TabsView {
 impl TabsView {
   /// The style of a part that is no tab's, as these tabs are to be drawn.
   pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
-    self.recipes[0].part(part).forced(self.forced)
+    self.recipes[0].part(part)
   }
 
-  /// The style of a part of the tab at `index`: in the states of that tab.
+  /// The style of a part of the tab at `index`: in the states of that tab, and in the interaction forced where
+  /// it is the tab Tab stops on.
   pub fn tab_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
     let tab = &self.tabs[index];
     let disabled = self.disabled || tab.disabled;
+    let forced = self.forced.filter(|_| self.entry() == Some(index));
     self.recipes[usize::from(tab.selected) + 2 * usize::from(disabled)]
       .part(part)
-      .forced(self.forced)
+      .forced(forced)
+  }
+
+  /// The tab Tab stops on: the selected one, else the first that is not disabled. None where all are.
+  pub fn entry(&self) -> Option<usize> {
+    if self.disabled {
+      return None;
+    }
+    let open = |tab: &TabEntry| !tab.disabled;
+    self
+      .tabs
+      .iter()
+      .position(|tab| tab.selected && open(tab))
+      .or_else(|| self.tabs.iter().position(open))
   }
 
   pub fn theme(&self) -> &Theme {
@@ -907,7 +925,8 @@ impl Themed for Tabs {
       .base(MoreIcon, |s| s.square(IconSize::Sm).foreground(MutedForeground))
       .hovered(Tab, |s| s.foreground(Foreground))
       .focus_visible(Tab, |s| s.focus_ring())
-      .focus_visible(Panel, |s| s.focus_ring())
+      // A panel's content runs to its edges: its ring stands 4 out, clear of the text.
+      .focus_visible(Panel, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(4.0)))
       .focus_visible(More, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .state(Vertical, Root, |s| s.gap(24.0))
       .state(Vertical, Divider, |s| s.width(Length::Auto).height(1.0))
@@ -928,6 +947,8 @@ impl Themed for Tabs {
           .background(Muted)
       })
       .variant(Default, Tab, |s| s.height(28.0).padding_x(12.0).gap(6.0).radius(RadiusSize::Md))
+      // Each form's tab is of the density's height, the steps of a row from the board's.
+      .row_density(Selector::new().variant(Default), Tab, 28.0)
       .when(when(Default, &[Selected]), Tab, |s| {
         s.background(Background).shadow(ShadowStyle::Sm)
       })
@@ -948,6 +969,8 @@ impl Themed for Tabs {
           .underline(line(BorderSize::Sm, PaletteColor::Border))
       })
       .when(when(Line, &[Horizontal]), Tab, |s| s.height(44.0))
+      .row_density(when(Line, &[Horizontal]), List, 44.0)
+      .row_density(when(Line, &[Horizontal]), Tab, 44.0)
       .when(when(Line, &[Horizontal, Selected]), Tab, |s| {
         s.underline(line(BorderSize::Md, Foreground))
       })
@@ -955,6 +978,7 @@ impl Themed for Tabs {
         s.min_width(180.0).start_line(line(BorderSize::Sm, PaletteColor::Border))
       })
       .when(when(Line, &[Vertical]), Tab, |s| s.height(32.0).padding_x(12.0))
+      .row_density(when(Line, &[Vertical]), Tab, 32.0)
       .when(when(Line, &[Vertical]), Label, |s| s.font_size(13.0))
       .when(when(Line, &[Vertical, Selected]), Tab, |s| s.start_line(line(BorderSize::Md, Foreground)))
       .when(when(Line, &[Overflow]), Bar, |s| {
@@ -962,11 +986,15 @@ impl Themed for Tabs {
       })
       .when(when(Line, &[Overflow]), List, |s| s.height(40.0).width(Length::Auto).gap(20.0))
       .when(when(Line, &[Overflow]), Tab, |s| s.height(40.0))
+      .row_density(when(Line, &[Overflow]), Bar, 40.0)
+      .row_density(when(Line, &[Overflow]), List, 40.0)
+      .row_density(when(Line, &[Overflow]), Tab, 40.0)
       .when(when(Line, &[Overflow]), Label, |s| s.font_size(13.0))
       .when(when(Line, &[Overflow]), More, |s| s.start_line(line(BorderSize::Sm, PaletteColor::Border)))
       // Pill: round tabs, the selected one in the primary fill.
       .variant(Pill, List, |s| s.gap(4.0))
       .variant(Pill, Tab, |s| s.height(30.0).padding_x(14.0).gap(6.0).radius(RadiusSize::Full))
+      .row_density(Selector::new().variant(Pill), Tab, 30.0)
       .when(when(Pill, &[Selected]), Tab, |s| {
         s.background(Primary).foreground(PrimaryForeground)
       })

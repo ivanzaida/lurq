@@ -151,6 +151,13 @@ pub enum Placement {
   RightEnd,
 }
 
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for Placement {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CollisionStrategy {
   None,
@@ -1890,6 +1897,12 @@ impl Ctx {
   pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
     self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    #[cfg(feature = "router")]
+    if self.rendering
+      && let Some(navigator) = (&value as &dyn std::any::Any).downcast_ref::<crate::router::Navigator>()
+    {
+      crate::router::navigator::provide_in_render(navigator.clone());
+    }
     self.store_context(value);
   }
 
@@ -2864,6 +2877,9 @@ impl Ctx {
     }
     tracking::start_tracking();
     self.rendering = true;
+    // What the render builds goes through this router (`router::current_navigator`).
+    #[cfg(feature = "router")]
+    crate::router::navigator::enter_render(self.context_map.get::<crate::router::Navigator>());
     // What the render builds is in the component's theme (`ui::current_theme`).
     if let Some(theme) = &self.theme {
       crate::ui::theme::enter_theme(theme.clone(), self.breakpoint.clone());
@@ -2930,6 +2946,10 @@ impl Ctx {
     self.query_slots.truncate(self.query_cursor);
     if self.rendering && self.theme.is_some() {
       crate::ui::theme::leave_theme();
+    }
+    #[cfg(feature = "router")]
+    if self.rendering {
+      crate::router::navigator::leave_render();
     }
     self.rendering = false;
     if let Some(previous) = self.previous_render_contexts.take()

@@ -254,7 +254,7 @@ impl<'a> ElementRef<'a> {
 
   #[cfg(feature = "devtools")]
   #[allow(dead_code)]
-  pub(crate) fn debug_attrs(&self) -> &[(std::sync::Arc<str>, std::sync::Arc<str>)] {
+  pub(crate) fn debug_attrs(&self) -> std::borrow::Cow<'_, [(std::sync::Arc<str>, std::sync::Arc<str>)]> {
     self.node.debug_attrs()
   }
 

@@ -69,6 +69,7 @@ mod text_highlights;
 mod text_input_quads;
 mod text_layout_output;
 mod theme_scope;
+mod track_layout;
 
 use flex_shrink::{FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_line};
 pub(crate) use text_layout_output::TextLayoutOutput;
@@ -648,6 +649,22 @@ impl LayoutEngine {
     self.paint_scale.set(scale);
   }
 
+  /// Where a scroll's content is laid out relative to its viewport: the scroll's offset on a whole device pixel.
+  /// A text is painted on whole device pixels and a box where it is, so at a scale that is no whole number
+  /// (150%) an offset of half a device pixel moved every label a pixel against its box, and back at the next
+  /// step of the wheel. The scroll keeps the offset it was given: only where its content is drawn is rounded.
+  fn content_offset(&self, state: &ScrollState) -> Offset {
+    let offset = state.content_offset();
+    let scale = self.paint_scale.get();
+    if !(scale.is_finite() && scale > 0.0) {
+      return offset;
+    }
+    Offset {
+      x: (offset.x * scale).round() / scale,
+      y: (offset.y * scale).round() / scale,
+    }
+  }
+
   /// The theme's corner radii, which the nodes' radii resolve against: hit
   /// testing cuts a clipping node's rounded corners with them, as painting
   /// does.
@@ -957,15 +974,16 @@ impl LayoutEngine {
     // cached constraints would have permitted count as conflicts, so nodes
     // legitimately clamped by their parent are left alone.
     if !local_dirty && let Some((cached_constraints, cached_size)) = node.layout_cache.cached_entry() {
+      let (fixed_width, fixed_height) = node.fixed_frame_size();
       let width_conflicts = matches!(
-        node.frame.width,
+        fixed_width,
         Some(Dimension::Px(px))
           if (cached_size.width - px).abs() > 0.5
             && px <= cached_constraints.max_width + 0.5
             && px >= cached_constraints.min_width - 0.5
       );
       let height_conflicts = matches!(
-        node.frame.height,
+        fixed_height,
         Some(Dimension::Px(px))
           if (cached_size.height - px).abs() > 0.5
             && px <= cached_constraints.max_height + 0.5
@@ -1507,7 +1525,17 @@ impl LayoutEngine {
         }
 
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
-          self.push_input_tokens(node, state, result, (abs_x, abs_y), transform, clip, opacity, quads);
+          self.push_input_tokens(
+            node,
+            state,
+            result,
+            (abs_x, abs_y),
+            transform,
+            clip,
+            opacity,
+            false,
+            quads,
+          );
         }
 
         self.push_text_highlights(node, result, (abs_x, abs_y), transform, clip, opacity, quads);
@@ -1531,6 +1559,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let selection_height = (style.font_size * style.line_height).min(result.size.height).max(1.0);
           let selection_clip = clip;
@@ -1565,6 +1594,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let style = spans.first().map(|span| &span.style);
           let selection_height = style
@@ -1613,6 +1643,7 @@ impl LayoutEngine {
           let selection_color = node
             .selection_color_value()
             .and_then(|color| color.resolve(&palette))
+            .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
           let padding = self.resolved_padding_for_size(node, result.size);
           let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
@@ -1673,6 +1704,21 @@ impl LayoutEngine {
               clip: selection_clip,
             });
           }
+        }
+        // The tokens the selection covers in a look of their own, over its highlight: an input that lost the
+        // focus draws no highlight and keeps its selection, and its tokens their look.
+        if let NodeKind::TextInput { state, .. } = node.node_kind() {
+          self.push_input_tokens(
+            node,
+            state,
+            result,
+            (abs_x, abs_y),
+            transform,
+            clip,
+            opacity,
+            true,
+            quads,
+          );
         }
 
         let (content_x, content_y, content_width, content_height, content_clip) = match node.node_kind() {
@@ -2329,6 +2375,11 @@ impl LayoutEngine {
     if matches!(node.layout_kind(), LayoutKind::Grid(_)) {
       return None;
     }
+    // What holds the rows of a table measures the cells of the rows it holds when it is laid out: a row that
+    // changed or came into it is measured, not patched in at the widths it had.
+    if node.measured_column_tracks().is_some() {
+      return None;
+    }
 
     // A descendant changed, but this node may still be able to keep its own
     // geometry. Patch dirty child results into the cached tree and only force
@@ -2417,12 +2468,13 @@ impl LayoutEngine {
     // per-node frame/cache check in `mark_layout_dirty` cannot catch this:
     // the stale geometry lives in the PARENT's cached tree, not in the
     // mismatched child's own cache.
-    if let Some(Dimension::Px(px)) = node.frame.width
+    let (fixed_width, fixed_height) = node.fixed_frame_size();
+    if let Some(Dimension::Px(px)) = fixed_width
       && (result.size.width - px).abs() > 0.5
     {
       return false;
     }
-    if let Some(Dimension::Px(px)) = node.frame.height
+    if let Some(Dimension::Px(px)) = fixed_height
       && (result.size.height - px).abs() > 0.5
     {
       return false;
@@ -2589,7 +2641,7 @@ impl LayoutEngine {
         result.size.height,
       );
       if let Some(child) = result.children.first_mut() {
-        let offset = state.content_offset();
+        let offset = self.content_offset(state);
         child.offset = Offset {
           x: offset.x + padding.left,
           y: offset.y + padding.top,
@@ -2786,6 +2838,14 @@ impl LayoutEngine {
     padding: ResolvedPadding,
     child_overrides: Option<&[Option<ChildLayoutOverride>]>,
   ) -> LayoutResult {
+    // What holds the rows of a table measures their cells before they are laid out at the widths that gives.
+    if let Some(tracks) = node.measured_column_tracks() {
+      self.measure_column_tracks(glyph_engine, node, tracks);
+    }
+    if let (Some(tracks), LayoutKind::Row { spacing, align, .. }) = (node.column_tracks(), node.layout_kind()) {
+      let gap = spacing.resolve(&self.spacing.borrow(), constraints.max_width);
+      return self.layout_track_row(glyph_engine, node, constraints, tracks, gap, *align, child_overrides);
+    }
     match node.layout_kind() {
       LayoutKind::Leaf => self.layout_leaf(glyph_engine, node, constraints, padding),
       LayoutKind::Row {
@@ -3335,8 +3395,24 @@ impl LayoutEngine {
       .sum();
 
     let remaining = max_main - total_spacing - non_flex_main;
+    // The bases of the children that wait for room come out of it first, as on the web: a growing child is its
+    // basis and its share of what the bases leave.
+    let bases: f32 = children
+      .iter()
+      .zip(&child_layouts)
+      .filter(|(_, layout)| Arc::ptr_eq(&layout.result, &self.awaiting_room))
+      .filter_map(|(child, _)| child.state_flex().and_then(|params| params.basis))
+      .sum();
+    let free = remaining - bases;
 
-    let mut overflow = LineOverflow::new(FreeRoom { remaining, grow_total }, vertical);
+    let mut overflow = LineOverflow::new(
+      FreeRoom {
+        remaining,
+        free,
+        grow_total,
+      },
+      vertical,
+    );
     for (i, child) in children.iter().enumerate() {
       if !Arc::ptr_eq(&child_layouts[i].result, &self.awaiting_room) {
         continue;
@@ -3360,8 +3436,8 @@ impl LayoutEngine {
         continue;
       }
       let basis_size = params.basis.unwrap_or(0.0);
-      let flex_size = if remaining.is_finite() && remaining > 0.0 && grow_total > 0.0 {
-        basis_size + remaining * (params.grow / grow_total)
+      let flex_size = if free.is_finite() && free > 0.0 && grow_total > 0.0 {
+        basis_size + free * (params.grow / grow_total)
       } else {
         basis_size
       };
@@ -3381,7 +3457,7 @@ impl LayoutEngine {
         }
       };
       let result = self.layout_child_node(glyph_engine, child_overrides, i, child, child_constraints);
-      overflow.add_granted(&result, flex_size, params.basis);
+      overflow.add_granted(&result, flex_size);
       child_layouts[i].result = result;
     }
 
@@ -3837,12 +3913,7 @@ impl LayoutEngine {
         Position::Absolute { width, height, .. } => {
           let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
           let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
-          let positioned_constraints = Constraints {
-            min_width: resolved_width.unwrap_or(0.0),
-            max_width: resolved_width.unwrap_or(child_constraints.max_width),
-            min_height: resolved_height.unwrap_or(0.0),
-            max_height: resolved_height.unwrap_or(child_constraints.max_height),
-          };
+          let positioned_constraints = Self::absolute_child_constraints(child, constraints);
           let mut result = self.layout_child_node(glyph_engine, child_overrides, index, child, positioned_constraints);
           if let Some(width) = resolved_width {
             Arc::make_mut(&mut result).size.width = width;
@@ -4105,6 +4176,24 @@ impl LayoutEngine {
     }
   }
 
+  /// The constraints a stack lays out its absolutely positioned `child` with, under its own `constraints`: the
+  /// child's width and height where it names them, and the stack's room where it does not. What lays out an
+  /// overlay host's layer on its own gives it these, so that it is as wide as the host draws it.
+  pub(crate) fn absolute_child_constraints(child: &Node, constraints: Constraints) -> Constraints {
+    let loose = constraints.loosen_width().loosen_height();
+    let Position::Absolute { width, height, .. } = child.position() else {
+      return loose;
+    };
+    let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
+    let resolved_height = height.and_then(|size| Self::resolve_dimension(size, constraints.max_height));
+    Constraints {
+      min_width: resolved_width.unwrap_or(0.0),
+      max_width: resolved_width.unwrap_or(loose.max_width),
+      min_height: resolved_height.unwrap_or(0.0),
+      max_height: resolved_height.unwrap_or(loose.max_height),
+    }
+  }
+
   fn resolve_dimension(dimension: Dimension, parent_size: f32) -> Option<f32> {
     match dimension {
       Dimension::Auto => None,
@@ -4137,6 +4226,15 @@ impl LayoutEngine {
       );
       let size = scroll_container_size(constraints, &child_result, &style, false, false);
       let viewport = reserved_viewport(size, &style, false, false);
+      // Content that fills the viewport's width is laid out again at it, where it is narrower.
+      let child_result = if fills_viewport_width(node, direction) && child_result.size.width < viewport.width {
+        let mut filled =
+          scroll_child_constraints(direction, constraints, constraints.max_width, constraints.max_height);
+        filled.min_width = viewport.width.min(filled.max_width);
+        self.layout_child_node(glyph_engine, child_overrides, 0, child, filled)
+      } else {
+        child_result
+      };
       state.update_layout_with_container(
         child_result.size.width,
         child_result.size.height,
@@ -4149,7 +4247,7 @@ impl LayoutEngine {
       return LayoutResult {
         size,
         children: vec![ChildLayout {
-          offset: state.content_offset(),
+          offset: self.content_offset(state),
           result: child_result,
         }],
         text_layout: None,
@@ -4174,13 +4272,11 @@ impl LayoutEngine {
     );
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
-    let child_result = self.layout_child_node(
-      glyph_engine,
-      child_overrides,
-      0,
-      child,
-      scroll_child_constraints(direction, constraints, viewport.width, viewport.height),
-    );
+    let mut within = scroll_child_constraints(direction, constraints, viewport.width, viewport.height);
+    if fills_viewport_width(node, direction) {
+      within.min_width = viewport.width.min(within.max_width);
+    }
+    let child_result = self.layout_child_node(glyph_engine, child_overrides, 0, child, within);
     let size = scroll_container_size(constraints, &child_result, &style, reserve_vertical, reserve_horizontal);
     let viewport = reserved_viewport(size, &style, reserve_vertical, reserve_horizontal);
 
@@ -4196,7 +4292,7 @@ impl LayoutEngine {
     LayoutResult {
       size,
       children: vec![ChildLayout {
-        offset: state.content_offset(),
+        offset: self.content_offset(state),
         result: child_result,
       }],
       text_layout: None,
@@ -4324,6 +4420,12 @@ fn multiline_preferred_height(
 
 fn explicit_multiline_height(text: &str, line_height: f32) -> f32 {
   text.split('\n').count().max(1) as f32 * line_height
+}
+
+/// Whether a scroll container lays its content out at least as wide as its viewport: one that scrolls sideways
+/// and is told to (`ScrollBoth::fill_width`). One that scrolls only up and down does so already.
+fn fills_viewport_width(node: &Node, direction: ScrollDirection) -> bool {
+  direction != ScrollDirection::Vertical && node.fills_viewport_width()
 }
 
 fn scroll_child_constraints(
@@ -4568,6 +4670,9 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.state_styles.focus_visible.is_none()
     && node.state_styles.drag_over.is_none()
     && node.state_styles.disabled.is_none()
+    && node.state_styles.within.is_none()
+    && node.state_styles.within_hovered.is_none()
+    && node.state_styles.within_pressed.is_none()
     && node.effective_opacity() == DEFAULT_QUAD_OPACITY
     && node.effective_blur() == 0.0
     && node.effective_backdrop_blur() == 0.0

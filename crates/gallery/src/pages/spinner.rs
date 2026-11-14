@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, card, props_table, quiet, segmented_fill, text},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 const KINDS: [(&str, SpinnerKind); 3] = [
@@ -259,7 +259,7 @@ impl SpinnerPage {
           let props = props.clone();
           Arc::new(move || props.shown())
         },
-        shown: props.shown(),
+        shown: Shown::of(props.shown()),
         fill: false,
         forceable: false,
         facts: if props.overlay && !props.loading {

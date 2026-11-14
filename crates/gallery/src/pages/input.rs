@@ -17,7 +17,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The icons the playground offers: what the select says, the glyph, and how the code names it.
@@ -197,7 +197,7 @@ impl InputPage {
       Spec {
         title: "Input",
         make: Arc::new(move || make().into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: on("full_width"),
         forceable: true,
         facts: format!("{size_name} · radius 6"),

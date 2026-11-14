@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The steps of the playground and of the wizard.
@@ -164,7 +164,7 @@ impl StepsPage {
       Spec {
         title: "Steps",
         make: Arc::new(move || plain().into()),
-        shown,
+        shown: Shown::of(shown),
         fill: !vertical,
         forceable: pressable,
         facts: format!("current {shown_current}"),

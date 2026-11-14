@@ -19,7 +19,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The sizes, as the code names them.
@@ -85,6 +85,12 @@ impl EmptyStatePage {
     let (_, edge) = EDGES[self.edge.get().min(EDGES.len() - 1)];
     let media = self.media.get();
 
+    // A press of an action is the event of an empty state: the buttons are the app's, and so is what they do.
+    let record = self.playground.recorder();
+    let pressed = move |label: &'static str| {
+      let record = record.clone();
+      move |_| record(format!("on_click({label:?})"))
+    };
     let plain = {
       let (title, description) = (title.clone(), description.clone());
       move || -> Element {
@@ -102,10 +108,14 @@ impl EmptyStatePage {
           ]));
         }
         if actions == 2 {
-          empty = empty.action(button("Learn more", size, ButtonVariant::Ghost));
+          empty = empty.action(button("Learn more", size, ButtonVariant::Ghost).on_click(pressed("Learn more")));
         }
         if actions >= 1 {
-          empty = empty.action(button("New window", size, ButtonVariant::Outline).icon(icons::PLUS));
+          empty = empty.action(
+            button("New window", size, ButtonVariant::Outline)
+              .icon(icons::PLUS)
+              .on_click(pressed("New window")),
+          );
         }
         if let Some(edge) = edge {
           empty = empty.bordered(edge);
@@ -193,11 +203,11 @@ impl EmptyStatePage {
       Spec {
         title: "EmptyState",
         make: Arc::new(move || make()),
-        shown: plain(),
+        shown: Shown::of(plain()),
         fill: true,
         forceable: false,
         facts: size_name.to_owned(),
-        event: "",
+        event: if actions == 0 { "" } else { "on_click" },
         code,
         tree,
         controls: vec![

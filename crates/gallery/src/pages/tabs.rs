@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet, segmented_fill, text},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// The variants, as the code names them.
@@ -204,7 +204,7 @@ impl TabsPage {
       Spec {
         title: "Tabs",
         make: Arc::new(move || plain(selected).into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: true,
         forceable: true,
         facts: format!("{variant_name} · {orientation_name}"),

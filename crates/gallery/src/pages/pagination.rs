@@ -16,7 +16,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, flag, prop},
+  playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -135,7 +135,7 @@ impl PaginationPage {
       Spec {
         title: "Pagination",
         make: Arc::new(move || plain().into()),
-        shown: pagination.into(),
+        shown: Shown::of(pagination),
         fill: false,
         forceable: false,
         facts: format!("page {current} of {pages}"),

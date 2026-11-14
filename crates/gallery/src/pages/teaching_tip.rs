@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The sides the playground offers.
@@ -232,7 +232,7 @@ impl TeachingTipPage {
       Spec {
         title: "Teaching Tip",
         make: Arc::new(move || plain(ElementRef::new(), Signal::new(true)).into()),
-        shown: shown.into(),
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: if open { "open".to_owned() } else { "closed".to_owned() },

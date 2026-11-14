@@ -48,6 +48,7 @@ mod text_input {
   mod style;
   #[cfg(feature = "markdown")]
   mod styled;
+  mod token_chips;
   mod tokens;
   mod typing_updates_value;
   mod vertical_rows;
@@ -100,5 +101,6 @@ mod disabled;
 mod focus_on_press;
 mod focus_visible;
 mod focused_style;
+mod interaction_group;
 mod scroll_into_view;
 mod tab_order;

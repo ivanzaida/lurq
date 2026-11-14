@@ -529,6 +529,9 @@ pub(crate) trait NodeUpdate {
   fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
   fn absolute_position(&mut self, x: f32, y: f32);
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky);
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
+  fn fills_viewport_width(&mut self, fills: bool);
   fn align(&mut self, alignment: Alignment);
   fn flex(&mut self, factor: f32);
   fn grid_cell(&mut self, update: impl FnOnce(&mut crate::layout::grid::GridCell));
@@ -537,6 +540,7 @@ pub(crate) trait NodeUpdate {
   fn shrink_order(&mut self, order: i32);
   fn shrink_limit(&mut self, limit: ShrinkLimit);
   fn shrink_drop_below(&mut self, size: f32);
+  fn drop_marker(&mut self, marker: bool);
   fn background(&mut self, color: impl Into<BackgroundColor>);
   fn background_gradient(&mut self, gradient: impl Into<Gradient>);
   fn foreground(&mut self, color: impl Into<TextColor>);
@@ -581,8 +585,16 @@ pub(crate) trait NodeUpdate {
   fn focus_visible(&mut self, f: impl FnOnce(Style) -> Style);
   fn drag_over(&mut self, f: impl FnOnce(Style) -> Style);
   fn disabled(&mut self, disabled: bool);
+  /// Takes the node and everything in it out of the focus and the pointer: Tab and a focus group's keys pass it by,
+  /// no focus request reaches it, no pointer hits it, and the focus in it leaves when it becomes inert. It is painted
+  /// as before. A splitter's closed pane is inert.
+  fn inert(&mut self, inert: bool);
   fn disabled_style(&mut self, style: Style);
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style);
+  fn within_style(&mut self, style: Style);
+  fn within_hovered_style(&mut self, style: Style);
+  fn within_pressed_style(&mut self, style: Style);
+  fn interaction_group(&mut self, group: bool);
   fn on_click(&mut self, f: impl IntoMouseEventHandler);
   fn off_click(&mut self, f: impl IntoMouseEventHandler);
   fn on_mouse_click(&mut self, button: MouseButton, f: impl IntoMouseEventHandler);
@@ -683,6 +695,10 @@ pub(crate) trait NodeUpdate {
   fn stops_inside(&mut self, stops: bool);
   fn autofocus(&mut self, autofocus: bool);
   fn focus_label(&mut self, label: Arc<str>);
+  fn focus_level(&mut self, level: u32);
+  fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>);
+  fn focus_row(&mut self, row: usize);
+  fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>);
   fn button_kind(&mut self, kind: ButtonKind);
   #[cfg(feature = "form")]
   fn name(&mut self, name: impl Into<Arc<str>>);
@@ -897,14 +913,26 @@ pub(crate) struct RareStyle {
   pub(crate) outline: Option<crate::node::outline::Outline>,
   /// The node and its subtree take no input; see [`Node::disabled`].
   pub(crate) disabled: bool,
+  /// The node and its subtree are out of the focus and the pointer; see `NodeUpdate::inert`.
+  pub(crate) inert: bool,
   /// A child removed from the node stays until its exit animation ends; see `node/presence.rs`.
   pub(crate) presence: bool,
   /// Where the node sticks in the scroll container it is in. Here, and not in `Position`, because every
   /// node holds a `Position` and few stick.
   pub(crate) sticky: Option<crate::layout::layout_kind::Sticky>,
+  /// The tracks the node lays its children out in, one to a track: a row of a table. See
+  /// `layout/column_tracks.rs`.
+  pub(crate) column_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// The tracks whose cells the node measures in the rows it holds: what holds the rows of a table.
+  pub(crate) measured_tracks: Option<crate::layout::column_tracks::ColumnTracks>,
+  /// A scroll container that scrolls sideways lays its content out at least as wide as its viewport.
+  pub(crate) fills_viewport_width: bool,
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
+  /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
+  /// see [`NodeUpdate::interaction_group`].
+  pub(crate) interaction_group: bool,
 }
 
 /// Whether any node of the process was ever disabled. Until one is, no tree
@@ -1011,6 +1039,8 @@ pub(crate) struct Node {
   /// What typing in a focus group with typeahead matches this node by. An `Arc<String>` and not an `Arc<str>`:
   /// it is one pointer, and few nodes have one.
   pub(crate) focus_label: Option<Arc<String>>,
+  /// Where this node stands in a nested focus group: its level, and whether it opens. Few nodes have one.
+  pub(crate) focus_branch: Option<Arc<crate::node::FocusBranch>>,
   pub(crate) button_kind: Option<ButtonKind>,
   #[cfg(feature = "form")]
   pub(crate) form_name: Option<Arc<str>>,
@@ -1042,6 +1072,13 @@ impl Default for Node {
 }
 
 impl NodeUpdate for Node {
+  fn inert(&mut self, inert: bool) {
+    // Writing through the lazy box would allocate it for a node that is not, and stays not, inert.
+    if self.rare_style.inert != inert {
+      self.rare_style.inert = inert;
+    }
+  }
+
   fn describe(&mut self, name: Arc<str>, value: Arc<str>) {
     #[cfg(any(feature = "devtools", feature = "mcp"))]
     self.debug_attrs.push((name, value));
@@ -1275,6 +1312,23 @@ impl NodeUpdate for Node {
     self.rare_style.sticky = Some(sticky);
   }
 
+  fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.column_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
+    self.rare_style.measured_tracks = Some(tracks);
+    self.layout_cache.invalidate();
+  }
+
+  fn fills_viewport_width(&mut self, fills: bool) {
+    if self.rare_style.fills_viewport_width != fills {
+      self.rare_style.fills_viewport_width = fills;
+      self.layout_cache.invalidate();
+    }
+  }
+
   fn align(&mut self, alignment: Alignment) {
     self.align_self = Some(alignment);
     self.layout_cache.invalidate();
@@ -1319,6 +1373,11 @@ impl NodeUpdate for Node {
     // rebuild; a negative size means the same as 0.
     let size = if size.is_nan() { 0.0 } else { size.max(0.0) };
     self.shrink_rule.drop_below = Some(size);
+    self.layout_cache.invalidate();
+  }
+
+  fn drop_marker(&mut self, marker: bool) {
+    self.shrink_rule.marker = marker;
     self.layout_cache.invalidate();
   }
 
@@ -1516,6 +1575,22 @@ impl NodeUpdate for Node {
 
   fn disabled_style(&mut self, style: Style) {
     self.state_styles.disabled = Some(style);
+  }
+
+  fn within_style(&mut self, style: Style) {
+    self.state_styles.within = Some(style);
+  }
+
+  fn within_hovered_style(&mut self, style: Style) {
+    self.state_styles.within_hovered = Some(style);
+  }
+
+  fn within_pressed_style(&mut self, style: Style) {
+    self.state_styles.within_pressed = Some(style);
+  }
+
+  fn interaction_group(&mut self, group: bool) {
+    self.rare_style.interaction_group = group;
   }
 
   fn when_disabled(&mut self, f: impl FnOnce(Style) -> Style) {
@@ -2068,6 +2143,25 @@ impl NodeUpdate for Node {
     self.focus_label = Some(Arc::new(label.to_string()));
   }
 
+  fn focus_level(&mut self, level: u32) {
+    let branch = self.focus_branch.get_or_insert_with(Default::default);
+    Arc::make_mut(branch).level = Some(level);
+  }
+
+  fn focus_expanded(&mut self, open: bool, toggle: Arc<dyn Fn(bool) + Send + Sync>) {
+    let branch = Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default));
+    branch.expanded = Some(open);
+    branch.toggle = Some(toggle);
+  }
+
+  fn focus_row(&mut self, row: usize) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).row = Some(row);
+  }
+
+  fn focus_rows(&mut self, rows: Arc<dyn crate::node::FocusRows>) {
+    Arc::make_mut(self.focus_branch.get_or_insert_with(Default::default)).rows = Some(rows);
+  }
+
   fn button_kind(&mut self, kind: ButtonKind) {
     self.button_kind = Some(kind);
   }
@@ -2422,6 +2516,7 @@ impl Node {
       stops_inside: false,
       autofocus: false,
       focus_label: None,
+      focus_branch: None,
       button_kind: None,
       #[cfg(feature = "form")]
       form_name: None,
@@ -3045,6 +3140,21 @@ impl Node {
 
   pub(crate) fn is_sticky(&self) -> bool {
     self.rare_style.sticky.is_some()
+  }
+
+  /// The tracks the node lays its children out in, if it is a row of a table.
+  pub(crate) fn column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.column_tracks.as_ref()
+  }
+
+  /// The tracks whose cells the node measures in the rows it holds.
+  pub(crate) fn measured_column_tracks(&self) -> Option<&crate::layout::column_tracks::ColumnTracks> {
+    self.rare_style.measured_tracks.as_ref()
+  }
+
+  /// Whether the node, a scroll container, lays its content out at least as wide as its viewport.
+  pub(crate) fn fills_viewport_width(&self) -> bool {
+    self.rare_style.fills_viewport_width
   }
 
   pub fn align(mut self, alignment: Alignment) -> Self {
@@ -4058,6 +4168,11 @@ impl Node {
     self.focus_label.as_deref().map(String::as_str)
   }
 
+  /// Where this node stands in a nested focus group, if it says.
+  pub(crate) fn focus_branch(&self) -> Option<&crate::node::FocusBranch> {
+    self.focus_branch.as_deref()
+  }
+
   pub(crate) fn button_kind_value(&self) -> Option<ButtonKind> {
     self.button_kind
   }
@@ -4652,8 +4767,25 @@ impl Node {
 
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[allow(dead_code)]
-  pub fn debug_attrs(&self) -> &[(Arc<str>, Arc<str>)] {
-    &self.debug_attrs
+  pub fn debug_attrs(&self) -> std::borrow::Cow<'_, [(Arc<str>, Arc<str>)]> {
+    // What the node's ref says of it since it was built (`ElementRefMut::describe`) stands for what it was built
+    // with under the same name.
+    let described = self
+      .element_ref
+      .as_ref()
+      .map(CoreElementRef::descriptions)
+      .unwrap_or_default();
+    if described.is_empty() {
+      return std::borrow::Cow::Borrowed(&self.debug_attrs);
+    }
+    let mut attrs: Vec<(Arc<str>, Arc<str>)> = self
+      .debug_attrs
+      .iter()
+      .filter(|(name, _)| !described.iter().any(|(said, _)| said == name))
+      .cloned()
+      .collect();
+    attrs.extend(described);
+    std::borrow::Cow::Owned(attrs)
   }
 
   pub(crate) fn node_kind(&self) -> &NodeKind {
@@ -4742,6 +4874,21 @@ impl Node {
     {
       return Some(value);
     }
+    if let Some(value) = states.within_pressed.as_ref().and_then(&pick)
+      && state.is_within_pressed()
+    {
+      return Some(value);
+    }
+    if let Some(value) = states.within_hovered.as_ref().and_then(&pick)
+      && state.is_within_hovered()
+    {
+      return Some(value);
+    }
+    if let Some(value) = states.within.as_ref().and_then(&pick)
+      && state.is_within()
+    {
+      return Some(value);
+    }
     None
   }
 
@@ -4749,6 +4896,12 @@ impl Node {
   /// see [`InteractionState::is_disabled`](crate::node::interaction_state::InteractionState::is_disabled).
   pub(crate) fn is_disabled(&self) -> bool {
     self.rare_style.disabled
+  }
+
+  /// The node was built inert, or its ref made it so (`ElementRefMut::set_inert`). An element it is in may make it
+  /// inert too: see `tab_navigation::path_is_inert`.
+  pub(crate) fn is_inert(&self) -> bool {
+    self.rare_style.inert || self.element_ref.as_ref().is_some_and(CoreElementRef::is_inert)
   }
 
   /// Records in this node and in every node under it whether it is disabled,
@@ -4850,6 +5003,9 @@ impl Node {
       .or_else(|| state_shadow(self.style_state.is_hovered(), &states.hovered))
       .or_else(|| state_shadow(self.style_state.is_focus_visible(), &states.focus_visible))
       .or_else(|| state_shadow(self.style_state.is_focused(), &states.focused))
+      .or_else(|| state_shadow(self.style_state.is_within_pressed(), &states.within_pressed))
+      .or_else(|| state_shadow(self.style_state.is_within_hovered(), &states.within_hovered))
+      .or_else(|| state_shadow(self.style_state.is_within(), &states.within))
       .or(self.rare_style.box_shadow.as_ref())
   }
 
@@ -5027,6 +5183,21 @@ impl Node {
     &self.children
   }
 
+  /// The width and the height the node's ref gives it in place of those it was built with
+  /// (`ElementRefMut::set_size`).
+  pub(crate) fn size_override(&self) -> (Option<Dimension>, Option<Dimension>) {
+    self
+      .element_ref
+      .as_ref()
+      .map_or((None, None), CoreElementRef::size_override)
+  }
+
+  /// The width and the height the node is fixed at: those its ref gives it, or those it was built with.
+  pub(crate) fn fixed_frame_size(&self) -> (Option<Dimension>, Option<Dimension>) {
+    let (width, height) = self.size_override();
+    (width.or(self.frame.width), height.or(self.frame.height))
+  }
+
   pub(crate) fn element_override_rect(&self) -> Option<crate::core::ElementRect> {
     self.element_ref.as_ref().and_then(CoreElementRef::override_rect)
   }
@@ -5148,6 +5319,26 @@ impl Node {
     layout_dirty
   }
 
+  /// Lights or puts out what the interaction group around the node lights in it (its `within` styles), with
+  /// whether the group is under the pointer and held down. Returns the node's state, whose handle the tree keeps
+  /// to put it out again, and whether it changed.
+  pub(crate) fn set_style_within(&self, within: bool, hovered: bool, pressed: bool) -> (InteractionState, bool) {
+    let state = self.bound_style_state();
+    let changed = state.set_within(within, hovered, pressed);
+    (state.clone(), changed)
+  }
+
+  /// Whether the node is an interaction group: see [`NodeUpdate::interaction_group`].
+  pub(crate) fn is_interaction_group(&self) -> bool {
+    self.rare_style.interaction_group
+  }
+
+  /// Whether the node has a style for while its interaction group is lit.
+  pub(crate) fn has_within_style(&self) -> bool {
+    let states = &*self.state_styles;
+    states.within.is_some() || states.within_hovered.is_some() || states.within_pressed.is_some()
+  }
+
   pub(crate) fn set_style_focused(&self, focused: bool) -> bool {
     let changed = self.style_state.is_focused() != focused;
     if changed {
@@ -5178,6 +5369,14 @@ impl Node {
       .state_styles
       .layout_frame(&self.style_state)
       .map_or(base, |frame| merge_frame(base, frame));
+    // A size its ref was given stands for the one it was built with (`ElementRefMut::set_size`).
+    let (width, height) = self.size_override();
+    if width.is_some() {
+      result.width = width;
+    }
+    if height.is_some() {
+      result.height = height;
+    }
     for (prop, val) in self.animation_overrides.iter() {
       match (prop, val) {
         (crate::animation::AnimatableProperty::Width, crate::animation::AnimatableValue::Float(v)) => {
@@ -5443,14 +5642,19 @@ impl Node {
         None => &old.children[index],
       }
     };
-    let matched_len = self.children.len().min(old_len);
-    let positional =
-      (0..matched_len).all(|index| self.children[index].can_preserve_runtime_state_from(old_child(index)));
+    let places = Places::between(&self.children, old_len, old_child);
+    let positional = (0..self.children.len()).all(|index| {
+      places
+        .of(index)
+        .is_none_or(|place| self.children[index].can_preserve_runtime_state_from(old_child(place)))
+    });
     let mut child_layout_signatures_match = without_leaving.is_none();
     if positional {
-      for index in 0..matched_len {
-        child_layout_signatures_match &=
-          self.children[index].preserve_runtime_state_and_layout_signature_from(old_child(index));
+      for index in 0..self.children.len() {
+        if let Some(place) = places.of(index) {
+          child_layout_signatures_match &=
+            self.children[index].preserve_runtime_state_and_layout_signature_from(old_child(place));
+        }
       }
     } else {
       // Reordered children preserve state by identity, but cache signatures
@@ -5459,8 +5663,9 @@ impl Node {
       let mut claimed = vec![false; old_len];
       for index in 0..self.children.len() {
         let child = &self.children[index];
-        let matched = (index < old_len && !claimed[index] && child.can_preserve_runtime_state_from(old_child(index)))
-          .then_some(index)
+        let matched = places
+          .of(index)
+          .filter(|place| !claimed[*place] && child.can_preserve_runtime_state_from(old_child(*place)))
           .or_else(|| (0..old_len).find(|offset| !claimed[*offset] && child.identity_matches(old_child(*offset))));
         if let Some(offset) = matched {
           claimed[offset] = true;
@@ -5551,6 +5756,9 @@ impl Node {
       && self.text_overflow == old.text_overflow
       && self.overflow == old.overflow
       && self.intrinsic_size == old.intrinsic_size
+      && self.rare_style.column_tracks == old.rare_style.column_tracks
+      && self.rare_style.measured_tracks == old.rare_style.measured_tracks
+      && self.rare_style.fills_viewport_width == old.rare_style.fills_viewport_width
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }
@@ -5744,20 +5952,21 @@ impl Node {
         .iter()
         .zip(&old.children)
         .all(|(child, old_child)| child.can_reuse_id_from(old_child));
+    let places = Places::between(&self.children, old.children.len(), |index| &old.children[index]);
     if positional {
-      for (child, old_child) in self.children.iter_mut().zip(old.children.iter_mut()) {
-        child.preserve_ids_from(old_child);
+      for (index, child) in self.children.iter_mut().enumerate() {
+        if let Some(place) = places.of(index) {
+          child.preserve_ids_from(&mut old.children[place]);
+        }
       }
       return;
     }
 
     let mut claimed = vec![false; old.children.len()];
     for (index, child) in self.children.iter_mut().enumerate() {
-      let matched = old
-        .children
-        .get(index)
-        .filter(|old_child| !claimed[index] && child.can_reuse_id_from(old_child))
-        .map(|_| index)
+      let matched = places
+        .of(index)
+        .filter(|place| !claimed[*place] && child.can_reuse_id_from(&old.children[*place]))
         .or_else(|| {
           old
             .children
@@ -5770,6 +5979,28 @@ impl Node {
         child.preserve_ids_from(&mut old.children[offset]);
       }
     }
+  }
+
+  /// Whether this node and `old` are the same thing to someone looking at the tree: the same kinds of node in
+  /// the same shape, with the same names and the same text. Not how they are styled, which a state changes.
+  fn looks_like(&self, old: &Node) -> bool {
+    if self.component_slot_id != old.component_slot_id
+      || self.component_key != old.component_key
+      || self.element_id != old.element_id
+      || self.tag_name != old.tag_name
+      || std::mem::discriminant(&self.node_kind) != std::mem::discriminant(&old.node_kind)
+      || std::mem::discriminant(&self.layout_kind) != std::mem::discriminant(&old.layout_kind)
+      || self.text_content.as_ref() != old.text_content.as_ref()
+      || self.children.len() != old.children.len()
+    {
+      return false;
+    }
+    for (child, old_child) in self.children.iter().zip(&old.children) {
+      if !child.looks_like(old_child) {
+        return false;
+      }
+    }
+    true
   }
 
   fn can_reuse_id_from(&self, old: &Node) -> bool {
@@ -5922,6 +6153,7 @@ impl Node {
       stops_inside: self.stops_inside,
       autofocus: self.autofocus,
       focus_label: self.focus_label.clone(),
+      focus_branch: self.focus_branch.clone(),
       button_kind: self.button_kind,
       #[cfg(feature = "form")]
       form_name: self.form_name.clone(),
@@ -6045,6 +6277,21 @@ impl Node {
 
   pub(crate) fn state_style(&self) -> Style {
     let mut style = Style::new();
+    if let Some(within) = &self.state_styles.within
+      && self.style_state.is_within()
+    {
+      style.merge_from(within);
+    }
+    if let Some(within) = &self.state_styles.within_hovered
+      && self.style_state.is_within_hovered()
+    {
+      style.merge_from(within);
+    }
+    if let Some(within) = &self.state_styles.within_pressed
+      && self.style_state.is_within_pressed()
+    {
+      style.merge_from(within);
+    }
     if self.style_state.is_focused()
       && let Some(focused) = &self.state_styles.focused
     {
@@ -6103,6 +6350,59 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
 
 /// Two retained refs name the same element only when they are one handle; a
 /// missing ref on either side does not tell the elements apart.
+/// Which child of the node a render replaces each child of the new node stands for, before anything names
+/// them: the child at the same place, unless the two lists differ in length and end alike. Then a child was
+/// put in or taken out before that end, and the children of the end are the ones that were there, each moved
+/// by the difference: a button that gets a sibling before it stays the element it was, with its hover, its
+/// focus and its transitions, and the sibling is a new one.
+///
+/// The children at the start that look alike are matched first, so a list of things that cannot be told
+/// apart loses and gains its last, as it always did. One look at the last pair settles every list that only
+/// grew or shrank at its end.
+struct Places {
+  /// The place the end starts at among the new children.
+  end_from: usize,
+  /// How far the end moved: the old length less the new one.
+  moved: isize,
+  /// How many of the old children are before the end.
+  old_before_end: usize,
+}
+
+impl Places {
+  fn between<'a>(new: &[Node], old_len: usize, old_child: impl Fn(usize) -> &'a Node) -> Self {
+    let end = Self::alike_end(new, old_len, &old_child);
+    Self {
+      end_from: new.len() - end,
+      moved: old_len as isize - new.len() as isize,
+      old_before_end: old_len - end,
+    }
+  }
+
+  /// How many children the two lists have alike at their ends, past the ones alike at their starts.
+  fn alike_end<'a>(new: &[Node], old_len: usize, old_child: &impl Fn(usize) -> &'a Node) -> usize {
+    let len = new.len();
+    let shorter = len.min(old_len);
+    if len == old_len || shorter == 0 || !new[len - 1].looks_like(old_child(old_len - 1)) {
+      return 0;
+    }
+    let start = (0..shorter)
+      .take_while(|index| new[*index].looks_like(old_child(*index)))
+      .count();
+    (1..=shorter - start)
+      .take_while(|back| new[len - back].looks_like(old_child(old_len - back)))
+      .count()
+  }
+
+  /// The place among the old children of what the new child at `index` stands for, if any.
+  fn of(&self, index: usize) -> Option<usize> {
+    if index >= self.end_from {
+      Some((index as isize + self.moved) as usize)
+    } else {
+      (index < self.old_before_end).then_some(index)
+    }
+  }
+}
+
 fn refs_compatible(current: Option<&CoreElementRef>, previous: Option<&CoreElementRef>) -> bool {
   match (current, previous) {
     (Some(current), Some(previous)) => current.same_handle(previous),
@@ -6635,5 +6935,98 @@ mod tests {
     collect_ids(&new, &mut ids);
     let unique: std::collections::HashSet<u64> = ids.iter().map(|id| id.value()).collect();
     assert_eq!(unique.len(), ids.len());
+  }
+
+  /// A row of buttons with nothing naming them, as a component's actions are.
+  fn buttons(labels: &[&str]) -> Node {
+    Node::row(
+      0.0,
+      Alignment::Start,
+      labels
+        .iter()
+        .map(|label| Node::row(0.0, Alignment::Start, vec![Node::text(label)]))
+        .collect(),
+    )
+  }
+
+  fn ids_of(row: &Node) -> Vec<crate::core::NodeId> {
+    row.children.iter().map(Node::node_id).collect()
+  }
+
+  #[test]
+  fn a_child_put_before_another_does_not_take_its_id() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Deploy"]);
+    old.assign_ids(&id_gen);
+    let deploy = ids_of(&old)[0];
+
+    let mut new = buttons(&["View log", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    // Deploy is the element it was; View log, which stands where it stood, is a new one.
+    assert_eq!(ids_of(&new)[1], deploy);
+    assert_ne!(ids_of(&new)[0], deploy);
+  }
+
+  #[test]
+  fn a_child_taken_from_before_another_leaves_the_other_its_id() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Back", "View log", "Deploy"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut new = buttons(&["Back", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new), vec![before[0], before[2]]);
+  }
+
+  #[test]
+  fn children_of_lists_as_long_as_each_other_are_matched_by_their_place() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Save", "Deploy"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    // A text that changed is the same element saying something else.
+    let mut new = buttons(&["Saving", "Deploy"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new), before);
+  }
+
+  #[test]
+  fn children_that_cannot_be_told_apart_lose_and_gain_the_last() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["Row", "Row", "Row"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut shorter = buttons(&["Row", "Row"]);
+    shorter.preserve_ids_from(&mut old);
+    shorter.assign_ids(&id_gen);
+    assert_eq!(ids_of(&shorter), before[..2]);
+
+    let mut longer = buttons(&["Row", "Row", "Row"]);
+    longer.preserve_ids_from(&mut shorter);
+    longer.assign_ids(&id_gen);
+    assert_eq!(ids_of(&longer)[..2], before[..2]);
+  }
+
+  #[test]
+  fn a_list_that_grew_at_its_end_keeps_every_child_it_had() {
+    let id_gen = crate::core::IdGenerator::new();
+    let mut old = buttons(&["a", "b"]);
+    old.assign_ids(&id_gen);
+    let before = ids_of(&old);
+
+    let mut new = buttons(&["a", "b", "c"]);
+    new.preserve_ids_from(&mut old);
+    new.assign_ids(&id_gen);
+
+    assert_eq!(ids_of(&new)[..2], before[..]);
   }
 }

@@ -411,10 +411,12 @@ impl PopconfirmView {
       .build(self.theme())
   }
 
-  /// The two buttons at the end, cancel first.
+  /// The two buttons at the end, cancel first. Where they do not fit side
+  /// by side, the confirm button goes under the cancel button.
   pub fn actions(&self) -> Row {
     Row::new()
       .width(Dimension::Pct(100.0))
+      .wrap()
       .justify(Justify::End)
       .align_items(Alignment::Center)
       .overflow_visible()

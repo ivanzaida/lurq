@@ -13,7 +13,7 @@
 //! An element's label is its `focus_label`, or, for a button with one text
 //! in it, that text.
 
-use super::{FocusTarget, NodeKind, Tree, find_node_by_id, focus_visible, tab_navigation};
+use super::{NodeKind, Tree, focus_visible, tab_navigation};
 use crate::{
   node::Node,
   time::{Duration, Instant},
@@ -71,6 +71,8 @@ impl Tree {
     let Some(group) = group else {
       return false;
     };
+    // Where the choice follows the focus, it follows the focus a letter moves as well.
+    let activate = group.focus_group_value().is_some_and(|held| held.activate);
 
     let now = self.now();
     let typed: String = typed.to_lowercase().collect();
@@ -83,24 +85,43 @@ impl Tree {
       at: now,
     });
 
-    let stops = tab_navigation::group_stops(group, &self.dropped_nodes);
+    // A group of rows a list builds only in part: the rows, built or not.
+    if let Some(rows) = group.focus_branch().and_then(|branch| branch.rows.clone())
+      && let Some(current) = node.focus_branch().and_then(|branch| branch.row)
+    {
+      let group = group.node_id();
+      let target = find(rows.count(), Some(current), &prefix, |row| {
+        rows.enabled(row).then(|| rows.label(row)).flatten()
+      });
+      if let Some(target) = target
+        && target != current
+      {
+        self.focus_row(group, rows, target, activate.then(Default::default));
+      }
+      return true;
+    }
+    // The stops with their nodes, in one walk: a tree of thousands of rows is not searched again for each.
+    let (stops, nodes) = tab_navigation::group_stop_nodes(group, &self.dropped_nodes);
     let current = stops.iter().position(|stop| stop.input_id == focused);
-    let target = find(group, &stops, current, &prefix);
+    let target = find(stops.len(), current, &prefix, |index| label(nodes[index])).map(|index| stops[index]);
     if let Some(target) = target
       && Some(target.input_id) != Some(focused)
     {
       self.set_input_modality(focus_visible::InputModality::Keyboard);
       self.focus_node(target);
       self.scroll_focused_into_view();
+      if activate {
+        self.activate_focused_button(Default::default());
+      }
     }
     true
   }
 }
 
-/// The stop of `stops` whose label starts with `prefix`, looked for round the
-/// group: from `current` on for a prefix of more than one letter, from the one
-/// after it for one letter, or one letter typed again and again.
-fn find(group: &Node, stops: &[FocusTarget], current: Option<usize>, prefix: &str) -> Option<FocusTarget> {
+/// Which of `count` elements has a label (`label`) that starts with `prefix`, looked for round the group: from
+/// `current` on for a prefix of more than one letter, from the one after it for one letter, or one letter typed
+/// again and again.
+fn find(count: usize, current: Option<usize>, prefix: &str, label: impl Fn(usize) -> Option<String>) -> Option<usize> {
   let mut letters = prefix.chars();
   let first = letters.next()?;
   let repeated = letters.all(|letter| letter == first);
@@ -109,15 +130,13 @@ fn find(group: &Node, stops: &[FocusTarget], current: Option<usize>, prefix: &st
     (false, Some(current)) => (prefix.to_owned(), current),
     (_, None) => (prefix.to_owned(), 0),
   };
-  (0..stops.len())
-    .map(|step| stops[(start + step) % stops.len()])
-    .find(|stop| label(group, stop.input_id).is_some_and(|label| label.to_lowercase().starts_with(&wanted)))
+  (0..count)
+    .map(|step| (start + step) % count)
+    .find(|&index| label(index).is_some_and(|label| label.to_lowercase().starts_with(&wanted)))
 }
 
-/// The label of the element `id` in `group`: its `focus_label`, or, for a
-/// button, the one text in it.
-fn label(group: &Node, id: crate::core::NodeId) -> Option<String> {
-  let node = find_node_by_id(group, id)?;
+/// The label of an element: its `focus_label`, or, for a button, the one text in it.
+pub(super) fn label(node: &Node) -> Option<String> {
   if let Some(label) = node.focus_label() {
     return Some(label.to_owned());
   }

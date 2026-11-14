@@ -15,7 +15,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{FILL, props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// The sides the playground offers.
@@ -176,7 +176,7 @@ impl HoverCardPage {
       Spec {
         title: "Hover Card",
         make: Arc::new(move || plain().into()),
-        shown,
+        shown: Shown::of(shown),
         fill: false,
         forceable: false,
         facts: if open {

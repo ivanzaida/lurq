@@ -358,9 +358,38 @@ impl Button {
     self
   }
 
+  /// What an item of a menu that stands for this button takes from it: a
+  /// toolbar moves a button that does not fit into its menu with this. Its
+  /// press is the button's, as Enter would make it.
+  pub(crate) fn command(&self) -> super::toolbar::ToolbarCommand {
+    let handlers = self.on_click.clone();
+    super::toolbar::ToolbarCommand {
+      label: self.label.clone(),
+      icon: self.icon,
+      icon_only: self.icon_only,
+      disabled: self.disabled || self.loading,
+      checked: None,
+      run: Arc::new(move || {
+        let click = super::toolbar::keyboard_click();
+        for handler in &handlers {
+          handler.call(&click);
+        }
+      }),
+      id: self.id.clone(),
+    }
+  }
+
   /// Builds the button in `theme`. Converting a button into an element does
   /// this in the theme of what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
+  pub fn build(mut self, theme: &Theme) -> Element {
+    // An icon with an empty label and nothing else beside it is an icon alone: no gap and no padding for a label.
+    self.icon_only = self.icon_only
+      || self.label.is_empty()
+        && self.icon.is_some()
+        && self.description.is_none()
+        && self.leading.is_none()
+        && self.trailing.is_none()
+        && self.trailing_icon.is_none();
     let case = Case {
       variant: Some(self.variant),
       size: Some(self.size),
@@ -468,8 +497,17 @@ impl ButtonView {
         root = root.on_click(handler.clone());
       }
     }
+    // A room narrower than the button: it gives way down to its padding, its icon and the gap, and its label is
+    // cut. It is never wider than what holds it, a line of a row that wraps included, where nothing shrinks. An
+    // icon alone keeps its square.
+    if !self.icon_only {
+      root = root
+        .flex_shrink(1.0)
+        .shrink_limit(crate::layout::layout_kind::ShrinkLimit::Content)
+        .max_width(crate::node::dimension::Dimension::Pct(100.0));
+    }
     // A button that is an icon alone draws no label, and is still called by it.
-    if self.icon_only {
+    if self.icon_only && !self.label.is_empty() {
       root = root.describe("a11y_name", self.label.clone());
     }
     if let Some(id) = &self.id {
@@ -485,7 +523,7 @@ impl ButtonView {
   pub fn description(&self) -> Option<Element> {
     let description = self.description.as_ref()?;
     let part = self.part(ButtonPart::Description);
-    Some(part.text(description).nowrap().part(&part).into())
+    Some(super::shared::one_line(&part, description))
   }
 
   /// The button's text, in the typography of its label. A theme's renderer
@@ -497,8 +535,9 @@ impl ButtonView {
     {
       return renderer(self);
     }
+    // Where the button is narrower than its label, the label gives way and is cut: the padding and the icon stay.
     let part = self.part(ButtonPart::Label);
-    part.text(&self.label).nowrap().part(&part).into()
+    super::shared::one_line(&part, &self.label)
   }
 
   /// An icon of the theme's set as this button draws one: in the style of
@@ -675,7 +714,13 @@ impl Themed for Button {
     let recipe = sized(recipe, ButtonSize::Sm, IconSize::Md.into(), ControlSize::Sm.into());
     let recipe = sized(recipe, ButtonSize::Lg, Length::Px(18.0), ControlSize::Lg.into());
     let recipe = sized(recipe, ButtonSize::Xl, IconSize::Lg.into(), Density::Comfortable.into());
-    let recipe = filled(recipe, ButtonVariant::Primary, Primary, PrimaryForeground, PrimaryHover);
+    let recipe = filled(recipe, ButtonVariant::Primary, Primary, PrimaryForeground, PrimaryHover)
+      // The board presses a button in its hover fill, under which the pressed veil is lost: black over the near
+      // black of the light theme, white over the near white of the dark. Pressed, it goes back to its fill under the
+      // veil, so that a press is seen.
+      .when(Selector::new().variant(ButtonVariant::Primary).pressed(), Root, |s| {
+        s.background(Primary)
+      });
     let recipe = filled(
       recipe,
       ButtonVariant::Secondary,

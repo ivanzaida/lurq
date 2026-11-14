@@ -14,7 +14,7 @@ use lurq::{
 use crate::{
   doc::{Frame, Header, Section},
   kit::{props_table, quiet},
-  playground::{Playground, Spec, divider, field, flag, prop},
+  playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
 /// Something on a stage with what it is under it.
@@ -114,20 +114,23 @@ impl CommandPalettePage {
           .group("Suggestions", commands)
       }
     };
-    let shown: Element = if inline {
-      palette(self.play_open.clone(), &told).into()
-    } else {
-      let open = self.play_open.clone();
-      Column::new()
-        .child(
-          Button::new("Open the palette")
-            .variant(ButtonVariant::Outline)
-            .icon(icons::SEARCH)
-            .on_click(move |_| open.set(true)),
-        )
-        .child(palette(self.play_open.clone(), &told))
-        .into()
-    };
+    // Built on the stage, in the stage's theme: the palette's input types in that theme's color.
+    let shown = Shown::built(|_| {
+      if inline {
+        palette(self.play_open.clone(), &told).into()
+      } else {
+        let open = self.play_open.clone();
+        Column::new()
+          .child(
+            Button::new("Open the palette")
+              .variant(ButtonVariant::Outline)
+              .icon(icons::SEARCH)
+              .on_click(move |_| open.set(true)),
+          )
+          .child(palette(self.play_open.clone(), &told))
+          .into()
+      }
+    });
     let make = {
       let palette = palette.clone();
       move || -> Element {

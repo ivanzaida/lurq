@@ -519,3 +519,32 @@ fn a_theme_restyles_the_items_and_another_renderer_still_chooses() {
   press_at(&mut stage, dark);
   assert_eq!(value.get(), "dark");
 }
+
+#[test]
+fn the_options_follow_the_density_and_the_box_keeps_its_size() {
+  use lurq::app::theme::Density;
+  for (density, height) in [
+    (Density::Compact, 24.0),
+    (Density::Default, 32.0),
+    (Density::Comfortable, 40.0),
+    (Density::Touch, 44.0),
+  ] {
+    let app = App::new();
+    app.theme().set_density(density);
+    let value = Signal::new("light".to_owned());
+    let mut stage = Stage::in_app(app, move |_| {
+      window()
+        .padding(8.0)
+        .child(Select::new(value.clone(), themes()).id("select"))
+        .into()
+    });
+    assert_eq!(stage.bounds("select").3, 36.0, "{density:?}: the box is a control");
+    stage.click("select");
+    let (system, light_item) = (middle_of(&stage, "System"), middle_of(&stage, "Light"));
+    assert!(
+      (light_item.1 - system.1 - height).abs() < 0.5,
+      "{density:?}: {height} apart, not {}",
+      light_item.1 - system.1
+    );
+  }
+}

@@ -310,6 +310,51 @@ fn scroll_empty_child() {
   assert_eq!(result.size.height, 100.0);
 }
 
+/// The colors of the thumbs painted for a scroll container of 100 whose content is 300 high.
+fn thumb_colors(app: &mut App) -> Vec<Color> {
+  let mut rt = rt();
+  rt.set_root(lurq::components::ScrollVertical::new(lurq::components::Spacer::new().height(300.0)).size(100.0, 100.0));
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  rt.pass(app, &TestSurface);
+  rt.resolve_quads(rt.last_layout().unwrap())
+    .iter()
+    .filter_map(|quad| match &quad.content {
+      QuadContent::Rect { color, .. } if quad.width == ScrollBarStyle::default().width => Some(*color),
+      _ => None,
+    })
+    .collect()
+}
+
+#[test]
+fn a_scrollbar_that_sets_no_color_is_in_the_ring_color_of_the_theme() {
+  use lurq::app::theme::PaletteColor;
+
+  // The default bar is drawn in the palette's ring, which shows on a light theme and on a dark one: a fixed
+  // dark thumb was lost on a dark background.
+  let mut app = App::new();
+  let ring = app.theme().palette_color(PaletteColor::Ring);
+  assert_eq!(thumb_colors(&mut app), vec![ring]);
+  app.theme().set_appearance(lurq::app::window::Appearance::Dark);
+  let ring = app.theme().palette_color(PaletteColor::Ring);
+  assert_eq!(thumb_colors(&mut app), vec![ring]);
+  assert!(
+    ring.a() == 255,
+    "a color of its own, not a veil that needs a light background"
+  );
+
+  // It follows the palette.
+  let violet = Color::from_hex("#8b5cf6");
+  app.theme().set_palette_color(PaletteColor::Ring, violet);
+  assert_eq!(thumb_colors(&mut app), vec![violet]);
+
+  // A style with a color of its own keeps it.
+  let teal = Color::from_hex("#14b8a6");
+  app
+    .theme()
+    .set_scrollbar(ScrollBarStyle::default().with_thumb_color(teal));
+  assert_eq!(thumb_colors(&mut app), vec![teal]);
+}
+
 #[test]
 fn scrollbar_uses_theme_style_by_default() {
   let mut app = App::new();
@@ -554,4 +599,50 @@ fn scroll_row_colors(quads: &[lurq::layout::quad::Quad]) -> Vec<Color> {
       _ => None,
     })
     .collect()
+}
+
+/// Where the red box in a scroll of 100 is drawn, scrolled by `by` at `scale` device pixels to a logical one.
+fn scrolled_box_y(scale: f32, by: f32) -> f32 {
+  let red = Color::from_hex("#ff0000");
+  let state = ScrollState::new();
+  let mut rt = rt();
+  rt.set_scale_factor(scale);
+  rt.set_root(
+    ScrollVertical::new(
+      Column::new()
+        .height(600.0)
+        .child(Spacer::new().height(40.0))
+        .child(Row::new().size(50.0, 20.0).background(red)),
+    )
+    .size(100.0, 100.0)
+    .with_scroll_state(state.clone()),
+  );
+  rt.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 400.0))));
+  let mut app = App::new();
+  rt.pass(&mut app, &TestSurface);
+  state.scroll_by(0.0, by);
+  rt.pass(&mut app, &TestSurface);
+  rt.resolve_quads(rt.last_layout().unwrap())
+    .iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == red))
+    .map(|quad| quad.y)
+    .expect("the box")
+}
+
+#[test]
+fn what_a_scroll_holds_is_drawn_on_a_whole_device_pixel() {
+  // At a whole scale a logical pixel is a device pixel: the content is where the offset says.
+  assert_eq!(scrolled_box_y(1.0, 17.0), 23.0);
+  assert_eq!(scrolled_box_y(2.0, 17.5), 22.5);
+  // At 150% an offset of 17 is 25.5 device pixels. A text is painted on a whole device pixel and a box where it is:
+  // half a pixel moved every label a pixel against its box, and back at the next step of the wheel. The content is
+  // drawn at 26 device pixels, and the scroll keeps the 17 it was given.
+  let y = scrolled_box_y(1.5, 17.0);
+  assert!((y * 1.5 - (y * 1.5).round()).abs() < 1e-3, "{y}");
+  assert!((y - (40.0 - 17.0)).abs() <= 0.5 / 1.5 + 1e-3, "{y}");
+  // Whatever the offset, the box and what is beside it keep their distance in device pixels.
+  for by in [1.0, 3.3, 16.7, 51.0] {
+    let y = scrolled_box_y(1.5, by) * 1.5;
+    assert!((y - y.round()).abs() < 1e-3, "{by}: {y}");
+  }
 }

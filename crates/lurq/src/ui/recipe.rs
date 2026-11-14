@@ -23,6 +23,14 @@ use crate::{
 /// The name of a variant, a size, a state or a part.
 pub type Name = RoleName;
 
+/// What a row moves by at each density but the default, from its height at the default: a row of 36 is 28 in a
+/// compact theme, 44 in a comfortable one and 48 under a finger. A control keeps its size at every density.
+pub const ROW_STEPS: [(Density, f32); 3] = [
+  (Density::Compact, -8.0),
+  (Density::Comfortable, 8.0),
+  (Density::Touch, 12.0),
+];
+
 /// What the pointer or the keyboard does to a part, which the part shows by
 /// itself: a rule for one of these is no reason to render the component.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -51,6 +59,8 @@ pub struct Selector {
   /// States of the component that all have to hold: checked, disabled, loading.
   states: Vec<Name>,
   interaction: Option<Interaction>,
+  /// While the interaction group the part is in is under the pointer or holds the focus.
+  within: bool,
 }
 
 impl Selector {
@@ -104,6 +114,16 @@ impl Selector {
 
   pub fn focus_visible(mut self) -> Self {
     self.interaction = Some(Interaction::FocusVisible);
+    self
+  }
+
+  /// While the pointer is on the element the part is in that is an interaction group, or the focus is on it or in
+  /// it (`.interaction_group(true)`, which a component puts on what is pressed: a row, an item). What it sets is
+  /// painted only, never sized. With [`hovered`](Self::hovered) or [`pressed`](Self::pressed), while the group
+  /// is under the pointer or held down, and not while it only holds the focus: the veil of a row on a cell of it
+  /// that covers the row's. With another interaction, as without one.
+  pub fn within(mut self) -> Self {
+    self.within = true;
     self
   }
 
@@ -273,6 +293,27 @@ impl Recipe {
     self.when(Selector::new().density(density), part, style)
   }
 
+  /// A rule for each density but the default, in the case of `selector`, with the step a row moves by at it
+  /// ([`ROW_STEPS`]): `style` is given the part's style and the step.
+  pub fn by_density(
+    self,
+    selector: Selector,
+    part: impl Into<Name>,
+    style: impl Fn(PartStyle, f32) -> PartStyle,
+  ) -> Self {
+    let part = part.into();
+    ROW_STEPS.iter().fold(self, |recipe, (density, step)| {
+      recipe.when(selector.clone().density(*density), part, |s| style(s, *step))
+    })
+  }
+
+  /// The rules that move a row of `part`, `height` high at the default density, by the steps of the others in the
+  /// case of `selector`: 8 lower in a compact theme, 8 higher in a comfortable one and 12 higher under a finger, as a
+  /// row of 36 is 28, 44 and 48 ([`ROW_STEPS`]).
+  pub fn row_density(self, selector: Selector, part: impl Into<Name>, height: f32) -> Self {
+    self.by_density(selector, part, move |s, step| s.height(height + step))
+  }
+
   /// A rule for a window at `breakpoint` or wider: a part that is one size
   /// on a phone and another on a desktop.
   pub fn at(self, breakpoint: Breakpoint, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
@@ -303,6 +344,23 @@ impl Recipe {
   /// A rule for a part focused from the keyboard.
   pub fn focus_visible(self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
     self.when(Selector::new().focus_visible(), part, style)
+  }
+
+  /// A rule for a part while the interaction group it is in is under the pointer or holds the focus: an action at
+  /// the end of a row that shows only then. See [`Selector::within`].
+  pub fn within(self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.when(Selector::new().within(), part, style)
+  }
+
+  /// A rule for a part while the interaction group it is in is under the pointer: laid over [`within`](Self::within).
+  pub fn within_hovered(self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.when(Selector::new().within().hovered(), part, style)
+  }
+
+  /// A rule for a part while the interaction group it is in is held down: laid over
+  /// [`within_hovered`](Self::within_hovered).
+  pub fn within_pressed(self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.when(Selector::new().within().pressed(), part, style)
   }
 
   /// Adds the rules of `other` after this recipe's: where both style a case,
@@ -350,6 +408,9 @@ pub(crate) fn resolve_styles(recipes: &[&Recipe], case: &Case) -> ResolvedStyles
   for (_, _, rule) in holding {
     let part = parts.entry(rule.part).or_default();
     match rule.selector.interaction {
+      None | Some(Interaction::FocusVisible) if rule.selector.within => part.within.merge(&rule.style),
+      Some(Interaction::Hovered) if rule.selector.within => part.within_hovered.merge(&rule.style),
+      Some(Interaction::Pressed) if rule.selector.within => part.within_pressed.merge(&rule.style),
       None => part.rest.merge(&rule.style),
       Some(Interaction::Hovered) => part.hovered.merge(&rule.style),
       Some(Interaction::Pressed) => part.pressed.merge(&rule.style),
@@ -369,6 +430,12 @@ pub struct PartStyles {
   pub hovered: PartStyle,
   pub pressed: PartStyle,
   pub focus_visible: PartStyle,
+  /// What the part shows while the interaction group it is in is under the pointer or holds the focus.
+  pub within: PartStyle,
+  /// What the part shows over `within` while the interaction group it is in is under the pointer.
+  pub within_hovered: PartStyle,
+  /// What the part shows over `within_hovered` while the interaction group it is in is held down.
+  pub within_pressed: PartStyle,
 }
 
 impl PartStyles {
@@ -435,6 +502,9 @@ impl ResolvedRecipe {
       .hovered(inner, |_| styles.hovered.clone())
       .pressed(inner, |_| styles.pressed.clone())
       .focus_visible(inner, |_| styles.focus_visible.clone())
+      .within(inner, |_| styles.within.clone())
+      .within_hovered(inner, |_| styles.within_hovered.clone())
+      .within_pressed(inner, |_| styles.within_pressed.clone())
   }
 }
 
@@ -466,10 +536,28 @@ impl ResolvedPart {
   /// The style of the part at rest, with a forced interaction laid over it.
   pub fn rest(&self) -> PartStyle {
     let styles = self.styles();
+    // A part drawn as pointed at or focused is in a group that is: what shows only then shows.
     match self.forced {
       // A part held down is under the pointer too.
-      Some(Interaction::Pressed) => styles.rest.clone().merged(&styles.hovered).merged(&styles.pressed),
-      Some(interaction) => styles.rest.clone().merged(styles.interaction(interaction)),
+      Some(Interaction::Pressed) => styles
+        .rest
+        .clone()
+        .merged(&styles.within)
+        .merged(&styles.within_hovered)
+        .merged(&styles.within_pressed)
+        .merged(&styles.hovered)
+        .merged(&styles.pressed),
+      Some(Interaction::Hovered) => styles
+        .rest
+        .clone()
+        .merged(&styles.within)
+        .merged(&styles.within_hovered)
+        .merged(&styles.hovered),
+      Some(interaction) => styles
+        .rest
+        .clone()
+        .merged(&styles.within)
+        .merged(styles.interaction(interaction)),
       None => styles.rest.clone(),
     }
   }
@@ -498,6 +586,15 @@ impl ResolvedPart {
     }
     if let Some(style) = styles.focus_visible.state_style(theme) {
       NodeUpdate::focus_visible_style(node, style);
+    }
+    if let Some(style) = styles.within.state_style(theme) {
+      NodeUpdate::within_style(node, style);
+    }
+    if let Some(style) = styles.within_hovered.state_style(theme) {
+      NodeUpdate::within_hovered_style(node, style);
+    }
+    if let Some(style) = styles.within_pressed.state_style(theme) {
+      NodeUpdate::within_pressed_style(node, style);
     }
   }
 }

@@ -7,15 +7,18 @@
 use std::sync::Arc;
 
 use lurq::{
-  app::theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, TypographyStyle},
-  components::{Column, Popup, Rect, Row, ScrollHorizontal, Text},
+  app::{
+    events::TextInputEvent,
+    theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, TypographyStyle},
+  },
+  components::{Column, InputToken, InputTokenStyle, InputTokens, Popup, Rect, Row, ScrollHorizontal, Text, TextInput},
   core::{ElementRef, Signal},
   layout::{
     Alignment,
     layout_kind::Justify,
     text_style::{FontWeight, TextStyle},
   },
-  node::{CursorIcon, Element, border::Border, dimension::Dimension},
+  node::{CursorIcon, Element, border::Border, color::Color, dimension::Dimension},
   ui::{Button, ButtonSize, ButtonVariant, FontFamily, Icon, SegmentedControl, SegmentedControlPart},
 };
 
@@ -184,17 +187,44 @@ pub fn segmented<T: Clone + PartialEq + Send + Sync + 'static>(
   )
 }
 
-/// A few choices that share the width they are given, named as the code names them: a size, a shape.
+/// The room a control of a playground's panel has: the panel's width less its padding.
+const PANEL_ROOM: f32 = 288.0;
+
+/// A few choices that share the width they are given, named as the code names them: a size, a shape. Where
+/// their names do not fit one row of the panel they are on as many rows as they need, each choice as wide as
+/// the others, so that no name is cut.
 pub fn segmented_fill<T: Clone + PartialEq + Send + Sync + 'static>(
   options: &[(&str, T)],
   chosen: &T,
   choose: impl Fn(T) + Send + Sync + 'static,
-) -> SegmentedControl {
-  segmented(options, chosen, choose)
-    .full_width(true)
-    .style(SegmentedControlPart::Label, |s| {
-      s.font_family(FontFamily::Mono).font_size(12.0)
-    })
+) -> Element {
+  let row = |options: &[(&str, T)], choose: Arc<dyn Fn(T) + Send + Sync>| {
+    segmented(options, chosen, move |value| choose(value))
+      .full_width(true)
+      .style(SegmentedControlPart::Label, |s| {
+        s.font_family(FontFamily::Mono).font_size(12.0)
+      })
+  };
+  // A name in the family of code at 12 is 7.2 a character, in a segment padded 12 at each side.
+  let longest = options
+    .iter()
+    .map(|(label, _)| label.chars().count())
+    .max()
+    .unwrap_or(0);
+  let segment = longest as f32 * 7.2 + 24.0;
+  let fit = ((PANEL_ROOM - 8.0) / segment).floor().max(1.0) as usize;
+  let choose: Arc<dyn Fn(T) + Send + Sync> = Arc::new(choose);
+  if options.len() <= fit {
+    return row(options, choose).into();
+  }
+  // As many rows as it takes, with as many choices in each as the others have.
+  let rows = options.len().div_ceil(fit);
+  let each = options.len().div_ceil(rows);
+  let mut column = Column::new().width(FILL).spacing(6.0);
+  for chunk in options.chunks(each) {
+    column = column.child(row(chunk, choose.clone()));
+  }
+  column.into()
 }
 
 /// A line under a row or beside a column.
@@ -238,6 +268,29 @@ pub fn fit(key: &str, room: f32, least: f32, content: impl Into<Element>) -> Ele
 /// The props of a component, a row for each. `room` is the width there is for the table:
 /// `Frame::room`.
 pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f32) -> Element {
+  // A column is as wide as the longest word in it, and no narrower than the design draws it: a word does not
+  // break, and one wider than its column would be drawn under the column after it. What is more than a word
+  // ("invalid / warning / valid", a type with spaces in it) goes on to more lines in its column, so the
+  // description keeps its room.
+  let theme = lurq::ui::current_theme();
+  let wide = |size: f32, longest: usize| longest as f32 * theme.scaled(size) * 0.62;
+  let word = |cell: &str| {
+    cell
+      .split_whitespace()
+      .map(|word| word.chars().count())
+      .max()
+      .unwrap_or(0)
+  };
+  let longest = |of: &dyn Fn(&(&str, &str, &str, &str)) -> usize| rows.iter().map(of).max().unwrap_or(0);
+  let badge = theme.scaled(11.0) * 0.62 * 8.0 + 12.0 + 8.0;
+  let prop_width = rows
+    .iter()
+    .map(|row| wide(13.0, word(row.0)) + if required.contains(&row.0) { badge } else { 0.0 })
+    .fold(0.0, f32::max);
+  let prop_width = (prop_width + 16.0).max(150.0);
+  let type_width = (wide(12.0, longest(&|row| word(row.1))) + 10.0 + 16.0).max(180.0);
+  let default_width = (wide(13.0, longest(&|row| word(row.2))) + 16.0).max(110.0);
+  let least = PROPS_WIDTH + (prop_width - 150.0) + (type_width - 180.0) + (default_width - 110.0);
   let head = |title: &str| text(title, 12.0, FontWeight::Medium).color(PaletteColor::MutedForeground);
   let mut table = Column::new().width(FILL).child(
     Row::new()
@@ -246,17 +299,20 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
       .padding_horizontal(16.0)
       .align_items(Alignment::Center)
       .background(PaletteColor::Muted)
-      .child(Row::new().width(150.0).child(head("Prop")))
-      .child(Row::new().width(180.0).child(head("Type")))
-      .child(Row::new().width(110.0).child(head("Default")))
+      .child(Row::new().width(prop_width).flex_shrink(0.0).child(head("Prop")))
+      .child(Row::new().width(type_width).flex_shrink(0.0).child(head("Type")))
+      .child(Row::new().width(default_width).flex_shrink(0.0).child(head("Default")))
       .child(Row::new().flex(1.0).child(head("Description"))),
   );
   for (prop, kind, default, about) in rows {
+    // A column in each cell gives its text the cell's width to wrap in: a row lays a text out on one line.
     let mut named = Row::new()
-      .width(150.0)
+      .width(prop_width)
+      .flex_shrink(0.0)
+      .padding_right(16.0)
       .spacing(8.0)
       .align_items(Alignment::Center)
-      .child(name(prop, 13.0));
+      .child(Column::new().flex(1.0).min_width(0.0).child(name(prop, 13.0)));
     if required.contains(prop) {
       named = named.child(
         Row::new()
@@ -269,10 +325,14 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
           .child(text("required", 11.0, FontWeight::Medium)),
       );
     }
-    let mut typed = Row::new().width(180.0);
+    let mut typed = Column::new()
+      .width(type_width)
+      .flex_shrink(0.0)
+      .padding_right(16.0)
+      .align_items(Alignment::Start);
     if !kind.is_empty() {
       typed = typed.child(
-        Row::new()
+        Column::new()
           .padding_horizontal(5.0)
           .padding_vertical(1.0)
           .rounded(RadiusSize::Sm)
@@ -289,11 +349,18 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
         .border_top(line())
         .child(named)
         .child(typed)
-        .child(Row::new().width(110.0).child(if default.is_empty() {
-          quiet("—", 13.0)
-        } else {
-          mono(default, 13.0)
-        }))
+        .child(
+          Column::new()
+            .width(default_width)
+            .flex_shrink(0.0)
+            .padding_right(16.0)
+            .align_items(Alignment::Start)
+            .child(if default.is_empty() {
+              quiet("—", 13.0)
+            } else {
+              mono(default, 13.0)
+            }),
+        )
         .child(
           styled(about, TypographyStyle::Body, |style| {
             style.font_size = 13.0;
@@ -313,7 +380,7 @@ pub fn props_table(rows: &[(&str, &str, &str, &str)], required: &[&str], room: f
     .border(line())
     // The columns keep the width they need: in a narrower card the table scrolls sideways, and a
     // description is never a few words wide.
-    .child(fit("props", room, PROPS_WIDTH, table))
+    .child(fit("props", room, least, table))
     .into()
 }
 
@@ -331,27 +398,86 @@ pub fn icon_tool(label: &str, glyph: &str, press: impl Fn() + Send + Sync + 'sta
   tool(label, glyph, press).icon_only(true)
 }
 
+/// How high a line of a block of code or of a log is.
+const CODE_LINE: f32 = 24.0;
+
+/// The type of a block of code: the family of code at 13, on lines of [`CODE_LINE`].
+fn code_style() -> TextStyle {
+  let theme = lurq::ui::current_theme();
+  let mut style = theme.typography_style(TypographyStyle::Mono);
+  style.font_size = theme.scaled(13.0);
+  style.line_height = CODE_LINE / 13.0;
+  style.color = theme.palette_color(PaletteColor::Foreground);
+  style
+}
+
+/// Text in the family of code that is selected and copied as one text, lines and all, and not changed: an input
+/// that refuses every edit, as wide as its longest line so that no line wraps, with `colored` ranges of it in
+/// their colors.
+fn code_text(text: &str, colored: Vec<(std::ops::Range<usize>, PaletteColor)>) -> TextInput {
+  let style = code_style();
+  let lines = text.lines().count().max(1);
+  let longest = text.lines().map(|line| line.chars().count()).max().unwrap_or(0);
+  let tokens = colored
+    .into_iter()
+    .map(|(range, role)| InputToken::new(range, InputTokenStyle::new(role, Color::new(0, 0, 0, 0))))
+    .collect();
+  let tokens = InputTokens::new(text, tokens)
+    .unwrap_or_else(|_| InputTokens::new(text, Vec::new()).expect("no tokens are always valid"));
+  // A character of the family of code is at most 0.62 of its size wide.
+  let width = (longest as f32 * style.font_size * 0.62).ceil() + 8.0;
+  TextInput::styled(Signal::new(text.to_owned()), style)
+    .multiline()
+    .rows_exact(lines)
+    .tokens(tokens)
+    .width(width)
+    .describe("a11y_readonly", "true")
+    .on_input(|event: TextInputEvent| event.prevent_default())
+}
+
 /// Rust as a page shows it: a line number, and each piece in the color of what it is. A name of a type is the
-/// color of information, a string the color of success, punctuation is quiet.
+/// color of information, a string the color of success, punctuation is quiet. The code is one text: it is
+/// selected with the pointer and the keyboard and copied, lines and all, without its numbers.
 pub fn code_block(lines: &[String]) -> Column {
-  let mut block = Column::new()
-    .width(FILL)
-    .padding_horizontal(16.0)
-    .padding_top(16.0)
-    .padding_bottom(18.0)
-    .spacing(4.0);
+  let text = lines.join("\n");
+  let mut colored = Vec::new();
+  let mut numbers = Column::new().width(28.0);
+  let mut at = 0;
   for (index, line) in lines.iter().enumerate() {
-    let mut row = Row::new().height(20.0).align_items(Alignment::Center).child(
-      mono(&(index + 1).to_string(), 13.0)
-        .color(PaletteColor::Input)
-        .width(28.0),
+    numbers = numbers.child(
+      Row::new()
+        .height(CODE_LINE)
+        .align_items(Alignment::Center)
+        .child(mono(&(index + 1).to_string(), 13.0).color(PaletteColor::Input)),
     );
     for (piece, role) in pieces(line) {
-      row = row.child(mono(&piece, 13.0).color(role));
+      if role != PaletteColor::Foreground && !piece.trim().is_empty() {
+        colored.push((at..at + piece.len(), role));
+      }
+      at += piece.len();
     }
-    block = block.child(row);
+    // The line break.
+    at += 1;
   }
-  block
+  Column::new()
+    .padding_horizontal(16.0)
+    .padding_top(14.0)
+    .padding_bottom(16.0)
+    .child(
+      Row::new()
+        .align_items(Alignment::Start)
+        .child(numbers)
+        .child(code_text(&text, colored)),
+    )
+}
+
+/// Lines of plain text in the family of code, selected and copied as one text: a log, a tree.
+pub fn plain_block(lines: &[String]) -> Column {
+  Column::new()
+    .padding_horizontal(16.0)
+    .padding_top(14.0)
+    .padding_bottom(16.0)
+    .child(code_text(&lines.join("\n"), Vec::new()))
 }
 
 /// The pieces of a line of Rust, each with the color it is drawn in.

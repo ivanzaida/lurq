@@ -153,12 +153,173 @@ starting under the window's own title bar.
   the middle it turns about), or a difference between two moments, never one pose.
 - **A playground offers a control only for what it changes**: a prop that one form of the component has is there
   while that form is chosen. A component that is read and not operated gives `event: ""`, and the stage says so.
+  One that holds the app's own buttons (an outcome's actions, a fieldset's) is operated by them: their presses are
+  recorded as `on_click("Deploy")`, and nothing on a stage is pressed without the Events tab hearing of it.
+- **What a person tells apart, the app's value tells apart.** A token and what is being typed look different, so
+  they are two things to the app: a list and a draft, each with its own event, not one text that holds both.
 - **The stage of a playground cuts nothing off**, and a page's own wrappers must not either where a shadow, a ring
   or a badge reaches past the component: `overflow_visible()` on what holds it.
+- **What is on the stage is built on the stage.** `Spec::shown` is a `Shown`: `Shown::of(component)` for a builder,
+  which becomes an element in the stage's theme (the stage can be in the other appearance, and a text input's
+  color or a slider's track is read when it is built), and `Shown::built(|ctx| ..)` for a scene of more than one
+  thing. An element the page has already built keeps the page's colors.
+- **The size under the stage is the component's.** A component is given to the stage bare: no column of the page's
+  to make it full width (`fill: true` gives it the stage's width to fill, and it stands in the middle where it keeps
+  a width of its own). A scene that must hold more than the component (a column that gives a skeleton its width,
+  what a separator is between) puts `playground.measure(component)` around the component in it and gives the
+  scene as `Shown::of(scene).measured()`.
+- **A signal the component is bound to is counted with `playground.watch(ctx, &signal, |value| ..)`**, which
+  counts changes only: a control that sets its value as it is built is no event. Reset empties the log.
+- **Nothing a playground opens is left open.** A dialog that nothing in it closes (a progress dialog with no
+  cancel) is closed by the stage after a moment: the window is never behind a veil with no way out.
+- **A prose string is one line of source or ends its lines with `\`.** A string continued on the next line
+  without it keeps that line's indentation, and the page shows a hole in the sentence.
 - **What a batch may use now**: `BackgroundColor::CurrentForeground`; a width in percent run by a keyframe or a
   transition; `Transition::border_dash()`; `PartStyle::corners`; `.stops_inside(true)`; `ui::Badge`, `ui::Tag`,
   `ui::Chip`, `ui::Avatar`, `ui::Card`, `ui::Separator`, `ui::Progress`, `ui::Spinner`, `ui::Skeleton` in what your
   component is made of, and in the gallery's pages in place of anything drawn by hand.
+
+## Props: one way to say each thing
+
+A QA pass of 2026-11-14 read every builder and found one meaning under several names, one name with several types,
+and props a family has but one of it lacks. These are the rules every component follows; a new component is checked
+against them before its handoff. Nothing of `ui` was released when they were set, so a rename is a rename and not
+an alias.
+
+**What a thing is called**
+
+- **The value changed: `on_change`**, told the new value of what the component holds: `on_change(bool)`,
+  `on_change(usize)`, `on_change(f64)` for a plain value, `on_change(&T)` for a value of the app's type,
+  `on_change(&[T])` for a set (the whole new set, not the one that was pressed). Every component that holds a value
+  has it, bound to a signal or not. It is not called for what is already so (a press of the chosen segment).
+- **A command was run: `on_select(Fn())`**, on an item of a list of commands: a menu's item, a palette's command,
+  a link of a sidebar or a navbar, a breadcrumb's step, a toolbar's command. Not for a value.
+- **A press: `on_click(impl IntoMouseEventHandler)`**, given the event, on what is a button, a link or a pressed
+  card. A button made from `(label, handler)` takes `Fn()`.
+- **An edit of text: `on_input(&TextInputEvent)`**, before the edit, which it may refuse. What a filter is asked
+  for after an edit is `on_query(&str)`, beside `query(Signal<String>)`. `on_submit` is Enter in a field that has
+  something to submit: Input, SearchField, Combobox.
+- **While it moves and when it ends: `on_change` and `on_change_end`**, on what is dragged or stepped: Slider,
+  RangeSlider, NumberInput. (A splitter's are `on_resize` and `on_resize_end`: it holds no value.)
+- **Is this one on**: `checked` for a box that is ticked, `on` for a switch or a toggle, `selected` for one of
+  several, `current` for a place in a sequence (a step, a page, the page a link goes to). The prop and the state
+  have the same word: `selected(bool)` and `State::Selected`.
+- **Open**: `open` everywhere, never `expanded`. `open(..)` is the app's signal or value; a value that only starts
+  it is `default_open(bool)`; one that forces what a pointer would open is `force_open(Option<bool>)`. What hears
+  it change is `on_open_change(bool)`.
+- **A person closed it**: `on_dismiss` for a panel the app opens (Dialog, Sheet, Drawer, Popover, Menu,
+  ContextMenu, CommandPalette, TeachingTip, Toggletip): Escape, a press outside, its close button. `on_close` for a
+  message in the flow whose close control was pressed (Alert, Banner, Toast, Tag has `on_remove`). An action of
+  its own keeps its name (`on_cancel`, `on_clear`).
+- **Has a close control**: `close_button(bool)`. A message shows it once `on_close` is given. `clearable(bool)`
+  is the control that empties a field.
+- **The accessible name: `label(&str)`**, on every component that is a thing to tooling. Never `named`. Where
+  the component draws its label, the label is its name. An entry of a menu that is a heading is `heading`.
+- **The text under a title: `description`**; a part `Description`. Never `message`. The words of a tip are `text`.
+- **The tone: `variant(impl Into<Name>)`**, with the component's enum `XVariant`. The tones are `Neutral`,
+  `Info`, `Success`, `Warning`, `Destructive`, in that order where an enum has them; never `Error`, `Information`
+  or `kind`.
+- **Wrong: `invalid(bool)`**, state `Invalid`. `error` is the text a field shows.
+- **Where an anchored panel stands: `placement(Placement)`**. The edge of a container a panel is on is `side`.
+- **Words lurq writes itself**: every one can be said otherwise: `<control>_label(&str)` for the name of a
+  control (`close_label`, `clear_label`, `more_label`, `previous_label`), `<thing>_text(&str)` for a sentence
+  (`empty_text`, `loading_text`, `optional_text`). One method for one string.
+- **What it holds**: a list in the constructor where the component is its items (`Tabs::new(value, tabs)`,
+  `ButtonGroup::new(buttons)`), and `noun(item)` with `nouns(items)` to add to it (`item`/`items`, `step`/`steps`,
+  `pane`/`panes`); every singular has its plural. `child`/`children` are for free `impl Into<Element>` content only.
+- **Before and after**: `icon` is before the text; `trailing_icon` after it. An element is `leading(..)` and
+  `trailing(..)`. A picture or a mark a component is given is `media(..)`.
+- **At most N shown: `max_shown`**. `max` is the greatest value of a number.
+- **Which way: `orientation(Orientation)`** with `ui::Orientation`, of which `SliderOrientation`,
+  `TabsOrientation` and the rest are aliases. No `horizontal(bool)`. Its states are `Horizontal` and `Vertical`,
+  one of which is on.
+
+**Types and order**
+
+- **The signal is the first argument of `new`**: `Popover::new(open, anchor)`, `Menu::new(open, anchor)`.
+- **Bound and not: `new(signal, ..)` and `controlled(value, .., on_change)`**, on every component that holds a
+  value but a text input, which is always a signal. No type that is "a signal or a value". A component bound to
+  `Signal<T>` of one of several is bound to `Signal<Option<T>>` too where nothing chosen is a state it has.
+- **Every `on_*` adds**: a second handler is called after the first, never in its place.
+- **`action(..)` sets the one action** (a second call takes its place); `actions(..)`/`action` of a component
+  that has several adds, and that component's docs say so. A button made of a label and a handler is
+  `button(label, handler)`.
+- **A panel that closes on a choice closes first and then calls the handler**, so a handler that opens a dialog
+  does not have its focus taken back by the closing panel.
+- **`size(impl Into<Name>)`** with the component's own `XSize`; a component that has another's sizes names an
+  alias (`ToggleSize = ButtonSize`, `SelectSize = TextBoxSize`). The default is `Md` unless the board draws
+  another, and the default is always a step of the enum. A length is `length`, `width`, `height`, not `size`.
+- **`width` and `height` take `impl Into<Length>`.** A number of a value (`min`, `max`, `step`) takes
+  `impl Into<f64>`. A text takes `&str`.
+- **`icon(impl Into<Name>)`.** A component with an icon of its own takes `impl Into<IconChoice>`
+  (`ui::IconChoice`): a name, or `None` for no icon. No `icon_hidden`. An icon for the open form is `open_icon`.
+- **`build(theme)` and `From<X> for Element` on every component.** One that keeps something between renders
+  (timers, what the pointer is on, a measured size) also has `mount(ctx)`, and that is where it is kept: the app
+  is not handed a helper to hold for it. Converted into an element on its own it is the still form of itself.
+
+**What every one of a kind has**
+
+- **Every themed builder**: `style(part, ..)`, `rules(&recipe)`, `state(name, on)`, `force(..)`, `id(..)`,
+  `key(..)`. Every builder of an item: `id`, `key`, `disabled`.
+- **Every typed control**: `label`, `placeholder` where it has one, `size`, `invalid`, `warning`, `valid`,
+  `read_only`, `disabled`, `full_width`, `name` (with `form`), and is a `FieldControl`.
+- **Every choice control**: the value and `on_change`, `bind(Signal<bool>)` for one bound to a signal, `label`,
+  `disabled`, `invalid` where a field can hold it; every group of them `label`, `orientation`, `disabled`,
+  `invalid`.
+- **Every overlay**: `label`, `inline(bool)`, `on_dismiss`, `dismiss_on_escape(bool)`, and
+  `dismiss_on_veil(bool)` or its press outside; an anchored one `placement`, `offset`, `collision`.
+
+**Parts and states**
+
+- `Root` is the component's box where it is declared. A floating panel is `Panel`. What is typed in is `Control`;
+  what is pressed to open is `Trigger`.
+- `Header` is the row at the top that holds the text and a close control; `Text` the column of `Title` and
+  `Description`; `Body` where `child(..)` goes; `Footer` the row of actions.
+- A text of one line is `Label`. A line between things is `Separator`. What says "this opens" is `Chevron`. The
+  rail of a value is `Track` and its filled part `Fill`.
+- A state that says the component has a part is the noun of the part (`Icon`, `Description`, `Footer`), not a
+  participle. An item's own state is resolved on the item's part (`Disabled`), not on the root (`ItemDisabled`).
+
+## What the eighth batch and the QA pass taught
+
+- **A text has a rule for when it does not fit**, and the test of a component has a text longer than its room: a
+  title and a description wrap, a label on one line ends in an ellipsis, what stands beside it (a shortcut, an
+  action, a close button) keeps its room. A component whose page shows only the board's short words was cut the
+  first time a playground was given a sentence.
+- **Where the focus goes is part of every way out.** Closing by a choice, by Escape, by Tab, by the control that
+  clears: each returns the focus to what opened it, or says where (`ActionBar::return_focus`). The engine keeps a
+  starting point when the focus is dropped, so the next Tab goes on from there; a test that blurs and presses Tab
+  does not start at the top of the window.
+- **A row follows the density; a control keeps its size.** A recipe of a row-like part says
+  `Recipe::row_density(selector, part, board_height)`, with a test that its height follows the theme's density.
+- **Two things on one anchor are two layers.** A tooltip and a menu on one button: what looks a layer up by its
+  anchor finds the first.
+- **A session that moves another component's code** (a selection model shared by the tree and the listbox) merges
+  the base first and often: the other session is changing that code too.
+- **The checks of a session are three**: `cargo check -p lurq --features form,router --tests`,
+  `cargo check -p gallery --features mcp` and `cargo check -p gallery --features devtools`. A value kept in a
+  signal is `DevtoolsInspectable` with the third.
+- **What a batch may use now**: `FocusGroup::pages`, `shift_extends`, `panel_row`; `ColumnTracks` and
+  `ScrollBoth::fill_width`; `KeyboardEvent::focus_key`; `core::Date`, `YearMonth`, `DateRange`, `DateLocale`;
+  `Recipe::row_density`; `ui::Navbar`, `ui::NavigationMenu`, `ui::Table`, `ui::List`, `ui::ListItem`,
+  `ui::Listbox`, `ui::DataList`, `ui::Calendar`, `ui::DatePicker`, `ui::DateRangePicker`.
+
+## What the seventh batch taught
+
+- **A scene made for a stage fills it.** The stage scrolls what is larger than it, but a scene of a fixed width
+  wider than the stage at a window of 1280 by 800 is a scene made wrong: give it `fill: true` and let what is in
+  it share the stage's width.
+- **An app's own part moved onto a component keeps its look.** The component is the board's; where the app's part
+  looked another way (the gallery's side bar on the canvas, the board's on `Muted`), the app lays a recipe over the
+  component, and the brief says which look is kept.
+- **A color the engine draws is the theme's.** A scroll bar's thumb and a selection were literals of the engine and
+  wrong on a dark theme: nothing lurq draws has a color that a palette does not give it.
+- **A session writes the docs of what it gave the engine**, in the page an app's author looks in
+  (`focus-navigation.md`, `layout.md`, `styling-events.md`), with a line of the changelog for each, and not only in
+  its handoff: the handoff is deleted at the merge.
+- **What a batch may use now**: `FocusGroup::nested`, `menu_row` and `FocusRows`; `.inert(bool)`;
+  `.interaction_group(true)` with `.within_style(..)`; a row's drop marker; a held drag; `ui::Sidebar`,
+  `ui::Menubar`, `ui::Toolbar`, `ui::ActionBar`, `ui::TreeView`, `ui::Splitter`, and `TokenInput::list`.
 
 ## What the engine does that surprises
 

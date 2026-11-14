@@ -29,6 +29,7 @@ export default defineConfig({
                         'queries',
                         'persistent-storage',
                         'i18n',
+                        'dates',
                         'modals',
                         'app-runtime',
                         'window-lifecycle-menus',
