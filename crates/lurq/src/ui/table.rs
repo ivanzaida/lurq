@@ -30,6 +30,7 @@ use super::{
 mod columns;
 mod groups;
 mod range;
+mod summary;
 
 pub use columns::{ColumnLayout, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
@@ -37,6 +38,8 @@ pub use groups::{GroupKey, TableGroup};
 use groups::{Lines, Shown};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
+use summary::{Summary, summarize, summary_content};
+pub use summary::{SummaryKind, TableSummary};
 
 use crate::{
   app::{
@@ -90,6 +93,15 @@ pub enum TablePart {
   GroupLabel,
   /// How many rows a group holds.
   GroupCount,
+  /// A summary row: at the bottom of the grid, where it stays, and at the end of each group open.
+  Summary,
+  /// The cell of a row's number, in the column of numbers at the start that stays, and the header's: pressed to
+  /// select the row, or all of them.
+  RowNumber,
+  /// What a summary cell says its value is: "Sum", "Average".
+  SummaryLabel,
+  /// A summary cell's value.
+  SummaryValue,
   /// One row: its height, its padding, the room between columns, the line under it. What is pressed,
   /// selected and focused.
   Row,
@@ -121,6 +133,10 @@ names!(TablePart {
   Chevron => "chevron",
   GroupLabel => "group_label",
   GroupCount => "group_count",
+  Summary => "summary",
+  RowNumber => "row_number",
+  SummaryLabel => "summary_label",
+  SummaryValue => "summary_value",
   Row => "row",
   Cell => "cell",
   Select => "select",
@@ -344,6 +360,7 @@ pub struct TableColumn<R> {
   content: Content<R>,
   compare: Option<CompareFn<R>>,
   editor: Option<CellEditor<R>>,
+  summary: Option<Summary<R>>,
 }
 
 impl<R> Clone for TableColumn<R> {
@@ -362,6 +379,7 @@ impl<R> Clone for TableColumn<R> {
       content: self.content.clone(),
       compare: self.compare.clone(),
       editor: self.editor.clone(),
+      summary: self.summary.clone(),
     }
   }
 }
@@ -384,6 +402,7 @@ impl<R: 'static> TableColumn<R> {
       content: Content::Nothing,
       compare: None,
       editor: None,
+      summary: None,
     }
   }
 
@@ -523,6 +542,20 @@ impl<R: 'static> TableColumn<R> {
   /// own shows the box.
   pub fn editor(mut self, editor: CellEditor<R>) -> Self {
     self.editor = Some(editor);
+    self
+  }
+
+  /// What the column says in a [`DataGrid`](super::DataGrid)'s summary rows, of a column of numbers: the sum, the
+  /// average, the count, the least or the most of the rows summed up, the grid's whole or a group's. Its numbers
+  /// are the values its editor edits, or those its text starts with ("12 KB"). A count is of any column.
+  pub fn summary(mut self, kind: SummaryKind) -> Self {
+    self.summary = Some(Summary::Kind(kind));
+    self
+  }
+
+  /// What the column says in a data grid's summary rows, as the app computes it from the rows summed up.
+  pub fn summary_text(mut self, text: impl Fn(&[&R]) -> String + Send + Sync + 'static) -> Self {
+    self.summary = Some(Summary::Text(Arc::new(text)));
     self
   }
 
@@ -680,6 +713,8 @@ pub struct Table<R, K = usize> {
   write_open: Option<OpenWrite>,
   on_open_change: Vec<OpenHeard>,
   grouping: Vec<TableColumn<R>>,
+  /// Whether a grid has a column of the rows' numbers at its start.
+  row_numbers: bool,
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
@@ -734,6 +769,7 @@ impl<R, K: Clone> Clone for Table<R, K> {
       write_open: self.write_open.clone(),
       on_open_change: self.on_open_change.clone(),
       grouping: self.grouping.clone(),
+      row_numbers: self.row_numbers,
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
@@ -798,6 +834,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       write_open: None,
       on_open_change: Vec::new(),
       grouping: Vec::new(),
+      row_numbers: false,
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -857,6 +894,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       write_open: self.write_open,
       on_open_change: self.on_open_change,
       grouping: self.grouping,
+      row_numbers: self.row_numbers,
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
@@ -1211,9 +1249,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     Lines::grouped(
       self.rows.len(),
       &ids,
+      self.summarized(),
       &|row, level| column_text(&self.grouping[level], &self.rows[row]),
       &|key| open.contains(key),
     )
+  }
+
+  /// Whether a column says something in the summary rows: then the grid has one at its bottom, and one at the end
+  /// of each group open.
+  fn summarized(&self) -> bool {
+    self.grid && self.columns.iter().any(|column| column.summary.is_some())
   }
 
   /// Opens or closes the group `key`: asks for the groups open with it in or out, and tells every handler.
@@ -1291,6 +1336,31 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self.selectable() && self.checkboxes
   }
 
+  pub(super) fn set_row_numbers(mut self, numbers: bool) -> Self {
+    self.row_numbers = numbers;
+    self
+  }
+
+  /// Whether a mounted grid shows its rows' numbers at its start.
+  fn numbered(&self) -> bool {
+    self.grid && self.row_numbers
+  }
+
+  /// The track of the column of numbers: the padding at the row's start it holds, the widest number, the room
+  /// after it. Nothing where there is none.
+  fn number_track(&self, geometry: Geometry) -> f32 {
+    if !self.numbered() {
+      return 0.0;
+    }
+    let digits = self.rows.len().max(1).to_string().len().max(2);
+    geometry.padding_start + digits as f32 * 8.0 + geometry.gap
+  }
+
+  /// The tracks before the first column's: the numbers' and the checkboxes'.
+  fn lead_tracks(&self) -> usize {
+    usize::from(self.numbered()) + usize::from(self.with_checkboxes())
+  }
+
   /// The case of the table as a whole.
   fn case(&self) -> Case {
     let mut case = Case::new()
@@ -1314,15 +1384,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   fn track_specs(&self, theme: &Theme) -> Vec<TrackSpec> {
     let geometry = Geometry::of(&self.resolve(theme, &self.case()));
     let count = self.columns.len();
-    let mut specs = Vec::with_capacity(count + 1);
+    let mut specs = Vec::with_capacity(count + 2);
+    let numbered = self.numbered();
+    if numbered {
+      specs.push(TrackSpec::px(self.number_track(geometry)));
+    }
     if self.with_checkboxes() {
-      let lead = if self.pins().0 > 0 { geometry.padding_start } else { 0.0 };
+      let lead = if self.pins().0 > 0 && !numbered {
+        geometry.padding_start
+      } else {
+        0.0
+      };
       specs.push(TrackSpec::px(geometry.select + geometry.gap + lead));
     }
     for (index, column) in self.columns.iter().enumerate() {
       let mut extra = if index + 1 < count { geometry.gap } else { 0.0 };
       let (start, end) = self.pins();
-      if index == 0 && start > 0 && !self.with_checkboxes() {
+      if index == 0 && start > 0 && !self.with_checkboxes() && !numbered {
         extra += geometry.padding_start;
       }
       // A row whose last columns stay holds its padding at the end in the last cell, which covers it.
@@ -1371,7 +1449,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let selectable = self.selectable();
     let checkboxes = self.with_checkboxes();
     let (start_pins, end_pins) = self.pins();
-    let sticky = start_pins > 0;
+    // A grid's numbers stay at its start, and so does what is before its first column.
+    let numbered = self.numbered();
+    let sticky = start_pins > 0 || numbered;
+    let number_lead = self.number_track(geometry);
     let footer = self.count || self.pagination.is_some();
     let count = self.rows.len();
 
@@ -1442,15 +1523,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     });
 
     // Where the cells at the start stay: the checkbox's at the edge, the first column's after it.
-    let lead_inset = if checkboxes {
-      geometry.select + geometry.gap + geometry.padding_start
-    } else {
-      0.0
-    };
+    let lead_inset = number_lead
+      + if checkboxes {
+        geometry.select + geometry.gap + if numbered { 0.0 } else { geometry.padding_start }
+      } else {
+        0.0
+      };
     // Where each pinned column stays: after the checkboxes and the pinned columns before it at the start, before
     // the pinned columns after it at the end. Each is as wide as its track is known to be.
     let track_widths = tracks.widths(None, 0.0);
-    let lead_tracks = usize::from(checkboxes);
+    let lead_tracks = self.lead_tracks();
     let width_of = |column: usize| track_widths.get(column + lead_tracks).copied().unwrap_or(0.0);
     let columns_count = self.columns.len();
     let sticky_of = |column: usize| -> Option<Sticky> {
@@ -1592,6 +1674,64 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         })
       })
       .collect();
+    // The summary rows: one at the end of each group open, built where it is in view, and the grid's at its bottom.
+    let summary_recipe = row_recipe(false, false);
+    let summary_fill = summary_recipe.part(TablePart::Summary).rest().background;
+    let summary_of = |rows: &[&R], id: Option<Arc<str>>, position: Option<usize>| TableSummary {
+      position,
+      cells: self
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(column_index, _)| built(*column_index))
+        .map(|(column_index, column)| TableCell {
+          column: column_index,
+          content: summary_content(&summary_recipe, summarize(column, rows)),
+          grid: None,
+          part: summary_recipe.part(TablePart::Cell),
+          align: column.align,
+          pinned: sticky_of(column_index),
+          fill: sticky_of(column_index).and(summary_fill.clone()),
+          controls: false,
+          last: cell_ends(column_index),
+          gap: geometry.gap,
+          lead: if column_index == 0 && sticky && !checkboxes && !numbered {
+            geometry.padding_start
+          } else {
+            0.0
+          },
+          trail: trail_of(column_index),
+        })
+        .collect(),
+      recipe: summary_recipe.clone(),
+      tracks: tracks.clone(),
+      columns_built: columns_built.clone(),
+      geometry,
+      checkbox: checkboxes,
+      number_lead,
+      pinned_start: sticky,
+      pinned_end: end_pins > 0,
+      fill: summary_fill.clone(),
+      id,
+    };
+    let summaries: Vec<TableSummary> = shown
+      .iter()
+      .filter_map(|&position| {
+        let Shown::Summary(group) = lines.lines[position] else {
+          return None;
+        };
+        let rows: Vec<&R> = lines.groups[group]
+          .rows
+          .iter()
+          .map(|index| &self.rows[*index])
+          .collect();
+        Some(summary_of(&rows, id_of(&format!("summary-{position}")), Some(position)))
+      })
+      .collect();
+    let summary = (self.summarized() && count > 0 && !self.loading).then(|| {
+      let rows: Vec<&R> = self.rows.iter().collect();
+      summary_of(&rows, id_of("summary"), None)
+    });
     let rows = shown
       .iter()
       .filter_map(|&position| lines.rank_at(position).map(|rank| (position, rank)))
@@ -1683,7 +1823,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 editor,
                 entry: entry == Some(position)
                   && column_index == focused_column.min(self.columns.len().saturating_sub(1)),
-                column_index: column_index + 1 + usize::from(checkboxes),
+                column_index: column_index + 1 + lead_tracks,
                 checkbox: column.editor.as_ref().is_some_and(CellEditor::is_checkbox),
                 element: window
                   .as_ref()
@@ -1707,7 +1847,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               controls: column.controls,
               last: cell_ends(column_index),
               gap: geometry.gap,
-              lead: if column_index == 0 && sticky && !checkboxes {
+              lead: if column_index == 0 && sticky && !checkboxes && !numbered {
                 geometry.padding_start
               } else {
                 0.0
@@ -1723,6 +1863,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         TableRow {
           index,
           position,
+          number: numbered.then_some(rank + 1),
+          number_lead,
           selected,
           disabled: self.disabled,
           name,
@@ -1918,7 +2060,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               least: floor,
               most: column.track.max,
               extra: geometry.gap * f32::from(u8::from(column_index + 1 < columns_count))
-                + if column_index == 0 && sticky && !checkboxes {
+                + if column_index == 0 && sticky && !checkboxes && !numbered {
                   geometry.padding_start
                 } else {
                   0.0
@@ -1945,7 +2087,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           last: cell_ends(column_index),
           fill: sticky_of(column_index).and(header_fill.clone()),
           gap: geometry.gap,
-          lead: if column_index == 0 && sticky && !checkboxes {
+          lead: if column_index == 0 && sticky && !checkboxes && !numbered {
             geometry.padding_start
           } else {
             0.0
@@ -2001,6 +2143,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       rows,
       groups,
       grouped,
+      summaries,
+      summary,
+      numbered,
+      number_lead,
+      select_rows: (selectable && !self.disabled && numbered).then(|| {
+        let model = model.clone();
+        Arc::new(move || model.select_shown(!all)) as Arc<dyn Fn() + Send + Sync>
+      }),
       selectable,
       checkboxes,
       grid: grid_model.is_some(),
@@ -2265,6 +2415,15 @@ pub struct TableView {
   pub groups: Vec<TableGroup>,
   /// Whether the rows are grouped: the body is a nested list, Right opening a group and Left closing it.
   pub grouped: bool,
+  /// The summary rows at the end of the groups open that are built, each with its line.
+  pub summaries: Vec<TableSummary>,
+  /// The grid's summary row, which stays at its bottom.
+  pub summary: Option<TableSummary>,
+  /// Whether a grid has the column of its rows' numbers at its start, and how wide its track is.
+  pub numbered: bool,
+  pub number_lead: f32,
+  /// What a press of the numbers' header does: every row selected, or none where all are.
+  select_rows: Option<Arc<dyn Fn() + Send + Sync>>,
   /// Whether its rows are selected.
   pub selectable: bool,
   /// Whether it has the column of checkboxes.
@@ -2380,6 +2539,9 @@ impl TableView {
     if self.pinned_end {
       header = header.padding_right(0.0);
     }
+    if self.numbered {
+      header = header.child(self.number_header());
+    }
     if self.checkboxes {
       header = header.child(self.select_all());
     }
@@ -2406,13 +2568,42 @@ impl TableView {
     if let Some(id) = &self.id {
       checkbox = checkbox.id(format!("{id}-select-all"));
     }
-    let mut cell = lead_cell(&part, self.geometry, self.pinned_start).child(checkbox.build(self.theme()));
+    let mut cell =
+      lead_cell(&part, self.geometry, self.pinned_start && !self.numbered).child(checkbox.build(self.theme()));
     if self.pinned_start {
       // It covers what scrolls under it, in the header's fill.
-      cell = cell.sticky(Sticky::left(0.0));
+      cell = cell.sticky(Sticky::left(self.number_lead));
       if let Some(fill) = self.part(TablePart::Header).rest().background {
         cell = cell.background(fill);
       }
+    }
+    cell.into()
+  }
+
+  /// The header of the column of the rows' numbers: a press selects every row, or none where all are.
+  pub fn number_header(&self) -> Element {
+    let part = self.part(TablePart::RowNumber);
+    let mut cell = Row::new()
+      .part(&part)
+      .align_items(Alignment::Center)
+      .justify(Justify::End)
+      .padding_left(self.geometry.padding_start)
+      .padding_right(self.geometry.gap)
+      .sticky(Sticky::left(0.0))
+      .describe("a11y_role", "columnheader")
+      .describe("a11y_name", self.select_all_label.clone())
+      .child(part.text("#").nowrap());
+    if let Some(fill) = self.part(TablePart::Header).rest().background {
+      cell = cell.background(fill);
+    }
+    if let Some(press) = self.select_rows.clone() {
+      cell = cell.on_click(move |event: MouseEvent| {
+        event.stop_propagation();
+        press();
+      });
+    }
+    if let Some(id) = &self.id {
+      cell = cell.id(format!("{id}-numbers"));
     }
     cell.into()
   }
@@ -2428,6 +2619,11 @@ impl TableView {
         std::mem::take(&mut self.groups)
           .into_iter()
           .map(|group| (group.position, group.render())),
+      )
+      .chain(
+        std::mem::take(&mut self.summaries)
+          .into_iter()
+          .map(|summary| (summary.position.unwrap_or(0), summary.render())),
       )
       .collect();
     lines.sort_by_key(|(position, _)| *position);
@@ -2470,7 +2666,7 @@ impl TableView {
     const FIRST: [f32; 4] = [150.0, 190.0, 120.0, 170.0];
     let part = self.part(TablePart::Row);
     let cell = self.part(TablePart::Cell);
-    let columns = self.tracks.len() - usize::from(self.checkboxes);
+    let columns = self.tracks.len() - usize::from(self.checkboxes) - usize::from(self.numbered);
     Column::new()
       .align_items(Alignment::Stretch)
       .with_children((0..self.loading_rows).map(|index| {
@@ -2487,6 +2683,9 @@ impl TableView {
           .align_items(Alignment::Stretch)
           .column_tracks(&self.tracks)
           .describe("a11y_hidden", "true");
+        if self.numbered {
+          row = row.child(Row::new());
+        }
         if self.checkboxes {
           row = row.child(Row::new());
         }
@@ -2542,6 +2741,10 @@ impl TableView {
       content = content.child(self.skeletons());
     } else if empty.is_none() {
       content = content.child(self.body());
+      // The summary of every row stays at the bottom of what scrolls, under the rows.
+      if let Some(summary) = self.summary.take() {
+        content = content.child(summary.render());
+      }
     }
     // Its bars run beside the rows: the one down under the header that stays, the one across after the first
     // column that stays.
@@ -3207,6 +3410,9 @@ pub struct TableRow {
   pub index: usize,
   /// Its line among the lines shown, the groups' rows counted: its place where the rows are not grouped.
   pub position: usize,
+  /// Its number, from 1 among the rows shown, where the grid shows them, and how wide their track is.
+  pub number: Option<usize>,
+  number_lead: f32,
   pub selected: bool,
   pub disabled: bool,
   /// What it is called to what reads the tree: the text of its first column, where that is text.
@@ -3351,9 +3557,11 @@ impl TableRow {
       .checked(self.selected)
       .disabled(self.disabled)
       .build(self.recipe.theme());
-    let mut cell = lead_cell(&part, self.geometry, self.pinned_start).child(Row::new().inert(true).child(checkbox));
+    let numbered = self.number.is_some();
+    let mut cell =
+      lead_cell(&part, self.geometry, self.pinned_start && !numbered).child(Row::new().inert(true).child(checkbox));
     if self.pinned_start {
-      cell = cell.sticky(Sticky::left(0.0));
+      cell = cell.sticky(Sticky::left(self.number_lead));
     }
     if let Some(fill) = self.lead_fill.clone() {
       cell = cell.background(fill);
@@ -3367,9 +3575,48 @@ impl TableRow {
     cell.into()
   }
 
-  /// How the default renderer builds a row: its checkbox, then its cells.
+  /// The cell of the row's number, at the start, which stays there: a press selects the row alone, with Ctrl adds
+  /// it or takes it out, with Shift selects from the last selected one. `None` where the grid shows no numbers.
+  pub fn number(&self) -> Option<Element> {
+    let number = self.number?;
+    let part = self.part(TablePart::RowNumber);
+    let mut cell = Row::new()
+      .part(&part)
+      .align_items(Alignment::Center)
+      .justify(Justify::End)
+      .padding_left(self.geometry.padding_start)
+      .padding_right(self.geometry.gap)
+      .sticky(Sticky::left(0.0))
+      .describe("a11y_role", "rowheader")
+      .describe("a11y_name", number.to_string())
+      .child(part.text(&number.to_string()).nowrap());
+    if let Some(fill) = self.lead_fill.clone() {
+      cell = cell.background(fill);
+    }
+    if let Some(actions) = self.actions.clone().filter(|actions| actions.selectable) {
+      cell = cell.on_click(move |event: MouseEvent| {
+        event.stop_propagation();
+        (actions.pick)(if event.shift {
+          Pick::Range
+        } else if event.ctrl || event.meta {
+          Pick::Toggle
+        } else {
+          Pick::Only
+        });
+      });
+    }
+    if let Some(id) = &self.id {
+      cell = cell.id(format!("{id}-number"));
+    }
+    Some(cell.into())
+  }
+
+  /// How the default renderer builds a row: its number, its checkbox, then its cells.
   pub fn render(mut self) -> Element {
     let mut row = self.button();
+    if let Some(number) = self.number() {
+      row = row.child(number);
+    }
     if self.checkbox {
       row = row.child(self.checkbox());
     }
@@ -4173,8 +4420,8 @@ impl FocusRows for HostState {
     None
   }
 
-  fn enabled(&self, _row: usize) -> bool {
-    !self.metrics.lock().disabled
+  fn enabled(&self, row: usize) -> bool {
+    !self.metrics.lock().disabled && !matches!(self.lines.lock().lines.get(row), Some(Shown::Summary(_)))
   }
 
   fn level(&self, row: usize) -> u32 {
@@ -4185,7 +4432,7 @@ impl FocusRows for HostState {
     let lines = self.lines.lock();
     match lines.lines.get(row)? {
       Shown::Group(group) => Some(lines.groups[*group].open),
-      Shown::Row(_) => None,
+      Shown::Row(_) | Shown::Summary(_) => None,
     }
   }
 
@@ -4555,14 +4802,19 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     let count = lines.lines.len();
     let geometry = Geometry::of(&recipe);
     let pins = table.pins();
-    let lead_tracks = usize::from(table.with_checkboxes());
+    let lead_tracks = table.lead_tracks();
     *state.metrics.lock() = Metrics {
       row_height,
       header_height,
       count,
       disabled: table.disabled,
-      // A row whose cells stay at an end holds its padding there in its pinned cell, in a track.
-      padding_start: if pins.0 > 0 { 0.0 } else { geometry.padding_start },
+      // A row whose cells stay at an end holds its padding there in its pinned cell, in a track: the numbers' at
+      // the start where it has them.
+      padding_start: if pins.0 > 0 || table.numbered() {
+        0.0
+      } else {
+        geometry.padding_start
+      },
       padding_end: if pins.1 > 0 { 0.0 } else { geometry.padding_end },
       lead_tracks,
       pins,
@@ -4783,6 +5035,21 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(Select, |s| s.width(16.0).cursor(CursorIcon::Pointer))
+      // The rows' numbers: mono 12 in the muted foreground at the end of their column, the selected row's in the
+      // foreground, pressed to select.
+      .base(TablePart::RowNumber, |s| {
+        s.font_family(FontFamily::Mono)
+          .font_size(12.0)
+          .foreground(MutedForeground)
+      })
+      .state(Selectable, TablePart::RowNumber, |s| s.cursor(CursorIcon::Pointer))
+      .state(Selected, TablePart::RowNumber, |s| s.foreground(Foreground))
+      .when(Selector::new().state(TableState::Pinned).within().hovered(), TablePart::RowNumber, |s| {
+        s.veil(StateHover)
+      })
+      .when(Selector::new().state(TableState::Pinned).within().pressed(), TablePart::RowNumber, |s| {
+        s.veil(StatePressed)
+      })
       // A cell of a data grid takes the focus: from the keyboard, the ring inside it, as a row's.
       .focus_visible(TablePart::Cell, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .base(TablePart::Editor, |s| s.width(Length::Fill))
@@ -4830,6 +5097,30 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .density(Density::Compact, TablePart::GroupRow, |s| s.height(Density::Default))
       .density(Density::Comfortable, TablePart::GroupRow, |s| s.height(52.0))
       .density(Density::Touch, TablePart::GroupRow, |s| s.height(52.0))
+      // A summary row: as high as a row, on the muted fill with a line over it, its labels 12 in the muted foreground
+      // and its values 13/500 in the foreground.
+      .base(TablePart::Summary, |s| {
+        s.height(44.0)
+          .padding_x(16.0)
+          .gap(16.0)
+          .background(Muted)
+          .top_line(line())
+      })
+      .state(Selectable, TablePart::Summary, |s| s.gap(12.0))
+      .base(TablePart::SummaryLabel, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(12.0)
+          .foreground(MutedForeground)
+      })
+      .base(TablePart::SummaryValue, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(13.0)
+          .weight(FontWeight::Medium)
+          .foreground(Foreground)
+      })
+      .density(Density::Compact, TablePart::Summary, |s| s.height(Density::Default))
+      .density(Density::Comfortable, TablePart::Summary, |s| s.height(52.0))
+      .density(Density::Touch, TablePart::Summary, |s| s.height(52.0))
       .base(Empty, |s| s.width(Length::Fill))
       .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {

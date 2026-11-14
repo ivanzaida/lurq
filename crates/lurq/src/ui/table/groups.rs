@@ -40,11 +40,13 @@ impl GroupKey {
   }
 }
 
-/// A line a table shows: a row, by its place among the rows shown, or a group's row.
+/// A line a table shows: a row, by its place among the rows shown, a group's row, or the summary at the end of a
+/// group's rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Shown {
   Row(usize),
   Group(usize),
+  Summary(usize),
 }
 
 /// A group's row: what it shows and where it is.
@@ -91,6 +93,7 @@ impl Lines {
   pub fn grouped(
     count: usize,
     columns: &[Arc<str>],
+    summaries: bool,
     values: &dyn Fn(usize, usize) -> String,
     open: &dyn Fn(&GroupKey) -> bool,
   ) -> Self {
@@ -102,16 +105,18 @@ impl Lines {
       ..Self::default()
     };
     let rows: Vec<usize> = (0..count).collect();
-    lines.add(&rows, 0, &[], columns, values, open);
+    lines.add(&rows, 0, &[], columns, summaries, values, open);
     lines
   }
 
+  #[allow(clippy::too_many_arguments)]
   fn add(
     &mut self,
     rows: &[usize],
     level: usize,
     above: &[String],
     columns: &[Arc<str>],
+    summaries: bool,
     values: &dyn Fn(usize, usize) -> String,
     open: &dyn Fn(&GroupKey) -> bool,
   ) {
@@ -141,7 +146,8 @@ impl Lines {
       path.push(value);
       let key = GroupKey { values: path.clone() };
       let is_open = open(&key);
-      self.lines.push(Shown::Group(self.groups.len()));
+      let group = self.groups.len();
+      self.lines.push(Shown::Group(group));
       self.groups.push(GroupLine {
         key,
         column: columns[level].clone(),
@@ -150,7 +156,11 @@ impl Lines {
         rows: members.clone(),
       });
       if is_open {
-        self.add(&members, level + 1, &path, columns, values, open);
+        self.add(&members, level + 1, &path, columns, summaries, values, open);
+        // A group open ends in the summary of its rows.
+        if summaries {
+          self.lines.push(Shown::Summary(group));
+        }
       }
     }
   }
@@ -159,7 +169,7 @@ impl Lines {
   pub fn rank_at(&self, position: usize) -> Option<usize> {
     match self.lines.get(position)? {
       Shown::Row(rank) => Some(*rank),
-      Shown::Group(_) => None,
+      Shown::Group(_) | Shown::Summary(_) => None,
     }
   }
 

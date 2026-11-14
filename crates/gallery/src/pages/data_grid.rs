@@ -1,6 +1,6 @@
 //! The page of the data grid: its playground, the board's Data Grid, editing in place, a range of cells, a
-//! column's menu, group rows, columns pinned at both ends and resized, ten thousand rows of fifty columns, a grid that
-//! is read only, and its props.
+//! column's menu, group rows, summary rows, row numbers, columns pinned at both ends and resized, ten thousand rows of
+//! fifty columns, a grid that is read only, and its props.
 
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use lurq::{
   node::Element,
   ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnLayout, ColumnPin,
-    DataGrid, GroupKey, Pagination, TableColumn, TableSort, icons,
+    DataGrid, GroupKey, Pagination, SummaryKind, TableColumn, TableSort, icons,
   },
 };
 
@@ -128,6 +128,14 @@ fn sorted(mut rows: Vec<File>, sort: &Option<TableSort>) -> Vec<File> {
 }
 
 const SELECTIONS: [&str; 3] = ["none", "checkboxes", "by a press"];
+const SUMMARIES: [(&str, Option<SummaryKind>); 6] = [
+  ("none", None),
+  ("sum", Some(SummaryKind::Sum)),
+  ("average", Some(SummaryKind::Average)),
+  ("count", Some(SummaryKind::Count)),
+  ("min", Some(SummaryKind::Min)),
+  ("max", Some(SummaryKind::Max)),
+];
 const GROUPINGS: [(&str, &[&str]); 3] = [
   ("none", &[]),
   ("status", &["status"]),
@@ -155,6 +163,8 @@ pub struct DataGridPage {
   played_layout: Signal<ColumnLayout>,
   grouping: Signal<usize>,
   played_open: Signal<Vec<GroupKey>>,
+  summary: Signal<usize>,
+  row_numbers: Signal<bool>,
   played: Signal<Vec<File>>,
   played_selected: Signal<Vec<String>>,
   played_sort: Signal<Option<TableSort>>,
@@ -171,6 +181,9 @@ pub struct DataGridPage {
   layout: Signal<ColumnLayout>,
   group_rows: Signal<Vec<File>>,
   groups_open: Signal<Vec<GroupKey>>,
+  summed_rows: Signal<Vec<File>>,
+  summed_open: Signal<Vec<GroupKey>>,
+  numbered_selected: Signal<Vec<String>>,
   many: Arc<Vec<File>>,
 }
 
@@ -188,7 +201,13 @@ impl DataGridPage {
       self.bind_range.get(),
     );
     let column_menu = self.column_menu.get();
+    let row_numbers = self.row_numbers.get();
     let (_, grouping) = GROUPINGS[self.grouping.get().min(GROUPINGS.len() - 1)];
+    let (summary_name, summary) = SUMMARIES[self.summary.get().min(SUMMARIES.len() - 1)];
+    let mut played_columns = columns(pin_name);
+    if let Some(kind) = summary {
+      played_columns[2] = played_columns[2].clone().summary(kind);
+    }
     let record = self.playground.recorder();
     let rows = self.played.clone();
     let sort = self.played_sort.get();
@@ -201,13 +220,14 @@ impl DataGridPage {
       record.clone(),
       record,
     );
-    let mut grid = DataGrid::new(columns(pin_name), sorted(rows.get(), &sort))
+    let mut grid = DataGrid::new(played_columns, sorted(rows.get(), &sort))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
       .density(density)
       .read_only(read_only)
       .resizable(resizable)
       .column_menu(column_menu)
+      .row_numbers(row_numbers)
       .group_by(grouping.iter().copied())
       .open(self.played_open.clone())
       .on_open_change(move |key, open| opened_to(format!("on_open_change({:?}, {open})", key.values)))
@@ -303,6 +323,15 @@ impl DataGridPage {
     if !grouping.is_empty() {
       code.push(format!(".group_by({grouping:?}).open(open) // Signal<Vec<GroupKey>>"));
     }
+    if row_numbers {
+      code.push(".row_numbers(true)".to_owned());
+    }
+    if summary.is_some() {
+      code.push(format!(
+        "// the size's column: .summary(SummaryKind::{})",
+        capitalized(summary_name)
+      ));
+    }
     if !column_menu {
       code.push(".column_menu(false)".to_owned());
     }
@@ -311,9 +340,11 @@ impl DataGridPage {
 
     let tree = vec![
       format!("root        {} · a table's · grid", self.playground.measured()),
+      "├─ row_number  at the start, held there · pressed to select".to_owned(),
       "├─ header   the table's · a menu_trigger and a resizer at each column's end · drop_line".to_owned(),
       "├─ group_row  a row at its level · chevron, group_label, group_count".to_owned(),
-      "└─ row      not a stop · Left and Right its own".to_owned(),
+      "├─ row      not a stop · Left and Right its own".to_owned(),
+      "└─ summary  at the bottom, held there · summary_label, summary_value".to_owned(),
       "   └─ cell     a gridcell · the ring inside it from the keyboard · in_range, range_top..range_end".to_owned(),
       "      └─ editor   Input, NumberInput or Select, Sm, while it is edited".to_owned(),
     ];
@@ -344,6 +375,8 @@ impl DataGridPage {
       self.played_layout.clone(),
       self.grouping.clone(),
       self.played_open.clone(),
+      self.summary.clone(),
+      self.row_numbers.clone(),
     );
     let still = {
       let rows = rows.get();
@@ -392,6 +425,17 @@ impl DataGridPage {
           flag("count in a footer", &self.footer),
           flag("cell_selection(signal): told the range", &self.bind_range),
           flag("column_menu: a menu on each header", &self.column_menu),
+          flag("row_numbers: a column of numbers at the start", &self.row_numbers),
+          prop(
+            "summary",
+            "SummaryKind of the size",
+            self
+              .playground
+              .select(3, &indexed(&SUMMARIES.map(|(name, _)| name)), &self.summary.get(), {
+                let set = self.summary.clone();
+                move |index| set.set(index)
+              }),
+          ),
           prop(
             "group_by",
             "columns' ids",
@@ -414,6 +458,8 @@ impl DataGridPage {
           !bind_range,
           !column_menu,
           !grouping.is_empty(),
+          summary.is_some(),
+          row_numbers,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -437,6 +483,8 @@ impl DataGridPage {
           reset.13.set(ColumnLayout::default());
           reset.14.set(0);
           reset.15.set(Vec::new());
+          reset.16.set(0);
+          reset.17.set(false);
         }),
       },
     )
@@ -484,7 +532,7 @@ impl Component for DataGridPage {
   fn create(ctx: &mut Ctx) -> Self {
     Self {
       frame: Frame::new(ctx),
-      playground: Playground::new(ctx, 3),
+      playground: Playground::new(ctx, 4),
       selection: ctx.signal(1),
       density: ctx.signal(1),
       fixed_height: ctx.signal(true),
@@ -498,6 +546,8 @@ impl Component for DataGridPage {
       played_layout: ctx.signal(ColumnLayout::default()),
       grouping: ctx.signal(0),
       played_open: ctx.signal(Vec::new()),
+      summary: ctx.signal(0),
+      row_numbers: ctx.signal(false),
       played: ctx.signal(files(8)),
       played_selected: ctx.signal(Vec::new()),
       played_sort: ctx.signal(None),
@@ -514,6 +564,9 @@ impl Component for DataGridPage {
       layout: ctx.signal(ColumnLayout::default()),
       group_rows: ctx.signal(files(16)),
       groups_open: ctx.signal(vec![GroupKey::new(["Passing"])]),
+      summed_rows: ctx.signal(files(16)),
+      summed_open: ctx.signal(vec![GroupKey::new(["Building"]), GroupKey::new(["Modified"])]),
+      numbered_selected: ctx.signal(vec!["canvas.rs".to_owned()]),
       many: Arc::new(
         (0..10_000)
           .map(|index| File {
@@ -696,6 +749,42 @@ impl Component for DataGridPage {
       .key("groups")
       .mount(ctx);
 
+    // Summary rows: the grid's at its bottom, and each group's at the end of its rows.
+    let summed_rows = self.summed_rows.clone();
+    let mut summed_columns = columns(false);
+    summed_columns[0] = summed_columns[0].clone().summary(SummaryKind::Count);
+    summed_columns[1] = summed_columns[1].clone().summary_text(|rows: &[&File]| {
+      let failed = rows.iter().filter(|row| row.status == 3).count();
+      if failed == 0 {
+        "all fine".to_owned()
+      } else {
+        format!("{failed} failed")
+      }
+    });
+    summed_columns[2] = summed_columns[2].clone().summary(SummaryKind::Sum);
+    let summed = DataGrid::new(summed_columns, summed_rows.get())
+      .label("Files")
+      .height(360.0)
+      .group_by(["status"])
+      .open(self.summed_open.clone())
+      .on_edit(move |edit| {
+        let name = summed_rows.get().get(*edit.row).map(|file| file.name.clone());
+        name.is_some_and(|name| take(&summed_rows, &name, edit.column, &edit.value))
+      })
+      .key("summary")
+      .mount(ctx);
+
+    // Row numbers: a column of them at the start, which stays, pressed to select a row, its header all of them.
+    let numbered = DataGrid::new(columns(false), files(8))
+      .row_key(|row: &File| row.name.clone())
+      .label("Files")
+      .height(280.0)
+      .selected(self.numbered_selected.clone())
+      .checkboxes(false)
+      .row_numbers(true)
+      .key("numbers")
+      .mount(ctx);
+
     // Pinned at both ends: the name stays at the start, the actions at the end, while the columns between scroll.
     let pinned_rows = self.pinned.clone();
     let mut pinned_columns = columns(true);
@@ -788,6 +877,18 @@ impl Component for DataGridPage {
         "bool",
         "false",
         "No cell is edited; the cells still take the focus.",
+      ),
+      (
+        "TableColumn::summary / summary_text",
+        "SummaryKind / Fn(&[&R]) -> String",
+        "none",
+        "What a column says in the summary rows: a sum, an average, a count, the least or the most, or the app's.",
+      ),
+      (
+        "row_numbers",
+        "bool",
+        "false",
+        "A column of the rows' numbers at the start, which stays: pressed to select a row, its header all of them.",
       ),
       (
         "group_by / open",
@@ -971,6 +1072,34 @@ impl Component for DataGridPage {
               "    .height(320.0)",
               "    .mount(ctx)",
             ],
+          ),
+        ),
+        Section::new(
+          "Summary rows",
+          "A summary of every row stays at the bottom of the grid, and each group open ends in one of its own: \
+           the names counted, the sizes added up by the grid, the statuses said by the app.",
+          self.frame.demo(
+            8,
+            summed,
+            "TableColumn::summary(SummaryKind::Sum)",
+            &[
+              "TableColumn::new(\"name\", \"Name\").summary(SummaryKind::Count)",
+              "TableColumn::new(\"status\", \"Status\").summary_text(|rows| format!(\"{} failed\", failed(rows)))",
+              "TableColumn::new(\"size\", \"Size\").numeric().summary(SummaryKind::Sum)",
+              "DataGrid::new(columns, files.get()).group_by([\"status\"]).open(open).mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Row numbers",
+          "A column of the rows' numbers at the start, which stays while the columns scroll sideways. A number is \
+           pressed to select its row, with Ctrl to add it, with Shift the rows from the last selected one; the \
+           header's mark selects every row, or none.",
+          self.frame.demo(
+            9,
+            numbered,
+            ".row_numbers(true)",
+            &["DataGrid::new(columns, files.get()).selected(selected).checkboxes(false).row_numbers(true).mount(ctx)"],
           ),
         ),
         Section::new(
