@@ -64,6 +64,7 @@ pub struct TextareaPage {
   valid: Signal<bool>,
   read_only: Signal<bool>,
   disabled: Signal<bool>,
+  full_width: Signal<bool>,
   bio: Signal<String>,
   report: Signal<String>,
   story: Signal<String>,
@@ -82,7 +83,9 @@ impl TextareaPage {
       ("valid", self.valid.get()),
       ("read_only", self.read_only.get()),
       ("disabled", self.disabled.get()),
+      ("full_width", self.full_width.get()),
     ];
+    let full_width = self.full_width.get();
     let value = self.value.clone();
     let plain = {
       let (placeholder, value, name) = (placeholder.clone(), value.clone(), name.clone());
@@ -96,7 +99,8 @@ impl TextareaPage {
           .warning(set[1])
           .valid(set[2])
           .read_only(set[3])
-          .disabled(set[4]);
+          .disabled(set[4])
+          .full_width(set[5]);
         if !name.is_empty() {
           textarea = textarea.label(&name);
         }
@@ -152,6 +156,7 @@ impl TextareaPage {
       self.valid.clone(),
       self.read_only.clone(),
       self.disabled.clone(),
+      self.full_width.clone(),
     ];
     let (min, max, choose_size) = (self.min_rows.clone(), self.max_rows.clone(), self.size.clone());
     let sizes: Vec<(&str, usize)> = SIZES.iter().enumerate().map(|(index, size)| (size.1, index)).collect();
@@ -161,7 +166,7 @@ impl TextareaPage {
         title: "Textarea",
         make: Arc::new(move || Column::new().width(360.0).child(plain()).into()),
         shown: Shown::of(textarea),
-        fill: true,
+        fill: full_width,
         forceable: true,
         facts: format!("{size_name} · {} characters", held.chars().count()),
         event: "on_input",
@@ -191,6 +196,7 @@ impl TextareaPage {
           flag("valid", &self.valid),
           flag("read_only", &self.read_only),
           flag("disabled", &self.disabled),
+          flag("full_width", &self.full_width),
         ],
         changed: [
           !held.is_empty(),
@@ -238,6 +244,7 @@ impl Component for TextareaPage {
       valid: ctx.signal(false),
       read_only: ctx.signal(false),
       disabled: ctx.signal(false),
+      full_width: ctx.signal(false),
       bio: ctx.signal(String::new()),
       report: ctx.signal(
         "The export stopped at 80%.\nIt said the disk was full, but there were 40 GB free.\nIt happened twice \
@@ -295,7 +302,9 @@ impl Component for TextareaPage {
     let in_field = {
       let field = Field::new(
         "What happened",
-        Textarea::new(self.story.clone()).placeholder("The steps, what you expected, what you saw"),
+        Textarea::new(self.story.clone())
+          .placeholder("The steps, what you expected, what you saw")
+          .full_width(true),
       )
       .required(true)
       .full_width(true);
@@ -383,7 +392,7 @@ impl Component for TextareaPage {
         "full_width",
         "bool",
         "false",
-        "As wide as what holds it: it is so already, as the design draws it in a form.",
+        "As wide as what holds it, in place of 260: in a form, as wide as its field.",
       ),
       ("name", "&str", "", "The name its text has in the form it is in."),
       (
@@ -479,7 +488,9 @@ impl Component for TextareaPage {
               "let told = story.get().chars().count();",
               "let field = Field::new(",
               "    \"What happened\",",
-              "    Textarea::new(story.clone()).placeholder(\"The steps, what you expected, what you saw\"),",
+              "    Textarea::new(story.clone())",
+              "        .placeholder(\"The steps, what you expected, what you saw\")",
+              "        .full_width(true),",
               ")",
               ".required(true)",
               ".full_width(true);",

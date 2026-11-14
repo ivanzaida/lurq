@@ -604,7 +604,7 @@ Field::new("Display name", Input::new(name.clone()).full_width(true))
 Field::new("Email", Input::new(email.clone()).full_width(true))
   .error("Enter a full email address.");
 
-Field::new("What happened", Textarea::new(story.clone())).warning(true);
+Field::new("What happened", Textarea::new(story.clone()).full_width(true)).warning(true);
 
 // Any element is a control; the label beside it, where a form lines its labels up.
 Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orientation::Horizontal);
@@ -637,7 +637,7 @@ Field::new("Notifications", Switch::new("Pause notifications")).orientation(Orie
 
 - The field's description, or its error while it has one, is the control's description to what reads the tree (`a11y_description`), whatever the control: the field puts it on each outermost node in the control that says what it is (`a11y_role`) or takes the focus, so a radio group is described and not each radio in it. `lurq_inspect` reports it as `description`.
 - A press of the label focuses the control: the first node under what holds it that takes the focus (`.focuses(&ElementRef)` on the label, the ref on the row that holds the control). A control that is disabled is not focused, and a disabled field's label focuses nothing. A renderer that holds the control another way puts `view.focus` on what holds it.
-- An input that is to fill the field says so (`Input::full_width`).
+- An input or a textarea that is to fill the field says so (`Input::full_width`, `Textarea::full_width`).
 - Parts: `FieldPart::Root`, `Label` (the label and its mark), `Required`, `Optional`, `Body` (the control and the description, where the label is beside them), `Description`. States: `FieldState::Invalid`, `Warning`, `Valid`, `Horizontal`, `FullWidth`, `Disabled` (no rule of the design's: a theme dims what it likes).
 - In the design the field is 260 wide; the label is 6 above the control in a field label's type (13, medium) and `Foreground`, the description 6 under it in a caption's (12) and `MutedForeground`. The `*` is 4 after the label, semibold, in `Destructive`; "Optional" is 11 in `MutedForeground`. Beside the control the label is 110 wide and as high as a control, 12 from it, and the field is 360 wide.
 
@@ -667,14 +667,14 @@ Textarea::new(terms.clone()).read_only(true).size(TextareaSize::Sm);
 | `invalid(bool)`, `warning(bool)`, `valid(bool)` | What the app judged of what it holds: the edge in the destructive, warning or success color. One is shown, in that order |
 | `read_only(bool)` | It is focused, selected and copied, and every edit is refused |
 | `on_input(handler)` | Called before an edit with the `TextInputEvent` (`new_value` is what it will hold); `prevent_default()` refuses it. A read-only one makes no edit |
-| `full_width(bool)` | As wide as what holds it, which it is already, as the design draws it in a form: the state `FullWidth` is for a theme that gives it a width of its own |
+| `full_width(bool)` | As wide as what holds it, in place of 260: in a form, as wide as its field. The state `FullWidth` |
 | `name(..)` | The name of its text in a form (feature `form`) |
 | `label(&str)` | What it is called, to what reads the tree. It draws nothing: a [field](#field) gives it its own label |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box |
 
 - It is the engine's multiline `TextInput`: as high as its text between its rows, its own scroll bar past them, Enter a new line. Tab reaches it wherever it is, as every control of the design system; a disabled one is passed by and takes no click. A read-only one is a stop of Tab and refuses every edit.
 - Parts: `TextareaPart::Root` (the place it takes: its width, and its opacity while disabled), `Control` (the box, which is the text input: its edge, fill and padding, and the type and color of what it holds, as an input's control), `Placeholder` (laid over the control's type). States: `TextareaState::Invalid`, `Warning`, `Valid`, `ReadOnly`, `Disabled`, `FullWidth`. Sizes: `TextareaSize::Sm`, `Md`, `Lg` (`TextareaSize` is `TextBoxSize`, an input's sizes).
-- In the design the box is as wide as its room, in `Background` with an edge of 1 in `Input`, the medium radius, padded 12 across and 8 down; its text is in the body's type with a line of 1.5, in `Foreground`, and the placeholder in `MutedForeground`. Under the pointer the edge is `Ring`; focused, a ring of 2 is drawn inside the box, over the edge. Invalid, warning and valid, the edge and the ring are `Destructive`, `Warning` and `Success`. Read only, it is on `Muted` in the `Border` color, as a read-only input. Disabled, it is at the theme's disabled opacity on `Muted`. Small, its text is 13; large, 15; the padding stays.
+- In the design the box is 260 wide, as an input is, in `Background` with an edge of 1 in `Input`, the medium radius, padded 12 across and 8 down; its text is in the body's type with a line of 1.5, in `Foreground`, and the placeholder in `MutedForeground`. Under the pointer the edge is `Ring`; focused, a ring of 2 is drawn inside the box, over the edge. Invalid, warning and valid, the edge and the ring are `Destructive`, `Warning` and `Success`. Read only, it is on `Muted` in the `Border` color, as a read-only input. Disabled, it is at the theme's disabled opacity on `Muted`. Small, its text is 13; large, 15; the padding stays.
 - In a [field](#field) it is called by the field's label unless it has a `label` of its own, it is judged as the field is unless the app judged it itself, it is disabled where the field is, and a press of the label focuses it.
 - A text input draws in its own text style and does not take the foreground of what it is in, so the `Text` and `Placeholder` parts' foregrounds are resolved to colors of the theme when the textarea is built (`TextareaView::text_style`, `placeholder_style`).
 - To what reads the tree it is a `textbox`, `a11y_multiline`, with `a11y_invalid`, `a11y_readonly` where it is read only, and the name its label or its field's gives it.
@@ -1410,8 +1410,8 @@ The stages of a process in order, with one current: those before it are done, th
 ```rust
 use lurq::ui::{Orientation, Step, Steps};
 
-// Read, not operated: the app moves the current step itself. at: Signal<usize>.
-Steps::new(at.clone(), ["Account", "Workspace", "Finish"]);
+// Shown, not operated: the app moves the current step itself. page: usize.
+Steps::at(page, ["Account", "Workspace", "Finish"]);
 
 // A wizard that lets a person go back to a step that is done: a press sets the signal.
 Steps::new(at.clone(), [
@@ -1431,6 +1431,7 @@ Steps::controlled(page, ["Account", "Finish"], move |index| go_to(index));
 | --- | --- |
 | `Steps::new(current, steps)` | `current` is a `Signal<usize>` that holds the index of the current step, from 0, and that a press of a step sets. Past the last step every step is done. A step is a `&str`, a `String` or a `Step` |
 | `Steps::controlled(current, steps, on_change)` | The index held by the app: a press tells `on_change`, and the steps show what the app answers with |
+| `Steps::at(current, steps)` | The index of the current step, shown and not operated: the steps of a wizard the app drives. No step is pressed, whatever `pressable` and `on_change` say, and the steps are not a stop of Tab |
 | `orientation(Orientation)` | `Horizontal` (the default): in a row, a line between each step and the next. `Vertical`: in a column, a line down from each step's mark to the next. `StepsOrientation` is a name of `ui::Orientation` |
 | `on_change(Fn(usize))` | Called with the index of the step a person made current, after a signal given to `new` is set; not when the app sets it. Makes the steps that are done pressable. A second handler is called after the first |
 | `pressable(bool)` | Makes the steps that are done pressable with no handler: for steps bound to a signal |

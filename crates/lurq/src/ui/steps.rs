@@ -185,11 +185,13 @@ impl From<String> for Step {
   }
 }
 
-/// Which step is current: a signal a press sets, or an index the app holds.
+/// Which step is current: a signal a press sets, an index the app holds and is told of a press, or an index the
+/// steps only show.
 #[derive(Clone)]
 enum CurrentStep {
   Signal(Signal<usize>),
   Index(usize),
+  Shown(usize),
 }
 
 /// What builds the nodes of steps: a theme's in place of the default one.
@@ -204,8 +206,8 @@ type Change = Arc<dyn Fn(usize) + Send + Sync>;
 /// use lurq::{core::Signal, ui::{Orientation, Step, Steps}};
 ///
 /// # fn steps(at: Signal<usize>, page: usize, go: fn(usize)) {
-/// // Read, not operated: the app moves the current step itself.
-/// let progress = Steps::new(at.clone(), ["Account", "Workspace", "Finish"]);
+/// // Shown, not operated: the app moves the current step itself.
+/// let progress = Steps::at(page, ["Account", "Workspace", "Finish"]);
 /// // A wizard that lets a person go back to a step that is done: a press sets the signal.
 /// let wizard = Steps::new(at.clone(), [
 ///   Step::new("Account").description("Name and email"),
@@ -220,8 +222,9 @@ type Change = Arc<dyn Fn(usize) + Send + Sync>;
 /// ```
 ///
 /// The current step is the app's: a `Signal<usize>` that a press of a step
-/// sets ([`Steps::new`]), or an index it holds and changes itself when
-/// told ([`Steps::controlled`]). An index past the last step has every step
+/// sets ([`Steps::new`]), an index it holds and changes itself when told
+/// ([`Steps::controlled`]), or an index the steps only show, where no step
+/// is pressed ([`Steps::at`]). An index past the last step has every step
 /// done. Steps are pressed only where the app says so, with
 /// [`Steps::on_change`], [`Steps::controlled`] or [`Steps::pressable`]: then
 /// a step that is done is pressed to go back to it, and a step to come only
@@ -259,6 +262,14 @@ impl Steps {
     on_change: impl Fn(usize) + Send + Sync + 'static,
   ) -> Self {
     Self::with(CurrentStep::Index(current), steps).on_change(on_change)
+  }
+
+  /// The steps of a process, of which the one at `current` is current, shown
+  /// and not operated: the steps of a wizard the app drives. No step is
+  /// pressed, whatever [`Steps::pressable`] and [`Steps::on_change`] say, and
+  /// the steps are not a stop of Tab.
+  pub fn at(current: usize, steps: impl IntoIterator<Item = impl Into<Step>>) -> Self {
+    Self::with(CurrentStep::Shown(current), steps)
   }
 
   fn with(current: CurrentStep, steps: impl IntoIterator<Item = impl Into<Step>>) -> Self {
@@ -391,14 +402,16 @@ impl Steps {
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let current = match &self.current {
-      CurrentStep::Index(index) => *index,
+      CurrentStep::Index(index) | CurrentStep::Shown(index) => *index,
       CurrentStep::Signal(signal) => signal.get(),
     };
-    let select: Option<Change> = ((self.pressable || !self.on_change.is_empty()) && !self.disabled).then(|| {
+    let shown = matches!(self.current, CurrentStep::Shown(_));
+    let operated = (self.pressable || !self.on_change.is_empty()) && !self.disabled && !shown;
+    let select: Option<Change> = operated.then(|| {
       let handlers = self.on_change.clone();
       let signal = match &self.current {
         CurrentStep::Signal(signal) => Some(signal.clone()),
-        CurrentStep::Index(_) => None,
+        CurrentStep::Index(_) | CurrentStep::Shown(_) => None,
       };
       Arc::new(move |index: usize| {
         if let Some(signal) = &signal {

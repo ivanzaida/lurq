@@ -29,9 +29,9 @@ const LINE: f32 = 21.0;
 /// The board's padding: 8 above the text and 8 under it.
 const PADDING_Y: f32 = 8.0;
 
-/// A column as wide as the board draws a textarea, with `textarea` in it.
+/// A column with room for a textarea as wide as the board draws it, with `textarea` in it.
 fn column(textarea: Textarea) -> Column {
-  Column::new().width(260.0).padding(8.0).child(textarea)
+  Column::new().width(276.0).padding(8.0).child(textarea)
 }
 
 /// The color of the line around the element with `id`.
@@ -44,17 +44,20 @@ fn edge(stage: &mut Stage, id: &str) -> Option<Color> {
 }
 
 #[test]
-fn a_textarea_is_a_box_as_wide_as_its_room_with_the_placeholder_in_it() {
+fn a_textarea_is_a_box_of_260_with_the_placeholder_in_it() {
   let mut stage = Stage::new(|_| {
-    column(
-      Textarea::new(Signal::new(String::new()))
-        .placeholder("Tell us what happened")
-        .id("bio"),
-    )
-    .into()
+    Column::new()
+      .width(400.0)
+      .padding(8.0)
+      .child(
+        Textarea::new(Signal::new(String::new()))
+          .placeholder("Tell us what happened")
+          .id("bio"),
+      )
+      .into()
   });
   let (x, y, width, height) = stage.bounds("bio");
-  assert_eq!(width, 244.0, "the room of its column");
+  assert_eq!(width, 260.0, "the board's width, in a column with more room");
   assert_eq!(height, 3.0 * LINE + 2.0 * PADDING_Y, "three rows, padded 8 down");
   assert_eq!(stage.fill_color("bio"), Some(light(PaletteColor::Background)));
   assert_eq!(edge(&mut stage, "bio"), Some(light(PaletteColor::Input)));
@@ -517,4 +520,30 @@ fn a_named_textarea_gives_its_text_to_the_form_and_full_width_is_a_state() {
     .part(TextareaPart::Root)
     .rest();
   assert_eq!(root.width, Some(lurq::ui::Length::Fill));
+}
+
+#[test]
+fn a_full_width_textarea_is_as_wide_as_its_room_and_one_in_a_field_fills_it() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(400.0)
+      .padding(8.0)
+      .child(Textarea::new(Signal::new(String::new())).full_width(true).id("wide"))
+      .child(Textarea::new(Signal::new(String::new())).id("narrow"))
+      .child(
+        Field::new(
+          "Bio",
+          Textarea::new(Signal::new(String::new())).full_width(true).id("bio"),
+        )
+        .full_width(true),
+      )
+      .into()
+  });
+  assert_eq!(stage.bounds("wide").2, 384.0, "the room of its column");
+  assert_eq!(stage.bounds("narrow").2, 260.0, "the board's width");
+  assert_eq!(
+    stage.bounds("bio").2,
+    384.0,
+    "as wide as its field, which fills the column"
+  );
 }
