@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::Text,
+  components::{Column, Text},
   core::Signal,
-  node::Element,
+  node::{Element, dimension::Dimension},
   ui::{
-    Avatar, Button, ButtonSize, ButtonVariant, Card, Orientation, Timeline, TimelineAlign, TimelineItem, TimelinePart,
-    TimelineSize, TimelineVariant,
+    Avatar, Button, ButtonSize, ButtonVariant, Card, Orientation, Splitter, SplitterPane, SplitterPart, Timeline,
+    TimelineAlign, TimelineItem, TimelinePart, TimelineSize, TimelineVariant,
   },
 };
 
@@ -73,6 +73,25 @@ fn board() -> Timeline {
   ])
   .label("History")
   .style(TimelinePart::Root, |s| s.width(300.0))
+}
+
+/// The releases of lurq, the oldest to come: a history read down the middle.
+fn releases() -> Timeline {
+  Timeline::new([
+    TimelineItem::new("0.60: frosted glass")
+      .description("Blur, backdrop filters and the frosted panel.")
+      .time("Nov 10"),
+    TimelineItem::new("0.59: the design system")
+      .description("Recipes, themes and the first forty components.")
+      .time("Oct 21"),
+    TimelineItem::new("0.58: text")
+      .description("Shaping, bidi-free wrapping and the glyph atlas.")
+      .time("Sep 30"),
+    TimelineItem::new("0.57: the first window")
+      .description("wgpu, winit and a tree of elements.")
+      .time("Aug 12")
+      .upcoming(true),
+  ])
 }
 
 /// What the playground's panel says of the timeline.
@@ -446,7 +465,7 @@ impl TimelinePage {
       Spec {
         title: "Timeline",
         make: Arc::new(make),
-        shown: Shown::of(shown),
+        shown: Shown::built(move |ctx| shown.mount(ctx)),
         fill: !props.orientation.is_vertical(),
         forceable: props.select,
         facts: "4 items".to_owned(),
@@ -553,24 +572,33 @@ impl Component for TimelinePage {
     .on_load_more(|| {})
     .more_label("Earlier")
     .style(TimelinePart::Root, |s| s.width(360.0));
-    let middle = Timeline::new([
-      TimelineItem::new("0.60: frosted glass")
-        .description("Blur, backdrop filters and the frosted panel.")
-        .time("Nov 10"),
-      TimelineItem::new("0.59: the design system")
-        .description("Recipes, themes and the first forty components.")
-        .time("Oct 21"),
-      TimelineItem::new("0.58: text")
-        .description("Shaping, bidi-free wrapping and the glyph atlas.")
-        .time("Sep 30"),
-      TimelineItem::new("0.57: the first window")
-        .description("wgpu, winit and a tree of elements.")
-        .time("Aug 12")
-        .upcoming(true),
-    ])
-    .label("Releases")
-    .align(TimelineAlign::Alternate)
-    .style(TimelinePart::Root, |s| s.width(560.0));
+    let middle = releases()
+      .label("Releases")
+      .align(TimelineAlign::Alternate)
+      .style(TimelinePart::Root, |s| s.width(560.0))
+      .mount(ctx);
+    // The same history in the first pane of a splitter, whose divider folds its sides as it is dragged.
+    let panel = Splitter::new()
+      .label("Releases and notes")
+      .pane(
+        SplitterPane::new(
+          Column::new()
+            .width(Dimension::Pct(100.0))
+            .padding(16.0)
+            .child(releases().label("Releases").align(TimelineAlign::Alternate).mount(ctx)),
+        )
+        .length(560.0)
+        .min(200.0)
+        .label("History"),
+      )
+      .pane(
+        SplitterPane::new(Column::new().padding(16.0).child(Text::new(
+          "Drag the divider: under 480 across the history folds its two sides to one, and back past it.",
+        )))
+        .min(120.0)
+        .label("Notes"),
+      )
+      .style(SplitterPart::Root, |s| s.height(380.0));
     let order = Timeline::new([
       TimelineItem::new("Ordered").value(1u32).time("Nov 12, 09:14"),
       TimelineItem::new("Packed").value(2).time("Nov 12, 16:40"),
@@ -811,12 +839,12 @@ impl Component for TimelinePage {
         ),
         Section::new(
           "Down the middle",
-          "Alternate sides: the text before and after the line, item by item, the time on the other side. In a \
-           window narrower than the theme's md breakpoint, 768, every item's text is after the line.",
+          "Alternate sides: the text before and after the line, item by item, the time on the other side. Mounted, \
+           the timeline reads its own room: under 480 across every item's text is after the line.",
           self.frame.demo(
             4,
             middle,
-            ".align(TimelineAlign::Alternate)",
+            ".align(TimelineAlign::Alternate).mount(ctx)",
             &[
               "Timeline::new([",
               "    TimelineItem::new(\"0.60: frosted glass\")",
@@ -826,6 +854,26 @@ impl Component for TimelinePage {
               "    ..",
               "])",
               ".align(TimelineAlign::Alternate)",
+              ".mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "In a panel",
+          "The same history in a pane of a splitter. It folds by the pane's width, not the window's: drag the \
+           divider across 480 and it changes form in the frame the pane moves, with no frame of the other.",
+          self.frame.demo(
+            6,
+            panel,
+            "Splitter::new().pane(SplitterPane::new(timeline.mount(ctx)))",
+            &[
+              "Splitter::new()",
+              "    .pane(",
+              "        SplitterPane::new(history.align(TimelineAlign::Alternate).mount(ctx))",
+              "            .length(560.0)",
+              "            .min(200.0),",
+              "    )",
+              "    .pane(SplitterPane::new(notes).min(120.0))",
             ],
           ),
         ),

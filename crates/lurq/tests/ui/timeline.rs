@@ -20,7 +20,7 @@ use lurq::{
     quad::{Quad, QuadContent},
     text_style::FontWeight,
   },
-  node::color::Color,
+  node::{color::Color, dimension::Dimension},
   ui::{
     Avatar, Button, Orientation, Timeline, TimelineAlign, TimelineItem, TimelinePart, TimelineRenderer, TimelineSize,
     TimelineVariant, TimelineView,
@@ -806,4 +806,89 @@ fn the_item_that_shows_more_stands_on_the_line() {
     let more = edges.last().expect("the hollow dot of the item that shows more");
     assert!((more.x - dot.x).abs() < 0.5, "{align:?}: {} against {}", more.x, dot.x);
   }
+}
+
+/// One frame: renders, lays out and paints what changed, once.
+fn frame(stage: &mut Stage) {
+  stage.tree.request_redraw();
+  stage.tree.pass(&mut stage.app, &crate::support::TestSurface);
+}
+
+/// Whether the board's timeline in the stage has its second item's text before the line: alternate sides.
+fn alternating(stage: &mut Stage) -> bool {
+  let (x, _, width, _) = stage.bounds("b");
+  let second = stage.text_quad("Merged node-blur").unwrap();
+  second.x + second.width < x + width / 2.0
+}
+
+/// Mounted, a timeline's alternate sides follow its own room, not the window: in a pane of a splitter, a pane
+/// narrower than the least width folds them to one side, and the frame that lays the pane out already shows the
+/// form that fits as the divider is dragged across that width.
+#[test]
+fn a_mounted_timeline_folds_by_its_own_room_in_the_frame_a_divider_moves_it() {
+  let mut stage = Stage::new(move |ctx| {
+    lurq::ui::Splitter::new()
+      .id("split")
+      .pane(
+        lurq::ui::SplitterPane::new(
+          Column::new()
+            .size(
+              lurq::node::dimension::Dimension::Pct(100.0),
+              lurq::node::dimension::Dimension::Pct(100.0),
+            )
+            .child(board().align(TimelineAlign::Alternate).mount(ctx)),
+        )
+        .length(600.0)
+        .min(100.0),
+      )
+      .pane(
+        lurq::ui::SplitterPane::new(
+          Column::new()
+            .id("other")
+            .size(Dimension::Pct(100.0), Dimension::Pct(100.0)),
+        )
+        .min(40.0),
+      )
+      .into()
+  });
+  // A window of 1000 by 400, wide past the md breakpoint: what folds the sides is the pane's room alone.
+  stage
+    .tree
+    .set_layout_constraints_override(Some(lurq::layout::Constraints::tight(lurq::layout::Size::new(
+      1000.0, 400.0,
+    ))));
+  stage.tree.resize(1000, 400);
+  stage.pass();
+  assert!(alternating(&mut stage), "a wide pane: two sides");
+
+  // Dragged by the pointer, across the least width and back, a frame at each place.
+  let (x, ..) = stage.bounds("other");
+  let divider = x - 0.5;
+  stage.tree.mouse_move(divider, 200.0);
+  stage
+    .tree
+    .mouse_down(divider, 200.0, lurq::app::events::MouseButton::Left);
+  frame(&mut stage);
+  for (to, wide) in [(560.0, true), (430.0, false), (500.0, true), (350.0, false)] {
+    stage.tree.mouse_move(to, 200.0);
+    frame(&mut stage);
+    assert_eq!(alternating(&mut stage), wide, "dragged to {to}, in that frame");
+  }
+  stage.tree.mouse_up(350.0, 200.0, lurq::app::events::MouseButton::Left);
+  frame(&mut stage);
+  assert!(!alternating(&mut stage));
+}
+
+/// Built as an element of its own, a timeline has no room to read: its sides follow the window's breakpoint.
+#[test]
+fn a_timeline_built_as_an_element_folds_by_the_window() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .child(board().align(TimelineAlign::Alternate))
+      .into()
+  });
+  stage.tree.resize(900, 600);
+  stage.pass();
+  assert!(alternating(&mut stage), "a wide window: two sides, in a column of 300");
 }

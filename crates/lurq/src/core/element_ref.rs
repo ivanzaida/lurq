@@ -64,6 +64,20 @@ struct ElementRefInner {
   layout_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
   rect_observer: Option<Arc<dyn Fn(ElementRect) + Send + Sync>>,
+  /// Whether what `rect_observer` changes is rendered and laid out again before the frame is painted
+  /// ([`ElementRef::observe_rect_before_paint`]).
+  before_paint: bool,
+}
+
+thread_local! {
+  /// Whether an observer of [`ElementRef::observe_rect_before_paint`] ran since the runtime last asked.
+  static OBSERVED_BEFORE_PAINT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether an observer of [`ElementRef::observe_rect_before_paint`] ran on this thread since the last call: the
+/// runtime renders what it changed and lays the frame out again before painting it.
+pub(crate) fn take_observed_before_paint() -> bool {
+  OBSERVED_BEFORE_PAINT.with(|observed| observed.replace(false))
 }
 
 impl ElementRef {
@@ -240,7 +254,14 @@ impl ElementRef {
       inner.width = width;
       inner.height = height;
       inner.attached = true;
-      if changed { inner.rect_observer.clone() } else { None }
+      if changed {
+        if inner.before_paint && inner.rect_observer.is_some() {
+          OBSERVED_BEFORE_PAINT.with(|observed| observed.set(true));
+        }
+        inner.rect_observer.clone()
+      } else {
+        None
+      }
     };
     // Outside the lock: the observer may read this ref (or write signals
     // whose subscribers do).
@@ -264,7 +285,23 @@ impl ElementRef {
   /// render depends on their own measured size. Registering again replaces
   /// the previous observer.
   pub fn observe_rect(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
-    self.inner.write().unwrap().rect_observer = Some(Arc::new(observer));
+    let mut inner = self.inner.write().unwrap();
+    inner.rect_observer = Some(Arc::new(observer));
+    inner.before_paint = false;
+  }
+
+  /// As [`observe_rect`](Self::observe_rect), but what the observer changes is shown in the frame that laid the
+  /// element out: where it writes a signal a component renders from, the runtime renders that component and lays
+  /// the frame out again before painting it, once a frame. A component whose form follows its own room (a timeline
+  /// that folds its two sides to one under a least width) shows the form that fits from its first frame, and as a
+  /// panel is dragged across the width, with no frame of the other form.
+  ///
+  /// The observer should change what it writes only where the rect crosses what it is watching for: a value that
+  /// changes on every rect lays every frame out twice.
+  pub fn observe_rect_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
+    let mut inner = self.inner.write().unwrap();
+    inner.rect_observer = Some(Arc::new(observer));
+    inner.before_paint = true;
   }
 
   pub(crate) fn same_handle(&self, other: &Self) -> bool {
@@ -392,6 +429,11 @@ impl ElementRefMut {
   /// See [`ElementRef::observe_rect`].
   pub fn observe_rect(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
     self.as_ref().observe_rect(observer);
+  }
+
+  /// As [`ElementRef::observe_rect_before_paint`].
+  pub fn observe_rect_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
+    self.as_ref().observe_rect_before_paint(observer);
   }
 
   pub fn set_bounds(&self, rect: ElementRect) {
