@@ -28,7 +28,7 @@ pub enum SummaryKind {
 }
 
 impl SummaryKind {
-  /// What the summary row says of it, before its value.
+  /// What the summary row says of it, before its value, in English: [`SummaryLabels`] says it otherwise.
   pub fn label(self) -> &'static str {
     match self {
       Self::Sum => "Sum",
@@ -36,6 +36,44 @@ impl SummaryKind {
       Self::Count => "Count",
       Self::Min => "Min",
       Self::Max => "Max",
+    }
+  }
+}
+
+/// The words of a data grid's summary rows, each the app says otherwise: English unless told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SummaryLabels {
+  pub sum: String,
+  pub average: String,
+  pub count: String,
+  pub min: String,
+  pub max: String,
+  /// What a summary row is called to what reads the tree.
+  pub row: String,
+}
+
+impl Default for SummaryLabels {
+  fn default() -> Self {
+    Self {
+      sum: SummaryKind::Sum.label().into(),
+      average: SummaryKind::Average.label().into(),
+      count: SummaryKind::Count.label().into(),
+      min: SummaryKind::Min.label().into(),
+      max: SummaryKind::Max.label().into(),
+      row: "Summary".into(),
+    }
+  }
+}
+
+impl SummaryLabels {
+  /// What the summary of `kind` says before its value.
+  pub fn of(&self, kind: SummaryKind) -> &str {
+    match kind {
+      SummaryKind::Sum => &self.sum,
+      SummaryKind::Average => &self.average,
+      SummaryKind::Count => &self.count,
+      SummaryKind::Min => &self.min,
+      SummaryKind::Max => &self.max,
     }
   }
 }
@@ -86,14 +124,18 @@ fn said(number: f64) -> String {
 }
 
 /// What the column says of `rows`: its label (a kind's) and its value.
-pub(super) fn summarize<R>(column: &TableColumn<R>, rows: &[&R]) -> Option<(Option<&'static str>, String)> {
+pub(super) fn summarize<R>(
+  column: &TableColumn<R>,
+  rows: &[&R],
+  labels: &SummaryLabels,
+) -> Option<(Option<String>, String)> {
   let summary = column.summary.as_ref()?;
   let kind = match summary {
     Summary::Text(text) => return Some((None, text(rows))),
     Summary::Kind(kind) => *kind,
   };
   if kind == SummaryKind::Count {
-    return Some((Some(kind.label()), rows.len().to_string()));
+    return Some((Some(labels.of(kind).to_owned()), rows.len().to_string()));
   }
   let numbers: Vec<f64> = rows.iter().filter_map(|row| number_of(column, row)).collect();
   let value = match kind {
@@ -104,7 +146,7 @@ pub(super) fn summarize<R>(column: &TableColumn<R>, rows: &[&R]) -> Option<(Opti
     SummaryKind::Max => said(numbers.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
     SummaryKind::Count => unreachable!("counted above"),
   };
-  Some((Some(kind.label()), value))
+  Some((Some(labels.of(kind).to_owned()), value))
 }
 
 /// A summary row as a renderer sees it: its cells in the tracks of the columns, at the bottom of the grid where it
@@ -124,6 +166,8 @@ pub struct TableSummary {
   pub(super) pinned_start: bool,
   pub(super) pinned_end: bool,
   pub(super) fill: Option<BackgroundColor>,
+  /// What it is called to what reads the tree.
+  pub(super) name: String,
   pub(super) id: Option<Arc<str>>,
 }
 
@@ -141,7 +185,7 @@ impl TableSummary {
       .align_items(Alignment::Stretch)
       .column_tracks(&self.tracks)
       .describe("a11y_role", "row")
-      .describe("a11y_name", "Summary");
+      .describe("a11y_name", self.name.clone());
     if self.position.is_none() {
       row = row.sticky(Sticky::bottom(0.0)).key("summary");
     } else {
@@ -191,13 +235,13 @@ impl TableSummary {
 }
 
 /// What a summary cell holds: its label muted, then its value.
-pub(super) fn summary_content(recipe: &ResolvedRecipe, said: Option<(Option<&'static str>, String)>) -> Element {
+pub(super) fn summary_content(recipe: &ResolvedRecipe, said: Option<(Option<String>, String)>) -> Element {
   let Some((label, value)) = said else {
     return Row::new().into();
   };
   let mut content = Row::new().align_items(Alignment::Center).spacing(6.0);
   if let Some(label) = label {
-    content = content.child(recipe.part(TablePart::SummaryLabel).text(label).nowrap());
+    content = content.child(recipe.part(TablePart::SummaryLabel).text(&label).nowrap());
   }
   content
     .child(recipe.part(TablePart::SummaryValue).text(&value).nowrap())

@@ -32,14 +32,14 @@ mod groups;
 mod range;
 mod summary;
 
-pub use columns::{ColumnLayout, ColumnPlace};
+pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
 pub use groups::{GroupKey, TableGroup};
 use groups::{Lines, Shown};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
 use summary::{Summary, summarize, summary_content};
-pub use summary::{SummaryKind, TableSummary};
+pub use summary::{SummaryKind, SummaryLabels, TableSummary};
 
 use crate::{
   app::{
@@ -607,7 +607,17 @@ struct Words {
   count: Option<CountFn>,
   /// The name of a column's resizer, given the column's title.
   resize: Option<ResizeLabelFn>,
+  /// A grid's: the words of a column's menu, the name of its trigger given the column's title, the name of a
+  /// group's row given its column's title, its value and its count, the words of the summary rows, and the mark of
+  /// the numbers' header.
+  menu: Arc<ColumnMenuLabels>,
+  menu_trigger: Option<ResizeLabelFn>,
+  group: Option<GroupLabelFn>,
+  summary: Arc<SummaryLabels>,
+  numbers: Arc<str>,
 }
+
+type GroupLabelFn = Arc<dyn Fn(&str, &str, usize) -> String + Send + Sync>;
 
 impl Default for Words {
   fn default() -> Self {
@@ -617,6 +627,11 @@ impl Default for Words {
       select_row: Arc::from("Select row"),
       count: None,
       resize: None,
+      menu: Arc::default(),
+      menu_trigger: None,
+      group: None,
+      summary: Arc::default(),
+      numbers: Arc::from("#"),
     }
   }
 }
@@ -1336,6 +1351,31 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self.selectable() && self.checkboxes
   }
 
+  pub(super) fn set_column_menu_labels(mut self, labels: ColumnMenuLabels) -> Self {
+    self.words.menu = Arc::new(labels);
+    self
+  }
+
+  pub(super) fn set_menu_trigger_label(mut self, label: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+    self.words.menu_trigger = Some(Arc::new(label));
+    self
+  }
+
+  pub(super) fn set_group_label(mut self, label: impl Fn(&str, &str, usize) -> String + Send + Sync + 'static) -> Self {
+    self.words.group = Some(Arc::new(label));
+    self
+  }
+
+  pub(super) fn set_summary_labels(mut self, labels: SummaryLabels) -> Self {
+    self.words.summary = Arc::new(labels);
+    self
+  }
+
+  pub(super) fn set_row_numbers_label(mut self, label: &str) -> Self {
+    self.words.numbers = Arc::from(label);
+    self
+  }
+
   pub(super) fn set_row_numbers(mut self, numbers: bool) -> Self {
     self.row_numbers = numbers;
     self
@@ -1658,7 +1698,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         Some(TableGroup {
           position,
           key: line.key.clone(),
-          title,
+          title: title.clone(),
           count: line.count,
           open: line.open,
           entry: entry == Some(position),
@@ -1670,6 +1710,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             .unwrap_or_default(),
           grid: grid_model.is_some(),
           indent: indent + (line.key.level() - 1) as f32 * 20.0,
+          name: {
+            let value = line.key.values.last().map_or("", String::as_str);
+            match &self.words.group {
+              Some(label) => label(&title, value, line.count),
+              None => format!("{title}: {value}, {} {}", line.count, rows_word(line.count)),
+            }
+          },
           id: id_of(&format!("group-{position}")),
         })
       })
@@ -1686,7 +1733,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         .filter(|(column_index, _)| built(*column_index))
         .map(|(column_index, column)| TableCell {
           column: column_index,
-          content: summary_content(&summary_recipe, summarize(column, rows)),
+          content: summary_content(&summary_recipe, summarize(column, rows, &self.words.summary)),
           grid: None,
           part: summary_recipe.part(TablePart::Cell),
           align: column.align,
@@ -1712,6 +1759,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       pinned_start: sticky,
       pinned_end: end_pins > 0,
       fill: summary_fill.clone(),
+      name: self.words.summary.row.clone(),
       id,
     };
     let summaries: Vec<TableSummary> = shown
@@ -2021,6 +2069,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             move_by,
             move_to,
             place: column_index,
+            labels: self.words.menu.clone(),
+            trigger_label: self
+              .words
+              .menu_trigger
+              .as_ref()
+              .map_or_else(|| format!("{} column menu", column.title), |label| label(&column.title)),
           })
         });
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
@@ -2147,6 +2201,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       summary,
       numbered,
       number_lead,
+      numbers_label: self.words.numbers.clone(),
       select_rows: (selectable && !self.disabled && numbered).then(|| {
         let model = model.clone();
         Arc::new(move || model.select_shown(!all)) as Arc<dyn Fn() + Send + Sync>
@@ -2424,6 +2479,8 @@ pub struct TableView {
   pub number_lead: f32,
   /// What a press of the numbers' header does: every row selected, or none where all are.
   select_rows: Option<Arc<dyn Fn() + Send + Sync>>,
+  /// The mark of the numbers' header.
+  numbers_label: Arc<str>,
   /// Whether its rows are selected.
   pub selectable: bool,
   /// Whether it has the column of checkboxes.
@@ -2592,7 +2649,7 @@ impl TableView {
       .sticky(Sticky::left(0.0))
       .describe("a11y_role", "columnheader")
       .describe("a11y_name", self.select_all_label.clone())
-      .child(part.text("#").nowrap());
+      .child(part.text(&self.numbers_label).nowrap());
     if let Some(fill) = self.part(TablePart::Header).rest().background {
       cell = cell.background(fill);
     }
@@ -2919,7 +2976,7 @@ impl TableHeader {
     let mut trigger = pressable(&part, false)
       .focusable(false)
       .align_items(Alignment::Center)
-      .describe("a11y_name", format!("{} column menu", link.title))
+      .describe("a11y_name", link.trigger_label.clone())
       .describe("a11y_haspopup", "menu")
       .describe("a11y_expanded", if link.open { "true" } else { "false" })
       .on_click(move |event: MouseEvent| {
@@ -2951,7 +3008,7 @@ impl TableHeader {
     };
     let set_open = link.set_open.clone();
     let mut menu = Menu::controlled(true, link.host.menu_anchor.clone(), move |open| set_open(open))
-      .label(&format!("{} column", link.title))
+      .label(&link.trigger_label)
       .placement(Placement::BottomEnd);
     if let Some(id) = &self.id {
       menu = menu.id(format!("{id}-menu-panel"));
@@ -2959,19 +3016,19 @@ impl TableHeader {
     if link.sortable {
       menu = menu
         .item(
-          MenuItem::new("Sort ascending")
+          MenuItem::new(&link.labels.sort_ascending)
             .icon(icons::ARROW_UP)
             .checked(link.sorted == Some(SortDirection::Ascending))
             .on_select(choose(MenuChoice::Sort(Some(SortDirection::Ascending)))),
         )
         .item(
-          MenuItem::new("Sort descending")
+          MenuItem::new(&link.labels.sort_descending)
             .icon(icons::ARROW_DOWN)
             .checked(link.sorted == Some(SortDirection::Descending))
             .on_select(choose(MenuChoice::Sort(Some(SortDirection::Descending)))),
         )
         .item(
-          MenuItem::new("Clear sort")
+          MenuItem::new(&link.labels.clear_sort)
             .icon(icons::CHEVRONS_VERTICAL)
             .disabled(link.sorted.is_none())
             .on_select(choose(MenuChoice::Sort(None))),
@@ -2991,43 +3048,43 @@ impl TableHeader {
       }))
       .separator()
       .item(
-        MenuItem::new("Show all columns")
+        MenuItem::new(&link.labels.show_all)
           .disabled(!hidden)
           .on_select(choose(MenuChoice::ShowAll)),
       );
     Some(
       menu
         .item(
-          MenuItem::new("Pin to start")
+          MenuItem::new(&link.labels.pin_start)
             .icon(icons::PIN)
             .checked(link.pin == ColumnPin::Start)
             .on_select(choose(MenuChoice::Pin(ColumnPin::Start))),
         )
         .item(
-          MenuItem::new("Pin to end")
+          MenuItem::new(&link.labels.pin_end)
             .icon(icons::PIN)
             .checked(link.pin == ColumnPin::End)
             .on_select(choose(MenuChoice::Pin(ColumnPin::End))),
         )
         .item(
-          MenuItem::new("Unpin")
+          MenuItem::new(&link.labels.unpin)
             .icon(icons::CLOSE)
             .disabled(link.pin == ColumnPin::None)
             .on_select(choose(MenuChoice::Pin(ColumnPin::None))),
         )
         .separator()
         .item(
-          MenuItem::new("Size to fit")
+          MenuItem::new(&link.labels.size_to_fit)
             .icon(icons::RESIZE_HORIZONTAL)
             .on_select(choose(MenuChoice::Fit)),
         )
         .item(
-          MenuItem::new("Hide column")
+          MenuItem::new(&link.labels.hide)
             .icon(icons::EYE_OFF)
             .disabled(!link.can_hide)
             .on_select(choose(MenuChoice::Hide)),
         )
-        .item(MenuItem::new("Columns").icon(icons::EYE).submenu(columns))
+        .item(MenuItem::new(&link.labels.columns).icon(icons::EYE).submenu(columns))
         .build(self.recipe.theme()),
     )
   }
