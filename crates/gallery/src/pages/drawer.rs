@@ -317,7 +317,7 @@ impl Component for DrawerPage {
                       the navigation of an app, a pane of details or of filters.",
         import: Some("use lurq::ui::Drawer;"),
         status: Some("Stable"),
-        since: Some("0.63"),
+        since: Some("0.62"),
         source: file!(),
       },
       vec![

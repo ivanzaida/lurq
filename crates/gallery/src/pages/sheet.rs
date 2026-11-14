@@ -485,7 +485,7 @@ impl Component for SheetPage {
                       without leaving it: edit a profile, filter a list, share a document.",
         import: Some("use lurq::ui::Sheet;"),
         status: Some("Stable"),
-        since: Some("0.63"),
+        since: Some("0.62"),
         source: file!(),
       },
       vec![

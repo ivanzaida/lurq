@@ -2840,6 +2840,91 @@ let tour = Tour::new(step.clone())
 - Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Stepped` (it has a count), `Media`, and the side as a hover card has it.
 - In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
 
+## Command Palette
+
+A search over the window that finds a command or a place by typing: every command of an editor, the pages of an app, the files of a project.
+
+```rust
+use lurq::ui::{CommandItem, CommandPalette, icons};
+
+CommandPalette::new(open.clone())
+  .placeholder("Type a command or search")
+  .group("Suggestions", [
+    CommandItem::new("Toggle dark mode").icon(icons::MOON).shortcut("Ctrl+D").keywords(["theme"]).on_select(toggle),
+    CommandItem::new("Open DevTools").icon(icons::TERMINAL).shortcut("F12").on_select(devtools),
+  ])
+  .group("Files", files.iter().map(|file| CommandItem::new(&file.name).icon(icons::FILE).detail(&file.folder)))
+  .footer(true);
+
+// Commands an app fetches as a person types: it keeps every one it was given.
+CommandPalette::new(open.clone())
+  .query(query.clone())
+  .on_input(move |typed| fetched.set(search(typed)))
+  .filter(|_, _| true)
+  .loading(searching.get())
+  .items(fetched.get().iter().map(|hit| CommandItem::new(&hit.title)));
+```
+
+| Builder | |
+| --- | --- |
+| `CommandPalette::new(open)` | Shown while the app's `Signal<bool>` holds `true`. Running a command, Escape on an empty input and a press on the veil set it to `false` |
+| `placeholder(&str)` | What the input says while nothing is typed: "Type a command or search" |
+| `item(CommandItem)`, `items(..)` | Commands with no group |
+| `group(&str, items)` | Commands under a label: "Suggestions". A group with nothing shown for what is typed is not shown |
+| `filter(Fn(&CommandItem, &str) -> bool)` | Which commands are shown while something is typed. By default (`matches_every_word`) those whose label, detail or keywords hold every word typed, without regard to case, in the order the app gave them |
+| `on_input(Fn(&str))` | Called with what the input will hold at each edit: for an app that fetches its commands |
+| `query(Signal<String>)` | Where the app keeps what is typed. Without one the palette keeps it while it is open, and it is empty when it opens again |
+| `loading(bool)` | The list ends with a spinner and "Loading…" |
+| `empty(&str)` | What the list says when nothing is found: "No results" |
+| `footer(bool)` | A row at the bottom, under a line, of the keys that work in it: ↑ ↓ to move, ↵ to run, Esc to close |
+| `inline(bool)` | The panel drawn where it is declared, open or not, without the veil: for a gallery or a test |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
+| `CommandItem::new(label)` | A command: what it does, or where it goes |
+| `icon(name)`, `detail(&str)`, `shortcut(&str)` | An icon of 16 before the label; a second text after it, muted; the keys that do the same at the end, as a [menu](#menu) writes them (the app binds them) |
+| `keywords([..])` | Words that find it and are not shown |
+| `disabled(bool)`, `on_select(Fn())`, `id`, `key` | Dimmed, and passed by; called when it is run, before the palette closes; the row's id and key |
+
+- It stands near the top of the window over the veil, as the engine's `Modal`: the focus goes to its input as it opens and back to what had it as it closes, and Tab stays inside it, as a [dialog](#dialog)'s does.
+- The focus stays in the input. Down and Up move the highlight through the rows that are shown, across groups and round at the ends, past a disabled one, and scroll the list to it; the pointer moves it too, and a row shows it as a menu item shows the keyboard's focus. Enter runs the highlighted command and closes the palette; a click on a row does the same. Escape clears what was typed, and closes the palette when nothing is. Typing puts the highlight on the first row it shows.
+- To what reads the tree it is a `dialog` holding a `combobox` (the input, `expanded`, with the highlighted command's label as its `a11y_activedescendant`) and a `listbox` of `option`s with `a11y_selected`.
+- Parts: `CommandPalettePart::Veil`, `Panel`, `Search` (the row at the top), `SearchIcon`, `Input` (laid over the theme's input), `Key` (laid over the [Kbd](#kbd) key of the search row's Escape and of the footer), `Results` (what scrolls: its most height), `List` (the room around the rows), `GroupLabel`, `Row` (laid over a menu item's root), `Detail`, `Empty`, `Status`, `Footer`, `FooterHint`. The rows are a [menu](#menu)'s items: a theme's rules for `MenuItem` style them too. States: `CommandPaletteState::Loading`, `Empty`.
+- In the design the panel is 420 wide on `Popover` in an edge of 1 in `Border`, `radius-xl`, the large shadow, 72 from the top of the window over `Scrim`. The search row is 44 high, 14 in, with 10 between the magnifier of 16 in `MutedForeground`, the input in the body's type (no edge or fill of its own) and the key, and a line of `Border` under it. The list is padded 4 and scrolls past 320; a group's label is 12/500 in `MutedForeground`, padded 6 and 8; a row is a menu item, 32 high on `Highlight` while it is highlighted. The keys are the theme's [Kbd](#kbd), in the platform's names (`Enter` is ↩ on a Mac), and a row's shortcut is a Kbd's plain text, as a menu writes it, with the menu item's `Shortcut` part laid over its label.
+- A renderer that draws another palette has `view.panel()`, `view.search()`, `view.input()`, `view.key(label)`, `view.results()`, `view.group_label(label)`, `view.row(index)`, `view.empty_state()`, `view.status()`, `view.footer_row()`, `view.veil(panel)` and `view.modal(panel)`, with `view.shown()`, `view.command(index)` and `view.highlighted`.
+
+## Context Menu
+
+A [menu](#menu) of what can be done with an element, opened where the element is pressed with the secondary button or held with a finger: a file in a list, a node of a canvas, selected text.
+
+```rust
+use lurq::ui::{ContextMenu, MenuItem, icons};
+
+ContextMenu::new(file_row, open.clone())
+  .item(MenuItem::new("Open").icon(icons::FOLDER_OPEN).on_select(open_file))
+  .item(MenuItem::new("Rename").icon(icons::PENCIL).shortcut("F2").on_select(rename))
+  .separator()
+  .item(MenuItem::new("Delete").icon(icons::TRASH).destructive(true).on_select(delete));
+
+// The board's edit menu: the commands of selected text in one row.
+ContextMenu::new(editor, editing.clone())
+  .bar(true)
+  .items(["Cut", "Copy", "Paste", "Select All"].map(MenuItem::new));
+```
+
+| Builder | |
+| --- | --- |
+| `ContextMenu::new(target, open)` | The element the menu is for, which lays out as it would without it, and the app's `Signal<bool>`: what asks for the menu sets it, and choosing an item, a press outside and Escape clear it |
+| `item(MenuItem)`, `items(..)`, `separator()`, `label(&str)` | As a [menu](#menu) has them: icons, shortcuts, checks, radios, submenus, a destructive item |
+| `bar(bool)` | The commands in one row, as the board's edit menu over selected text has them. Left and Right move between them; a separator is a line down the row, and a label is left out |
+| `disabled(bool)` | The element has no menu now |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the panel's |
+
+- It opens at the pointer on a press of the secondary button on the element (and on Control and a press on macOS), at the finger on a long press, and under the element from its start on the Menu key or Shift+F10 while the focus is in the element. A press asks for the menu of the innermost element that has one; asked for again on its element, it moves to the new point.
+- It stays inside the window: where there is no room down or toward the end of the point, it opens up or back from it. One context menu is open at a time: asking for another closes the first.
+- It is a [menu](#menu): the focus goes to its first item as it opens and back to what had it as it closes, Up and Down move between the items, a letter goes to the item it starts, Enter chooses, a submenu opens beside its item. To what reads the tree it is a `menu`, and the element says it has one (`a11y_haspopup`).
+- Parts: `ContextMenuPart::Panel` (laid over the menu's panel), `Bar` (the panel of a bar), `BarItem` and `BarLabel` (laid over a menu item's root and label in a bar); the menu's and its items' parts are a menu's. State: `ContextMenuState::Bar`.
+- In the design the menu is a menu at least 220 wide, its corner at the pointer. The bar is a row on `Popover` padded 3, `radius-lg`, in an edge of `Border` with the large shadow; its items are 28 high, padded 10, their labels 13.
+- The engine places it: `Popup::at(Some((x, y)))` (`Overlay::at`) stands a popup at a point of the window and keeps it inside, which an app may use for a popup of its own.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
