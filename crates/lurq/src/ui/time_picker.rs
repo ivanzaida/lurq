@@ -902,7 +902,7 @@ impl TimePickerView {
   }
 
   /// A column of items: a `listbox` called by what it holds, which scrolls, one stop of Tab whose Up and Down go from
-  /// one item to the next. It opens with the item at `held` in the middle of what is seen.
+  /// one item to the next. It opens with the item at `held` second from its top, the one before it above it.
   fn column(&self, column: ColumnKind, items: Vec<Element>, held: Option<usize>) -> Element {
     let part = self.part(TimePickerPart::Column);
     let label = self.locale.segment_label(match column {
@@ -926,16 +926,15 @@ impl TimePickerView {
       Some(Dimension::Px(height)) => height,
       _ => 0.0,
     };
-    let seen = match part.rest().height.and_then(|height| height.resolve(self.theme())) {
-      Some(Dimension::Px(height)) => height,
-      _ => 0.0,
-    };
     let state = crate::layout::layout_kind::ScrollState::new();
     if let Some(index) = held {
-      let offset = index as f32 * (item + self.gap(TimePickerPart::Column)) - (seen - item) / 2.0;
+      let offset = index.saturating_sub(1) as f32 * (item + self.gap(TimePickerPart::Column));
       state.set_scroll_pending(0.0, offset.max(0.0));
     }
-    let mut scroll = ScrollVertical::new(list).with_scroll_state(state);
+    // The design draws no bar: one shows while the pointer is on the column, which says it scrolls.
+    let mut scroll = ScrollVertical::new(list)
+      .with_scroll_state(state)
+      .scrollbar(crate::layout::scrollbar::ScrollBarStyle::on_hover());
     if let Some(Dimension::Px(width)) = part.rest().width.and_then(|width| width.resolve(self.theme())) {
       scroll = scroll.width(width);
     }
