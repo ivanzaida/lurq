@@ -377,9 +377,9 @@ impl Component for ContextMenuPage {
       ),
       (
         "offset",
-        "f32, f32",
-        "",
-        "How far its corner stands from the point it was asked for.",
+        "impl Into<SpacingValue>",
+        "0",
+        "How far its corner is from the point it was asked for, down and toward the end.",
       ),
       (
         "collision",

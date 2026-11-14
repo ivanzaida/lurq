@@ -333,10 +333,10 @@ impl Component for PopoverPage {
       ("width", "impl Into<Length>", "292", "How wide the panel is."),
       (
         "offset",
-        "f32, f32",
+        "impl Into<SpacingValue>",
         "SpacingSize::Xs",
-        "How far it is moved, across and down, from where its placement puts it. By default the theme's \
-         smallest spacing away from the anchor: 4 in the design's theme.",
+        "How far it is from its anchor, along the side it is on: the theme's smallest spacing, 4 in the \
+         design's theme.",
       ),
       (
         "collision",

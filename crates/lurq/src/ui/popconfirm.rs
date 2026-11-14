@@ -22,7 +22,7 @@ use crate::{
   components::{Column, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, dimension::Dimension},
+  node::{Element, SpacingValue, dimension::Dimension},
 };
 
 /// The parts of a popconfirm a recipe styles.
@@ -130,7 +130,7 @@ pub struct Popconfirm {
   cancel: (Arc<str>, Option<Handler>),
   destructive: bool,
   placement: Placement,
-  offset: Option<(f32, f32)>,
+  offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   width: Option<Length>,
   label: Option<Arc<str>>,
@@ -226,10 +226,9 @@ impl Popconfirm {
     self
   }
 
-  /// How far it is moved from where its placement puts it, across (`x`) and
-  /// down (`y`), as [`Popover::offset`]: the popover's by default.
-  pub fn offset(mut self, x: f32, y: f32) -> Self {
-    self.offset = Some((x, y));
+  /// How far it is from its anchor, along the side it is on, as [`Popover::offset`]: the popover's by default.
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
     self
   }
 
@@ -372,8 +371,8 @@ impl Popconfirm {
     if let Some(trigger) = self.trigger {
       popover = popover.trigger(trigger);
     }
-    if let Some((x, y)) = self.offset {
-      popover = popover.offset(x, y);
+    if let Some(offset) = self.offset {
+      popover = popover.offset(offset);
     }
     if let Some(collision) = self.collision {
       popover = popover.collision(collision);

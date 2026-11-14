@@ -472,7 +472,7 @@ fn its_width_offset_and_collision_are_its_own() {
   let mut stage = Stage::new(page(|anchor| {
     delete_file(anchor, Signal::new(true), || {}, || {})
       .width(300.0)
-      .offset(0.0, 10.0)
+      .offset(10.0)
   }));
   let (_, trigger_y, _, trigger_height) = stage.bounds("trigger");
   let (_, y, width, _) = stage.bounds("panel");
