@@ -51,50 +51,44 @@ pub struct ToggletipPage {
   frame: Frame,
   playground: Playground,
   label: Signal<String>,
-  content: Signal<String>,
+  text: Signal<String>,
   link: Signal<bool>,
   /// The placement, as its index in [`PLACEMENTS`].
   placement: Signal<usize>,
   arrow: Signal<bool>,
-  open: Signal<bool>,
+  force_open: Signal<bool>,
   disabled: Signal<bool>,
 }
 
 impl ToggletipPage {
   /// The playground: a label and its toggletip as the panel's props make it.
   fn play(&self, ctx: &mut Ctx) -> Element {
-    let (label, content, link, chosen) = (
-      self.label.get(),
-      self.content.get(),
-      self.link.get(),
-      self.placement.get(),
-    );
+    let (label, text, link, chosen) = (self.label.get(), self.text.get(), self.link.get(), self.placement.get());
     let (placement_name, placement) = PLACEMENTS[chosen.min(PLACEMENTS.len() - 1)];
-    let (arrow, open, disabled) = (self.arrow.get(), self.open.get(), self.disabled.get());
+    let (arrow, open, disabled) = (self.arrow.get(), self.force_open.get(), self.disabled.get());
     let record = self.playground.recorder();
     let plain = {
-      let (label, content) = (label.clone(), content.clone());
+      let (label, text) = (label.clone(), text.clone());
       move || {
+        let dismissed = record.clone();
         let mut tip = Toggletip::new(&label)
-          .content(&content)
+          .text(&text)
           .placement(placement)
           .arrow(arrow)
-          .disabled(disabled);
+          .disabled(disabled)
+          .on_dismiss(move || dismissed("dismissed".to_owned()));
         if link {
           let record = record.clone();
-          tip = tip.link("Learn more", move |_| record("pressed: Learn more".to_owned()));
+          tip = tip.link("Learn more", move || record("pressed: Learn more".to_owned()));
         }
         tip
       }
     };
-    let shown = labelled("Pixel size", plain().open(open.then_some(true)).mount(ctx));
+    let shown = labelled("Pixel size", plain().force_open(open.then_some(true)).mount(ctx));
 
-    let mut code = vec![
-      format!("Toggletip::new({label:?})"),
-      format!("    .content({content:?})"),
-    ];
+    let mut code = vec![format!("Toggletip::new({label:?})"), format!("    .text({text:?})")];
     if link {
-      code.push("    .link(\"Learn more\", |_| open_docs())".to_owned());
+      code.push("    .link(\"Learn more\", || open_docs())".to_owned());
     }
     if placement != Placement::Top {
       code.push(format!("    .placement(Placement::{placement_name})"));
@@ -103,11 +97,12 @@ impl ToggletipPage {
       code.push("    .arrow(true)".to_owned());
     }
     if open {
-      code.push("    .open(Some(true))".to_owned());
+      code.push("    .force_open(Some(true))".to_owned());
     }
     if disabled {
       code.push("    .disabled(true)".to_owned());
     }
+    code.push("    .on_dismiss(|| dismissed())".to_owned());
     code.push("    .mount(ctx)".to_owned());
 
     let mut tree = vec![
@@ -120,7 +115,7 @@ impl ToggletipPage {
     ];
     let bar = if arrow { "│" } else { " " };
     tree.push(format!(
-      "{bar}  {} text   13, primary foreground, lines of 1.4",
+      "{bar}  {} label  13, primary foreground, lines of 1.4",
       if link { "├─" } else { "└─" }
     ));
     if link {
@@ -130,13 +125,13 @@ impl ToggletipPage {
       tree.push("└─ arrow   12 × 6, the panel's fill".to_owned());
     }
 
-    let (to_label, to_content, to_link, to_placement) = (
+    let (to_label, to_text, to_link, to_placement) = (
       self.label.clone(),
-      self.content.clone(),
+      self.text.clone(),
       self.link.clone(),
       self.placement.clone(),
     );
-    let (to_arrow, to_open, to_disabled) = (self.arrow.clone(), self.open.clone(), self.disabled.clone());
+    let (to_arrow, to_open, to_disabled) = (self.arrow.clone(), self.force_open.clone(), self.disabled.clone());
     let set_placement = self.placement.clone();
     let choices: Vec<(&str, usize)> = PLACEMENTS
       .iter()
@@ -156,12 +151,12 @@ impl ToggletipPage {
         } else {
           "on a press".to_owned()
         },
-        event: if link { "link" } else { "" },
+        event: if link { "link, on_dismiss" } else { "on_dismiss" },
         code,
         tree,
         controls: vec![
           prop("label", "&str", field(&self.label)),
-          prop("content", "&str", field(&self.content)),
+          prop("text", "&str", field(&self.text)),
           prop(
             "placement",
             "Placement",
@@ -172,7 +167,7 @@ impl ToggletipPage {
           divider(),
           flag("link", &self.link),
           flag("arrow", &self.arrow),
-          flag("open", &self.open),
+          flag("force open", &self.force_open),
           flag("disabled", &self.disabled),
         ],
         changed: [!link, placement != Placement::Top, arrow, !open, disabled]
@@ -181,7 +176,7 @@ impl ToggletipPage {
           .count(),
         reset: Arc::new(move || {
           to_label.set("What is a logical pixel?".to_owned());
-          to_content.set("Scales with the display, so 1px stays crisp.".to_owned());
+          to_text.set("Scales with the display, so 1px stays crisp.".to_owned());
           to_link.set(true);
           to_placement.set(0);
           to_arrow.set(false);
@@ -201,23 +196,23 @@ impl Component for ToggletipPage {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 1),
       label: ctx.signal("What is a logical pixel?".to_owned()),
-      content: ctx.signal("Scales with the display, so 1px stays crisp.".to_owned()),
+      text: ctx.signal("Scales with the display, so 1px stays crisp.".to_owned()),
       link: ctx.signal(true),
       placement: ctx.signal(0),
       arrow: ctx.signal(false),
-      open: ctx.signal(true),
+      force_open: ctx.signal(true),
       disabled: ctx.signal(false),
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let workspace = Toggletip::new("What is a workspace?")
-      .content("A workspace holds the projects a team shares, and who may open them.")
-      .link("Learn more", |_| {});
+      .text("A workspace holds the projects a team shares, and who may open them.")
+      .link("Learn more", || {});
     let field = room(labelled("Workspace", workspace.mount(ctx)));
 
     let billing = Toggletip::new("Why do we ask?")
-      .content("The country decides the tax on your invoice.")
+      .text("The country decides the tax on your invoice.")
       .child(
         Button::new("Change country")
           .variant(ButtonVariant::Secondary)
@@ -235,10 +230,10 @@ impl Component for ToggletipPage {
       .align_items(Alignment::Center);
     for (name, placement) in [("Top", Placement::Top), ("Right", Placement::Right)] {
       let tip = Toggletip::new(name)
-        .content(&format!("Placement::{name}, with its arrow."))
+        .text(&format!("Placement::{name}, with its arrow."))
         .placement(placement)
         .arrow(true)
-        .open(Some(true));
+        .force_open(Some(true));
       sides = sides.child(labelled(name, tip.mount(ctx)));
     }
 
@@ -255,18 +250,19 @@ impl Component for ToggletipPage {
         "",
         "Puts the button where it goes, and its panel over the window while it is open.",
       ),
-      ("content", "&str", "", "What the panel says."),
+      ("text", "&str", "", "What the panel says."),
       (
         "link",
-        "(&str, impl IntoMouseEventHandler)",
+        "(&str, impl Fn())",
         "",
-        "A link under the text, with an arrow after it. Tab goes into it from the button.",
+        "A link under the text, with an arrow after it, and what a press of it does. Tab goes into it from the \
+         button.",
       ),
       (
         "child",
         "impl Into<Element>",
         "",
-        "Something the panel holds under its text: a button.",
+        "Something the panel holds under its text: a button. children adds several.",
       ),
       ("icon", "impl Into<Name>", "icons::INFO", "The button's icon."),
       (
@@ -275,15 +271,40 @@ impl Component for ToggletipPage {
         "Top",
         "The side of the button the panel is on; the other side where there is no room.",
       ),
+      (
+        "offset",
+        "impl Into<SpacingValue>",
+        "6",
+        "How far the panel stands from the button, in place of what the theme gives it.",
+      ),
+      (
+        "collision",
+        "CollisionStrategy",
+        "FlipThenClamp",
+        "What the panel does where there is no room on its side: to the other side, then moved into the window.",
+      ),
       ("arrow", "bool", "false", "A triangle from the panel to the button."),
       (
-        "open",
+        "on_dismiss",
+        "impl Fn()",
+        "",
+        "Told after a person closed it: another press of the button, a press outside it, Escape.",
+      ),
+      ("dismiss_on_escape", "bool", "true", "Whether Escape closes it."),
+      (
+        "force_open",
         "Option<bool>",
         "None",
         "Shown whatever the button says, or never.",
       ),
       ("disabled", "bool", "false", "The button takes nothing."),
       ("width", "impl Into<Length>", "230", "How wide the panel is."),
+      (
+        "force",
+        "Option<Interaction>",
+        "None",
+        "Draws the button hovered, pressed or focused with nothing on it.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -301,8 +322,8 @@ impl Component for ToggletipPage {
       vec![
         Section::new(
           "Playground",
-          "Every prop of Toggletip is a control on the right. With open off, the button opens and closes the panel; \
-           a press outside it and Escape close it, and the focus stays on the button.",
+          "Every prop of Toggletip is a control on the right. With force open off, the button opens and closes the \
+           panel; a press outside it and Escape close it, and the focus stays on the button.",
           playground,
         ),
         Section::new(
@@ -311,11 +332,11 @@ impl Component for ToggletipPage {
           self.frame.demo(
             0,
             field,
-            "Toggletip::new(\"What is a workspace?\").content(..).link(..).mount(ctx)",
+            "Toggletip::new(\"What is a workspace?\").text(..).link(..).mount(ctx)",
             &[
               "Toggletip::new(\"What is a workspace?\")",
-              "    .content(\"A workspace holds the projects a team shares, and who may open them.\")",
-              "    .link(\"Learn more\", |_| open_docs())",
+              "    .text(\"A workspace holds the projects a team shares, and who may open them.\")",
+              "    .link(\"Learn more\", || open_docs())",
               "    .mount(ctx)",
             ],
           ),
@@ -329,7 +350,7 @@ impl Component for ToggletipPage {
             ".child(Button::new(\"Change country\"))",
             &[
               "Toggletip::new(\"Why do we ask?\")",
-              "    .content(\"The country decides the tax on your invoice.\")",
+              "    .text(\"The country decides the tax on your invoice.\")",
               "    .child(Button::new(\"Change country\").variant(ButtonVariant::Secondary).size(ButtonSize::Xs))",
               "    .placement(Placement::Bottom)",
               "    .mount(ctx)",
@@ -346,7 +367,7 @@ impl Component for ToggletipPage {
             ".placement(Placement::Right).arrow(true)",
             &[
               "Toggletip::new(\"Right\")",
-              "    .content(\"Placement::Right, with its arrow.\")",
+              "    .text(\"Placement::Right, with its arrow.\")",
               "    .placement(Placement::Right)",
               "    .arrow(true)",
               "    .mount(ctx)",

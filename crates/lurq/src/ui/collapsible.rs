@@ -7,7 +7,7 @@ use super::{
   icons, names,
   part_style::{Length, PartAnimation, PartTransition},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{FADE_IN, FADE_OUT, fading, pressable},
+  shared::{FADE_IN, FADE_OUT, IconChoice, fading, pressable, shown_icon},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -16,6 +16,7 @@ use crate::{
     IconSize, MotionDuration, MotionEasing, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle,
   },
   components::{self, Column, Row},
+  core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::{CursorIcon, Element, FocusGroup, color::Color},
 };
@@ -25,26 +26,26 @@ use crate::{
 pub enum CollapsiblePart {
   /// The header and the panel, one over the other.
   Root,
-  /// What is pressed: the header, with the label and the indicator.
+  /// What is pressed: the header, with the label and the chevron.
   Trigger,
   /// What the header says.
   Label,
   /// The icon at the end of the header that says it opens.
-  Indicator,
+  Chevron,
   /// What opens and closes: as high as what it holds while the collapsible is open, of no height while it is
   /// closed, and clipped on the way between them.
   Panel,
   /// What the panel holds, in its padding: the app's content.
-  Content,
+  Body,
 }
 
 names!(CollapsiblePart {
   Root => "root",
   Trigger => "trigger",
   Label => "label",
-  Indicator => "indicator",
+  Chevron => "chevron",
   Panel => "panel",
-  Content => "content",
+  Body => "body",
 });
 
 /// The states of a collapsible a recipe styles, besides what the pointer and
@@ -65,8 +66,8 @@ names!(CollapsibleState {
 /// What builds a collapsible's nodes: a theme's in place of the default one.
 pub type CollapsibleRenderer = Arc<dyn Fn(CollapsibleView) -> Element + Send + Sync>;
 
-/// What a collapsible shows while it is open: the app's element, or a text in the content's type.
-pub(crate) enum Body {
+/// What a collapsible shows while it is open: the app's element, or a text in the body's type.
+pub(crate) enum Content {
   Element(Element),
   Text(Arc<str>),
 }
@@ -80,25 +81,32 @@ pub(crate) enum Body {
 /// let crates = Collapsible::new("3 crates in this workspace", Column::new())
 ///   .open(true)
 ///   .on_change(|open| println!("open: {open}"));
-/// // A text in the content's type.
+/// // A text in the body's type.
 /// let note = Collapsible::text("Why is this here?", "Because the build needs it.");
+/// # fn bound(details: lurq::core::Signal<bool>) {
+/// // Open while the signal is true, which a press turns.
+/// let bound = Collapsible::text("Details", "What it holds.").bind(details);
+/// # }
 /// ```
 ///
 /// A collapsible does not keep whether it is open: the app says so with
-/// [`Collapsible::open`], and is told of a press of the header with
-/// [`Collapsible::on_change`]. What it holds opens and closes with its height
+/// [`Collapsible::open`], or binds it to a signal with [`Collapsible::bind`],
+/// and is told of a press of the header with [`Collapsible::on_change`].
+/// What it holds opens and closes with its height
 /// over the theme's duration, at once where motion is reduced; while it is
 /// closed it is not there, and the controls in it are not stops of Tab.
 pub struct Collapsible {
   label: Arc<str>,
-  body: Body,
+  body: Content,
   open: bool,
   disabled: bool,
-  icons: (Name, Name),
+  icon: Option<IconChoice>,
+  open_icon: Option<IconChoice>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
+  bound: Option<Signal<bool>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -106,25 +114,27 @@ pub struct Collapsible {
 impl Collapsible {
   /// A collapsible whose header says `label`, and that shows `content` while it is open.
   pub fn new(label: &str, content: impl Into<Element>) -> Self {
-    Self::of(label, Body::Element(content.into()))
+    Self::of(label, Content::Element(content.into()))
   }
 
   /// A collapsible whose header says `label`, and that shows the text `body` while it is open.
   pub fn text(label: &str, body: &str) -> Self {
-    Self::of(label, Body::Text(Arc::from(body)))
+    Self::of(label, Content::Text(Arc::from(body)))
   }
 
-  fn of(label: &str, body: Body) -> Self {
+  fn of(label: &str, body: Content) -> Self {
     Self {
       label: Arc::from(label),
       body,
       open: false,
       disabled: false,
-      icons: (icons::CHEVRONS_VERTICAL.into(), icons::CHEVRONS_VERTICAL.into()),
+      icon: None,
+      open_icon: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
       on_change: Vec::new(),
+      bound: None,
       id: None,
       key: None,
     }
@@ -136,16 +146,32 @@ impl Collapsible {
     self
   }
 
+  /// Open while `open` is true, which a press of the header turns. The handlers of
+  /// [`on_change`](Self::on_change) are told of a press after the signal is set; a value the app sets is told to
+  /// none of them.
+  pub fn bind(mut self, open: Signal<bool>) -> Self {
+    self.open = open.get();
+    self.bound = Some(open);
+    self
+  }
+
   /// Whether the header takes no input.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
     self
   }
 
-  /// The icons of the indicator while the collapsible is closed and while it is open, by their names in the
-  /// theme's set. Both are `chevrons-vertical` unless told otherwise.
-  pub fn icons(mut self, closed: impl Into<Name>, open: impl Into<Name>) -> Self {
-    self.icons = (closed.into(), open.into());
+  /// The icon of the chevron, by its name in the theme's set, in place of `chevrons-vertical`; or none,
+  /// `icon(None)`, and the header has no chevron.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.icon = Some(icon.into());
+    self
+  }
+
+  /// The icon of the chevron while the collapsible is open, in place of its [`icon`](Self::icon); or none,
+  /// `open_icon(None)`.
+  pub fn open_icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.open_icon = Some(icon.into());
     self
   }
 
@@ -191,6 +217,7 @@ impl Collapsible {
     self
   }
 
+  /// The key of the header, among what is beside it.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
@@ -208,17 +235,26 @@ impl Collapsible {
     }
     .state(CollapsibleState::Open, self.open)
     .state(CollapsibleState::Disabled, self.disabled);
-    let (closed, opened) = self.icons;
+    let closed = shown_icon(self.icon, icons::CHEVRONS_VERTICAL);
+    let icon = match self.open_icon {
+      Some(IconChoice(opened)) if self.open => opened,
+      _ => closed,
+    };
+    // A bound collapsible sets its signal first: its handlers are told of a press once it is so.
+    let mut on_change = self.on_change;
+    if let Some(bound) = self.bound {
+      on_change.insert(0, Arc::new(move |next| bound.set(next)));
+    }
     let view = CollapsibleView {
       label: self.label,
       open: self.open,
       disabled: self.disabled,
-      icon: if self.open { opened } else { closed },
+      icon,
       recipe: theme.resolve::<Collapsible>(&case, Some(&self.rules)),
       root: CollapsiblePart::Root.into(),
       body: Some(self.body),
       forced: self.forced,
-      on_change: self.on_change,
+      on_change,
       id: self.id,
       key: self.key,
     };
@@ -242,13 +278,13 @@ pub struct CollapsibleView {
   pub label: Arc<str>,
   pub open: bool,
   pub disabled: bool,
-  /// The icon of the indicator as the collapsible is now: open or closed.
-  pub icon: Name,
+  /// The icon of the chevron as the collapsible is now, open or closed: none where it has no chevron.
+  pub icon: Option<Name>,
   /// The style of each part of this collapsible.
   pub recipe: ResolvedRecipe,
   /// The part that holds the header and the panel: the root of a collapsible, an item of an accordion.
   pub(crate) root: Name,
-  body: Option<Body>,
+  body: Option<Content>,
   forced: Option<Interaction>,
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   id: Option<Arc<str>>,
@@ -260,26 +296,29 @@ impl CollapsibleView {
   #[allow(clippy::too_many_arguments)]
   pub(crate) fn item(
     label: Arc<str>,
-    body: Body,
+    body: Content,
     open: bool,
     disabled: bool,
     icon: Name,
     recipe: ResolvedRecipe,
     root: Name,
     press: Arc<dyn Fn(bool) + Send + Sync>,
+    forced: Option<Interaction>,
+    id: Option<Arc<str>>,
+    key: Option<Arc<str>>,
   ) -> Self {
     Self {
       label,
       open,
       disabled,
-      icon,
+      icon: Some(icon),
       recipe,
       root,
       body: Some(body),
-      forced: None,
+      forced,
       on_change: vec![press],
-      id: None,
-      key: None,
+      id,
+      key,
     }
   }
 
@@ -327,29 +366,31 @@ impl CollapsibleView {
     trigger
   }
 
-  /// The label in the style of its part, taking the room of the header the indicator does not.
+  /// The label in the style of its part, taking the room of the header the chevron does not.
   pub fn label(&self) -> Row {
     let part = self.part(CollapsiblePart::Label);
     Row::new().flex(1.0).part(&part).child(part.text(&self.label))
   }
 
-  /// The indicator: the icon of the collapsible as it is now, an icon of the theme's middle size in the middle
-  /// of its part.
-  pub fn indicator(&self) -> Row {
-    let part = self.part(CollapsiblePart::Indicator);
-    let icon = Icon::new(self.icon)
+  /// The chevron: the icon of the collapsible as it is now, an icon of the theme's middle size in the middle of
+  /// its part. None where the collapsible has no icon.
+  pub fn chevron(&self) -> Option<Row> {
+    let part = self.part(CollapsiblePart::Chevron);
+    let icon = Icon::new(self.icon?)
       .size(Length::Icon(IconSize::Md))
       .build(self.theme());
-    Row::new()
-      .justify(Justify::Center)
-      .align_items(Alignment::Center)
-      .part(&part)
-      .child(icon)
+    Some(
+      Row::new()
+        .justify(Justify::Center)
+        .align_items(Alignment::Center)
+        .part(&part)
+        .child(icon),
+    )
   }
 
   /// What opens and closes, with what it holds while the collapsible is open. Its height is the recipe's: of
   /// none while it is closed and its content's while it is open, with a transition between the two. What it
-  /// held stays while the panel closes over it, only painted, and is gone with the content's exit animation.
+  /// held stays while the panel closes over it, only painted, and is gone with the body's exit animation.
   pub fn panel(&mut self) -> Column {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
@@ -359,10 +400,10 @@ impl CollapsibleView {
     if self.open
       && let Some(body) = self.body.take()
     {
-      let part = self.part(CollapsiblePart::Content);
+      let part = self.part(CollapsiblePart::Body);
       let content: Element = match body {
-        Body::Element(element) => element,
-        Body::Text(text) => part.text(&text).into(),
+        Content::Element(element) => element,
+        Content::Text(text) => part.text(&text).into(),
       };
       // Keyed, so that what the panel held is told apart from what it holds next, and kept as it leaves.
       // What it holds is in no group of the arrow keys: an accordion's move between its headers, past it.
@@ -378,10 +419,13 @@ impl CollapsibleView {
     panel
   }
 
-  /// How the default renderer builds a collapsible: the header with its label and indicator, and the panel
-  /// under it.
+  /// How the default renderer builds a collapsible: the header with its label and chevron, and the panel under
+  /// it.
   pub fn render(mut self) -> Element {
-    let trigger = self.trigger().child(self.label()).child(self.indicator());
+    let mut trigger = self.trigger().child(self.label());
+    if let Some(chevron) = self.chevron() {
+      trigger = trigger.child(chevron);
+    }
     let panel = self.panel();
     Column::new()
       .align_items(Alignment::Stretch)
@@ -396,16 +440,16 @@ impl CollapsibleView {
 
 /// What opens and closes in the design's collapsible and accordion: a panel
 /// of no height while closed and of its content's while open, over the
-/// theme's base duration; the content fades in as it opens and out as it
+/// theme's base duration; the body fades in as it opens and out as it
 /// closes.
-pub(crate) fn opening(recipe: Recipe, open: Name, panel: Name, content: Name) -> Recipe {
+pub(crate) fn opening(recipe: Recipe, open: Name, panel: Name, body: Name) -> Recipe {
   recipe
     .base(panel, |s| {
       s.height(0.0)
         .transition(PartTransition::new(Transition::height(), MotionDuration::Base))
     })
     .state(open, panel, |s| s.height(Length::Auto))
-    .base(content, |s| {
+    .base(body, |s| {
       s.enter(PartAnimation::new(
         FADE_IN,
         MotionDuration::Base,
@@ -428,7 +472,7 @@ impl Themed for Collapsible {
   /// `chevrons-vertical` icon of 16 in a ghost button of 32, which the
   /// highlight fills under the pointer; what it opens is 8 under it.
   fn recipe() -> Recipe {
-    use CollapsiblePart::{Content, Indicator, Label, Panel, Root, Trigger};
+    use CollapsiblePart::{Body, Chevron, Label, Panel, Root, Trigger};
     use PaletteColor::*;
     let recipe = Recipe::new()
       .base(Root, |s| s.foreground(Foreground))
@@ -436,20 +480,20 @@ impl Themed for Collapsible {
         fading(s.gap(8.0).radius(RadiusSize::Md).cursor(CursorIcon::Pointer))
       })
       .base(Label, |s| s.typography(TypographyStyle::Label))
-      .base(Indicator, |s| {
+      .base(Chevron, |s| {
         fading(s.square(32.0).radius(RadiusSize::Md))
       })
-      .base(Content, |s| s.padding_top(8.0).typography(TypographyStyle::Body))
-      .hovered(Indicator, |s| s.background(Highlight).foreground(HighlightForeground))
+      .base(Body, |s| s.padding_top(8.0).typography(TypographyStyle::Body))
+      .hovered(Chevron, |s| s.background(Highlight).foreground(HighlightForeground))
       .focus_visible(Trigger, |s| s.focus_ring())
       // The header is dimmed, not what it opens: that is the app's, with controls of its own.
       .state(CollapsibleState::Disabled, Trigger, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
       // A disabled one does not light its button under the pointer.
-      .when(Selector::new().state(CollapsibleState::Disabled).hovered(), Indicator, |s| {
+      .when(Selector::new().state(CollapsibleState::Disabled).hovered(), Chevron, |s| {
         s.background(Color::new(0, 0, 0, 0)).foreground(Foreground)
       });
-    opening(recipe, CollapsibleState::Open.into(), Panel.into(), Content.into())
+    opening(recipe, CollapsibleState::Open.into(), Panel.into(), Body.into())
   }
 }

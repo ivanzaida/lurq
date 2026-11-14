@@ -11,12 +11,12 @@ use std::{cell::RefCell, sync::Arc, time::Duration};
 use parking_lot::Mutex;
 
 use super::{
-  TooltipSide, names,
+  IconChoice, TooltipSide, names,
   part_style::{Length, PartAnimation, PartStyle, TransitionDuration},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{FADE_IN, FADE_OUT, glyph},
   theme::{Themed, current_theme},
-  tip::{Placed, arrow, arrow_size, frame, holds_children, put, side_of},
+  tip::{Placed, arrow, arrow_size, frame, holds_children, length, put, side_of, with_offset},
 };
 use crate::{
   app::{
@@ -29,7 +29,7 @@ use crate::{
   components::{Column, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, text_style::FontWeight},
-  node::{Element, HitTestBehavior, Node, NodeUpdate, border::Border, dimension::Dimension},
+  node::{Element, HitTestBehavior, Node, NodeUpdate, SpacingValue, border::Border, dimension::Dimension},
 };
 
 /// The parts of a hover card a recipe styles.
@@ -107,12 +107,13 @@ pub type HoverCardRenderer = Arc<dyn Fn(HoverCardView) -> Element + Send + Sync>
 ///     .media(Avatar::new("LQ"))
 ///     .title("@lurq")
 ///     .description("A Rust UI toolkit with GPU-backed rendering.")
-///     .fact(icons::CALENDAR_DAYS, "Joined March 2024")
+///     .fact("Joined March 2024", icons::CALENDAR_DAYS)
 ///     .mount(ctx, Link::new("@lurq"))
 /// }
 /// ```
 ///
-/// It opens when the pointer has rested on the element for its open delay,
+/// It is under the element and centered on it unless its placement says
+/// otherwise. It opens when the pointer has rested on the element for its open delay,
 /// and at once when the keyboard's focus comes to the element or to anything
 /// in it. It stays open while the pointer is on the element, on the card or
 /// crossing the room between them, and while the focus is in either; it
@@ -124,23 +125,26 @@ pub type HoverCardRenderer = Arc<dyn Fn(HoverCardView) -> Element + Send + Sync>
 /// other, its arrow turned with it, and it is kept in the window.
 ///
 /// To tooling the card is a dialog where it holds a control and a tooltip
-/// where it does not, called by its title; the element is described by its
-/// title and description.
+/// where it does not, called by its label or else its title; the element is
+/// described by its title and description.
 ///
 /// Converted into an element on its own, a hover card is its panel as it
 /// shows, anchored to nothing: for a gallery, a test, or a host of an app's own.
 #[derive(Clone)]
 pub struct HoverCard {
+  label: Option<Arc<str>>,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
   media: Option<Element>,
   facts: Vec<(Option<Name>, Arc<str>)>,
   children: Vec<Element>,
   placement: Placement,
+  offset: Option<SpacingValue>,
+  collision: CollisionStrategy,
   arrow: bool,
   open_delay: TransitionDuration,
   close_delay: TransitionDuration,
-  open: Option<bool>,
+  force_open: Option<bool>,
   disabled: bool,
   width: Option<Length>,
   states: Vec<Name>,
@@ -156,19 +160,23 @@ impl Default for HoverCard {
 }
 
 impl HoverCard {
-  /// A hover card with nothing in it yet, under what it is about, with no arrow.
+  /// A hover card with nothing in it yet, under what it is about and
+  /// centered on it (`Placement::Bottom`), with no arrow.
   pub fn new() -> Self {
     Self {
+      label: None,
       title: None,
       description: None,
       media: None,
       facts: Vec::new(),
       children: Vec::new(),
       placement: Placement::Bottom,
+      offset: None,
+      collision: CollisionStrategy::FlipThenClamp,
       arrow: false,
       open_delay: TransitionDuration::Role(MotionDuration::Slower),
       close_delay: TransitionDuration::Role(MotionDuration::Slow),
-      open: None,
+      force_open: None,
       disabled: false,
       width: None,
       states: Vec::new(),
@@ -178,7 +186,15 @@ impl HoverCard {
     }
   }
 
+  /// What tooling calls the card, in place of its title: for a card with no
+  /// title, or one whose title says too little alone.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
   /// What the card is about, at the top of its text: a name, a page's title.
+  /// What tooling calls it, unless its label says otherwise.
   pub fn title(mut self, title: &str) -> Self {
     self.title = Some(Arc::from(title));
     self
@@ -197,16 +213,19 @@ impl HoverCard {
     self
   }
 
-  /// Adds a fact under the description, after those it has: an icon of the
-  /// theme's set by its name and a short text, "Joined March 2024".
-  pub fn fact(mut self, icon: impl Into<Name>, text: &str) -> Self {
-    self.facts.push((Some(icon.into()), Arc::from(text)));
+  /// Adds a fact under the description, after those it has: a short text,
+  /// "Joined March 2024", and before it an icon of the theme's set by its
+  /// name, or `None` for no icon.
+  pub fn fact(mut self, text: &str, icon: impl Into<IconChoice>) -> Self {
+    self.facts.push((icon.into().0, Arc::from(text)));
     self
   }
 
-  /// Adds a fact with no icon.
-  pub fn plain_fact(mut self, text: &str) -> Self {
-    self.facts.push((None, Arc::from(text)));
+  /// Adds several facts, each its text and its icon or `None`.
+  pub fn facts<'a, I: Into<IconChoice>>(mut self, facts: impl IntoIterator<Item = (&'a str, I)>) -> Self {
+    for (text, icon) in facts {
+      self = self.fact(text, icon);
+    }
     self
   }
 
@@ -223,9 +242,24 @@ impl HoverCard {
   }
 
   /// Which side of what it is about the card is on, and which edge of it it
-  /// lines up with: under it and centered by default.
+  /// lines up with: under it and centered (`Placement::Bottom`) by default.
   pub fn placement(mut self, placement: Placement) -> Self {
     self.placement = placement;
+    self
+  }
+
+  /// How far the card stands from what it is about, in place of what the
+  /// theme gives it (8 in the design's). The pointer crosses it to the card
+  /// without the card closing.
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
+    self
+  }
+
+  /// What the card does where there is no room for it on its side: goes to
+  /// the other side, then is moved into the window, by default.
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = collision;
     self
   }
 
@@ -254,8 +288,8 @@ impl HoverCard {
   /// Shows the card whatever the pointer and the focus do (`Some(true)`), or
   /// never (`Some(false)`); `None`, as it starts, leaves it to them. For a
   /// gallery, a test.
-  pub fn open(mut self, open: Option<bool>) -> Self {
-    self.open = open;
+  pub fn force_open(mut self, open: Option<bool>) -> Self {
+    self.force_open = open;
     self
   }
 
@@ -334,13 +368,17 @@ impl HoverCard {
     .state(side, true)
     .state(HoverCardState::Arrow, self.arrow)
     .state(HoverCardState::Controls, controls);
-    // A width given here is under what `style` and `rules` say of the panel.
+    // A width and an offset given here are under what `style` and `rules` say of the panel and the root.
     let mut rules = Recipe::new();
     if let Some(width) = self.width {
       rules = rules.base(HoverCardPart::Panel, |s| s.width(width));
     }
+    if let Some(offset) = self.offset {
+      rules = with_offset(rules, HoverCardPart::Root, side, offset);
+    }
     let rules = rules.extend(&self.rules);
     HoverCardView {
+      label: self.label.clone().or_else(|| self.title.clone()),
       title: self.title.clone(),
       description: self.description.clone(),
       media: self.media.clone(),
@@ -381,6 +419,8 @@ impl From<HoverCard> for Element {
 /// A hover card as a renderer sees it: what it shows, the side it is on, and
 /// the style of its parts.
 pub struct HoverCardView {
+  /// What tooling calls it: its label, or else its title.
+  pub label: Option<Arc<str>>,
   pub title: Option<Arc<str>>,
   pub description: Option<Arc<str>>,
   pub media: Option<Element>,
@@ -469,14 +509,14 @@ impl HoverCardView {
 
   /// The panel: the media at its start, beside the text. A dialog to what
   /// reads the tree where it holds a control, else a tooltip, called by its
-  /// title.
+  /// label.
   pub fn panel(&mut self) -> Row {
     let mut panel = Row::new()
       .align_items(Alignment::Start)
       .part(&self.part(HoverCardPart::Panel))
       .describe("a11y_role", if self.controls { "dialog" } else { "tooltip" });
-    if let Some(title) = &self.title {
-      panel = panel.describe("a11y_name", title.clone());
+    if let Some(label) = &self.label {
+      panel = panel.describe("a11y_name", label.clone());
     }
     if let Some(media) = self.media.take() {
       panel = panel.child(
@@ -627,14 +667,6 @@ fn take_turn(id: usize, hide: &Hide) {
   }
 }
 
-/// A duration of `theme`'s, or a set one.
-fn length(duration: TransitionDuration, theme: &Theme) -> Duration {
-  match duration {
-    TransitionDuration::Role(role) => theme.durations().try_get(role).unwrap_or_default(),
-    TransitionDuration::Set(duration) => duration,
-  }
-}
-
 /// Where the pointer is: on the element, on the card.
 #[derive(Default)]
 struct Pointer {
@@ -742,9 +774,9 @@ impl Component for HoverCardHost {
       &anchor,
       view.arrow_size().map_or(0.0, |(along, _)| along),
     );
-    let shows = card.open.unwrap_or(asked);
+    let shows = card.force_open.unwrap_or(asked);
     // A card that went from under the pointer is told of no leave: the pointer is on it no longer.
-    if !shows || (card.open.is_none() && !allowed.get()) {
+    if !shows || (card.force_open.is_none() && !allowed.get()) {
       self.pointer.lock().on_card = false;
     }
     let overlay = if shows {
@@ -773,13 +805,13 @@ impl Component for HoverCardHost {
       let overlay = Overlay::new(shown)
         .anchor(anchor.clone())
         .placement(card.placement)
-        .collision(CollisionStrategy::FlipThenClamp)
+        .collision(card.collision)
         // The pointer can be moved onto the card, its root and the room in it toward the element included (with
         // `ContentOnly` the root, which holds the handlers, would not be hit). It stands beside the element.
         .hit_test(HitTestBehavior::Auto)
         // Tab goes from the element into the card's controls and on, and the focus is not moved as it opens.
         .tab_after_anchor(true);
-      match card.open {
+      match card.force_open {
         // Shown by the app: Escape is not the card's to take.
         Some(_) => overlay,
         // The runtime turns `allowed` off on an Escape while this is the top layer that takes it, so the key

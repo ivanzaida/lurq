@@ -25,14 +25,14 @@ use super::{
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
-  tooltip::{Tooltip, TooltipSide},
+  tooltip::Tooltip,
 };
 use crate::{
   animation::Transition,
   app::{
     component::Component,
-    ctx::{Ctx, OpenState, Placement},
-    events::KeyboardEvent,
+    ctx::{Ctx, Placement},
+    events::{KeyboardEvent, MouseEvent},
     theme::{
       BorderSize, Breakpoint, IconSize, MotionDuration, MotionEasing, OpacityLevel, PaletteColor, RadiusSize, Theme,
       TypographyStyle,
@@ -42,7 +42,8 @@ use crate::{
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, scrollbar::ScrollBarStyle, text_style::FontWeight},
   node::{
-    CursorIcon, Element, FocusGroup, border::Border as Edge, color::Color, dimension::Dimension, outline::Outline,
+    CursorIcon, Element, EventHandler, FocusGroup, IntoMouseEventHandler, border::Border as Edge, color::Color,
+    dimension::Dimension, outline::Outline,
   },
 };
 
@@ -149,8 +150,8 @@ pub enum SidebarState {
   Disabled,
   /// Of an item with nested items, or of a group that opens and closes: it is open.
   Open,
-  /// Of a group's label or a heading: it is pressed.
-  Interactive,
+  /// Of a group's label or a heading: it is pressed as a whole.
+  Pressable,
 }
 
 names!(SidebarState {
@@ -159,7 +160,7 @@ names!(SidebarState {
   Selected => "selected",
   Disabled => "disabled",
   Open => "open",
-  Interactive => "interactive",
+  Pressable => "pressable",
 });
 
 /// The kinds of [`SidebarHeading`], as the board draws them.
@@ -217,7 +218,7 @@ pub struct SidebarItem {
   shortcut: Option<Arc<str>>,
   selected: bool,
   disabled: bool,
-  open: Option<bool>,
+  default_open: Option<bool>,
   on_select: Vec<Handler>,
   href: Option<Arc<str>>,
   children: Vec<SidebarItem>,
@@ -237,7 +238,7 @@ impl SidebarItem {
       shortcut: None,
       selected: false,
       disabled: false,
-      open: None,
+      default_open: None,
       on_select: Vec::new(),
       href: None,
       children: Vec::new(),
@@ -286,8 +287,8 @@ impl SidebarItem {
   /// Whether its nested items are open when the sidebar first shows it: they
   /// are where one of them is selected, unless told otherwise. The sidebar
   /// keeps whether they are open from then on.
-  pub fn open(mut self, open: bool) -> Self {
-    self.open = Some(open);
+  pub fn default_open(mut self, open: bool) -> Self {
+    self.default_open = Some(open);
     self
   }
 
@@ -366,7 +367,7 @@ pub struct SidebarGroup {
   count: Option<usize>,
   action: Option<Element>,
   collapsible: bool,
-  open: bool,
+  default_open: bool,
   items: Vec<SidebarItem>,
   key: Option<Arc<str>>,
 }
@@ -379,7 +380,7 @@ impl SidebarGroup {
       count: None,
       action: None,
       collapsible: false,
-      open: true,
+      default_open: true,
       items: Vec::new(),
       key: None,
     }
@@ -405,8 +406,8 @@ impl SidebarGroup {
 
   /// Whether a group that opens and closes is open when the sidebar first shows it. It is, unless told otherwise;
   /// the sidebar keeps whether it is open from then on.
-  pub fn open(mut self, open: bool) -> Self {
-    self.open = open;
+  pub fn default_open(mut self, open: bool) -> Self {
+    self.default_open = open;
     self
   }
 
@@ -458,7 +459,7 @@ impl SidebarGroup {
 ///         .item(SidebarItem::new("Overview").icon(icons::HOME))
 ///         .item(SidebarItem::new("Inbox").icon(icons::INBOX).count(12).selected(true)),
 ///     )
-///     .collapsed(collapsed)
+///     .collapsed(collapsed.get())
 ///     .open(open)
 ///     .mount(ctx)
 /// }
@@ -490,7 +491,7 @@ pub struct Sidebar {
   footer: Option<Element>,
   footer_collapsed: Option<Element>,
   groups: Vec<SidebarGroup>,
-  collapsed: OpenState,
+  collapsed: bool,
   open: Option<Signal<bool>>,
   narrow: Option<bool>,
   states: Vec<Name>,
@@ -515,7 +516,7 @@ impl Sidebar {
       footer: None,
       footer_collapsed: None,
       groups: Vec::new(),
-      collapsed: OpenState::Static(false),
+      collapsed: false,
       open: None,
       narrow: None,
       states: Vec::new(),
@@ -531,7 +532,8 @@ impl Sidebar {
     self
   }
 
-  /// What stays at its top: a [`SidebarHeading`] of the app or the workspace, a search.
+  /// What stays at its top: a [`SidebarHeading`] of the app or the workspace, a search. It has one header: a
+  /// second call takes the place of the first.
   pub fn header(mut self, header: impl Into<Element>) -> Self {
     self.header = Some(header.into());
     self
@@ -543,7 +545,8 @@ impl Sidebar {
     self
   }
 
-  /// What stays at its bottom: a [`SidebarHeading`] of who is signed in, the settings.
+  /// What stays at its bottom: a [`SidebarHeading`] of who is signed in, the settings. It has one footer, where a
+  /// card or a dialog adds to a row of buttons: a second call takes the place of the first.
   pub fn footer(mut self, footer: impl Into<Element>) -> Self {
     self.footer = Some(footer.into());
     self
@@ -576,11 +579,16 @@ impl Sidebar {
     self
   }
 
-  /// Whether it is the rail of the items' icons: a `bool`, or the app's
-  /// `Signal<bool>`, which [`SidebarTrigger`] turns. Its width moves between
-  /// the two.
-  pub fn collapsed(mut self, collapsed: impl Into<OpenState>) -> Self {
-    self.collapsed = collapsed.into();
+  /// Items in a group of no label, in order, after what it holds already.
+  pub fn items(self, items: impl IntoIterator<Item = SidebarItem>) -> Self {
+    items.into_iter().fold(self, Sidebar::item)
+  }
+
+  /// Whether it is the rail of the items' icons: the value of the app's
+  /// `Signal<bool>` that [`SidebarTrigger`] turns, `collapsed.get()`. Its width
+  /// moves between the two.
+  pub fn collapsed(mut self, collapsed: bool) -> Self {
+    self.collapsed = collapsed;
     self
   }
 
@@ -630,6 +638,14 @@ impl Sidebar {
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
+  }
+
+  /// Builds the sidebar in `theme` as it is at rest, its nested lists as they start, with no tooltips on the rail
+  /// and nothing kept from one build to the next: for a gallery, a test, or a window of its own. Converting a
+  /// sidebar into an element does this in the theme of what is being rendered. [`Sidebar::mount`] is what an app
+  /// puts in its window.
+  pub fn build(self, theme: &Theme) -> Element {
+    build_sidebar(&self, theme, &SidebarHost::detached(), None, None)
   }
 
   /// Puts the sidebar where it goes: beside the page, or over it on a narrow window.
@@ -688,7 +704,7 @@ impl Component for SidebarHost {
     let navigator = ctx.navigator();
     #[cfg(not(feature = "router"))]
     let navigator = None;
-    build_sidebar(&sidebar, self, Some(ctx), navigator)
+    build_sidebar(&sidebar, &current_theme(), self, Some(ctx), navigator)
   }
 }
 
@@ -714,14 +730,15 @@ type Navigator = ();
 /// have no tooltips: there is nothing to mount them with.
 fn build_sidebar(
   sidebar: &Sidebar,
+  theme: &Theme,
   host: &SidebarHost,
   ctx: Option<&mut Ctx>,
   navigator: Option<Navigator>,
 ) -> Element {
-  let theme = current_theme();
+  let theme = theme.clone();
   let overlay = sidebar.narrow.unwrap_or_else(window_is_narrow);
   // Over the page it is the whole sidebar, whatever the rail would be.
-  let collapsed = !overlay && sidebar.collapsed.is_open();
+  let collapsed = !overlay && sidebar.collapsed;
   let open = sidebar.open.clone().unwrap_or_else(|| host.open.clone());
   // Where the selected item has moved to since the last render, it is scrolled into view, and the lists it is in are
   // opened: by the app, a router, a search, as by a press of it. The lists start open where it starts.
@@ -805,7 +822,7 @@ fn build_sidebar(
 /// own. [`Sidebar::mount`] is what an app puts in its window.
 impl From<Sidebar> for Element {
   fn from(sidebar: Sidebar) -> Self {
-    build_sidebar(&sidebar, &SidebarHost::detached(), None, None)
+    sidebar.build(&current_theme())
   }
 }
 
@@ -907,7 +924,7 @@ impl Build<'_> {
     let key = format!("{index}:{}", group.ident());
     let collapsible = group.collapsible && !self.collapsed;
     let open = if collapsible {
-      self.opened(&key, group.open).get()
+      self.opened(&key, group.default_open).get()
     } else {
       true
     };
@@ -915,7 +932,7 @@ impl Build<'_> {
     let holds = !open && group.items.iter().any(|item| item.selected || item.holds_selected());
     let recipe = self.recipe(&[
       (SidebarState::Open, open),
-      (SidebarState::Interactive, collapsible),
+      (SidebarState::Pressable, collapsible),
       (SidebarState::Selected, holds),
     ]);
     let mut root = Column::new()
@@ -971,7 +988,10 @@ impl Build<'_> {
       Row::new().part(&part).child(part.text(&count.to_string()).nowrap())
     });
     let mut label: Element = if collapsible {
-      let (signal, toggle) = (self.opened(key, group.open), self.opened(key, group.open));
+      let (signal, toggle) = (
+        self.opened(key, group.default_open),
+        self.opened(key, group.default_open),
+      );
       let name = group.label.clone().unwrap_or_else(|| Arc::from("Group"));
       let mut button = pressable(&part, false)
         .flex(1.0)
@@ -1035,8 +1055,8 @@ impl Build<'_> {
   /// or on the rail its icon with its name in a tooltip and its nested items in a menu beside it.
   fn item(&self, ctx: &mut Option<&mut Ctx>, item: &SidebarItem, key: &str, depth: usize, level: u32) -> Element {
     let has_children = !item.children.is_empty();
-    let open_signal =
-      (has_children && !self.collapsed).then(|| self.opened(key, item.open.unwrap_or_else(|| item.holds_selected())));
+    let open_signal = (has_children && !self.collapsed)
+      .then(|| self.opened(key, item.default_open.unwrap_or_else(|| item.holds_selected())));
     let open = open_signal.as_ref().is_some_and(Signal::get);
     // On the rail, and closed, an item stands for its nested items, which it does not show.
     let selected = item.selected || (!open && item.holds_selected());
@@ -1176,7 +1196,7 @@ impl Build<'_> {
         .child(button)
         .with_children(menu)
         .into();
-      let mut tooltip = Tooltip::new(&item.label).side(TooltipSide::Right);
+      let mut tooltip = Tooltip::new(&item.label).placement(Placement::Right);
       if let Some(keys) = &item.shortcut {
         tooltip = tooltip.shortcut(keys);
       }
@@ -1469,27 +1489,29 @@ impl SidebarView {
 /// let account = SidebarHeading::new("Ivan Zaida")
 ///   .variant(SidebarHeadingVariant::Account)
 ///   .description("ivan@lurq.dev")
-///   .mark(Avatar::new("Ivan Zaida"))
+///   .media(Avatar::new("Ivan Zaida"))
 ///   .trailing_icon(icons::MORE_HORIZONTAL);
 /// // What the rail shows in its place: the mark alone.
 /// let rail = SidebarHeading::new("lurq").icon(icons::BOX).collapsed(true);
 /// ```
 ///
-/// It is pressed where it is given a handler: a button to tooling, called by its title.
+/// It is pressed where it is given a handler or an anchor: a button to tooling, called by its title.
 #[derive(Clone)]
 pub struct SidebarHeading {
   title: Arc<str>,
   description: Option<Arc<str>>,
   icon: Option<Name>,
-  mark: Option<Element>,
+  media: Option<Element>,
   trailing: Option<Name>,
-  variant: SidebarHeadingVariant,
+  variant: Name,
   collapsed: bool,
-  on_click: Vec<Handler>,
+  on_click: Vec<EventHandler<MouseEvent>>,
   anchor: Option<ElementRef>,
   states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl SidebarHeading {
@@ -1499,15 +1521,17 @@ impl SidebarHeading {
       title: Arc::from(title),
       description: None,
       icon: None,
-      mark: None,
+      media: None,
       trailing: None,
-      variant: SidebarHeadingVariant::Workspace,
+      variant: SidebarHeadingVariant::Workspace.into(),
       collapsed: false,
       on_click: Vec::new(),
       anchor: None,
       states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
+      key: None,
     }
   }
 
@@ -1523,9 +1547,9 @@ impl SidebarHeading {
     self
   }
 
-  /// The mark: an element of the app's in place of an icon, an [`Avatar`](super::Avatar).
-  pub fn mark(mut self, mark: impl Into<Element>) -> Self {
-    self.mark = Some(mark.into());
+  /// An element of the app's in place of the icon on its fill: an [`Avatar`](super::Avatar).
+  pub fn media(mut self, media: impl Into<Element>) -> Self {
+    self.media = Some(media.into());
     self
   }
 
@@ -1535,8 +1559,10 @@ impl SidebarHeading {
     self
   }
 
-  pub fn variant(mut self, variant: SidebarHeadingVariant) -> Self {
-    self.variant = variant;
+  /// Which of the board's headings it is: [`SidebarHeadingVariant::Workspace`] (the header's, the default) or
+  /// `Account` (the footer's), or a variant a theme names.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
     self
   }
 
@@ -1546,9 +1572,10 @@ impl SidebarHeading {
     self
   }
 
-  /// Called on a press. A heading with a handler is pressed: a button.
-  pub fn on_click(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_click.push(Arc::new(handler));
+  /// Called on a press: a click, or Enter or Space while it has the focus. A heading with a handler is pressed: a
+  /// button.
+  pub fn on_click(mut self, handler: impl IntoMouseEventHandler) -> Self {
+    self.on_click.push(handler.into_event_handler());
     self
   }
 
@@ -1574,8 +1601,27 @@ impl SidebarHeading {
     self
   }
 
+  /// Lays rules over the theme's recipe for this heading: the sidebar's.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// Draws a heading that is pressed as it is under the pointer, held down or focused from the keyboard, with
+  /// nothing pointing at it: for a gallery or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
+  /// The id of the row, or of what is pressed.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
+    self
+  }
+
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 
@@ -1584,19 +1630,19 @@ impl SidebarHeading {
   pub fn build(self, theme: &Theme) -> Element {
     let pressed = !self.on_click.is_empty() || self.anchor.is_some();
     let case = Case {
-      variant: Some(self.variant.into()),
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
     .state(SidebarState::Collapsed, self.collapsed)
-    .state(SidebarState::Interactive, pressed);
+    .state(SidebarState::Pressable, pressed);
     let recipe = theme.resolve::<Sidebar>(&case, Some(&self.rules));
     let part = |name: SidebarPart| recipe.part(name);
     let mut children: Vec<Element> = Vec::new();
-    match (self.mark, self.icon) {
-      (Some(mark), _) => children.push(mark),
+    match (self.media, self.icon) {
+      (Some(media), _) => children.push(media),
       (None, Some(icon)) => {
         let mark = part(SidebarPart::HeadingMark);
         children.push(
@@ -1634,9 +1680,12 @@ impl SidebarHeading {
       if let Some(id) = self.id {
         row = row.id(id);
       }
+      if let Some(key) = self.key {
+        row = row.key(key);
+      }
       return row.into();
     }
-    let mut button = pressable(&root, false)
+    let mut button = pressable(&root.forced(self.forced), false)
       .justify(if self.collapsed {
         Justify::Center
       } else {
@@ -1646,19 +1695,17 @@ impl SidebarHeading {
       .describe("a11y_role", "button")
       .describe("a11y_name", self.title.clone())
       .with_children(children);
-    if !self.on_click.is_empty() {
-      let handlers = self.on_click;
-      button = button.on_click(move |_| {
-        for handler in &handlers {
-          handler();
-        }
-      });
+    for handler in self.on_click {
+      button = button.on_click(handler);
     }
     if let Some(anchor) = self.anchor {
       button = button.ref_element(anchor);
     }
     if let Some(id) = self.id {
       button = button.id(id);
+    }
+    if let Some(key) = self.key {
+      button = button.key(key);
     }
     button.into()
   }
@@ -1688,7 +1735,13 @@ pub struct SidebarTrigger {
   collapsed: Signal<bool>,
   open: Option<Signal<bool>>,
   narrow: Option<bool>,
+  collapse_label: Arc<str>,
+  expand_label: Arc<str>,
+  open_label: Arc<str>,
+  close_label: Arc<str>,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl SidebarTrigger {
@@ -1698,7 +1751,13 @@ impl SidebarTrigger {
       collapsed,
       open: None,
       narrow: None,
+      collapse_label: Arc::from("Collapse sidebar"),
+      expand_label: Arc::from("Expand sidebar"),
+      open_label: Arc::from("Open sidebar"),
+      close_label: Arc::from("Close sidebar"),
+      forced: None,
       id: None,
+      key: None,
     }
   }
 
@@ -1714,8 +1773,45 @@ impl SidebarTrigger {
     self
   }
 
+  /// What it is called while the sidebar is beside the page: "Collapse sidebar" unless told otherwise.
+  pub fn collapse_label(mut self, label: &str) -> Self {
+    self.collapse_label = Arc::from(label);
+    self
+  }
+
+  /// What it is called while the sidebar is the rail: "Expand sidebar" unless told otherwise.
+  pub fn expand_label(mut self, label: &str) -> Self {
+    self.expand_label = Arc::from(label);
+    self
+  }
+
+  /// What it is called on a narrow window while the sidebar is closed: "Open sidebar" unless told otherwise.
+  pub fn open_label(mut self, label: &str) -> Self {
+    self.open_label = Arc::from(label);
+    self
+  }
+
+  /// What it is called on a narrow window while the sidebar is open over the page: "Close sidebar" unless told
+  /// otherwise.
+  pub fn close_label(mut self, label: &str) -> Self {
+    self.close_label = Arc::from(label);
+    self
+  }
+
+  /// Draws it as it is under the pointer, held down or focused from the keyboard, with nothing pointing at it: for a
+  /// gallery or a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
+    self
+  }
+
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 
@@ -1723,23 +1819,30 @@ impl SidebarTrigger {
   pub fn build(self, theme: &Theme) -> Element {
     let narrow = self.narrow.unwrap_or_else(window_is_narrow);
     let (label, turned) = match (&self.open, narrow) {
-      (Some(open), true) => (if open.get() { "Close sidebar" } else { "Open sidebar" }, open.clone()),
+      (Some(open), true) => (
+        if open.get() { self.close_label } else { self.open_label },
+        open.clone(),
+      ),
       _ => (
         if self.collapsed.get() {
-          "Expand sidebar"
+          self.expand_label
         } else {
-          "Collapse sidebar"
+          self.collapse_label
         },
         self.collapsed.clone(),
       ),
     };
-    let mut button = Button::new(label)
+    let mut button = Button::new(&label)
       .variant(ButtonVariant::Ghost)
       .icon(icons::PANEL_LEFT)
       .icon_only(true)
+      .force(self.forced)
       .on_click(move |_| turned.update(|on| *on = !*on));
     if let Some(id) = self.id {
       button = button.id(id);
+    }
+    if let Some(key) = self.key {
+      button = button.key(key);
     }
     button.build(theme)
   }
@@ -1773,7 +1876,7 @@ impl Themed for Sidebar {
     use PaletteColor::*;
     use SidebarHeadingVariant::Account;
     use SidebarPart::*;
-    use SidebarState::{Collapsed, Disabled, Interactive, Open, Overlay, Selected};
+    use SidebarState::{Collapsed, Disabled, Open, Overlay, Pressable, Selected};
     let line = || Edge::inside(BorderSize::Sm, PaletteColor::Border);
     let none = || Edge::inside(0.0, PaletteColor::Border);
     let clear = || Color::new(0, 0, 0, 0);
@@ -1813,11 +1916,11 @@ impl Themed for Sidebar {
           .gap(8.0)
           .radius(RadiusSize::Md)
       })
-      .state(Interactive, GroupLabel, |s| fading(s.cursor(CursorIcon::Pointer)))
-      .when(Selector::new().state(Interactive).hovered(), GroupLabel, |s| {
+      .state(Pressable, GroupLabel, |s| fading(s.cursor(CursorIcon::Pointer)))
+      .when(Selector::new().state(Pressable).hovered(), GroupLabel, |s| {
         s.background(StateHover)
       })
-      .when(Selector::new().state(Interactive).focus_visible(), GroupLabel, |s| {
+      .when(Selector::new().state(Pressable).focus_visible(), GroupLabel, |s| {
         s.outline(ring())
       })
       .base(GroupText, |s| {
@@ -1885,11 +1988,11 @@ impl Themed for Sidebar {
           .radius(RadiusSize::Md)
           .foreground(Foreground)
       })
-      .state(Interactive, Heading, |s| fading(s.cursor(CursorIcon::Pointer)))
-      .when(Selector::new().state(Interactive).hovered(), Heading, |s| {
+      .state(Pressable, Heading, |s| fading(s.cursor(CursorIcon::Pointer)))
+      .when(Selector::new().state(Pressable).hovered(), Heading, |s| {
         s.background(StateHover)
       })
-      .when(Selector::new().state(Interactive).focus_visible(), Heading, |s| {
+      .when(Selector::new().state(Pressable).focus_visible(), Heading, |s| {
         s.outline(ring())
       })
       .state(Collapsed, Heading, |s| s.height(Length::Auto).padding_x(0.0).gap(0.0))

@@ -6,21 +6,48 @@
 //! The tooltip draws its own arrow, which this one is drawn as: a square in
 //! the panel's color, turned a quarter of a right angle, half of it shown.
 
-use std::{f32::consts::SQRT_2, sync::Arc};
+use std::{f32::consts::SQRT_2, sync::Arc, time::Duration};
 
 use parking_lot::Mutex;
 
-use super::{TooltipSide, part_style::Length, recipe::ResolvedPart};
+use super::{
+  TooltipSide,
+  part_style::{Length, TransitionDuration},
+  recipe::{Name, Recipe, ResolvedPart},
+};
 use crate::{
-  app::ctx::{Ctx, Placement},
+  app::{
+    ctx::{Ctx, Placement},
+    theme::Theme,
+  },
   components::{Column, Row, Stack},
   core::{ElementRect, ElementRef, Signal},
   layout::{
     Alignment, StackAlignment,
     layout_kind::{Justify, LayoutKind},
   },
-  node::{Element, border::Border, dimension::Dimension, transform::Transform2D},
+  node::{Element, SpacingValue, border::Border, dimension::Dimension, transform::Transform2D},
 };
+
+/// A duration of `theme`'s, or a set one.
+pub(crate) fn length(duration: TransitionDuration, theme: &Theme) -> Duration {
+  match duration {
+    TransitionDuration::Role(role) => theme.durations().try_get(role).unwrap_or_default(),
+    TransitionDuration::Set(duration) => duration,
+  }
+}
+
+/// `rules` with the room between a panel on `side` and what it points at, the
+/// padding of its `root` toward it, made `offset`: what the app says in place
+/// of what the theme gives.
+pub(crate) fn with_offset(rules: Recipe, root: impl Into<Name>, side: TooltipSide, offset: SpacingValue) -> Recipe {
+  rules.base(root, |s| match side {
+    TooltipSide::Top => s.padding_bottom(offset),
+    TooltipSide::Bottom => s.padding_top(offset),
+    TooltipSide::Left => s.padding_end(offset),
+    TooltipSide::Right => s.padding_start(offset),
+  })
+}
 
 /// The side of its anchor an overlay of `placement` is on.
 pub(crate) fn side_of(placement: Placement) -> TooltipSide {

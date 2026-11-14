@@ -486,7 +486,7 @@ fn sidebar(ctx: &mut Ctx, state: &Shell, current: &str) -> Element {
     .label("Pages")
     .rules(&look)
     .groups(groups)
-    .collapsed(state.collapsed.clone())
+    .collapsed(state.collapsed.get())
     .open(state.sidebar_open.clone())
     .mount(ctx)
 }

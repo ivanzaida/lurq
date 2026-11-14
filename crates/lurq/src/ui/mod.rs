@@ -268,9 +268,7 @@ pub use table::{
   BodyWindow, ColumnAlign, Geometry, SortDirection, Table, TableCell, TableColumn, TableHeader, TablePart,
   TableRenderer, TableRow, TableSort, TableState, TableView,
 };
-pub use tabs::{
-  Tab, TabEntry, Tabs, TabsOrientation, TabsOverflow, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
-};
+pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
 pub use tag::{Tag, TagPart, TagRenderer, TagSize, TagState, TagVariant, TagView};
 pub use teaching_tip::{
   TeachingTip, TeachingTipPart, TeachingTipRenderer, TeachingTipState, TeachingTipVariant, TeachingTipView, Tour,
@@ -377,6 +375,5 @@ inspectable!(
   splitter::SplitterOrientation,
   table::SortDirection,
   table::ColumnAlign,
-  tabs::TabsOrientation,
   toast::ToastPosition,
 );

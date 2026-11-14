@@ -13,22 +13,21 @@ use parking_lot::Mutex;
 use super::{
   Button, ButtonPart, ButtonSize, ButtonVariant, FontFamily, TooltipSide, icons, names,
   part_style::{Length, PartAnimation, PartStyle},
-  recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{FADE_IN, FADE_OUT},
   theme::{Themed, current_theme},
-  tip::{Placed, arrow, arrow_size, frame, side_of},
+  tip::{Placed, arrow, arrow_size, frame, side_of, with_offset},
 };
 use crate::{
   app::{
     component::Component,
     ctx::{CollisionStrategy, Ctx, Placement},
-    events::MouseEvent,
     theme::{BorderSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{Column, Popup, Row},
   core::{ElementRef, Signal, Subscription},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, EventHandler, IntoMouseEventHandler, border::Border, color::Color, dimension::Dimension},
+  node::{Element, SpacingValue, border::Border, color::Color, dimension::Dimension},
 };
 
 /// The parts of a teaching tip a recipe styles.
@@ -106,14 +105,14 @@ pub enum TeachingTipState {
   /// It has an arrow.
   Arrow,
   /// It is a step of several, with a count: the design's tour.
-  Stepped,
+  Step,
   /// It has media at its top.
   Media,
 }
 
 names!(TeachingTipState {
   Arrow => "arrow",
-  Stepped => "stepped",
+  Step => "step",
   Media => "media",
 });
 
@@ -121,14 +120,15 @@ names!(TeachingTipState {
 /// Where it is shown, and when, stays the teaching tip's.
 pub type TeachingTipRenderer = Arc<dyn Fn(TeachingTipView) -> Element + Send + Sync>;
 
-/// What is told as a teaching tip closes.
+/// What is told as a teaching tip closes, and what a press of one of its
+/// buttons does.
 type Closer = Arc<dyn Fn() + Send + Sync>;
 
 /// A button of a teaching tip: its label, and what a press of it does.
 #[derive(Clone)]
 struct Action {
   label: Arc<str>,
-  on_click: Vec<EventHandler<MouseEvent>>,
+  on_click: Closer,
 }
 
 /// A teaching tip: a panel that points at one thing in the app and says what
@@ -144,32 +144,35 @@ struct Action {
 /// };
 ///
 /// // The anchor is the element it points at, kept from one render to the next, as is whether it is open.
-/// fn dock_tip(ctx: &mut Ctx, panels: ElementRef, open: Signal<bool>) -> Element {
+/// fn dock_tip(ctx: &mut Ctx, open: Signal<bool>, panels: ElementRef) -> Element {
 ///   let close = open.clone();
-///   TeachingTip::new(panels, open)
+///   TeachingTip::new(open, panels)
 ///     .title("Dock panels anywhere")
 ///     .description("Drag a panel by its header and drop it on any edge of the window.")
-///     .primary("Got it", move |_| close.set(false))
+///     .primary("Got it", move || close.set(false))
 ///     .mount(ctx)
 /// }
 /// ```
 ///
-/// It does not keep whether it is open: the app's signal does. Its close
-/// control and Escape close it, which sets the signal to `false` and tells
-/// [`TeachingTip::on_close`]; a press elsewhere does not, so a person can go
-/// on with what they are doing beside it. It does not take the focus from
-/// what a person is doing unless the app says so
-/// ([`TeachingTip::takes_focus`]): Tab goes from what it points at into its
-/// buttons and on. To tooling it is a dialog called by its title. Where there
-/// is no room on its side it goes to the other, its arrow turned with it, and
-/// it is kept in the window.
+/// It is under what it points at and centered on it unless its placement
+/// says otherwise. It does not keep whether it is open: the app's signal
+/// does. Its close control and Escape close it, which sets the signal to
+/// `false` and then tells [`TeachingTip::on_dismiss`]; a press elsewhere does
+/// not, so a person can go on with what they are doing beside it. Its own
+/// buttons do what their handlers say. It does not take the focus from what
+/// a person is doing unless the app says so ([`TeachingTip::takes_focus`]):
+/// Tab goes from what it points at into its buttons and on. To tooling it is
+/// a dialog called by its label or else its title. Where there is no room on
+/// its side it goes to the other, its arrow turned with it, and it is kept in
+/// the window.
 ///
 /// Converted into an element on its own, a teaching tip is its panel as it
 /// shows, anchored to nothing: for a gallery, a test, or a host of an app's own.
 #[derive(Clone)]
 pub struct TeachingTip {
-  anchor: ElementRef,
   open: Signal<bool>,
+  anchor: ElementRef,
+  label: Option<Arc<str>>,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
   media: Option<Element>,
@@ -177,26 +180,32 @@ pub struct TeachingTip {
   step: Option<(usize, usize)>,
   primary: Option<Action>,
   secondary: Option<Action>,
-  on_close: Vec<Closer>,
+  on_dismiss: Vec<Closer>,
+  dismiss_on_escape: bool,
   close_button: bool,
   variant: Name,
   placement: Placement,
+  offset: Option<SpacingValue>,
+  collision: CollisionStrategy,
   arrow: bool,
   takes_focus: bool,
   width: Option<Length>,
   states: Vec<Name>,
   rules: Recipe,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
 
 impl TeachingTip {
-  /// A teaching tip pointing at `anchor` while `open` is `true`: under it,
-  /// with an arrow and a close control, in the plain look.
-  pub fn new(anchor: impl Into<ElementRef>, open: Signal<bool>) -> Self {
+  /// A teaching tip pointing at `anchor` while `open` is `true`: under it and
+  /// centered on it (`Placement::Bottom`), with an arrow and a close control,
+  /// in the plain look.
+  pub fn new(open: Signal<bool>, anchor: impl Into<ElementRef>) -> Self {
     Self {
-      anchor: anchor.into(),
       open,
+      anchor: anchor.into(),
+      label: None,
       title: None,
       description: None,
       media: None,
@@ -204,21 +213,33 @@ impl TeachingTip {
       step: None,
       primary: None,
       secondary: None,
-      on_close: Vec::new(),
+      on_dismiss: Vec::new(),
+      dismiss_on_escape: true,
       close_button: true,
       variant: TeachingTipVariant::Plain.into(),
       placement: Placement::Bottom,
+      offset: None,
+      collision: CollisionStrategy::FlipThenClamp,
       arrow: true,
       takes_focus: false,
       width: None,
       states: Vec::new(),
       rules: Recipe::new(),
+      forced: None,
       id: None,
       key: None,
     }
   }
 
-  /// What it points at, in a few words, at the top of its text.
+  /// What tooling calls it, in place of its title: for a tip with no title,
+  /// or one whose title says too little alone.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
+  /// What it points at, in a few words, at the top of its text. What tooling
+  /// calls it, unless its label says otherwise.
   pub fn title(mut self, title: &str) -> Self {
     self.title = Some(Arc::from(title));
     self
@@ -242,34 +263,47 @@ impl TeachingTip {
     self
   }
 
+  /// Adds several things it holds.
+  pub fn children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
+    self.children.extend(children.into_iter().map(Into::into));
+    self
+  }
+
   /// That it is the step `step` of `of`, counted from 1: "2 of 4" in the footer.
   pub fn step(mut self, step: usize, of: usize) -> Self {
     self.step = Some((step, of));
     self
   }
 
-  /// The button that goes on, at the end of the footer: "Next", "Got it".
-  pub fn primary(mut self, label: &str, on_click: impl IntoMouseEventHandler) -> Self {
+  /// The button that goes on, at the end of the footer, "Next", "Got it", and
+  /// what a press of it does. A second call takes the place of the first.
+  pub fn primary(mut self, label: &str, on_click: impl Fn() + Send + Sync + 'static) -> Self {
     self.primary = Some(Action {
       label: Arc::from(label),
-      on_click: vec![on_click.into_event_handler()],
+      on_click: Arc::new(on_click),
     });
     self
   }
 
-  /// The button before it: "Back", "Not now".
-  pub fn secondary(mut self, label: &str, on_click: impl IntoMouseEventHandler) -> Self {
+  /// The button before it, "Back", "Not now", and what a press of it does.
+  pub fn secondary(mut self, label: &str, on_click: impl Fn() + Send + Sync + 'static) -> Self {
     self.secondary = Some(Action {
       label: Arc::from(label),
-      on_click: vec![on_click.into_event_handler()],
+      on_click: Arc::new(on_click),
     });
     self
   }
 
-  /// What is told as its close control or Escape closes it, after which the
-  /// signal is `false`.
-  pub fn on_close(mut self, on_close: impl Fn() + Send + Sync + 'static) -> Self {
-    self.on_close.push(Arc::new(on_close));
+  /// What is told after its close control or Escape closed it: the signal is
+  /// `false` already. A second handler is called after the first.
+  pub fn on_dismiss(mut self, on_dismiss: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(on_dismiss));
+    self
+  }
+
+  /// Whether Escape closes it, as its close control does. It does by default.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
     self
   }
 
@@ -286,9 +320,23 @@ impl TeachingTip {
   }
 
   /// Which side of what it points at it is on, and which edge of it it lines
-  /// up with: under it and centered by default.
+  /// up with: under it and centered (`Placement::Bottom`) by default.
   pub fn placement(mut self, placement: Placement) -> Self {
     self.placement = placement;
+    self
+  }
+
+  /// How far it stands from what it points at, in place of what the theme
+  /// gives it (4 in the design's, and its arrow's 9).
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
+    self
+  }
+
+  /// What it does where there is no room for it on its side: goes to the
+  /// other side, then is moved into the window, by default.
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = collision;
     self
   }
 
@@ -334,6 +382,14 @@ impl TeachingTip {
     self
   }
 
+  /// Draws its close control as it is under the pointer, held down or
+  /// focused from the keyboard, with nothing pointing at it: for a gallery or
+  /// a test.
+  pub fn force(mut self, interaction: Option<Interaction>) -> Self {
+    self.forced = interaction;
+    self
+  }
+
   /// The id of its root, what shows. Its close control is `<id>-close`, and
   /// its buttons `<id>-primary` and `<id>-secondary`.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
@@ -365,15 +421,19 @@ impl TeachingTip {
     }
     .state(side, true)
     .state(TeachingTipState::Arrow, self.arrow)
-    .state(TeachingTipState::Stepped, self.step.is_some())
+    .state(TeachingTipState::Step, self.step.is_some())
     .state(TeachingTipState::Media, self.media.is_some());
-    // A width given here is under what `style` and `rules` say of the panel.
+    // A width and an offset given here are under what `style` and `rules` say of the panel and the root.
     let mut rules = Recipe::new();
     if let Some(width) = self.width {
       rules = rules.base(TeachingTipPart::Panel, |s| s.width(width));
     }
+    if let Some(offset) = self.offset {
+      rules = with_offset(rules, TeachingTipPart::Root, side, offset);
+    }
     let rules = rules.extend(&self.rules);
     TeachingTipView {
+      label: self.label.clone().or_else(|| self.title.clone()),
       title: self.title.clone(),
       description: self.description.clone(),
       media: self.media.clone(),
@@ -389,6 +449,7 @@ impl TeachingTip {
       recipe: theme.resolve::<TeachingTip>(&case, Some(&rules)),
       actions: (self.primary.clone(), self.secondary.clone()),
       close,
+      forced: self.forced,
       id: self.id.clone(),
       key: self.key.clone(),
     }
@@ -402,14 +463,16 @@ impl TeachingTip {
     }
   }
 
-  /// What its close control does: tells what it is to tell, and sets the signal to `false`.
+  /// What its close control does: sets the signal to `false`, and then tells
+  /// what it is to tell, so that a handler that opens something else does not
+  /// have it closed under it.
   fn closer(&self) -> Closer {
-    let (open, closers) = (self.open.clone(), self.on_close.clone());
+    let (open, closers) = (self.open.clone(), self.on_dismiss.clone());
     Arc::new(move || {
+      open.set(false);
       for close in &closers {
         close();
       }
-      open.set(false);
     })
   }
 
@@ -431,6 +494,8 @@ impl From<TeachingTip> for Element {
 /// A teaching tip as a renderer sees it: what it says, the side it is on, and
 /// the style of its parts.
 pub struct TeachingTipView {
+  /// What tooling calls it: its label, or else its title.
+  pub label: Option<Arc<str>>,
   pub title: Option<Arc<str>>,
   pub description: Option<Arc<str>>,
   pub media: Option<Element>,
@@ -454,6 +519,7 @@ pub struct TeachingTipView {
   pub recipe: ResolvedRecipe,
   actions: (Option<Action>, Option<Action>),
   close: Closer,
+  forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -497,6 +563,7 @@ impl TeachingTipView {
       .size(ButtonSize::Xs)
       .icon(icons::CLOSE)
       .icon_only(true)
+      .force(self.forced)
       .rules(&self.recipe.rules_for(TeachingTipPart::Close, ButtonPart::Root))
       .on_click(move |_| close())
   }
@@ -517,14 +584,12 @@ impl TeachingTipView {
       };
       button = button.id(format!("{id}-{name}"));
     }
-    button = button
+    let handler = action.on_click.clone();
+    button
       .variant(variant)
       .size(size)
-      .rules(&self.recipe.rules_for(part, ButtonPart::Root));
-    for handler in &action.on_click {
-      button = button.on_click(handler.clone());
-    }
-    button
+      .rules(&self.recipe.rules_for(part, ButtonPart::Root))
+      .on_click(move |_| handler())
   }
 
   /// The title and the close control at its end. `None` for a tip with neither.
@@ -590,14 +655,14 @@ impl TeachingTipView {
 
   /// The panel: the media at its top over the content, the header, the
   /// description and what it holds over the footer. A dialog to what reads
-  /// the tree, called by its title.
+  /// the tree, called by its label.
   pub fn panel(&mut self) -> Column {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(TeachingTipPart::Panel))
       .describe("a11y_role", "dialog");
-    if let Some(title) = &self.title {
-      panel = panel.describe("a11y_name", title.clone());
+    if let Some(label) = &self.label {
+      panel = panel.describe("a11y_name", label.clone());
     }
     if let Some(media) = self.media.take() {
       // It lies along the panel's rounded top, which cuts it: a part of its own that clipped would be cut square.
@@ -700,7 +765,6 @@ impl Themed for TeachingTip {
       Actions, Arrow, Close, Content, Description, Footer, Header, Media, Panel, PrimaryAction, Root, SecondaryAction,
       Step, Text, Title,
     };
-    use TeachingTipState::Stepped;
     use TooltipSide::{Bottom, Left, Right, Top};
     let primary = || Selector::new().variant(TeachingTipVariant::Primary);
     Recipe::new()
@@ -755,13 +819,13 @@ impl Themed for TeachingTip {
       .state(Left, Root, |s| s.padding_end(4.0))
       .state(Right, Root, |s| s.padding_start(4.0))
       // A step of several: the design's tour.
-      .state(Stepped, Panel, |s| s.width(280.0))
-      .state(Stepped, Content, |s| s.padding_x(16.0).padding_y(16.0).gap(12.0))
-      .state(Stepped, Text, |s| s.gap(4.0))
-      .state(Stepped, Title, |s| s.weight(FontWeight::Medium))
-      .state(Stepped, Description, |s| s.line_height(1.5))
-      .state(Stepped, PrimaryAction, |s| s.height(28.0).padding_x(10.0))
-      .state(Stepped, SecondaryAction, |s| s.height(28.0).padding_x(10.0))
+      .state(TeachingTipState::Step, Panel, |s| s.width(280.0))
+      .state(TeachingTipState::Step, Content, |s| s.padding_x(16.0).padding_y(16.0).gap(12.0))
+      .state(TeachingTipState::Step, Text, |s| s.gap(4.0))
+      .state(TeachingTipState::Step, Title, |s| s.weight(FontWeight::Medium))
+      .state(TeachingTipState::Step, Description, |s| s.line_height(1.5))
+      .state(TeachingTipState::Step, PrimaryAction, |s| s.height(28.0).padding_x(10.0))
+      .state(TeachingTipState::Step, SecondaryAction, |s| s.height(28.0).padding_x(10.0))
       // The primary look: the panel and all it says in the primary color and its foreground.
       .when(primary(), Panel, |s| {
         s.background(Primary)
@@ -870,14 +934,14 @@ impl Component for TeachingTipHost {
     let shown = TeachingTip::render_view(view).map_node(|node| node.ref_element(self.shown.clone()));
     let popup = Popup::new(tip.anchor.clone(), shown)
       .placement(tip.placement)
-      .collision(CollisionStrategy::FlipThenClamp)
+      .collision(tip.collision)
       // A press elsewhere is the person going on with what they do beside it.
       .dismiss_on_outside_click(false)
       .takes_focus(tip.takes_focus)
       // Without taking the focus, Tab goes from what it points at into its buttons.
       .tab_after_anchor(!tip.takes_focus);
     let popup = match layer {
-      Some(open) => popup.open(open).dismiss_on_escape(true),
+      Some(open) => popup.open(open).dismiss_on_escape(tip.dismiss_on_escape),
       None => popup.open_when(false),
     };
     Row::new().child(popup)
@@ -892,6 +956,8 @@ pub struct TourStep {
   description: Option<Arc<str>>,
   media: Option<Element>,
   placement: Option<Placement>,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl TourStep {
@@ -903,6 +969,8 @@ impl TourStep {
       description: None,
       media: None,
       placement: None,
+      id: None,
+      key: None,
     }
   }
 
@@ -921,6 +989,19 @@ impl TourStep {
   /// Which side of what it points at it is on, in place of the tour's.
   pub fn placement(mut self, placement: Placement) -> Self {
     self.placement = Some(placement);
+    self
+  }
+
+  /// The id of its tip's root while it shows, in place of the tour's. Its
+  /// buttons are `<id>-primary` and `<id>-secondary`.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// The key of its tip's root while it shows, in place of the tour's.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 }
@@ -947,7 +1028,13 @@ impl TourStep {
 ///
 /// It shows the step its signal says, and sets the signal: to the step
 /// before or after on a press of its buttons, and to `None` after the last
-/// and on Escape. Each step is a [`TeachingTip`] with no close control.
+/// and on Escape. Each step is a [`TeachingTip`] with no close control, under
+/// what it points at and centered on it unless the tour or the step says
+/// otherwise.
+///
+/// Converted into an element on its own, a tour is the panel of the step its
+/// signal says, or of its first step while it says none, anchored to
+/// nothing: for a gallery or a test. Its buttons set the signal still.
 #[derive(Clone)]
 pub struct Tour {
   current: Signal<Option<usize>>,
@@ -957,8 +1044,16 @@ pub struct Tour {
   done: Arc<str>,
   variant: Name,
   placement: Placement,
+  offset: Option<SpacingValue>,
+  collision: CollisionStrategy,
   arrow: bool,
+  dismiss_on_escape: bool,
   on_finish: Vec<Closer>,
+  on_dismiss: Vec<Closer>,
+  states: Vec<(Name, bool)>,
+  rules: Recipe,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl Tour {
@@ -972,8 +1067,16 @@ impl Tour {
       done: Arc::from("Done"),
       variant: TeachingTipVariant::Plain.into(),
       placement: Placement::Bottom,
+      offset: None,
+      collision: CollisionStrategy::FlipThenClamp,
       arrow: true,
+      dismiss_on_escape: true,
       on_finish: Vec::new(),
+      on_dismiss: Vec::new(),
+      states: Vec::new(),
+      rules: Recipe::new(),
+      id: None,
+      key: None,
     }
   }
 
@@ -989,10 +1092,22 @@ impl Tour {
     self
   }
 
-  /// The labels of its buttons: back, on, and on from the last step.
-  /// "Back", "Next" and "Done" by default.
-  pub fn labels(mut self, back: &str, next: &str, done: &str) -> Self {
-    (self.back, self.next, self.done) = (Arc::from(back), Arc::from(next), Arc::from(done));
+  /// The label of the button that goes back a step: "Back" by default.
+  pub fn back_label(mut self, label: &str) -> Self {
+    self.back = Arc::from(label);
+    self
+  }
+
+  /// The label of the button that goes on a step: "Next" by default.
+  pub fn next_label(mut self, label: &str) -> Self {
+    self.next = Arc::from(label);
+    self
+  }
+
+  /// The label of the button that goes on from the last step and ends the
+  /// tour: "Done" by default.
+  pub fn done_label(mut self, label: &str) -> Self {
+    self.done = Arc::from(label);
     self
   }
 
@@ -1003,9 +1118,23 @@ impl Tour {
   }
 
   /// Which side of what they point at its tips are on, where a step does not
-  /// say: under it by default.
+  /// say: under it and centered (`Placement::Bottom`) by default.
   pub fn placement(mut self, placement: Placement) -> Self {
     self.placement = placement;
+    self
+  }
+
+  /// How far its tips stand from what they point at, in place of what the
+  /// theme gives them.
+  pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.offset = Some(offset.into());
+    self
+  }
+
+  /// What its tips do where there is no room for them on their side: go to
+  /// the other side, then are moved into the window, by default.
+  pub fn collision(mut self, collision: CollisionStrategy) -> Self {
+    self.collision = collision;
     self
   }
 
@@ -1015,16 +1144,145 @@ impl Tour {
     self
   }
 
-  /// What is told when the last step's button is pressed, not when Escape
-  /// leaves the tour.
+  /// Whether Escape leaves the tour. It does by default.
+  pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+    self.dismiss_on_escape = dismiss;
+    self
+  }
+
+  /// What is told when the last step's button is pressed, after the signal is
+  /// `None`; not when Escape leaves the tour. A second handler is called
+  /// after the first.
   pub fn on_finish(mut self, on_finish: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_finish.push(Arc::new(on_finish));
+    self
+  }
+
+  /// What is told after Escape left the tour, the signal `None` already; not
+  /// when its last step's button ends it. A second handler is called after
+  /// the first.
+  pub fn on_dismiss(mut self, on_dismiss: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_dismiss.push(Arc::new(on_dismiss));
+    self
+  }
+
+  /// Puts its tips in a state the theme's recipe names, or takes them out of it.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|(held, _)| *held != state);
+    self.states.push((state, on));
+    self
+  }
+
+  /// Styles one part of its tips over what the theme gives them.
+  pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
+    self.rules = self.rules.base(part, style);
+    self
+  }
+
+  /// Lays rules over the theme's recipe for its tips.
+  pub fn rules(mut self, rules: &Recipe) -> Self {
+    self.rules = self.rules.extend(rules);
+    self
+  }
+
+  /// The id of the root of the tip that shows, whichever step it is, where
+  /// the step has none of its own. Its buttons are `<id>-primary` and
+  /// `<id>-secondary`.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// The key of the root of the tip that shows, where the step has none of its own.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 
   /// Puts the tour in the app. The element it returns has no size, and goes anywhere.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     ctx.mount::<TourHost>(TourProps { tour: self })
+  }
+
+  /// The tip of the step `index`, open while `open` is `true`: its count,
+  /// its buttons back and on, and what Escape does. `None` for a step it
+  /// does not have.
+  fn tip(&self, index: usize, open: Signal<bool>) -> Option<TeachingTip> {
+    let step = self.steps.get(index)?;
+    let count = self.steps.len();
+    let mut tip = TeachingTip::new(open, step.anchor.clone())
+      .title(&step.title)
+      .step(index + 1, count)
+      .close_button(false)
+      .variant(self.variant)
+      .placement(step.placement.unwrap_or(self.placement))
+      .collision(self.collision)
+      .arrow(self.arrow)
+      .dismiss_on_escape(self.dismiss_on_escape)
+      .rules(&self.rules);
+    for (state, on) in &self.states {
+      tip = tip.state(*state, *on);
+    }
+    if let Some(offset) = self.offset {
+      tip = tip.offset(offset);
+    }
+    if let Some(id) = step.id.as_ref().or(self.id.as_ref()) {
+      tip = tip.id(id.clone());
+    }
+    if let Some(key) = step.key.as_ref().or(self.key.as_ref()) {
+      tip = tip.key(key.clone());
+    }
+    if let Some(description) = &step.description {
+      tip = tip.description(description);
+    }
+    if let Some(media) = &step.media {
+      tip = tip.media(media.clone());
+    }
+    if index > 0 {
+      let to = self.current.clone();
+      tip = tip.secondary(&self.back, move || to.set(Some(index - 1)));
+    }
+    let last = index + 1 >= count;
+    let (to, finish) = (self.current.clone(), self.on_finish.clone());
+    tip = tip.primary(if last { &self.done } else { &self.next }, move || {
+      if last {
+        to.set(None);
+        for finish in &finish {
+          finish();
+        }
+      } else {
+        to.set(Some(index + 1));
+      }
+    });
+    let (to, dismissed) = (self.current.clone(), self.on_dismiss.clone());
+    Some(tip.on_dismiss(move || {
+      to.set(None);
+      for dismiss in &dismissed {
+        dismiss();
+      }
+    }))
+  }
+
+  /// Builds the panel of the step its signal says, or of its first step while
+  /// it says none, anchored to nothing, in `theme`. Converting a tour into an
+  /// element does this in the theme of what is being rendered.
+  pub fn build(self, theme: &Theme) -> Element {
+    let index = self
+      .current
+      .get()
+      .filter(|index| *index < self.steps.len())
+      .unwrap_or(0);
+    match self.tip(index, Signal::new(true)) {
+      Some(tip) => tip.build(theme),
+      None => Element::new(),
+    }
+  }
+}
+
+impl From<Tour> for Element {
+  fn from(tour: Tour) -> Self {
+    tour.build(&current_theme())
   }
 }
 
@@ -1064,8 +1322,7 @@ impl Component for TourHost {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let TourProps { tour } = ctx.props::<TourProps>().clone();
     let current = tour.current.get();
-    let count = tour.steps.len();
-    let shown = current.filter(|index| *index < count);
+    let shown = current.filter(|index| *index < tour.steps.len());
     let index = {
       let mut last = self.last.lock();
       if let Some(index) = shown {
@@ -1073,41 +1330,11 @@ impl Component for TourHost {
       }
       *last
     };
-    let Some(step) = tour.steps.get(index) else {
+    // The tip's signal follows the app's; the tip sets it on Escape, which ends the tour.
+    let Some(tip) = tour.tip(index, self.open.clone()) else {
       return Element::new();
     };
-    // The tip's signal follows the app's; the tip sets it on Escape, which ends the tour.
     super::tip::put(&self.open, shown.is_some());
-    let mut tip = TeachingTip::new(step.anchor.clone(), self.open.clone())
-      .title(&step.title)
-      .step(index + 1, count)
-      .close_button(false)
-      .variant(tour.variant)
-      .placement(step.placement.unwrap_or(tour.placement))
-      .arrow(tour.arrow);
-    if let Some(description) = &step.description {
-      tip = tip.description(description);
-    }
-    if let Some(media) = &step.media {
-      tip = tip.media(media.clone());
-    }
-    if index > 0 {
-      let to = tour.current.clone();
-      tip = tip.secondary(&tour.back, move |_| to.set(Some(index - 1)));
-    }
-    let last = index + 1 >= count;
-    let (to, finish) = (tour.current.clone(), tour.on_finish.clone());
-    tip = tip.primary(if last { &tour.done } else { &tour.next }, move |_| {
-      if last {
-        to.set(None);
-        for finish in &finish {
-          finish();
-        }
-      } else {
-        to.set(Some(index + 1));
-      }
-    });
-    let to = tour.current.clone();
-    tip.on_close(move || to.set(None)).mount(ctx)
+    tip.mount(ctx)
   }
 }

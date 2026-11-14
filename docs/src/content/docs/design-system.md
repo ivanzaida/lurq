@@ -1005,14 +1005,17 @@ Dialog::new(terms_open.clone())
 A short text beside an element while the pointer rests on it or the keyboard's focus is on it: what an icon button does, and the keys that do it too.
 
 ```rust
-use lurq::ui::{Button, ButtonVariant, Tooltip, TooltipSide};
+use lurq::{
+  components::Placement,
+  ui::{Button, ButtonVariant, Tooltip},
+};
 
 // In a component's render: a tooltip is mounted on the element it describes, and returns that element.
 let copy = Button::new("Copy").variant(ButtonVariant::Ghost).icon("copy").icon_only(true);
 let copy = Tooltip::new("Copy").shortcut("Ctrl+C").mount(ctx, copy);
 
 let zoom = Button::new("Zoom in").icon("zoom-in").icon_only(true);
-let zoom = Tooltip::new("Zoom in").side(TooltipSide::Bottom).arrow(true).mount(ctx, zoom);
+let zoom = Tooltip::new("Zoom in").placement(Placement::Bottom).arrow(true).mount(ctx, zoom);
 
 // A disabled button shows its tooltip too: it can say why it is disabled.
 let export = Button::new("Export").disabled(true);
@@ -1023,26 +1026,28 @@ let export = Tooltip::new("Nothing to export yet").mount(ctx, export);
 | --- | --- |
 | `mount(ctx, element)` | Puts the tooltip on the element it describes and returns that element |
 | `shortcut(&str)` | The keys of a shortcut, after the text in a chip of their own |
-| `side(TooltipSide)` | `Top` (the default), `Bottom`, `Left` or `Right` of the element, centered on it |
+| `placement(Placement)` | The side of the element it is on and the edge it lines up with: `Top`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far it stands from the element in place of the theme's 6, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle from the box to the element |
-| `delay(Duration)` | How long the pointer rests before it shows: `TOOLTIP_DELAY`, 500 ms, unless this says otherwise |
-| `open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never: for a gallery, a test, a tour |
+| `open_delay(..)`, `close_delay(..)` | A `MotionDuration` of the theme's or a `Duration`: how long the pointer rests before it shows (`TOOLTIP_DELAY`, 500 ms) and how long it stays after the pointer left (100 ms) |
+| `force_open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never: for a gallery, a test, a tour |
 | `disabled(bool)` | It never shows, and the element is as it would be without it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of what shows |
 
 - A text too long to have its shortcut beside it wraps across the box, no wider than 200, and the shortcut goes under it.
-- It shows after the pointer has rested on the element for its delay, and at once within `TOOLTIP_SKIP_DELAY` (300 ms) of the pointer leaving another: along a toolbar each button's shows at once, and the one before goes, so one tooltip of the pointer shows at a time.
+- It shows after the pointer has rested on the element for its open delay, and at once within `TOOLTIP_SKIP_DELAY` (300 ms) of the pointer leaving another: along a toolbar each button's shows at once, and the one before goes, so one tooltip of the pointer shows at a time.
 - Focus from the keyboard shows it at once: the focus of the element or of anything in it (a row with a button in it), read by `ElementRef::focus_visible_within()`.
-- The pointer can be moved onto the tooltip to read it: it goes 100 ms after the pointer has left both the element and the tooltip. It also goes when the focus leaves, when the element is pressed, and on Escape; after a press or Escape it stays away until the pointer comes again, or until both the pointer and the focus have left.
+- The pointer can be moved onto the tooltip to read it: it goes its close delay, 100 ms, after the pointer has left both the element and the tooltip. It also goes when the focus leaves, when the element is pressed, and on Escape; after a press or Escape it stays away until the pointer comes again, or until both the pointer and the focus have left.
 - Escape is the tooltip's before anything under it: the tooltip is the top layer that takes Escape, so the key closes the tooltip and not the dialog or the popup it is shown in.
 - A disabled element shows its tooltip: a disabled element is not hovered, but it hears the pointer come and go, and the tooltip is on it as on any other.
 - It is kept in the window: where there is no room on its side it is on the other one, its arrow turned with it, and where the window pushes it along, its arrow still points at the middle of the element. It takes no focus.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the element is described by the text (`a11y_description`), and called by it (`a11y_name`) when nothing else names it: a text in the element names it (a button by its label), and an icon-only button is named by its label already; an icon alone, a glyph, names nothing. What shows is a `tooltip`. An element with an element ref of its own keeps it, and the tooltip is anchored to it.
 - It is a mounted component, not a builder that goes where an element goes: it keeps timers for its delay and its grace, an anchor that stays the same from one render to the next, and whether the pointer has shown it, and a builder has no `Ctx` to keep them in. Converted into an element on its own, a `Tooltip` is its box as it shows, anchored to nothing: for a gallery, a test or a host of an app's own.
-- Parts: `TooltipPart::Root` (the box and its arrow, and the room between them and the element), `Content` (the box), `Label`, `Shortcut`, `Arrow`. The side is the recipe's variant (`TooltipSide`), and the states are `TooltipState::Arrow`, `Shortcut` and `Multiline` (the text wraps, known once it is laid out).
+- Parts: `TooltipPart::Root` (the box and its arrow, and the room between them and the element), `Panel` (the box), `Label`, `Shortcut`, `Arrow`. The side it is on is the recipe's variant (`TooltipSide`: the side of its placement, or the other where there was no room), and the states are `TooltipState::Arrow`, `Shortcut` and `Multiline` (the text wraps, known once it is laid out).
 - In the design the box is in `Primary` with a radius of `Md`, its text in `PrimaryForeground` in the caption's 12, 10 from its sides and 6 from its top and bottom, and no wider than 200; a text that wraps has 8 above and below it, in lines of 1.4. A shortcut is 8 after the text in a chip 16 high, 4 from its sides, with a radius of 3, in a white of 15%, its keys in the mono family in 10. The arrow is 12 along the box and 6 out from it, in the box's color. The tooltip stands 6 from the element: the root's padding on the side's axis.
 - The arrow is a square in the box's color turned by 45°, its middle on the edge of the `Arrow` part that meets the box; the part clips it to the half that points away (`TooltipView::arrow()`), moved along the box by `TooltipView::aim`.
-- A renderer builds what shows, not when: it is given a `TooltipView` with the text, the shortcut, the side the tooltip is on, whether it has an arrow and its aim; `view.content()` is the default box and `view.arrow()` the default arrow.
+- A renderer builds what shows, not when: it is given a `TooltipView` with the text, the shortcut, the side the tooltip is on, whether it has an arrow and its aim; `view.panel()` is the default box and `view.arrow()` the default arrow.
+- It has no `label`: its text is its name and what describes the element. It has no `on_dismiss` and no `dismiss_on_escape`: the app does not open it, and Escape always puts it away, as content that shows on hover must be dismissible.
 
 ## Toast
 
@@ -1118,35 +1123,44 @@ Tabs::new(memory, [
 ])
 .variant(TabsVariant::Line);
 
-// The app holds which is selected, and is told of each other one selected.
-Tabs::controlled(filter, [(0, "Overview"), (1, "Activity")], move |index| set_filter(index))
+// The app holds which is selected, and is told the tab a person selects.
+Tabs::controlled(filter, [(0, "Overview"), (1, "Activity")], move |index| set_filter(*index))
   .variant(TabsVariant::Pill)
   .orientation(TabsOrientation::Vertical);
+
+// More tabs than the width holds, kept between renders.
+Tabs::new(canvas, [(0, "Canvas"), (1, "Layout"), (2, "Text")])
+  .variant(TabsVariant::Line)
+  .overflow(true)
+  .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
-| `Tabs::new(Signal<T>, tabs)` | The selected tab is the one with the signal's value; selecting another sets it. A tab is a `(value, label)` or a `Tab` |
-| `Tabs::controlled(value, tabs, select)` | The app holds which is selected: the tab of `value`, and `select` is told the value of each other tab selected |
+| `Tabs::new(Signal<T>, tabs)` | The selected tab is the one with the signal's value; selecting another sets it. A tab is a `(value, &str)` or a `Tab` |
+| `Tabs::controlled(value, tabs, on_change)` | The app holds which is selected: the tab of `value`, and `on_change` is told the value of each other tab a person selects |
+| `on_change(Fn(&T))` | Told the value of the tab a person selects (a press, the arrow keys, the menu of the overflowing form), after the signal is set. Not what the app sets, nor a press of the selected tab. A second one is called after the first |
 | `variant(TabsVariant)` | `Default`: a muted rail with the selected tab lifted out of it. `Line`: a row over a line, the selected tab underlined. `Pill`: round tabs, the selected one in the primary fill |
-| `orientation(TabsOrientation)` | `Horizontal` (the default): the list along the top, the panel under it. `Vertical`: the list down the start side, the panel beside it |
+| `orientation(TabsOrientation)` | `TabsOrientation` is `ui::Orientation`. `Horizontal` (the default): the list along the top, the panel under it. `Vertical`: the list down the start side, the panel beside it |
 | `manual(bool)` | The arrow keys move the focus alone, and Enter or Space selects: for panels slow to build. Otherwise the selection follows the focus |
 | `label(&str)` | What the list is called to what reads the tree |
-| `overflow(TabsOverflow)` | The overflowing form: the list scrolls between two scroll buttons, and More at its end opens a menu of every tab. `TabsOverflow::new(ctx.signal(false))` is made once, in the app's `create` |
+| `overflow(bool)` | The overflowing form: the list scrolls between two scroll buttons, and More at its end opens a menu of every tab |
+| `mount(ctx)` | Puts the tabs in the tree of the app's component, where the overflowing form keeps where its list is scrolled and whether its menu is open. Converted into an element on their own (`build(theme)`, `Element::from`), the tabs are the still form: scrolled to the start, a menu that does not open |
+| `more_label(&str)`, `scroll_back_label(&str)`, `scroll_on_label(&str)` | The words of the overflowing form: what the More button says and is called (it says "More" and is called "More tabs" unless told otherwise), and the names of the scroll buttons, "Scroll back" and "Scroll on" |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` makes every tab disabled. `force` draws the tab Tab stops on, the selected one, and not the panel. `id` is the root's; in the overflowing form the scroll buttons are `<id>-back` and `<id>-on` and the More button `<id>-more` |
-| `Tab::new(value, label)` | A tab. `icon(name)` before the label, `count(n)` after it, `disabled(bool)`, `separated(bool)` a divider before it, `panel(Fn() -> Element)` what it shows while selected, `id` (its item in the More menu is `<id>-item`) |
+| `Tab::new(value, label)` | A tab. `icon(name)` before the label, `count(n)` after it, `disabled(bool)`, `separated(bool)` a separator before it, `panel(Fn() -> Element)` what it shows while selected, `id` (its item in the More menu is `<id>-item`), `key` |
 
-- Exactly one tab is selected, and the app holds which. A press of a tab selects it; a press of the selected one or of a disabled one asks for nothing.
+- Exactly one tab is selected, and the app holds which. A press of a tab selects it; a press of the selected one or of a disabled one asks for nothing, and tells nothing.
 - The list is one stop of Tab, at the selected tab. The arrow keys of the orientation (Left and Right, or Up and Down) select the tab after and the one before, Home and End the first and the last, and a disabled tab is passed by; with `manual(true)` they move the focus and Space or Enter selects. Tab from the list goes to the panel, and on to what is in it.
 - The panel of a tab is built only while the tab is selected, keyed by the tab, so one tab's panel never takes another's nodes. What the runtime keeps of a panel's nodes (a scroll offset, a caret, an open select) goes when another tab is selected; what the app keeps in its own signals stays. A panel that is to come back as it was keeps its state in the app: its values in signals made in the app's `create`, its scroll in a `ScrollState` it gives the scroll area (`with_scroll_state`).
 - The panel is a stop of Tab itself, so a panel with nothing focusable in it is still reached and read; its ring is the color and width of the focus ring, 4 out from the panel, clear of what runs to its edges.
-- Parts: `TabsPart::Root` (the list and the panel), `List`, `Tab` (what is pressed and focused), `Label`, `Icon`, `Count`, `Divider`, `Panel`, and in the overflowing form `Bar` (the row of the list, its buttons and More), `ScrollButton`, `ScrollIcon`, `More`, `MoreLabel`, `MoreIcon`. A tab's parts are styled in its states: `TabsState::Selected`, `Disabled`; the whole has `Horizontal` or `Vertical`, and `Overflow`. Variants: `TabsVariant::Default`, `Line`, `Pill`.
-- In the design the default list is a rail of `Muted`, `radius-lg`, padded 3, its tabs 2 apart; a tab is 28 high, padded 12, `radius-md`, its label 13/500 in `MutedForeground` and a count of 12 in `MutedForeground` 6 after it; the selected tab is `Background` with the small shadow and its label in `Foreground`. The line list is 44 high over a line of 1 in `Border`, as wide as what holds it, its tabs 28 apart; a label is 14 in `MutedForeground` and a count 13 at 0.7, 8 apart; the selected tab is underlined with 2 in `Foreground`, its label 500 in `Foreground` and its count whole. A divider is 1 by 16 in `Border`. Down the side the line list is at least 180 wide with a line of 1 in `Border` at its start, a tab 32 high, padded 12, its label 13, and the selected tab marked with 2 in `Foreground` at its start. The pills are 30 high, padded 14, round, 4 apart, the label 13/500; the selected one is `Primary` with its label in `PrimaryForeground`. The panel is 16 under the list, or 24 beside it.
+- Parts: `TabsPart::Root` (the list and the panel), `List`, `Tab` (what is pressed and focused), `Label`, `Icon`, `Count`, `Separator`, `Panel`, and in the overflowing form `Bar` (the row of the list, its buttons and More), `ScrollButton`, `ScrollIcon`, `More`, `MoreLabel`, `MoreIcon`. A tab's parts are styled in its states: `TabsState::Selected`, `Disabled`; the whole has `Horizontal` or `Vertical`, and `Overflow`. Variants: `TabsVariant::Default`, `Line`, `Pill`.
+- In the design the default list is a rail of `Muted`, `radius-lg`, padded 3, its tabs 2 apart; a tab is 28 high, padded 12, `radius-md`, its label 13/500 in `MutedForeground` and a count of 12 in `MutedForeground` 6 after it; the selected tab is `Background` with the small shadow and its label in `Foreground`. The line list is 44 high over a line of 1 in `Border`, as wide as what holds it, its tabs 28 apart; a label is 14 in `MutedForeground` and a count 13 at 0.7, 8 apart; the selected tab is underlined with 2 in `Foreground`, its label 500 in `Foreground` and its count whole. A separator is 1 by 16 in `Border`. Down the side the line list is at least 180 wide with a line of 1 in `Border` at its start, a tab 32 high, padded 12, its label 13, and the selected tab marked with 2 in `Foreground` at its start. The pills are 30 high, padded 14, round, 4 apart, the label 13/500; the selected one is `Primary` with its label in `PrimaryForeground`. The panel is 16 under the list, or 24 beside it.
 - A tab follows the [density](../theme/#density) by the steps of a row, 8 lower at compact, 8 and 12 higher at comfortable and touch, from the design's height of each form: the default's 28 is 20, 36 and 40; a line's 44 (its list with it) is 36, 52 and 56, its 32 standing and its 40 overflowing (the bar and the list with it) the same steps; a pill's 30 is 22, 38 and 42.
 - The overflowing form is a row 40 high (over the line in the line variant): the list, its tabs 20 apart with labels of 13, between two scroll buttons 28 wide with chevrons of 14 in `Foreground`, and More at the end, set apart by a line of 1 in `Border`, padded 8 and 4, its label 13 and a chevron of 14 in `MutedForeground`. A scroll button moves the list most of the way it shows; it is for the pointer and no stop of Tab, since the arrow keys scroll the list to the tab they select. More opens a menu of every tab (`ui::Menu`), the selected one marked as a radio and a disabled one not to be chosen; choosing one selects it and scrolls the list the least that shows it.
 - A tab under the pointer has its label in `Foreground`; a disabled tab is dimmed and does not light up. The focus ring is the tab's; in the overflowing form it is drawn inside the tab, where the list that scrolls does not cut it off.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the list is a `tablist` called by `label`, with `a11y_orientation`; a tab is a `tab` called by its label, with `a11y_selected` (which `lurq_inspect` reports as `state.selected`); the panel a `tabpanel` called by its tab. More has `a11y_haspopup` `menu` and `a11y_expanded`.
-- A renderer that draws other tabs has `view.tabs` (each with its label, icon, count, and whether it is selected, disabled, set apart), `view.part(part)`, `view.tab_part(index, part)`, `view.tab(index)` (a tab with its behavior and its name to tooling), `view.list()` (the tabs as one focus group), `view.divider()`, `view.panel()` and `view.bar()` (the overflowing form).
+- A renderer that draws other tabs has `view.tabs` (each with its label, icon, count, and whether it is selected, disabled, set apart), `view.part(part)`, `view.tab_part(index, part)`, `view.tab(index)` (a tab with its behavior and its name to tooling), `view.list()` (the tabs as one focus group), `view.separator()`, `view.panel()` and `view.bar()` (the overflowing form).
 - `lurq::components::Tabs` is another thing: a set of places of an app, each a router with a history of its own kept while it is not shown, with a bar to move between them across the bottom or the top. Tabs of the design system are a choice within a page.
 
 ## Accordion
@@ -1164,20 +1178,23 @@ Accordion::new(open, [
   AccordionItem::new(2, "Can I bring my own theme?", theme_form).disabled(locked),
 ]);
 
-// Any number open: sections is a Signal<Vec<&str>>.
+// Any number open: sections is a Signal<Vec<&str>>. Each press is told what is open after it.
 Accordion::multiple(sections, [
   AccordionItem::text("billing", "Billing", "Card, address and invoices."),
   AccordionItem::text("shipping", "Shipping", "Where the order goes."),
-]);
+])
+.on_change(|open| save(open));
 ```
 
 | Builder | |
 | --- | --- |
 | `Accordion::new(Signal<Option<T>>, items)` | One item open at a time: the one whose value the signal has, or none. A press of another opens it and closes the one that was open; a press of the open one closes it |
 | `Accordion::multiple(Signal<Vec<T>>, items)` | Any number open: those whose values the signal has. A press opens an item, or closes it |
-| `Accordion::controlled(open, items, press)` | The app holds what is open: the items of `open` are, and `press` is told the value of each header pressed |
-| `AccordionItem::new(value, label, content)`, `AccordionItem::text(value, label, body)` | An item: its value, what its header says, and what it shows while it is open, an element or a text. `disabled(bool)` on an item |
-| `disabled(bool)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `disabled` is every header's |
+| `Accordion::controlled(open, items, on_change)`, `Accordion::controlled_multiple(open, items, on_change)` | The app holds what is open, one at a time or any number: the items of `open` are, and `on_change` is told the values that are to be open after a press of a header. The accordion opens and closes nothing itself |
+| `on_change(Fn(&[T]))` | Told the values of every item open after a press of a header, the whole set, once the signal is set. Not what the app sets. A second one is called after the first |
+| `label(&str)` | What the accordion is called, to what reads the tree: a `group` of that name |
+| `AccordionItem::new(value, label, content)`, `AccordionItem::text(value, label, body)` | An item: its value, what its header says, and what it shows while it is open, an element or a text. `disabled(bool)`, `id` (its header's) and `key` on an item |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` is every header's; `state` is every item's; `force` draws the header Tab stops on first, that of the first item that is not disabled |
 
 - Each header is a stop of Tab, as a web accordion's is, and Space and Enter press it; Up and Down move the focus from
   one header to the next and round, Home and End to the first and the last. A disabled header is passed by, and so is
@@ -1188,8 +1205,8 @@ Accordion::multiple(sections, [
   there at once. While an item is closed what it held is not there: not painted, and the controls in it are no stops
   of Tab.
 - Parts: `AccordionPart::Root` (the items), `Item` (an item, with the line under it), `Trigger` (its header: what is
-  pressed and focused), `Label`, `Indicator` (the chevron), `Panel` (what opens and closes) and `Content` (what the
-  panel holds, in its padding). Each item's parts are styled in that item's states, `AccordionState::Open` and
+  pressed and focused), `Label`, `Chevron`, `Panel` (what opens and closes) and `Body` (what the panel holds, in its
+  padding). Each item's parts are styled in that item's states, `AccordionState::Open` and
   `Disabled` (`AccordionState` is `CollapsibleState`).
 - In the design each item has a line of 1 in `Border` under it. Its header is 14 above and under its label, which is
 - A header follows the [density](../theme/#density): 10, 18 and 20 above and under its label at compact, comfortable and touch, the steps of a row from the design's 14.
@@ -1210,32 +1227,35 @@ person rarely needs.
 ```rust
 use lurq::ui::Collapsible;
 
-Collapsible::new("3 crates in this workspace", crates)
-  .open(open.get())
-  .on_change(move |next| open.set(next));
+// open: Signal<bool>, which a press of the header turns.
+Collapsible::new("3 crates in this workspace", crates).bind(open);
 
-Collapsible::text("Why is this here?", "Because the build needs it.");
+// The app holds whether it is open.
+Collapsible::text("Why is this here?", "Because the build needs it.")
+  .open(shown)
+  .on_change(move |next| show(next));
 ```
 
 | Builder | |
 | --- | --- |
 | `Collapsible::new(label, content)`, `Collapsible::text(label, body)` | A header that says `label`, and what it shows while it is open: an element or a text |
 | `open(bool)` | Whether what it holds is shown. The collapsible does not keep it: the app says so |
-| `on_change(handler)` | Called on a press of the header with what the collapsible is to be: open if it was closed |
-| `icons(closed, open)` | The icons of the indicator, closed and open, by their names in the theme's set; `chevrons-vertical` both |
+| `bind(Signal<bool>)` | Open while the signal is true, which a press of the header turns; the handlers of `on_change` are told after it is set |
+| `on_change(handler)` | Called on a press of the header with what the collapsible is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
+| `icon(..)`, `open_icon(..)` | The icon of the chevron by its name in the theme's set, `chevrons-vertical` unless told otherwise, and the one while it is open, the same unless told otherwise. `icon(None)` takes the chevron away |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the header |
 
 - The whole header is pressed; Tab reaches it, and Space and Enter press it. What it holds opens and closes as an
   accordion's item does.
-- Parts: `CollapsiblePart::Root`, `Trigger`, `Label`, `Indicator`, `Panel`, `Content`. States: `CollapsibleState::Open`,
+- Parts: `CollapsiblePart::Root`, `Trigger`, `Label`, `Chevron`, `Panel`, `Body`. States: `CollapsibleState::Open`,
   `Disabled`.
 - In the design the label is in the label's type (13, medium), `Foreground`; at the end of the header the
   `chevrons-vertical` icon of 16 is in a ghost button of 32 that `Highlight` fills under the pointer; what it opens is 8
   under the header. A disabled header is dimmed, and what it opens, which is the app's, is not.
 - To what reads the tree the header is a `button` called by its label, with `a11y_expanded`.
 - A renderer that draws another collapsible (`CollapsibleRenderer`) starts from `view.trigger()`, the behavior with the
-  header's style, and `view.panel()`, what opens and closes with what it holds; `view.label()` and `view.indicator()`
-  are the default ones.
+  header's style, and `view.panel()`, what opens and closes with what it holds; `view.label()` and `view.chevron()`
+  (none where it has no icon) are the default ones.
 
 ## Breadcrumb
 
@@ -1244,37 +1264,40 @@ The way to where one is: a step for each place on it, each but the last a link b
 ```rust
 use lurq::ui::{Breadcrumb, BreadcrumbSeparator, BreadcrumbStep, icons};
 
-Breadcrumb::new()
-  .step(BreadcrumbStep::new("Settings").value("/settings"))
-  .step(BreadcrumbStep::new("Appearance").value("/settings/appearance"))
-  .step("Theme")
-  .on_select(|route| go_to(route));
+Breadcrumb::new([
+  BreadcrumbStep::new("Settings").value("/settings"),
+  BreadcrumbStep::new("Appearance").value("/settings/appearance"),
+])
+.step("Theme")
+.on_select(|route| go_to(route));
 
-// More steps than four: the first, an ellipsis that opens a menu of the hidden ones, and the last three.
-// anchor: ElementRef, open: Signal<bool>, kept by the app as for any menu.
-Breadcrumb::new()
-  .step(BreadcrumbStep::new("Home").icon(icons::HOME).value("/"))
+// More steps than four: the first, an ellipsis that opens a menu of the hidden ones, and the last three. Mounted,
+// it keeps whether the menu is open.
+Breadcrumb::new([BreadcrumbStep::new("Home").icon(icons::HOME).value("/")])
   .steps(["Projects", "lurq", "crates", "ui", "breadcrumb.rs"])
-  .max_items(4)
-  .menu(anchor.clone(), open.clone())
-  .separator(BreadcrumbSeparator::slash());
+  .max_shown(4)
+  .separator(BreadcrumbSeparator::slash())
+  .mount(ctx);
 ```
 
 | Builder | |
 | --- | --- |
-| `step(impl Into<BreadcrumbStep>)`, `steps(iter)` | Steps, in order, after those it has. The last is the page one is on: text, not a link. A `&str` is a step of that label |
+| `new(steps)` | A breadcrumb of these steps, in order. The last is the page one is on: text, not a link. A `&str` is a step of that label. `Breadcrumb::default()` has none |
+| `step(impl Into<BreadcrumbStep>)`, `steps(iter)` | Steps, in order, after those it has |
 | `on_select(Fn(&str))` | Called with the value of the step followed, after the step's own handlers |
-| `max_items(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_items - 1`; never fewer than two. All of them without it |
-| `menu(ElementRef, Signal<bool>)` | What the menu of the hidden steps hangs from, and whether it is open: the app's, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
+| `max_shown(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_shown - 1`; never fewer than two. All of them without it |
+| `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu` |
+| `menu(Signal<bool>, ElementRef)` | Whether the menu of the hidden steps is open, and what it hangs from, where the app keeps them, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
+| `label(&str)`, `more_label(&str)` | What the whole and the ellipsis are called to what reads the tree: "Breadcrumb" and "Show the hidden steps" unless told otherwise |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first link, the one Tab stops on first, in the state. The ellipsis's id is the root's with `-ellipsis` after it |
-| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `id` the id of its link, of the page, or of its item in the menu while it is hidden |
+| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `disabled(bool)` dimmed and not followed (Tab passes it, and its item in the menu is disabled), `id` the id of its link, of the page, or of its item in the menu while it is hidden, `key` the key of its link |
 
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
-- Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled`.
+- Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself).
 - In the design the steps are 8 apart in the body's 14; the links are in `MutedForeground` and the page in `Foreground` at 500; a chevron of 14 in `MutedForeground` stands between each two. The ellipsis is a square of 24 filled with `Highlight` (the board's `$accent`), with the small radius and an icon of 16 in `Foreground`. Under the pointer a link is in `Foreground`; the ring of the focus is around the link. A step's icon is 14, 4 before its text. A disabled breadcrumb is dimmed, follows nothing and is no stop of Tab.
 - A theme gives the separator a renderer of its own with `set_part_renderer::<Breadcrumb, BreadcrumbPartRenderer>(BreadcrumbPart::Separator, ..)`, built once for each place between two steps; or restyles it by the recipe.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `navigation` called "Breadcrumb", each link a `link` called by its label, the page has `a11y_current` `page`, and the ellipsis says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the root is a `navigation` called "Breadcrumb" (or its `label`), each link a `link` called by its label, the page has `a11y_current` `page`, and the ellipsis, called "Show the hidden steps" (or its `more_label`), says `a11y_haspopup` `menu` and whether it is `a11y_expanded`.
 - A renderer that draws another breadcrumb has `view.shown()` (the steps to draw, by index), `view.step(index)` (a link with its behavior, or the page), `view.separator()`, `view.ellipsis()` (the button with its menu, while some steps are hidden), `view.root()` and `view.follow(index)` (what following a step does).
 
 ## Pagination
@@ -1292,7 +1315,7 @@ Pagination::for_items(page.clone(), 284, size.get())
   .compact(true)
   .page_size("Rows per page", Select::new(size.clone(), [(10, "10"), (20, "20"), (50, "50")]));
 
-// The app holds the page: go is told the page of each press.
+// The app holds the page: on_change is told the page of each press.
 Pagination::controlled(current, 12, move |to| go(to));
 ```
 
@@ -1300,23 +1323,24 @@ Pagination::controlled(current, 12, move |to| go(to));
 | --- | --- |
 | `new(Signal<usize>, pages)` | `pages` pages, of which the current one is the signal's, counted from 1 |
 | `for_items(Signal<usize>, total, page_size)` | The pages of `total` items, `page_size` to a page |
-| `controlled(current, pages, go)` | The app holds the page: `current`, counted from 1, and `go` told the page of each press |
+| `controlled(current, pages, on_change)` | The app holds the page: `current`, counted from 1, and `on_change` told the page of each press |
 | `items(total, page_size)` | The pages of so many items, in place of a number of pages; the compact form then says "1–20 of 284" |
 | `siblings(usize)` | How many pages are drawn on each side of the current one: 1 unless it is said |
 | `compact(bool)` | Previous and next with where the list is, and no pages |
 | `page_size(label, Select)` | A select of how many to a page, after its label, at the start; the pagination is then as wide as what holds it |
-| `summary(&str)` | What is said of where the list is, in place of "1–20 of 284" or "Page 3 of 12": in another language |
+| `summary_text(&str)` | What is said of where the list is, in place of "1–20 of 284" or "Page 3 of 12": in another language |
+| `previous_label(&str)`, `next_label(&str)`, `page_label(&str)` | What previous and next are called, "Previous page" and "Next page", and the word before a page's number, "Page" of "Page 3", unless told otherwise |
 | `label(&str)` | What the whole is called to what reads the tree: "Pagination" unless it is said |
 | `on_change(handler)` | Called with the page of each press |
-| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Its buttons have ids after the pagination's: `{id}-previous`, `{id}-next`, `{id}-page-3` |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first button that takes input (previous, or the first page that is not the current one) in the state. Its buttons have ids after the pagination's: `{id}-previous`, `{id}-next`, `{id}-page-3` |
 
 - Which pages are drawn is the pagination's: the first and the last always, the current one with its siblings on each side, and an ellipsis where pages are left out. While every page fits in `2 × siblings + 5` every page is drawn; once they do not, that many things are drawn wherever the current page is, so that the row does not change its length as a person goes through it. Near an end the pages run on to that end and take the room of the ellipsis that is not needed there: on page 1 of 20, `1 2 3 4 5 … 20`; on page 10, `1 … 9 10 11 … 20`; on page 20, `1 … 16 17 18 19 20`. An ellipsis always stands for two pages or more. `Pagination::pages_shown(current, pages, siblings)` says what is drawn, as `PageItem::Page(n)` and `PageItem::Ellipsis`.
 - A current page past the ends is drawn as the end it is past; the signal is not changed. With no pages, previous and next are drawn, disabled, and nothing between them.
 - Previous is disabled on the first page and next on the last. A press of a page goes to it; a press of the current one does nothing.
 - Each page, previous and next is a button and a stop of Tab of its own; Left and Right move along the row (`FocusGroup::horizontal()`), from the last on to the first, and Home and End go to its ends. Enter and Space press the button the focus is on. A disabled button is passed by, and one that is disabled while the focus is on it, as next is by Enter on the page before the last, passes the focus to the button before it: the keyboard stays in the pagination.
 - The page-size select is the app's `ui::Select`, bound to its own signal; the pagination gives its trigger the board's size over the select's recipe (`PaginationPart::PageSize`, laid over `SelectPart::Trigger`), and calls it by the label beside it.
-- To what reads the tree (`lurq_snapshot` of the MCP server) the whole is a `navigation` called "Pagination" (or its `label`), each page a button called "Page 3", and the current one has `a11y_current` "page". Previous and next are called "Previous page" and "Next page".
-- Parts: `PaginationPart::Root`, `Nav` (the row of buttons the arrow keys move along), `Item` (laid over each button's root), `Current` (laid over the current page's, after `Item`), `Ellipsis`, `EllipsisIcon`, `Summary`, `PageSizeLabel`, `PageSize` (laid over the select's trigger). States: `PaginationState::Compact`, `PageSize`, `Disabled`.
+- To what reads the tree (`lurq_snapshot` of the MCP server) the whole is a `navigation` called "Pagination" (or its `label`), each page a button called "Page 3" (after its `page_label`), and the current one has `a11y_current` "page". Previous and next are called "Previous page" and "Next page" (or their labels).
+- Parts: `PaginationPart::Root`, `Nav` (the row of buttons the arrow keys move along), `Item` (laid over each button's root), `Ellipsis`, `EllipsisIcon`, `Summary`, `PageSizeLabel`, `PageSize` (laid over the select's trigger). States: `PaginationState::Compact`, `PageSize`, `Disabled`, and `Current` of an item: the current page's button.
 - In the design the pages are ghost buttons of 36, 4 apart, the current one an outline button; previous and next are ghost buttons of 36 with a chevron of 16. The ellipsis is a box of 36 with `more-horizontal` of 16 in `MutedForeground`. A page button is at least 36 wide and 6 from its sides, so that a number of four digits or more still fits. The compact form has outline buttons of 30 for previous and next, 12 after where the list is, in the body's type at 13 in `Foreground`; its page-size select is 72 by 30 with its text at 13, 12 after its label in `MutedForeground`. A disabled button is dimmed as a button is.
 - A renderer is given a `PaginationView`: where the list is (`current`, `pages`, `shown`, `summary`), and `view.previous()`, `view.next()`, `view.page(n)`, `view.ellipsis(i)`, `view.summary()`, `view.nav()` (the row of buttons) and `view.page_size()` (its label and the select) built in the recipe's style with their behavior.
 
@@ -2801,7 +2825,7 @@ let author = HoverCard::new()
   .media(Avatar::new("LQ"))
   .title("@lurq")
   .description("A Rust UI toolkit with GPU-backed rendering.")
-  .fact(icons::CALENDAR_DAYS, "Joined March 2024")
+  .fact("Joined March 2024", icons::CALENDAR_DAYS)
   .mount(ctx, Link::new("@lurq"));
 
 // With controls in it: a dialog to tooling, and Tab goes into it from the link.
@@ -2817,21 +2841,23 @@ let reviewer = HoverCard::new()
 | --- | --- |
 | `mount(ctx, element)` | Puts the card on the element it is about and returns that element |
 | `title(&str)`, `description(&str)` | What it is about, and a line or two about it |
+| `label(&str)` | What tooling calls it, in place of its title |
 | `media(element)` | What stands at its start, beside the text: an avatar, the icon of a file |
-| `fact(icon, &str)`, `plain_fact(&str)` | A fact in the row under the description, with an icon of the theme's set or without one |
+| `fact(&str, icon)`, `facts(..)` | A fact in the row under the description: its text, and an icon of the theme's set before it or `None` |
 | `child(element)`, `children(..)` | What it holds under its text: a link, a row of buttons |
 | `placement(Placement)` | The side of the element it is on and the edge it lines up with: `Bottom`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far it stands from the element in place of the theme's 8, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle with the panel's edge from the panel to the element |
 | `open_delay(..)`, `close_delay(..)` | A `MotionDuration` of the theme's or a `Duration`: how long the pointer rests before it opens (`Slower`, 400 ms) and how long it stays after the pointer left (`Slow`, 240 ms) |
-| `open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never |
+| `force_open(Option<bool>)` | `Some(true)` shows it whatever the pointer and the focus do, `Some(false)` never |
 | `disabled(bool)` | It never opens, and the element is as it would be without it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [popover](#popover) has them. `id` is the id of what shows |
 
 - It opens when the pointer has rested on the element for its open delay, and at once when the keyboard's focus comes to the element or to anything in it. It stays open while the pointer is on the element, on the card or crossing the room between them (the room is the card's root, which the pointer is on), and while the focus is in either; it closes when the pointer has left both for its close delay, when the focus leaves both, and on Escape, which it takes before anything under it. After Escape it stays closed until the pointer comes again or both the pointer and the focus have left.
 - Tab goes from the element into the card's controls and on to what follows the element (`Overlay::tab_after_anchor`): the focus is not moved into it as it opens, which is what `Overlay::takes_focus` would do. As it closes with the focus inside, the focus goes back to the element.
 - One hover card of the pointer shows at a time. Where there is no room on its side it goes to the other, its arrow turned with it, and where the window pushes it along, its arrow still points at the middle of the element.
-- To what reads the tree it is a `dialog` where it holds a control and a `tooltip` where it does not, called by its title; the element is described by the title and the description (`a11y_description`), and says it has a dialog where the card has controls.
-- It is a mounted component, as the tooltip is. Converted into an element on its own, a `HoverCard` is its panel as it shows, anchored to nothing.
+- To what reads the tree it is a `dialog` where it holds a control and a `tooltip` where it does not, called by its label or else its title; the element is described by the title and the description (`a11y_description`), and says it has a dialog where the card has controls.
+- It is a mounted component, as the tooltip is. Converted into an element on its own, a `HoverCard` is its panel as it shows, anchored to nothing. As a tooltip, it has no `on_dismiss` and no `dismiss_on_escape`: the pointer and the focus open it, not the app, and Escape always closes it.
 - Parts: `HoverCardPart::Root` (the panel and its arrow, and the room between them and the element), `Panel`, `Media`, `Text`, `Title`, `Description`, `Facts`, `Fact`, `FactIcon`, `Arrow`. States: `HoverCardState::Arrow`, `Controls`, and the side it is on by the names of `TooltipSide` (`"top"`, `"bottom"`, `"left"`, `"right"`).
 - In the design the panel is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Md` shadow and 16 of padding, the media 12 before the text. The text is 6 apart: the title in 14 at medium weight, the description in 13 of `MutedForeground` in lines of 1.5, and the facts 12 apart, each an icon of 14 6 before its text in 12, both muted. It stands 8 from the element; the arrow is 18 along the panel and 9 out from it. It fades in over the base duration and out over the fast one.
 
@@ -2843,8 +2869,8 @@ A tooltip opened by a press: a small button beside a label that opens a few word
 use lurq::ui::Toggletip;
 
 let help = Toggletip::new("What is a workspace?")
-  .content("A workspace holds the projects a team shares.")
-  .link("Learn more", |_| open_docs())
+  .text("A workspace holds the projects a team shares.")
+  .link("Learn more", || open_docs())
   .mount(ctx);
 ```
 
@@ -2852,21 +2878,25 @@ let help = Toggletip::new("What is a workspace?")
 | --- | --- |
 | `Toggletip::new(&str)` | What its button is called to tooling: the question the panel answers |
 | `mount(ctx)` | Puts its button where it goes, and its panel over the window while it is open |
-| `content(&str)` | What the panel says |
-| `link(&str, handler)` | A link under the text, with an arrow after it |
+| `text(&str)` | What the panel says |
+| `link(&str, Fn())` | A link under the text, with an arrow after it, and what a press of it does |
 | `child(element)`, `children(..)` | What the panel holds under its text: a button |
 | `icon(name)` | The button's icon, `icons::INFO` unless this says otherwise |
-| `placement(Placement)` | The side of the button the panel is on: `Top` by default |
+| `placement(Placement)` | The side of the button the panel is on and the edge it lines up with: `Top`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far the panel stands from the button in place of the theme's 6, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle from the panel to the button: the tooltip's |
-| `open(Option<bool>)` | `Some(true)` shows the panel whatever the button says, `Some(false)` never |
+| `on_dismiss(Fn())` | Told after a person closed it: another press of its button, a press outside it, Escape. A second handler is called after the first |
+| `dismiss_on_escape(bool)` | Whether Escape closes it: on by default |
+| `force_open(Option<bool>)` | `Some(true)` shows the panel whatever the button says, `Some(false)` never |
 | `disabled(bool)` | The button takes nothing |
+| `force(Option<Interaction>)` | Draws its button hovered, pressed or focused with nothing on it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
 | `id` | The id of the button; the root of the panel is `<id>-panel` |
 
-- A press of the button opens the panel and another closes it; a press outside it and Escape close it too. The focus stays on the button as it opens, and Tab goes from the button into the panel's link and on; as the panel closes with the focus in it, the focus goes back to the button.
+- A press of the button opens the panel and another closes it; a press outside it and Escape close it too, and each of the three tells `on_dismiss` once it is closed. The focus stays on the button as it opens, and Tab goes from the button into the panel's link and on; as the panel closes with the focus in it, the focus goes back to the button.
 - To what reads the tree the button is called by its label and says whether it is expanded (`a11y_expanded`), and the panel is a `status`.
 - It is a mounted component: it keeps whether it is open. Converted into an element on its own, a `Toggletip` is its panel as it shows.
-- Parts: `ToggletipPart::Root`, `Trigger` and `TriggerIcon` (what it gives the theme's button and its icon), `Panel`, `Text`, `Link` and `LinkLabel` (what it gives the theme's link and its label), `Arrow`. States: `ToggletipState::Open`, `Arrow`, `Disabled`, and the side as a hover card has it.
+- Parts: `ToggletipPart::Root`, `Trigger` and `TriggerIcon` (what it gives the theme's button and its icon), `Panel`, `Label` (its text), `Link` and `LinkLabel` (what it gives the theme's link and its label), `Arrow`. States: `ToggletipState::Open`, `Arrow`, `Disabled`, and the side as a hover card has it.
 - In the design the panel is 230 wide on `Primary`, `Md` round, with 12 of padding and 8 between what it holds. Its text is 13 in `PrimaryForeground` in lines of 1.4, and its link 13 at 600 with an arrow up and right of 14, underlined in `PrimaryForeground` under the pointer. The button is a ghost one of 20 that is a circle, its icon of 14 in `MutedForeground`, in `Foreground` under the pointer and while the panel is open. The panel stands 6 from the button, and its arrow is the tooltip's, 12 along and 6 out.
 
 ## Teaching Tip
@@ -2876,13 +2906,13 @@ A panel that points at one thing in the app and says what it is for, the first t
 ```rust
 use lurq::ui::{Icon, TeachingTip, TeachingTipVariant, Tour, TourStep, icons};
 
-// anchor: ElementRef, open: Signal<bool>, kept by the app.
+// open: Signal<bool>, anchor: ElementRef, kept by the app.
 let close = open.clone();
-let dock = TeachingTip::new(anchor.clone(), open.clone())
+let dock = TeachingTip::new(open.clone(), anchor.clone())
   .media(Icon::new(icons::SPARKLES).size(24.0))
   .title("Dock panels anywhere")
   .description("Drag a panel by its header and drop it on any edge of the window.")
-  .primary("Got it", move |_| close.set(false))
+  .primary("Got it", move || close.set(false))
   .mount(ctx);
 
 // step: Signal<Option<usize>>, which step shows; None while the tour is not on.
@@ -2894,28 +2924,32 @@ let tour = Tour::new(step.clone())
 
 | Builder | |
 | --- | --- |
-| `TeachingTip::new(anchor, open)` | Pointing at `anchor` while the `Signal<bool>` is `true` |
+| `TeachingTip::new(open, anchor)` | Pointing at `anchor` while the `Signal<bool>` is `true` |
 | `mount(ctx)` | Puts it in the app; the element it returns has no size and goes anywhere |
 | `title(&str)`, `description(&str)` | What it points at, and what it is for |
+| `label(&str)` | What tooling calls it, in place of its title |
 | `media(element)` | A picture or an icon at its top, on a muted fill as wide as it |
-| `child(element)` | Something it holds under the description |
+| `child(element)`, `children(..)` | What it holds under the description |
 | `step(n, of)` | That it is a step of several: "2 of 4" in its footer, in the tour's look |
-| `primary(&str, handler)`, `secondary(&str, handler)` | The button that goes on, and the one before it |
-| `on_close(Fn())` | Told as its close control or Escape closes it, after which the signal is `false` |
+| `primary(&str, Fn())`, `secondary(&str, Fn())` | The button that goes on, and the one before it, and what a press of each does |
+| `on_dismiss(Fn())` | Told after its close control or Escape closed it: the signal is `false` already. A second handler is called after the first |
+| `dismiss_on_escape(bool)` | Whether Escape closes it, as its close control does: on by default |
 | `close_button(bool)` | A close control at the end of its title: on by default |
 | `variant(TeachingTipVariant)` | `Plain` (the default), in the popover's colors, or `Primary` |
-| `placement(Placement)` | The side of what it points at it is on: `Bottom` by default |
+| `placement(Placement)` | The side of what it points at it is on and the edge it lines up with: `Bottom`, centered, by default |
+| `offset(..)`, `collision(CollisionStrategy)` | How far it stands from what it points at in place of the theme's 4, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle with the panel's edge pointing at what it is about: on by default |
 | `takes_focus(bool)` | The focus goes into it as it opens and back as it closes. Off by default |
+| `force(Option<Interaction>)` | Draws its close control hovered, pressed or focused with nothing on it |
 | `width(..)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `key` | As a [popover](#popover) has them |
 | `id` | The id of what shows; its close control is `<id>-close`, its buttons `<id>-primary` and `<id>-secondary` |
 
-- It does not keep whether it is open: the app's signal does. Its close control and Escape close it, set the signal to `false` and tell `on_close`; a press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
+- It does not keep whether it is open: the app's signal does. Its close control and Escape close it: they set the signal to `false` and then tell `on_dismiss`, so that a handler that opens something else does not have it closed under it. A press elsewhere does not close it, so a person can go on with what they are doing beside it. Its own buttons do what their handlers say.
 - It does not take the focus unless the app says so: Tab goes from what it points at into its buttons and on (`Overlay::tab_after_anchor`). With `takes_focus(true)` the focus goes into it as it opens and back to what had it as it closes.
-- To what reads the tree it is a `dialog` called by its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
-- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`labels(back, next, done)`). Its buttons set the signal; Done and Escape set it to `None`, and Done tells `on_finish`. `TourStep::new(anchor, title)` has `description`, `media` and `placement`; the tour has `variant`, `placement` and `arrow` for all its steps.
-- Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows.
-- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Stepped` (it has a count), `Media`, and the side as a hover card has it.
+- To what reads the tree it is a `dialog` called by its label or else its title. Where there is no room on its side it goes to the other, its arrow turned with it, and the arrow points at the middle of what it is about.
+- `Tour::new(Signal<Option<usize>>)` shows the step the signal says, counted from 0, as a teaching tip with its count and no close control, with "Back" from the second step on and "Next", or "Done" on the last (`back_label`, `next_label`, `done_label`). Its buttons set the signal; Done and Escape set it to `None`, and then Done tells `on_finish` and Escape `on_dismiss` (`dismiss_on_escape(false)` keeps the tour on). `TourStep::new(anchor, title)` has `description`, `media`, `placement`, `id` and `key`; the tour has `variant`, `placement`, `offset`, `collision` and `arrow` for all its steps, and `state`, `style`, `rules`, `id` and `key` for the tip that shows, a step's `id` and `key` first.
+- Teaching tips and tours are mounted components: a tip keeps which side the window let it take, and what Escape tells. Converted into an element on its own, a `TeachingTip` is its panel as it shows, and a `Tour` the panel of the step its signal says, or of its first step while it says none.
+- Parts: `TeachingTipPart::Root`, `Panel`, `Media`, `Content` (the text over the footer), `Text`, `Header` (the title and the close control), `Title`, `Close` (what it gives the theme's button), `Description`, `Footer`, `Step`, `Actions`, `PrimaryAction` and `SecondaryAction` (what it gives the theme's buttons), `Arrow`. Variants: `TeachingTipVariant::Plain`, `Primary`. States: `TeachingTipState::Arrow`, `Step` (it has a count), `Media`, and the side as a hover card has it.
 - In the design a teaching tip is 300 wide on `Popover` in an edge of 1 in `Border`, `Lg` round, with the `Lg` shadow: media 96 high on `Muted`, then 14 of padding around the text and the footer 10 under it. The title is 14 at 600 with a ghost close control of 20 at its end, its icon of 16 in `MutedForeground`; the description 6 under it is 13 of `MutedForeground` in lines of 1.45; the buttons, 8 apart at the end of the footer, are 30 high and 12 from their sides, the primary one `Primary` and the other `Outline`. It stands 4 from what it points at; its arrow is 18 along the panel and 9 out from it, with the panel's edge. A step of a tour is the board's Tour: 280 wide, padded 16, its title at 500 over the description 4 under it in lines of 1.5, its footer 12 under them with the count in mono 11 of `MutedForeground` at its start and buttons 28 high and 10 from their sides. In the `Primary` look the panel is `Primary` in its own color's edge, all it says in `PrimaryForeground`, the media on a white of 10%, and the buttons `Secondary` and `Ghost`. It fades in and out as the popover does.
 
 ## Command Palette
@@ -3016,7 +3050,7 @@ let heading = |collapsed| SidebarHeading::new("lurq").description("Workspace").i
 let account = SidebarHeading::new("Ivan Zaida")
   .variant(SidebarHeadingVariant::Account)
   .description("ivan@lurq.dev")
-  .mark(Avatar::new("Ivan Zaida"));
+  .media(Avatar::new("Ivan Zaida"));
 
 Sidebar::new()
   .label("Workspace")
@@ -3034,7 +3068,7 @@ Sidebar::new()
       ),
   )
   .footer(account)
-  .collapsed(collapsed.clone())
+  .collapsed(collapsed.get())
   .open(open.clone())
   .mount(ctx);
 
@@ -3045,21 +3079,22 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 | Builder | |
 | --- | --- |
 | `label(&str)` | What the navigation region is called to tooling. "Sidebar" unless told |
-| `header(element)`, `footer(element)` | What stays at its top and its bottom while its items scroll: a `SidebarHeading`, a search. The footer has a line over it |
+| `header(element)`, `footer(element)` | What stays at its top and its bottom while its items scroll: a `SidebarHeading`, a search. The footer has a line over it. It has one of each: a second call takes the place of the first, where a card's or a dialog's `footer` adds to a row of buttons |
 | `header_collapsed(element)`, `footer_collapsed(element)` | What the rail shows in their place: the mark alone, an avatar. Nothing unless told |
-| `group(SidebarGroup)`, `groups(..)`, `item(SidebarItem)` | Groups of items; `item` adds to a group of no label |
-| `collapsed(bool \| Signal<bool>)` | The rail of the items' icons, 52 wide. Its width moves between the two over the theme's slow duration |
+| `group(SidebarGroup)`, `groups(..)`, `item(SidebarItem)`, `items(..)` | Groups of items; `item` and `items` add to a group of no label |
+| `collapsed(bool)` | The rail of the items' icons, 52 wide: the value of the signal `SidebarTrigger` turns, `collapsed.get()`. Its width moves between the two over the theme's slow duration |
 | `open(Signal<bool>)` | On a narrow window, whether it is open over the page. `SidebarTrigger` sets it; choosing an item, Escape and a press on the veil clear it |
 | `narrow(bool)` | Whether it lies over the page whatever the window's width: it does below the `md` breakpoint unless told |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root |
-| `mount(ctx)` | Puts it where it goes. Converted into an element on its own it is drawn as it is at rest, with no tooltips on the rail: for a gallery or a test |
+| `mount(ctx)` | Puts it where it goes, keeping which lists are open and the rail's menus |
+| `build(&theme)` | The sidebar as it is at rest in that theme, with no tooltips on the rail and nothing kept: for a gallery or a test. Converted into an element on its own (`.into()`) it is the same in the theme of what is being rendered |
 
 | `SidebarGroup` | |
 | --- | --- |
 | `new(&str)` | A group under a label, written in capitals; an empty one has none |
 | `count(usize)` | How many it has, at the end of its label |
 | `action(element)` | An action at the end of its label: a small ghost button. The arrow keys of the items pass it by |
-| `collapsible(bool)`, `open(bool)` | Its label opens and closes it; `open` is how it starts, and the sidebar keeps it from then on |
+| `collapsible(bool)`, `default_open(bool)` | Its label opens and closes it; `default_open` is how it starts, and the sidebar keeps it from then on |
 | `item(SidebarItem)`, `items(..)`, `key` | Its items; `key` tells two groups of one label apart |
 
 | `SidebarItem` | |
@@ -3069,7 +3104,7 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 | `selected(bool)` | It is where the app is: the app's, following its route |
 | `disabled(bool)` | It is dimmed and takes nothing |
 | `on_select(handler)`, `href(path)` | What choosing it does: the handler, and with the `router` feature the path the router goes to. A press, Enter and Space choose |
-| `child(SidebarItem)`, `children(..)`, `open(bool)` | Nested items, which open and close with their height under it; `open` is how they start, open where one of them is selected unless told |
+| `child(SidebarItem)`, `children(..)`, `default_open(bool)` | Nested items, which open and close with their height under it; `default_open` is how they start, open where one of them is selected unless told |
 | `force(..)`, `id`, `key` | As a button's. `key` tells two items of one name apart |
 
 - The items are a tree to the keyboard (`FocusGroup::vertical().one_stop(true).typeahead(true).nested(true)`, each item at its `focus_level`, one with nested items `focus_expanded`): Tab stops at it once, on the selected item; Up and Down move through the items shown, nested ones included, Home and End go to the first and the last, and a letter to the item whose name starts with it. Right opens a closed item and on an open one goes to its first nested item; Left closes an open one and on a nested item goes to the item it is in. A group that opens and closes is an item its items are in. On the rail the items are a list, and Right opens an item's menu.
@@ -3077,9 +3112,9 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 - A closed item that holds the selected item is marked as the selected one is, and a closed group that holds it has its label and its chevron in `Foreground`: what is selected shows where it is hidden. Tab stops on what marks it, and it is what is scrolled into view. To what reads the tree such an item has `a11y_current` `location`.
 - On a window narrower than the `md` breakpoint it lies over the page in a `Drawer` with `overlay(true)` and `scroll(false)`, as wide as it is beside the page, its header and footer staying while its items scroll; whatever `collapsed` says, it is whole there. Choosing an item closes it.
 - Which item is selected is the app's: with a router, `.selected(ctx.route_path() == path)` on each, and `.href(path)` to go there. The gallery's shell does this for its pages. Where the selected item moves (the app selects another: a router, a search, a link of the page), it is scrolled into view, the lists it is in opened; the item selected at the start is scrolled to as well.
-- `SidebarTrigger::new(collapsed).open(open)` is a ghost button of the `panel-left` icon, called by which way it goes: "Collapse sidebar", "Expand sidebar", or on a narrow window "Open sidebar", "Close sidebar". `narrow(bool)` tells it as the sidebar is told.
-- `SidebarHeading::new(title)` is the row of the header and the footer: `description`, `icon(name)` (a mark on the primary fill) or `mark(element)` (an avatar), `trailing_icon(name)`, `variant(SidebarHeadingVariant::Workspace | Account)`, `collapsed(bool)` (the mark alone, for the rail), `on_click` and `anchor(ElementRef)` (a button, from which a switcher's menu can hang).
-- Parts: `SidebarPart::Root`, `Header`, `Body` (what scrolls), `Footer` (its room at the sidebar's sides), `FooterContent` (the line and what is under it), `Group`, `GroupLabel`, `GroupText`, `GroupCount`, `GroupChevron`, `GroupAction`, `Item`, `ItemIcon`, `ItemLabel`, `ItemCount`, `ItemBadge`, `ItemShortcut`, `ItemChevron`, `ItemIndent` (one for each level an item is nested), `Nested`, `NestedContent`, `Heading`, `HeadingMark`, `HeadingText`, `HeadingTitle`, `HeadingDescription`, `HeadingTrailing`. States: `SidebarState::Collapsed`, `Overlay`, `Selected`, `Disabled`, `Open`, `Interactive` (a group's label that is pressed, a heading with a handler). Variants of a heading: `SidebarHeadingVariant::Workspace`, `Account`.
+- `SidebarTrigger::new(collapsed).open(open)` is a ghost button of the `panel-left` icon, called by which way it goes: "Collapse sidebar", "Expand sidebar", or on a narrow window "Open sidebar", "Close sidebar", each of which `collapse_label`, `expand_label`, `open_label` and `close_label` say otherwise. `narrow(bool)` tells it as the sidebar is told; `force(..)`, `id` and `key` are a button's.
+- `SidebarHeading::new(title)` is the row of the header and the footer: `description`, `icon(name)` (a mark on the primary fill) or `media(element)` (an avatar), `trailing_icon(name)`, `variant(name)` (`SidebarHeadingVariant::Workspace`, the default, or `Account`, or a theme's), `collapsed(bool)` (the mark alone, for the rail), `on_click(|event| ..)` and `anchor(ElementRef)` (a button, from which a switcher's menu can hang), and `state`, `style`, `rules`, `force`, `id`, `key` as a button has them.
+- Parts: `SidebarPart::Root`, `Header`, `Body` (what scrolls), `Footer` (its room at the sidebar's sides), `FooterContent` (the line and what is under it), `Group`, `GroupLabel`, `GroupText`, `GroupCount`, `GroupChevron`, `GroupAction`, `Item`, `ItemIcon`, `ItemLabel`, `ItemCount`, `ItemBadge`, `ItemShortcut`, `ItemChevron`, `ItemIndent` (one for each level an item is nested), `Nested`, `NestedContent`, `Heading`, `HeadingMark`, `HeadingText`, `HeadingTitle`, `HeadingDescription`, `HeadingTrailing`. States: `SidebarState::Collapsed`, `Overlay`, `Selected`, `Disabled`, `Open`, `Pressable` (a group's label that is pressed, a heading with a handler). Variants of a heading: `SidebarHeadingVariant::Workspace`, `Account`.
 - In the design the sidebar is 260 wide on `Muted` with a line of 1 in `Border` along its end, padded 8, 2 between rows. The 8 at its sides is its header's, body's and footer's: the body reaches the sidebar's edge, and at its end it has the lane of the theme's scroll bar (its width and its inset on either side, 12 with the default bar) where that is more than 8, so that the bar, which is drawn over what scrolls, lies beside the rows and not over them. The rail shows no bar: it scrolls with the wheel and the keys. An item is 32 high (it follows the density: 24, 40 and 44 at compact, comfortable and touch), padded 8 across, 8 between an icon of 16 in `MutedForeground` and its name in 13; the selected one is on `Background` with an edge of `Border`, its name in the medium weight and its icon in `Foreground`. Under the pointer an item has the `StateHover` veil, held down `StatePressed`, and the ring of the focus is inside it. A group's label is 11/600 in capitals, 0.6 apart, in `MutedForeground`, 10 over it and 4 under it. A nested item is 18 further in, after the chevron of 14 of the item it is in. The heading of the header is 44 high with a mark of 28 on `Primary`, its title 13/600 over a description of 11 in `MutedForeground`; the footer's is under a line of 1 and 48 high, its name in the medium weight. The rail is 52 wide, its items 36 by 32, 4 apart.
 - It is a mounted component: the tooltips of the rail are mounted, and it keeps which nested lists and groups are open and the anchor and the open signal of each menu of the rail.
 - To what reads the tree it is a `navigation` called by its label, its items `link` (with `href`) or `button`, the selected one with `a11y_current` `page`, an item with nested items with `a11y_expanded`, and a nested list a `group`.
