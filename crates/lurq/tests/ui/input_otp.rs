@@ -252,6 +252,51 @@ fn tab_puts_the_focus_on_the_first_empty_cell_and_typing_fills_it_and_goes_on() 
 }
 
 #[test]
+fn on_change_is_told_each_edit_of_a_person_and_not_what_the_app_sets() {
+  let code = Signal::new(String::new());
+  let changes = Arc::new(Mutex::new(Vec::new()));
+  let (bound, told) = (code.clone(), changes.clone());
+  let mut stage = staged(move || {
+    let told = told.clone();
+    InputOtp::new(bound.clone())
+      .id("code")
+      .on_change(move |code| told.lock().unwrap().push(code.to_owned()))
+  });
+  stage.key("Tab");
+  type_in(&mut stage, "4");
+  type_in(&mut stage, "2");
+  // What the code does not take changes nothing, and is not told.
+  type_in(&mut stage, "x");
+  stage.key("Backspace");
+  assert!(stage.tree.paste(ClipboardContent::text("123456")));
+  stage.pass();
+  assert_eq!(*changes.lock().unwrap(), ["4", "42", "4", "123456"]);
+  // The app's own value is not a person's edit.
+  code.set("654321".to_owned());
+  stage.pass();
+  assert_eq!(shown(&stage), "654321");
+  assert_eq!(changes.lock().unwrap().len(), 4);
+}
+
+#[test]
+fn a_second_on_complete_is_called_after_the_first() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (first, second, bound) = (told.clone(), told.clone(), Signal::new(String::new()));
+  let mut stage = staged(move || {
+    let (first, second) = (first.clone(), second.clone());
+    InputOtp::new(bound.clone())
+      .length(2)
+      .id("code")
+      .on_complete(move |code| first.lock().unwrap().push(format!("first {code}")))
+      .on_complete(move |code| second.lock().unwrap().push(format!("second {code}")))
+  });
+  stage.key("Tab");
+  type_in(&mut stage, "1");
+  type_in(&mut stage, "2");
+  assert_eq!(*told.lock().unwrap(), ["first 12", "second 12"]);
+}
+
+#[test]
 fn digits_typed_past_the_end_go_nowhere_and_complete_once() {
   let code = Signal::new("1".to_owned());
   let completed = Arc::new(Mutex::new(Vec::new()));

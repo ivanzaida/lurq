@@ -11,6 +11,7 @@ use super::{
   names,
   part_style::{Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  text_box::TextBoxSize,
   theme::{Themed, current_theme},
   token_input::{MENTION, Token, TokenInput, TokenInputPart, TokenInputView},
 };
@@ -18,7 +19,7 @@ use crate::{
   app::{
     ctx::Placement,
     events::{KeyboardEvent, TextInputEvent},
-    theme::{BorderSize, IconSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
+    theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{Column, Popup, Row, TextInputController},
   core::{ElementRef, Signal},
@@ -34,40 +35,47 @@ pub enum MentionsPart {
   Root,
   /// The box that is typed in: what it lays over the token input's control, its room and its least height.
   Control,
-  /// The list of what is offered, under the trigger: its panel.
-  List,
+  /// The panel that floats under the trigger: the list of what is offered.
+  Panel,
   /// One offer in the list: what is pressed, and what is highlighted while it is the one Enter chooses.
-  Option,
+  Item,
   /// The avatar of an offer, where it has one.
-  OptionAvatar,
+  ItemAvatar,
   /// The icon of an offer, where it has one and no avatar.
-  OptionIcon,
+  ItemIcon,
   /// The text of an offer.
-  OptionLabel,
+  ItemLabel,
 }
 
 names!(MentionsPart {
   Root => "root",
   Control => "control",
-  List => "list",
-  Option => "option",
-  OptionAvatar => "option_avatar",
-  OptionIcon => "option_icon",
-  OptionLabel => "option_label",
+  Panel => "panel",
+  Item => "item",
+  ItemAvatar => "item_avatar",
+  ItemIcon => "item_icon",
+  ItemLabel => "item_label",
 });
 
-/// The states of a mentions field a recipe styles, besides those of its box.
+/// The sizes of a mentions field: an input's, the type of its text and mentions 13, 14 or 15.
+pub type MentionsSize = TextBoxSize;
+
+/// The states of a mentions field a recipe styles, besides those of its box. The two last are an offer's own:
+/// its parts are resolved in them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MentionsState {
   /// The list is open under a trigger.
   Open,
-  /// The offer is the one Enter chooses: its own case.
-  Active,
+  /// The offer is the one Enter chooses.
+  Highlighted,
+  /// The offer is shown and cannot be chosen.
+  Disabled,
 }
 
 names!(MentionsState {
   Open => "open",
-  Active => "active",
+  Highlighted => "highlighted",
+  Disabled => "disabled",
 });
 
 /// What builds a mentions field's nodes: a theme's in place of the default one.
@@ -81,12 +89,17 @@ pub type MentionsRenderer = Arc<dyn Fn(MentionsView) -> Element + Send + Sync>;
 /// let ivan = Mention::new("Ivan Zaida").avatar(Avatar::new("Ivan Zaida"));
 /// // The text it puts in the field, in place of the trigger and its label.
 /// let channel = Mention::new("design").text("#design").icon(icons::USERS);
+/// // Shown, and not to be chosen.
+/// let away = Mention::new("Ivy Chen").disabled(true).id("ivy");
 /// ```
 pub struct Mention {
   label: Arc<str>,
   text: Option<Arc<str>>,
   avatar: Option<Avatar>,
   icon: Option<Name>,
+  disabled: bool,
+  id: Option<Arc<str>>,
+  key: Option<Arc<str>>,
 }
 
 impl Mention {
@@ -97,6 +110,9 @@ impl Mention {
       text: None,
       avatar: None,
       icon: None,
+      disabled: false,
+      id: None,
+      key: None,
     }
   }
 
@@ -116,6 +132,24 @@ impl Mention {
   /// An icon before the label, by its name in the theme's set, where the offer has no avatar.
   pub fn icon(mut self, name: impl Into<Name>) -> Self {
     self.icon = Some(name.into());
+    self
+  }
+
+  /// Whether the offer is shown dimmed and cannot be chosen: a click does nothing, and Up and Down pass it by.
+  pub fn disabled(mut self, disabled: bool) -> Self {
+    self.disabled = disabled;
+    self
+  }
+
+  /// The id of the offer's row in the list.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// The key of the offer's row in the list.
+  pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
+    self.key = Some(key.into());
     self
   }
 
@@ -338,8 +372,8 @@ impl Mentions {
   }
 
   /// Other tokens of the app's in the text, besides the mentions: how it finds them.
-  pub fn tokens(mut self, find: impl Fn(&str) -> Vec<Token> + Send + Sync + 'static) -> Self {
-    self.input = self.input.tokens(find);
+  pub fn find_tokens(mut self, find: impl Fn(&str) -> Vec<Token> + Send + Sync + 'static) -> Self {
+    self.input = self.input.find_tokens(find);
     self
   }
 
@@ -362,7 +396,7 @@ impl Mentions {
     self
   }
 
-  /// A [`TextBoxSize`]: the type of its text and mentions, 13, 14 or 15.
+  /// A [`MentionsSize`]: the type of its text and mentions, 13, 14 or 15.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.input = self.input.size(size);
     self
@@ -532,7 +566,7 @@ impl Mentions {
         Vec::new()
       }
     };
-    let active = kept.active.min(offers.len().saturating_sub(1));
+    let active = settle_active(&offers, kept.active.min(offers.len().saturating_sub(1)));
     kept.active = active;
     drop(kept);
     let open = !offers.is_empty();
@@ -556,6 +590,29 @@ impl Mentions {
       None => view.render(),
     }
   }
+}
+
+/// The offer Enter chooses, at `at` or the first after it that is not disabled, else the first before it.
+fn settle_active(offers: &[Mention], at: usize) -> usize {
+  (at..offers.len())
+    .chain((0..at).rev())
+    .find(|index| !offers[*index].disabled)
+    .unwrap_or(at)
+}
+
+/// The next offer from `at` that is not disabled, `by` one step forward or back, round the list.
+fn step_active(choosable: &[bool], at: usize, forward: bool) -> usize {
+  let count = choosable.len();
+  (1..=count)
+    .map(|step| {
+      if forward {
+        (at + step) % count
+      } else {
+        (at + count * step - step) % count
+      }
+    })
+    .find(|index| choosable[*index])
+    .unwrap_or(at)
 }
 
 /// The mentions in `text`: every place a chosen mention's text stands as a word of its own.
@@ -622,7 +679,7 @@ pub struct MentionsView {
   pub input: TokenInputView,
   /// What the list offers, in its order: none while it is closed.
   pub offers: Vec<Mention>,
-  /// The offer Enter chooses.
+  /// The offer Enter chooses: never a disabled one where another can be chosen.
   pub active: usize,
   /// The trigger being typed: where it is in the text, and which it is.
   pub trigger: Option<(usize, char)>,
@@ -648,7 +705,11 @@ impl MentionsView {
   }
 
   /// What choosing the offer at `index` does: its text in place of the trigger and what was typed, as a mention.
+  /// None for an offer that is disabled.
   fn chooser(&self, offer: &Mention) -> Option<Arc<dyn Fn() + Send + Sync>> {
+    if offer.disabled {
+      return None;
+    }
     let (at, character) = self.trigger?;
     let text = offer.inserted(character);
     let (controller, handlers) = (self.controller.clone(), self.on_mention.clone());
@@ -664,30 +725,33 @@ impl MentionsView {
   /// Escape puts the list away. Any other key, and a press, has the field look again for a trigger at the caret.
   pub fn control(&self) -> crate::components::TextInput {
     let controller = self.controller.clone();
-    let choosers: Vec<_> = self.offers.iter().filter_map(|offer| self.chooser(offer)).collect();
+    let choosers: Vec<_> = self.offers.iter().map(|offer| self.chooser(offer)).collect();
+    let choosable: Vec<bool> = choosers.iter().map(Option::is_some).collect();
     let (open, trigger) = (self.open, self.trigger);
     let mut control = self.input.control().on_key_down(move |event: KeyboardEvent| {
       if !event.focus_within {
         return;
       }
       let plain = !event.ctrl && !event.alt && !event.meta;
-      if open && plain && !choosers.is_empty() {
+      if open && plain && choosable.iter().any(|can| *can) {
         let count = choosers.len();
         let mut kept = controller.inner.lock();
         match event.key.as_str() {
           "ArrowDown" if !event.shift => {
             event.prevent_default();
-            kept.active = (kept.active + 1) % count;
+            kept.active = step_active(&choosable, kept.active.min(count - 1), true);
           }
           "ArrowUp" if !event.shift => {
             event.prevent_default();
-            kept.active = (kept.active + count - 1) % count;
+            kept.active = step_active(&choosable, kept.active.min(count - 1), false);
           }
           "Enter" | "Tab" if !event.shift => {
             event.prevent_default();
             let chosen = choosers[kept.active.min(count - 1)].clone();
             drop(kept);
-            chosen();
+            if let Some(chosen) = chosen {
+              chosen();
+            }
             return;
           }
           "Escape" => {
@@ -712,13 +776,17 @@ impl MentionsView {
   }
 
   /// One offer: its avatar or icon and its label, in a row that a click chooses by and that keeps the focus in the
-  /// field.
-  pub fn option(&self, index: usize, offer: Mention) -> Element {
-    let active = index == self.active;
+  /// field. A disabled offer is dimmed, and neither a click nor the pointer coming onto it does anything.
+  pub fn item(&self, index: usize, offer: Mention) -> Element {
+    let active = index == self.active && !offer.disabled;
     let choose = self.chooser(&offer);
-    let case = self.case.clone().state(MentionsState::Active, active);
+    let case = self
+      .case
+      .clone()
+      .state(MentionsState::Highlighted, active)
+      .state(MentionsState::Disabled, offer.disabled);
     let recipe = self.theme().resolve::<Mentions>(&case, Some(&self.rules));
-    let part = recipe.part(MentionsPart::Option).forced(self.forced.filter(|_| active));
+    let part = recipe.part(MentionsPart::Item).forced(self.forced.filter(|_| active));
     let mut row = Row::new()
       .align_items(Alignment::Center)
       .focusable(false)
@@ -726,14 +794,24 @@ impl MentionsView {
       .describe("a11y_name", offer.label.clone())
       .describe("a11y_selected", if active { "true" } else { "false" })
       .part(&part);
+    if offer.disabled {
+      // The engine passes a disabled row by: no press reaches it, and the pointer does not light it.
+      row = row.disabled(true);
+    }
+    if let Some(id) = &offer.id {
+      row = row.id(id.clone());
+    }
+    if let Some(key) = &offer.key {
+      row = row.key(key.clone());
+    }
     if let Some(avatar) = offer.avatar {
       row = row.child(
         Row::new()
-          .part(&recipe.part(MentionsPart::OptionAvatar))
+          .part(&recipe.part(MentionsPart::ItemAvatar))
           .child(avatar.size(AvatarSize::Sm).build(self.theme())),
       );
     } else if let Some(name) = offer.icon {
-      let icon = recipe.part(MentionsPart::OptionIcon);
+      let icon = recipe.part(MentionsPart::ItemIcon);
       let side = icon.rest().width.unwrap_or(Length::Icon(IconSize::Md));
       row = row.child(
         Row::new()
@@ -741,10 +819,13 @@ impl MentionsView {
           .child(Icon::new(name).size(side).build(self.theme())),
       );
     }
-    let label = recipe.part(MentionsPart::OptionLabel);
+    let label = recipe.part(MentionsPart::ItemLabel);
     row = row.child(Row::new().part(&label).child(label.text(&offer.label).nowrap()));
     if let Some(choose) = choose {
       row = row.on_click(move |_| choose());
+    }
+    if offer.disabled {
+      return row.into();
     }
     let controller = self.controller.clone();
     row
@@ -761,14 +842,14 @@ impl MentionsView {
 
   /// The list of offers, hung under the trigger: a panel in the style of its part, open while there are offers.
   /// It takes no focus: the keys stay in the field.
-  pub fn list(&mut self) -> Element {
+  pub fn panel(&mut self) -> Element {
     let offers = std::mem::take(&mut self.offers);
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
-      .part(&self.part(MentionsPart::List))
+      .part(&self.part(MentionsPart::Panel))
       .describe("a11y_role", "listbox");
     for (index, offer) in offers.into_iter().enumerate() {
-      panel = panel.child(self.option(index, offer));
+      panel = panel.child(self.item(index, offer));
     }
     Popup::new(self.controller.anchor.clone(), panel)
       .open_when(self.open)
@@ -781,12 +862,12 @@ impl MentionsView {
       .into()
   }
 
-  /// How the default renderer builds a mentions field: the token input's control, which puts the list's anchor at
-  /// the trigger, and the list.
+  /// How the default renderer builds a mentions field: the token input's control, which puts the panel's anchor at
+  /// the trigger, and the panel.
   pub fn render(mut self) -> Element {
     let control = self.control();
-    let list = self.list();
-    self.input.root(control).overflow_visible().child(list).into()
+    let panel = self.panel();
+    self.input.root(control).overflow_visible().child(panel).into()
   }
 }
 
@@ -801,14 +882,14 @@ impl Themed for Mentions {
   /// of 24 (or icon of 16, muted) and its label in the body's type; the active one is filled with the highlight,
   /// as an offer under the pointer is.
   fn recipe() -> Recipe {
-    use MentionsPart::{Control, List, Option, OptionAvatar, OptionIcon, OptionLabel, Root};
+    use MentionsPart::{Control, Item, ItemAvatar, ItemIcon, ItemLabel, Panel, Root};
     use PaletteColor::{Foreground, Highlight, MutedForeground, Popover, PopoverForeground};
     Recipe::new()
       .base(Root, |s| s.width(280.0))
       .base(Control, |s| {
         s.padding_x(12.0).padding_y(8.0).min_height(64.0).line_height(1.5)
       })
-      .base(List, |s| {
+      .base(Panel, |s| {
         s.width(220.0)
           .padding_x(4.0)
           .padding_y(4.0)
@@ -818,21 +899,25 @@ impl Themed for Mentions {
           .border(Border::inside(BorderSize::Sm, PaletteColor::Border))
           .shadow(ShadowStyle::Md)
       })
-      .base(Option, |s| {
+      .base(Item, |s| {
         s.height(36.0)
           .padding_x(8.0)
           .gap(8.0)
           .radius(RadiusSize::Sm)
           .cursor(CursorIcon::Pointer)
       })
-      .base(OptionAvatar, |s| s.square(24.0))
-      .base(OptionIcon, |s| s.square(IconSize::Md).foreground(MutedForeground))
-      .base(OptionLabel, |s| {
+      .base(ItemAvatar, |s| s.square(24.0))
+      .base(ItemIcon, |s| s.square(IconSize::Md).foreground(MutedForeground))
+      .base(ItemLabel, |s| {
         s.typography(TypographyStyle::Body)
           .foreground(Foreground)
           .width(Length::Fill)
       })
-      .hovered(Option, |s| s.background(Highlight))
-      .state(MentionsState::Active, Option, |s| s.background(Highlight))
+      .hovered(Item, |s| s.background(Highlight))
+      .state(MentionsState::Highlighted, Item, |s| s.background(Highlight))
+      // A disabled offer is dimmed and lit by nothing.
+      .state(MentionsState::Disabled, Item, |s| {
+        s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
+      })
   }
 }

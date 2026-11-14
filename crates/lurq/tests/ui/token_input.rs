@@ -78,7 +78,7 @@ fn middle(quad: &Quad) -> (f32, f32) {
 
 fn tags(value: Signal<String>) -> TokenInput {
   TokenInput::new(value)
-    .tokens(|text| Token::separated(text, ' '))
+    .find_tokens(|text| Token::separated(text, ' '))
     .placeholder("Add tag")
     .id("tags")
 }
@@ -156,7 +156,7 @@ fn a_token_of_a_variant_is_in_the_colors_of_a_tag_of_it() {
       .padding(8.0)
       .child(
         TokenInput::new(Signal::new("passing failing".to_owned()))
-          .tokens(|_| {
+          .find_tokens(|_| {
             vec![
               Token::new(0..7).variant(TagVariant::Success),
               Token::new(8..15).variant(TagVariant::Destructive),
@@ -285,7 +285,7 @@ fn tokens_and_text_share_the_rows_of_a_token_input_on_rows() {
         TokenInput::new(Signal::new(
           "rust wgpu naga winit cosmic taffy parley vello kurbo peniko ".to_owned(),
         ))
-        .tokens(|text| Token::separated(text, ' '))
+        .find_tokens(|text| Token::separated(text, ' '))
         .rows(2, 6)
         .id("tags"),
       )
@@ -318,7 +318,7 @@ fn read_only_and_disabled_tokens_have_no_cross() {
       .child(tags(Signal::new("wgpu ".to_owned())).disabled(true).id("off"))
       .child(
         TokenInput::new(Signal::new("naga".to_owned()))
-          .tokens(|_| vec![Token::new(0..4).removable(false)])
+          .find_tokens(|_| vec![Token::new(0..4).removable(false)])
           .id("fixed"),
       )
       .into()
@@ -481,6 +481,70 @@ fn down_and_enter_choose_an_offer_which_stands_as_a_mention() {
 }
 
 #[test]
+fn a_disabled_offer_is_dimmed_passed_by_the_arrows_and_chosen_by_nothing() {
+  let value = Signal::new(String::new());
+  let mentions = MentionsController::new();
+  let (bound, kept) = (value.clone(), mentions.clone());
+  let mut stage = Stage::new(move |_| {
+    let offers = vec![
+      Mention::new("Ivan Zaida").id("ivan").key("ivan"),
+      Mention::new("Ivy Chen").id("ivy").disabled(true),
+      Mention::new("Ivo Kovac").id("ivo"),
+    ];
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(Mentions::new(bound.clone(), &kept).trigger('@', offers).id("comment"))
+      .into()
+  });
+  stage.key("Tab");
+  type_at_end(&mut stage, &value, "@iv");
+  // Each offer's row has the id it was given.
+  let (_, ivy_y, _, ivy_height) = stage.bounds("ivy");
+  assert_eq!(ivy_height, 36.0);
+  let (_, ivo_y, ..) = stage.bounds("ivo");
+  // Down passes the disabled offer by: from Ivan to Ivo.
+  stage.key("ArrowDown");
+  let lit = highlighted(&stage);
+  assert_eq!(lit.len(), 1);
+  assert_eq!(lit[0].y, ivo_y, "Ivy is passed by");
+  stage.key("ArrowUp");
+  assert_eq!(highlighted(&stage)[0].y, stage.bounds("ivan").1);
+  // The pointer does not light it, and a click on it chooses nothing.
+  let (x, ..) = stage.bounds("ivy");
+  stage.tree.mouse_move(x + 20.0, ivy_y + 18.0);
+  stage.pass();
+  assert!(
+    highlighted(&stage).iter().all(|quad| quad.y != ivy_y),
+    "the pointer does not light it"
+  );
+  stage.tree.mouse_down(x + 20.0, ivy_y + 18.0, MouseButton::Left);
+  stage.tree.mouse_up(x + 20.0, ivy_y + 18.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(value.get(), "@iv", "nothing is chosen");
+  assert!(mentions.mentioned().is_empty());
+}
+
+#[test]
+fn a_disabled_first_offer_leaves_enter_on_the_next() {
+  let value = Signal::new(String::new());
+  let mentions = MentionsController::new();
+  let (bound, kept) = (value.clone(), mentions.clone());
+  let mut stage = Stage::new(move |_| {
+    let offers = vec![Mention::new("Ivan Zaida").disabled(true), Mention::new("Ivy Chen")];
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(Mentions::new(bound.clone(), &kept).trigger('@', offers).id("comment"))
+      .into()
+  });
+  stage.key("Tab");
+  type_at_end(&mut stage, &value, "@iv");
+  stage.key("Enter");
+  assert_eq!(value.get(), "@Ivy Chen ");
+}
+
+#[test]
 fn escape_puts_the_list_away_and_typing_goes_on_as_text() {
   let value = Signal::new(String::new());
   let mut stage = comment(value.clone(), MentionsController::new());
@@ -586,7 +650,7 @@ fn listed(
       .padding(8.0)
       .child(
         TokenInput::list(items.clone())
-          .draft(draft.clone())
+          .query(draft.clone())
           .controller(controller.clone())
           .on_change(move |items| told.lock().unwrap().push(items.to_vec()))
           .id("tags"),
@@ -633,6 +697,36 @@ fn a_list_holds_its_tokens_and_what_is_typed_is_a_draft_apart() {
   type_text(&mut stage, &controller, "taffy");
   assert_eq!(draft.get(), "taffy");
   assert_eq!(items.get().len(), 3);
+}
+
+#[test]
+fn on_query_is_told_the_draft_a_person_types_and_not_what_the_app_sets() {
+  let (items, draft) = (Signal::new(strings(&["rust"])), Signal::new(String::new()));
+  let controller = TextInputController::new();
+  let queries = Arc::new(Mutex::new(Vec::new()));
+  let (held, typed, input, told) = (items.clone(), draft.clone(), controller.clone(), queries.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        TokenInput::list(held.clone())
+          .query(typed.clone())
+          .controller(input.clone())
+          .on_query(move |query| told.lock().unwrap().push(query.to_owned()))
+          .id("tags"),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  type_text(&mut stage, &controller, "we");
+  type_text(&mut stage, &controller, "b");
+  assert_eq!(*queries.lock().unwrap(), ["we", "web"]);
+  // The app sets the query: shown, and not told back.
+  draft.set("wasm".to_owned());
+  stage.pass();
+  assert_eq!(draft.get(), "wasm");
+  assert_eq!(queries.lock().unwrap().len(), 2);
 }
 
 #[test]

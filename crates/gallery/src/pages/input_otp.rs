@@ -109,9 +109,10 @@ impl InputOtpPage {
           .label("Verification code")
       }
     };
-    let record = self.playground.recorder();
+    let (record, changed_to) = (self.playground.recorder(), self.playground.recorder());
     let shown = make()
       .force(self.playground.forced())
+      .on_change(move |code| changed_to(format!("on_change({code:?})")))
       .on_complete(move |code| record(format!("on_complete({code:?})")));
 
     let mut code = vec![
@@ -246,7 +247,7 @@ impl InputOtpPage {
         fill: false,
         forceable: true,
         facts: format!("{size_name} · cells {side} · radius 6"),
-        event: "on_complete",
+        event: "on_change / on_complete",
         code,
         tree,
         controls,
@@ -363,6 +364,12 @@ impl Component for InputOtpPage {
       ),
       ("uppercase", "bool", "false", "A letter is taken as a capital."),
       ("mask", "bool", "false", "A dot for each character, as a PIN is shown."),
+      (
+        "on_change",
+        "impl Fn(&str)",
+        "",
+        "Called with the code when a person changes it; not when the app sets the signal.",
+      ),
       (
         "on_complete",
         "impl Fn(&str)",
