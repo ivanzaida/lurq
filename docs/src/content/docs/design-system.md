@@ -3785,6 +3785,109 @@ StatusBar::new().variant(StatusBarVariant::Warning).leading(["Paused on a breakp
 - In the design the bar is 26 high in `Muted` under a line of 1 in `Border`. An item is padded 8, its icon of 13 and its text of 12 in `Foreground` 5 apart. The item with progress has its text in `MutedForeground` and, 8 after it, a rail 72 by 4 of the `Input` color, round, its part done in `Foreground`. The branch is in the `Primary` fill.
 - A renderer that draws another bar is given the view: `view.entries` (each item's text, its end, whether it is pressed and its order), `view.part(..)`, `view.item(index)` (an item, built, as it leaves the bar) and `view.render()` the default.
 
+## Window Chrome
+
+The title bar of a window the app draws itself, as Windows, macOS, GNOME and KDE draw theirs: the app's icon, the title, room for the app's own controls (a menubar, tabs, a search) and the window's controls.
+
+```rust
+use lurq::ui::{MenuItem, Menubar, MenubarMenu, WindowChrome, WindowControls, WindowPlatform};
+
+// In the app's root component: open is a Signal<Option<usize>> of the menubar.
+WindowChrome::new()
+  .title("Untitled — Notes")
+  .leading(Menubar::new(open).menu(MenubarMenu::new("File", [MenuItem::new("New"), MenuItem::new("Open…")])))
+  .controls(WindowControls::new().close_label("Close Notes").on_close(|| save_draft()))
+  .content(document)
+  .mount(ctx);
+
+// The bar of another platform, as a picture: a gallery, a test.
+WindowChrome::new().platform(WindowPlatform::Kde).title("Notes");
+```
+
+| Builder | |
+| --- | --- |
+| `WindowChrome::new()` | The chrome of the platform the app runs on (`WindowPlatform::current()`), with a box as the app's icon and the window's three controls |
+| `platform(WindowPlatform)` | `Windows`, `Macos`, `Gnome` or `Kde`: the bar's look and order, in place of the platform's own |
+| `title(&str)` | The window's title: in the bar (not a bar with tabs) and given to the window, where the system shows it. On one line, ending with an ellipsis where it has no room |
+| `icon(impl Into<IconChoice>)`, `label(&str)` | The app's icon where the platform shows one (Windows, KDE), or `None`; the bar's name to what reads the tree, its title unless told |
+| `leading(element)`, `trailing(element)` | The app's own at the start of the bar (after the icon, after the lights on macOS) and at its end (before the controls). A press there is theirs: it does not drag the window |
+| `tabs(element)` | [Window tabs](#window-tabs) in the bar: the bar of the board's chrome with tabs, higher, with no title and no line under it, the tabs on its bottom edge so that the selected one runs into the content |
+| `controls(WindowControls)` | The window's controls: `minimizable(bool)`, `maximizable(bool)`, their names `minimize_label`, `maximize_label`, `restore_label` and `close_label`, and `on_close(Fn())`, called before the window is asked to close |
+| `content(element)`, `overlay(element)`, `overlays(..)` | What the window shows under the bar, and layers over the whole of it, as the engine's chrome has them |
+| `mode(WindowChromeMode)`, `resize_handles(ResizeHandlePolicy)`, `border(ChromeBorderPolicy)` | The engine's chrome: when the app draws it (Windows and macOS by default), the zones along the edges that resize the window, the line around it |
+| `mount(ctx)` | The window: the engine's [`WindowChrome`](../components/) around the content, with this bar as its title bar |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `state` gives the still form `WindowChromeState::Inactive` and `Maximized`; `force` draws the close control under the pointer or held, and on macOS the lights' glyphs. `id` is the bar's: its title is `{id}-title`, its controls `{id}-minimize`, `{id}-maximize` and `{id}-close` |
+
+- Mounted, it is the window's frame. The window loses the system's title bar, and the bar drags the window from wherever nothing in it takes the press, a double press maximizes and restores it, and a right press shows the system's menu of the window (Restore, Move, Size, Minimize, Maximize, Close) where the system has one, on Windows (`WindowHandle::show_system_menu`). The edges resize it. Windows 11's snap layouts over the maximize button are not shown: the shell would have to answer the system's hit test with that button's region, which winit does not let it do.
+- The controls act on the window: minimize, maximize and restore, and close asks the window to close (`WindowHandle::request_close`), which an app that must confirm first hears with `ctx.window().on_close_requested(..)`. A press on a control is the control's, never a drag.
+- The bar is drawn as the window is: a window that is not the one in front has its title, its icon and its glyphs in `MutedForeground` and grey lights on macOS (`WindowChromeState::Inactive`), and a maximized one's middle control restores it, named `restore_label` (`Maximized`). A mounted chrome reads both from the window and is drawn again as they change; the still form takes them from `state(..)`.
+- An app's menus go in the bar's leading room: `leading(Menubar::new(open)..)`. Its titles open their menus over the window; a press on them is theirs, and the bar around them still drags the window. A menubar draws a bar of its own, on `Background` in an edge; on the title bar's fill it is laid over with no fill, no edge and no padding: `.style(MenubarPart::Bar, |s| s.background(Color::new(0, 0, 0, 0)).border(Border::inside(0.0, PaletteColor::Border)).padding_x(0.0))`. On macOS an app's menus belong in the system's menu bar (`App::set_menu_bar`), and the leading room holds what else the app puts there.
+- Converted into an element on its own it is the still form of itself: the window, its bar over its content, as a picture, with controls that act on no window (`on_close` is still told). A gallery shows the four platforms side by side so.
+- One component, four renderers: `view.windows()`, `view.macos()`, `view.gnome()` and `view.kde()`, which `view.render()` chooses by the platform. A theme's renderer may draw every platform as one of them, or another bar from `view.bar()`, `view.icon()`, `view.title()`, `view.balance()`, `view.leading()`, `view.trailing()`, `view.tabs()`, `view.drag_room()`, `view.control(WindowControl)` and `view.controls()`.
+- In the design the bar is `Muted` with a line of 1 in `Border` under it, its title 13 in `Foreground`:
+  - Windows: 36 high, 12 in at the start; the box icon 16 and the title 13/500, 8 apart, at the start; three controls 46 by 36 at the end, a minus 16, a square 12 (two squares 13 while maximized) and a cross 16 in `Foreground`; minimize and maximize on `SecondaryHover` under the pointer, close on `Destructive` with its cross in `DestructiveForeground`.
+  - macOS: 36 high, 12 in; the lights 12 across, 8 apart, at the start, close, minimize and zoom, in the system's red `#FF5F57`, yellow `#FEBC2E` and green `#28C840` with a rim of `#0000001F`, grey (`Input`) in a window that is not in front, showing a cross, a minus and a plus of 8 in `#00000099` under the pointer on any of them; the title 13/600 in the middle of the bar.
+  - GNOME: 44 high, 10 in; the title 13/600 in the middle; round controls of 24, 8 apart, on `SecondaryHover`, a minus 14, a square 10 and a cross 14; close on `Destructive`.
+  - KDE: 32 high, 8 in at the start and 6 at the end; the box icon 16 at the start, the title 13/400 in the middle; round controls of 22, 6 apart, a chevron down 16, a chevron up 16 and a cross 14; close on `Destructive`.
+  - A bar with tabs is 40 high (44 on GNOME, 38 on KDE), and has no title and no line under it. On Windows the controls keep the top 36 of it; elsewhere they are in its middle.
+  - The window is `Background` in an edge of 1 in `Border`, its corners 8 on Windows, 12 on macOS and GNOME, 6 on KDE (the still form; a window's own corners and shadow are the system's).
+  - Where the board is silent: a pressed control is as it is under the pointer, close `DestructiveHover`; GNOME's round controls are `Border` under the pointer and `Input` held, KDE's `SecondaryHover` and `Border`; GNOME's maximized control shows two squares, KDE's keeps its chevron; a window not in front is muted on every platform.
+- Parts: `WindowChromePart::Root` (the window, in the still form), `Bar`, `Icon`, `Title`, `Balance` (the room on the other side of a centred title), `Controls`, `Minimize`, `Maximize`, `Close`, `MinimizeGlyph`, `MaximizeGlyph`, `CloseGlyph`. The platform is the recipe's variant (`windows`, `macos`, `gnome`, `kde`); states `WindowChromeState::Inactive`, `Maximized`, `Tabs`.
+- To what reads the tree the bar is a `group` called by its label or its title, and each control a `button` called by its label.
+- The engine's own title bar (`components::ChromeTitleBar` with `components::WindowControls`) is drawn in the theme's roles too: `Muted` under a line of `Border`, controls in `Foreground` on `SecondaryHover`, close on `Destructive`.
+
+## Window Tabs
+
+The tabs of a desktop app's title bar, as a browser or an editor has them: one is selected, the tab of what the window shows, and a person closes them, asks for a new one, and drags one along the bar or out of it.
+
+```rust
+use lurq::ui::{WindowTab, WindowTabs, icons};
+
+// open: Signal<u32>, which file the window shows; files: the app's list of open files.
+WindowTabs::new(open, files.iter().map(|file| {
+  WindowTab::new(file.id, &file.name).icon(icons::FILE_CODE).dirty(file.dirty)
+}))
+.label("Open files")
+.on_close(|id| close(*id))
+.on_add(|| open_new())
+.on_reorder(|from, to| move_file(from, to))
+.on_detach(|id| open_in_window(*id))
+.mount(ctx);
+
+// The app holds which is selected, and is told the tab a person selects.
+WindowTabs::controlled(1, [(1, "blur.rs"), (2, "theme.rs")], |id| show(*id));
+```
+
+| Builder | |
+| --- | --- |
+| `WindowTabs::new(Signal<T>, tabs)`, `controlled(value, tabs, on_change)` | The tabs, and which is selected: the one with the signal's value, or the app's value. `T` is the app's own type; `WindowTabs<T = ()>` |
+| `optional(Signal<Option<T>>, tabs)`, `controlled_optional(value, tabs, on_change)` | The same where the window may show none of its tabs (a start page): with `None` no tab is selected. A `WindowTabs<Option<T>>`, whose handlers are told `&Option<T>` |
+| `tab(tab)`, `tabs(tabs)` | A tab, or tabs, after the others |
+| `WindowTab::new(value, &str)`, `(value, &str)` | A tab of `value` with its label. The label takes the room the icon and the close slot leave and ends in an ellipsis where it does not fit |
+| `WindowTab::icon(name)`, `dirty(bool)` | An icon before the label; a dot in the close slot for changes that are not saved, with the x in its place under the pointer |
+| `WindowTab::close_button(bool)`, `on_close(Fn())` | Whether it has a close button (shown unless told otherwise: a tab without one is not closed by a person, nor by the keys), and what hears it closed, before the strip's `on_close` |
+| `WindowTab::disabled(bool)`, `id(..)`, `key(..)` | It cannot be selected, closed or dragged, and the keys pass it by. Its id, which its close button has with `-close` after it |
+| `on_change(Fn(&T))` | Told the value of the tab a person selects (a press, a drag, the arrows, the window's keys), after the signal is set: not a value the app sets, nor a press of the selected tab |
+| `on_close(Fn(&T))` | Told the tab a person closes: its close button, a press of the middle button on it, Delete on it, or Ctrl+W (Cmd+W on macOS) on the selected one. The app removes it, and selects another where it was the selected one |
+| `on_add(Fn())` | Told a press of the add button, which is shown once this is given |
+| `on_reorder(Fn(usize, usize))` | Told a tab moved, from its place to the place it is to have: `tabs.insert(to, tabs.remove(from))`. Dragged along the strip, or Ctrl+Shift+PageDown and PageUp. The app reorders its list |
+| `on_detach(Fn(&T))` | Told a tab dragged out of the strip and let go away from it. The app takes it out, to open it in a window of its own |
+| `shortcuts(bool)` | Whether the window's keys work, from anywhere in the window: on unless told otherwise |
+| `label(&str)`, `add_label(&str)`, `close_label(&str)` | What the list is called to tooling; the add button's name ("New tab"); the word before a tab's label that names its close button ("Close", which makes "Close blur.rs") |
+| `mount(ctx)` | Mounted where it is declared: the dragged tab follows the pointer, the selected tab is kept in view where the strip scrolls, and the focus goes to the selected tab when the keys close the one it was on |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the tab Tab stops on; `id` is the strip's, with `{id}-list` for the list and `{id}-add` for the add button |
+
+- The strip is as wide as its tabs and its add button, never wider. Given less room (a title bar narrower than its tabs), the tabs share it alike down to 72 each, the icon and the close slot, and past that the list scrolls sideways between the strip's start and the add button, which stays at the end; mounted, the selected tab is kept in view.
+- A press on a tab selects it when it is let go. A press and a move of more than 4 pixels is a drag: it selects the tab, and, mounted, the tab follows the pointer along the strip, drawn over the others, which make room for it where it would be let go. Let go, `on_reorder(from, to)` is told where it went; let go more than the strip's height above or below the strip, or past the window's top or start edge, `on_detach` is told instead; Escape puts the tab back, and its release tells nothing. The engine tells where a pointer out of the window is from the window's corner, and nothing of how wide the window is: past its end edge beside the strip a tab is let go along the strip. Converted into an element on its own, the strip still tells where a dragged tab was let go, but the tab does not follow the pointer on the way.
+- A press on a tab, its close button or the add button goes no further than them (`stop_propagation` on `on_mouse_down`), so a title bar that drags the window from a press is dragged from the strip's empty room and the bar around it, and not from a tab.
+- The tabs are one stop of Tab ([focus groups](../focus-navigation/#focus-groups)), at the selected tab: Left and Right select the next tab and the one before, and Delete closes the focused one. The add button is a stop after them. A close button is for the pointer; the keyboard has Delete.
+- The window's keys are heard wherever the focus is: Ctrl+Tab and Ctrl+Shift+Tab select the next tab and the one before, round at the ends, as Ctrl+PageDown and Ctrl+PageUp do on Windows and Linux; Ctrl+W (Cmd+W on macOS) closes the selected tab; Ctrl+Shift+PageDown and PageUp move it on and back. `shortcuts(false)` turns them all off. A key the strip takes is not passed on (`prevent_default`).
+- Parts: `WindowTabsPart::Root` (the strip), `List`, `Tab`, `Icon`, `Label`, `Close` (the slot at a tab's end, its close button), `CloseIcon`, `Dot`, `Separator`, `Add`, `AddIcon`. States: `WindowTabsState::Selected`, `Dirty`, `Dragged` and `Disabled` of a tab, and `Disabled` of the strip.
+- In the design the strip is 32 high with its tabs abutting. A tab is 128 by 32, round by 8 at its top corners and square at its bottom, padded 10 at its start and 6 at its end, its parts 8 apart: an icon of 14, the label 12 in the regular weight, and a close slot of 18 round by the small radius with an x of 12 in `MutedForeground`. The selected tab is `Background`, the color of the content it joins in a title bar, its icon and label `Foreground`; another has no fill, its icon and label `MutedForeground` and its x at 0.6, and under the pointer `SecondaryHover` with its x whole. The dot is 7 in `Foreground`. A separator is 1 by 16 in `Border`, between two tabs that are not the selected one and before the add button. The add button is 30 by 28, round by the small radius, with a plus of 14 in `Foreground`. Where the board is silent: the close slot under the pointer is `Muted` and the add button `SecondaryHover`, the ring of the focus is inside a tab, and a disabled tab is dimmed.
+- In a title bar the strip sits on the bar's bottom edge, and the bar has no line under it, so the selected tab runs into the content.
+- To what reads the tree the list is a `tablist` with the strip's `label`, each tab a `tab` with `a11y_selected`, and its close button is named by `close_label` and the tab's label.
+- A renderer that draws other window tabs is given the view: `view.part(..)`, `view.tab_part(index, ..)`, `view.tab(index)`, `view.close(index)`, `view.separator()`, `view.add()`, `view.list()`, and `view.render()` the default.
+
 ## Tree View
 
 Things inside things, one level under the other: the files of a project in their folders, the layers of a scene, settings in their groups.

@@ -201,18 +201,27 @@ fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
 `WindowControls::on_close` is a cleanup callback before unconditional close. For a confirmation dialog, use a custom button calling `window.request_close()` as shown in [Window lifecycle](../window-lifecycle-menus/#closing-a-window).
 
 Apps provide title-bar slots and content. They should not manually call `window.start_drag()` or render resize handles for
-normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, resize edge and corner hit zones,
-control-button event propagation, and platform drag/resize fallbacks in the active shell.
+normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, the system's menu of the window on a
+right press (`WindowHandle::show_system_menu`, which only Windows has: Restore, Move, Size, Minimize, Maximize, Close),
+resize edge and corner hit zones, control-button event propagation, and platform drag/resize fallbacks in the active
+shell. Windows 11's snap layouts flyout over the maximize button is not shown: the shell would have to answer the
+system's hit test with the maximize button's region, which winit does not let it do.
+
+`ChromeTitleBar::draw(|window, height| ..)` draws the whole bar from the app's own element in place of its leading,
+title, center, trailing and controls, given the window (to read whether it is maximized or in front, and to minimize,
+maximize and close it) and the bar's height; the bar still drags the window wherever nothing in it takes the press.
+`ui::WindowChrome` draws its bar so, on the design system's recipe, as Windows, macOS, GNOME and KDE draw theirs: see
+[Window Chrome](../design-system/#window-chrome).
 
 Use `WindowChrome::overlay(...)` for fullscreen modals or app-level overlay layers that should cover content but stay
 below chrome resize hit zones. `WindowChrome` renders content first, then overlays, then chrome borders and resize
 handles, so modal layers do not make an undecorated window impossible to resize.
 
-`ChromeBorderPolicy` decides the frame outline. `PlatformDefault` paints a 1px `#252a32` line on Windows and none
-elsewhere; `Visible { size, color }` paints the given line; `Hidden` paints none. Custom chrome also sets
+`ChromeBorderPolicy` decides the frame outline. `PlatformDefault` paints a 1px line in the theme's `Border` on Windows
+and none elsewhere; `Visible { size, color }` paints the given line; `Hidden` paints none. Custom chrome also sets
 `WindowBorderColor::None` on the window, because Windows 11 DWM otherwise draws its own 1px border around undecorated
-windows, which would show even with `Hidden`. The title bar's bottom line is separate: `ChromeTitleBar::new()` draws a
-1px `#252a32` bottom border, and `border_bottom(None)` removes it.
+windows, which would show even with `Hidden`. The title bar is the theme's `Muted`, and its bottom line is separate:
+`ChromeTitleBar::new()` draws a 1px `Border` bottom border, and `border_bottom(None)` removes it.
 
 Use `WindowChromeProps` for policy-level changes:
 
@@ -246,7 +255,9 @@ the title-bar height, resize handle size and placement, and border size. `conten
 
 ### Styling Window Controls
 
-By default, Windows-style controls are 46 px wide text glyphs with a red close hover. Each control's content and colors
+By default, Windows-style controls are 46 px wide text glyphs in the theme's `Foreground`, on `SecondaryHover` under
+the pointer, and the close one on `Destructive` (`DestructiveHover` held down) with its glyph in
+`DestructiveForeground`. Each control's content and colors
 can be replaced. Colors accept `Color`, hex strings, and `PaletteColor` roles, including `PaletteColor::Extra`:
 
 ```rust

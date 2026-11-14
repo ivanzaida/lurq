@@ -362,7 +362,11 @@ A basis is a least length for a child that grows and does not shrink: the line b
 way before.
 
 In an unbounded main axis (for example a column inside `ScrollVertical`, or a column measured by its own content) there
-is no remaining space: a flex child gets its `basis`, or its natural size when it has none.
+is no remaining space: a flex child gets its `basis`, or its natural size when it has none. A line of unbounded room
+that is to be at least so long, as the content of a `ScrollBoth::fill_width` is, has the room that least length leaves:
+where every growing child has a basis, they grow into it, as a flex container with a `min-width` does on the web, and
+nothing shrinks, so the line is longer where the bases need more. `ui::WindowTabs` shares a strip's width among its tabs
+so, and scrolls past their least.
 
 ### Shrink
 

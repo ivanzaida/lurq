@@ -119,6 +119,8 @@ mod token_list;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod window_chrome;
+mod window_tabs;
 mod year_picker;
 
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
@@ -397,6 +399,14 @@ pub use tree_view::{
   TreeViewView,
 };
 pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
+pub use window_chrome::{
+  WindowChrome, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView, WindowControl,
+  WindowControls, WindowPlatform,
+};
+pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
+pub use window_tabs::{
+  WindowTab, WindowTabEntry, WindowTabs, WindowTabsPart, WindowTabsRenderer, WindowTabsState, WindowTabsView,
+};
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
 /// [`Name`], so that a variant, a size, a state or a part of a component is

@@ -193,6 +193,13 @@ impl WindowHandle {
     self.window.push_command(WindowCommand::StopDrag);
   }
 
+  /// Shows the system's menu of the window where the pointer is: Restore, Move, Size, Minimize, Maximize and
+  /// Close, as a right press on a title bar the system draws does. For a title bar of the app's own. Only Windows
+  /// has such a menu; on macOS and Linux this does nothing.
+  pub fn show_system_menu(&self) {
+    self.window.push_command(WindowCommand::ShowSystemMenu);
+  }
+
   /// Queue one synthetic input event, delivered inside the shell's event loop
   /// exactly where the matching OS event would have been.
   ///

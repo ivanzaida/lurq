@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use crate::{
-  app::{events::MouseEvent, theme::TypographyStyle, window::WindowHandle},
+  app::{
+    events::MouseEvent,
+    theme::{PaletteColor, TypographyStyle},
+    window::WindowHandle,
+  },
   components::{Row, Text},
   layout::{Alignment, layout_kind::Justify},
   node::{BackgroundColor, CursorIcon, Element, Style, TextColor, color::Color, dimension::Dimension},
@@ -113,7 +117,11 @@ impl WindowControls {
       minimize: button("-", &default_colors),
       maximize: button("□", &default_colors),
       restore: button("▢", &default_colors),
-      close: button("x", &WindowControlColors::close()),
+      close: WindowControlButton {
+        // Its cross is white on its red.
+        hover_foreground: Some(PaletteColor::DestructiveForeground.into()),
+        ..button("x", &WindowControlColors::close())
+      },
       traffic_lights: TrafficLightColors::default(),
     }
   }
@@ -345,13 +353,14 @@ impl WindowControlContent {
 }
 
 impl Default for WindowControlColors {
-  /// The minimize and maximize/restore defaults.
+  /// The minimize and maximize/restore defaults: the theme's `Foreground` on nothing, on `SecondaryHover` under
+  /// the pointer and held down, as the design system's window controls are.
   fn default() -> Self {
     Self {
-      foreground: TextColor::Color(Color::from_hex("#d9dee7")),
+      foreground: PaletteColor::Foreground.into(),
       background: BackgroundColor::Color(Color::new(0, 0, 0, 0)),
-      hover_background: BackgroundColor::Color(Color::from_hex("#232934")),
-      active_background: BackgroundColor::Color(Color::from_hex("#2d3440")),
+      hover_background: PaletteColor::SecondaryHover.into(),
+      active_background: PaletteColor::SecondaryHover.into(),
     }
   }
 }
@@ -370,11 +379,11 @@ impl WindowControlColors {
     }
   }
 
-  /// The close-control default: red hover and press backgrounds.
+  /// The close-control default: the theme's `Destructive` under the pointer and `DestructiveHover` held down.
   pub fn close() -> Self {
     Self {
-      hover_background: BackgroundColor::Color(Color::from_hex("#c0392b")),
-      active_background: BackgroundColor::Color(Color::from_hex("#922b21")),
+      hover_background: PaletteColor::Destructive.into(),
+      active_background: PaletteColor::DestructiveHover.into(),
       ..Self::default()
     }
   }

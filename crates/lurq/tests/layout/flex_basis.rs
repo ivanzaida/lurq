@@ -57,3 +57,41 @@ fn a_basis_with_no_room_left_for_it_shrinks_by_the_shortage() {
     .child(Spacer::new().width(150.0));
   assert_eq!(widths(row, 200.0), vec![50.0, 150.0]);
 }
+
+#[test]
+fn a_line_of_unbounded_room_with_a_least_width_grows_its_children_from_their_bases_into_it() {
+  // The content of a scroll container that fills its viewport: at least 300, and as long as it needs past that.
+  let laid = |row: Row| {
+    let mut tree = Tree::new();
+    tree.set_root(row);
+    let room = Constraints {
+      min_width: 300.0,
+      max_width: f32::INFINITY,
+      min_height: 0.0,
+      max_height: 40.0,
+    };
+    let result = tree.pass_layout(room).unwrap();
+    let widths: Vec<f32> = result.children.iter().map(|child| child.result.size.width).collect();
+    (result.size.width, widths)
+  };
+  // The web: free room 300 - 50 - 50 - 10 = 190, 95 each.
+  let row = || {
+    Row::new()
+      .spacing(10.0)
+      .child(Spacer::new().flex_full(1.0, 0.0, Some(50.0)))
+      .child(Spacer::new().flex_full(1.0, 0.0, Some(50.0)))
+  };
+  assert_eq!(laid(row()), (300.0, vec![145.0, 145.0]));
+  // A most width caps a child's growth.
+  let capped = Row::new()
+    .spacing(0.0)
+    .child(Spacer::new().flex_full(1.0, 0.0, Some(50.0)).max_width(100.0))
+    .child(Spacer::new().flex_full(1.0, 0.0, Some(50.0)).max_width(100.0));
+  assert_eq!(laid(capped).1, vec![100.0, 100.0]);
+  // Bases longer than the least width: nothing shrinks, the line is longer.
+  let long = Row::new()
+    .spacing(0.0)
+    .child(Spacer::new().flex_full(1.0, 1.0, Some(200.0)))
+    .child(Spacer::new().flex_full(1.0, 1.0, Some(200.0)));
+  assert_eq!(laid(long), (400.0, vec![200.0, 200.0]));
+}
