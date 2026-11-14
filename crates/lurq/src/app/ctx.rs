@@ -822,6 +822,8 @@ impl Timer {
 struct ElementRequests {
   focus: Option<ElementRef>,
   scroll_into_view: Option<ElementRef>,
+  /// A range of a text to scroll into view, in bytes of its content.
+  scroll_range_into_view: Option<(ElementRef, std::ops::Range<usize>)>,
   blur: bool,
   scroll_to_top: bool,
 }
@@ -2334,6 +2336,34 @@ impl Ctx {
     self.wake_window();
   }
 
+  /// Scrolls a range of a text into view after the current render is laid
+  /// out, as [`Ctx::scroll_into_view`] scrolls an element: the lines bytes
+  /// `range` of the text's content cover, and no more, are brought into
+  /// view. The current match of a search, which the text highlights
+  /// (`Text::highlights`). `element` is the text's ref; a range that is empty
+  /// or past the text's end scrolls nothing. The text must know where its
+  /// characters are drawn, which a text that is selectable or has highlights
+  /// does: of another one the whole element is brought into view. The last
+  /// request wins.
+  ///
+  /// ```
+  /// use lurq::{app::ctx::Ctx, components::Text, core::ElementRef, node::Element};
+  ///
+  /// # fn build(ctx: &mut Ctx, text: &ElementRef) -> Element {
+  /// // The fourth word of the text, wherever it was wrapped to.
+  /// ctx.scroll_range_into_view(text, 15..20);
+  /// Text::new("one two three four five").ref_element(text.clone()).into()
+  /// # }
+  /// ```
+  pub fn scroll_range_into_view(&self, element: &ElementRef, range: std::ops::Range<usize>) {
+    self.element_requests.lock().scroll_range_into_view = Some((element.clone(), range));
+    self.wake_window();
+  }
+
+  pub(crate) fn take_scroll_range_into_view_request(&self) -> Option<(ElementRef, std::ops::Range<usize>)> {
+    self.element_requests.lock().scroll_range_into_view.take()
+  }
+
   fn wake_window(&self) {
     if let Some(window) = &self.window {
       window.wake();
@@ -2343,7 +2373,11 @@ impl Ctx {
   /// Whether a focus or scroll-into-view request is waiting for the runtime.
   pub(crate) fn has_element_request(&self) -> bool {
     let requests = self.element_requests.lock();
-    requests.focus.is_some() || requests.scroll_into_view.is_some() || requests.blur || requests.scroll_to_top
+    requests.focus.is_some()
+      || requests.scroll_into_view.is_some()
+      || requests.scroll_range_into_view.is_some()
+      || requests.blur
+      || requests.scroll_to_top
   }
 
   /// Takes the focus from whatever has it, after the current render: a text input being typed into is left,

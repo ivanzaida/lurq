@@ -1,15 +1,15 @@
 //! The page of the find bar: its playground over a text that Ctrl+F searches,
 //! the board's find and replace over an editor, and its controls in each state.
 
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use lurq::{
   app::{component::Component, ctx::Ctx, events::KeyboardEvent},
-  components::{Column, Row, Stack},
+  components::{Column, Row, ScrollVertical, Stack},
   core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
-  ui::{Button, ButtonSize, ButtonVariant, FindBar, Interaction, Kbd},
+  ui::{Button, ButtonSize, ButtonVariant, FindBar, FindOptions, Highlight, Interaction, Kbd, find_matches},
 };
 
 use crate::{
@@ -18,40 +18,38 @@ use crate::{
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
-/// The text the page searches.
-const TEXT: [&str; 5] = [
-  "A find bar searches what a view shows. Type in its field: the app finds the text and gives the bar the count.",
-  "Enter goes to the next match and Shift+Enter to the one before; F3 and Shift+F3 do the same anywhere in the bar.",
-  "Escape closes the bar, and the focus goes back to the text it searched. Ctrl+F opens it again.",
-  "The options say how the app matches: the case of the text, whole words, or a regular expression.",
-  "The replace row replaces the current match with its text, or every match at once.",
+/// The text the page searches, a paragraph to a line: long enough to scroll in its view.
+const TEXT: [&str; 9] = [
+  "A find bar searches what a view shows. Type in its field: the app finds the text, marks every match and gives \
+   the bar the count.",
+  "Enter goes to the next match and Shift+Enter to the one before; F3 and Shift+F3 do the same anywhere in the \
+   bar. The current match is marked stronger, and the view scrolls to it.",
+  "Escape closes the bar, and the focus goes back to the text it searched. Ctrl+F opens it again, with what was \
+   typed still in its field.",
+  "The options say how the app matches: the case of the text, whole words, or a regular expression such as \
+   t\\w+e.",
+  "The replace row replaces the current match with its text, or every match at once: the text changes, and the \
+   count with it.",
+  "A match that runs over the end of a line goes on at the start of the next, its mark in two pieces, as the \
+   words of a selection are.",
+  "The marks are a Highlight: ranges of a text the app gives, one of them the current one. find_matches finds \
+   the ranges of a query under the bar's three options.",
+  "Nothing searches for the app. It keeps what is searched for, the matches and which one is current, and says \
+   them to the bar and to the text.",
+  "The bar hangs over the room above the text, so it covers none of the words it finds.",
 ];
 
 /// The counts the playground offers: the page's own, or one the app says.
 const COUNTS: [(&str, usize); 3] = [("Found in the text", 0), ("3 of 12", 1), ("No results", 2)];
 
-/// Where `query` is found in the page's text: the start of each match, with the case or not, whole words or not.
-fn find(query: &str, case: bool, whole: bool) -> Vec<usize> {
-  if query.is_empty() {
-    return Vec::new();
-  }
-  let text = TEXT.join("\n");
-  let (hay, needle) = if case {
-    (text.clone(), query.to_owned())
-  } else {
-    (text.to_lowercase(), query.to_lowercase())
-  };
-  let word = |at: Option<char>| at.is_none_or(|c| !c.is_alphanumeric());
-  hay
-    .match_indices(&needle)
-    .map(|(at, _)| at)
-    .filter(|at| !whole || word(hay[..*at].chars().next_back()) && word(hay[at + needle.len()..].chars().next()))
-    .collect()
-}
+/// How high the room above the text is, which the bar hangs over: the bar with its replace row, and the room
+/// around it.
+const ROOM_ABOVE: f32 = 92.0;
 
-/// What the page's bars are bound to.
+/// What the page's bars are bound to: the text, and what is searched for in it.
 #[derive(Clone)]
 struct Search {
+  doc: Signal<String>,
   open: Signal<bool>,
   query: Signal<String>,
   current: Signal<usize>,
@@ -65,23 +63,48 @@ struct Search {
 type Record = Arc<dyn Fn(String) + Send + Sync>;
 
 impl Search {
-  /// How many matches there are now, and which is current, counted from 1.
-  fn matches(&self) -> (usize, usize) {
-    let total = find(&self.query.get(), self.case.get(), self.whole.get()).len();
-    let current = if total == 0 {
-      0
-    } else {
-      self.current.get().min(total - 1) + 1
-    };
-    (current, total)
+  /// What the options say.
+  fn options(&self) -> FindOptions {
+    FindOptions {
+      match_case: self.case.get(),
+      whole_word: self.whole.get(),
+      regex: self.regex.get(),
+    }
   }
 
-  /// The bar over the page's text, telling `record` what it did.
+  /// The ranges of the text that match: none for a regular expression that is not one.
+  fn found(&self) -> Vec<Range<usize>> {
+    find_matches(&self.doc.get(), &self.query.get(), self.options()).unwrap_or_default()
+  }
+
+  /// Which match is current, from 0, where there is one.
+  fn current(&self, total: usize) -> Option<usize> {
+    (total > 0).then(|| self.current.get().min(total - 1))
+  }
+
+  /// How many matches there are now, and which is current, counted from 1.
+  fn matches(&self) -> (usize, usize) {
+    let total = self.found().len();
+    (self.current(total).map_or(0, |at| at + 1), total)
+  }
+
+  /// The text with every match marked while the bar is open, the current one stronger.
+  fn text(&self) -> Highlight {
+    let doc = self.doc.get();
+    if !self.open.get() {
+      return Highlight::new(&doc);
+    }
+    let found = self.found();
+    let current = self.current(found.len());
+    Highlight::new(&doc).marks(found).current(current)
+  }
+
+  /// The bar over the page's text, telling `record` what it did. Replacing changes the text.
   fn bar(&self, record: &Record) -> FindBar {
     let (next, previous) = (self.current.clone(), self.current.clone());
     let (told_next, told_previous, told_query) = (record.clone(), record.clone(), record.clone());
     let (told_dismiss, told_replace, told_all) = (record.clone(), record.clone(), record.clone());
-    let (search, back) = (self.clone(), self.clone());
+    let (search, back, one, every) = (self.clone(), self.clone(), self.clone(), self.clone());
     let reset = self.current.clone();
     FindBar::new(self.query.clone())
       .open(self.open.clone())
@@ -104,24 +127,38 @@ impl Search {
         told_previous("on_previous".to_owned());
       })
       .on_dismiss(move || told_dismiss("on_dismiss".to_owned()))
-      .on_replace(move |text| told_replace(format!("on_replace({text:?})")))
-      .on_replace_all(move |text| told_all(format!("on_replace_all({text:?})")))
+      .on_replace(move |with| {
+        // The current match takes the text, and the next one becomes current in its place.
+        let found = one.found();
+        if let Some(range) = one.current(found.len()).map(|at| found[at].clone()) {
+          one.doc.update(|doc| doc.replace_range(range, with));
+        }
+        told_replace(format!("on_replace({with:?})"));
+      })
+      .on_replace_all(move |with| {
+        let found = every.found();
+        every.doc.update(|doc| {
+          for range in found.into_iter().rev() {
+            doc.replace_range(range, with);
+          }
+        });
+        every.current.set(0);
+        told_all(format!("on_replace_all({with:?})"));
+      })
   }
 }
 
-/// A view of the page's text with `bar` over it, `height` high; Ctrl+F opens the bar.
-fn view(search: &Search, bar: Element, height: f32, text: &ElementRef) -> Element {
+/// A view of the page's text with `bar` over it, `height` high: the room above the text the bar hangs over, and
+/// the text under it, which scrolls. Ctrl+F opens the bar.
+fn view(search: &Search, bar: Element, text: Element, height: f32, focus: &ElementRef) -> Element {
   let open = search.open.clone();
-  let mut lines = Column::new()
-    .size(FILL, height)
+  let page = Column::new()
+    .width(FILL)
     .padding(16.0)
-    .spacing(10.0)
     .tab_index(0)
-    .ref_element(text.clone())
-    .describe("a11y_name", "Document");
-  for line in TEXT {
-    lines = lines.child(quiet(line, 13.0));
-  }
+    .ref_element(focus.clone())
+    .describe("a11y_name", "Document")
+    .child(text);
   Stack::new()
     .size(FILL, height)
     .on_key_down(move |event: KeyboardEvent| {
@@ -130,7 +167,12 @@ fn view(search: &Search, bar: Element, height: f32, text: &ElementRef) -> Elemen
         open.set(true);
       }
     })
-    .child(lines)
+    .child(
+      Column::new()
+        .size(FILL, height)
+        .child(Column::new().size(FILL, ROOM_ABOVE))
+        .child(ScrollVertical::new(page).width(FILL).flex(1.0)),
+    )
     .child(bar)
     .into()
 }
@@ -189,6 +231,13 @@ impl FindBarPage {
       }
     };
     let bar = plain().force(self.playground.forced()).mount(ctx);
+    // A count the page makes up marks nothing: the marks are of what the page found.
+    let text = if count == 0 {
+      self.search.text()
+    } else {
+      Highlight::new(&self.search.doc.get())
+    }
+    .mount(ctx);
     let open = self.search.open.clone();
     let shown = Column::new()
       .width(FILL)
@@ -206,7 +255,7 @@ impl FindBarPage {
           .child(Kbd::new("Ctrl+F"))
           .child(quiet("in the text opens it", 12.0)),
       )
-      .child(view(&self.search, bar, 260.0, &self.text));
+      .child(view(&self.search, bar, text, 300.0, &self.text));
 
     let mut code = vec!["FindBar::new(query)".to_owned(), "    .open(open)".to_owned()];
     code.push(match count {
@@ -250,7 +299,7 @@ impl FindBarPage {
     let set_count = self.count.clone();
     let make = {
       let (plain, search, text) = (plain.clone(), self.search.clone(), self.text.clone());
-      move || view(&search, plain().into(), 260.0, &text)
+      move || view(&search, plain().into(), search.text().into(), 300.0, &text)
     };
     self.playground.card(
       ctx,
@@ -308,7 +357,8 @@ impl FindBarPage {
       .replace_open(self.editor.replace_open.clone())
       .return_focus(self.editor_text.clone())
       .mount(ctx);
-    view(&self.editor, bar, 240.0, &self.editor_text)
+    let text = self.editor.text().mount(ctx);
+    view(&self.editor, bar, text, 300.0, &self.editor_text)
   }
 
   /// The bar's buttons and options at rest and in each interaction, and a search that finds nothing.
@@ -345,6 +395,7 @@ impl Component for FindBarPage {
 
   fn create(ctx: &mut Ctx) -> Self {
     let search = |ctx: &mut Ctx, open: bool, query: &str, replacing: bool| Search {
+      doc: ctx.signal(TEXT.join("\n\n")),
       open: ctx.signal(open),
       query: ctx.signal(query.to_owned()),
       current: ctx.signal(0),

@@ -584,6 +584,16 @@ into view the same way (see [Focus And Keyboard Navigation](../focus-navigation/
 ctx.scroll_into_view(&details);
 ```
 
+`ctx.scroll_range_into_view(&text_ref, range)` does the same for a range of a text, in bytes of its content: the lines
+the range covers are brought into view, and no more of the text, wherever it is wrapped. The current match of a search,
+in a long text that scrolls. The text must know where its characters are drawn, which one that is selectable or has
+`highlights` does; of another the whole element is brought into view.
+
+```rust
+// The current match: marked on the text with `Text::highlights`, and scrolled to.
+ctx.scroll_range_into_view(&document, current.clone());
+```
+
 `VirtualizedList` sizes the same way: `.height(...)` or `.flex(...)` gives it a fixed viewport, while `.max_height(...)`
 alone lets a short list take its content height and a long one stop at the cap.
 
