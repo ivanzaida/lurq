@@ -53,6 +53,8 @@ mod touch;
 mod touch_tests;
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_wheel;
 
 use file_drag::FileDragShell;
 use frame_pacing::PresentedFrame;
@@ -66,6 +68,8 @@ const WINIT_BREAKDOWN_THRESHOLD: Duration = Duration::from_millis(45);
 /// drags and hover restyles; vsync usually paces harder — this guards the
 /// vsync-off case).
 const INTERACTION_PRESENT_INTERVAL: Duration = Duration::from_millis(7);
+/// The pixels a wheel scrolls for one line, which is what winit tells a notch as on a desktop.
+const WHEEL_LINE: f32 = 40.0;
 
 type TickFn = Box<dyn FnMut(&mut Tree, Duration)>;
 type PaintFn = Box<dyn FnMut(&Tree, Duration, PassReport)>;
@@ -1101,10 +1105,18 @@ impl ManagedWindow {
         self.check_redraw();
       }
       WindowEvent::MouseWheel { delta, phase, .. } => {
+        #[cfg(not(target_arch = "wasm32"))]
         let (mut dx, mut dy) = match delta {
-          MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
+          MouseScrollDelta::LineDelta(x, y) => (x * WHEEL_LINE, y * WHEEL_LINE),
           MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
         };
+        // A browser tells a notch as the distance it would scroll a page; see `web_wheel`.
+        #[cfg(target_arch = "wasm32")]
+        let (mut dx, mut dy) = web_wheel::scroll_distance(
+          delta,
+          f64::from(self.tree.scale_factor()),
+          web::scrolls_the_systems_distance(),
+        );
         if self.modifiers.shift_key() && dx == 0.0 {
           dx = dy;
           dy = 0.0;
@@ -1744,7 +1756,7 @@ impl ManagedSecondaryWindow {
       }
       WindowEvent::MouseWheel { delta, phase, .. } => {
         let (mut dx, mut dy) = match delta {
-          MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
+          MouseScrollDelta::LineDelta(x, y) => (x * WHEEL_LINE, y * WHEEL_LINE),
           MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
         };
         if self.modifiers.shift_key() && dx == 0.0 {

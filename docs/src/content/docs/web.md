@@ -264,6 +264,9 @@ With the `clipboard` feature:
   focus the browser is asked not to act on a key itself, which it grants for all but the shortcuts it keeps
   to itself, such as the ones for its tabs.
 - The wheel scrolls what is under the pointer, also on a page that has just loaded under a pointer at rest.
+  A notch scrolls as far as it does in the desktop app, not as far as the browser would scroll a page of its
+  own: a browser tells a notch as about a hundred pixels, which the shell counts back into notches. On macOS
+  the browser's distance is the system's and is taken as it is.
 
 ### Shaders
 

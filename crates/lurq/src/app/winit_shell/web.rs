@@ -23,6 +23,17 @@ pub(super) fn window_attributes(mut attrs: WindowAttributes) -> WindowAttributes
   }
 }
 
+/// Whether the browser tells a wheel's turn as the distance the system wants scrolled, as it does on Apple's
+/// systems, and not as a notch's worth of a page; see `web_wheel`.
+pub(super) fn scrolls_the_systems_distance() -> bool {
+  thread_local! {
+    static APPLE: bool = web_sys::window()
+      .and_then(|window| window.navigator().user_agent().ok())
+      .is_some_and(|agent| agent.contains("Mac OS"));
+  }
+  APPLE.with(|apple| *apple)
+}
+
 /// Where the wheel last turned over the canvas, in the page's pixels.
 ///
 /// winit tells where the pointer is when it moves. A page that has just loaded under a pointer at rest has
