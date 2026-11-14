@@ -385,7 +385,8 @@ A state style can also set:
 - `.outline(outline)`: an [outline](#outline) while the state holds, typically a focus ring in `focus_visible`.
 
 These three change painting only. Where several state styles set the same value, the one applied last wins: the
-[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused.
+[disabled](#disabled) style, then drag-over, active, hovered, focus-visible, focused, and last the style
+[within an interaction group](#within-an-interaction-group).
 
 ```rust
 use lurq::{components::{Row, Text}, node::Outline};
@@ -412,6 +413,42 @@ let hovered = interaction.is_hovered();
 ```
 
 Attach the state to an element with `.interactive(interaction)` if you need to observe that element's state from component code.
+
+### Within An Interaction Group
+
+`.interaction_group(true)` makes an element a group: while the pointer is on it, or the focus is on it or in it, the
+elements in it show their `.within_style(style)`. An action at the end of a row that shows only while the row is
+pointed at or focused is a style within the row's group.
+
+```rust
+use lurq::{
+  components::{Button, Row, Text},
+  node::Style,
+};
+
+// The delete button shows while the pointer is on the row or the focus is in it.
+Row::new()
+  .padding_horizontal(12.0)
+  .interaction_group(true)
+  .hovered(|style| style.background("#f4f4f5"))
+  .child(Text::new("report.pdf"))
+  .child(
+    Button::new("Delete")
+      .tab_index(0)
+      .opacity(0.0)
+      .within_style(Style::new().opacity(1.0)),
+  )
+```
+
+- The pointer anywhere on the group lights it, on an element in it as well as between them. The focus on the group or
+  on anything in it lights it too, so a keyboard reaches the action and sees it.
+- An element in two groups answers to the innermost: a group inside another lights only what is in it, and the outer
+  one lights the rest.
+- It paints only, as the disabled style does: a frame, padding or flex in it is ignored, so nothing moves as it comes and
+  goes. It is laid under every other state style.
+- An element hidden by it (opacity 0) is still under the pointer and still a stop of Tab; with the pointer on it, its
+  group is lit and it shows. A design system's recipe names it `within` (see
+  [Recipes](../design-system/#recipes)).
 
 ## Disabled
 
