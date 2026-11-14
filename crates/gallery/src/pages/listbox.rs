@@ -117,29 +117,53 @@ impl ListboxPage {
     let (density_name, density) = DENSITIES[self.density.get().min(DENSITIES.len() - 1)];
     let record = self.playground.recorder();
     let options = move || renderers(groups, option_disabled, details);
-    let dress = move |listbox: Listbox<Id>| {
+    // The props the panel gives either form: of one, `Listbox<Id>`, or of any number, `Listbox<Id, [Id]>`.
+    fn dress<V: ?Sized + 'static>(
+      listbox: Listbox<Id, V>,
+      follow: bool,
+      disabled: bool,
+      density: Density,
+    ) -> Listbox<Id, V> {
       listbox
         .label("Renderer")
         .follow_focus(follow)
         .disabled(disabled)
         .density(density)
-    };
-    let shown = if multiple {
-      dress(Listbox::new(self.played_many.clone(), options()))
-        .on_change(move |next| record(format!("on_change({next:?})")))
-        .force(self.playground.forced())
+    }
+    let shown: Element = if multiple {
+      dress(
+        Listbox::multiple(self.played_many.clone(), options()),
+        follow,
+        disabled,
+        density,
+      )
+      .on_change(move |next: &[Id]| record(format!("on_change({next:?})")))
+      .force(self.playground.forced())
+      .into()
     } else {
-      dress(Listbox::new(self.played_one.clone(), options()))
-        .on_change(move |next| record(format!("on_change({:?})", next[0])))
-        .force(self.playground.forced())
+      dress(
+        Listbox::new(self.played_one.clone(), options()),
+        follow,
+        disabled,
+        density,
+      )
+      .on_change(move |next: &Id| record(format!("on_change({next:?})")))
+      .force(self.playground.forced())
+      .into()
     };
     let make = {
       let (one, many) = (self.played_one.get(), self.played_many.get());
       move || -> Element {
         if multiple {
-          dress(Listbox::new(Signal::new(many.clone()), options())).into()
+          dress(
+            Listbox::multiple(Signal::new(many.clone()), options()),
+            follow,
+            disabled,
+            density,
+          )
+          .into()
         } else {
-          dress(Listbox::new(Signal::new(one), options())).into()
+          dress(Listbox::new(Signal::new(one), options()), follow, disabled, density).into()
         }
       }
     };
@@ -149,7 +173,14 @@ impl ListboxPage {
     } else {
       "// chosen: Signal<&str>".to_owned()
     }];
-    code.push("Listbox::new(chosen, [".to_owned());
+    code.push(
+      if multiple {
+        "Listbox::multiple(chosen, ["
+      } else {
+        "Listbox::new(chosen, ["
+      }
+      .to_owned(),
+    );
     let detail = |text: &str| {
       if details {
         format!(".detail(\"{text}\")")
@@ -184,7 +215,14 @@ impl ListboxPage {
     if disabled {
       code.push(".disabled(true)".to_owned());
     }
-    code.push(".on_change(|chosen| /* use it */)".to_owned());
+    code.push(
+      if multiple {
+        ".on_change(|chosen: &[&str]| /* use it */)"
+      } else {
+        ".on_change(|chosen: &&str| /* use it */)"
+      }
+      .to_owned(),
+    );
 
     let tree = vec![
       format!(
@@ -212,7 +250,7 @@ impl ListboxPage {
         segmented_fill(&densities, &self.density.get(), move |value| choose.set(value))
       }),
       divider(),
-      flag("multiple (Signal<Vec<T>>)", &self.multiple),
+      flag("multiple (Listbox::multiple)", &self.multiple),
     ];
     if !multiple {
       controls.push(flag("follow_focus", &self.follow));
@@ -309,7 +347,7 @@ impl Component for ListboxPage {
       ],
     )
     .label("Renderer");
-    let columns = Listbox::new(
+    let columns = Listbox::multiple(
       self.columns.clone(),
       [
         ("name", "Name"),
@@ -368,16 +406,18 @@ impl Component for ListboxPage {
     let rows = [
       (
         "value",
-        "Signal<T> / Signal<Option<T>> / Signal<Vec<T>>",
+        "Signal<T>",
         "",
-        "What is chosen: the option of the value (none while it is `None`), or those of the values. Choosing sets \
-         it.",
+        "What the listbox is bound to: the option of its value is chosen, and choosing another sets it. \
+         Listbox::optional binds a Signal<Option<T>>, none chosen while it is None; Listbox::multiple a \
+         Signal<Vec<T>>, any number chosen.",
       ),
       (
         "controlled",
-        "(Option<T> / Vec<T>, options, impl Fn(&[T]))",
+        "(T, options, Fn(&T))",
         "",
-        "In place of `new`: the app holds what is chosen, and is told what a press or a key would choose.",
+        "Listbox::controlled: the app holds the value, and is told what a press or a key would choose. \
+         controlled_optional takes an Option<T> and Fn(&Option<T>), controlled_multiple the values and Fn(&[T]).",
       ),
       (
         "options",
@@ -394,10 +434,10 @@ impl Component for ListboxPage {
       ),
       (
         "on_change",
-        "impl Fn(&[T])",
+        "Fn(&T)",
         "",
-        "Told the whole new choice after each press or key that changes it, and not for what is already chosen. A \
-         second is called after the first.",
+        "Told the new choice after each press or key that changes it, and not for what is already chosen: the \
+         value, the Option of an optional one, the whole set of a multiple one. A second is called after the first.",
       ),
       ("label", "&str", "", "What the listbox is called, to tooling."),
       (
@@ -469,16 +509,16 @@ impl Component for ListboxPage {
         ),
         Section::new(
           "Many chosen",
-          "With a `Signal<Vec<_>>`. A press chooses one alone, with Ctrl it adds or takes out one, with Shift it \
+          "Listbox::multiple, with a `Signal<Vec<_>>`. A press chooses one alone, with Ctrl it adds or takes out one, with Shift it \
            chooses from the last chosen to it. Space adds or takes out the focused option, Shift with the arrows \
            chooses on the way, and Ctrl+A chooses them all.",
           self.frame.demo(
             1,
             columns,
-            "Listbox::new(columns, options)",
+            "Listbox::multiple(columns, options)",
             &[
               "// columns: Signal<Vec<&str>>",
-              "Listbox::new(columns, [",
+              "Listbox::multiple(columns, [",
               "    (\"name\", \"Name\"),",
               "    (\"size\", \"Size\"),",
               "    (\"kind\", \"Kind\"),",

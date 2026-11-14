@@ -189,7 +189,7 @@ pub use list_item::{
   ListView,
 };
 pub use listbox::{
-  Listbox, ListboxChosen, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxValue, ListboxView,
+  Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView,
 };
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,

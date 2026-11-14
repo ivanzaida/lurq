@@ -78,7 +78,7 @@ fn press_with(stage: &mut Stage, id: &str, shift: bool, ctrl: bool) {
 
 /// A stage of the board's listbox of one, bound to `chosen`, telling `told` what it chose, with a button after it
 /// for Tab to go on to.
-fn one(chosen: &Signal<Id>, told: &Arc<Mutex<Vec<Vec<Id>>>>, follow: bool) -> Stage {
+fn one(chosen: &Signal<Id>, told: &Arc<Mutex<Vec<Id>>>, follow: bool) -> Stage {
   let (chosen, told) = (chosen.clone(), told.clone());
   Stage::new(move |_| {
     let told = told.clone();
@@ -88,7 +88,7 @@ fn one(chosen: &Signal<Id>, told: &Arc<Mutex<Vec<Vec<Id>>>>, follow: bool) -> St
         Listbox::new(chosen.clone(), renderers())
           .label("Renderer")
           .follow_focus(follow)
-          .on_change(move |next| told.lock().unwrap().push(next.to_vec()))
+          .on_change(move |next: &Id| told.lock().unwrap().push(*next))
           .id("box"),
       )
       .child(Button::new("After").id("after"))
@@ -150,7 +150,7 @@ fn of_one_a_press_chooses_and_the_choice_follows_the_keys() {
   let mut stage = one(&chosen, &told, true);
   stage.click("box-2");
   assert_eq!(chosen.get(), "metal");
-  assert_eq!(*told.lock().unwrap(), [vec!["metal"]]);
+  assert_eq!(*told.lock().unwrap(), ["metal"], "told the one value");
   stage.click("box-3");
   assert_eq!(chosen.get(), "metal", "a disabled option is not chosen");
 
@@ -201,7 +201,11 @@ fn many(chosen: &Signal<Vec<Id>>) -> Stage {
   Stage::new(move |_| {
     Column::new()
       .padding(8.0)
-      .child(Listbox::new(chosen.clone(), renderers()).label("Renderers").id("box"))
+      .child(
+        Listbox::multiple(chosen.clone(), renderers())
+          .label("Renderers")
+          .id("box"),
+      )
       .into()
   })
 }
@@ -459,7 +463,7 @@ fn of_thousands_shift_with_the_keys_and_ctrl_a_choose_options_that_are_not_built
   let mut stage = Stage::new(move |ctx| {
     Column::new()
       .child(
-        Listbox::new(scene.clone(), thousands())
+        Listbox::multiple(scene.clone(), thousands())
           .style(ListboxPart::Root, |s| s.height(240.0))
           .id("big")
           .mount(ctx),
@@ -485,19 +489,19 @@ fn of_thousands_shift_with_the_keys_and_ctrl_a_choose_options_that_are_not_built
   assert_eq!(chosen.get().len(), 5000);
 }
 
-/// Bound to a `Signal<Option<T>>`, nothing is chosen while it is `None`, and a press chooses: the signal is set and
-/// `on_change` is told.
+/// Optional, bound to a `Signal<Option<T>>`: nothing is chosen while it is `None`, and a press chooses, the signal
+/// set and `on_change` told the `Option` it holds now.
 #[test]
-fn bound_to_an_option_nothing_is_chosen_until_a_press_chooses() {
+fn optional_nothing_is_chosen_until_a_press_chooses() {
   let chosen: Signal<Option<Id>> = Signal::new(None);
-  let told: Arc<Mutex<Vec<Vec<Id>>>> = Arc::default();
+  let told: Arc<Mutex<Vec<Option<Id>>>> = Arc::default();
   let (scene, heard) = (chosen.clone(), told.clone());
   let mut stage = Stage::new(move |_| {
     let heard = heard.clone();
     Column::new()
       .child(
-        Listbox::new(scene.clone(), renderers())
-          .on_change(move |next| heard.lock().unwrap().push(next.to_vec()))
+        Listbox::optional(scene.clone(), renderers())
+          .on_change(move |next: &Option<Id>| heard.lock().unwrap().push(*next))
           .id("box"),
       )
       .into()
@@ -508,7 +512,7 @@ fn bound_to_an_option_nothing_is_chosen_until_a_press_chooses() {
   }
   stage.click("box-1");
   assert_eq!(chosen.get(), Some("dx12"));
-  assert_eq!(*told.lock().unwrap(), [vec!["dx12"]]);
+  assert_eq!(*told.lock().unwrap(), [Some("dx12")]);
   assert_eq!(weight_of(&stage, "DirectX 12"), FontWeight::Medium);
 }
 
@@ -516,18 +520,18 @@ fn bound_to_an_option_nothing_is_chosen_until_a_press_chooses() {
 /// it answers with, not what was pressed. A press of what is chosen tells nothing.
 #[test]
 fn held_by_the_app_a_press_tells_and_the_listbox_shows_what_the_app_answers() {
-  let held: Signal<Option<Id>> = Signal::new(Some("wgpu"));
-  let told: Arc<Mutex<Vec<Vec<Id>>>> = Arc::default();
+  let held: Signal<Id> = Signal::new("wgpu");
+  let told: Arc<Mutex<Vec<Id>>> = Arc::default();
   let answer = Arc::new(std::sync::atomic::AtomicBool::new(false));
   let (scene, heard, answering) = (held.clone(), told.clone(), answer.clone());
   let mut stage = Stage::new(move |_| {
     let (heard, answering, write) = (heard.clone(), answering.clone(), scene.clone());
     Column::new()
       .child(
-        Listbox::controlled(scene.get(), renderers(), move |next| {
-          heard.lock().unwrap().push(next.to_vec());
+        Listbox::controlled(scene.get(), renderers(), move |next: &Id| {
+          heard.lock().unwrap().push(*next);
           if answering.load(std::sync::atomic::Ordering::Relaxed) {
-            write.set(next.last().copied());
+            write.set(*next);
           }
         })
         .id("box"),
@@ -536,7 +540,7 @@ fn held_by_the_app_a_press_tells_and_the_listbox_shows_what_the_app_answers() {
   });
   // The app does not take the choice: what it holds stays chosen (its label at 500).
   stage.click("box-2");
-  assert_eq!(*told.lock().unwrap(), [vec!["metal"]]);
+  assert_eq!(*told.lock().unwrap(), ["metal"]);
   assert_eq!(weight_of(&stage, "wgpu"), FontWeight::Medium);
   assert_eq!(weight_of(&stage, "Metal"), FontWeight::Normal);
   // A press of what is chosen tells nothing.
@@ -545,9 +549,65 @@ fn held_by_the_app_a_press_tells_and_the_listbox_shows_what_the_app_answers() {
   // The app takes it: what it answers with is chosen.
   answer.store(true, std::sync::atomic::Ordering::Relaxed);
   stage.click("box-2");
-  assert_eq!(held.get(), Some("metal"));
+  assert_eq!(held.get(), "metal");
   assert_eq!(weight_of(&stage, "Metal"), FontWeight::Medium);
   assert_eq!(weight_of(&stage, "wgpu"), FontWeight::Normal);
+}
+
+/// Held by the app, one or none: nothing is chosen while it holds `None`, and a press tells `on_change` the
+/// `Option` it is to be.
+#[test]
+fn controlled_optional_shows_none_and_tells_the_option() {
+  let told: Arc<Mutex<Vec<Option<Id>>>> = Arc::default();
+  let heard = told.clone();
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    Column::new()
+      .child(
+        Listbox::controlled_optional(None, renderers(), move |next: &Option<Id>| {
+          heard.lock().unwrap().push(*next)
+        })
+        .id("box"),
+      )
+      .into()
+  });
+  for label in ["wgpu", "DirectX 12", "Metal", "Vulkan"] {
+    assert_eq!(weight_of(&stage, label), FontWeight::Normal, "nothing chosen");
+  }
+  stage.click("box-2");
+  assert_eq!(*told.lock().unwrap(), [Some("metal")]);
+  assert_eq!(
+    weight_of(&stage, "Metal"),
+    FontWeight::Normal,
+    "the app did not take it"
+  );
+}
+
+/// Held by the app, any number: a press tells `on_change` the whole set it is to be, with the option pressed added
+/// or taken out, and what the app holds stays chosen until it answers.
+#[test]
+fn controlled_multiple_tells_the_whole_set() {
+  let told: Arc<Mutex<Vec<Vec<Id>>>> = Arc::default();
+  let heard = told.clone();
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    Column::new()
+      .child(
+        Listbox::controlled_multiple(["wgpu"], renderers(), move |next: &[Id]| {
+          heard.lock().unwrap().push(next.to_vec())
+        })
+        .id("box"),
+      )
+      .into()
+  });
+  press_with(&mut stage, "box-2", false, true);
+  assert_eq!(*told.lock().unwrap(), [vec!["wgpu", "metal"]]);
+  assert_eq!(weight_of(&stage, "wgpu"), FontWeight::Medium);
+  assert_eq!(
+    weight_of(&stage, "Metal"),
+    FontWeight::Normal,
+    "the app did not take it"
+  );
 }
 
 /// `on_change` is a person's: the app setting the signal tells nothing.

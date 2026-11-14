@@ -13,7 +13,7 @@ use super::{
   part_style::{FontFamily, Length, PartStyle},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   selection::{ListSelection, Pick, select_all_key},
-  shared::{fading, glyph, pressable},
+  shared::{ChangeHandler, fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -106,89 +106,33 @@ names!(ListboxState {
 /// What builds a listbox's nodes: a theme's in place of the default one.
 pub type ListboxRenderer = Arc<dyn Fn(ListboxView) -> Element + Send + Sync>;
 
-/// What a listbox reads and writes: a signal of one value, `Signal<T>`, of which one option is chosen; of one or
-/// none, `Signal<Option<T>>`, of which nothing is chosen until an option is; or of any number, `Signal<Vec<T>>`.
-/// [`Listbox::new`] takes any of them, as [`Select`](super::Select) and [`MultiSelect`](super::MultiSelect) take
-/// theirs.
-pub struct ListboxValue<T> {
-  read: Arc<dyn Fn() -> Vec<T> + Send + Sync>,
-  write: Arc<dyn Fn(Vec<T>) + Send + Sync>,
-  many: bool,
-}
+/// What tells a listbox's handlers the new choice, as the form it was made with has it: the value of a listbox of
+/// one, one or none of an optional one, the whole set of one of any number.
+type Tell<T, V> = fn(&[T], &[ChangeHandler<V>]);
 
-impl<T: Clone + PartialEq + Send + Sync + SignalValue + 'static> From<Signal<T>> for ListboxValue<T> {
-  fn from(signal: Signal<T>) -> Self {
-    let read = signal.clone();
-    Self {
-      read: Arc::new(move || vec![read.get()]),
-      write: Arc::new(move |chosen: Vec<T>| {
-        if let Some(value) = chosen.into_iter().last()
-          && signal.get() != value
-        {
-          signal.set(value);
-        }
-      }),
-      many: false,
+/// What writes the next choice to where the listbox reads it: the app's signal, or nothing where the app holds it.
+type Write<T> = Arc<dyn Fn(Vec<T>) + Send + Sync>;
+
+fn tell_one<T>(next: &[T], handlers: &[ChangeHandler<T>]) {
+  if let Some(value) = next.last() {
+    for handler in handlers {
+      handler(value);
     }
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> From<Signal<Option<T>>> for ListboxValue<T>
-where
-  Option<T>: SignalValue,
-{
-  fn from(signal: Signal<Option<T>>) -> Self {
-    let read = signal.clone();
-    Self {
-      read: Arc::new(move || read.get().into_iter().collect()),
-      write: Arc::new(move |chosen: Vec<T>| {
-        let value = chosen.into_iter().last();
-        if value.is_some() && signal.get() != value {
-          signal.set(value);
-        }
-      }),
-      many: false,
-    }
+fn tell_optional<T: Clone>(next: &[T], handlers: &[ChangeHandler<Option<T>>]) {
+  let value = next.last().cloned();
+  for handler in handlers {
+    handler(&value);
   }
 }
 
-/// What a listbox the app holds shows chosen ([`Listbox::controlled`]): `Option<T>` of one, which may be none, or
-/// `Vec<T>` of any number.
-pub struct ListboxChosen<T> {
-  values: Vec<T>,
-  many: bool,
-}
-
-impl<T> From<Option<T>> for ListboxChosen<T> {
-  fn from(value: Option<T>) -> Self {
-    Self {
-      values: value.into_iter().collect(),
-      many: false,
-    }
+fn tell_many<T>(next: &[T], handlers: &[ChangeHandler<[T]>]) {
+  for handler in handlers {
+    handler(next);
   }
 }
-
-impl<T> From<Vec<T>> for ListboxChosen<T> {
-  fn from(values: Vec<T>) -> Self {
-    Self { values, many: true }
-  }
-}
-
-impl<T: Clone + PartialEq + Send + Sync + 'static> From<Signal<Vec<T>>> for ListboxValue<T>
-where
-  Vec<T>: SignalValue,
-{
-  fn from(signal: Signal<Vec<T>>) -> Self {
-    let read = signal.clone();
-    Self {
-      read: Arc::new(move || read.get()),
-      write: Arc::new(move |chosen| signal.set(chosen)),
-      many: true,
-    }
-  }
-}
-
-type Told<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
 
 /// A listbox: a list in the page of which one option is chosen, or any number. A renderer, a time zone, the
 /// columns a table shows.
@@ -204,15 +148,25 @@ type Told<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
 ///   SelectOption::new("gl", "OpenGL (legacy)").disabled(true),
 /// ])
 /// .label("Renderer");
-/// // Any number: a `Signal<Vec<_>>`.
+/// // Nothing chosen until an option is.
+/// let theme = Signal::new(None);
+/// let optional = Listbox::optional(theme, [("light", "Light"), ("dark", "Dark")]).on_change(|theme| println!("{theme:?}"));
+/// // Any number.
 /// let columns = Signal::new(vec!["name", "size"]);
-/// let many = Listbox::new(columns, [("name", "Name"), ("size", "Size"), ("kind", "Kind")]).label("Columns");
+/// let many = Listbox::multiple(columns, [("name", "Name"), ("size", "Size"), ("kind", "Kind")])
+///   .label("Columns")
+///   .on_change(|columns| println!("{} columns", columns.len()));
+/// // Held by the app: it is told of a choice, and the listbox shows what it answers with.
+/// let held = Listbox::controlled("wgpu", [("wgpu", "wgpu"), ("metal", "Metal")], |renderer| println!("{renderer}"));
 /// ```
 ///
-/// It takes what a [`Select`](super::Select) takes: the app's signal of the value and options of
-/// [`SelectOption`] (or `(value, label)`, or [`Choice`](super::Choice)), which may start a group with a label, be
-/// disabled, have a detail, a hint, and an element before or after the label. What the signal holds is chosen:
-/// with a `Signal<T>` the option of that value, with a `Signal<Vec<T>>` those of its values.
+/// It takes what a [`Select`](super::Select) takes: options of [`SelectOption`] (or `(value, label)`, or
+/// [`Choice`](super::Choice)), which may start a group with a label, be disabled, have a detail, a hint, and an
+/// element before or after the label. Its forms are those of every component that holds a value: bound to the
+/// app's signal, [`new`](Self::new) of one, [`optional`](Listbox::optional) of one or none and
+/// [`multiple`](Listbox::multiple) of any number; held by the app, [`controlled`](Self::controlled),
+/// [`controlled_optional`](Listbox::controlled_optional) and [`controlled_multiple`](Listbox::controlled_multiple).
+/// `V` is what the listbox holds, `T`, `Option<T>` or `[T]`, and what [`on_change`](Self::on_change) is told.
 ///
 /// It is one stop of Tab, at the chosen option or the first. Up and Down move through the options, Home and End to
 /// the first and the last, PageUp and PageDown by what the box shows, a letter to the next option that starts
@@ -223,13 +177,14 @@ type Told<T> = Arc<dyn Fn(&[T]) + Send + Sync>;
 ///
 /// A listbox of thousands of options is [mounted](Self::mount) in a virtual list, which builds only the options near
 /// its view; the keys reach every one.
-pub struct Listbox<T> {
+pub struct Listbox<T, V: ?Sized = T> {
   options: Vec<SelectOption<T>>,
   chosen: Vec<T>,
-  write: Arc<dyn Fn(Vec<T>) + Send + Sync>,
+  write: Write<T>,
   many: bool,
+  tell: Tell<T, V>,
   follow_focus: bool,
-  on_change: Vec<Told<T>>,
+  on_change: Vec<ChangeHandler<V>>,
   label: Option<Arc<str>>,
   description: Option<Arc<str>>,
   invalid: bool,
@@ -243,17 +198,102 @@ pub struct Listbox<T> {
   key: Option<Arc<str>>,
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
-  /// A listbox of `options` bound to `value`: a `Signal<T>` of which the option of its value is chosen, and
-  /// choosing another sets it; a `Signal<Option<T>>` the same, of which none is chosen while it is `None`; or a
-  /// `Signal<Vec<T>>` of which the options of its values are, and choosing one adds it or takes it out.
-  pub fn new(value: impl Into<ListboxValue<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self {
-    let value = value.into();
+impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T, T> {
+  /// A listbox of `options` bound to `value`: the option of its value is chosen, and choosing another sets it.
+  pub fn new(value: Signal<T>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
+  where
+    T: SignalValue,
+  {
+    let chosen = vec![value.get()];
+    let write = Arc::new(move |next: Vec<T>| {
+      if let Some(next) = next.into_iter().last()
+        && value.get_untracked() != next
+      {
+        value.set(next);
+      }
+    });
+    Self::of(options, chosen, write, false, tell_one::<T>)
+  }
+
+  /// A listbox of one whose value the app holds: the option of `value` is chosen, and a press or a key that would
+  /// choose another tells `on_change` the value it is to be. It shows what the app answers with the next time it is
+  /// built: a choice the app does not take is not shown.
+  pub fn controlled(
+    value: T,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&T) + Send + Sync + 'static,
+  ) -> Self {
+    Self::of(options, vec![value], Arc::new(|_| {}), false, tell_one::<T>).on_change(on_change)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T, Option<T>> {
+  /// A listbox of one bound to `value`, which may hold none: no option is chosen while it is `None`, and choosing
+  /// one sets it to that option's value.
+  pub fn optional(value: Signal<Option<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
+  where
+    Option<T>: SignalValue,
+  {
+    let chosen = value.get().into_iter().collect();
+    let write = Arc::new(move |next: Vec<T>| {
+      let next = next.into_iter().last();
+      if next.is_some() && value.get_untracked() != next {
+        value.set(next);
+      }
+    });
+    Self::of(options, chosen, write, false, tell_optional::<T>)
+  }
+
+  /// A listbox of one or none whose value the app holds: the option of `value` is chosen, none while it is `None`,
+  /// and a choice is told to `on_change` as the value it is to be.
+  pub fn controlled_optional(
+    value: Option<T>,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&Option<T>) + Send + Sync + 'static,
+  ) -> Self {
+    let chosen = value.into_iter().collect();
+    Self::of(options, chosen, Arc::new(|_| {}), false, tell_optional::<T>).on_change(on_change)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T, [T]> {
+  /// A listbox of any number bound to `values`: the options of its values are chosen, and choosing one adds it or
+  /// takes it out.
+  pub fn multiple(values: Signal<Vec<T>>, options: impl IntoIterator<Item = impl Into<SelectOption<T>>>) -> Self
+  where
+    Vec<T>: SignalValue,
+  {
+    let chosen = values.get();
+    let write = Arc::new(move |next: Vec<T>| values.set(next));
+    Self::of(options, chosen, write, true, tell_many::<T>)
+  }
+
+  /// A listbox of any number whose values the app holds: the options of `values` are chosen, and a press or a key
+  /// tells `on_change` the whole set it is to be.
+  pub fn controlled_multiple(
+    values: impl IntoIterator<Item = T>,
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    on_change: impl Fn(&[T]) + Send + Sync + 'static,
+  ) -> Self {
+    let chosen = values.into_iter().collect();
+    Self::of(options, chosen, Arc::new(|_| {}), true, tell_many::<T>).on_change(on_change)
+  }
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<T, V> {
+  fn of(
+    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
+    chosen: Vec<T>,
+    write: Write<T>,
+    many: bool,
+    tell: Tell<T, V>,
+  ) -> Self {
     Self {
       options: options.into_iter().map(Into::into).collect(),
-      chosen: (value.read)(),
-      write: value.write,
-      many: value.many,
+      chosen,
+      write,
+      many,
+      tell,
       follow_focus: true,
       on_change: Vec::new(),
       label: None,
@@ -270,24 +310,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     }
   }
 
-  /// A listbox whose choice the app holds: what `chosen` has is chosen (`Option<T>` of one, `Vec<T>` of any
-  /// number), and `on_change` is told what a press or a key would choose. It shows what the app answers with, the
-  /// next time it is built: a choice the app does not take is not shown.
-  pub fn controlled(
-    chosen: impl Into<ListboxChosen<T>>,
-    options: impl IntoIterator<Item = impl Into<SelectOption<T>>>,
-    on_change: impl Fn(&[T]) + Send + Sync + 'static,
-  ) -> Self {
-    let chosen = chosen.into();
-    let values = chosen.values;
-    let value = ListboxValue {
-      read: Arc::new(move || values.clone()),
-      write: Arc::new(|_| {}),
-      many: chosen.many,
-    };
-    Self::new(value, options).on_change(on_change)
-  }
-
   /// Of a listbox of one, whether the choice follows the focus: the arrows choose as they move, as in a radio
   /// group. It does unless told otherwise; without it the arrows move the focus alone, and Space, Enter or a press
   /// choose.
@@ -296,10 +318,18 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
     self
   }
 
-  /// Called with what is chosen after each press or key that changes it, after the signal is set: the whole new set,
-  /// of one for a listbox of one. It is not called for what is already so (a press of the chosen option), nor when
-  /// the app sets the signal. A second handler is called after the first.
-  pub fn on_change(mut self, handler: impl Fn(&[T]) + Send + Sync + 'static) -> Self {
+  /// Called with what is chosen after each press or key that changes it, after the signal is set: the value of a
+  /// listbox of one, `&Option<T>` of an [`optional`](Listbox::optional) one, and the whole new set of one of any
+  /// number. It is not called for what is already so (a press of the chosen option), nor when the app sets the
+  /// signal. A second handler is called after the first. A handler of another type does not compile:
+  ///
+  /// ```compile_fail
+  /// use lurq::{core::Signal, ui::Listbox};
+  ///
+  /// let renderer = Signal::new("wgpu");
+  /// let listbox = Listbox::new(renderer, [("wgpu", "wgpu")]).on_change(|chosen: &[&str]| {});
+  /// ```
+  pub fn on_change(mut self, handler: impl Fn(&V) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
   }
@@ -379,7 +409,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let view = self.view(theme);
-    match theme.renderer::<Listbox<T>>() {
+    match theme.renderer::<Self>() {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
@@ -404,7 +434,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
         .state(ListboxState::Chosen, chosen)
         .state(ListboxState::OptionDisabled, disabled)
         .state(ListboxState::Detail, detail);
-      theme.resolve::<Listbox<T>>(&case, Some(&self.rules))
+      theme.resolve::<Self>(&case, Some(&self.rules))
     };
     // An option is in one of eight cases: each is resolved once, however many options there are.
     let cases = [false, true]
@@ -426,13 +456,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
       .collect();
     let entry = (0..ids.len()).find(|index| enabled[*index] && chosen.contains(&ids[*index]));
     let write = {
-      let (write, on_change) = (self.write.clone(), self.on_change.clone());
+      let (write, tell, on_change) = (self.write.clone(), self.tell, self.on_change.clone());
       Arc::new(move |next: Vec<T>| {
         write(next.clone());
-        for handler in &on_change {
-          handler(&next);
-        }
-      }) as Arc<dyn Fn(Vec<T>) + Send + Sync>
+        tell(&next, &on_change);
+      }) as Write<T>
     };
     let selection = Arc::new(ListSelection::new(
       ids,
@@ -512,13 +540,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> From<Listbox<T>> for Element {
-  fn from(listbox: Listbox<T>) -> Self {
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> From<Listbox<T, V>> for Element {
+  fn from(listbox: Listbox<T, V>) -> Self {
     listbox.build(&current_theme())
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for Listbox<T> {
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> super::FieldControl for Listbox<T, V> {
   /// Called by the field's label unless it has a name of its own, judged wrong where the field is unless the app
   /// judged it itself, disabled where the field is, and described by what is under the field.
   fn in_field(mut self, field: &super::InField) -> Element {
@@ -791,7 +819,7 @@ impl ListboxOption {
   }
 }
 
-impl<T: Send + Sync + 'static> Themed for Listbox<T> {
+impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Listbox<T, V> {
   const NAME: &'static str = "listbox";
   type Renderer = ListboxRenderer;
 
@@ -877,7 +905,7 @@ impl<T: Send + Sync + 'static> Themed for Listbox<T> {
   }
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Listbox<T, V> {
   /// The listbox in the engine's virtual list, for thousands of options: only the options near its view are built,
   /// and the keys reach every option, built or not. Up, Down, Home, End, PageUp, PageDown and typeahead step over
   /// every option that can be chosen (the engine's [`FocusRows`](crate::node::FocusRows)); the list builds and brings
@@ -900,15 +928,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Listbox<T> {
   /// # }
   /// ```
   pub fn mount(self, ctx: &mut Ctx) -> Element {
-    ctx.mount::<ListboxHost<T>>(ListboxHostProps { listbox: self })
+    ctx.mount::<ListboxHost<T, V>>(ListboxHostProps { listbox: self })
   }
 }
 
-struct ListboxHostProps<T> {
-  listbox: Listbox<T>,
+struct ListboxHostProps<T, V: ?Sized> {
+  listbox: Listbox<T, V>,
 }
 
-impl<T> PartialEq for ListboxHostProps<T> {
+impl<T, V: ?Sized> PartialEq for ListboxHostProps<T, V> {
   /// A listbox built again is drawn again: what is chosen is read from the app's signal as it is built.
   fn eq(&self, _: &Self) -> bool {
     false
@@ -916,7 +944,7 @@ impl<T> PartialEq for ListboxHostProps<T> {
 }
 
 #[cfg(feature = "devtools")]
-impl<T> crate::app::component::DevtoolsInspectable for ListboxHostProps<T> {
+impl<T, V: ?Sized> crate::app::component::DevtoolsInspectable for ListboxHostProps<T, V> {
   fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
     formatter.value("Listbox", format!("{} options", self.listbox.options.len()));
   }
@@ -974,15 +1002,15 @@ impl FocusRows for HostRows {
 
 /// A listbox in a virtual list: its box holds the options' column, the focus group, which holds the list, and the
 /// list an option component for each option near its view.
-struct ListboxHost<T> {
+struct ListboxHost<T, V: ?Sized> {
   shown: Arc<Mutex<Shown>>,
   rows: Arc<HostRows>,
   generation: AtomicU64,
-  _values: PhantomData<fn() -> T>,
+  _values: PhantomData<fn(&V) -> T>,
 }
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> Component for ListboxHost<T> {
-  type Props = ListboxHostProps<T>;
+impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Component for ListboxHost<T, V> {
+  type Props = ListboxHostProps<T, V>;
 
   fn create(ctx: &mut Ctx) -> Self {
     Self {
@@ -1000,7 +1028,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Component for ListboxHost<T> 
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let theme = current_theme();
-    let mut view = ctx.props::<ListboxHostProps<T>>().listbox.view(&theme);
+    let mut view = ctx.props::<ListboxHostProps<T, V>>().listbox.view(&theme);
     for (index, option) in view.options.iter_mut().enumerate() {
       option.row = Some(index);
     }

@@ -3943,11 +3943,14 @@ Listbox::new(renderer, [
 ])
 .label("Renderer");
 
-// Any number: a Signal<Vec<&str>>.
-Listbox::new(columns, [("name", "Name"), ("size", "Size"), ("kind", "Kind")]).label("Columns");
+// None chosen until an option is: a Signal<Option<&str>>, and on_change is told the Option.
+Listbox::optional(theme, [("light", "Light"), ("dark", "Dark")]).on_change(|theme: &Option<&str>| save(*theme));
+
+// Any number: a Signal<Vec<&str>>, and on_change is told the whole set.
+Listbox::multiple(columns, [("name", "Name"), ("size", "Size"), ("kind", "Kind")]).label("Columns");
 
 // What is chosen held by the app: it is told, and answers.
-Listbox::controlled(Some(renderer), options, move |chosen| ask_to_switch(chosen[0]));
+Listbox::controlled(renderer, options, move |chosen: &&str| ask_to_switch(*chosen));
 
 // A long list scrolls in a box with a most height.
 Listbox::new(zone, zones).style(ListboxPart::Root, |s| s.max_height(240.0));
@@ -3958,10 +3961,12 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 
 | Builder | |
 | --- | --- |
-| `new(value, options)` | A `Signal<T>` of which the option of its value is chosen, a `Signal<Option<T>>` the same with none chosen while it is `None`, or a `Signal<Vec<T>>` of which those of its values are; options as a [select](#select) takes them: `(value, label)`, a `Choice`, or a `SelectOption` with `group`, `detail`, `hint`, `leading`, `trailing`, `disabled` |
-| `controlled(chosen, options, on_change)` | What the app holds: `Option<T>` of one or `Vec<T>` of any number, chosen as it says; `on_change` is told what a press or a key would choose, and the listbox shows what the app answers with |
+| `new(value, options)` | Bound to a `Signal<T>`: the option of its value is chosen, and choosing another sets it. Options as a [select](#select) takes them: `(value, label)`, a `Choice`, or a `SelectOption` with `group`, `detail`, `hint`, `leading`, `trailing`, `disabled` |
+| `optional(value, options)` | Bound to a `Signal<Option<T>>`: as `new`, with none chosen while it is `None` |
+| `multiple(values, options)` | Bound to a `Signal<Vec<T>>`: the options of its values are chosen, and choosing one adds it or takes it out |
+| `controlled(value, options, on_change)`, `controlled_optional(..)`, `controlled_multiple(..)` | The same three, held by the app: a `T`, an `Option<T>` or the values, chosen as it says; `on_change` is told what a press or a key would choose, and the listbox shows what the app answers with |
 | `follow_focus(bool)` | Of one, whether the arrows choose as they move. They do unless told otherwise; without it Space, Enter and a press choose |
-| `on_change(handler)` | Told the whole new choice (`&[T]`, of one for a listbox of one) after each press or key that changes it, and not for what is already chosen nor when the app sets the signal. A second handler is called after the first |
+| `on_change(handler)` | Told the new choice after each press or key that changes it, after the signal is set, and not for what is already chosen nor when the app sets the signal: `&T` of a listbox made with `new` or `controlled`, `&Option<T>` of an optional one, `&[T]`, the whole set, of a multiple one. A handler of another type does not compile. A second handler is called after the first |
 | `label(&str)` | What it is called, to what reads the tree. A [field](#field) gives it its label |
 | `invalid(bool)`, `disabled(bool)`, `full_width(bool)`, `density(Density)` | Its edge in `Destructive`; no option chosen; as wide as what holds it, in place of 220; how high an option is |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the box; each option's is that id, `-` and its place from 0 |
@@ -3975,7 +3980,7 @@ Listbox::new(item, items).style(ListboxPart::Root, |s| s.height(320.0)).mount(ct
 - To what reads the tree it is a `listbox` (`a11y_multiselectable` of many) called by its label, with `option`s that say `a11y_selected`, `a11y_posinset` and `a11y_setsize`; a group's label is a `group`.
 - Parts: `ListboxPart::Root` (the box; its most height makes the options scroll), `Content` (the options with the keys), `Group`, `Option`, `Leading`, `Label`, `Detail`, `Hint`, `Trailing`, `Check`. States: `ListboxState::Chosen`, `OptionDisabled`, `Detail` (of an option), `Disabled`, `Invalid`, `Multiple`, `FullWidth`.
 - In the design the box is 220 on `Background` with an edge of 1 in `Border` and the large radius, its options 1 apart, 4 in. An option is 32 high (24, 40 and 44 at the compact, comfortable and touch densities), and 16 higher with a detail under its label (48; 40, 56 and 60), 8 in, with the small radius, its label in the body's type at 13. The chosen one is on `Highlight`, its label at 500, with a check of 14 at its end; the one under the pointer is on `Muted`; one held down has the `StatePressed` veil; the focus from the keyboard is a ring of 2 in `Ring` inside it; a disabled one says its label in `MutedForeground`, faded, is drawn as nothing points at it or presses it whatever the listbox is forced to, and says `a11y_disabled` to tooling. A group's label is 11 at 600 in `MutedForeground`, 6 over it, 4 under it, 8 in.
-- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`.
+- A theme's renderer is given `ListboxView`: `view.options` (each a `ListboxOption` with its label, group, detail, whether it is chosen and disabled, and `option.button()`, `option.group_label()`, `option.text()`, `option.check()`, `option.render()`), `view.content()` (the column with the keys) and `view.root(content)`. It is set for `Listbox<T>` of any `T`, and draws every form.
 
 ## Data List
 
