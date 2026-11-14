@@ -110,4 +110,4 @@ Plain `en` starts its weeks on Monday, as lurq's design draws its calendar.
 
 Every field is public, so a locale lurq does not know can be written out: `tag`, `first_day`, `months`, `months_short`, `weekdays`, `weekdays_short`, `order` (a `DateOrder`) and `separator` (a `char` between numbers, or `None` where the month is written by name).
 
-`ui::Calendar`, `ui::DatePicker` and `ui::DateRangePicker` take a locale with `.locale(..)`. When mounted, they use the app's [i18n](i18n) locale (`app.i18n().locale()`) and are built again when it changes. Without `ctx` and with no locale given, they are in English. See [the design system](design-system).
+`ui::Calendar`, `ui::DatePicker` and `ui::DateRangePicker` take a locale with `.locale(..)`. When mounted, they use the app's [i18n](../i18n/) locale (`app.i18n().locale()`) and are built again when it changes. Without `ctx` and with no locale given, they are in English. See [the design system](../design-system/#calendar).
