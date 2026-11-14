@@ -21,7 +21,7 @@ impl LayoutEngine {
     let natural = main_size(result, vertical);
     let floor = match rule.limit {
       ShrinkLimit::MinSize | ShrinkLimit::Drop => child.min_main_size(vertical),
-      ShrinkLimit::Content => child
+      ShrinkLimit::Content | ShrinkLimit::ContentFirst => child
         .min_main_size(vertical)
         .max(self.content_min_main(child, result, vertical)),
     };
@@ -37,7 +37,14 @@ impl LayoutEngine {
       drops_at_floor: drop_below.is_some(),
       collapse: None,
     };
-    if !droppable && drop_below.is_none() && holds_droppable(child, vertical) {
+    if rule.limit == ShrinkLimit::ContentFirst && drop_below.is_none() {
+      // It keeps to its content until its order needs more, then gives way down to its least size, laid out as
+      // a collapsed line: what in it gives way the same way does too.
+      item.collapse = Some(Collapse {
+        natural,
+        floor: child.min_main_size(vertical).min(item.floor),
+      });
+    } else if !droppable && drop_below.is_none() && holds_droppable(child, vertical) {
       // It keeps its natural size until its line collapses it; its own line
       // then drops every droppable child, so it holds the rest.
       let without = self.collapsed_main(child, result, vertical).min(natural);
@@ -113,6 +120,21 @@ impl LayoutEngine {
         (Some(child), Some(layout)) => self.content_min_main(child, &layout.result, vertical),
         _ => return natural,
       },
+      // A line on the other axis: the widest of its children's content minimums, a child with a least size of
+      // its own at it.
+      LayoutKind::Row { wrap, .. } | LayoutKind::Column { wrap, .. } if *wrap != FlexWrap::Wrap => node
+        .children()
+        .iter()
+        .zip(&result.children)
+        .filter(|(child, _)| !child.is_overlay_declaration())
+        .map(|(child, layout)| {
+          let child_main = main_size(&layout.result, vertical);
+          match child.explicit_min_main_size(vertical) {
+            Some(least) => least.min(child_main),
+            None => self.content_min_main(child, &layout.result, vertical),
+          }
+        })
+        .fold(0.0, f32::max),
       _ => return natural,
     };
     let padding = self.resolved_padding_for_size(node, result.size);
@@ -143,7 +165,7 @@ impl LayoutEngine {
         _ if rule.drop_below.is_some() => continue,
         ShrinkLimit::Drop => continue,
         ShrinkLimit::MinSize => child.min_main_size(vertical),
-        ShrinkLimit::Content => {
+        ShrinkLimit::Content | ShrinkLimit::ContentFirst => {
           child
             .min_main_size(vertical)
             .max(self.content_min_main(child, &layout.result, vertical))

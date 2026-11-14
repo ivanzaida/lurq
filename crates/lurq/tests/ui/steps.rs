@@ -421,3 +421,61 @@ fn steps_in_a_row_with_descriptions_share_the_width_and_keep_their_lines() {
   );
   assert!(title.x + title.width <= step_x + step_width + 0.5);
 }
+
+/// The playground's four steps with their descriptions, `width` wide.
+fn described_steps(width: f32) -> Stage {
+  const WIZARD: [(&str, &str); 4] = [
+    ("Account", "Name and email"),
+    ("Billing", "Card and address"),
+    ("Workspace", "Name and members"),
+    ("Finish", "Review and confirm"),
+  ];
+  Stage::new(move |_| {
+    let steps = WIZARD.map(|(title, description)| Step::new(title).description(description));
+    Column::new()
+      .width(width)
+      .child(Steps::new(1, steps).id("steps"))
+      .into()
+  })
+}
+
+#[test]
+fn a_title_is_cut_only_once_every_description_has_wrapped_as_far_as_it_can() {
+  // In 493 the descriptions wrap and every title is whole, the lines at their least.
+  let stage = described_steps(493.0);
+  for title in ["Account", "Billing", "Workspace", "Finish"] {
+    assert!(stage.paints(title), "{title:?} is whole in 493");
+  }
+  // In 400 the titles cannot all be whole: the last step gives way first, and the others keep theirs.
+  let mut narrow = described_steps(400.0);
+  let (x, _, width, _) = narrow.bounds("steps");
+  for index in 0..4 {
+    let (step_x, _, step_width, _) = narrow.bounds(&format!("steps-{index}"));
+    assert!(step_x + step_width <= x + width + 0.5, "step {index} in the room");
+  }
+  for title in ["Account", "Billing", "Workspace"] {
+    assert!(narrow.paints(title), "{title:?} is whole in 400");
+  }
+  assert!(!narrow.paints("Finish"), "the last title is cut");
+}
+
+#[test]
+fn the_descriptions_of_steps_in_a_row_start_on_one_line() {
+  const DESCRIPTIONS: [&str; 4] = [
+    "Name and email",
+    "Card and address",
+    "Name and members",
+    "Review and confirm",
+  ];
+  for width in [440.0, 470.0, 493.0, 520.0, 560.0] {
+    let stage = described_steps(width);
+    let tops: Vec<f32> = DESCRIPTIONS
+      .iter()
+      .map(|description| stage.cut_text_quad(description).unwrap().y)
+      .collect();
+    assert!(
+      tops.iter().all(|top| (top - tops[0]).abs() < 0.5),
+      "in {width}: {tops:?}"
+    );
+  }
+}

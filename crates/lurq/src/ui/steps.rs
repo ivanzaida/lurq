@@ -13,7 +13,11 @@ use crate::{
   app::theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{Column, Row},
   core::Signal,
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{
+    Alignment,
+    layout_kind::{Justify, ShrinkLimit},
+    text_style::FontWeight,
+  },
   node::{CursorIcon, Element, FocusGroup, border, dimension::Dimension, node_kind::TextOverflow},
 };
 
@@ -550,16 +554,16 @@ impl StepsView {
   pub fn body(&self, index: usize) -> Column {
     let step = &self.steps[index].step;
     let title = self.step_part(index, StepsPart::Title);
-    // It gives way where the steps do not fit: the title is cut with an ellipsis, the description goes on to
-    // more lines.
+    // It gives way where the steps do not fit: the description goes on to more lines, down to the title's width
+    // (its least is 0, the title's is its own), and only then is the title cut with an ellipsis.
     let mut body = Column::new()
       .part(&self.step_part(index, StepsPart::Body))
       .flex_shrink(1.0)
+      .shrink_limit(ShrinkLimit::ContentFirst)
       .min_width(Dimension::Px(0.0))
       .child(
         Row::new()
           .align_items(Alignment::Center)
-          .min_width(Dimension::Px(0.0))
           .part(&title)
           .child(title.text(&step.title).nowrap().text_overflow(TextOverflow::Elipsis)),
       );
@@ -569,6 +573,7 @@ impl StepsView {
       body = body.child(
         Column::new()
           .width(fill.clone())
+          .min_width(Dimension::Px(0.0))
           .part(&part)
           .child(part.text(description).width(fill)),
       );
@@ -632,10 +637,12 @@ impl StepsView {
     let focused = step.pressable || (current && self.interactive());
     macro_rules! dressed {
       ($holder:expr) => {{
-        // A step in a row gives way where the steps do not fit, before the lines between them.
+        // A step in a row gives way where the steps do not fit, before the lines between them: down to its title
+        // while any step's description can still wrap, then the last step first.
         let mut holder = $holder
           .align_items(align)
           .flex_shrink(if horizontal { 1.0 } else { 0.0 })
+          .shrink_limit(ShrinkLimit::ContentFirst)
           .min_width(Dimension::Px(0.0))
           .describe("a11y_name", name)
           .with_children(content);
