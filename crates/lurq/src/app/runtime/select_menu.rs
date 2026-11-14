@@ -397,7 +397,8 @@ impl Tree {
   /// highlighted. Open: arrows move the highlight over enabled options,
   /// Home/End jump to the first/last one, typing jumps by label prefix, Enter
   /// or Space commits, and Escape or Tab close without a change. Focus stays
-  /// on the select throughout.
+  /// on the select throughout, but for Tab, which goes on from it as it does
+  /// from a closed select, as Tab in an open menu goes on from its trigger.
   pub(super) fn dispatch_select_key(&mut self, key: SelectKey<'_>) -> bool {
     let Some(focused) = self.focused_node else {
       return false;
@@ -411,6 +412,13 @@ impl Tree {
     let NodeKind::Select { state } = node.node_kind() else {
       return false;
     };
+    if state.is_open() && key.is("Tab") {
+      // Closed, and the Tab is not taken: it goes on from the select, which is drawn closed whether or not it
+      // moves the focus.
+      state.set_open(false);
+      self.needs_redraw = true;
+      return false;
+    }
     if state.is_open() {
       handle_open_select_key(state, key)
     } else {
@@ -429,7 +437,7 @@ fn handle_closed_select_key(state: &SelectState, key: SelectKey<'_>) -> bool {
 
 fn handle_open_select_key(state: &SelectState, key: SelectKey<'_>) -> bool {
   let now = Instant::now();
-  if key.is("Escape") || key.is("Tab") {
+  if key.is("Escape") {
     state.set_open(false);
   } else if key.is("ArrowDown") {
     state.move_highlight(1);

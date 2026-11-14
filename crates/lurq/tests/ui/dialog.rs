@@ -391,6 +391,57 @@ fn the_focus_goes_into_the_dialog_as_it_opens_and_back_to_its_opener_as_it_close
 }
 
 #[test]
+fn a_dialog_opened_over_a_dialog_takes_the_focus_escape_closes_it_first_and_the_focus_goes_back_into_the_first() {
+  let (first, second) = (Signal::new(false), Signal::new(false));
+  let (held_first, held_second) = (first.clone(), second.clone());
+  let mut stage = stage(move |_| {
+    let (show_first, show_second) = (held_first.clone(), held_second.clone());
+    Column::new()
+      .size(400.0, 300.0)
+      .child(Button::new("Settings…").id("opener").on_click(move |_| show_first.set(true)))
+      // The second is declared before the first: the one opened last is on top whatever their order.
+      .child(
+        Dialog::new(held_second.clone())
+          .title("Discard changes?")
+          .footer(Button::new("Keep").id("keep"))
+          .footer(Button::new("Discard").id("discard")),
+      )
+      .child(
+        Dialog::new(held_first.clone())
+          .title("Settings")
+          .footer(Button::new("Reset…").id("reset").on_click(move |_| show_second.set(true)))
+          .footer(Button::new("Done").id("done")),
+      )
+      .into()
+  });
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(focused(&stage).as_deref(), Some("reset"));
+  stage.key("Enter");
+  assert!(second.get());
+  assert_eq!(focused(&stage).as_deref(), Some("keep"), "the second takes the focus");
+  // Tab goes round the second alone, and the pointer reaches it.
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("discard"));
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("keep"));
+  // Escape closes the topmost, and the focus goes back into the first.
+  stage.key("Escape");
+  assert!(!second.get());
+  assert!(first.get());
+  assert_eq!(focused(&stage).as_deref(), Some("reset"));
+  stage.key("Escape");
+  assert!(!first.get());
+  assert_eq!(focused(&stage).as_deref(), Some("opener"));
+}
+
+#[test]
 fn a_theme_restyles_the_panel_and_gives_the_dialog_another_anatomy() {
   let app = App::new();
   app

@@ -328,6 +328,8 @@ Forms do not have a scope of their own. A form's controls are stops without a ta
 
 When the focused element is not a stop itself (a clicked button without a tab index, or a text input outside a form), Tab continues from its place in the tree, like a browser: Tab goes to the next stop after it, Shift+Tab to the previous one. With nothing focused, Tab goes to the first stop and Shift+Tab to the last.
 
+An open menu or select does not keep Tab: Tab closes a `ui::Menu` (and the menus it hangs from) or a `Select`'s list, and goes on from what opened it, as it would from there closed.
+
 Tab with no stops in scope outside a modal is not handled, so it reaches other keyboard defaults. An `on_key_down` handler that calls `prevent_default()` on Tab replaces traversal entirely (see [Keyboard And Focus](../styling-events/#keyboard-and-focus)).
 
 Tab traversal does not need the `form` feature; without it there are no forms, and only elements with a tab index are stops.
@@ -339,7 +341,7 @@ An open `Modal` confines Tab and Shift+Tab to itself, whether or not it contains
 - Focus behind the modal is never a stop. When focus is still on the page behind it (the button that opened it), the next Tab moves into the modal.
 - Stops inside the modal follow the same rules: `tab_index(0)` or higher, and form controls inside a form in the modal. A form in a modal cycles inside the modal, together with the modal's other stops.
 - A modal without stops consumes Tab and keeps focus where it is, so Tab never reaches the page behind it.
-- With nested or stacked modals, the topmost one traps.
+- With nested or stacked modals, the topmost one traps. Modals stack in the order they opened, not in the order of the tree: a second modal opened over a first, wherever it is declared, takes the focus (with `takes_focus(true)`), and as it closes the focus goes back into the first. See [Behavior](../modals/#behavior).
 - When the modal closes, the window scope applies again.
 
 Pointer input is not trapped; a click on the page behind a `Parent`- or element-targeted modal still focuses what it hits.
