@@ -30,9 +30,9 @@ const VARIANTS: [(OutcomeVariant, &str, &str, &str, &str, &str, &str); 5] = [
     "Deploy",
   ),
   (
-    OutcomeVariant::Error,
-    "error",
-    "OutcomeVariant::Error",
+    OutcomeVariant::Destructive,
+    "destructive",
+    "OutcomeVariant::Destructive",
     "Build failed",
     "3 tests failed in render/blur.rs.",
     "View log",
@@ -73,7 +73,8 @@ const ACTIONS: [(&str, usize); 3] = [("none", 0), ("one", 1), ("two", 2)];
 /// The board's outcome of `variant`, with its two buttons.
 fn of(index: usize) -> Outcome {
   let (variant, _, _, title, description, least, main) = VARIANTS[index];
-  Outcome::new(variant, title)
+  Outcome::new(title)
+    .variant(variant)
     .description(description)
     .action(Button::new(least).variant(ButtonVariant::Outline))
     .action(Button::new(main))
@@ -122,12 +123,12 @@ impl OutcomePage {
     let plain = {
       let (title, description) = (title.clone(), description.clone());
       move || -> Element {
-        let mut outcome = Outcome::new(variant, &title).bordered(bordered);
+        let mut outcome = Outcome::new(&title).variant(variant).bordered(bordered);
         if !description.is_empty() {
           outcome = outcome.description(&description);
         }
         if extra {
-          outcome = outcome.extra(InlineCode::new("cargo test --workspace"));
+          outcome = outcome.child(InlineCode::new("cargo test --workspace"));
         }
         if actions == 2 {
           outcome = outcome.action(
@@ -143,7 +144,10 @@ impl OutcomePage {
       }
     };
 
-    let mut code = vec![format!("Outcome::new({variant_code}, {title:?})")];
+    let mut code = vec![format!("Outcome::new({title:?})")];
+    if index != 0 {
+      code.push(format!("    .variant({variant_code})"));
+    }
     if !description.is_empty() {
       code.push(format!("    .description({description:?})"));
     }
@@ -151,7 +155,7 @@ impl OutcomePage {
       code.push("    .bordered(false)".to_owned());
     }
     if extra {
-      code.push("    .extra(InlineCode::new(\"cargo test --workspace\"))".to_owned());
+      code.push("    .child(InlineCode::new(\"cargo test --workspace\"))".to_owned());
     }
     if actions == 2 {
       code.push(format!(
@@ -175,7 +179,7 @@ impl OutcomePage {
       tree.push("│  └─ description".to_owned());
     }
     if extra {
-      tree.push("├─ extra".to_owned());
+      tree.push("├─ body".to_owned());
     }
     if actions > 0 {
       tree.push(format!("└─ actions   {actions}"));
@@ -220,7 +224,7 @@ impl OutcomePage {
           prop("title", "&str", field(&self.title)),
           prop("description", "&str", field(&self.description)),
           divider(),
-          flag("extra", &self.extra),
+          flag("child", &self.extra),
           prop(
             "action",
             "impl Into<Element>",
@@ -285,10 +289,10 @@ impl Component for OutcomePage {
       .child(line("Card", "•••• 4242"))
       .child(line("Reference", "INV-1042"));
     let extra = Row::new().width(FILL).child(
-      Outcome::new(OutcomeVariant::Success, "Payment received")
+      Outcome::new("Payment received")
         .description("A receipt is on its way to your inbox.")
         .icon(icons::CHECK_CIRCLE)
-        .extra(summary)
+        .child(summary)
         .action(Button::new("Done")),
     );
     let page = Column::new()
@@ -296,7 +300,8 @@ impl Component for OutcomePage {
       .padding(32.0)
       .align_items(Alignment::Center)
       .child(
-        Outcome::new(OutcomeVariant::NotFound, "Nothing here")
+        Outcome::new("Nothing here")
+          .variant(OutcomeVariant::NotFound)
           .description("This page was moved or never existed.")
           .bordered(false)
           .action(
@@ -313,23 +318,29 @@ impl Component for OutcomePage {
       );
     let rows = [
       (
-        "variant",
-        "OutcomeVariant",
-        "",
-        "What came of it: success, error, warning, info, or not found. Its mark and its colors.",
-      ),
-      (
         "title",
         "&str",
         "",
-        "What came of it, in a line. It is what the outcome is called.",
+        "What came of it, in a line. It is what the outcome is called, unless it has a label.",
+      ),
+      (
+        "variant",
+        "impl Into<Name>",
+        "Success",
+        "What came of it: info, success, warning, destructive, or not found. Its mark and its colors.",
+      ),
+      (
+        "label",
+        "&str",
+        "the title",
+        "What it is called to what reads the tree.",
       ),
       ("description", "&str", "", "More of it, under the title."),
       (
         "icon",
-        "impl Into<Name>",
+        "impl Into<IconChoice>",
         "the variant's",
-        "Another icon in the mark, in the variant's colors.",
+        "Another icon in the mark, in the variant's colors; None for no mark.",
       ),
       (
         "media",
@@ -338,16 +349,16 @@ impl Component for OutcomePage {
         "An element of the app's in place of the mark.",
       ),
       (
-        "extra",
+        "child / children",
         "impl Into<Element>",
         "",
-        "What stands under the text, over the buttons, as wide as the outcome.",
+        "Adds what stands under the text, over the buttons, as wide as the outcome.",
       ),
       (
-        "action",
+        "action / actions",
         "impl Into<Element>",
         "",
-        "A button at the bottom, after those there: the least first, the main one last.",
+        "Adds a button at the bottom, after those there: the least first, the main one last.",
       ),
       (
         "bordered",
@@ -356,6 +367,12 @@ impl Component for OutcomePage {
         "A box of its own with a fill and an edge; none on a page or in a dialog.",
       ),
       ("width", "impl Into<Length>", "300", "A width of its own."),
+      (
+        "height",
+        "impl Into<Length>",
+        "",
+        "A height of its own, what it holds centred in it.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -383,25 +400,29 @@ impl Component for OutcomePage {
           self.frame.demo(
             0,
             variants,
-            "Outcome::new(OutcomeVariant::Success, ..)",
+            "Outcome::new(title).variant(OutcomeVariant::Success)",
             &[
-              "Outcome::new(OutcomeVariant::Success, \"Build succeeded\")",
+              "Outcome::new(\"Build succeeded\")",
               "    .description(\"412 tests passed in 38 seconds.\")",
               "    .action(Button::new(\"View log\").variant(ButtonVariant::Outline))",
               "    .action(Button::new(\"Deploy\"))",
-              "Outcome::new(OutcomeVariant::Error, \"Build failed\")",
+              "Outcome::new(\"Build failed\")",
+              "    .variant(OutcomeVariant::Destructive)",
               "    .description(\"3 tests failed in render/blur.rs.\")",
               "    .action(Button::new(\"View log\").variant(ButtonVariant::Outline))",
               "    .action(Button::new(\"Retry\"))",
-              "Outcome::new(OutcomeVariant::Warning, \"Built with warnings\")",
+              "Outcome::new(\"Built with warnings\")",
+              "    .variant(OutcomeVariant::Warning)",
               "    .description(\"12 warnings, no errors.\")",
               "    .action(Button::new(\"View log\").variant(ButtonVariant::Outline))",
               "    .action(Button::new(\"Continue\"))",
-              "Outcome::new(OutcomeVariant::Info, \"Build queued\")",
+              "Outcome::new(\"Build queued\")",
+              "    .variant(OutcomeVariant::Info)",
               "    .description(\"2 builds are ahead of yours.\")",
               "    .action(Button::new(\"Cancel\").variant(ButtonVariant::Outline))",
               "    .action(Button::new(\"View queue\"))",
-              "Outcome::new(OutcomeVariant::NotFound, \"Nothing here\")",
+              "Outcome::new(\"Nothing here\")",
+              "    .variant(OutcomeVariant::NotFound)",
               "    .description(\"This page was moved or never existed.\")",
               "    .action(Button::new(\"Go back\").variant(ButtonVariant::Outline))",
               "    .action(Button::new(\"Home\"))",
@@ -415,7 +436,7 @@ impl Component for OutcomePage {
           self.frame.demo(
             1,
             extra,
-            ".extra(element)",
+            ".child(element)",
             &[
               "let summary = Column::new()",
               "    .spacing(8.0)",
@@ -424,10 +445,10 @@ impl Component for OutcomePage {
               "    .child(line(\"Card\", \"•••• 4242\"))",
               "    .child(line(\"Reference\", \"INV-1042\"));",
               "",
-              "Outcome::new(OutcomeVariant::Success, \"Payment received\")",
+              "Outcome::new(\"Payment received\")",
               "    .description(\"A receipt is on its way to your inbox.\")",
               "    .icon(icons::CHECK_CIRCLE)",
-              "    .extra(summary)",
+              "    .child(summary)",
               "    .action(Button::new(\"Done\"))",
             ],
           ),
@@ -443,7 +464,8 @@ impl Component for OutcomePage {
               "Column::new()",
               "    .align_items(Alignment::Center)",
               "    .child(",
-              "        Outcome::new(OutcomeVariant::NotFound, \"Nothing here\")",
+              "        Outcome::new(\"Nothing here\")",
+              "            .variant(OutcomeVariant::NotFound)",
               "            .description(\"This page was moved or never existed.\")",
               "            .bordered(false)",
               "            .action(Button::new(\"Go back\").variant(ButtonVariant::Outline).icon(icons::ARROW_LEFT))",
@@ -456,7 +478,7 @@ impl Component for OutcomePage {
         Section::new(
           "Props",
           "What an outcome is given.",
-          props_table(&rows, &["variant", "title"], self.frame.room()),
+          props_table(&rows, &["title"], self.frame.room()),
         ),
       ],
     )

@@ -208,6 +208,48 @@ fn given_a_height_what_it_holds_is_centred_in_it() {
 }
 
 #[test]
+fn a_width_of_its_own_and_actions_added_in_the_order_given() {
+  let mut stage = Stage::new(|_| {
+    scene(
+      EmptyState::new("Empty")
+        .width(200.0)
+        .action(Button::new("Import").id("import"))
+        .actions([Button::new("Clear").id("clear"), Button::new("New").id("new")])
+        .id("empty"),
+    )
+  });
+  let (.., width, _) = stage.bounds("empty");
+  assert_eq!(width, 200.0);
+  let import = stage.bounds("import").0;
+  let clear = stage.bounds("clear").0;
+  let new = stage.bounds("new").0;
+  assert!(
+    import < clear && clear < new,
+    "the plural after the singular, in its order"
+  );
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn tooling_reads_a_status_called_by_its_title_or_its_label() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(windows())
+      .child(EmptyState::new("Nothing").label("No search results").id("labelled"))
+      .into()
+  });
+  let mut said = |id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said("empty", "a11y_role").as_deref(), Some("status"));
+  assert_eq!(said("empty", "a11y_name").as_deref(), Some("No windows yet"));
+  assert_eq!(said("labelled", "a11y_name").as_deref(), Some("No search results"));
+}
+
+#[test]
 fn only_its_actions_take_the_focus() {
   let mut stage = Stage::new(|_| scene(windows()));
   stage.key("Tab");

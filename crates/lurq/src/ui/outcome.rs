@@ -8,7 +8,7 @@ use super::{
   icons, names,
   part_style::{Length, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::glyph,
+  shared::{IconChoice, glyph, shown_icon},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -21,24 +21,24 @@ use crate::{
 /// What came of it, which its mark and its colors say.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum OutcomeVariant {
+  /// It is under way, or there is something to know: an `i` in the info color.
+  Info,
   /// It went well: a check in the success color.
   #[default]
   Success,
-  /// It failed: a cross in the destructive color.
-  Error,
   /// It went, with something to look at: a warning in its color.
   Warning,
-  /// It is under way, or there is something to know: an `i` in the info color.
-  Info,
+  /// It failed: a cross in the destructive color.
+  Destructive,
   /// What was asked for is not there, a 404: a crossed magnifier in the foreground on the muted fill.
   NotFound,
 }
 
 names!(OutcomeVariant {
-  Success => "success",
-  Error => "error",
-  Warning => "warning",
   Info => "info",
+  Success => "success",
+  Warning => "warning",
+  Destructive => "destructive",
   NotFound => "not_found",
 });
 
@@ -46,12 +46,17 @@ impl OutcomeVariant {
   /// The icon of the theme's set the variant is marked with.
   pub fn icon(self) -> &'static str {
     match self {
-      Self::Success => icons::CHECK,
-      Self::Error => icons::CLOSE,
-      Self::Warning => icons::WARNING,
       Self::Info => icons::INFO,
+      Self::Success => icons::CHECK,
+      Self::Warning => icons::WARNING,
+      Self::Destructive => icons::CLOSE,
       Self::NotFound => icons::SEARCH_CLOSE,
     }
+  }
+
+  /// The variant called `name`, where it is one of these.
+  fn named(name: Name) -> Option<Self> {
+    Self::all().iter().copied().find(|variant| Name::from(*variant) == name)
   }
 }
 
@@ -70,8 +75,8 @@ pub enum OutcomePart {
   Title,
   /// More of it, under the title in the muted color.
   Description,
-  /// What the app puts under the text: a summary, a list, a code.
-  Extra,
+  /// What the app puts under the text (its `child`): a summary, a list, a code.
+  Body,
   /// The row of buttons at the bottom.
   Actions,
 }
@@ -83,7 +88,7 @@ names!(OutcomePart {
   Text => "text",
   Title => "title",
   Description => "description",
-  Extra => "extra",
+  Body => "body",
   Actions => "actions",
 });
 
@@ -107,12 +112,13 @@ pub type OutcomeRenderer = Arc<dyn Fn(OutcomeView) -> Element + Send + Sync>;
 /// ```
 /// use lurq::ui::{Button, ButtonVariant, Outcome, OutcomeVariant};
 ///
-/// let built = Outcome::new(OutcomeVariant::Success, "Build succeeded")
+/// let built = Outcome::new("Build succeeded")
 ///   .description("412 tests passed in 38 seconds.")
 ///   .action(Button::new("View log").variant(ButtonVariant::Outline))
 ///   .action(Button::new("Deploy"));
 /// // On a page of its own, with no box.
-/// let missing = Outcome::new(OutcomeVariant::NotFound, "Nothing here")
+/// let missing = Outcome::new("Nothing here")
+///   .variant(OutcomeVariant::NotFound)
 ///   .description("This page was moved or never existed.")
 ///   .bordered(false)
 ///   .action(Button::new("Home"));
@@ -121,14 +127,15 @@ pub type OutcomeRenderer = Arc<dyn Fn(OutcomeView) -> Element + Send + Sync>;
 /// It is a box of 300 with a fill and an edge, as the design draws it, everything in it centred; one with no box
 /// ([`bordered`](Self::bordered)) stands on a page or in a dialog. Its title and description wrap in the width it
 /// has. It is read, and its buttons are operated as themselves: to what reads the tree it is a `status`, called by
-/// its title and described by its description.
+/// its title (or its [`label`](Self::label)) and described by its description.
 pub struct Outcome {
-  variant: OutcomeVariant,
+  variant: Name,
   title: Arc<str>,
+  label: Option<Arc<str>>,
   description: Option<Arc<str>>,
-  icon: Option<Name>,
+  icon: Option<IconChoice>,
   media: Option<Element>,
-  extra: Option<Element>,
+  body: Vec<Element>,
   actions: Vec<Element>,
   bordered: bool,
   states: Vec<Name>,
@@ -138,15 +145,16 @@ pub struct Outcome {
 }
 
 impl Outcome {
-  /// An outcome of `variant` that says `title`.
-  pub fn new(variant: OutcomeVariant, title: &str) -> Self {
+  /// An outcome that says `title`: a success unless told another [`variant`](Self::variant).
+  pub fn new(title: &str) -> Self {
     Self {
-      variant,
+      variant: OutcomeVariant::default().into(),
       title: Arc::from(title),
+      label: None,
       description: None,
       icon: None,
       media: None,
-      extra: None,
+      body: Vec::new(),
       actions: Vec::new(),
       bordered: true,
       states: Vec::new(),
@@ -156,15 +164,29 @@ impl Outcome {
     }
   }
 
+  /// What came of it, which its mark and its colors say: an [`OutcomeVariant`], or a variant the theme's recipe
+  /// names. The mark of a variant that is none of these is the information sign.
+  pub fn variant(mut self, variant: impl Into<Name>) -> Self {
+    self.variant = variant.into();
+    self
+  }
+
+  /// What it is called to what reads the tree, in place of its title.
+  pub fn label(mut self, label: &str) -> Self {
+    self.label = Some(Arc::from(label));
+    self
+  }
+
   /// More of it, under the title.
   pub fn description(mut self, description: &str) -> Self {
     self.description = Some(Arc::from(description));
     self
   }
 
-  /// Another icon of the theme's set in the mark, in place of the variant's: still in the variant's colors.
-  pub fn icon(mut self, name: impl Into<Name>) -> Self {
-    self.icon = Some(name.into());
+  /// Another icon of the theme's set in the mark, in place of the variant's, still in the variant's colors; `None`
+  /// for no mark.
+  pub fn icon(mut self, icon: impl Into<IconChoice>) -> Self {
+    self.icon = Some(icon.into());
     self
   }
 
@@ -174,15 +196,28 @@ impl Outcome {
     self
   }
 
-  /// What stands under the text, over the buttons: a summary, a list, a code. It is as wide as the outcome.
-  pub fn extra(mut self, extra: impl Into<Element>) -> Self {
-    self.extra = Some(extra.into());
+  /// Adds what stands under the text, over the buttons: a summary, a list, a code. It is as wide as the outcome,
+  /// 8 from what is there before it.
+  pub fn child(mut self, child: impl Into<Element>) -> Self {
+    self.body.push(child.into());
     self
   }
 
-  /// Adds a button at the bottom, after those there: the least first, the main one last.
+  /// Adds each of `children` under the text, as [`child`](Self::child) does.
+  pub fn children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
+    self.body.extend(children.into_iter().map(Into::into));
+    self
+  }
+
+  /// Adds a button at the bottom, after those there: an outcome has several, the least first, the main one last.
   pub fn action(mut self, action: impl Into<Element>) -> Self {
     self.actions.push(action.into());
+    self
+  }
+
+  /// Adds each of `actions` at the bottom, as [`action`](Self::action) does.
+  pub fn actions(mut self, actions: impl IntoIterator<Item = impl Into<Element>>) -> Self {
+    self.actions.extend(actions.into_iter().map(Into::into));
     self
   }
 
@@ -197,6 +232,13 @@ impl Outcome {
   pub fn width(mut self, width: impl Into<Length>) -> Self {
     let width = width.into();
     self.rules = self.rules.base(OutcomePart::Root, |s| s.width(width));
+    self
+  }
+
+  /// A height of its own, what it holds centred in it: [`Length::Fill`] for all of the room it is given.
+  pub fn height(mut self, height: impl Into<Length>) -> Self {
+    let height = height.into();
+    self.rules = self.rules.base(OutcomePart::Root, |s| s.height(height));
     self
   }
 
@@ -236,20 +278,22 @@ impl Outcome {
   /// Builds the outcome in `theme`. Converting it into an element does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let case = Case {
-      variant: Some(self.variant.into()),
+      variant: Some(self.variant),
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
     .state(OutcomeState::Bordered, self.bordered);
+    let default_icon = OutcomeVariant::named(self.variant).map_or(icons::INFO, OutcomeVariant::icon);
     let view = OutcomeView {
       variant: self.variant,
       title: self.title,
+      label: self.label,
       description: self.description,
-      icon: self.icon.unwrap_or_else(|| Name::new(self.variant.icon())),
+      icon: shown_icon(self.icon, default_icon),
       media: self.media,
-      extra: self.extra,
+      body: self.body,
       actions: self.actions,
       bordered: self.bordered,
       recipe: theme.resolve::<Outcome>(&case, Some(&self.rules)),
@@ -271,15 +315,17 @@ impl From<Outcome> for Element {
 
 /// An outcome as a renderer sees it: what it was given, and the style of its parts.
 pub struct OutcomeView {
-  pub variant: OutcomeVariant,
+  pub variant: Name,
   pub title: Arc<str>,
+  /// What it is called to what reads the tree, where the app gave other words than its title.
+  pub label: Option<Arc<str>>,
   pub description: Option<Arc<str>>,
-  /// The icon in its mark: the variant's, or the app's.
-  pub icon: Name,
+  /// The icon in its mark: the variant's, the app's, or none.
+  pub icon: Option<Name>,
   /// The app's element in place of the mark.
   pub media: Option<Element>,
   /// What the app put under the text.
-  pub extra: Option<Element>,
+  pub body: Vec<Element>,
   /// The app's buttons.
   pub actions: Vec<Element>,
   pub bordered: bool,
@@ -300,14 +346,14 @@ impl OutcomeView {
   }
 
   /// The root in its style, with nothing in it yet: what it holds centred in it, a `status` to what reads the
-  /// tree, called by the title and described by the description.
+  /// tree, called by its label or its title and described by the description.
   pub fn root(&self) -> Column {
     let mut root = Column::new()
       .align_items(Alignment::Center)
       .justify(Justify::Center)
       .part(&self.part(OutcomePart::Root))
       .describe("a11y_role", "status")
-      .describe("a11y_name", self.title.clone());
+      .describe("a11y_name", self.label.clone().unwrap_or_else(|| self.title.clone()));
     if let Some(description) = &self.description {
       root = root.describe("a11y_description", description.clone());
     }
@@ -320,17 +366,20 @@ impl OutcomeView {
     root
   }
 
-  /// The app's element, or the icon in its round mark.
-  pub fn mark(&mut self) -> Element {
+  /// The app's element, or the icon in its round mark: `None` for an outcome with neither.
+  pub fn mark(&mut self) -> Option<Element> {
     if let Some(media) = self.media.take() {
-      return media;
+      return Some(media);
     }
-    Row::new()
-      .align_items(Alignment::Center)
-      .justify(Justify::Center)
-      .part(&self.part(OutcomePart::Mark))
-      .child(glyph(&self.part(OutcomePart::Icon), self.icon, false))
-      .into()
+    let icon = self.icon?;
+    Some(
+      Row::new()
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .part(&self.part(OutcomePart::Mark))
+        .child(glyph(&self.part(OutcomePart::Icon), icon, false))
+        .into(),
+    )
   }
 
   /// The title over the description, each centred and wrapping in the width it has.
@@ -347,13 +396,15 @@ impl OutcomeView {
   }
 
   /// What the app put under the text, as wide as the outcome: `None` for an outcome without it.
-  pub fn extra(&mut self) -> Option<Column> {
-    let extra = self.extra.take()?;
+  pub fn body(&mut self) -> Option<Column> {
+    if self.body.is_empty() {
+      return None;
+    }
     Some(
       Column::new()
         .width(Dimension::Pct(100.0))
-        .part(&self.part(OutcomePart::Extra))
-        .child(extra),
+        .part(&self.part(OutcomePart::Body))
+        .with_children(std::mem::take(&mut self.body)),
     )
   }
 
@@ -374,9 +425,13 @@ impl OutcomeView {
   /// How the default renderer builds an outcome: the mark over the text, what the app put under it and the
   /// buttons, centred.
   pub fn render(mut self) -> Element {
-    let mut root = self.root().child(self.mark()).child(self.text());
-    if let Some(extra) = self.extra() {
-      root = root.child(extra);
+    let mut root = self.root();
+    if let Some(mark) = self.mark() {
+      root = root.child(mark);
+    }
+    root = root.child(self.text());
+    if let Some(body) = self.body() {
+      root = root.child(body);
     }
     if let Some(actions) = self.actions() {
       root = root.child(actions);
@@ -396,8 +451,8 @@ impl Themed for Outcome {
   /// title is 16/600 in `Foreground` with the description 4 under it in 13 of `MutedForeground`; the buttons are 8
   /// apart.
   fn recipe() -> Recipe {
-    use OutcomePart::{Actions, Description, Extra, Icon, Mark, Root, Text, Title};
-    use OutcomeVariant::{Error, Info, NotFound, Success, Warning};
+    use OutcomePart::{Actions, Body, Description, Icon, Mark, Root, Text, Title};
+    use OutcomeVariant::{Destructive as Failed, Info, NotFound, Success, Warning};
     use PaletteColor::*;
     let mut recipe = Recipe::new()
       .base(Root, |s| s.width(300.0).gap(16.0))
@@ -415,7 +470,7 @@ impl Themed for Outcome {
           .font_size(13.0)
           .foreground(MutedForeground)
       })
-      .base(Extra, |s| s.gap(8.0))
+      .base(Body, |s| s.gap(8.0))
       .base(Actions, |s| s.gap(8.0))
       .state(OutcomeState::Bordered, Root, |s| {
         s.padding_x(24.0)
@@ -426,7 +481,7 @@ impl Themed for Outcome {
       });
     for (variant, strong, muted) in [
       (Success, PaletteColor::Success, SuccessMuted),
-      (Error, Destructive, DestructiveMuted),
+      (Failed, Destructive, DestructiveMuted),
       (Warning, PaletteColor::Warning, WarningMuted),
       (Info, PaletteColor::Info, InfoMuted),
       (NotFound, Foreground, Muted),

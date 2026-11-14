@@ -2510,20 +2510,22 @@ EmptyState::new("No crates match")
 | Builder | |
 | --- | --- |
 | `EmptyState::new(&str)` | What is empty, in a line. It is what the empty state is called |
+| `label(&str)` | What it is called to what reads the tree, in place of its title |
 | `description(&str)` | Why, or what to do, under the title |
 | `icon(name)` | An icon of the theme's set over the title, in its well |
 | `media(element)` | An element of the app's in place of the icon and its well: an illustration, a picture |
-| `action(element)` | Something to do under the text; called again, a second one after it, the main one last |
+| `action(element)`, `actions(elements)` | Add something to do under the text, after what is there: an empty state has one or two, the main one last |
 | `size(EmptyStateSize)` | `Sm` (the icon alone, 22, everything 10 apart), `Md` (a well of 40, in an edge), `Lg` (a round well of 64, a title of 18) |
 | `bordered(bool)` | An edge around it. `Md` has one unless told; `Sm` and `Lg` have none |
+| `width(Length)` | A width of its own in place of all of the room it is given |
 | `height(Length)` | A height of its own, in which what it holds is centred: `Length::Fill` for all of the room a parent that stretches it gives |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
 
 - It is as wide as the room it is given and as high as what is in it, all of it centred; the title and the description wrap in the width there is. Its actions are the app's elements, as large as the place has them: a small button in a table.
-- It is read; what it gives to do is operated as itself. To what reads the tree it is a `status`, called by its title, with its description as `a11y_description`.
-- Parts: `EmptyStatePart::Root`, `Media` (the well), `Icon`, `Text` (the title over the description), `Title`, `Description`, `Actions`. Sizes: `EmptyStateSize`. States: `EmptyStateState::Bordered`.
+- It is read; what it gives to do is operated as itself. To what reads the tree it is a `status`, called by its label or its title, with its description as `a11y_description`.
+- Parts: `EmptyStatePart::Root`, `Mark` (the well), `Icon`, `Text` (the title over the description), `Title`, `Description`, `Actions`. Sizes: `EmptyStateSize`. States: `EmptyStateState::Bordered`.
 - In the design the medium one is padded 32, with 16 between the well, the text and the actions, in an edge of 1 in `Border` with the radius `Xl`; the well is 40 on `Muted` with the radius `Lg`, its icon 20 in `Foreground`; the title is 14/500 in `Foreground`, the description 4 under it at 13 in `MutedForeground`; the actions are 8 apart. The small one is the empty table's: padded 32 and 16, everything 10 apart, the icon 22 in `MutedForeground` with no well. The large one is the phone's: padded 32 and 24, a round well of 64 with an icon of 28, a title of 18/600 and a description of 15, 6 apart.
-- A renderer that draws another empty state has `view.root()`, `view.media()` (the app's element or the icon in its well), `view.text()` and `view.actions()`.
+- A renderer that draws another empty state has `view.root()`, `view.mark()` (the app's element or the icon in its well), `view.text()` and `view.actions()`.
 
 ## Result
 
@@ -2532,13 +2534,14 @@ What a page or a dialog says when something is over: payment received, build fai
 ```rust
 use lurq::ui::{Button, ButtonVariant, Outcome, OutcomeVariant};
 
-Outcome::new(OutcomeVariant::Success, "Build succeeded")
+Outcome::new("Build succeeded")
   .description("412 tests passed in 38 seconds.")
   .action(Button::new("View log").variant(ButtonVariant::Outline))
   .action(Button::new("Deploy"));
 
 // On a page of its own, or in a dialog: no box.
-Outcome::new(OutcomeVariant::NotFound, "Nothing here")
+Outcome::new("Nothing here")
+  .variant(OutcomeVariant::NotFound)
   .description("This page was moved or never existed.")
   .bordered(false)
   .action(Button::new("Home"));
@@ -2546,21 +2549,23 @@ Outcome::new(OutcomeVariant::NotFound, "Nothing here")
 
 | Builder | |
 | --- | --- |
-| `Outcome::new(OutcomeVariant, &str)` | What came of it, and its title, which is what it is called. `Success`, `Error`, `Warning`, `Info` or `NotFound` (a 404) |
+| `Outcome::new(&str)` | Its title, what came of it in a line, which is what it is called |
+| `variant(OutcomeVariant)` | What came of it: `Info`, `Success` (unless told), `Warning`, `Destructive` or `NotFound` (a 404), or a variant the theme's recipe names, marked with the information sign |
+| `label(&str)` | What it is called to what reads the tree, in place of its title |
 | `description(&str)` | More of it, under the title |
-| `icon(name)` | Another icon of the theme's set in the mark, in the variant's colors |
+| `icon(impl Into<IconChoice>)` | Another icon of the theme's set in the mark, in the variant's colors; `None` for no mark |
 | `media(element)` | An element of the app's in place of the mark |
-| `extra(element)` | What stands under the text and over the buttons, as wide as the outcome: a summary, a list |
-| `action(element)` | A button at the bottom, after those there: the least first, the main one last |
+| `child(element)`, `children(elements)` | Add what stands under the text and over the buttons, as wide as the outcome, 8 apart: a summary, a list |
+| `action(element)`, `actions(elements)` | Add a button at the bottom, after those there: an outcome has several, the least first, the main one last |
 | `bordered(bool)` | A box of its own with a fill and an edge, as the design draws it: true unless told |
-| `width(Length)` | A width of its own in place of the design's 300 |
+| `width(Length)`, `height(Length)` | A width of its own in place of the design's 300; a height of its own, what it holds centred in it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the id of the root |
 
 - Everything in it is centred; its title and description wrap in its width. With no box it has no padding either, and stands where what holds it puts it: a column that centres it on a page, the body of a [dialog](#dialog).
-- It is read; its buttons are operated as themselves. To what reads the tree it is a `status`, called by its title, with its description as `a11y_description`.
-- Parts: `OutcomePart::Root`, `Mark`, `Icon`, `Text`, `Title`, `Description`, `Extra`, `Actions`. Variants: `OutcomeVariant` (`OutcomeVariant::icon()` is the icon each is marked with). States: `OutcomeState::Bordered`.
+- It is read; its buttons are operated as themselves. To what reads the tree it is a `status`, called by its label or its title, with its description as `a11y_description`.
+- Parts: `OutcomePart::Root`, `Mark`, `Icon`, `Text`, `Title`, `Description`, `Body` (what the app put under the text), `Actions`. Variants: `OutcomeVariant` (`OutcomeVariant::icon()` is the icon each is marked with). States: `OutcomeState::Bordered`.
 - In the design it is 300 wide, padded 24 with 16 between the mark, the text and the buttons, on `Background` in an edge of 1 in `Border` with the radius `Lg`. The mark is a circle of 48 in the variant's muted color, its icon 24 in the variant's color: a check in `Success`, a cross in `Destructive`, a warning in `Warning`, an `i` in `Info`, and a crossed magnifier in `Foreground` on `Muted` for not found. The title is 16/600 in `Foreground`, the description 4 under it at 13 in `MutedForeground`; the buttons are 8 apart.
-- A renderer that draws another outcome has `view.root()`, `view.mark()`, `view.text()`, `view.extra()` and `view.actions()`.
+- A renderer that draws another outcome has `view.root()`, `view.mark()` (`None` with no icon and no media), `view.text()`, `view.body()` and `view.actions()`.
 
 ## Message Box
 
