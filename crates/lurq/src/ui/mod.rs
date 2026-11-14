@@ -39,6 +39,7 @@ mod date_picker;
 mod date_range_picker;
 mod dialog;
 mod drawer;
+mod drop_zone;
 mod empty_state;
 mod fab;
 mod field;
@@ -159,6 +160,9 @@ pub use date_picker::{
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use drawer::{Drawer, DrawerPart, DrawerRenderer, DrawerState, DrawerView};
+pub use drop_zone::{
+  DropZone, DropZonePart, DropZoneRenderer, DropZoneState, DropZoneView, RejectReason, RejectedFile,
+};
 pub use empty_state::{
   EmptyState, EmptyStatePart, EmptyStateRenderer, EmptyStateSize, EmptyStateState, EmptyStateView,
 };

@@ -20,6 +20,7 @@ mod date_picker;
 mod date_range_picker;
 mod dialog;
 mod drawer;
+mod drop_zone;
 mod empty_state;
 mod family;
 mod fieldset;

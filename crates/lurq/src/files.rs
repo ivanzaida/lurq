@@ -248,7 +248,7 @@ impl FileDialog {
   /// is no dialog (see the [module](self)). The future does not borrow the window: it is for
   /// [`Ctx::future_action`](crate::app::Ctx::future_action), whose result is `Result<Vec<DroppedFile>, ()>`
   /// with [`FileDialog::pick_result`].
-  pub fn pick(self, window: &WindowHandle) -> impl Future<Output = Vec<DroppedFile>> + Send + 'static {
+  pub fn pick(self, window: &WindowHandle) -> impl Future<Output = Vec<DroppedFile>> + Send + 'static + use<> {
     let _ = window;
     #[cfg(feature = "mcp")]
     if let Some(broker) = crate::mcp::FileDialogBroker::registered() {
@@ -281,7 +281,7 @@ impl FileDialog {
   pub fn pick_result(
     self,
     window: &WindowHandle,
-  ) -> impl Future<Output = Result<Vec<DroppedFile>, ()>> + Send + 'static {
+  ) -> impl Future<Output = Result<Vec<DroppedFile>, ()>> + Send + 'static + use<> {
     let picked = self.pick(window);
     async move { Ok(picked.await) }
   }
