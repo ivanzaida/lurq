@@ -279,6 +279,7 @@ fn the_room_a_dropped_child_frees_beyond_the_need_goes_to_a_growing_child() {
     stop.offset.x + stop.result.size.width,
     width,
     "the last child ends at the line's end",
+  );
 }
 
 #[test]

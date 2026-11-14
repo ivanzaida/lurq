@@ -50,10 +50,10 @@ mod drop_zone;
 mod empty_state;
 mod fab;
 mod field;
-mod floating_panel;
 mod fieldset;
 mod file_upload;
 mod find_bar;
+mod floating_panel;
 mod hover_card;
 mod icon;
 pub mod icons;
@@ -212,10 +212,6 @@ pub use empty_state::{
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
-pub use floating_panel::{
-  FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
-  PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
-};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
   FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,
@@ -224,6 +220,10 @@ pub use file_upload::{
   FileUpload, FileUploadPart, FileUploadRenderer, FileUploadState, FileUploadView, UploadFile, UploadState,
 };
 pub use find_bar::{FindBar, FindBarPart, FindBarRenderer, FindBarState, FindBarView};
+pub use floating_panel::{
+  FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
+  PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
+};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
@@ -354,8 +354,8 @@ pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,
 };
 pub use status_bar::{
-  StatusBar, StatusBarPart, StatusBarRenderer, StatusBarState, StatusBarVariant, StatusBarView, StatusEntry, StatusItem,
-  StatusItemVariant, StatusRegion,
+  StatusBar, StatusBarPart, StatusBarRenderer, StatusBarState, StatusBarVariant, StatusBarView, StatusEntry,
+  StatusItem, StatusItemVariant, StatusRegion,
 };
 pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView};
 pub use swatch_picker::{
@@ -378,18 +378,14 @@ pub use textarea::{
   TEXTAREA_MAX_ROWS, TEXTAREA_MIN_ROWS, Textarea, TextareaPart, TextareaRenderer, TextareaSize, TextareaState,
   TextareaView,
 };
-pub use timeline::{
-  Timeline, TimelineAlign, TimelineItem, TimelineItemView, TimelineMore, TimelinePart, TimelineRenderer, TimelineSize,
-  TimelineState, TimelineVariant, TimelineView,
-};
 pub use theme::{Themed, UiDefinition, current_breakpoint, current_date_locale, current_theme, in_theme};
 pub use time_field::{TimeField, TimeFieldRenderer, TimeFieldView};
 pub use time_picker::{
   ColumnKind, TimePicker, TimePickerPart, TimePickerRenderer, TimePickerSize, TimePickerState, TimePickerView,
 };
 pub use timeline::{
-  Timeline, TimelineItem, TimelineItemView, TimelinePart, TimelineRenderer, TimelineState, TimelineVariant,
-  TimelineView,
+  Timeline, TimelineAlign, TimelineItem, TimelineItemView, TimelineMore, TimelinePart, TimelineRenderer, TimelineSize,
+  TimelineState, TimelineVariant, TimelineView,
 };
 pub(crate) use toast::keyframes as toast_keyframes;
 pub use toast::{
@@ -415,15 +411,14 @@ pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
   TreeViewView,
 };
-pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
 pub use window_chrome::{
   WindowChrome, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView, WindowControl,
   WindowControls, WindowPlatform,
 };
-pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
 pub use window_tabs::{
   WindowTab, WindowTabEntry, WindowTabs, WindowTabsPart, WindowTabsRenderer, WindowTabsState, WindowTabsView,
 };
+pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
 /// [`Name`], so that a variant, a size, a state or a part of a component is
