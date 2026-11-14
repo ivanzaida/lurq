@@ -9,6 +9,8 @@ mod card;
 mod checkbox;
 mod choice_card;
 mod combobox;
+mod command_palette;
+mod context_menu;
 mod dialog;
 mod family;
 mod fieldset;

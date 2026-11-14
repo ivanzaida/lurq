@@ -204,6 +204,8 @@ pub(crate) struct OverlaySpec {
   pub(crate) dismiss_on_escape: bool,
   /// Whether the focus goes into the overlay as it opens and back as it closes: see [`Overlay::takes_focus`].
   pub(crate) takes_focus: bool,
+  /// A point of the window it stands at in place of its anchor: see [`Overlay::at`].
+  pub(crate) at: Option<(f32, f32)>,
 }
 
 #[derive(Clone)]
@@ -303,6 +305,7 @@ impl OverlaySpec {
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
       takes_focus: self.takes_focus,
+      at: self.at,
     }
   }
 }
@@ -413,6 +416,7 @@ pub struct Overlay {
   dismiss_on_escape: bool,
   switch_on_anchor_press: bool,
   takes_focus: bool,
+  at: Option<(f32, f32)>,
 }
 
 impl Overlay {
@@ -432,6 +436,7 @@ impl Overlay {
       dismiss_on_escape: false,
       switch_on_anchor_press: true,
       takes_focus: false,
+      at: None,
     }
   }
 
@@ -525,6 +530,21 @@ impl Overlay {
     self
   }
 
+  /// A point of the window, in logical pixels, that the overlay stands at in
+  /// place of its anchor: where a secondary press or a long press was, for a
+  /// context menu. `None`, the default, places it by its anchor.
+  ///
+  /// It opens down and toward the end from the point, `offset` away from it,
+  /// and on the other side of the point along an axis where the window has no
+  /// room that way; then the collision strategy keeps it inside the window as
+  /// it does an anchored one. The placement is not used. The anchor is still
+  /// what it hangs from: a press on it is not outside it, the focus goes back
+  /// to it, and it is hidden while the anchor is out of view.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.at = point;
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -546,6 +566,7 @@ impl Overlay {
       outside_press: self.outside_press,
       dismiss_on_escape: self.dismiss_on_escape,
       takes_focus: self.takes_focus,
+      at: self.at,
     })
   }
 }

@@ -89,6 +89,14 @@ impl Popup {
     self
   }
 
+  /// A point of the window, in logical pixels, that the popup stands at in
+  /// place of its anchor, kept inside the window: see
+  /// [`Overlay::at`](crate::app::ctx::Overlay::at). A context menu's.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.overlay = self.overlay.at(point);
+    self
+  }
+
   /// Whether the anchor is this popup's trigger, which a left press opens.
   /// While another dropdown is open, a press on a trigger closes it and goes
   /// on to the trigger, so one press switches dropdowns. Defaults to `true`;

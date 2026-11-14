@@ -27,6 +27,8 @@ mod chip;
 mod choice_card;
 mod collapsible;
 mod combobox;
+mod command_palette;
+mod context_menu;
 mod dialog;
 mod fab;
 mod field;
@@ -96,6 +98,11 @@ pub use choice_card::{
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use combobox::{Combobox, ComboboxPart, ComboboxRenderer, ComboboxSize, ComboboxState, ComboboxView};
+pub use command_palette::{
+  CommandFilter, CommandItem, CommandPalette, CommandPalettePart, CommandPaletteRenderer, CommandPaletteState,
+  CommandPaletteView, matches_every_word,
+};
+pub use context_menu::{ContextMenu, ContextMenuPart, ContextMenuRenderer, ContextMenuState, ContextMenuView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use fab::{Fab, FabPart, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
