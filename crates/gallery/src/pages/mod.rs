@@ -18,6 +18,7 @@ mod family_play;
 mod fieldset;
 mod icons;
 mod input;
+mod input_otp;
 mod menu;
 mod overview;
 mod pagination;
@@ -265,6 +266,14 @@ pub const PAGES: &[Page] = &[
     about: "fieldset legend group fields disabled form error summary errors alert attention link focus",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<fieldset::FieldsetPage>(()),
+  },
+  Page {
+    path: "/input-otp",
+    name: "Input OTP",
+    icon: None,
+    about: "input otp one time code verification pin two factor 2fa cells digits paste autofill mask",
+    group: Group::Inputs,
+    mount: |ctx| ctx.mount::<input_otp::InputOtpPage>(()),
   },
   Page {
     path: "/tooltip",

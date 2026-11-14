@@ -33,6 +33,7 @@ mod fieldset;
 mod icon;
 pub mod icons;
 mod input;
+mod input_otp;
 mod link;
 mod menu;
 mod pagination;
@@ -95,6 +96,11 @@ pub use fieldset::{
 };
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
+pub(crate) use input_otp::keyframes as input_otp_keyframes;
+pub use input_otp::{
+  INPUT_OTP_CARET_BLINK, INPUT_OTP_CARET_PERIOD, InputOtp, InputOtpKind, InputOtpPart, InputOtpRenderer, InputOtpSize,
+  InputOtpState, InputOtpView,
+};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,

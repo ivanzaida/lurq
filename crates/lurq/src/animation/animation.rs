@@ -322,6 +322,10 @@ impl AnimationEngine {
     for keyframes in crate::ui::progress_keyframes() {
       engine.register_keyframes_in_phase(keyframes);
     }
+    // A one-time code's caret blinking: from when its cell takes the focus, as a text input's starts on each move.
+    for keyframes in crate::ui::input_otp_keyframes() {
+      engine.register_keyframes(keyframes);
+    }
     engine
   }
 
