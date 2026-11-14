@@ -144,8 +144,8 @@ impl HasDisplayHandle for HeadlessSurface {
   }
 }
 
-const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
-const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
+pub(crate) const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+pub(crate) const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
 /// How long a vertical wheel delta tells the slant of the horizontal deltas
 /// that follow it at the same pointer (see [`Tree::wheel_gesture_vertical`]).
 const WHEEL_AXIS_LOCK_WINDOW: Duration = Duration::from_millis(150);

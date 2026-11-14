@@ -47,6 +47,8 @@ owned focus groups, typeahead and the keys of a tree.
   goes into an open one, Left closes an open one and goes out of a closed one to the element it is in, `*` opens every
   element at the focused one's level. What an element holds is the elements after it at a higher level; what a closed
   one holds is not there, so the other keys go through what is shown."
+- `app/runtime.rs`: `DOUBLE_CLICK_INTERVAL` and `DOUBLE_CLICK_DISTANCE` are `pub(crate)`, for the tree's own double
+  press (see Decided).
 - No keyframes were registered (none is used).
 
 ## For `docs/src/content/docs/design-system.md`
@@ -122,7 +124,15 @@ TreeItem::folder("registry", "registry").lazy(true);
 - **The rows are one flat list** of what is shown, in a plain `Column`, each row a stop of the one focus group: Up, Down, Home, End, `*`, typeahead and Shift with the keys all work over the shown rows with no state of the tree's. Not the engine's virtual list: see Not done.
 - **A row opens at once**, with no height transition: a file tree does, and the board draws a tree that is open or closed, not on its way. The chevron is the board's two icons, right and down, and not one icon turned: the board draws two, and a part cannot be turned by a recipe.
 - **The focus and the selection are apart**: the arrows move the focus and Space selects, as the brief says and as a tree with many selected must; a press selects and focuses. **Activating a row that opens opens or closes it** as well as telling `on_activate`, as Enter and a double press on a folder do in a file manager.
-- **A press of the chevron opens and closes and does not select**; a press of the rest of the row selects and does not open. A double press does both.
+- **A row selects as the button goes down, and counts its own double press.** The engine holds back the click of an
+  element that has an `on_dblclick` (or is in one) until the double press's interval has passed, and the focus a
+  click gives with it: with `on_dblclick` on the rows, a press selected and focused a row half a second late, and a
+  press of another row in that time focused the row before. So a row selects on `on_mouse_down`, and a second press
+  of the same row within the engine's interval and distance (`DOUBLE_CLICK_INTERVAL`, `DOUBLE_CLICK_DISTANCE`, as a
+  window that sets no other has them) activates it; Space still selects through the row's click. A press of the
+  chevron is not a first press of the row. A window's own double-click interval (`Tree::set_double_click_interval`)
+  is not read by the tree: it would take the window's interval in reach of a handler.
+- **A press of the chevron opens and closes and does not select**, as the button goes down; a press of the rest of the row selects and does not open. A double press of the row activates it.
 - **States the board does not draw**: under the pointer and held down are the veils every pressed part of the system has; the focus is a ring inside the row (an outline 2 in, as a select's item and a tab's have), since rows touch one another; a disabled row is faded and is not a stop of the keys, as a disabled radio or menu item is. Disabled rows still open and close by what the app holds, and show what they hold when open.
 - **Guide lines are built and off by default**: the board's tree draws none. Each is in a step of the indent, under the chevron of the row it is in, and reaches 2 under its row so that the lines of a level are not broken by the room between rows.
 - **What is at a row's end is the app's element**, always shown, in the muted foreground at 12. An action shown only under the pointer is in Not done.

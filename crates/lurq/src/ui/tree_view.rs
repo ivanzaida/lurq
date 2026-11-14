@@ -1,6 +1,6 @@
 //! A tree view: things inside things, files in folders, each level opened and closed in place.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{cell::Cell, collections::HashMap, sync::Arc, time::Instant};
 
 use super::{
   icons, names,
@@ -12,7 +12,8 @@ use super::{
 };
 use crate::{
   app::{
-    events::{KeyboardEvent, MouseEvent},
+    events::{KeyboardEvent, MouseButton, MouseEvent},
+    runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Column, Row},
@@ -549,6 +550,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> TreeView<T> {
           position: (row.position, row.siblings),
           guides: self.guides,
           entry: entry == Some(index),
+          index,
           multiple,
           recipe: recipe(selected, row.expanded, row.disabled),
           forced: self.forced,
@@ -743,6 +745,37 @@ impl<T: Clone + PartialEq> Model<T> {
   }
 }
 
+thread_local! {
+  /// The last press of a row: which row of its tree, when and where. A second press of it soon after at the same
+  /// place, as the engine counts a double press, activates it.
+  static LAST_PRESS: Cell<Option<(usize, Instant, (f32, f32))>> = const { Cell::new(None) };
+}
+
+/// Whether a press of the row `index` is the second of a double press: then the next is a first again.
+fn second_press(index: usize, event: &MouseEvent) -> bool {
+  let now = Instant::now();
+  let near = |(x, y): (f32, f32)| (x - event.x).powi(2) + (y - event.y).powi(2) <= DOUBLE_CLICK_DISTANCE.powi(2);
+  LAST_PRESS.with(|last| {
+    let second = last
+      .get()
+      .is_some_and(|(row, at, place)| row == index && now.duration_since(at) <= DOUBLE_CLICK_INTERVAL && near(place));
+    last.set((!second).then_some((index, now, (event.x, event.y))));
+    second
+  })
+}
+
+/// How a press of a row selects, by its keys: Shift a range, Ctrl (Cmd) one more or one less. Space does what
+/// Ctrl with a press does where any number are selected (`toggles`).
+fn pick_of(event: &MouseEvent, toggles: bool) -> Pick {
+  if event.shift {
+    Pick::Range
+  } else if event.ctrl || event.meta || toggles {
+    Pick::Toggle
+  } else {
+    Pick::Only
+  }
+}
+
 /// What a row that takes input does, with the type of the tree's ids out of sight.
 struct RowActions {
   pick: Arc<dyn Fn(Pick) + Send + Sync>,
@@ -838,6 +871,8 @@ pub struct TreeRow {
   pub guides: bool,
   /// Whether Tab enters the tree at it: the first selected row.
   pub entry: bool,
+  /// Which of the tree's shown rows it is.
+  index: usize,
   multiple: bool,
   /// The style of each part of this row, in its case.
   pub recipe: ResolvedRecipe,
@@ -888,20 +923,28 @@ impl TreeRow {
     }
     if let Some(actions) = self.actions.clone() {
       let multiple = self.multiple;
+      // A press selects as the button goes down, as a file manager's does, and a second press of the row soon
+      // after at the same place activates it. The row has no `on_dblclick`: the engine holds back the click of an
+      // element that has one until it knows it is not the first of a double press, and the focus with it.
       let press = actions.clone();
-      row = row.on_click(move |event: MouseEvent| {
-        let pick = if event.shift {
-          Pick::Range
-        } else if event.ctrl || event.meta || (event.from_keyboard && multiple) {
-          // Space adds the focused row or takes it out where any number are selected, as Ctrl with a press does.
-          Pick::Toggle
+      let index = self.index;
+      row = row.on_mouse_down(move |event: MouseEvent| {
+        if event.button != MouseButton::Left {
+          return;
+        }
+        if second_press(index, &event) {
+          (press.activate)();
         } else {
-          Pick::Only
-        };
-        (press.pick)(pick);
+          (press.pick)(pick_of(&event, false));
+        }
       });
-      let activate = actions.clone();
-      row = row.on_dblclick(move |_| (activate.activate)());
+      // Space clicks the focused row: it selects too. A click of the pointer selected at its press.
+      let space = actions.clone();
+      row = row.on_click(move |event: MouseEvent| {
+        if event.from_keyboard {
+          (space.pick)(pick_of(&event, multiple));
+        }
+      });
       row = row.on_key_down(move |event: KeyboardEvent| {
         if !event.focus_within || event.composing || event.alt {
           return;
@@ -980,10 +1023,14 @@ impl TreeRow {
     let mut chevron = Row::new().child(glyph(&part, Name::new(name), false));
     if let Some(toggle) = self.toggle.clone() {
       let open = !self.expanded;
-      chevron = chevron.on_click(move |event: MouseEvent| {
-        // The press is the chevron's: it does not select the row as well.
+      // The press is the chevron's, as the button goes down: it does not select the row as well, and is not the
+      // first of a double press of the row.
+      chevron = chevron.on_mouse_down(move |event: MouseEvent| {
         event.stop_propagation();
-        toggle(open);
+        LAST_PRESS.with(|last| last.set(None));
+        if event.button == MouseButton::Left {
+          toggle(open);
+        }
       });
     }
     chevron.into()
