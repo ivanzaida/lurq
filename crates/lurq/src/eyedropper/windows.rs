@@ -208,7 +208,15 @@ fn run(look: Look) -> Option<Color> {
       let _ = TranslateMessage(&message);
       DispatchMessageW(&message);
     }
+    // The loop ends with the pick's windows gone (`finish`); where it ended otherwise (`GetMessageW` failed), they
+    // go now. A window lives no longer than its thread, nor than the process: a crash takes them with it.
     let session = SESSION.with(|session| session.borrow_mut().take());
+    if let Some(session) = &session
+      && session.outcome.is_none()
+    {
+      let _ = DestroyWindow(session.loupe);
+      let _ = DestroyWindow(session.overlay);
+    }
     session.and_then(|session| session.outcome).flatten()
   }
 }
@@ -628,5 +636,65 @@ unsafe fn draw(target: HDC, loupe: &Loupe) {
       SelectObject(target, previous);
       let _ = DeleteObject(HGDIOBJ(font.0));
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::sync::mpsc;
+
+  use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible, PostMessageW};
+
+  use super::*;
+
+  /// The window of the class `name`, while one is open.
+  fn open(name: PCWSTR) -> Option<HWND> {
+    unsafe { FindWindowW(name, None) }
+      .ok()
+      .filter(|window| !window.is_invalid())
+  }
+
+  /// Starts a pick, waits for its windows, posts `message` to the window that takes the keys and the pointer, and
+  /// gives what the pick gave.
+  fn pick_ended_by(message: u32, wparam: usize) -> Picked {
+    let (give, take) = mpsc::channel();
+    pick(
+      Look {
+        background: Color::new(24, 24, 27, 255),
+        foreground: Color::new(250, 250, 250, 255),
+        border: Color::new(63, 63, 70, 255),
+      },
+      Box::new(move |picked| give.send(picked).unwrap()),
+    );
+    // Both windows, and the loupe shown: the pick is running.
+    let overlay = (0..400)
+      .find_map(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let loupe = open(w!("LurqEyeDropperLoupe"))?;
+        unsafe { IsWindowVisible(loupe) }.as_bool().then_some(())?;
+        open(w!("LurqEyeDropperOverlay"))
+      })
+      .expect("the pick's windows open");
+    unsafe { PostMessageW(Some(overlay), message, WPARAM(wparam), LPARAM(0)) }.unwrap();
+    take
+      .recv_timeout(std::time::Duration::from_secs(5))
+      .expect("the pick ends")
+  }
+
+  #[test]
+  #[ignore = "opens the pick's windows over the desktop for a moment"]
+  fn a_pick_given_up_or_taken_leaves_no_window_behind() {
+    assert_eq!(
+      pick_ended_by(WM_KEYDOWN, VK_ESCAPE.0 as usize),
+      Ok(None),
+      "Escape gives up"
+    );
+    assert!(open(w!("LurqEyeDropperOverlay")).is_none() && open(w!("LurqEyeDropperLoupe")).is_none());
+    let taken = pick_ended_by(WM_LBUTTONDOWN, 0);
+    assert!(
+      matches!(taken, Ok(Some(_))),
+      "a press takes the color under the pointer: {taken:?}"
+    );
+    assert!(open(w!("LurqEyeDropperOverlay")).is_none() && open(w!("LurqEyeDropperLoupe")).is_none());
   }
 }
