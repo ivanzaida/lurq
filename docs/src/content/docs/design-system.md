@@ -3356,6 +3356,290 @@ TreeView::new(items)
 - A row follows the [density](../theme/#density): 20, 28 (the design's), 36 and 40 high at compact, default, comfortable and touch, its guide with it.
 - A theme's renderer is given `TreeViewView`: `view.rows` (each a `TreeRow` with its label, level, position, whether it opens, is open, is loading, is selected, is disabled, its icon and what is at its end), `view.root()` (the column with the keys and its role) and, on each row, `row.button()` (the behavior with the row's style), `row.indent()`, `row.chevron()`, `row.icon()`, `row.label()` and `row.render()`. It is set for `TreeView<T>` of any `T`: `theme.set_renderer::<TreeView<String>>(..)` draws trees of every id.
 
+## Navbar
+
+The way round a site or an app along the top of its window: the brand at its start, its links, and a search, actions and who is signed in at its end.
+
+```rust
+use lurq::ui::{Avatar, NavItem, NavLink, NavPanel, Navbar, NavbarBrand, SearchField, TextBoxSize, icons};
+
+Navbar::new()
+  .label("Main")
+  .brand(NavbarBrand::new("lurq").icon(icons::BOX).on_select(move || go_home()))
+  .item(
+    NavItem::new("Docs").current(at_docs).panel(
+      NavPanel::new()
+        .columns(2)
+        .link(NavLink::new("Getting started").description("Install lurq and open your first window.").href("/docs"))
+        .link(NavLink::new("Theming").description("Roles, palettes and dark mode.").href("/docs/theming")),
+    ),
+  )
+  .item(NavItem::new("Components").href("/components"))
+  .item(NavItem::new("Blog").href("/blog"))
+  .end(SearchField::new(query.clone()).placeholder("Search").size(TextBoxSize::Sm))
+  .end(account) // an Avatar that opens a Menu
+  .sticky(true)
+  .mount(ctx)
+```
+
+| `Navbar` | |
+| --- | --- |
+| `brand(element)` | What stands at its start: a `NavbarBrand` (a mark beside a name, pressed where it has `on_select`), or an element of the app's |
+| `item(NavItem)`, `items(..)` | A link after the others; one with a `panel` opens a panel of links, as in a [navigation menu](#navigation-menu) |
+| `end(element)` | What stands at its end, after what stands there: a [search field](#search-field), a [button](#button), an [avatar](#avatar) with its [menu](#menu) |
+| `sticky(bool)` | It stays at the top of the page that scrolls it |
+| `open(signal)`, `on_open_change(handler)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`; and what hears it change. Without a signal the bar keeps its own |
+| `menu_open(signal)`, `on_menu_open_change(handler)` | On a narrow window, whether the links are open over the page; and what hears the menu button turn it |
+| `narrow(bool)` | Whether its links are behind the menu button, whatever the window's width: they are below the `md` breakpoint unless told |
+| `label(&str)` | What the navigation region is called to tooling: "Main" unless told |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the bar's; its links are `{id}-links` (the items `{id}-links-0` and on, a panel `{id}-links-0-panel`), the menu button `{id}-menu`, the links over the page `{id}-drawer` |
+
+- It is mounted (`mount(ctx)`): its links are a mounted navigation menu, and on a narrow window a mounted [sidebar](#sidebar). Converted into an element on its own it is drawn with what the signals it is given say, for a gallery or a test.
+- Its links are a [navigation menu](#navigation-menu) in its links variant: each a stop of Tab, the page shown (`NavItem::current`) in the foreground and the others in the muted foreground, brought forward under the pointer. One with a panel opens it under the bar by a press, under the pointer after a moment, and with Enter, Space and Down, with all a navigation menu does.
+- On a window narrower than the `md` breakpoint (or where `narrow(true)` says) the links go behind a ghost button of the `menu` icon at the bar's start, called "Open menu", into a `Sidebar` over the page, which slides in from the start over a veil: each link an item, the page shown selected, an item with a panel a group of its links under its name. Choosing one closes it, as Escape and a press on the veil do. The brand and what stands at the end stay in the bar.
+- In the design the bar is 56 tall in `Background`, with a line of 1 in `Border` along its bottom, padded 16 at its sides with 24 between what it holds. The brand is a mark of 20 in `Foreground` 8 before its name in 16/600; the links are 20 apart in 13/500; what stands at the end is 24 apart. On a narrow window it is padded 8 with 8 between what it holds.
+- Parts: `NavbarPart::Root`, `Brand`, `BrandMark`, `BrandName`, `Links` (the room of the links, which takes what the bar has to spare), `End`. States: `NavbarState::Narrow`, `Sticky`, `Interactive` (the brand is pressed). How its links look is the navigation menu's recipe, in its `Links` variant: a theme restyles them there, into the board's tablet tab bar, say (a bar on `Muted` with the full radius, its items 36 tall and round, the page shown on `Background` with a shadow).
+- To what reads the tree the bar is a `navigation` called by its label, its links `link`s (the page shown with `a11y_current` `page`) or `button`s that open a panel, and the menu button a `button` with `a11y_expanded` and `a11y_controls` naming the links over the page.
+- A renderer for `Navbar` gets a `NavbarView`: `view.root()` is the bar with its style and its role; `brand`, `links`, `end`, `menu_button` and `drawer` are what it holds, built, to put in it. `view.render()` builds the bar.
+
+## Navigation Menu
+
+The way round a site along a row of links, some of which open a panel of links under them: Docs, Components, Blog.
+
+```rust
+use lurq::ui::{Card, NavItem, NavLink, NavPanel, NavigationMenu, icons};
+
+NavigationMenu::new()
+  .label("Site")
+  .item(
+    NavItem::new("Docs").panel(
+      NavPanel::new()
+        .columns(2)
+        .featured(Card::new().title("lurq 0.62").description("A navbar, a navigation menu and a sidebar."))
+        .link(NavLink::new("Getting started").description("Install lurq and open your first window.").icon(icons::PLAY_CIRCLE).href("/docs"))
+        .link(NavLink::new("Theming").description("Roles, palettes and dark mode.").href("/docs/theming")),
+    ),
+  )
+  .item(NavItem::new("Blog").href("/blog"))
+  .open(open.clone())
+  .mount(ctx)
+```
+
+| `NavigationMenu` | |
+| --- | --- |
+| `item(NavItem)`, `items(..)` | An item after the others |
+| `open(signal)` | Which item's panel is open, by its index: the app's `Signal<Option<usize>>`, which a press, the pointer and the keys set, and Escape, a press outside, a choice and the pointer going clear set to `None`. Without one the menu keeps its own |
+| `on_open_change(handler)` | What hears a panel open, another take its place, or the open one close |
+| `variant(NavigationMenuVariant)` | `Menu`, the board's: each item a box lit under the pointer and while its panel is open. `Links`: the text alone, as a navbar has it |
+| `open_delay(..)`, `close_delay(..)` | How long the pointer rests on an item before its panel opens (the theme's base duration), and how long a panel stays after the pointer has left it and its item (the slow one) |
+| `disabled(bool)`, `label(&str)` | No item can be pressed; what the navigation region is called to tooling, "Main" unless told |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the row's; its items are `{id}-0` and on unless they have ids of their own, each panel `{id}-0-panel`, its links `{id}-0-0` and on |
+
+| `NavItem`, `NavPanel`, `NavLink` | |
+| --- | --- |
+| `NavItem::new(label)` | A link: `href(path)` (the router's), `on_select(handler)`, `current(bool)`, `icon(name)`, `disabled(bool)`, `id`. With `panel(NavPanel)` it opens a panel in place of going somewhere, and has a chevron |
+| `NavPanel::new()` | `link(NavLink)`, `links(..)`; `columns(n)`, the first filled first (one unless told); `featured(element)`, a column of its own before the links: a [card](#card) |
+| `NavLink::new(title)` | `description(&str)` under its title, `icon(name)` at its start, `href(path)`, `on_select(handler)`, `current(bool)`, `disabled(bool)`, `id` |
+
+- It is mounted (`mount(ctx)`): it keeps the timers of its delays, where the pointer is and how the open panel was opened. Converted into an element on its own it opens its panels by a press and the keys, from the signal `open` gives.
+- The pointer: a press of an item with a panel opens the panel, and a press again closes it; resting on the item opens it after the open delay (a press that follows keeps it). One panel is open at a time, and with one open the pointer coming onto another item opens that one at once. The panel stays while the pointer is on the item, on the panel or crossing the 6 between them, and closes when it has left them for the close delay; a press outside it closes it and goes on to what it is on. Choosing a link runs it, goes to its path and closes the panel.
+- The keyboard: each item is a stop of Tab, as links on a page are, and Left and Right move between the items as well. Enter, Space and Down open an item's panel with the focus on its first link (Down on an item whose panel the pointer opened takes the focus into it); Up and Down go through the panel's links, column after column; Left and Right close it and go to the item beside it, opening that one's panel where it has one and only focusing a link, which is not followed; Escape closes it with the focus back on its item. Tab goes from an item into its open panel and from its last link on to what follows the item, closing the panel; the focus leaving the item and the panel closes it. Alt does nothing to it.
+- Under the pointer, focused from the keyboard, or with its panel open, an item is filled with `Highlight`, the board's `accent`; the page shown, or an item whose panel holds it, is on `Muted`. In the design an item is 36 tall, padded 12 with the medium radius, its text 13/500 in `Foreground`, and an item with a panel has a chevron of 14 in `MutedForeground` 6 after it, up while its panel is open; the items are 4 apart. The panel opens 6 under its item, from its start, in `Popover` with an edge of 1 in `Border`, the large radius and the medium shadow, padded 8 with 8 between its columns, each 208 wide; it fades in over the theme's base duration and out over the fast one. A link is padded 12 with the medium radius, its title 14/500 over its description 13 in `MutedForeground`, 4 apart and 1.4 high, an icon of 16 in `MutedForeground` 12 before them; it is lit with `Highlight` under the pointer and focused. In the `Links` variant an item is its text alone, 32 tall, 20 apart, in `MutedForeground`, in `Foreground` under the pointer, while its panel is open and where it is the page shown, with the focus ring around it; its panel opens 18 under it, 6 past the edge of a navbar.
+- The engine's part is `FocusGroup::panel_row(true)`, which the row has: a [row of menus](#menubar) whose elements are links as well as buttons. Left and Right in an open panel that nothing in it takes close it and focus the element beside it, asking it to open where it says it opens and closes (`focus_expanded(open, toggle)`), and press nothing; Alt is a menubar's, not its.
+- Parts: `NavigationMenuPart::Bar`, `Item`, `ItemIcon`, `Label`, `Chevron`, `Viewport` (the room between an item and its panel, which keeps the panel under the pointer), `Panel`, `Column`, `Featured`, `Link`, `LinkIcon`, `LinkText`, `LinkTitle`, `LinkDescription`. States: `NavigationMenuState::Open`, `Current`, `Disabled`; variants: `NavigationMenuVariant::Menu`, `Links`.
+- To what reads the tree the row is a `navigation` called by its label (in a navbar, a `list` in the navbar's), an item a `link` (with `a11y_current` `page` for the page shown) or a `button` with `a11y_expanded` and `a11y_controls` naming its panel, the panel a `group` called by its item, and its links `link`s with their description.
+- A renderer for `NavigationMenu` gets a `NavigationMenuView`: `view.bar()` is the row with its style, its role and its focus group; `view.item(index)` an item's behavior with its style, `view.item_icon(index)`, `view.label(index)` and `view.chevron(index)` what it holds, and `view.panel(index)` its panel hung from it, to put after it (`view.panel_content(index)` is the panel alone); `view.item_part(index, part)` is the style of a part of one item. `view.render()` builds the menu.
+
+## Table
+
+Rows of the same things in columns: crates and their status, files and their sizes, people and their roles. The columns of the header and of every row are the same widths whatever is in a cell.
+
+```rust
+use lurq::ui::{Badge, Table, TableColumn, TableSort};
+
+// sort: Signal<Option<TableSort>>, selected: Signal<Vec<String>>
+let columns = vec![
+  TableColumn::new("name", "Name").text(|row: &Crate| row.name.clone()).mono(true).sortable(true),
+  TableColumn::new("status", "Status").width(120.0).cell(|row: &Crate| Badge::new(&row.status).into()),
+  TableColumn::new("size", "Size").width(70.0).numeric().text(|row: &Crate| format!("{} KB", row.size)).sort_key(|row: &Crate| row.size),
+  TableColumn::actions("actions", |row: &Crate| open_button(row)),
+];
+// The app gives the rows in the order it wants.
+let mut rows = rows;
+if let Some(by) = sort.get() {
+  by.sort(&columns, &mut rows);
+}
+Table::new(columns, rows)
+  .row_key(|row: &Crate| row.name.clone())
+  .label("Crates")
+  .sort(sort)
+  .selected(selected)
+  .height(320.0)
+  .on_row_activate(|name| open(name));
+
+// Thousands of rows: mounted, it builds those in view.
+Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(480.0).mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(columns, rows)`, `new_shared(columns, Arc<Vec<R>>)` | The columns and the rows, in the order the app wants them. Shared rows given again at each render are not copied |
+| `TableColumn::new(id, title)` | A column that takes a share of the room the others leave |
+| `TableColumn::text(\|row\| String)`, `cell(\|row\| Element)` | A row's cell: a text in the cell's type, or what the app builds (a badge, an avatar and a name) |
+| `TableColumn::width(px)`, `share(f32)`, `fit()`, `min_width(px)`, `max_width(px)` | Its width: in pixels, a share of what is left, or as wide as the widest of its cells shown, between a least and a most |
+| `TableColumn::align(ColumnAlign)`, `numeric()`, `mono(bool)`, `muted(bool)` | Where its content sits; a column of numbers (at its end, mono 12 in the muted color); its text in the mono type or the muted color |
+| `TableColumn::sortable(bool)`, `sort_by(\|a, b\|)`, `sort_key(\|row\|)` | A press of its header sorts the rows by it; what `TableSort::sort` compares rows by |
+| `TableColumn::sticky(bool)` | The first column stays at the start while the rows scroll sideways |
+| `TableColumn::controls(bool)`, `TableColumn::actions(id, cell)` | Its cells hold what is pressed, and a press of it is not the row's; a column of a row's buttons at its end |
+| `row_key(\|row\| K)` | What tells a row apart, which the selection and the handlers name it by. Without it, a row's place |
+| `sort(Signal<Option<TableSort>>)`, `sorted_by(sort, change)`, `on_sort(handler)` | What the rows are sorted by: a press of a sortable header goes through ascending, descending and none |
+| `selected(Signal<Vec<K>>)`, `selected_keys(keys, change)` | The rows selected, with a column of checkboxes |
+| `checkboxes(bool)` | Whether a table whose rows are selected has the column of checkboxes; without it a press of a row selects it |
+| `on_row_click(handler)`, `on_row_activate(handler)` | Told of a press of a row, and of a double press or Enter |
+| `density(Density)` | Rows of 36 compact, 44 at the default, 52 comfortable and touch |
+| `height(..)`, `max_height(..)` | The table's height: the header stays and the rows scroll under it |
+| `empty(element)` | What stands under the header where there are no rows: by default an empty state that says so |
+| `loading(bool)`, `loading_rows(n)` | Rows of skeletons under the header while the rows are on their way |
+| `pagination(element)`, `count(bool)`, `total(n)` | A footer that counts the rows and what is selected, with the pagination at its end |
+| `mount(ctx)` | The table mounted: it builds the rows in view and a few around them, and keeps its columns' measured widths |
+| `label(&str)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. A row's id is the table's with `-row-` and its place; a header's `-header-` and its column's id; the header's checkbox `-select-all` |
+
+- What the rows are, their order, what is selected and what they are sorted by are the app's. A press of a sortable header asks for the rows sorted by it, ascending, then descending, then not at all, and the app gives them in that order; `TableSort::sort(&columns, &mut rows)` sorts them by the column's key or its text.
+- With a selection a table has a column of checkboxes. A press of a row selects it alone, with Ctrl (Cmd) adds it or takes it out, with Shift selects the rows from the last selected one to it; a press of its checkbox adds or takes it out, with Shift the range. The header's checkbox selects every row the table shows, or none where all are, and is mixed while some are. A press in a column of `controls` is the control's alone.
+- The header stays while the rows scroll in the table's own height, and a table wider than its box scrolls sideways, its header with it; a sticky first column stays at the start. Converted into an element a table builds every row; mounted (`mount(ctx)`) it builds the rows in view and a few around them, so ten thousand rows cost about what a screen of them does. A table with no height builds every row either way.
+- The columns are one list of tracks for the header and every row (`ColumnTracks`), measured from the rows that are built: a column sized by its content is as wide as the widest of its cells shown so far, and does not narrow as rows scroll by.
+- The rows are one stop of Tab, at the focused, the first selected or the first row. Up and Down move through them, Home and End to the first and the last, and in a mounted table PageUp and PageDown by what is shown. Space selects the focused row (adds it or takes it out), Enter activates it, Ctrl+A selects them all. Tab from a row goes into what it holds that takes the focus, its buttons, and then out of the table. The sortable headers and the header's checkbox are a stop of their own before the rows, Left and Right between them. A row the keys reach is scrolled into view clear of the header.
+- To what reads the tree it is a `table`, or a `grid` (`a11y_multiselectable`) where its rows are selected, with `a11y_rowcount` (the header's among them) and `a11y_colcount`, `a11y_busy` while loading; its header and rows are `row`s with `a11y_rowindex` (the header's 1), `a11y_selected` where rows are selected; a header is a `columnheader` with `a11y_sort` (`ascending`, `descending`, `none`) where it sorts; a cell is a `cell`.
+- Parts: `TablePart::Root` (the box), `Scroll` (what scrolls both ways), `Header`, `HeaderCell`, `SortIcon`, `Row`, `Cell`, `Select` (the checkbox column's cell), `Empty`, `Footer`, `Count`. States: `TableState::Selectable`, `Selected`, `Last`, `Sortable`, `Sorted`, `Muted`, `Mono`, `Numeric`, `Sticky`, `Footed`, `Disabled`.
+- In the design the table is a box with `radius-lg`, an inner edge of 1 in `Border` and the `Background` fill. The header is 40 high on `Muted` with a line of 1 in `Border` under it, its titles 13/500 in `MutedForeground`; a row is 44 high with the same line under it but the last, its text 13 in `Foreground`. Both are padded 16 at each side with 16 between columns, 12 where the rows have checkboxes, whose column is 16 wide. A sorted column's title is in `Foreground` with an arrow of 14, 4 after it; a sortable one has a muted mark of `chevrons-vertical`, and its title is in `Foreground` under the pointer. A selected row is on `Highlight`. A number is mono 12 in `MutedForeground` at its column's end. The footer is 44 high, padded 16 and 8, its count 13 in `MutedForeground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled table is half opaque.
+- A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in. It is set for `Table<R, K>` of any `R` and `K`.
+
+## Calendar
+
+The days of a month in weeks, which a person chooses a date from, or a range of dates: a due date, a day to book, the week of a report.
+
+```rust
+use lurq::{
+  core::{Date, DateRange, Signal, YearMonth},
+  ui::{Calendar, CalendarMemory},
+};
+
+// due: Signal<Option<Date>>; in a component's render, mounted so that it keeps the month it shows.
+Calendar::new(due.clone()).min(Date::today()).mount(ctx);
+
+// The month shown in a signal of the app's: it is not the value.
+Calendar::new(due.clone()).month(shown.clone()).mount(ctx);
+
+// A range with two presses, two months side by side, weekends not to be chosen.
+Calendar::range(stay.clone())
+  .months(2)
+  .disabled_days(|date| date.weekday().days_from_monday() >= 5)
+  .mount(ctx);
+
+// What it keeps, kept by the app in a field of its component, made once: for a calendar built without ctx.
+Calendar::new(due.clone()).memory(&self.memory);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<Option<Date>>)`, `range(Signal<Option<DateRange>>)` | What is chosen: a date, or a range chosen with two presses |
+| `month(Signal<YearMonth>)` | The month shown, the first where there are several: not the value. The heading's buttons and the keys set it |
+| `memory(&CalendarMemory)` | What the calendar keeps between renders, the app's: the month it shows where the app gives none, a range's first press and where it would end |
+| `mount(ctx)` | The calendar with a memory of its own, in the app's locale (`App::i18n`) |
+| `months(n)` | How many months side by side, each with its heading |
+| `min(Date)`, `max(Date)` | The least and the greatest date that can be chosen. The months beyond are not shown |
+| `disabled_days(Fn(Date) -> bool)` | Which days cannot be chosen besides those out of the range |
+| `locale(DateLocale)`, `first_day(Weekday)` | The names of months and days and the first day of the week, in place of the app's locale's |
+| `week_numbers(bool)` | The ISO 8601 week number before each week |
+| `outside_days(bool)` | The days of the months before and after in the first and the last week; on, as the design draws them, and none with several months |
+| `today(Date)` | The day marked as today, in place of the system's |
+| `disabled(bool)` | It takes no input |
+| `on_change(Fn(Date))`, `on_range_change(Fn(DateRange))` | Told of a choice, the value set already |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. Each day has the id with the date after it: `due-2026-11-12`; the buttons `-previous` and `-next` |
+
+- The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `CalendarMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
+- A range: the first press starts it, the pointer and the keys show where it would end, and the second ends it, before the first or after it. Its ends are chosen days, and the days between are one band.
+- The days are one stop of Tab, at the chosen day, today or the first of the month; the buttons of the heading are stops of their own before them. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and with Shift a year: into the month before or after, which is then shown, and kept between the least and the greatest date. A day that cannot be chosen takes the focus too and says so: the keys pass no day by. Enter and Space choose. The keys are the days' own, through the engine's `KeyboardEvent::focus_key`.
+- To what reads the tree each month is a `grid` called by its month (`November 2026`), of `row`s of `gridcell`s called by their day (`Thursday, Nov 12, 2026`) that say `a11y_selected`, `a11y_current` (`date`, for today) and `a11y_disabled`; the names of the days are `columnheader`s.
+- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Today`, `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`.
+- In the design the panel is 248 wide, on `Popover` with an edge of 1 in `Border`, `radius-lg` and 12 of padding; the heading is 32 high, the month in the body's type at 500 between two outline buttons of 28 (`radius-md`, edge in `Input`, chevrons of 16 in `MutedForeground`), 8 over the days. A day is 32 square with `radius-md`, its number at 13; the names of the days are at 12 in `MutedForeground`; the rows are 8 apart. Today and a day under the pointer are on `Highlight` (the board's `accent`); the chosen day is on `Primary`, its number in `PrimaryForeground` at 500. A day of the month beside, and one that cannot be chosen, is in `MutedForeground` at half opacity. The days between a range's ends are on `Highlight` with no radius.
+- A theme's renderer is given `CalendarView`: `view.months`, `view.chosen`, `view.draft`, `view.hover`, `view.shown_range()`, `view.day_states(date, outside)`, `view.day_recipe(states)`, `view.entry()`, and the pieces `nav(by)`, `header(index)`, `headers()`, `weekdays()`, `day(date, month)`, `week(days, month)`, `grid(index)`, `grids()`, `panel()` and `render()`.
+
+## Date Picker
+
+A field that holds a date, typed in it or chosen from a calendar that opens under it: a due date, a date of birth, the day of a booking.
+
+```rust
+use lurq::{
+  core::{Date, Signal},
+  ui::{CalendarMemory, DatePicker, Field},
+};
+
+// due: Signal<Option<Date>>
+DatePicker::new(due.clone()).placeholder("Pick a date").clearable(true).mount(ctx);
+
+// In a field, which names it and judges it, with what it keeps kept by the app (made once, in `create`).
+Field::new("Due date", DatePicker::new(due.clone()).min(Date::today()).memory(&self.memory))
+  .error("The due date has passed.");
+
+// Written and read the app's way.
+DatePicker::new(due.clone()).format(|date| date.to_string()).parse(|text| text.parse().ok());
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<Option<Date>>)` | The date the field holds |
+| `memory(&CalendarMemory)`, `mount(ctx)` | What it keeps between renders (whether the calendar is open, the field it opens under, the month shown): the app's, or its own where it is mounted |
+| `open(Signal<bool>)`, `month(Signal<YearMonth>)` | Whether the calendar is open and the month it shows, where the app holds them |
+| `placeholder(&str)` | What the field says while it is empty |
+| `format(Fn(Date) -> String)`, `parse(Fn(&str) -> Option<Date>)` | How the field writes the date and reads what is typed, in place of the locale's |
+| `locale(DateLocale)` | How dates are written and read, and the calendar's names and first day |
+| `min`, `max`, `disabled_days`, `first_day`, `week_numbers`, `today` | As the calendar's: what cannot be chosen cannot be typed either |
+| `clearable(bool)` | A button at the end of the field that empties it while it holds a date |
+| `size(InputSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `name` | As an [input](#input)'s. A read-only picker opens no calendar |
+| `on_change(Fn(Option<Date>))` | Told of each change, by typing, a choice or the button that empties it |
+| `state`, `style`, `rules`, `force`, `id`, `key` | As an input has them. `id` is the field's; the button has it with `-trigger`, the cross `-clear`, the panel `-panel`, the calendar `-calendar` |
+
+- What is typed is read as it is typed, in the locale's short form (`Nov 12, 2026`), in its numbers (`11/12/2026`, `12.11.2026`) or as ISO 8601, a month by its name or the start of it in the locale's words or in English: a date that can be chosen is the value at once, and the field keeps what is half typed while it has the focus. The year has four digits, so `Nov 12, 20` is no date yet. When the focus leaves the field, or on Enter, the text is written again as the picker writes the value; an emptied field is no date, and anything else takes back the date it had.
+- The calendar opens in a [popover](#popover) under the field, from the button at its start or from Down in the field, with the focus on the chosen day, today or the first of the month. A choice closes it and the focus goes back to the field, as Escape and a press outside do.
+- To what reads the tree the field is a `combobox` that says `a11y_haspopup` `dialog` and `a11y_expanded`, as the date picker of the ARIA patterns is; the panel is a `dialog` called "Choose date". The button that opens it and the cross that empties it are pressed by the pointer and take no focus.
+- In a [field](#field) the picker is called by the field's label, judged as the field is, and disabled where it is. A picker in a field keeps what it keeps in a `CalendarMemory`, since a field is given the picker's builder.
+- Parts: `DatePickerPart::Trigger` and `TriggerIcon` (the button at the start and its glyph), `Clear` and `ClearIcon`, `Panel` (rules over the popover's root), and a range picker's `Presets` and `Preset`. The field is an `Input` in the theme's dress, the panel a `Popover`, the days a `Calendar` in the state `Bare`. States: `DatePickerState::Open`, `Disabled`, `FullWidth`, and the input's judgment, size and read only.
+- In the design the field is the input, 260 by 36, with a calendar's glyph of 16 in `MutedForeground` 12 from its start and the date 8 after it in the body's type. The glyph is in a button of 24 with `radius-sm`, on `Highlight` under the pointer. The calendar opens 4 under the field, in the popover's panel with no padding of its own, as wide as the calendar.
+- A theme's renderer is given `DatePickerView` (`PickerView<Date>`): `view.text`, `view.value`, `view.open`, and the pieces `control()`, `trigger()`, `clear()`, `field()`, `calendar()`, `panel()` and `render()`.
+
+## Date Range Picker
+
+A field that holds a range of dates, typed or chosen from a calendar under it, with ranges offered beside it: the dates of a stay, the period of a report.
+
+```rust
+use lurq::{
+  core::{Date, DateRange, Signal},
+  ui::DateRangePicker,
+};
+
+let today = Date::today();
+// period: Signal<Option<DateRange>>
+DateRangePicker::new(period.clone())
+  .placeholder("Pick dates")
+  .months(2)
+  .preset("Last 7 days", DateRange::new(today.add_days(-6), today))
+  .preset("Last 30 days", DateRange::new(today.add_days(-29), today))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<Option<DateRange>>)` | The range the field holds |
+| `months(n)` | How many months the calendar shows side by side: one as the design draws it, or two |
+| `preset(label, DateRange)` | A range offered beside the calendar; a press chooses it and closes the calendar. The one chosen is on the secondary fill |
+| everything else | As a [date picker](#date-picker)'s, over a range: `format(Fn(DateRange) -> String)`, `parse(Fn(&str) -> Option<DateRange>)`, `on_change(Fn(Option<DateRange>))` |
+
+- The range is in one field, as the design draws it: `Nov 9 – Nov 15, 2026`, the year once where both ends are in it. What is typed is read as two dates in any form the locale reads, with a dash or `to` between them; the year of the first may be left out where it is the second's.
+- In the calendar the first press starts the range, the pointer and the keys show where it would end, and the second press ends it and closes the calendar. Escape or a press outside drops a range half chosen. Neither end may be a day that cannot be chosen.
+- The field's button has the glyph of a calendar's range; the panel is a `dialog` called "Choose dates".
+- A theme's renderer is given `DateRangePickerView` (`PickerView<DateRange>`), with `presets()` besides the date picker's pieces.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
