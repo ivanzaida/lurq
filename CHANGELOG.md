@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Breaking:
+
+- A border on some sides of a rounded element no longer thins out round a corner whose other side has none, as CSS draws it: it goes on round the arc at its full width and fades out along it, from opaque at the bordered side to nothing at the other. Sides with the same placement and dash are now one shape whatever their colors, and two colors that meet at a rounded corner go over from one to the other along the arc, at full coverage; at a square corner they meet on the diagonal, where the side painted last covered the corner. A border outside or centered on the element can paint past a side with none by its width near such a corner. Layout and hit testing are unchanged, but every app with such a border is painted differently. `StrokeStyle` has a new field, `side_colors`, and `StrokeStyle::outset`. See [styling](docs/src/content/docs/styling-events.md#borders).
+
 Fixes:
 
 - A clip inside a clip with rounded corners keeps the rounded corners. When the inner clip was not the same rectangle as the outer one, the outer one's corners were dropped, so what clipped and lay along an edge of a rounded element was drawn square past its corners: a rail along the bottom of a rounded panel, a picture or a header band across its top, a scrolling list down to its bottom corners. A clip now carries the rounded clips it is under with their own rectangles, and content is cut by each of them as nested `overflow: hidden` boxes with `border-radius` are in CSS; a child with corners of its own at a rounded parent's corner is cut by both. Layer and backdrop blurs are cut the same way. A press past a rounded corner no longer reaches what the corner cuts off. `ClipRect::border_radius` is replaced by `ClipRect::rounded` (`RoundedClip`), with `ClipRect::rect`, `ClipRect::rounded_rect`, `ClipRect::intersect` and `ClipRect::contains`. See [styling](docs/src/content/docs/styling-events.md#visual-modifiers).

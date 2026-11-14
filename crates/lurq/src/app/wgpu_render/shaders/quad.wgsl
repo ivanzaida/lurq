@@ -87,6 +87,11 @@ fn vs_main(in: VsIn) -> VsOut {
         aa_outset = aa_outset + max(in.pattern.w, 0.0) + max(abs(in.pattern.y), abs(in.pattern.z))
             + SHADOW_EXTENT_SIGMAS * in.shadow_sigma;
     }
+    if (max_stroke > 0.0) {
+        // Round a corner whose other side has none, a stroke outside the box
+        // or centred on its edge reaches past that side as past its own.
+        aa_outset = aa_outset + max(in.pattern.w, 0.0) * max_stroke;
+    }
     let local_px = in.corner * (in.size + vec2<f32>(aa_outset * 2.0, aa_outset * 2.0))
                  - vec2<f32>(aa_outset, aa_outset);
     // Apply 2x2 transform around xf_origin.
@@ -306,9 +311,84 @@ fn rounded_fill_alpha(local: vec2<f32>, half_size: vec2<f32>, radii_h: vec4<f32>
     return clamp(0.5 - dist / subsample_aa_width(dist), 0.0, 1.0);
 }
 
+/// How a stroke's opacity falls off along the arc of a rounded corner where
+/// its side meets a side with none: `on` is 1 where the arc leaves the side
+/// with the stroke and 0 where it reaches the other. The one place to tune
+/// how a border on some sides of a rounded element dissolves at its ends.
+fn corner_fade(on: f32) -> f32 {
+    let t = clamp(on, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+/// How the colors of two sides that meet at a corner mix across it: `turn`
+/// is 0 on the top or bottom side and 1 on the left or right one.
+fn corner_color_mix(turn: f32) -> f32 {
+    let t = clamp(turn, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+/// The sides that meet at the corner of `local`'s quadrant, as widths
+/// (`.x` across: the left or right side, `.y` along: the top or bottom one).
+fn quadrant_widths(local: vec2<f32>, widths: vec4<f32>) -> vec2<f32> {
+    var across = widths.y;
+    if (local.x < 0.0) { across = widths.w; }
+    var along = widths.z;
+    if (local.y < 0.0) { along = widths.x; }
+    return vec2<f32>(across, along);
+}
+
+/// The widths the stroke has in a corner whose sides are `sides` wide
+/// (across, along): theirs, but at a rounded corner where one side has none
+/// the other's width goes on around the corner.
+fn corner_widths(sides: vec2<f32>, radius: vec2<f32>) -> vec2<f32> {
+    if (radius.x <= 0.0 || radius.y <= 0.0) {
+        return sides;
+    }
+    let width = max(sides.x, sides.y);
+    return select(sides, vec2<f32>(width, width), sides <= vec2<f32>(0.0, 0.0));
+}
+
+/// The widths the ring has at `local`: the corner's widths in the arc of a
+/// rounded corner, the sides' own anywhere else, so that past the arc of a
+/// corner where the stroke ends the side with none has no ring at all and
+/// the distance to the ring does not jump where the quadrants meet.
+fn ring_widths(
+    local: vec2<f32>,
+    half_size: vec2<f32>,
+    radius: vec2<f32>,
+    sides: vec2<f32>,
+    radii_at: f32,
+) -> vec2<f32> {
+    let corner = corner_widths(sides, radius);
+    if (all(corner == sides)) {
+        return sides;
+    }
+    let edge = half_size + radii_at * (corner - sides);
+    let centre = edge - (radius + radii_at * corner);
+    if (all(abs(local) > centre)) {
+        return corner;
+    }
+    return sides;
+}
+
+/// A box given by how far each of its edges (top, right, bottom, left) is
+/// inside the rect of half extent `half_size`: its centre (`.xy`) and half
+/// extent (`.zw`).
+fn inset_box(half_size: vec2<f32>, insets: vec4<f32>) -> vec4<f32> {
+    let centre = vec2<f32>(0.5 * (insets.w - insets.y), 0.5 * (insets.x - insets.z));
+    let half = max(vec2<f32>(
+        half_size.x - 0.5 * (insets.w + insets.y),
+        half_size.y - 0.5 * (insets.x + insets.z),
+    ), vec2<f32>(0.0, 0.0));
+    return vec4<f32>(centre, half);
+}
+
 /// The ring of a stroke: inside the outer edge and outside the hole.
 /// `stroke` is the widths (top, right, bottom, left); `radii_at` says which
 /// edge of the stroke the radii are the corners of (0 outer, 1 the hole's).
+/// Along the arc of a rounded corner whose other side has no stroke the ring
+/// goes on at the same width, and reaches past that side as far as the
+/// stroke reaches past its own.
 fn rounded_stroke_alpha(
     local: vec2<f32>,
     half_size: vec2<f32>,
@@ -319,36 +399,147 @@ fn rounded_stroke_alpha(
 ) -> f32 {
     let widths = max(stroke, vec4<f32>(0.0));
     let radius = pick_radius(local, radii_h, radii_v);
-    // The sides that meet at this quadrant's corner.
-    var across = widths.y;
-    if (local.x < 0.0) { across = widths.w; }
-    var along = widths.z;
-    if (local.y < 0.0) { along = widths.x; }
+    let sides = quadrant_widths(local, widths);
+    let corner = ring_widths(local, half_size, radius, sides, radii_at);
+
+    // How far the outer edge is past the rect on each side, and the hole's
+    // edge inside it.
+    let reach = radii_at * (corner - sides);
+    var outward = vec4<f32>(0.0);
+    var insets = vec4<f32>(
+        stroke_inset(widths.x),
+        stroke_inset(widths.y),
+        stroke_inset(widths.z),
+        stroke_inset(widths.w),
+    );
+    if (local.x < 0.0) {
+        outward.w = reach.x;
+        insets.w = stroke_inset(corner.x);
+    } else {
+        outward.y = reach.x;
+        insets.y = stroke_inset(corner.x);
+    }
+    if (local.y < 0.0) {
+        outward.x = reach.y;
+        insets.x = stroke_inset(corner.y);
+    } else {
+        outward.z = reach.y;
+        insets.z = stroke_inset(corner.y);
+    }
 
     var outer_r = vec2<f32>(0.0, 0.0);
     var hole_r = vec2<f32>(0.0, 0.0);
     if (radius.x > 0.0) {
-        outer_r.x = radius.x + radii_at * across;
-        hole_r.x = max(outer_r.x - stroke_inset(across), 0.0);
+        outer_r.x = radius.x + radii_at * corner.x;
+        hole_r.x = max(outer_r.x - stroke_inset(corner.x), 0.0);
     }
     if (radius.y > 0.0) {
-        outer_r.y = radius.y + radii_at * along;
-        hole_r.y = max(outer_r.y - stroke_inset(along), 0.0);
+        outer_r.y = radius.y + radii_at * corner.y;
+        hole_r.y = max(outer_r.y - stroke_inset(corner.y), 0.0);
     }
-    let outer_dist = sd_rounded_box(local, half_size, outer_r);
-
-    let top = stroke_inset(widths.x);
-    let right = stroke_inset(widths.y);
-    let bottom = stroke_inset(widths.z);
-    let left = stroke_inset(widths.w);
-    let hole_half = max(vec2<f32>(
-        half_size.x - 0.5 * (left + right),
-        half_size.y - 0.5 * (top + bottom),
-    ), vec2<f32>(0.0, 0.0));
-    let hole_centre = vec2<f32>(0.5 * (left - right), 0.5 * (top - bottom));
-    let hole_dist = sd_rounded_box(local - hole_centre, hole_half, hole_r);
+    let outer = inset_box(half_size, -outward);
+    let outer_dist = sd_rounded_box(local - outer.xy, outer.zw, outer_r);
+    let hole = inset_box(half_size, insets - outward);
+    let hole_dist = sd_rounded_box(local - hole.xy, hole.zw, hole_r);
     let dist = max(outer_dist, -hole_dist);
     return clamp(0.5 - dist / subsample_aa_width(dist), 0.0, 1.0);
+}
+
+/// Where `local` is around the corner of its quadrant: 0 on the top or
+/// bottom side, 1 on the left or right one, the angle in between along a
+/// rounded corner's arc. In a square corner, and inside the arc's centre of a
+/// stroke wider than its corner, the two sides meet on the line from the
+/// outer corner to the hole's, a pixel wide.
+fn corner_turn(
+    local: vec2<f32>,
+    half_size: vec2<f32>,
+    radii_h: vec4<f32>,
+    radii_v: vec4<f32>,
+    stroke: vec4<f32>,
+    radii_at: f32,
+) -> f32 {
+    let widths = max(stroke, vec4<f32>(0.0));
+    let radius = pick_radius(local, radii_h, radii_v);
+    let sides = quadrant_widths(local, widths);
+    let corner = corner_widths(sides, radius);
+    // Mirrored into the bottom-right quadrant.
+    let p = abs(local);
+    let edge = half_size + radii_at * (corner - sides);
+    var outer_r = vec2<f32>(0.0, 0.0);
+    if (radius.x > 0.0 && radius.y > 0.0) {
+        outer_r = radius + radii_at * corner;
+    }
+    let d = p - (edge - outer_r);
+    if (d.x > 0.0 && d.y > 0.0 && outer_r.x > 0.0) {
+        return atan2(d.x / outer_r.x, d.y / outer_r.y) * 0.63661977;
+    }
+    if (d.x <= 0.0 && d.y > 0.0) {
+        return 0.0;
+    }
+    if (d.x > 0.0 && d.y <= 0.0) {
+        return 1.0;
+    }
+    let to_edge = edge - p;
+    let span = max(length(corner), 1e-4);
+    return clamp(0.5 + (to_edge.y * corner.x - to_edge.x * corner.y) / span, 0.0, 1.0);
+}
+
+/// How much of the stroke shows at `local` along a rounded corner where one
+/// of the sides that meet has none: it fades out from the side with a
+/// stroke to the other. In a quadrant whose sides both have none, only the
+/// band of a far side wide enough to reach into it (more than half the rect)
+/// shows: not the end of an arc that goes on past the middle of a side, as
+/// round a pill whose stroke is outside it. 1 anywhere else.
+fn corner_fade_at(
+    local: vec2<f32>,
+    half_size: vec2<f32>,
+    radii_h: vec4<f32>,
+    radii_v: vec4<f32>,
+    stroke: vec4<f32>,
+    radii_at: f32,
+) -> f32 {
+    let widths = max(stroke, vec4<f32>(0.0));
+    let radius = pick_radius(local, radii_h, radii_v);
+    let sides = quadrant_widths(local, widths);
+    if (sides.x <= 0.0 && sides.y <= 0.0) {
+        var far = vec2<f32>(widths.w, widths.x);
+        if (local.x < 0.0) { far.x = widths.y; }
+        if (local.y < 0.0) { far.y = widths.z; }
+        // How far the point is from the far edges, less a pixel for their ramps.
+        let from_far = half_size + abs(local) - vec2<f32>(1.0, 1.0);
+        return select(0.0, 1.0, any(from_far < far));
+    }
+    if (radius.x <= 0.0 || radius.y <= 0.0 || (sides.x > 0.0) == (sides.y > 0.0)) {
+        return 1.0;
+    }
+    let turn = corner_turn(local, half_size, radii_h, radii_v, stroke, radii_at);
+    if (sides.y > 0.0) {
+        return corner_fade(1.0 - turn);
+    }
+    return corner_fade(turn);
+}
+
+/// The stroke's color at `local` when its sides have colors of their own,
+/// four at `offset` in `gradients` (top, right, bottom, left): a side's own
+/// along it, mixed across a corner where two sides with a stroke meet.
+fn stroke_side_color(
+    offset: i32,
+    local: vec2<f32>,
+    half_size: vec2<f32>,
+    radii_h: vec4<f32>,
+    radii_v: vec4<f32>,
+    stroke: vec4<f32>,
+    radii_at: f32,
+) -> vec4<f32> {
+    let sides = quadrant_widths(local, max(stroke, vec4<f32>(0.0)));
+    var across = gradients[offset + 1];
+    if (local.x < 0.0) { across = gradients[offset + 3]; }
+    var along = gradients[offset + 2];
+    if (local.y < 0.0) { along = gradients[offset]; }
+    if (sides.y <= 0.0) { return across; }
+    if (sides.x <= 0.0) { return along; }
+    let turn = corner_turn(local, half_size, radii_h, radii_v, stroke, radii_at);
+    return mix(along, across, corner_color_mix(turn));
 }
 
 fn supersampled_fill_alpha(local: vec2<f32>, half_size: vec2<f32>, radii_h: vec4<f32>, radii_v: vec4<f32>) -> f32 {
@@ -565,17 +756,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    var base_color = in.color;
-    if (in.gradient_offset >= 0.0) {
-        let off = i32(in.gradient_offset + 0.5);
-        if (i32(gradients[off].x) >= 1) {
-            base_color = sample_gradient(off, in.local, in.half_size);
-        }
-    }
-
     let max_stroke = max(max(in.stroke.x, in.stroke.y), max(in.stroke.z, in.stroke.w));
 
+    var base_color = in.color;
     if (max_stroke <= 0.0) {
+        if (in.gradient_offset >= 0.0) {
+            let off = i32(in.gradient_offset + 0.5);
+            if (i32(gradients[off].x) >= 1) {
+                base_color = sample_gradient(off, in.local, in.half_size);
+            }
+        }
         if (in.pattern.x > 0.5) {
             let shadow_alpha = box_shadow_alpha(in.local, in.half_size, in.radii_h, in.radii_v, in.pattern, in.shadow_sigma);
             if (shadow_alpha <= 0.0) { discard; }
@@ -588,10 +778,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     // A stroke's pattern holds its dash (y), its gap (z) and the edge its radii are at (w).
-    var alpha = supersampled_stroke_alpha(in.local, in.half_size, in.radii_h, in.radii_v, in.stroke, in.pattern.w);
+    let radii_at = in.pattern.w;
+    var alpha = supersampled_stroke_alpha(in.local, in.half_size, in.radii_h, in.radii_v, in.stroke, radii_at);
+    if (alpha > 0.0) {
+        alpha = alpha * corner_fade_at(in.local, in.half_size, in.radii_h, in.radii_v, in.stroke, radii_at);
+    }
     if (alpha > 0.0 && in.pattern.y > 0.0 && in.pattern.z > 0.0) {
         let place = outline_position(in.local, in.half_size, in.radii_h, in.stroke);
         alpha = alpha * dash_coverage(place.x, place.y, in.pattern.y, in.pattern.z);
+    }
+    // A stroke whose sides differ in color has the four (top, right, bottom,
+    // left) in `gradients`, where a fill keeps its gradient.
+    if (alpha > 0.0 && in.gradient_offset >= 0.0) {
+        let off = i32(in.gradient_offset + 0.5);
+        base_color = stroke_side_color(off, in.local, in.half_size, in.radii_h, in.radii_v, in.stroke, radii_at);
     }
 
     if (alpha <= 0.0) {

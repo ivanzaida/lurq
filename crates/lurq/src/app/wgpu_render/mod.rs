@@ -1727,7 +1727,10 @@ impl RenderEngine for WgpuRenderEngine {
           transform: r.transform,
           xf_origin: r.transform_origin,
           shadow_sigma: 0.0,
-          gradient_offset: -1.0,
+          gradient_offset: crate::layout::render_list::encode_stroke_colors(
+            &mut self.scratch_gradient_data,
+            &r.stroke_style,
+          ),
         });
       }
       self.scratch_rect_draws.push(PreparedDraw {

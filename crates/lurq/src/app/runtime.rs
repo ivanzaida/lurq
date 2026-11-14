@@ -10052,7 +10052,11 @@ fn draw_screenshot_rect(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rec
     rect.stroke_color.b(),
     rect.stroke_color.a(),
   ];
-  if rect.stroke.iter().any(|width| *width > 0.0) && stroke[3] > 0 {
+  let visible = match rect.stroke_style.side_colors {
+    Some(colors) => colors.iter().any(|color| color.a() > 0),
+    None => stroke[3] > 0,
+  };
+  if rect.stroke.iter().any(|width| *width > 0.0) && visible {
     draw_screenshot_stroke(pixels, bounds, rect, stroke);
   }
 }
@@ -10264,10 +10268,19 @@ fn screenshot_draw_rect(
 
 #[cfg(feature = "devtools")]
 fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, rect: &RectCmd, color: [u8; 4]) {
-  let Some(draw) = screenshot_draw_rect(bounds, rect.x, rect.y, rect.width, rect.height, rect.clip) else {
+  // Round a corner where it ends, a stroke outside the box or centred on its edge reaches past its rect.
+  let reach = rect.stroke_style.outset(rect.stroke);
+  let Some(draw) = screenshot_draw_rect(
+    bounds,
+    rect.x - reach,
+    rect.y - reach,
+    rect.width + 2.0 * reach,
+    rect.height + 2.0 * reach,
+    rect.clip,
+  ) else {
     return;
   };
-  // The ring and its dashes are the ones the quad shaders paint.
+  // The ring, its fade, its dashes and its colors are the ones the quad shaders paint.
   let shape = crate::layout::stroke::StrokeShape {
     half: [rect.width * 0.5, rect.height * 0.5],
     radii: screenshot_effective_rect_radii(bounds, rect),
@@ -10275,6 +10288,10 @@ fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, r
     style: rect.stroke_style,
   };
   let centre = (rect.x + shape.half[0], rect.y + shape.half[1]);
+  let side_colors = rect
+    .stroke_style
+    .side_colors
+    .map(|colors| colors.map(|color| color.to_linear_f32_array()));
 
   for py in draw.y0..draw.y1 {
     for px in draw.x0..draw.x1 {
@@ -10285,10 +10302,18 @@ fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, r
       if clipped <= 0.0 {
         continue;
       }
-      let world_x = bounds.x as f32 + px as f32 + 0.5;
-      let world_y = bounds.y as f32 + py as f32 + 0.5;
-      let coverage = clipped * crate::layout::stroke::stroke_coverage(world_x - centre.0, world_y - centre.1, &shape);
+      let (x, y) = (
+        bounds.x as f32 + px as f32 + 0.5 - centre.0,
+        bounds.y as f32 + py as f32 + 0.5 - centre.1,
+      );
+      let coverage = clipped * crate::layout::stroke::stroke_coverage(x, y, &shape);
       if coverage > 0.0 {
+        let color = match side_colors {
+          Some(colors) => {
+            screenshot_mixed_stroke_color(colors, crate::layout::stroke::side_color_weights(x, y, &shape))
+          }
+          None => color,
+        };
         blend_screenshot_pixel(
           pixels,
           bounds.width,
@@ -10299,6 +10324,33 @@ fn draw_screenshot_stroke(pixels: &mut [u8], bounds: DevtoolsScreenshotBounds, r
       }
     }
   }
+}
+
+/// The colors of a stroke's sides (linear) mixed by `weights`, in linear light as the quad shaders mix them,
+/// and encoded back to sRGB.
+#[cfg(feature = "devtools")]
+fn screenshot_mixed_stroke_color(colors: [[f32; 4]; 4], weights: [f32; 4]) -> [u8; 4] {
+  let mut mixed = [0.0_f32; 4];
+  for (color, weight) in colors.iter().zip(weights) {
+    for (channel, value) in mixed.iter_mut().zip(color) {
+      *channel += value * weight;
+    }
+  }
+  let encode = |linear: f32| {
+    let c = linear.clamp(0.0, 1.0);
+    let srgb = if c <= 0.003_130_8 {
+      c * 12.92
+    } else {
+      1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (srgb * 255.0).round() as u8
+  };
+  [
+    encode(mixed[0]),
+    encode(mixed[1]),
+    encode(mixed[2]),
+    (mixed[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+  ]
 }
 
 #[cfg(feature = "devtools")]
@@ -12358,6 +12410,8 @@ fn push_border_rects(
   let sides = [borders.top, borders.right, borders.bottom, borders.left];
   let mut used = [false; 4];
 
+  // The sides placed alike and dashed alike are one stroke, whatever their widths and colors, so that they
+  // meet in one shape and their colors mix across the corners between them.
   for side in 0..4 {
     let Some(border) = sides[side] else {
       continue;
@@ -12367,12 +12421,21 @@ fn push_border_rects(
     }
 
     let mut stroke = [0.0; 4];
+    let mut colors = [border.color; 4];
     for other_side in side..4 {
-      if sides[other_side] == Some(border) {
+      if let Some(other) = sides[other_side]
+        && other.placement == border.placement
+        && other.dash == border.dash
+      {
         used[other_side] = true;
-        stroke[other_side] = border.width * scale;
+        stroke[other_side] = other.width * scale;
+        colors[other_side] = other.color;
       }
     }
+    let side_colors = colors
+      .iter()
+      .any(|color| *color != border.color)
+      .then(|| colors.map(|color| apply_opacity(color, opacity)));
 
     push_border_rect(
       rects,
@@ -12385,6 +12448,7 @@ fn push_border_rects(
       border_radius,
       border,
       stroke,
+      side_colors,
       opacity,
       transform,
       origin_abs,
@@ -12405,6 +12469,7 @@ fn push_border_rect(
   border_radius: Option<BorderRadius>,
   border: ResolvedBorder,
   stroke: [f32; 4],
+  side_colors: Option<[Color; 4]>,
   opacity: f32,
   transform: [f32; 4],
   origin_abs: [f32; 2],
@@ -12415,7 +12480,8 @@ fn push_border_rect(
   }
 
   // A border on one side of a box with square corners at its ends is a filled band, which lands on whole
-  // pixels. With a round corner there it follows the corner, and dashed it is cut: both are strokes.
+  // pixels. With a round corner there it goes round the corner and fades out, and dashed it is cut: both are
+  // strokes.
   let radii = scaled_radii(border_radius, scale, base_w, base_h);
   let dashed = border.dash[0] > 0.0 && border.dash[1] > 0.0;
   if let Some(side) = single_stroke_side(stroke)
@@ -12474,6 +12540,7 @@ fn push_border_rect(
     stroke_style: crate::layout::render_list::StrokeStyle {
       dash: border.dash.map(|length| length * scale),
       radii_at,
+      side_colors,
     },
     transform,
     transform_origin: [origin_abs[0] - x, origin_abs[1] - y],
