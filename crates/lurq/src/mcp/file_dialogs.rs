@@ -21,6 +21,9 @@ pub(crate) const LIST_TOOL: &str = "lurq_file_dialogs";
 pub(crate) const RESPOND_TOOL: &str = "lurq_file_dialog_respond";
 const MAX_PENDING: usize = 32;
 
+/// The broker registered last; see [`FileDialogBroker::registered`].
+static REGISTERED: Mutex<Weak<Mutex<State>>> = Mutex::new(Weak::new());
+
 pub(crate) fn scope() -> Scope {
   Scope::custom("file_dialogs")
 }
@@ -59,6 +62,14 @@ impl FileDialogBroker {
     );
     state.attached = true;
     state.shared = Arc::downgrade(shared);
+    drop(state);
+    *REGISTERED.lock().unwrap() = Arc::downgrade(&self.0);
+  }
+
+  /// The broker registered last in this process, while it lives: what lurq's own
+  /// [`FileDialog`](crate::files::FileDialog) asks before it opens a system dialog.
+  pub(crate) fn registered() -> Option<Self> {
+    REGISTERED.lock().unwrap().upgrade().map(Self)
   }
 
   fn permitted(state: &State) -> bool {

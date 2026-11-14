@@ -14,6 +14,7 @@ pub mod canvas;
 pub mod clipboard;
 pub mod components;
 pub mod core;
+pub mod files;
 #[cfg(feature = "raster")]
 pub mod images;
 pub mod layout;

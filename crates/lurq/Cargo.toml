@@ -45,6 +45,8 @@ resources = ["dep:ureq"]
 screenshot = ["dep:image"]
 # `serde_json` writes and reads the Profiler tab's recording files.
 devtools = ["screenshot", "dep:rfd", "dep:serde_json", "perf_profile"]
+# The system's dialog for files to open behind `lurq::files::FileDialog` (`rfd`; none on iOS).
+file_dialog = ["dep:rfd"]
 perf_profile = []
 # `lurq::app::profiler::CountingAllocator`, a global allocator wrapper the
 # application installs so profiling sessions report allocations per frame.
@@ -133,6 +135,9 @@ web-sys = { version = "0.3", features = [
     "Element",
     "Event",
     "EventTarget",
+    # A file the browser's file input gives (`lurq::files`).
+    "File",
+    "Blob",
     "History",
     "HtmlCanvasElement",
     "HtmlElement",
@@ -168,7 +173,7 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
-# The DevTools save dialog. `rfd` has no iOS backend and does not compile there.
+# The DevTools save dialog and `lurq::files::FileDialog`. `rfd` has no iOS backend and does not compile there.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 rfd = { version = "0.15", optional = true }
 
