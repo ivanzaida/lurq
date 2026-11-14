@@ -872,7 +872,7 @@ fn group_recipe() -> Recipe {
 /// it says of all of them (invalid, disabled). The group is one stop of Tab, at the selected card or the first; the
 /// arrow keys move the focus to the next card and select it, Home and End the first and the last, and a disabled
 /// one is passed by, as in a [`RadioGroup`](super::RadioGroup).
-pub struct RadioCardGroup<T> {
+pub struct RadioCardGroup<T = ()> {
   cards: Vec<(T, RadioCard)>,
   selected: Option<T>,
   set: Option<Arc<dyn Fn(T) + Send + Sync>>,
@@ -998,7 +998,7 @@ impl<T: Send + Sync + 'static> Themed for RadioCardGroup<T> {
 /// ```
 ///
 /// Each card is its own stop of Tab, and Space or Enter presses the one the focus is on.
-pub struct CheckboxCardGroup<T> {
+pub struct CheckboxCardGroup<T = ()> {
   cards: Vec<(T, CheckboxCard)>,
   checked: Vec<T>,
   bound: Option<Turn<T>>,

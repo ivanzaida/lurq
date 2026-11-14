@@ -464,3 +464,24 @@ fn a_group_has_an_orientation_its_states_and_its_rules() {
   // A forced focus draws the ring of the first box.
   assert!(stage.has_ring(light(PaletteColor::Ring)));
 }
+
+#[test]
+fn a_theme_names_the_group_without_its_type_and_styles_a_group_of_any() {
+  use lurq::ui::{CheckboxGroup, CheckboxGroupPart, Choice};
+  let app = App::new();
+  app
+    .theme()
+    .patch_recipe::<CheckboxGroup>(|rules| rules.base(CheckboxGroupPart::Root, |s| s.gap(30.0)));
+  let stage = Stage::in_app(app, |_| {
+    Column::new()
+      .padding(8.0)
+      .child(CheckboxGroup::controlled(
+        Vec::<u8>::new(),
+        [Choice::new(1u8, "Monday"), Choice::new(2, "Tuesday")],
+        |_| {},
+      ))
+      .into()
+  });
+  let (monday, tuesday) = (stage.text_quad("Monday").unwrap(), stage.text_quad("Tuesday").unwrap());
+  assert!((tuesday.y - monday.y - (monday.height.max(16.0) + 30.0)).abs() < 0.01);
+}

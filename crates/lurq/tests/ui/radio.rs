@@ -571,3 +571,20 @@ fn a_group_has_its_states_its_rules_and_a_forced_radio() {
     yes.y
   );
 }
+
+#[test]
+fn a_theme_names_the_group_without_its_type_and_styles_a_group_of_any() {
+  let app = App::new();
+  app
+    .theme()
+    .patch_recipe::<RadioGroup>(|rules| rules.base(RadioGroupPart::Root, |s| s.gap(30.0)));
+  let stage = Stage::in_app(app, |_| {
+    Row::new()
+      .padding(8.0)
+      .child(RadioGroup::controlled(Some(1u8), [(0u8, "Yes"), (1, "No")], |_| {}))
+      .into()
+  });
+  let (yes, no) = (mark_of(&stage, "Yes"), mark_of(&stage, "No"));
+  let row = stage.text_quad("Yes").unwrap().height.max(16.0);
+  assert_eq!(no.y - yes.y, row + 30.0);
+}
