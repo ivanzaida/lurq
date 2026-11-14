@@ -36,6 +36,8 @@ mod menu;
 mod menubar;
 mod message_box;
 mod multi_select;
+mod navbar;
+mod navigation_menu;
 mod number_input;
 mod outcome;
 mod overview;
@@ -553,6 +555,24 @@ pub const PAGES: &[Page] = &[
             current page badge count shortcut header footer workspace account drawer overlay narrow",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<sidebar::SidebarPage>(()),
+  },
+  Page {
+    path: "/navbar",
+    name: "Navbar",
+    icon: None,
+    about: "navbar nav bar header top bar app bar site navigation links brand logo search avatar account menu \
+            current page sticky narrow mobile hamburger drawer",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<navbar::NavbarPage>(()),
+  },
+  Page {
+    path: "/navigation-menu",
+    name: "Navigation Menu",
+    icon: None,
+    about: "navigation menu mega menu nav links panel dropdown hover delay columns featured card site header \
+            disclosure",
+    group: Group::Navigation,
+    mount: |ctx| ctx.mount::<navigation_menu::NavigationMenuPage>(()),
   },
   Page {
     path: "/badge",

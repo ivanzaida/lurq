@@ -52,6 +52,8 @@ mod menu;
 mod menubar;
 mod message_box;
 mod multi_select;
+mod navbar;
+mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;
@@ -170,6 +172,11 @@ pub use message_box::{
   MessageBoxView,
 };
 pub use multi_select::{MultiSelect, MultiSelectPart, MultiSelectRenderer, MultiSelectView};
+pub use navbar::{Navbar, NavbarBrand, NavbarPart, NavbarRenderer, NavbarState, NavbarView};
+pub use navigation_menu::{
+  NavItem, NavLink, NavPanel, NavigationMenu, NavigationMenuPart, NavigationMenuRenderer, NavigationMenuState,
+  NavigationMenuVariant, NavigationMenuView,
+};
 pub use number_input::{
   NumberFormat, NumberInput, NumberInputLayout, NumberInputPart, NumberInputRenderer, NumberInputSize,
   NumberInputState, NumberInputView,
