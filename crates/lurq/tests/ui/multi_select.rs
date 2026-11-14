@@ -363,3 +363,31 @@ fn in_a_field_it_is_judged_and_chooses() {
   stage.key("Enter");
   assert_eq!(values(&value), ["wgsl"]);
 }
+
+#[test]
+fn the_options_follow_the_density() {
+  use lurq::app::theme::Density;
+  for (density, height) in [
+    (Density::Compact, 24.0),
+    (Density::Default, 32.0),
+    (Density::Comfortable, 40.0),
+    (Density::Touch, 44.0),
+  ] {
+    let app = lurq::app::App::new();
+    app.theme().set_density(density);
+    let value = chosen(&[]);
+    let mut stage = Stage::in_app(app, move |_| {
+      window()
+        .padding(8.0)
+        .child(MultiSelect::new(value.clone(), languages()).id("languages"))
+        .into()
+    });
+    stage.click("languages");
+    let (rust, wgsl) = (middle_of(&stage, "Rust"), middle_of(&stage, "WGSL"));
+    assert!(
+      (wgsl.1 - rust.1 - height).abs() < 0.5,
+      "{density:?}: {height} apart, not {}",
+      wgsl.1 - rust.1
+    );
+  }
+}

@@ -154,7 +154,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/button",
     name: "Button",
-    icon: None,
+    icon: Some("hand-pointer"),
     about: "variant size shape icon icon_only loading disabled full_width on_click pill primary secondary outline ghost destructive",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<button::ButtonPage>(()),
@@ -162,7 +162,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/link",
     name: "Link",
-    icon: None,
+    icon: Some("external-link"),
     about: "link text underline external navigate",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::LinkPage>(()),
@@ -170,7 +170,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/toggle",
     name: "Toggle",
-    icon: None,
+    icon: Some("star"),
     about: "toggle on off pressed state bold",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::TogglePage>(()),
@@ -178,7 +178,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/toggle-group",
     name: "Toggle Group",
-    icon: None,
+    icon: Some("bold"),
     about: "toggle group single multiple choice alignment",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::ToggleGroupPage>(()),
@@ -186,7 +186,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/segmented-control",
     name: "Segmented Control",
-    icon: None,
+    icon: Some("rows-2"),
     about: "segmented control segment track choice tabs",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::SegmentedControlPage>(()),
@@ -194,7 +194,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/button-group",
     name: "Button Group",
-    icon: None,
+    icon: Some("duplicate"),
     about: "button group split joined separator",
     group: Group::Actions,
     mount: |ctx| ctx.mount::<family::ButtonGroupPage>(()),
@@ -202,7 +202,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/input",
     name: "Input",
-    icon: None,
+    icon: Some("text-cursor"),
     about: "input field text entry label description error hint required optional placeholder icon invalid read only form",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<input::InputPage>(()),
@@ -210,7 +210,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/textarea",
     name: "Textarea",
-    icon: None,
+    icon: Some("pencil"),
     about: "textarea multiline text rows placeholder invalid disabled scroll bio note",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<textarea::TextareaPage>(()),
@@ -218,7 +218,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/checkbox",
     name: "Checkbox",
-    icon: None,
+    icon: Some("check"),
     about: "checkbox check box tick indeterminate select all form option",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<checkbox::CheckboxPage>(()),
@@ -226,7 +226,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/radio",
     name: "Radio",
-    icon: None,
+    icon: Some("dot-circle"),
     about: "radio group choice option chosen one of exclusive",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<radio::RadioPage>(()),
@@ -234,7 +234,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/switch",
     name: "Switch",
-    icon: None,
+    icon: Some("bolt"),
     about: "switch on off setting track thumb toggle dark mode",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<switch::SwitchPage>(()),
@@ -242,7 +242,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/slider",
     name: "Slider",
-    icon: None,
+    icon: Some("sliders"),
     about: "slider range value min max step track thumb volume drag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<slider::SliderPage>(()),
@@ -250,7 +250,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/popover",
     name: "Popover",
-    icon: None,
+    icon: Some("message"),
     about: "popover panel overlay popup anchor placement dismiss escape outside title description",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<popover::PopoverPage>(()),
@@ -258,7 +258,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/menu",
     name: "Menu",
-    icon: None,
+    icon: Some("menu"),
     about: "menu dropdown item command shortcut separator label group checked destructive disabled popup anchor split",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<menu::MenuPage>(()),
@@ -266,7 +266,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/dialog",
     name: "Dialog",
-    icon: None,
+    icon: Some("window"),
     about: "dialog modal veil scrim overlay confirm title description footer close escape scroll",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<dialog::DialogPage>(()),
@@ -274,7 +274,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/select",
     name: "Select",
-    icon: None,
+    icon: Some("chevrons-vertical"),
     about: "select dropdown choose option list menu placeholder chevron value time zone",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<select::SelectPage>(()),
@@ -282,7 +282,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/checkbox-card",
     name: "Checkbox Card",
-    icon: None,
+    icon: Some("check-circle"),
     about: "checkbox card choice tile option add-on plan price icon description checked group",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<checkbox_card::CheckboxCardPage>(()),
@@ -290,7 +290,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/radio-card",
     name: "Radio Card",
-    icon: None,
+    icon: Some("circle"),
     about: "radio card choice tile option plan price icon description chosen group exclusive",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<radio_card::RadioCardPage>(()),
@@ -298,7 +298,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/fieldset",
     name: "Fieldset",
-    icon: None,
+    icon: Some("rows-4"),
     about: "fieldset legend group fields disabled form error summary errors alert attention link focus",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<fieldset::FieldsetPage>(()),
@@ -306,7 +306,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/input-otp",
     name: "Input OTP",
-    icon: None,
+    icon: Some("shield"),
     about: "input otp one time code verification pin two factor 2fa cells digits paste autofill mask",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<input_otp::InputOtpPage>(()),
@@ -314,7 +314,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/password-input",
     name: "Password Input",
-    icon: None,
+    icon: Some("lock"),
     about: "password input masked secret reveal show hide eye strength meter weak strong new password",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<password_input::PasswordInputPage>(()),
@@ -322,7 +322,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/search-field",
     name: "Search Field",
-    icon: None,
+    icon: Some("search"),
     about: "search field query filter find clear escape enter submit shortcut key hint searchbox",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<search_field::SearchFieldPage>(()),
@@ -330,7 +330,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/input-group",
     name: "Input Group",
-    icon: None,
+    icon: Some("link"),
     about: "input group addon prefix suffix before after https url domain unit button select joined",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<input_group::InputGroupPage>(()),
@@ -338,7 +338,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/number-input",
     name: "Number Input",
-    icon: None,
+    icon: Some("plus"),
     about: "number input numeric stepper spin button quantity price min max step precision format prefix suffix",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<number_input::NumberInputPage>(()),
@@ -346,7 +346,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/combobox",
     name: "Combobox",
-    icon: None,
+    icon: Some("chevron-down"),
     about: "combobox autocomplete typeahead search filter select option list type custom value fetch loading no results",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<combobox::ComboboxPage>(()),
@@ -354,7 +354,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/multi-select",
     name: "Multi Select",
-    icon: None,
+    icon: Some("list"),
     about: "multi select multiple choose several tags tokens chips checkbox list filter max shown clear",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<multi_select::MultiSelectPage>(()),
@@ -362,7 +362,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/token-input",
     name: "Token Input",
-    icon: None,
+    icon: Some("users"),
     about: "token input tags chips tag list recipients variables template tokens remove backspace",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<token_input::TokenInputPage>(()),
@@ -370,7 +370,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/mentions",
     name: "Mentions",
-    icon: None,
+    icon: Some("mail"),
     about: "mentions mention at people trigger suggestions autocomplete comment prompt slash command hashtag",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<mentions::MentionsPage>(()),
@@ -378,7 +378,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/calendar",
     name: "Calendar",
-    icon: None,
+    icon: Some("calendar-days"),
     about: "calendar date day month week range picker grid today weekday locale first day week numbers",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<calendar::CalendarPage>(()),
@@ -386,7 +386,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/date-picker",
     name: "Date Picker",
-    icon: None,
+    icon: Some("calendar"),
     about: "date picker datepicker calendar day field typed parse format popover due date birthday",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<date_picker::DatePickerPage>(()),
@@ -394,7 +394,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/date-range-picker",
     name: "Date Range Picker",
-    icon: None,
+    icon: Some("calendar-range"),
     about: "date range picker period from to start end calendar presets last 7 days two months stay report",
     group: Group::Inputs,
     mount: |ctx| ctx.mount::<date_range_picker::DateRangePickerPage>(()),
@@ -402,7 +402,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/tooltip",
     name: "Tooltip",
-    icon: None,
+    icon: Some("info"),
     about: "tooltip hint hover focus delay shortcut arrow side placement overlay label describe",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<tooltip::TooltipPage>(()),
@@ -410,7 +410,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/toast",
     name: "Toast",
-    icon: None,
+    icon: Some("bell"),
     about: "toast snackbar notification message transient success error warning info action undo timer corner stack dismiss",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toast::ToastPage>(()),
@@ -418,7 +418,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/card",
     name: "Card",
-    icon: None,
+    icon: Some("square"),
     about: "card surface panel tile header title description action content footer outline elevated filled pressed interactive settings stat",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<card::CardPage>(()),
@@ -426,7 +426,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/sheet",
     name: "Sheet",
-    icon: None,
+    icon: Some("layers"),
     about: "sheet side panel edge slide start end top bottom drawer grabber veil scrim modal dialog detent drag",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<sheet::SheetPage>(()),
@@ -434,7 +434,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/drawer",
     name: "Drawer",
-    icon: None,
+    icon: Some("panel-right-close"),
     about: "drawer navigation sidebar side panel push aside region open close width overlay veil",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<drawer::DrawerPage>(()),
@@ -442,7 +442,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/message-box",
     name: "Message Box",
-    icon: None,
+    icon: Some("alert-octagon"),
     about: "message box alert dialog alertdialog confirm question warning error information answer default cancel destructive checkbox ask again detail",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<message_box::MessageBoxPage>(()),
@@ -450,7 +450,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/popconfirm",
     name: "Popconfirm",
-    icon: None,
+    icon: Some("help-circle"),
     about: "popconfirm confirm popover question yes no delete destructive anchor inline",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<popconfirm::PopconfirmPage>(()),
@@ -458,7 +458,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/progress-dialog",
     name: "Progress Dialog",
-    icon: None,
+    icon: Some("hourglass"),
     about: "progress dialog copy export install work bar percent count status cancel pause details indeterminate",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<progress_dialog::ProgressDialogPage>(()),
@@ -466,7 +466,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/hover-card",
     name: "Hover Card",
-    icon: None,
+    icon: Some("eye"),
     about: "hover card preview profile person link file details popover delay pointer rest focus tab arrow",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<hover_card::HoverCardPage>(()),
@@ -474,7 +474,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/toggletip",
     name: "Toggletip",
-    icon: None,
+    icon: Some("cursor"),
     about: "toggletip info help question button press tooltip status screen reader touch link learn more",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<toggletip::ToggletipPage>(()),
@@ -482,7 +482,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/teaching-tip",
     name: "Teaching Tip",
-    icon: None,
+    icon: Some("lightbulb"),
     about: "teaching tip coach mark onboarding tour step next back guide callout feature discovery arrow",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<teaching_tip::TeachingTipPage>(()),
@@ -490,7 +490,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/command-palette",
     name: "Command Palette",
-    icon: None,
+    icon: Some("terminal"),
     about: "command palette search find run go to quick open launcher spotlight ctrl k filter group shortcut keywords",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<command_palette::CommandPalettePage>(()),
@@ -498,7 +498,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/context-menu",
     name: "Context Menu",
-    icon: None,
+    icon: Some("more-vertical"),
     about: "context menu right click secondary press long press shift f10 menu key edit bar cut copy paste overflow more",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<context_menu::ContextMenuPage>(()),
@@ -506,7 +506,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/tabs",
     name: "Tabs",
-    icon: None,
+    icon: Some("folder"),
     about: "tabs tab list panel section view switch line pill vertical count overflow scroll more menu",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<tabs::TabsPage>(()),
@@ -514,7 +514,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/accordion",
     name: "Accordion",
-    icon: None,
+    icon: Some("rows-3"),
     about: "accordion collapsible disclosure expand collapse section faq question answer panel chevron details",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<accordion::AccordionPage>(()),
@@ -522,7 +522,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/breadcrumb",
     name: "Breadcrumb",
-    icon: None,
+    icon: Some("chevron-right"),
     about: "breadcrumb trail path way steps link current page separator chevron slash ellipsis collapsed max items navigation",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<breadcrumb::BreadcrumbPage>(()),
@@ -530,7 +530,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/pagination",
     name: "Pagination",
-    icon: None,
+    icon: Some("skip-forward"),
     about: "pagination pages page next previous ellipsis compact rows per page table footer results",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<pagination::PaginationPage>(()),
@@ -538,7 +538,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/steps",
     name: "Steps",
-    icon: None,
+    icon: Some("list-numbered"),
     about: "steps stepper wizard progress stage current done to come error vertical horizontal",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<steps::StepsPage>(()),
@@ -546,7 +546,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/tree-view",
     name: "Tree View",
-    icon: None,
+    icon: Some("list-tree"),
     about: "tree view treeview file tree explorer folder file nested hierarchy expand collapse outline lazy guides multiple select",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<tree_view::TreeViewPage>(()),
@@ -554,7 +554,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/menubar",
     name: "Menubar",
-    icon: None,
+    icon: Some("more-horizontal"),
     about: "menubar menu bar file edit view help title bar app menus mnemonic alt keyboard shortcut submenu",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<menubar::MenubarPage>(()),
@@ -562,7 +562,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/toolbar",
     name: "Toolbar",
-    icon: None,
+    icon: Some("wrench"),
     about: "toolbar tools bar row buttons toggles group separator spacer overflow more menu command bar ribbon table formatting",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<toolbar::ToolbarPage>(()),
@@ -570,7 +570,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/action-bar",
     name: "Action Bar",
-    icon: None,
+    icon: Some("archive"),
     about: "action bar selection selected bulk actions count clear escape floating bottom top contextual",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<action_bar::ActionBarPage>(()),
@@ -587,7 +587,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/navbar",
     name: "Navbar",
-    icon: None,
+    icon: Some("dashboard"),
     about: "navbar nav bar header top bar app bar site navigation links brand logo search avatar account menu \
             current page sticky narrow mobile hamburger drawer",
     group: Group::Navigation,
@@ -596,7 +596,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/navigation-menu",
     name: "Navigation Menu",
-    icon: None,
+    icon: Some("share-nodes"),
     about: "navigation menu mega menu nav links panel dropdown hover delay columns featured card site header \
             disclosure",
     group: Group::Navigation,
@@ -605,7 +605,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/badge",
     name: "Badge",
-    icon: None,
+    icon: Some("inbox"),
     about: "badge status label count counter dot indicator unread notification variant success warning info destructive outline",
     group: Group::Data,
     mount: |ctx| ctx.mount::<badge::BadgePage>(()),
@@ -613,7 +613,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/tag",
     name: "Tag",
-    icon: None,
+    icon: Some("tag"),
     about: "tag chip pill label keyword category remove filter choice selected chip group",
     group: Group::Data,
     mount: |ctx| ctx.mount::<tag::TagPage>(()),
@@ -621,7 +621,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/avatar",
     name: "Avatar",
-    icon: None,
+    icon: Some("user"),
     about: "avatar initials picture image photo profile person user presence online away busy offline group stack overlap more count",
     group: Group::Data,
     mount: |ctx| ctx.mount::<avatar::AvatarPage>(()),
@@ -629,7 +629,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/separator",
     name: "Separator",
-    icon: None,
+    icon: Some("minus"),
     about: "separator divider line rule horizontal vertical label or toolbar section",
     group: Group::Data,
     mount: |ctx| ctx.mount::<separator::SeparatorPage>(()),
@@ -637,7 +637,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/spinner",
     name: "Spinner",
-    icon: None,
+    icon: Some("spinner"),
     about: "spinner loader loading busy wait ring dots bars indeterminate status overlay veil inline",
     group: Group::Data,
     mount: |ctx| ctx.mount::<spinner::SpinnerPage>(()),
@@ -645,7 +645,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/skeleton",
     name: "Skeleton",
-    icon: None,
+    icon: Some("image"),
     about: "skeleton placeholder loading line circle block paragraph pulse shimmer media row card",
     group: Group::Data,
     mount: |ctx| ctx.mount::<skeleton::SkeletonPage>(()),
@@ -653,7 +653,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/progress",
     name: "Progress",
-    icon: None,
+    icon: Some("battery"),
     about: "progress bar ring indeterminate loading upload value max percent label top bar meter variant size",
     group: Group::Data,
     mount: |ctx| ctx.mount::<progress::ProgressPage>(()),
@@ -661,7 +661,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/alert",
     name: "Alert",
-    icon: None,
+    icon: Some("warning"),
     about: "alert message notice error warning success info destructive severity status callout inline dismiss close action",
     group: Group::Data,
     mount: |ctx| ctx.mount::<alert::AlertPage>(()),
@@ -669,7 +669,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/banner",
     name: "Banner",
-    icon: None,
+    icon: Some("megaphone"),
     about: "banner announcement bar top window page notice update offline sticky dismiss close link centered",
     group: Group::Data,
     mount: |ctx| ctx.mount::<banner::BannerPage>(()),
@@ -677,7 +677,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/callout",
     name: "Callout",
-    icon: None,
+    icon: Some("quote"),
     about: "callout note tip warning caution admonition aside hint prose document bar form",
     group: Group::Data,
     mount: |ctx| ctx.mount::<callout::CalloutPage>(()),
@@ -685,7 +685,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/kbd",
     name: "Kbd",
-    icon: None,
+    icon: Some("keyboard"),
     about: "kbd key keyboard shortcut hotkey chord sequence accelerator mac command glyph inline code mono",
     group: Group::Data,
     mount: |ctx| ctx.mount::<kbd::KbdPage>(()),
@@ -693,7 +693,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/empty-state",
     name: "Empty State",
-    icon: None,
+    icon: Some("folder-open"),
     about: "empty state blank no results nothing zero data placeholder illustration call to action",
     group: Group::Data,
     mount: |ctx| ctx.mount::<empty_state::EmptyStatePage>(()),
@@ -701,7 +701,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/result",
     name: "Result",
-    icon: None,
+    icon: Some("sparkles"),
     about: "result outcome success error warning info not found 404 done finished page dialog",
     group: Group::Data,
     mount: |ctx| ctx.mount::<outcome::OutcomePage>(()),
@@ -709,7 +709,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/table",
     name: "Table",
-    icon: None,
+    icon: Some("table"),
     about: "table data rows columns sort sortable select selection checkbox header sticky scroll virtualized thousands density empty loading skeleton pagination footer grid",
     group: Group::Data,
     mount: |ctx| ctx.mount::<table::TablePage>(()),
@@ -717,7 +717,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/splitter",
     name: "Splitter",
-    icon: None,
+    icon: Some("resize-horizontal"),
     about: "splitter split pane panes resizable resize divider handle grip drag sidebar editor terminal layout collapse",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<splitter::SplitterPage>(()),

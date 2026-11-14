@@ -363,6 +363,8 @@ impl Themed for Accordion {
           .line_height(1.5)
           .foreground(MutedForeground)
       })
+      // A row of the density's height: 14 above and under the label at the default, the steps of a row apart.
+      .by_density(super::Selector::new(), Trigger, |s, step| s.padding_y(14.0 + step / 2.0))
       .focus_visible(Trigger, |s| s.focus_ring())
       .state(CollapsibleState::Disabled, Trigger, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)

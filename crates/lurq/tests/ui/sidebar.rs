@@ -713,3 +713,161 @@ fn a_theme_restyles_its_parts() {
   let mut stage = stage_in(app, |ctx| layout(ctx, board()));
   assert_eq!(stage.fill_color("sidebar"), Some(light(PaletteColor::Canvas)));
 }
+
+/// A sidebar of 40 pages in a window 300 high, `selected` the one selected, and a press of an item selecting it.
+fn pages(ctx: &mut Ctx, selected: &Signal<usize>) -> Element {
+  let mut sidebar = Sidebar::new().id("sidebar").narrow(false);
+  for index in 0..40 {
+    let choose = selected.clone();
+    sidebar = sidebar.item(
+      SidebarItem::new(&format!("Page {index}"))
+        .id(format!("page-{index}"))
+        .selected(selected.get() == index)
+        .on_select(move || choose.set(index)),
+    );
+  }
+  Row::new()
+    .size(1024.0, 300.0)
+    .child(sidebar.mount(ctx))
+    .child(page())
+    .into()
+}
+
+/// Whether the item `id` is all inside the sidebar's height.
+fn in_view(stage: &mut Stage, id: &str) -> bool {
+  let (_, y, _, height) = stage.bounds(id);
+  y >= 0.0 && y + height <= 300.0
+}
+
+#[test]
+fn the_selected_item_is_scrolled_into_view_when_the_selection_moves_from_elsewhere() {
+  let selected = Signal::new(0usize);
+  let held = selected.clone();
+  let mut stage = stage(move |ctx| pages(ctx, &held));
+  assert!(!in_view(&mut stage, "page-30"), "past the height at the start");
+  // A search, a router, a link of the page: the app selects another item.
+  selected.set(30);
+  stage.pass();
+  stage.pass();
+  assert!(in_view(&mut stage, "page-30"), "the selected item is shown");
+  assert_eq!(stage.fill_color("page-30"), Some(light(PaletteColor::Background)));
+  // Back to the first: scrolled back to it.
+  selected.set(0);
+  stage.pass();
+  stage.pass();
+  assert!(in_view(&mut stage, "page-0"));
+}
+
+#[test]
+fn the_item_selected_at_the_start_is_scrolled_into_view() {
+  let selected = Signal::new(35usize);
+  let mut stage = stage(move |ctx| pages(ctx, &selected));
+  stage.pass();
+  assert!(in_view(&mut stage, "page-35"), "an app that starts at a page shows it");
+}
+
+#[test]
+fn a_selection_that_moves_into_a_closed_list_opens_it() {
+  let selected = Signal::new(false);
+  let held = selected.clone();
+  let mut stage = stage(move |ctx| {
+    let buttons = held.get();
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(SidebarItem::new("Inbox").id("inbox").selected(!buttons))
+        .item(
+          SidebarItem::new("Components")
+            .id("components")
+            .child(SidebarItem::new("Buttons").id("buttons").selected(buttons)),
+        ),
+    )
+  });
+  assert!(!stage.paints("Buttons"), "closed at the start");
+  selected.set(true);
+  stage.pass();
+  assert!(stage.paints("Buttons"), "opened to show the selected item");
+  assert_eq!(stage.fill_color("buttons"), Some(light(PaletteColor::Background)));
+}
+
+#[test]
+fn a_closed_item_holding_the_selected_item_is_marked_as_it_is() {
+  let mut stage = stage(|ctx| {
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(SidebarItem::new("Overview").id("overview"))
+        .item(
+          SidebarItem::new("Components")
+            .id("components")
+            .open(false)
+            .child(SidebarItem::new("Buttons").id("buttons").selected(true)),
+        ),
+    )
+  });
+  assert!(!stage.paints("Buttons"), "the app closed it");
+  assert_eq!(
+    stage.fill_color("components"),
+    Some(light(PaletteColor::Background)),
+    "it stands for the selected item it does not show"
+  );
+  // Tab stops on it, where the selected item would be: Enter opens it.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(stage.paints("Buttons"), "Tab stopped on Components");
+  // Open, the selected item is marked and the item that holds it is not.
+  assert_eq!(stage.fill_color("buttons"), Some(light(PaletteColor::Background)));
+  assert_eq!(stage.fill_color("components"), None);
+}
+
+#[test]
+fn a_closed_group_holding_the_selected_item_has_its_label_in_the_foreground() {
+  let mut stage = stage(|ctx| {
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .group(SidebarGroup::new("Project").item(SidebarItem::new("Overview").id("overview")))
+        .group(
+          SidebarGroup::new("Team")
+            .collapsible(true)
+            .open(false)
+            .item(SidebarItem::new("Members").id("members").selected(true)),
+        ),
+    )
+  });
+  assert!(!stage.paints("Members"));
+  assert_eq!(
+    stage.text("TEAM").0,
+    light(PaletteColor::Foreground),
+    "it holds the selected item"
+  );
+  assert_eq!(stage.text("PROJECT").0, light(PaletteColor::MutedForeground));
+  // Tab stops on its label, where the selected item would be: Enter opens it.
+  stage.key("Tab");
+  stage.key("Enter");
+  assert!(stage.paints("Members"), "Tab stopped on the group's label");
+  assert_eq!(
+    stage.text("TEAM").0,
+    light(PaletteColor::MutedForeground),
+    "open, the item is marked itself"
+  );
+}
+
+#[test]
+fn an_items_height_follows_the_density() {
+  use lurq::app::theme::Density;
+  for (density, height) in [
+    (Density::Compact, 24.0),
+    (Density::Default, 32.0),
+    (Density::Comfortable, 40.0),
+    (Density::Touch, 44.0),
+  ] {
+    let app = App::new();
+    app.theme().set_density(density);
+    let mut stage = stage_in(app, |ctx| layout(ctx, board()));
+    assert_eq!(stage.bounds("overview").3, height, "{density:?}");
+  }
+}

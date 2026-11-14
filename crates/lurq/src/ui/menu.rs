@@ -1058,6 +1058,8 @@ impl Themed for MenuItem {
       })
       .base(Check, |s| s.square(IconSize::Md))
       .base(Chevron, |s| s.square(IconSize::Md).foreground(MutedForeground))
+      // A row of the density's height: 32 at the default, 24, 40 and 44 at the others.
+      .row_density(super::Selector::new(), Root, 32.0)
       .hovered(Root, |s| s.background(Highlight))
       .focus_visible(Root, |s| s.background(Highlight))
       .state(MenuItemState::Expanded, Root, |s| s.background(Highlight))

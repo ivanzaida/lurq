@@ -461,7 +461,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | `Theme::bare()`, a recipe replaced whole (D8) | built |
 | Sizes, variants and states by name (D11) | built: they are names everywhere |
 | Rules by breakpoint (D13) | built: `Recipe::at`, `Selector::breakpoint` |
-| The density a theme is at, and rules by density | built: `Theme::set_density`, `Recipe::density`, `Selector::density`. No recipe of the design has such a rule yet |
+| The density a theme is at, and rules by density | built: `Theme::set_density`, `Recipe::density`, `Selector::density`, and `Recipe::row_density` with `ROW_STEPS` (a row 8 lower at compact, 8 and 12 higher at comfortable and touch). The design's rows follow it: Menu (and so ContextMenu, Menubar's menus, CommandPalette), Select, Combobox, MultiSelect, TreeView, Tabs, Accordion's headers, Sidebar. Controls keep their sizes |
 | Scoped themes | built: `Ctx::in_theme` reaches what a component takes from the theme as it is built, and the element it returns carries the theme, which layout and paint read the roles of its nodes from (14.4) |
 | Presentation options | not started: no component has one yet |
 | Behavior as public pieces (D10) | started: a view hands a renderer the wired root (`ButtonView::root`); nothing of it is promised yet |

@@ -493,3 +493,32 @@ fn a_theme_restyles_the_items_and_another_renderer_still_chooses() {
   press_at(&mut stage, gpui);
   assert_eq!(value.get(), "gpui");
 }
+
+#[test]
+fn the_options_follow_the_density() {
+  use lurq::app::theme::Density;
+  for (density, height) in [
+    (Density::Compact, 24.0),
+    (Density::Default, 32.0),
+    (Density::Comfortable, 40.0),
+    (Density::Touch, 44.0),
+  ] {
+    let app = App::new();
+    app.theme().set_density(density);
+    let value = Signal::new("lurq".to_owned());
+    let mut stage = Stage::in_app(app, move |_| {
+      window()
+        .padding(8.0)
+        .child(Combobox::new(value.clone(), frameworks()).id("framework"))
+        .into()
+    });
+    assert_eq!(stage.bounds("framework").3, 36.0, "{density:?}: the box is a control");
+    stage.click("framework");
+    let (lurq, gpui) = (middle_of(&stage, "lurq"), middle_of(&stage, "GPUI"));
+    assert!(
+      (gpui.1 - lurq.1 - height).abs() < 0.5,
+      "{density:?}: {height} apart, not {}",
+      gpui.1 - lurq.1
+    );
+  }
+}

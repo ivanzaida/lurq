@@ -726,3 +726,25 @@ fn typing_a_letter_goes_to_the_item_whose_label_starts_with_it() {
   stage.key("Enter");
   assert_eq!(*chosen.lock().unwrap(), ["copy"]);
 }
+
+#[test]
+fn an_items_height_follows_the_density() {
+  use lurq::app::theme::Density;
+  for (density, height) in [
+    (Density::Compact, 24.0),
+    (Density::Default, 32.0),
+    (Density::Comfortable, 40.0),
+    (Density::Touch, 44.0),
+  ] {
+    let app = App::new();
+    app.theme().set_density(density);
+    let anchor = ElementRef::new();
+    let mut stage = Stage::in_app(app, move |_| {
+      page(
+        anchor.clone(),
+        Menu::new(anchor.clone(), true).item(MenuItem::new("Undo").id("undo")),
+      )
+    });
+    assert_eq!(stage.bounds("undo").3, height, "{density:?}");
+  }
+}

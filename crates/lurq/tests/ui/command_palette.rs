@@ -397,3 +397,21 @@ fn a_themes_rules_change_it() {
   assert_eq!((x, width), (50.0, 500.0));
   assert_eq!(stage.fill_color("palette"), Some(light(PaletteColor::Muted)));
 }
+
+#[test]
+fn a_rows_height_follows_the_density() {
+  use lurq::app::theme::Density;
+  for (density, height) in [
+    (Density::Compact, 24.0),
+    (Density::Default, 32.0),
+    (Density::Comfortable, 40.0),
+    (Density::Touch, 44.0),
+  ] {
+    let app = App::new();
+    app.theme().set_density(density);
+    let open = Signal::new(true);
+    let (_, tell) = log();
+    let mut stage = stage_in(app, move |_| palette(open.clone(), tell.clone()).into());
+    assert_eq!(stage.bounds("dark").3, height, "{density:?}");
+  }
+}

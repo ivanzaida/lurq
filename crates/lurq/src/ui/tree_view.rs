@@ -1211,6 +1211,9 @@ impl<T: Send + Sync + 'static> Themed for TreeView<T> {
       // A step is 16: the chevron of 14 and 2 after it, so that the guide in its middle is under the chevron's.
       .base(Indent, |s| s.width(16.0).padding_end(2.0))
       .base(Guide, |s| s.width(1.0).height(30.0).background(PaletteColor::Border))
+      // A row of the density's height, 28 at the default, 20, 36 and 40 at the others; its guide with it.
+      .row_density(super::Selector::new(), Row, 28.0)
+      .row_density(super::Selector::new(), Guide, 30.0)
       .base(Content, |s| s.gap(6.0))
       .base(Chevron, |s| s.square(IconSize::Sm).foreground(MutedForeground))
       .base(Icon, |s| s.square(IconSize::Md).foreground(MutedForeground))

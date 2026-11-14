@@ -530,3 +530,30 @@ fn a_theme_gives_the_tabs_another_anatomy_and_they_still_select() {
   stage.click("shortcuts");
   assert_eq!(*asked.lock().unwrap(), [2]);
 }
+
+#[test]
+fn a_tabs_height_follows_the_density_in_each_form() {
+  use lurq::app::theme::Density;
+  for (density, step) in [
+    (Density::Compact, -8.0),
+    (Density::Default, 0.0),
+    (Density::Comfortable, 8.0),
+    (Density::Touch, 12.0),
+  ] {
+    for (variant, height) in [
+      (TabsVariant::Default, 28.0),
+      (TabsVariant::Line, 44.0),
+      (TabsVariant::Pill, 30.0),
+    ] {
+      let app = App::new();
+      app.theme().set_density(density);
+      let mut stage = Stage::in_app(app, move |_| {
+        Row::new()
+          .padding(8.0)
+          .child(Tabs::controlled(0, settings(), |_| {}).variant(variant))
+          .into()
+      });
+      assert_eq!(stage.bounds("general").3, height + step, "{variant:?} at {density:?}");
+    }
+  }
+}

@@ -658,3 +658,24 @@ fn what_an_item_marks_shows_at_the_row_end_only_while_the_row_is_pointed_at_or_f
   assert_eq!(focused(&stage).as_deref(), Some("a"));
   assert!(shown(&stage), "the row with the focus");
 }
+
+#[test]
+fn a_rows_height_follows_the_density() {
+  for (density, height) in [
+    (Density::Compact, 20.0),
+    (Density::Default, 28.0),
+    (Density::Comfortable, 36.0),
+    (Density::Touch, 40.0),
+  ] {
+    let app = App::new();
+    app.theme().set_density(density);
+    let held = Held::new(&["crates"], None);
+    let mut stage = Stage::in_app(app, move |_| {
+      Column::new().padding(8.0).child(held.tree(files())).into()
+    });
+    let (_, top, _, row) = stage.bounds("crates");
+    let (_, next, ..) = stage.bounds("lurq");
+    assert_eq!(row, height, "{density:?}");
+    assert!((next - top - (height + 2.0)).abs() < 0.01, "{density:?}: 2 apart");
+  }
+}
