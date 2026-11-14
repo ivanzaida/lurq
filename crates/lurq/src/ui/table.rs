@@ -106,8 +106,8 @@ pub enum TableState {
   Mono,
   /// A cell of a column of numbers: at its end, in the mono type, smaller and muted.
   Numeric,
-  /// A cell of the column that stays while the rows scroll sideways.
-  Sticky,
+  /// A cell or a header of a column that stays while the rows scroll sideways ([`ColumnPin`]).
+  Pinned,
   /// It has a footer under its rows.
   Footer,
   /// It takes no input.
@@ -123,7 +123,7 @@ names!(TableState {
   Muted => "muted",
   Mono => "mono",
   Numeric => "numeric",
-  Sticky => "sticky",
+  Pinned => "pinned",
   Footer => "footer",
   Disabled => "disabled",
 });
@@ -211,6 +211,18 @@ pub enum ColumnAlign {
   End,
 }
 
+/// Where a column stays while the rows scroll sideways under the others.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ColumnPin {
+  /// It scrolls with the rows.
+  #[default]
+  None,
+  /// It stays at the start: a name, an id. The columns pinned there are the first ones, one after another.
+  Start,
+  /// It stays at the end: a row's actions, a total. The columns pinned there are the last ones.
+  End,
+}
+
 type CellFn<R> = Arc<dyn Fn(&R) -> Element + Send + Sync>;
 type TextFn<R> = Arc<dyn Fn(&R) -> String + Send + Sync>;
 type CompareFn<R> = Arc<dyn Fn(&R, &R) -> Ordering + Send + Sync>;
@@ -257,7 +269,7 @@ pub struct TableColumn<R> {
   track: TrackSpec,
   align: ColumnAlign,
   sortable: bool,
-  sticky: bool,
+  pin: ColumnPin,
   controls: bool,
   kinds: Vec<Name>,
   content: Content<R>,
@@ -273,7 +285,7 @@ impl<R> Clone for TableColumn<R> {
       track: self.track,
       align: self.align,
       sortable: self.sortable,
-      sticky: self.sticky,
+      pin: self.pin,
       controls: self.controls,
       kinds: self.kinds.clone(),
       content: self.content.clone(),
@@ -293,7 +305,7 @@ impl<R: 'static> TableColumn<R> {
       track: TrackSpec::share(1.0),
       align: ColumnAlign::Start,
       sortable: false,
-      sticky: false,
+      pin: ColumnPin::None,
       controls: false,
       kinds: Vec::new(),
       content: Content::Nothing,
@@ -407,10 +419,13 @@ impl<R: 'static> TableColumn<R> {
     self.sort_by(move |a, b| key(a).cmp(&key(b)))
   }
 
-  /// Whether the column stays at the start while the rows scroll sideways under the others. Only the first
-  /// column stays; with the column of checkboxes, both do.
-  pub fn sticky(mut self, sticky: bool) -> Self {
-    self.sticky = sticky;
+  /// Where the column stays while the rows scroll sideways under the others: at the start or at the end. The
+  /// columns pinned at the start are the first ones, one after another, the column of checkboxes before them;
+  /// those at the end are the last ones. A column pinned where others between it and its end are not scrolls
+  /// with them. Pinned columns after the first are best given a width of their own: where each stays is reckoned
+  /// from the widths of those before it.
+  pub fn pin(mut self, pin: ColumnPin) -> Self {
+    self.pin = pin;
     self
   }
 
@@ -941,17 +956,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let count = self.columns.len();
     let mut specs = Vec::with_capacity(count + 1);
     if self.with_checkboxes() {
-      let lead = if self.sticky_lead() {
-        geometry.padding_start
-      } else {
-        0.0
-      };
+      let lead = if self.pins().0 > 0 { geometry.padding_start } else { 0.0 };
       specs.push(TrackSpec::px(geometry.select + geometry.gap + lead));
     }
     for (index, column) in self.columns.iter().enumerate() {
       let mut extra = if index + 1 < count { geometry.gap } else { 0.0 };
-      if index == 0 && column.sticky && !self.with_checkboxes() {
+      let (start, end) = self.pins();
+      if index == 0 && start > 0 && !self.with_checkboxes() {
         extra += geometry.padding_start;
+      }
+      // A row whose last columns stay holds its padding at the end in the last cell, which covers it.
+      if index + 1 == count && end > 0 {
+        extra += geometry.padding_end;
       }
       let mut spec = column.track;
       if let TrackWidth::Px(px) = spec.width {
@@ -968,9 +984,20 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     specs
   }
 
-  /// Whether the cells at the start stay while the rows scroll sideways: the first column says so.
-  fn sticky_lead(&self) -> bool {
-    self.columns.first().is_some_and(|column| column.sticky)
+  /// How many columns stay at the start and how many at the end: the first ones pinned at the start, one
+  /// after another, and the last ones pinned at the end.
+  fn pins(&self) -> (usize, usize) {
+    let start = self
+      .columns
+      .iter()
+      .take_while(|column| column.pin == ColumnPin::Start)
+      .count();
+    let end = self.columns[start..]
+      .iter()
+      .rev()
+      .take_while(|column| column.pin == ColumnPin::End)
+      .count();
+    (start, end)
   }
 
   /// The table as a renderer sees it, with the rows of `window` where it builds some of them.
@@ -980,7 +1007,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let geometry = Geometry::of(&recipe);
     let selectable = self.selectable();
     let checkboxes = self.with_checkboxes();
-    let sticky = self.sticky_lead();
+    let (start_pins, end_pins) = self.pins();
+    let sticky = start_pins > 0;
     let footer = self.count || self.pagination.is_some();
     let count = self.rows.len();
 
@@ -994,7 +1022,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             .clone()
             .state(TableState::Selected, selected)
             .state(TableState::Last, last)
-            .state(TableState::Sticky, sticky);
+            .state(TableState::Pinned, sticky);
           self.resolve(theme, &case)
         })
         .clone()
@@ -1004,10 +1032,11 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       cell_recipes
         .entry((column, selected))
         .or_insert_with(|| {
+          let pinned = column < start_pins || column + end_pins >= self.columns.len();
           let mut case = case
             .clone()
             .state(TableState::Selected, selected)
-            .state(TableState::Sticky, column == 0 && sticky);
+            .state(TableState::Pinned, pinned);
           case.states.extend(self.columns[column].kinds.iter().copied());
           self.resolve(theme, &case)
         })
@@ -1037,7 +1066,28 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     } else {
       0.0
     };
-    let sticky_of = |column: usize| (column == 0 && sticky).then_some(lead_inset);
+    // Where each pinned column stays: after the checkboxes and the pinned columns before it at the start, before
+    // the pinned columns after it at the end. Each is as wide as its track is known to be.
+    let track_widths = tracks.widths(None, 0.0);
+    let lead_tracks = usize::from(checkboxes);
+    let width_of = |column: usize| track_widths.get(column + lead_tracks).copied().unwrap_or(0.0);
+    let columns_count = self.columns.len();
+    let sticky_of = |column: usize| -> Option<Sticky> {
+      if column < start_pins {
+        Some(Sticky::left(lead_inset + (0..column).map(width_of).sum::<f32>()))
+      } else if column + end_pins >= columns_count {
+        Some(Sticky::right((column + 1..columns_count).map(width_of).sum::<f32>()))
+      } else {
+        None
+      }
+    };
+    let trail_of = |column: usize| {
+      if column + 1 == columns_count && end_pins > 0 {
+        geometry.padding_end
+      } else {
+        0.0
+      }
+    };
     let table_fill = recipe.part(TablePart::Root).rest().background;
     let header_fill = recipe.part(TablePart::Header).rest().background;
     let cell_ends = |column: usize| column + 1 == self.columns.len();
@@ -1086,7 +1136,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               content,
               part,
               align: column.align,
-              sticky: sticky_of(column_index),
+              pinned: sticky_of(column_index),
               fill: sticky_of(column_index).map(|_| stuck_fill.clone()),
               controls: column.controls,
               last: cell_ends(column_index),
@@ -1096,6 +1146,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               } else {
                 0.0
               },
+              trail: trail_of(column_index),
             }
           })
           .collect();
@@ -1110,7 +1161,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           name,
           cells,
           checkbox: checkboxes,
-          sticky,
+          pinned_start: sticky,
+          pinned_end: end_pins > 0,
           lead_fill: sticky.then(|| stuck_fill.clone()),
           entry: entry == Some(index),
           recipe,
@@ -1144,7 +1196,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .clone()
           .state(TableState::Sortable, sortable)
           .state(TableState::Sorted, sorted.is_some())
-          .state(TableState::Sticky, column_index == 0 && sticky);
+          .state(TableState::Pinned, sticky_of(column_index).is_some());
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
           let (write, handlers, next) = (
             self.write_sort.clone(),
@@ -1166,7 +1218,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           align: column.align,
           sortable,
           sorted,
-          sticky: sticky_of(column_index),
+          pinned: sticky_of(column_index),
           last: cell_ends(column_index),
           fill: sticky_of(column_index).and(header_fill.clone()),
           gap: geometry.gap,
@@ -1175,6 +1227,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           } else {
             0.0
           },
+          trail: trail_of(column_index),
           recipe: self.resolve(theme, &header_case),
           press,
           id: id_of(&format!("header-{}", column.id)),
@@ -1217,7 +1270,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       rows,
       selectable,
       checkboxes,
-      sticky,
+      pinned_start: sticky,
+      pinned_end: end_pins > 0,
       lead_inset,
       selection: match (all, some) {
         (true, _) => Some(true),
@@ -1267,6 +1321,8 @@ pub struct Geometry {
   pub gap: f32,
   /// The padding at the start of a row.
   pub padding_start: f32,
+  /// The padding at the end of a row.
+  pub padding_end: f32,
   /// The width of the column of checkboxes.
   pub select: f32,
 }
@@ -1281,6 +1337,7 @@ impl Geometry {
     Self {
       gap: spacing(row.gap),
       padding_start: spacing(row.padding_start.or(row.padding_x)),
+      padding_end: spacing(row.padding_end.or(row.padding_x)),
       select: px(select.width, theme).unwrap_or(16.0),
     }
   }
@@ -1444,8 +1501,10 @@ pub struct TableView {
   pub selectable: bool,
   /// Whether it has the column of checkboxes.
   pub checkboxes: bool,
-  /// Whether the cells at the start stay while the rows scroll sideways.
-  pub sticky: bool,
+  /// Whether the cells at the start stay while the rows scroll sideways ([`ColumnPin::Start`]).
+  pub pinned_start: bool,
+  /// Whether the cells at the end stay ([`ColumnPin::End`]).
+  pub pinned_end: bool,
   /// Where the first column stays from the start, after the checkbox's.
   pub lead_inset: f32,
   /// Whether every row is selected: `Some(true)` all, `Some(false)` none, `None` some.
@@ -1541,8 +1600,11 @@ impl TableView {
       .focus_group(FocusGroup::horizontal().one_stop(true).wrap(false))
       .describe("a11y_role", "row")
       .describe("a11y_rowindex", "1");
-    if self.sticky {
+    if self.pinned_start {
       header = header.padding_left(0.0);
+    }
+    if self.pinned_end {
+      header = header.padding_right(0.0);
     }
     if self.checkboxes {
       header = header.child(self.select_all());
@@ -1566,8 +1628,8 @@ impl TableView {
     if let Some(id) = &self.id {
       checkbox = checkbox.id(format!("{id}-select-all"));
     }
-    let mut cell = lead_cell(&part, self.geometry, self.sticky).child(checkbox.build(self.theme()));
-    if self.sticky {
+    let mut cell = lead_cell(&part, self.geometry, self.pinned_start).child(checkbox.build(self.theme()));
+    if self.pinned_start {
       // It covers what scrolls under it, in the header's fill.
       cell = cell.sticky(Sticky::left(0.0));
       if let Some(fill) = self.part(TablePart::Header).rest().background {
@@ -1754,14 +1816,15 @@ pub struct TableHeader {
   pub sortable: bool,
   /// Which way the rows are sorted by it, if they are.
   pub sorted: Option<SortDirection>,
-  /// Where it stays from the start while the rows scroll sideways, if it does.
-  pub sticky: Option<f32>,
+  /// Where it stays while the rows scroll sideways, if its column is pinned.
+  pub pinned: Option<Sticky>,
   /// Whether it is the last column, with no room after it.
   pub last: bool,
   /// The fill of a header that stays: the header row's, over which the others scroll.
   pub fill: Option<BackgroundColor>,
   gap: f32,
   lead: f32,
+  trail: f32,
   /// The style of each part of the header, in its case.
   pub recipe: ResolvedRecipe,
   press: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -1792,11 +1855,14 @@ impl TableHeader {
     if !self.last {
       cell = cell.padding_right(self.gap);
     }
+    if self.trail > 0.0 {
+      cell = cell.padding_right(self.trail);
+    }
     if self.lead > 0.0 {
       cell = cell.padding_left(self.lead);
     }
-    if let Some(inset) = self.sticky {
-      cell = cell.sticky(Sticky::left(inset));
+    if let Some(pinned) = self.pinned {
+      cell = cell.sticky(pinned);
     }
     if let Some(fill) = self.fill.clone() {
       cell = cell.background(fill);
@@ -1866,8 +1932,8 @@ pub struct TableCell {
   /// The style of the cell, in the case of its column and its row.
   pub part: ResolvedPart,
   pub align: ColumnAlign,
-  /// Where it stays from the start while the rows scroll sideways, if it does.
-  pub sticky: Option<f32>,
+  /// Where it stays while the rows scroll sideways, if its column is pinned.
+  pub pinned: Option<Sticky>,
   /// Whether a press in it is its own, not the row's.
   pub controls: bool,
   /// Whether it is the last of the row, with no room after it.
@@ -1876,6 +1942,7 @@ pub struct TableCell {
   pub fill: Option<BackgroundColor>,
   gap: f32,
   lead: f32,
+  trail: f32,
 }
 
 impl TableCell {
@@ -1892,11 +1959,14 @@ impl TableCell {
     if !self.last {
       cell = cell.padding_right(self.gap);
     }
+    if self.trail > 0.0 {
+      cell = cell.padding_right(self.trail);
+    }
     if self.lead > 0.0 {
       cell = cell.padding_left(self.lead);
     }
-    if let Some(inset) = self.sticky {
-      cell = cell.sticky(Sticky::left(inset));
+    if let Some(pinned) = self.pinned {
+      cell = cell.sticky(pinned);
     }
     if let Some(fill) = self.fill {
       cell = cell.background(fill);
@@ -1922,7 +1992,9 @@ pub struct TableRow {
   /// Whether it has a checkbox before its cells.
   pub checkbox: bool,
   /// Whether the cells at its start stay while the rows scroll sideways.
-  pub sticky: bool,
+  pub pinned_start: bool,
+  /// Whether the cells at its end stay.
+  pub pinned_end: bool,
   /// The fill of the cells that stay, the row's, over which the others scroll.
   pub lead_fill: Option<BackgroundColor>,
   /// Whether Tab enters the rows at it.
@@ -1968,8 +2040,11 @@ impl TableRow {
     if self.host.is_some() {
       row = row.focus_row(self.index);
     }
-    if self.sticky {
+    if self.pinned_start {
       row = row.padding_left(0.0);
+    }
+    if self.pinned_end {
+      row = row.padding_right(0.0);
     }
     if let Some(name) = &self.name {
       row = row.describe("a11y_name", name.clone()).focus_label(name.clone());
@@ -2044,8 +2119,8 @@ impl TableRow {
       .checked(self.selected)
       .disabled(self.disabled)
       .build(self.recipe.theme());
-    let mut cell = lead_cell(&part, self.geometry, self.sticky).child(Row::new().inert(true).child(checkbox));
-    if self.sticky {
+    let mut cell = lead_cell(&part, self.geometry, self.pinned_start).child(Row::new().inert(true).child(checkbox));
+    if self.pinned_start {
       cell = cell.sticky(Sticky::left(0.0));
     }
     if let Some(fill) = self.lead_fill.clone() {
@@ -2424,14 +2499,14 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       })
       .base(Select, |s| s.width(16.0).cursor(CursorIcon::Pointer))
       // The cells that stay cover the row's veil with its fill: they have it themselves.
-      .when(Selector::new().state(TableState::Sticky).within().hovered(), TablePart::Cell, |s| {
+      .when(Selector::new().state(TableState::Pinned).within().hovered(), TablePart::Cell, |s| {
         s.veil(StateHover)
       })
-      .when(Selector::new().state(TableState::Sticky).within().pressed(), TablePart::Cell, |s| {
+      .when(Selector::new().state(TableState::Pinned).within().pressed(), TablePart::Cell, |s| {
         s.veil(StatePressed)
       })
-      .when(Selector::new().state(TableState::Sticky).within().hovered(), Select, |s| s.veil(StateHover))
-      .when(Selector::new().state(TableState::Sticky).within().pressed(), Select, |s| s.veil(StatePressed))
+      .when(Selector::new().state(TableState::Pinned).within().hovered(), Select, |s| s.veil(StateHover))
+      .when(Selector::new().state(TableState::Pinned).within().pressed(), Select, |s| s.veil(StatePressed))
       .base(Empty, |s| s.width(Length::Fill))
       .base(Footer, |s| s.height(44.0).padding_start(16.0).padding_end(8.0))
       .base(Count, |s| {

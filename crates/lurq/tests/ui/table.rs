@@ -17,7 +17,7 @@ use lurq::{
     quad::{Quad, QuadContent},
   },
   node::{Element, color::Color},
-  ui::{Button, Table, TableColumn, TablePart, TableRenderer, TableSort, TableView},
+  ui::{Button, ColumnPin, Table, TableColumn, TablePart, TableRenderer, TableSort, TableView},
 };
 
 use super::stage::Stage;
@@ -536,11 +536,67 @@ fn thumbs(stage: &Stage, (x, y, width, height): (f32, f32, f32, f32)) -> Vec<Qua
 }
 
 #[test]
+fn columns_pinned_at_both_ends_stay_while_the_ones_between_scroll_under_them() {
+  let mut stage = wide(|| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(160.0)
+        .pin(ColumnPin::Start)
+        .text(|row: &Crate| row.name.to_owned()),
+      TableColumn::new("status", "Status")
+        .width(400.0)
+        .text(|row: &Crate| row.status.to_owned()),
+      TableColumn::new("updated", "Updated")
+        .width(400.0)
+        .text(|row: &Crate| row.updated.to_owned()),
+      TableColumn::new("size", "Size")
+        .width(80.0)
+        .pin(ColumnPin::End)
+        .text(|row: &Crate| format!("{} KB", row.size)),
+    ];
+    Table::new(columns, crates())
+      .row_key(|row: &Crate| row.name)
+      .id("t")
+      .into()
+  });
+  let (x, y, width, _) = stage.bounds("t");
+  let at = |stage: &mut Stage, content: &str| within(stage, "t-row-0", content).map(|quad| quad.x);
+  let (name, size) = (at(&mut stage, "crates/lurq").unwrap(), at(&mut stage, "48 KB").unwrap());
+  let before = at(&mut stage, "2 min ago").unwrap();
+  assert!(
+    size + 40.0 < x + width,
+    "the size is in view at the end before any scroll"
+  );
+  assert!(
+    (size - (x + width - 1.0 - 16.0 - 80.0)).abs() < 1.5,
+    "at the end, padded 16: {}",
+    size - x
+  );
+
+  stage.tree.scroll(x + 300.0, y + 80.0, -300.0, 0.0, ScrollPhase::Scroll);
+  stage.pass();
+  assert!(
+    (at(&mut stage, "crates/lurq").unwrap() - name).abs() < 0.5,
+    "the name stays at the start"
+  );
+  assert!(
+    (at(&mut stage, "48 KB").unwrap() - size).abs() < 0.5,
+    "the size stays at the end"
+  );
+  let updated = at(&mut stage, "2 min ago").unwrap();
+  assert!(
+    (updated - (before - 300.0)).abs() < 0.5,
+    "the columns between scrolled: {}",
+    updated - x
+  );
+}
+
+#[test]
 fn the_bars_run_beside_the_rows_and_not_over_the_header_or_a_first_column_that_stays() {
   let rows = many(30);
   let mut stage = wide(move || {
     let mut columns = columns();
-    let name = columns.remove(0).sticky(true).min_width(400.0);
+    let name = columns.remove(0).pin(ColumnPin::Start).min_width(400.0);
     columns.insert(0, name);
     Table::new_shared(columns, rows.clone()).id("t").height(240.0).into()
   });
@@ -628,7 +684,7 @@ fn veils_at(stage: &Stage, color: Color, x: f32, y: f32) -> Vec<Quad> {
 fn a_first_column_that_stays_takes_its_rows_veil_under_the_pointer_and_held_down_and_not_from_the_focus() {
   let mut stage = wide(|| {
     let mut columns = columns();
-    let name = columns.remove(0).sticky(true);
+    let name = columns.remove(0).pin(ColumnPin::Start);
     columns.insert(0, name);
     Table::new(columns, crates())
       .row_key(|row: &Crate| row.name)

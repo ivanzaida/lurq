@@ -3701,7 +3701,7 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 | `TableColumn::width(px)`, `share(f32)`, `fit()`, `min_width(px)`, `max_width(px)` | Its width: in pixels, a share of what is left, or as wide as the widest of its cells shown, between a least and a most |
 | `TableColumn::align(ColumnAlign)`, `numeric()`, `mono(bool)`, `muted(bool)` | Where its content sits; a column of numbers (at its end, mono 12 in the muted color); its text in the mono type or the muted color |
 | `TableColumn::sortable(bool)`, `sort_by(\|a, b\|)`, `sort_key(\|row\|)` | A press of its header sorts the rows by it; what `TableSort::sort` compares rows by |
-| `TableColumn::sticky(bool)` | The first column stays at the start while the rows scroll sideways |
+| `TableColumn::pin(ColumnPin)` | Where the column stays while the rows scroll sideways: `Start` (the first columns, after the checkboxes) or `End` (the last columns, a row's actions); `None` unless told |
 | `TableColumn::controls(bool)`, `TableColumn::actions(id, cell)` | Its cells hold what is pressed, and a press of it is not the row's; a column of a row's buttons at its end |
 | `row_key(\|row\| K)` | What tells a row apart, which the selection and the handlers name it by. Without it, a row's place |
 | `sort(Signal<Option<TableSort>>)`, `sort_controlled(sort, on_change)` | What the rows are sorted by, the app's signal or its value: a press of a sortable header goes through ascending, descending and none |
