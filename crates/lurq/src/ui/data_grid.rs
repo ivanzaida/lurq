@@ -12,8 +12,8 @@ use std::{hash::Hash, sync::Arc};
 use super::{
   Interaction, Length, Name, PartStyle, Recipe,
   table::{
-    CellEdit, CellRange, ColumnLayout, ColumnMenuLabels, FilterLabels, GroupKey, SummaryLabels, Table, TableColumn,
-    TableCount, TableFilters, TableSort,
+    CellEdit, CellRange, ColumnLayout, ColumnMenuLabels, FilterLabels, GridPage, GridQuery, GridRequest, GroupKey,
+    SourceLabels, SourceRow, SummaryLabels, Table, TableColumn, TableCount, TableFilters, TableSort,
   },
 };
 use crate::{
@@ -126,6 +126,28 @@ use crate::{
 /// `gridcell`s with `a11y_colindex` and `a11y_readonly`, its headers `columnheader`s.
 pub struct DataGrid<R, K = usize> {
   table: Table<R, K>,
+}
+
+impl<X: Send + Sync + 'static> DataGrid<SourceRow<X>, usize> {
+  /// A grid over rows the app gives on demand, as a server's table gives them: there are `total` at first, and
+  /// as rows come into view the grid asks `fetch` for their range ([`GridRequest`]), which answers now or later
+  /// ([`GridPage`]: the rows and how many there are in all), through the engine's futures. Rows whose range has
+  /// not come are skeletons; a range that failed says so, with a retry. Each request carries the sort, the filters
+  /// and the search a person set ([`GridQuery`]): the app applies them, and another of them asks for every range
+  /// again. A row is told apart by its place; it is a [`SourceRow`], its row where it has come. The cells are not
+  /// edited, and the rows are not grouped or summed: those are the app's.
+  pub fn on_demand<Fut>(
+    columns: impl IntoIterator<Item = TableColumn<X>>,
+    total: usize,
+    fetch: impl Fn(GridRequest) -> Fut + Send + Sync + 'static,
+  ) -> Self
+  where
+    Fut: std::future::Future<Output = Result<GridPage<X>, String>> + Send + 'static,
+  {
+    DataGrid {
+      table: Table::over_source(columns, total, fetch).as_grid(),
+    }
+  }
 }
 
 impl<R: Send + Sync + 'static> DataGrid<R, usize> {
@@ -499,6 +521,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// What the grid's find bar is made of besides its query and matches: see [`Table::find_bar_with`].
   pub fn find_bar_with(self, with: impl Fn(super::FindBar) -> super::FindBar + Send + Sync + 'static) -> Self {
     self.with(|table| table.find_bar_with(with))
+  }
+
+  /// Called with what the rows are asked by each time a person changes it: see [`Table::on_query_change`].
+  pub fn on_query_change(self, handler: impl Fn(&GridQuery) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_query_change(handler))
+  }
+
+  /// The words of rows the app gives on demand: see [`Table::source_labels`].
+  pub fn source_labels(self, labels: SourceLabels) -> Self {
+    self.with(|table| table.source_labels(labels))
   }
 
   /// Whether the grid has a row of filters under its header: see [`Table::filter_row`].

@@ -5,7 +5,8 @@
 use std::{fmt, str::FromStr, sync::Arc};
 
 use super::{
-  ColumnFilter, ColumnLayout, ColumnPin, ColumnPlace, GroupKey, SortDirection, TableFilters, TableSort, TextMatch,
+  ColumnFilter, ColumnLayout, ColumnPin, ColumnPlace, GridQuery, GroupKey, SortDirection, TableFilters, TableSort,
+  TextMatch,
 };
 use crate::core::Date;
 
@@ -443,79 +444,85 @@ impl TableFilters {
     let mut filters = TableFilters::new();
     while !reader.done() {
       reader.opens("filter")?;
-      let id = reader.text()?;
-      let filter = match reader.word()?.as_str() {
-        word @ ("contains" | "starts_with" | "equals") => {
-          let text = reader.text()?;
-          reader.expect(Token::Close)?;
-          ColumnFilter::Text {
-            how: match word {
-              "contains" => TextMatch::Contains,
-              "starts_with" => TextMatch::StartsWith,
-              _ => TextMatch::Equals,
-            },
-            text,
-          }
-        }
-        "in" => ColumnFilter::Set(reader.texts_to_close()?),
-        first => {
-          // Pairs of a name and a value, up to the close.
-          let mut pairs = vec![(first.to_owned(), {
-            reader.expect(Token::Colon)?;
-            reader.word()?
-          })];
-          loop {
-            match reader.next()? {
-              Token::Close => break,
-              Token::Word(name) => {
-                reader.expect(Token::Colon)?;
-                pairs.push((name, reader.word()?));
-              }
-              _ => return None,
-            }
-          }
-          let value = |name: &str| {
-            pairs
-              .iter()
-              .find(|(held, _)| held == name)
-              .map(|(_, value)| value.clone())
-          };
-          match pairs[0].0.as_str() {
-            "at_least" | "at_most" => {
-              let number = |name: &str| -> Option<Option<f64>> {
-                match value(name) {
-                  None => Some(None),
-                  Some(text) => text.parse().ok().map(Some),
-                }
-              };
-              ColumnFilter::Number {
-                at_least: number("at_least")?,
-                at_most: number("at_most")?,
-              }
-            }
-            "from" | "to" => ColumnFilter::Date {
-              from: match value("from") {
-                Some(text) => Some(parse_date(&text)?),
-                None => None,
-              },
-              to: match value("to") {
-                Some(text) => Some(parse_date(&text)?),
-                None => None,
-              },
-            },
-            "is" => match value("is")?.as_str() {
-              "true" => ColumnFilter::Bool(true),
-              "false" => ColumnFilter::Bool(false),
-              _ => return None,
-            },
-            _ => return None,
-          }
-        }
-      };
+      let (id, filter) = read_filter(&mut reader)?;
       filters.set(&id, filter);
     }
     Some(filters)
   }
+}
+
+/// A filter after its `filter(`: its column's id and what it lets through, up to its `)`.
+fn read_filter(reader: &mut Reader) -> Option<(String, ColumnFilter)> {
+  let id = reader.text()?;
+  let filter = match reader.word()?.as_str() {
+    word @ ("contains" | "starts_with" | "equals") => {
+      let text = reader.text()?;
+      reader.expect(Token::Close)?;
+      ColumnFilter::Text {
+        how: match word {
+          "contains" => TextMatch::Contains,
+          "starts_with" => TextMatch::StartsWith,
+          _ => TextMatch::Equals,
+        },
+        text,
+      }
+    }
+    "in" => ColumnFilter::Set(reader.texts_to_close()?),
+    first => {
+      // Pairs of a name and a value, up to the close.
+      let mut pairs = vec![(first.to_owned(), {
+        reader.expect(Token::Colon)?;
+        reader.word()?
+      })];
+      loop {
+        match reader.next()? {
+          Token::Close => break,
+          Token::Word(name) => {
+            reader.expect(Token::Colon)?;
+            pairs.push((name, reader.word()?));
+          }
+          _ => return None,
+        }
+      }
+      let value = |name: &str| {
+        pairs
+          .iter()
+          .find(|(held, _)| held == name)
+          .map(|(_, value)| value.clone())
+      };
+      match pairs[0].0.as_str() {
+        "at_least" | "at_most" => {
+          let number = |name: &str| -> Option<Option<f64>> {
+            match value(name) {
+              None => Some(None),
+              Some(text) => text.parse().ok().map(Some),
+            }
+          };
+          ColumnFilter::Number {
+            at_least: number("at_least")?,
+            at_most: number("at_most")?,
+          }
+        }
+        "from" | "to" => ColumnFilter::Date {
+          from: match value("from") {
+            Some(text) => Some(parse_date(&text)?),
+            None => None,
+          },
+          to: match value("to") {
+            Some(text) => Some(parse_date(&text)?),
+            None => None,
+          },
+        },
+        "is" => match value("is")?.as_str() {
+          "true" => ColumnFilter::Bool(true),
+          "false" => ColumnFilter::Bool(false),
+          _ => return None,
+        },
+        _ => return None,
+      }
+    }
+  };
+  Some((id, filter))
 }
 
 /// A day written `2026-11-12`.
@@ -525,6 +532,99 @@ fn parse_date(text: &str) -> Option<Date> {
   let month = parts.next()?.parse().ok()?;
   let day = parts.next()?.parse().ok()?;
   Date::new(year, month, day)
+}
+
+impl GridQuery {
+  /// The query as text that `parse` reads back to the same query: `sort(..)` of its sort's columns in turn, its
+  /// filters' text, and `search(..)` of its query, each where there is one.
+  ///
+  /// ```
+  /// use lurq::ui::{ColumnFilter, GridQuery, TableFilters, TableSort};
+  ///
+  /// let query = GridQuery {
+  ///   sort: vec![TableSort::descending("size")],
+  ///   filters: TableFilters::new().with("status", ColumnFilter::one_of(["Failed"])),
+  ///   search: "canvas".into(),
+  /// };
+  /// assert_eq!(
+  ///   query.to_text(),
+  ///   r#"sort("size" descending) filter("status" in "Failed") search("canvas")"#
+  /// );
+  /// assert_eq!(GridQuery::parse(&query.to_text()), Some(query));
+  /// ```
+  pub fn to_text(&self) -> String {
+    let mut parts = Vec::new();
+    if !self.sort.is_empty() {
+      parts.push(format!("sort({})", TableSort::list_to_text(&self.sort)));
+    }
+    if !self.filters.is_empty() {
+      parts.push(self.filters.to_text());
+    }
+    if !self.search.is_empty() {
+      let mut out = String::from("search(");
+      write_string(&mut out, &self.search);
+      out.push(')');
+      parts.push(out);
+    }
+    parts.join(" ")
+  }
+
+  /// The query `text` writes (see `to_text`): `None` for text that is not the form. No text is the query of every
+  /// row in its order.
+  pub fn parse(text: &str) -> Option<GridQuery> {
+    let mut reader = Reader::new(text)?;
+    let mut query = GridQuery::default();
+    while !reader.done() {
+      match reader.word()?.as_str() {
+        "sort" => {
+          reader.expect(Token::Open)?;
+          loop {
+            match reader.next()? {
+              Token::Close => break,
+              Token::Text(column) => {
+                let direction = match reader.word()?.as_str() {
+                  "ascending" => SortDirection::Ascending,
+                  "descending" => SortDirection::Descending,
+                  _ => return None,
+                };
+                query.sort.push(TableSort {
+                  column: Arc::from(column),
+                  direction,
+                });
+              }
+              _ => return None,
+            }
+          }
+        }
+        "filter" => {
+          reader.expect(Token::Open)?;
+          let (id, filter) = read_filter(&mut reader)?;
+          query.filters.set(&id, filter);
+        }
+        "search" => {
+          reader.expect(Token::Open)?;
+          query.search = reader.text()?;
+          reader.expect(Token::Close)?;
+        }
+        _ => return None,
+      }
+    }
+    Some(query)
+  }
+}
+
+impl fmt::Display for GridQuery {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(&self.to_text())
+  }
+}
+
+impl FromStr for GridQuery {
+  type Err = TableTextError;
+
+  fn from_str(text: &str) -> Result<Self, Self::Err> {
+    GridQuery::parse(text).ok_or(TableTextError)
+  }
 }
 
 impl fmt::Display for TableFilters {
@@ -599,7 +699,7 @@ impl FromStr for GroupKey {
 
 #[cfg(feature = "persistent_storage")]
 mod stored {
-  use super::{ColumnLayout, GroupKey, TableFilters, TableSort};
+  use super::{ColumnLayout, GridQuery, GroupKey, TableFilters, TableSort};
   use crate::persistent_storage::{IntoPersistentValue, PersistentValue};
 
   fn text(bytes: &[u8]) -> Option<String> {
@@ -666,6 +766,20 @@ mod stored {
   impl IntoPersistentValue for Vec<TableSort> {
     fn encode_persistent_value(self) -> Vec<u8> {
       TableSort::list_to_text(&self).encode_persistent_value()
+    }
+  }
+
+  /// The query of a grid over rows on demand, as its text.
+  impl PersistentValue for GridQuery {
+    fn decode_persistent_value(bytes: &[u8]) -> Option<Self> {
+      GridQuery::parse(&text(bytes)?)
+    }
+  }
+
+  /// The query of a grid over rows on demand, as its text.
+  impl IntoPersistentValue for GridQuery {
+    fn encode_persistent_value(self) -> Vec<u8> {
+      self.to_text().encode_persistent_value()
     }
   }
 
