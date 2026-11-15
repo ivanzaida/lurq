@@ -59,12 +59,14 @@ fn swatch(role: PaletteColor, palette: &ThemePalette) -> Column {
 fn step(name: &str, value: String, sample: impl Into<Element>) -> Row {
   Row::new()
     .width(FILL)
-    .height(44.0)
+    .min_height(44.0)
+    .padding_vertical(6.0)
     .spacing(16.0)
     .align_items(Alignment::Center)
     .child(Text::new(name).variant(TypographyStyle::Mono).width(120.0))
-    .child(muted(&value, TypographyStyle::Mono).width(90.0))
-    .child(sample)
+    .child(muted(&value, TypographyStyle::Mono).width(130.0))
+    // The room the name and the measures leave, which a sample that wraps wraps in.
+    .child(Column::new().flex_full(1.0, 1.0, Some(0.0)).min_width(0.0).child(sample))
 }
 
 impl Tokens {
@@ -118,14 +120,39 @@ impl Tokens {
       ("Caption", TypographyStyle::Caption),
       ("Mono", TypographyStyle::Mono),
     ];
+    let measures = |role: TypographyStyle| {
+      let style = theme.typography_style(role);
+      format!("{} / {} · {}", style.font_size, style.weight.value(), style.line_height)
+    };
     let mut scale = Column::new().width(FILL);
     for (name, role) in styles {
-      let style = theme.typography_style(role);
       scale = scale.child(step(
         name,
-        format!("{} / {}", style.font_size, style.weight.value()),
+        measures(role),
         Text::new("The quick brown fox jumps over the lazy dog").variant(role),
       ));
+    }
+    // The roles of a document: Markdown's headings and the text read at length, which wraps to show its lines.
+    let mut document = Column::new().width(FILL);
+    for (name, role, sample) in [
+      ("Heading1", TypographyStyle::Heading1, "Blur and frosted glass"),
+      ("Heading2", TypographyStyle::Heading2, "Getting started"),
+      ("Heading3", TypographyStyle::Heading3, "What it supports"),
+      ("Heading4", TypographyStyle::Heading4, "Heading 4"),
+      ("Heading5", TypographyStyle::Heading5, "Heading 5"),
+      ("Heading6", TypographyStyle::Heading6, "Heading 6"),
+      (
+        "Prose",
+        TypographyStyle::Prose,
+        "Body text sets the default reading size and line height for the interface: a paragraph of it is read at length, on lines further apart than a label's.",
+      ),
+      (
+        "Article",
+        TypographyStyle::Article,
+        "A node can blur itself, or blur whatever is painted behind it. The radius is in logical pixels, and the blur follows rounded clips and transforms.",
+      ),
+    ] {
+      document = document.child(step(name, measures(role), Text::new(sample).variant(role).width(FILL)));
     }
     let families = format!(
       "Interface text is in \"{}\" and code in \"{}\": theme.set_sans_family(…) changes every style at once.",
@@ -136,6 +163,7 @@ impl Tokens {
       .width(FILL)
       .spacing(12.0)
       .child(demo_card(scale, "Text::new(…).variant(TypographyStyle::Title)"))
+      .child(demo_card(document, "Text::new(…).variant(TypographyStyle::Heading2)"))
       .child(muted(&families, TypographyStyle::Body).width(FILL))
       .into()
   }

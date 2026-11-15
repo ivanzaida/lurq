@@ -402,6 +402,17 @@ impl ChartLabel {
   }
 }
 
+/// Where a plot's tooltip stands: [`ChartPlot::tip_place`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TipPlace {
+  /// Over the point, kept inside the plot; under it where there is no room over it.
+  #[default]
+  Over,
+  /// Beside the line at the point's x, 10 from it and 4 from the plot's top: before it, or after it where there is no
+  /// room before it.
+  Beside,
+}
+
 /// What the tooltip of a point says: its title, and a row for each series the point has a value of.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChartTip {
@@ -432,6 +443,12 @@ pub trait ChartPlot: Send + Sync + 'static {
 
   /// Where the tooltip of `point` points to.
   fn anchor(&self, area: ChartArea, point: ChartPoint) -> Option<(f32, f32)>;
+
+  /// Where the tooltip stands: over the point (a bar's), or beside the line the plot draws at the point's x, at the
+  /// plot's top, before it where there is room and after it where there is not (a line chart's cursor).
+  fn tip_place(&self) -> TipPlace {
+    TipPlace::Over
+  }
 
   /// How many points each series has, in the order the arrows go through them.
   fn counts(&self) -> Vec<usize>;

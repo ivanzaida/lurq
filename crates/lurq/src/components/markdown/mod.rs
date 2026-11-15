@@ -6,6 +6,7 @@ use crate::{
     ctx::Ctx,
     theme::{MarkdownBlockStyle, ThemeMarkdown},
   },
+  code::CodeTokenKind,
   components::{Column, Rect, Row, ScrollHorizontal, Text},
   core::{Memo, Signal},
   layout::{
@@ -784,134 +785,34 @@ fn render_footnote_definition(
 }
 
 fn highlight_code_spans(text: &str, kind: &MarkdownCodeBlockKind, base_style: &TextStyle) -> Vec<RichTextSpan> {
-  if !is_rust_like_code(kind) {
-    return vec![RichTextSpan {
-      text: text.to_owned(),
-      style: base_style.clone(),
-    }];
-  }
-
+  let language = match kind {
+    MarkdownCodeBlockKind::Fenced {
+      language: Some(language),
+    } => language.as_str(),
+    _ => "",
+  };
   let keyword_style = code_style(base_style, Color::from_hex("#93c5fd"));
   let string_style = code_style(base_style, Color::from_hex("#86efac"));
   let comment_style = code_style(base_style, Color::from_hex("#94a3b8"));
   let number_style = code_style(base_style, Color::from_hex("#fca5a5"));
   let mut spans = Vec::new();
-  let mut rest = text;
-  while !rest.is_empty() {
-    if let Some(comment) = rest.strip_prefix("//") {
-      let line_len = comment.find('\n').map(|index| index + 2).unwrap_or(rest.len());
-      push_code_span(&mut spans, &rest[..line_len], comment_style.clone());
-      rest = &rest[line_len..];
-      continue;
-    }
-    let Some(ch) = rest.chars().next() else {
-      break;
+  for token in crate::code::tokens(text, language) {
+    let style = match token.kind {
+      CodeTokenKind::Plain => base_style.clone(),
+      CodeTokenKind::Keyword => keyword_style.clone(),
+      CodeTokenKind::String => string_style.clone(),
+      CodeTokenKind::Number => number_style.clone(),
+      CodeTokenKind::Comment => comment_style.clone(),
     };
-    if ch == '"' {
-      let len = quoted_len(rest);
-      push_code_span(&mut spans, &rest[..len], string_style.clone());
-      rest = &rest[len..];
-      continue;
-    }
-    if ch.is_ascii_digit() {
-      let len = rest
-        .char_indices()
-        .find(|(_, ch)| !ch.is_ascii_digit() && *ch != '.')
-        .map(|(index, _)| index)
-        .unwrap_or(rest.len());
-      push_code_span(&mut spans, &rest[..len], number_style.clone());
-      rest = &rest[len..];
-      continue;
-    }
-    if ch == '_' || ch.is_ascii_alphabetic() {
-      let len = rest
-        .char_indices()
-        .find(|(_, ch)| *ch != '_' && !ch.is_ascii_alphanumeric())
-        .map(|(index, _)| index)
-        .unwrap_or(rest.len());
-      let token = &rest[..len];
-      let style = if is_rust_keyword(token) {
-        keyword_style.clone()
-      } else {
-        base_style.clone()
-      };
-      push_code_span(&mut spans, token, style);
-      rest = &rest[len..];
-      continue;
-    }
-    push_code_span(&mut spans, &rest[..ch.len_utf8()], base_style.clone());
-    rest = &rest[ch.len_utf8()..];
+    push_code_span(&mut spans, &text[token.range], style);
+  }
+  if spans.is_empty() {
+    spans.push(RichTextSpan {
+      text: String::new(),
+      style: base_style.clone(),
+    });
   }
   spans
-}
-
-fn is_rust_like_code(kind: &MarkdownCodeBlockKind) -> bool {
-  matches!(
-    kind,
-    MarkdownCodeBlockKind::Fenced {
-      language: Some(language)
-    } if matches!(language.as_str(), "rust" | "rs")
-  )
-}
-
-fn quoted_len(text: &str) -> usize {
-  let mut escaped = false;
-  for (index, ch) in text.char_indices().skip(1) {
-    if escaped {
-      escaped = false;
-      continue;
-    }
-    if ch == '\\' {
-      escaped = true;
-      continue;
-    }
-    if ch == '"' {
-      return index + ch.len_utf8();
-    }
-  }
-  text.len()
-}
-
-fn is_rust_keyword(token: &str) -> bool {
-  matches!(
-    token,
-    "as"
-      | "async"
-      | "await"
-      | "break"
-      | "const"
-      | "continue"
-      | "crate"
-      | "else"
-      | "enum"
-      | "false"
-      | "fn"
-      | "for"
-      | "if"
-      | "impl"
-      | "in"
-      | "let"
-      | "loop"
-      | "match"
-      | "mod"
-      | "move"
-      | "mut"
-      | "pub"
-      | "ref"
-      | "return"
-      | "self"
-      | "Self"
-      | "static"
-      | "struct"
-      | "super"
-      | "trait"
-      | "true"
-      | "type"
-      | "unsafe"
-      | "use"
-      | "where"
-      | "while"
-  )
 }
 
 fn code_style(base_style: &TextStyle, color: Color) -> TextStyle {

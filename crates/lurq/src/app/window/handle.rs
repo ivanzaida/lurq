@@ -143,6 +143,14 @@ impl WindowHandle {
     self.window.push_command(WindowCommand::SetIcon(icon));
   }
 
+  /// Puts `text` on the clipboard, as a copy shortcut puts the selected text there: what a copy button does. It is
+  /// written once the handler that asked returns (or at the next pass, asked from elsewhere), where Ctrl+C writes:
+  /// the OS clipboard with the `clipboard` feature, or what a test installs with
+  /// [`Tree::set_clipboard_writer`](crate::app::Tree::set_clipboard_writer).
+  pub fn copy_to_clipboard(&self, text: impl Into<String>) {
+    self.window.request_copy(text.into());
+  }
+
   /// The window's state this handle reads and writes.
   pub(crate) fn state(&self) -> Window {
     self.window.clone()
