@@ -65,7 +65,8 @@ fn step(name: &str, value: String, sample: impl Into<Element>) -> Row {
     .align_items(Alignment::Center)
     .child(Text::new(name).variant(TypographyStyle::Mono).width(120.0))
     .child(muted(&value, TypographyStyle::Mono).width(130.0))
-    .child(Column::new().width(FILL).child(sample))
+    // The room the name and the measures leave, which a sample that wraps wraps in.
+    .child(Column::new().flex_full(1.0, 1.0, Some(0.0)).min_width(0.0).child(sample))
 }
 
 impl Tokens {
@@ -143,12 +144,12 @@ impl Tokens {
       (
         "Prose",
         TypographyStyle::Prose,
-        "Body text sets the default reading size and line height for the interface: a paragraph of it is read at          length, on lines further apart than a label's.",
+        "Body text sets the default reading size and line height for the interface: a paragraph of it is read at length, on lines further apart than a label's.",
       ),
       (
         "Article",
         TypographyStyle::Article,
-        "A node can blur itself, or blur whatever is painted behind it. The radius is in logical pixels, and the          blur follows rounded clips and transforms.",
+        "A node can blur itself, or blur whatever is painted behind it. The radius is in logical pixels, and the blur follows rounded clips and transforms.",
       ),
     ] {
       document = document.child(step(name, measures(role), Text::new(sample).variant(role).width(FILL)));
