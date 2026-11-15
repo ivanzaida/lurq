@@ -58,6 +58,22 @@ pub(crate) struct LayoutSubtree {
   pub(crate) resource_images: bool,
   pub(crate) resource_svgs: bool,
   pub(crate) loading_images: bool,
+  /// It, or something under it, holds an element ref: what a frame tells the refs of where their elements are.
+  pub(crate) refs: bool,
+  /// It, or something under it, declares a layer over the tree (an overlay, a modal) or anchors a dropdown: what
+  /// the overlay index records.
+  pub(crate) layers: bool,
+  /// It, or something under it, is a child its row or column may drop (`ShrinkLimit::Drop`, a drop marker).
+  pub(crate) droppable: bool,
+  /// It, or something under it, plays an animation: what the animation engine ticks.
+  pub(crate) animations: bool,
+}
+
+impl LayoutSubtree {
+  /// Whether a frame's index of the tree (its element refs, layers, inputs and open selects) has anything here.
+  pub(crate) fn indexed(&self) -> bool {
+    self.refs || self.layers || self.text_input || self.select
+  }
 }
 
 struct ValidatedLayout {

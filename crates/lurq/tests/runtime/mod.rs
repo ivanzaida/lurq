@@ -38,6 +38,7 @@ mod hover_after_scroll;
 mod hover_frames;
 mod input_after_rebuild;
 mod input_source;
+mod skipped_subtrees;
 // `Tree::set_canvas_waker` stands in for the shell's event-loop waker.
 #[cfg(feature = "canvas")]
 mod loop_wake {

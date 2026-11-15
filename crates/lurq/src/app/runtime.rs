@@ -10512,8 +10512,11 @@ fn verify_scroll_offsets(node: &Node, result: &crate::layout::layout_result::Lay
       node.layout_cache.has_cached_result(),
     );
   }
+  // What it checks is in scroll containers: a virtualized list's spacer, an offset kept stale.
   for (child_layout, child) in result.children.iter().zip(node.children()) {
-    verify_scroll_offsets(child, &child_layout.result);
+    if child.layout_cache.subtree.get().scroll {
+      verify_scroll_offsets(child, &child_layout.result);
+    }
   }
 }
 
@@ -12692,6 +12695,11 @@ fn update_element_refs_recursive(
   }
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
+    // A subtree with no ref and no scroll container has nothing to be told.
+    let subtree = child_node.layout_cache.subtree.get();
+    if !subtree.refs && !subtree.scroll {
+      continue;
+    }
     update_element_refs_recursive(
       child_node,
       &child_layout.result,

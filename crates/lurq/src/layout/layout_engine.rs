@@ -815,6 +815,10 @@ impl LayoutEngine {
     let child_clip = intersect_clip(clip, children_clip(node, rect));
 
     for (child_layout, child) in layout.children.iter().zip(node.children()) {
+      // A subtree with no ref, no layer, no input and no select has nothing to index.
+      if !child.layout_cache.subtree.get().indexed() {
+        continue;
+      }
       if child.modal_declaration().is_some() {
         Self::index_child_modal(child, rect, child.theme_scope.as_deref().or(scope), index);
       }

@@ -136,7 +136,10 @@ pub(super) fn dropped_node_ids(root: &Node, layout: &LayoutResult) -> Vec<NodeId
       return;
     }
     for (child, child_layout) in node.children().iter().zip(&layout.children) {
-      collect(child, &child_layout.result, dropped);
+      // Only a child its line may drop is ever dropped: a subtree with none has nothing to collect.
+      if child.layout_cache.subtree.get().droppable {
+        collect(child, &child_layout.result, dropped);
+      }
     }
   }
   let mut dropped = Vec::new();
