@@ -29,6 +29,8 @@ use super::{
 };
 mod columns;
 mod groups;
+mod heights;
+mod keys;
 mod range;
 mod summary;
 mod text;
@@ -37,6 +39,8 @@ pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
 pub use groups::{GroupKey, TableGroup};
 use groups::{Lines, Shown};
+use heights::Heights;
+use keys::{KeptIndex, RowKeys};
 pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
 use summary::{Said, Summary, SummaryKey, summarize, summary_content};
@@ -78,6 +82,8 @@ pub enum TablePart {
   HeaderCell,
   /// The arrow of the column the rows are sorted by, and the mark of one that sorts.
   SortIcon,
+  /// The place of a column in the sort after its arrow, where the rows are sorted by more than one.
+  SortOrder,
   /// What is dragged at the end of a column's header to make it wider or narrower: its width, its cursor.
   Resizer,
   /// The line in the resizer, shown under the pointer and while it is dragged.
@@ -127,6 +133,7 @@ names!(TablePart {
   Header => "header",
   HeaderCell => "header_cell",
   SortIcon => "sort_icon",
+  SortOrder => "sort_order",
   Resizer => "resizer",
   ResizeLine => "resize_line",
   MenuTrigger => "menu_trigger",
@@ -226,7 +233,8 @@ pub enum SortDirection {
   Descending,
 }
 
-/// The column the rows of a table are sorted by, and which way.
+/// A column the rows of a table are sorted by, and which way. The rows are sorted by a list of them: by the first,
+/// rows equal in it by the second, and so on.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TableSort {
   /// The id of the column.
@@ -252,15 +260,62 @@ impl TableSort {
     }
   }
 
-  /// What a press of the header of `column` makes of `current`: a column the rows are not sorted by sorts
-  /// them ascending, then descending, then not at all.
-  pub fn after_press(current: Option<&TableSort>, column: &str) -> Option<TableSort> {
-    match current {
-      Some(sort) if &*sort.column == column => match sort.direction {
-        SortDirection::Ascending => Some(Self::descending(column)),
-        SortDirection::Descending => None,
-      },
-      _ => Some(Self::ascending(column)),
+  /// What a press of the header of `column` makes of the sort `current`. A plain press sorts by that column alone:
+  /// ascending, then descending, then not at all. With Shift (`adding`) the column is added to the sort after the
+  /// others, ascending, or, where it is in it, turned to descending in its place, then taken out.
+  pub fn after_press(current: &[TableSort], column: &str, adding: bool) -> Vec<TableSort> {
+    let held = current.iter().position(|sort| &*sort.column == column);
+    if !adding {
+      return match held.map(|at| current[at].direction) {
+        Some(SortDirection::Ascending) => vec![Self::descending(column)],
+        Some(SortDirection::Descending) => Vec::new(),
+        None => vec![Self::ascending(column)],
+      };
+    }
+    let mut next = current.to_vec();
+    match held {
+      Some(at) if next[at].direction == SortDirection::Ascending => next[at].direction = SortDirection::Descending,
+      Some(at) => {
+        next.remove(at);
+      }
+      None => next.push(Self::ascending(column)),
+    }
+    next
+  }
+
+  /// Sorts `rows` by `sorts` of `columns`: by the first, the rows equal in it by the next, and so on, each by
+  /// what its column compares rows with or its text (see [`sort`](Self::sort)). Rows equal in all of them keep
+  /// their order.
+  pub fn sort_rows<R: 'static>(sorts: &[TableSort], columns: &[TableColumn<R>], rows: &mut [R]) {
+    let compares: Vec<(CompareFn<R>, SortDirection)> = sorts
+      .iter()
+      .filter_map(|sort| Some((sort.compare(columns)?, sort.direction)))
+      .collect();
+    if compares.is_empty() {
+      return;
+    }
+    rows.sort_by(|a, b| {
+      compares
+        .iter()
+        .map(|(compare, direction)| match direction {
+          SortDirection::Ascending => compare(a, b),
+          SortDirection::Descending => compare(b, a),
+        })
+        .find(|order| order.is_ne())
+        .unwrap_or(Ordering::Equal)
+    });
+  }
+
+  /// How its column compares two rows: by what it compares with, or its text.
+  fn compare<R: 'static>(&self, columns: &[TableColumn<R>]) -> Option<CompareFn<R>> {
+    let column = columns.iter().find(|column| column.id == self.column)?;
+    match (&column.compare, &column.content) {
+      (Some(compare), _) => Some(compare.clone()),
+      (None, Content::Text(text)) => {
+        let text = text.clone();
+        Some(Arc::new(move |a: &R, b: &R| text(a).cmp(&text(b))))
+      }
+      (None, _) => None,
     }
   }
 
@@ -269,16 +324,8 @@ impl TableSort {
   /// compare equal keep their order. A column it does not find, or one with nothing to compare by, leaves
   /// them as they are.
   pub fn sort<R: 'static>(&self, columns: &[TableColumn<R>], rows: &mut [R]) {
-    let Some(column) = columns.iter().find(|column| column.id == self.column) else {
+    let Some(compare) = self.compare(columns) else {
       return;
-    };
-    let compare: CompareFn<R> = match (&column.compare, &column.content) {
-      (Some(compare), _) => compare.clone(),
-      (None, Content::Text(text)) => {
-        let text = text.clone();
-        Arc::new(move |a: &R, b: &R| text(a).cmp(&text(b)))
-      }
-      (None, _) => return,
     };
     match self.direction {
       SortDirection::Ascending => rows.sort_by(|a, b| compare(a, b)),
@@ -363,6 +410,7 @@ pub struct TableColumn<R> {
   compare: Option<CompareFn<R>>,
   editor: Option<CellEditor<R>>,
   summary: Option<Summary<R>>,
+  wrap: bool,
 }
 
 impl<R> Clone for TableColumn<R> {
@@ -382,6 +430,7 @@ impl<R> Clone for TableColumn<R> {
       compare: self.compare.clone(),
       editor: self.editor.clone(),
       summary: self.summary.clone(),
+      wrap: self.wrap,
     }
   }
 }
@@ -405,6 +454,7 @@ impl<R: 'static> TableColumn<R> {
       compare: None,
       editor: None,
       summary: None,
+      wrap: false,
     }
   }
 
@@ -474,6 +524,15 @@ impl<R: 'static> TableColumn<R> {
   pub fn numeric(mut self) -> Self {
     self.align = ColumnAlign::End;
     self.kind(TableState::Numeric, true)
+  }
+
+  /// Whether its text wraps onto as many lines as it needs, its row growing to hold them: a note, a message. A row
+  /// is never lower than the table's rows. A mounted table measures the rows it builds as they are laid out and
+  /// keeps what is in view still as their heights become known; the rows it has not built are taken to be as high
+  /// as a row.
+  pub fn wrap(mut self, wrap: bool) -> Self {
+    self.wrap = wrap;
+    self
   }
 
   /// Whether its text is in the mono type: a path, an id.
@@ -573,8 +632,8 @@ impl<R: 'static> TableColumn<R> {
 }
 
 type Told<K> = Arc<dyn Fn(&K) + Send + Sync>;
-type SortFn = Arc<dyn Fn(Option<TableSort>) + Send + Sync>;
-type SortHeard = Arc<dyn Fn(Option<&TableSort>) + Send + Sync>;
+type SortFn = Arc<dyn Fn(Vec<TableSort>) + Send + Sync>;
+type SortHeard = Arc<dyn Fn(&[TableSort]) + Send + Sync>;
 type SelectionHeard<K> = Arc<dyn Fn(&[K]) + Send + Sync>;
 /// What asks for a range of cells to be the grid's, and what is told it.
 type RangeWrite<K> = Arc<dyn Fn(Option<CellRange<K>>) + Send + Sync>;
@@ -648,7 +707,7 @@ type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 /// #[derive(Clone)]
 /// struct Crate { name: String, status: String, updated: String }
 ///
-/// # fn crates(rows: Vec<Crate>, sort: Signal<Option<TableSort>>, selected: Signal<Vec<String>>) {
+/// # fn crates(rows: Vec<Crate>, sort: Signal<Vec<TableSort>>, selected: Signal<Vec<String>>) {
 /// let columns = vec![
 ///   TableColumn::new("name", "Name").text(|row: &Crate| row.name.clone()).mono(true).sortable(true),
 ///   TableColumn::new("status", "Status").width(120.0).text(|row: &Crate| row.status.clone()),
@@ -656,9 +715,7 @@ type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 /// ];
 /// // The app gives the rows in the order it wants: here, by the sort the header was pressed to.
 /// let mut rows = rows;
-/// if let Some(by) = sort.get() {
-///   by.sort(&columns, &mut rows);
-/// }
+/// TableSort::sort_rows(&sort.get(), &columns, &mut rows);
 /// let table = Table::new(columns, rows)
 ///   .row_key(|row: &Crate| row.name.clone())
 ///   .label("Crates")
@@ -670,9 +727,9 @@ type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 /// ```
 ///
 /// What the rows are, their order, what is selected and what they are sorted by are the app's. A press of a
-/// sortable header asks for the rows sorted by it, ascending, then descending, then not at all
-/// ([`Table::sort`], [`Table::on_sort_change`]), and the app gives them in that order ([`TableSort::sort`] sorts
-/// them by the column's text or what it compares by).
+/// sortable header asks for the rows sorted by it, ascending, then descending, then not at all, and with Shift
+/// for its column added to the sort after the others ([`Table::sort`], [`Table::on_sort_change`]); the app gives
+/// them in that order ([`TableSort::sort_rows`] sorts them by each column's text or what it compares by).
 ///
 /// With a selection ([`Table::selected`]) the table has a column of checkboxes. A press of a row selects it
 /// alone, with Ctrl (or Cmd) adds it or takes it out, and with Shift selects the rows from the last selected
@@ -694,7 +751,7 @@ pub struct Table<R, K = usize> {
   columns: Vec<TableColumn<R>>,
   rows: Arc<Vec<R>>,
   key_of: KeyFn<R, K>,
-  sort: Option<TableSort>,
+  sort: Vec<TableSort>,
   write_sort: Option<SortFn>,
   on_sort_change: Vec<SortHeard>,
   selected: Vec<K>,
@@ -824,7 +881,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       columns: columns.into_iter().collect(),
       rows,
       key_of: Arc::new(|index, _| index),
-      sort: None,
+      sort: Vec::new(),
       write_sort: None,
       on_sort_change: Vec::new(),
       selected: Vec::new(),
@@ -936,11 +993,13 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
 }
 
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Table<R, K> {
-  /// What the rows are sorted by: the signal's, which a press of a sortable header sets to the next of
-  /// ascending, descending and none. The rows are given in that order by the app.
-  pub fn sort(mut self, sort: Signal<Option<TableSort>>) -> Self
+  /// What the rows are sorted by: the signal's list of columns, the first first, which a press of a sortable
+  /// header sets to that column alone (ascending, descending, then none) and a press with Shift adds the column
+  /// to or turns it in ([`TableSort::after_press`]). Where it holds more than one, each sorted header shows its
+  /// place in it. The rows are given in that order by the app ([`TableSort::sort_rows`]).
+  pub fn sort(mut self, sort: Signal<Vec<TableSort>>) -> Self
   where
-    Option<TableSort>: SignalValue,
+    Vec<TableSort>: SignalValue,
   {
     self.sort = sort.get();
     self.write_sort = Some(Arc::new(move |next| sort.set(next)));
@@ -951,8 +1010,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// sortable header, and the table shows what the app gives it at the next render.
   pub fn sort_controlled(
     mut self,
-    sort: Option<TableSort>,
-    on_change: impl Fn(Option<TableSort>) + Send + Sync + 'static,
+    sort: Vec<TableSort>,
+    on_change: impl Fn(Vec<TableSort>) + Send + Sync + 'static,
   ) -> Self {
     self.sort = sort;
     self.write_sort = Some(Arc::new(on_change));
@@ -962,7 +1021,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// Called with what the rows are to be sorted by at each press of a sortable header, bound to a signal or
   /// not; a second handler is called after the first. Given alone, it makes the headers sortable, and the
   /// table shows the sort the app gives it with [`sort_controlled`](Self::sort_controlled).
-  pub fn on_sort_change(mut self, handler: impl Fn(Option<&TableSort>) + Send + Sync + 'static) -> Self {
+  pub fn on_sort_change(mut self, handler: impl Fn(&[TableSort]) + Send + Sync + 'static) -> Self {
     self.on_sort_change.push(Arc::new(handler));
     self
   }
@@ -1257,6 +1316,11 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
   /// The lines the table shows: its rows, or its rows grouped by the values of its grouping's columns, with the
   /// rows of the closed groups out.
+  /// Whether its rows grow with what they hold: where a column wraps its text.
+  fn tall(&self) -> bool {
+    self.columns.iter().any(|column| column.wrap)
+  }
+
   fn lines(&self) -> Lines {
     if self.grouping.is_empty() {
       return Lines::flat(self.rows.len());
@@ -1535,26 +1599,29 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         .clone()
     };
 
-    let keys: Arc<Vec<K>> = Arc::new(
-      self
-        .rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| (self.key_of)(index, row))
-        .collect(),
-    );
     // The lines shown: the rows, or the groups and the rows of the open ones. A row's rank is its place among the
     // rows shown, which the cells of a grid are reckoned by.
     let lines: Arc<Lines> = match window.as_ref() {
       Some(window) => window.lines.clone(),
       None => Arc::new(self.lines()),
     };
-    let grouped = !lines.groups.is_empty() || !self.grouping.is_empty();
-    let ranked: Arc<Vec<K>> = if grouped {
-      Arc::new(lines.order.iter().map(|index| keys[*index].clone()).collect())
-    } else {
-      keys.clone()
+    // The keys of the rows are reckoned as they are asked for: those of the rows built, and of those a selection
+    // or a range names, through an index a mounted table keeps while its rows are the same.
+    let key_index = match window.as_ref().and_then(|window| window.host.as_ref()) {
+      Some(host) => host.state.key_index.lock().for_rows::<R, K>(&self.rows),
+      None => Arc::default(),
     };
+    let keys = {
+      let (rows, key_of) = (self.rows.clone(), self.key_of.clone());
+      RowKeys::new(
+        Arc::new(move |index: usize| key_of(index, &rows[index])),
+        self.rows.len(),
+        lines.clone(),
+        key_index,
+      )
+    };
+    let grouped = !lines.groups.is_empty() || !self.grouping.is_empty();
+    let ranked = keys.clone();
     let model = Arc::new(Model {
       keys: keys.clone(),
       selected: self.selected.clone(),
@@ -1656,7 +1723,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let shown: Vec<usize> = match &window {
       _ if self.loading => Vec::new(),
       Some(window) => window.indices.clone(),
-      None => (0..lines.lines.len()).collect(),
+      None => (0..lines.len()).collect(),
     };
     let entry = window
       .as_ref()
@@ -1665,11 +1732,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         shown.iter().copied().find(|position| {
           lines
             .rank_at(*position)
-            .is_some_and(|rank| held_now.contains(&keys[lines.order[rank]]))
+            .and_then(|rank| keys.get(rank))
+            .is_some_and(|key| held_now.contains(&key))
         })
       })
       .or_else(|| shown.first().copied());
-    let line_count = lines.lines.len();
+    let line_count = lines.len();
     let id_of = |what: &str| self.id.as_ref().map(|id| Arc::<str>::from(format!("{id}-{what}")));
 
     // The groups' rows built, each opened and closed through the app's groups.
@@ -1687,7 +1755,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let groups: Vec<TableGroup> = shown
       .iter()
       .filter_map(|&position| {
-        let Shown::Group(group) = lines.lines[position] else {
+        let Some(Shown::Group(group)) = lines.line(position) else {
           return None;
         };
         let line = &lines.groups[group];
@@ -1819,7 +1887,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let summaries: Vec<TableSummary> = shown
       .iter()
       .filter_map(|&position| {
-        let Shown::Summary(group) = lines.lines[position] else {
+        let Some(Shown::Summary(group)) = lines.line(position) else {
           return None;
         };
         let line = &lines.groups[group];
@@ -1839,13 +1907,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     if let Some(host) = &summary_host {
       *host.summaries.lock() = kept;
     }
+    let tall = self.tall();
     let rows = shown
       .iter()
-      .filter_map(|&position| lines.rank_at(position).map(|rank| (position, rank)))
-      .map(|(position, rank)| {
-        let index = lines.order[rank];
+      .filter_map(|&position| {
+        let rank = lines.rank_at(position)?;
+        Some((position, rank, lines.row_of_rank(rank)?))
+      })
+      .map(|(position, rank, index)| {
         let row = &self.rows[index];
-        let selected = selectable && held_now.contains(&keys[index]);
+        let selected = selectable && held_now.contains(&keys.at(index));
         let last = position + 1 == line_count && !footer;
         let recipe = row_recipe(selected, last);
         // A cell that stays covers what scrolls under it, in the row's fill, or the table's.
@@ -1866,6 +1937,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               .part(TablePart::Cell)
               .forced(self.forced);
             let content = match (&column.content, column.editor.as_ref().map(|editor| &editor.kind)) {
+              // A text that wraps takes the room of its cell, and its lines as many as they need.
+              (Content::Text(text), _) if column.wrap => part
+                .text(&text(row))
+                .flex_full(1.0, 1.0, Some(0.0))
+                .min_width(Dimension::Px(0.0))
+                .into(),
               (Content::Text(text), _) => part.text(&text(row)).nowrap().into(),
               (Content::Element(cell), _) => cell(row),
               // A column edited with a box that builds no cell of its own shows the box.
@@ -1981,6 +2058,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           pinned_end: end_pins > 0,
           lead_fill: sticky.then(|| stuck_fill.clone()),
           entry: entry == Some(position),
+          grows: tall,
           recipe,
           forced: self.forced,
           tracks: tracks.clone(),
@@ -2020,11 +2098,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       .enumerate()
       .filter(|(column_index, _)| built(*column_index))
       .map(|(column_index, column)| {
-        let sorted = self
-          .sort
-          .as_ref()
-          .filter(|sort| sort.column == column.id)
-          .map(|sort| sort.direction);
+        let sort_place = self.sort.iter().position(|sort| sort.column == column.id);
+        let sorted = sort_place.map(|at| self.sort[at].direction);
+        // Its place in the sort, where the rows are sorted by more than one column.
+        let sort_rank = sort_place.filter(|_| self.sort.len() > 1).map(|at| at + 1);
         let sortable = column.sortable && !self.disabled;
         let open = open_menu.as_deref() == Some(&*column.id);
         let drop = drop_of(column_index);
@@ -2047,18 +2124,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           let id = column.id.clone();
           let choose: Arc<dyn Fn(MenuChoice) + Send + Sync> = {
             let (id, layout, change) = (id.clone(), layout.clone(), change.clone());
-            let (write_sort, sort_heard) = (self.write_sort.clone(), self.on_sort_change.clone());
+            let (write_sort, sort_heard, now) =
+              (self.write_sort.clone(), self.on_sort_change.clone(), self.sort.clone());
             Arc::new(move |choice: MenuChoice| match choice {
               MenuChoice::Sort(direction) => {
-                let next = direction.map(|direction| TableSort {
-                  column: id.clone(),
-                  direction,
-                });
+                // A direction sorts by the column alone; "clear" takes it out of the sort, the rest as it is.
+                let next: Vec<TableSort> = match direction {
+                  Some(direction) => vec![TableSort {
+                    column: id.clone(),
+                    direction,
+                  }],
+                  None => now.iter().filter(|sort| sort.column != id).cloned().collect(),
+                };
                 if let Some(write) = &write_sort {
                   write(next.clone());
                 }
                 for handler in &sort_heard {
-                  handler(next.as_ref());
+                  handler(&next);
                 }
               }
               MenuChoice::Pin(pin) => change(layout.clone().with_pin(&id, pin)),
@@ -2137,19 +2219,21 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           })
         });
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
-          let (write, handlers, next) = (
+          let (write, handlers, now, id) = (
             self.write_sort.clone(),
             self.on_sort_change.clone(),
-            TableSort::after_press(self.sort.as_ref(), &column.id),
+            self.sort.clone(),
+            column.id.clone(),
           );
-          Arc::new(move || {
+          Arc::new(move |adding: bool| {
+            let next = TableSort::after_press(&now, &id, adding);
             if let Some(write) = &write {
               write(next.clone());
             }
             for handler in &handlers {
-              handler(next.as_ref());
+              handler(&next);
             }
-          }) as Arc<dyn Fn() + Send + Sync>
+          }) as Arc<dyn Fn(bool) + Send + Sync>
         });
         let resizable = column.resizable.unwrap_or(self.resizable) && !self.disabled;
         let resize = window
@@ -2196,6 +2280,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           align: column.align,
           sortable,
           sorted,
+          sort_rank,
           pinned: sticky_of(column_index),
           last: cell_ends(column_index),
           fill: sticky_of(column_index).and(header_fill.clone()),
@@ -2223,8 +2308,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
     // Every row's key is looked up once, however many are selected.
     let held: HashSet<&K> = self.selected.iter().collect();
-    let all = !keys.is_empty() && keys.iter().all(|key| held.contains(key));
-    let some = keys.iter().any(|key| held.contains(key));
+    // How many of the selected rows are shown, from the selection: no walk of every row.
+    let held_shown = if held.is_empty() {
+      0
+    } else {
+      keys.shown_among(held.iter().copied())
+    };
+    let all = keys.len() > 0 && held_shown >= keys.len();
+    let some = held_shown > 0;
     let select_all = (checkboxes && !self.disabled).then(|| {
       let model = model.clone();
       Arc::new(move || model.select_shown(!all)) as Arc<dyn Fn() + Send + Sync>
@@ -2241,6 +2332,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let body_window = window.as_ref().map(|window| BodyWindow {
       row_height: window.row_height,
       count: line_count,
+      heights: window.host.as_ref().map(|host| host.state.heights.clone()),
     });
     let empty = (count == 0 && !self.loading).then(|| {
       self.empty.clone().unwrap_or_else(|| {
@@ -2374,7 +2466,7 @@ fn px(length: Option<Length>, theme: &Theme) -> Option<f32> {
 
 /// The rows and the selection, which every row's behavior reads.
 struct Model<K> {
-  keys: Arc<Vec<K>>,
+  keys: RowKeys<K>,
   selected: Vec<K>,
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
   on_selection_change: Vec<SelectionHeard<K>>,
@@ -2400,12 +2492,12 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Model<K> {
       pick: Arc::new(move |how| pick.pick(index, how)),
       click: Arc::new(move || {
         for handler in &click.on_row_click {
-          handler(&click.keys[index]);
+          handler(&click.keys.at(index));
         }
       }),
       activate: Arc::new(move || {
         for handler in &activate.on_row_activate {
-          handler(&activate.keys[index]);
+          handler(&activate.keys.at(index));
         }
       }),
       select_all: Arc::new(move || all.select_shown(true)),
@@ -2414,7 +2506,7 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Model<K> {
   }
 
   fn pick(&self, index: usize, pick: Pick) {
-    let key = &self.keys[index];
+    let key = &self.keys.at(index);
     let next = match pick {
       Pick::Only => vec![key.clone()],
       Pick::Toggle => {
@@ -2428,22 +2520,28 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Model<K> {
         next
       }
       Pick::Range => {
+        // From the last one selected to this one, as the rows are shown: the key of each is reckoned, and no other.
+        let Some(rank) = self.keys.rank_of(key) else {
+          return;
+        };
         let anchor = self
           .selected
           .last()
-          .and_then(|last| self.keys.iter().position(|held| held == last))
-          .unwrap_or(index);
-        let (start, end) = (anchor.min(index), anchor.max(index));
+          .and_then(|last| self.keys.rank_of(last))
+          .unwrap_or(rank);
+        let (start, end) = (anchor.min(rank), anchor.max(rank));
         // What was selected outside the range stays; the anchor is last, where the next range starts.
-        let range: HashSet<&K> = self.keys[start..=end].iter().collect();
+        let span = self.keys.ranked(start, end);
+        let range: HashSet<&K> = span.iter().collect();
         let mut next: Vec<K> = self
           .selected
           .iter()
           .filter(|held| !range.contains(held))
           .cloned()
           .collect();
-        next.extend((start..=end).filter(|at| *at != anchor).map(|at| self.keys[at].clone()));
-        next.push(self.keys[anchor].clone());
+        let anchor_key = self.keys.get(anchor);
+        next.extend(span.iter().filter(|at| Some(*at) != anchor_key.as_ref()).cloned());
+        next.extend(anchor_key);
         next
       }
     };
@@ -2452,15 +2550,14 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Model<K> {
 
   /// Every row the table shows selected, or none of them, the rest of the selection as it is.
   fn select_shown(&self, all: bool) {
-    let shown: HashSet<&K> = self.keys.iter().collect();
     let mut next: Vec<K> = self
       .selected
       .iter()
-      .filter(|held| !shown.contains(held))
+      .filter(|held| self.keys.rank_of(held).is_none())
       .cloned()
       .collect();
     if all {
-      next.extend(self.keys.iter().cloned());
+      next.extend((0..self.keys.len()).filter_map(|rank| self.keys.get(rank)));
     }
     self.write(next);
   }
@@ -2511,12 +2608,27 @@ struct Window {
 }
 
 /// Where the rows of a mounted table are: the room the rows that are not built take.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct BodyWindow {
-  /// The height of a row.
+  /// The height of a row: what a row not yet built is taken to be.
   pub row_height: f32,
   /// How many rows there are.
   pub count: usize,
+  /// What the rows built measured, where they are not all as high.
+  heights: Option<Arc<Mutex<Heights>>>,
+}
+
+impl BodyWindow {
+  /// The room the lines from `from` up to `to` take: what those built measured, the rest a row's height each.
+  pub fn room(&self, from: usize, to: usize) -> f32 {
+    match &self.heights {
+      Some(heights) => {
+        let heights = heights.lock();
+        heights.top(to) - heights.top(from)
+      }
+      None => to.saturating_sub(from) as f32 * self.row_height,
+    }
+  }
 }
 
 /// A table as a renderer sees it: its headers, the rows it builds, and the style of its parts.
@@ -2747,7 +2859,7 @@ impl TableView {
     let mut body = Column::new()
       .align_items(Alignment::Stretch)
       .describe("a11y_role", "rowgroup");
-    let (Some(window), Some(focus_rows)) = (self.window, self.focus_rows.clone()) else {
+    let (Some(window), Some(focus_rows)) = (self.window.clone(), self.focus_rows.clone()) else {
       // Every row is built: the group steps over the rows themselves, PageUp and PageDown by what the table's
       // scroll shows.
       return body
@@ -2757,21 +2869,17 @@ impl TableView {
     // A mounted table builds the rows around its view: the group steps over all of them, and a row it goes to
     // that is not built is revealed and focused once it is.
     body = body.focus_group(group).focus_rows(focus_rows);
-    let spacer = |before: usize, rows: usize| {
-      Row::new()
-        .height(rows as f32 * window.row_height)
-        .key(format!("before-{before}"))
-    };
+    let spacer = |from: usize, to: usize| Row::new().height(window.room(from, to)).key(format!("before-{to}"));
     let mut next = 0;
     for (position, line) in lines {
       if position > next {
-        body = body.child(spacer(position, position - next));
+        body = body.child(spacer(next, position));
       }
       next = position + 1;
       body = body.child(line);
     }
     if window.count > next {
-      body = body.child(spacer(window.count, window.count - next));
+      body = body.child(spacer(next, window.count));
     }
     body
   }
@@ -2952,6 +3060,8 @@ pub struct TableHeader {
   pub sortable: bool,
   /// Which way the rows are sorted by it, if they are.
   pub sorted: Option<SortDirection>,
+  /// Its place in the sort, from 1, where the rows are sorted by more than one column.
+  pub sort_rank: Option<usize>,
   /// Where it stays while the rows scroll sideways, if its column is pinned.
   pub pinned: Option<Sticky>,
   /// Whether it is the last column, with no room after it.
@@ -2963,7 +3073,7 @@ pub struct TableHeader {
   trail: f32,
   /// The style of each part of the header, in its case.
   pub recipe: ResolvedRecipe,
-  press: Option<Arc<dyn Fn() + Send + Sync>>,
+  press: Option<Arc<dyn Fn(bool) + Send + Sync>>,
   resize: Option<Arc<ResizeLink>>,
   /// Where a mounted grid finds the header, which a column dragged by its header goes before.
   element: Option<ElementRef>,
@@ -3159,6 +3269,13 @@ impl TableHeader {
     Some(glyph(&self.part(TablePart::SortIcon), Name::new(name), false))
   }
 
+  /// Its place in the sort after its arrow, where the rows are sorted by more than one column: `None` otherwise.
+  pub fn sort_order(&self) -> Option<Element> {
+    let rank = self.sort_rank?;
+    let part = self.part(TablePart::SortOrder);
+    Some(part.text(&rank.to_string()).part(&part).nowrap().into())
+  }
+
   /// What is dragged at the end of the header to make the column wider or narrower: `None` for a column that is
   /// not resized. It is a separator to what reads the tree, with the column's width as its value; the keys that
   /// resize the column are its header's (Ctrl and Left or Right).
@@ -3219,6 +3336,9 @@ impl TableHeader {
         if let Some(icon) = self.sort_icon() {
           label = label.child(icon);
         }
+        if let Some(order) = self.sort_order() {
+          label = label.child(order);
+        }
         // A header that is resized or has a menu and is not sorted is a stop of the header's keys.
         if self.resize.is_some() || self.menu.is_some() {
           label = label.tab_index(0).describe("a11y_name", self.title.clone());
@@ -3234,12 +3354,15 @@ impl TableHeader {
           .flex_full(0.0, 1.0, None)
           .min_width(Dimension::Px(0.0))
           .describe("a11y_name", format!("Sort by {}", self.title))
-          .on_click(move |_| press());
+          .on_click(move |event: MouseEvent| press(event.shift));
         if let Some(title) = title {
           button = button.child(title);
         }
         if let Some(icon) = self.sort_icon() {
           button = button.child(icon);
+        }
+        if let Some(order) = self.sort_order() {
+          button = button.child(order);
         }
         if let Some(id) = &self.id {
           button = button.id(id.clone());
@@ -3545,6 +3668,8 @@ pub struct TableRow {
   pub lead_fill: Option<BackgroundColor>,
   /// Whether Tab enters the rows at it.
   pub entry: bool,
+  /// Whether it grows with what it holds (a column that wraps its text): the row's height is then its least.
+  pub grows: bool,
   /// The style of each part of this row, in its case.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -3585,6 +3710,10 @@ impl TableRow {
       .describe("a11y_rowindex", (self.position + 2).to_string())
       // A row is the same element wherever the rows built around it start.
       .key(format!("row-{}", self.index));
+    if self.grows {
+      let least = px(self.part(TablePart::Row).rest().height, self.recipe.theme()).unwrap_or(0.0);
+      row = row.height(Dimension::Auto).min_height(least);
+    }
     if self.grid {
       // The cells are the stops of a grid's keys, Left and Right a group of the row's own.
       row = row.focusable(false).focus_group(FocusGroup::horizontal().wrap(false));
@@ -3946,7 +4075,7 @@ struct GridModel<R, K> {
   texts: Arc<Vec<Option<TextFn<R>>>>,
   rows: Arc<Vec<R>>,
   /// The keys of the rows shown, by their ranks, and the lines they are on.
-  keys: Arc<Vec<K>>,
+  keys: RowKeys<K>,
   lines: Arc<Lines>,
   /// The id and the editor of each column, where it is edited.
   editors: Arc<Vec<(Arc<str>, Option<CellEditor<R>>)>>,
@@ -3969,7 +4098,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
       return false;
     };
     let edit = CellEdit {
-      row: key,
+      row: &key,
       column: id,
       value,
     };
@@ -3998,12 +4127,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
 
   /// The row shown at `rank`.
   fn row(&self, rank: usize) -> Option<&R> {
-    self.rows.get(*self.lines.order.get(rank)?)
+    self.rows.get(self.lines.row_of_rank(rank)?)
   }
 
   /// The line of the row shown at `rank`.
   fn position(&self, rank: usize) -> usize {
-    self.lines.position_of_rank.get(rank).copied().unwrap_or(rank)
+    self.lines.position_of(rank).unwrap_or(rank)
   }
 
   /// The cell that has the focus, where it is a cell: its rank and its column.
@@ -4115,15 +4244,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   }
 
   fn select(&self, row: usize, pick: Pick) {
-    if let Some(index) = self.lines.order.get(row) {
-      self.model.pick(*index, pick);
+    if let Some(index) = self.lines.row_of_rank(row) {
+      self.model.pick(index, pick);
     }
   }
 
   fn activate(&self, row: usize) {
     if let Some(key) = self.keys.get(row) {
       for handler in &self.model.on_row_activate {
-        handler(key);
+        handler(&key);
       }
     }
   }
@@ -4135,7 +4264,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
   fn click(&self, row: usize) {
     if let Some(key) = self.keys.get(row) {
       for handler in &self.model.on_row_click {
-        handler(key);
+        handler(&key);
       }
     }
   }
@@ -4537,7 +4666,7 @@ impl FocusRows for HostState {
   }
 
   fn enabled(&self, row: usize) -> bool {
-    !self.metrics.lock().disabled && !matches!(self.lines.lock().lines.get(row), Some(Shown::Summary(_)))
+    !self.metrics.lock().disabled && !matches!(self.lines.lock().line(row), Some(Shown::Summary(_)))
   }
 
   fn level(&self, row: usize) -> u32 {
@@ -4546,15 +4675,15 @@ impl FocusRows for HostState {
 
   fn expanded(&self, row: usize) -> Option<bool> {
     let lines = self.lines.lock();
-    match lines.lines.get(row)? {
-      Shown::Group(group) => Some(lines.groups[*group].open),
+    match lines.line(row)? {
+      Shown::Group(group) => Some(lines.groups[group].open),
       Shown::Row(_) | Shown::Summary(_) => None,
     }
   }
 
   fn set_expanded(&self, row: usize, open: bool) {
-    let group = match self.lines.lock().lines.get(row) {
-      Some(Shown::Group(group)) => *group,
+    let group = match self.lines.lock().line(row) {
+      Some(Shown::Group(group)) => group,
       _ => return,
     };
     let toggle = self.group_toggle.lock().clone();
@@ -4581,13 +4710,16 @@ impl FocusRows for HostState {
       return;
     }
     // The row is scrolled to where it shows under the header, and kept built as the focused row is.
-    let top = row as f32 * metrics.row_height;
-    let room = (self.scroll.viewport_height() - metrics.header_height).max(metrics.row_height);
+    let (top, height) = {
+      let heights = self.heights.lock();
+      (heights.top(row), heights.height(row))
+    };
+    let room = (self.scroll.viewport_height() - metrics.header_height).max(height);
     let scroll_y = self.scroll.scroll_y();
     let y = if top < scroll_y {
       top
-    } else if top + metrics.row_height > scroll_y + room {
-      top + metrics.row_height - room
+    } else if top + height > scroll_y + room {
+      top + height - room
     } else {
       scroll_y
     };
@@ -4613,12 +4745,21 @@ struct Metrics {
   pins: (usize, usize),
 }
 
+/// The lines a mounted table laid out, and what they were laid out for.
+type KeptLines = (
+  Arc<dyn std::any::Any + Send + Sync>,
+  (Vec<Arc<str>>, Vec<GroupKey>, bool),
+  Arc<Lines>,
+);
+
 /// Rows built past each edge of what is in view.
 const OVERSCAN: usize = 8;
 /// Columns built past each side of what is in view.
 const OVERSCAN_COLUMNS: usize = 2;
 /// Rows built before the table knows how high it is.
 const FIRST_ROWS: usize = 40;
+/// How wide the table is taken to be before it knows: the columns built at first are those this shows.
+const FIRST_WIDTH: f32 = 1920.0;
 
 /// What a mounted table keeps from render to render.
 struct HostState {
@@ -4659,6 +4800,13 @@ struct HostState {
   header_drop: Mutex<Option<(usize, Option<usize>)>>,
   /// The lines shown, and what opens or closes the group of one: the engine's nested group asks it.
   lines: Mutex<Arc<Lines>>,
+  /// The index of the rows' keys, kept while the rows are the same.
+  key_index: Mutex<KeptIndex>,
+  /// The lines laid out for the rows (held, so that they are the same rows while these are kept), the columns
+  /// grouped by, the groups open and whether the groups end in their summaries.
+  kept_lines: Mutex<Option<KeptLines>>,
+  /// How high the lines are: a row's height each until one built measures otherwise.
+  heights: Arc<Mutex<Heights>>,
   group_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
@@ -4669,15 +4817,39 @@ struct HostState {
 impl HostState {
   /// The rows in view and `margin` rows past each edge, from the scroll as it is.
   fn range(&self, margin: usize) -> Option<(usize, usize)> {
+    self.range_at(self.scroll.scroll_y(), margin)
+  }
+
+  /// The lines in view with the scroll at `scroll_y`, and `margin` lines past each edge.
+  fn range_at(&self, scroll_y: f32, margin: usize) -> Option<(usize, usize)> {
     let metrics = *self.metrics.lock();
     let viewport = self.scroll.viewport_height();
-    if metrics.row_height <= 0.0 || viewport <= 0.0 {
+    if metrics.row_height <= 0.0 || viewport <= 0.0 || metrics.count == 0 {
       return None;
     }
-    let scroll_y = self.scroll.scroll_y();
-    let first = (scroll_y / metrics.row_height).floor().max(0.0) as usize;
-    let last = ((scroll_y + viewport) / metrics.row_height).ceil().max(0.0) as usize;
+    let heights = self.heights.lock();
+    let first = heights.position_at(scroll_y.max(0.0));
+    let last = heights.position_at(scroll_y.max(0.0) + viewport) + 1;
     Some((first.saturating_sub(margin), (last + margin).min(metrics.count)))
+  }
+
+  /// Keeps what the line at `position` measured, as it is laid out: a line above the one at the top of the view
+  /// that is higher or lower than it was taken to be moves the scroll by as much, so that what is in view stays.
+  /// Whether it measured otherwise than it was taken to be.
+  fn measured(&self, position: usize, height: f32) -> bool {
+    let scroll_y = self.scroll.scroll_y();
+    let change = {
+      let mut heights = self.heights.lock();
+      let anchor = heights.position_at(scroll_y);
+      let change = heights.measure(position, height);
+      if position >= anchor { 0.0 } else { change }
+    };
+    if change != 0.0 {
+      self
+        .scroll
+        .set_scroll(self.scroll.scroll_x(), (scroll_y + change).max(0.0));
+    }
+    change != 0.0
   }
 
   /// Whether the rows that are to be built, those in view and half the overscan around them, are not all
@@ -4701,14 +4873,15 @@ impl HostState {
   }
 
   /// Which columns are in view at `scroll_x`, with [`OVERSCAN_COLUMNS`] past each side, the pinned ones and the
-  /// focused one: `None` while the table does not know its width, or where every column is in view anyway.
+  /// focused one: `None` where every column is in view anyway. Before the table knows its width it builds the
+  /// columns a wide window shows ([`FIRST_WIDTH`]), not the hundreds it may have.
   fn columns_at(&self, scroll_x: f32) -> Option<Vec<bool>> {
     let metrics = *self.metrics.lock();
     let tracks = self.tracks.lock().as_ref()?.1.clone();
-    let viewport = self.scroll.viewport_width();
-    if viewport <= 0.0 {
-      return None;
-    }
+    let viewport = match self.scroll.viewport_width() {
+      width if width > 0.0 => width,
+      _ => FIRST_WIDTH,
+    };
     let available = (viewport - metrics.padding_start - metrics.padding_end).max(0.0);
     let widths = tracks.widths(Some(available), 0.0);
     let columns = widths.len().saturating_sub(metrics.lead_tracks);
@@ -4836,6 +5009,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         summaries: Mutex::new(HashMap::new()),
         header_drop: Mutex::new(None),
         lines: Mutex::new(Arc::new(Lines::default())),
+        key_index: Mutex::default(),
+        kept_lines: Mutex::default(),
+        heights: Arc::default(),
         group_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
@@ -4907,6 +5083,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         _ => {
           let tracks = ColumnTracks::new(specs.clone());
           *held = Some((specs, tracks.clone()));
+          // Columns of other widths wrap their text otherwise: the lines are measured again.
+          *state.heights.lock() = Heights::default();
           tracks
         }
       }
@@ -4916,9 +5094,44 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     let row_height = px(recipe.part(TablePart::Row).rest().height, &theme).unwrap_or(0.0);
     let header_height = px(recipe.part(TablePart::Header).rest().height, &theme).unwrap_or(0.0);
     // The lines shown are what the window is reckoned in: the rows, or the groups and the rows of the open ones.
-    let lines = Arc::new(table.lines());
+    // Rows grouped are laid out once for the rows given, the columns grouped by and the groups open: a render
+    // that changes none of them (a row selected, a scroll) takes the lines as they were.
+    let lines = {
+      let mut kept = state.kept_lines.lock();
+      let wanted = (
+        table
+          .grouping
+          .iter()
+          .map(|column| column.id.clone())
+          .collect::<Vec<_>>(),
+        table.open_groups.clone(),
+        table.summarized(),
+      );
+      match &*kept {
+        Some((rows, held, lines))
+          if held == &wanted
+            && rows
+              .downcast_ref::<Arc<Vec<R>>>()
+              .is_some_and(|rows| Arc::ptr_eq(rows, &table.rows)) =>
+        {
+          lines.clone()
+        }
+        _ => {
+          let lines = Arc::new(table.lines());
+          *kept = Some((Arc::new(table.rows.clone()), wanted, lines.clone()));
+          lines
+        }
+      }
+    };
     *state.lines.lock() = lines.clone();
-    let count = lines.lines.len();
+    let count = lines.len();
+    // What the lines measured holds while they and the row's height are the same.
+    {
+      let mut heights = state.heights.lock();
+      if !heights.is_for(row_height, count) {
+        *heights = Heights::new(row_height, count);
+      }
+    }
     let geometry = Geometry::of(&recipe);
     let pins = table.pins();
     let lead_tracks = table.lead_tracks();
@@ -4955,6 +5168,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       }
       *state.built.lock() = indices.clone();
       let refs: HashMap<usize, ElementRef> = indices.iter().map(|index| (*index, ElementRef::new())).collect();
+      // Rows that grow with what they hold are measured as they are laid out, before they are painted: the table
+      // is built again at once where one is higher or lower than it was taken to be.
+      if table.tall() {
+        for (position, reference) in &refs {
+          let (watcher, position) = (state.clone(), *position);
+          reference.observe_rect_before_paint(move |rect| {
+            if watcher.measured(position, rect.height) {
+              watcher.rebuild();
+            }
+          });
+        }
+      }
       // A grid's cells have refs of their own, by the rank of their row, which the focus is sent to.
       let cell_refs: HashMap<(usize, usize), ElementRef> = if table.grid {
         let built = |column: usize| columns_built.as_ref().is_none_or(|built| built[column]);
@@ -4986,11 +5211,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
           // A row not built yet is scrolled to; the focus goes to it once it is.
           None
             if lines
-              .position_of_rank
-              .get(row)
-              .is_some_and(|position| !indices.contains(position)) =>
+              .position_of(row)
+              .is_some_and(|position| !indices.contains(&position)) =>
           {
-            state.reveal(lines.position_of_rank[row])
+            state.reveal(lines.position_of(row).unwrap_or(row))
           }
           None => *state.pending_focus.lock() = None,
         },
@@ -5000,13 +5224,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       let on_scroll: Arc<dyn Fn(ScrollEvent) + Send + Sync> = Arc::new(move |event: ScrollEvent| {
         // Handlers run before the scroll moves: the rows are reckoned from where it is going.
         let metrics = *watcher.metrics.lock();
-        let viewport = watcher.scroll.viewport_height();
         let scroll_y = (watcher.scroll.scroll_y() - event.delta_y).max(0.0);
-        if metrics.row_height <= 0.0 || viewport <= 0.0 {
+        let Some((first, last)) = watcher.range_at(scroll_y, 0) else {
           return;
-        }
-        let first = (scroll_y / metrics.row_height).floor() as usize;
-        let last = (((scroll_y + viewport) / metrics.row_height).ceil() as usize).min(metrics.count);
+        };
         let built = watcher.built.lock().clone();
         let scroll_x = (watcher.scroll.scroll_x() - event.delta_x).max(0.0);
         if (first.saturating_sub(OVERSCAN / 2)..(last + OVERSCAN / 2).min(metrics.count))
@@ -5065,7 +5286,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
   /// rows around the board's 44: 36 compact, 52 comfortable and touch, the header 4 lower.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Highlight, Muted, MutedForeground, Ring, StateHover, StatePressed};
-    use TablePart::{Count, Empty, Footer, Header, HeaderCell, Root, Row, Select, SortIcon};
+    use TablePart::{Count, Empty, Footer, Header, HeaderCell, Root, Row, Select, SortIcon, SortOrder};
     use TableState::{Disabled, Last, Numeric, Selectable, Selected, Sortable, Sorted};
     let line = || Line::inside(BorderSize::Sm, PaletteColor::Border);
     let range_edge = || Line::inside(BorderSize::Md, Ring);
@@ -5098,6 +5319,11 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(SortIcon, |s| s.square(IconSize::Sm))
+      .base(SortOrder, |s| {
+        s.typography(TypographyStyle::Mono)
+          .font_size(11.0)
+          .foreground(MutedForeground)
+      })
       // A column's edge: 8 of room that takes the pointer, a line of 2 in the ring's color under it and while it is
       // dragged, nothing at rest, as the board draws no line between headers.
       .base(TablePart::Resizer, |s| s.width(8.0).cursor(CursorIcon::ColResize))

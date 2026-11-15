@@ -253,20 +253,18 @@ fn the_columns_of_the_header_and_of_every_row_line_up_whatever_is_in_a_cell() {
 
 #[test]
 fn a_press_of_a_sortable_header_goes_through_ascending_descending_and_none() {
-  let sort = Signal::new(None::<TableSort>);
+  let sort = Signal::new(Vec::<TableSort>::new());
   let asked = Arc::new(Mutex::new(Vec::new()));
   let (scene_sort, told) = (sort.clone(), asked.clone());
   let mut stage = wide(move || {
     let told = told.clone();
     let columns = columns();
     let mut rows = crates();
-    if let Some(by) = scene_sort.get() {
-      by.sort(&columns, &mut rows);
-    }
+    TableSort::sort_rows(&scene_sort.get(), &columns, &mut rows);
     Table::new(columns, rows)
       .id("t")
       .sort(scene_sort.clone())
-      .on_sort_change(move |next| told.lock().unwrap().push(next.cloned()))
+      .on_sort_change(move |next| told.lock().unwrap().push(next.to_vec()))
       .into()
   });
   // A column that sorts has the mark that it does; one that does not, nothing.
@@ -274,26 +272,86 @@ fn a_press_of_a_sortable_header_goes_through_ascending_descending_and_none() {
   assert!(texts(&stage, ARROW_UP).is_empty());
 
   stage.click("t-header-name");
-  assert_eq!(sort.get(), Some(TableSort::ascending("name")));
+  assert_eq!(sort.get(), [TableSort::ascending("name")]);
   assert!(within(&mut stage, "t-header-name", ARROW_UP).is_some());
   // Sorted, the title is in the foreground; the rows come in the order the app gives.
   assert_eq!(stage.text("Name").0, light(PaletteColor::Foreground));
   assert!(within(&mut stage, "t-row-0", "crates/lurq").is_some());
 
   stage.click("t-header-name");
-  assert_eq!(sort.get(), Some(TableSort::descending("name")));
+  assert_eq!(sort.get(), [TableSort::descending("name")]);
   assert!(within(&mut stage, "t-header-name", ARROW_DOWN).is_some());
   assert!(within(&mut stage, "t-row-0", "crates/mobile_demo").is_some());
 
   stage.click("t-header-name");
-  assert_eq!(sort.get(), None);
+  assert!(sort.get().is_empty());
   assert_eq!(
     *asked.lock().unwrap(),
     [
-      Some(TableSort::ascending("name")),
-      Some(TableSort::descending("name")),
-      None
+      vec![TableSort::ascending("name")],
+      vec![TableSort::descending("name")],
+      vec![]
     ]
+  );
+}
+
+#[test]
+fn a_press_with_shift_sorts_by_another_column_after_the_first_and_each_header_shows_its_place() {
+  let sort = Signal::new(Vec::<TableSort>::new());
+  let scene_sort = sort.clone();
+  let mut stage = wide(move || {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .text(|row: &Crate| row.name.to_owned())
+        .sortable(true),
+      TableColumn::new("status", "Status")
+        .width(120.0)
+        .text(|row: &Crate| row.status.to_owned())
+        .sortable(true),
+    ];
+    let mut rows = crates();
+    TableSort::sort_rows(&scene_sort.get(), &columns, &mut rows);
+    Table::new(columns, rows).id("t").sort(scene_sort.clone()).into()
+  });
+  let shift_click = |stage: &mut Stage, id: &str| {
+    let (x, y) = stage.center(id);
+    stage
+      .tree
+      .mouse_down_with_modifiers(x, y, lurq::app::events::MouseButton::Left, true, false, false);
+    stage
+      .tree
+      .mouse_up_with_modifiers(x, y, lurq::app::events::MouseButton::Left, true, false, false);
+    stage.pass();
+  };
+  stage.click("t-header-status");
+  shift_click(&mut stage, "t-header-name");
+  assert_eq!(
+    sort.get(),
+    [TableSort::ascending("status"), TableSort::ascending("name")],
+    "Shift adds the column after the first"
+  );
+  assert!(
+    within(&mut stage, "t-header-status", "1").is_some(),
+    "the first is marked 1"
+  );
+  assert!(within(&mut stage, "t-header-name", "2").is_some(), "the second 2");
+  shift_click(&mut stage, "t-header-name");
+  assert_eq!(
+    sort.get(),
+    [TableSort::ascending("status"), TableSort::descending("name")],
+    "and turned in its place"
+  );
+  shift_click(&mut stage, "t-header-name");
+  assert_eq!(sort.get(), [TableSort::ascending("status")], "then taken out");
+  assert!(
+    within(&mut stage, "t-header-status", "1").is_none(),
+    "one column alone shows no place"
+  );
+  stage.click("t-header-name");
+  assert_eq!(
+    sort.get(),
+    [TableSort::ascending("name")],
+    "a plain press sorts by its column alone"
   );
 }
 
@@ -309,10 +367,26 @@ fn sort_orders_rows_by_a_columns_key_or_its_text_and_keeps_equal_ones_in_order()
   TableSort::descending("name").sort(&columns, &mut rows);
   assert_eq!(rows[0].name, "crates/mobile_demo");
   assert_eq!(
-    TableSort::after_press(Some(&TableSort::descending("size")), "name"),
-    Some(TableSort::ascending("name")),
+    TableSort::after_press(&[TableSort::descending("size")], "name", false),
+    [TableSort::ascending("name")],
     "another column starts ascending"
   );
+
+  // By several: the status first, the rows equal in it by their size, the largest first.
+  let columns = vec![
+    TableColumn::new("status", "Status").text(|row: &Crate| row.status.to_owned()),
+    TableColumn::new("size", "Size").sort_key(|row: &Crate| row.size),
+  ];
+  let mut rows = crates();
+  TableSort::sort_rows(
+    &[TableSort::ascending("status"), TableSort::descending("size")],
+    &columns,
+    &mut rows,
+  );
+  let order: Vec<(&str, u32)> = rows.iter().map(|row| (row.status, row.size)).collect();
+  let mut expected = order.clone();
+  expected.sort_by(|a, b| a.0.cmp(b.0).then(b.1.cmp(&a.1)));
+  assert_eq!(order, expected);
 }
 
 /// A table whose rows are selected, with what it was told.
@@ -1276,7 +1350,7 @@ fn a_table_tells_tooling_its_rows_its_sort_and_what_is_selected() {
     table(crates())
       .label("Crates")
       .selected(scene_selected.clone())
-      .sort_controlled(Some(TableSort::ascending("name")), |_| {})
+      .sort_controlled(vec![TableSort::ascending("name")], |_| {})
       .into()
   });
   let said = |stage: &mut Stage, id: &str, name: &str| {

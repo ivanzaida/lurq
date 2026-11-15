@@ -27,6 +27,7 @@ mod command_bar;
 mod command_palette;
 mod context_menu;
 mod data_grid;
+mod data_grid_scale;
 mod data_list;
 mod date_field;
 mod date_picker;

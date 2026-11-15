@@ -120,10 +120,8 @@ fn take(rows: &Signal<Vec<File>>, name: &str, column: &str, value: &CellValue) -
 }
 
 /// The rows of a page of the board's grid, in the order of `sort`.
-fn sorted(mut rows: Vec<File>, sort: &Option<TableSort>) -> Vec<File> {
-  if let Some(sort) = sort {
-    sort.sort(&columns(false), &mut rows);
-  }
+fn sorted(mut rows: Vec<File>, sort: &[TableSort]) -> Vec<File> {
+  TableSort::sort_rows(sort, &columns(false), &mut rows);
   rows
 }
 
@@ -167,9 +165,9 @@ pub struct DataGridPage {
   row_numbers: Signal<bool>,
   played: Signal<Vec<File>>,
   played_selected: Signal<Vec<String>>,
-  played_sort: Signal<Option<TableSort>>,
+  played_sort: Signal<Vec<TableSort>>,
   board_selected: Signal<Vec<String>>,
-  board_sort: Signal<Option<TableSort>>,
+  board_sort: Signal<Vec<TableSort>>,
   page: Signal<usize>,
   edited: Signal<Vec<File>>,
   log: Signal<Vec<String>>,
@@ -177,7 +175,7 @@ pub struct DataGridPage {
   ranged: Signal<Vec<File>>,
   range: Signal<Option<CellRange<String>>>,
   menu_rows: Signal<Vec<File>>,
-  menu_sort: Signal<Option<TableSort>>,
+  menu_sort: Signal<Vec<TableSort>>,
   layout: Signal<ColumnLayout>,
   /// The arrangement of the menu's grid as stored: its text, with its sort's.
   stored_layout: Signal<Option<(String, String)>>,
@@ -186,7 +184,50 @@ pub struct DataGridPage {
   summed_rows: Signal<Vec<File>>,
   summed_open: Signal<Vec<GroupKey>>,
   numbered_selected: Signal<Vec<String>>,
-  many: Arc<Vec<File>>,
+  big: Signal<bool>,
+  big_selected: Signal<Vec<usize>>,
+  multi_sort: Signal<Vec<TableSort>>,
+}
+
+/// A row of the grid of a million: its place, which every cell is made from.
+#[derive(Clone)]
+struct Job(u32);
+
+/// A million rows, made once and shared by every grid that shows them.
+fn million() -> Arc<Vec<Job>> {
+  static ROWS: std::sync::OnceLock<Arc<Vec<Job>>> = std::sync::OnceLock::new();
+  ROWS.get_or_init(|| Arc::new((0..1_000_000).map(Job).collect())).clone()
+}
+
+/// Two hundred columns of a job: its number pinned at the start, a note that wraps on every seventh, and metrics.
+fn million_columns() -> Vec<TableColumn<Job>> {
+  let mut columns = vec![
+    TableColumn::new("job", "Job")
+      .width(110.0)
+      .mono(true)
+      .pin(ColumnPin::Start)
+      .text(|job: &Job| format!("job-{:07}", job.0)),
+    TableColumn::new("note", "Note")
+      .width(220.0)
+      .wrap(true)
+      .text(|job: &Job| {
+        if job.0 % 7 == 0 {
+          format!(
+            "Rerun {} after the cache was cleared: the first build took the long way round",
+            job.0 / 7
+          )
+        } else {
+          "-".to_owned()
+        }
+      }),
+  ];
+  columns.extend((2..200).map(|index| {
+    TableColumn::new(&format!("m{index}"), &format!("Metric {index}"))
+      .width(110.0)
+      .numeric()
+      .text(move |job: &Job| format!("{:.1}", (job.0 as f64 * index as f64) % 997.0 / 7.0))
+  }));
+  columns
 }
 
 impl DataGridPage {
@@ -379,12 +420,40 @@ impl DataGridPage {
       self.played_open.clone(),
       self.summary.clone(),
       self.row_numbers.clone(),
+      self.big.clone(),
     );
     let still = {
       let rows = rows.get();
       move || -> Element { DataGrid::new(columns(pin_name), rows.clone()).label("Files").into() }
     };
-    let shown = grid.mount(ctx);
+    let big = self.big.get();
+    let shown = if big {
+      // The same props over a million rows of 200 columns, a note on every seventh that wraps.
+      let mut grid = DataGrid::new_shared(million_columns(), million())
+        .label("Jobs")
+        .density(density)
+        .read_only(read_only)
+        .resizable(resizable)
+        .column_menu(column_menu)
+        .row_numbers(row_numbers)
+        .count(footer)
+        .height(400.0)
+        .force(self.playground.forced())
+        .key("played-million");
+      if selection > 0 {
+        grid = grid.selected(self.big_selected.clone()).checkboxes(selection == 1);
+      }
+      code = vec![
+        "// rows: Arc<Vec<Job>>, a million; columns: the job pinned, a note that wraps, 198 metrics".to_owned(),
+        "DataGrid::new_shared(columns, rows)".to_owned(),
+        ".label(\"Jobs\")".to_owned(),
+        ".height(400.0)".to_owned(),
+        ".mount(ctx)".to_owned(),
+      ];
+      grid.mount(ctx)
+    } else {
+      grid.mount(ctx)
+    };
     self.playground.card(
       ctx,
       Spec {
@@ -393,12 +462,19 @@ impl DataGridPage {
         shown: Shown::of(shown),
         fill: true,
         forceable: true,
-        facts: format!(
-          "{} rows · {} selected · {} cells in the range",
-          rows.get().len(),
-          self.played_selected.get().len(),
-          self.played_range.get().map_or(0, |range| range.len())
-        ),
+        facts: if big {
+          format!(
+            "1,000,000 rows · 200 columns · {} selected",
+            self.big_selected.get().len()
+          )
+        } else {
+          format!(
+            "{} rows · {} selected · {} cells in the range",
+            rows.get().len(),
+            self.played_selected.get().len(),
+            self.played_range.get().map_or(0, |range| range.len())
+          )
+        },
         event: "on_edit / on_selection_change / on_cell_selection_change / on_column_layout_change / on_open_change",
         code,
         tree,
@@ -428,6 +504,7 @@ impl DataGridPage {
           flag("cell_selection(signal): told the range", &self.bind_range),
           flag("column_menu: a menu on each header", &self.column_menu),
           flag("row_numbers: a column of numbers at the start", &self.row_numbers),
+          flag("a million rows by 200 columns", &self.big),
           prop(
             "summary",
             "SummaryKind of the size",
@@ -462,6 +539,7 @@ impl DataGridPage {
           !grouping.is_empty(),
           summary.is_some(),
           row_numbers,
+          big,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -478,7 +556,7 @@ impl DataGridPage {
           reset.6.set(false);
           reset.7.set(files(8));
           reset.8.set(Vec::new());
-          reset.9.set(None);
+          reset.9.set(Vec::new());
           reset.10.set(true);
           reset.11.set(None);
           reset.12.set(true);
@@ -487,6 +565,7 @@ impl DataGridPage {
           reset.15.set(Vec::new());
           reset.16.set(0);
           reset.17.set(false);
+          reset.18.set(false);
         }),
       },
     )
@@ -552,9 +631,9 @@ impl Component for DataGridPage {
       row_numbers: ctx.signal(false),
       played: ctx.signal(files(8)),
       played_selected: ctx.signal(Vec::new()),
-      played_sort: ctx.signal(None),
+      played_sort: ctx.signal(Vec::new()),
       board_selected: ctx.signal(vec!["blur.rs".to_owned()]),
-      board_sort: ctx.signal(Some(TableSort::ascending("name"))),
+      board_sort: ctx.signal(vec![TableSort::ascending("name")]),
       page: ctx.signal(1),
       edited: ctx.signal(files(5)),
       log: ctx.signal(Vec::new()),
@@ -562,7 +641,7 @@ impl Component for DataGridPage {
       ranged: ctx.signal(files(8)),
       range: ctx.signal(None),
       menu_rows: ctx.signal(files(8)),
-      menu_sort: ctx.signal(None),
+      menu_sort: ctx.signal(Vec::new()),
       layout: ctx.signal(ColumnLayout::default()),
       stored_layout: ctx.signal(None),
       group_rows: ctx.signal(files(16)),
@@ -570,14 +649,9 @@ impl Component for DataGridPage {
       summed_rows: ctx.signal(files(16)),
       summed_open: ctx.signal(vec![GroupKey::new(["Building"]), GroupKey::new(["Modified"])]),
       numbered_selected: ctx.signal(vec!["canvas.rs".to_owned()]),
-      many: Arc::new(
-        (0..10_000)
-          .map(|index| File {
-            name: format!("file_{index:05}.rs"),
-            ..files(8)[index % 8].clone()
-          })
-          .collect(),
-      ),
+      big: ctx.signal(false),
+      big_selected: ctx.signal(Vec::new()),
+      multi_sort: ctx.signal(vec![TableSort::ascending("status"), TableSort::descending("size")]),
     }
   }
 
@@ -722,10 +796,10 @@ impl Component for DataGridPage {
       } else {
         arrangement.to_text()
       },
-      self
-        .menu_sort
-        .get()
-        .map_or_else(|| "none".to_owned(), |sort| sort.to_text())
+      match self.menu_sort.get() {
+        sort if sort.is_empty() => "none".to_owned(),
+        sort => TableSort::list_to_text(&sort),
+      }
     );
     let menu_grid = Column::new()
       .spacing(10.0)
@@ -758,7 +832,7 @@ impl Component for DataGridPage {
               .variant(ButtonVariant::Outline)
               .size(ButtonSize::Sm)
               .on_click(move |_| {
-                let sort = store.1.get().map(|sort| sort.to_text()).unwrap_or_default();
+                let sort = TableSort::list_to_text(&store.1.get());
                 store.2.set(Some((store.0.get().to_text(), sort)));
               }),
           )
@@ -774,7 +848,7 @@ impl Component for DataGridPage {
                     let ids: Vec<Arc<str>> = columns(false).iter().map(|column| Arc::from(column.id())).collect();
                     restore.0.set(layout.valid(ids.iter().map(|id| &**id)));
                   }
-                  restore.1.set(TableSort::parse(&sort));
+                  restore.1.set(TableSort::parse_list(&sort).unwrap_or_default());
                 }
               }),
           )
@@ -835,6 +909,51 @@ impl Component for DataGridPage {
       .mount(ctx);
 
     // Row numbers: a column of them at the start, which stays, pressed to select a row, its header all of them.
+    // Sorted by several columns: the status first, the rows of a status by their size, the largest first.
+    let multi_columns = || {
+      vec![
+        TableColumn::new("status", "Status")
+          .width(130.0)
+          .cell(|row: &File| badge(row.status))
+          .sort_key(|row: &File| row.status as i64),
+        TableColumn::new("name", "Name")
+          .text(|row: &File| row.name.clone())
+          .mono(true)
+          .sortable(true),
+        TableColumn::new("size", "Size")
+          .width(100.0)
+          .numeric()
+          .text(|row: &File| format!("{} KB", row.size))
+          .sort_key(|row: &File| row.size as i64),
+      ]
+    };
+    let multi = self.multi_sort.get();
+    let mut multi_rows = files(8);
+    TableSort::sort_rows(&multi, &multi_columns(), &mut multi_rows);
+    let multi_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::new(multi_columns(), multi_rows)
+          .row_key(|row: &File| row.name.clone())
+          .label("Files")
+          .read_only(true)
+          .sort(self.multi_sort.clone())
+          .key("multi-sort")
+          .mount(ctx),
+      )
+      .child(quiet(
+        &format!(
+          "sort: {}",
+          if multi.is_empty() {
+            "none".to_owned()
+          } else {
+            TableSort::list_to_text(&multi)
+          }
+        ),
+        12.0,
+      ));
+
     let numbered = DataGrid::new(columns(false), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -872,26 +991,14 @@ impl Component for DataGridPage {
       .key("pinned")
       .mount(ctx);
 
-    // Ten thousand rows of fifty columns: the cells in view are built.
-    let mut wide_columns = vec![
-      TableColumn::new("name", "Name")
-        .width(160.0)
-        .mono(true)
-        .pin(ColumnPin::Start)
-        .text(|row: &File| row.name.clone()),
-    ];
-    wide_columns.extend((1..50).map(|index| {
-      TableColumn::new(&format!("m{index}"), &format!("Metric {index}"))
-        .width(110.0)
-        .numeric()
-        .text(move |row: &File| format!("{:.1}", row.size * index as f64 / 7.0))
-    }));
-    let thousands = DataGrid::new_shared(wide_columns, self.many.clone())
-      .label("Metrics")
+    // A million rows of two hundred columns: the cells in view are built, the notes that wrap measured.
+    let thousands = DataGrid::new_shared(million_columns(), million())
+      .label("Jobs")
       .read_only(true)
+      .row_numbers(true)
       .count(true)
-      .height(360.0)
-      .key("thousands")
+      .height(400.0)
+      .key("million")
       .mount(ctx);
 
     let read_only = DataGrid::new(columns(false), files(3))
@@ -984,7 +1091,7 @@ impl Component for DataGridPage {
       ),
       (
         "selected / sort",
-        "Signal<Vec<K>> / Signal<Option<TableSort>>",
+        "Signal<Vec<K>> / Signal<Vec<TableSort>>",
         "none",
         "As a table has them, with their controlled forms and handlers.",
       ),
@@ -1101,19 +1208,38 @@ impl Component for DataGridPage {
            content, hides it, and shows the columns hidden. A header dragged to another place moves its column, \
            as Ctrl+Shift+PageUp and PageDown on it do. How the columns are arranged is a value the app holds and \
            stores: its text form, under the grid, changes as the grid does; Store keeps it with the sort's, Restore \
-           reads them back with ColumnLayout::parse and TableSort::parse, made valid for the columns the grid has.",
+           reads them back with ColumnLayout::parse and TableSort::parse_list, made valid for the columns the grid has.",
           self.frame.demo(
             6,
             menu_grid,
             ".column_layout(layout)",
             &[
-              "// layout: Signal<ColumnLayout>, sort: Signal<Option<TableSort>>",
+              "// layout: Signal<ColumnLayout>, sort: Signal<Vec<TableSort>>",
               "DataGrid::new(columns, files.get())",
               "    .sort(sort.clone())",
               "    .column_layout(layout.clone())",
               "    .mount(ctx)",
               "// Store: storage.set_value(\"columns\", layout.get()) and (\"sort\", sort.get())",
               "// Restore: storage.value::<ColumnLayout>(\"columns\").map(|layout| layout.valid(ids))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Sorted by several columns",
+          "A press of a header sorts the rows by its column alone: ascending, then descending, then not at all. \
+           With Shift it adds the column to the sort after the others, or turns it, then takes it out; each sorted \
+           header shows its place in the sort. The sort is a list the app holds, the first column first, and its \
+           text form is stored as a column layout's is; TableSort::sort_rows sorts the rows by it.",
+          self.frame.demo(
+            10,
+            multi_grid,
+            ".sort(sort)",
+            &[
+              "// sort: Signal<Vec<TableSort>>, the first column first",
+              "let mut rows = files.get();",
+              "TableSort::sort_rows(&sort.get(), &columns, &mut rows);",
+              "DataGrid::new(columns, rows).sort(sort.clone()).mount(ctx)",
+              "// stored: TableSort::list_to_text(&sort.get()), read back with TableSort::parse_list",
             ],
           ),
         ),
@@ -1181,19 +1307,24 @@ impl Component for DataGridPage {
           ),
         ),
         Section::new(
-          "Ten thousand rows, fifty columns",
+          "A million rows, two hundred columns",
           "A mounted grid builds the rows in view and a few around them, and of those the cells of the columns in \
-           view, two past each side, the pinned ones and the focused one. Ctrl+End goes to the last cell.",
+           view, two past each side, the pinned ones and the focused one: a million rows cost what a screen of them \
+           does. Every seventh note wraps and its row grows; the rows not built yet are taken to be a row high, and \
+           what is in view stays still as they are measured. Drag the bar's thumb anywhere, or press Ctrl+End.",
           self.frame.demo(
             3,
             thousands,
             "DataGrid::new_shared(columns, rows)",
             &[
-              "// rows: Arc<Vec<File>>, ten thousand; columns: a name pinned and 49 metrics",
+              "// rows: Arc<Vec<Job>>, a million, given again at every render without a copy",
+              "// columns: the job pinned, a note that wraps, 198 metrics",
+              "TableColumn::new(\"note\", \"Note\").width(220.0).wrap(true).text(|job| job.note())",
               "DataGrid::new_shared(columns, rows)",
               "    .read_only(true)",
+              "    .row_numbers(true)",
               "    .count(true)",
-              "    .height(360.0)",
+              "    .height(400.0)",
               "    .mount(ctx)",
             ],
           ),

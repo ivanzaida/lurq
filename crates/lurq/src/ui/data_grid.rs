@@ -306,9 +306,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   }
 
   /// What the rows are sorted by: see [`Table::sort`].
-  pub fn sort(self, sort: Signal<Option<TableSort>>) -> Self
+  pub fn sort(self, sort: Signal<Vec<TableSort>>) -> Self
   where
-    Option<TableSort>: SignalValue,
+    Vec<TableSort>: SignalValue,
   {
     self.with(|table| table.sort(sort))
   }
@@ -316,14 +316,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// What the rows are sorted by, as the app holds it: see [`Table::sort_controlled`].
   pub fn sort_controlled(
     self,
-    sort: Option<TableSort>,
-    on_change: impl Fn(Option<TableSort>) + Send + Sync + 'static,
+    sort: Vec<TableSort>,
+    on_change: impl Fn(Vec<TableSort>) + Send + Sync + 'static,
   ) -> Self {
     self.with(|table| table.sort_controlled(sort, on_change))
   }
 
   /// Called with the new sort at each press of a sortable header: see [`Table::on_sort_change`].
-  pub fn on_sort_change(self, handler: impl Fn(Option<&TableSort>) + Send + Sync + 'static) -> Self {
+  pub fn on_sort_change(self, handler: impl Fn(&[TableSort]) + Send + Sync + 'static) -> Self {
     self.with(|table| table.on_sort_change(handler))
   }
 

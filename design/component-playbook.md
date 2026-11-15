@@ -351,6 +351,33 @@ an alias.
   `Recipe::row_density`; `ui::Navbar`, `ui::NavigationMenu`, `ui::Table`, `ui::List`, `ui::ListItem`,
   `ui::Listbox`, `ui::DataList`, `ui::Calendar`, `ui::DatePicker`, `ui::DateRangePicker`.
 
+## What the eleventh batch taught
+
+- **A family is built on a ground one session builds first.** Twelve charts would have had twelve legends: the
+  ground (`ui/chart/`) and its first user were built and reported with the family's names before the others
+  started, and the others were told to change it only by adding and to keep the first user's tests passing.
+- **A piece of the engine that two briefs need has one owner named in both.** Two sessions each built
+  `Canvas::paint` for their own component, as two had each built a row's least length a batch before; a brief
+  that sends a session to the canvas, the layout or the runtime says who builds what the others will also want.
+- **The first painted frame is the settled one.** What measures its own room and then lays itself out (a
+  splitter, a toolbar that overflows, a timeline that folds) measures before the paint
+  (`ElementRef::observe_rect_before_paint`), and its test compares the first frame with the next
+  (`Stage::first_frame`, `Stage::frame`). A jump of one frame is a defect Ivan sees.
+- **The merge compiles the browser's build and checks the docs' links every time**:
+  `cargo check -p gallery --target wasm32-unknown-unknown`, and the docs build with `scripts/check-docs.py`.
+  The engine's clock is `crate::time::Instant`, never `std`'s.
+- **What moves, moves in every form of the component.** A category that opens with a motion in an accordion
+  opens with it in a property grid and a tree; a chart whose bars move to new values has lines and slices
+  that do. One of a family animated and the others not reads as a fault.
+- **A session stopped in the middle of its work is told to read `git status` first.** The limit of the model
+  cut four turns with work uncommitted, one inside a merge; nothing was lost, since each began again from
+  what its worktree held and not from its memory of it.
+- **What a batch may use now**: `ui::chart` (`ChartSeries`, `chart_props!`, `ChartPlot`, `ChartLegend`,
+  `ChartTooltip`, `LinearScale::nice`), `Canvas::paint` and `paint_moving`, `Tree::set_software_canvases` and
+  `Stage::software` for a test that reads a canvas's pixels, `lurq::code`, `ui::CodeBlock`, `ui::Blockquote`,
+  `ui::Highlight`, the type roles `Heading1` to `Heading6`, `Prose` and `Article`, `TextStyle::case`,
+  `ElementRef::observe_rect_before_paint`, `Stage::first_frame`.
+
 ## What the tenth batch taught
 
 - **A change of a rule the engine shares runs every suite before it is committed.** A session's own filtered tests

@@ -194,10 +194,8 @@ fn narrow_columns() -> Vec<TableColumn<Krate>> {
 }
 
 /// The rows of `rows` in the order `sort` asks for.
-fn sorted(columns: &[TableColumn<Krate>], mut rows: Vec<Krate>, sort: &Option<TableSort>) -> Vec<Krate> {
-  if let Some(sort) = sort {
-    sort.sort(columns, &mut rows);
-  }
+fn sorted(columns: &[TableColumn<Krate>], mut rows: Vec<Krate>, sort: &[TableSort]) -> Vec<Krate> {
+  TableSort::sort_rows(sort, columns, &mut rows);
   rows
 }
 
@@ -227,12 +225,12 @@ pub struct TablePage {
   form: Signal<usize>,
   sticky: Signal<bool>,
   footer: Signal<bool>,
-  played_sort: Signal<Option<TableSort>>,
+  played_sort: Signal<Vec<TableSort>>,
   played_selected: Signal<Vec<&'static str>>,
   grid_selected: Signal<Vec<&'static str>>,
-  grid_sort: Signal<Option<TableSort>>,
+  grid_sort: Signal<Vec<TableSort>>,
   page: Signal<usize>,
-  sort: Signal<Option<TableSort>>,
+  sort: Signal<Vec<TableSort>>,
   tall_selected: Signal<Vec<&'static str>>,
   board_selected: Signal<Vec<&'static str>>,
   /// The Columns menu of the bar: its anchor, whether it is open, and whether the status and the time show.
@@ -322,7 +320,7 @@ impl TablePage {
     };
 
     let mut code = vec![
-      "// sort: Signal<Option<TableSort>>".to_owned(),
+      "// sort: Signal<Vec<TableSort>>".to_owned(),
       if selection > 0 {
         "// selected: Signal<Vec<&str>>".to_owned()
       } else {
@@ -424,8 +422,9 @@ impl TablePage {
         facts: format!(
           "{} selected{}",
           selected.len(),
-          match &sort {
-            Some(sort) => format!(
+          sort
+            .iter()
+            .map(|sort| format!(
               " · {} {}",
               sort.column,
               if sort.direction == SortDirection::Ascending {
@@ -433,9 +432,8 @@ impl TablePage {
               } else {
                 "↓"
               }
-            ),
-            None => String::new(),
-          }
+            ))
+            .collect::<String>()
         ),
         event: "on_sort_change / on_selection_change",
         code,
@@ -490,7 +488,7 @@ impl TablePage {
           to_form.set(0);
           to_sticky.set(false);
           to_footer.set(false);
-          to_sort.set(None);
+          to_sort.set(Vec::new());
           to_selected.set(Vec::new());
         }),
       },
@@ -650,12 +648,12 @@ impl Component for TablePage {
       form: ctx.signal(0),
       sticky: ctx.signal(false),
       footer: ctx.signal(false),
-      played_sort: ctx.signal(None),
+      played_sort: ctx.signal(Vec::new()),
       played_selected: ctx.signal(Vec::new()),
       grid_selected: ctx.signal(vec!["crates/lurq"]),
-      grid_sort: ctx.signal(Some(TableSort::ascending("name"))),
+      grid_sort: ctx.signal(vec![TableSort::ascending("name")]),
       page: ctx.signal(1),
-      sort: ctx.signal(None),
+      sort: ctx.signal(Vec::new()),
       tall_selected: ctx.signal(Vec::new()),
       board_selected: ctx.signal(vec!["crates/lurq_macros"]),
       columns_menu: (ElementRef::new(), ctx.signal(false)),
@@ -791,7 +789,7 @@ impl Component for TablePage {
       ),
       (
         "sort",
-        "Signal<Option<TableSort>>",
+        "Signal<Vec<TableSort>>",
         "none",
         "What the rows are sorted by: a press of a sortable header sets it to ascending, descending, none. \
          `sort_controlled(sort, on_change)` is the same held by the app; `TableSort::sort` sorts rows by a column.",
@@ -828,7 +826,7 @@ impl Component for TablePage {
       ),
       (
         "on_sort_change / on_selection_change",
-        "impl Fn(Option<&TableSort>) / impl Fn(&[K])",
+        "impl Fn(&[TableSort]) / impl Fn(&[K])",
         "",
         "Told the new sort, and the whole new selection where it changed, bound or not.",
       ),
@@ -928,7 +926,7 @@ impl Component for TablePage {
             grid,
             ".selected(selected).pagination(..)",
             &[
-              "// selected: Signal<Vec<&str>>, page: Signal<usize>, sort: Signal<Option<TableSort>>",
+              "// selected: Signal<Vec<&str>>, page: Signal<usize>, sort: Signal<Vec<TableSort>>",
               "Table::new(columns, rows_of_the_page)",
               "    .row_key(|row| row.name)",
               "    .sort(sort)",
@@ -940,18 +938,17 @@ impl Component for TablePage {
         ),
         Section::new(
           "Sorting",
-          "A press of a sortable header sorts the rows by it, ascending, then descending, then not at all. The \
-           app gives the rows in that order: `TableSort::sort` sorts them by the column's text or its key.",
+          "A press of a sortable header sorts the rows by it alone, ascending, then descending, then not at all; \
+           with Shift it adds its column to the sort after the others, and each sorted header shows its place. \
+           The app gives the rows in that order: `TableSort::sort_rows` sorts them by each column's text or key.",
           self.frame.demo(
             2,
             sorting,
             ".sort(sort)",
             &[
-              "// sort: Signal<Option<TableSort>>",
+              "// sort: Signal<Vec<TableSort>>, the first column first",
               "let mut rows = rows;",
-              "if let Some(by) = sort.get() {",
-              "    by.sort(&columns, &mut rows);",
-              "}",
+              "TableSort::sort_rows(&sort.get(), &columns, &mut rows);",
               "Table::new(columns, rows).sort(sort)",
             ],
           ),

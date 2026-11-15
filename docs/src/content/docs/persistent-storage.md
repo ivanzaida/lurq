@@ -133,7 +133,7 @@ If a key exists but was stored with a different type, reads return `None`.
 
 ## Custom Types
 
-A [dock layout](../design-system/#dock-layout)'s `DockState` is a value of the storage as it is (with this feature): it is stored as its text form, `state.to_text()`, and read back with `DockState::parse`. So are a [data grid](../design-system/#data-grid)'s values: its `ColumnLayout` (read back with `ColumnLayout::parse`, then `valid(ids)` for the columns the app has), its sort, a `TableSort` or an `Option<TableSort>` (none stored as no text), and its groups open, a `Vec<GroupKey>`.
+A [dock layout](../design-system/#dock-layout)'s `DockState` is a value of the storage as it is (with this feature): it is stored as its text form, `state.to_text()`, and read back with `DockState::parse`. So are a [data grid](../design-system/#data-grid)'s values: its `ColumnLayout` (read back with `ColumnLayout::parse`, then `valid(ids)` for the columns the app has), its sort, a `Vec<TableSort>` (its columns in turn, none stored as no text; a `TableSort` and an `Option<TableSort>` are too), and its groups open, a `Vec<GroupKey>`.
 
 User-defined structs can derive `PersistentValue` when every field also supports persistent storage:
 

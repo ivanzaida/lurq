@@ -114,13 +114,12 @@ impl Span {
 }
 
 /// Where `range` is among `keys` and `ids`: `None` where a corner is no longer shown.
-pub(super) fn span_of<K: PartialEq>(range: &CellRange<K>, keys: &[K], ids: &[Arc<str>]) -> Option<Span> {
-  let place = |cell: &CellKey<K>| {
-    Some((
-      keys.iter().position(|key| *key == cell.row)?,
-      ids.iter().position(|id| *id == cell.column)?,
-    ))
-  };
+pub(super) fn span_of<K: Clone + Eq + std::hash::Hash>(
+  range: &CellRange<K>,
+  keys: &super::RowKeys<K>,
+  ids: &[Arc<str>],
+) -> Option<Span> {
+  let place = |cell: &CellKey<K>| Some((keys.rank_of(&cell.row)?, ids.iter().position(|id| *id == cell.column)?));
   Some(Span {
     anchor: place(&range.anchor)?,
     extent: place(&range.extent)?,
@@ -185,14 +184,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
     let ((top, bottom), (start, end)) = (span.rows(), span.columns());
     Some(CellRange {
       anchor: CellKey {
-        row: self.keys.get(span.anchor.0)?.clone(),
+        row: self.keys.get(span.anchor.0)?,
         column: id(span.anchor.1)?,
       },
       extent: CellKey {
-        row: self.keys.get(span.extent.0)?.clone(),
+        row: self.keys.get(span.extent.0)?,
         column: id(span.extent.1)?,
       },
-      rows: Arc::from(self.keys.get(top..=bottom)?.to_vec()),
+      rows: Arc::from(self.keys.ranked(top, bottom)),
       columns: Arc::from((start..=end).filter_map(id).collect::<Vec<_>>()),
     })
   }

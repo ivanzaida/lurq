@@ -325,6 +325,36 @@ impl TableSort {
   }
 }
 
+impl TableSort {
+  /// A sort of several columns as text, the first first: each column's text in turn, which `parse_list` reads
+  /// back. No columns is no text.
+  pub fn list_to_text(sorts: &[TableSort]) -> String {
+    sorts.iter().map(TableSort::to_text).collect::<Vec<_>>().join(" ")
+  }
+
+  /// The sort `text` writes (see `list_to_text`): `None` for text that is not the form.
+  pub fn parse_list(text: &str) -> Option<Vec<TableSort>> {
+    if text.trim().is_empty() {
+      return Some(Vec::new());
+    }
+    let mut reader = Reader::new(text)?;
+    let mut sorts = Vec::new();
+    while !reader.done() {
+      let column = reader.text()?;
+      let direction = match reader.word()?.as_str() {
+        "ascending" => SortDirection::Ascending,
+        "descending" => SortDirection::Descending,
+        _ => return None,
+      };
+      sorts.push(TableSort {
+        column: Arc::from(column),
+        direction,
+      });
+    }
+    Some(sorts)
+  }
+}
+
 impl fmt::Display for TableSort {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(&self.to_text())
@@ -450,6 +480,20 @@ mod stored {
         .map(|sort| sort.to_text())
         .unwrap_or_default()
         .encode_persistent_value()
+    }
+  }
+
+  /// A grid's sort of several columns, as its list's text.
+  impl PersistentValue for Vec<TableSort> {
+    fn decode_persistent_value(bytes: &[u8]) -> Option<Self> {
+      TableSort::parse_list(&text(bytes)?)
+    }
+  }
+
+  /// A grid's sort of several columns, as its list's text.
+  impl IntoPersistentValue for Vec<TableSort> {
+    fn encode_persistent_value(self) -> Vec<u8> {
+      TableSort::list_to_text(&self).encode_persistent_value()
     }
   }
 
