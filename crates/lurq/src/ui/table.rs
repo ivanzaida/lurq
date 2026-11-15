@@ -28,6 +28,7 @@ use super::{
   theme::{Themed, current_theme},
 };
 mod columns;
+mod export;
 mod filtering;
 mod filters;
 mod groups;
@@ -41,6 +42,7 @@ mod text;
 
 pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
+pub use export::{ExportFormat, ExportLabels, ExportScope, GridExport, to_csv, to_delimited, to_tsv};
 pub use filtering::FilterLabels;
 use filtering::{FilterLink, FilterShape, FilterState, MOST_VALUES};
 pub use filters::{ColumnFilter, GridQuery, TableFilters, TextMatch};
@@ -761,6 +763,7 @@ struct Words {
   numbers: Arc<str>,
   filter: Arc<FilterLabels>,
   source: Arc<SourceLabels>,
+  export: Arc<ExportLabels>,
 }
 
 /// The words of a grid over rows the app gives on demand: what a row whose range failed says, and its button.
@@ -796,6 +799,7 @@ impl Default for Words {
       numbers: Arc::from("#"),
       filter: Arc::default(),
       source: Arc::default(),
+      export: Arc::default(),
     }
   }
 }
@@ -868,6 +872,9 @@ pub struct Table<R, K = usize> {
   on_matches_change: Vec<Arc<dyn Fn(SearchMatches) + Send + Sync>>,
   find_bar: bool,
   find_bar_with: Option<Arc<dyn Fn(super::find_bar::FindBar) -> super::find_bar::FindBar + Send + Sync>>,
+  /// Whether a grid's column menus write its rows out, and who is told the text.
+  export: bool,
+  on_export: Vec<Arc<dyn Fn(&GridExport) + Send + Sync>>,
   source: Option<Arc<dyn RowSource<R>>>,
   on_query_change: Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>,
   /// Over a source, as a render finds them: where each row's range is, and what asks for a failed one again.
@@ -948,6 +955,8 @@ impl<R, K: Clone> Clone for Table<R, K> {
       on_matches_change: self.on_matches_change.clone(),
       find_bar: self.find_bar,
       find_bar_with: self.find_bar_with.clone(),
+      export: self.export,
+      on_export: self.on_export.clone(),
       source: self.source.clone(),
       on_query_change: self.on_query_change.clone(),
       slots: self.slots.clone(),
@@ -1027,6 +1036,8 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_matches_change: Vec::new(),
       find_bar: false,
       find_bar_with: None,
+      export: true,
+      on_export: Vec::new(),
       source: None,
       on_query_change: Vec::new(),
       slots: None,
@@ -1101,6 +1112,8 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_matches_change: self.on_matches_change,
       find_bar: self.find_bar,
       find_bar_with: self.find_bar_with,
+      export: self.export,
+      on_export: self.on_export,
       source: self.source,
       on_query_change: self.on_query_change,
       slots: self.slots,
@@ -1291,6 +1304,26 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// The words of rows the app gives on demand: what a range that failed says, and its button.
   pub fn source_labels(mut self, labels: SourceLabels) -> Self {
     self.words.source = Arc::new(labels);
+    self
+  }
+
+  /// Whether a grid's column menus have Export, which writes the rows shown or selected out as comma-separated or
+  /// tab-separated text: on unless told.
+  pub fn export(mut self, export: bool) -> Self {
+    self.export = export;
+    self
+  }
+
+  /// Told the text of each export from a grid's menu ([`GridExport`]): the app saves it, or sends it. Without a
+  /// handler the text goes on the clipboard.
+  pub fn on_export(mut self, handler: impl Fn(&GridExport) + Send + Sync + 'static) -> Self {
+    self.on_export.push(Arc::new(handler));
+    self
+  }
+
+  /// The words of the export in a grid's menu.
+  pub fn export_labels(mut self, labels: ExportLabels) -> Self {
+    self.words.export = Arc::new(labels);
     self
   }
 
@@ -2078,6 +2111,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             })
             .collect(),
         ),
+        titles: Arc::new(self.columns.iter().map(|column| column.title.clone()).collect()),
         rows: self.rows.clone(),
         keys: ranked.clone(),
         lines: lines.clone(),
@@ -2583,6 +2617,36 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               labels: self.words.filter.clone(),
             }))
           });
+        // What a grid's menus write out, and where the text goes: the app's handlers, or the clipboard.
+        let export_now: Option<Arc<dyn Fn(ExportScope, ExportFormat) + Send + Sync>> =
+          grid_model.as_ref().filter(|_| self.export).map(|grid| {
+            let (grid, handlers, window) = (grid.clone(), self.on_export.clone(), super::theme::current_window());
+            Arc::new(move |scope: ExportScope, format: ExportFormat| {
+              let (text, rows) = grid.export(scope, format);
+              if handlers.is_empty() {
+                if let Some(window) = &window {
+                  window.request_copy(text);
+                }
+                return;
+              }
+              let export = GridExport {
+                format,
+                scope,
+                text,
+                rows,
+              };
+              for handler in &handlers {
+                handler(&export);
+              }
+            }) as Arc<dyn Fn(ExportScope, ExportFormat) + Send + Sync>
+          });
+        let export_link = export_now
+          .as_ref()
+          .zip(grid_model.as_ref())
+          .map(|(_, grid)| export::ExportLink {
+            selected: grid.has_selection(),
+            labels: self.words.export.clone(),
+          });
         let menu = menu_host.zip(change_layout.clone()).map(|(host, change)| {
           let element = ElementRef::new();
           header_refs.insert(column_index, element);
@@ -2597,6 +2661,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               (self.write_sort.clone(), self.on_sort_change.clone(), self.sort.clone());
             let (filter_host, filter_change, filters_now) =
               (host.clone(), change_filters.clone(), self.filters.clone());
+            let export = export_now.clone();
             Arc::new(move |choice: MenuChoice| match choice {
               MenuChoice::Sort(direction) => {
                 // A direction sorts by the column alone; "clear" takes it out of the sort, the rest as it is.
@@ -2635,6 +2700,11 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               MenuChoice::ClearAllFilters => {
                 if let Some(change) = &filter_change {
                   change(TableFilters::new());
+                }
+              }
+              MenuChoice::Export(scope, format) => {
+                if let Some(export) = &export {
+                  export(scope, format);
                 }
               }
             })
@@ -2700,6 +2770,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             filtering: (column.filter.is_some() && change_filters.is_some())
               .then(|| (self.filters.get(&column.id).is_some(), !self.filters.is_empty())),
             filter_labels: self.words.filter.clone(),
+            export: export_link.clone(),
             trigger_label: self
               .words
               .menu_trigger
@@ -3760,41 +3831,67 @@ impl TableHeader {
           .disabled(!hidden)
           .on_select(choose(MenuChoice::ShowAll)),
       );
-    Some(
-      menu
+    // The rows written out: those shown, and those selected where there are.
+    let export = link.export.as_ref().map(|export| {
+      let words = &export.labels;
+      Menu::new(link.host.export_open.clone(), link.host.export_anchor.clone())
+        .label(&words.export)
         .item(
-          MenuItem::new(&link.labels.pin_start)
-            .icon(icons::PIN)
-            .checked(link.pin == ColumnPin::Start)
-            .on_select(choose(MenuChoice::Pin(ColumnPin::Start))),
+          MenuItem::new(&words.shown_csv).on_select(choose(MenuChoice::Export(ExportScope::Shown, ExportFormat::Csv))),
         )
         .item(
-          MenuItem::new(&link.labels.pin_end)
-            .icon(icons::PIN)
-            .checked(link.pin == ColumnPin::End)
-            .on_select(choose(MenuChoice::Pin(ColumnPin::End))),
+          MenuItem::new(&words.shown_tsv).on_select(choose(MenuChoice::Export(ExportScope::Shown, ExportFormat::Tsv))),
         )
         .item(
-          MenuItem::new(&link.labels.unpin)
-            .icon(icons::CLOSE)
-            .disabled(link.pin == ColumnPin::None)
-            .on_select(choose(MenuChoice::Pin(ColumnPin::None))),
+          MenuItem::new(&words.selected_csv)
+            .disabled(!export.selected)
+            .on_select(choose(MenuChoice::Export(ExportScope::Selected, ExportFormat::Csv))),
         )
+        .item(
+          MenuItem::new(&words.selected_tsv)
+            .disabled(!export.selected)
+            .on_select(choose(MenuChoice::Export(ExportScope::Selected, ExportFormat::Tsv))),
+        )
+    });
+    let mut menu = menu
+      .item(
+        MenuItem::new(&link.labels.pin_start)
+          .icon(icons::PIN)
+          .checked(link.pin == ColumnPin::Start)
+          .on_select(choose(MenuChoice::Pin(ColumnPin::Start))),
+      )
+      .item(
+        MenuItem::new(&link.labels.pin_end)
+          .icon(icons::PIN)
+          .checked(link.pin == ColumnPin::End)
+          .on_select(choose(MenuChoice::Pin(ColumnPin::End))),
+      )
+      .item(
+        MenuItem::new(&link.labels.unpin)
+          .icon(icons::CLOSE)
+          .disabled(link.pin == ColumnPin::None)
+          .on_select(choose(MenuChoice::Pin(ColumnPin::None))),
+      )
+      .separator()
+      .item(
+        MenuItem::new(&link.labels.size_to_fit)
+          .icon(icons::RESIZE_HORIZONTAL)
+          .on_select(choose(MenuChoice::Fit)),
+      )
+      .item(
+        MenuItem::new(&link.labels.hide)
+          .icon(icons::EYE_OFF)
+          .disabled(!link.can_hide)
+          .on_select(choose(MenuChoice::Hide)),
+      )
+      .item(MenuItem::new(&link.labels.columns).icon(icons::EYE).submenu(columns));
+    if let Some(export) = export {
+      let label = link.export.as_ref().map_or("", |export| export.labels.export.as_str());
+      menu = menu
         .separator()
-        .item(
-          MenuItem::new(&link.labels.size_to_fit)
-            .icon(icons::RESIZE_HORIZONTAL)
-            .on_select(choose(MenuChoice::Fit)),
-        )
-        .item(
-          MenuItem::new(&link.labels.hide)
-            .icon(icons::EYE_OFF)
-            .disabled(!link.can_hide)
-            .on_select(choose(MenuChoice::Hide)),
-        )
-        .item(MenuItem::new(&link.labels.columns).icon(icons::EYE).submenu(columns))
-        .build(self.recipe.theme()),
-    )
+        .item(MenuItem::new(label).icon(icons::DOWNLOAD).submenu(export));
+    }
+    Some(menu.build(self.recipe.theme()))
   }
 
   /// The arrow of a column the rows are sorted by, up or down, and the mark of one that sorts.
@@ -4608,6 +4705,10 @@ trait GridCells: Send + Sync {
   fn drag_to(&self, x: f32, y: f32);
   /// How many rows a page is.
   fn page(&self) -> usize;
+  /// The rows of `scope` written in `format`, and how many there are.
+  fn export(&self, scope: ExportScope, format: ExportFormat) -> (String, usize);
+  /// Whether there is anything selected to write out: rows, or a range of cells.
+  fn has_selection(&self) -> bool;
 }
 
 /// The cells of a grid as its host works them.
@@ -4621,6 +4722,8 @@ struct GridModel<R, K> {
   on_range: Vec<RangeHeard<K>>,
   /// The text of each column, where it is a text: what a copy takes of a cell that is not edited.
   texts: Arc<Vec<Option<TextFn<R>>>>,
+  /// The title of each column shown: the first line of an export.
+  titles: Arc<Vec<Arc<str>>>,
   rows: Arc<Vec<R>>,
   /// The keys of the rows shown, by their ranks, and the lines they are on.
   keys: RowKeys<K>,
@@ -4864,6 +4967,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
 
   fn copy(&self, at: (usize, usize), cut: bool) -> String {
     self.copy_cells(at, cut)
+  }
+
+  fn export(&self, scope: ExportScope, format: ExportFormat) -> (String, usize) {
+    self.export_rows(scope, format)
+  }
+
+  fn has_selection(&self) -> bool {
+    self.span.is_some() || self.model.selected.iter().any(|key| self.keys.rank_of(key).is_some())
   }
 
   fn paste(&self, at: (usize, usize), text: &str) {
@@ -5351,6 +5462,9 @@ struct HostState {
   menu_anchor: ElementRef,
   submenu_open: Signal<bool>,
   submenu_anchor: ElementRef,
+  /// The export's menu in a column's menu.
+  export_open: Signal<bool>,
+  export_anchor: ElementRef,
   /// Where each header built is, by its column, and a column dragged by its header: from where to before which.
   header_refs: Mutex<HashMap<usize, ElementRef>>,
   /// What each summary row said, by what it was computed from: kept while that is the same.
@@ -5629,6 +5743,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         menu_anchor: ElementRef::new(),
         submenu_open: ctx.signal(false),
         submenu_anchor: ElementRef::new(),
+        export_open: ctx.signal(false),
+        export_anchor: ElementRef::new(),
         header_refs: Mutex::new(HashMap::new()),
         summaries: Mutex::new(HashMap::new()),
         header_drop: Mutex::new(None),
