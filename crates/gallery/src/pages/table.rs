@@ -20,7 +20,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, props_table, quiet},
+  kit::{FILL, fit, phone, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -185,9 +185,9 @@ fn narrow_columns() -> Vec<TableColumn<Krate>> {
     TableColumn::new("name", "Name")
       .text(|row: &Krate| row.name.to_owned())
       .mono(true)
-      // No narrower than a name, or than the longest of the lines drawn while the rows load: in a narrower table
-      // the columns scroll sideways.
-      .min_width(200.0),
+      // No narrower than a name, and in a window as narrow as a phone than the longest of the lines drawn while
+      // the rows load: in a narrower table the columns scroll sideways.
+      .min_width(if phone() { 180.0 } else { 150.0 }),
     TableColumn::new("status", "Status")
       .width(90.0)
       .cell(|row: &Krate| row.status.badge()),
