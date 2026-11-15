@@ -35,6 +35,8 @@ mod empty_state;
 mod family;
 mod field_mount;
 mod fieldset;
+#[cfg(feature = "canvas")]
+mod gauge;
 mod file_upload;
 mod find_bar;
 mod floating_panel;

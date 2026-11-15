@@ -10,6 +10,8 @@ mod alert;
 mod avatar;
 mod badge;
 mod bar_list;
+#[cfg(not(target_arch = "wasm32"))]
+mod gauge;
 mod meter;
 #[cfg(not(target_arch = "wasm32"))]
 mod sparkline;
@@ -805,6 +807,15 @@ pub const PAGES: &[Page] = &[
     about: "meter segmented disk space battery quota level zone good warning bad value min max low high optimum variant segments label description value_text",
     group: Group::Data,
     mount: |ctx| ctx.mount::<meter::MeterPage>(()),
+  },
+  #[cfg(not(target_arch = "wasm32"))]
+  Page {
+    path: "/gauge",
+    name: "Gauge",
+    icon: Some("dashboard"),
+    about: "gauge dial half ring arc speedometer cpu load temperature value min max low high optimum color label value_text bound_text",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<gauge::GaugePage>(()),
   },
   Page {
     path: "/alert",

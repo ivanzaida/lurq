@@ -152,6 +152,7 @@ Added:
 - `ui::Meter`: a value of a known range in segments, each filled one in the tone of its part of the range (`low`, `high`, `optimum`, as a web page's meter judges them) or of its `variant`, its value written by `value_text`, a `meter` to tooling.
 - `ui::Sparkline` (with `canvas`): a series as a line with no axes on the canvas, a line at 0 where the values are on both sides of it, a dot for one value, an `img` to tooling with a summary and a point for each value.
 - `ui::StatCard`: one number with what it is, its change as a badge in its tone and what it is measured against, a sparkline or any element beside it (`media`), in the board's two sizes.
+- `ui::Gauge` (with `canvas`): a value as the share of a half ring with its reading in it and its range under it, the share in the tone of its part of the range as a meter's, a `meter` to tooling.
 - `components::Canvas::paint`: a painter that paints a whole canvas when it is laid out at a new size or scale and when it is built with another painter, so a builder draws on a canvas with no component to hold a ref or a subscription.
 - `ScrollHorizontal::fill_width` and `ui::ScrollArea::fill_width`: what scrolls across is at least as wide as its viewport, and items that grow share it.
 - A row or a column with no bound on its main axis but a least length (what a scroll that fills its viewport gives it) grows its growing children into that length, as a flex container with a least width does on the web.

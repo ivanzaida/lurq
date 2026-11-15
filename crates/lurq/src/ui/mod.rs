@@ -52,6 +52,8 @@ mod drop_zone;
 mod empty_state;
 mod fab;
 mod field;
+#[cfg(feature = "canvas")]
+mod gauge;
 mod fieldset;
 mod file_upload;
 mod find_bar;
@@ -226,6 +228,8 @@ pub use empty_state::{
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
+#[cfg(feature = "canvas")]
+pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
   FieldsetPart, FieldsetRenderer, FieldsetState, FieldsetView,

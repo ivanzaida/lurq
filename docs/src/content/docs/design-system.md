@@ -2032,6 +2032,37 @@ Meter::new(12).max(20).segments(20).variant(MeterVariant::Info).label("Seats use
 - In the design the meter is 260 on the board and as wide as what holds it here, its header, its segments and its description 8 apart. The label is 13 at 500 in `Foreground`, the value the mono type at 11 in `MutedForeground` at the end of its row. The 16 segments are 8 high, 2 apart, with a radius of 2: a filled one in the tone of its part, an empty one in `Secondary`. The description is 12, in `Warning` or `Destructive` where the value is, and in `MutedForeground` where it is good.
 - A theme's renderer is given `MeterView`: `view.segments` (each a `MeterSegment` with its tone and whether it is filled, and `segment.render()`), the value, its range, its tone and its text, `view.header()`, `view.segments()`, `view.description()` and `view.root(content)`.
 
+## Gauge
+
+A value of a known range as the share of a half ring, its reading in it: the load of a processor, the speed of a link, the heat of a card. Its ring is drawn on the canvas, behind the `canvas` feature.
+
+```rust
+use lurq::ui::Gauge;
+
+Gauge::new(70).label("CPU");
+
+// A temperature: bad past 85, its reading as the app writes it.
+Gauge::new(86).min(20).max(100).low(60).high(85).label("GPU").value_text(|degrees| format!("{degrees}°"));
+```
+
+| Builder | |
+| --- | --- |
+| `Gauge::new(value)`, `value(..)` | The value, `impl Into<f64>` |
+| `min(..)`, `max(..)` | The range, from the ring's start to its end: 0 to 100 unless given, as a [meter](#meter) says it |
+| `low(..)`, `high(..)`, `optimum(..)` | The parts of the range, as a [meter](#meter)'s: the value's share is in the tone of its part |
+| `color(PaletteColor)` | The role of the value's share of a gauge with no parts, `Chart1` unless given |
+| `label(&str)` | What it measures, under the ring between its bounds: its name to tooling |
+| `value_text(Fn(f64) -> String)` | Writes the reading. Not given, the value's share of the range in percent, "70%" |
+| `bound_text(Fn(f64) -> String)` | Writes the bounds under the ring. Not given, as they are: "0", "100" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- The half ring runs from the least value at its start, the left, to the greatest at its end, and the value takes its share from the start. A value outside the range takes none or all of it; its reading says what it is.
+- The ring is painted with [`Canvas::paint`](../canvas/#a-painter-drawing-from-a-builder), sharp at every scale; its reading, its label and its bounds are text, laid over it and under it. Its canvas holds a `value` [item](../canvas/#describing-what-you-drew) where the value's share ends, with the reading as its text.
+- To what reads the tree it is a `meter` called by its label, with `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and its reading as `a11y_valuetext`.
+- Parts: `GaugePart::Root`, `Arc` (the canvas: its width and height), `Track` and `Value` (drawn in their part's background, the track as thick as its part's width), `Reading`, `Range`, `Label`, `Bound`. The variant it is resolved with is the tone of the value where it has parts.
+- In the design the gauge is 140 wide, a half ring 140 across and 72 high whose inner edge is 0.78 of its outer, so 15.4 thick: the track in `Secondary`, the value's share in `Chart1`, both with square ends. The reading is 20 at 600 in `Foreground` in the ring, its foot 10 over the ring's. Under the ring, 4 from it, the bounds at the ends, the mono type at 11 in `MutedForeground`, and the label between them, 12 at 500 in `Foreground`.
+- A theme's renderer is given `GaugeView`: its value, range, share and reading, the bounds' texts, its label, `view.arc()`, `view.range()`, `view.root(content)` and `view.render()`.
+
 ## Password Input
 
 An input whose text is masked, with an eye at its end that shows it and hides it again, and under it, where the app says so, a meter of how strong the password is.
