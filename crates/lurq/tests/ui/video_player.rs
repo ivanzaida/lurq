@@ -427,6 +427,57 @@ fn with_the_controls_the_overlay_and_the_bar_each_take_their_own_presses() {
 }
 
 #[test]
+fn a_play_button_in_the_middle_of_the_apps_layer_is_pressed_under_a_layer_that_draws_nothing_there() {
+  use lurq::{
+    components::{Row, Stack},
+    layout::{Alignment, layout_kind::Justify},
+    node::HitTestBehavior,
+    ui::{PlayButton, PlayButtonVariant},
+  };
+  for mount in [false, true] {
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let tell = heard.clone();
+    let mut stage = stage(move |ctx| {
+      let tell = tell.clone();
+      let center = Row::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .child(
+          PlayButton::new()
+            .id("own-play")
+            .variant(PlayButtonVariant::Overlay)
+            .on_change(move |to| tell.lock().unwrap().push(to)),
+        );
+      let over = Column::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .hit_test(HitTestBehavior::ContentOnly)
+        .justify(Justify::SpaceBetween)
+        .child(Row::new().id("top").width(Dimension::Pct(100.0)).height(40.0))
+        .child(Row::new().id("bottom").width(Dimension::Pct(100.0)).height(40.0));
+      let layer = Stack::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .child(center)
+        .child(over);
+      let player = VideoPlayer::new()
+        .id("v")
+        .width(243.0)
+        .height(432.0)
+        .controls(false)
+        .playing_controlled(false, |_| {})
+        .child(layer);
+      if mount { player.mount(ctx) } else { player.into() }
+    });
+    stage.click("own-play");
+    assert_eq!(
+      *heard.lock().unwrap(),
+      [true],
+      "the app's play button hears one press (mounted: {mount})"
+    );
+  }
+}
+
+#[test]
 fn playing_has_no_disc_and_waiting_a_spinner() {
   let told = Told::default();
   let made = told.clone();

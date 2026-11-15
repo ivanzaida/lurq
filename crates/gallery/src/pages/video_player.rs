@@ -522,19 +522,19 @@ impl VideoPlayerPage {
       .height(2.0)
       .background(Color::new(255, 255, 255, 0x33))
       .child(Row::new().width(Dimension::Pct(34.0)).height(2.0).background(white));
+    // The play button is the top of the layer: the shade behind the words reaches up under it, and would take
+    // its presses from above. What holds it is as large as the picture and is nothing to the pointer itself, so
+    // the buttons at the two ends are pressed through it.
     let layer = Stack::new()
       .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
-      .child(center)
       .child(
-        // It lies over the whole picture and draws only its two ends: the pointer finds what is in it, and the
-        // play button under the rest of it.
         Column::new()
           .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
-          .hit_test(HitTestBehavior::ContentOnly)
           .justify(Justify::SpaceBetween)
           .child(top)
           .child(Column::new().width(FILL).child(bottom).child(progress)),
-      );
+      )
+      .child(center.hit_test(HitTestBehavior::ContentOnly));
     VideoPlayer::new()
       .media(poster())
       .width(243.0)
