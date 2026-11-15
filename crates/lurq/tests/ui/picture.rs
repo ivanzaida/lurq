@@ -18,7 +18,7 @@ use lurq::{
     quad::{Quad, QuadContent},
   },
   node::{Element, color::Color, dimension::Dimension},
-  ui::{Length, Picture, PictureFit, PictureShape, PictureSize, icons},
+  ui::{Length, Picture, PictureFit, PicturePlaceholder, PictureShape, PictureSize, icons},
 };
 
 use super::stage::Stage;
@@ -415,6 +415,78 @@ mod decoded {
     stage.pass();
     assert!(image_quad(&stage).is_some());
     assert_eq!(came.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn what_stood_in_for_a_picture_goes_out_over_it_in_a_box_that_does_not_wait_for_it() {
+    // The app says when the pixels are there, so that the test does and no decode's thread.
+    let fetching = lurq::core::Signal::new(true);
+    let still = fetching.clone();
+    let mut stage = Stage::first_frame(400.0, 300.0, move |_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::new(ImageData::from_rgba(vec![200; 4 * 4 * 4], 4, 4))
+            .loading(still.get())
+            .size_px(320.0, 180.0)
+            .progress(0.42),
+        )
+        .into()
+    });
+    assert!(stage.paints("42%"), "while it is on its way the box says how far");
+    assert!(image_quad(&stage).is_none());
+
+    fetching.set(false);
+    stage.frame();
+    assert!(image_quad(&stage).is_some(), "the pixels are there");
+    assert!(
+      stage.paints("42%"),
+      "and what stood in for them is still over them, going out"
+    );
+
+    stage.pass();
+    assert!(image_quad(&stage).is_some());
+    assert!(!stage.paints("42%"), "then it is gone");
+  }
+
+  #[test]
+  fn a_box_the_pixels_size_drops_what_stood_in_at_once() {
+    let mut stage = Stage::first_frame(400.0, 300.0, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::from_bytes(RED)
+            .cache_key(0x91C7_0014)
+            .width(128.0)
+            .progress(0.42)
+            .id("red"),
+        )
+        .into()
+    });
+    assert!(wait_for_decoded_images(Duration::from_secs(10)), "the decode ends");
+    stage.frame();
+    assert!(image_quad(&stage).is_some());
+    assert!(!stage.paints("42%"), "nothing is left to hold the box at another size");
+    assert_eq!(stage.bounds("red").3, 64.0);
+  }
+
+  #[test]
+  fn a_small_version_stands_in_blurred_while_the_picture_is_on_its_way() {
+    let mut stage = at_start(|| {
+      Picture::empty()
+        .loading(true)
+        .placeholder(PicturePlaceholder::blur(
+          lurq::resources::Source::bytes(RED).key(0x91C7_0015),
+        ))
+        .size_px(320.0, 180.0)
+    });
+    settled(&mut stage);
+    let ((_, _, width, height), ..) = image_quad(&stage).expect("the small version is drawn");
+    assert_eq!(
+      (width, height),
+      (320.0, 180.0),
+      "over the whole box, as the picture will be"
+    );
   }
 
   #[test]

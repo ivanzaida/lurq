@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::{
   Menu, MenuItem, Skeleton, SkeletonAnimation, SkeletonPart, Tooltip, icons, names,
-  part_style::{Length, PartTransition},
+  part_style::{Length, PartAnimation, PartTransition},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
@@ -126,14 +126,33 @@ pub enum PictureShape {
 }
 
 /// What a picture's box shows while its pixels are on their way.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default)]
 pub enum PicturePlaceholder {
   /// The skeleton's sheen over the box.
   #[default]
   Skeleton,
+  /// A small version of the picture, blurred: a thumbnail of a few hundred bytes the app has at hand, or one it
+  /// loads first. It is read and decoded as the picture is, shows once it is there, and the picture comes in
+  /// over it. The box alone until then.
+  Blur(crate::resources::Source),
   /// The box alone.
   None,
 }
+
+impl PicturePlaceholder {
+  /// [`Blur`](Self::Blur) of what `source` gives: bytes, a file, a resource, an address.
+  pub fn blur(source: impl Into<crate::resources::Source>) -> Self {
+    Self::Blur(source.into())
+  }
+}
+
+/// How far the small version of a picture is blurred while it stands in for it.
+#[cfg(feature = "image")]
+const BLUR: f32 = 24.0;
+/// How much larger than the box the blurred version is drawn, so that the soft edge the blur gives it lies
+/// outside the box and is cut off.
+#[cfg(feature = "image")]
+const BLUR_OVERDRAW: f32 = 1.25;
 
 /// The parts of a picture a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -147,6 +166,9 @@ pub enum PicturePart {
   Image,
   /// The line around the box, over the picture.
   Edge,
+  /// What stands in for the pixels while they are on their way, as a whole: what it leaves with is how it
+  /// goes when they are there, over them. Only a box whose size does not wait for the pixels has it.
+  StandIn,
   /// The sheen that crosses the box while it loads.
   Sheen,
   /// The dark layer over the picture under a count.
@@ -211,6 +233,7 @@ names!(PicturePart {
   Root => "root",
   Image => "image",
   Edge => "edge",
+  StandIn => "stand_in",
   Sheen => "sheen",
   Veil => "veil",
   Overlay => "overlay",
@@ -912,6 +935,8 @@ struct Live {
   /// The load of the picture's bytes while it is on its way, with its source's key: while it is held the app's
   /// loader keeps it.
   held: Arc<parking_lot::Mutex<Option<(u64, crate::resources::Load)>>>,
+  /// The load of the small version that stands in for the picture, as `held` is the picture's.
+  held_small: Arc<parking_lot::Mutex<Option<(u64, crate::resources::Load)>>>,
   /// What the app was last told of a source, by its key: that it came, or that it did not.
   told: Arc<parking_lot::Mutex<Option<(u64, bool)>>>,
   /// What to tell the app once this render is laid out.
@@ -939,6 +964,7 @@ impl Component for PictureHost {
         tick,
         wake,
         held: Arc::default(),
+        held_small: Arc::default(),
         told: Arc::default(),
         news: Arc::default(),
       },
@@ -953,7 +979,15 @@ impl Component for PictureHost {
     let phase = self.phase(&picture, ctx);
     self.tell(&picture, &phase);
     let loader = ctx.app_handle().map(|app| app.loader().clone());
-    view(picture, &theme, &self.live, phase, loader, Some(ctx)).render_themed()
+    #[cfg(feature = "image")]
+    let small = self.small(&picture, &phase, ctx);
+    #[cfg_attr(not(feature = "image"), allow(unused_mut))]
+    let mut view = view(picture, &theme, &self.live, phase, loader, Some(ctx));
+    #[cfg(feature = "image")]
+    {
+      view.small = small;
+    }
+    view.render_themed()
   }
 
   /// The app hears of a picture that came or did not once the render that found it is laid out, not in it.
@@ -965,6 +999,7 @@ impl Component for PictureHost {
   /// A picture that is gone waits for no load: the loader stops one nobody else holds.
   fn on_unmounted(&self) {
     *self.live.held.lock() = None;
+    *self.live.held_small.lock() = None;
   }
 }
 
@@ -982,12 +1017,37 @@ impl PictureHost {
         Phase::Failed(Arc::from(NO_CODECS))
       }
       #[cfg(feature = "image")]
-      Source::Encoded { source, cap } => self.decoded(source, *cap, ctx),
+      Source::Encoded { source, cap } => self.decoded(source, *cap, ctx, &self.live.held),
     }
   }
 
+  /// The pixels of the small version that stands in for the picture while it is on its way, once they are
+  /// there: read and decoded as the picture is.
   #[cfg(feature = "image")]
-  fn decoded(&self, source: &crate::resources::Source, cap: Option<(u32, u32)>, ctx: &Ctx) -> Phase {
+  fn small(&self, picture: &Picture, phase: &Phase, ctx: &Ctx) -> Option<crate::images::ImageData> {
+    let waits = picture.loading || matches!(phase, Phase::Loading(_));
+    let PicturePlaceholder::Blur(source) = &picture.placeholder else {
+      return None;
+    };
+    if !waits {
+      *self.live.held_small.lock() = None;
+      return None;
+    }
+    match self.decoded(source, None, ctx, &self.live.held_small) {
+      Phase::Ready(data) => Some(data),
+      _ => None,
+    }
+  }
+
+  /// Where the pixels of `source` are, brought on from here; `held` keeps its load while it is on its way.
+  #[cfg(feature = "image")]
+  fn decoded(
+    &self,
+    source: &crate::resources::Source,
+    cap: Option<(u32, u32)>,
+    ctx: &Ctx,
+    held: &parking_lot::Mutex<Option<(u64, crate::resources::Load)>>,
+  ) -> Phase {
     use crate::{
       images::{ImageKey, ImageLoadState, ImageSizeCap, ImageSource, decoded_images},
       resources::{LoadState, SourceKind},
@@ -1006,7 +1066,7 @@ impl PictureHost {
       SourceKind::File(path) => decode(ImageSource::File(path.clone())),
       // A resource and an address are read by the app's loader first.
       SourceKind::Resource(_) | SourceKind::Url(_) => {
-        let mut held = self.live.held.lock();
+        let mut held = held.lock();
         // Its pixels are there, or known to be no picture: nothing to load.
         match decoded_images().state(key, cap) {
           Some(ImageLoadState::Ready(data)) => {
@@ -1297,6 +1357,8 @@ fn view(
   PictureView {
     phase,
     retry,
+    #[cfg(feature = "image")]
+    small: None,
     known: Known {
       width: picture.width.is_some() || picture.aspect_ratio.is_some(),
       height: picture.height.is_some() || picture.aspect_ratio.is_some(),
@@ -1369,6 +1431,9 @@ pub struct PictureView {
   picture: Picture,
   /// Where its pixels are.
   phase: Phase,
+  /// The pixels of the small version that stands in for it, blurred, while it is on its way.
+  #[cfg(feature = "image")]
+  small: Option<crate::images::ImageData>,
   /// Asks for the picture again.
   retry: Action,
 }
@@ -1410,8 +1475,26 @@ impl PictureView {
   /// far the load has come where the app says.
   fn loading_maker(&self) -> impl Fn(Option<(u64, u64)>) -> Element + Send + Sync + 'static {
     let (forms, known) = (self.forms.clone(), self.known);
-    let (said, placeholder) = (self.picture.progress, self.picture.placeholder);
+    let said = self.picture.progress;
+    let sheen = matches!(self.picture.placeholder, PicturePlaceholder::Skeleton);
     let words = self.picture.progress_text.clone();
+    // The small version, blurred, in the place the pixels will have: over the whole box, under no rail.
+    #[cfg(feature = "image")]
+    let blurred = self.small.clone().map(|data| {
+      let (fit, (x, y)) = (fit_of(self.picture.fit), anchor_shares(self.picture.anchor));
+      let part = self.part(PicturePart::Image);
+      move || -> Element {
+        #[allow(deprecated)]
+        let image = crate::components::Image::new(data.clone())
+          .fit(fit)
+          .image_anchor(x, y)
+          .part(&part)
+          .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+          .blur(BLUR)
+          .transform(crate::node::transform::Transform2D::scale_uniform(BLUR_OVERDRAW));
+        layer().child(image).into()
+      }
+    });
     move |bytes: Option<(u64, u64)>| {
       // What the app says of the load comes before what the loader knows.
       let load = match (said, bytes) {
@@ -1429,6 +1512,10 @@ impl PictureView {
         (None, _) => String::new(),
       };
       let mut stand_in = known.stand_in();
+      #[cfg(feature = "image")]
+      if let Some(blurred) = &blurred {
+        return stand_in.child(blurred()).into();
+      }
       for form in &forms {
         let content: Option<Element> = match (progress, form.size) {
           (Some(progress), PictureSize::Lg | PictureSize::Md) => {
@@ -1458,7 +1545,7 @@ impl PictureView {
           ),
           // As small as an avatar, the box alone says it loads.
           (_, PictureSize::Xs) => None,
-          (None, _) if placeholder == PicturePlaceholder::Skeleton => Some(
+          (None, _) if sheen => Some(
             Skeleton::block(Length::Fill, Length::Fill)
               .animation(SkeletonAnimation::Shimmer)
               .rules(&form.recipe.rules_for(PicturePart::Sheen, SkeletonPart::Bone))
@@ -1560,18 +1647,13 @@ impl PictureView {
     return None;
     #[cfg(feature = "raster")]
     {
-      use crate::{components::Image, node::BackgroundSize};
+      use crate::components::Image;
       let Phase::Ready(data) = &self.phase else {
         return None;
       };
       let (x, y) = anchor_shares(self.picture.anchor);
       let image = Image::new(data.clone())
-        .fit(match self.picture.fit {
-          PictureFit::Cover => BackgroundSize::Cover,
-          PictureFit::Contain => BackgroundSize::Contain,
-          PictureFit::Fill => BackgroundSize::Stretch,
-          PictureFit::None => BackgroundSize::Natural,
-        })
+        .fit(fit_of(self.picture.fit))
         .image_anchor(x, y)
         .part(&self.part(PicturePart::Image));
       let full = Dimension::Pct(100.0);
@@ -1789,13 +1871,33 @@ impl PictureView {
     if self.known.height {
       inner = inner.height(full);
     }
-    inner = match (&self.phase, self.image()) {
+    // A box whose size does not wait for the pixels lets what stood in for them go out over them: it is the
+    // second child, kept while it leaves, and the pixels are the first, under it. A box the pixels size has
+    // one child, which is gone when they come.
+    let fades = self.known.width && self.known.height;
+    let waiting = |stand_in: Element| -> Element {
+      if !fades {
+        return stand_in;
+      }
+      Stack::new()
+        .size(full, full)
+        .key("stand-in")
+        .part(&self.part(PicturePart::StandIn))
+        .child(stand_in)
+        .into()
+    };
+    let (pixels, over) = match (&self.phase, self.image()) {
       // What the app is still fetching itself: the stand-in of a load, with no pixels to come by themselves.
-      _ if picture.loading => inner.child(self.loading_maker()(None)),
-      (_, Some(image)) => inner.child(image),
-      (Phase::Loading(bytes), _) => inner.child(self.loading_maker()(*bytes)),
-      (Phase::Failed(_), _) => inner.child(self.error_maker()()),
-      _ => inner.child(self.empty()),
+      _ if picture.loading => (None, Some(waiting(self.loading_maker()(None)))),
+      (_, Some(image)) => (Some(image), None),
+      (Phase::Loading(bytes), _) => (None, Some(waiting(self.loading_maker()(*bytes)))),
+      (Phase::Failed(_), _) => (None, Some(self.error_maker()())),
+      _ => (None, Some(self.empty())),
+    };
+    inner = if fades {
+      inner.presence().child(pixels.unwrap_or_default()).with_children(over)
+    } else {
+      inner.with_children(pixels.or(over))
     };
     if let Some(overlay) = self.overlay() {
       inner = inner.child(overlay);
@@ -1886,6 +1988,18 @@ impl PictureView {
   }
 }
 
+/// How the engine fills a box with pixels for `fit`.
+#[cfg(feature = "raster")]
+fn fit_of(fit: PictureFit) -> crate::node::BackgroundSize {
+  use crate::node::BackgroundSize;
+  match fit {
+    PictureFit::Cover => BackgroundSize::Cover,
+    PictureFit::Contain => BackgroundSize::Contain,
+    PictureFit::Fill => BackgroundSize::Stretch,
+    PictureFit::None => BackgroundSize::Natural,
+  }
+}
+
 /// Where `anchor` holds a picture in its box, as shares of the room across and down.
 #[cfg(feature = "raster")]
 fn anchor_shares(anchor: StackAlignment) -> (f32, f32) {
@@ -1954,6 +2068,13 @@ impl Themed for Picture {
       .size(Sm, Edge, |s| s.radius(RadiusSize::Md))
       .size(Xs, Edge, |s| s.radius(RadiusSize::Md))
       .state(Circle, Edge, |s| s.radius(RadiusSize::Full))
+      .base(StandIn, |s| {
+        s.exit(PartAnimation::new(
+          super::FADE_OUT,
+          MotionDuration::Base,
+          MotionEasing::Exit,
+        ))
+      })
       .base(Sheen, |s| s.radius(0.0))
       .base(Veil, |s| s.background(black_60))
       .base(Center, |s| s.padding_x(24.0).padding_y(24.0).gap(12.0))
