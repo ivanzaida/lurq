@@ -131,27 +131,48 @@ pub enum PicturePlaceholder {
   /// The skeleton's sheen over the box.
   #[default]
   Skeleton,
-  /// A small version of the picture, blurred: a thumbnail of a few hundred bytes the app has at hand, or one it
-  /// loads first. It is read and decoded as the picture is, shows once it is there, and the picture comes in
-  /// over it. The box alone until then.
-  Blur(crate::resources::Source),
+  /// A small version of the picture, blurred: a thumbnail of a few hundred bytes the app has at hand, a few
+  /// pixels it made from a hash, or a small file it loads first. It shows once it is there, and the picture
+  /// comes in over it. The box alone until then. Made by [`blur`](Self::blur) and
+  /// [`blur_pixels`](Self::blur_pixels).
+  Blur(PictureSmall),
   /// The box alone.
   None,
 }
 
 impl PicturePlaceholder {
-  /// [`Blur`](Self::Blur) of what `source` gives: bytes, a file, a resource, an address.
+  /// [`Blur`](Self::Blur) of what `source` gives, read and decoded as the picture is: bytes, a file, a
+  /// resource, an address.
   pub fn blur(source: impl Into<crate::resources::Source>) -> Self {
-    Self::Blur(source.into())
+    Self::Blur(PictureSmall(Source::Encoded {
+      source: source.into(),
+      cap: None,
+    }))
+  }
+
+  /// [`Blur`](Self::Blur) of pixels the app has.
+  #[cfg(feature = "raster")]
+  pub fn blur_pixels(data: crate::images::ImageData) -> Self {
+    Self::Blur(PictureSmall(Source::Data(data)))
+  }
+}
+
+/// The small version of a picture that stands in for it, blurred: see [`PicturePlaceholder::Blur`].
+#[derive(Clone)]
+pub struct PictureSmall(#[cfg_attr(not(feature = "raster"), allow(dead_code))] Source);
+
+impl std::fmt::Debug for PictureSmall {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("PictureSmall")
   }
 }
 
 /// How far the small version of a picture is blurred while it stands in for it.
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 const BLUR: f32 = 24.0;
 /// How much larger than the box the blurred version is drawn, so that the soft edge the blur gives it lies
 /// outside the box and is cut off.
-#[cfg(feature = "image")]
+#[cfg(feature = "raster")]
 const BLUR_OVERDRAW: f32 = 1.25;
 
 /// The parts of a picture a recipe styles.
@@ -997,11 +1018,11 @@ impl Component for PictureHost {
     let phase = self.phase(&picture, ctx);
     self.tell(&picture, &phase);
     let loader = ctx.app_handle().map(|app| app.loader().clone());
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let small = self.small(&picture, &phase, ctx);
-    #[cfg_attr(not(feature = "image"), allow(unused_mut))]
+    #[cfg_attr(not(feature = "raster"), allow(unused_mut))]
     let mut view = view(picture, &theme, &self.live, phase, loader, Some(ctx));
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     {
       view.small = small;
     }
@@ -1040,20 +1061,28 @@ impl PictureHost {
   }
 
   /// The pixels of the small version that stands in for the picture while it is on its way, once they are
-  /// there: read and decoded as the picture is.
-  #[cfg(feature = "image")]
+  /// there: the ones the app gave, or read and decoded as the picture is.
+  #[cfg(feature = "raster")]
   fn small(&self, picture: &Picture, phase: &Phase, ctx: &Ctx) -> Option<crate::images::ImageData> {
     let waits = picture.loading || matches!(phase, Phase::Loading(_));
-    let PicturePlaceholder::Blur(source) = &picture.placeholder else {
+    let PicturePlaceholder::Blur(PictureSmall(small)) = &picture.placeholder else {
       return None;
     };
     if !waits {
       *self.live.held_small.lock() = None;
       return None;
     }
-    match self.decoded(source, None, ctx, &self.live.held_small) {
-      Phase::Ready(data) => Some(data),
-      _ => None,
+    match small {
+      Source::Data(data) => Some(data.clone()),
+      #[cfg(feature = "image")]
+      Source::Encoded { source, cap } => match self.decoded(source, *cap, ctx, &self.live.held_small) {
+        Phase::Ready(data) => Some(data),
+        _ => None,
+      },
+      _ => {
+        let _ = ctx;
+        None
+      }
     }
   }
 
@@ -1375,7 +1404,7 @@ fn view(
   PictureView {
     phase,
     retry,
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     small: None,
     known: Known {
       width: picture.width.is_some() || picture.aspect_ratio.is_some(),
@@ -1450,7 +1479,7 @@ pub struct PictureView {
   /// Where its pixels are.
   phase: Phase,
   /// The pixels of the small version that stands in for it, blurred, while it is on its way.
-  #[cfg(feature = "image")]
+  #[cfg(feature = "raster")]
   small: Option<crate::images::ImageData>,
   /// Asks for the picture again.
   retry: Action,
@@ -1497,7 +1526,7 @@ impl PictureView {
     let sheen = matches!(self.picture.placeholder, PicturePlaceholder::Skeleton);
     let words = self.picture.progress_text.clone();
     // The small version, blurred, in the place the pixels will have: over the whole box, under no rail.
-    #[cfg(feature = "image")]
+    #[cfg(feature = "raster")]
     let blurred = self.small.clone().map(|data| {
       let (fit, (x, y)) = (fit_of(self.picture.fit), anchor_shares(self.picture.anchor));
       let part = self.part(PicturePart::Image);
@@ -1530,7 +1559,7 @@ impl PictureView {
         (None, _) => String::new(),
       };
       let mut stand_in = known.stand_in();
-      #[cfg(feature = "image")]
+      #[cfg(feature = "raster")]
       if let Some(blurred) = &blurred {
         return stand_in.child(blurred()).into();
       }
@@ -1907,7 +1936,17 @@ impl PictureView {
     let (pixels, over) = match (&self.phase, self.image()) {
       (_, Some(image)) if !picture.loading => (Some(image), None),
       // What stands there in place of the picture's own stand-ins, whatever the reason there are no pixels.
-      _ if picture.fallback.is_some() => (None, picture.fallback.as_ref().map(|fallback| waiting(fallback()))),
+      _ if picture.fallback.is_some() => (
+        None,
+        picture.fallback.as_ref().map(|fallback| {
+          // In the middle of the box, as what it stands in for would be.
+          let centered = Stack::new()
+            .stack_align(StackAlignment::Center)
+            .size(full, full)
+            .child(fallback());
+          waiting(centered.into())
+        }),
+      ),
       // What the app is still fetching itself: the stand-in of a load, with no pixels to come by themselves.
       _ if picture.loading => (None, Some(waiting(self.loading_maker()(None)))),
       (_, Some(image)) => (Some(image), None),

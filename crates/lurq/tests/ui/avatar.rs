@@ -411,6 +411,12 @@ fn a_picture_that_decodes_shows_and_one_that_fails_leaves_the_letters() {
     (light(PaletteColor::Foreground), 12.0),
     "a picture that fails leaves the letters"
   );
+  let letters = stage.text_quad("AK").expect("the letters are drawn");
+  let (x, y) = stage.center("fails");
+  assert!(
+    (letters.x + letters.width / 2.0 - x).abs() < 1.0 && (letters.y + letters.height / 2.0 - y).abs() < 1.5,
+    "in the middle of the face, as with no picture at all"
+  );
   assert_eq!(stage.fill_color("fails"), Some(light(PaletteColor::Muted)));
 }
 

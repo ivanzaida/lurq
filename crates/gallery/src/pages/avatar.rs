@@ -262,8 +262,8 @@ impl AvatarPage {
         controls: vec![
           prop("name", "&str", field(&self.name)),
           prop(
-            "image",
-            "Image",
+            "picture",
+            "Picture",
             self
               .playground
               .select(0, &PICTURES, &picture, move |which| pick_picture.set(which)),
@@ -370,6 +370,7 @@ impl Component for AvatarPage {
       .child(item(Avatar::new(""), "no name: a person"));
     let [blue, orange, green] = self.portraits.clone();
     let pictures = items()
+      .id("avatar-pictures")
       .child(item(Avatar::new("Ivan Zaida").picture(blue.clone()), "round"))
       .child(item(
         Avatar::new("Anna K.").picture(orange.clone()).size(AvatarSize::Xl),
@@ -450,11 +451,11 @@ impl Component for AvatarPage {
          calls the avatar. A name with no letters shows the icon of a person.",
       ),
       (
-        "image",
-        "Image",
+        "picture",
+        "impl Into<Picture>",
         "",
-        "A picture in place of the initials, filling the face and clipped to its shape. While it decodes and \
-         when it fails, the initials or the icon show.",
+        "A picture in place of the initials, filling the face and clipped to its shape. While it is on its way and \
+         when it does not come, the initials or the icon show.",
       ),
       (
         "icon",

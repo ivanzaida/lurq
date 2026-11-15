@@ -13,7 +13,7 @@ use lurq::{
   node::Element,
   ui::{
     Avatar, AvatarSize, Badge, Button, ButtonShape, ButtonSize, ButtonVariant, MenuItem, Picture, PictureFit,
-    PictureShape, PictureSize, icons,
+    PicturePlaceholder, PictureShape, PictureSize, icons,
   },
 };
 
@@ -564,6 +564,14 @@ impl Component for PicturePage {
     let states = items()
       .id("picture-states")
       .child(item(stage(Picture::empty().loading(true)), "loading · the skeleton"))
+      .child(item(
+        stage(
+          Picture::empty()
+            .loading(true)
+            .placeholder(PicturePlaceholder::blur_pixels(lake(48, 27))),
+        ),
+        "loading · a small version, blurred",
+      ))
       .child(item(
         stage(
           Picture::empty()
