@@ -61,6 +61,8 @@ mod list;
 mod listbox;
 mod markdown;
 mod mentions;
+mod media_speed_menu;
+mod media_volume;
 mod menu;
 mod menubar;
 mod message_box;
@@ -74,6 +76,7 @@ mod overview;
 mod pagination;
 mod password_input;
 mod pie_chart;
+mod play_button;
 mod popconfirm;
 mod popover;
 mod progress;
@@ -1105,6 +1108,30 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/play-button",
+    name: "Play Button",
+    icon: Some("play"),
+    about: "play button pause replay media player video audio start stop round disc overlay picture loading spinner playing on_change size variant primary overlay play_label pause_label replay_label disabled",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<play_button::PlayButtonPage>(()),
+  },
+  Page {
+    path: "/volume",
+    name: "Volume",
+    icon: Some("volume"),
+    about: "volume mute unmute sound loud quiet slider media player video audio muted collapsed on_media picture on_change on_change_end on_muted_change controlled muted_controlled size length label mute_label unmute_label mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<media_volume::MediaVolumePage>(()),
+  },
+  Page {
+    path: "/speed-menu",
+    name: "Speed Menu",
+    icon: Some("gauge"),
+    about: "speed menu playback rate speed media player video audio normal faster slower 0.5x 1.5x 2x check on_change on_dismiss on_open_change rates heading_text label placement offset inline MEDIA_RATES media_rate_text",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<media_speed_menu::MediaSpeedMenuPage>(()),
   },
 ];
 

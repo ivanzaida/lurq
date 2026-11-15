@@ -62,6 +62,8 @@ mod kbd;
 mod line_chart;
 mod list_item;
 mod listbox;
+mod media_speed_menu;
+mod media_volume;
 mod menu;
 mod menubar;
 mod message_box;
@@ -75,6 +77,7 @@ mod outcome;
 mod pagination;
 #[cfg(feature = "canvas")]
 mod pie_chart;
+mod play_button;
 mod popconfirm;
 mod popover;
 mod progress;

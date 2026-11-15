@@ -309,9 +309,13 @@ pub use list_item::{
   ListView,
 };
 pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
-pub use media_speed_menu::MediaSpeedMenu;
+pub use media_speed_menu::{
+  MediaSpeedMenu, MediaSpeedMenuPart, MediaSpeedMenuRenderer, MediaSpeedMenuState, MediaSpeedMenuView,
+};
 pub use media_time::{MEDIA_RATES, MediaTime, media_rate_text, media_time_text};
-pub use media_volume::{MediaVolume, MediaVolumeSize};
+pub use media_volume::{
+  MediaVolume, MediaVolumePart, MediaVolumeRenderer, MediaVolumeSize, MediaVolumeState, MediaVolumeView,
+};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
   MentionsState, MentionsView,
@@ -353,7 +357,9 @@ pub use password_input::{
 };
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
-pub use play_button::{PlayButton, PlayButtonSize, PlayButtonVariant};
+pub use play_button::{
+  PlayButton, PlayButtonPart, PlayButtonRenderer, PlayButtonSize, PlayButtonState, PlayButtonVariant, PlayButtonView,
+};
 pub use popconfirm::{Popconfirm, PopconfirmPart, PopconfirmRenderer, PopconfirmState, PopconfirmView};
 pub use popover::{Popover, PopoverPart, PopoverRenderer, PopoverView};
 pub(crate) use progress::keyframes as progress_keyframes;
