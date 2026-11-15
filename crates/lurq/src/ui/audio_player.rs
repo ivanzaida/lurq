@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::{
   Button, ButtonPart, ButtonShape, ButtonSize, ButtonVariant, Link, MediaSpeedMenu, MediaTime, MediaVolume, PlayButton,
-  PlayButtonSize, SeekBar, Skeleton, Toggle, Tooltip, Waveform, icons,
+  PlayButtonPart, PlayButtonSize, SeekBar, Skeleton, Toggle, Tooltip, Waveform, icons,
   link::LinkPart,
   media_time_text, names,
   part_style::{FontFamily, Length, PartStyle},
@@ -121,6 +121,8 @@ pub enum AudioPlayerPart {
   Root,
   /// The mini player's row under its progress line.
   Bar,
+  /// What the mini player's progress line lies over: the line of the border along its top edge.
+  Edge,
   /// The artwork, the title and who it is by, and the "more" button of the full card; the track of the mini player.
   Header,
   /// The artwork's box: the app's picture, or the `music` glyph on `Muted` where there is none.
@@ -180,6 +182,7 @@ pub enum AudioPlayerPart {
 names!(AudioPlayerPart {
   Root => "root",
   Bar => "bar",
+  Edge => "edge",
   Header => "header",
   Media => "media",
   MediaIcon => "media_icon",
@@ -866,7 +869,10 @@ impl AudioPlayer {
     .state(AudioPlayerState::Unheard, self.unheard)
     .state(AudioPlayerState::Shuffle, self.shuffle.value)
     .state(AudioPlayerState::Narrow, narrow)
-    .state(AudioPlayerState::Scrubbing, kept.scrub.is_some());
+    .state(
+      AudioPlayerState::Scrubbing,
+      kept.scrub.as_ref().is_some_and(|scrub| scrub.get() >= 0.0),
+    );
     let recipe = theme.resolve::<AudioPlayer>(&case, Some(&self.rules));
     let words = self.words.clone();
     let mut tip = |label: &str, element: Element| match ctx.as_deref_mut() {
@@ -884,10 +890,14 @@ impl AudioPlayer {
       }
     };
     // Space plays and pauses while the focus is on the bar or the volume; a button takes its own Space.
-    let spaced = |element: Element| -> Element {
+    // The bar fills the room it is given; the volume is as wide as it is.
+    let spaced = |element: Element, fill: bool| -> Element {
       let toggle = toggle.clone();
-      Row::new()
-        .min_width(Dimension::Px(0.0))
+      let mut row = Row::new().min_width(Dimension::Px(0.0));
+      if fill {
+        row = row.width(Dimension::Pct(100.0));
+      }
+      row
         .on_key_down(move |event: KeyboardEvent| {
           if event.focus_within && event.key == " " && !event.text_input_focused {
             event.prevent_default();
@@ -938,6 +948,10 @@ impl AudioPlayer {
       if !self.loading && !failed {
         let tell = self.playing.teller();
         play = play.on_change(move |next| tell(next));
+      }
+      if matches!(variant, AudioPlayerVariant::Voice | AudioPlayerVariant::Mini) {
+        // The board's 36, on the size whose glyph is 16.
+        play = play.style(PlayButtonPart::Root, |s| s.square(36.0));
       }
       if let Some(id) = self.child_id("play") {
         play = play.id(id);
@@ -992,7 +1006,7 @@ impl AudioPlayer {
         }
         bar.build(theme)
       };
-      controls.seek = Some(spaced(element));
+      controls.seek = Some(spaced(element, true));
     }
 
     // Previous and next.
@@ -1158,7 +1172,7 @@ impl AudioPlayer {
       if let Some(id) = self.child_id("volume") {
         volume = volume.id(id);
       }
-      controls.volume = Some(spaced(volume.build(theme)));
+      controls.volume = Some(spaced(volume.build(theme), false));
     }
 
     // The time of the mini player, which a press turns between what is gone and what is left.
@@ -1691,6 +1705,7 @@ impl AudioPlayerView {
       .child(
         Column::new()
           .width(Dimension::Pct(100.0))
+          .part(&self.part(AudioPlayerPart::Edge))
           .child(Row::new().height(2.0))
           .child(bar),
       )
@@ -1840,10 +1855,10 @@ impl Themed for AudioPlayer {
           .radius(RadiusSize::Xl)
       })
       .variant(Mini, Root, |s| {
-        s.width(Length::Fill)
-          .background(Background)
-          .top_line(Border::inside(BorderSize::Sm, Line))
+        s.width(Length::Fill).background(Background)
       })
+      // The border's line is under the progress line, which lies over it.
+      .base(Edge, |s| s.top_line(Border::inside(BorderSize::Sm, Line)))
       .state(AudioPlayerState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .base(Bar, |s| s.height(54.0).padding_x(12.0).gap(12.0))
       .base(Header, |s| s.gap(12.0))

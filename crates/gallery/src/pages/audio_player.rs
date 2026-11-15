@@ -337,7 +337,7 @@ impl AudioPlayerPage {
       ],
       AudioPlayerVariant::Voice => vec![
         format!("root          {}", self.playground.measured()),
-        "├─ play        40".to_owned(),
+        "├─ play        36".to_owned(),
         "├─ waveform    36 bars".to_owned(),
         "├─ time        mono 11".to_owned(),
         "└─ rate | dot  while it plays | not heard".to_owned(),

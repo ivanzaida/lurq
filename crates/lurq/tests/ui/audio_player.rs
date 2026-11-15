@@ -109,6 +109,9 @@ fn the_card_is_the_boards() {
     (play_x + 24.0 - (x + 180.0)).abs() < 1.0,
     "play is in the middle of the card"
   );
+  // The bar is as wide as the card's room, 20 in from each edge.
+  let (seek_x, _, seek_width, _) = stage.bounds("p-seek");
+  assert_eq!((seek_x - x, seek_width), (20.0, 320.0));
   // The more button 32, and the speed "1×" at the end of the last row.
   assert_eq!(stage.bounds("p-more").2, 32.0);
   assert!(stage.paints("1×"));
@@ -326,6 +329,14 @@ fn the_compact_row_is_48_with_a_play_button_of_32() {
   assert_eq!((play_width, play_height), (32.0, 32.0));
   assert_eq!(play_x - x, 8.0, "8 from the start");
   assert_eq!(stage.text("1:24"), (light(PaletteColor::MutedForeground), 11.0));
+  // The bar fills the room between the button and the time, 10 from each.
+  let (seek_x, _, seek_width, _) = stage.bounds("c-seek");
+  let time = stage.text_quad("1:24").unwrap();
+  assert_eq!(seek_x - (play_x + 32.0), 10.0);
+  assert!(
+    (time.x - (seek_x + seek_width) - 10.0).abs() < 0.5,
+    "10 before the time"
+  );
   // The error: a line for the bar, and the button retries.
   assert_eq!(
     stage.text("Couldn't load the audio."),
@@ -363,6 +374,11 @@ fn a_voice_message_steps_its_speed_while_it_plays() {
       )
       .into()
   });
+  // 52 high: a play button of 36 between paddings of 8.
+  let (_, y, _, height) = stage.bounds("v");
+  assert_eq!(height, 52.0);
+  let (_, play_y, play_width, play_height) = stage.bounds("v-play");
+  assert_eq!((play_width, play_height, play_y - y), (36.0, 36.0, 8.0));
   // Playing: the elapsed time and the speed.
   assert!(stage.paints("0:17"));
   assert!(stage.paints("1×"));
@@ -403,6 +419,8 @@ fn the_mini_player_is_56_high_with_every_tool_from_480() {
   for id in ["m-previous", "m-play", "m-next", "m-volume", "m-queue", "m-expand"] {
     stage.bounds(id);
   }
+  let (_, _, play_width, play_height) = stage.bounds("m-play");
+  assert_eq!((play_width, play_height), (36.0, 36.0));
   assert!(stage.paints("1:24"));
   assert_eq!(stage.text("Night Drive"), (light(PaletteColor::Foreground), 13.0));
   assert_eq!(stage.text("Aurora Lane"), (light(PaletteColor::MutedForeground), 12.0));
