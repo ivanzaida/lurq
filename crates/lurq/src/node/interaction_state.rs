@@ -94,7 +94,9 @@ impl InteractionState {
   }
 
   pub(crate) fn set_disabled(&self, val: bool) {
-    self.shared_inner().lock().unwrap().disabled = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(inner.disabled != val);
+    inner.disabled = val;
   }
 
   /// The interaction group the node is in (`interaction_group`) is under the pointer, or the focus is in it:
@@ -127,6 +129,7 @@ impl InteractionState {
     let mut inner = self.shared_inner().lock().unwrap();
     let (hovered, pressed) = (within && hovered, within && pressed);
     let changed = inner.within != within || inner.within_hovered != hovered || inner.within_pressed != pressed;
+    note_change(changed);
     inner.within = within;
     inner.within_hovered = hovered;
     inner.within_pressed = pressed;
@@ -142,28 +145,38 @@ impl InteractionState {
   }
 
   pub(crate) fn set_drag_over(&self, val: bool) {
-    self.shared_inner().lock().unwrap().drag_over = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(inner.drag_over != val);
+    inner.drag_over = val;
   }
 
   pub(crate) fn set_hovered(&self, val: bool) {
-    self.shared_inner().lock().unwrap().hovered = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(inner.hovered != val);
+    inner.hovered = val;
   }
 
   pub(crate) fn set_active(&self, val: bool) {
-    self.shared_inner().lock().unwrap().active = val;
+    let mut inner = self.shared_inner().lock().unwrap();
+    note_change(inner.active != val);
+    inner.active = val;
   }
 
   /// Losing focus also loses focus-visible.
   pub(crate) fn set_focused(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
+    let focus_visible = inner.focus_visible && val;
+    note_change(inner.focused != val || inner.focus_visible != focus_visible);
     inner.focused = val;
-    inner.focus_visible &= val;
+    inner.focus_visible = focus_visible;
   }
 
   /// Only a focused state can be focus-visible.
   pub(crate) fn set_focus_visible(&self, val: bool) {
     let mut inner = self.shared_inner().lock().unwrap();
-    inner.focus_visible = val && inner.focused;
+    let focus_visible = val && inner.focused;
+    note_change(inner.focus_visible != focus_visible);
+    inner.focus_visible = focus_visible;
   }
 
   /// Binds `watch` only if the shared state exists: layout tracks every node,
@@ -273,4 +286,19 @@ mod tests {
     second.set_drag_over(false);
     assert_eq!(state.layout_states(), [false; 5]);
   }
+}
+
+/// How many times any element's state of interaction changed, so far: what a transition engine's clean subtree
+/// was ticked against, as a state style is painted without a layout.
+static INTERACTION_CHANGES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn note_change(changed: bool) {
+  if changed {
+    INTERACTION_CHANGES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  }
+}
+
+/// How many times any element's state of interaction changed, so far.
+pub(crate) fn interaction_changes() -> u64 {
+  INTERACTION_CHANGES.load(std::sync::atomic::Ordering::Relaxed)
 }

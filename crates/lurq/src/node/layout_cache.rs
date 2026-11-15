@@ -39,6 +39,9 @@ pub struct LayoutCache {
   /// The tree this node's served cache entry was last prepared into, and what it was prepared from: boxed, as few
   /// nodes are served whole.
   prepared: Cell<Option<Box<PreparedServe>>>,
+  /// The subtree as a transition engine last ticked it with nothing running in it: see
+  /// [`crate::animation::TransitionEngine`]. Boxed, and held only at the top of such a subtree.
+  ticked: Cell<Option<Box<TickedClean>>>,
   /// Whether every descendant cache's front entry belongs to this cache's
   /// front entry, i.e. no older entry was served since the last store.
   /// Serving an older entry skips the descendants, so their front entries
@@ -193,7 +196,27 @@ impl LayoutCache {
       descendant_dirty: Cell::new(false),
       descendants_match_front: Cell::new(true),
       prepared: Cell::new(None),
+      ticked: Cell::new(None),
     }
+  }
+
+  /// What a transition engine left of its last tick of this subtree, taken out.
+  pub(crate) fn take_ticked(&self) -> Option<Box<TickedClean>> {
+    self.ticked.take()
+  }
+
+  pub(crate) fn set_ticked(&self, ticked: Option<Box<TickedClean>>) {
+    self.ticked.set(ticked);
+  }
+
+  /// Whether a transition engine ticked this subtree at its generation as it is, with nothing running in it.
+  pub(crate) fn ticked_clean(&self) -> bool {
+    let ticked = self.ticked.take();
+    let clean = ticked
+      .as_ref()
+      .is_some_and(|ticked| ticked.generation == self.watch().generation() && ticked.world == world_changes());
+    self.ticked.set(ticked);
+    clean
   }
 
   /// What this node's served entry was last prepared into, taken out.
@@ -478,6 +501,43 @@ impl LayoutCache {
       + std::mem::size_of::<crate::core::layout_dirty::LayoutWatch>()
       + slots_bytes
       + cached_bytes
+  }
+}
+
+/// The changes of every element's state of interaction and of every theme, so far.
+pub(crate) fn world_changes() -> u64 {
+  crate::node::interaction_state::interaction_changes() + crate::app::theme::theme_mutations()
+}
+
+/// A subtree a transition engine ticked with no transition running in it and no animation playing: its generation
+/// then, the engine's epoch, and the nodes in it that have transitions, which the engine still counts as seen while
+/// it does not tick them again.
+pub(crate) struct TickedClean {
+  pub(crate) generation: u64,
+  pub(crate) epoch: u64,
+  /// The changes of interaction and of themes so far when it was ticked: a state style or a theme changes what a
+  /// node heads to without a layout.
+  pub(crate) world: u64,
+  /// The nodes under it that have transitions; `None` for none.
+  pub(crate) ids: Option<Arc<TickedIds>>,
+}
+
+/// The nodes of a clean subtree that have transitions: its own, and its children's as they each left them, shared
+/// and not copied, so that every node of the subtree keeps its own and a parent's costs only its children's count.
+pub(crate) struct TickedIds {
+  pub(crate) own: Option<crate::core::NodeId>,
+  pub(crate) children: Vec<Arc<TickedIds>>,
+}
+
+impl TickedIds {
+  /// Calls `each` with every node in it.
+  pub(crate) fn each(&self, each: &mut impl FnMut(crate::core::NodeId)) {
+    if let Some(own) = self.own {
+      each(own);
+    }
+    for child in &self.children {
+      child.each(each);
+    }
   }
 }
 

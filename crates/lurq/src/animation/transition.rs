@@ -1,5 +1,6 @@
 use std::{
   collections::{HashMap, HashSet},
+  sync::Arc,
   time::Duration,
 };
 
@@ -192,6 +193,16 @@ pub struct TransitionEngine {
   scopes: Vec<(Theme, TargetTheme)>,
   /// Whether motion is reduced (`Theme::reduced_motion`): what moves or resizes an element then ends at once.
   reduced_motion: bool,
+  /// Which values this engine holds: a subtree it ticked clean is skipped only while it holds the values it had.
+  epoch: u64,
+  /// What the walk of the children of the node last ticked found, child by child: see [`Self::tick_subtree`].
+  child_results: Vec<Option<Option<Arc<crate::node::layout_cache::TickedIds>>>>,
+}
+
+/// A new epoch: for a new engine, and for one that forgot what it held.
+fn next_epoch() -> u64 {
+  static EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+  EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl Default for TransitionEngine {
@@ -215,6 +226,8 @@ impl TransitionEngine {
       theme_changed: false,
       scopes: Vec::new(),
       reduced_motion: false,
+      epoch: next_epoch(),
+      child_results: Vec::new(),
     }
   }
 
@@ -247,6 +260,7 @@ impl TransitionEngine {
   }
 
   pub(crate) fn clear_state(&mut self) {
+    self.epoch = next_epoch();
     self.active.clear();
     self.prev_values.clear();
     self.node_themes.clear();
@@ -287,7 +301,7 @@ impl TransitionEngine {
     self.theme_identity = 0;
     clear_overrides(root);
     self.has_active = false;
-    let needs_layout = self.tick_recursive(root, now);
+    let needs_layout = self.tick_root(root, now);
     self.has_active = !self.active.is_empty();
     needs_layout
   }
@@ -295,15 +309,76 @@ impl TransitionEngine {
   pub(crate) fn tick_preserving_active_state(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
     self.theme_identity = 0;
     clear_overrides(root);
-    let needs_layout = self.tick_recursive(root, now);
+    let needs_layout = self.tick_root(root, now);
     self.has_active = !self.active.is_empty();
     needs_layout
   }
 
-  fn tick_recursive(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {
+  /// Ticks the tree under `root`.
+  fn tick_root(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
+    self.tick_subtree(root, now).0
+  }
+
+  /// Ticks the transitions under `node`. Returns whether the layout changed, and whether nothing runs under it
+  /// any more and no animation plays there (the subtree is then ticked clean) with the nodes under it that have
+  /// transitions. A clean subtree keeps that on its node, as it is then: one unchanged since (its generation is the
+  /// one it was ticked at, no state of interaction and no theme changed anywhere, the engine holds what it held) has
+  /// nothing to tick: its values are where they were heading, and it is skipped, its nodes still seen so that what
+  /// they head to stays known. A frame that scrolls a long document walks none of it.
+  fn tick_subtree(
+    &mut self,
+    node: &mut crate::node::Node,
+    now: Instant,
+  ) -> (bool, Option<Option<Arc<crate::node::layout_cache::TickedIds>>>) {
     if !node.prepare_layout_tracking().timeline {
-      return false;
+      return (false, Some(None));
     }
+    let ticked = node.layout_cache.take_ticked();
+    let unchanged = ticked.as_ref().is_some_and(|ticked| {
+      !self.theme_changed
+        && ticked.epoch == self.epoch
+        && ticked.generation == node.layout_cache.watch().generation()
+        && ticked.world == crate::node::layout_cache::world_changes()
+    });
+    if let (true, Some(ticked)) = (unchanged, ticked) {
+      let ids = ticked.ids.clone();
+      if let Some(ids) = &ids {
+        let seen = &mut self.seen;
+        ids.each(&mut |id| {
+          seen.insert(id);
+        });
+      }
+      node.layout_cache.set_ticked(Some(ticked));
+      return (false, Some(ids));
+    }
+    let needs_layout = self.tick_recursive(node, now);
+    let node_id = node.node_id();
+    let children = std::mem::take(&mut self.child_results);
+    let clean = !needs_layout
+      && node.playing_animation().is_none()
+      && node.animation_overrides.is_empty()
+      && !self.active.keys().any(|(id, _)| *id == node_id)
+      && children.len() == node.children.len()
+      && children.iter().all(Option::is_some);
+    if !clean {
+      return (needs_layout, None);
+    }
+    let own = (node_id.is_assigned() && !node.transitions.is_empty()).then_some(node_id);
+    let children: Vec<_> = children.into_iter().flatten().flatten().collect();
+    let ids =
+      (own.is_some() || !children.is_empty()).then(|| Arc::new(crate::node::layout_cache::TickedIds { own, children }));
+    node
+      .layout_cache
+      .set_ticked(Some(Box::new(crate::node::layout_cache::TickedClean {
+        generation: node.layout_cache.watch().generation(),
+        epoch: self.epoch,
+        world: crate::node::layout_cache::world_changes(),
+        ids: ids.clone(),
+      })));
+    (needs_layout, Some(ids))
+  }
+
+  fn tick_recursive(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {
     #[cfg(test)]
     crate::core::layout_dirty::visit();
     let scope = node.theme_scope.as_deref().cloned().map(|theme| {
@@ -317,11 +392,13 @@ impl TransitionEngine {
       needs_layout = self.process_node(node, now);
     }
 
+    let mut results = Vec::with_capacity(node.children.len());
     for child in &mut node.children {
-      if self.tick_recursive(child, now) {
-        needs_layout = true;
-      }
+      let (child_layout, clean) = self.tick_subtree(child, now);
+      needs_layout |= child_layout;
+      results.push(clean);
     }
+    self.child_results = results;
 
     if needs_layout {
       node.layout_cache.invalidate();
