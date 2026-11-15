@@ -153,7 +153,9 @@ impl CanvasReadback {
     let mut result = self.inner.result.lock();
     let deadline = crate::time::Instant::now() + timeout;
     while result.is_none() {
-      if self.inner.ready.wait_until(&mut result, deadline).timed_out() {
+      // The time left, and not the deadline: the browser's clock is not the one the lock waits by.
+      let now = crate::time::Instant::now();
+      if now >= deadline || self.inner.ready.wait_for(&mut result, deadline - now).timed_out() {
         break;
       }
     }
