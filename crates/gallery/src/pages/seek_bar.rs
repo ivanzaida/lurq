@@ -657,7 +657,7 @@ impl Component for SeekBarPage {
                       over the pointer, the time it is on.",
         import: Some("use lurq::ui::SeekBar;"),
         status: Some("Preview"),
-        since: None,
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

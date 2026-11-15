@@ -368,7 +368,7 @@ impl Component for WaveformPage {
                       seek bar.",
         import: Some("use lurq::ui::Waveform;"),
         status: Some("Preview"),
-        since: None,
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

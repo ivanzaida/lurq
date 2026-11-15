@@ -443,6 +443,42 @@ fn the_mini_player_is_56_high_with_every_tool_from_480() {
 }
 
 #[test]
+fn nothing_at_the_end_of_a_mini_player_is_cut_at_any_width() {
+  for step in 0..=21 {
+    let width = 480.0 + 20.0 * step as f32;
+    let log = log();
+    let mut stage = Stage::first_frame(940.0, 300.0, move |ctx| {
+      Column::new().width(width).child(mini(&log).mount(ctx)).into()
+    });
+    stage.pass();
+    let (left, _, across, _) = stage.bounds("m");
+    assert_eq!(across, width);
+    let (next_x, _, next_width, _) = stage.bounds("m-next");
+    let mut edge = next_x + next_width;
+    // The time is read out from 560, whole: it starts after the transport.
+    if width >= 560.0 {
+      let time = stage.text_quad("1:24").unwrap_or_else(|| panic!("the time at {width}"));
+      assert!(
+        time.x >= edge - 0.5,
+        "the time is whole in a mini player {width} wide: from {} after {edge}",
+        time.x
+      );
+      edge = time.x + time.width;
+    } else {
+      assert!(!stage.paints("1:24"), "no time under 560, at {width}");
+    }
+    for id in ["m-volume", "m-queue", "m-expand"] {
+      let (x, _, w, _) = stage.bounds(id);
+      assert!(
+        x >= edge - 0.5 && x + w <= left + width + 0.5,
+        "{id} keeps its room in a mini player {width} wide: from {x}, {w} wide, after {edge}"
+      );
+      edge = x + w;
+    }
+  }
+}
+
+#[test]
 fn under_480_the_mini_player_keeps_the_track_play_and_next() {
   let log = log();
   let shown = log.clone();

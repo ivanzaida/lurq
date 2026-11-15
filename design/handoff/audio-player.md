@@ -89,14 +89,15 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 - **The mini player's error** is drawn in place of the description, in the destructive color, and play is disabled: the board draws no error for it.
 - **The voice message's and the mini player's play button** is `PlayButtonSize::Md` styled to the board's 36 (its glyph is 16).
 - **The speed badge** of a voice message shows while it plays and steps 1×, 1.5×, 2× and back to 1×; the dot shows while it is not heard and does not play.
+- **The mini player's end folds with its width**, so that nothing of it is ever cut (set at the merge: at 655 the time read "24 / 4:10"). From 690 (`AUDIO_MINI_VOLUME_FROM`) it has everything the board's 720 has; under it the volume is its button; under 560 (`AUDIO_MINI_TIME_FROM`) the time goes; under 480 (`AUDIO_MINI_NARROW`) it is the track, play and next. The board draws only the first and the last; the two steps between follow from what the end needs (264 with the slider, 188 without, 100 without the time) beside a transport of 108.
+- **Loading and after an error** the bar is `SeekBar::empty(true)` (the track alone, no thumb, no input) and a waveform has every bar in the color of what is not played.
 
 ## Not done
 
-- Loading and an error draw the bar at a position of 0 with `disabled(true)`, so its thumb shows at the start; `SeekBar::empty(true)` (being added by the seek bar's session) draws the board's empty bar with no thumb. The coordinator switches the two calls in `AudioPlayer::view` (`SeekBar::controlled(..)` and the waveform's) at the merge.
+- Nothing.
 
 ## Differs from the board
 
-- While loading and after an error the bar's thumb is drawn at its start, until `SeekBar::empty` is in (see above).
 - The mini player's progress line grows from 2 to 4 downwards, over the top of its row, so that the row does not move; the pointer finds it in the top 8 of the player. The line of the border along its top edge is under the progress line (part `Edge`), which lies over it.
 
 ## Needed from the media parts
@@ -105,5 +106,5 @@ What the first pass asked for, now that the shared parts are real:
 
 - **A play button of 36 with a glyph of 16** (the voice message, the mini player): done with `PlayButton::style(PlayButtonPart::Root, |s| s.square(36.0))` on `Md`. The voice message is 52 high; tested.
 - **A seek bar that fills its room**: the rebuilt `SeekBar` does; the card's bar is 320 (the card's room) and the compact row's fills between the button and the time, 10 from each; tested.
-- **An empty bar with no thumb**: `SeekBar::empty(bool)`, pending (see "Not done").
+- **An empty bar with no thumb**: `SeekBar::empty(bool)`, used while loading and after an error.
 - **`MediaTime`**: the mini player uses it at its default size (`Md`, mono 12), as the board's `Media/Time` instance there has it. The card's two ends and the rows' one time are not an "elapsed / total" reading and stay the player's own (mono 11).

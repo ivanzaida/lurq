@@ -186,7 +186,17 @@ impl AudioQueuePage {
       Spec {
         title: "Audio Queue",
         make: Arc::new(move || held(plain()).into()),
-        shown: Shown::built(move |ctx| held(playground.measure(queue.mount(ctx)).width(FILL)).into()).measured(),
+        // In a column of the holder's width: a row lays the queue out as wide as its words, and the board's
+        // queue is as wide as what holds it.
+        shown: Shown::built(move |ctx| {
+          held(
+            playground
+              .measure(Column::new().width(FILL).child(queue.mount(ctx)))
+              .width(FILL),
+          )
+          .into()
+        })
+        .measured(),
         fill: false,
         forceable: true,
         facts: match current {
@@ -312,8 +322,8 @@ impl Component for AudioQueuePage {
         description: "The tracks a player plays one after another, the one it is on marked. The arrow keys move \
                       between the rows, Enter plays one.",
         import: Some("use lurq::ui::{AudioQueue, AudioQueueItem};"),
-        status: Some("New"),
-        since: Some("0.62"),
+        status: Some("Preview"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

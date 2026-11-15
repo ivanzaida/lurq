@@ -36,7 +36,7 @@ fn length_of(variant: usize) -> f32 {
 }
 
 /// The widths of the window the mini player is docked in.
-const WINDOWS: [(&str, f32); 2] = [("720", 720.0), ("400 (under 480)", 400.0)];
+const WINDOWS: [(&str, f32); 3] = [("640", 640.0), ("520 (under 560)", 520.0), ("400 (under 480)", 400.0)];
 
 /// The loudness of a voice message, one for each of 36 bars.
 const PEAKS: [f32; 36] = [
@@ -645,7 +645,11 @@ impl Component for AudioPlayerPage {
     let docked = Column::new()
       .width(FILL)
       .spacing(16.0)
-      .child(item(mini(ctx, 720.0), "720 wide"))
+      .child(item(
+        mini(ctx, 640.0),
+        "640 wide: under 690 the volume is its button; from 690 its slider stands beside it",
+      ))
+      .child(item(mini(ctx, 520.0), "under 560: no time"))
       .child(item(mini(ctx, 400.0), "under 480: the track, play and next"));
 
     let rows_table = [
@@ -792,8 +796,8 @@ impl Component for AudioPlayerPage {
                       mini player docked to the bottom of a window. Every value is the app's; a control tells what \
                       it is to be.",
         import: Some("use lurq::ui::{AudioPlayer, AudioPlayerVariant, AudioRepeat};"),
-        status: Some("New"),
-        since: Some("0.62"),
+        status: Some("Preview"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

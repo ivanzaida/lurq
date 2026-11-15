@@ -418,8 +418,8 @@ impl Component for MediaSpeedMenuPage {
         description: "The menu a player's speed is chosen from: the speeds under a heading, the one in use checked \
                       at the end of its row.",
         import: Some("use lurq::ui::MediaSpeedMenu;"),
-        status: Some("New"),
-        since: Some("0.62"),
+        status: Some("Preview"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

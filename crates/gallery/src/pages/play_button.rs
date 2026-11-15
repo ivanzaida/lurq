@@ -454,8 +454,8 @@ impl Component for PlayButtonPage {
         description: "The round control that starts and pauses what a player plays, and plays it again once it has \
                       ended.",
         import: Some("use lurq::ui::{PlayButton, PlayButtonSize, PlayButtonVariant};"),
-        status: Some("New"),
-        since: Some("0.62"),
+        status: Some("Preview"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

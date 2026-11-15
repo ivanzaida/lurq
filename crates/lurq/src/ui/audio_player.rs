@@ -250,6 +250,25 @@ names!(AudioPlayerState {
 /// How wide a mini player is at least to show more than the track, play and next.
 pub const AUDIO_MINI_NARROW: f32 = 480.0;
 
+/// How wide a mini player is at least to read the time out: narrower, the queue and the expand buttons and the
+/// volume's button are all that stands at its end.
+pub const AUDIO_MINI_TIME_FROM: f32 = 560.0;
+
+/// How wide a mini player is at least to show the volume's slider beside its button: with the time, the slider
+/// and the two buttons its end is 264 wide, as its start is, around a transport of 108.
+pub const AUDIO_MINI_VOLUME_FROM: f32 = 690.0;
+
+/// What a mini player's width folds away: nothing, the volume's slider, or the time too.
+fn mini_fold(width: f32) -> u8 {
+  if width < AUDIO_MINI_TIME_FROM {
+    2
+  } else if width < AUDIO_MINI_VOLUME_FROM {
+    1
+  } else {
+    0
+  }
+}
+
 /// What builds an audio player's nodes: a theme's in place of the default one.
 pub type AudioPlayerRenderer = Arc<dyn Fn(AudioPlayerView) -> Element + Send + Sync>;
 
@@ -981,7 +1000,8 @@ impl AudioPlayer {
         };
         let mut wave = Waveform::controlled(progress, &self.peaks, move |fraction| tell(fraction * duration))
           .on_change_end(end)
-          .unheard(self.unheard)
+          // Loading and after an error nothing of it is played: every bar in the color of what is not.
+          .unheard(self.unheard || still)
           .label(&words.seek)
           .disabled(still);
         if let Some(id) = self.child_id("seek") {
@@ -1170,6 +1190,10 @@ impl AudioPlayer {
       if variant == AudioPlayerVariant::Full {
         volume = volume.length(96.0);
       }
+      // A mini player with no room for the slider keeps the button that mutes.
+      if variant == AudioPlayerVariant::Mini && kept.fold >= 1 {
+        volume = volume.collapsed(true);
+      }
       if let Some(id) = self.child_id("volume") {
         volume = volume.id(id);
       }
@@ -1177,7 +1201,7 @@ impl AudioPlayer {
     }
 
     // The time of the mini player, which a press turns between what is gone and what is left.
-    if variant == AudioPlayerVariant::Mini && !narrow {
+    if variant == AudioPlayerVariant::Mini && !narrow && kept.fold < 2 {
       let duration = (!still && self.duration > 0.0).then_some(self.duration);
       let mut time =
         MediaTime::new(position, duration).remaining(kept.remaining.as_ref().is_some_and(|left| left.get()));
@@ -1266,6 +1290,8 @@ struct Kept {
   root: Option<ElementRef>,
   /// Whether a mini player is under 480 wide.
   narrow: bool,
+  /// What the width of a mini player folds away at its end: see [`mini_fold`].
+  fold: u8,
   /// Where the pointer is on the mini player's line, from its start, in pixels: below nothing where it is not.
   scrub: Option<Signal<f32>>,
   /// Whether the mini player's time reads what is left.
@@ -1740,6 +1766,7 @@ struct AudioPlayerHost {
   speed_anchor: ElementRef,
   root: ElementRef,
   narrow: Signal<bool>,
+  fold: Signal<u8>,
   scrub: Signal<f32>,
   remaining: Signal<bool>,
 }
@@ -1755,17 +1782,24 @@ impl Component for AudioPlayerHost {
   type Props = AudioPlayerProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let (root, narrow) = (ElementRef::new(), ctx.signal(false));
+    let (root, narrow, fold) = (ElementRef::new(), ctx.signal(false), ctx.signal(0_u8));
     // The form of a mini player follows its own width, from its first frame.
     root.observe_rect_before_paint({
-      let narrow = narrow.clone();
-      move |rect| put(&narrow, rect.width < AUDIO_MINI_NARROW)
+      let (narrow, fold) = (narrow.clone(), fold.clone());
+      move |rect| {
+        put(&narrow, rect.width < AUDIO_MINI_NARROW);
+        let now = mini_fold(rect.width);
+        if fold.get_untracked() != now {
+          fold.set(now);
+        }
+      }
     });
     Self {
       speed_open: ctx.signal(false),
       speed_anchor: ElementRef::new(),
       root,
       narrow,
+      fold,
       scrub: ctx.signal(-1.0),
       remaining: ctx.signal(false),
     }
@@ -1778,6 +1812,7 @@ impl Component for AudioPlayerHost {
       speed: Some((self.speed_open.clone(), self.speed_anchor.clone())),
       root: Some(self.root.clone()),
       narrow: mini && self.narrow.get(),
+      fold: if mini { self.fold.get() } else { 0 },
       scrub: mini.then(|| self.scrub.clone()),
       remaining: Some(self.remaining.clone()),
     };

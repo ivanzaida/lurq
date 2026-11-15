@@ -486,8 +486,8 @@ impl Component for MediaVolumePage {
         description: "A button that mutes and a slider of how loud. Muting keeps the volume, so that the sound comes \
                       back as loud as it was.",
         import: Some("use lurq::ui::{MediaVolume, MediaVolumeSize};"),
-        status: Some("New"),
-        since: Some("0.62"),
+        status: Some("Preview"),
+        since: Some("0.63"),
         source: file!(),
       },
       vec![

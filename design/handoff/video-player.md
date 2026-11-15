@@ -117,7 +117,13 @@ A bullet:
 
 ## Not done
 
-Nothing of the board for this pass. A defect of the shared seek bar found here, for its owner: a mounted `SeekBar` with a `preview` shows no time and no frame while the pointer is exactly on the middle of its track (a bar 616, 400 or 300 wide, the pointer at 0.5 of it; at 0.4 and 0.55 it shows them). The player's test hovers at 0.4.
+Nothing of the board for this pass.
+
+Set at the merge:
+
+- **A player fits its bar before it is measured.** A player not mounted, or in its first render, took itself for a wide one: at 432 it drew the volume's slider and its last control was cut by its edge. A width given in pixels now decides the form and the fold as the measure does. Tests sweep the width from 200 to 720, still and mounted, with every control inside the player and none over its neighbour, and pin the 40 between two controls of the large bar.
+- **The app's layer and the bar each take their own presses**: a press of a child of the layer is not a press of the picture, with the controls and without them, and the bar's play stays the player's. Pinned by tests, one with a play button in the middle of the layer under a layer that draws nothing there.
+- The seek bar's frame with the pointer exactly on the middle of its track, reported missing during the build, shows in a bar alone and in players 640, 432 and 320 wide; pinned by tests.
 
 ## Differs from the board
 
@@ -127,5 +133,5 @@ Nothing of the board for this pass. A defect of the shared seek bar found here, 
 
 ## Needed from the media parts
 
-- **`SeekBar`**: a live form (`SeekBar::live(bool)`, which the seek bar's session is adding). Until it lands, a live stream with nothing to go back in is drawn as a bar of 1 second at 1, full, and a press of it tells nothing (`Make::seek`). The defect at the middle of a mounted bar with a preview is under "Not done".
+- **`SeekBar`**: its live form, `SeekBar::live(bool)`, draws a live stream with nothing to go back in (`Make::seek`).
 - Nothing else: the player now uses `MediaSpeedMenu` (`placement`, `offset`, `id`, `label`, `heading_text`, `rates`), `MediaTime::size` (`Md` in the large bar, `Sm` in the compact one) and `MediaTime::live` for the badge, `SeekBar::preview` and `SeekBar::mount`, and `MediaVolume::on_media`.
