@@ -60,6 +60,7 @@ mod line_chart;
 mod list;
 mod listbox;
 mod markdown;
+mod media_time;
 mod mentions;
 mod media_speed_menu;
 mod media_volume;
@@ -89,6 +90,7 @@ mod rating;
 mod scatter_chart;
 mod scroll_area;
 mod search_field;
+mod seek_bar;
 mod select;
 mod separator;
 mod sheet;
@@ -117,6 +119,7 @@ mod tokens;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -1028,6 +1031,30 @@ pub const PAGES: &[Page] = &[
     about: "stat card kpi metric number dashboard change delta trend badge label value description media sparkline variant size on_click",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<stat_card::StatCardPage>(()),
+  },
+  Page {
+    path: "/seek-bar",
+    name: "Seek Bar",
+    icon: Some("play"),
+    about: "seek bar seekbar scrubber timeline progress position duration buffered loaded chapters thumb drag step on_media picture video preview hover tooltip time on_change on_change_end on_hover size disabled mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<seek_bar::SeekBarPage>(()),
+  },
+  Page {
+    path: "/media-time",
+    name: "Media Time",
+    icon: Some("timer"),
+    about: "media time elapsed total duration remaining position hours not loaded live badge mono on_media size on_click player clock",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<media_time::MediaTimePage>(()),
+  },
+  Page {
+    path: "/waveform",
+    name: "Waveform",
+    icon: Some("equalizer"),
+    about: "waveform audio voice message peaks bars loudness played unheard seek progress controlled at on_change on_change_end step disabled",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<waveform::WaveformPage>(()),
   },
   Page {
     path: "/splitter",
