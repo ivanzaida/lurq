@@ -342,7 +342,9 @@ fn entries() -> Vec<Entry> {
 
 /// What a file's detail shows under its row: its build, as a log would say it.
 fn file_detail(row: &File) -> Element {
+  // No wider than the grid: its lines wrap in a narrow one.
   Column::new()
+    .max_width(crate::kit::FILL)
     .spacing(4.0)
     .child(mono(
       &format!("{} · {} · {} KB", row.name, STATUSES[row.status], row.size),
@@ -377,6 +379,8 @@ fn million() -> Arc<Vec<Job>> {
 /// The least a grid with a column pinned at each end is wide: the two, and room for a column between them.
 const PINNED: f32 = 480.0;
 
+/// The least a grid with its bar over it is wide: the search, a filter that is set, and the bar's buttons.
+const BAR: f32 = 700.0;
 /// The least a grid with a count and a pagination in its footer is wide.
 const FOOTER: f32 = 300.0;
 
@@ -1392,14 +1396,21 @@ impl Component for DataGridPage {
       });
 
     // The board's bar over a grid: the search, a tag for each filter set, Filter, the density, the columns, Export.
+    let bar_room = self.frame.stage_room();
+    let bar_scrolls = bar_room > 0.0 && bar_room < BAR;
     let bar_grid = DataGrid::new(filtered_columns(columns(false)), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
       .toolbar(true)
       .filters(self.bar_filters.clone())
       .height(320.0)
-      .key("bar")
+      // A grid keeps the widths its columns were first laid out with: the one that scrolls in its card is
+      // another grid than the one that had the card's width.
+      .key(if bar_scrolls { "bar-scrolled" } else { "bar" })
       .mount(ctx);
+    // The bar keeps its search, its filters and its buttons in it: in a card narrower than those the grid and
+    // its bar scroll sideways.
+    let bar_grid = crate::kit::fit("bar", bar_room, BAR, bar_grid);
 
     // A tree of folders and files, and files whose rows open on their details.
     let tree_grid = Column::new()
@@ -1408,7 +1419,10 @@ impl Component for DataGridPage {
       .child(
         DataGrid::new(
           vec![
-            TableColumn::new("name", "Name").text(|row: &Entry| row.name.to_owned()),
+            TableColumn::new("name", "Name")
+              // No narrower than a name three folders deep: in a narrower grid the columns scroll sideways.
+              .min_width(200.0)
+              .text(|row: &Entry| row.name.to_owned()),
             TableColumn::new("kind", "Kind")
               .width(110.0)
               .muted(true)
