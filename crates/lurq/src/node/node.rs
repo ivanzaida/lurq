@@ -550,6 +550,7 @@ pub(crate) trait NodeUpdate {
   fn absolute_position(&mut self, x: f32, y: f32);
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky);
   fn drop_outside(&mut self, bounds: crate::layout::layout_kind::SizeBounds);
+  fn image_anchor(&mut self, x: f32, y: f32);
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn fills_viewport_width(&mut self, fills: bool);
@@ -857,10 +858,16 @@ pub enum ButtonKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum BackgroundSize {
+  /// Stretched to the box, whatever its own ratio.
   #[default]
   Stretch,
+  /// As small as fills the box, at its own ratio: what does not fit is cut.
   Cover,
+  /// As large as fits the box whole, at its own ratio: the box shows beside it.
   Contain,
+  /// At its own size, one pixel of it to one of the box's: what does not fit is cut, and the box shows beside
+  /// what is smaller. CSS `object-fit: none`.
+  Natural,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1012,6 +1019,9 @@ pub(crate) struct RareStyle {
   pub(crate) caret_mode: Option<CaretMode>,
   /// The sizes of the `Stack` the node is a child of at which it is laid out; see `NodeUpdate::drop_outside`.
   pub(crate) drop_outside: Option<crate::layout::layout_kind::SizeBounds>,
+  /// Where the image the node draws is held in its box, as shares of the room left over or cut; see
+  /// `NodeUpdate::image_anchor`.
+  pub(crate) image_anchor: Option<(f32, f32)>,
   /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
   /// see [`NodeUpdate::interaction_group`].
   pub(crate) interaction_group: bool,
@@ -1423,6 +1433,11 @@ impl NodeUpdate for Node {
       self.rare_style.drop_outside = Some(bounds);
       self.layout_cache.invalidate();
     }
+  }
+
+  fn image_anchor(&mut self, x: f32, y: f32) {
+    let share = |value: f32| if value.is_nan() { 0.5 } else { value.clamp(0.0, 1.0) };
+    self.rare_style.image_anchor = Some((share(x), share(y)));
   }
 
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
@@ -3178,6 +3193,8 @@ impl Node {
       NodeKind::Image { fit, .. } => *fit = next_fit,
       #[cfg(feature = "image")]
       NodeKind::LoadingImage { request } => request.fit = next_fit,
+      #[cfg(feature = "image")]
+      NodeKind::ResourceImage { fit, .. } => *fit = next_fit,
       _ => {}
     }
   }
@@ -3213,7 +3230,14 @@ impl Node {
 
   #[cfg(feature = "image")]
   pub fn resource_image(path: &str) -> Self {
-    Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceImage { path: path.into() }, vec![])
+    Self::from_parts(
+      LayoutKind::Leaf,
+      NodeKind::ResourceImage {
+        path: path.into(),
+        fit: BackgroundSize::Stretch,
+      },
+      vec![],
+    )
   }
 
   #[cfg(feature = "svg")]
@@ -5687,6 +5711,12 @@ impl Node {
     }
   }
 
+  /// Where the image the node draws is held in its box: the middle unless `.image_anchor(...)` says.
+  #[cfg(feature = "raster")]
+  pub(crate) fn image_anchor(&self) -> (f32, f32) {
+    self.rare_style.image_anchor.unwrap_or((0.5, 0.5))
+  }
+
   /// The give-way order and limit of this node as a shrinking flex child.
   /// A logical wrapper without its own rule passes its child's on, the way
   /// [`Self::state_flex`] passes the child's flex factors on.
@@ -6187,7 +6217,13 @@ impl Node {
         },
       ) => data.id() == old_data.id() && fit == old_fit,
       #[cfg(feature = "image")]
-      (NodeKind::ResourceImage { path }, NodeKind::ResourceImage { path: old_path }) => path == old_path,
+      (
+        NodeKind::ResourceImage { path, fit },
+        NodeKind::ResourceImage {
+          path: old_path,
+          fit: old_fit,
+        },
+      ) => path == old_path && fit == old_fit,
       #[cfg(feature = "svg")]
       (NodeKind::Svg { data }, NodeKind::Svg { data: old_data }) => data.id() == old_data.id(),
       #[cfg(all(feature = "svg", feature = "resources"))]

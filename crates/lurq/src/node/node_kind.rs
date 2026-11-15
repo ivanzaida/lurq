@@ -213,6 +213,8 @@ pub(crate) enum NodeKind {
   #[cfg(feature = "image")]
   ResourceImage {
     path: Arc<str>,
+    /// How the pixels fill the node's box once they are loaded.
+    fit: crate::node::BackgroundSize,
   },
   #[cfg(feature = "svg")]
   Svg {

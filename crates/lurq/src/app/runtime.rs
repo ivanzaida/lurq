@@ -7942,14 +7942,11 @@ impl Tree {
     // complete independently of mutations to the nodes.
     let mut layout_dirty = false;
 
-    if let NodeKind::ResourceImage { path } = node.node_kind() {
-      let key: std::sync::Arc<str> = path.clone();
+    if let NodeKind::ResourceImage { path, fit } = node.node_kind() {
+      let (key, fit): (std::sync::Arc<str>, _) = (path.clone(), *fit);
       if let Some(img) = Self::resolve_image_resource(&key, loader, image_cache) {
         node.intrinsic_size = Some(Size::new(img.width() as f32, img.height() as f32));
-        node.node_kind = NodeKind::Image {
-          data: img,
-          fit: crate::node::BackgroundSize::Stretch,
-        };
+        node.node_kind = NodeKind::Image { data: img, fit };
         layout_dirty = true;
       }
     }

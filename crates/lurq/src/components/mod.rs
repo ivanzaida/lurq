@@ -533,6 +533,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Where the image the element draws (its own pixels, or its background image) is held in its box
+      /// where it is cut or does not fill it, as CSS `object-position`: `x` and `y` from 0, its start edge on
+      /// the box's, through 0.5, the middle and the default, to 1, its end edge on the box's. A cover that
+      /// cuts the top and the bottom keeps the top with `(0.5, 0.0)`; a contained image stands at the left
+      /// with `(0.0, 0.5)`. A stretched image fills its box and has nothing to hold.
+      pub fn image_anchor(mut self, x: f32, y: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::image_anchor(node, x, y));
+        self
+      }
+
       /// Makes this child of a single-line `Row`/`Column` the one that stands
       /// for what the line dropped
       /// ([`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop)):

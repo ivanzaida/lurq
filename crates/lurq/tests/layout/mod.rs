@@ -40,6 +40,7 @@ mod frame;
 mod frame_constraints;
 mod generic_family;
 mod grid;
+mod image_fit;
 mod letter_spacing;
 mod max_lines;
 mod nested;

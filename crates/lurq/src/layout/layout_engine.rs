@@ -366,6 +366,7 @@ struct BackgroundImagePlacement {
 #[cfg(feature = "raster")]
 fn background_image_placement(
   size_mode: crate::node::BackgroundSize,
+  anchor: (f32, f32),
   box_width: f32,
   box_height: f32,
   image_width: f32,
@@ -384,39 +385,53 @@ fn background_image_placement(
     return full;
   }
 
+  // One axis of an image `shown` long in a box `room` long, held at `anchor`: where it starts in the box, how
+  // much of the box it takes, and the part of it that is drawn. What is longer than the box is cut at both
+  // ends by the anchor's shares; what is shorter leaves the box's room at both ends by the same shares.
+  let axis = |shown: f32, room: f32, anchor: f32| {
+    if shown > room {
+      let visible = room / shown;
+      let start = (1.0 - visible) * anchor;
+      (0.0, room, start, start + visible)
+    } else {
+      ((room - shown) * anchor, shown, 0.0, 1.0)
+    }
+  };
+  let placed = |width: f32, height: f32| {
+    let (x, shown_width, u_min, u_max) = axis(width, box_width, anchor.0);
+    let (y, shown_height, v_min, v_max) = axis(height, box_height, anchor.1);
+    BackgroundImagePlacement {
+      x,
+      y,
+      width: shown_width,
+      height: shown_height,
+      uv_min: [u_min, v_min],
+      uv_max: [u_max, v_max],
+    }
+  };
+
   match size_mode {
     crate::node::BackgroundSize::Stretch => full,
     crate::node::BackgroundSize::Contain => {
       let scale = (box_width / image_width).min(box_height / image_height);
-      let width = image_width * scale;
-      let height = image_height * scale;
-      BackgroundImagePlacement {
-        x: (box_width - width) * 0.5,
-        y: (box_height - height) * 0.5,
-        width,
-        height,
-        uv_min: [0.0, 0.0],
-        uv_max: [1.0, 1.0],
-      }
+      placed(image_width * scale, image_height * scale)
     }
     crate::node::BackgroundSize::Cover => {
-      let box_aspect = box_width / box_height;
-      let image_aspect = image_width / image_height;
-      let mut uv_min = [0.0, 0.0];
-      let mut uv_max = [1.0, 1.0];
-
-      if image_aspect > box_aspect {
-        let visible_u = box_aspect / image_aspect;
-        uv_min[0] = (1.0 - visible_u) * 0.5;
-        uv_max[0] = 1.0 - uv_min[0];
-      } else if image_aspect < box_aspect {
-        let visible_v = image_aspect / box_aspect;
-        uv_min[1] = (1.0 - visible_v) * 0.5;
-        uv_max[1] = 1.0 - uv_min[1];
-      }
-
-      BackgroundImagePlacement { uv_min, uv_max, ..full }
+      let scale = (box_width / image_width).max(box_height / image_height);
+      // The axis the scale comes from fills the box exactly: said so, where a rounding would cut a hair of it.
+      let width = if box_width / image_width >= box_height / image_height {
+        box_width
+      } else {
+        image_width * scale
+      };
+      let height = if box_width / image_width >= box_height / image_height {
+        image_height * scale
+      } else {
+        box_height
+      };
+      placed(width, height)
     }
+    crate::node::BackgroundSize::Natural => placed(image_width, image_height),
   }
 }
 
@@ -462,6 +477,7 @@ fn push_slider_part_quads(
   if let Some(ref bg_image) = style.background_image {
     let placement = background_image_placement(
       style.background_size,
+      (0.5, 0.5),
       rect.width,
       rect.height,
       bg_image.width() as f32,
@@ -557,6 +573,7 @@ fn push_checkbox_quads(
     let indicator_y = rect.y + (rect.height - indicator_height) * 0.5;
     let placement = background_image_placement(
       style.indicator_size,
+      (0.5, 0.5),
       indicator_width,
       indicator_height,
       indicator_image.width() as f32,
@@ -1411,6 +1428,7 @@ impl LayoutEngine {
       NodeKind::Image { data, fit } => {
         let placement = background_image_placement(
           *fit,
+          node.image_anchor(),
           result.size.width,
           result.size.height,
           data.width() as f32,
@@ -1426,6 +1444,7 @@ impl LayoutEngine {
       NodeKind::Video { data, fit } => {
         let placement = background_image_placement(
           *fit,
+          node.image_anchor(),
           result.size.width,
           result.size.height,
           data.width() as f32,
@@ -1785,6 +1804,7 @@ impl LayoutEngine {
           NodeKind::Image { data, fit } | NodeKind::Video { data, fit } => {
             let placement = background_image_placement(
               *fit,
+              node.image_anchor(),
               result.size.width,
               result.size.height,
               data.width() as f32,
@@ -1863,6 +1883,7 @@ impl LayoutEngine {
     if let Some(bg_image) = node.background_image.as_deref() {
       let placement = background_image_placement(
         node.background_size,
+        node.image_anchor(),
         result.size.width,
         result.size.height,
         bg_image.width() as f32,
