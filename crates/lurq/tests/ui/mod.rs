@@ -69,6 +69,8 @@ mod rating;
 mod scroll_area;
 mod select;
 mod separator;
+#[cfg(feature = "canvas")]
+mod sparkline;
 mod sheet;
 mod shortcut_recorder;
 mod sidebar;

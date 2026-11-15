@@ -5369,6 +5369,37 @@ BarList::new([BarListItem::new("target/", 27.4), BarListItem::new("node_modules/
 - In the design the list is a card (`Card` with an edge of 1 in `Border`, the extra large radius and the small shadow), 20 in, its header and its rows 16 apart. The title is 15 at 600 in `CardForeground` over the description, 12 in `MutedForeground`, 3 under it. A row is its name, the mono type at 11 in `CardForeground` in a column of 92, a track of 26 with a bar of 14 in `Chart1` and the small radius, and its value, the mono type at 11 in `MutedForeground`, 10 apart. The board draws nothing else of it: a row that is pressed has the `StateHover` and `StatePressed` veils and a ring of 2 in `Ring` inside it, and is half opaque where it is disabled.
 - A theme's renderer is given `BarListView`: `view.rows` (each a `BarListRow` with its name, value, value text, the share of its track and its color, and `row.name()`, `row.track()`, `row.value()`, `row.root(children)`, `row.render()`), `view.max`, `view.header()`, `view.rows(rows)` and `view.root(content)`.
 
+## Sparkline
+
+A series as a line with no axes, small enough to stand beside a number: the frames of the last minute, the builds of the week. It is drawn on the canvas, behind the `canvas` feature.
+
+```rust
+use lurq::{app::theme::PaletteColor, ui::Sparkline};
+
+Sparkline::new([118.0, 124.0, 121.0, 133.0, 129.0, 141.0, 138.0, 144.0])
+  .color(PaletteColor::Success)
+  .label("Frames per second, the last minute");
+```
+
+| Builder | |
+| --- | --- |
+| `Sparkline::new(values)` | The values, `impl Into<f64>`, the first at the start |
+| `min(..)`, `max(..)` | The values at the bottom and at the top: the least and the greatest of the values unless given |
+| `color(PaletteColor)` | The role of the line: `Chart1` unless given, or a tone where the series is good or bad (the board's frames are `Success`) |
+| `width(..)`, `height(..)` | Its size, `impl Into<Length>`: the board's 80 by 28 unless given |
+| `label(&str)` | What it shows, to tooling |
+| `summary_text(Fn(&[f64]) -> String)` | What its values are, to tooling. Not given, "8 values from 118 to 144, the last 144" |
+| `empty_text(&str)` | What a sparkline of no values says to tooling, "No data" when not given |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- Its values run from the first at the start to the last at the end, evenly apart, the least at the bottom and the greatest at the top, as a line of straight steps with round joins and ends, kept half its width in from every edge.
+- Values on both sides of 0 have a line at 0 under them; values all the same make a line across the middle; one value is a dot in the middle; none draw nothing. A value that is not a number is left out.
+- It is painted with [`Canvas::paint`](../canvas/#a-painter-drawing-from-a-builder): sharp at every scale, and painted again when its values, its size, its scale or the theme change.
+- To what reads the tree it is an `img` called by its label and described by its summary, and its canvas holds a `point` [item](../canvas/#describing-what-you-drew) for each value with the value as its text, which a reader can go through.
+- Parts: `SparklinePart::Root` (the canvas: its width and height), `Line`, `Baseline`, `Point`, each drawn in its part's background and as wide as its part's width.
+- In the design the line is 80 by 28 of straight steps, 1.75 wide with round joins and ends. The board draws nothing else of it: the line at 0 is 1 in `Border`, and a single value a dot of 4 in `Chart1`.
+- A theme's renderer is given `SparklineView`: its values, their range, its label, its summary, and `view.render()`.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.

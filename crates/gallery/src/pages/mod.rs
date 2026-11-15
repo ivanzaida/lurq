@@ -11,6 +11,8 @@ mod avatar;
 mod badge;
 mod bar_list;
 mod meter;
+#[cfg(not(target_arch = "wasm32"))]
+mod sparkline;
 mod banner;
 mod breadcrumb;
 mod button;
@@ -905,6 +907,15 @@ pub const PAGES: &[Page] = &[
     about: "bar list chart bars ranking top slowest largest horizontal bar value scale name track new item items title description label max color value_text empty_text framed on_select key disabled style rules",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<bar_list::BarListPage>(()),
+  },
+  #[cfg(not(target_arch = "wasm32"))]
+  Page {
+    path: "/sparkline",
+    name: "Sparkline",
+    icon: Some("pulse"),
+    about: "sparkline trend line series small chart history values min max color width height label summary_text empty_text canvas",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<sparkline::SparklinePage>(()),
   },
   Page {
     path: "/splitter",
