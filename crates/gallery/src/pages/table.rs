@@ -187,7 +187,7 @@ fn narrow_columns() -> Vec<TableColumn<Krate>> {
       .mono(true)
       // No narrower than a name, or than the longest of the lines drawn while the rows load: in a narrower table
       // the columns scroll sideways.
-      .min_width(226.0),
+      .min_width(200.0),
     TableColumn::new("status", "Status")
       .width(90.0)
       .cell(|row: &Krate| row.status.badge()),
