@@ -956,7 +956,11 @@ impl<V: Picked> PickerView<V> {
         .offset
         .unwrap_or_else(|| SpacingSize::Xs.into())
         .resolve(&self.theme().spacing(), 0.0);
-      let mut root = Column::new().spacing(gap).child(self.field()).child(self.panel());
+      let mut root = Column::new()
+        .max_width(Dimension::Pct(100.0))
+        .spacing(gap)
+        .child(self.field())
+        .child(self.panel());
       if self.full_width {
         root = root.width(Dimension::Pct(100.0));
       }
@@ -965,7 +969,11 @@ impl<V: Picked> PickerView<V> {
       }
       return root.into();
     }
-    let mut root = Row::new().child(self.field()).child(self.panel());
+    // No wider than the room it has: the field in it is as wide as its recipe says at most.
+    let mut root = Row::new()
+      .max_width(Dimension::Pct(100.0))
+      .child(self.field())
+      .child(self.panel());
     if self.full_width {
       root = root.width(Dimension::Pct(100.0));
     }

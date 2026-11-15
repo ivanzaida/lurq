@@ -717,8 +717,10 @@ impl MessageBoxView {
 
   /// The footer: the checkbox and the plain answers at its start, the others at its end.
   pub fn footer(&self) -> Row {
+    // In a box too narrow for the option and the answers on one line, the answers go under the option.
     let mut footer = Row::new()
       .width(Dimension::Pct(100.0))
+      .wrap()
       .align_items(Alignment::Center)
       .overflow_visible()
       .part(&self.part(MessageBoxPart::Footer));

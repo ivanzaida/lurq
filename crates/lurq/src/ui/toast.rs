@@ -551,18 +551,19 @@ impl ToastView {
   /// where it is; a toast nothing counts down has all of it.
   pub fn timer(&self) -> Row {
     let mut remaining = Row::new().part(&self.part(ToastPart::Remaining));
-    remaining = match (self.timer_width(), self.left) {
-      (Some(full), TimeLeft::All) => remaining.width(Dimension::Px(full)),
+    // A share of the rail, which is as wide as the panel: a toast in a room narrower than its recipe's width
+    // runs out from the panel's end, not from past it.
+    remaining = match self.left {
+      TimeLeft::All => remaining.width(Dimension::Pct(100.0)),
       // Standing still it is where it is at once. It has a transition all the same: one runs from the width
       // the element had with a transition, so what is left can only run out from a width that had one.
-      (Some(full), TimeLeft::Part(part)) => remaining
-        .width(Dimension::Px(full * part.clamp(0.0, 1.0)))
+      TimeLeft::Part(part) => remaining
+        .width(Dimension::Pct(100.0 * part.clamp(0.0, 1.0)))
         .transition(Transition::width().duration(Duration::ZERO).linear()),
       // It runs out from where it is to nothing, a transition from one width to the other.
-      (Some(_), TimeLeft::RunningOut(left)) => remaining
-        .width(Dimension::Px(0.0))
+      TimeLeft::RunningOut(left) => remaining
+        .width(Dimension::Pct(0.0))
         .transition(Transition::width().duration(left).linear()),
-      (None, _) => remaining.width(Dimension::Pct(100.0)),
     };
     // The rail cuts nothing off itself: it and what is left are cut by the panel, to its round corners. A
     // clip of the rail's own inside the panel's would be a plain rectangle at the panel's corners.

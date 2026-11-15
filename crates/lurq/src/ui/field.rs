@@ -558,9 +558,10 @@ impl FieldView {
         if self.orientation == Orientation::Horizontal {
           label
         } else {
-          label.width(Dimension::Px(width))
+          // As wide as the field, which is no wider than the room it has.
+          label.width(Dimension::Px(width)).max_width(Dimension::Pct(100.0))
         },
-        description.map(|description| description.width(Dimension::Px(width))),
+        description.map(|description| description.width(Dimension::Px(width)).max_width(Dimension::Pct(100.0))),
       ),
       None => (label, description),
     };
