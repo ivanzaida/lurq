@@ -11,7 +11,7 @@ use lurq::{
   components::{Column, Row, Stack},
   core::Signal,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, Gradient, color::Color, dimension::Dimension, gradient::GradientStop},
+  node::{Element, Gradient, HitTestBehavior, color::Color, dimension::Dimension, gradient::GradientStop},
   ui::{
     Button, ButtonPart, ButtonShape, ButtonVariant, PlayButton, PlayButtonVariant, VideoPlayer, VideoPlayerSize, icons,
     media_time_text,
@@ -526,8 +526,11 @@ impl VideoPlayerPage {
       .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
       .child(center)
       .child(
+        // It lies over the whole picture and draws only its two ends: the pointer finds what is in it, and the
+        // play button under the rest of it.
         Column::new()
           .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+          .hit_test(HitTestBehavior::ContentOnly)
           .justify(Justify::SpaceBetween)
           .child(top)
           .child(Column::new().width(FILL).child(bottom).child(progress)),

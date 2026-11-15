@@ -1102,7 +1102,15 @@ impl Component for VideoPlayerHost {
 
 /// Builds the view of `player` in `theme`, with its controls made, and their tooltips where `ctx` is given.
 fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) -> VideoPlayerView {
-  let measured = live.bucket.get();
+  // Not measured yet (the still form, and a mounted player's first render): a width given in pixels decides
+  // what the measure would, so that a player told to be 432 wide folds its volume without being mounted.
+  let measured = match live.bucket.get() {
+    0 => match player.width.and_then(|width| width.resolve(theme)) {
+      Some(Dimension::Px(width)) => bucket(width),
+      _ => 0,
+    },
+    measured => measured,
+  };
   let form = match player.size {
     Some(size) => VideoPlayerSize::of(size),
     None => match measured {
@@ -1366,6 +1374,8 @@ impl Make<'_, '_> {
       }
     })
     .on_media(true)
+    // The seek bar's own form for it: full, the thumb at its end, no stop of Tab.
+    .live(!seekable)
     .label(&player.words.seek)
     .step(VIDEO_PLAYER_SEEK_STEP)
     .chapters(&player.chapters);

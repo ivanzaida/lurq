@@ -391,6 +391,42 @@ fn the_overlay_takes_presses_without_the_controls() {
 }
 
 #[test]
+fn with_the_controls_the_overlay_and_the_bar_each_take_their_own_presses() {
+  for mount in [false, true] {
+    let told = Told::default();
+    let pressed = Arc::new(Mutex::new(0));
+    let (made, count) = (told.clone(), pressed.clone());
+    let mut stage = stage(move |ctx| {
+      let count = count.clone();
+      let player = player(&made).width(640.0).child(
+        Column::new()
+          .id("like")
+          .size(40.0, 40.0)
+          .on_click(move |_| *count.lock().unwrap() += 1),
+      );
+      if mount { player.mount(ctx) } else { player.into() }
+    });
+    stage.click("like");
+    assert_eq!(
+      *pressed.lock().unwrap(),
+      1,
+      "the app's own control is pressed (mounted: {mount})"
+    );
+    assert_eq!(
+      told.take(),
+      Vec::<String>::new(),
+      "and the press of it is not a press of the picture (mounted: {mount})"
+    );
+    stage.click("v-play");
+    assert_eq!(
+      told.take(),
+      ["playing true"],
+      "the bar's play is still the player's (mounted: {mount})"
+    );
+  }
+}
+
+#[test]
 fn playing_has_no_disc_and_waiting_a_spinner() {
   let told = Told::default();
   let made = told.clone();
@@ -783,4 +819,118 @@ fn the_seek_bar_shows_the_frame_the_app_gives_under_the_pointer() {
   stage.pass();
   let (_, _, width, height) = stage.bounds("frame");
   assert_eq!((width, height), (128.0, 72.0), "the frame of 128 by 72 over the time");
+}
+
+#[test]
+fn the_frame_shows_with_the_pointer_anywhere_on_the_seek_bar_its_middle_too() {
+  for across in [640.0_f32, 432.0, 320.0] {
+    for share in [0.1_f32, 0.5, 0.9] {
+      let told = Told::default();
+      let mut stage = mounted(move || {
+        player(&told).width(across).preview(|_| {
+          Column::new()
+            .id("frame")
+            .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+            .into()
+        })
+      });
+      let (x, y, width, height) = stage.bounds("v-seek");
+      stage.tree.mouse_move(x + width * share, y + height / 2.0);
+      stage.pass();
+      assert!(
+        has(&mut stage, "frame"),
+        "the frame with the pointer at {share} of the bar of a player {across} wide"
+      );
+    }
+  }
+}
+
+/// The controls of a bar by their ids, whichever of them the form in use has.
+const BAR: [&str; 9] = [
+  "v-play",
+  "v-mute",
+  "v-time",
+  "v-captions",
+  "v-speed",
+  "v-more",
+  "v-settings",
+  "v-pip",
+  "v-fullscreen",
+];
+
+#[test]
+fn the_controls_of_the_large_bar_stand_40_apart() {
+  let told = Told::default();
+  let mut stage = still(move || player(&told).width(640.0));
+  let x = |stage: &mut Stage, id: &str| stage.bounds(id).0;
+  let (settings, pip, fullscreen) = (
+    x(&mut stage, "v-settings"),
+    x(&mut stage, "v-pip"),
+    x(&mut stage, "v-fullscreen"),
+  );
+  assert_eq!(
+    (pip - settings, fullscreen - pip),
+    (40.0, 40.0),
+    "a control of 36 and a gap of 4"
+  );
+  let (left, _, width, _) = stage.bounds("v");
+  let (_, _, side, _) = stage.bounds("v-fullscreen");
+  assert_eq!(
+    left + width - (fullscreen + side),
+    12.0,
+    "the last control ends at the bar's padding of 12"
+  );
+}
+
+#[test]
+fn a_still_player_folds_its_volume_by_the_width_it_was_given() {
+  let time_at = |width: f32| {
+    let told = Told::default();
+    let mut stage = still(move || player(&told).width(width));
+    stage.bounds("v-time").0
+  };
+  let (narrow, wide) = (time_at(432.0), time_at(640.0));
+  assert!(
+    wide - narrow >= 60.0,
+    "not mounted, a player 432 wide has no slider: the time at {narrow} and {wide}"
+  );
+}
+
+#[test]
+fn nothing_of_the_bar_is_cut_at_any_width_still_or_mounted() {
+  for mount in [false, true] {
+    for step in 0..=26 {
+      let width = 200.0 + 20.0 * step as f32;
+      let told = Told::default();
+      let mut stage = stage(move |ctx| {
+        let player = player(&told).width(width);
+        if mount { player.mount(ctx) } else { player.into() }
+      });
+      let (left, _, across, _) = stage.bounds("v");
+      assert_eq!(across, width, "the player is as wide as it was told");
+      let mut found = Vec::new();
+      for id in BAR {
+        if has(&mut stage, id) {
+          let (x, _, w, _) = stage.bounds(id);
+          found.push((id, x, w));
+        }
+      }
+      // The minimal form has play alone of these, beside its seek bar.
+      assert!(!found.is_empty(), "a bar at {width}");
+      found.sort_by(|a, b| a.1.total_cmp(&b.1));
+      for (id, x, w) in &found {
+        assert!(
+          *x >= left - 0.5 && x + w <= left + width + 0.5,
+          "{id} is inside a player {width} wide (mounted: {mount}): from {x}, {w} wide"
+        );
+      }
+      for pair in found.windows(2) {
+        let ((before, x, w), (after, next, _)) = (pair[0], pair[1]);
+        assert!(
+          next >= x + w - 0.5,
+          "{after} does not lie over {before} in a player {width} wide (mounted: {mount})"
+        );
+      }
+    }
+  }
 }

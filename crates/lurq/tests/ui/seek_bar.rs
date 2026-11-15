@@ -384,6 +384,32 @@ fn mounted_it_shows_the_time_under_the_pointer_in_a_chip_4_above_the_bar() {
 }
 
 #[test]
+fn the_time_shows_wherever_the_pointer_comes_onto_the_bar_its_middle_too() {
+  for share in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
+    let mut stage = Stage::new(move |ctx| {
+      scene(
+        SeekBar::new(Signal::new(20.0), 200.0)
+          .preview(|_| Column::new().id("frame").size(128.0, 72.0).into())
+          .id("bar")
+          .mount(ctx),
+      )
+    });
+    let (x, y, ..) = stage.bounds("bar");
+    stage.tree.mouse_move(x + 8.0 + 304.0 * share, y + 8.0);
+    stage.pass();
+    let time = lurq::ui::media_time_text(f64::from(200.0 * share), false);
+    assert!(
+      stage.paints(&time),
+      "the chip reads {time} with the pointer at {share} of the bar"
+    );
+    assert!(
+      stage.tree.get_element_by_id_mut("frame").is_some(),
+      "and the frame is over it at {share}"
+    );
+  }
+}
+
+#[test]
 fn the_preview_is_a_frame_of_128_by_72_over_the_chip() {
   let mut stage = Stage::new(move |ctx| {
     scene(
