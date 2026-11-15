@@ -310,7 +310,10 @@ pub use list_item::{
 };
 pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
 pub use media_speed_menu::MediaSpeedMenu;
-pub use media_time::{MEDIA_RATES, MediaTime, media_rate_text, media_time_text};
+pub use media_time::{
+  MEDIA_RATES, MediaTime, MediaTimePart, MediaTimeRenderer, MediaTimeSize, MediaTimeState, MediaTimeView, media_rate_text,
+  media_time_text,
+};
 pub use media_volume::{MediaVolume, MediaVolumeSize};
 pub use mentions::{
   MENTIONS_LIMIT, Mention, MentionSource, Mentions, MentionsController, MentionsPart, MentionsRenderer, MentionsSize,
@@ -391,7 +394,7 @@ pub use scroll_area::{
 pub use search_field::{
   SearchField, SearchFieldPart, SearchFieldRenderer, SearchFieldSize, SearchFieldState, SearchFieldView,
 };
-pub use seek_bar::SeekBar;
+pub use seek_bar::{SeekBar, SeekBarPart, SeekBarRenderer, SeekBarSize, SeekBarState, SeekBarView, SeekPreview};
 pub use segmented::{
   SegmentedControl, SegmentedControlPart, SegmentedControlRenderer, SegmentedControlSize, SegmentedControlState,
 };
@@ -494,7 +497,7 @@ pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
   TreeViewView,
 };
-pub use waveform::Waveform;
+pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use window_chrome::{
   WindowChrome, WindowChromeIcon, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
   WindowControl, WindowControls, WindowPlatform,

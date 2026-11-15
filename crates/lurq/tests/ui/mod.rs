@@ -62,6 +62,7 @@ mod kbd;
 mod line_chart;
 mod list_item;
 mod listbox;
+mod media_time;
 mod menu;
 mod menubar;
 mod message_box;
@@ -88,6 +89,7 @@ mod reopened_layers;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;
+mod seek_bar;
 mod select;
 mod separator;
 #[cfg(feature = "canvas")]
@@ -120,5 +122,6 @@ mod token_input;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod waveform;
 mod window_chrome;
 mod window_tabs;
