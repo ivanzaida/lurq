@@ -211,7 +211,7 @@ impl PieChart {
       .case(self.default_size(), empty)
       .state(PieChartState::Donut, self.donut);
     let recipe = theme.resolve::<PieChart>(&case, Some(&self.props.rules));
-    let side = plot_side(&recipe, &self.props, theme);
+    let side = self.props.plot_height(&recipe);
     plot.total_text = plot.total_text.filter(|_| self.donut);
     let legend: Vec<String> = (0..self.names.len())
       .map(|index| match self.legend_value {
@@ -242,15 +242,6 @@ impl PieChart {
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.props.key.clone();
     ChartFrame::mount(ctx, key, move |theme| self.frame(theme))
-  }
-}
-
-/// The side of the square a round plot is drawn in: the plot's height, the props' or the recipe's.
-pub(super) fn plot_side(recipe: &super::recipe::ResolvedRecipe, props: &ChartProps, theme: &Theme) -> f32 {
-  let length = props.height.or_else(|| recipe.part(ChartPart::Plot).rest().height);
-  match length.and_then(|length| length.resolve(theme)) {
-    Some(crate::node::dimension::Dimension::Px(px)) => px,
-    _ => 96.0,
   }
 }
 

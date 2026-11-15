@@ -68,6 +68,7 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod radar_chart;
 mod radio;
 mod radio_card;
 mod rating;
@@ -897,6 +898,14 @@ pub const PAGES: &[Page] = &[
     about: "pie chart donut ring slices share whole parts percent legend beside total hole names series colors legend_value share_text total_text tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint PieLegendValue",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<pie_chart::PieChartPage>(()),
+  },
+  Page {
+    path: "/radar-chart",
+    name: "Radar Chart",
+    icon: Some("chart-radar"),
+    about: "radar chart spider web star polar axes rings spokes polygon profile compare series values names value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<radar_chart::RadarChartPage>(()),
   },
   Page {
     path: "/data-grid",

@@ -66,6 +66,8 @@ mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+#[cfg(feature = "canvas")]
+mod radar_chart;
 mod radio;
 mod rating;
 mod scroll_area;

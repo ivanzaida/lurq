@@ -84,6 +84,16 @@ impl ChartProps {
     self.value_text.clone().unwrap_or_else(|| Arc::new(default_value_text))
   }
 
+  /// The height of the plot in `recipe`: the props', or the size's in the recipe; for a chart that lays its plot out
+  /// from it (a square of that side, a grid of cells).
+  pub fn plot_height(&self, recipe: &ResolvedRecipe) -> f32 {
+    let length = self.height.or_else(|| recipe.part(ChartPart::Plot).rest().height);
+    match length.and_then(|length| length.resolve(recipe.theme())) {
+      Some(Dimension::Px(px)) => px,
+      _ => 160.0,
+    }
+  }
+
   /// Whether `series` is hidden, through the legend.
   pub fn is_hidden(&self, series: &ChartSeries) -> bool {
     self.hidden.iter().any(|name| **name == *series.name())
@@ -392,15 +402,7 @@ impl ChartFrame {
 
   /// The height of the plot: the props', or the size's in the recipe.
   fn plot_height(&self) -> f32 {
-    let theme = self.recipe.theme();
-    let length = self
-      .props
-      .height
-      .or_else(|| self.recipe.part(ChartPart::Plot).rest().height);
-    match length.and_then(|length| length.resolve(theme)) {
-      Some(Dimension::Px(px)) => px,
-      _ => 160.0,
-    }
+    self.props.plot_height(&self.recipe)
   }
 
   fn plot_element(&self, host: Option<&Arc<ChartHostState>>) -> Element {
@@ -515,10 +517,11 @@ impl ChartFrame {
       if let Some(id) = &self.props.id {
         tooltip = tooltip.id(format!("{id}-tooltip"));
       }
-      // Over the point, kept inside the plot at its ends.
-      let across = if x < 80.0 {
+      // Over the point, centred where half the board's tooltip of 140 fits on each side of it in the plot, else
+      // kept inside the plot at its ends; beside a legend (a pie's), after the point, over the legend.
+      let across = if self.beside.is_some() || x < 70.0 {
         0.0
-      } else if width > 0.0 && x > width - 80.0 {
+      } else if width > 0.0 && x + 70.0 > width {
         -1.0
       } else {
         -0.5

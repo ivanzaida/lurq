@@ -4619,6 +4619,40 @@ PieChart::new(
 - Parts: the chart's and `PieChartPart::Slice` (a slice that gives way to the one under the pointer or the focus: its opacity, 0.45), `Edge` (the line between slices, `Card`), `Total` (15/600 in `CardForeground`), `TotalLabel` (mono 10 in `MutedForeground`). States: the chart's and `PieChartState::Donut`.
 - Where the board draws nothing: the slice under the pointer or the focus picked out by the others giving way to it, with the board's Chart Tooltip at its middle titled by the series; the total in a donut's hole; the ring of the focus around the plot.
 
+## Radar Chart
+
+A value for each of several axes round a center, a polygon for each series: the profile of a renderer, the strengths of two backends side by side.
+
+```rust
+use lurq::ui::{ChartSeries, RadarChart};
+
+RadarChart::new(
+  ["Draw", "Text", "Layout", "Memory", "Startup", "Input"],
+  [
+    ChartSeries::new("wgpu", [92.0, 70.0, 64.0, 58.0, 75.0, 66.0]),
+    ChartSeries::new("DX12", [68.0, 76.0, 70.0, 80.0, 62.0, 86.0]),
+  ],
+)
+.title("Renderer profile")
+.description("Relative score per area")
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `RadarChart::new(axes, series)` | The axes' names, the first at the top and the others clockwise, and the series, a value for each axis |
+| `value_axis(bool)` | The rings' numbers beside the first axis, each under its ring; off unless told |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `height` is the square's side |
+| `mount(ctx)` | The series and the axis under the pointer or the focus picked out with the tooltip of every series' value on that axis; Left and Right round the axes, Up and Down between the series, `on_select` told a press (`ChartPoint { series, index: axis }`). Converted into an element it is the still chart |
+
+- The board's Radar Chart (`cokgK`): the chart's frame at `Sm`, the plot a square of 150 (180 in `Md`) in the middle of the frame; the outer ring 15 inside the square, the rings at the scale's round ticks (from zero, or the least value under it, to a round number at or over the most, about three) and the spokes, 1 in `Border`, polygons through the axes (circles where there are fewer than three axes); each series' area and its edge of 1.5 in its color at 0.2; the legend under the plot in dots where there is more than one series.
+- The axes' names, mono 11 in `MutedForeground`, stand 6 outside the outer ring, away from the center: over the top axis, before a left one, after a right one.
+- The pointer finds the axis nearest its direction and on it the series whose value is nearest; that series' area is at 0.35 with its edge in its full color and drawn over the others, its point a dot of 3.5 ringed in `Card`, the axis's spoke in `Input`.
+- A missing value (not a number) stands at the center, and has no point to tooling or in the tooltip.
+- To tooling each value is an item of the plot: `point-<series>-<axis>`, named by its axis and its series, valued as `value_text` writes it.
+- Parts: the chart's and `RadarChartPart::Ring` (the rings and the spokes), `Area` (a series' opacity), `ActiveArea` (the opacity of the series under the pointer or the focus).
+- Where the board draws nothing: the axes' names (the board has none, and the square is in the middle of the frame so that they have room on both sides); the picked-out series and axis with the board's Chart Tooltip; the rings' numbers, off unless told; the ring of the focus around the plot.
+
 ## Data Grid
 
 A table whose cells are worked in: the focus is on a cell, the arrows move it from cell to cell, and a cell is edited in place with the system's own controls. A list of files whose names are edited, a sheet of orders whose states are chosen.
