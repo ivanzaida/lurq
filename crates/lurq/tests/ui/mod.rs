@@ -77,6 +77,7 @@ mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;
+mod stat_card;
 mod splitter;
 mod stage;
 mod status_bar;

@@ -13,6 +13,8 @@ mod bar_list;
 mod meter;
 #[cfg(not(target_arch = "wasm32"))]
 mod sparkline;
+#[cfg(not(target_arch = "wasm32"))]
+mod stat_card;
 mod banner;
 mod breadcrumb;
 mod button;
@@ -916,6 +918,15 @@ pub const PAGES: &[Page] = &[
     about: "sparkline trend line series small chart history values min max color width height label summary_text empty_text canvas",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<sparkline::SparklinePage>(()),
+  },
+  #[cfg(not(target_arch = "wasm32"))]
+  Page {
+    path: "/stat-card",
+    name: "Stat Card",
+    icon: Some("dashboard"),
+    about: "stat card kpi metric number dashboard change delta trend badge label value description media sparkline variant size on_click",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<stat_card::StatCardPage>(()),
   },
   Page {
     path: "/splitter",

@@ -104,6 +104,7 @@ mod sidebar;
 mod skeleton;
 mod slider;
 mod spinner;
+mod stat_card;
 mod splitter;
 mod status_bar;
 mod steps;
@@ -366,6 +367,9 @@ pub use spinner::{
   LoadingOverlay, LoadingOverlayPart, LoadingOverlayRenderer, LoadingOverlayState, LoadingOverlayView, SPINNER_BARS,
   SPINNER_BARS_PERIOD, SPINNER_DOTS, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerRenderer,
   SpinnerSize, SpinnerState, SpinnerVariant, SpinnerView,
+};
+pub use stat_card::{
+  StatCard, StatCardPart, StatCardRenderer, StatCardSize, StatCardState, StatCardVariant, StatCardView,
 };
 pub use splitter::{
   Splitter, SplitterOrientation, SplitterPane, SplitterPart, SplitterRenderer, SplitterState, SplitterView,

@@ -5400,6 +5400,44 @@ Sparkline::new([118.0, 124.0, 121.0, 133.0, 129.0, 141.0, 138.0, 144.0])
 - In the design the line is 80 by 28 of straight steps, 1.75 wide with round joins and ends. The board draws nothing else of it: the line at 0 is 1 in `Border`, and a single value a dot of 4 in `Chart1`.
 - A theme's renderer is given `SparklineView`: its values, their range, its label, its summary, and `view.render()`.
 
+## Stat Card
+
+One number with what it is and how it moved: frames per second, the time a build takes, the runs that failed.
+
+```rust
+use lurq::{
+  app::theme::PaletteColor,
+  ui::{Sparkline, StatCard, StatCardSize, StatCardVariant},
+};
+
+StatCard::new("Frames per second", "144")
+  .delta("+12.5%")
+  .variant(StatCardVariant::Success)
+  .description("vs 0.59");
+
+// With a sparkline beside its number, in the small size the board draws it in.
+StatCard::new("Frames per second", "144")
+  .size(StatCardSize::Sm)
+  .media(Sparkline::new(frames).color(PaletteColor::Success));
+```
+
+| Builder | |
+| --- | --- |
+| `StatCard::new(label, value)` | What the number is, and the number as the app writes it |
+| `delta(&str)` | How it moved, as the app writes it ("+12.5%"): a [badge](#badge) in the variant's tone |
+| `variant(impl Into<Name>)` | A `StatCardVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), or a variant a theme adds: whether the change is for the better or the worse |
+| `description(&str)` | What the change is measured against: "vs 0.59" |
+| `media(impl Into<Element>)` | What stands at the end of the number's row: a [sparkline](#sparkline) of its last values |
+| `size(impl Into<Name>)` | A `StatCardSize`: `Md`, the board's stat card, or `Sm`, the card the board draws around its sparkline |
+| `on_click(impl IntoMouseEventHandler)` | The card is pressed and a stop of Tab; a second handler is called after the first |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them |
+
+- Its number, its change and what it is measured against are the app's words. A label or a value longer than the card wraps.
+- To what reads the tree it is a `group` called by its label and described by its value, its change and what it is measured against ("144, +12.5% vs 0.59"); a card that is pressed is a `button`.
+- Parts: `StatCardPart::Root`, `Label`, `Body` (the value and the media), `Value`, `Media`, `Footer` (the change and the description), `Description`. States: `StatCardState::Pressable`, `Media`. Sizes: `StatCardSize::Sm`, `Md`.
+- In the design the card is `Card` with an edge of 1 in `Border`, the extra large radius and the small shadow, 200 on the board and as wide as what holds it here, 20 in, its label, its value and its change 8 apart. The label is 13 in `MutedForeground`, the value 28 at 600 in `CardForeground`, 0.5 closer, the change a badge in its tone 8 from what it is measured against, the mono type at 11 in `MutedForeground`. The small size is the card around the board's sparkline: 16 in, the label 12, the value 24, 0.4 closer, the media at the end of the value's row, at its foot. A card that is pressed has the `Ring` edge and the medium shadow under the pointer, and a ring of 2 in `Ring` around it from the keyboard.
+- A theme's renderer is given `StatCardView`: its label, value, change, description and tone, `view.label()`, `view.body()`, `view.footer()`, `view.root(content)` and `view.render()`.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
