@@ -114,6 +114,7 @@ mod tokens;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod video_player;
 mod window_chrome;
 mod window_tabs;
 mod year_picker;
@@ -1025,6 +1026,14 @@ pub const PAGES: &[Page] = &[
     about: "stat card kpi metric number dashboard change delta trend badge label value description media sparkline variant size on_click",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<stat_card::StatCardPage>(()),
+  },
+  Page {
+    path: "/video-player",
+    name: "Video Player",
+    icon: Some("play-circle"),
+    about: "video player media movie clip picture poster seek bar play pause volume mute captions subtitles speed rate quality settings picture in picture fullscreen live buffering waiting ended error retry overlay feed controls keys VideoPlayer VideoPlayerSize playing position duration buffered on_playing_change on_position_change on_position_change_end on_volume_change on_muted_change on_rate_change on_captions_change on_quality_change on_fullscreen_change on_picture_in_picture_change on_retry mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<video_player::VideoPlayerPage>(()),
   },
   Page {
     path: "/splitter",

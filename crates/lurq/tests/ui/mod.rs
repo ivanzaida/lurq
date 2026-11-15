@@ -120,5 +120,6 @@ mod token_input;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod video_player;
 mod window_chrome;
 mod window_tabs;
