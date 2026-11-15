@@ -208,7 +208,11 @@ no exit animation in it is gone with the pass that closes it, as before.
   is in it.
 - It keeps its place among the other layers: a popup closed inside a dialog leaves over the dialog, and a layer under
   another stays under it.
-- Opening the layer again while it leaves mounts it anew: the new one enters over the one still leaving.
+- Opening the layer again while it leaves mounts it anew: the new one enters over the one still leaving. A layer is
+  not a child of a container with presence and does not follow its rule (below): nothing is laid out around it, so
+  the two take no more room than one, but for the time of the exit both are painted, the new one over the other. A
+  popover pressed open again shows the one fading out under it, and a dialog opened again has two backdrops until
+  the first has faded.
 - A popup that is hidden because its anchor scrolled out of view is still open, so it does not leave: it is gone at
   once and comes back with its anchor.
 - Outside a layer an exit animation plays for a child of a container with `.presence()`: see
@@ -239,7 +243,13 @@ for task in &tasks {
   animation of its `Height` or `Width` to zero lets them close the gap as it leaves.
 - Like a leaving layer it is only painted: no pointer, focus or Tab, and no lookup finds it. A child of the same key
   or id added again while it leaves ends its leaving: the one leaving goes at once and the one added enters, so the
-  two are never there together. A panel opened again while its rows fade out holds its rows once.
+  two are never there together. A panel opened again while its rows fade out holds its rows once, and a banner shown
+  again while it fades out is there once. The one added is a new element: it enters with its own enter animation,
+  and what the one leaving held (its scroll, a caret) is not carried over.
+- What wants the one coming back to be another, entering beside the one still leaving, gives it a key of its own
+  each time it is shown: `.key(format!("saved-{shown}"))`, with `shown` counted up by the app. A
+  [toast](../design-system/#toast) does so: each `Toasts::show` is a toast of its own, so one shown again while the
+  same one leaves comes in beside it.
 - The elements inside it leave with their own exit animations too, and the child is gone when the longest ends.
 - It works wherever the container is: in the page, in a component that renders by itself, in a popup or a dialog.
 - A container without `.presence()` drops a removed child at once, whatever the child's animations. A list that
