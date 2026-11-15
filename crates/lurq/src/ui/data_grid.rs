@@ -463,6 +463,44 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
     self.with(|table| table.on_filters_change(handler))
   }
 
+  /// What is searched for in the cells, every match marked: see [`Table::search`].
+  pub fn search(self, query: Signal<String>) -> Self
+  where
+    String: SignalValue,
+  {
+    self.with(|table| table.search(query))
+  }
+
+  /// What is searched for, as the app holds it: see [`Table::search_controlled`].
+  pub fn search_controlled(self, query: &str, on_change: impl Fn(String) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.search_controlled(query, on_change))
+  }
+
+  /// Called with what is searched for as the find bar's query changes: see [`Table::on_search_change`].
+  pub fn on_search_change(self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_search_change(handler))
+  }
+
+  /// How the query matches: see [`Table::search_options`].
+  pub fn search_options(self, options: super::FindOptions) -> Self {
+    self.with(|table| table.search_options(options))
+  }
+
+  /// Called with how many matches there are and which is current: see [`Table::on_matches_change`].
+  pub fn on_matches_change(self, handler: impl Fn(super::SearchMatches) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_matches_change(handler))
+  }
+
+  /// Whether Ctrl+F opens a find bar over the grid: see [`Table::find_bar`].
+  pub fn find_bar(self, find_bar: bool) -> Self {
+    self.with(|table| table.find_bar(find_bar))
+  }
+
+  /// What the grid's find bar is made of besides its query and matches: see [`Table::find_bar_with`].
+  pub fn find_bar_with(self, with: impl Fn(super::FindBar) -> super::FindBar + Send + Sync + 'static) -> Self {
+    self.with(|table| table.find_bar_with(with))
+  }
+
   /// Whether the grid has a row of filters under its header: see [`Table::filter_row`].
   pub fn filter_row(self, filter_row: bool) -> Self {
     self.with(|table| table.filter_row(filter_row))

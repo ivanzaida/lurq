@@ -12,7 +12,8 @@ use lurq::{
   node::Element,
   ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnFilter,
-    ColumnLayout, ColumnPin, DataGrid, GroupKey, Pagination, SummaryKind, TableColumn, TableFilters, TableSort, icons,
+    ColumnLayout, ColumnPin, DataGrid, GroupKey, Pagination, SearchField, SearchMatches, SummaryKind, TableColumn,
+    TableFilters, TableSort, icons,
   },
 };
 
@@ -193,6 +194,9 @@ pub struct DataGridPage {
   filter_row: Signal<bool>,
   /// The filters of the section's grid.
   filters: Signal<TableFilters>,
+  /// The search of the section's grid, and what it was told of its matches.
+  query: Signal<String>,
+  found: Signal<SearchMatches>,
 }
 
 /// The columns of the files, each filtered as it is: the name by its text, the status by its values, the size by
@@ -696,6 +700,8 @@ impl Component for DataGridPage {
       filtering: ctx.signal(false),
       filter_row: ctx.signal(false),
       filters: ctx.signal(TableFilters::new().with("status", ColumnFilter::one_of(["Passing", "Building"]))),
+      query: ctx.signal("rs".to_owned()),
+      found: ctx.signal(SearchMatches::default()),
     }
   }
 
@@ -1040,6 +1046,37 @@ impl Component for DataGridPage {
           ),
       );
 
+    // Searched: every match in the cells marked, F3 to the next, Ctrl+F the find bar over the grid.
+    let found = self.found.get();
+    let told = self.found.clone();
+    let search_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        SearchField::new(self.query.clone())
+          .placeholder("Search the files")
+          .label("Search the files"),
+      )
+      .child(
+        DataGrid::new(columns(false), files(8))
+          .row_key(|row: &File| row.name.clone())
+          .label("Files")
+          .read_only(true)
+          .height(280.0)
+          .search(self.query.clone())
+          .find_bar(true)
+          .on_matches_change(move |matches| told.set(matches))
+          .key("searched")
+          .mount(ctx),
+      )
+      .child(quiet(
+        &match found.current {
+          Some(current) => format!("on_matches_change: match {} of {}", current + 1, found.count),
+          None => "on_matches_change: no match".to_owned(),
+        },
+        12.0,
+      ));
+
     let numbered = DataGrid::new(columns(false), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -1307,6 +1344,28 @@ impl Component for DataGridPage {
               "    .mount(ctx)",
               "// Store: storage.set_value(\"columns\", layout.get()) and (\"sort\", sort.get())",
               "// Restore: storage.value::<ColumnLayout>(\"columns\").map(|layout| layout.valid(ids))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Search",
+          "A query over what the cells show: every match in a cell's text is marked as a find marks it, the \
+           current one stronger. F3 and Shift+F3 in the grid go to the next match and the one before, across rows \
+           not built yet, each brought into view; Ctrl+F opens the find bar over the grid, its query the grid's \
+           search and its count the matches, which the app is told too. A cell whose content is an element is not \
+           searched.",
+          self.frame.demo(
+            12,
+            search_grid,
+            ".search(query)",
+            &[
+              "// query: Signal<String>",
+              "SearchField::new(query.clone())",
+              "DataGrid::new(columns, files.get())",
+              "    .search(query.clone())",
+              "    .find_bar(true)",
+              "    .on_matches_change(|matches| /* matches.count, matches.current */ ())",
+              "    .mount(ctx)",
             ],
           ),
         ),
