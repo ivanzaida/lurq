@@ -157,7 +157,7 @@ const BOXES: [(&str, (f32, f32)); 5] = [
 /// The broken picture, under a key of its own: the decoder's cache keeps that it failed.
 #[cfg(not(target_arch = "wasm32"))]
 fn broken() -> Picture {
-  Picture::from_bytes(&b"not a picture"[..]).cache_key(lurq::images::ImageKey::new(0x91C7_B40C))
+  Picture::from_bytes(&b"not a picture"[..]).cache_key(0x91C7_B40C)
 }
 
 /// A browser's build decodes nothing: what failed is a box with no source.

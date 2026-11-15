@@ -286,15 +286,40 @@ enum Source {
   None,
   #[cfg(feature = "raster")]
   Data(crate::images::ImageData),
-  #[cfg(feature = "image")]
-  Resource(Arc<str>),
-  #[cfg(feature = "image")]
-  Decoded {
-    source: crate::images::ImageSource,
-    key: crate::images::ImageKey,
-    cap: Option<crate::images::ImageSizeCap>,
+  /// Encoded bytes to read and decode: a file, bytes, a resource of the app, an address. `cap` is the most
+  /// pixels across and down it is decoded to.
+  Encoded {
+    source: crate::resources::Source,
+    cap: Option<(u32, u32)>,
   },
 }
+
+/// How far the load of a picture has come: what [`Picture::progress_text`] is given.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PictureLoad {
+  /// How much of it is there, of 1.
+  pub fraction: f64,
+  /// The bytes read and how many there are, where the app's loader loads it and knows.
+  pub bytes: Option<(u64, u64)>,
+}
+
+impl PictureLoad {
+  /// "42%", and "42% · 1.4 of 3.4 MB" where the bytes are known.
+  fn text(self) -> String {
+    let percent = format!("{}%", (self.fraction * 100.0).round());
+    match self.bytes {
+      Some((loaded, total)) => {
+        let megabytes = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
+        format!("{percent} · {:.1} of {:.1} MB", megabytes(loaded), megabytes(total))
+      }
+      None => percent,
+    }
+  }
+}
+
+/// Why this build shows no picture decoded from encoded bytes.
+#[cfg(not(feature = "image"))]
+const NO_CODECS: &str = "this build has no `image` feature: it decodes no picture";
 
 /// The words a picture writes itself.
 #[derive(Clone)]
@@ -360,7 +385,7 @@ pub struct Picture {
   placeholder: PicturePlaceholder,
   loading: bool,
   progress: Option<f64>,
-  progress_text: Option<Arc<dyn Fn(f64) -> String + Send + Sync>>,
+  progress_text: Option<Arc<dyn Fn(PictureLoad) -> String + Send + Sync>>,
   words: Words,
   on_retry: Vec<Action>,
   caption: Option<Arc<str>>,
@@ -441,52 +466,56 @@ impl Picture {
     Self::of(Source::None)
   }
 
-  /// A picture loaded as a resource of the app: a path under its resource root, or an address.
-  #[cfg(feature = "image")]
-  pub fn from_resource(path: &str) -> Self {
-    Self::of(Source::Resource(Arc::from(path)))
+  /// A picture read from `source` and decoded, off the UI thread: a file, bytes, a resource of the app or an
+  /// address, as [`Source`](crate::resources::Source) says them. A resource and an address are read by the
+  /// app's [`Loader`](crate::resources::Loader). The pixels are kept under the source's key.
+  ///
+  /// A build without the feature `image` has no decoder: the picture shows that it did not load, and why.
+  pub fn from_source(source: impl Into<crate::resources::Source>) -> Self {
+    Self::of(Source::Encoded {
+      source: source.into(),
+      cap: None,
+    })
   }
 
-  /// A picture decoded from encoded bytes (PNG, JPEG, the first frame of a GIF or WebP, BMP, TIFF), off the UI
-  /// thread. The bytes are hashed for the key its pixels are kept under, unless [`cache_key`](Self::cache_key)
-  /// gives one.
-  #[cfg(feature = "image")]
-  pub fn from_bytes(bytes: impl Into<Arc<[u8]>>) -> Self {
-    let bytes: Arc<[u8]> = bytes.into();
-    let key = crate::images::ImageKey::of_bytes(&bytes);
-    Self::from_source(crate::images::ImageSource::Bytes(bytes), key)
-  }
-
-  /// A picture read from a file and decoded, off the UI thread. Its key is the path with the file's size and
-  /// the time it was changed.
-  #[cfg(feature = "image")]
+  /// A picture read from a file and decoded. Its key is the path with the file's size and the time it was
+  /// changed.
   pub fn from_file(path: impl Into<std::path::PathBuf>) -> Self {
-    let path = path.into();
-    let key = crate::images::ImageKey::of_path(&path);
-    Self::from_source(crate::images::ImageSource::File(path), key)
+    Self::from_source(crate::resources::Source::file(path))
   }
 
-  /// A picture decoded from `source`, its pixels kept under `key`: neither hashed nor copied.
-  #[cfg(feature = "image")]
-  pub fn from_source(source: crate::images::ImageSource, key: crate::images::ImageKey) -> Self {
-    Self::of(Source::Decoded { source, key, cap: None })
+  /// A picture decoded from encoded bytes (PNG, JPEG, the first frame of a GIF or WebP, BMP, TIFF). The bytes
+  /// are hashed for the key its pixels are kept under, unless [`cache_key`](Self::cache_key) gives one.
+  pub fn from_bytes(bytes: impl Into<Arc<[u8]>>) -> Self {
+    Self::from_source(crate::resources::Source::bytes(bytes))
   }
 
-  /// The key a decoded picture's pixels are kept under: the same key is the same pixels.
-  #[cfg(feature = "image")]
-  pub fn cache_key(mut self, key: crate::images::ImageKey) -> Self {
-    if let Source::Decoded { key: held, .. } = &mut self.source {
-      *held = key;
+  /// A picture that is a resource of the app: a path under the root the app gave its loader
+  /// (`app.loader().root(..)`).
+  pub fn from_resource(path: &str) -> Self {
+    Self::from_source(crate::resources::Source::resource(path))
+  }
+
+  /// A picture at an address on the network. Outside a browser it needs the feature `http`; a build without it
+  /// shows that the picture did not load, and why.
+  pub fn from_url(url: &str) -> Self {
+    Self::from_source(crate::resources::Source::url(url))
+  }
+
+  /// The key a decoded picture's pixels are kept under, in place of the one its source makes: the same key is
+  /// the same pixels. An app that stores a hash of what it shows gives it.
+  pub fn cache_key(mut self, key: u64) -> Self {
+    if let Source::Encoded { source, .. } = &mut self.source {
+      *source = source.clone().key(key);
     }
     self
   }
 
   /// Decodes no larger than `width` by `height` pixels, keeping the ratio and never enlarging: a thumbnail of
   /// a large photo does not keep all of it.
-  #[cfg(feature = "image")]
   pub fn downscale_to(mut self, width: u32, height: u32) -> Self {
-    if let Source::Decoded { cap, .. } = &mut self.source {
-      *cap = Some(crate::images::ImageSizeCap::new(width, height));
+    if let Source::Encoded { cap, .. } = &mut self.source {
+      *cap = Some((width, height));
     }
     self
   }
@@ -572,14 +601,16 @@ impl Picture {
   }
 
   /// How far the load has come, of 1, where the app knows: a rail in the middle of the box in place of the
-  /// sheen, and along the bottom edge of a small picture. `None` for a load that cannot tell.
+  /// sheen, and along the bottom edge of a small picture. `None` for a load that cannot tell. A picture the
+  /// app's loader reads from an address shows it by itself where the server says how much there is.
   pub fn progress(mut self, progress: impl Into<Option<f64>>) -> Self {
     self.progress = progress.into().map(|progress| progress.clamp(0.0, 1.0));
     self
   }
 
-  /// The words under the rail of a load, from how far it has come, of 1: "42%" unless told.
-  pub fn progress_text(mut self, text: impl Fn(f64) -> String + Send + Sync + 'static) -> Self {
+  /// The words under the rail of a load, from how far it has come: "42%" unless told, and "42% · 1.4 of
+  /// 3.4 MB" where the app's loader knows the bytes.
+  pub fn progress_text(mut self, text: impl Fn(PictureLoad) -> String + Send + Sync + 'static) -> Self {
     self.progress_text = Some(Arc::new(text));
     self
   }
@@ -696,7 +727,8 @@ impl Picture {
     self
   }
 
-  /// A count over a veil: "+5" on the last picture of a row that could not hold them all.
+  /// A count over a veil: "+5" on the last picture of a row that could not hold them all. A gallery's.
+  #[allow(dead_code)]
   pub(crate) fn count(mut self, count: &str) -> Self {
     self.count = Some(Arc::from(count));
     self
@@ -1182,15 +1214,26 @@ impl PictureView {
 
   /// What stands in for the pixels while they are on their way, for each time it is shown: the sheen, or how
   /// far the load has come where the app says.
-  fn loading_maker(&self) -> impl Fn() -> Element + Send + Sync + 'static {
+  fn loading_maker(&self) -> impl Fn(Option<(u64, u64)>) -> Element + Send + Sync + 'static {
     let (forms, known) = (self.forms.clone(), self.known);
-    let (progress, placeholder) = (self.picture.progress, self.picture.placeholder);
-    let text = match (progress, &self.picture.progress_text) {
-      (Some(progress), Some(text)) => text(progress),
-      (Some(progress), None) => format!("{}%", (progress * 100.0).round()),
-      (None, _) => String::new(),
-    };
-    move || {
+    let (said, placeholder) = (self.picture.progress, self.picture.placeholder);
+    let words = self.picture.progress_text.clone();
+    move |bytes: Option<(u64, u64)>| {
+      // What the app says of the load comes before what the loader knows.
+      let load = match (said, bytes) {
+        (Some(fraction), _) => Some(PictureLoad { fraction, bytes }),
+        (None, Some((loaded, total))) if total > 0 => Some(PictureLoad {
+          fraction: (loaded as f64 / total as f64).clamp(0.0, 1.0),
+          bytes,
+        }),
+        _ => None,
+      };
+      let progress = load.map(|load| load.fraction);
+      let text = match (load, &words) {
+        (Some(load), Some(words)) => words(load),
+        (Some(load), None) => load.text(),
+        (None, _) => String::new(),
+      };
       let mut stand_in = known.stand_in();
       for form in &forms {
         let content: Option<Element> = match (progress, form.size) {
@@ -1239,19 +1282,34 @@ impl PictureView {
 
   /// What stands in for a picture that did not load: its glyph, what it is called, that it did not load, and
   /// the button that asks for it again. A thumbnail is the glyph alone, and a press of it asks again.
-  #[cfg(feature = "image")]
   fn error_maker(&self) -> impl Fn() -> Element + Send + Sync + 'static {
     let (forms, known) = (self.forms.clone(), self.known);
     let (label, words) = (self.picture.label.clone(), self.picture.words.clone());
+    // A build with no decoder shows what it has to decode as failed, and says why: here and once in the log.
+    #[cfg(not(feature = "image"))]
+    let words = {
+      static SAID: std::sync::Once = std::sync::Once::new();
+      SAID.call_once(|| tracing::warn!("{NO_CODECS}"));
+      Words {
+        error_description: Arc::from(NO_CODECS),
+        ..words
+      }
+    };
     let retry_id = self.id("retry");
     let retry: Action = {
       let handlers = self.picture.on_retry.clone();
       let source = self.picture.source.clone();
       Arc::new(move || {
         handlers.iter().for_each(|handler| handler());
-        if let Source::Decoded { key, cap, .. } = &source {
-          crate::images::decoded_images().forget(*key, *cap);
+        // The pixels' cache forgets that it failed, and so does the loader: the next pass asks anew.
+        #[cfg(feature = "image")]
+        if let Source::Encoded { source, cap } = &source {
+          let cap = cap.map(|(width, height)| crate::images::ImageSizeCap::new(width, height));
+          crate::images::decoded_images().forget(crate::images::ImageKey::new(source.cache_key()), cap);
+          crate::images::retry_loaded_image(source);
         }
+        #[cfg(not(feature = "image"))]
+        let _ = &source;
       })
     };
     move || {
@@ -1328,18 +1386,29 @@ impl PictureView {
       let image = match &self.picture.source {
         Source::None => return None,
         Source::Data(data) => Image::new(data.clone()),
+        #[cfg(not(feature = "image"))]
+        Source::Encoded { .. } => return None,
         #[cfg(feature = "image")]
-        Source::Resource(path) => Image::from_resource(path),
-        #[cfg(feature = "image")]
-        Source::Decoded { source, key, cap } => {
-          let image = Image::from_source(source.clone(), *key);
+        Source::Encoded { source, cap } => {
+          use crate::{
+            images::{ImageKey, ImageSource},
+            resources::SourceKind,
+          };
+          let key = ImageKey::new(source.cache_key());
+          // A file and bytes are read by what decodes them; a resource and an address by the app's loader.
+          let image = match &source.kind {
+            SourceKind::Bytes(bytes) => Image::from_source(ImageSource::Bytes(bytes.clone()), key),
+            SourceKind::File(path) => Image::from_source(ImageSource::File(path.clone()), key),
+            SourceKind::Resource(_) | SourceKind::Url(_) => Image::from_loaded(source.clone()),
+          };
           let image = match cap {
-            Some(cap) => image.downscale_to(cap.width, cap.height),
+            Some((width, height)) => image.downscale_to(*width, *height),
             None => image,
           };
-          let error = self.error_maker();
+          let (error, loading, progress) = (self.error_maker(), self.loading_maker(), self.loading_maker());
           image
-            .placeholder_view(self.loading_maker())
+            .placeholder_view(move || loading(None))
+            .progress_view(move |loaded, total| progress(Some((loaded, total))))
             .error_view(move |_| error())
         }
       };
@@ -1362,6 +1431,11 @@ impl PictureView {
         (false, false) => image.into(),
       })
     }
+  }
+
+  /// Whether the picture has encoded bytes that this build has nothing to decode with.
+  fn undecodable(&self) -> bool {
+    cfg!(not(feature = "image")) && matches!(self.picture.source, Source::Encoded { .. })
   }
 
   /// What a box with no source shows: in each form, the glyph and what the picture would be called.
@@ -1570,7 +1644,9 @@ impl PictureView {
     }
     inner = match self.image() {
       // What the app is still fetching: the stand-in a decode shows, with no pixels to come by themselves.
-      _ if picture.loading => inner.child(self.loading_maker()()),
+      _ if picture.loading => inner.child(self.loading_maker()(None)),
+      // Encoded bytes in a build with no decoder: the picture that did not load, which says why in the log.
+      _ if self.undecodable() => inner.child(self.error_maker()()),
       Some(image) => inner.child(image),
       None => inner.child(self.empty()),
     };
@@ -1664,6 +1740,7 @@ impl PictureView {
 }
 
 /// Where `anchor` holds a picture in its box, as shares of the room across and down.
+#[cfg(feature = "raster")]
 fn anchor_shares(anchor: StackAlignment) -> (f32, f32) {
   use StackAlignment::*;
   match anchor {

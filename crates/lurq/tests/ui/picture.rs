@@ -333,7 +333,7 @@ fn a_caption_makes_it_a_figure() {
 mod decoded {
   use std::time::Duration;
 
-  use lurq::images::{ImageKey, wait_for_decoded_images};
+  use lurq::images::wait_for_decoded_images;
 
   use super::*;
 
@@ -346,12 +346,7 @@ mod decoded {
 
   #[test]
   fn a_decoded_picture_shows_its_pixels_once_they_are_there() {
-    let mut stage = at_start(|| {
-      Picture::from_bytes(RED)
-        .cache_key(ImageKey::new(0x91C7_0001))
-        .width(128.0)
-        .id("red")
-    });
+    let mut stage = at_start(|| Picture::from_bytes(RED).cache_key(0x91C7_0001).width(128.0).id("red"));
     settled(&mut stage);
     let (_, _, width, height) = stage.bounds("red");
     assert_eq!((width, height), (128.0, 64.0), "the height follows the pixels' ratio");
@@ -365,7 +360,7 @@ mod decoded {
     let mut stage = at_start(move || {
       let retry = retry.clone();
       Picture::from_bytes(&b"not a picture"[..])
-        .cache_key(ImageKey::new(0x91C7_0002))
+        .cache_key(0x91C7_0002)
         .label("The lake at dusk")
         .size_px(320.0, 180.0)
         .id("lake")
@@ -402,11 +397,160 @@ mod decoded {
     );
   }
 
+  /// Passes until `done` holds, while the app's loader and the decoder work on their threads.
+  fn until(stage: &mut Stage, what: &str, done: impl Fn(&Stage) -> bool) {
+    for _ in 0..500 {
+      stage.pass();
+      if done(stage) {
+        return;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{what} did not come");
+  }
+
+  /// A folder of this test's own.
+  fn folder(name: &str) -> std::path::PathBuf {
+    let folder = std::env::temp_dir().join(format!("lurq-picture-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    folder
+  }
+
+  #[test]
+  fn a_resource_under_the_apps_root_is_loaded_and_decoded() {
+    let folder = folder("root");
+    std::fs::write(folder.join("red.png"), RED).unwrap();
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    let mut stage = Stage::in_app(app, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(Picture::from_resource("red.png").width(128.0).id("red"))
+        .into()
+    });
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    let (_, _, width, height) = stage.bounds("red");
+    assert_eq!((width, height), (128.0, 64.0), "the height follows the pixels' ratio");
+  }
+
+  #[test]
+  fn a_resource_that_is_not_there_says_so_and_comes_when_it_is_asked_for_again() {
+    let folder = folder("late");
+    let _ = std::fs::remove_file(folder.join("late.png"));
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    let mut stage = Stage::in_app(app, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::from_resource("late.png")
+            .label("The lake at dusk")
+            .size_px(320.0, 180.0)
+            .id("late"),
+        )
+        .into()
+    });
+    until(&mut stage, "the error", |stage| stage.paints("Try again"));
+    assert!(stage.paints("The lake at dusk"));
+    assert!(stage.paints("The picture didn't load."));
+    assert!(image_quad(&stage).is_none());
+
+    // Asked again with nothing changed, it fails again and says so again.
+    stage.click("late-retry");
+    until(&mut stage, "the error again", |stage| stage.paints("Try again"));
+
+    std::fs::write(folder.join("late.png"), RED).unwrap();
+    stage.click("late-retry");
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    assert!(!stage.paints("Try again"));
+  }
+
+  #[test]
+  fn a_resource_that_is_no_picture_is_read_again_when_it_is_asked_for_again() {
+    let folder = folder("mended");
+    std::fs::write(folder.join("mended.png"), b"not a picture").unwrap();
+    let app = lurq::app::App::new();
+    app.loader().root(&folder);
+    let mut stage = Stage::in_app(app, |_| {
+      Row::new()
+        .padding(8.0)
+        .child(Picture::from_resource("mended.png").size_px(320.0, 180.0).id("mended"))
+        .into()
+    });
+    until(&mut stage, "the error", |stage| stage.paints("Try again"));
+
+    // It was read, and what was read is no picture: asked again, it is read again and not decoded again
+    // from the bytes that failed.
+    std::fs::write(folder.join("mended.png"), RED).unwrap();
+    stage.click("mended-retry");
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    assert!(!stage.paints("Try again"));
+  }
+
+  /// A server on this machine that answers every request with `body` as a PNG, until the test ends.
+  #[cfg(feature = "http")]
+  fn serve(body: &'static [u8]) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}/red.png", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { return };
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+          match stream.read(&mut chunk) {
+            Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+            _ => break,
+          }
+        }
+        let head = format!(
+          "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+          body.len()
+        );
+        let _ = stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(body));
+      }
+    });
+    address
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn a_picture_at_an_address_is_loaded_and_decoded() {
+    let address = serve(RED);
+    let mut stage = Stage::new(move |_| {
+      Row::new()
+        .padding(8.0)
+        .child(Picture::from_url(&address).width(128.0).id("red"))
+        .into()
+    });
+    until(&mut stage, "the picture", |stage| image_quad(stage).is_some());
+    let (_, _, width, height) = stage.bounds("red");
+    assert_eq!((width, height), (128.0, 64.0));
+  }
+
+  #[cfg(not(feature = "http"))]
+  #[test]
+  fn a_build_without_http_shows_an_address_as_a_picture_that_did_not_load() {
+    let mut stage = Stage::new(|_| {
+      Row::new()
+        .padding(8.0)
+        .child(
+          Picture::from_url("https://example.com/lake.jpg")
+            .label("The lake at dusk")
+            .size_px(320.0, 180.0),
+        )
+        .into()
+    });
+    until(&mut stage, "the error", |stage| stage.paints("Try again"));
+    assert!(stage.paints("The lake at dusk"));
+  }
+
   #[test]
   fn a_thumbnail_that_did_not_load_is_a_glyph() {
     let mut stage = at_start(|| {
       Picture::from_bytes(&b"not a picture either"[..])
-        .cache_key(ImageKey::new(0x91C7_0003))
+        .cache_key(0x91C7_0003)
         .label("The lake at dusk")
         .size_px(96.0, 96.0)
     });
