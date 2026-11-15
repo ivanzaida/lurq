@@ -44,6 +44,7 @@ mod date_field;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
+mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
@@ -200,6 +201,10 @@ pub use date_picker::{
 };
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
 pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
+pub use dock_layout::{
+  DockCloseEvent, DockDocuments, DockFloat, DockGroup, DockHidden, DockLayout, DockLayoutPart, DockLayoutRenderer,
+  DockLayoutState, DockLayoutView, DockNode, DockPanel, DockPlace, DockSide, DockSplit, DockState, DockStateParseError,
+};
 pub use document_tabs::{
   DocumentTab, DocumentTabEntry, DocumentTabs, DocumentTabsPart, DocumentTabsRenderer, DocumentTabsState,
   DocumentTabsView,
