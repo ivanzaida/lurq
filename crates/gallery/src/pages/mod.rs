@@ -7,6 +7,7 @@ use lurq::{app::ctx::Ctx, node::Element};
 mod accordion;
 mod action_bar;
 mod alert;
+mod area_chart;
 mod avatar;
 mod badge;
 mod banner;
@@ -47,6 +48,7 @@ mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+mod line_chart;
 mod list;
 mod listbox;
 mod mentions;
@@ -70,6 +72,7 @@ mod property_grid;
 mod radio;
 mod radio_card;
 mod rating;
+mod scatter_chart;
 mod scroll_area;
 mod search_field;
 mod select;
@@ -888,6 +891,30 @@ pub const PAGES: &[Page] = &[
     about: "bar chart bars columns chart graph plot series categories values stacked grouped side by side current negative zero grid value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint ChartLegend ChartTooltip",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<bar_chart::BarChartPage>(()),
+  },
+  Page {
+    path: "/line-chart",
+    name: "Line Chart",
+    icon: Some("chart-line"),
+    about: "line chart lines graph plot series categories values trend over time smooth curve straight gap missing ten thousand cursor tooltip legend hidden grid value_axis axis_labels value_text on_select empty_text loading size height canvas ChartSeries ChartPoint LineCurve",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<line_chart::LineChartPage>(()),
+  },
+  Page {
+    path: "/area-chart",
+    name: "Area Chart",
+    icon: Some("chart-area"),
+    about: "area chart areas fill under line stacked whole parts memory series categories smooth curve cursor tooltip legend hidden grid value_axis axis_labels value_text on_select empty_text loading size height canvas ChartSeries LineCurve",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<area_chart::AreaChartPage>(()),
+  },
+  Page {
+    path: "/scatter-chart",
+    name: "Scatter Chart",
+    icon: Some("chart-scatter"),
+    about: "scatter chart points dots x y two axes correlation trend regression outlier series nearest point tooltip legend hidden grid value_axis x_text value_text on_select empty_text loading size height canvas ChartSeries points",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<scatter_chart::ScatterChartPage>(()),
   },
   Page {
     path: "/data-grid",
