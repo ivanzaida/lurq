@@ -3,6 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use super::{
+  meter::number,
   names,
   part_style::{Length, PartTransition},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -71,6 +72,8 @@ pub enum ProgressPart {
   /// What is filled of the rail: as long as what is done. Of a progress that does not know how far it is, the
   /// segment that crosses the rail.
   Fill,
+  /// The line under the rail: "2 minutes left".
+  Description,
 }
 
 names!(ProgressPart {
@@ -80,6 +83,7 @@ names!(ProgressPart {
   Value => "value",
   Track => "track",
   Fill => "fill",
+  Description => "description",
 });
 
 /// The states of a progress bar a recipe styles.
@@ -101,7 +105,9 @@ names!(ProgressState {
 pub enum ProgressVariant {
   /// Work under way: the primary color.
   #[default]
-  Default,
+  Neutral,
+  /// Work to know of: the info color.
+  Info,
   /// Work that went well, or a share that is good to have: the success color.
   Success,
   /// A share that wants a look: the warning color.
@@ -111,7 +117,8 @@ pub enum ProgressVariant {
 }
 
 names!(ProgressVariant {
-  Default => "default",
+  Neutral => "neutral",
+  Info => "info",
   Success => "success",
   Warning => "warning",
   Destructive => "destructive",
@@ -135,46 +142,55 @@ names!(ProgressSize {
   Lg => "lg",
 });
 
-/// What says a value as text: given the value and the greatest value.
+/// What a [`ProgressDialog`](super::ProgressDialog) says its value with: given the value and the greatest value.
 pub type ProgressFormat = Arc<dyn Fn(f32, f32) -> String + Send + Sync>;
 
-/// How far the work is: a value between nothing and a greatest, or not known.
+/// What writes a value as the app does, given the value.
+type ValueText = Arc<dyn Fn(f64) -> String + Send + Sync>;
+
+/// How far the work is: a value in a range, or not known.
 #[derive(Clone)]
 struct Amount {
   /// `None` while it is not known.
-  value: Option<f32>,
-  max: f32,
-  format: Option<ProgressFormat>,
+  value: Option<f64>,
+  min: f64,
+  max: f64,
+  value_text: Option<ValueText>,
 }
 
 impl Amount {
-  fn new(value: Option<f32>) -> Self {
+  fn new(value: Option<f64>) -> Self {
     Self {
       value,
+      min: 0.0,
       max: 1.0,
-      format: None,
+      value_text: None,
     }
   }
 
-  /// The value kept between nothing and the greatest. A greatest of nothing or less has no room: nothing is done.
-  fn value(&self) -> Option<f32> {
+  /// The value as it was given; `None` while it is not known.
+  fn value(&self) -> Option<f64> {
+    self.value
+  }
+
+  /// How much of the range the value fills, from 0 to 1: a value under the least fills nothing and one over the
+  /// greatest all of it. A range of nothing or less has no room: nothing is done.
+  fn fraction(&self) -> Option<f32> {
     let value = self.value?;
-    Some(if self.max > 0.0 && value > 0.0 {
-      value.min(self.max)
+    let span = self.max - self.min;
+    Some(if span > 0.0 {
+      ((value - self.min) / span).clamp(0.0, 1.0) as f32
     } else {
       0.0
     })
   }
 
-  fn fraction(&self) -> Option<f32> {
-    let value = self.value()?;
-    Some(if self.max > 0.0 { value / self.max } else { 0.0 })
-  }
-
+  /// The value as it is written: by the app's `value_text`, given the value as it is, or as a percentage of the
+  /// range.
   fn text(&self) -> Option<String> {
-    let value = self.value()?;
-    Some(match &self.format {
-      Some(format) => format(value, self.max),
+    let value = self.value?;
+    Some(match &self.value_text {
+      Some(text) => text(value),
       None => percent(self.fraction()?),
     })
   }
@@ -197,7 +213,7 @@ pub type ProgressRenderer = Arc<dyn Fn(ProgressView) -> Element + Send + Sync>;
 /// // A fraction of one.
 /// let upload = Progress::new(0.62).label("Uploading theme.json").show_value(true).size(ProgressSize::Md);
 /// // 42 of 128 items, said as the app says it.
-/// let copy = Progress::new(42.0).max(128.0).show_value(true).format(|done, all| format!("{done} of {all}"));
+/// let copy = Progress::new(42.0).max(128.0).show_value(true).value_text(|done| format!("{done} of 128"));
 /// let full = Progress::new(0.92).variant(ProgressVariant::Warning);
 /// // Work whose end is not known.
 /// let loading = Progress::indeterminate().label("Connecting");
@@ -208,14 +224,17 @@ pub type ProgressRenderer = Arc<dyn Fn(ProgressView) -> Element + Send + Sync>;
 /// again and again; while motion is reduced the segment stands still, apart
 /// from the start of the rail, where no value would be. A progress is read
 /// and not operated: it takes no focus and no press. To tooling that reads
-/// the tree it is a `progressbar`, called by its label, with its value, its
-/// least and its greatest, and no value while it does not know it.
+/// the tree it is a `progressbar`, called by its label and described by its
+/// description, with its value, its least and its greatest and the value's
+/// text, as a [`Meter`](super::Meter) says them, and no value while it does
+/// not know it.
 pub struct Progress {
   amount: Amount,
   variant: Name,
   size: Name,
   label: Option<Arc<str>>,
   label_hidden: bool,
+  description: Option<Arc<str>>,
   show_value: bool,
   top_bar: bool,
   width: Option<Length>,
@@ -226,11 +245,12 @@ pub struct Progress {
 }
 
 impl Progress {
-  /// A progress at `value`, a fraction of one unless [`Progress::max`] says
-  /// otherwise. A value under nothing is nothing, and one over the greatest
-  /// is the greatest.
+  /// A progress at `value`, a fraction of one unless [`min`](Self::min) and
+  /// [`max`](Self::max) say another range. A value under the least fills
+  /// nothing, and one over the greatest all of the rail; its text says what
+  /// it is.
   pub fn new(value: impl Into<f64>) -> Self {
-    Self::with(Amount::new(Some(value.into() as f32)))
+    Self::with(Amount::new(Some(value.into())))
   }
 
   /// A progress of work whose end is not known.
@@ -245,6 +265,7 @@ impl Progress {
       size: ProgressSize::default().into(),
       label: None,
       label_hidden: false,
+      description: None,
       show_value: false,
       top_bar: false,
       width: None,
@@ -255,15 +276,21 @@ impl Progress {
     }
   }
 
-  /// How far the work is, of the greatest value: it then knows.
+  /// How far the work is, in its range: it then knows.
   pub fn value(mut self, value: impl Into<f64>) -> Self {
-    self.amount.value = Some(value.into() as f32);
+    self.amount.value = Some(value.into());
     self
   }
 
-  /// The greatest value: the whole of the work. 1 when not given.
+  /// The least value: none of the work done. 0 when not given.
+  pub fn min(mut self, min: impl Into<f64>) -> Self {
+    self.amount.min = min.into();
+    self
+  }
+
+  /// The greatest value: the whole of the work. 1 when not given: the value is then a fraction of one.
   pub fn max(mut self, max: impl Into<f64>) -> Self {
-    self.amount.max = max.into() as f32;
+    self.amount.max = max.into();
     self
   }
 
@@ -291,8 +318,15 @@ impl Progress {
     self
   }
 
+  /// The line under the rail: what is left, or what the work is doing, "2 minutes left". It describes the bar to
+  /// tooling.
+  pub fn description(mut self, description: &str) -> Self {
+    self.description = Some(Arc::from(description));
+    self
+  }
+
   /// Whether the value is said over the end of the rail: as a percentage, or
-  /// as [`Progress::format`] says it. A progress that does not know how far it
+  /// as [`Progress::value_text`] writes it. A progress that does not know how far it
   /// is says none. Off unless told, as the design's bar draws none; a
   /// [`RingProgress`] says its value unless told, as the design's ring does.
   pub fn show_value(mut self, show: bool) -> Self {
@@ -300,9 +334,10 @@ impl Progress {
     self
   }
 
-  /// Says the value as the app does, given the value and the greatest: "42 of 128".
-  pub fn format(mut self, format: impl Fn(f32, f32) -> String + Send + Sync + 'static) -> Self {
-    self.amount.format = Some(Arc::new(format));
+  /// Writes the value as the app does, given the value as it is: `|done| format!("{done} of 128")`. Not given, its
+  /// share of the range as a percentage, "62%". It is what tooling reads of the value too.
+  pub fn value_text(mut self, text: impl Fn(f64) -> String + Send + Sync + 'static) -> Self {
+    self.amount.value_text = Some(Arc::new(text));
     self
   }
 
@@ -373,6 +408,7 @@ impl Progress {
     let view = ProgressView {
       label: self.label,
       label_hidden: self.label_hidden,
+      description: self.description,
       show_value: self.show_value,
       variant: self.variant,
       size: self.size,
@@ -402,6 +438,8 @@ pub struct ProgressView {
   pub label: Option<Arc<str>>,
   /// Whether the label is said to tooling and not drawn.
   pub label_hidden: bool,
+  /// The line under the rail.
+  pub description: Option<Arc<str>>,
   pub show_value: bool,
   pub variant: Name,
   pub size: Name,
@@ -425,13 +463,18 @@ impl ProgressView {
     self.recipe.theme()
   }
 
-  /// The value, kept between nothing and the greatest; `None` while it is not known.
-  pub fn value(&self) -> Option<f32> {
+  /// The value as it was given; `None` while it is not known.
+  pub fn value(&self) -> Option<f64> {
     self.amount.value()
   }
 
+  /// The least value.
+  pub fn min(&self) -> f64 {
+    self.amount.min
+  }
+
   /// The greatest value.
-  pub fn max(&self) -> f32 {
+  pub fn max(&self) -> f64 {
     self.amount.max
   }
 
@@ -440,7 +483,7 @@ impl ProgressView {
     self.amount.fraction()
   }
 
-  /// The value as it is said: a percentage, or what the app's format says. `None` while it is not known.
+  /// The value as it is written: a percentage, or what the app's `value_text` writes. `None` while it is not known.
   pub fn value_text(&self) -> Option<String> {
     self.amount.text()
   }
@@ -448,7 +491,7 @@ impl ProgressView {
   /// The root in the style of its part, saying what it is to tooling that reads the tree, with nothing in it yet.
   pub fn root(&self) -> crate::components::Column {
     let mut root = crate::components::Column::new().part(&self.part(ProgressPart::Root));
-    root = describe(root, self.label.as_deref(), &self.amount);
+    root = describe(root, self.label.as_deref(), self.description.as_deref(), &self.amount);
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -519,28 +562,49 @@ impl ProgressView {
     }
   }
 
-  /// How the default renderer builds a progress: the header, where there is one, over the rail.
+  /// The line under the rail, where it has one.
+  pub fn description(&self) -> Option<Row> {
+    let description = self.description.as_ref()?;
+    let part = self.part(ProgressPart::Description);
+    Some(
+      Row::new()
+        .width(Dimension::Pct(100.0))
+        .part(&part)
+        .child(part.text(description).width(Dimension::Pct(100.0))),
+    )
+  }
+
+  /// How the default renderer builds a progress: the header, where there is one, over the rail, and the
+  /// description under it.
   pub fn render(self) -> Element {
     let mut root = self.root();
     if let Some(header) = self.header() {
       root = root.child(header);
     }
-    root.child(self.track()).into()
+    root = root.child(self.track());
+    if let Some(description) = self.description() {
+      root = root.child(description);
+    }
+    root.into()
   }
 }
 
-/// `node` said to be a progress bar to tooling that reads the tree: called `label`, with its value, its least and
-/// its greatest, and no value while it does not know it.
-fn describe<N: Describe>(node: N, label: Option<&str>, amount: &Amount) -> N {
+/// `node` said to be a progress bar to tooling that reads the tree: called `label` and described by `description`,
+/// with its value, its least, its greatest and the value's text written as a [`Meter`](super::Meter) writes them,
+/// and no value while it does not know it.
+fn describe<N: Describe>(node: N, label: Option<&str>, description: Option<&str>, amount: &Amount) -> N {
   let mut node = node.describe_as("a11y_role", "progressbar");
   if let Some(label) = label {
     node = node.describe_as("a11y_name", label);
   }
+  if let Some(description) = description {
+    node = node.describe_as("a11y_description", description);
+  }
   if let Some(value) = amount.value() {
     node = node
-      .describe_as("a11y_valuenow", &value.to_string())
-      .describe_as("a11y_valuemin", "0")
-      .describe_as("a11y_valuemax", &amount.max.to_string());
+      .describe_as("a11y_valuenow", &number(value))
+      .describe_as("a11y_valuemin", &number(amount.min))
+      .describe_as("a11y_valuemax", &number(amount.max));
     if let Some(text) = amount.text() {
       node = node.describe_as("a11y_valuetext", &text);
     }
@@ -579,9 +643,15 @@ impl Themed for Progress {
   /// fill square where it starts and round 2 where it ends.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use ProgressPart::{Fill, Header, Label, Root, Track, Value};
+    use ProgressPart::{Description, Fill, Header, Label, Root, Track, Value};
     Recipe::new()
       .base(Root, |s| s.width(240.0).gap(8.0).foreground(Foreground))
+      // The line under the rail, as a meter's: 12 in the muted color, 8 under the rail.
+      .base(Description, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(12.0)
+          .foreground(MutedForeground)
+      })
       .base(Header, |s| s.width(Length::Fill).gap(8.0))
       .base(Label, |s| s.typography(TypographyStyle::Label))
       .base(Value, |s| {
@@ -601,6 +671,7 @@ impl Themed for Progress {
           .background(Primary)
           .transition(PartTransition::new(Transition::width(), MotionDuration::Slow))
       })
+      .variant(ProgressVariant::Info, Fill, |s| s.background(Info))
       .variant(ProgressVariant::Success, Fill, |s| s.background(Success))
       .variant(ProgressVariant::Warning, Fill, |s| s.background(Warning))
       .variant(ProgressVariant::Destructive, Fill, |s| s.background(Destructive))
@@ -655,7 +726,7 @@ pub type RingProgressRenderer = Arc<dyn Fn(RingProgressView) -> Element + Send +
 /// let quota = RingProgress::new(96.0)
 ///   .max(128.0)
 ///   .variant(ProgressVariant::Warning)
-///   .format(|used, _| format!("{used} GB"));
+///   .value_text(|used| format!("{used} GB"));
 /// ```
 ///
 /// It takes the [`ProgressVariant`]s and the [`ProgressSize`]s of a
@@ -679,10 +750,10 @@ pub struct RingProgress {
 }
 
 impl RingProgress {
-  /// A ring at `value`, a fraction of one unless [`RingProgress::max`] says otherwise.
+  /// A ring at `value`, a fraction of one unless [`min`](Self::min) and [`max`](Self::max) say another range.
   pub fn new(value: impl Into<f64>) -> Self {
     Self {
-      amount: Amount::new(Some(value.into() as f32)),
+      amount: Amount::new(Some(value.into())),
       variant: ProgressVariant::default().into(),
       size: ProgressSize::default().into(),
       label: None,
@@ -694,15 +765,21 @@ impl RingProgress {
     }
   }
 
-  /// How far the work is, of the greatest value.
+  /// How far the work is, in its range.
   pub fn value(mut self, value: impl Into<f64>) -> Self {
-    self.amount.value = Some(value.into() as f32);
+    self.amount.value = Some(value.into());
+    self
+  }
+
+  /// The least value: none of the work done. 0 when not given.
+  pub fn min(mut self, min: impl Into<f64>) -> Self {
+    self.amount.min = min.into();
     self
   }
 
   /// The greatest value: the whole of the work. 1 when not given.
   pub fn max(mut self, max: impl Into<f64>) -> Self {
-    self.amount.max = max.into() as f32;
+    self.amount.max = max.into();
     self
   }
 
@@ -724,16 +801,17 @@ impl RingProgress {
     self
   }
 
-  /// Whether the value is said in the middle: as a percentage, or as [`RingProgress::format`] says it. It is
+  /// Whether the value is said in the middle: as a percentage, or as [`RingProgress::value_text`] writes it. It is
   /// unless told otherwise, as the design's ring says it; a [`Progress`] bar says none unless told.
   pub fn show_value(mut self, show: bool) -> Self {
     self.show_value = show;
     self
   }
 
-  /// Says the value as the app does, given the value and the greatest.
-  pub fn format(mut self, format: impl Fn(f32, f32) -> String + Send + Sync + 'static) -> Self {
-    self.amount.format = Some(Arc::new(format));
+  /// Writes the value as the app does, given the value as it is. Not given, its share of the range as a
+  /// percentage.
+  pub fn value_text(mut self, text: impl Fn(f64) -> String + Send + Sync + 'static) -> Self {
+    self.amount.value_text = Some(Arc::new(text));
     self
   }
 
@@ -827,12 +905,17 @@ impl RingProgressView {
   }
 
   /// The value, kept between nothing and the greatest.
-  pub fn value(&self) -> f32 {
+  pub fn value(&self) -> f64 {
     self.amount.value().unwrap_or(0.0)
   }
 
+  /// The least value.
+  pub fn min(&self) -> f64 {
+    self.amount.min
+  }
+
   /// The greatest value.
-  pub fn max(&self) -> f32 {
+  pub fn max(&self) -> f64 {
     self.amount.max
   }
 
@@ -852,7 +935,7 @@ impl RingProgressView {
     let mut root = Stack::new()
       .stack_align(StackAlignment::Center)
       .part(&self.part(RingProgressPart::Root));
-    root = describe(root, self.label.as_deref(), &self.amount);
+    root = describe(root, self.label.as_deref(), None, &self.amount);
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -970,6 +1053,7 @@ impl Themed for RingProgress {
           .font_size(13.0)
           .weight(FontWeight::SemiBold)
       })
+      .variant(ProgressVariant::Info, Fill, |s| s.border(Stroke::inside(7.2, Info)))
       .variant(ProgressVariant::Success, Fill, |s| {
         s.border(Stroke::inside(7.2, Success))
       })

@@ -15,9 +15,7 @@ use lurq::{
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{
-    Button, ButtonSize, ButtonVariant, Progress, ProgressPart, ProgressSize, ProgressVariant, RingProgress, Slider,
-  },
+  ui::{Button, ButtonSize, ButtonVariant, Progress, ProgressSize, ProgressVariant, RingProgress, Slider},
 };
 
 use crate::{
@@ -39,8 +37,9 @@ fn items() -> Row {
   Row::new().width(FILL).spacing(32.0).wrap().align_items(Alignment::End)
 }
 
-const VARIANTS: [(&str, ProgressVariant); 4] = [
-  ("Default", ProgressVariant::Default),
+const VARIANTS: [(&str, ProgressVariant); 5] = [
+  ("Neutral", ProgressVariant::Neutral),
+  ("Info", ProgressVariant::Info),
   ("Success", ProgressVariant::Success),
   ("Warning", ProgressVariant::Warning),
   ("Destructive", ProgressVariant::Destructive),
@@ -121,7 +120,7 @@ impl ProgressPage {
     } else {
       format!("Progress::new({fraction:?})")
     }];
-    if variant != ProgressVariant::Default {
+    if variant != ProgressVariant::Neutral {
       code.push(format!("    .variant(ProgressVariant::{})", named(&VARIANTS, variant)));
     }
     if size != ProgressSize::Lg {
@@ -224,7 +223,7 @@ impl ProgressPage {
         changed: [
           value != 60,
           indeterminate,
-          variant != ProgressVariant::Default,
+          variant != ProgressVariant::Neutral,
           size != ProgressSize::Lg,
           label != "Uploading theme.json",
           show_value,
@@ -236,7 +235,7 @@ impl ProgressPage {
         .count(),
         reset: Arc::new(move || {
           to_value.set(60);
-          to_variant.set(ProgressVariant::Default);
+          to_variant.set(ProgressVariant::Neutral);
           to_size.set(ProgressSize::Lg);
           to_label.set("Uploading theme.json".to_owned());
           for flag in &flags {
@@ -257,7 +256,7 @@ impl Component for ProgressPage {
       playground: Playground::new(ctx, 2),
       value: ctx.signal(60),
       indeterminate: ctx.signal(false),
-      variant: ctx.signal(ProgressVariant::Default),
+      variant: ctx.signal(ProgressVariant::Neutral),
       size: ctx.signal(ProgressSize::Lg),
       label: ctx.signal("Uploading theme.json".to_owned()),
       show_value: ctx.signal(false),
@@ -319,8 +318,8 @@ impl Component for ProgressPage {
           .label("Copying")
           .show_value(true)
           .size(ProgressSize::Md)
-          .format(|done, all| format!("{done} of {all}")),
-        "the app's format",
+          .value_text(|done| format!("{done} of 128")),
+        "the app's value_text",
       ));
     let unknown = items()
       .child(item(Progress::indeterminate().size(ProgressSize::Sm), "linear"))
@@ -358,20 +357,16 @@ impl Component for ProgressPage {
         RingProgress::new(96)
           .max(128)
           .variant(ProgressVariant::Warning)
-          .format(|used, _| format!("{used}G")),
-        "the app's format",
+          .value_text(|used| format!("{used}G")),
+        "the app's value_text",
       ));
     let meter = items().child(item(
-      Progress::new(96)
-        .max(128)
-        .label("Disk space")
+      Progress::new(0.4)
+        .label("Downloading 0.61")
         .show_value(true)
-        .variant(ProgressVariant::Warning)
         .width(260.0)
-        .format(|used, all| format!("{used} of {all} GB"))
-        .style(ProgressPart::Track, |s| s.radius(2.0))
-        .style(ProgressPart::Fill, |s| s.radius(2.0)),
-      "a meter",
+        .description("2 minutes left"),
+      "with a description",
     ));
 
     let rows = [
@@ -388,12 +383,29 @@ impl Component for ProgressPage {
         "Work whose end is not known: a segment crosses the rail; it stands still while motion is reduced.",
       ),
       ("value", "impl Into<f64>", "", "Sets how far the work is."),
-      ("max", "impl Into<f64>", "1", "The whole of the work."),
+      (
+        "min",
+        "impl Into<f64>",
+        "0",
+        "None of the work done: the start of the range.",
+      ),
+      (
+        "max",
+        "impl Into<f64>",
+        "1",
+        "The whole of the work: with min, the range, as a meter's.",
+      ),
+      (
+        "description",
+        "&str",
+        "",
+        "The line under the rail: what is left. It describes the bar to tooling.",
+      ),
       (
         "variant",
         "ProgressVariant",
-        "Default",
-        "The color of what is filled: primary, success, warning or destructive.",
+        "Neutral",
+        "The color of what is filled: Neutral (primary), Info, Success, Warning, Destructive.",
       ),
       (
         "size",
@@ -420,10 +432,10 @@ impl Component for ProgressPage {
         "The value over the end of the rail; a ring shows it in its middle unless told not to.",
       ),
       (
-        "format",
-        "impl Fn(f32, f32) -> String",
-        "",
-        "Says the value, given the value and max, in place of a percentage.",
+        "value_text",
+        "Fn(f64) -> String",
+        "a percentage",
+        "Writes the value as the app does, given the value as it is, in place of its share of the range.",
       ),
       (
         "top_bar",
@@ -533,7 +545,7 @@ impl Component for ProgressPage {
               "    .label(\"Copying\")",
               "    .show_value(true)",
               "    .size(ProgressSize::Md)",
-              "    .format(|done, all| format!(\"{done} of {all}\"))",
+              "    .value_text(|done| format!(\"{done} of 128\"))",
             ],
           ),
         ),
@@ -582,27 +594,25 @@ impl Component for ProgressPage {
               "RingProgress::new(96)",
               "    .max(128)",
               "    .variant(ProgressVariant::Warning)",
-              "    .format(|used, _| format!(\"{used}G\"))",
+              "    .value_text(|used| format!(\"{used}G\"))",
             ],
           ),
         ),
         Section::new(
-          "As a meter",
-          "A share of something, not work under way: the same parts, restyled where it is used.",
+          "With a description",
+          "A line under the rail says what is left or what the work is doing, and describes the bar to tooling. A \
+           share of something that is not work under way (the space a disk has used) is a Meter's, and a value as \
+           a half ring a Gauge's.",
           self.frame.demo(
             8,
             meter,
-            ".style(ProgressPart::Fill, ..)",
+            ".description(\"2 minutes left\")",
             &[
-              "Progress::new(96)",
-              "    .max(128)",
-              "    .label(\"Disk space\")",
+              "Progress::new(0.4)",
+              "    .label(\"Downloading 0.61\")",
               "    .show_value(true)",
-              "    .variant(ProgressVariant::Warning)",
               "    .width(260.0)",
-              "    .format(|used, all| format!(\"{used} of {all} GB\"))",
-              "    .style(ProgressPart::Track, |s| s.radius(2.0))",
-              "    .style(ProgressPart::Fill, |s| s.radius(2.0))",
+              "    .description(\"2 minutes left\")",
             ],
           ),
         ),

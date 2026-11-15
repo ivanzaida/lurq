@@ -1952,7 +1952,7 @@ use lurq::ui::{Progress, ProgressSize, ProgressVariant, RingProgress};
 Progress::new(0.62).label("Uploading theme.json").show_value(true).size(ProgressSize::Md);
 
 // 42 of 128 items, said as the app says it.
-Progress::new(42).max(128).show_value(true).format(|done, all| format!("{done} of {all}"));
+Progress::new(42).max(128).show_value(true).value_text(|done| format!("{done} of 128"));
 
 // Work whose end is not known.
 Progress::indeterminate().label("Connecting");
@@ -1966,15 +1966,16 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 
 | Builder | |
 | --- | --- |
-| `Progress::new(value)` | How far the work is: a fraction of one, or of `max`. Kept between nothing and `max` |
+| `Progress::new(value)` | How far the work is: a fraction of one, or of the range `min` and `max` say. A value outside the range fills nothing or all of the rail; its text says what it is |
 | `Progress::indeterminate()` | Work whose end is not known: a segment crosses the rail again and again |
-| `value(n)`, `max(m)` | How far the work is, and the whole of it (1 when not given). A `max` of nothing or less: nothing is done |
-| `variant(ProgressVariant)` | The color of what is filled: `Default` (primary), `Success`, `Warning`, `Destructive` |
+| `value(n)`, `min(m)`, `max(m)` | How far the work is, and its range: none of it done (0 when not given) and the whole of it (1 when not given), as a [meter](#meter) says them. A range of nothing or less: nothing is done |
+| `variant(ProgressVariant)` | The color of what is filled: `Neutral` (primary), `Info`, `Success`, `Warning`, `Destructive`, the tones' order and names as every component's |
 | `size(ProgressSize)` | The rail's height: `Sm` 4, `Md` 6, `Lg` 8 (the default). A ring of 40, 56 or 72 |
 | `label(&str)` | What the work is, over the start of the rail, and what the progress is called |
 | `label_hidden(bool)` | The label is what the progress is called, and is not drawn |
-| `show_value(bool)` | The value over the end of the rail, as a percentage or as `format` says it. Off unless told, as the design's bar draws none; none while it is not known. A ring shows it unless told not to, as the design's ring does |
-| `format(Fn(f32, f32) -> String)` | Says the value, given the value and `max`: "42 of 128" |
+| `show_value(bool)` | The value over the end of the rail, as a percentage or as `value_text` writes it. Off unless told, as the design's bar draws none; none while it is not known. A ring shows it unless told not to, as the design's ring does |
+| `value_text(Fn(f64) -> String)` | Writes the value as the app does, given the value as it is: "42 of 128". Not given, its share of the range as a percentage |
+| `description(&str)` | The line under the rail: what is left, "2 minutes left". It describes the progress to tooling |
 | `top_bar(bool)` | The thin bar across the top of a window or a surface: 3 high, no rail, as wide as what holds it |
 | `width(impl Into<Length>)` | How wide the progress is: 240 when not given |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the root |
@@ -1982,12 +1983,12 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 - A label longer than the rail is cut with an ellipsis on one line, before the value, which is never cut.
 - A progress is read, not operated: it takes no focus and no press. What is filled is a share of the rail, and moves to a new value over the theme's slow duration; while motion is reduced it is there at once.
 - Work that is not known runs a segment of 90 of 240 across the rail, growing out of its start and leaving at its end, once in `ui::PROGRESS_PERIOD` (1.6 s), in phase with every other such bar. While motion is reduced the segment stands still 70 of 240 from the start of the rail, where no value would be, as the board draws it.
-- Parts: `ProgressPart::Root` (the header over the rail), `Header` (the label and the value), `Label`, `Value`, `Track` (the rail), `Fill` (what is filled; the moving segment). States: `ProgressState::Indeterminate`, `TopBar`.
+- Parts: `ProgressPart::Root` (the header over the rail), `Header` (the label and the value), `Label`, `Value`, `Track` (the rail), `Fill` (what is filled; the moving segment), `Description` (12 in `MutedForeground`, under the rail, as a meter's). States: `ProgressState::Indeterminate`, `TopBar`.
 - In the design the rail is 240 by 8, round, in `Secondary`, filled in `Primary`, or `Success`, `Warning`, `Destructive`. Under a label and in a dialog it is 6, in a row of a list 4. The label is 8 over the rail in the label's type (13, medium) and `Foreground`; the value is at the end in the mono type of 11, `MutedForeground`. The top bar is 3 high with no rail, its fill square where it starts and round 2 where it ends.
-- A ring (`RingProgress`) is 72 across, the ring a tenth of that wide, in `Secondary`, with what is done over it in the variant's color from the top and clockwise, and the value in the middle in the label's type of 13 at a weight of 600 (12 and 11 in the rings of 56 and 40). Nothing is painted in its middle, so it sits on any surface. It takes `value`, `max`, `variant`, `size`, `label` (its name to tooling: the board draws no text beside it), `show_value`, `format`, `state`, `style`, `rules`, `id` and `key`. It always knows the value: what does not is a spinner's.
+- A ring (`RingProgress`) is 72 across, the ring a tenth of that wide, in `Secondary`, with what is done over it in the variant's color from the top and clockwise, and the value in the middle in the label's type of 13 at a weight of 600 (12 and 11 in the rings of 56 and 40). Nothing is painted in its middle, so it sits on any surface. It takes `value`, `min`, `max`, `variant`, `size`, `label` (its name to tooling: the board draws no text beside it), `show_value`, `value_text`, `state`, `style`, `rules`, `id` and `key`. It always knows the value: what does not is a spinner's.
 - The ring is two round boxes one over the other: the track, whose inside border is the ring, and the fill, whose inside border, as wide and in the arc's color, is one dash as long as the arc with a gap of the rest of the circle. A border's dashes start at the top of a circle and run clockwise, and their period is fitted to the outline, so a dash and a gap that make the circle are one dash of it. The arc moves round to a new value, and fades in from nothing, over the theme's slow duration (`Transition::border_dash()`, `border_color()`); while motion is reduced it is there at once. Parts: `RingProgressPart::Root`, `Track` (its border is the ring: its width and the color of what is not done), `Fill` (its border's color is the arc's), `Middle` (holds the value, paints nothing), `Value`.
-- To what reads the tree (`lurq_snapshot` of the MCP server) a progress and a ring are a `progressbar` called by their label, with `a11y_valuenow`, `a11y_valuemin` (0), `a11y_valuemax` and `a11y_valuetext` (the value as it is said); one that does not know how far the work is has no value.
-- A renderer that draws another progress has `view.fraction()`, `view.value()`, `view.max()`, `view.value_text()`, `view.root()` (the root with its name to tooling), `view.header()` and `view.track()` (the rail with what is filled, or with the moving segment). A meter is the same parts restyled: `Progress::new(96).max(128).label("Disk space").show_value(true).variant(ProgressVariant::Warning).format(..)` with a radius of 2 on the `Track` and the `Fill`; a meter of cells is a renderer that draws a row of them from `view.fraction()`. A ring's renderer has `view.fraction()`, `view.value_text()`, `view.side()`, `view.thickness()`, `view.root()`, `view.track()`, `view.arc()` (the fill with its dash) and `view.middle()`. A gauge is such a renderer: half a ring, its arc's box turned a quarter back so that the dash starts at 9 o'clock, in a box that clips the lower half.
+- To what reads the tree (`lurq_snapshot` of the MCP server) a progress and a ring are a `progressbar` called by their label and described by the description, with `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and `a11y_valuetext` (the value as it is written), the numbers written as a [meter](#meter)'s are; one that does not know how far the work is has no value.
+- A renderer that draws another progress has `view.fraction()`, `view.value()`, `view.max()`, `view.value_text()`, `view.root()` (the root with its name to tooling), `view.header()` and `view.track()` (the rail with what is filled, or with the moving segment). `view.min()` and `view.description()` (the line under the rail) are there too. A share of something that is not work under way is a [meter](#meter)'s. A ring's renderer has `view.fraction()`, `view.value_text()`, `view.side()`, `view.thickness()`, `view.root()`, `view.track()`, `view.arc()` (the fill with its dash) and `view.middle()`. A value as half a ring is a [gauge](#gauge)'s.
 
 ## Meter
 
