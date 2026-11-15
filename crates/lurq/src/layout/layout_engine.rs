@@ -741,8 +741,14 @@ impl LayoutEngine {
     constraints: Constraints,
     force_dirty: bool,
   ) -> (Arc<LayoutResult>, OverlayLayoutIndex) {
-    let result = self.compute_inner(glyph_engine, node, constraints, force_dirty);
-    let index = Self::collect_overlay_index(node, &result);
+    let result = {
+      crate::app::profile_support::frame_section!("compute:inner");
+      self.compute_inner(glyph_engine, node, constraints, force_dirty)
+    };
+    let index = {
+      crate::app::profile_support::frame_section!("compute:overlay_index_walk");
+      Self::collect_overlay_index(node, &result)
+    };
     (result, index)
   }
 
@@ -756,9 +762,18 @@ impl LayoutEngine {
     self.last_recalculated.set(false);
     #[cfg(feature = "perf_profile")]
     self.trace.begin_pass();
-    Self::mark_layout_dirty(node, force_dirty);
-    let result = self.layout_node(glyph_engine, node, constraints);
-    node.clear_guards();
+    {
+      crate::app::profile_support::frame_section!("compute:mark_dirty_walk");
+      Self::mark_layout_dirty(node, force_dirty);
+    }
+    let result = {
+      crate::app::profile_support::frame_section!("compute:layout_node");
+      self.layout_node(glyph_engine, node, constraints)
+    };
+    {
+      crate::app::profile_support::frame_section!("compute:clear_guards_walk");
+      node.clear_guards();
+    }
     #[cfg(feature = "perf_profile")]
     self.trace.end_pass(node);
     result

@@ -80,6 +80,8 @@ fn measure(sections: usize) -> (Duration, Duration, Duration) {
   let again = started.elapsed();
 
   // Sixty frames of scrolling, 120 pixels each: the median one.
+  #[cfg(feature = "perf_profile")]
+  lurq::app::profiler::take_frame_sections();
   let mut frames = Vec::new();
   for frame in 0..60 {
     let started = Instant::now();
@@ -87,6 +89,16 @@ fn measure(sections: usize) -> (Duration, Duration, Duration) {
     tree.request_redraw();
     render_pass_with_app(&mut tree, &mut app);
     frames.push(started.elapsed());
+  }
+  // With `perf_profile`, where a frame of scrolling spends its time: each section's mean over the sixty frames.
+  #[cfg(feature = "perf_profile")]
+  if std::env::var_os("LURQ_FRAME_SECTIONS").is_some() {
+    for (name, total, count) in lurq::app::profiler::take_frame_sections() {
+      println!(
+        "  {sections} sections, {name}: {:.3} ms a frame ({count} runs)",
+        total.as_secs_f64() * 1000.0 / 60.0
+      );
+    }
   }
   frames.sort();
   (first, again, frames[frames.len() / 2])
