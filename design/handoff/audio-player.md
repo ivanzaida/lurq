@@ -67,8 +67,8 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 - Built of the media parts: `PlayButton`, `SeekBar`, `Waveform`, `MediaTime`, `MediaVolume`, `MediaSpeedMenu`. Shuffle and repeat are `Toggle`s; previous, next, more, queue and expand ghost `Button`s; "Try again" a `Link`.
 - Keys: Tab reaches each control; Space on play presses it, and with the focus on the bar or the volume plays and pauses; the arrows move the bar and the volume.
 - The mini player measures itself before its first frame is painted: under 480 wide (`AUDIO_MINI_NARROW`) it keeps the track, play and next.
-- Parts: `AudioPlayerPart::Root`, `Bar`, `Header`, `Media`, `MediaIcon`, `Text`, `Title`, `Description`, `Skeleton`, `More`, `Progress`, `Times`, `Elapsed`, `Total`, `Time`, `Transport`, `Shuffle`, `Repeat`, `Footer`, `Speed`, `Error`, `ErrorIcon`, `ErrorText`, `Retry`, `Rate`, `Dot`, `Track`, `Fill`, `Tools`. States: `AudioPlayerState::Playing`, `Loading`, `Error`, `Disabled`, `Media`, `Unheard`, `Shuffle`, `Narrow`, `Scrubbing`.
-- In the design the card is 360 wide on `Card` edged in `Border`, `radius-xl`, padded 20 with 16 between rows; the artwork 64 with `radius-md`; the title 14/600 and who it is by 13 in `MutedForeground`; the times mono 11 6 under the bar; the transport 8 apart (shuffle 32, previous 36, play 48, next 36, repeat 32, icons 16); shuffle and repeat in `MutedForeground` off and on `Highlight` on. The compact row is 320 by 48, `radius-lg`, padded 8 and 12, 10 apart. The voice message is padded 8 12 8 8, `radius-xl`. The mini player is on `Background` with a line of `Border` on top, a progress line of 2 (4 under the pointer) in `Primary` over `Secondary`, and a row of 54 padded 12.
+- Parts: `AudioPlayerPart::Root`, `Bar`, `Edge`, `Header`, `Media`, `MediaIcon`, `Text`, `Title`, `Description`, `Skeleton`, `More`, `Progress`, `Times`, `Elapsed`, `Total`, `Time`, `Transport`, `Shuffle`, `Repeat`, `Footer`, `Speed`, `Error`, `ErrorIcon`, `ErrorText`, `Retry`, `Rate`, `Dot`, `Track`, `Fill`, `Tools`. States: `AudioPlayerState::Playing`, `Loading`, `Error`, `Disabled`, `Media`, `Unheard`, `Shuffle`, `Narrow`, `Scrubbing`.
+- In the design the card is 360 wide on `Card` edged in `Border`, `radius-xl`, padded 20 with 16 between rows; the artwork 64 with `radius-md`; the title 14/600 and who it is by 13 in `MutedForeground`; the times mono 11 6 under the bar; the transport 8 apart (shuffle 32, previous 36, play 48, next 36, repeat 32, icons 16); shuffle and repeat in `MutedForeground` off and on `Highlight` on. The compact row is 320 by 48, `radius-lg`, padded 8 and 12, 10 apart. The voice message is padded 8 12 8 8, `radius-xl`. The mini player is on `Background` with a line of `Border` on top, under a progress line of 2 (4 under the pointer) in `Primary` over `Secondary`, and a row of 54 padded 12.
 - To what reads the tree the player is a `group` called by its label; the error line is an `alert`; the mini player's line a `progressbar`; repeat says its state in `a11y_value`.
 - A renderer that draws another player starts from `AudioPlayerView`: the controls are built (`view.controls`), and `media()`, `text()`, `time()`, `error_line()` and `line()` are the default pieces.
 
@@ -87,35 +87,23 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 - **Space** plays and pauses from the bar, the waveform and the volume (a handler around each that checks `focus_within`); on a button Space presses the button.
 - **The compact row and the voice message's one time** read the length until it has started and what is gone after, as the board draws "0:42" not heard and "0:17" playing.
 - **The mini player's error** is drawn in place of the description, in the destructive color, and play is disabled: the board draws no error for it.
+- **The voice message's and the mini player's play button** is `PlayButtonSize::Md` styled to the board's 36 (its glyph is 16).
 - **The speed badge** of a voice message shows while it plays and steps 1×, 1.5×, 2× and back to 1×; the dot shows while it is not heard and does not play.
 
 ## Not done
 
-- Nothing of the board is left unbuilt but what is in "Needed from the media parts" above (the play button of 36, a bar that fills its room, an empty bar with no thumb), each worked around.
+- Loading and an error draw the bar at a position of 0 with `disabled(true)`, so its thumb shows at the start; `SeekBar::empty(true)` (being added by the seek bar's session) draws the board's empty bar with no thumb. The coordinator switches the two calls in `AudioPlayer::view` (`SeekBar::controlled(..)` and the waveform's) at the merge.
 
 ## Differs from the board
 
-- The voice message's and the mini player's play button is 40, not 36, until `PlayButton` has 36 (see above): the voice message is 56 high and not 52.
-- The seek bar is 240 wide in the card and the compact row, not the row's width, until the rebuilt `SeekBar` fills its room.
-- While loading and after an error the bar's thumb is drawn at its start (the board draws none).
-- The mini player's progress line grows from 2 to 4 downwards, over the top of its row, so that the row does not move; the pointer finds it in the top 8 of the player.
+- While loading and after an error the bar's thumb is drawn at its start, until `SeekBar::empty` is in (see above).
+- The mini player's progress line grows from 2 to 4 downwards, over the top of its row, so that the row does not move; the pointer finds it in the top 8 of the player. The line of the border along its top edge is under the progress line (part `Edge`), which lies over it.
 
 ## Needed from the media parts
 
-Worked around until the merge; each is the smallest addition that would give it.
+What the first pass asked for, now that the shared parts are real:
 
-- **`PlayButton` of 36 with an icon of 16.** The board's voice message (`CjYWK`) and mini player (`Jp10J`) have a
-  play button of 36; `PlayButtonSize` has 32, 40, 48 and 64. Add `PlayButtonSize::Ms` (or the like) of 36 with 16.
-  Until then both use `Md` (40), so the voice message is 56 high and not 52.
-- **`SeekBar` that fills the width it is given.** It is drawn by `ui::Slider`, whose root is 240 wide at most and
-  does not grow: in the card (320 of room) and the compact row the bar is 240 and not the row's width. The
-  rebuilt bar should fill its room (a root of `Length::Fill`), or take `full_width(bool)`.
-- **`SeekBar` and `Waveform` empty with no thumb.** Loading and an error draw "an empty bar with no thumb". The
-  player gives the bar a position of 0 and `disabled(true)`; the thumb still shows at the start. A
-  `thumb(bool)` (or an `empty(bool)`) on `SeekBar` would give it.
-- **`MediaTime` in mono 11 for the card and the compact row.** The card's elapsed and total and the rows' one time
-  are drawn by the player itself (mono 11, `MutedForeground`), since `MediaTime` reads "elapsed / total" on one
-  line in 12. Nothing to add unless `MediaTime` is to be used there: an `elapsed_only(bool)` and a size.
-- **`MediaVolume::force`** reaches only its button; nothing needed, noted for the merge's tests.
-- **`PlayButton::rules`/`style`.** The player cannot lay its own recipe over the play button (it has neither); the
-  board needs nothing of it today.
+- **A play button of 36 with a glyph of 16** (the voice message, the mini player): done with `PlayButton::style(PlayButtonPart::Root, |s| s.square(36.0))` on `Md`. The voice message is 52 high; tested.
+- **A seek bar that fills its room**: the rebuilt `SeekBar` does; the card's bar is 320 (the card's room) and the compact row's fills between the button and the time, 10 from each; tested.
+- **An empty bar with no thumb**: `SeekBar::empty(bool)`, pending (see "Not done").
+- **`MediaTime`**: the mini player uses it at its default size (`Md`, mono 12), as the board's `Media/Time` instance there has it. The card's two ends and the rows' one time are not an "elapsed / total" reading and stay the player's own (mono 11).

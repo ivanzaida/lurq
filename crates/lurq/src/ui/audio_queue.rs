@@ -565,6 +565,7 @@ impl AudioQueueView {
       Column::new()
         .width(Dimension::Pct(100.0))
         .min_width(Dimension::Px(0.0))
+        .part(&part)
         .child(
           part
             .text(text)
@@ -642,7 +643,7 @@ impl AudioQueueView {
     let rows = std::mem::take(&mut self.rows);
     let mut root = Column::new()
       .part(&self.part(AudioQueuePart::Root))
-      .focus_group(FocusGroup::vertical().wrap(false))
+      .focus_group(FocusGroup::vertical().wrap(false).one_stop(true))
       .describe("a11y_role", "listbox")
       .describe("a11y_name", self.label.clone());
     for row in rows {

@@ -59,6 +59,7 @@ AudioQueue::new(
 - **The current track is an index**, `Signal<Option<usize>>` (a queue may be on none), and `on_change(Fn(usize))` is told the index of the row pressed: a person cannot press "none". It is not called for the current row or an unavailable one.
 - **`playing(bool)`** is a plain value of the queue: whether the player it goes with plays is the player's, the queue only shows it.
 - **The more button** is shown under the pointer and with the focus in the row (`within`), so that the keyboard finds it; its press does not press the row.
+- **One stop of Tab** (`FocusGroup::vertical().one_stop(true)`): Tab enters at the current row (or the first that can be played), the arrows move between the rows past one that cannot be played, and from a row Tab goes on to its more button, then out of the queue.
 - **The play glyph for the number** shows under the pointer only (`within_hovered`), and not on the current row or an unavailable one.
 
 ## Not done
