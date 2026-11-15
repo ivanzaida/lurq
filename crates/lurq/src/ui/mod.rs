@@ -93,6 +93,8 @@ mod property_grid;
 mod radio;
 mod rating;
 mod recipe;
+#[cfg(feature = "canvas")]
+mod scatter_chart;
 mod scroll_area;
 mod search_field;
 mod segmented;
@@ -150,6 +152,8 @@ pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
 #[cfg(feature = "canvas")]
 pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve};
+#[cfg(feature = "canvas")]
+pub use scatter_chart::{ScatterChart, ScatterChartPart, ScatterChartState};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,

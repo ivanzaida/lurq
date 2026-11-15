@@ -4644,6 +4644,37 @@ AreaChart::new(
 - The board's Area Chart (`yTmhJ`): a line chart whose lines have the fill under them, down to zero, in the series' colors at 0.16 (`LineChartPart::Area`), the line over it. Its parts and states are the line chart's.
 - Where the board draws nothing: stacked areas, several series, the tooltip and the keys (the line chart's).
 
+## Scatter Chart
+
+Points by an x and a y on two value axes: how the frame time of a scene grows with its nodes, and what stands apart from the trend.
+
+```rust
+use lurq::ui::{ChartSeries, ScatterChart};
+
+ScatterChart::new([
+  ChartSeries::points("Scenes", [(550.0, 3.3), (1600.0, 4.3), (3200.0, 8.4), (5000.0, 11.0), (7300.0, 15.5)]),
+  ChartSeries::points("Outlier", [(1850.0, 7.6), (6150.0, 14.2)]),
+])
+.title("Nodes vs frame time")
+.description("One dot per scene")
+.trend(true)
+.x_text(|nodes| format!("{}k", nodes / 1000.0))
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `ScatterChart::new(series)` | Series of points (`ChartSeries::points`), each an x and a y, in any order |
+| `trend(bool)` | The straight line that fits the first series shown best (by least squares), from its least x to its most, over the points |
+| `x_text(Fn(f64) -> String)` | How a number across is written, under the plot and as a tooltip's title: `value_text`'s unless told |
+| everything else | As every chart has it; `size` is `Sm`, `grid` on and `legend` off unless told, as the board draws it |
+
+- The board's Scatter Chart (`s9y62`): the chart's frame at `Sm`, a plot of 140 with its lines across at the ticks of the value up, the numbers of the value across under it from its start to its end (both scales start and end on round ticks), dots of 8 in the series' colors at 0.85, and the trend 1 wide in `MutedForeground` at 0.6 over them. The point under the pointer is a dot of 10 ringed 2 in `Card`.
+- The pointer finds the point nearest it in two dimensions, within 24. Left and Right go along a series in the order of its x, Up and Down between the series.
+- To tooling each point is an item of the plot: `point-<series>-<index>`, named by its series and its x, valued as `value_text` writes its y.
+- Parts: the chart's, and `ScatterChartPart::Point` (its opacity), `Ring`, `Trend`. States: `ScatterChartState::Trend`.
+- Where the board draws nothing: the tooltip (the board's Chart Tooltip over the point, its x as its title), the ring of the point under the pointer, a legend (off unless told), values under zero, several series.
+
 ## Data Grid
 
 A table whose cells are worked in: the focus is on a cell, the arrows move it from cell to cell, and a cell is edited in place with the system's own controls. A list of files whose names are edited, a sheet of orders whose states are chosen.

@@ -68,6 +68,8 @@ mod progress_dialog;
 mod property_grid;
 mod radio;
 mod rating;
+#[cfg(feature = "canvas")]
+mod scatter_chart;
 mod scroll_area;
 mod select;
 mod separator;
