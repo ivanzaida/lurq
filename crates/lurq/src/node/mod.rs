@@ -64,9 +64,9 @@ pub use node::{
   IntoHistorySwipeEventHandler, IntoKeyboardEventHandler, IntoLongPressEventHandler, IntoMouseEventHandler,
   IntoPanEventHandler, IntoPasteEventHandler, IntoPinchEventHandler, IntoRotateEventHandler, IntoScrollEventHandler,
   IntoSwipeEventHandler, IntoTapEventHandler, IntoTextInputEventHandler, IntoTouchEventHandler, IntoVoidEventHandler,
-  VoidEventHandler,
+  VoidEventHandler, WindowControl,
 };
-pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole};
+pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole, window_controls_in_use};
 pub use outline::{Outline, ResolvedOutline};
 pub use radius_value::RadiusValue;
 pub use select_icon::{SelectAdornmentState, SelectCheckmarkPosition, SelectIcon};

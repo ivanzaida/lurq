@@ -9,6 +9,9 @@ use super::{
   shared::{fading, glyph, one_line},
   theme::{Themed, current_theme},
 };
+/// One of the window's controls: the engine's, which a control of the bar is marked with
+/// (`.window_control(..)`) for the system to know it.
+pub use crate::node::WindowControl;
 use crate::{
   app::{
     ctx::Ctx,
@@ -17,7 +20,6 @@ use crate::{
     window::WindowHandle,
   },
   components::{self, ChromeBorderPolicy, ChromeTitleBar, Column, ResizeHandlePolicy, Row, WindowChromeMode},
-  core::ElementRef,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{BackgroundColor, Element, border::Border, color::Color, dimension::Dimension},
 };
@@ -456,27 +458,6 @@ impl WindowChrome {
     .state(WindowChromeState::Maximized, maximized)
     .state(WindowChromeState::Tabs, self.tabs.is_some());
     let tabbed = self.tabs.is_some();
-    // Windows 11 opens its snap layouts over the maximize control of a Windows bar: the window is told where it is,
-    // and says how it is to look while the system has the pointer on it.
-    let snaps = platform == WindowPlatform::Windows && self.controls.maximizable;
-    let maximize_control = window.as_ref().filter(|_| snaps).map(|window| {
-      let control = ElementRef::new();
-      window.set_maximize_control(Some(control.clone()));
-      control
-    });
-    if !snaps && let Some(window) = &window {
-      window.set_maximize_control(None);
-    }
-    let maximize_look = window.as_ref().filter(|_| snaps).and_then(|window| {
-      let look = window.maximize_control_look();
-      if look.pressed {
-        Some(Interaction::Pressed)
-      } else if look.hovered {
-        Some(Interaction::Hovered)
-      } else {
-        None
-      }
-    });
     // The window whose icon the bar shows by default: its own where it is mounted, the one it is drawn in where it
     // is a picture.
     let shown_in = window
@@ -498,8 +479,6 @@ impl WindowChrome {
       tabbed,
       recipe: theme.resolve::<WindowChrome>(&case, Some(&self.rules)),
       forced: self.forced,
-      maximize_control,
-      maximize_look,
       window,
       id: self.id,
       key: self.key,
@@ -717,21 +696,9 @@ pub struct WindowChromeView {
   tabs: Option<Element>,
   controls: WindowControls,
   forced: Option<Interaction>,
-  /// The element the window is told is its maximize control, for Windows' snap layouts, and how the system says
-  /// it is to look while it has the pointer on it.
-  maximize_control: Option<ElementRef>,
-  maximize_look: Option<Interaction>,
   window: Option<WindowHandle>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
-}
-
-/// One of the window's controls.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WindowControl {
-  Minimize,
-  Maximize,
-  Close,
 }
 
 impl WindowChromeView {
@@ -887,12 +854,9 @@ impl WindowChromeView {
         self.controls.close_label.clone(),
       ),
     };
-    let forced = match kind {
-      WindowControl::Maximize if self.maximize_look.is_some() => self.maximize_look,
-      _ => self
-        .forced
-        .filter(|_| kind == WindowControl::Close || self.platform == WindowPlatform::Macos),
-    };
+    let forced = self
+      .forced
+      .filter(|_| kind == WindowControl::Close || self.platform == WindowPlatform::Macos);
     let mut button = components::Button::empty()
       .justify(Justify::Center)
       .align_items(Alignment::Center)
@@ -912,14 +876,11 @@ impl WindowChromeView {
       };
       button = button.id(format!("{id}-{which}"));
     }
-    if kind == WindowControl::Maximize
-      && let Some(control) = &self.maximize_control
-    {
-      button = button.ref_element(control.clone());
-    }
     if let Some(window) = self.window.clone() {
       let (maximized, on_close) = (self.maximized, self.controls.on_close.clone());
-      button = button.on_click(move |event: MouseEvent| {
+      // A control of a window says which it is, for the shell to tell the system: Windows 11 opens its snap layouts
+      // over the maximize one. A control of a picture of a window is none.
+      button = button.window_control(kind).on_click(move |event: MouseEvent| {
         match kind {
           WindowControl::Minimize => window.set_minimized(true),
           WindowControl::Maximize => window.set_maximized(!maximized),
@@ -1532,42 +1493,65 @@ mod tests {
   }
 
   #[test]
-  fn the_window_knows_its_maximize_control_and_draws_it_as_the_system_says() {
-    use crate::{
-      app::{theme::ThemePalette, window::MaximizeControlLook},
-      layout::quad::QuadContent,
-    };
-    let (mut tree, mut app) = window();
-    let bounds = tree
-      .get_element_by_id_mut("bar-maximize")
-      .and_then(|element| element.bounds())
-      .unwrap();
-    let rect = tree
-      .window()
-      .maximize_control_rect()
-      .expect("the window knows its maximize control");
-    assert_eq!(
-      (rect.x, rect.y, rect.width, rect.height),
-      (bounds.x, bounds.y, bounds.width, bounds.height)
-    );
-    // The system has the pointer over it (Windows' snap layouts): the control is drawn under the pointer.
-    let hover = ThemePalette::light().get(PaletteColor::SecondaryHover);
-    let filled = |tree: &mut Tree| {
-      let layout = tree.last_layout().unwrap().clone();
-      tree.resolve_quads(&layout).into_iter().any(|quad| {
-        (quad.x, quad.y, quad.width, quad.height) == (bounds.x, bounds.y, bounds.width, bounds.height)
-          && matches!(quad.content, QuadContent::Rect { color, .. } if color == hover)
-      })
-    };
-    assert!(!filled(&mut tree));
-    tree.window().set_maximize_control_look(MaximizeControlLook {
-      hovered: true,
-      pressed: false,
-    });
-    for _ in 0..3 {
-      tree.pass_headless(&mut app);
+  fn the_window_knows_its_controls_where_nothing_covers_them() {
+    let (mut tree, _app) = window();
+    // Each control of the bar is the window's, for the shell to tell the system: Windows 11 opens its snap layouts
+    // over the maximize one.
+    for (id, control) in [
+      ("bar-minimize", WindowControl::Minimize),
+      ("bar-maximize", WindowControl::Maximize),
+      ("bar-close", WindowControl::Close),
+    ] {
+      let (x, y) = centre(&mut tree, id);
+      assert_eq!(tree.window_control_at(x, y), Some(control), "{id}");
     }
-    assert!(filled(&mut tree), "drawn under the pointer");
+    // The rest of the bar is none: its title, the app's own element in it.
+    for id in ["bar-title", "menus"] {
+      let (x, y) = centre(&mut tree, id);
+      assert_eq!(tree.window_control_at(x, y), None, "{id}");
+    }
+    // Along the window's top edge a zone resizes it: there the pointer is the zone's, not the control's under it.
+    let (x, _) = centre(&mut tree, "bar-maximize");
+    assert_eq!(tree.window_control_at(x, 1.0), None);
+    assert_eq!(tree.window_control_at(x, 6.0), Some(WindowControl::Maximize));
+  }
+
+  #[test]
+  fn a_maximized_window_has_its_controls_up_to_its_edges() {
+    let (mut tree, mut app) = window();
+    tree.window().set_maximized(true);
+    tree.pass_headless(&mut app);
+    tree.pass_headless(&mut app);
+    let _ = tree.window().take_commands();
+    // No zone resizes a maximized window, and the line of its outline takes no pointer: the close control is the
+    // window's up to the corner of the screen, where a thrown pointer stops, and is pressed there.
+    assert_eq!(tree.window_control_at(799.0, 0.0), Some(WindowControl::Close));
+    let (x, _) = centre(&mut tree, "bar-maximize");
+    assert_eq!(tree.window_control_at(x, 0.0), Some(WindowControl::Maximize));
+    let commands = press(&mut tree, &mut app, 799.0, 0.0, MouseButton::Left);
+    assert!(
+      matches!(commands.as_slice(), [WindowCommand::RequestClose(_)]),
+      "a press in the corner asks the window to close: {commands:?}"
+    );
+  }
+
+  #[test]
+  fn a_picture_of_a_window_has_no_controls_of_the_window() {
+    // The still form: a bar drawn in a page, whose controls act on no window.
+    let mut app = App::new();
+    let mut tree = Tree::new();
+    tree.resize(800, 600);
+    tree.set_root(
+      WindowChrome::new()
+        .platform(WindowPlatform::Windows)
+        .title("Notes")
+        .id("picture"),
+    );
+    tree.pass_headless(&mut app);
+    for id in ["picture-minimize", "picture-maximize", "picture-close"] {
+      let (x, y) = centre(&mut tree, id);
+      assert_eq!(tree.window_control_at(x, y), None, "{id}");
+    }
   }
 
   #[test]

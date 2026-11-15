@@ -351,6 +351,7 @@ impl CloseRequest {
 
 type CloseHandler = Arc<dyn Fn(CloseRequest) + Send + Sync>;
 
+pub(crate) mod controls;
 mod handle;
 pub(crate) mod parent;
 pub(crate) mod resize;
@@ -473,28 +474,15 @@ struct WindowInner {
   parent: Option<parent::ParentWindow>,
   close_handler: Option<CloseHandler>,
   app_event_handler: Option<AppEventHandler>,
-  /// The element the app draws as the window's maximize control, where it draws its own title bar.
-  maximize_control: Option<crate::core::ElementRef>,
-  /// Whether the pointer is on that control, or holds it down, where the system has it for its own (Windows'
-  /// snap layouts), so that the element does not hear it.
-  maximize_control_look: MaximizeControlLook,
+  /// Where the window's controls are, in a title bar the app draws itself: what the tree found at its last
+  /// layout, for a shell that tells the system. See `controls`.
+  controls: Arc<controls::WindowControlRegions>,
   /// The window's icon as the app set it, and as an image to draw in a title bar the app draws itself.
   icon: Option<WindowIcon>,
   #[cfg(feature = "raster")]
   icon_image: Option<crate::images::ImageData>,
   /// Texts the app asked to be put on the clipboard, which the runtime writes after the event that asked.
   copies: Vec<String>,
-}
-
-/// How the app's maximize control is to look while the system has the pointer on it: on Windows 11 the system
-/// takes the pointer over the control, to open its snap layouts there, and tells the app what it would have heard.
-/// See [`WindowHandle::set_maximize_control`](handle::WindowHandle::set_maximize_control).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MaximizeControlLook {
-  /// The pointer is on the control.
-  pub hovered: bool,
-  /// The left button is held down on it.
-  pub pressed: bool,
 }
 
 impl WindowInner {
@@ -555,8 +543,7 @@ impl Window {
         parent: None,
         close_handler: None,
         app_event_handler: None,
-        maximize_control: None,
-        maximize_control_look: MaximizeControlLook::default(),
+        controls: Arc::default(),
         icon: None,
         #[cfg(feature = "raster")]
         icon_image: None,
@@ -960,39 +947,27 @@ impl Window {
     self.version_signal.set(version);
   }
 
-  /// Records the element the app draws as the window's maximize control, or that it draws none.
-  pub(crate) fn set_maximize_control(&self, control: Option<crate::core::ElementRef>) {
-    self.inner.write().unwrap().maximize_control = control;
-  }
-
-  /// Where the app's maximize control is, in logical pixels of the window, if it draws one that is laid out.
-  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
-  pub(crate) fn maximize_control_rect(&self) -> Option<crate::core::ElementRect> {
-    let control = self.inner.read().unwrap().maximize_control.clone()?;
-    let rect = control.bounds();
-    (rect.width > 0.0 && rect.height > 0.0).then_some(rect)
-  }
-
-  /// How the app's maximize control is to look while the system has the pointer on it.
-  pub(crate) fn maximize_control_look(&self) -> MaximizeControlLook {
-    self.inner.read().unwrap().maximize_control_look
-  }
-
-  /// The shell says how the maximize control is to look; what reads the window is told, and the loop woken.
-  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
-  pub(crate) fn set_maximize_control_look(&self, look: MaximizeControlLook) {
-    let (version, waker) = {
-      let mut inner = self.inner.write().unwrap();
-      if inner.maximize_control_look == look {
-        return;
-      }
-      inner.maximize_control_look = look;
-      (Self::bump_version(&mut inner), inner.waker.clone())
-    };
-    self.version_signal.set(version);
-    if let Some(waker) = waker {
-      waker();
+  /// The tree says where the window's controls are, after a layout. Nothing that reads the window is told: only
+  /// a shell asks, at the system's hit test.
+  pub(crate) fn set_control_regions(&self, regions: controls::WindowControlRegions) {
+    let mut inner = self.inner.write().unwrap();
+    if *inner.controls != regions {
+      inner.controls = Arc::new(regions);
     }
+  }
+
+  /// Which of the window's controls is at a point of the window, in physical pixels, as the tree last laid them
+  /// out: the element the app marked with `.window_control(..)`, where nothing covers it.
+  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  pub(crate) fn control_at(&self, x: f32, y: f32) -> Option<crate::node::WindowControl> {
+    let (regions, scale) = {
+      let inner = self.inner.read().unwrap();
+      if inner.controls.is_empty() {
+        return None;
+      }
+      (inner.controls.clone(), inner.info.scale_factor.max(0.01))
+    };
+    regions.at(x / scale, y / scale)
   }
 
   pub(crate) fn set_title_bar_inset(&self, inset: f32) {
