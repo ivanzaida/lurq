@@ -738,6 +738,7 @@ impl Panes {
       self.panes[index].set_inert(self.specs[index].collapsible && *size <= 0.0);
       self.shadows[index].set_size(width, height);
     }
+    self.shadow(sizes);
     self.keep(sizes.to_vec());
   }
 
@@ -865,8 +866,27 @@ impl Panes {
     let first = model.len() != self.specs.len();
     if changed {
       self.put(&sizes);
-    } else if first {
-      self.keep(sizes);
+    } else {
+      self.shadow(&sizes);
+      if first {
+        self.keep(sizes);
+      }
+    }
+  }
+
+  /// Lays the copies of the panes under the dividers out at `sizes`, in pixels: a divider stands at the edge of its
+  /// pane as the pane was laid out, whatever a share of the copy's row resolves to.
+  fn shadow(&self, sizes: &[f32]) {
+    for (index, size) in sizes.iter().enumerate() {
+      if self.specs[index].kind == Kind::Rest {
+        continue;
+      }
+      let length = Some(Dimension::Px(size.max(0.0)));
+      let (width, height) = match self.orientation {
+        SplitterOrientation::Horizontal => (length, None),
+        SplitterOrientation::Vertical => (None, length),
+      };
+      self.shadows[index].set_size(width, height);
     }
   }
 

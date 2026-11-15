@@ -220,6 +220,16 @@ impl DockPanel {
     }
   }
 
+  /// The id the state names the panel by.
+  pub fn id(&self) -> &str {
+    &self.info.id
+  }
+
+  /// What the panel is called.
+  pub fn title(&self) -> &str {
+    &self.info.title
+  }
+
   /// The icon of the panel: on its button in a strip, and before its title in the documents' tabs.
   pub fn icon(mut self, icon: impl Into<Name>) -> Self {
     self.info.icon = Some(icon.into());
@@ -610,9 +620,14 @@ impl DockLayout {
   }
 
   /// Mounts the layout: it keeps what each panel holds while it moves, what is dragged, and what is shown from a
-  /// strip.
+  /// strip. It fills what holds it, which gives it a size; two layouts in one component have their own keys or ids.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
-    let key = self.key.clone().unwrap_or_else(|| Arc::from("dock-layout"));
+    // Two layouts in one component are told apart by their keys, or by their ids.
+    let key = self
+      .key
+      .clone()
+      .or_else(|| self.id.clone())
+      .unwrap_or_else(|| Arc::from("dock-layout"));
     ctx.mount_keyed::<DockHost>(
       &key,
       DockProps {
@@ -1607,6 +1622,7 @@ impl<'a> Builder<'a> {
       .part(&self.part(DockLayoutPart::Body))
       .flex(1.0)
       .min_height(0.0)
+      .min_width(0.0)
       .align_items(Alignment::Stretch)
       .ref_element(body_ref.clone())
       .key(focus_key.clone())
@@ -1615,10 +1631,13 @@ impl<'a> Builder<'a> {
     if let Some(id) = self.layout.id_of("body", &first) {
       body = body.id(id);
     }
+    // A group is as large as its pane, never as what it holds: its bar and its panel give way and are cut.
     let mut frame = Column::new()
       .part(&self.part_in(DockLayoutPart::Group, &[(DockLayoutState::Maximized, maximized)]))
       .width(Dimension::Pct(100.0))
       .height(Dimension::Pct(100.0))
+      .min_width(0.0)
+      .min_height(0.0)
       .align_items(Alignment::Stretch)
       .ref_element(frame_ref.clone())
       .key(format!("dock-group-{first}"))
