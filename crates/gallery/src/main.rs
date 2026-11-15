@@ -148,7 +148,7 @@ fn run(mut app: App, route: String, engine: impl Fn() -> WgpuRenderEngine + 'sta
     .with_title("lurq gallery")
     .with_icon(icon::icon())
     .with_size(width, height)
-    .with_min_size(720, 480)
+    .with_min_size(320, 480)
     .with_decorations(false)
     .run();
 }
