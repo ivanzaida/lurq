@@ -94,6 +94,7 @@ pub struct BarChartPage {
   hidden: Signal<Vec<String>>,
   selected: Signal<Option<ChartPoint>>,
   across: Signal<bool>,
+  motion: Signal<bool>,
 }
 
 impl BarChartPage {
@@ -116,6 +117,7 @@ impl BarChartPage {
     } else {
       Orientation::Vertical
     };
+    let motion = self.motion.get();
     let (categories, series) = data(choice);
     let record = self.playground.recorder();
     let (selected_to, hidden_to) = (record.clone(), record);
@@ -132,6 +134,7 @@ impl BarChartPage {
           .value_axis(value_axis)
           .loading(choice == 7)
           .orientation(orientation)
+          .motion(motion)
           .value_text(ms);
         if current {
           chart = chart.current(categories.len().saturating_sub(1));
@@ -188,6 +191,9 @@ impl BarChartPage {
     if orientation == Orientation::Horizontal {
       code.push("    .orientation(Orientation::Horizontal)".to_owned());
     }
+    if !motion {
+      code.push("    .motion(false)".to_owned());
+    }
     code.push("    .hidden(hidden)".to_owned());
     code.push("    .on_select(|point| ..)".to_owned());
     code.push("    .mount(ctx)".to_owned());
@@ -212,6 +218,7 @@ impl BarChartPage {
       self.hidden.clone(),
       self.selected.clone(),
       self.across.clone(),
+      self.motion.clone(),
     );
     let facts = format!(
       "{} categories · {} series{}",
@@ -261,6 +268,7 @@ impl BarChartPage {
           flag("grid", &self.grid),
           flag("value_axis", &self.value_axis),
           flag("legend", &self.legend),
+          flag("motion: in, and to a change of the data", &self.motion),
         ],
         changed: [
           choice != 0,
@@ -272,6 +280,7 @@ impl BarChartPage {
           value_axis,
           legend,
           !self.hidden.get().is_empty(),
+          !motion,
         ]
         .into_iter()
         .filter(|changed| *changed)
@@ -287,6 +296,7 @@ impl BarChartPage {
           reset.7.set(Vec::new());
           reset.8.set(None);
           reset.9.set(false);
+          reset.10.set(true);
         }),
       },
     )
@@ -310,6 +320,7 @@ impl Component for BarChartPage {
       hidden: ctx.signal(Vec::new()),
       selected: ctx.signal(None),
       across: ctx.signal(false),
+      motion: ctx.signal(true),
     }
   }
 
@@ -456,6 +467,12 @@ impl Component for BarChartPage {
         "&str / bool",
         "\"No data\" / false",
         "No data, and the skeleton while it comes.",
+      ),
+      (
+        "motion",
+        "bool",
+        "true",
+        "Bars growing in, and moving to a change of the data; off where motion is reduced, still while it is resized.",
       ),
       (
         "on_select",

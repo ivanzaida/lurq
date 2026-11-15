@@ -103,6 +103,29 @@ Canvas::new()
   })
 ```
 
+A drawing that moves to what it is given next is painted with `paint_moving`: as it is first shown, and when the value it is drawn from changes (told by its hash), its painter is given a `CanvasMove`, what it is drawn from now (`to`), what it was drawn from before (`from`, none as it enters) and how far along the way it is (`progress`, eased, from 0 to 1), and the canvas is drawn again at each frame until it is there, and not after. Where motion is reduced (`Theme::reduced_motion`) it is drawn where it goes at once, and a resize ends a motion on its way. `CanvasMotion` says how long it takes and how it is eased: 300 ms, easing out, unless told. The key is still the hash of all the drawing follows from: a change of it that is not one of the value (the point under the pointer, say) draws it again where it is, and does not start it over.
+
+```rust
+use std::{sync::Arc, time::Duration};
+use lurq::{canvas::{CanvasMotion, CanvasMove}, components::Canvas};
+
+let level: f32 = 0.7;
+let key = level.to_bits() as u64;
+Canvas::new()
+  .width(240.0)
+  .height(24.0)
+  .paint_moving(key, CanvasMotion::new(Duration::from_millis(240)), key, Arc::new(level), |canvas, at: CanvasMove<'_, f32>| {
+    let from = at.from.copied().unwrap_or(0.0);
+    let level = from + (*at.to - from) * at.progress;
+    let draw = canvas.context_2d();
+    draw.reset();
+    draw.set_fill_style("#60a5fa");
+    draw.fill_rect(0.0, 0.0, canvas.size().width * level, 24.0);
+  })
+```
+
+`Tree::has_moving_canvas()` says whether a drawing is on its way: a shell asks for frames at once while it is, at the display's pace, and a moving canvas is drawn again at the start of each pass without a layout.
+
 A test reaches a canvas by its element: `tree.get_element_by_id_mut("plot").and_then(|element| element.canvas())` is its `CanvasHandle`, its items and its status included.
 
 `Canvas::new()` has a 300 by 150 logical-pixel intrinsic size, subject to normal layout constraints. Width and height size the node. Padding reduces the drawable content rectangle. Bitmap dimensions are `ceil(content_size * display_scale)` on each axis. Drawing does not change layout size.

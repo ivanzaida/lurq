@@ -11,18 +11,18 @@ use std::{
 use parking_lot::Mutex;
 
 use super::{
-  ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartPart, ChartPlot, ChartPoint,
-  ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn, default_value_text, series_color,
-  step,
+  ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartMotion, ChartPart, ChartPlot,
+  ChartPoint, ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn, default_value_text,
+  series_color, step,
 };
 use crate::{
   app::{
     component::Component,
     ctx::Ctx,
     events::{KeyboardEvent, MouseEvent},
-    theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
+    theme::{BorderSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
-  canvas::CanvasHandle,
+  canvas::{CanvasHandle, CanvasMotion, CanvasMove},
   components::{Canvas, Column, Row, Stack},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
@@ -59,6 +59,8 @@ pub struct ChartProps {
   pub value_axis: Option<bool>,
   pub empty_text: Option<Arc<str>>,
   pub loading: bool,
+  /// Whether the plot stands still: drawn where it is, not moved in or to a change.
+  pub still: bool,
   pub on_select: Vec<Selected>,
   pub states: Vec<Name>,
   pub rules: Recipe,
@@ -207,6 +209,13 @@ macro_rules! chart_props {
     /// Whether the data is on its way: the plot is a skeleton.
     pub fn loading(mut self, loading: bool) -> Self {
       self.props.loading = loading;
+      self
+    }
+
+    /// Whether the plot moves: in as it is first shown, and to its new place when its data changes, for a short
+    /// while. On unless told; off, too, where motion is reduced.
+    pub fn motion(mut self, motion: bool) -> Self {
+      self.props.still = !motion;
       self
     }
 
@@ -393,11 +402,24 @@ impl ChartFrame {
     active.hash(&mut hasher);
     self.grid().hash(&mut hasher);
     let key = hasher.finish();
-    let (plot, look, grid) = (self.plot.clone(), self.look.clone(), self.grid());
+    let (look, grid) = (self.look.clone(), self.grid());
+    let paint = move |canvas: &CanvasHandle, at: CanvasMove<'_, Arc<dyn ChartPlot>>| {
+      let motion = ChartMotion {
+        from: at.from.map(|plot| &**plot),
+        progress: at.progress,
+      };
+      draw(canvas, &**at.to, &look, active, grid, motion)
+    };
+    // The plot moves in as it is first shown, and to a change of what it draws (its signature), not of the point
+    // under the pointer.
+    let motion = chart_motion(self.recipe.theme());
+    let motion = if self.props.still {
+      CanvasMotion::new(std::time::Duration::ZERO)
+    } else {
+      motion
+    };
     let mut canvas = Canvas::new()
-      .paint(key, move |canvas: &CanvasHandle| {
-        draw(canvas, &*plot, &look, active, grid)
-      })
+      .paint_moving(key, motion, self.plot.signature(), Arc::new(self.plot.clone()), paint)
       .width(Dimension::Pct(100.0))
       .height(Dimension::Pct(100.0))
       .part(&part)
@@ -816,7 +838,19 @@ fn at(x: f32, y: f32, child: Element) -> Row {
 }
 
 /// Draws `plot` on `canvas`, its grid first: what a chart's canvas is painted with.
-fn draw(canvas: &CanvasHandle, plot: &dyn ChartPlot, look: &ChartLook, active: Option<ChartPoint>, grid: bool) {
+/// How a chart's plot moves, in `theme`: for its slow duration, eased as what stays on screen and changes.
+pub fn chart_motion(theme: &Theme) -> CanvasMotion {
+  CanvasMotion::new(theme.duration_value(MotionDuration::Slow)).easing(theme.easing_value(MotionEasing::Standard))
+}
+
+fn draw(
+  canvas: &CanvasHandle,
+  plot: &dyn ChartPlot,
+  look: &ChartLook,
+  active: Option<ChartPoint>,
+  grid: bool,
+  motion: ChartMotion<'_>,
+) {
   let size = canvas.size();
   let area = ChartArea {
     width: size.width,
@@ -846,7 +880,8 @@ fn draw(canvas: &CanvasHandle, plot: &dyn ChartPlot, look: &ChartLook, active: O
       context.fill_rect(0.0, y, area.width, line);
     }
   }
-  plot.paint(&context, area, look, active);
+  plot.paint_moving(&context, area, look, active, motion);
+  // Tooling reads the data where it is, not where it is drawn on its way.
   canvas.set_items(plot.items(area, look));
 }
 
