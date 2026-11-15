@@ -123,6 +123,10 @@ pub enum TablePart {
   GroupCount,
   /// A summary row: at the bottom of the grid, where it stays, and at the end of each group open.
   Summary,
+  /// What a row shows under it while it is open, as wide as the view.
+  Detail,
+  /// What opens and closes a row of a tree, or its detail, at the start of its first cell: the chevron's room.
+  TreeToggle,
   /// The cell of a row's number, in the column of numbers at the start that stays, and the header's: pressed to
   /// select the row, or all of them.
   RowNumber,
@@ -166,6 +170,8 @@ names!(TablePart {
   GroupLabel => "group_label",
   GroupCount => "group_count",
   Summary => "summary",
+  Detail => "detail",
+  TreeToggle => "tree_toggle",
   RowNumber => "row_number",
   SummaryLabel => "summary_label",
   SummaryValue => "summary_value",
@@ -804,6 +810,11 @@ impl Default for Words {
   }
 }
 type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
+/// The key of the row a row is under in a tree, or `None` for a row at the top.
+type ParentFn<R, K> = Arc<dyn Fn(&R) -> Option<K> + Send + Sync>;
+type KeysWrite<K> = Arc<dyn Fn(Vec<K>) + Send + Sync>;
+type KeyOpenHeard<K> = Arc<dyn Fn(&K, bool) + Send + Sync>;
+type DetailFn<R> = Arc<dyn Fn(&R) -> Element + Send + Sync>;
 
 /// Rows of the same things in columns: crates and their status, files and their sizes, people and their
 /// roles. The columns of the header and of every row are the same widths whatever is in a cell.
@@ -912,6 +923,16 @@ pub struct Table<R, K = usize> {
   write_open: Option<OpenWrite>,
   on_open_change: Vec<OpenHeard>,
   grouping: Vec<TableColumn<R>>,
+  /// Where the rows are a tree: the row each is under, the rows open, what asks for others and who is told.
+  tree_parent: Option<ParentFn<R, K>>,
+  expanded: Vec<K>,
+  write_expanded: Option<KeysWrite<K>>,
+  on_expanded_change: Vec<KeyOpenHeard<K>>,
+  /// What a row shows under it while it is open, the rows open, what asks for others and who is told.
+  detail: Option<DetailFn<R>>,
+  details_open: Vec<K>,
+  write_details: Option<KeysWrite<K>>,
+  on_detail_change: Vec<KeyOpenHeard<K>>,
   /// Whether a grid has a column of the rows' numbers at its start.
   row_numbers: bool,
   checkboxes: bool,
@@ -983,6 +1004,14 @@ impl<R, K: Clone> Clone for Table<R, K> {
       open_groups: self.open_groups.clone(),
       write_open: self.write_open.clone(),
       on_open_change: self.on_open_change.clone(),
+      tree_parent: self.tree_parent.clone(),
+      expanded: self.expanded.clone(),
+      write_expanded: self.write_expanded.clone(),
+      on_expanded_change: self.on_expanded_change.clone(),
+      detail: self.detail.clone(),
+      details_open: self.details_open.clone(),
+      write_details: self.write_details.clone(),
+      on_detail_change: self.on_detail_change.clone(),
       grouping: self.grouping.clone(),
       row_numbers: self.row_numbers,
       checkboxes: self.checkboxes,
@@ -1064,6 +1093,14 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       open_groups: Vec::new(),
       write_open: None,
       on_open_change: Vec::new(),
+      tree_parent: None,
+      expanded: Vec::new(),
+      write_expanded: None,
+      on_expanded_change: Vec::new(),
+      detail: None,
+      details_open: Vec::new(),
+      write_details: None,
+      on_detail_change: Vec::new(),
       grouping: Vec::new(),
       row_numbers: false,
       checkboxes: true,
@@ -1140,6 +1177,15 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       open_groups: self.open_groups,
       write_open: self.write_open,
       on_open_change: self.on_open_change,
+      // What names rows by their keys starts again with the keys.
+      tree_parent: None,
+      expanded: Vec::new(),
+      write_expanded: None,
+      on_expanded_change: Vec::new(),
+      detail: self.detail,
+      details_open: Vec::new(),
+      write_details: None,
+      on_detail_change: Vec::new(),
       grouping: self.grouping,
       row_numbers: self.row_numbers,
       checkboxes: self.checkboxes,
@@ -1674,6 +1720,134 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self
   }
 
+  pub(super) fn set_tree(mut self, parent: impl Fn(&R) -> Option<K> + Send + Sync + 'static) -> Self {
+    self.tree_parent = Some(Arc::new(parent));
+    self
+  }
+
+  pub(super) fn set_expanded(mut self, open: Vec<K>, write: KeysWrite<K>) -> Self {
+    self.expanded = open;
+    self.write_expanded = Some(write);
+    self
+  }
+
+  pub(super) fn add_on_expanded_change(mut self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.on_expanded_change.push(Arc::new(handler));
+    self
+  }
+
+  pub(super) fn set_detail(mut self, detail: impl Fn(&R) -> Element + Send + Sync + 'static) -> Self {
+    self.detail = Some(Arc::new(detail));
+    self
+  }
+
+  pub(super) fn set_details_open(mut self, open: Vec<K>, write: KeysWrite<K>) -> Self {
+    self.details_open = open;
+    self.write_details = Some(write);
+    self
+  }
+
+  pub(super) fn add_on_detail_change(mut self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.on_detail_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Opens or closes the row `key`'s children, or its detail: asks for the keys open with it in or out, and tells
+  /// every handler.
+  fn key_toggle(
+    now: &[K],
+    write: &Option<KeysWrite<K>>,
+    heard: &[KeyOpenHeard<K>],
+  ) -> Arc<dyn Fn(&K, bool) + Send + Sync> {
+    let (now, write, heard) = (now.to_vec(), write.clone(), heard.to_vec());
+    Arc::new(move |key: &K, open: bool| {
+      if now.contains(key) == open {
+        return;
+      }
+      let mut next: Vec<K> = now.iter().filter(|held| *held != key).cloned().collect();
+      if open {
+        next.push(key.clone());
+      }
+      if let Some(write) = &write {
+        write(next);
+      }
+      for handler in &heard {
+        handler(key, open);
+      }
+    })
+  }
+
+  /// The rows at `filtered`, or every row, as a tree: each row after the row it is under, the rows under one in
+  /// their order, those of a closed row out. A row a filter keeps keeps the rows it is under; a row whose parent is
+  /// not among the rows is at the top.
+  fn tree_lines(&self, parent_of: &ParentFn<R, K>, filtered: Option<Vec<usize>>) -> Lines {
+    let count = self.rows.len();
+    let keys: Vec<K> = self
+      .rows
+      .iter()
+      .enumerate()
+      .map(|(index, row)| (self.key_of)(index, row))
+      .collect();
+    let index_of: HashMap<&K, usize> = keys.iter().enumerate().map(|(index, key)| (key, index)).collect();
+    let parent: Vec<Option<usize>> = self
+      .rows
+      .iter()
+      .enumerate()
+      .map(|(index, row)| {
+        parent_of(row)
+          .and_then(|key| index_of.get(&key).copied())
+          .filter(|at| *at != index)
+      })
+      .collect();
+    // The rows shown: those the filters keep, and every row above one of them.
+    let mut shown = vec![filtered.is_none(); count];
+    if let Some(kept) = &filtered {
+      for &index in kept {
+        let mut at = Some(index);
+        while let Some(index) = at.filter(|index| !shown[*index]) {
+          shown[index] = true;
+          at = parent[index];
+        }
+      }
+    }
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); count];
+    let mut tops = Vec::new();
+    for index in (0..count).filter(|index| shown[*index]) {
+      match parent[index] {
+        Some(above) if shown[above] => children[above].push(index),
+        _ => tops.push(index),
+      }
+    }
+    let open: HashSet<&K> = self.expanded.iter().collect();
+    let mut order = Vec::new();
+    let mut tree = groups::Tree::default();
+    let mut seen = vec![false; count];
+    // Depth first, from the last of the tops: a row is followed by those under it while it is open.
+    let mut stack: Vec<(usize, u32, Option<usize>)> = tops.iter().rev().map(|index| (*index, 0, None)).collect();
+    while let Some((index, level, above)) = stack.pop() {
+      if std::mem::replace(&mut seen[index], true) {
+        continue;
+      }
+      let rank = order.len();
+      order.push(index);
+      let branch = !children[index].is_empty();
+      let is_open = branch && open.contains(&keys[index]);
+      tree.level.push(level);
+      tree.parent.push(above);
+      tree.branch.push(branch);
+      tree.open.push(is_open);
+      if is_open {
+        stack.extend(
+          children[index]
+            .iter()
+            .rev()
+            .map(|child| (*child, level + 1, Some(rank))),
+        );
+      }
+    }
+    Lines::tree(order, tree)
+  }
+
   /// The columns the rows are grouped by, found among all of them: before a grid's arrangement hides any.
   fn find_grouping(&mut self) {
     self.grouping = self
@@ -1687,7 +1861,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// rows of the closed groups out.
   /// Whether its rows grow with what they hold: where a column wraps its text.
   fn tall(&self) -> bool {
-    self.columns.iter().any(|column| column.wrap)
+    self.detail.is_some() || self.columns.iter().any(|column| column.wrap)
   }
 
   /// The places of the rows every filter lets through, in their order: `None` where no filter is on a column that
@@ -1727,11 +1901,26 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     let passed = self.filtered().map(Arc::new);
     let mut lines = self.laid_out(passed.as_deref().cloned());
     lines.passed = passed;
+    // The detail of each row open, under it.
+    if self.detail.is_some() && !self.details_open.is_empty() {
+      let open: HashSet<&K> = self.details_open.iter().collect();
+      let opened: Vec<bool> = (0..lines.ranks())
+        .map(|rank| {
+          lines
+            .row_of_rank(rank)
+            .is_some_and(|index| open.contains(&(self.key_of)(index, &self.rows[index])))
+        })
+        .collect();
+      lines = lines.with_details(|rank| opened[rank]);
+    }
     lines
   }
 
   /// The lines of the rows at `filtered`, or of every row.
   fn laid_out(&self, filtered: Option<Vec<usize>>) -> Lines {
+    if let Some(parent) = self.tree_parent.as_ref().filter(|_| self.grouping.is_empty()) {
+      return self.tree_lines(parent, filtered);
+    }
     if self.grouping.is_empty() {
       return match filtered {
         Some(order) => Lines::rows(Arc::new(order)),
@@ -2033,7 +2222,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         key_index,
       )
     };
-    let grouped = !lines.groups.is_empty() || !self.grouping.is_empty();
+    let grouped = !lines.groups.is_empty() || !self.grouping.is_empty() || lines.tree.is_some();
     let ranked = keys.clone();
     let model = Arc::new(Model {
       keys: keys.clone(),
@@ -2345,6 +2534,48 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .fills_in(theme),
       )
     };
+    // A row of a tree opens and closes the rows under it, a row with a detail its detail: by its rank, through the
+    // app's keys open.
+    let by_rank = |toggle: Arc<dyn Fn(&K, bool) + Send + Sync>| {
+      let keys = keys.clone();
+      Arc::new(move |rank: usize, open: bool| {
+        if let Some(key) = keys.get(rank) {
+          toggle(&key, open);
+        }
+      }) as Arc<dyn Fn(usize, bool) + Send + Sync>
+    };
+    let tree_toggle = lines.tree.as_ref().map(|_| {
+      by_rank(Self::key_toggle(
+        &self.expanded,
+        &self.write_expanded,
+        &self.on_expanded_change,
+      ))
+    });
+    let detail_toggle = self.detail.as_ref().map(|_| {
+      by_rank(Self::key_toggle(
+        &self.details_open,
+        &self.write_details,
+        &self.on_detail_change,
+      ))
+    });
+    if let Some(host) = window.as_ref().and_then(|window| window.host.as_ref()) {
+      *host.state.tree_toggle.lock() = tree_toggle.clone();
+      *host.state.detail_toggle.lock() = detail_toggle.clone();
+    }
+    let details_now: HashSet<&K> = self.details_open.iter().collect();
+    // What opens a row in its first cell: the tree's, or the detail's where the rows are no tree.
+    let opener = |rank: usize, index: usize| -> Option<(u32, Option<bool>, Arc<dyn Fn(usize, bool) + Send + Sync>)> {
+      match (&lines.tree, &tree_toggle, &detail_toggle) {
+        (Some(tree), Some(toggle), _) => Some((
+          tree.level.get(rank).copied().unwrap_or(0),
+          tree.branch.get(rank).copied().unwrap_or(false).then(|| tree.open[rank]),
+          toggle.clone(),
+        )),
+        (None, _, Some(toggle)) => Some((0, Some(details_now.contains(&keys.at(index))), toggle.clone())),
+        _ => None,
+      }
+    };
+    let toggle_part = recipe.part(TablePart::TreeToggle).forced(self.forced);
     let rows = shown
       .iter()
       .filter_map(|&position| {
@@ -2419,6 +2650,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               }
               Some(Slot::Failed) => Row::new().into(),
               _ => content,
+            };
+            // The first column's cell of a row of a tree: its level's indent, and the chevron that opens and closes
+            // the rows under it (room for one where there are none); of a row with a detail, the detail's chevron.
+            let content = match opener(rank, index).filter(|_| column_index == 0) {
+              Some((level, open, toggle)) => tree_cell(&toggle_part, level, open, rank, toggle, content, column.wrap),
+              None => content,
             };
             let grid = grid_model.as_ref().map(|grid| {
               let editable = !self.read_only && !self.disabled && column.editor.is_some();
@@ -2514,6 +2751,12 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         TableRow {
           index,
           position,
+          tree: lines.tree.as_ref().map(|tree| {
+            (
+              tree.level.get(rank).copied().unwrap_or(0) + 1,
+              tree.branch.get(rank).copied().unwrap_or(false).then(|| tree.open[rank]),
+            )
+          }),
           number: numbered.then_some(rank + 1),
           number_lead,
           selected,
@@ -2543,6 +2786,43 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         }
       })
       .collect();
+
+    // The details of the rows open, built where their lines are: as wide as the view and staying in it while the
+    // columns scroll sideways, measured as they are laid out.
+    let view_width = window
+      .as_ref()
+      .and_then(|window| window.host.as_ref())
+      .map_or(0.0, |host| host.state.scroll.viewport_width());
+    let detail_part = recipe.part(TablePart::Detail).forced(self.forced);
+    let details: Vec<(usize, Element)> = match &self.detail {
+      Some(detail) => shown
+        .iter()
+        .filter_map(|&position| {
+          let Some(Shown::Detail(rank)) = lines.line(position) else {
+            return None;
+          };
+          let index = lines.row_of_rank(rank)?;
+          let mut line = Row::new()
+            .part(&detail_part)
+            .align_items(Alignment::Start)
+            // What is in it is reached with Tab; the arrows go from row to row past it.
+            .focus_group(FocusGroup::none())
+            .key(format!("detail-{index}"))
+            .child(detail(&self.rows[index]));
+          if let Some(element) = window.as_ref().and_then(|window| window.refs.get(&position)) {
+            line = line.ref_element(element.clone());
+          }
+          if view_width > 0.0 {
+            line = line.width(Dimension::Px(view_width)).sticky(Sticky::left(0.0));
+          }
+          if let Some(id) = id_of(&format!("detail-{index}")) {
+            line = line.id(id);
+          }
+          Some((position, line.into()))
+        })
+        .collect(),
+      None => Vec::new(),
+    };
 
     // A mounted grid's headers have a menu, are dragged to another place, and are found by where they are.
     let menu_host = grid_host.as_ref().filter(|_| self.column_menu && !self.disabled);
@@ -2922,6 +3202,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       rows,
       groups,
       grouped,
+      details,
       summaries,
       summary,
       numbered,
@@ -3217,6 +3498,8 @@ pub struct TableView {
   pub groups: Vec<TableGroup>,
   /// Whether the rows are grouped: the body is a nested list, Right opening a group and Left closing it.
   pub grouped: bool,
+  /// The details of the rows open that are built, each with its line.
+  details: Vec<(usize, Element)>,
   /// The summary rows at the end of the groups open that are built, each with its line.
   pub summaries: Vec<TableSummary>,
   /// The grid's summary row, which stays at its bottom.
@@ -3431,6 +3714,7 @@ impl TableView {
           .into_iter()
           .map(|summary| (summary.position.unwrap_or(0), summary.render())),
       )
+      .chain(std::mem::take(&mut self.details))
       .collect();
     lines.sort_by_key(|(position, _)| *position);
     let group = FocusGroup::vertical().one_stop(true).wrap(false).nested(self.grouped);
@@ -4287,11 +4571,59 @@ impl TableCell {
   }
 }
 
+/// The content of a row's first cell in a tree, or of a row with a detail: indented 18 a level, after the chevron
+/// that opens and closes it (right closed, down open), or the chevron's room where it does not open; 6 between.
+fn tree_cell(
+  part: &ResolvedPart,
+  level: u32,
+  open: Option<bool>,
+  rank: usize,
+  toggle: Arc<dyn Fn(usize, bool) + Send + Sync>,
+  content: Element,
+  wraps: bool,
+) -> Element {
+  let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Sm));
+  let chevron: Element = match open {
+    Some(open) => Row::new()
+      .part(part)
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .child(
+        super::Icon::new(Name::new(if open {
+          icons::CHEVRON_DOWN
+        } else {
+          icons::CHEVRON_RIGHT
+        }))
+        .size(side)
+        .build(part.theme()),
+      )
+      .on_click(move |event: MouseEvent| {
+        // A press of it is its own: it does not select or activate the row.
+        event.stop_propagation();
+        toggle(rank, !open);
+      })
+      .into(),
+    None => Row::new().part(part).into(),
+  };
+  let mut cell = Row::new()
+    .align_items(Alignment::Center)
+    .spacing(6.0)
+    .padding_left(18.0 * level as f32)
+    .child(chevron)
+    .child(content);
+  if wraps {
+    cell = cell.flex_full(1.0, 1.0, Some(0.0)).min_width(Dimension::Px(0.0));
+  }
+  cell.into()
+}
+
 /// One row as a renderer sees it: where it is, whether it is selected, its cells, the style of its parts,
 /// and its behavior ready to be dressed.
 pub struct TableRow {
   /// Its place among the rows, from 0.
   pub index: usize,
+  /// Where the rows are a tree: its level, from 1, and whether it is open where rows are under it.
+  pub tree: Option<(u32, Option<bool>)>,
   /// Its line among the lines shown, the groups' rows counted: its place where the rows are not grouped.
   pub position: usize,
   /// Its number, from 1 among the rows shown, where the grid shows them, and how wide their track is.
@@ -4355,6 +4687,12 @@ impl TableRow {
       .describe("a11y_rowindex", (self.position + 2).to_string())
       // A row is the same element wherever the rows built around it start.
       .key(format!("row-{}", self.index));
+    if let Some((level, open)) = self.tree {
+      row = row.describe("a11y_level", level.to_string());
+      if let Some(open) = open {
+        row = row.describe("a11y_expanded", if open { "true" } else { "false" });
+      }
+    }
     if self.grows {
       let least = px(self.part(TablePart::Row).rest().height, self.recipe.theme()).unwrap_or(0.0);
       row = row.height(Dimension::Auto).min_height(least);
@@ -4709,6 +5047,11 @@ trait GridCells: Send + Sync {
   fn export(&self, scope: ExportScope, format: ExportFormat) -> (String, usize);
   /// Whether there is anything selected to write out: rows, or a range of cells.
   fn has_selection(&self) -> bool;
+  /// What opens the row: whether it is open where it opens (a row of a tree with rows under it, or a row with a
+  /// detail), and the row it is under in a tree. `None` where the rows are no tree and have no detail.
+  fn opener(&self, row: usize) -> Option<(Option<bool>, Option<usize>)>;
+  /// Opens or closes the row: the rows under it in a tree, or its detail.
+  fn open_row(&self, row: usize, open: bool);
 }
 
 /// The cells of a grid as its host works them.
@@ -4973,6 +5316,27 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Gri
     self.export_rows(scope, format)
   }
 
+  fn opener(&self, row: usize) -> Option<(Option<bool>, Option<usize>)> {
+    if let Some(tree) = &self.lines.tree {
+      let open = tree.branch.get(row).copied().unwrap_or(false).then(|| tree.open[row]);
+      return Some((open, tree.parent.get(row).copied().flatten()));
+    }
+    self.host.detail_toggle.lock().as_ref()?;
+    let position = self.lines.position_of(row)?;
+    Some((Some(self.lines.line(position + 1) == Some(Shown::Detail(row))), None))
+  }
+
+  fn open_row(&self, row: usize, open: bool) {
+    let toggle = if self.lines.tree.is_some() {
+      self.host.tree_toggle.lock().clone()
+    } else {
+      self.host.detail_toggle.lock().clone()
+    };
+    if let Some(toggle) = toggle {
+      toggle(row, open);
+    }
+  }
+
   fn has_selection(&self) -> bool {
     self.span.is_some() || self.model.selected.iter().any(|key| self.keys.rank_of(key).is_some())
   }
@@ -5186,6 +5550,32 @@ impl GridCell {
         grid.extend(Some((row, column)), to);
         return;
       }
+      // In the first column Right opens a row of a tree, or its detail, and Left closes it, or goes to the row it is
+      // under.
+      if column == 0
+        && !command
+        && !event.shift
+        && let Some((open, parent)) = grid.opener(row)
+      {
+        match (event.key.as_str(), open, parent) {
+          ("ArrowRight", Some(false), _) => {
+            event.prevent_default();
+            grid.open_row(row, true);
+            return;
+          }
+          ("ArrowLeft", Some(true), _) => {
+            event.prevent_default();
+            grid.open_row(row, false);
+            return;
+          }
+          ("ArrowLeft", _, Some(parent)) => {
+            event.prevent_default();
+            grid.move_to(parent, 0);
+            return;
+          }
+          _ => {}
+        }
+      }
       match event.key.as_str() {
         "Enter" | "F2" if !command && editable && !checkbox => {
           event.prevent_default();
@@ -5335,7 +5725,7 @@ impl FocusRows for HostState {
   }
 
   fn enabled(&self, row: usize) -> bool {
-    !self.metrics.lock().disabled && !matches!(self.lines.lock().line(row), Some(Shown::Summary(_)))
+    !self.metrics.lock().disabled && !matches!(self.lines.lock().line(row), Some(Shown::Summary(_) | Shown::Detail(_)))
   }
 
   fn level(&self, row: usize) -> u32 {
@@ -5346,13 +5736,25 @@ impl FocusRows for HostState {
     let lines = self.lines.lock();
     match lines.line(row)? {
       Shown::Group(group) => Some(lines.groups[group].open),
-      Shown::Row(_) | Shown::Summary(_) => None,
+      // A row of a tree that has rows under it.
+      Shown::Row(rank) => {
+        let tree = lines.tree.as_ref()?;
+        tree.branch.get(rank).copied().unwrap_or(false).then(|| tree.open[rank])
+      }
+      Shown::Summary(_) | Shown::Detail(_) => None,
     }
   }
 
   fn set_expanded(&self, row: usize, open: bool) {
     let group = match self.lines.lock().line(row) {
       Some(Shown::Group(group)) => group,
+      Some(Shown::Row(rank)) => {
+        let toggle = self.tree_toggle.lock().clone();
+        if let Some(toggle) = toggle {
+          toggle(rank, open);
+        }
+        return;
+      }
       _ => return,
     };
     let toggle = self.group_toggle.lock().clone();
@@ -5417,7 +5819,7 @@ struct Metrics {
 /// The lines a mounted table laid out, and what they were laid out for.
 type KeptLines = (
   Arc<dyn std::any::Any + Send + Sync>,
-  (Vec<Arc<str>>, Vec<GroupKey>, bool, TableFilters),
+  (Vec<Arc<str>>, Vec<GroupKey>, bool, TableFilters, u64),
   Arc<Lines>,
 );
 
@@ -5497,6 +5899,9 @@ struct HostState {
   source: Mutex<Option<Box<dyn std::any::Any + Send>>>,
   source_query: Mutex<Option<(GridQuery, Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>)>>,
   group_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
+  /// Opens or closes the rows under the row of a rank, in a tree; and its detail.
+  tree_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
+  detail_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
@@ -5666,6 +6071,9 @@ struct TableHost<R, K> {
   own_layout: Arc<Mutex<Option<ColumnLayout>>>,
   /// The groups open of a table whose app holds none.
   own_open: Arc<Mutex<Vec<GroupKey>>>,
+  /// The rows of a tree open, and the rows whose detail is open, where the app holds none.
+  own_expanded: Arc<Mutex<Vec<K>>>,
+  own_details: Arc<Mutex<Vec<K>>>,
   _marker: PhantomData<fn() -> R>,
 }
 
@@ -5771,6 +6179,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         source: Mutex::new(None),
         source_query: Mutex::new(None),
         group_toggle: Mutex::new(None),
+        tree_toggle: Mutex::new(None),
+        detail_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
         revision: ctx.signal(0_u64),
@@ -5778,6 +6188,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       own_range: Arc::new(Mutex::new(None)),
       own_layout: Arc::new(Mutex::new(None)),
       own_open: Arc::new(Mutex::new(Vec::new())),
+      own_expanded: Arc::new(Mutex::new(Vec::new())),
+      own_details: Arc::new(Mutex::new(Vec::new())),
       _marker: PhantomData,
     }
     .started(ctx)
@@ -5820,6 +6232,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       table.open_groups = self.own_open.lock().clone();
       let (own, state) = (self.own_open.clone(), self.state.clone());
       table.write_open = Some(Arc::new(move |next| {
+        *own.lock() = next;
+        state.rebuild();
+      }));
+    }
+    // The rows of a tree open, and the details, that a table whose app holds none keeps itself.
+    if table.tree_parent.is_some() && table.write_expanded.is_none() {
+      table.expanded = self.own_expanded.lock().clone();
+      let (own, state) = (self.own_expanded.clone(), self.state.clone());
+      table.write_expanded = Some(Arc::new(move |next| {
+        *own.lock() = next;
+        state.rebuild();
+      }));
+    }
+    if table.detail.is_some() && table.write_details.is_none() {
+      table.details_open = self.own_details.lock().clone();
+      let (own, state) = (self.own_details.clone(), self.state.clone());
+      table.write_details = Some(Arc::new(move |next| {
         *own.lock() = next;
         state.rebuild();
       }));
@@ -5884,6 +6313,14 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         table.open_groups.clone(),
         table.summarized(),
         table.filters.clone(),
+        {
+          // The tree's rows open and the details open, as one number.
+          use std::hash::Hasher;
+          let mut hasher = std::collections::hash_map::DefaultHasher::new();
+          (table.tree_parent.is_some(), &table.expanded).hash(&mut hasher);
+          (table.detail.is_some(), &table.details_open).hash(&mut hasher);
+          hasher.finish()
+        },
       );
       match &*kept {
         Some((rows, held, lines))
@@ -6310,6 +6747,23 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .pressed(TablePart::GroupRow, |s| s.veil(StatePressed))
       .focus_visible(TablePart::GroupRow, |s| s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0)))
       .base(TablePart::Chevron, |s| s.square(IconSize::Sm).foreground(MutedForeground))
+      // A row's detail: on the muted fill under its row, 12 down and 16 across, the line under it a row's.
+      .base(TablePart::Detail, |s| {
+        s.padding_x(16.0)
+          .padding_y(12.0)
+          .background(Muted)
+          .underline(line())
+      })
+      // The chevron of a row of a tree or of a row with a detail, 6 before the cell's content, pressed.
+      .base(TablePart::TreeToggle, |s| {
+        fading(
+          s.square(IconSize::Sm)
+            .radius(RadiusSize::Sm)
+            .cursor(CursorIcon::Pointer)
+            .foreground(MutedForeground),
+        )
+      })
+      .hovered(TablePart::TreeToggle, |s| s.foreground(Foreground))
       .base(TablePart::GroupLabel, |s| {
         s.typography(TypographyStyle::Body)
           .font_size(13.0)

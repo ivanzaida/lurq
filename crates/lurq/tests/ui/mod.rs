@@ -29,6 +29,7 @@ mod context_menu;
 mod data_grid;
 mod data_grid_editing;
 mod data_grid_scale;
+mod data_grid_tree;
 mod data_list;
 mod date_field;
 mod date_picker;
