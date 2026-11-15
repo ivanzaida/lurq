@@ -35,6 +35,7 @@ mod heights;
 mod keys;
 mod range;
 mod search;
+mod source;
 mod summary;
 mod text;
 
@@ -42,7 +43,7 @@ pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
 pub use filtering::FilterLabels;
 use filtering::{FilterLink, FilterShape, FilterState, MOST_VALUES};
-pub use filters::{ColumnFilter, TableFilters, TextMatch};
+pub use filters::{ColumnFilter, GridQuery, TableFilters, TextMatch};
 use filters::{FilterBy, Test};
 pub use groups::{GroupKey, TableGroup};
 use groups::{Lines, Shown};
@@ -52,6 +53,8 @@ pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
 pub use search::SearchMatches;
 use search::{Found, SearchState};
+pub use source::{GridPage, GridRequest, SourceRow};
+use source::{RowSource, Slot};
 use summary::{Said, Summary, SummaryKey, summarize, summary_content};
 pub use summary::{SummaryKind, SummaryLabels, TableSummary};
 pub use text::TableTextError;
@@ -708,6 +711,10 @@ type OpenWrite = Arc<dyn Fn(Vec<GroupKey>) + Send + Sync>;
 type OpenHeard = Arc<dyn Fn(&GroupKey, bool) + Send + Sync>;
 /// What says the count of the footer, given how many rows there are and how many are selected where they are.
 type CountFn = Arc<dyn Fn(TableCount) -> String + Send + Sync>;
+type SlotsLink = (
+  Arc<dyn Fn(usize) -> Slot + Send + Sync>,
+  Arc<dyn Fn(usize) + Send + Sync>,
+);
 
 /// What the footer's count of a table says it of: how many rows it shows, how many there are, and how many are
 /// selected where it selects.
@@ -753,6 +760,23 @@ struct Words {
   summary: Arc<SummaryLabels>,
   numbers: Arc<str>,
   filter: Arc<FilterLabels>,
+  source: Arc<SourceLabels>,
+}
+
+/// The words of a grid over rows the app gives on demand: what a row whose range failed says, and its button.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceLabels {
+  pub failed: String,
+  pub retry: String,
+}
+
+impl Default for SourceLabels {
+  fn default() -> Self {
+    Self {
+      failed: "These rows could not be loaded".into(),
+      retry: "Retry".into(),
+    }
+  }
 }
 
 type GroupLabelFn = Arc<dyn Fn(&str, &str, usize) -> String + Send + Sync>;
@@ -771,6 +795,7 @@ impl Default for Words {
       summary: Arc::default(),
       numbers: Arc::from("#"),
       filter: Arc::default(),
+      source: Arc::default(),
     }
   }
 }
@@ -843,6 +868,10 @@ pub struct Table<R, K = usize> {
   on_matches_change: Vec<Arc<dyn Fn(SearchMatches) + Send + Sync>>,
   find_bar: bool,
   find_bar_with: Option<Arc<dyn Fn(super::find_bar::FindBar) -> super::find_bar::FindBar + Send + Sync>>,
+  source: Option<Arc<dyn RowSource<R>>>,
+  on_query_change: Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>,
+  /// Over a source, as a render finds them: where each row's range is, and what asks for a failed one again.
+  slots: Option<SlotsLink>,
   selected: Vec<K>,
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
   on_selection_change: Vec<SelectionHeard<K>>,
@@ -919,6 +948,9 @@ impl<R, K: Clone> Clone for Table<R, K> {
       on_matches_change: self.on_matches_change.clone(),
       find_bar: self.find_bar,
       find_bar_with: self.find_bar_with.clone(),
+      source: self.source.clone(),
+      on_query_change: self.on_query_change.clone(),
+      slots: self.slots.clone(),
       selected: self.selected.clone(),
       select: self.select.clone(),
       on_selection_change: self.on_selection_change.clone(),
@@ -995,6 +1027,9 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_matches_change: Vec::new(),
       find_bar: false,
       find_bar_with: None,
+      source: None,
+      on_query_change: Vec::new(),
+      slots: None,
       selected: Vec::new(),
       select: None,
       on_selection_change: Vec::new(),
@@ -1066,6 +1101,9 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       on_matches_change: self.on_matches_change,
       find_bar: self.find_bar,
       find_bar_with: self.find_bar_with,
+      source: self.source,
+      on_query_change: self.on_query_change,
+      slots: self.slots,
       selected: Vec::new(),
       select: None,
       on_selection_change: Vec::new(),
@@ -1240,6 +1278,19 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     with: impl Fn(super::find_bar::FindBar) -> super::find_bar::FindBar + Send + Sync + 'static,
   ) -> Self {
     self.find_bar_with = Some(Arc::new(with));
+    self
+  }
+
+  /// Called with the sort, the filters and the search the rows are asked by, each time a person changes one, where
+  /// the app gives the rows on demand ([`DataGrid::on_demand`](super::DataGrid::on_demand)).
+  pub fn on_query_change(mut self, handler: impl Fn(&GridQuery) + Send + Sync + 'static) -> Self {
+    self.on_query_change.push(Arc::new(handler));
+    self
+  }
+
+  /// The words of rows the app gives on demand: what a range that failed says, and its button.
+  pub fn source_labels(mut self, labels: SourceLabels) -> Self {
+    self.words.source = Arc::new(labels);
     self
   }
 
@@ -1609,6 +1660,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// The places of the rows every filter lets through, in their order: `None` where no filter is on a column that
   /// filters.
   fn filtered(&self) -> Option<Vec<usize>> {
+    // Over a source the app filters the rows it gives.
+    if self.source.is_some() {
+      return None;
+    }
     let tests: Vec<Test<R>> = self
       .filters
       .iter()
@@ -2264,6 +2319,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       })
       .map(|(position, rank, index)| {
         let row = &self.rows[index];
+        // Over a source: a row whose range has not come is a skeleton, one whose range failed says so.
+        let slot = self.slots.as_ref().map(|(slots, _)| slots(index));
+        let first_built = (0..self.columns.len()).find(|column| built(*column));
         let selected = selectable && held_now.contains(&keys.at(index));
         let last = position + 1 == line_count && !footer;
         let recipe = row_recipe(selected, last);
@@ -2305,6 +2363,28 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 )
                 .into(),
               (Content::Nothing, _) => Row::new().into(),
+            };
+            let content = match slot {
+              Some(Slot::Pending) => Skeleton::block(Length::Fill, 12.0).build(theme),
+              Some(Slot::Failed) if Some(column_index) == first_built => {
+                let retry = self.slots.as_ref().map(|(_, retry)| retry.clone());
+                let mut said = Row::new()
+                  .spacing(8.0)
+                  .align_items(Alignment::Center)
+                  .child(part.text(&self.words.source.failed).nowrap());
+                if let Some(retry) = retry {
+                  said = said.child(
+                    super::button::Button::new(&self.words.source.retry)
+                      .variant(super::button::ButtonVariant::Ghost)
+                      .size(super::button::ButtonSize::Sm)
+                      .on_click(move |_| retry(index))
+                      .build(theme),
+                  );
+                }
+                said.into()
+              }
+              Some(Slot::Failed) => Row::new().into(),
+              _ => content,
             };
             let grid = grid_model.as_ref().map(|grid| {
               let editable = !self.read_only && !self.disabled && column.editor.is_some();
@@ -5282,6 +5362,9 @@ struct HostState {
   find_case: Signal<bool>,
   find_word: Signal<bool>,
   find_regex: Signal<bool>,
+  /// What the grid keeps of the rows the app gives on demand, and the query the app is yet to hear of.
+  source: Mutex<Option<Box<dyn std::any::Any + Send>>>,
+  source_query: Mutex<Option<(GridQuery, Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>)>>,
   group_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
@@ -5456,6 +5539,15 @@ struct TableHost<R, K> {
 }
 
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> TableHost<R, K> {
+  /// Makes the requests of the rows the app gives on demand, where it gives them so.
+  fn started(self, ctx: &mut Ctx) -> Self {
+    let source = ctx.props::<TableProps<R, K>>().table.lock().source.clone();
+    if let Some(source) = source {
+      source.start(ctx, &mut self.state.source.lock());
+    }
+    self
+  }
+
   /// The find bar over the grid: its query the grid's search, its count the matches, its arrows the next match
   /// and the one before.
   fn find_bar(&self, ctx: &mut Ctx, table: &Table<R, K>) -> Element {
@@ -5536,6 +5628,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         find_case: ctx.signal(false),
         find_word: ctx.signal(false),
         find_regex: ctx.signal(false),
+        source: Mutex::new(None),
+        source_query: Mutex::new(None),
         group_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
@@ -5546,10 +5640,26 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
       own_open: Arc::new(Mutex::new(Vec::new())),
       _marker: PhantomData,
     }
+    .started(ctx)
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let mut table = ctx.props::<TableProps<R, K>>().table.lock().clone();
+    // Over a source the rows are those that have come for the sort, the filters and the search asked for: the
+    // groups are not the grid's to make.
+    if let Some(source) = table.source.clone() {
+      let query = GridQuery {
+        sort: table.sort.clone(),
+        filters: table.filters.clone(),
+        search: table.search.to_string(),
+      };
+      let (rows, _) = source.rows(&mut self.state.source.lock(), &query);
+      table.rows = rows;
+      table.group_by.clear();
+      if let Some(query) = source.untold(&mut self.state.source.lock()) {
+        *self.state.source_query.lock() = Some((query, table.on_query_change.clone()));
+      }
+    }
     let _ = self.state.revision.get();
     // The widths a person made the columns are the table's.
     table.resized = Arc::new(self.state.resized.lock().clone());
@@ -5681,7 +5791,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     *state.columns_built.lock() = columns_built.clone();
 
     // The matches of the search in the rows shown, kept while nothing they are found in changes.
-    let searched = (!table.search.is_empty()).then(|| {
+    let searched = (!table.search.is_empty() && table.source.is_none()).then(|| {
       let options = super::highlight::FindOptions {
         match_case: state.find_case.get() || table.search_options.match_case,
         whole_word: state.find_word.get() || table.search_options.whole_word,
@@ -5811,6 +5921,22 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         search: searched.clone(),
       }
     });
+    // Over a source: the ranges of the rows built are asked for, and the view is told where each range is.
+    let slots = table.source.clone().map(|source| {
+      if let Some(window) = &window
+        && let (Some(first), Some(last)) = (window.indices.first(), window.indices.last())
+      {
+        source.want(&mut state.source.lock(), *first, *last);
+      }
+      let slots = source.slots(&mut state.source.lock());
+      let (again, retried) = (source.clone(), state.clone());
+      let retry: Arc<dyn Fn(usize) + Send + Sync> = Arc::new(move |index| {
+        again.retry(&mut retried.source.lock(), index);
+        retried.rebuild();
+      });
+      (slots, retry)
+    });
+    table.slots = slots;
     let find = table.find_bar.then(|| self.find_bar(ctx, &table));
     let view = table.view(&theme, tracks, window);
     let element = match theme.renderer::<Table<R, K>>() {
@@ -5846,6 +5972,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     // A scroll the handler did not see (the bar dragged, a row scrolled into view) or a height first known.
     if self.state.needs_rows() || self.state.needs_columns(self.state.scroll.scroll_x()) {
       self.state.rebuild();
+    }
+    // The app hears what the rows are asked by, once a person has changed it.
+    let props_source = self.state.source_query.lock().take();
+    if let Some((query, heard)) = props_source {
+      for handler in &heard {
+        handler(&query);
+      }
     }
     // The app hears how many matches the search has once the render that found them is laid out.
     let untold = self.state.search.lock().untold();
