@@ -855,3 +855,28 @@ fn tooling_reads_a_tab_list_of_tabs_with_their_close_buttons() {
     Some("Nouvel onglet")
   );
 }
+
+#[test]
+fn a_press_that_selects_another_tab_leaves_the_focus_on_it_and_the_arrows_go_on_from_it() {
+  let (mut stage, value, _) = told_stage(true, true);
+  let node = |stage: &mut Stage| stage.tree.get_element_by_id_mut("canvas").unwrap().node_id();
+  let before = node(&mut stage);
+  stage.click("canvas");
+  assert_eq!(value.get(), 2);
+  assert_eq!(
+    node(&mut stage),
+    before,
+    "the tab is the same element as it becomes the selected one"
+  );
+  let focused = stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned));
+  assert_eq!(focused.as_deref(), Some("canvas"), "the pressed tab has the focus");
+  stage.key("ArrowLeft");
+  let focused = stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned));
+  assert_eq!(focused.as_deref(), Some("theme"), "and the arrows go on from it");
+}

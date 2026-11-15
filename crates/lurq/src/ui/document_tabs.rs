@@ -730,6 +730,9 @@ struct Kept {
   drag: Signal<Option<Drag>>,
   /// Whether each tab's context menu is open, by the tab's key.
   menus: Arc<Mutex<HashMap<Arc<str>, Signal<bool>>>>,
+  /// The key of the tab the focus goes to after the next render: one chosen from the menu of what did not fit,
+  /// which was not in the bar to be focused.
+  focus: Signal<Option<Arc<str>>>,
 }
 
 impl Kept {
@@ -881,12 +884,25 @@ impl Component for DocumentTabsHost {
         refs: Arc::new(Mutex::new(Vec::new())),
         drag: ctx.signal(None),
         menus: Arc::new(Mutex::new(HashMap::new())),
+        focus: ctx.signal(None),
       },
     }
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let DocumentTabsProps { tabs } = ctx.props::<DocumentTabsProps>().clone();
+    // A tab chosen from the menu comes back into the bar: the focus goes to it once the layout has it there (a
+    // dropped tab takes no focus), after the menu has given it back to the More button as it closed.
+    if let Some(key) = self.kept.focus.get() {
+      match tabs.tabs.iter().position(|tab| tab.key == key) {
+        Some(index) if self.kept.dropped.get().get(index).copied().unwrap_or(false) => {}
+        Some(index) => {
+          self.kept.focus.set(None);
+          ctx.focus(&self.kept.refs(tabs.tabs.len())[index]);
+        }
+        None => self.kept.focus.set(None),
+      }
+    }
     tabs.build(&current_theme(), Some(self.kept.clone()))
   }
 }
@@ -1060,10 +1076,9 @@ impl DocumentTabsView {
       _ => tab.into(),
     };
     if let Some(kept) = &self.kept
-      && droppable(entry)
       && let Some(at) = self.refs.get(index)
     {
-      element = self.dropping(element, kept, at.clone(), index);
+      element = self.place(element, kept, at.clone(), index, droppable(entry));
     }
     element
   }
@@ -1190,8 +1205,10 @@ impl DocumentTabsView {
       })
   }
 
-  /// A tab that leaves the bar, the last first, where the bar is too narrow, and says so through its ref.
-  fn dropping(&self, element: Element, kept: &Kept, at: ElementRef, index: usize) -> Element {
+  /// A tab in its place in the bar, the same element whether it may leave the bar or not, so that the tab keeps the
+  /// focus as it becomes the one shown. One that `drops` leaves the bar, the last first, where the bar is too
+  /// narrow, and says so through its ref.
+  fn place(&self, element: Element, kept: &Kept, at: ElementRef, index: usize, drops: bool) -> Element {
     let (dropped, open, count) = (kept.dropped.clone(), kept.open.clone(), self.tabs.len());
     at.observe_rect(move |rect| {
       let now = rect.width <= 0.0 && rect.height <= 0.0;
@@ -1206,13 +1223,13 @@ impl DocumentTabsView {
         }
       }
     });
-    Row::new()
-      .align_items(Alignment::Stretch)
-      .overflow_visible()
-      .flex_shrink(1.0)
-      .shrink_limit(ShrinkLimit::Drop)
-      .child(element)
-      .into()
+    let place = Row::new().align_items(Alignment::Stretch).overflow_visible();
+    let place = if drops {
+      place.flex_shrink(1.0).shrink_limit(ShrinkLimit::Drop)
+    } else {
+      place
+    };
+    place.child(element).into()
   }
 
   /// The new tab button, where the bar has `on_add`.
@@ -1271,10 +1288,13 @@ impl DocumentTabsView {
       if !self.dropped[index] {
         continue;
       }
-      let select = entry.select.clone();
+      let (select, focus, key) = (entry.select.clone(), kept.focus.clone(), entry.key.clone());
       let mut item = MenuItem::new(&entry.label)
         .disabled(self.disabled || entry.disabled)
-        .on_select(move || select());
+        .on_select(move || {
+          select();
+          focus.set(Some(key.clone()));
+        });
       if let Some(icon) = entry.icon {
         item = item.icon(icon);
       }
