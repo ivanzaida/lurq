@@ -83,6 +83,31 @@ impl Stage {
     stage
   }
 
+  /// A window of `width` by `height` that renders `scene`, with one frame painted and no more: what the first frame
+  /// shows, before anything settles in a second one.
+  pub fn first_frame(width: f32, height: f32, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
+    let mut app = App::new();
+    let mut tree = Tree::new();
+    tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(width, height))));
+    tree.resize(width as u32, height as u32);
+    tree.mount_root::<Page>(&mut app, Props { scene: Arc::new(scene) });
+    let mut stage = Self {
+      app,
+      tree,
+      now: Instant::now(),
+    };
+    stage.frame();
+    stage
+  }
+
+  /// Renders, lays out and paints one frame, a sixtieth of a second after the last.
+  pub fn frame(&mut self) {
+    self.tree.set_animation_clock(Some(self.now));
+    self.tree.request_redraw();
+    self.tree.pass(&mut self.app, &TestSurface);
+    self.now += Duration::from_millis(16);
+  }
+
   /// Renders, lays out and paints what changed, then lets a second go by and
   /// paints again: a transition of a state style that the change started has
   /// run to its end.

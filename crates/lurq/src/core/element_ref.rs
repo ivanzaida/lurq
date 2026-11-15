@@ -291,13 +291,15 @@ impl ElementRef {
   }
 
   /// As [`observe_rect`](Self::observe_rect), but what the observer changes is shown in the frame that laid the
-  /// element out: where it writes a signal a component renders from, the runtime renders that component and lays
-  /// the frame out again before painting it, once a frame. A component whose form follows its own room (a timeline
-  /// that folds its two sides to one under a least width) shows the form that fits from its first frame, and as a
-  /// panel is dragged across the width, with no frame of the other form.
+  /// element out: where it writes a signal a component renders from, or gives an element a size through its ref
+  /// ([`ElementRefMut::set_size`]), the runtime renders what is to be rendered and lays the frame out again before
+  /// painting it. A component whose form follows its own room (a timeline that folds its two sides to one under a
+  /// least width) shows the form that fits from its first frame, and as a panel is dragged across the width, with
+  /// no frame of the other form; a splitter has its panes at the sizes that fit its room in its first frame.
   ///
-  /// The observer should change what it writes only where the rect crosses what it is watching for: a value that
-  /// changes on every rect lays every frame out twice.
+  /// What is laid out again may be measured anew, so the frame is laid out again until nothing that is watched
+  /// changes, four times at most. The observer should change what it writes only where the rect crosses what it is
+  /// watching for: a value that changes on every rect lays every frame out again and again, and settles in none.
   pub fn observe_rect_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) {
     let mut inner = self.inner.write().unwrap();
     inner.rect_observer = Some(Arc::new(observer));

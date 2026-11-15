@@ -3649,21 +3649,7 @@ impl LayoutEngine {
         let r = &child_layouts[i].result;
         let child_cross = if vertical { r.size.width } else { r.size.height };
         if child_cross < container_cross {
-          let stretch_constraints = if vertical {
-            Constraints {
-              min_width: container_cross,
-              max_width: container_cross,
-              min_height: r.size.height,
-              max_height: r.size.height,
-            }
-          } else {
-            Constraints {
-              min_width: r.size.width,
-              max_width: r.size.width,
-              min_height: container_cross,
-              max_height: container_cross,
-            }
-          };
+          let stretch_constraints = Self::stretch_constraints(child, constraints, r.size, container_cross, vertical);
           child_layouts[i].result = if collapsed.get(i) == Some(&true) {
             self.layout_collapsed(glyph_engine, child, stretch_constraints)
           } else {
@@ -3684,6 +3670,50 @@ impl LayoutEngine {
       generation: 0,
       sticky_shifts: None,
     }
+  }
+
+  /// The constraints a line of `line` stretches `child` across it with: as long as it was `measured`, and `cross`
+  /// wide in a column, high in a row. A child whose length is a share of the line (a width, or a most width, in
+  /// percent) keeps the line's room to take its share of: held at the length it was measured at, it would take
+  /// the share again, of itself, and a quarter of the line would be a sixteenth of it.
+  fn stretch_constraints(child: &Node, line: Constraints, measured: Size, cross: f32, vertical: bool) -> Constraints {
+    let shares = child.state_flex().is_none() && Self::has_percent_main_length(child, vertical);
+    if vertical {
+      Constraints {
+        min_width: cross,
+        max_width: cross,
+        min_height: if shares { 0.0 } else { measured.height },
+        max_height: if shares { line.max_height } else { measured.height },
+      }
+    } else {
+      Constraints {
+        min_width: if shares { 0.0 } else { measured.width },
+        max_width: if shares { line.max_width } else { measured.width },
+        min_height: cross,
+        max_height: cross,
+      }
+    }
+  }
+
+  /// Whether the length of `child` along its line, or the most it may be, is a share of the line.
+  fn has_percent_main_length(child: &Node, vertical: bool) -> bool {
+    let own = child.state_frame().is_some_and(|frame| {
+      let dimensions = if vertical {
+        [frame.height, frame.max_height]
+      } else {
+        [frame.width, frame.max_width]
+      };
+      dimensions
+        .into_iter()
+        .flatten()
+        .any(|dimension| matches!(dimension, Dimension::Pct(_)))
+    });
+    own
+      || (matches!(child.layout_kind(), LayoutKind::LogicalModifier)
+        && child
+          .children()
+          .first()
+          .is_some_and(|child| Self::has_percent_main_length(child, vertical)))
   }
 
   fn non_flex_child_constraints(child: &Node, constraints: Constraints, vertical: bool) -> Constraints {
@@ -3933,22 +3963,8 @@ impl LayoutEngine {
           if child_cross >= line_cross {
             continue;
           }
-          let c = if vertical {
-            Constraints {
-              min_width: line_cross,
-              max_width: line_cross,
-              min_height: r.size.height,
-              max_height: r.size.height,
-            }
-          } else {
-            Constraints {
-              min_width: r.size.width,
-              max_width: r.size.width,
-              min_height: line_cross,
-              max_height: line_cross,
-            }
-          };
           let index = line_start + j;
+          let c = Self::stretch_constraints(&children[index], constraints, r.size, line_cross, vertical);
           layout.result = self.layout_child_node(glyph_engine, child_overrides, index, &children[index], c);
         }
       }
