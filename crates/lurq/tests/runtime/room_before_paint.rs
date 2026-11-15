@@ -134,3 +134,87 @@ fn watched_after_paint_the_form_waits_a_frame() {
   let second = render_pass_with_app(&mut tree, &mut app);
   assert!(shows(&second, WIDE));
 }
+
+/// What gives a part of it half its own room through the part's ref, as a splitter gives its panes their sizes:
+/// nothing is rendered again, the part is laid out again.
+struct Halving {
+  anchor: ElementRef,
+  half: lurq::core::ElementRefMut,
+}
+
+impl Component for Halving {
+  type Props = Props;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let (anchor, half) = (ElementRef::new(), lurq::core::ElementRefMut::new());
+    let sized = half.clone();
+    let observe = move |rect: lurq::core::ElementRect| {
+      sized.set_size(Some(Dimension::Px(rect.width / 2.0)), None);
+    };
+    if ctx.props::<Props>().before_paint {
+      anchor.observe_rect_before_paint(observe);
+    } else {
+      anchor.observe_rect(observe);
+    }
+    Self { anchor, half }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let room = ctx.props::<Props>().room.get();
+    Row::new().child(
+      Row::new()
+        .width(Dimension::Px(room))
+        .ref_element(self.anchor.clone())
+        .child(
+          Column::new()
+            .width(Dimension::Px(10.0))
+            .ref_element(self.half.clone())
+            .child(Rect::new(Dimension::Pct(100.0), 20.0).background(WIDE)),
+        ),
+    )
+  }
+}
+
+/// The width of the bar the halving component draws.
+fn bar(snapshot: &RenderSnapshot) -> f32 {
+  snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == Color::from_hex(WIDE))
+    .map(|rect| rect.width)
+    .expect("the bar is drawn")
+}
+
+fn halving(room: f32, before_paint: bool) -> (Tree, App, Signal<f32>) {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(600, 200);
+  let room = Signal::new(room);
+  tree.mount_root::<Halving>(
+    &mut app,
+    Props {
+      room: room.clone(),
+      before_paint,
+    },
+  );
+  (tree, app, room)
+}
+
+#[test]
+fn a_size_given_through_a_ref_is_laid_out_in_the_frame_that_measured_the_room() {
+  let (mut tree, mut app, room) = halving(400.0, true);
+  let first = render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(bar(&first), 200.0, "half its room from the first frame");
+  room.set(300.0);
+  let next = render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(bar(&next), 150.0, "and in the frame its room changes");
+}
+
+#[test]
+fn a_size_given_through_a_ref_after_layout_waits_for_the_next_frame() {
+  let (mut tree, mut app, _) = halving(400.0, false);
+  let first = render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(bar(&first), 10.0, "the first frame is laid out as it was built");
+  let second = render_pass_with_app(&mut tree, &mut app);
+  assert_eq!(bar(&second), 200.0);
+}

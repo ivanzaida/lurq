@@ -749,3 +749,95 @@ fn a_floating_group_dragged_by_its_title_bar_onto_a_zone_docks_there() {
     Some(vec!["explorer".to_owned(), "output".to_owned()])
   );
 }
+
+/// The gallery's stage: the board's layout in 493 by 360, its explorer at least 160 wide where its quarter of the
+/// room beside the strip is under 116.
+fn narrow(state: &Signal<DockState>) -> Stage {
+  let state = state.clone();
+  Stage::first_frame(493.0, 360.0, move |ctx: &mut Ctx| -> Element {
+    let notes = Signal::new(String::new());
+    let panels = panels(&notes).into_iter().map(|panel| {
+      if panel.id() == "explorer" {
+        panel.min_size((160.0, 80.0))
+      } else {
+        panel
+      }
+    });
+    Column::new()
+      .size(493.0, 360.0)
+      .child(DockLayout::new(state.clone(), panels).id("dock").mount(ctx))
+      .into()
+  })
+}
+
+/// The boxes of the explorer, its body, the documents, the terminal's group and the dividers of both splits.
+fn places(stage: &mut Stage) -> Vec<(f32, f32, f32, f32)> {
+  [
+    "dock-group-explorer",
+    "dock-body-explorer",
+    "dock-group-blur.rs",
+    "dock-group-terminal",
+    "dock-split-root-divider-0",
+    "dock-split-1-divider-0",
+  ]
+  .iter()
+  .map(|id| stage.bounds(id))
+  .collect()
+}
+
+#[test]
+fn the_first_frame_is_the_settled_one_and_nothing_moves_after_it() {
+  let state = Signal::new(board());
+  let mut stage = narrow(&state);
+  let first = places(&mut stage);
+  let (explorer, terminal, across, down) = (first[0], first[3], first[4], first[5]);
+  assert!(
+    (explorer.2 - 160.0).abs() < 0.01,
+    "the explorer at its least width in the first frame: {explorer:?}"
+  );
+  assert!(
+    (terminal.3 - 112.0).abs() < 0.01,
+    "the terminal's group at its least height in the first frame: {terminal:?}"
+  );
+  assert!(
+    ((across.0 + across.2 / 2.0) - (explorer.0 + explorer.2)).abs() < 1.0,
+    "the divider at the explorer's edge: {across:?} and {explorer:?}"
+  );
+  assert!(
+    ((down.1 + down.3 / 2.0) - terminal.1).abs() < 1.0,
+    "the divider over the terminal's group: {down:?} and {terminal:?}"
+  );
+  for frame in 1..4 {
+    stage.frame();
+    assert_eq!(places(&mut stage), first, "frame {frame} is the first one");
+  }
+}
+
+#[test]
+fn an_arrangement_the_app_sets_is_settled_in_the_frame_that_shows_it() {
+  let state = Signal::new(board());
+  let mut stage = narrow(&state);
+  stage.pass();
+  let settled = places(&mut stage);
+  // The app sets the shares anew: the splits begin again from them.
+  let mut next = DockState::new(
+    DockNode::row([
+      DockNode::group(["explorer"]),
+      DockNode::column([
+        DockNode::documents(DockNode::group(["blur.rs", "theme.rs"])),
+        DockNode::group(["terminal", "problems", "output"]),
+      ])
+      .shares([0.8, 0.2]),
+    ])
+    .shares([0.2, 0.8]),
+  );
+  next.show("outline", DockPlace::Hidden(DockSide::Right));
+  state.set(next);
+  stage.frame();
+  let first = places(&mut stage);
+  assert_eq!(first, settled, "the panels at their least sizes, as they were");
+  for frame in 1..4 {
+    stage.frame();
+    assert_eq!(places(&mut stage), first, "frame {frame} is the first one");
+  }
+}

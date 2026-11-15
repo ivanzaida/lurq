@@ -554,12 +554,22 @@ A component whose form depends on the room it is given, not on the window (a tim
 a narrow panel), reads its width through an element ref. `ElementRef::observe_rect` calls its observer after layout,
 and a signal written there renders the component again in the next frame: the frame in between shows the old form.
 `ElementRef::observe_rect_before_paint` calls it at the same point, but what it changes is rendered and laid out again
-before that frame is painted, once a frame: the component shows the form that fits from its first frame, and as a
-splitter's divider drags its pane across the width, with no frame of the other.
+before that frame is painted: the component shows the form that fits from its first frame, and as a splitter's
+divider drags its pane across the width, with no frame of the other.
 
 The observer writes only where the rect crosses what it watches for, so a pane dragged within one side of the width
 renders nothing again. The element it is on takes the room it is given (`width(Dimension::Pct(100.0))`), not its
 content's width, which the form would change.
+
+What the observer gives an element through its ref is laid out before the frame is painted too: a size
+(`ElementRefMut::set_size`) renders nothing, and the frame that measured the room shows the element at it.
+`ui::Splitter` keeps its panes between their least and most sizes so, and a pane whose share of a narrow room is
+under its least size is at its least size in the first frame, with its divider at its edge.
+
+What is laid out again may be measured anew: a splitter in the pane of a splitter that was put back has another room
+than it was first measured in. So the frame is laid out again until nothing that is watched changes, four times at
+most. An observer that writes another value on every rect it is given (a width that depends on what the width
+changes) uses all four in every frame and settles in none: write what the rect decides, not what it was.
 
 ```rust
 use lurq::{components::Column, core::ElementRef, node::dimension::Dimension};

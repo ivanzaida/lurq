@@ -621,3 +621,108 @@ fn in_a_column_with_panes_that_fill_themselves_each_divider_stands_at_the_edge_o
     first_x + first_width
   );
 }
+
+/// The boxes of the elements with `ids`.
+fn boxes(stage: &mut Stage, ids: &[&str]) -> Vec<(f32, f32, f32, f32)> {
+  ids.iter().map(|id| stage.bounds(id)).collect()
+}
+
+/// How far the middle of the divider `divider` is from the end of the pane `pane`, along a row.
+fn off_the_edge(stage: &mut Stage, divider: &str, pane: &str) -> f32 {
+  let (x, _, width, _) = stage.bounds(divider);
+  let (pane_x, _, pane_width, _) = stage.bounds(pane);
+  ((x + width / 2.0) - (pane_x + pane_width)).abs()
+}
+
+#[test]
+fn the_first_frame_keeps_a_pane_at_its_least_and_no_frame_after_moves_anything() {
+  // A quarter of 400 is 100, under the pane's least size of 160.
+  let mut stage = Stage::first_frame(400.0, 300.0, |ctx| {
+    Splitter::new()
+      .id("s")
+      .pane(SplitterPane::new(content("a")).share(0.25).min(160.0))
+      .pane(SplitterPane::new(content("b")).min(100.0))
+      .mount(ctx)
+  });
+  let ids = ["a", "b", "s-divider-0"];
+  let first = boxes(&mut stage, &ids);
+  assert_eq!(first[0].2, 160.0, "at its least size in the first frame");
+  assert_eq!(first[1].2, 239.0, "the rest beside it");
+  assert!(
+    off_the_edge(&mut stage, "s-divider-0", "a") < 1.0,
+    "the divider at the pane's edge in the first frame"
+  );
+  for frame in 1..4 {
+    stage.frame();
+    assert_eq!(boxes(&mut stage, &ids), first, "frame {frame} is the first one");
+  }
+}
+
+#[test]
+fn the_first_frame_has_each_divider_at_the_edge_of_its_pane() {
+  // Shares within their limits: nothing is put back, and the dividers still stand where the panes end.
+  for vertical in [false, true] {
+    let mut stage = Stage::first_frame(400.0, 300.0, move |_| {
+      let mut splitter = Splitter::new()
+        .id("s")
+        .pane(SplitterPane::new(content("a")).share(0.25))
+        .pane(SplitterPane::new(content("b")))
+        .pane(SplitterPane::new(content("c")).share(0.25));
+      if vertical {
+        splitter = splitter.orientation(Orientation::Vertical);
+      }
+      splitter.into()
+    });
+    let ids = ["a", "b", "c", "s-divider-0", "s-divider-1"];
+    let first = boxes(&mut stage, &ids);
+    let along = |rect: (f32, f32, f32, f32)| if vertical { (rect.1, rect.3) } else { (rect.0, rect.2) };
+    let (room, quarter) = if vertical { (300.0, 75.0) } else { (400.0, 100.0) };
+    assert_eq!(along(first[0]).1, quarter, "a quarter of the room");
+    assert_eq!(along(first[2]), (room - quarter, quarter), "a quarter at the end");
+    for (divider, pane) in [(3, 0), (4, 1)] {
+      let (at, thick) = along(first[divider]);
+      let (pane_at, pane_long) = along(first[pane]);
+      assert!(
+        ((at + thick / 2.0) - (pane_at + pane_long)).abs() < 1.0,
+        "the divider after pane {pane} at its edge in the first frame: {} and {}",
+        at + thick / 2.0,
+        pane_at + pane_long
+      );
+    }
+    for frame in 1..4 {
+      stage.frame();
+      assert_eq!(boxes(&mut stage, &ids), first, "frame {frame} is the first one");
+    }
+  }
+}
+
+#[test]
+fn a_splitter_in_a_pane_that_was_put_back_settles_in_the_first_frame_too() {
+  // The outer pane takes 300 of 600 where its share is 150: the inner splitter's room is 299, not the 449 it was
+  // first measured at, and its last pane's least size of 200 takes from the one before it.
+  let mut stage = Stage::first_frame(600.0, 300.0, |ctx| {
+    let inner = Splitter::new()
+      .id("inner")
+      .pane(SplitterPane::new(content("b")).share(0.5).min(50.0))
+      .pane(SplitterPane::new(content("c")).min(200.0))
+      .key("inner")
+      .mount(ctx);
+    Splitter::new()
+      .id("outer")
+      .pane(SplitterPane::new(content("a")).share(0.25).min(300.0))
+      .pane(SplitterPane::new(inner))
+      .key("outer")
+      .mount(ctx)
+  });
+  let ids = ["a", "b", "c", "outer-divider-0", "inner-divider-0"];
+  let first = boxes(&mut stage, &ids);
+  assert_eq!(first[0].2, 300.0);
+  assert_eq!(first[1].2, 98.0);
+  assert_eq!(first[2].2, 200.0);
+  assert!(off_the_edge(&mut stage, "outer-divider-0", "a") < 1.0);
+  assert!(off_the_edge(&mut stage, "inner-divider-0", "b") < 1.0);
+  for frame in 1..4 {
+    stage.frame();
+    assert_eq!(boxes(&mut stage, &ids), first, "frame {frame} is the first one");
+  }
+}

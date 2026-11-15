@@ -738,7 +738,6 @@ impl Panes {
       self.panes[index].set_inert(self.specs[index].collapsible && *size <= 0.0);
       self.shadows[index].set_size(width, height);
     }
-    self.shadow(sizes);
     self.keep(sizes.to_vec());
   }
 
@@ -866,27 +865,8 @@ impl Panes {
     let first = model.len() != self.specs.len();
     if changed {
       self.put(&sizes);
-    } else {
-      self.shadow(&sizes);
-      if first {
-        self.keep(sizes);
-      }
-    }
-  }
-
-  /// Lays the copies of the panes under the dividers out at `sizes`, in pixels: a divider stands at the edge of its
-  /// pane as the pane was laid out, whatever a share of the copy's row resolves to.
-  fn shadow(&self, sizes: &[f32]) {
-    for (index, size) in sizes.iter().enumerate() {
-      if self.specs[index].kind == Kind::Rest {
-        continue;
-      }
-      let length = Some(Dimension::Px(size.max(0.0)));
-      let (width, height) = match self.orientation {
-        SplitterOrientation::Horizontal => (length, None),
-        SplitterOrientation::Vertical => (None, length),
-      };
-      self.shadows[index].set_size(width, height);
+    } else if first {
+      self.keep(sizes);
     }
   }
 
@@ -1091,9 +1071,11 @@ impl SplitterView {
       host: self.host.clone(),
       steps: (self.step, self.large_step),
     });
+    // Before the frame is painted: the panes are laid out again at the sizes that fit the room in the frame that
+    // measured it, so no frame shows a pane under its least size, or the sizes of another room.
     {
       let shared = shared.clone();
-      room.observe_rect(move |rect| {
+      room.observe_rect_before_paint(move |rect| {
         let along = shared.along(rect);
         shared.settle(along);
       });

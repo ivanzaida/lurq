@@ -253,3 +253,82 @@ fn row_wrap_keeps_text_width_in_fit_content_children() {
   );
   assert_eq!(wrap_pill.height, plain_pill.height);
 }
+
+/// A box with nothing in it, which a line stretches across itself.
+fn empty() -> lurq::components::Column {
+  lurq::components::Column::new()
+}
+
+#[test]
+fn a_share_of_a_stretching_row_is_taken_once() {
+  let pct = lurq::node::dimension::Dimension::Pct;
+  let mut rt = rt();
+  let node = lurq::components::Row::new()
+    .size(400.0, 100.0)
+    .align_items(Alignment::Stretch)
+    .child(empty().width(pct(25.0)))
+    .child(empty().flex(1.0));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  assert_eq!(result.children[0].result.size.width, 100.0, "a quarter of the row");
+  assert_eq!(result.children[0].result.size.height, 100.0, "as high as the row");
+  assert_eq!(result.children[1].offset.x, 100.0);
+  assert_eq!(result.children[1].result.size.width, 300.0);
+}
+
+#[test]
+fn a_share_of_a_stretching_column_is_taken_once() {
+  let pct = lurq::node::dimension::Dimension::Pct;
+  let mut rt = rt();
+  let node = lurq::components::Column::new()
+    .size(100.0, 400.0)
+    .align_items(Alignment::Stretch)
+    .child(lurq::components::Row::new().height(pct(25.0)))
+    .child(lurq::components::Row::new().flex(1.0));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(300.0, 400.0))).unwrap();
+  assert_eq!(result.children[0].result.size.height, 100.0, "a quarter of the column");
+  assert_eq!(result.children[0].result.size.width, 100.0, "as wide as the column");
+  assert_eq!(result.children[1].offset.y, 100.0);
+  assert_eq!(result.children[1].result.size.height, 300.0);
+}
+
+#[test]
+fn the_most_a_stretched_child_may_be_is_a_share_of_its_row_too() {
+  let pct = lurq::node::dimension::Dimension::Pct;
+  let mut rt = rt();
+  // What it holds is 300 wide: half the row of 400 is the most it may be.
+  let node = lurq::components::Row::new()
+    .size(400.0, 100.0)
+    .align_items(Alignment::Stretch)
+    .child(
+      empty()
+        .max_width(pct(50.0))
+        .child(lurq::components::Row::new().size(300.0, 10.0)),
+    );
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  assert_eq!(
+    result.children[0].result.size.width, 200.0,
+    "half the row, not half of that"
+  );
+  assert_eq!(result.children[0].result.size.height, 100.0);
+}
+
+#[test]
+fn a_share_of_a_wrapping_row_is_taken_once_where_its_line_stretches_it() {
+  let pct = lurq::node::dimension::Dimension::Pct;
+  let mut rt = rt();
+  // The second child makes the line 40 high: the first, with no height of its own, is stretched to it.
+  let node = lurq::components::Row::new()
+    .width(400.0)
+    .wrap()
+    .align_items(Alignment::Stretch)
+    .child(empty().width(pct(25.0)))
+    .child(lurq::components::Row::new().size(100.0, 40.0));
+  rt.set_root(node);
+  let result = rt.pass_layout(Constraints::loose(Size::new(400.0, 300.0))).unwrap();
+  assert_eq!(result.children[0].result.size.width, 100.0, "a quarter of the row");
+  assert_eq!(result.children[0].result.size.height, 40.0, "as high as its line");
+  assert_eq!(result.children[1].offset.x, 100.0);
+}

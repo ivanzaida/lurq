@@ -197,6 +197,10 @@ fn root_clear_color(root: Option<&Node>, app: &App) -> Color {
     .unwrap_or(palette.background)
 }
 const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
+/// How many times a frame is laid out again before it is painted for what the observers of a rect before paint
+/// change (`ElementRef::observe_rect_before_paint`): one for each level of what is measured within what is measured
+/// (a splitter in a splitter's pane), and an end to what would never settle.
+const BEFORE_PAINT_PASSES: usize = 4;
 #[cfg(feature = "devtools")]
 const DEVTOOLS_SYNC_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "devtools")]
@@ -2772,12 +2776,17 @@ impl Tree {
     crate::core::element_ref::take_observed_before_paint();
     let mut layout_updated = self.update_layout(app);
     // An element's size changed what a component that watches it before paint renders (a timeline that folds its
-    // sides to one in a narrow room): render it and lay out again, once, so this frame already shows the form
-    // that fits.
-    if crate::core::element_ref::take_observed_before_paint() && self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
+    // sides to one in a narrow room), or the sizes it gives its parts through their refs (a splitter that keeps a
+    // pane at its least size): render and lay out again, so this frame already shows the form that fits. What is
+    // laid out again may be measured anew (a splitter in a pane that changed), so this goes on until nothing it
+    // watches changes, a few times at most.
+    for _ in 0..BEFORE_PAINT_PASSES {
+      if !(crate::core::element_ref::take_observed_before_paint() && self.changed_before_paint()) {
+        break;
+      }
       layout_updated |= self.update_layout(app);
-      crate::core::element_ref::take_observed_before_paint();
     }
+    crate::core::element_ref::take_observed_before_paint();
     // A scroll-into-view request moved a container: lay out again so this
     // frame already shows the element where it was revealed.
     if self.resolve_pending_scroll_into_view() {
@@ -7267,6 +7276,13 @@ impl Tree {
       }
       _ => 0.0,
     }
+  }
+
+  /// Whether what an observer of a rect before paint did asks for the frame to be laid out again: a component it
+  /// made dirty, or an element whose ref it gave another size.
+  fn changed_before_paint(&self) -> bool {
+    self.root_ctx.as_ref().is_some_and(Ctx::any_dirty)
+      || self.root.as_ref().is_some_and(has_dirty_element_ref_recursive)
   }
 
   fn update_layout(&mut self, app: &mut App) -> bool {
