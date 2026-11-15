@@ -119,6 +119,7 @@ mod tokens;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod video_player;
 mod waveform;
 mod window_chrome;
 mod window_tabs;
@@ -1055,6 +1056,14 @@ pub const PAGES: &[Page] = &[
     about: "waveform audio voice message peaks bars loudness played unheard seek progress controlled at on_change on_change_end step disabled",
     group: Group::Media,
     mount: |ctx| ctx.mount::<waveform::WaveformPage>(()),
+  },
+  Page {
+    path: "/video-player",
+    name: "Video Player",
+    icon: Some("play-circle"),
+    about: "video player media movie clip picture poster seek bar play pause volume mute captions subtitles speed rate quality settings picture in picture fullscreen live buffering waiting ended error retry overlay feed controls keys VideoPlayer VideoPlayerSize playing position duration buffered on_playing_change on_position_change on_position_change_end on_volume_change on_muted_change on_rate_change on_captions_change on_quality_change on_fullscreen_change on_picture_in_picture_change on_retry mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<video_player::VideoPlayerPage>(()),
   },
   Page {
     path: "/splitter",

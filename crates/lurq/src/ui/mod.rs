@@ -154,6 +154,7 @@ mod token_list;
 mod toolbar;
 mod tooltip;
 mod tree_view;
+mod video_player;
 mod waveform;
 mod window_chrome;
 mod window_tabs;
@@ -502,6 +503,11 @@ pub use tooltip::{
 pub use tree_view::{
   ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
   TreeViewView,
+};
+pub use video_player::{
+  VIDEO_PLAYER_COMPACT_BELOW, VIDEO_PLAYER_HIDE_AFTER, VIDEO_PLAYER_MINIMAL_BELOW, VIDEO_PLAYER_SEEK_STEP,
+  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoPlayer, VideoPlayerBar, VideoPlayerMenu,
+  VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerView,
 };
 pub use waveform::{Waveform, WaveformPart, WaveformRenderer, WaveformState, WaveformView};
 pub use window_chrome::{
