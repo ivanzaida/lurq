@@ -296,7 +296,7 @@ pub use kbd::{
   KbdVariant, KbdView, KeyPlatform,
 };
 #[cfg(feature = "canvas")]
-pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve};
+pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve, line_values_looked_at};
 pub use link::{Link, LinkPart, LinkRenderer, LinkState, LinkView};
 pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,

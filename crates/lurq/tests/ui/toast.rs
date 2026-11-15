@@ -406,6 +406,36 @@ fn a_toast_comes_in_and_leaves_by_animations_that_reduced_motion_goes_without() 
 }
 
 #[test]
+fn a_toast_shown_again_while_the_same_one_leaves_is_another_one_beside_it() {
+  let toasts = Toasts::new();
+  let mut stage = window(&toasts, ToastPosition::BottomRight);
+  let count = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Settings saved"))
+      .count()
+  };
+  let id = toasts.show(Toast::new("Settings saved"));
+  stage.pass();
+  toasts.dismiss(id);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  assert_eq!(count(&stage), 1, "leaving, it is still painted");
+
+  // Each `show` is a toast of its own, under a key of its own: the one leaving goes on leaving while the new one
+  // comes in, and then the new one is there alone.
+  let again = toasts.show(Toast::new("Settings saved"));
+  assert_ne!(again, id);
+  stage.pass_after(Duration::from_millis(40));
+  assert_eq!(count(&stage), 2, "the one leaving and the new one");
+  stage.pass_after(Duration::from_secs(2));
+  stage.pass();
+  assert_eq!(count(&stage), 1);
+  assert_eq!(toasts.ids(), [again]);
+}
+
+#[test]
 fn the_timer_runs_out_as_the_time_of_the_toast_does() {
   let toasts = Toasts::new();
   let mut stage = window(&toasts, ToastPosition::BottomRight);

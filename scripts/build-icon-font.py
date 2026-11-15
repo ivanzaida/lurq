@@ -27,7 +27,9 @@ the output, since its codepoint may be in use. A .pen file is encrypted on disk,
 export goes through Pencil itself: the app has to be running, and the script starts its
 MCP server and asks it. The server is the `mcp-server` executable in the app's resources:
 `--pencil-mcp <path>`, or the PENCIL_MCP_SERVER variable, or the `pencil` server registered
-with Claude Code in ~/.claude.json. `--board <file.pen>` reads another file.
+with Claude Code in ~/.claude.json. The board read is the one in the repository's main checkout, from
+whichever worktree the script runs: there is one design-system file open in Pencil, and a worktree's
+copy is what was last committed. `--board <file.pen>` reads another file.
 
 `--unhinted` also writes the same outlines without instructions, to compare against.
 
@@ -72,7 +74,22 @@ SOURCES = ROOT / "design" / "icons" / "svg"
 CODEPOINTS = ROOT / "design" / "icons" / "codepoints.json"
 FONT = ROOT / "crates" / "lurq" / "assets" / "lurq-icons.ttf"
 NAMES = ROOT / "crates" / "lurq" / "src" / "ui" / "icons.rs"
-BOARD = ROOT / "pencil" / "lurq-design-system.pen"
+
+def main_checkout():
+    """The repository's main checkout: the one design-system board that is open in Pencil is its copy, whichever
+    worktree the script runs in. This checkout itself where git cannot say."""
+    try:
+        common = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        root = Path(common).parent
+        return root if (root / "pencil").is_dir() else ROOT
+    except (OSError, subprocess.CalledProcessError):
+        return ROOT
+
+
+BOARD = main_checkout() / "pencil" / "lurq-design-system.pen"
 COMPONENT = "Icon/"  # a glyph is the reusable component named Icon/<name>
 GLYPH_NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 ANSWER_WITHIN = 120  # seconds Pencil gets to answer a request

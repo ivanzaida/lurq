@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  scroll_area::{ScrollArea, ScrollAreaOrientation},
+  scroll_area::{ScrollArea, ScrollAreaOrientation, ScrollAreaPart},
   shared::{fading, glyph, one_line, pressable},
   theme::{Themed, current_theme},
 };
@@ -940,7 +940,11 @@ impl CodeBlockView {
       .width(Dimension::Pct(100.0))
       .part(&self.part(CodeBlockPart::Body));
     if let Some(Length::Px(min)) = self.min_height {
-      body = body.min_height((min - header).max(0.0));
+      // The room the code scrolls in is as high as the block's least height too, and not only the body round it:
+      // a short snippet's sideways bar is at the block's end, not under its last line with empty room below.
+      let least = (min - header).max(0.0);
+      area = area.style(ScrollAreaPart::Root, move |style| style.min_height(least));
+      body = body.min_height(least);
     }
     body.child(area).into()
   }

@@ -113,7 +113,9 @@ impl Lines {
       area,
       stacked: area && stacked,
       axis: self.axis.clone(),
-    };
+      extent: (f64::INFINITY, f64::NEG_INFINITY),
+    }
+    .measured();
     let empty = plot.is_empty();
     let case = props
       .case(ChartSize::Sm, empty)
@@ -326,6 +328,23 @@ struct LinePlot {
   area: bool,
   stacked: bool,
   axis: Option<Vec<String>>,
+  /// The least and the most of the levels of the series shown, worked out once: the scale takes nothing else, so the
+  /// pointer finds its place without going through the values.
+  extent: (f64, f64),
+}
+
+std::thread_local! {
+  /// Whether a line chart of this thread is finding the place under the pointer, and how many values it has looked
+  /// at while it did.
+  static FINDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+  static LOOKED_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many values the line charts of this thread have looked at to find the place under the pointer, for tests: a
+/// line of ten thousand values is looked at as little as a line of ten. Drawing is not counted.
+#[doc(hidden)]
+pub fn line_values_looked_at() -> usize {
+  LOOKED_AT.with(|looked| looked.get())
 }
 
 /// A piece of a line from one value to the next: where it starts, its two control points, and where it ends.
@@ -337,6 +356,9 @@ impl LinePlot {
   }
 
   fn value(&self, series: usize, index: usize) -> Option<f64> {
+    if FINDING.with(|finding| finding.get()) {
+      LOOKED_AT.with(|looked| looked.set(looked.get() + 1));
+    }
     self
       .values
       .get(series)
@@ -369,12 +391,21 @@ impl LinePlot {
       .sum()
   }
 
-  fn scale(&self, area: ChartArea) -> LinearScale {
+  /// The plot with its extent worked out.
+  fn measured(mut self) -> Self {
     let shown = self.shown();
-    let levels = (0..self.categories.len())
-      .flat_map(|index| shown.iter().filter_map(move |series| self.level(*series, index)))
-      .collect::<Vec<_>>();
-    LinearScale::nice(levels, (area.height, 0.0), 4)
+    let plot = &self;
+    let extent = (0..plot.categories.len())
+      .flat_map(|index| shown.iter().filter_map(move |series| plot.level(*series, index)))
+      .fold((f64::INFINITY, f64::NEG_INFINITY), |(least, most), level| {
+        (least.min(level), most.max(level))
+      });
+    self.extent = extent;
+    self
+  }
+
+  fn scale(&self, area: ChartArea) -> LinearScale {
+    LinearScale::nice([self.extent.0, self.extent.1], (area.height, 0.0), 4)
   }
 
   /// The x of the category at `index`: the first at the plot's start and the last at its end, one alone in its
@@ -396,6 +427,21 @@ impl LinePlot {
         Some(((x / step).round().max(0.0) as usize).min(count - 1))
       }
     }
+  }
+
+  /// The place under the pointer at `(x, y)`: the category by `x` (they are evenly apart), and the series whose value
+  /// there is nearest `y`. It looks at a value of each series there, however many there are.
+  fn find(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {
+    let index = self.index_at(area, x)?;
+    let scale = self.scale(area);
+    // The series whose value at that place is nearest the pointer.
+    self
+      .shown()
+      .into_iter()
+      .filter(|series| self.value(*series, index).is_some())
+      .filter_map(|series| Some((series, (scale.map(self.level(series, index)?) - y).abs())))
+      .min_by(|a, b| a.1.total_cmp(&b.1))
+      .map(|(series, _)| ChartPoint::new(series, index))
   }
 
   /// Where `series` is drawn at the category `index`.
@@ -748,17 +794,11 @@ impl ChartPlot for LinePlot {
     )
   }
 
-  fn point_at(&self, area: ChartArea, _x: f32, y: f32) -> Option<ChartPoint> {
-    let index = self.index_at(area, _x)?;
-    let scale = self.scale(area);
-    // The series whose value at that place is nearest the pointer.
-    self
-      .shown()
-      .into_iter()
-      .filter(|series| self.value(*series, index).is_some())
-      .filter_map(|series| Some((series, (scale.map(self.level(series, index)?) - y).abs())))
-      .min_by(|a, b| a.1.total_cmp(&b.1))
-      .map(|(series, _)| ChartPoint::new(series, index))
+  fn point_at(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {
+    FINDING.with(|finding| finding.set(true));
+    let found = self.find(area, x, y);
+    FINDING.with(|finding| finding.set(false));
+    found
   }
 
   fn anchor(&self, area: ChartArea, point: ChartPoint) -> Option<(f32, f32)> {

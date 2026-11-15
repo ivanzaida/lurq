@@ -42,8 +42,11 @@ const FORCED: [(&str, Option<Interaction>); 4] = [
 
 /// How many of the latest things a component did are kept.
 const KEPT: usize = 50;
-/// How high what a tab shows is: five lines of code, as the design draws it.
+/// How high what a tab shows is at least: five lines of code, as the design draws it.
 const OUTPUT: f32 = 150.0;
+/// How high the bar over the stage is, and the bar of the tabs under it.
+const TOOLBAR: f32 = 52.0;
+const TABS: f32 = 40.0;
 /// How high the stage is, with the row of facts under the canvas.
 const STAGE: f32 = 418.0;
 /// How high the row of facts under the canvas is.
@@ -70,6 +73,10 @@ pub struct Playground {
   /// The card, and how wide it is, measured: the panel stands beside the stage where there is room for both.
   card: ElementRef,
   room: Signal<f32>,
+  /// What the panel holds, and how high it is, measured: beside a panel longer than the stage, what a tab shows
+  /// is as high as the room that leaves under the stage.
+  panel: ElementRef,
+  panel_height: Signal<f32>,
   /// Whether the stage is in the appearance the page is not in.
   other: Signal<bool>,
   /// The theme of the stage while it is: the design's, in the other appearance.
@@ -202,6 +209,8 @@ impl Playground {
       card: ElementRef::new(),
       // A page opened after another starts with the width the last one measured: its card is as wide.
       room: ctx.signal(f32::from_bits(LAST_ROOM.load(Ordering::Relaxed))),
+      panel: ElementRef::new(),
+      panel_height: ctx.signal(0.0),
       other: ctx.signal(false),
       opposite: Theme::new(),
     }
@@ -281,7 +290,7 @@ impl Playground {
     let forceable = spec.forceable;
     let mut bar = Row::new()
       .width(FILL)
-      .height(52.0)
+      .height(TOOLBAR)
       .padding_left(16.0)
       .padding_right(12.0)
       .align_items(Alignment::Center)
@@ -425,8 +434,8 @@ impl Playground {
       )
   }
 
-  /// The tabs under the stage, and what the chosen one shows.
-  fn output(&self, spec: &Spec<'_>) -> Column {
+  /// The tabs under the stage, and what the chosen one shows, `height` high.
+  fn output(&self, spec: &Spec<'_>, height: f32) -> Column {
     let events = self.events.get();
     let shown = self.tab.get();
     let tab = self.tab.clone();
@@ -451,16 +460,16 @@ impl Playground {
       1 => events.clone(),
       _ => spec.tree.join("\n"),
     };
-    // As high as the design draws it, whatever it shows: a longer log or a longer builder scrolls in it, and the
-    // card keeps its height.
+    // As high as it is told, whatever it shows: a longer log or a longer builder scrolls in it, and the card
+    // keeps its height.
     let body: Element = match shown {
       0 => code_block(&spec.code),
       1 if events.is_empty() => plain_block(&["Nothing yet: use what is on the stage.".to_owned()]),
       1 => plain_block(&events.lines().map(str::to_owned).collect::<Vec<_>>()),
       _ => plain_block(&spec.tree),
     }
-    .min_height(OUTPUT)
-    .max_height(OUTPUT)
+    .min_height(height)
+    .max_height(height)
     .key(format!("output-{shown}"))
     .into();
     Column::new()
@@ -468,7 +477,7 @@ impl Playground {
       .child(
         Row::new()
           .width(FILL)
-          .height(40.0)
+          .height(TABS)
           .padding_left(16.0)
           .padding_right(8.0)
           .align_items(Alignment::Center)
@@ -567,8 +576,27 @@ impl Playground {
     } else {
       self.stage(ctx, &mut spec, stage_room).into()
     };
-    let preview = Column::new().child(toolbar).child(stage).child(self.output(&spec));
-    let panel = self.panel(&mut spec);
+    // What the panel holds is measured before the paint, so the first frame shown is the settled one.
+    let panel_height = self.panel_height.clone();
+    self.panel.observe_rect_before_paint(move |rect| {
+      if (panel_height.get() - rect.height).abs() >= 0.5 {
+        panel_height.set(rect.height);
+      }
+    });
+    // Beside a panel longer than the stage with its tabs, what a tab shows takes the room that is left under the
+    // stage, so the code is not five lines over an empty half of the card.
+    let output = if wide {
+      (self.panel_height.get() - TOOLBAR - STAGE - TABS).max(OUTPUT)
+    } else {
+      OUTPUT
+    };
+    let preview = Column::new()
+      .child(toolbar)
+      .child(stage)
+      .child(self.output(&spec, output));
+    // The panel's own height is measured inside the column the row stretches: the stretched one is as high as
+    // the stage's side, which would only ever grow.
+    let panel = Column::new().child(self.panel(&mut spec).width(FILL).ref_element(self.panel.clone()));
     let card = Column::new()
       .width(FILL)
       .clip()
