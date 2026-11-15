@@ -40,13 +40,24 @@ impl GroupKey {
   }
 }
 
-/// A line a table shows: a row, by its place among the rows shown, a group's row, or the summary at the end of a
-/// group's rows.
+/// A line a table shows: a row, by its place among the rows shown, a group's row, the summary at the end of a
+/// group's rows, or the detail of a row open under it, by the row's place.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Shown {
   Row(usize),
   Group(usize),
   Summary(usize),
+  Detail(usize),
+}
+
+/// Rows in a tree, by their ranks: how deep each is (0 at the top), the row it is under, whether rows are under it,
+/// and whether it is open.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Tree {
+  pub level: Vec<u32>,
+  pub parent: Vec<Option<usize>>,
+  pub branch: Vec<bool>,
+  pub open: Vec<bool>,
 }
 
 /// A group's row: what it shows and where it is.
@@ -83,6 +94,8 @@ pub(super) struct Lines {
   /// The places of the rows the filters let through, in their order, closed groups' too: `None` where no filter
   /// is on. What the count and the grid's summary are of.
   pub passed: Option<Arc<Vec<usize>>>,
+  /// Where the rows are a tree: each row's level, its parent, whether it opens and whether it is open.
+  pub tree: Option<Arc<Tree>>,
 }
 
 impl Lines {
@@ -92,6 +105,37 @@ impl Lines {
       ranks: count,
       ..Self::default()
     }
+  }
+
+  /// The rows at `order`, in that order, a tree as `tree` says.
+  pub fn tree(order: Vec<usize>, tree: Tree) -> Self {
+    Self {
+      ranks: order.len(),
+      order: Some(Arc::new(order)),
+      tree: Some(Arc::new(tree)),
+      ..Self::default()
+    }
+  }
+
+  /// These lines with the detail of each row `open` says under it.
+  pub fn with_details(mut self, open: impl Fn(usize) -> bool) -> Self {
+    let mut lines = Vec::with_capacity(self.len());
+    let mut position_of_rank = vec![0; self.ranks];
+    for position in 0..self.len() {
+      let Some(line) = self.line(position) else {
+        continue;
+      };
+      lines.push(line);
+      if let Shown::Row(rank) = line {
+        position_of_rank[rank] = lines.len() - 1;
+        if open(rank) {
+          lines.push(Shown::Detail(rank));
+        }
+      }
+    }
+    self.lines = Some(lines);
+    self.position_of_rank = Some(position_of_rank);
+    self
   }
 
   /// The rows at `order`, in that order, and no groups.
@@ -181,6 +225,7 @@ impl Lines {
       groups: built.groups,
       depth: columns.len(),
       passed: None,
+      tree: None,
     }
   }
 
@@ -188,7 +233,7 @@ impl Lines {
   pub fn rank_at(&self, position: usize) -> Option<usize> {
     match self.line(position)? {
       Shown::Row(rank) => Some(rank),
-      Shown::Group(_) | Shown::Summary(_) => None,
+      Shown::Group(_) | Shown::Summary(_) | Shown::Detail(_) => None,
     }
   }
 
@@ -196,6 +241,15 @@ impl Lines {
   pub fn level(&self, position: usize) -> u32 {
     match self.line(position) {
       Some(Shown::Group(group)) => self.groups[group].key.level() as u32,
+      Some(Shown::Row(rank) | Shown::Detail(rank)) if self.tree.is_some() => {
+        self
+          .tree
+          .as_ref()
+          .and_then(|tree| tree.level.get(rank))
+          .copied()
+          .unwrap_or(0)
+          + 1
+      }
       _ => self.depth as u32 + 1,
     }
   }

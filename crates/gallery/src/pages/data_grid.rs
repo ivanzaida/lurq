@@ -203,6 +203,14 @@ pub struct DataGridPage {
   asked_filters: Signal<TableFilters>,
   asked: Signal<String>,
   fail_next: Arc<std::sync::atomic::AtomicBool>,
+  /// Whether the playground's menus export, and the section's grid: its rows selected and the text it last wrote.
+  exporting: Signal<bool>,
+  export_selected: Signal<Vec<String>>,
+  exported: Signal<String>,
+  /// Whether the playground's rows have a detail; the tree's rows open, and the details open of the section's grid.
+  played_detail: Signal<bool>,
+  tree_open: Signal<Vec<String>>,
+  details_open: Signal<Vec<String>>,
 }
 
 /// A ticket of the server the grid over rows on demand asks.
@@ -299,6 +307,60 @@ fn filtered_columns(columns: Vec<TableColumn<File>>) -> Vec<TableColumn<File>> {
     .collect()
 }
 
+/// A file or a folder of the tree, under the folder `parent` names.
+#[derive(Clone)]
+struct Entry {
+  name: &'static str,
+  parent: Option<&'static str>,
+  kind: &'static str,
+  size: Option<u32>,
+}
+
+/// The board's tree: two folders at the top, a folder in the first with its files.
+fn entries() -> Vec<Entry> {
+  [
+    ("src", None, "Folder", None),
+    ("render", Some("src"), "Folder", None),
+    ("blur.rs", Some("render"), "Rust", Some(12)),
+    ("layers.rs", Some("render"), "Rust", Some(31)),
+    ("lib.rs", Some("src"), "Rust", Some(4)),
+    ("tests", None, "Folder", None),
+    ("grid.rs", Some("tests"), "Rust", Some(18)),
+  ]
+  .into_iter()
+  .map(|(name, parent, kind, size)| Entry {
+    name,
+    parent,
+    kind,
+    size,
+  })
+  .collect()
+}
+
+/// What a file's detail shows under its row: its build, as a log would say it.
+fn file_detail(row: &File) -> Element {
+  Column::new()
+    .spacing(4.0)
+    .child(mono(
+      &format!("{} · {} · {} KB", row.name, STATUSES[row.status], row.size),
+      12.0,
+    ))
+    .child(quiet(
+      &format!(
+        "Built {} by the {} pipeline; {}.",
+        row.updated,
+        if row.shared { "shared" } else { "local" },
+        if row.status == 3 {
+          "the tests failed"
+        } else {
+          "every test passed"
+        }
+      ),
+      12.0,
+    ))
+    .into()
+}
+
 /// A row of the grid of a million: its place, which every cell is made from.
 #[derive(Clone)]
 struct Job(u32);
@@ -369,7 +431,8 @@ impl DataGridPage {
     let rows = self.played.clone();
     let sort = self.played_sort.get();
 
-    let (edited, selected_to, sorted_to, ranged_to, arranged_to, opened_to) = (
+    let (edited, selected_to, sorted_to, ranged_to, arranged_to, opened_to, exported_to) = (
+      record.clone(),
       record.clone(),
       record.clone(),
       record.clone(),
@@ -377,6 +440,8 @@ impl DataGridPage {
       record.clone(),
       record,
     );
+    let exporting = self.exporting.get();
+    let played_detail = self.played_detail.get();
     let mut grid = DataGrid::new(played_columns, sorted(rows.get(), &sort))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -384,6 +449,16 @@ impl DataGridPage {
       .read_only(read_only)
       .resizable(resizable)
       .column_menu(column_menu)
+      .export(exporting)
+      .on_export(move |export| {
+        exported_to(format!(
+          "on_export({:?}, {:?}, {} rows, {} bytes)",
+          export.scope,
+          export.format,
+          export.rows,
+          export.text.len()
+        ))
+      })
       .row_numbers(row_numbers)
       .filters(self.played_filters.clone())
       .filter_row(filtering && filter_row)
@@ -411,6 +486,9 @@ impl DataGridPage {
         .selected(self.played_selected.clone())
         .checkboxes(selection == 1)
         .on_selection_change(move |keys| selected_to(format!("on_selection_change({keys:?})")));
+    }
+    if played_detail {
+      grid = grid.detail(file_detail);
     }
     if fixed_height {
       grid = grid.height(240.0);
@@ -541,6 +619,8 @@ impl DataGridPage {
         self.filtering.clone(),
         self.filter_row.clone(),
         self.played_filters.clone(),
+        self.exporting.clone(),
+        self.played_detail.clone(),
       ),
     );
     let still = {
@@ -628,6 +708,11 @@ impl DataGridPage {
           flag("a million rows by 200 columns", &self.big),
           flag("filters: each column by its kind", &self.filtering),
           flag("filter_row: a filter under each header", &self.filter_row),
+          flag("export: Export in each column's menu", &self.exporting),
+          flag(
+            "detail(|row| ..): a panel under a row, opened at its chevron",
+            &self.played_detail,
+          ),
           prop(
             "summary",
             "SummaryKind of the size",
@@ -665,6 +750,8 @@ impl DataGridPage {
           big,
           filtering,
           filter_row,
+          !exporting,
+          played_detail,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -694,6 +781,8 @@ impl DataGridPage {
           reset.19.0.set(false);
           reset.19.1.set(false);
           reset.19.2.set(TableFilters::new());
+          reset.19.3.set(true);
+          reset.19.4.set(false);
         }),
       },
     )
@@ -790,6 +879,12 @@ impl Component for DataGridPage {
       asked_filters: ctx.signal(TableFilters::new()),
       asked: ctx.signal(String::new()),
       fail_next: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+      exporting: ctx.signal(true),
+      export_selected: ctx.signal(vec!["canvas.rs".to_owned(), "layout.rs".to_owned()]),
+      exported: ctx.signal(String::new()),
+      played_detail: ctx.signal(false),
+      tree_open: ctx.signal(vec!["src".to_owned(), "render".to_owned()]),
+      details_open: ctx.signal(vec!["layout.rs".to_owned()]),
     }
   }
 
@@ -1233,6 +1328,74 @@ impl Component for DataGridPage {
           )),
       );
 
+    // Written out from a column's menu: the app is told the text, shown here as it would save it.
+    let exported = self.exported.clone();
+    let export_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::new(columns(false), files(6))
+          .row_key(|row: &File| row.name.clone())
+          .label("Files")
+          .selected(self.export_selected.clone())
+          .on_export(move |export| {
+            exported.set(format!(
+              "// files.{} · {:?}, {} rows\n{}",
+              export.format.extension(),
+              export.scope,
+              export.rows,
+              export.text.trim_end()
+            ))
+          })
+          .key("export")
+          .mount(ctx),
+      )
+      .child(match self.exported.get() {
+        text if text.is_empty() => Element::from(quiet(
+          "Open a column's menu, then Export: the text the app is told is shown here.",
+          12.0,
+        )),
+        text => lurq::ui::CodeBlock::new(&text).into(),
+      });
+
+    // A tree of folders and files, and files whose rows open on their details.
+    let tree_grid = Column::new()
+      .spacing(16.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::new(
+          vec![
+            TableColumn::new("name", "Name").text(|row: &Entry| row.name.to_owned()),
+            TableColumn::new("kind", "Kind")
+              .width(110.0)
+              .muted(true)
+              .text(|row: &Entry| row.kind.to_owned()),
+            TableColumn::new("size", "Size")
+              .width(80.0)
+              .numeric()
+              .text(|row: &Entry| row.size.map_or_else(|| "—".to_owned(), |size| format!("{size} KB"))),
+          ],
+          entries(),
+        )
+        .row_key(|row: &Entry| row.name.to_owned())
+        .label("Files")
+        .read_only(true)
+        .tree(|row: &Entry| row.parent.map(str::to_owned))
+        .expanded(self.tree_open.clone())
+        .key("tree")
+        .mount(ctx),
+      )
+      .child(
+        DataGrid::new(columns(false), files(6))
+          .row_key(|row: &File| row.name.clone())
+          .label("Builds")
+          .read_only(true)
+          .detail(file_detail)
+          .details(self.details_open.clone())
+          .key("details")
+          .mount(ctx),
+      );
+
     let numbered = DataGrid::new(columns(false), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -1522,6 +1685,52 @@ impl Component for DataGridPage {
               ".sort(sort).filters(filters).filter_row(true)",
               ".on_query_change(|query| store(query.to_text()))",
               ".mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Export",
+          "Each column's menu ends in Export: the rows shown, or those selected, as CSV or tab-separated text, the \
+           titles of the columns shown first and a cell as it is shown. The app is told the text to save it; with \
+           no handler it goes on the clipboard. to_csv(&columns, &rows) writes any rows in the grid's columns.",
+          self.frame.demo(
+            14,
+            export_grid,
+            ".on_export(|export| ..)",
+            &[
+              "DataGrid::new(columns, files.get())",
+              "    .selected(selected)",
+              "    .on_export(|export: &GridExport| {",
+              "        // export.format (Csv or Tsv), export.scope (Shown or Selected), export.rows",
+              "        save(&format!(\"files.{}\", export.format.extension()), &export.text)",
+              "    })",
+              "    .mount(ctx)",
+              "// Without the grid: lurq::ui::to_csv(&columns, &rows)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Tree rows and details",
+          "The rows as a tree: each under the row its parent key names, indented 18 a level in the first column, \
+           whose chevron opens and closes the rows under it; Right and Left on that cell do too, and Left on a \
+           closed row goes to the row it is under. A row's detail is a panel under it as wide as the view, opened \
+           the same way where the rows are no tree, as high as what it holds. Both are built as rows are: only \
+           what is in view.",
+          self.frame.demo(
+            15,
+            tree_grid,
+            ".tree(|row| parent) / .detail(|row| ..)",
+            &[
+              "DataGrid::new(columns, entries)",
+              "    .row_key(|row| row.name.clone())",
+              "    .tree(|row| row.parent.clone()) // the key of the row it is under",
+              "    .expanded(open) // Signal<Vec<K>>: the rows open",
+              "    .mount(ctx)",
+              "DataGrid::new(columns, files)",
+              "    .row_key(|row| row.name.clone())",
+              "    .detail(|row| file_detail(row)) // an element under the row",
+              "    .details(open) // Signal<Vec<K>>: the details open",
+              "    .mount(ctx)",
             ],
           ),
         ),

@@ -103,6 +103,14 @@ use crate::{
 /// of each group open, with a sum, an average, a count, the least or the most the grid computes of a column of
 /// numbers, or the app's text.
 ///
+/// **Tree rows** ([`tree`](Self::tree)): each row under the row its parent key names, indented in the first column
+/// with a chevron that opens and closes it, Right and Left there too. **A row's detail** ([`detail`](Self::detail)):
+/// an element under an open row, as wide as the view. Both are lines of the grid's windowing.
+///
+/// **Export** ([`on_export`](Self::on_export)): each column's menu writes the rows shown, or those selected, out as
+/// comma-separated or tab-separated text, the titles of the columns shown first, for the app to save; with no
+/// handler, onto the clipboard. [`to_csv`](super::to_csv) writes any rows in the grid's columns.
+///
 /// **Row numbers** ([`row_numbers`](Self::row_numbers)): a column of them at the start that stays, a number pressed
 /// to select its row, its header to select every row.
 ///
@@ -250,6 +258,76 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// told.
   pub fn column_menu(self, menu: bool) -> Self {
     self.with(|table| table.set_column_menu(menu))
+  }
+
+  /// The rows as a tree: `parent` gives the key of the row each is under ([`row_key`](Self::row_key)), or `None`
+  /// for a row at the top. Each row comes after the row it is under, the rows under one in the order given (the
+  /// sort's), indented 18 a level in the first column, where a chevron opens and closes the rows under it: a press
+  /// of it, or Right and Left on the first cell, Left on a row that is closed going to the row it is under. A row
+  /// a filter keeps keeps the rows it is under; a row whose parent is not among the rows is at the top. The rows of
+  /// a closed row are not built. A grid grouped by columns is no tree.
+  pub fn tree(self, parent: impl Fn(&R) -> Option<K> + Send + Sync + 'static) -> Self {
+    self.with(|table| table.set_tree(parent))
+  }
+
+  /// The rows of the tree that are open, by their keys: those the signal has. Without it, the grid keeps its own,
+  /// every row closed at first.
+  pub fn expanded(self, open: Signal<Vec<K>>) -> Self
+  where
+    Vec<K>: SignalValue,
+  {
+    let now = open.get();
+    self.with(|table| table.set_expanded(now, Arc::new(move |next| open.set(next))))
+  }
+
+  /// The rows of the tree that are open, as the app holds them: `on_change` is told the rows open after each press
+  /// or key that opens or closes one.
+  pub fn expanded_controlled(
+    self,
+    open: impl IntoIterator<Item = K>,
+    on_change: impl Fn(Vec<K>) + Send + Sync + 'static,
+  ) -> Self {
+    let now = open.into_iter().collect();
+    self.with(|table| table.set_expanded(now, Arc::new(on_change)))
+  }
+
+  /// Called with each row of the tree a press or a key opens (`true`) or closes.
+  pub fn on_expanded_change(self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.add_on_expanded_change(handler))
+  }
+
+  /// What a row shows under it while it is open: a panel as wide as the grid's view, which stays in it while the
+  /// columns scroll sideways, as high as what it holds. Where the rows are no tree, the first cell's chevron opens
+  /// and closes it, and Right and Left on that cell do. Its line is measured as it is laid out, as a row that wraps
+  /// is; what is in it is reached with Tab, and the arrows go from row to row past it.
+  pub fn detail(self, detail: impl Fn(&R) -> Element + Send + Sync + 'static) -> Self {
+    self.with(|table| table.set_detail(detail))
+  }
+
+  /// The rows whose detail is open, by their keys: those the signal has. Without it, the grid keeps its own, every
+  /// detail closed at first.
+  pub fn details(self, open: Signal<Vec<K>>) -> Self
+  where
+    Vec<K>: SignalValue,
+  {
+    let now = open.get();
+    self.with(|table| table.set_details_open(now, Arc::new(move |next| open.set(next))))
+  }
+
+  /// The rows whose detail is open, as the app holds them: `on_change` is told them after each press or key that
+  /// opens or closes one.
+  pub fn details_controlled(
+    self,
+    open: impl IntoIterator<Item = K>,
+    on_change: impl Fn(Vec<K>) + Send + Sync + 'static,
+  ) -> Self {
+    let now = open.into_iter().collect();
+    self.with(|table| table.set_details_open(now, Arc::new(on_change)))
+  }
+
+  /// Called with each row whose detail a press or a key opens (`true`) or closes.
+  pub fn on_detail_change(self, handler: impl Fn(&K, bool) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.add_on_detail_change(handler))
   }
 
   /// Groups the rows by the values of these columns, by their ids: a group's row for each value of the first,
@@ -511,6 +589,24 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// Called with how many matches there are and which is current: see [`Table::on_matches_change`].
   pub fn on_matches_change(self, handler: impl Fn(super::SearchMatches) + Send + Sync + 'static) -> Self {
     self.with(|table| table.on_matches_change(handler))
+  }
+
+  /// Whether each column's menu has Export, which writes the rows shown or selected out as comma-separated or
+  /// tab-separated text, the titles of the columns shown first: on unless told.
+  pub fn export(self, export: bool) -> Self {
+    self.with(|table| table.export(export))
+  }
+
+  /// Told the text of each export from the grid's menu ([`GridExport`](super::GridExport)): its form, which rows,
+  /// the text and how many rows it holds. The app saves it, or sends it; with no handler the text goes on the
+  /// clipboard.
+  pub fn on_export(self, handler: impl Fn(&super::GridExport) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_export(handler))
+  }
+
+  /// The words of the export in the grid's menu.
+  pub fn export_labels(self, labels: super::ExportLabels) -> Self {
+    self.with(|table| table.export_labels(labels))
   }
 
   /// Whether Ctrl+F opens a find bar over the grid: see [`Table::find_bar`].
