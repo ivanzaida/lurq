@@ -79,6 +79,7 @@ mod line_chart;
 mod link;
 mod list_item;
 mod listbox;
+mod media_speed_menu;
 mod media_time;
 mod media_volume;
 mod mentions;
@@ -308,6 +309,7 @@ pub use list_item::{
   ListView,
 };
 pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};
+pub use media_speed_menu::MediaSpeedMenu;
 pub use media_time::{MEDIA_RATES, MediaTime, media_rate_text, media_time_text};
 pub use media_volume::{MediaVolume, MediaVolumeSize};
 pub use mentions::{

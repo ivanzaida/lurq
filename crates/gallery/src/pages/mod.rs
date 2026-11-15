@@ -128,12 +128,13 @@ pub enum Group {
   Surfaces,
   Data,
   Charts,
+  Media,
   Desktop,
 }
 
 impl Group {
   /// The groups in the order of the side bar.
-  pub const ALL: [Group; 8] = [
+  pub const ALL: [Group; 9] = [
     Self::GettingStarted,
     Self::Actions,
     Self::Inputs,
@@ -141,6 +142,7 @@ impl Group {
     Self::Surfaces,
     Self::Data,
     Self::Charts,
+    Self::Media,
     Self::Desktop,
   ];
 
@@ -153,6 +155,7 @@ impl Group {
       Self::Surfaces => "Surfaces & overlays",
       Self::Data => "Data",
       Self::Charts => "Charts",
+      Self::Media => "Media",
       Self::Desktop => "Desktop",
     }
   }
