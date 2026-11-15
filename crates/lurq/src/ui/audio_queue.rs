@@ -526,9 +526,17 @@ impl AudioQueueView {
       return lead.child(icon);
     }
     let number = row.part(AudioQueuePart::Number);
-    let mut stack = Stack::new().child(Row::new().part(&number).child(number.text(&(row.index + 1).to_string()).nowrap()));
+    let mut stack = Stack::new().child(
+      Row::new()
+        .part(&number)
+        .child(number.text(&(row.index + 1).to_string()).nowrap()),
+    );
     if row.press.is_some() {
-      stack = stack.child(glyph(&row.part(AudioQueuePart::LeadIcon), Name::from(icons::PLAY), false));
+      stack = stack.child(glyph(
+        &row.part(AudioQueuePart::LeadIcon),
+        Name::from(icons::PLAY),
+        false,
+      ));
     }
     lead.child(stack)
   }
@@ -543,7 +551,11 @@ impl AudioQueueView {
       .justify(Justify::Center);
     match row.item.media.take() {
       Some(media) => held.child(media),
-      None => held.child(glyph(&row.part(AudioQueuePart::MediaIcon), Name::from(icons::MUSIC), false)),
+      None => held.child(glyph(
+        &row.part(AudioQueuePart::MediaIcon),
+        Name::from(icons::MUSIC),
+        false,
+      )),
     }
   }
 

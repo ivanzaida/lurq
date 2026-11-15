@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use super::{
-  Button, ButtonPart, ButtonShape, ButtonSize, ButtonVariant, Link, MediaSpeedMenu, MediaTime, MediaVolume,
-  PlayButton, PlayButtonSize, SeekBar, Skeleton, Toggle, Tooltip, Waveform, icons,
+  Button, ButtonPart, ButtonShape, ButtonSize, ButtonVariant, Link, MediaSpeedMenu, MediaTime, MediaVolume, PlayButton,
+  PlayButtonSize, SeekBar, Skeleton, Toggle, Tooltip, Waveform, icons,
   link::LinkPart,
   media_time_text, names,
   part_style::{FontFamily, Length, PartStyle},
@@ -66,7 +66,7 @@ impl AudioPlayerVariant {
 }
 
 /// What plays after the end of what plays: nothing, the whole list again, or the same track again.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, crate::DevtoolsInspectable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum AudioRepeat {
   #[default]
   Off,
@@ -509,7 +509,11 @@ impl AudioPlayer {
   }
 
   /// The volume, from 0 to 1, held by the app, which is told what a person makes it.
-  pub fn volume_controlled(mut self, volume: impl Into<f64>, on_volume_change: impl Fn(f64) + Send + Sync + 'static) -> Self {
+  pub fn volume_controlled(
+    mut self,
+    volume: impl Into<f64>,
+    on_volume_change: impl Fn(f64) + Send + Sync + 'static,
+  ) -> Self {
     self.volume.value = volume.into();
     self.on_volume_change(on_volume_change)
   }
@@ -944,8 +948,10 @@ impl AudioPlayer {
 
     // The bar, or the waveform that stands for it.
     let wave = !self.peaks.is_empty() && matches!(variant, AudioPlayerVariant::Compact | AudioPlayerVariant::Voice);
-    if matches!(variant, AudioPlayerVariant::Full | AudioPlayerVariant::Compact | AudioPlayerVariant::Voice)
-      && !(failed && variant != AudioPlayerVariant::Full)
+    if matches!(
+      variant,
+      AudioPlayerVariant::Full | AudioPlayerVariant::Compact | AudioPlayerVariant::Voice
+    ) && !(failed && variant != AudioPlayerVariant::Full)
     {
       let duration = self.duration.max(0.0);
       let (tell, ends) = (self.position.teller(), self.on_change_end.clone());
@@ -996,23 +1002,39 @@ impl AudioPlayer {
       } else {
         ButtonSize::Sm
       };
-      let mut icon_button = |what: &str, label: &Arc<str>, icon: &'static str, size: ButtonSize, commands: &[Command], off: bool| {
-        let command = run(commands);
-        let mut button = Button::new(label)
-          .icon(icon)
-          .icon_only(true)
-          .variant(ButtonVariant::Ghost)
-          .size(size)
-          .disabled(off)
-          .on_click(move |_| command());
-        if let Some(id) = self.child_id(what) {
-          button = button.id(id);
-        }
-        tip(label, button.build(theme))
-      };
-      controls.previous = (!narrow)
-        .then(|| icon_button("previous", &words.previous, icons::SKIP_BACK, size, &self.on_previous, self.loading));
-      controls.next = Some(icon_button("next", &words.next, icons::SKIP_FORWARD, size, &self.on_next, self.loading));
+      let mut icon_button =
+        |what: &str, label: &Arc<str>, icon: &'static str, size: ButtonSize, commands: &[Command], off: bool| {
+          let command = run(commands);
+          let mut button = Button::new(label)
+            .icon(icon)
+            .icon_only(true)
+            .variant(ButtonVariant::Ghost)
+            .size(size)
+            .disabled(off)
+            .on_click(move |_| command());
+          if let Some(id) = self.child_id(what) {
+            button = button.id(id);
+          }
+          tip(label, button.build(theme))
+        };
+      controls.previous = (!narrow).then(|| {
+        icon_button(
+          "previous",
+          &words.previous,
+          icons::SKIP_BACK,
+          size,
+          &self.on_previous,
+          self.loading,
+        )
+      });
+      controls.next = Some(icon_button(
+        "next",
+        &words.next,
+        icons::SKIP_FORWARD,
+        size,
+        &self.on_next,
+        self.loading,
+      ));
       if variant == AudioPlayerVariant::Full {
         let more = {
           let command = run(&self.on_more);
@@ -1033,9 +1055,22 @@ impl AudioPlayer {
         };
         controls.more = Some(tip(&words.more, more));
       } else if !narrow {
-        controls.queue = Some(icon_button("queue", &words.queue, icons::LIST, ButtonSize::Sm, &self.on_queue, false));
-        controls.expand =
-          Some(icon_button("expand", &words.expand, icons::CHEVRON_UP, ButtonSize::Sm, &self.on_expand, false));
+        controls.queue = Some(icon_button(
+          "queue",
+          &words.queue,
+          icons::LIST,
+          ButtonSize::Sm,
+          &self.on_queue,
+          false,
+        ));
+        controls.expand = Some(icon_button(
+          "expand",
+          &words.expand,
+          icons::CHEVRON_UP,
+          ButtonSize::Sm,
+          &self.on_expand,
+          false,
+        ));
       }
     }
 
@@ -1074,7 +1109,11 @@ impl AudioPlayer {
         toggle = toggle.id(id);
       }
       let mut repeat_element = toggle.build(theme);
-      crate::node::NodeUpdate::describe(&mut *repeat_element.node, Arc::from("a11y_value"), Arc::from(repeat.as_str()));
+      crate::node::NodeUpdate::describe(
+        &mut *repeat_element.node,
+        Arc::from("a11y_value"),
+        Arc::from(repeat.as_str()),
+      );
       controls.repeat = Some(tip(&words.repeat, repeat_element));
 
       let rate = self.rate.value;
@@ -1125,7 +1164,8 @@ impl AudioPlayer {
     // The time of the mini player, which a press turns between what is gone and what is left.
     if variant == AudioPlayerVariant::Mini && !narrow {
       let duration = (!still && self.duration > 0.0).then_some(self.duration);
-      let mut time = MediaTime::new(position, duration).remaining(kept.remaining.as_ref().is_some_and(|left| left.get()));
+      let mut time =
+        MediaTime::new(position, duration).remaining(kept.remaining.as_ref().is_some_and(|left| left.get()));
       if let Some(remaining) = &kept.remaining {
         let remaining = remaining.clone();
         time = time.on_click(move |_: MouseEvent| remaining.update(|left| *left = !*left));
@@ -1218,7 +1258,7 @@ struct Kept {
 }
 
 /// What a mini player's progress line is given.
-pub struct Line {
+struct Line {
   position: f64,
   duration: f64,
   tell: Vec<Tell<f64>>,
@@ -1324,7 +1364,11 @@ impl AudioPlayerView {
       .justify(Justify::Center);
     held = match self.media.take() {
       Some(media) => held.child(media),
-      None => held.child(glyph(&self.part(AudioPlayerPart::MediaIcon), Name::from(icons::MUSIC), false)),
+      None => held.child(glyph(
+        &self.part(AudioPlayerPart::MediaIcon),
+        Name::from(icons::MUSIC),
+        false,
+      )),
     };
     held
   }
@@ -1375,9 +1419,18 @@ impl AudioPlayerView {
       .part(&self.part(AudioPlayerPart::Error))
       .describe("a11y_role", "alert");
     if self.variant == AudioPlayerVariant::Full {
-      said = said.child(glyph(&self.part(AudioPlayerPart::ErrorIcon), Name::from(icons::ALERT_CIRCLE), false));
+      said = said.child(glyph(
+        &self.part(AudioPlayerPart::ErrorIcon),
+        Name::from(icons::ALERT_CIRCLE),
+        false,
+      ));
     }
-    said = said.child(Row::new().flex(1.0).min_width(Dimension::Px(0.0)).child(self.line_of(AudioPlayerPart::ErrorText, &error)));
+    said = said.child(
+      Row::new()
+        .flex(1.0)
+        .min_width(Dimension::Px(0.0))
+        .child(self.line_of(AudioPlayerPart::ErrorText, &error)),
+    );
     let mut row = Row::new()
       .flex(1.0)
       .min_width(Dimension::Px(0.0))
@@ -1408,10 +1461,12 @@ impl AudioPlayerView {
     };
     let track = self.part(AudioPlayerPart::Track);
     let fill = self.part(AudioPlayerPart::Fill);
-    let rail = Row::new()
-      .part(&track)
-      .width(Dimension::Pct(100.0))
-      .child(Row::new().part(&fill).height(Dimension::Pct(100.0)).width(Dimension::Pct(fraction * 100.0)));
+    let rail = Row::new().part(&track).width(Dimension::Pct(100.0)).child(
+      Row::new()
+        .part(&fill)
+        .height(Dimension::Pct(100.0))
+        .width(Dimension::Pct(fraction * 100.0)),
+    );
     // The room the pointer finds the line in: 8 from the top edge, over the bar's empty top.
     let mut hit = Stack::new()
       .stack_align(StackAlignment::TopStart)
@@ -1441,7 +1496,11 @@ impl AudioPlayerView {
       };
       let leave = {
         let scrub = scrub.clone();
-        move || scrub.set(-1.0)
+        move || {
+          if scrub.get_untracked() >= 0.0 {
+            scrub.set(-1.0);
+          }
+        }
       };
       let seek = {
         let (root, tell, ends) = (root.clone(), line.tell.clone(), line.ends.clone());
@@ -1708,11 +1767,7 @@ impl Component for AudioPlayerHost {
     };
     let theme = current_theme();
     let view = player.view(&theme, Some(ctx), &kept);
-    let mut element = AudioPlayer::render_view(view);
-    if !mini {
-      crate::node::NodeUpdate::ref_element(&mut *element.node, self.root.clone());
-    }
-    element
+    AudioPlayer::render_view(view)
   }
 }
 

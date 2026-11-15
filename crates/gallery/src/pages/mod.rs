@@ -8,6 +8,8 @@ mod accordion;
 mod action_bar;
 mod alert;
 mod area_chart;
+mod audio_player;
+mod audio_queue;
 mod avatar;
 mod badge;
 mod bar_list;
@@ -1105,6 +1107,22 @@ pub const PAGES: &[Page] = &[
     about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
+  },
+  Page {
+    path: "/audio-player",
+    name: "Audio Player",
+    icon: Some("music"),
+    about: "audio player sound music track song podcast voice message mini player docked card compact row waveform seek bar play pause previous next shuffle repeat one all volume mute speed rate playback menu artwork title loading error try again unheard dot AudioPlayer AudioPlayerVariant AudioRepeat on_playing_change on_change on_change_end",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<audio_player::AudioPlayerPage>(()),
+  },
+  Page {
+    path: "/audio-queue",
+    name: "Audio Queue",
+    icon: Some("list"),
+    about: "audio queue playlist up next tracks rows list current now playing equalizer number artwork length more unavailable arrows keyboard AudioQueue AudioQueueItem on_change on_more",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<audio_queue::AudioQueuePage>(()),
   },
 ];
 

@@ -97,17 +97,23 @@ fn a_press_tells_the_track_and_changes_nothing() {
   stage.click("q-3");
   stage.click("q-0");
   stage.click("q-2");
-  assert_eq!(said(&log), ["change 3"], "the current one and an unavailable one tell nothing");
-  assert_eq!(stage.fill_color("q-0"), Some(light(PaletteColor::Highlight)), "the app did not answer");
+  assert_eq!(
+    said(&log),
+    ["change 3"],
+    "the current one and an unavailable one tell nothing"
+  );
+  assert_eq!(
+    stage.fill_color("q-0"),
+    Some(light(PaletteColor::Highlight)),
+    "the app did not answer"
+  );
 }
 
 #[test]
 fn a_bound_queue_sets_the_signal() {
   let current = Signal::new(Some(0_usize));
   let shown = current.clone();
-  let mut stage = Stage::new(move |_| {
-    AudioQueue::new(shown.clone(), tracks(&Arc::new(Mutex::new(Vec::new())))).into()
-  });
+  let mut stage = Stage::new(move |_| AudioQueue::new(shown.clone(), tracks(&Arc::new(Mutex::new(Vec::new())))).into());
   stage.click("q-1");
   assert_eq!(current.get_untracked(), Some(1));
   assert_eq!(stage.fill_color("q-1"), Some(light(PaletteColor::Highlight)));
@@ -144,7 +150,11 @@ fn a_long_title_is_cut_and_the_length_keeps_its_room() {
   let mut stage = Stage::new(move |_| {
     lurq::components::Column::new()
       .width(360.0)
-      .child(AudioQueue::controlled(None, [AudioQueueItem::new(long).duration(198.0).id("r")], |_| {}))
+      .child(AudioQueue::controlled(
+        None,
+        [AudioQueueItem::new(long).duration(198.0).id("r")],
+        |_| {},
+      ))
       .into()
   });
   let (x, _, width, _) = stage.bounds("r");

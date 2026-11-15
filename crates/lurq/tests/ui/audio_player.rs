@@ -34,15 +34,27 @@ fn card(log: &Arc<Mutex<Vec<String>>>) -> AudioPlayer {
     let log = log.clone();
     move || log.lock().unwrap().push(what.to_owned())
   };
-  let (a, b, c, d, e, f, g) = (log.clone(), log.clone(), log.clone(), log.clone(), log.clone(), log.clone(), log.clone());
+  let (a, b, c, d, e, f, g) = (
+    log.clone(),
+    log.clone(),
+    log.clone(),
+    log.clone(),
+    log.clone(),
+    log.clone(),
+    log.clone(),
+  );
   AudioPlayer::controlled(84.0, 250.0, move |to| a.lock().unwrap().push(format!("seek {to}")))
     .on_change_end(move |to| b.lock().unwrap().push(format!("seek end {to}")))
     .title("Night Drive")
     .description("Aurora Lane · Low Tide")
     .buffered(140.0)
-    .playing_controlled(false, move |playing| c.lock().unwrap().push(format!("playing {playing}")))
+    .playing_controlled(false, move |playing| {
+      c.lock().unwrap().push(format!("playing {playing}"))
+    })
     .shuffle_controlled(false, move |on| d.lock().unwrap().push(format!("shuffle {on}")))
-    .repeat_controlled(AudioRepeat::Off, move |repeat| e.lock().unwrap().push(format!("repeat {repeat:?}")))
+    .repeat_controlled(AudioRepeat::Off, move |repeat| {
+      e.lock().unwrap().push(format!("repeat {repeat:?}"))
+    })
     .volume_controlled(0.6, move |volume| f.lock().unwrap().push(format!("volume {volume}")))
     .muted_controlled(false, move |muted| g.lock().unwrap().push(format!("muted {muted}")))
     .on_previous(say(log, "previous"))
@@ -82,12 +94,21 @@ fn the_card_is_the_boards() {
   assert_eq!(stage.text("4:10"), (light(PaletteColor::MutedForeground), 11.0));
   assert!(stage.font_of("1:24").to_lowercase().contains("mono"));
   // The transport: shuffle 32, previous 36, play 48, next 36, repeat 32, in a row.
-  for (id, side) in [("p-shuffle", 32.0), ("p-previous", 36.0), ("p-play", 48.0), ("p-next", 36.0), ("p-repeat", 32.0)] {
+  for (id, side) in [
+    ("p-shuffle", 32.0),
+    ("p-previous", 36.0),
+    ("p-play", 48.0),
+    ("p-next", 36.0),
+    ("p-repeat", 32.0),
+  ] {
     let (_, _, w, h) = stage.bounds(id);
     assert_eq!((w, h), (side, side), "{id}");
   }
-  let (play_x, _, _, _) = stage.bounds("p-play");
-  assert!((play_x + 24.0 - (x + 180.0)).abs() < 1.0, "play is in the middle of the card");
+  let (play_x, ..) = stage.bounds("p-play");
+  assert!(
+    (play_x + 24.0 - (x + 180.0)).abs() < 1.0,
+    "play is in the middle of the card"
+  );
   // The more button 32, and the speed "1×" at the end of the last row.
   assert_eq!(stage.bounds("p-more").2, 32.0);
   assert!(stage.paints("1×"));
@@ -115,7 +136,15 @@ fn each_control_tells_what_it_is_to_be_and_changes_nothing() {
   let log = log();
   let shown = log.clone();
   let mut stage = Stage::new(move |_| card(&shown).into());
-  for id in ["p-play", "p-shuffle", "p-repeat", "p-previous", "p-next", "p-more", "p-volume"] {
+  for id in [
+    "p-play",
+    "p-shuffle",
+    "p-repeat",
+    "p-previous",
+    "p-next",
+    "p-more",
+    "p-volume",
+  ] {
     stage.click(id);
   }
   assert_eq!(
@@ -165,7 +194,10 @@ fn space_plays_from_the_bar_and_the_arrows_move_it() {
   let mut stage = Stage::new(move |_| card(&shown).into());
   // Tab reaches the more button, then the seek bar.
   stage.key("Tab");
-  assert!(stage.has_ring(light(PaletteColor::Ring)), "the focus shows from the keyboard");
+  assert!(
+    stage.has_ring(light(PaletteColor::Ring)),
+    "the focus shows from the keyboard"
+  );
   stage.key("Tab");
   stage.key(" ");
   assert_eq!(said(&log), ["playing true"], "Space on the bar plays");
@@ -243,7 +275,10 @@ fn a_long_title_is_cut_and_the_buttons_keep_their_room() {
   });
   let (x, _, width, _) = stage.bounds("p");
   let title = stage.cut_text_quad(long).expect("the title, cut");
-  assert!(title.x + title.width <= x + width - 20.0 - 32.0 + 0.5, "the title ends before the button");
+  assert!(
+    title.x + title.width <= x + width - 20.0 - 32.0 + 0.5,
+    "the title ends before the button"
+  );
   assert_eq!(stage.bounds("p-more").2, 32.0, "the more button keeps its room");
   assert_eq!(width, 360.0, "the card keeps its width");
 }
@@ -403,7 +438,10 @@ fn under_480_the_mini_player_keeps_the_track_play_and_next() {
   stage.bounds("m-play");
   stage.bounds("m-next");
   for id in ["m-previous", "m-volume", "m-queue", "m-expand"] {
-    assert!(stage.tree.get_element_by_id_mut(id).is_none(), "{id} is not there under 480");
+    assert!(
+      stage.tree.get_element_by_id_mut(id).is_none(),
+      "{id} is not there under 480"
+    );
   }
   assert!(!stage.paints("1:24 "), "no time");
 }
