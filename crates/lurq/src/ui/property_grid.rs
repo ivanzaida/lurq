@@ -3,6 +3,7 @@
 use std::{
   collections::HashMap,
   sync::{Arc, Mutex},
+  time::Duration,
 };
 
 use super::{
@@ -43,8 +44,13 @@ pub enum PropertyGridPart {
   Title,
   /// A category's row: what opens and closes it.
   Category,
-  /// What says a category opens: down while it is open, to the end while it is closed.
+  /// What says a category opens: down while it is open, turned to the end while it is closed.
   Chevron,
+  /// What opens and closes under a category's row: as high as its rows while it is open, of no height while it is
+  /// closed, with a transition between the two.
+  Panel,
+  /// The rows in a category's panel: they fade in as it opens and out as it closes.
+  Body,
   /// A category's title.
   CategoryTitle,
   /// A property's row: its name and its editor.
@@ -79,6 +85,8 @@ names!(PropertyGridPart {
   Title => "title",
   Category => "category",
   Chevron => "chevron",
+  Panel => "panel",
+  Body => "body",
   CategoryTitle => "category_title",
   Row => "row",
   Label => "label",
@@ -906,6 +914,72 @@ struct GridHost {
   wake: Signal<u64>,
   /// The row the focus goes to in this render, and the ref it carries.
   focus: Option<(Arc<str>, ElementRef)>,
+  /// The categories in motion, where the grid's rows are in a virtual list.
+  motion: Arc<GridMotion>,
+}
+
+impl GridHost {
+  /// Opens or closes the category known as `known`, a person's doing: the open is kept, and its motion starts.
+  fn set_open(&self, known: &Arc<str>, to: bool) {
+    self.open.update(|open| {
+      open.insert(known.clone(), to);
+    });
+    self.motion.started(known, to);
+  }
+}
+
+/// What a grid whose rows are in a virtual list keeps of the categories that open and close. Its rows are items of
+/// the list, so no panel holds them: each row's height runs from nothing to its own as its category opens and back as
+/// it closes, the rows of a category moved from rest one after another, as an accordion's panel uncovers them. The
+/// rows of a closing category stay in the list, inert, until the motion has ended.
+#[derive(Default)]
+struct GridMotion {
+  /// Categories whose rows are kept while they close.
+  closing: Mutex<std::collections::HashSet<Arc<str>>>,
+  /// Categories just opened, whose rows are built at no height first, for their height to run from it.
+  opening: Mutex<std::collections::HashSet<Arc<str>>>,
+  /// Categories in motion, and whether it started from rest: their rows then move one after another.
+  moving: Mutex<HashMap<Arc<str>, bool>>,
+  /// What ends the motion: after it, the closed rows go.
+  settle: Mutex<Option<crate::app::ctx::Timeout>>,
+  /// What gives rows built at no height their height, on the turn of the loop after the one that laid them out:
+  /// their height runs from nothing only once nothing was laid out.
+  grow: Mutex<Option<crate::app::ctx::Timeout>>,
+  /// Whether motion is reduced: the categories open and close at once.
+  reduced: std::sync::atomic::AtomicBool,
+}
+
+impl GridMotion {
+  fn started(&self, known: &Arc<str>, to: bool) {
+    if self.reduced.load(std::sync::atomic::Ordering::Relaxed) {
+      return;
+    }
+    let mut moving = self.moving.lock().unwrap();
+    // From rest the rows move one after another; turned round on the way, each moves back from where it is.
+    let from_rest = !moving.contains_key(known);
+    moving.insert(known.clone(), from_rest);
+    drop(moving);
+    let (mut closing, mut opening) = (self.closing.lock().unwrap(), self.opening.lock().unwrap());
+    if to {
+      // Rows kept as they closed are there already, and go back from their height.
+      if !closing.remove(known) {
+        opening.insert(known.clone());
+      }
+    } else {
+      opening.remove(known);
+      closing.insert(known.clone());
+    }
+    drop((closing, opening));
+    if let Some(settle) = self.settle.lock().unwrap().as_ref() {
+      settle.restart();
+    }
+  }
+
+  fn settled(&self) {
+    self.closing.lock().unwrap().clear();
+    self.opening.lock().unwrap().clear();
+    self.moving.lock().unwrap().clear();
+  }
 }
 
 /// A property grid: an inspector's names with the editors of their values, in categories that open and close. The
@@ -1325,11 +1399,25 @@ impl PropertyGridView {
     };
     let unavailable = view.category.disabled || self.disabled;
     let title = part(PropertyGridPart::CategoryTitle);
-    let chevron = if view.open {
-      icons::CHEVRON_DOWN
-    } else {
-      icons::CHEVRON_RIGHT
-    };
+    // One chevron, down, turned to the end while the category is closed: it turns as the category opens and
+    // closes, over the opening's duration, at once where motion is reduced.
+    let theme = self.theme();
+    let chevron = Row::new()
+      .transform(crate::node::transform::Transform2D::rotate_deg(if view.open {
+        0.0
+      } else {
+        -90.0
+      }))
+      .transition(
+        crate::animation::Transition::transform()
+          .duration(theme.duration_value(crate::app::theme::MotionDuration::Base))
+          .easing(theme.easing_value(crate::app::theme::MotionEasing::Standard)),
+      )
+      .child(glyph(
+        &part(PropertyGridPart::Chevron),
+        Name::from(icons::CHEVRON_DOWN),
+        false,
+      ));
     let mut row = pressable(&part(PropertyGridPart::Category), unavailable)
       .justify(Justify::Start)
       .align_items(Alignment::Center)
@@ -1341,7 +1429,7 @@ impl PropertyGridView {
       .focus_entry(entry)
       .focus_label(view.category.title.clone())
       .key(format!("category-{}", view.category.known_as()))
-      .child(glyph(&part(PropertyGridPart::Chevron), Name::from(chevron), false))
+      .child(chevron)
       .child(
         Row::new().flex(1.0).min_width(Dimension::Px(0.0)).part(&title).child(
           title
@@ -1351,12 +1439,8 @@ impl PropertyGridView {
         ),
       );
     if let Some(host) = &self.host {
-      let (open, known) = (host.open.clone(), view.category.known_as());
-      let set = move |to: bool| {
-        open.update(|open| {
-          open.insert(known.clone(), to);
-        })
-      };
+      let (host, known) = (host.clone(), view.category.known_as());
+      let set = move |to: bool| host.set_open(&known, to);
       let (pressed, now) = (set.clone(), view.open);
       row = row
         .focus_expanded(view.open, move |to| set(to))
@@ -1591,18 +1675,6 @@ impl PropertyGridView {
     Some(divider.into())
   }
 
-  /// The rows shown, in order: each category, and the properties of an open one.
-  fn shown_rows(&self) -> Vec<Shown> {
-    let mut shown = Vec::new();
-    for (index, category) in self.categories.iter().enumerate() {
-      shown.push(Shown::Category(index));
-      if category.open {
-        shown.extend((0..category.rows.len()).map(|row| Shown::Property(index, row)));
-      }
-    }
-    shown
-  }
-
   /// The row `shown` stands for, in a virtual list: it says its place to the focus group's rows.
   fn shown_row(&self, shown: Shown, place: usize) -> Option<Element> {
     let row = match shown {
@@ -1654,20 +1726,47 @@ impl PropertyGridView {
       .align_items(Alignment::Stretch)
       .focus_group(FocusGroup::vertical().nested(true).one_stop(true).typeahead(true));
     let mut first = true;
-    for (index, category) in self.categories.iter().enumerate() {
+    for index in 0..self.categories.len() {
       if let Some(row) = self.category_row(index, first) {
         rows = rows.child(row);
         first = false;
       }
-      if category.open {
-        for row in 0..category.rows.len() {
-          if let Some(row) = self.property_row(index, row, false) {
-            rows = rows.child(row);
-          }
-        }
-      }
+      rows = rows.child(self.panel(index));
     }
     self.root(rows.into())
+  }
+
+  /// What opens and closes under the category `index`'s row, as an accordion's item does: its height is the
+  /// recipe's, of none while the category is closed and its rows' while it is open, with a transition between the
+  /// two. Its rows stay while it closes over them, only painted, and are gone with its body's exit.
+  pub fn panel(&self, index: usize) -> Column {
+    let view = &self.categories[index];
+    let mut panel = Column::new()
+      .align_items(Alignment::Stretch)
+      .clip()
+      .presence()
+      // Keyed as its category's row is: the same panel from render to render, whose height runs.
+      .key(format!("panel-{}", view.category.known_as()))
+      .part(&view.recipe.part(PropertyGridPart::Panel));
+    if let Some(id) = self.child_id(&format!(
+      "{}-panel",
+      view.category.id.as_deref().unwrap_or(&view.category.title)
+    )) {
+      panel = panel.id(id);
+    }
+    if view.open {
+      let mut body = Column::new()
+        .key("rows")
+        .align_items(Alignment::Stretch)
+        .part(&view.recipe.part(PropertyGridPart::Body));
+      for row in 0..view.rows.len() {
+        if let Some(row) = self.property_row(index, row, false) {
+          body = body.child(row);
+        }
+      }
+      panel = panel.child(body);
+    }
+    panel
   }
 }
 
@@ -1706,7 +1805,7 @@ impl Themed for PropertyGrid {
     let under = |s: super::PartStyle| s.underline(Edge::inside(1.0, PaletteColor::Border));
     let mono = |s: super::PartStyle, size: f32| s.typography(TypographyStyle::Mono).font_size(size);
     let row_case = super::recipe::Selector::new();
-    Recipe::new()
+    let recipe = Recipe::new()
       .base(Root, |s| {
         s.width(300.0)
           .background(Background)
@@ -1803,7 +1902,10 @@ impl Themed for PropertyGrid {
       .state(PropertyGridState::Unavailable, Category, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
-      .state(PropertyGridState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
+      .state(PropertyGridState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled));
+    // A category opens and closes as an accordion's item does: its panel's height over the theme's base duration,
+    // its rows fading in and out.
+    super::collapsible::opening(recipe, PropertyGridState::Open.into(), Panel.into(), Body.into())
   }
 }
 
@@ -1837,6 +1939,25 @@ impl Component for GridMount {
   type Props = GridProps;
 
   fn create(ctx: &mut Ctx) -> Self {
+    let (motion, wake): (Arc<GridMotion>, Signal<u64>) = (Arc::default(), ctx.signal(0));
+    // The motion is over once its rows have run their turns: the opening's duration, and a frame for the last.
+    let over = current_theme().duration_value(crate::app::theme::MotionDuration::Base) + Duration::from_millis(50);
+    let settle = ctx.create_timeout(over, {
+      let (motion, wake) = (motion.clone(), wake.clone());
+      move || {
+        motion.settled();
+        wake.update(|wake| *wake = wake.wrapping_add(1));
+      }
+    });
+    *motion.settle.lock().unwrap() = Some(settle);
+    let grow = ctx.create_timeout(Duration::ZERO, {
+      let (motion, wake) = (motion.clone(), wake.clone());
+      move || {
+        motion.opening.lock().unwrap().clear();
+        wake.update(|wake| *wake = wake.wrapping_add(1));
+      }
+    });
+    *motion.grow.lock().unwrap() = Some(grow);
     Self {
       host: GridHost {
         open: ctx.signal(HashMap::new()),
@@ -1844,8 +1965,9 @@ impl Component for GridMount {
         edited: Arc::default(),
         colors: Arc::default(),
         refocus: Arc::default(),
-        wake: ctx.signal(0),
+        wake,
         focus: None,
+        motion,
       },
       focused: Arc::default(),
       rows: Arc::new(GridRows {
@@ -1878,7 +2000,27 @@ impl Component for GridMount {
       return element;
     }
     let view = grid.view(&theme);
-    let shown = view.shown_rows();
+    let motion = self.host.motion.clone();
+    let reduced = theme.reduced_motion();
+    motion.reduced.store(reduced, std::sync::atomic::Ordering::Relaxed);
+    if reduced {
+      motion.settled();
+    }
+    let (closing, opening, moving) = (
+      motion.closing.lock().unwrap().clone(),
+      motion.opening.lock().unwrap().clone(),
+      motion.moving.lock().unwrap().clone(),
+    );
+    // The rows shown, and the rows of a closing category, kept while they close.
+    let mut shown: Vec<(Shown, bool)> = Vec::new();
+    for (index, category) in view.categories.iter().enumerate() {
+      shown.push((Shown::Category(index), false));
+      let known = category.category.known_as();
+      let kept = !category.open && closing.contains(&known);
+      if category.open || kept {
+        shown.extend((0..category.rows.len()).map(|row| (Shown::Property(index, row), kept)));
+      }
+    }
     let key = |row: &Shown| match *row {
       Shown::Category(index) => format!("category-{}", view.categories[index].category.known_as()),
       Shown::Property(category, row) => {
@@ -1886,7 +2028,7 @@ impl Component for GridMount {
         format!("property-{}", property.key.as_deref().unwrap_or(&property.id))
       }
     };
-    let keys: Vec<String> = shown.iter().map(key).collect();
+    let keys: Vec<String> = shown.iter().map(|(row, _)| key(row)).collect();
     let height = |row: &Shown| {
       let part = match row {
         Shown::Category(_) => PropertyGridPart::Category,
@@ -1897,34 +2039,78 @@ impl Component for GridMount {
         _ => 32.0,
       }
     };
-    let heights: Vec<f32> = shown.iter().map(height).collect();
-    let open = self.host.open.clone();
+    let heights: Vec<f32> = shown.iter().map(|(row, _)| height(row)).collect();
+    // Each property row's height and how it runs to it: the opening's duration and easing, a row of a category
+    // moved from rest in its turn, the first first as it opens and the last first as it closes.
+    let base = theme.duration_value(crate::app::theme::MotionDuration::Base);
+    let easing = theme.easing_value(crate::app::theme::MotionEasing::Standard);
+    let motions: Vec<Option<RowMotion>> = shown
+      .iter()
+      .zip(&heights)
+      .map(|((row, kept), height)| {
+        let Shown::Property(category, place) = *row else {
+          return None;
+        };
+        let known = view.categories[category].category.known_as();
+        let count = view.categories[category].rows.len().max(1) as u32;
+        let first = opening.contains(&known);
+        let in_turn = moving.get(&known).copied().unwrap_or(false);
+        let (delay, duration) = if in_turn {
+          let step = base / count;
+          let turn = if *kept { count - 1 - place as u32 } else { place as u32 };
+          (step * turn, step)
+        } else {
+          (std::time::Duration::ZERO, base)
+        };
+        // What the list counts a row it has not measured as: the height it runs from while its category moves, so
+        // that what is below is built where it is, and its height at rest.
+        let estimate = match (moving.contains_key(&known), *kept) {
+          (true, false) => 0.0,
+          _ => *height,
+        };
+        Some(RowMotion {
+          estimate,
+          height: if *kept || first { 0.0 } else { *height },
+          delay,
+          duration,
+          easing: if in_turn {
+            crate::animation::Easing::Linear
+          } else {
+            easing
+          },
+          kept: *kept,
+        })
+      })
+      .collect();
+    let open = self.host.clone();
     *self.rows.data.lock().unwrap() = RowsData {
       keys: keys.clone(),
       labels: shown
         .iter()
-        .map(|row| match *row {
+        .map(|(row, _)| match *row {
           Shown::Category(index) => view.categories[index].category.title.clone(),
           Shown::Property(category, row) => view.categories[category].rows[row].property.name.clone(),
         })
         .collect(),
       levels: shown
         .iter()
-        .map(|row| if matches!(row, Shown::Category(_)) { 1 } else { 2 })
+        .map(|(row, _)| if matches!(row, Shown::Category(_)) { 1 } else { 2 })
         .collect(),
       expanded: shown
         .iter()
-        .map(|row| match *row {
+        .map(|(row, _)| match *row {
           Shown::Category(index) => Some(view.categories[index].open),
           Shown::Property(..) => None,
         })
         .collect(),
+      // The rows of a closing category are not reached: they are going.
       enabled: shown
         .iter()
-        .map(|row| match *row {
+        .map(|(row, kept)| match *row {
           Shown::Category(index) => !view.categories[index].category.disabled && !view.disabled,
           Shown::Property(category, row) => {
-            !view.categories[category].rows[row].property.disabled
+            !kept
+              && !view.categories[category].rows[row].property.disabled
               && !view.categories[category].category.disabled
               && !view.disabled
           }
@@ -1932,32 +2118,38 @@ impl Component for GridMount {
         .collect(),
       toggles: shown
         .iter()
-        .map(|row| match *row {
+        .map(|(row, _)| match *row {
           Shown::Category(index) => {
-            let (open, known) = (open.clone(), view.categories[index].category.known_as());
-            Some(Arc::new(move |to: bool| {
-              open.update(|open| {
-                open.insert(known.clone(), to);
-              })
-            }) as Arc<dyn Fn(bool) + Send + Sync>)
+            let (host, known) = (open.clone(), view.categories[index].category.known_as());
+            Some(Arc::new(move |to: bool| host.set_open(&known, to)) as Arc<dyn Fn(bool) + Send + Sync>)
           }
           Shown::Property(..) => None,
         })
         .collect(),
       step: heights.iter().copied().fold(32.0, f32::min),
     };
+    // Rows built at no height this time are given their height on the next turn of the loop, for it to run from
+    // nothing.
+    if !opening.is_empty()
+      && let Some(grow) = motion.grow.lock().unwrap().as_ref()
+    {
+      grow.restart();
+    }
     let generation = self.generation.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     let view = Arc::new(view);
-    *self.shown.lock().unwrap() = Some((view.clone(), shown));
+    let places: Vec<Shown> = shown.iter().map(|(row, _)| *row).collect();
+    *self.shown.lock().unwrap() = Some((view.clone(), places));
     let items: Arc<Vec<GridItem>> = Arc::new(
       keys
         .into_iter()
         .zip(heights)
+        .zip(motions)
         .enumerate()
-        .map(|(place, (key, height))| GridItem {
+        .map(|(place, ((key, height), motion))| GridItem {
           place,
           key,
           height,
+          motion,
           generation,
         })
         .collect(),
@@ -1967,7 +2159,7 @@ impl Component for GridMount {
       .with_scroll_state(self.rows.scroll.clone())
       .reveal_key(self.rows.reveal_key.get())
       .reveal_request(self.rows.reveal_request.get())
-      .estimate_height(|item: &GridItem| item.height)
+      .estimate_height(|item: &GridItem| item.motion.as_ref().map_or(item.height, |motion| motion.estimate))
       // The bar has a lane of its own beside the rows: no editor, reset or mark is under it, at rest or shown.
       .scrollbar(crate::layout::scrollbar::ScrollBarStyle {
         placement: crate::layout::scrollbar::ScrollBarPlacement::Reserved,
@@ -1980,6 +2172,7 @@ impl Component for GridMount {
         move |item: &GridItem| GridRowProps {
           place: item.place,
           generation: item.generation,
+          motion: item.motion.clone(),
           shown: shared.clone(),
         },
       );
@@ -2066,24 +2259,42 @@ impl FocusRows for GridRows {
   }
 }
 
-/// A row of the virtual list: its place among the rows shown, from which render.
+/// A row of the virtual list: its place among the rows shown, from which render, and how a property's row moves.
 #[derive(Clone, PartialEq)]
 struct GridItem {
   place: usize,
   key: String,
   height: f32,
+  motion: Option<RowMotion>,
   generation: u64,
+}
+
+/// The height a property's row runs to, and how: what its category's opening or closing gives it.
+#[derive(Clone, Debug, PartialEq)]
+struct RowMotion {
+  height: f32,
+  /// What the list counts the row as before it measures it.
+  estimate: f32,
+  delay: std::time::Duration,
+  duration: std::time::Duration,
+  easing: crate::animation::Easing,
+  /// The row of a closing category: kept while it closes, inert.
+  kept: bool,
 }
 
 struct GridRowProps {
   place: usize,
   generation: u64,
+  motion: Option<RowMotion>,
   shown: ShownRows,
 }
 
 impl PartialEq for GridRowProps {
   fn eq(&self, other: &Self) -> bool {
-    self.place == other.place && self.generation == other.generation && Arc::ptr_eq(&self.shown, &other.shown)
+    self.place == other.place
+      && self.generation == other.generation
+      && self.motion == other.motion
+      && Arc::ptr_eq(&self.shown, &other.shown)
   }
 }
 
@@ -2108,9 +2319,27 @@ impl Component for GridRowHost {
         None => (None, None),
       }
     };
-    match (view, row) {
+    let built = match (view, row) {
       (Some(view), Some(row)) => view.shown_row(row, props.place).unwrap_or_else(|| Column::new().into()),
       _ => Column::new().into(),
-    }
+    };
+    let Some(motion) = &props.motion else {
+      return built;
+    };
+    // A property's row in a frame of its height, which runs to the height its category's motion gives it.
+    Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .clip()
+      .height(motion.height)
+      .transition(
+        crate::animation::Transition::height()
+          .duration(motion.duration)
+          .delay_ms(motion.delay.as_millis() as u64)
+          .easing(motion.easing.clone()),
+      )
+      .inert(motion.kept)
+      .child(built)
+      .into()
   }
 }

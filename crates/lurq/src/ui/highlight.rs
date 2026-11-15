@@ -301,34 +301,7 @@ impl HighlightView {
   /// The fill behind `range` in the style of `part`: its color, its radius,
   /// how far it reaches past its words, and its edge.
   pub fn fill(&self, range: Range<usize>, part: impl Into<Name>) -> Option<TextHighlight> {
-    let theme = self.theme();
-    let part = self.part(part);
-    let style = part.rest();
-    let color = match style.background.clone()? {
-      BackgroundColor::Color(color) => TextColor::Color(color),
-      BackgroundColor::Palette(role) => TextColor::Palette(role),
-      BackgroundColor::CurrentForeground => TextColor::Palette(PaletteColor::Foreground),
-    };
-    let radius = style
-      .radius
-      .map(|radius| radius.resolve(&theme.radii()).top_left)
-      .unwrap_or(0.0);
-    let spacing = theme.spacing();
-    let [top, end, _, start] = style.paddings();
-    let pad = |side: Option<crate::node::SpacingValue>| side.map_or(0.0, |side| side.resolve(&spacing, 0.0));
-    let mut fill = TextHighlight::new(range, color)
-      .radius(radius)
-      .padding(pad(start).max(pad(end)), pad(top));
-    if let Some(edge) = &style.border {
-      let width = edge.width.resolve(&theme.border_sizes());
-      let color = match edge.color.clone() {
-        BackgroundColor::Color(color) => TextColor::Color(color),
-        BackgroundColor::Palette(role) => TextColor::Palette(role),
-        BackgroundColor::CurrentForeground => TextColor::Palette(PaletteColor::Foreground),
-      };
-      fill = fill.border(width, color);
-    }
-    Some(fill)
+    fill_of(&self.part(part), range)
   }
 
   /// Every mark's fill, the current one in its own style.
@@ -444,6 +417,36 @@ impl HighlightView {
     }
     element
   }
+}
+
+/// The fill behind `range` of a text in the style of a part: its fill, its
+/// radius, how far it reaches past its words (its padding), and its edge.
+/// `None` for a part with no fill. What a highlight's mark is, and a
+/// document's code and keys in a sentence.
+pub(crate) fn fill_of(part: &ResolvedPart, range: Range<usize>) -> Option<TextHighlight> {
+  let theme = part.theme();
+  let style = part.rest();
+  let as_text = |color: BackgroundColor| match color {
+    BackgroundColor::Color(color) => TextColor::Color(color),
+    BackgroundColor::Palette(role) => TextColor::Palette(role),
+    BackgroundColor::CurrentForeground => TextColor::Palette(PaletteColor::Foreground),
+  };
+  let color = as_text(style.background.clone()?);
+  let radius = style
+    .radius
+    .map(|radius| radius.resolve(&theme.radii()).top_left)
+    .unwrap_or(0.0);
+  let spacing = theme.spacing();
+  let [top, end, _, start] = style.paddings();
+  let pad = |side: Option<crate::node::SpacingValue>| side.map_or(0.0, |side| side.resolve(&spacing, 0.0));
+  let mut fill = TextHighlight::new(range, color)
+    .radius(radius)
+    .padding(pad(start).max(pad(end)), pad(top));
+  if let Some(edge) = &style.border {
+    let width = edge.width.resolve(&theme.border_sizes());
+    fill = fill.border(width, as_text(edge.color.clone()));
+  }
+  Some(fill)
 }
 
 impl Themed for Highlight {

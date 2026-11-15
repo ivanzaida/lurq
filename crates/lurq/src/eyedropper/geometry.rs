@@ -91,9 +91,103 @@ pub(crate) fn loupe_origin(cursor: (i32, i32), size: (i32, i32), gap: i32, monit
   )
 }
 
+/// How much of the pixel at `(x, y)` a rectangle of `width` by `height` from `(0, 0)` with corners of `radius`
+/// covers, from 0 to 1: whole inside, a share of it on a corner's arc, none past it.
+pub(crate) fn rounded_coverage(x: i32, y: i32, width: i32, height: i32, radius: f32) -> f32 {
+  if x < 0 || y < 0 || x >= width || y >= height {
+    return 0.0;
+  }
+  let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+  let radius = radius.max(0.0).min(width as f32 / 2.0).min(height as f32 / 2.0);
+  // The center of the corner's circle the pixel is beside, where it is in a corner.
+  let cx = if px < radius {
+    radius
+  } else if px > width as f32 - radius {
+    width as f32 - radius
+  } else {
+    return 1.0;
+  };
+  let cy = if py < radius {
+    radius
+  } else if py > height as f32 - radius {
+    height as f32 - radius
+  } else {
+    return 1.0;
+  };
+  let distance = ((px - cx).powi(2) + (py - cy).powi(2)).sqrt();
+  (radius - distance + 0.5).clamp(0.0, 1.0)
+}
+
+/// Makes the loupe's picture whole, as one finished frame: `pixels` (row by row, `0x00RRGGBB`, as GDI drew them) of a
+/// loupe of `width` by `height` become premultiplied `0xAARRGGBB` with its corners of `radius` cut out, smooth, and an
+/// edge of one pixel in `border` that follows them. What a layered window is given to show at once.
+pub(crate) fn finish_loupe(pixels: &mut [u32], width: i32, height: i32, radius: f32, border: (u8, u8, u8)) {
+  for y in 0..height {
+    for x in 0..width {
+      let at = (y * width + x) as usize;
+      let Some(pixel) = pixels.get_mut(at) else {
+        return;
+      };
+      let outer = rounded_coverage(x, y, width, height, radius);
+      let inner = rounded_coverage(x - 1, y - 1, width - 2, height - 2, (radius - 1.0).max(0.0));
+      let channel = |shift: u32, edge: u8| {
+        let drawn = ((*pixel >> shift) & 0xff) as f32;
+        let color = edge as f32 + (drawn - edge as f32) * inner;
+        ((color * outer).round() as u32).min(255)
+      };
+      let (r, g, b) = (channel(16, border.0), channel(8, border.1), channel(0, border.2));
+      let a = ((outer * 255.0).round() as u32).min(255);
+      *pixel = (a << 24) | (r << 16) | (g << 8) | b;
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_finished_loupe_is_opaque_inside_with_its_corners_cut_and_its_edge_drawn() {
+    let (width, height, radius) = (40, 30, 8.0);
+    let panel = 0x0018_181b;
+    let mut pixels = vec![panel; (width * height) as usize];
+    // A cell drawn in the middle keeps its color.
+    pixels[(15 * width + 20) as usize] = 0x0025_63eb;
+    finish_loupe(&mut pixels, width, height, radius, (0x3f, 0x3f, 0x46));
+    let at = |x: i32, y: i32| pixels[(y * width + x) as usize];
+    assert_eq!(at(20, 15), 0xff25_63eb, "the middle opaque and as drawn");
+    assert_eq!(at(20, 5), 0xff18_181b, "the panel opaque");
+    assert_eq!(at(0, 0), 0, "a corner cut out: transparent, nothing under its alpha");
+    assert_eq!(at(width - 1, height - 1), 0);
+    assert_eq!(at(20, 0), 0xff3f_3f46, "the edge at the top");
+    assert_eq!(at(0, 15), 0xff3f_3f46, "the edge at the left");
+    // On a corner's arc: partly covered, premultiplied (no channel over its alpha).
+    let arc = at(2, 2);
+    let alpha = arc >> 24;
+    assert!(alpha > 0 && alpha < 255, "{arc:08x}");
+    assert!(
+      [(arc >> 16) & 0xff, (arc >> 8) & 0xff, arc & 0xff]
+        .iter()
+        .all(|channel| *channel <= alpha)
+    );
+    // Every pixel is decided: none is left as GDI drew it, with no alpha.
+    assert!(
+      pixels
+        .iter()
+        .all(|pixel| *pixel >> 24 == 0xff || *pixel >> 24 < 0xff && *pixel != panel)
+    );
+  }
+
+  #[test]
+  fn coverage_is_whole_inside_partial_on_an_arc_and_none_past_it() {
+    assert_eq!(rounded_coverage(10, 10, 20, 20, 4.0), 1.0);
+    assert_eq!(rounded_coverage(0, 10, 20, 20, 4.0), 1.0, "a straight edge");
+    assert_eq!(rounded_coverage(0, 0, 20, 20, 4.0), 0.0, "past the arc");
+    let on = rounded_coverage(1, 1, 20, 20, 4.0);
+    assert!(on > 0.0 && on < 1.0, "{on}");
+    assert_eq!(rounded_coverage(-1, 5, 20, 20, 4.0), 0.0, "outside");
+    assert_eq!(rounded_coverage(0, 0, 20, 20, 0.0), 1.0, "square corners");
+  }
 
   /// A desktop of two monitors: a 1920 by 1080 one to the left of the primary, and the primary, 2560 by 1440 at 150%.
   fn two_monitors() -> (Rect, Rect, Rect) {

@@ -3971,6 +3971,7 @@ Splitter::new().grip(true).framed(true).pane(sidebar).pane(content);
 - A drag holds the pointer: the divider follows it wherever it goes, in the window and out of it, the cursor is the resizing one over the divider and for the whole drag, and no text is selected by it. A double press puts the divider back where it began, or opens the closed pane beside it. A closed pane is inert (`.inert`, see Focus And Keyboard Navigation): what is in it stays mounted and takes neither the focus nor the pointer.
 - A divider is a stop of Tab. The arrow keys of its orientation (Left and Right across, Up and Down one over the other) move it by a step, with Shift by a larger one; Home and End take the pane before it to its least and most size, and Enter closes and opens the collapsible pane beside it.
 - The panes say what gives way when the window grows or shrinks: one of pixels keeps them, one of a share keeps its share, and the pane given no size takes the rest. No open pane is made smaller than its least size while there is room: where the rest would be, the panes nearest it give way down to theirs.
+- A splitter measures its room before the frame is painted ([`ElementRef::observe_rect_before_paint`](../layout/#a-form-that-follows-its-own-room)): its first frame shows the panes at the sizes that fit the room, a pane whose share is under its least size at its least size, each divider at the edge of its pane, and nothing moves in the frames after. A splitter in a pane settles in that frame too.
 - Converted into an element, a splitter keeps its sizes while what holds it does not render again, unless it is given `sizes`; mounted, it keeps them, and an app that sets `sizes` from outside (to restore a layout) sees the panes take them. Pixels set from a saved layout are the pane's pixels, and a pane of a share takes the share its pixels were of the room they were saved in.
 - A drag renders nothing again while it moves: the panes are resized by sizes their element refs are given (`ElementRefMut::set_size`), and what is in them is only laid out again at the next pass. Nor does letting it go: tooling reads where it stands from the divider at once (`ElementRefMut::describe`).
 - Parts: `SplitterPart::Root`, `Pane`, `Handle` (the room around a divider's line that takes the pointer and the focus), `Line`, `Bar` (the wider line under the pointer, dragged and focused), `Grip`, `GripIcon`. States: `SplitterState::Horizontal` or `Vertical`, `Framed`, `Disabled`.
@@ -4036,10 +4037,11 @@ PropertyGrid::new()
 
 - Every value is the app's signal, edited at once by its editor: `ui`'s own controls, the [input](#input), the [number input](#number-input), the [select](#select), the [checkbox](#checkbox) and the [slider](#slider), each with the grid's `Editor` part laid over its box, and for a color a [swatch](#color-swatch) and an input. The color row and the stepper are the grid's own: the board draws them only in its inspector (Property Grid's Fill and Rotation rows); its Color Field and Number Input are drawn otherwise, a swatch inside the box with an eyedropper and a minus and a plus at the ends. A choice, a box, a color, a slider and a number are told to `on_change` as each change is made; a text as it is committed, with Enter, or (mounted) as the focus leaves it after an edit.
 - To the keys it is a tree ([a nested group](../focus-navigation/#a-nested-list)): Tab enters at one row, Up and Down go between the rows, Right opens a closed category and Left closes an open one or goes from a property to its category, typing a letter goes to the row it starts. Tab or Enter on a property's row go into its editor, where its own keys work (Up steps a number), and Escape gives the focus back to the row (mounted). A press of a name gives its editor the focus; a press of a category opens or closes it.
+- A category opens and closes as an [accordion](#accordion)'s item does, over the theme's base duration and its standard easing, at once where motion is reduced: its rows slide open under its row and what is below moves with them, its rows fade in and out, and its chevron turns. Pressed again on the way, it turns round from where it is; the keys and the focus work all through it, and a closed category's rows are reached neither by Tab nor by the arrows. In a grid that builds every row, the rows are in a panel whose height runs, as the accordion's; in a grid with a `height`, whose rows are items of a virtual list, each row's height runs from nothing to its own in its turn, the rows coming into view built as they come, and the rows of a closing category stay, inert, until they have closed.
 - The divider between the names and the editors is dragged, or moved by 8 with Left and Right while it has the focus (40 with Shift); it is a stop of Tab after the rows, a `separator` to tooling with its value. It moves nothing where the grid is not mounted.
 - To tooling it is a `treegrid`: a category is a `row` at level 1 with `a11y_expanded`, a property a `row` at level 2 called by its name, with its value in `a11y_value` ("X 120, Y 64") and its description; its editor is called by the name too ("Position X"), so the name is heard with the value from the row and from the editor alike. A group of labelled controls would say the value only in the editor, and the arrows of a tree need rows.
 - A grid given a `height` scrolls, its bar in a lane of its own beside the rows (`ScrollBarPlacement::Reserved`), so no editor, reset or mark is ever under it; one with no height keeps its full width. Mounted, it builds only the rows near its view, as a [tree view](#tree-view) does: the engine's `FocusRows` hold every row shown, so Up, Down, Home, End, PageUp, PageDown, Left, Right and typeahead reach any of them, and the row the focus goes to is built and brought into view. A row's editor keeps what is half typed while the row is built; scrolled far away, the row is let go. A grid with no height has nothing to scroll and builds every row; so does one a theme's renderer draws.
-- Parts: `PropertyGridPart::Root`, `Header`, `Title`, `Category`, `Chevron`, `CategoryTitle`, `Row`, `Label` (a property's name), `Modified` (its mark), `Value`, `Editor` (laid over each control's box), `Axis`, `AxisX`, `AxisY`, `Reset`, `Stepper` (a number's chevrons, a color's eyedropper), `Swatch` (a color's), `Divider`. States: `PropertyGridState::Disabled`, `FullWidth`, and on a category's or a property's parts `Open`, `Modified`, `ReadOnly`, `Unavailable`.
+- Parts: `PropertyGridPart::Root`, `Header`, `Title`, `Category`, `Chevron`, `Panel` (what opens and closes under a category's row), `Body` (its rows, which fade), `CategoryTitle`, `Row`, `Label` (a property's name), `Modified` (its mark), `Value`, `Editor` (laid over each control's box), `Axis`, `AxisX`, `AxisY`, `Reset`, `Stepper` (a number's chevrons, a color's eyedropper), `Swatch` (a color's), `Divider`. States: `PropertyGridState::Disabled`, `FullWidth`, and on a category's or a property's parts `Open`, `Modified`, `ReadOnly`, `Unavailable`.
 - In the design the grid is 300 wide on `Background` with an edge of 1 in `Border` and the large radius. Its header is 30 high on `Muted`, its title in 11 semibold capitals spaced 0.6 in `MutedForeground`. A category's row is 28 high on `Muted` with a line under it, its chevron of 14 in `MutedForeground` 6 before its title in 12 semibold. A property's row is 32 high with a line under it, padded 12 at its start and 8 at its end, its name 84 wide in 12 in `MutedForeground` and its editors 8 after it, 6 apart. An editor is 24 high on `Background` with an edge of 1 in `Input`, the small radius, padded 6 across, its text in 12 mono; the letter of a value of two is 11 semibold mono, X in `Destructive`, Y in `Success`, others in `MutedForeground`. A number's stepper is the chevrons of 12 in `MutedForeground`, 6 from the end of its box. A color's swatch is 24, the small radius with an edge of 1 in `Border`, 6 before its box. A changed value's name is 12 semibold in `Foreground` with a dot of 5 in `Info` after it, and the reset of 13 in `MutedForeground` ends its row. The board draws no row under the pointer or focused: a row under the pointer is on `Muted`, a focused one has the focus ring inside it. Rows follow the theme's density; editors keep their 24.
 - A renderer that draws another grid has `view.header()`, `view.category_row(index, entry)`, `view.property_row(category, row, entry)`, `view.divider()` and `view.categories`, each category's and property's view with its recipe in its state.
 
@@ -4663,6 +4665,7 @@ What every chart of the system stands on, behind the `canvas` feature: each is d
 - **States**: no data (`empty_text`, "No data" unless told), loading (the skeleton as high as the plot), values under zero, values of very different size (the ticks stay round), a long category name (cut with an ellipsis under its band).
 - A plot whose values run across (`ChartPlot::across`, a bar chart lying across) has its grid lines down the plot, its ticks' numbers under it and its categories' names at its start.
 - A chart's author writes its plot (`impl ChartPlot`: what it draws, its ticks, its axis, where its points are, what a point's tooltip says, its items, a signature of its data) and lays its own parts over `chart_recipe()`; `ChartProps` and `chart_props!()` give its builder the words above, and `ChartFrame` builds and mounts it. See the module's docs in `lurq::ui`.
+- **Its shape**, where a plot is not as wide as the frame with the legend under it: `ChartFrame::plot_width(w)` and `plot_justify(..)` (a pie's or a radar's square, a grid of cells, at the frame's start, middle or end), `legend_beside(values, size)` (the legend beside the plot, one item under another with each value at its end, `ChartPart::Body` the room between them, 20 in `Md` and 18 in `Sm`; the plot's tooltip stands over the legend), `own_legend(element)` (a chart's own legend in place of its series', left out where the app turns the legend off and while loading). Words in the plot's box are `ChartLabel`s (`ChartPlot::labels`), in the axis's type unless given a part of the chart's own; a tooltip's key in another color than its series' is `ChartPlot::tip_color`. A point with no rows in its tooltip says its title alone to tooling.
 
 ### Chart Legend
 
@@ -4679,7 +4682,8 @@ ChartLegend::new([
 ```
 
 - Square keys of 10 with corners of 2 and the names 12 in `Foreground`, 16 between items, 6 between a key and its name; `ChartLegendShape::Dot` has the dots of 8 and the muted names a chart's own legend has. Given `hidden(signal)` (or `hidden_controlled`, `on_hidden_change`), an item is pressed to hide its series and faded while it is hidden, the arrows go between the items, and each is a `checkbox` to tooling.
-- Parts: `ChartLegendPart::Root`, `Item`, `Key`, `Label`. States: `ChartLegendState::Dot`, `Pressable`, `Hidden`.
+- `ChartLegendItem::value(text)`: what an item says after its name, mono 11 in `MutedForeground` (a slice's share); tooling reads it with the name. `orientation(Orientation::Vertical)`: the items one under another, each as wide as the legend, its name in `CardForeground` taking the room and its value at the end, as the board's pie has them; `size(ChartSize)` gives them 8 apart and names of 13 in `Md`, 7 and 12 in `Sm`.
+- Parts: `ChartLegendPart::Root`, `Item`, `Key`, `Label`, `Value`. States: `ChartLegendState::Dot`, `Pressable`, `Hidden`, `Vertical`.
 
 ### Chart Tooltip
 
@@ -4754,7 +4758,7 @@ LineChart::new(
 | `LineChart::new(categories, series)` | The names of the places along the plot, the first at its start and the last at its end, and the series, a value for each; a value that is not a finite number leaves a gap in its line |
 | `curve(LineCurve)` | `Straight`, as the board draws it, or `Smooth`: a monotone curve through every value that never goes past the values beside it |
 | `axis_labels(texts)` | The texts under the plot, spread from its start to its end, in place of the categories' names; of more than eight categories eight are written |
-| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `grid`, `value_axis`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `size` is `Sm` and `grid` on unless told, as the board draws it |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `grid`, `value_axis`, `empty_text`, `loading`, `motion`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `size` is `Sm` and `grid` on unless told, as the board draws it |
 | `mount(ctx)` | The cursor, the marks and the tooltip of the place under the pointer or the focus, the arrows, `on_select` told a press. Converted into an element it is the still chart |
 
 - The board's Line Chart (`ufn5w`): the chart's frame at `Sm`, a plot of 140 with its lines across at the ticks, lines 2 wide with round joins and ends in the series' colors, the first drawn over the others, the names under the plot from its start to its end, and the legend in dots. At the place under the pointer: a line of 1 in `Input` across the plot (the frame's `ChartPart::Cursor`), a mark of 10 on each line in its color ringed 2 in `Card`, and the Chart Tooltip with every series' value there, 10 before the cursor and 4 from the plot's top (after it where there is no room before it).
@@ -4763,6 +4767,7 @@ LineChart::new(
 - To tooling each value is an item of the plot: `point-<series>-<index>`, named by its category (and its series where there are several), valued as `value_text` writes it.
 - Parts: the chart's, and `LineChartPart::Line` (its opacity), `Area`, `Point` (the color of a mark's ring). States: `LineChartState::Smooth`, `Stacked`.
 - Where the board draws nothing: a smooth curve, gaps, more series, values under zero (zero is a line across the plot), one value (a dot in the plot's middle).
+- Its motion: a line is drawn on from its start as the chart is first shown. When the data changes each value moves from where it was drawn to its new place, the line and its curve with it; a value added at the end comes out of the last one before, and one removed goes into the last one left, so the others only slide to their new place; a series shown again rises from the line of zero, and one hidden sinks to it. A gap the data has now is one at once.
 
 ## Area Chart
 
@@ -4789,6 +4794,7 @@ AreaChart::new(
 
 - The board's Area Chart (`yTmhJ`): a line chart whose lines have the fill under them, down to zero, in the series' colors at 0.16 (`LineChartPart::Area`), the line over it. Its parts and states are the line chart's.
 - Where the board draws nothing: stacked areas, several series, the tooltip and the keys (the line chart's).
+- Its motion is the line chart's, the fill moving with its line: in a stack each band's bottom moves with the series under it, a series shown again rises from the one under it, and one hidden sinks onto it.
 
 ## Scatter Chart
 
@@ -4820,6 +4826,110 @@ ScatterChart::new([
 - To tooling each point is an item of the plot: `point-<series>-<index>`, named by its series and its x, valued as `value_text` writes its y.
 - Parts: the chart's, and `ScatterChartPart::Point` (its opacity), `Ring`, `Trend`. States: `ScatterChartState::Trend`.
 - Where the board draws nothing: the tooltip (the board's Chart Tooltip over the point, its x as its title), the ring of the point under the pointer, a legend (off unless told), values under zero, several series.
+- Its motion: the points grow in at their place as the chart is first shown. When the data changes each point moves from where it was drawn to its new place (a point is the one of its series at its place by x), and the trend with them; a point that is new grows at its place and one no longer there shrinks away at its old one, as do the points of a series shown or hidden; a trend that comes or goes fades.
+
+## Pie Chart
+
+The parts of a whole as slices of a disc, or of a ring: the crates by size, the phases of a frame. The legend beside it names each slice and writes its share.
+
+```rust
+use lurq::ui::{ChartSeries, PieChart};
+
+PieChart::new(
+  ["render", "layout", "text", "other"],
+  ChartSeries::new("Size", [4.2, 2.8, 1.9, 1.1]),
+)
+.title("Crates by size")
+.description("Share of compiled code")
+.value_text(|mb| format!("{mb} MB"))
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `PieChart::new(names, series)` | The slices' names, and one series with a value for each, from the top and clockwise |
+| `donut(bool)` | A ring with a hole of 0.66 of its radius, the board's Donut Chart, `Md` unless told a size; a pie, `Sm`, unless told |
+| `total_text(&str)` | The words a donut writes in its hole under the total of the slices shown (written with `value_text`); nothing in the hole unless told |
+| `colors(..)` | Each slice's color, a role or a color, in place of `Chart1` to `Chart5` in turn |
+| `legend_value(PieLegendValue)` | What each item of the legend writes after the name: `Share` (unless told), `Value`, `None` |
+| `share_text(\|share\| ..)` | How a share from 0 to 1 is written in the legend and to tooling: a whole percent, `<1%` for a sliver, unless told |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `height` is the pie's side, `hidden` the slices hidden by name, `legend` on unless told |
+| `mount(ctx)` | The slice under the pointer or the focus picked out with its tooltip, the arrows round the slices, `on_select` told a press (`ChartPoint { series: 0, index }`). Converted into an element it is the still chart |
+
+- The board's Pie Chart (`dDHPj`): the chart's frame at `Sm`, a pie of 96 from the top and clockwise, a line of 1.5 of `Card` on each side of the line between two slices; the legend beside it, 18 away, its items 7 apart, each a dot of 8, the name 12 in `CardForeground` and the share mono 11 in `MutedForeground` at its end. The Donut Chart (`GJ5Mg`): `Md`, a ring of 96 with a hole of 0.66 and no lines between slices, the legend 20 away with names of 13 and items 8 apart.
+- A slice hidden through the legend leaves the whole to the others, whose shares are written again. A slice too narrow at the rim to keep its color between two lines joins its neighbour without one, and is still in the legend (`<1%`), the tooltip, the keys and to tooling; one slice is the whole disc; a value under zero or not a number is no slice; all zero is no data (`empty_text`).
+- To tooling each slice is an item of the plot at its middle: `slice-<index>`, named by its slice, valued as `value_text` writes it with its share.
+- Parts: the chart's and `PieChartPart::Slice` (a slice that gives way to the one under the pointer or the focus: its opacity, 0.45), `Edge` (the line between slices, `Card`), `Total` (15/600 in `CardForeground`), `TotalLabel` (mono 10 in `MutedForeground`). States: the chart's and `PieChartState::Donut`.
+- Where the board draws nothing: the slice under the pointer or the focus picked out by the others giving way to it, with the board's Chart Tooltip at its middle titled by the series; the total in a donut's hole; the ring of the focus around the plot.
+
+## Radar Chart
+
+A value for each of several axes round a center, a polygon for each series: the profile of a renderer, the strengths of two backends side by side.
+
+```rust
+use lurq::ui::{ChartSeries, RadarChart};
+
+RadarChart::new(
+  ["Draw", "Text", "Layout", "Memory", "Startup", "Input"],
+  [
+    ChartSeries::new("wgpu", [92.0, 70.0, 64.0, 58.0, 75.0, 66.0]),
+    ChartSeries::new("DX12", [68.0, 76.0, 70.0, 80.0, 62.0, 86.0]),
+  ],
+)
+.title("Renderer profile")
+.description("Relative score per area")
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `RadarChart::new(axes, series)` | The axes' names, the first at the top and the others clockwise, and the series, a value for each axis |
+| `value_axis(bool)` | The rings' numbers beside the first axis, each under its ring; off unless told |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `height` is the square's side |
+| `mount(ctx)` | The series and the axis under the pointer or the focus picked out with the tooltip of every series' value on that axis; Left and Right round the axes, Up and Down between the series, `on_select` told a press (`ChartPoint { series, index: axis }`). Converted into an element it is the still chart |
+
+- The board's Radar Chart (`cokgK`): the chart's frame at `Sm`, the plot a square of 150 (180 in `Md`) in the middle of the frame; the outer ring 15 inside the square, the rings at the scale's round ticks (from zero, or the least value under it, to a round number at or over the most, about three) and the spokes, 1 in `Border`, polygons through the axes (circles where there are fewer than three axes); each series' area and its edge of 1.5 in its color at 0.2; the legend under the plot in dots where there is more than one series.
+- The axes' names, mono 11 in `MutedForeground`, stand 6 outside the outer ring, away from the center: over the top axis, before a left one, after a right one.
+- The pointer finds the axis nearest its direction and on it the series whose value is nearest; that series' area is at 0.35 with its edge in its full color and drawn over the others, its point a dot of 3.5 ringed in `Card`, the axis's spoke in `Input`.
+- A missing value (not a number) stands at the center, and has no point to tooling or in the tooltip.
+- To tooling each value is an item of the plot: `point-<series>-<axis>`, named by its axis and its series, valued as `value_text` writes it.
+- Parts: the chart's and `RadarChartPart::Ring` (the rings and the spokes), `Area` (a series' opacity), `ActiveArea` (the opacity of the series under the pointer or the focus).
+- Where the board draws nothing: the axes' names (the board has none, and the square is in the middle of the frame so that they have room on both sides); the picked-out series and axis with the board's Chart Tooltip; the rings' numbers, off unless told; the ring of the focus around the plot.
+
+## Heatmap
+
+A grid of cells, a row for each series and a column for each category, each colored by its value's step on a scale: commits per day, temperature by hour.
+
+```rust
+use lurq::ui::{ChartSeries, Heatmap};
+
+Heatmap::new(
+  weeks, // the columns' names
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(|day| ChartSeries::new(day, commits_on(day))),
+)
+.title("Commits")
+.description("Per day, last 18 weeks")
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `Heatmap::new(columns, rows)` | The columns' names, and the rows, each a series with a value for each column |
+| `steps(usize)` | How many steps the scale has, two at least: five unless told, the board's |
+| `range(least, most)` | The values the scale runs between: zero (or the least value, where one is under zero) to the most unless told |
+| `cell_size(f32)` | A cell's side: 14 unless told; smaller where the grid is wider than the frame |
+| `column_axis(bool)` | The columns' names under the grid, as many as have room; off unless told, as the board's |
+| `less_text`, `more_text` | The scale's words at its ends: "Less" and "More" unless told |
+| `missing_text` | What the tooltip and tooling say of a cell with no value: "No value" unless told |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `value_text`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `height` makes the cells as tall as the rows can be in it, `legend` is the scale |
+| `mount(ctx)` | The cell under the pointer or the focus ringed with its tooltip; the arrows from cell to cell, Left and Right along a row and Up and Down along a column; `on_select` told a press (`ChartPoint { series: row, index: column }`). Converted into an element it is the still chart |
+
+- The board's Heatmap (`rSu67`): the chart's frame at `Sm`; the rows' names mono 10 in `MutedForeground` at the plot's start, every other one where more than four rows are as close as the board's; cells of 14 with corners of 3, 4 apart; the scale under the grid at the frame's end, its words mono 11 in `MutedForeground` 6 from its steps of 12 with corners of 3 (`FGewe`).
+- The scale's steps are measured from the board: a value at or under the scale's least is in `Muted`; the others are `Chart1` at a quarter, a half, three quarters and the whole of its opacity (with five steps), drawn over the card. A value's step is as high as its share of the range, rounded up, so that any value over the least shows. A cell and the scale's step of its value are drawn in one color, so a cell is the scale's color at its value.
+- A cell with no value (not a number) is an edge of 1 in `Border`; the tooltip and tooling say `missing_text`. A grid wider than the frame has smaller cells, in the plot's height for cells of `cell_size`: give a grid of many columns a side that fits.
+- To tooling each cell is an item of the plot: `cell-<row>-<column>`, named by its row and its column, valued as `value_text` writes it. The scale is an `img` named from its two words.
+- Parts: the chart's and `HeatmapPart::Cell` (the lowest step, `Muted`), `Fill` (the highest, `Chart1`), `Missing`, `Ring` (round the cell under the pointer or the focus, 1.5 in `Foreground`), `Scale`, `Step`, `ScaleLabel`.
+- Where the board draws nothing: the tooltip of a cell, its key in the cell's color; the ring of the cell under the pointer or the focus; the columns' names, off unless told; a cell with no value. The board names Mon, Wed and Fri of its seven days; the heatmap names every other row from the first, so Sun as well.
 
 ## Data Grid
 

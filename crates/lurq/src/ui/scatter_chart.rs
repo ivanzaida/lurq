@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use super::{
   chart::{
-    ChartArea, ChartAxis, ChartFrame, ChartLook, ChartPlot, ChartPoint, ChartProps, ChartRenderer, ChartSeries,
-    ChartSize, ChartTick, ChartTip, LinearScale, ValueTextFn, bits, chart_recipe, nearest, signature_of,
+    ChartArea, ChartAxis, ChartFrame, ChartLook, ChartMotion, ChartPlot, ChartPoint, ChartProps, ChartRenderer,
+    ChartSeries, ChartSize, ChartTick, ChartTip, LinearScale, ValueTextFn, bits, chart_recipe, nearest, signature_of,
   },
   names,
   part_style::Opacity,
@@ -233,9 +233,52 @@ impl ScatterPlot {
     )
   }
 
-  fn place(&self, area: ChartArea, point: (f64, f64)) -> (f32, f32) {
-    let (across, up) = self.scales(area);
+  fn place((across, up): &(LinearScale, LinearScale), point: (f64, f64)) -> (f32, f32) {
     (across.map(point.0), up.map(point.1))
+  }
+
+  fn is_shown(&self, series: usize) -> bool {
+    self.shown.get(series).copied().unwrap_or(false)
+  }
+
+  /// The trend where it is drawn, from its start to its end, where the chart draws one.
+  fn trend_at(&self, scales: &(LinearScale, LinearScale)) -> Option<((f32, f32), (f32, f32))> {
+    let (start, end) = self.trend.then(|| self.trend_line()).flatten()?;
+    Some((Self::place(scales, start), Self::place(scales, end)))
+  }
+
+  fn opacity(look: &ChartLook) -> f32 {
+    match look.part(ScatterChartPart::Point).rest().opacity {
+      Some(Opacity::Value(opacity)) => opacity,
+      _ => 0.85,
+    }
+  }
+
+  fn dot(canvas: &Context2D, (x, y): (f32, f32), radius: f32) {
+    if radius <= 0.0 {
+      return;
+    }
+    canvas.begin_path();
+    let _ = canvas.arc(x, y, radius, 0.0, std::f32::consts::TAU, ArcDirection::Clockwise);
+    canvas.fill();
+  }
+
+  fn paint_trend(canvas: &Context2D, look: &ChartLook, ((x0, y0), (x1, y1)): ((f32, f32), (f32, f32))) {
+    canvas.set_stroke_style(look.color(ScatterChartPart::Trend));
+    canvas.set_line_width(TREND_WIDTH);
+    canvas.set_line_cap(LineCap::Butt);
+    canvas.begin_path();
+    canvas.move_to(x0, y0);
+    canvas.line_to(x1, y1);
+    canvas.stroke();
+  }
+
+  /// The ring of the point at `active`, drawn at `at`.
+  fn paint_ring(canvas: &Context2D, look: &ChartLook, series: usize, at: (f32, f32)) {
+    canvas.set_fill_style(look.color(ScatterChartPart::Ring));
+    Self::dot(canvas, at, ACTIVE_RADIUS);
+    canvas.set_fill_style(look.series(series));
+    Self::dot(canvas, at, ACTIVE_RADIUS - RING);
   }
 
   /// The line that fits the first series shown best, from its least x to its most: where it starts and ends.
@@ -263,51 +306,106 @@ impl ScatterPlot {
 
 impl ChartPlot for ScatterPlot {
   fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
-    let opacity = match look.part(ScatterChartPart::Point).rest().opacity {
-      Some(Opacity::Value(opacity)) => opacity,
-      _ => 0.85,
-    };
+    let scales = self.scales(area);
+    let opacity = Self::opacity(look);
     for series in self.shown() {
       canvas.set_fill_style(look.series(series).with_opacity(opacity));
       for point in self.points[series].iter() {
-        let (x, y) = self.place(area, *point);
-        canvas.begin_path();
-        let _ = canvas.arc(x, y, POINT_RADIUS, 0.0, std::f32::consts::TAU, ArcDirection::Clockwise);
-        canvas.fill();
+        Self::dot(canvas, Self::place(&scales, *point), POINT_RADIUS);
       }
     }
     // The trend over the points, as the board draws it.
-    if self.trend
-      && let Some((start, end)) = self.trend_line()
-    {
-      let ((x0, y0), (x1, y1)) = (self.place(area, start), self.place(area, end));
-      canvas.set_stroke_style(look.color(ScatterChartPart::Trend));
-      canvas.set_line_width(TREND_WIDTH);
-      canvas.set_line_cap(LineCap::Butt);
-      canvas.begin_path();
-      canvas.move_to(x0, y0);
-      canvas.line_to(x1, y1);
-      canvas.stroke();
+    if let Some(trend) = self.trend_at(&scales) {
+      Self::paint_trend(canvas, look, trend);
     }
     if let Some(point) = active
       && let Some(at) = self.points.get(point.series).and_then(|points| points.get(point.index))
     {
-      let (x, y) = self.place(area, *at);
-      canvas.begin_path();
-      let _ = canvas.arc(x, y, ACTIVE_RADIUS, 0.0, std::f32::consts::TAU, ArcDirection::Clockwise);
-      canvas.set_fill_style(look.color(ScatterChartPart::Ring));
-      canvas.fill();
-      canvas.begin_path();
-      let _ = canvas.arc(
-        x,
-        y,
-        ACTIVE_RADIUS - RING,
-        0.0,
-        std::f32::consts::TAU,
-        ArcDirection::Clockwise,
-      );
-      canvas.set_fill_style(look.series(point.series));
-      canvas.fill();
+      Self::paint_ring(canvas, look, point.series, Self::place(&scales, *at));
+    }
+  }
+
+  /// The points move from where they were drawn to their new place when the data changes, and the trend with them; a
+  /// point that is new grows at its place, and one no longer drawn shrinks away at its old one, as do the points of a
+  /// series shown or hidden. As the chart enters, its points grow in.
+  fn paint_moving(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    motion: ChartMotion<'_>,
+  ) {
+    if motion.at_rest() {
+      return self.paint(canvas, area, look, active);
+    }
+    let scales = self.scales(area);
+    let from = motion.from_as::<ScatterPlot>();
+    let was_scales = from.map(|from| from.scales(area));
+    let opacity = Self::opacity(look);
+    // Where a point of this plot is on its way, and how large.
+    let moving = |series: usize, index: usize, point: (f64, f64)| {
+      let to = Self::place(&scales, point);
+      let was = from
+        .zip(was_scales.as_ref())
+        .filter(|(from, _)| from.is_shown(series))
+        .and_then(|(from, was_scales)| Some(Self::place(was_scales, *from.points.get(series)?.get(index)?)));
+      match was {
+        Some(was) => ((motion.lerp(was.0, to.0), motion.lerp(was.1, to.1)), POINT_RADIUS),
+        None => (to, POINT_RADIUS * motion.progress),
+      }
+    };
+    if let (Some(from), Some(was_scales)) = (from, &was_scales) {
+      // What is no longer drawn shrinks away where it was.
+      for series in from.shown() {
+        canvas.set_fill_style(look.series(series).with_opacity(opacity));
+        let kept = if self.is_shown(series) {
+          self.points.get(series).map_or(0, |points| points.len())
+        } else {
+          0
+        };
+        for point in from.points[series].iter().skip(kept) {
+          Self::dot(
+            canvas,
+            Self::place(was_scales, *point),
+            POINT_RADIUS * (1.0 - motion.progress),
+          );
+        }
+      }
+    }
+    for series in self.shown() {
+      canvas.set_fill_style(look.series(series).with_opacity(opacity));
+      for (index, point) in self.points[series].iter().enumerate() {
+        let (at, radius) = moving(series, index, *point);
+        Self::dot(canvas, at, radius);
+      }
+    }
+    // The trend follows its points; one that comes or goes fades.
+    let was = from
+      .zip(was_scales.as_ref())
+      .and_then(|(from, scales)| from.trend_at(scales));
+    match (was, self.trend_at(&scales)) {
+      (Some(was), Some(to)) => {
+        let lerp = |a: (f32, f32), b: (f32, f32)| (motion.lerp(a.0, b.0), motion.lerp(a.1, b.1));
+        Self::paint_trend(canvas, look, (lerp(was.0, to.0), lerp(was.1, to.1)));
+      }
+      (was, to) => {
+        canvas.save();
+        if let Some(was) = was {
+          canvas.set_global_alpha(1.0 - motion.progress);
+          Self::paint_trend(canvas, look, was);
+        }
+        if let Some(to) = to {
+          canvas.set_global_alpha(motion.progress);
+          Self::paint_trend(canvas, look, to);
+        }
+        canvas.restore();
+      }
+    }
+    if let Some(point) = active
+      && let Some(at) = self.points.get(point.series).and_then(|points| points.get(point.index))
+    {
+      Self::paint_ring(canvas, look, point.series, moving(point.series, point.index, *at).0);
     }
   }
 
@@ -331,9 +429,10 @@ impl ChartPlot for ScatterPlot {
   }
 
   fn point_at(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {
+    let scales = self.scales(area);
     nearest(
       self.all().map(|(series, index, point)| {
-        let (px, py) = self.place(area, point);
+        let (px, py) = Self::place(&scales, point);
         (ChartPoint::new(series, index), px, py)
       }),
       x,
@@ -345,7 +444,7 @@ impl ChartPlot for ScatterPlot {
 
   fn anchor(&self, area: ChartArea, point: ChartPoint) -> Option<(f32, f32)> {
     let at = self.points.get(point.series)?.get(point.index)?;
-    Some(self.place(area, *at))
+    Some(Self::place(&self.scales(area), *at))
   }
 
   fn counts(&self) -> Vec<usize> {
@@ -376,10 +475,11 @@ impl ChartPlot for ScatterPlot {
   }
 
   fn items(&self, area: ChartArea, look: &ChartLook) -> Vec<CanvasItem> {
+    let scales = self.scales(area);
     self
       .all()
       .map(|(series, index, point)| {
-        let (x, y) = self.place(area, point);
+        let (x, y) = Self::place(&scales, point);
         CanvasItem::point(format!("point-{series}-{index}"), "point", x, y, POINT_RADIUS)
           .label(format!("{}, {}", self.names[series], (self.x_text)(point.0)))
           .value((look.value_text)(point.1))

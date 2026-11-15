@@ -12,12 +12,12 @@ mcp = ["lurq/mcp"]
 devtools = ["lurq/devtools"]
 
 [dependencies]
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard", "image", "file_dialog", "regex", "canvas"] }
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "clipboard", "image", "file_dialog", "regex", "markdown", "canvas"] }
 
 # The gallery as a page: `scripts/gallery-web.py`. What it asks the browser for is in `src/web.rs`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # A browser without WebGPU draws the gallery through WebGL2.
-lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["webgl", "regex", "canvas"] }
+lurq = { version = "=0.61.1", path = "../lurq", default-features = false, features = ["webgl", "regex", "markdown", "canvas"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

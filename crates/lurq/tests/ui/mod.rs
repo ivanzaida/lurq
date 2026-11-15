@@ -46,6 +46,8 @@ mod file_upload;
 mod find_bar;
 mod floating_panel;
 mod forced_on_one_item;
+#[cfg(feature = "canvas")]
+mod heatmap;
 mod highlight;
 mod hover_card;
 mod icon;
@@ -68,11 +70,15 @@ mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;
+#[cfg(feature = "canvas")]
+mod pie_chart;
 mod popconfirm;
 mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+#[cfg(feature = "canvas")]
+mod radar_chart;
 mod radio;
 mod rating;
 #[cfg(feature = "canvas")]

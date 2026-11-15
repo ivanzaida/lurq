@@ -12,6 +12,7 @@ mod avatar;
 mod badge;
 mod bar_list;
 mod gauge;
+mod heatmap;
 mod meter;
 mod sparkline;
 mod stat_card;
@@ -58,6 +59,7 @@ mod kbd;
 mod line_chart;
 mod list;
 mod listbox;
+mod markdown;
 mod mentions;
 mod menu;
 mod menubar;
@@ -71,11 +73,13 @@ mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod pie_chart;
 mod popconfirm;
 mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod radar_chart;
 mod radio;
 mod radio_card;
 mod rating;
@@ -956,12 +960,44 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<scatter_chart::ScatterChartPage>(()),
   },
   Page {
+    path: "/pie-chart",
+    name: "Pie Chart",
+    icon: Some("chart-pie"),
+    about: "pie chart donut ring slices share whole parts percent legend beside total hole names series colors legend_value share_text total_text tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint PieLegendValue",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<pie_chart::PieChartPage>(()),
+  },
+  Page {
+    path: "/radar-chart",
+    name: "Radar Chart",
+    icon: Some("chart-radar"),
+    about: "radar chart spider web star polar axes rings spokes polygon profile compare series values names value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<radar_chart::RadarChartPage>(()),
+  },
+  Page {
+    path: "/heatmap",
+    name: "Heatmap",
+    icon: Some("grid"),
+    about: "heatmap heat map grid cells calendar contributions commits activity scale steps less more range rows columns column_axis cell_size missing value tooltip value_text on_select empty_text loading size height canvas ChartSeries ChartPoint",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<heatmap::HeatmapPage>(()),
+  },
+  Page {
     path: "/data-grid",
     name: "Data Grid",
     icon: Some("table"),
     about: "data grid datagrid spreadsheet cells cell focus edit editing in place editor text number choice checkbox on_edit read_only resizable resize pinned pin columns sort selected keyboard arrows tab enter escape f2 virtualized thousands fifty columns mount CellEditor CellValue CellEdit",
     group: Group::Data,
     mount: |ctx| ctx.mount::<data_grid::DataGridPage>(()),
+  },
+  Page {
+    path: "/markdown",
+    name: "Markdown",
+    icon: Some("file-text"),
+    about: "markdown document prose rich text headings lists ordered nested bullets tasks task list checkbox table columns alignment rule image caption figure admonition note tip important warning caution callout details summary footnotes footnote reference kbd keys inline code struck strikethrough link selectable fit_content on_task_change highlights rendered_text ThemeMarkdown",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<markdown::MarkdownPage>(()),
   },
   Page {
     path: "/bar-list",

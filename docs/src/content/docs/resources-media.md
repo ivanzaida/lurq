@@ -174,7 +174,7 @@ While it picks, the pointer is a cross and a loupe follows it: the pixels around
 
 | Platform | |
 | --- | --- |
-| Windows | A thread of its own with the platform's means, as PowerToys' color picker and a browser's eyedropper do: a window over every monitor, all but transparent, takes the pointer and the keys, and a small one draws the loupe. Both are kept out of what is read of the screen (`WDA_EXCLUDEFROMCAPTURE`), so the pixels under the pointer are read live with GDI as it moves; before Windows 10 2004 the screen is read once as the pick starts. The thread is aware of each monitor's scale, so the pixel taken is the physical one under the pointer at 150% and across monitors of different scales, and the loupe is as large on each |
+| Windows | A thread of its own with the platform's means, as PowerToys' color picker and a browser's eyedropper do: a window over every monitor, all but transparent, takes the pointer and the keys, and a small layered one shows the loupe, drawn whole into a bitmap and given to it with its place in one call, so it never shows half drawn. Both are kept out of what is read of the screen (`WDA_EXCLUDEFROMCAPTURE`), so the pixels under the pointer are read live with GDI as it moves; before Windows 10 2004 the screen is read once as the pick starts. The thread is aware of each monitor's scale, so the pixel taken is the physical one under the pointer at 150% and across monitors of different scales, and the loupe is as large on each |
 | macOS | The system's own sampler (`NSColorSampler`), shown from the main thread: its own loupe, so `.theme(..)` is not used, and the system's keys (Escape gives up). The color it gives is converted to sRGB |
 | Linux, iOS, a browser | Not yet: `EyeDropper::is_supported()` is false and `pick` gives `Err(Unsupported)` at once; the color picker and the color field show no eyedropper |
 
@@ -277,11 +277,33 @@ Markdown::mount(
   ctx,
   MarkdownProps::new("# Notes\n\nRead the **release notes**.")
     .selectable(true)
-    .on_link_click(|link| println!("{}", link.destination())),
+    .on_link_select(|link| println!("{}", link.destination())),
 )
 ```
 
-Use `MarkdownProps::style(...)` for the base text style, `.theme(...)` for block styling, and `.width(...)` for a width constraint. Link callbacks decide how the application opens or routes destinations. The demo's `/markdown` route exercises the component.
+Use `MarkdownProps::style(...)` for the base text style (the theme's `TypographyStyle::Article`, 15 on lines of 1.65, where it gives none), `.theme(...)` for block styling, and `.width(...)` for a width constraint. Link callbacks decide how the application opens or routes destinations. The gallery's Markdown page (in Data) shows every block.
+
+`MarkdownProps::build(theme)`, and `Element::from(props)`, draw the document once with nothing kept: no link tooltips, every `<details>` as it begins, no jump to a footnote. Mounted, the component keeps what a person does to it.
+
+### The blocks
+
+The document draws every block of the design's (`pencil/lurq-design-system.pen`, Markdown):
+
+- **Headings** in the theme's type scale (`TypographyStyle::Heading1` to `Heading6`): 30 bold, 24 with a line under it, 20, 16, 14, and 12 in capitals in the muted foreground.
+- **Lists**: a number at the end of a column of 18 in the muted foreground; a bullet of 5, a dot at the first level and a ring under it (a selection over a bulleted item still copies its `-`). **Tasks** (`- [ ]`, `- [x]`) are the checkbox's look, a done one's words in the muted foreground. A task's box is read only, taking neither the pointer nor the focus, unless the app takes its change: `.on_task_change(|index, checked| ..)` is told the task's index among the document's tasks and whether it is checked now, and the app writes that into its source.
+- **Quotes** are `ui::Blockquote`: a line of 2 at their start, their words 14 in italics in the muted foreground. **Code blocks** are `ui::CodeBlock`: a bar named by the language, with the button that copies the code, over the code in the family of code, colored by what each word is where it knows the language. Both look as the theme's `blockquote` and `code_block` recipes say, one look wherever they are.
+- **Tables**: a box of the middle radius, the header on the muted fill, every other body row striped, a line between two columns, the columns of one width and each aligned as its delimiter row says.
+- **The rule** (`---`): a line of 1 in the border's color. **An image** that stands alone: the image where the app draws images (`image` and `resources`), or else a box of its place, with its caption under it: its title, or its words.
+- **Admonitions**, GitHub's: `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]` on a quote's first line. Each is a `ui::Callout` with a bar, in the tone of its kind: info, success, neutral, warning, destructive.
+- **Details**: `<details>` with a `<summary>`, which opens and closes what it holds; `<details open>` is open to begin with. The parser reads them from the HTML blocks around the Markdown in them.
+- **Footnotes**: a reference is its number in the info color, numbered by the first reference to each, and goes to its footnote; the footnotes stand at the end of the document under a short rule, each with the way back to where the text first refers to it.
+- **In a sentence**: code on the box of `ui::InlineCode`, keys (`<kbd>Ctrl</kbd>`) on the box of `ui::Kbd`, struck words in the muted foreground, links in the info color at 500.
+
+The parser reads them all from `pulldown-cmark`'s events: `MarkdownBlock::Admonition` with its `MarkdownAdmonitionKind`, `MarkdownBlock::Details`, and `MarkdownInline::Kbd` are new.
+
+### The theme
+
+`ThemeMarkdown`'s colors are the palette's roles (`TextColor::Palette`) or colors an app gives (`TextColor::Color`): a document is drawn in the theme it is in, light and dark, and in a theme an app makes. Its sizes are the design's, relative to the document's text where they are of type (inline code is 13 where the text is 15). `ThemeMarkdown::resolve(&palette)` gives the theme with every role turned into the color the palette has for it.
 
 By default the document fills its container's width, and so does every block in it. `.fit_content(true)` sizes it to its content instead, like CSS `width: fit-content; max-width: 100%`, so a chat bubble hugs its message:
 
@@ -305,13 +327,13 @@ Column::new()
 
 ### Code blocks
 
-A code block's lines are never wrapped. A line wider than the block's box scrolls sideways inside it: the box, its language label and the document keep their width, and a horizontal scrollbar shows over the box's bottom padding while the block overflows, in `ThemeMarkdown::code_block_scrollbar` (a thin light bar on the default dark box; `None` draws the app theme's scrollbar, always as an overlay). Shift+wheel and a trackpad's sideways swipe scroll the block; a plain or slightly slanted vertical wheel over it scrolls the page around it, as it always did, so a chat's follow-to-end is not caught by a block that only overflows sideways. The block's own scroll is kept across renders, keyed by the block's ordinal among the document's code blocks and its language: a streaming reply and paragraphs added around it keep its place (a code block inserted above it shifts the ordinals). A math block (`$$`) scrolls the same way. A block whose lines fit has no scrollbar and lays out as before. Selection and copy cross a scrolled block like any other block, the lines out of view included.
+A code block (`ui::CodeBlock`) never wraps its lines. A line wider than the block's box scrolls sideways inside it: the box, its bar and the document keep their width, and the block's scroll area shows its bar over the code while it overflows. Shift+wheel and a trackpad's sideways swipe scroll the block; a plain or slightly slanted vertical wheel over it scrolls the page around it, as it always did, so a chat's follow-to-end is not caught by a block that only overflows sideways. The block's own scroll is kept across renders, keyed by the block's ordinal among the document's code blocks and its language: a streaming reply and paragraphs added around it keep its place (a code block inserted above it shifts the ordinals). A math block (`$$`) scrolls the same way. A block whose lines fit has no scrollbar. Selection and copy cross a scrolled block like any other block, the lines out of view included, and its language with them; the glyphs of the document's controls (the copy button, a task's check, an admonition's icon) are never part of what a selection copies.
 
 ### Links
 
-A paragraph is one text, links included: it wraps and selects as one. Each link in it is a Tab stop in document order; a click and Enter follow it (Space does not), the pointer shows a pointer cursor, and an MCP client sees it as a `link` named by its words. `on_link_click` runs inside the input's dispatch, so `lurq::app::events::is_synthetic_input()` tells a person's press from an MCP client's, and `MarkdownLink::index()` says which link it was.
+A paragraph is one text, links included: it wraps and selects as one. Each link in it is a Tab stop in document order; a click and Enter follow it (Space does not), the pointer shows a pointer cursor, and an MCP client sees it as a `link` named by its words. `on_link_select` runs inside the input's dispatch, so `lurq::app::events::is_synthetic_input()` tells a person's press from an MCP client's, and `MarkdownLink::index()` says which link it was.
 
-`on_link_click` gets left clicks and Enter. To tell how a link was activated, use `.on_link_activate(...)`: it gets the link and the `MouseEvent` that activated it, for a left click, a middle click, or Enter on the focused link. The event's `button` is `Left` or `Middle` (`Left` for Enter), `from_keyboard` is set for Enter, and `shift`, `ctrl`, `alt` and `meta` are the modifiers held (`meta` is Cmd on macOS and the Windows key on Windows). Browser rules for a chat's links, for example:
+`on_link_select` gets left clicks and Enter. To tell how a link was activated, use `.on_link_activate(...)`: it gets the link and the `MouseEvent` that activated it, for a left click, a middle click, or Enter on the focused link. The event's `button` is `Left` or `Middle` (`Left` for Enter), `from_keyboard` is set for Enter, and `shift`, `ctrl`, `alt` and `meta` are the modifiers held (`meta` is Cmd on macOS and the Windows key on Windows). Browser rules for a chat's links, for example:
 
 ```rust
 use lurq::app::events::MouseButton;
@@ -329,10 +351,10 @@ MarkdownProps::new(reply).on_link_activate(move |link, event| {
 ```
 
 - A middle click is a press and a release of the middle button on the same link, like a left click: a press released off the link activates nothing, and neither does a press on one link released on another more than a few pixels away. Closer than that, the link under the release activates, as with a left click. The press starts no text selection, no drag of what the link is in and no [middle-button autoscroll](../layout/#middle-button-autoscroll) of the container around it, and lurq has no middle-click paste for it to start.
-- `on_link_activate` runs before `on_link_click`, which still gets the left clicks and Enter when both are set. With `on_link_activate` set, an in-app link no longer navigates the router by itself. Without it, a middle click on a link does nothing.
-- It runs inside the input's dispatch, like `on_link_click`: an MCP client's `lurq_interact` click with `"button": "middle"` or `"modifiers": ["ctrl", "meta"]` reaches it with those, and `is_synthetic_input()` is `true`.
+- `on_link_activate` runs before `on_link_select`, which still gets the left clicks and Enter when both are set. With `on_link_activate` set, an in-app link no longer navigates the router by itself. Without it, a middle click on a link does nothing.
+- It runs inside the input's dispatch, like `on_link_select`: an MCP client's `lurq_interact` click with `"button": "middle"` or `"modifiers": ["ctrl", "meta"]` reaches it with those, and `is_synthetic_input()` is `true`.
 
-`.link_presentation(...)` decides how each link is shown. It is called once per link and render with the same `MarkdownLink` that `on_link_click` gets, so what a link shows always comes from the destination it opens:
+`.link_presentation(...)` decides how each link is shown. It is called once per link and render with the same `MarkdownLink` that `on_link_select` gets, so what a link shows always comes from the destination it opens:
 
 ```rust
 use lurq::{
@@ -370,7 +392,7 @@ MarkdownProps::new(reply)
       // A run is stripped of directional controls and isolated by lurq.
       .trailing([MarkdownRun::new(format!(" ({})", link.destination()), address_style.clone())]),
   })
-  .on_link_click(move |link| open(link.destination(), lurq::app::events::is_synthetic_input()))
+  .on_link_select(move |link| open(link.destination(), lurq::app::events::is_synthetic_input()))
 ```
 
 - `link()` draws the words in the theme's `link` style, or the presentation's `style(...)` over the text around them. `text()` draws them as the surrounding text: nothing to press or focus.

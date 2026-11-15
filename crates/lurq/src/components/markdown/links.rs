@@ -11,7 +11,7 @@ use crate::{
 
 /// A link of a Markdown document, as the document's presentation hook
 /// ([`MarkdownProps::link_presentation`](super::MarkdownProps::link_presentation))
-/// and [`MarkdownProps::on_link_click`](super::MarkdownProps::on_link_click)
+/// and [`MarkdownProps::on_link_select`](super::MarkdownProps::on_link_select)
 /// see it. Both are given the same link: the words a link shows come from the
 /// destination it opens.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,9 +212,9 @@ impl MarkdownLinkPresentation {
 
   pub(super) fn look(&self, theme: &ThemeMarkdown) -> Arc<InlineLinkLook> {
     Arc::new(InlineLinkLook {
-      hovered: self.hovered.unwrap_or(theme.link_hovered),
-      focused: self.focused.unwrap_or(theme.link_focused),
-      focus_ring: self.focus_ring.unwrap_or(theme.link_focus_ring),
+      hovered: self.hovered.clone().unwrap_or_else(|| theme.link_hovered.clone()),
+      focused: self.focused.clone().unwrap_or_else(|| theme.link_focused.clone()),
+      focus_ring: self.focus_ring.clone().unwrap_or_else(|| theme.link_focus_ring.clone()),
       radius: self.radius.unwrap_or(theme.link_radius),
     })
   }

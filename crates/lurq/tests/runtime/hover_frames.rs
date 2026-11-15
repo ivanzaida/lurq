@@ -628,7 +628,7 @@ mod markdown_links {
     tree.mount_root::<Document>(
       &mut app,
       MarkdownProps::new("Open [PR 42](https://example.com/pull/42) now.")
-        .link_presentation(move |_| MarkdownLinkPresentation::link().hovered(hovered))
+        .link_presentation(move |_| MarkdownLinkPresentation::link().hovered(hovered.clone()))
         .width(600.0),
     );
     settle(&mut tree, &mut app);

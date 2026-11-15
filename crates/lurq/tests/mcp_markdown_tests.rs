@@ -76,7 +76,7 @@ impl Component for Reply {
       ctx,
       MarkdownProps::new(source)
         .link_presentation(|_| MarkdownLinkPresentation::link().trailing([MarkdownRun::plain(" github.com")]))
-        .on_link_click(move |link| {
+        .on_link_select(move |link| {
           followed
             .lock()
             .unwrap()
@@ -183,7 +183,7 @@ fn an_agent_middle_clicks_a_markdown_link_with_modifiers() {
   );
   assert!(
     followed.lock().unwrap().is_empty(),
-    "on_link_click takes left clicks only"
+    "on_link_select takes left clicks only"
   );
 }
 
@@ -206,10 +206,10 @@ fn an_agent_scrolling_to_a_code_line_wider_than_its_block_sees_the_line_start() 
     let at_start = find(&mut client);
     client.tool("lurq_interact", json!({"action": "scroll_to", "ref": at_start["ref"]}));
     let after_scroll_to = find(&mut client);
-    // The line's centre is far outside the window: the wheel is over its start.
+    // The line's centre is far outside the window: the wheel is over its start, under the block's bar of 36.
     client.tool(
       "lurq_interact",
-      json!({"action": "wheel", "x": 100.0, "y": 30.0, "delta_x": -200.0}),
+      json!({"action": "wheel", "x": 100.0, "y": 60.0, "delta_x": -200.0}),
     );
     let wheeled = find(&mut client);
     client.tool("lurq_interact", json!({"action": "scroll_to", "ref": wheeled["ref"]}));
@@ -217,7 +217,7 @@ fn an_agent_scrolling_to_a_code_line_wider_than_its_block_sees_the_line_start() 
     // 4 px more: the start is 4 px inside the box, less than the margin.
     client.tool(
       "lurq_interact",
-      json!({"action": "wheel", "x": 100.0, "y": 30.0, "delta_x": -4.0}),
+      json!({"action": "wheel", "x": 100.0, "y": 60.0, "delta_x": -4.0}),
     );
     let nearly = find(&mut client);
     client.tool("lurq_interact", json!({"action": "scroll_to", "ref": nearly["ref"]}));

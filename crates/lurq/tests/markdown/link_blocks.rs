@@ -189,7 +189,7 @@ fn markdown_list_view_that_declines_does_not_skip_link_numbers() {
         }
         None
       })
-      .on_link_click({
+      .on_link_select({
         let clicked = clicked.clone();
         move |link| {
           clicked

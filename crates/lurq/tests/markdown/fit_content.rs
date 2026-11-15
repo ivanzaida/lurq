@@ -176,14 +176,18 @@ fn markdown_fit_content_takes_the_widest_block() {
   // Every block is stretched to the widest one, as CSS blocks are.
   let short = bounds_by_text(&mut tree, "Short");
   assert_near(short.width, bubble.width, "short paragraph width");
-  let code_background = ThemeMarkdown::default()
-    .code_block_box
-    .background
-    .expect("the default theme gives code blocks a background");
-  let code = tree
-    .find_element(|element| element.color() == Some(code_background))
-    .expect("the code block box should be laid out")
-    .bounds();
+  // The block's box is on the theme's background, which nothing else in the bubble draws.
+  let code_background = App::new()
+    .theme()
+    .palette()
+    .get(lurq::app::theme::PaletteColor::Background);
+  let quads = tree.resolve_quads(tree.last_layout().expect("laid out"));
+  let code = quads
+    .iter()
+    .find(
+      |quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Rect { color, .. } if *color == code_background),
+    )
+    .expect("the code block box should be laid out");
   assert_near(code.width, bubble.width, "code block width");
 }
 
@@ -197,7 +201,7 @@ fn markdown_fit_content_list_item_can_be_the_widest_block() {
   let bubble = bounds_by_id(&mut tree, "bubble");
   let item = bounds_by_text(&mut tree, ITEM);
 
-  let expected = theme.unordered_list_marker_width + theme.list_marker_gap + probe.width;
+  let expected = theme.unordered_list_marker_width + theme.bullet_gap + probe.width;
   assert!(expected < HOST_WIDTH, "{expected}");
   assert_near(bubble.width, expected, "bubble width");
   assert_near(item.width, probe.width, "list item text width");

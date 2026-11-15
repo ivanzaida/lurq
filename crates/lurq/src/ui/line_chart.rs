@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use super::{
   chart::{
-    ChartArea, ChartAxis, ChartFrame, ChartLook, ChartPart, ChartPlot, ChartPoint, ChartProps, ChartRenderer,
-    ChartSeries, ChartSize, ChartTick, ChartTip, LinearScale, TipPlace, bits, chart_recipe, signature_of,
+    ChartArea, ChartAxis, ChartFrame, ChartLook, ChartMotion, ChartPart, ChartPlot, ChartPoint, ChartProps,
+    ChartRenderer, ChartSeries, ChartSize, ChartTick, ChartTip, LinearScale, TipPlace, bits, chart_recipe,
+    signature_of,
   },
   names,
   part_style::Opacity,
@@ -350,23 +351,22 @@ impl LinePlot {
     if !self.stacked {
       return self.value(series, index);
     }
-    let own = self.value(series, index);
-    let below: f64 = self
-      .shown()
-      .into_iter()
-      .take_while(|other| *other != series)
-      .filter_map(|other| self.value(other, index))
-      .sum();
-    Some(below + own.unwrap_or(0.0))
+    Some(self.below(series, index) + self.value(series, index).unwrap_or(0.0))
   }
 
-  /// The level of the series under `series` in a stack: zero for the first.
-  fn floor(&self, series: usize, index: usize) -> f64 {
-    let shown = self.shown();
-    match shown.iter().position(|other| *other == series) {
-      Some(0) | None => 0.0,
-      Some(place) => self.level(shown[place - 1], index).unwrap_or(0.0),
-    }
+  fn is_shown(&self, series: usize) -> bool {
+    self.shown.get(series).copied().unwrap_or(false)
+  }
+
+  /// The values of the series shown under `series` in a stack, shown or not itself: where its area starts, and where
+  /// it goes as it is hidden.
+  fn below(&self, series: usize, index: usize) -> f64 {
+    self
+      .shown()
+      .into_iter()
+      .take_while(|other| *other < series)
+      .filter_map(|other| self.value(other, index))
+      .sum()
   }
 
   fn scale(&self, area: ChartArea) -> LinearScale {
@@ -398,22 +398,68 @@ impl LinePlot {
     }
   }
 
-  /// The runs of a series' line with no gap in them, each a list of points, by `place` (a series' level, or the
-  /// level under it).
-  fn runs(&self, area: ChartArea, scale: &LinearScale, place: impl Fn(usize) -> Option<f64>) -> Vec<Vec<(f32, f32)>> {
-    let mut runs = Vec::new();
-    let mut run = Vec::new();
-    for index in 0..self.categories.len() {
-      match place(index) {
-        Some(value) => run.push((self.x(area, index), scale.map(value))),
-        None if !run.is_empty() => runs.push(std::mem::take(&mut run)),
-        None => {}
-      }
+  /// Where `series` is drawn at the category `index`.
+  fn spot(&self, area: ChartArea, scale: &LinearScale, series: usize, index: usize) -> Spot {
+    let base = if self.stacked { self.below(series, index) } else { 0.0 };
+    Spot {
+      x: self.x(area, index),
+      top: self
+        .level(series, index)
+        .filter(|_| self.is_shown(series))
+        .map(|level| scale.map(level)),
+      base: scale.map(base),
     }
-    if !run.is_empty() {
-      runs.push(run);
-    }
-    runs
+  }
+
+  /// The series shown, as they are drawn at rest.
+  fn tracks(&self, area: ChartArea) -> Vec<Track> {
+    let scale = self.scale(area);
+    self
+      .shown()
+      .into_iter()
+      .map(|series| {
+        let spots: Vec<Spot> = (0..self.categories.len())
+          .map(|index| self.spot(area, &scale, series, index))
+          .collect();
+        Track {
+          series,
+          tops: spots.iter().map(|spot| spot.top.map(|top| (spot.x, top))).collect(),
+          bases: spots.iter().map(|spot| (spot.x, spot.base)).collect(),
+        }
+      })
+      .collect()
+  }
+
+  /// The series as they are drawn on their way from `from`, which has categories as this plot has: each value from
+  /// where it was drawn to where it is. A category added at the end comes out of the last one before, and one removed
+  /// goes into the last one left, so the others only slide to their new place; a series shown again rises from the
+  /// line of zero (in a stack, from the series under it), and one hidden sinks to it.
+  fn tracks_from(&self, from: &LinePlot, area: ChartArea, motion: ChartMotion<'_>) -> Vec<Track> {
+    let (scale, was_scale) = (self.scale(area), from.scale(area));
+    let (count, was_count) = (self.categories.len(), from.categories.len());
+    (0..self.values.len().max(from.values.len()))
+      .filter(|series| self.is_shown(*series) || from.is_shown(*series))
+      .map(|series| {
+        let (mut tops, mut bases) = (Vec::new(), Vec::new());
+        for index in 0..count.max(was_count) {
+          let was = from.spot(area, &was_scale, series, index.min(was_count - 1));
+          let to = self.spot(area, &scale, series, index.min(count - 1));
+          let (here, was_here) = (
+            index < count && to.top.is_some(),
+            index < was_count && was.top.is_some(),
+          );
+          // A gap the series has now is one at once.
+          let gap = index < count && self.is_shown(series) && to.top.is_none();
+          let x = motion.lerp(was.x, to.x);
+          tops.push(
+            (here || (was_here && !gap))
+              .then(|| (x, motion.lerp(was.top.unwrap_or(was.base), to.top.unwrap_or(to.base)))),
+          );
+          bases.push((x, motion.lerp(was.base, to.base)));
+        }
+        Track { series, tops, bases }
+      })
+      .collect()
   }
 
   /// The pieces of a line through `points`, straight or smooth.
@@ -428,18 +474,14 @@ impl LinePlot {
   }
 
   /// Traces the pieces from their start: a line, or the top of an area.
-  fn trace(canvas: &Context2D, pieces: &[Piece], first: (f32, f32), move_first: bool) {
-    if move_first {
-      canvas.move_to(first.0, first.1);
-    } else {
-      canvas.line_to(first.0, first.1);
-    }
+  fn trace(canvas: &Context2D, pieces: &[Piece], first: (f32, f32)) {
+    canvas.move_to(first.0, first.1);
     for (_, c1, c2, end) in pieces {
       canvas.bezier_curve_to(c1.0, c1.1, c2.0, c2.1, end.0, end.1);
     }
   }
 
-  /// Traces the pieces back from their end: the bottom of a stacked area.
+  /// Traces the pieces back from their end: the bottom of an area.
   fn trace_back(canvas: &Context2D, pieces: &[Piece], last: (f32, f32)) {
     canvas.line_to(last.0, last.1);
     for (start, c1, c2, _) in pieces.iter().rev() {
@@ -447,43 +489,25 @@ impl LinePlot {
     }
   }
 
-  fn paint_area(&self, canvas: &Context2D, area: ChartArea, scale: &LinearScale, series: usize, color: Color) {
+  /// The fill of a series' area: under each run of its line, down to its bottom, the line of zero or in a stack the
+  /// series under it.
+  fn paint_area(&self, canvas: &Context2D, track: &Track, color: Color) {
     canvas.set_fill_style(color);
-    let zero = scale.map(0.0);
-    if self.stacked {
-      let top: Vec<(f32, f32)> = (0..self.categories.len())
-        .map(|index| (self.x(area, index), scale.map(self.level(series, index).unwrap_or(0.0))))
-        .collect();
-      let bottom: Vec<(f32, f32)> = (0..self.categories.len())
-        .map(|index| (self.x(area, index), scale.map(self.floor(series, index))))
-        .collect();
-      let (Some(first), Some(last)) = (top.first(), bottom.last()) else {
-        return;
-      };
+    for (tops, bases) in track.runs() {
       canvas.begin_path();
-      Self::trace(canvas, &self.pieces(&top), *first, true);
-      Self::trace_back(canvas, &self.pieces(&bottom), *last);
-      canvas.close_path();
-      canvas.fill();
-      return;
-    }
-    for run in self.runs(area, scale, |index| self.value(series, index)) {
-      let (first, last) = (run[0], run[run.len() - 1]);
-      canvas.begin_path();
-      Self::trace(canvas, &self.pieces(&run), first, true);
-      canvas.line_to(last.0, zero);
-      canvas.line_to(first.0, zero);
+      Self::trace(canvas, &self.pieces(&tops), tops[0]);
+      Self::trace_back(canvas, &self.pieces(&bases), bases[bases.len() - 1]);
       canvas.close_path();
       canvas.fill();
     }
   }
 
-  fn paint_line(&self, canvas: &Context2D, area: ChartArea, scale: &LinearScale, series: usize, color: Color) {
+  fn paint_line(&self, canvas: &Context2D, track: &Track, color: Color) {
     canvas.set_stroke_style(color);
     canvas.set_line_width(LINE_WIDTH);
     canvas.set_line_join(LineJoin::Round);
     canvas.set_line_cap(LineCap::Round);
-    for run in self.runs(area, scale, |index| self.level(series, index)) {
+    for (run, _) in track.runs() {
       canvas.begin_path();
       if run.len() == 1 {
         // A value with none beside it is a dot as wide as the line.
@@ -499,9 +523,110 @@ impl LinePlot {
         canvas.fill();
         continue;
       }
-      Self::trace(canvas, &self.pieces(&run), run[0], true);
+      Self::trace(canvas, &self.pieces(&run), run[0]);
       canvas.stroke();
     }
+  }
+
+  /// Draws the series where `tracks` has them: the areas, the lines over them, and the cursor and the rings of the
+  /// values at `active`.
+  fn draw(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>, tracks: &[Track]) {
+    if self.area {
+      let opacity = match look.part(LineChartPart::Area).rest().opacity {
+        Some(Opacity::Value(opacity)) => opacity,
+        _ => 0.16,
+      };
+      for track in tracks {
+        self.paint_area(canvas, track, look.series(track.series).with_opacity(opacity));
+      }
+    }
+    // The first series is drawn last, over the others, as the board draws it.
+    let line = match look.part(LineChartPart::Line).rest().opacity {
+      Some(Opacity::Value(opacity)) => opacity,
+      _ => 1.0,
+    };
+    for track in tracks.iter().rev() {
+      self.paint_line(canvas, track, look.series(track.series).with_opacity(line));
+    }
+    let Some(point) = active else {
+      return;
+    };
+    let x = tracks
+      .first()
+      .and_then(|track| track.bases.get(point.index))
+      .map_or_else(|| self.x(area, point.index), |(x, _)| *x);
+    canvas.set_fill_style(look.color(ChartPart::Cursor));
+    canvas.fill_rect(x - 0.5, 0.0, 1.0, area.height);
+    let ring = look.color(LineChartPart::Point);
+    for track in tracks.iter().rev() {
+      let Some(Some((x, y))) = track
+        .tops
+        .get(point.index)
+        .filter(|_| self.value(track.series, point.index).is_some())
+      else {
+        continue;
+      };
+      canvas.begin_path();
+      let _ = canvas.arc(
+        *x,
+        *y,
+        POINT_RADIUS,
+        0.0,
+        std::f32::consts::TAU,
+        ArcDirection::Clockwise,
+      );
+      canvas.set_fill_style(ring);
+      canvas.fill();
+      canvas.begin_path();
+      let _ = canvas.arc(
+        *x,
+        *y,
+        POINT_RADIUS - POINT_RING,
+        0.0,
+        std::f32::consts::TAU,
+        ArcDirection::Clockwise,
+      );
+      canvas.set_fill_style(look.series(track.series));
+      canvas.fill();
+    }
+  }
+}
+
+/// Where a series is drawn at a category: its x, the top of its line (none where it has no value, or is hidden), and
+/// the bottom of its area (the line of zero, or in a stack the top of the series under it).
+#[derive(Clone, Copy)]
+struct Spot {
+  x: f32,
+  top: Option<f32>,
+  base: f32,
+}
+
+/// A series as it is drawn: the top of its line at each category (none in a gap) and the bottom of its area.
+struct Track {
+  series: usize,
+  tops: Vec<Option<(f32, f32)>>,
+  bases: Vec<(f32, f32)>,
+}
+
+impl Track {
+  /// The runs of the line with no gap in them, each its tops and the bottoms under them.
+  fn runs(&self) -> Vec<(Vec<(f32, f32)>, Vec<(f32, f32)>)> {
+    let mut runs = Vec::new();
+    let mut run: (Vec<(f32, f32)>, Vec<(f32, f32)>) = (Vec::new(), Vec::new());
+    for (top, base) in self.tops.iter().zip(&self.bases) {
+      match top {
+        Some(top) => {
+          run.0.push(*top);
+          run.1.push(*base);
+        }
+        None if !run.0.is_empty() => runs.push(std::mem::take(&mut run)),
+        None => {}
+      }
+    }
+    if !run.0.is_empty() {
+      runs.push(run);
+    }
+    runs
   }
 }
 
@@ -567,62 +692,31 @@ fn monotone(points: &[(f32, f32)]) -> Vec<Piece> {
 
 impl ChartPlot for LinePlot {
   fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
-    let scale = self.scale(area);
-    let shown = self.shown();
-    if self.area {
-      let opacity = match look.part(LineChartPart::Area).rest().opacity {
-        Some(Opacity::Value(opacity)) => opacity,
-        _ => 0.16,
-      };
-      for series in &shown {
-        self.paint_area(
-          canvas,
-          area,
-          &scale,
-          *series,
-          look.series(*series).with_opacity(opacity),
-        );
-      }
+    self.draw(canvas, area, look, active, &self.tracks(area));
+  }
+
+  /// The values move from where they were drawn to their new place when the data changes, the areas with them; a
+  /// line first shown is drawn on from its start.
+  fn paint_moving(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    motion: ChartMotion<'_>,
+  ) {
+    if motion.at_rest() || self.categories.is_empty() {
+      return self.paint(canvas, area, look, active);
     }
-    // The first series is drawn last, over the others, as the board draws it.
-    let line = match look.part(LineChartPart::Line).rest().opacity {
-      Some(Opacity::Value(opacity)) => opacity,
-      _ => 1.0,
-    };
-    for series in shown.iter().rev() {
-      self.paint_line(canvas, area, &scale, *series, look.series(*series).with_opacity(line));
+    if let Some(from) = motion.from_as::<LinePlot>().filter(|from| !from.categories.is_empty()) {
+      return self.draw(canvas, area, look, active, &self.tracks_from(from, area, motion));
     }
-    let Some(point) = active else {
-      return;
-    };
-    let x = self.x(area, point.index);
-    canvas.set_fill_style(look.color(ChartPart::Cursor));
-    canvas.fill_rect(x - 0.5, 0.0, 1.0, area.height);
-    let ring = look.color(LineChartPart::Point);
-    for series in shown.iter().rev() {
-      let Some(level) = self
-        .level(*series, point.index)
-        .filter(|_| self.value(*series, point.index).is_some())
-      else {
-        continue;
-      };
-      let y = scale.map(level);
-      canvas.begin_path();
-      let _ = canvas.arc(x, y, POINT_RADIUS, 0.0, std::f32::consts::TAU, ArcDirection::Clockwise);
-      canvas.set_fill_style(ring);
-      canvas.fill();
-      canvas.begin_path();
-      let _ = canvas.arc(
-        x,
-        y,
-        POINT_RADIUS - POINT_RING,
-        0.0,
-        std::f32::consts::TAU,
-        ArcDirection::Clockwise,
-      );
-      canvas.set_fill_style(look.series(*series));
-      canvas.fill();
-    }
+    canvas.save();
+    canvas.begin_path();
+    canvas.rect(0.0, 0.0, area.width * motion.progress, area.height);
+    canvas.clip();
+    self.paint(canvas, area, look, active);
+    canvas.restore();
   }
 
   fn ticks(&self, area: ChartArea, look: &ChartLook) -> Vec<ChartTick> {

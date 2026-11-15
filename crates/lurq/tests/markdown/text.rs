@@ -34,6 +34,11 @@ impl Component for MarkdownRoot {
   }
 }
 
+/// Whether a span is the room beside a box (a key's, code's): presentation, not the paragraph's words.
+fn is_room(text: &str) -> bool {
+  !text.is_empty() && text.chars().all(|ch| matches!(ch, '\u{200b}' | '\u{2060}'))
+}
+
 #[test]
 fn markdown_component_renders_rich_inline_spans() {
   let mut app = App::new();
@@ -55,6 +60,9 @@ fn markdown_component_renders_rich_inline_spans() {
     })
     .expect("markdown component should render inline content as rich text");
 
+  // The room beside the code's box is presentation: a joiner spaced to the box's padding, and a space of no width
+  // before it where a line may break.
+  let spans: Vec<_> = spans.iter().filter(|span| !is_room(&span.text)).collect();
   assert_eq!(
     spans.iter().map(|span| span.text.as_str()).collect::<Vec<_>>(),
     vec!["Hello ", "bold", ", ", "soft", ", and ", "code"]
@@ -99,6 +107,7 @@ fn markdown_inline_code_font_features_shape_their_span() {
         QuadContent::RichText { spans, .. } => Some(
           spans
             .iter()
+            .filter(|span| !is_room(&span.text))
             .map(|span| span.style.font_features.clone())
             .collect::<Vec<_>>(),
         ),
@@ -359,10 +368,12 @@ fn markdown_component_renders_code_block_box() {
   tree.pass(&mut app, &TestSurface);
 
   let quads = tree.resolve_quads(tree.last_layout().expect("layout should be available"));
+  // The box is on the muted fill of the app's theme.
+  let muted = app.theme().palette().get(lurq::app::theme::PaletteColor::Muted);
   assert!(quads.iter().any(|quad| {
     matches!(
       &quad.content,
-      QuadContent::Rect { color, .. } if *color == Color::from_hex("#0f172a")
+      QuadContent::Rect { color, .. } if *color == muted
     )
   }));
   assert!(quads.iter().any(|quad| {
@@ -374,7 +385,8 @@ fn markdown_component_renders_code_block_box() {
   assert!(quads.iter().any(|quad| {
     matches!(
       &quad.content,
-      QuadContent::RichText { spans, .. } if spans.iter().any(|span| span.text == "fn" && span.style.color == Color::from_hex("#93c5fd"))
+      // A keyword is in the theme's info color.
+      QuadContent::RichText { spans, .. } if spans.iter().any(|span| span.text == "fn" && span.style.color == app.theme().palette().get(lurq::app::theme::PaletteColor::Info))
     )
   }));
 }
@@ -385,7 +397,7 @@ fn markdown_component_uses_theme_markdown_overrides() {
     strong: MarkdownInlineStyle::new(),
     ..ThemeMarkdown::default()
   };
-  markdown.strong.text.color = Some(Color::from_hex("#dc2626"));
+  markdown.strong.text.color = Some(Color::from_hex("#dc2626").into());
 
   let mut app = App::new();
   app.theme().set_markdown(markdown);
@@ -419,7 +431,7 @@ fn markdown_links_fire_click_callback() {
   tree.mount_root::<MarkdownRoot>(
     &mut app,
     MarkdownProps::new("Read [docs](/docs)")
-      .on_link_click(move |link| *clicked_for_handler.lock().unwrap() = Some(link.destination().to_owned()))
+      .on_link_select(move |link| *clicked_for_handler.lock().unwrap() = Some(link.destination().to_owned()))
       .width(320.0),
   );
   tree.pass(&mut app, &TestSurface);

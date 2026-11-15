@@ -11,6 +11,17 @@ pub enum BackgroundColor {
   CurrentForeground,
 }
 
+/// A text's color as a fill: a palette role stays a role, which the theme
+/// a node is drawn in resolves.
+impl From<crate::node::TextColor> for BackgroundColor {
+  fn from(color: crate::node::TextColor) -> Self {
+    match color {
+      crate::node::TextColor::Color(color) => Self::Color(color),
+      crate::node::TextColor::Palette(role) => Self::Palette(role),
+    }
+  }
+}
+
 impl BackgroundColor {
   pub fn as_color(self) -> Option<Color> {
     match self {

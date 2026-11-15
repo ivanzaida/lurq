@@ -181,7 +181,8 @@ windows = { version = "0.62.2", features = [
 
 # The DevTools save dialog and `lurq::files::FileDialog`. `rfd` has no iOS backend and does not compile there.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
-rfd = { version = "0.15", optional = true }
+# `file-handle-inner` gives the browser's file behind a handle, whose size the picker tells.
+rfd = { version = "0.15", optional = true, features = ["file-handle-inner"] }
 
 # Unix: `kill(pid, 0)` tells the MCP server which discovery files belong to
 # processes that no longer run.

@@ -3029,11 +3029,11 @@ impl GlyphEngine {
         .map(|(index, span)| {
           (
             span.text.as_str(),
-            attrs_for_style(
+            span_attrs(
               &span.style,
+              &first.style,
               span.style.font_family.as_ref(),
               self.face_weight(span.style.font_family.as_ref(), &span.style),
-              first.style.font_size,
             )
             .metadata(index),
           )
@@ -3069,13 +3069,7 @@ impl GlyphEngine {
         .map(|(index, (span, family))| {
           (
             span.text.as_str(),
-            attrs_for_style(
-              &span.style,
-              family,
-              self.face_weight(family, &span.style),
-              first.style.font_size,
-            )
-            .metadata(index),
+            span_attrs(&span.style, &first.style, family, self.face_weight(family, &span.style)).metadata(index),
           )
         })
         .collect();
@@ -3477,7 +3471,26 @@ fn text_buffer_width(max_width: f32) -> Option<f32> {
   is_bounded_text_width(max_width).then_some(max_width)
 }
 
-/// `em_px` is the buffer's font size; see [`with_letter_spacing`].
+/// The attributes of one span of a rich text whose buffer is set in `first`'s size: a span of another size or line
+/// height has metrics of its own, so its glyphs are drawn and advance at its size (inline code at 13, a key at 11, in
+/// a paragraph at 15), and its tracking is in its own pixels. A span in `first`'s metrics keeps the buffer's.
+fn span_attrs<'a>(
+  style: &TextStyle,
+  first: &TextStyle,
+  resolved_family: &'a str,
+  weight: cosmic_text::Weight,
+) -> Attrs<'a> {
+  let own = style.font_size > 0.0
+    && style.font_size.is_finite()
+    && (style.font_size != first.font_size || style.line_height != first.line_height);
+  if !own {
+    return attrs_for_style(style, resolved_family, weight, first.font_size);
+  }
+  attrs_for_style(style, resolved_family, weight, style.font_size)
+    .metrics(Metrics::new(style.font_size, style.font_size * style.line_height))
+}
+
+/// `em_px` is the size the glyphs are drawn at; see [`with_letter_spacing`].
 fn attrs_for_style<'a>(
   style: &TextStyle,
   resolved_family: &'a str,
