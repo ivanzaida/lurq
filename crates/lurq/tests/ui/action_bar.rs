@@ -410,3 +410,31 @@ fn the_bar_is_called_by_its_label_or_what_it_says() {
   assert_eq!(name(&mut plain).as_deref(), Some("3 selected"));
   assert_eq!(name(&mut named).as_deref(), Some("Actions on 3 files"));
 }
+
+#[test]
+fn the_first_frame_at_a_width_is_the_settled_one() {
+  let (cleared, moved) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+  for width in [600.0, 420.0, 300.0, 200.0] {
+    // The bar fades in where it stands, so a frame differs from the next only where it settles.
+    let app = App::new();
+    app.theme().patch_recipe::<ActionBar>(|recipe| {
+      recipe
+        .variant(ActionBarSide::Bottom, ActionBarPart::Bar, |s| {
+          s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+        })
+        .variant(ActionBarSide::Top, ActionBarPart::Bar, |s| {
+          s.enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+        })
+    });
+    let (cleared, moved) = (cleared.clone(), moved.clone());
+    let mut stage = Stage::first_frame_in(app, width, 300.0, move |ctx| {
+      Column::new()
+        .size(width, 300.0)
+        .child(bar(3, &cleared, &moved).mount(ctx))
+        .into()
+    });
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(first, stage.picture(), "at {width}: the first frame is the next one");
+  }
+}

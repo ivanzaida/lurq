@@ -801,3 +801,49 @@ fn a_group_in_the_menu_stays_there_after_escape_closes_the_menu_a_press_opened()
   );
   assert!(!stage.paints("Insert"), "nor its label");
 }
+
+/// The grouped bar's scene, `width` wide, in a window of 700 by 600.
+fn grouped_scene(width: lurq::core::Signal<f32>) -> impl Fn(&mut lurq::app::ctx::Ctx) -> Element + Send + Sync + 'static {
+  let pressed = Arc::new(AtomicUsize::new(0));
+  move |ctx| {
+    let group = |label: &str, tools: [(&str, &str); 2]| {
+      ToolbarGroup::new()
+        .label(label)
+        .item(tool(tools[0].0, tools[0].1, &pressed))
+        .item(tool(tools[1].0, tools[1].1, &pressed))
+    };
+    let bar = Toolbar::new()
+      .id("bar")
+      .variant(ToolbarVariant::Plain)
+      .overflow(true)
+      .item(group("Text", [("Strike", icons::STRIKETHROUGH), ("Underline", icons::UNDERLINE)]))
+      .item(group("Lists", [("List", icons::LIST), ("Bold", icons::BOLD)]))
+      .item(group("Insert", [("Link", icons::LINK), ("Image", icons::IMAGE)]));
+    Column::new()
+      .size(700.0, 600.0)
+      .padding(20.0)
+      .child(Column::new().width(width.get()).child(bar.mount(ctx)))
+      .into()
+  }
+}
+
+#[test]
+fn the_first_frame_at_a_width_is_the_settled_one() {
+  let widths = [600.0, 300.0, 220.0, 160.0, 100.0, 60.0];
+  for width in widths {
+    let mut stage = Stage::first_frame(700.0, 600.0, grouped_scene(lurq::core::Signal::new(width)));
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(first, stage.picture(), "built at {width}: the first frame is the next one");
+  }
+  let width = lurq::core::Signal::new(600.0f32);
+  let mut stage = Stage::first_frame(700.0, 600.0, grouped_scene(width.clone()));
+  stage.frame();
+  for at in widths.iter().chain(widths.iter().rev()) {
+    width.set(*at);
+    stage.frame();
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(first, stage.picture(), "dragged to {at}: the first frame is the next one");
+  }
+}
