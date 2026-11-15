@@ -236,7 +236,10 @@ impl LayoutEngine {
     quads: &mut Vec<Quad>,
   ) {
     for ((link, state), child_layout) in link_states_with_layouts(node, result) {
-      let color = state.background.as_ref().and_then(|color| color.resolve(&self.palette.borrow()));
+      let color = state
+        .background
+        .as_ref()
+        .and_then(|color| color.resolve(&self.palette.borrow()));
       let (Some(color), Some(output)) = (color, link_output(child_layout)) else {
         continue;
       };

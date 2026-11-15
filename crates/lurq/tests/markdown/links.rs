@@ -269,7 +269,7 @@ fn markdown_trailing_runs_follow_the_link_and_take_its_press() {
   let (_app, mut tree) = mount(
     MarkdownProps::new("Open [PR 42](https://github.com/acme/pull/42) to review.")
       .link_presentation(present_by_kind)
-      .on_link_click({
+      .on_link_select({
         let clicked = clicked.clone();
         move |link| clicked.lock().unwrap().push(link.destination().to_owned())
       })
@@ -318,7 +318,7 @@ fn markdown_presentation_sees_the_destination_the_click_follows() {
           MarkdownLinkPresentation::link().trailing([MarkdownRun::plain(format!(" <{}>", link.destination()))])
         }
       })
-      .on_link_click({
+      .on_link_select({
         let clicked = clicked.clone();
         move |link| {
           clicked

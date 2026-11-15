@@ -4,8 +4,8 @@ use pulldown_cmark::{
 };
 
 use super::{
-  MarkdownAdmonitionKind, MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel,
-  MarkdownInline, MarkdownListItem, MarkdownTableAlignment, MarkdownTableRow, rich_text::markdown_html_text,
+  MarkdownAdmonitionKind, MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline,
+  MarkdownListItem, MarkdownTableAlignment, MarkdownTableRow, rich_text::markdown_html_text,
 };
 
 pub fn parse_markdown(source: &str) -> MarkdownDocument {
@@ -298,7 +298,11 @@ impl MarkdownParser {
         }
         rest = after;
       } else if let Some(after) = trimmed.strip_prefix("</details>") {
-        if let Some(position) = self.frames.iter().rposition(|frame| matches!(frame, Frame::Details { .. })) {
+        if let Some(position) = self
+          .frames
+          .iter()
+          .rposition(|frame| matches!(frame, Frame::Details { .. }))
+        {
           // A block left open inside it ends with it.
           while self.frames.len() > position + 1 {
             self.end_open_frame();

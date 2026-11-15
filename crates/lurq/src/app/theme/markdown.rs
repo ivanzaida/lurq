@@ -288,8 +288,6 @@ pub struct ThemeMarkdown {
   pub heading_6: MarkdownInlineStyle,
   /// The line under a heading of the second level: `None` for none.
   pub heading_2_rule: Option<TextColor>,
-  /// Whether a heading of the sixth level is in capitals.
-  pub heading_6_uppercase: bool,
   pub strong: MarkdownInlineStyle,
   pub emphasis: MarkdownInlineStyle,
   pub inline_code: MarkdownInlineStyle,
@@ -421,24 +419,16 @@ impl Default for ThemeMarkdown {
     // A size the design gives in pixels, as a share of its text's 15.
     let of_15 = |size: f32| Some(size / 15.0);
 
+    // Headings are of the theme's type scale (`TypographyStyle::Heading1` to
+    // `Heading6`): the document says only their colors.
     let mut heading = MarkdownInlineStyle::default();
-    heading.text.weight = Some(FontWeight::SemiBold);
-    heading.text.line_height = Some(1.25);
     heading.text.color = color(Foreground);
-
-    let heading_at = |size: f32, weight: FontWeight, spacing: f32| {
-      let mut style = MarkdownInlineStyle::default();
-      style.text.font_size_scale = of_15(size);
-      style.text.weight = Some(weight);
-      style.text.letter_spacing = (spacing != 0.0).then_some(spacing);
-      style
-    };
-    let heading_1 = heading_at(30.0, FontWeight::Bold, -0.6);
-    let heading_2 = heading_at(24.0, FontWeight::SemiBold, -0.4);
-    let heading_3 = heading_at(20.0, FontWeight::SemiBold, 0.0);
-    let heading_4 = heading_at(16.0, FontWeight::SemiBold, 0.0);
-    let heading_5 = heading_at(14.0, FontWeight::SemiBold, 0.0);
-    let mut heading_6 = heading_at(12.0, FontWeight::SemiBold, 0.8);
+    let heading_1 = MarkdownInlineStyle::default();
+    let heading_2 = MarkdownInlineStyle::default();
+    let heading_3 = MarkdownInlineStyle::default();
+    let heading_4 = MarkdownInlineStyle::default();
+    let heading_5 = MarkdownInlineStyle::default();
+    let mut heading_6 = MarkdownInlineStyle::default();
     heading_6.text.color = color(MutedForeground);
 
     let mut strong = MarkdownInlineStyle::default();
@@ -616,7 +606,6 @@ impl Default for ThemeMarkdown {
       heading_5,
       heading_6,
       heading_2_rule: color(Border),
-      heading_6_uppercase: true,
       strong,
       emphasis,
       inline_code,

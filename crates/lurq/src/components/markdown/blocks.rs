@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::{
   MarkdownRenderContext, TaskCallback,
-  paragraph::{REFERENCE_ANCHOR, FOOTNOTE_ANCHOR},
+  paragraph::{FOOTNOTE_ANCHOR, REFERENCE_ANCHOR},
   render_block, render_inline_block,
   sizing::FILL_WIDTH,
 };
@@ -89,14 +89,12 @@ fn without_marker(item: &MarkdownListItem) -> Vec<MarkdownBlock> {
 /// The words of a task, which name its box to what reads the tree.
 fn task_words(blocks: &[MarkdownBlock]) -> String {
   match blocks.first() {
-    Some(MarkdownBlock::Paragraph(inlines)) => crate::markdown::markdown_inline_rich_text(
-      inlines,
-      &TextStyle::default(),
-      &ThemeMarkdown::default(),
-    )
-    .into_iter()
-    .map(|span| span.text)
-    .collect(),
+    Some(MarkdownBlock::Paragraph(inlines)) => {
+      crate::markdown::markdown_inline_rich_text(inlines, &TextStyle::default(), &ThemeMarkdown::default())
+        .into_iter()
+        .map(|span| span.text)
+        .collect()
+    }
     _ => String::new(),
   }
 }
@@ -212,17 +210,15 @@ pub(super) fn render_admonition(
     .iter()
     .map(|block| render_block(block, &style, theme, render_ctx))
     .collect();
-  render_ctx
-    .width
-    .leaf(
-      Callout::new("")
-        .title(title)
-        .variant(variant)
-        .icon(icon)
-        .bar(true)
-        .children(children)
-        .build(&render_ctx.ui),
-    )
+  render_ctx.width.leaf(
+    Callout::new("")
+      .title(title)
+      .variant(variant)
+      .icon(icon)
+      .bar(true)
+      .children(children)
+      .build(&render_ctx.ui),
+  )
 }
 
 /// A `<details>` block: its summary, which opens and closes it, over what it
@@ -267,9 +263,7 @@ pub(super) fn render_details(
   if let Some(background) = summary_box.background.clone() {
     head = head.background(background);
   }
-  if open
-    && let (Some(width), Some(color)) = (summary_box.border_width, summary_box.border_color.clone())
-  {
+  if open && let (Some(width), Some(color)) = (summary_box.border_width, summary_box.border_color.clone()) {
     head = head.border_bottom(crate::node::border::Border::inside(width, color));
   }
   if let Some(turned) = render_ctx.turn_details.clone() {
@@ -320,7 +314,12 @@ pub(super) fn render_figure(
 ) -> Element {
   let mut figure = render_ctx
     .width
-    .blocks(Column::new().overflow_visible().spacing(8.0).align_items(Alignment::Center))
+    .blocks(
+      Column::new()
+        .overflow_visible()
+        .spacing(8.0)
+        .align_items(Alignment::Center),
+    )
     .child(image);
   let caption_style = theme.image_caption.apply(base_style);
   if !title.is_empty() {
@@ -333,7 +332,11 @@ pub(super) fn render_figure(
 
 /// The place of an image the app does not draw: a box of the image's height
 /// with an image's glyph in it.
-pub(super) fn image_place(base_style: &TextStyle, theme: &ThemeMarkdown, render_ctx: &MarkdownRenderContext<'_>) -> Element {
+pub(super) fn image_place(
+  base_style: &TextStyle,
+  theme: &ThemeMarkdown,
+  render_ctx: &MarkdownRenderContext<'_>,
+) -> Element {
   let glyph = theme.image_caption.apply(base_style).color;
   let place = Column::new()
     .width(FILL_WIDTH)
@@ -367,9 +370,12 @@ pub(super) fn render_footnotes(
         .background(theme.rule.background.clone().unwrap_or_else(|| style.color.into())),
     );
   for (number, label, blocks) in footnotes {
-    let mut body = render_ctx
-      .width
-      .row_body(Column::new().overflow_visible().spacing(theme.nested_block_spacing).min_width(0.0));
+    let mut body = render_ctx.width.row_body(
+      Column::new()
+        .overflow_visible()
+        .spacing(theme.nested_block_spacing)
+        .min_width(0.0),
+    );
     for block in *blocks {
       body = body.child(render_block(block, &style, theme, render_ctx));
     }
@@ -397,7 +403,10 @@ pub(super) fn render_footnotes(
       row = row.child(back);
     }
     let mut element: Element = render_ctx.width.row(row).into();
-    NodeUpdate::ref_element(&mut *element.node, render_ctx.links.anchor(&format!("{FOOTNOTE_ANCHOR}{label}")));
+    NodeUpdate::ref_element(
+      &mut *element.node,
+      render_ctx.links.anchor(&format!("{FOOTNOTE_ANCHOR}{label}")),
+    );
     section = section.child(element);
   }
   section.into()

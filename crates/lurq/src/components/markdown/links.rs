@@ -11,7 +11,7 @@ use crate::{
 
 /// A link of a Markdown document, as the document's presentation hook
 /// ([`MarkdownProps::link_presentation`](super::MarkdownProps::link_presentation))
-/// and [`MarkdownProps::on_link_click`](super::MarkdownProps::on_link_click)
+/// and [`MarkdownProps::on_link_select`](super::MarkdownProps::on_link_select)
 /// see it. Both are given the same link: the words a link shows come from the
 /// destination it opens.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -242,9 +242,16 @@ fn a_block_whose_lines_fit_has_no_bar_and_the_layout_it_had() {
     "the label spans the box, as before"
   );
   assert_eq!(text.x, block.0 + padding);
-  assert!((text.y - (label.y + label.height + spacing)).abs() < 0.01, "the lines under the label");
+  assert!(
+    (text.y - (label.y + label.height + spacing)).abs() < 0.01,
+    "the lines under the label"
+  );
   let height = padding + label.height + spacing + text.height + padding;
-  assert!((block.3 - height).abs() < 0.01, "the box's height: {} for {height}", block.3);
+  assert!(
+    (block.3 - height).abs() < 0.01,
+    "the box's height: {} for {height}",
+    block.3
+  );
   assert!(thumbs(&tree).is_empty(), "no bar without overflow");
 
   shift_wheel(&mut app, &mut tree, 1.0);

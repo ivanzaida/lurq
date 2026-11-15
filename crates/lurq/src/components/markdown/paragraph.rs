@@ -43,12 +43,12 @@ use crate::{
     events::{MouseButton, MouseEvent},
     theme::ThemeMarkdown,
   },
+  core::ElementRef,
   layout::{quad::RichTextSpan, text_style::TextStyle},
   markdown::{
     Direction, FIRST_STRONG_ISOLATE, MarkdownInline, POP_DIRECTIONAL_ISOLATE, is_invisible, markdown_inline_rich_text,
     paragraph_breaks_as_line_feeds, paragraph_breaks_as_spaces, strip_bidi_controls,
   },
-  core::ElementRef,
   node::{CursorIcon, EventHandler, Node, NodeUpdate, inline_link::InlineLink, text_highlight::TextHighlight},
 };
 
@@ -71,7 +71,7 @@ pub(super) struct LinkSession {
   /// How many links to each destination came so far, for tooltip keys.
   occurrences: RefCell<HashMap<Arc<str>, usize>>,
   presenter: Option<MarkdownLinkPresenter>,
-  on_link_click: Option<MarkdownLinkCallback>,
+  on_link_select: Option<MarkdownLinkCallback>,
   on_link_activate: Option<MarkdownLinkActivator>,
   #[cfg(feature = "router")]
   navigator: Option<crate::router::Navigator>,
@@ -98,7 +98,7 @@ pub(super) struct LinkCheckpoint {
 impl LinkSession {
   pub(super) fn new(
     presenter: Option<MarkdownLinkPresenter>,
-    on_link_click: Option<MarkdownLinkCallback>,
+    on_link_select: Option<MarkdownLinkCallback>,
     on_link_activate: Option<MarkdownLinkActivator>,
     #[cfg(feature = "router")] navigator: Option<crate::router::Navigator>,
     hover: TooltipHover,
@@ -107,7 +107,7 @@ impl LinkSession {
       next_index: Cell::new(0),
       occurrences: RefCell::new(HashMap::new()),
       presenter,
-      on_link_click,
+      on_link_select,
       on_link_activate,
       #[cfg(feature = "router")]
       navigator,
@@ -218,7 +218,7 @@ impl LinkSession {
   /// an in-app path.
   fn activation_handler(&self, link: MarkdownLink) -> EventHandler<MouseEvent> {
     let on_link_activate = self.on_link_activate.clone();
-    let on_link_click = self.on_link_click.clone();
+    let on_link_select = self.on_link_select.clone();
     let jump = self.jump.clone();
     #[cfg(feature = "router")]
     let navigator = self.navigator.clone();
@@ -236,8 +236,8 @@ impl LinkSession {
         jump(link.destination());
         return;
       }
-      if let Some(on_link_click) = &on_link_click {
-        on_link_click(&link);
+      if let Some(on_link_select) = &on_link_select {
+        on_link_select(&link);
         return;
       }
       #[cfg(feature = "router")]

@@ -306,7 +306,10 @@ impl MarkdownPage {
     let page = |ctx: &mut Ctx, source: &str| -> Element {
       Column::new()
         .width(420.0)
-        .child(Markdown::mount(ctx, MarkdownProps::styled(source, prose()).selectable(true)))
+        .child(Markdown::mount(
+          ctx,
+          MarkdownProps::styled(source, prose()).selectable(true),
+        ))
         .into()
     };
     let one = page(ctx, PAGE_ONE);
@@ -346,7 +349,12 @@ impl Component for MarkdownPage {
         "",
         "A document of the source, in the theme's text; `styled(source, style)` in another.",
       ),
-      ("selectable", "bool", "false", "A drag selects across blocks, and a copy gives each block on its own line."),
+      (
+        "selectable",
+        "bool",
+        "false",
+        "A drag selects across blocks, and a copy gives each block on its own line.",
+      ),
       (
         "fit_content",
         "bool",
@@ -361,7 +369,7 @@ impl Component for MarkdownPage {
          read only.",
       ),
       (
-        "on_link_click / on_link_activate",
+        "on_link_select / on_link_activate",
         "impl Fn(&MarkdownLink)",
         "",
         "A link was followed; a footnote's reference goes to its footnote on its own.",
@@ -391,9 +399,12 @@ impl Component for MarkdownPage {
       Section::new(
         "The board's document",
         "Every block the board draws, on its two pages of 420.",
-        self.frame.demo(0, board, "MarkdownProps::styled(source, prose)", &[
-          "Markdown::mount(ctx, MarkdownProps::styled(source, prose).selectable(true))",
-        ]),
+        self.frame.demo(
+          0,
+          board,
+          "MarkdownProps::styled(source, prose)",
+          &["Markdown::mount(ctx, MarkdownProps::styled(source, prose).selectable(true))"],
+        ),
       ),
     ];
     for (index, (title, guidance, source)) in BLOCKS.iter().enumerate() {
@@ -413,7 +424,12 @@ impl Component for MarkdownPage {
       sections.push(Section::new(
         title,
         guidance,
-        self.frame.demo(index as u32 + 1, shown, lines.first().copied().unwrap_or_default(), &lines),
+        self.frame.demo(
+          index as u32 + 1,
+          shown,
+          lines.first().copied().unwrap_or_default(),
+          &lines,
+        ),
       ));
     }
     sections.push(Section::new(

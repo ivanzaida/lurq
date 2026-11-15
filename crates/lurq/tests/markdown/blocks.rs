@@ -44,7 +44,12 @@ fn color_of(tree: &Tree, text: &str) -> Option<lurq::node::color::Color> {
 
 fn click(app: &mut App, tree: &mut Tree, text: &str) {
   let rect = bounds_of(tree, text);
-  pointer_click(tree, rect.x + rect.width / 2.0, rect.y + rect.height / 2.0, MouseButton::Left);
+  pointer_click(
+    tree,
+    rect.x + rect.width / 2.0,
+    rect.y + rect.height / 2.0,
+    MouseButton::Left,
+  );
   pass(app, tree);
   pass(app, tree);
 }
@@ -96,9 +101,15 @@ fn a_task_is_a_checkbox_read_only_unless_the_app_takes_its_change() {
   // The checked box is on the primary fill, the other is not.
   let primary = fills(&tree, palette(&app, PaletteColor::Primary));
   assert_eq!(primary.len(), 1, "one box checked: {primary:?}");
-  assert!(!has_element_with_text(&mut tree, "[x] done"), "the box stands for the marker");
+  assert!(
+    !has_element_with_text(&mut tree, "[x] done"),
+    "the box stands for the marker"
+  );
   // A task that is done is in the muted foreground.
-  assert_eq!(color_of(&tree, "done"), Some(palette(&app, PaletteColor::MutedForeground)));
+  assert_eq!(
+    color_of(&tree, "done"),
+    Some(palette(&app, PaletteColor::MutedForeground))
+  );
   // Read only: a press on the open task's box checks nothing.
   let open = bounds_of(&mut tree, "open");
   pointer_click(&mut tree, open.x - 18.0, open.y + open.height / 2.0, MouseButton::Left);
@@ -121,14 +132,17 @@ fn a_task_is_a_checkbox_read_only_unless_the_app_takes_its_change() {
 
 #[test]
 fn a_tables_header_is_on_the_muted_fill_and_every_other_row_is_striped() {
-  let (app, tree) = mount(
-    MarkdownProps::new("| a | b |\n| --- | ---: |\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n").width(400.0),
-  );
+  let (app, tree) =
+    mount(MarkdownProps::new("| a | b |\n| --- | ---: |\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n").width(400.0));
   let muted = fills(&tree, palette(&app, PaletteColor::Muted));
   // The header's two cells, and the second body row, as wide as the table.
   assert_eq!(muted.len(), 3, "{muted:?}");
   assert_eq!((muted[0].1, muted[1].1), (0.0, 0.0), "the header's cells");
-  assert_eq!(muted[0].2 + muted[1].2, muted[2].2, "a striped row as wide as the header");
+  assert_eq!(
+    muted[0].2 + muted[1].2,
+    muted[2].2,
+    "a striped row as wide as the header"
+  );
   assert!(muted[2].1 > muted[0].1);
 }
 
@@ -137,7 +151,10 @@ fn an_admonition_is_a_callout_with_its_title_in_its_tone() {
   let (app, mut tree) = mount(MarkdownProps::new("> [!WARNING]\n> Large radii cost more.\n").width(400.0));
   assert!(has_element_with_text(&mut tree, "Warning"));
   assert_eq!(color_of(&tree, "Warning"), Some(palette(&app, PaletteColor::Warning)));
-  assert!(!fills(&tree, palette(&app, PaletteColor::WarningMuted)).is_empty(), "on the muted warning fill");
+  assert!(
+    !fills(&tree, palette(&app, PaletteColor::WarningMuted)).is_empty(),
+    "on the muted warning fill"
+  );
 }
 
 #[test]
@@ -164,7 +181,10 @@ fn footnotes_stand_at_the_end_by_number_with_the_way_to_and_from_them() {
   let last = bounds_of(&mut tree, "A last paragraph.");
   assert!(one.y > last.y && two.y > one.y, "at the end, in their order");
   assert!(has_element_with_text(&mut tree, "The b note."));
-  assert_eq!(color_of(&tree, "The b note."), Some(palette(&app, PaletteColor::MutedForeground)));
+  assert_eq!(
+    color_of(&tree, "The b note."),
+    Some(palette(&app, PaletteColor::MutedForeground))
+  );
 }
 
 #[test]
@@ -191,7 +211,8 @@ fn the_document_follows_the_theme_light_and_dark() {
   let mut app = App::new();
   app.theme().set_preferred_appearance(Some(Appearance::Dark));
   let mut tree = Tree::new();
-  tree.mount_root::<super::links::MarkdownRoot>(&mut app, MarkdownProps::new("A [link](https://lurq.dev).").width(400.0));
+  tree
+    .mount_root::<super::links::MarkdownRoot>(&mut app, MarkdownProps::new("A [link](https://lurq.dev).").width(400.0));
   tree.pass(&mut app, &TestSurface);
   let dark = palette(&app, PaletteColor::Info);
   assert_eq!(color_of(&tree, "link"), Some(dark), "the dark palette's info");
@@ -202,4 +223,57 @@ fn the_document_follows_the_theme_light_and_dark() {
   assert_ne!(light, dark);
   assert_eq!(color_of(&tree, "link"), Some(light), "and the light one's");
   let _ = AtomicBool::new(false).load(Ordering::SeqCst);
+}
+
+thread_local! {
+  static SCROLLED: std::cell::RefCell<Option<lurq::layout::layout_kind::ScrollState>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A long document in a view 200 high, its footnotes far below its first line.
+struct Scrolled;
+
+impl lurq::app::component::Component for Scrolled {
+  type Props = ();
+
+  fn create(_: &mut lurq::app::ctx::Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut lurq::app::ctx::Ctx) -> impl Into<lurq::node::Element> {
+    let state = SCROLLED.with(|slot| slot.borrow().clone().expect("installed"));
+    let filler: String = (0..30).map(|line| format!("Paragraph {line}.\n\n")).collect();
+    let source = format!("See the note[^n].\n\n{filler}[^n]: The note at the end.\n");
+    // Narrower than the view: the way back is clear of the view's bar.
+    lurq::components::ScrollVertical::new(lurq::components::Markdown::mount(
+      ctx,
+      MarkdownProps::new(source).width(360.0),
+    ))
+    .with_scroll_state(state)
+    .size(400.0, 200.0)
+  }
+}
+
+#[test]
+fn a_reference_goes_to_its_footnote_and_the_way_back_returns() {
+  let state = lurq::layout::layout_kind::ScrollState::new();
+  SCROLLED.with(|slot| *slot.borrow_mut() = Some(state.clone()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<Scrolled>(&mut app, ());
+  tree.pass(&mut app, &TestSurface);
+  assert_eq!(state.scroll_y(), 0.0);
+  click(&mut app, &mut tree, "1");
+  let down = state.scroll_y();
+  assert!(down > 500.0, "at the footnote: {down}");
+  // The way back: the arrow after the footnote's words.
+  let note = bounds_of(&mut tree, "The note at the end.");
+  pointer_click(
+    &mut tree,
+    note.x + note.width + 12.0,
+    note.y + note.height / 2.0,
+    MouseButton::Left,
+  );
+  pass(&mut app, &mut tree);
+  pass(&mut app, &mut tree);
+  assert!(state.scroll_y() < 50.0, "back at the reference: {}", state.scroll_y());
 }

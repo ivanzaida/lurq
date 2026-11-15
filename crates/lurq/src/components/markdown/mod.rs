@@ -58,7 +58,7 @@ pub struct MarkdownProps {
   selectable: bool,
   width: Option<Dimension>,
   fit_content: bool,
-  on_link_click: Option<MarkdownLinkCallback>,
+  on_link_select: Option<MarkdownLinkCallback>,
   on_link_activate: Option<MarkdownLinkActivator>,
   link_presentation: Option<MarkdownLinkPresenter>,
   list_view: Option<MarkdownListView>,
@@ -74,7 +74,7 @@ impl PartialEq for MarkdownProps {
       && self.selectable == other.selectable
       && self.width == other.width
       && self.fit_content == other.fit_content
-      && same_callback(&self.on_link_click, &other.on_link_click)
+      && same_callback(&self.on_link_select, &other.on_link_select)
       && same_callback(&self.on_link_activate, &other.on_link_activate)
       && same_callback(&self.link_presentation, &other.link_presentation)
       && same_callback(&self.list_view, &other.list_view)
@@ -92,7 +92,7 @@ impl MarkdownProps {
       selectable: false,
       width: None,
       fit_content: false,
-      on_link_click: None,
+      on_link_select: None,
       on_link_activate: None,
       link_presentation: None,
       list_view: None,
@@ -184,7 +184,10 @@ impl MarkdownProps {
       list_view: self.list_view.as_ref(),
       code_block_scrollbar: ScrollBarStyle {
         placement: ScrollBarPlacement::Overlay,
-        ..theme.code_block_scrollbar.clone().unwrap_or_else(|| ui.scrollbar().clone())
+        ..theme
+          .code_block_scrollbar
+          .clone()
+          .unwrap_or_else(|| ui.scrollbar().clone())
       },
       code_blocks: Cell::new(0),
       text: &text,
@@ -196,8 +199,7 @@ impl MarkdownProps {
       details_turned: Vec::new(),
       turn_details: None,
     };
-    let mut style = self.style.clone();
-    style.color = ui.palette().text_color(&style);
+    let style = document_style(&self.style, ui);
     let mut element: Element = render_document(&document, &style, &theme, &render_ctx).into();
     if let Some(width) = self.width {
       element = element.map_node(|node| node.width(width));
@@ -250,8 +252,8 @@ impl MarkdownProps {
   /// [`index`](MarkdownLink::index). Without it and without
   /// [`on_link_activate`](Self::on_link_activate), a link to an in-app path
   /// (`/`, `#` or `?`) navigates the router, when there is one.
-  pub fn on_link_click(mut self, f: impl Fn(&MarkdownLink) + Send + Sync + 'static) -> Self {
-    self.on_link_click = Some(Arc::new(f));
+  pub fn on_link_select(mut self, f: impl Fn(&MarkdownLink) + Send + Sync + 'static) -> Self {
+    self.on_link_select = Some(Arc::new(f));
     self
   }
 
@@ -274,7 +276,7 @@ impl MarkdownProps {
   /// [`is_synthetic_input`](crate::app::events::is_synthetic_input) tells a
   /// person from an MCP client here too.
   ///
-  /// It runs before [`on_link_click`](Self::on_link_click), which still
+  /// It runs before [`on_link_select`](Self::on_link_select), which still
   /// gets left clicks and Enter when both are set. With it, a link to an
   /// in-app path no longer navigates the router by itself.
   pub fn on_link_activate(
@@ -433,7 +435,7 @@ impl Component for Markdown {
     let (code_fill, kbd_fill) = mark_fills(&ui);
     let links = LinkSession::new(
       props.link_presentation.clone(),
-      props.on_link_click.clone(),
+      props.on_link_select.clone(),
       props.on_link_activate.clone(),
       #[cfg(feature = "router")]
       ctx.use_context::<crate::router::Navigator>(),
@@ -466,8 +468,7 @@ impl Component for Markdown {
       turn_details: Some(self.details.clone()),
     };
     // A style that keeps the default text color names none: the document is drawn in the theme's foreground.
-    let mut base_style = props.style.clone();
-    base_style.color = ctx.theme().palette().text_color(&base_style);
+    let base_style = document_style(&props.style, &ui);
     let mut root = render_document(&document, &base_style, &theme, &render_ctx);
     let target = self.pending_jump.lock().unwrap().take();
     if let Some(anchor) = target.and_then(|target| links.anchor_of(&target)) {
@@ -524,20 +525,6 @@ fn render_document(
     root = root.child(blocks::render_footnotes(&footnotes, base_style, theme, render_ctx));
   }
   root
-}
-
-/// `inlines` with their words in capitals.
-fn uppercase(inlines: &[MarkdownInline]) -> Vec<MarkdownInline> {
-  inlines
-    .iter()
-    .map(|inline| match inline {
-      MarkdownInline::Text(text) => MarkdownInline::Text(text.to_uppercase()),
-      MarkdownInline::Emphasis(children) => MarkdownInline::Emphasis(uppercase(children)),
-      MarkdownInline::Strong(children) => MarkdownInline::Strong(uppercase(children)),
-      MarkdownInline::Strikethrough(children) => MarkdownInline::Strikethrough(uppercase(children)),
-      other => other.clone(),
-    })
-    .collect()
 }
 
 /// The number of each footnote the text refers to, by label: in the order
@@ -630,15 +617,12 @@ fn render_block(
   match block {
     MarkdownBlock::Paragraph(inlines) => render_inline_block(inlines, base_style.clone(), theme, render_ctx),
     MarkdownBlock::Heading { level, children } => {
-      // The sixth level is in capitals, where the theme says so.
-      let upper;
-      let children = if *level == MarkdownHeadingLevel::H6 && theme.heading_6_uppercase {
-        upper = uppercase(children);
-        &upper
-      } else {
-        children
-      };
-      let heading = render_inline_block(children, heading_style(theme, *level, base_style), theme, render_ctx);
+      let heading = render_inline_block(
+        children,
+        heading_style(theme, *level, base_style, &render_ctx.ui),
+        theme,
+        render_ctx,
+      );
       // A heading of the second level has a line under it.
       match (level, theme.heading_2_rule.clone()) {
         (MarkdownHeadingLevel::H2, Some(line)) => render_ctx
@@ -944,10 +928,8 @@ fn render_code_block(
     column = column.child(label);
     lines_padding = lines_padding.top(theme.code_block_spacing);
   }
-  let lines = Column::new()
-    .overflow_visible()
-    .padding(lines_padding)
-    .child(render_ctx.text.leaf(Element::from_node(
+  let lines = Column::new().overflow_visible().padding(lines_padding).child(
+    render_ctx.text.leaf(Element::from_node(
       Node::rich_text(highlight_code_spans(
         text.trim_end_matches('\n'),
         kind,
@@ -955,7 +937,8 @@ fn render_code_block(
         &render_ctx.ui.palette(),
       ))
       .text_wrap(false),
-    )));
+    )),
+  );
   let scroll = ScrollHorizontal::new(lines)
     .key(key)
     .scrollbar(render_ctx.code_block_scrollbar.clone());
@@ -1219,10 +1202,7 @@ fn render_table(
       if cell_index + 1 < count
         && let Some(line) = line_color.clone()
       {
-        crate::node::NodeUpdate::border_right(
-          &mut *element.node,
-          crate::node::border::Border::inside(1.0, line),
-        );
+        crate::node::NodeUpdate::border_right(&mut *element.node, crate::node::border::Border::inside(1.0, line));
       }
       row_node = row_node.child(element);
     }
@@ -1233,7 +1213,11 @@ fn render_table(
 }
 
 fn table_line_color(theme: &ThemeMarkdown) -> Option<crate::node::TextColor> {
-  theme.table_box.border_color.clone().or_else(|| theme.table_box.background.clone())
+  theme
+    .table_box
+    .border_color
+    .clone()
+    .or_else(|| theme.table_box.background.clone())
 }
 
 fn render_table_cell(
@@ -1325,8 +1309,22 @@ fn apply_row_box(mut row: Row, style: &MarkdownBlockStyle, include_border: bool)
   row
 }
 
-fn heading_style(theme: &ThemeMarkdown, level: MarkdownHeadingLevel, base_style: &TextStyle) -> TextStyle {
-  let shared = theme.heading.apply(base_style);
+/// A heading's style: the theme's type of its level (`TypographyStyle::Heading1`
+/// to `Heading6`, the sixth in capitals) in the document's color, with what
+/// the Markdown theme says of headings and of its level over it.
+fn heading_style(theme: &ThemeMarkdown, level: MarkdownHeadingLevel, base_style: &TextStyle, ui: &Theme) -> TextStyle {
+  use crate::app::theme::TypographyStyle;
+  let role = match level {
+    MarkdownHeadingLevel::H1 => TypographyStyle::Heading1,
+    MarkdownHeadingLevel::H2 => TypographyStyle::Heading2,
+    MarkdownHeadingLevel::H3 => TypographyStyle::Heading3,
+    MarkdownHeadingLevel::H4 => TypographyStyle::Heading4,
+    MarkdownHeadingLevel::H5 => TypographyStyle::Heading5,
+    MarkdownHeadingLevel::H6 => TypographyStyle::Heading6,
+  };
+  let mut scale = ui.typography_style(role);
+  scale.color = base_style.color;
+  let shared = theme.heading.apply(&scale);
   match level {
     MarkdownHeadingLevel::H1 => theme.heading_1.apply(&shared),
     MarkdownHeadingLevel::H2 => theme.heading_2.apply(&shared),
@@ -1335,4 +1333,17 @@ fn heading_style(theme: &ThemeMarkdown, level: MarkdownHeadingLevel, base_style:
     MarkdownHeadingLevel::H5 => theme.heading_5.apply(&shared),
     MarkdownHeadingLevel::H6 => theme.heading_6.apply(&shared),
   }
+}
+
+/// The document's text: the style the app gives, or the theme's `Article`
+/// (15 on lines of 1.65) where it gives none, in the theme's foreground where
+/// it names no color.
+fn document_style(style: &TextStyle, ui: &Theme) -> TextStyle {
+  let mut style = if *style == TextStyle::default() {
+    ui.typography_style(crate::app::theme::TypographyStyle::Article)
+  } else {
+    style.clone()
+  };
+  style.color = ui.palette().text_color(&style);
+  style
 }

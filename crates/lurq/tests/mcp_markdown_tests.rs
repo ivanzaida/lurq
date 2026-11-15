@@ -76,7 +76,7 @@ impl Component for Reply {
       ctx,
       MarkdownProps::new(source)
         .link_presentation(|_| MarkdownLinkPresentation::link().trailing([MarkdownRun::plain(" github.com")]))
-        .on_link_click(move |link| {
+        .on_link_select(move |link| {
           followed
             .lock()
             .unwrap()
@@ -183,7 +183,7 @@ fn an_agent_middle_clicks_a_markdown_link_with_modifiers() {
   );
   assert!(
     followed.lock().unwrap().is_empty(),
-    "on_link_click takes left clicks only"
+    "on_link_select takes left clicks only"
   );
 }
 

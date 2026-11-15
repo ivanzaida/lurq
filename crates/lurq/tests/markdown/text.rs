@@ -422,7 +422,7 @@ fn markdown_links_fire_click_callback() {
   tree.mount_root::<MarkdownRoot>(
     &mut app,
     MarkdownProps::new("Read [docs](/docs)")
-      .on_link_click(move |link| *clicked_for_handler.lock().unwrap() = Some(link.destination().to_owned()))
+      .on_link_select(move |link| *clicked_for_handler.lock().unwrap() = Some(link.destination().to_owned()))
       .width(320.0),
   );
   tree.pass(&mut app, &TestSurface);
