@@ -284,6 +284,9 @@ pub struct AnimationEngine {
   next_change: Option<Instant>,
   /// Keyframes whose runs play on the process's animation clock: see [`Self::register_keyframes_in_phase`].
   in_phase: HashSet<KeyframesId>,
+  /// Nodes that came back while they left, and how much of the animation they enter with is to be taken as played:
+  /// as much as was left of the exit they were playing (`Self::turn_round`).
+  resumed: HashMap<NodeId, f32>,
   pub has_active: bool,
 }
 
@@ -301,6 +304,7 @@ impl AnimationEngine {
       seen: HashSet::new(),
       next_change: None,
       in_phase: HashSet::new(),
+      resumed: HashMap::new(),
       has_active: false,
     };
     // What lurq's own components play: a full turn, for a spinner; a fade in and out, for a panel over the window.
@@ -364,9 +368,37 @@ impl AnimationEngine {
   /// from its beginning, even one of the keyframes it already played.
   pub(crate) fn forget_node(&mut self, node: NodeId) {
     self.active.retain(|(id, _), _| *id != node);
+    // A node that came back while it left and leaves again before it has entered goes on leaving from where it was:
+    // as much of its exit is played as is left of the enter it was to go on with.
+    if let Some(done) = self.resumed.get_mut(&node) {
+      *done = 1.0 - *done;
+    }
+  }
+
+  /// The nodes `nodes`, which were leaving, come back: each exit stops where it is, and the animation the node
+  /// enters with plays from as far in as the exit had left to go, so that what fades in goes on from where it
+  /// faded out to.
+  pub(crate) fn turn_round(&mut self, nodes: &[NodeId], now: Instant) {
+    let nodes: HashSet<NodeId> = nodes.iter().copied().collect();
+    let mut resumed = Vec::new();
+    self.active.retain(|(node, _), run| {
+      if !nodes.contains(node) {
+        return true;
+      }
+      let played = if run.finished || run.duration.is_zero() {
+        1.0
+      } else {
+        let elapsed = now.saturating_duration_since(run.start_time + run.delay);
+        (elapsed.as_secs_f32() / run.duration.as_secs_f32()).clamp(0.0, 1.0)
+      };
+      resumed.push((*node, 1.0 - played));
+      false
+    });
+    self.resumed.extend(resumed);
   }
 
   pub(crate) fn clear_state(&mut self) {
+    self.resumed.clear();
     self.active.clear();
     self.seen.clear();
     self.next_change = None;
@@ -390,6 +422,8 @@ impl AnimationEngine {
   pub(crate) fn finish_frame(&mut self) {
     let seen = &self.seen;
     self.active.retain(|(node_id, _), _| seen.contains(node_id));
+    // A node that came back with no animation to enter with has nothing to go on from.
+    self.resumed.retain(|node_id, _| seen.contains(node_id));
     self.has_active = self.active.values().any(|run| !run.finished);
   }
 
@@ -449,6 +483,12 @@ impl AnimationEngine {
     };
 
     let in_phase = self.in_phase.contains(&spec.keyframes);
+    // A node that came back while it left enters from as far in as its exit had left to go.
+    let done = if self.active.contains_key(&key) {
+      None
+    } else {
+      self.resumed.remove(&node_id)
+    };
     let run = self.active.entry(key).or_insert_with(|| AnimationRun {
       keyframes: spec.keyframes,
       duration: spec.duration,
@@ -457,7 +497,10 @@ impl AnimationEngine {
       direction: spec.direction,
       fill_mode: spec.fill_mode,
       iteration_count,
-      start_time: start_time(in_phase, spec.direction, spec.duration, now),
+      start_time: match done {
+        Some(done) => now.checked_sub(spec.duration.mul_f32(done) + spec.delay).unwrap_or(now),
+        None => start_time(in_phase, spec.direction, spec.duration, now),
+      },
       finished: false,
     });
 

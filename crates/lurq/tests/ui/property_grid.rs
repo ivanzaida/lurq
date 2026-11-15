@@ -934,3 +934,83 @@ fn as_a_long_category_opens_in_view_what_is_below_it_stays_painted_in_every_fram
   stage.pass_after(Duration::from_millis(30));
   assert!(stage.paints("p0"), "on the way, its first row shows");
 }
+
+/// The slider of a grid's only row, `width` wide, at `value` of 0 to 100: its track and its thumb, and the number
+/// beside it.
+fn slider_row(width: f32, value: f32, first: bool) -> Stage {
+  let opacity = Signal::new(value);
+  let scene = move |_: &mut lurq::app::ctx::Ctx| -> lurq::node::Element {
+    Column::new()
+      .size(width, 300.0)
+      .child(
+        PropertyGrid::new()
+          .id("grid")
+          .category(PropertyCategory::new("A").property(Property::slider("Opacity", opacity.clone(), 0.0, 100.0, "%"))),
+      )
+      .into()
+  };
+  if first {
+    Stage::first_frame(width, 300.0, scene)
+  } else {
+    Stage::new(scene)
+  }
+}
+
+/// The slider's track (the rectangle of 4 in the secondary fill), its thumb (the round one of 16 in the
+/// background's) and the box of its number, by the text in it.
+fn slider_parts(stage: &Stage, number: &str) -> ((f32, f32), (f32, f32), f32) {
+  let quads = stage.quads();
+  let rect = |color: Color, height: f32| {
+    quads
+      .iter()
+      .find(|quad| {
+        matches!(&quad.content, lurq::layout::quad::QuadContent::Rect { color: fill, .. } if *fill == color)
+          && (quad.height - height).abs() < 0.01
+      })
+      .map(|quad| (quad.x, quad.width))
+      .unwrap_or_else(|| panic!("a rectangle of {height} in {color:?}"))
+  };
+  let track = rect(light(PaletteColor::Secondary), 4.0);
+  let thumb = rect(light(PaletteColor::Background), 16.0);
+  let text = stage
+    .text_quad(number)
+    .unwrap_or_else(|| panic!("the number {number}"))
+    .x;
+  (track, thumb, text)
+}
+
+#[test]
+fn a_rows_slider_keeps_its_thumb_on_its_track_and_out_of_the_number_at_any_width() {
+  for width in [240.0, 300.0, 360.0, 480.0] {
+    for value in [0.0, 50.0, 100.0] {
+      let stage = slider_row(width, value, false);
+      let number = format!("{}%", value as u32);
+      let ((track_x, track_width), (thumb_x, thumb_width), text) = slider_parts(&stage, &number);
+      assert!(
+        thumb_x >= track_x - 0.01 && thumb_x + thumb_width <= track_x + track_width + 0.01,
+        "{width} at {value}: the thumb {thumb_x}+{thumb_width} on the track {track_x}+{track_width}"
+      );
+      assert!(
+        track_x + track_width + 8.0 <= text,
+        "{width} at {value}: the track ends 8 or more before the number at {text}"
+      );
+      // The thumb's center is where the value is along the way it travels.
+      let center = thumb_x + thumb_width / 2.0;
+      let at = track_x + 8.0 + (track_width - 16.0) * value / 100.0;
+      assert!(
+        (center - at).abs() < 0.5,
+        "{width} at {value}: the thumb at {center}, the value at {at}"
+      );
+    }
+  }
+}
+
+#[test]
+fn the_first_frame_of_a_rows_slider_is_the_settled_one() {
+  for width in [240.0, 300.0, 480.0] {
+    let mut stage = slider_row(width, 50.0, true);
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(first, stage.picture(), "at {width}");
+  }
+}

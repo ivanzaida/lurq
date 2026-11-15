@@ -84,6 +84,7 @@ mod property_grid;
 mod radar_chart;
 mod radio;
 mod rating;
+mod reopened_layers;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;
