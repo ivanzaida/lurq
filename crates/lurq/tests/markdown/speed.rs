@@ -100,6 +100,14 @@ fn measure(sections: usize) -> (Duration, Duration, Duration) {
       );
     }
   }
+  // With `LURQ_FRAME_TIMES`, each frame of scrolling as it came: where the frames that build something stand.
+  if std::env::var_os("LURQ_FRAME_TIMES").is_some() {
+    let times: Vec<String> = frames
+      .iter()
+      .map(|frame| format!("{:.2}", frame.as_secs_f64() * 1000.0))
+      .collect();
+    println!("  {sections} sections, frames: {}", times.join(" "));
+  }
   frames.sort();
   (first, again, frames[frames.len() / 2])
 }
@@ -150,78 +158,5 @@ fn a_long_document_draws_only_what_is_in_view() {
     long_rects <= short_rects + short_rects / 5 && long_glyphs <= short_glyphs + short_glyphs / 5,
     "a view of 200 sections draws {long_rects} rects and {long_glyphs} glyphs, of 20 sections {short_rects} and \
      {short_glyphs}"
-  );
-}
-
-/// `blocks` code blocks, each between two paragraphs.
-fn code_document(blocks: usize) -> String {
-  (0..blocks)
-    .map(|block| format!("Block {block}.\n\n```rust\nfn block_{block}() {{}}\n```\n\n"))
-    .collect()
-}
-
-/// How many copy buttons are built in the tree, and how many are drawn in its last frame: a copy button's glyph.
-fn copy_glyphs(tree: &mut Tree, frame: &crate::support::RenderSnapshot) -> (usize, usize) {
-  const COPY: &str = "\u{e022}";
-  let built = std::cell::Cell::new(0usize);
-  tree.find_element(|element| {
-    if element.text_content() == Some(COPY) {
-      built.set(built.get() + 1);
-    }
-    false
-  });
-  let _ = frame;
-  let drawn = tree
-    .resolve_quads(tree.last_layout().expect("laid out"))
-    .into_iter()
-    .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == COPY))
-    .count();
-  (built.get(), drawn)
-}
-
-#[test]
-fn a_code_block_out_of_view_is_built_light_and_in_full_from_the_frame_it_comes_into_view() {
-  let source = Signal::new(code_document(60));
-  let state = ScrollState::new();
-  SOURCE.with(|slot| *slot.borrow_mut() = Some((source.clone(), state.clone())));
-  let mut app = App::new();
-  let mut tree = Tree::new();
-  tree.resize(720, 900);
-  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(720.0, 900.0))));
-  tree.mount_root::<Long>(&mut app, ());
-  let frame = render_pass_with_app(&mut tree, &mut app);
-  let (built, drawn) = copy_glyphs(&mut tree, &frame);
-  assert!(drawn > 0, "the blocks in view are drawn in full");
-  assert!(
-    built < 30,
-    "of 60 blocks, those near the view are built in full and the rest light: {built} built"
-  );
-  // The document's text has every block's code, light or not.
-  assert!(
-    MarkdownProps::new(source.get())
-      .rendered_text()
-      .contains("fn block_59() {}"),
-    "the last block's code is the document's"
-  );
-
-  // Scrolled to the end: the last blocks are drawn in full in the frame they come into view in.
-  state.set_scroll(0.0, 100_000.0);
-  tree.request_redraw();
-  let frame = render_pass_with_app(&mut tree, &mut app);
-  let (_, drawn) = copy_glyphs(&mut tree, &frame);
-  assert!(drawn > 0, "the blocks scrolled into view are drawn in full at once");
-  let texts: Vec<_> = tree
-    .resolve_quads(tree.last_layout().expect("laid out"))
-    .into_iter()
-    .filter_map(|quad| match quad.content {
-      lurq::layout::quad::QuadContent::RichText { spans, .. } => {
-        Some(spans.into_iter().map(|span| span.text).collect::<String>())
-      }
-      _ => None,
-    })
-    .collect();
-  assert!(
-    texts.iter().any(|text| text.contains("fn block_59")),
-    "the last block's code is drawn: {texts:?}"
   );
 }

@@ -158,8 +158,6 @@ pub struct CodeBlock {
   framed: bool,
   row_height: f32,
   header: Option<bool>,
-  /// Built as its stand-in out of view: see [`Self::light`].
-  light: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -193,7 +191,6 @@ impl CodeBlock {
       framed: true,
       row_height: CODE_BLOCK_ROW_HEIGHT,
       header: None,
-      light: false,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -365,15 +362,6 @@ impl CodeBlock {
     self.build_with(theme, None)
   }
 
-  /// Builds it as the stand-in of itself where it is out of view: of its size and with its code and its bar's
-  /// name, but no copy button and no room that scrolls, which are most of what it is made of. A long document
-  /// builds what is out of view so, and the block itself where it comes into view.
-  #[cfg(feature = "markdown")]
-  pub(crate) fn light(mut self, light: bool) -> Self {
-    self.light = light;
-    self
-  }
-
   fn build_with(self, theme: &Theme, copied: Option<Copied>) -> Element {
     let has_header = self
       .header
@@ -409,7 +397,6 @@ impl CodeBlock {
       framed: self.framed,
       row_height: self.row_height,
       has_header,
-      light: self.light,
       recipe: theme.resolve::<CodeBlock>(&case, Some(&self.rules)),
       forced: self.forced,
       window: super::theme::current_window(),
@@ -463,8 +450,6 @@ pub struct CodeBlockView {
   pub row_height: f32,
   /// Whether it has its bar over the code.
   pub has_header: bool,
-  /// Whether it is built as its stand-in out of view.
-  light: bool,
   /// The style of each part of this block.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -706,7 +691,7 @@ impl CodeBlockView {
       title = title.id(format!("{id}-title"));
     }
     bar = bar.child(title);
-    if self.copy_button && !self.light {
+    if self.copy_button {
       bar = bar.child(self.copy_control());
     }
     Some(bar.into())
@@ -925,18 +910,6 @@ impl CodeBlockView {
       (false, true) => self.wrapped(),
       (false, false) => self.unwrapped(),
     };
-    // Out of view: the code where it scrolls, cut at the block's end, with no room that scrolls round it.
-    if self.light {
-      let mut body = Column::new()
-        .width(Dimension::Pct(100.0))
-        .part(&self.part(CodeBlockPart::Body))
-        .clip()
-        .child(content);
-      if let Some(Length::Px(min)) = self.min_height {
-        body = body.min_height(min);
-      }
-      return body.into();
-    }
     let orientation = match (self.wrap, self.max_height.is_some()) {
       (true, _) => ScrollAreaOrientation::Vertical,
       (false, false) => ScrollAreaOrientation::Horizontal,

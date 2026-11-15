@@ -30,10 +30,10 @@ use crate::{
 mod bidi_paragraphs;
 mod blocks;
 mod document_text;
-mod lazy_code;
 mod link_block;
 mod links;
 mod list_view;
+mod mounted_code;
 mod paragraph;
 mod sizing;
 mod tooltip;
@@ -375,9 +375,9 @@ struct MarkdownRenderContext<'a> {
   /// The `<details>` a person turned from how they began.
   details_turned: Vec<usize>,
   turn_details: Option<Signal<Vec<usize>>>,
-  /// What a mounted document mounts its code blocks with, each on its own (see `lazy_code`); none for a
+  /// What a mounted document mounts its code blocks with, each on its own (see `mounted_code`); none for a
   /// document built once, which builds them in place.
-  mount: Option<&'a dyn lazy_code::MountCode>,
+  mount: Option<&'a dyn mounted_code::MountCode>,
   /// The document's words are selectable: what a code block mounted on its own makes of its own.
   selectable: bool,
 }
@@ -893,7 +893,7 @@ fn render_code_block(kind: &MarkdownCodeBlockKind, text: &str, render_ctx: &Mark
   let ordinal = render_ctx.code_blocks.get();
   render_ctx.code_blocks.set(ordinal + 1);
   let code = text.trim_end_matches('\n');
-  // Mounted on its own, it is built light while it is out of view. A list view that may decline what it built
+  // Mounted on its own, it is not built again while it is as it was. A list view that may decline what it built
   // would leave a mounted block behind: under one, the block is built in place.
   if let Some(mount) = &render_ctx.mount
     && render_ctx.list_view.is_none()
@@ -904,7 +904,7 @@ fn render_code_block(kind: &MarkdownCodeBlockKind, text: &str, render_ctx: &Mark
       } => Some(Arc::from(language.as_str())),
       _ => None,
     };
-    let props = lazy_code::LazyCodeProps {
+    let props = mounted_code::MountedCodeProps {
       code: Arc::from(code),
       language,
       fit: render_ctx.width == BlockWidth::Fit,

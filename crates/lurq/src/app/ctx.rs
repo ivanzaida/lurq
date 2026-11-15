@@ -2144,13 +2144,6 @@ impl Ctx {
     element
   }
 
-  /// The window the component is in, where it has one: what an engine component reads of it without
-  /// subscribing to it (its size as it is now).
-  #[cfg(feature = "markdown")]
-  pub(crate) fn window_state(&self) -> Option<&crate::app::window::Window> {
-    self.window.as_ref()
-  }
-
   pub fn theme(&self) -> &Theme {
     let theme = self.theme.as_ref().expect("theme not set");
     theme.track_access();
