@@ -114,7 +114,7 @@ fn scroll_part_into_view(
       ScrollDirection::Vertical => (false, true),
       ScrollDirection::Both => (true, true),
     };
-    let viewport = clear_of_sticky(container, node_id);
+    let viewport = clear_of_sticky(container, node_id, target);
     let dx = if scrolls_x {
       axis_delta(target.x, target.width, viewport.x, viewport.width)
     } else {
@@ -157,15 +157,24 @@ struct ScrollContainer<'n> {
   layout: &'n LayoutResult,
 }
 
-/// The viewport of `container` less the room what sticks to its edges takes, where the node `target` is not in
-/// what sticks: how far in from each edge a sticky element reaches, its inset and its size.
-fn clear_of_sticky(container: &ScrollContainer<'_>, target: NodeId) -> Rect {
+/// The viewport of `container` less the room what sticks to its edges takes over the box `shown` of the node
+/// `target`, where that node is not in what sticks: how far in from each edge a sticky element over the box reaches,
+/// its inset and its size. A sticky element beside the box (a list of a page's sections that sticks to the top at
+/// its side) takes no room from it.
+fn clear_of_sticky(container: &ScrollContainer<'_>, target: NodeId, shown: Rect) -> Rect {
   let mut reach = StickyReach::default();
   if container.layout.holds.sticky
     && let (Some(content), Some(content_layout)) =
       (container.node.children().first(), container.layout.children.first())
   {
-    reach = sticky_reach(content, &content_layout.result, Some(target));
+    let over = crate::layout::sticky_reach::Over {
+      origin: (
+        container.viewport.x + content_layout.offset.x,
+        container.viewport.y + content_layout.offset.y,
+      ),
+      target: (shown.x, shown.y, shown.width, shown.height),
+    };
+    reach = sticky_reach(content, &content_layout.result, Some(target), Some(over));
   }
   let viewport = container.viewport;
   let width = (viewport.width - reach.left - reach.right).max(0.0);
