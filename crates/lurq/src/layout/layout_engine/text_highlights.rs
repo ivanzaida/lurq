@@ -115,7 +115,10 @@ impl LayoutEngine {
       #[cfg(not(feature = "markdown"))]
       let pieces = lines.into_iter().map(|line| (line.x, line.y, line.width));
       for (x, y, width) in pieces {
-        let (x, y, width, height) = (x - pad_x, y - pad_y, width + 2.0 * pad_x, height + 2.0 * pad_y);
+        // A padding less than none draws inside the line, never less than a pixel.
+        let (fill_width, fill_height) = ((width + 2.0 * pad_x).max(1.0), (height + 2.0 * pad_y).max(1.0));
+        let (x, y) = (x + (width - fill_width) / 2.0, y + (height - fill_height) / 2.0);
+        let (width, height) = (fill_width, fill_height);
         let (x, y, transform, transform_origin) = transformed_quad_frame(origin.0 + x, origin.1 + y, transform);
         quads.push(Quad {
           x,

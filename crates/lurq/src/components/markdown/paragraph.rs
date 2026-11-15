@@ -43,13 +43,27 @@ use crate::{
     events::{MouseButton, MouseEvent},
     theme::ThemeMarkdown,
   },
+  core::ElementRef,
   layout::{quad::RichTextSpan, text_style::TextStyle},
   markdown::{
     Direction, FIRST_STRONG_ISOLATE, MarkdownInline, POP_DIRECTIONAL_ISOLATE, is_invisible, markdown_inline_rich_text,
     paragraph_breaks_as_line_feeds, paragraph_breaks_as_spaces, strip_bidi_controls,
   },
-  node::{CursorIcon, EventHandler, Node, inline_link::InlineLink},
+  node::{CursorIcon, EventHandler, Node, NodeUpdate, inline_link::InlineLink, text_highlight::TextHighlight},
 };
+
+/// Where a footnote's way leads: to the footnote, from the paragraph that refers to it.
+/// What a box's side is drawn as: a word joiner, which takes no room of its own and allows no break.
+const ROOM: char = '\u{2060}';
+/// Where a line may break before a box: a space of no width.
+const BREAK: char = '\u{200b}';
+
+pub(super) const FOOTNOTE_ANCHOR: &str = "#fn:";
+/// Back from a footnote to where the text refers to it.
+pub(super) const REFERENCE_ANCHOR: &str = "#fnref:";
+
+/// A jump to an anchor of the document: a footnote, or the way back from it.
+pub(super) type MarkdownJump = Arc<dyn Fn(&str) + Send + Sync>;
 
 pub(super) type MarkdownLinkCallback = Arc<dyn Fn(&MarkdownLink) + Send + Sync>;
 pub(super) type MarkdownLinkActivator = Arc<dyn Fn(&MarkdownLink, &MouseEvent) + Send + Sync>;
@@ -62,12 +76,21 @@ pub(super) struct LinkSession {
   /// How many links to each destination came so far, for tooltip keys.
   occurrences: RefCell<HashMap<Arc<str>, usize>>,
   presenter: Option<MarkdownLinkPresenter>,
-  on_link_click: Option<MarkdownLinkCallback>,
+  on_link_select: Option<MarkdownLinkCallback>,
   on_link_activate: Option<MarkdownLinkActivator>,
   #[cfg(feature = "router")]
   navigator: Option<crate::router::Navigator>,
   hover: TooltipHover,
   tooltips: RefCell<Vec<LinkTooltip>>,
+  /// The number of each footnote, by its label: in the order the text first refers to them.
+  footnotes: RefCell<HashMap<String, usize>>,
+  /// What the document's anchors are on: a footnote, a paragraph that refers to one.
+  anchors: RefCell<HashMap<Arc<str>, ElementRef>>,
+  /// What a link to an anchor of the document does.
+  jump: Option<MarkdownJump>,
+  /// The fill behind code in a sentence, and behind a key: `ui::InlineCode`'s and `ui::Kbd`'s boxes.
+  code_fill: Option<TextHighlight>,
+  kbd_fill: Option<TextHighlight>,
 }
 
 /// Where a session was, to forget the links drawn after it.
@@ -80,7 +103,7 @@ pub(super) struct LinkCheckpoint {
 impl LinkSession {
   pub(super) fn new(
     presenter: Option<MarkdownLinkPresenter>,
-    on_link_click: Option<MarkdownLinkCallback>,
+    on_link_select: Option<MarkdownLinkCallback>,
     on_link_activate: Option<MarkdownLinkActivator>,
     #[cfg(feature = "router")] navigator: Option<crate::router::Navigator>,
     hover: TooltipHover,
@@ -89,13 +112,61 @@ impl LinkSession {
       next_index: Cell::new(0),
       occurrences: RefCell::new(HashMap::new()),
       presenter,
-      on_link_click,
+      on_link_select,
       on_link_activate,
       #[cfg(feature = "router")]
       navigator,
       hover,
       tooltips: RefCell::new(Vec::new()),
+      footnotes: RefCell::new(HashMap::new()),
+      anchors: RefCell::new(HashMap::new()),
+      jump: None,
+      code_fill: None,
+      kbd_fill: None,
     }
+  }
+
+  /// The numbers of the document's footnotes, by label.
+  pub(super) fn set_footnotes(&self, footnotes: HashMap<String, usize>) {
+    *self.footnotes.borrow_mut() = footnotes;
+  }
+
+  /// The number of the footnote `label`, where the document has it.
+  pub(super) fn footnote_number(&self, label: &str) -> Option<usize> {
+    self.footnotes.borrow().get(label).copied()
+  }
+
+  /// What a link to an anchor of the document does: a jump the document makes.
+  pub(super) fn with_jump(mut self, jump: MarkdownJump) -> Self {
+    self.jump = Some(jump);
+    self
+  }
+
+  /// The fills behind code and keys in a sentence.
+  pub(super) fn with_fills(mut self, code: Option<TextHighlight>, kbd: Option<TextHighlight>) -> Self {
+    self.code_fill = code;
+    self.kbd_fill = kbd;
+    self
+  }
+
+  /// The ref of the anchor `key` of this render: the same one for every use of it.
+  pub(super) fn anchor(&self, key: &str) -> ElementRef {
+    self
+      .anchors
+      .borrow_mut()
+      .entry(Arc::from(key))
+      .or_insert_with(ElementRef::new)
+      .clone()
+  }
+
+  /// The ref of an anchor of this render, where something holds it.
+  pub(super) fn anchor_of(&self, key: &str) -> Option<ElementRef> {
+    self.anchors.borrow().get(key).cloned()
+  }
+
+  /// What a jump to an anchor does, for a control of the document's own (the way back from a footnote).
+  pub(super) fn jump(&self) -> Option<MarkdownJump> {
+    self.jump.clone()
   }
 
   /// The tooltips the drawn links registered, in order; anchors of links
@@ -152,7 +223,8 @@ impl LinkSession {
   /// an in-app path.
   fn activation_handler(&self, link: MarkdownLink) -> EventHandler<MouseEvent> {
     let on_link_activate = self.on_link_activate.clone();
-    let on_link_click = self.on_link_click.clone();
+    let on_link_select = self.on_link_select.clone();
+    let jump = self.jump.clone();
     #[cfg(feature = "router")]
     let navigator = self.navigator.clone();
     EventHandler::new(move |event: &MouseEvent| {
@@ -162,8 +234,15 @@ impl LinkSession {
       if event.button != MouseButton::Left {
         return;
       }
-      if let Some(on_link_click) = &on_link_click {
-        on_link_click(&link);
+      // A footnote's reference goes to the footnote, in the document.
+      if let Some(jump) = &jump
+        && link.destination().starts_with(FOOTNOTE_ANCHOR)
+      {
+        jump(link.destination());
+        return;
+      }
+      if let Some(on_link_select) = &on_link_select {
+        on_link_select(&link);
         return;
       }
       #[cfg(feature = "router")]
@@ -246,6 +325,10 @@ pub(super) struct Paragraph<'a> {
   links: Vec<Node>,
   theme: &'a ThemeMarkdown,
   session: &'a LinkSession,
+  /// The fills behind its code and its keys, in bytes of its text.
+  fills: Vec<TextHighlight>,
+  /// The footnotes it refers to: the way back from each leads to it.
+  references: Vec<String>,
 }
 
 impl<'a> Paragraph<'a> {
@@ -272,6 +355,33 @@ impl<'a> Paragraph<'a> {
       links: Vec::new(),
       theme,
       session,
+      fills: Vec::new(),
+      references: Vec::new(),
+    }
+  }
+
+  /// The length of its text so far, in bytes: where the next span starts.
+  fn text_len(&self) -> usize {
+    self.spans.iter().map(|span| span.text.len()).sum()
+  }
+
+  /// Puts `fill` behind the bytes of its text from `start` to its end so
+  /// far, as a box `height` high: a fill is drawn at the paragraph's line
+  /// height, and its vertical padding takes it to the box's.
+  fn fill_from(&mut self, start: usize, fill: Option<&TextHighlight>, height: f32) {
+    let end = self.text_len();
+    let line = self
+      .spans
+      .first()
+      .map_or(height, |span| span.style.font_size * span.style.line_height);
+    if let Some(fill) = fill
+      && end > start
+    {
+      self.fills.push(TextHighlight {
+        range: start..end,
+        padding: (fill.padding.0, (height - line) / 2.0),
+        ..fill.clone()
+      });
     }
   }
 
@@ -282,11 +392,33 @@ impl<'a> Paragraph<'a> {
   /// The paragraph so far as one rich-text node; the builder starts over.
   pub(super) fn take_node(&mut self) -> Node {
     self.sealed = 0;
-    Node::rich_text_with_links(
+    let mut node = Node::rich_text_with_links(
       std::mem::take(&mut self.spans),
       std::mem::take(&mut self.links),
       std::mem::take(&mut self.generated),
-    )
+    );
+    let fills = std::mem::take(&mut self.fills);
+    if !fills.is_empty() {
+      node.set_text_highlights(fills);
+    }
+    // The way back from a footnote leads to the paragraph that first refers to it.
+    let references = std::mem::take(&mut self.references);
+    let fresh: Vec<String> = references
+      .into_iter()
+      .filter(|label| self.session.anchor_of(&format!("{REFERENCE_ANCHOR}{label}")).is_none())
+      .collect();
+    if let Some(first) = fresh.first() {
+      let anchor = self.session.anchor(&format!("{REFERENCE_ANCHOR}{first}"));
+      for label in &fresh[1..] {
+        self
+          .session
+          .anchors
+          .borrow_mut()
+          .insert(Arc::from(format!("{REFERENCE_ANCHOR}{label}")), anchor.clone());
+      }
+      NodeUpdate::ref_element(&mut node, anchor);
+    }
+    node
   }
 
   /// Adds `inlines` in `style`. With `flow`, an image outside a link ends
@@ -322,6 +454,49 @@ impl<'a> Paragraph<'a> {
         MarkdownInline::Strikethrough(children) => {
           self.push_inlines(children, &self.theme.strikethrough.apply(style), flow);
         }
+        // Code in a sentence, on the inline code's box.
+        MarkdownInline::Code(_) => {
+          let fill = self.session.code_fill.clone();
+          let code_style = self.theme.inline_code.apply(style);
+          self.push_room(fill.as_ref(), &code_style, true);
+          let start = self.text_len();
+          for span in markdown_inline_rich_text(std::slice::from_ref(inline), style, self.theme) {
+            self.push_span(span);
+          }
+          // The box is a line of the code's type and the part's padding above and below.
+          let height = code_style.font_size * 1.25 + 2.0 * fill.as_ref().map_or(0.0, |fill| fill.padding.1);
+          self.fill_from(start, fill.as_ref(), height);
+          self.push_room(fill.as_ref(), &code_style, false);
+        }
+        // A key, in the key's box.
+        MarkdownInline::Kbd(words) => {
+          let fill = self.session.kbd_fill.clone();
+          let key_style = self.theme.kbd.apply(style);
+          self.push_room(fill.as_ref(), &key_style, true);
+          let start = self.text_len();
+          self.push_span(RichTextSpan {
+            text: words.clone(),
+            style: key_style.clone(),
+          });
+          // The key's box is as high as the part says (its fill's padding holds that height).
+          let height = fill.as_ref().map_or(20.0, |fill| fill.padding.1);
+          self.fill_from(start, fill.as_ref(), height);
+          self.push_room(fill.as_ref(), &key_style, false);
+        }
+        // A footnote's number, which goes to the footnote.
+        MarkdownInline::FootnoteReference(label) => match self.session.footnote_number(label) {
+          Some(number) => {
+            self.references.push(label.clone());
+            let children = [MarkdownInline::Text(number.to_string())];
+            let reference_style = self.theme.footnote_reference.apply(style);
+            self.push_link(&format!("{FOOTNOTE_ANCHOR}{label}"), "", &children, &reference_style);
+          }
+          None => {
+            for span in markdown_inline_rich_text(std::slice::from_ref(inline), style, self.theme) {
+              self.push_span(span);
+            }
+          }
+        },
         _ => {
           for span in markdown_inline_rich_text(std::slice::from_ref(inline), style, self.theme) {
             self.push_span(span);
@@ -419,6 +594,35 @@ impl<'a> Paragraph<'a> {
       trailing: shift(block.trailing),
       target: shift(block.target),
     }
+  }
+
+  /// The room a box's side takes in the line, beside its words: as wide as the box's padding across, so that the box
+  /// stands between the spaces of the sentence around it and not over them. It is presentation, a joiner spaced to
+  /// that width: never copied or selected, and no line breaks between it and the box, so a box goes to the next line
+  /// whole, as a word does. Before the box a break may come first, where the sentence breaks before a word: a space
+  /// of no width allows it, which the joiner after it alone would not.
+  fn push_room(&mut self, fill: Option<&TextHighlight>, style: &TextStyle, before: bool) {
+    let Some(width) = fill.map(|fill| fill.padding.0).filter(|width| *width > 0.0) else {
+      return;
+    };
+    if before {
+      let index = self.seal();
+      self.spans.push(RichTextSpan {
+        text: BREAK.to_string(),
+        style: style.clone(),
+      });
+      self.generated.push(index..index + 1);
+    }
+    let index = self.seal();
+    self.spans.push(RichTextSpan {
+      text: ROOM.to_string(),
+      style: TextStyle {
+        letter_spacing: width,
+        ..style.clone()
+      },
+    });
+    self.generated.push(index..index + 1);
+    self.seal();
   }
 
   /// An isolate mark: a span of its own, never merged, never copied.

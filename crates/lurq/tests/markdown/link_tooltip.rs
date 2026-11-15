@@ -35,7 +35,7 @@ fn tooltip_edges(tooltip_box: MarkdownBlockStyle) -> (Edges, Edges) {
 fn tooltip_edges_saying(words: &'static str, tooltip_box: MarkdownBlockStyle) -> (Edges, Edges) {
   let theme = ThemeMarkdown {
     link_tooltip_box: MarkdownBlockStyle {
-      background: Some(Color::from_hex(BOX)),
+      background: Some(Color::from_hex(BOX).into()),
       ..tooltip_box
     },
     link_tooltip_delay: Duration::ZERO,

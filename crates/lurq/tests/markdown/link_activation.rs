@@ -89,7 +89,7 @@ fn markdown_middle_click_activates_a_link_with_the_middle_button() {
   let (_app, mut tree) = mount(
     MarkdownProps::new(TWO_LINKS)
       .on_link_activate(record)
-      .on_link_click(on_click)
+      .on_link_select(on_click)
       .width(500.0),
   );
   let first = bounds_of(&mut tree, "first");
@@ -101,7 +101,7 @@ fn markdown_middle_click_activates_a_link_with_the_middle_button() {
   );
   assert!(
     clicks.lock().unwrap().is_empty(),
-    "on_link_click keeps its meaning: left clicks and Enter"
+    "on_link_select keeps its meaning: left clicks and Enter"
   );
 
   pointer_click(&mut tree, first.x + 3.0, first.y + 3.0, MouseButton::Left);
@@ -390,7 +390,7 @@ fn markdown_link_click_held_back_for_a_double_click_keeps_its_input_source() {
     &mut app,
     MarkdownProps::new(TWO_LINKS)
       .on_link_activate(record)
-      .on_link_click(on_click)
+      .on_link_select(on_click)
       .width(500.0),
   );
   pass(&mut app, &mut tree);
@@ -438,7 +438,7 @@ fn markdown_middle_click_without_on_link_activate_does_nothing() {
     let clicks = clicks.clone();
     move |_: &MarkdownLink| *clicks.lock().unwrap() += 1
   };
-  let (_app, mut tree) = mount(MarkdownProps::new(TWO_LINKS).on_link_click(on_click).width(500.0));
+  let (_app, mut tree) = mount(MarkdownProps::new(TWO_LINKS).on_link_select(on_click).width(500.0));
   let first = bounds_of(&mut tree, "first");
 
   pointer_click(&mut tree, first.x + 3.0, first.y + 3.0, MouseButton::Middle);

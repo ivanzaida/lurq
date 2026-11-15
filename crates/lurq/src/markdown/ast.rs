@@ -32,6 +32,18 @@ pub enum MarkdownBlock {
     children: Vec<MarkdownInline>,
   },
   BlockQuote(Vec<MarkdownBlock>),
+  /// A quote GitHub draws as a note, a tip, a warning: `> [!NOTE]` on its first line.
+  Admonition {
+    kind: MarkdownAdmonitionKind,
+    blocks: Vec<MarkdownBlock>,
+  },
+  /// What a `<details>` element holds, under its `<summary>`, which opens and closes it.
+  Details {
+    summary: String,
+    /// Whether it is open to begin with: `<details open>`.
+    open: bool,
+    blocks: Vec<MarkdownBlock>,
+  },
   List {
     ordered: bool,
     start: Option<u64>,
@@ -79,6 +91,17 @@ impl MarkdownTableRow {
   }
 }
 
+/// The kind of an admonition, as GitHub writes it: `> [!NOTE]`, `> [!TIP]`,
+/// `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MarkdownAdmonitionKind {
+  Note,
+  Tip,
+  Important,
+  Warning,
+  Caution,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MarkdownHeadingLevel {
   H1,
@@ -124,6 +147,8 @@ pub enum MarkdownInline {
   },
   Html(String),
   FootnoteReference(String),
+  /// A key of the keyboard, `<kbd>Ctrl</kbd>`: its words.
+  Kbd(String),
   SoftBreak,
   HardBreak,
   TaskListMarker(bool),

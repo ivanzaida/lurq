@@ -115,7 +115,7 @@ fn markdown_links_are_tab_stops_in_document_order_and_enter_follows_them() {
   let (mut app, mut tree) = mount(
     MarkdownProps::new("First [one](/1) and [two](/2).\n\n- an item with [three](/3)\n\n| a |\n|---|\n| [four](/4) |")
       .theme(theme(Duration::ZERO))
-      .on_link_click(record)
+      .on_link_select(record)
       .width(500.0),
   );
 
@@ -150,7 +150,7 @@ fn markdown_link_keyboard_focus_shows_the_focused_look_and_a_ring_outside_the_wo
       .link_presentation(move |_| {
         MarkdownLinkPresentation::link()
           .style(colored("#00aa00"))
-          .focused(focused)
+          .focused(focused.clone())
       })
       .width(400.0),
   );
@@ -257,7 +257,7 @@ fn markdown_link_click_tells_a_person_from_synthetic_input() {
   let (mut app, mut tree) = mount(
     MarkdownProps::new("Open [the page](https://example.test/page) or [this](/here).")
       .theme(theme(Duration::ZERO))
-      .on_link_click(record)
+      .on_link_select(record)
       .width(500.0),
   );
   let page = bounds_of(&mut tree, "the page");
@@ -286,7 +286,7 @@ fn markdown_wrapped_link_is_hit_on_its_lines_only() {
   let (_app, mut tree) = mount(
     MarkdownProps::new("Some words before [a link whose words wrap onto the next line](/wrapped) after.")
       .theme(theme(Duration::ZERO))
-      .on_link_click(record)
+      .on_link_select(record)
       .width(180.0),
   );
   let first_line = bounds_of(&mut tree, "a link whose words wrap onto the next line");
@@ -317,7 +317,7 @@ fn markdown_press_on_a_link_in_selectable_text_follows_it_and_a_drag_from_it_sel
     MarkdownProps::new("Read [the docs](/docs) and then the rest of this paragraph.")
       .selectable(true)
       .theme(theme(Duration::ZERO))
-      .on_link_click(record)
+      .on_link_select(record)
       .width(600.0),
   );
   let link = bounds_of(&mut tree, "the docs");

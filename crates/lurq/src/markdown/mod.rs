@@ -4,8 +4,8 @@ mod parse;
 mod rich_text;
 
 pub use ast::{
-  MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
-  MarkdownTableAlignment, MarkdownTableRow,
+  MarkdownAdmonitionKind, MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline,
+  MarkdownListItem, MarkdownTableAlignment, MarkdownTableRow,
 };
 pub(crate) use bidi::{
   Direction, FIRST_STRONG_ISOLATE, LEFT_TO_RIGHT_ISOLATE, LEFT_TO_RIGHT_MARK, POP_DIRECTIONAL_ISOLATE,

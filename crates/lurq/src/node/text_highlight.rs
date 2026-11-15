@@ -33,7 +33,9 @@ pub struct TextHighlight {
   /// Corner radius of each line's fill, in logical pixels.
   pub radius: f32,
   /// How far each line's fill reaches past the range's glyphs, across and
-  /// up and down, in logical pixels. The text is not moved by it.
+  /// up and down, in logical pixels: less than none draws a fill inside
+  /// them, lower than the line (inline code in a paragraph of tall lines).
+  /// The text is not moved by it.
   pub padding: (f32, f32),
   /// A line around each line's fill, inside it: its width and its color.
   pub border: Option<(f32, TextColor)>,
@@ -58,7 +60,9 @@ impl TextHighlight {
 
   /// How far each line's fill reaches past the range's glyphs: `x` before
   /// and after them, `y` above and below. A mark of a search, a little wider
-  /// than its words. The text is shaped and placed as without it.
+  /// than its words; a negative one draws inside them, as a box of code
+  /// lower than the paragraph's line. The text is shaped and placed as
+  /// without it.
   pub fn padding(mut self, x: f32, y: f32) -> Self {
     self.padding = (x, y);
     self
@@ -71,9 +75,9 @@ impl TextHighlight {
     self
   }
 
-  /// The padding to draw: a negative or non-finite one draws none.
+  /// The padding to draw: a non-finite one draws none.
   pub(crate) fn drawn_padding(&self) -> (f32, f32) {
-    let clean = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+    let clean = |value: f32| if value.is_finite() { value } else { 0.0 };
     (clean(self.padding.0), clean(self.padding.1))
   }
 

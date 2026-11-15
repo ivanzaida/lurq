@@ -30,7 +30,7 @@ const CODE_ONLY: &str = "`a paragraph that is one code span and nothing else, lo
 fn with_links(source: &str, width: f32) -> Page {
   let host = MarkdownInlineStyle {
     text: lurq::app::theme::MarkdownTextStyle {
-      color: Some(Color::from_hex(HOST)),
+      color: Some(Color::from_hex(HOST).into()),
       ..Default::default()
     },
   };

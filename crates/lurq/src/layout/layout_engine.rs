@@ -1370,7 +1370,7 @@ impl LayoutEngine {
         spans: self.painted_spans(if node.children().is_empty() {
           spans.clone()
         } else {
-          Self::painted_rich_text_spans(node, spans)
+          self.painted_rich_text_spans(node, spans)
         }),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         // Text that paints underlines or links is drawn from the top of its
@@ -2400,6 +2400,14 @@ impl LayoutEngine {
         continue;
       }
 
+      // A child the line dropped was laid out at no size by the line's shrink step, which alone marks it dropped:
+      // laid out again on its own it comes back unmarked, its content drawn at its own size where nothing makes room
+      // for it, over what the line shows. The line decides again what fits.
+      if cached.children[index].result.dropped {
+        #[cfg(feature = "perf_profile")]
+        self.trace.set_reason("repair-dropped-child");
+        return None;
+      }
       let child_constraints = child.layout_cache.constraints()?;
       let repaired = self.layout_node(glyph_engine, child, child_constraints);
       let original_offset = cached.children[index].offset;

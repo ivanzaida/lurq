@@ -58,6 +58,7 @@ mod kbd;
 mod line_chart;
 mod list;
 mod listbox;
+mod markdown;
 mod mentions;
 mod menu;
 mod menubar;
@@ -962,6 +963,14 @@ pub const PAGES: &[Page] = &[
     about: "data grid datagrid spreadsheet cells cell focus edit editing in place editor text number choice checkbox on_edit read_only resizable resize pinned pin columns sort selected keyboard arrows tab enter escape f2 virtualized thousands fifty columns mount CellEditor CellValue CellEdit",
     group: Group::Data,
     mount: |ctx| ctx.mount::<data_grid::DataGridPage>(()),
+  },
+  Page {
+    path: "/markdown",
+    name: "Markdown",
+    icon: Some("file-text"),
+    about: "markdown document prose rich text headings lists ordered nested bullets tasks task list checkbox table columns alignment rule image caption figure admonition note tip important warning caution callout details summary footnotes footnote reference kbd keys inline code struck strikethrough link selectable fit_content on_task_change highlights rendered_text ThemeMarkdown",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<markdown::MarkdownPage>(()),
   },
   Page {
     path: "/bar-list",
