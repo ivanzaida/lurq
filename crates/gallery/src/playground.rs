@@ -451,12 +451,18 @@ impl Playground {
       1 => events.clone(),
       _ => spec.tree.join("\n"),
     };
+    // As high as the design draws it, whatever it shows: a longer log or a longer builder scrolls in it, and the
+    // card keeps its height.
     let body: Element = match shown {
-      0 => code_block(&spec.code).into(),
-      1 if events.is_empty() => plain_block(&["Nothing yet: use what is on the stage.".to_owned()]).into(),
-      1 => plain_block(&events.lines().map(str::to_owned).collect::<Vec<_>>()).into(),
-      _ => plain_block(&spec.tree).into(),
-    };
+      0 => code_block(&spec.code),
+      1 if events.is_empty() => plain_block(&["Nothing yet: use what is on the stage.".to_owned()]),
+      1 => plain_block(&events.lines().map(str::to_owned).collect::<Vec<_>>()),
+      _ => plain_block(&spec.tree),
+    }
+    .min_height(OUTPUT)
+    .max_height(OUTPUT)
+    .key(format!("output-{shown}"))
+    .into();
     Column::new()
       .width(FILL)
       .child(
@@ -476,9 +482,7 @@ impl Playground {
             lurq::clipboard::copy_to_clipboard(&copied);
           }))),
       )
-      // As high as the design draws it, whatever it shows: a longer log or a longer builder scrolls in it,
-      // and the card keeps its height.
-      .child(ScrollBoth::new(body).key(format!("output-{shown}")).width(FILL).height(OUTPUT))
+      .child(body)
   }
 
   /// The panel beside the stage: how many props were changed, Reset, and the controls.

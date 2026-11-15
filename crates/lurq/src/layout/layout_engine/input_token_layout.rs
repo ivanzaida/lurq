@@ -16,6 +16,9 @@ use crate::{
   node::node_kind::{TextInputOverflow, TextInputState},
 };
 
+/// The room a multiline input whose lines do not wrap lays them out in: wider than any line of code.
+const UNWRAPPED_INPUT_WIDTH: f32 = 1_000_000.0;
+
 impl LayoutEngine {
   pub(super) fn layout_input_tokens(
     &self,
@@ -134,23 +137,32 @@ impl LayoutEngine {
     (source, styles): (Arc<str>, Vec<TokenStyle>),
     padding: ResolvedPadding,
   ) -> crate::layout::layout_result::LayoutResult {
-    let wrap = state.overflow() == TextInputOverflow::Multiline;
-    let width = Self::decorated_input_width(state, constraints);
+    let multiline = state.overflow() == TextInputOverflow::Multiline;
+    // A multiline input whose lines do not wrap is as wide as its longest line, and the caret after it: its
+    // paragraphs are laid out in a room no line reaches the end of.
+    let wrap = state.wraps_lines();
+    let width = if multiline && !wrap {
+      UNWRAPPED_INPUT_WIDTH
+    } else {
+      Self::decorated_input_width(state, constraints)
+    };
     let layout = glyphs.decorated_input(InputConfig {
       source,
       base: base.clone(),
       styles,
       width,
       min_width: constraints.min_width.max(DEFAULT_TEXT_INPUT_WIDTH).min(width),
-      wrap,
+      wrap: multiline,
     });
     let preferred = Size::new(
       if wrap {
         layout.size.width.max(DEFAULT_TEXT_INPUT_WIDTH)
+      } else if multiline {
+        layout.size.width + super::TEXT_INPUT_CARET_WIDTH
       } else {
         DEFAULT_TEXT_INPUT_WIDTH
       },
-      if wrap {
+      if multiline {
         multiline_preferred_height(state, layout.size.height, layout.line_height)
       } else {
         layout.line_height

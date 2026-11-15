@@ -90,24 +90,38 @@ fn the_block_is_the_boards() {
 
 #[test]
 fn the_words_of_rust_are_in_the_colors_of_their_roles() {
-  let stage =
-    staged(|| CodeBlock::new("fn main() {\n  let n = 42; // the answer\n  println!(\"{n}\");\n}").language("rust"));
+  // The code as the text a Markdown document selects with its own words, whose runs are read here.
+  let stage = staged(|| {
+    CodeBlock::new("fn main() {\n  let n = App::new(42); // the answer\n  println!(\"{n}\");\n}")
+      .language("rust")
+      .selectable(false)
+  });
   assert_eq!(
     run(&stage, "fn").style.color,
     light(PaletteColor::Info),
     "the board's keywords"
   );
+  assert_eq!(run(&stage, "App").style.color, light(PaletteColor::Info), "a type");
   assert_eq!(run(&stage, "42").style.color, light(PaletteColor::Warning));
   assert_eq!(run(&stage, "\"{n}\"").style.color, light(PaletteColor::Success));
   assert_eq!(
     run(&stage, "// the answer").style.color,
     light(PaletteColor::MutedForeground)
   );
-  let code = run(&stage, " main() {\n  ");
+  assert_eq!(
+    run(&stage, "()").style.color,
+    light(PaletteColor::MutedForeground),
+    "marks are quiet"
+  );
+  let code = run(&stage, " main");
   assert_eq!(code.style.color, light(PaletteColor::Foreground));
   assert_eq!(code.style.font_size, 13.0);
   // A language the block does not know is one run in the code's color.
-  let stage = staged(|| CodeBlock::new("[package]\nname = \"lurq\"").language("toml"));
+  let stage = staged(|| {
+    CodeBlock::new("[package]\nname = \"lurq\"")
+      .language("toml")
+      .selectable(false)
+  });
   assert_eq!(runs(&stage).iter().flatten().count(), 1);
 }
 
@@ -116,9 +130,36 @@ fn a_theme_colors_a_kind_of_word_otherwise() {
   let stage = staged(|| {
     CodeBlock::new("let x = 1;")
       .language("rust")
+      .selectable(false)
       .style(CodeBlockPart::Keyword, |s| s.foreground(PaletteColor::Destructive))
   });
   assert_eq!(run(&stage, "let").style.color, light(PaletteColor::Destructive));
+}
+
+/// The numbers painted beside the code, top to bottom: their text, color and box.
+fn numbers(stage: &Stage) -> Vec<(String, Color, Quad)> {
+  let mut numbers: Vec<(String, Color, Quad)> = stage
+    .quads()
+    .into_iter()
+    .filter_map(|quad| {
+      let (text, color) = match &quad.content {
+        QuadContent::Text { text, style, .. } if text.parse::<usize>().is_ok() => (text.clone(), style.color),
+        _ => return None,
+      };
+      Some((text, color, quad))
+    })
+    .collect();
+  numbers.sort_by(|a, b| a.2.y.total_cmp(&b.2.y));
+  numbers
+}
+
+/// The bands behind picked lines: fills of Highlight less high than the bar, which is on Muted, as the light
+/// palette's Highlight is.
+fn bands(stage: &Stage) -> Vec<Quad> {
+  fills(stage, light(PaletteColor::Highlight))
+    .into_iter()
+    .filter(|quad| quad.height != 36.0)
+    .collect()
 }
 
 #[test]
@@ -131,50 +172,43 @@ fn numbered_lines_stand_beside_the_code_and_a_picked_line_has_its_band() {
       .highlight_lines([10])
       .id("block")
   });
+  let shown = numbers(&stage);
+  let texts: Vec<&str> = shown.iter().map(|(text, ..)| text.as_str()).collect();
+  assert_eq!(texts, ["9", "10", "11", "12"]);
+  assert_eq!(shown[0].1, light(PaletteColor::MutedForeground));
+  assert_eq!(shown[1].1, light(PaletteColor::Foreground), "a picked line's number");
+  // Each number on its line, a row of 21 apart, before the code.
+  let (code_x, ..) = stage.bounds("block-code");
+  assert!((shown[1].2.y - shown[0].2.y - 21.0).abs() < 0.01);
+  assert!(
+    shown[0].2.x + shown[0].2.width <= code_x + 14.0 + 24.0,
+    "before the code"
+  );
+  // The band of line 10, the second: a row of 21 under the bar, the padding and the first line, across the block.
+  let (_, top, ..) = stage.bounds("block");
+  let bands = bands(&stage);
+  assert_eq!(bands.len(), 1);
+  assert!((bands[0].y - (top + 36.0 + 12.0 + 21.0)).abs() < 0.6, "{}", bands[0].y);
+  assert!((bands[0].height - 21.0).abs() < 0.01);
+  assert!(bands[0].width >= 418.0, "across the block: {}", bands[0].width);
+}
+
+#[test]
+fn the_text_a_document_selects_numbers_its_lines_and_bands_them_too() {
+  let stage = staged(|| {
+    CodeBlock::new(MAIN)
+      .language("rust")
+      .line_numbers(true)
+      .highlight_lines([2])
+      .selectable(false)
+  });
   let numbers: Vec<RichTextSpan> = runs(&stage)
     .into_iter()
-    .find(|spans| spans.first().is_some_and(|span| span.text.starts_with("9")))
+    .find(|spans| spans.first().is_some_and(|span| span.text.starts_with('1')))
     .expect("the numbers");
   let texts: Vec<&str> = numbers.iter().map(|span| span.text.as_str()).collect();
-  assert_eq!(texts, ["9\n", "10\n", "11\n", "12"]);
-  assert_eq!(numbers[0].style.color, light(PaletteColor::MutedForeground));
-  assert_eq!(
-    numbers[1].style.color,
-    light(PaletteColor::Foreground),
-    "a picked line's number"
-  );
-  // The band of line 10, the second: a line of 21 under the bar and the first line.
-  // The band of line 10, the second: a line of 21 under the bar, 12 of padding and the first line, across the
-  // block, in the stops of the gradient down the room the lines are in.
-  let (_, top, ..) = stage.bounds("block");
-  let room = stage
-    .quads()
-    .into_iter()
-    .find_map(|quad| match quad.content {
-      QuadContent::Rect {
-        gradient: Some(gradient),
-        ..
-      } => Some((quad.y, quad.width, quad.height, gradient)),
-      _ => None,
-    })
-    .expect("the lines' room has the bands");
-  let (y, width, height, gradient) = room;
-  assert!(width >= 418.0, "across the block: {width}");
-  assert!((y - (top + 36.0)).abs() < 0.6);
-  let band: Vec<f32> = gradient
-    .stops
-    .iter()
-    .filter(|stop| stop.color[3] > 0.0)
-    .map(|stop| y + stop.position * height)
-    .collect();
-  assert_eq!(band.len(), 2, "one band");
-  assert!((band[0] - (top + 36.0 + 12.0 + 21.0)).abs() < 0.6, "{band:?}");
-  assert!((band[1] - band[0] - 21.0).abs() < 0.6, "{band:?}");
-  // The code is a text of its own: a selection does not take the numbers.
-  let code = runs(&stage)
-    .into_iter()
-    .find(|spans| spans.iter().any(|span| span.text == "fn"));
-  assert!(code.is_some_and(|spans| !spans.iter().any(|span| span.text.contains("10"))));
+  assert_eq!(texts, ["1\n", "2\n", "3\n", "4"]);
+  assert_eq!(numbers[1].style.color, light(PaletteColor::Foreground));
 }
 
 #[test]
@@ -306,52 +340,146 @@ fn to_tooling_it_is_code_with_its_language() {
   assert_eq!(said("a11y_language").as_deref(), Some("rust"));
 }
 
-#[test]
-fn a_person_selects_the_code_across_its_lines_and_not_its_numbers() {
-  let mut stage = staged(|| CodeBlock::new(MAIN).language("rust").line_numbers(true).id("block"));
-  let (code_x, code_y, ..) = stage.bounds("block-code");
-  // From the start of the first line to the middle of the third.
-  stage.tree.mouse_move(code_x + 1.0, code_y + 10.0);
+/// What is selected in the code of the block with id `block`.
+fn selected(stage: &mut Stage) -> Option<String> {
   stage
     .tree
-    .mouse_down(code_x + 1.0, code_y + 10.0, lurq::app::events::MouseButton::Left);
-  stage.tree.mouse_move(code_x + 60.0, code_y + 21.0 * 2.0 + 10.0);
-  stage.tree.mouse_up(
-    code_x + 60.0,
-    code_y + 21.0 * 2.0 + 10.0,
-    lurq::app::events::MouseButton::Left,
-  );
+    .get_element_by_id_mut("block-code")
+    .and_then(|element| element.as_text_input())
+    .and_then(|input| input.selected_text())
+}
+
+/// A drag of the pointer from `from` to `to`.
+fn drag(stage: &mut Stage, from: (f32, f32), to: (f32, f32)) {
+  stage.tree.mouse_move(from.0, from.1);
+  stage
+    .tree
+    .mouse_down(from.0, from.1, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_move(to.0, to.1);
+  stage.tree.mouse_up(to.0, to.1, lurq::app::events::MouseButton::Left);
   stage.pass();
-  let selected = stage.tree.selected_text().expect("a selection");
-  assert!(selected.starts_with("fn main() {\n  let app"), "{selected:?}");
-  assert!(selected.contains('\n') && !selected.contains("2\n"), "{selected:?}");
 }
 
 #[test]
-fn wrapped_lines_keep_their_numbers_and_a_picked_line_its_band_across_the_block() {
+fn a_person_selects_the_code_across_its_lines_and_not_its_numbers() {
+  let mut stage = staged(|| CodeBlock::new(MAIN).language("rust").line_numbers(true).id("block"));
+  let (x, y, ..) = stage.bounds("block-code");
+  // From the start of the first line to the middle of the third: the code's start is past its numbers.
+  let start = x + 14.0 + 24.0;
+  drag(
+    &mut stage,
+    (start, y + 12.0 + 10.0),
+    (start + 60.0, y + 12.0 + 42.0 + 10.0),
+  );
+  let selected = selected(&mut stage).expect("a selection");
+  assert!(selected.starts_with("fn main() {\n  let app"), "{selected:?}");
+  assert!(!selected.contains("2\n"), "{selected:?}");
+}
+
+#[test]
+fn wrapped_lines_keep_their_numbers_and_a_picked_line_its_band_on_every_row() {
   let long = "let window = WinitWindow::new(app, tree).with_title(\"Notes\").with_size(1280, 800).with_min_size(720, 480);\nwindow.run();";
   let stage = staged(move || {
     CodeBlock::new(long)
       .language("rust")
       .line_numbers(true)
       .wrap(true)
-      .highlight_lines([2])
+      .highlight_lines([1])
   });
-  let numbers: Vec<String> = runs(&stage)
-    .into_iter()
-    .filter(|spans| spans.len() == 1 && spans[0].text.parse::<usize>().is_ok())
-    .map(|spans| spans[0].text.clone())
-    .collect();
-  assert_eq!(numbers, ["1", "2"], "each line has its number");
-  let painted = stage
-    .quads()
-    .into_iter()
-    .find(|quad| matches!(&quad.content, QuadContent::RichText { spans, .. } if spans[0].text == "1"))
-    .expect("the first number");
-  assert!(painted.width > 0.0);
-  let band = fills(&stage, light(PaletteColor::Highlight))
-    .into_iter()
-    .find(|quad| quad.height < 40.0)
-    .expect("the band");
-  assert!(band.width >= 418.0, "across the block: {}", band.width);
+  let shown = numbers(&stage);
+  let texts: Vec<&str> = shown.iter().map(|(text, ..)| text.as_str()).collect();
+  assert_eq!(texts, ["1", "2"], "each line has its number");
+  assert!(
+    shown[1].2.y - shown[0].2.y >= 42.0 - 0.01,
+    "the second line's number stands after the rows the first wrapped into"
+  );
+  let bands = bands(&stage);
+  assert_eq!(bands.len(), 1);
+  assert!(
+    bands[0].height >= 42.0 - 0.01,
+    "the band covers every row of the line: {}",
+    bands[0].height
+  );
+  assert!(bands[0].width >= 418.0, "across the block: {}", bands[0].width);
+}
+
+#[test]
+fn wrapped_a_selection_runs_from_line_to_line_with_its_breaks() {
+  let code = "let first = 1;\nlet second = 2;\nlet third = 3;";
+  let mut stage = staged(move || CodeBlock::new(code).language("rust").wrap(true).id("block"));
+  let (x, y, ..) = stage.bounds("block-code");
+  // From the middle of the first line to the middle of the third.
+  drag(
+    &mut stage,
+    (x + 14.0 + 40.0, y + 12.0 + 10.0),
+    (x + 14.0 + 40.0, y + 12.0 + 42.0 + 10.0),
+  );
+  let selected = selected(&mut stage).expect("a selection");
+  assert_eq!(selected.lines().count(), 3, "{selected:?}");
+  assert!(selected.contains("\nlet second = 2;\n"), "{selected:?}");
+}
+
+#[test]
+fn from_the_keyboard_the_code_is_a_stop_whose_caret_selects_and_copies() {
+  let mut stage = staged(|| CodeBlock::new(MAIN).language("rust").copy_button(false).id("block"));
+  let written = Arc::new(Written::default());
+  stage.tree.set_clipboard_writer(Some(written.clone()));
+  // Tab reaches the code.
+  stage.key("Tab");
+  let focused = stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned));
+  assert_eq!(focused.as_deref(), Some("block-code"));
+  // Ctrl+Home takes the caret to the start; Shift and the arrows select from it: the first two letters.
+  stage.tree.key_down("Home".into(), "Home".into(), false, true, false);
+  stage.tree.key_up("Home".into(), "Home".into(), false, true, false);
+  for _ in 0..2 {
+    stage
+      .tree
+      .key_down("ArrowRight".into(), "ArrowRight".into(), true, false, false);
+    stage
+      .tree
+      .key_up("ArrowRight".into(), "ArrowRight".into(), true, false, false);
+  }
+  stage.pass();
+  assert_eq!(selected(&mut stage).as_deref(), Some("fn"));
+  // Ctrl+A takes it all, Ctrl+C copies it.
+  stage.tree.key_down("a".into(), "KeyA".into(), false, true, false);
+  stage.tree.key_up("a".into(), "KeyA".into(), false, true, false);
+  stage.tree.key_down("c".into(), "KeyC".into(), false, true, false);
+  stage.tree.key_up("c".into(), "KeyC".into(), false, true, false);
+  stage.pass();
+  assert_eq!(selected(&mut stage).as_deref(), Some(MAIN));
+  assert_eq!(*written.0.lock().unwrap(), [MAIN]);
+  // It is read only: a letter typed changes nothing.
+  stage.key("x");
+  let value = stage
+    .tree
+    .get_element_by_id_mut("block-code")
+    .and_then(|element| element.as_text_input())
+    .map(|input| input.value());
+  assert_eq!(value.as_deref(), Some(MAIN));
+}
+
+#[test]
+fn a_block_without_its_frame_and_with_rows_of_its_own() {
+  let mut stage = staged(|| {
+    CodeBlock::new(MAIN)
+      .copy_button(false)
+      .framed(false)
+      .row_height(24.0)
+      .id("block")
+  });
+  assert!(stage.border("block").is_none(), "no edge");
+  assert!(
+    fills(&stage, light(PaletteColor::Background))
+      .iter()
+      .all(|quad| quad.height < 50.0),
+    "no fill"
+  );
+  let (.., height) = stage.bounds("block");
+  // Four rows of 24, and the board's 14 above and below less what a row takes past the code's own line.
+  let leading = (24.0 - 13.0 * 1.3) / 2.0;
+  assert!((height - (4.0 * 24.0 + 2.0 * (14.0 - leading))).abs() < 0.6, "{height}");
 }
