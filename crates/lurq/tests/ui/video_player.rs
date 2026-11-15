@@ -478,6 +478,63 @@ fn a_play_button_in_the_middle_of_the_apps_layer_is_pressed_under_a_layer_that_d
 }
 
 #[test]
+fn a_bound_player_is_dragged_through_the_renders_its_own_change_causes() {
+  use lurq::core::Signal;
+  for mount in [false, true] {
+    let position = Signal::new(84.0_f32);
+    let shown = position.clone();
+    let mut stage = stage(move |ctx| {
+      let player = VideoPlayer::new()
+        .id("v")
+        .width(640.0)
+        .media(Column::new().size(Dimension::Pct(100.0), Dimension::Pct(100.0)))
+        .duration(250.0)
+        .position(shown.clone());
+      if mount { player.mount(ctx) } else { player.into() }
+    });
+    let (x, y, width, height) = stage.bounds("v-seek");
+    let (at, middle) = (|share: f32| x + width * share, y + height / 2.0);
+    stage.tree.mouse_move(at(0.34), middle);
+    stage.tree.mouse_down(at(0.34), middle, MouseButton::Left);
+    stage.pass();
+    // What plays moves the position on by itself while the handle is held: the player is built again with
+    // nothing of the pointer in it, and the drag goes on.
+    position.set(position.get_untracked() + 0.25);
+    stage.pass();
+    stage.tree.mouse_move(at(0.5), middle);
+    stage.pass();
+    let first = position.get_untracked();
+    // And again between two moves of the pointer, as a clock does four times a second.
+    position.set(first + 0.25);
+    stage.pass();
+    position.set(first + 0.5);
+    stage.pass();
+    stage.tree.mouse_move(at(0.8), middle);
+    stage.pass();
+    let second = position.get_untracked();
+    stage.tree.mouse_up(at(0.8), middle, MouseButton::Left);
+    stage.pass();
+    assert!(
+      (110.0..140.0).contains(&first),
+      "the handle follows the pointer to the middle (mounted: {mount}): {first}"
+    );
+    assert!(
+      second > 185.0,
+      "and goes on following it after the player was built again (mounted: {mount}): {first}, then {second}"
+    );
+    // The keys too: the focus stays in the bar from one render to the next.
+    let before = position.get_untracked();
+    stage.key("ArrowRight");
+    stage.key("ArrowRight");
+    let after = position.get_untracked();
+    assert!(
+      (after - before - 10.0).abs() < 0.01,
+      "two arrow keys move it two steps of 5 (mounted: {mount}): from {before} to {after}"
+    );
+  }
+}
+
+#[test]
 fn playing_has_no_disc_and_waiting_a_spinner() {
   let told = Told::default();
   let made = told.clone();

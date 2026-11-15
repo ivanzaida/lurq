@@ -95,20 +95,180 @@ fn window(width: f32, docked: impl Into<Element>) -> Column {
     .child(docked)
 }
 
-/// The board's card, still: "Night Drive" by "Aurora Lane · Low Tide", at `position` of 4:10.
-fn card(position: f64) -> AudioPlayer {
-  AudioPlayer::controlled(position, 250.0, |_| {})
-    .title("Night Drive")
-    .description("Aurora Lane · Low Tide")
-    .media(artwork(64.0))
-    .buffered(140.0)
+/// A state of the board that a player of a section starts in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Scene {
+  CardPaused,
+  CardPlaying,
+  CardLoading,
+  CardError,
+  RowPlaying,
+  RowWave,
+  RowLoading,
+  RowError,
+  RowDisabled,
+  RowHover,
+  RowFocus,
+  VoicePlaying,
+  VoiceUnheard,
+  /// The mini player, in a window this wide.
+  Mini(u16),
 }
 
-/// The board's compact row, still, at 1:24 of 4:10.
-fn compact() -> AudioPlayer {
-  AudioPlayer::controlled(84.0, 250.0, |_| {})
-    .variant(AudioPlayerVariant::Compact)
-    .buffered(140.0)
+#[cfg(feature = "devtools")]
+impl lurq::app::component::DevtoolsInspectable for Scene {
+  fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+impl Scene {
+  fn variant(self) -> AudioPlayerVariant {
+    match self {
+      Self::CardPaused | Self::CardPlaying | Self::CardLoading | Self::CardError => AudioPlayerVariant::Full,
+      Self::VoicePlaying | Self::VoiceUnheard => AudioPlayerVariant::Voice,
+      Self::Mini(_) => AudioPlayerVariant::Mini,
+      _ => AudioPlayerVariant::Compact,
+    }
+  }
+
+  /// How long what it plays is: a voice message of 0:42, a track of 4:10.
+  fn length(self) -> f32 {
+    match self {
+      Self::RowWave | Self::VoicePlaying | Self::VoiceUnheard => 42.0,
+      _ => 250.0,
+    }
+  }
+}
+
+/// A player of a section, live: it starts in the state its `Scene` names, its values are its own, and a clock of
+/// its own moves it on while it plays, so every control on it answers a press as it would in an app. It is a
+/// component of its own, and what changes in it renders it again and not the page.
+struct Demo {
+  playing: Signal<bool>,
+  position: Signal<f32>,
+  volume: Signal<f32>,
+  muted: Signal<bool>,
+  rate: Signal<f32>,
+  shuffle: Signal<bool>,
+  repeat: Signal<AudioRepeat>,
+  error: Signal<bool>,
+  unheard: Signal<bool>,
+  _clock: Interval,
+}
+
+impl Component for Demo {
+  type Props = Scene;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let scene = *ctx.props::<Scene>();
+    let playing = ctx.signal(matches!(
+      scene,
+      Scene::CardPlaying | Scene::RowPlaying | Scene::RowWave | Scene::VoicePlaying | Scene::Mini(_)
+    ));
+    let position = ctx.signal(match scene {
+      Scene::CardPlaying => 158.0,
+      Scene::RowWave | Scene::VoicePlaying => 17.0,
+      Scene::CardLoading | Scene::CardError | Scene::RowLoading | Scene::RowError | Scene::VoiceUnheard => 0.0,
+      _ => 84.0,
+    });
+    let (rate, error) = (
+      ctx.signal(1.0_f32),
+      ctx.signal(matches!(scene, Scene::CardError | Scene::RowError)),
+    );
+    let (loading, length) = (matches!(scene, Scene::CardLoading | Scene::RowLoading), scene.length());
+    // While it plays its clock moves it on, and from the end it goes round: it stays the state it shows.
+    let tick = Duration::from_millis(250);
+    let clock = ctx.create_interval(tick, {
+      let (playing, position, rate, error) = (playing.clone(), position.clone(), rate.clone(), error.clone());
+      move || {
+        if !playing.get_untracked() || loading || error.get_untracked() {
+          return;
+        }
+        let next = position.get_untracked() + tick.as_secs_f32() * rate.get_untracked();
+        position.set(if next >= length { 0.0 } else { next });
+      }
+    });
+    clock.start();
+    Self {
+      playing,
+      position,
+      volume: ctx.signal(if matches!(scene, Scene::Mini(_)) { 0.6 } else { 0.8 }),
+      muted: ctx.signal(false),
+      rate,
+      shuffle: ctx.signal(scene == Scene::CardPlaying),
+      repeat: ctx.signal(if scene == Scene::CardPlaying {
+        AudioRepeat::One
+      } else {
+        AudioRepeat::Off
+      }),
+      error,
+      unheard: ctx.signal(scene == Scene::VoiceUnheard),
+      _clock: clock,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let scene = *ctx.props::<Scene>();
+    let (variant, length) = (scene.variant(), scene.length());
+    let mut player = AudioPlayer::new(self.position.clone(), length)
+      .variant(variant)
+      .playing(self.playing.clone())
+      .volume(self.volume.clone())
+      .muted(self.muted.clone())
+      .rate(self.rate.clone())
+      .shuffle(self.shuffle.clone())
+      .repeat(self.repeat.clone())
+      .loading(matches!(scene, Scene::CardLoading | Scene::RowLoading))
+      .unheard(self.unheard.get())
+      .disabled(scene == Scene::RowDisabled);
+    player = match variant {
+      AudioPlayerVariant::Full => player
+        .title("Night Drive")
+        .description("Aurora Lane · Low Tide")
+        .media(artwork(64.0))
+        .buffered((self.position.get() + 56.0).min(length)),
+      AudioPlayerVariant::Mini => player
+        .title("Night Drive")
+        .description("Aurora Lane")
+        .media(artwork(36.0)),
+      AudioPlayerVariant::Voice => player.peaks(&PEAKS),
+      AudioPlayerVariant::Compact if scene == Scene::RowWave => player.peaks(&PEAKS),
+      AudioPlayerVariant::Compact => player.buffered((self.position.get() + 56.0).min(length)),
+    };
+    player = match scene {
+      Scene::RowHover => player.force(Some(Interaction::Hovered)),
+      Scene::RowFocus => player.force(Some(Interaction::FocusVisible)),
+      _ => player,
+    };
+    if self.error.get() {
+      let (error, playing) = (self.error.clone(), self.playing.clone());
+      player = player
+        .error(Some(if variant == AudioPlayerVariant::Full {
+          "This track can't be played."
+        } else {
+          "Couldn't load the audio."
+        }))
+        // Trying again, it loads this time and plays.
+        .on_retry(move || {
+          error.set(false);
+          playing.set(true);
+        });
+    }
+    let unheard = self.unheard.clone();
+    let player = player
+      .on_playing_change(move |to| {
+        if to && unheard.get_untracked() {
+          unheard.set(false);
+        }
+      })
+      .key("demo")
+      .mount(ctx);
+    match scene {
+      Scene::Mini(width) => window(f32::from(width), player).into(),
+      _ => player,
+    }
+  }
 }
 
 pub struct AudioPlayerPage {
@@ -198,7 +358,9 @@ impl AudioPlayerPage {
       .rate(self.rate.clone())
       .shuffle(self.shuffle.clone())
       .repeat(self.repeat.clone())
-      .buffered((f64::from(position.get()) + 60.0).min(f64::from(length)))
+      // The page reads nothing that moves as it plays or is dragged: the player is a component of its own, and
+      // a position read here would build the whole page again for every step of a drag.
+      .buffered(f64::from(length).min(200.0))
       .on_change({
         let record = record.clone();
         move |to| record(format!("on_change({to:.1})"))
@@ -487,8 +649,7 @@ impl AudioPlayerPage {
       }
     };
     let facts = format!(
-      "{variant_name} · {} of {}",
-      lurq::ui::media_time_text(f64::from(self.position.get()), false),
+      "{variant_name} · {} long",
       lurq::ui::media_time_text(f64::from(length), false)
     );
     let playground = &self.playground;
@@ -578,79 +739,46 @@ impl Component for AudioPlayerPage {
   }
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
-    let cards = items()
-      .child(item(card(84.0), "paused"))
-      .child(item(
-        card(158.0)
-          .playing_controlled(true, |_| {})
-          .shuffle_controlled(true, |_| {})
-          .repeat_controlled(AudioRepeat::One, |_| {}),
-        "playing, shuffle on, repeat one",
-      ))
-      .child(item(card(0.0).loading(true), "loading"))
-      .child(item(
-        card(0.0).error(Some("This track can't be played.")).on_retry(|| {}),
-        "error",
-      ));
-    let rows = Column::new()
-      .spacing(16.0)
-      .overflow_visible()
-      .child(item(compact().playing_controlled(true, |_| {}), "playing"))
-      .child(item(
-        AudioPlayer::controlled(17.0, 42.0, |_| {})
-          .variant(AudioPlayerVariant::Compact)
-          .peaks(&PEAKS)
-          .playing_controlled(true, |_| {}),
-        "a waveform for the bar",
-      ))
-      .child(item(compact().loading(true), "loading"))
-      .child(item(
-        compact().error(Some("Couldn't load the audio.")).on_retry(|| {}),
-        "error: the button retries",
-      ))
-      .child(item(compact().disabled(true), "disabled"))
-      .child(item(compact().force(Some(Interaction::Hovered)), "hover on the button"))
-      .child(item(
-        compact().force(Some(Interaction::FocusVisible)),
-        "focus on the button",
-      ));
-    let voices = items()
-      .child(item(
-        AudioPlayer::controlled(17.0, 42.0, |_| {})
-          .variant(AudioPlayerVariant::Voice)
-          .peaks(&PEAKS)
-          .playing_controlled(true, |_| {}),
-        "playing: the speed, which a press steps",
-      ))
-      .child(item(
-        AudioPlayer::controlled(0.0, 42.0, |_| {})
-          .variant(AudioPlayerVariant::Voice)
-          .peaks(&PEAKS)
-          .unheard(true),
-        "not heard yet: the dot",
-      ));
-    let mini = |ctx: &mut Ctx, width: f32| {
-      window(
-        width,
-        AudioPlayer::controlled(84.0, 250.0, |_| {})
-          .variant(AudioPlayerVariant::Mini)
-          .title("Night Drive")
-          .description("Aurora Lane")
-          .media(artwork(36.0))
-          .playing_controlled(true, |_| {})
-          .volume_controlled(0.6, |_| {})
-          .mount(ctx),
-      )
-    };
-    let docked = Column::new()
-      .width(FILL)
-      .spacing(16.0)
-      .child(item(
-        mini(ctx, 640.0),
+    // Each is a player of its own, live from the state the board draws: a press of anything on it is answered.
+    let mut cards = items();
+    for (scene, caption) in [
+      (Scene::CardPaused, "paused"),
+      (Scene::CardPlaying, "playing, shuffle on, repeat one"),
+      (Scene::CardLoading, "loading"),
+      (Scene::CardError, "error: Try again loads it"),
+    ] {
+      cards = cards.child(item(ctx.mount::<Demo>(scene), caption));
+    }
+    let mut rows = Column::new().spacing(16.0).overflow_visible();
+    for (scene, caption) in [
+      (Scene::RowPlaying, "playing"),
+      (Scene::RowWave, "a waveform for the bar"),
+      (Scene::RowLoading, "loading"),
+      (Scene::RowError, "error: the button retries"),
+      (Scene::RowDisabled, "disabled"),
+      (Scene::RowHover, "hover on the button"),
+      (Scene::RowFocus, "focus on the button"),
+    ] {
+      rows = rows.child(item(ctx.mount::<Demo>(scene), caption));
+    }
+    let mut voices = items();
+    for (scene, caption) in [
+      (Scene::VoicePlaying, "playing: the speed, which a press steps"),
+      (Scene::VoiceUnheard, "not heard yet: the dot, until it is played"),
+    ] {
+      voices = voices.child(item(ctx.mount::<Demo>(scene), caption));
+    }
+    let mut docked = Column::new().width(FILL).spacing(16.0);
+    for (width, caption) in [
+      (
+        640,
         "640 wide: under 690 the volume is its button; from 690 its slider stands beside it",
-      ))
-      .child(item(mini(ctx, 520.0), "under 560: no time"))
-      .child(item(mini(ctx, 400.0), "under 480: the track, play and next"));
+      ),
+      (520, "under 560: no time"),
+      (400, "under 480: the track, play and next"),
+    ] {
+      docked = docked.child(item(ctx.mount::<Demo>(Scene::Mini(width)), caption));
+    }
 
     let rows_table = [
       (

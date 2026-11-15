@@ -39,7 +39,7 @@ const SIZES: [(&str, Option<VideoPlayerSize>); 4] = [
 ];
 
 /// The widths the playground offers, each with a height of 16 by 9.
-const WIDTHS: [(&str, f32); 4] = [("640", 640.0), ("432", 432.0), ("320", 320.0), ("200", 200.0)];
+const WIDTHS: [(&str, f32); 4] = [("432", 432.0), ("640", 640.0), ("320", 320.0), ("200", 200.0)];
 
 fn hex(rgb: u32) -> Color {
   Color::new((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 255)
@@ -99,6 +99,163 @@ fn state() -> VideoPlayer {
     .position_controlled(84.0, |_| {})
 }
 
+/// A state of the board that a player of a section starts in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Scene {
+  Idle,
+  Playing,
+  Paused,
+  Waiting,
+  Ended,
+  Error,
+  Live,
+  Captions,
+  Muted,
+  Fullscreen,
+  Large,
+  Compact,
+  Minimal,
+}
+
+#[cfg(feature = "devtools")]
+impl lurq::app::component::DevtoolsInspectable for Scene {
+  fn inspect(&self, formatter: &mut lurq::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
+/// A player of a section, live: it starts in the state its `Scene` names, its values are its own, and a clock of
+/// its own moves it on while it plays, so every control on it answers a press as it would in an app. It is a
+/// component of its own, and what changes in it renders it again and not the page.
+struct Demo {
+  playing: Signal<bool>,
+  position: Signal<f32>,
+  volume: Signal<f32>,
+  muted: Signal<bool>,
+  rate: Signal<f32>,
+  captions: Signal<bool>,
+  quality: Signal<Option<usize>>,
+  fullscreen: Signal<bool>,
+  picture_in_picture: Signal<bool>,
+  ended: Signal<bool>,
+  error: Signal<bool>,
+  _clock: Interval,
+}
+
+impl Component for Demo {
+  type Props = Scene;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let scene = *ctx.props::<Scene>();
+    let playing = ctx.signal(matches!(
+      scene,
+      Scene::Playing | Scene::Waiting | Scene::Live | Scene::Captions
+    ));
+    let position = ctx.signal(match scene {
+      Scene::Idle => 0.0,
+      Scene::Ended => LENGTH as f32,
+      _ => 84.0,
+    });
+    let (rate, error) = (ctx.signal(1.0_f32), ctx.signal(scene == Scene::Error));
+    let waiting = scene == Scene::Waiting;
+    // While it plays its clock moves it on, and from the end it goes round: it stays the state it shows.
+    let clock = ctx.create_interval(TICK, {
+      let (playing, position, rate, error) = (playing.clone(), position.clone(), rate.clone(), error.clone());
+      move || {
+        if !playing.get_untracked() || waiting || error.get_untracked() {
+          return;
+        }
+        let next = position.get_untracked() + TICK.as_secs_f32() * rate.get_untracked();
+        position.set(if f64::from(next) >= LENGTH { 0.0 } else { next });
+      }
+    });
+    clock.start();
+    Self {
+      playing,
+      position,
+      volume: ctx.signal(0.8),
+      muted: ctx.signal(scene == Scene::Muted),
+      rate,
+      captions: ctx.signal(scene == Scene::Captions),
+      quality: ctx.signal(None),
+      fullscreen: ctx.signal(scene == Scene::Fullscreen),
+      picture_in_picture: ctx.signal(false),
+      ended: ctx.signal(scene == Scene::Ended),
+      error,
+      _clock: clock,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let scene = *ctx.props::<Scene>();
+    let (width, height, size) = match scene {
+      Scene::Large => (640.0, 360.0, None),
+      Scene::Compact => (320.0, 180.0, Some(VideoPlayerSize::Md)),
+      Scene::Minimal => (200.0, 113.0, Some(VideoPlayerSize::Sm)),
+      _ => (432.0, 243.0, None),
+    };
+    let position = f64::from(self.position.get());
+    let mut player = VideoPlayer::new()
+      .media(picture())
+      .width(width)
+      .height(height)
+      .live(scene == Scene::Live)
+      .waiting(scene == Scene::Waiting)
+      .ended(self.ended.get())
+      .playing(self.playing.clone())
+      .position(self.position.clone())
+      .volume(self.volume.clone())
+      .muted(self.muted.clone())
+      .rate(self.rate.clone())
+      .captions(self.captions.clone())
+      .caption_text(VideoPlayerPage::cue(position))
+      .captions_track("English")
+      .qualities(&["1080p", "720p", "480p"])
+      .quality(self.quality.clone())
+      .fullscreen(self.fullscreen.clone())
+      .picture_in_picture(self.picture_in_picture.clone())
+      .preview(|_| picture().into());
+    if scene != Scene::Live {
+      player = player.duration(LENGTH).buffered((position + 56.0).min(LENGTH));
+    }
+    if let Some(size) = size {
+      player = player.size(size);
+    }
+    if scene == Scene::Idle {
+      player = player.poster(poster());
+    }
+    if self.error.get() {
+      player = player
+        .error("This video can't be played")
+        .error_description("Check the connection and try again.");
+    }
+    let (replayed, seeked, retried) = (
+      (self.ended.clone(), self.position.clone()),
+      self.ended.clone(),
+      (self.error.clone(), self.playing.clone()),
+    );
+    player
+      .on_playing_change(move |to| {
+        // Played again once it ended: from the start.
+        if to && replayed.0.get_untracked() {
+          replayed.0.set(false);
+          replayed.1.set(0.0);
+        }
+      })
+      .on_position_change(move |to| {
+        if to < LENGTH && seeked.get_untracked() {
+          seeked.set(false);
+        }
+      })
+      .on_retry(move || {
+        retried.0.set(false);
+        retried.1.set(true);
+      })
+      .key("demo")
+      .mount(ctx)
+  }
+}
+
 pub struct VideoPlayerPage {
   frame: Frame,
   playground: Playground,
@@ -120,6 +277,8 @@ pub struct VideoPlayerPage {
   poster: Signal<bool>,
   controls: Signal<bool>,
   overlay: Signal<bool>,
+  /// Which cue of the captions the clock's time is in.
+  cue: Signal<usize>,
   feed_playing: Signal<bool>,
   feed_muted: Signal<bool>,
   _clock: Interval,
@@ -143,8 +302,9 @@ impl VideoPlayerPage {
     let width = WIDTHS[self.width.get().min(WIDTHS.len() - 1)].1;
     let (waiting, ended, live, error) = (self.waiting.get(), self.ended.get(), self.live.get(), self.error.get());
     let (poster_on, controls, overlay) = (self.poster.get(), self.controls.get(), self.overlay.get());
-    let position = f64::from(self.position.get());
-    let caption = Self::cue(position);
+    // The page reads nothing that moves as it plays or is dragged: the player is a component of its own, and a
+    // position read here would build the whole page again for every step of a drag. The cue is the clock's.
+    let caption = Self::cue(self.cue.get() as f64 * 6.0);
     let make = {
       let (playing, position, volume, muted, rate) = (
         self.playing.clone(),
@@ -159,7 +319,8 @@ impl VideoPlayerPage {
         self.fullscreen.clone(),
         self.picture_in_picture.clone(),
       );
-      let buffered = (position.get() as f64 + 40.0).min(LENGTH);
+      let buffered = LENGTH.min(200.0);
+      let (was_ended, failed) = (self.ended.clone(), self.error.clone());
       move || {
         let mut player = VideoPlayer::new()
           .media(picture())
@@ -205,13 +366,27 @@ impl VideoPlayerPage {
               .child(text("Your layer", 12.0, FontWeight::Medium).color(Color::new(255, 255, 255, 255))),
           );
         }
+        // What an app does with what it is told, here and in a window of its own: played again once it ended
+        // it starts over, sought back from the end it has not ended, and tried again it loads.
+        let (replayed, seeked, retried) = ((was_ended.clone(), position.clone()), was_ended.clone(), failed.clone());
         player
+          .on_playing_change(move |to| {
+            if to && replayed.0.get_untracked() {
+              replayed.0.set(false);
+              replayed.1.set(0.0);
+            }
+          })
+          .on_position_change(move |to| {
+            if to < LENGTH && seeked.get_untracked() {
+              seeked.set(false);
+            }
+          })
+          .on_retry(move || retried.set(false))
       }
     };
     let record = self.playground.recorder();
     let shown = {
       let make = make.clone();
-      let (ended, position, error) = (self.ended.clone(), self.position.clone(), self.error.clone());
       let forced = self.playground.forced();
       move |ctx: &mut Ctx| {
         let say = |name: &'static str| {
@@ -231,23 +406,10 @@ impl VideoPlayerPage {
           say("on_picture_in_picture_change"),
           say("on_retry"),
         );
-        let (replayed, seeked, retried) = ((ended.clone(), position.clone()), ended.clone(), error.clone());
         make()
           .force(forced)
-          .on_playing_change(move |to| {
-            // Played again once it ended: from the start.
-            if to && replayed.0.get_untracked() {
-              replayed.0.set(false);
-              replayed.1.set(0.0);
-            }
-            p(to.to_string())
-          })
-          .on_position_change(move |to| {
-            if to < LENGTH && seeked.get_untracked() {
-              seeked.set(false);
-            }
-            s(format!("{to:.1}"))
-          })
+          .on_playing_change(move |to| p(to.to_string()))
+          .on_position_change(move |to| s(format!("{to:.1}")))
           .on_position_change_end(move |to| e(format!("{to:.1}")))
           .on_volume_change(move |to| v(format!("{to:.2}")))
           .on_muted_change(move |to| m(to.to_string()))
@@ -256,10 +418,7 @@ impl VideoPlayerPage {
           .on_quality_change(move |to| q(format!("{to:?}")))
           .on_fullscreen_change(move |to| f(to.to_string()))
           .on_picture_in_picture_change(move |to| i(to.to_string()))
-          .on_retry(move || {
-            retried.set(false);
-            t(String::new())
-          })
+          .on_retry(move || t(String::new()))
           .key("played")
           .mount(ctx)
       }
@@ -318,15 +477,13 @@ impl VideoPlayerPage {
       "└─ controls  88 · seek bar · row of 36 on a gradient to #000000B3".to_owned(),
     ];
     let facts = format!(
-      "{} / {} · {}× · volume {:.0}%",
-      media_time_text(position, false),
+      "{} · {}×",
       if live {
         "live".to_owned()
       } else {
-        media_time_text(LENGTH, false)
+        format!("{} long", media_time_text(LENGTH, false))
       },
-      self.rate.get(),
-      self.volume.get() * 100.0
+      self.rate.get()
     );
     let (set_size, set_width) = (self.size.clone(), self.width.clone());
     let reset = (
@@ -398,7 +555,7 @@ impl VideoPlayerPage {
         controls: controls_list,
         changed: [
           size.is_some(),
-          width != 640.0,
+          width != 432.0,
           self.playing.get(),
           waiting,
           ended,
@@ -552,16 +709,21 @@ impl Component for VideoPlayerPage {
   fn create(ctx: &mut Ctx) -> Self {
     let (playing, position, rate) = (ctx.signal(false), ctx.signal(0.0_f32), ctx.signal(1.0_f32));
     let (waiting, ended, error) = (ctx.signal(false), ctx.signal(false), ctx.signal(false));
+    let cue = ctx.signal(0_usize);
     // The page's clock: while it plays it moves the position on by the time gone at the speed chosen, and at the
-    // end it stops and says it ended.
+    // end it stops and says it ended. It says which cue of the captions the time is in, when that changes.
     let clock = ctx.create_interval(TICK, {
-      let (playing, position, rate) = (playing.clone(), position.clone(), rate.clone());
+      let (playing, position, rate, cue) = (playing.clone(), position.clone(), rate.clone(), cue.clone());
       let (waiting, ended, error) = (waiting.clone(), ended.clone(), error.clone());
       move || {
         if !playing.get_untracked() || waiting.get_untracked() || error.get_untracked() {
           return;
         }
         let next = position.get_untracked() + TICK.as_secs_f32() * rate.get_untracked();
+        let index = (next / 6.0) as usize;
+        if cue.get_untracked() != index {
+          cue.set(index);
+        }
         if f64::from(next) >= LENGTH {
           position.set(LENGTH as f32);
           playing.set(false);
@@ -593,6 +755,7 @@ impl Component for VideoPlayerPage {
       poster: ctx.signal(true),
       controls: ctx.signal(true),
       overlay: ctx.signal(false),
+      cue,
       feed_playing: ctx.signal(false),
       feed_muted: ctx.signal(true),
       _clock: clock,
@@ -601,64 +764,30 @@ impl Component for VideoPlayerPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let playground = self.play(ctx);
-    let states = items()
-      .child(item(
-        state().position_controlled(0.0, |_| {}).poster(poster()),
-        "idle · the poster and its length",
-      ))
-      .child(item(
-        state().playing_controlled(true, |_| {}),
-        "playing · the bar shown",
-      ))
-      .child(item(
-        state()
-          .playing_controlled(true, |_| {})
-          .force_controls_shown(Some(false)),
-        "playing · the bar faded after 3 s",
-      ))
-      .child(item(state(), "paused · the bar stays"))
-      .child(item(state().playing_controlled(true, |_| {}).waiting(true), "waiting"))
-      .child(item(
-        state().ended(true).position_controlled(LENGTH, |_| {}),
-        "ended · replay",
-      ))
-      .child(item(
-        state()
-          .error("This video can't be played")
-          .error_description("Check the connection and try again.")
-          .on_retry(|| {}),
-        "error",
-      ))
-      .child(item(
-        VideoPlayer::new()
-          .media(picture())
-          .width(432.0)
-          .height(243.0)
-          .live(true)
-          .playing_controlled(true, |_| {}),
-        "live · no duration, the bar at the edge",
-      ))
-      .child(item(
-        state()
-          .captions_controlled(true, |_| {})
-          .caption_text("The bar fades out while the video plays."),
-        "captions · above the bar",
-      ))
-      .child(item(state().muted_controlled(true, |_| {}), "muted"))
-      .child(item(
-        state().fullscreen_controlled(true, |_| {}),
-        "fullscreen · the glyph exits",
-      ));
-    let sizes = items()
-      .child(item(state().width(640.0).height(360.0), "large · 640 × 360"))
-      .child(item(
-        state().width(320.0).height(180.0).size(VideoPlayerSize::Md),
-        "compact · 320 × 180",
-      ))
-      .child(item(
-        state().width(200.0).height(113.0).size(VideoPlayerSize::Sm),
-        "minimal · 200 × 113",
-      ));
+    // Each is a player of its own, live from the state the board draws: a press of anything on it is answered.
+    let mut states = items();
+    for (scene, caption) in [
+      (Scene::Idle, "idle · the poster and its length"),
+      (Scene::Playing, "playing · the bar fades 3 s after the pointer rests"),
+      (Scene::Paused, "paused · the bar stays"),
+      (Scene::Waiting, "waiting"),
+      (Scene::Ended, "ended · replay"),
+      (Scene::Error, "error"),
+      (Scene::Live, "live · no duration, the bar at the edge"),
+      (Scene::Captions, "captions · above the bar"),
+      (Scene::Muted, "muted"),
+      (Scene::Fullscreen, "fullscreen · the glyph exits"),
+    ] {
+      states = states.child(item(ctx.mount::<Demo>(scene), caption));
+    }
+    let mut sizes = items();
+    for (scene, caption) in [
+      (Scene::Large, "large · 640 × 360"),
+      (Scene::Compact, "compact · 320 × 180"),
+      (Scene::Minimal, "minimal · 200 × 113"),
+    ] {
+      sizes = sizes.child(item(ctx.mount::<Demo>(scene), caption));
+    }
     let bare = items().child(item(state().controls(false), "the picture alone, as in a feed"));
     let feed = self.feed().key("feed").mount(ctx);
     let own = items().child(item(feed, "your own controls in the overlay"));

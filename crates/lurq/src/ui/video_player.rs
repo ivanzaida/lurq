@@ -1191,6 +1191,8 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     fullscreen: make.fullscreen_toggle(),
     poke: live.mounted.then(|| Arc::new(live.poke()) as Action),
     root: live.root.clone(),
+    // A menu drawn open by force hangs from its anchor in the still form too: a picture of it, not dragged.
+    mounted: live.mounted || player.force_menu.is_some(),
     recipe,
     id: player.id.clone(),
   }
@@ -2044,6 +2046,10 @@ pub struct VideoPlayerView {
   pressed: Arc<Mutex<Option<Instant>>>,
   poke: Option<Action>,
   root: ElementRef,
+  /// Whether the refs are kept from one render to the next. The still form's are made anew each time, and an
+  /// element given a new ref is a new element to the runtime: a slider in it would lose its drag and its focus
+  /// each time the player is built again, so the still form gives its elements none.
+  mounted: bool,
   id: Option<Arc<str>>,
 }
 
@@ -2079,11 +2085,13 @@ impl VideoPlayerView {
     let theme = self.theme();
     let mut root = Stack::new()
       .part(&self.part(VideoPlayerPart::Root))
-      .ref_element(self.root.clone())
       .focusable(true)
       .tab_index(-1)
       .describe("a11y_role", "group")
       .describe("a11y_name", self.label.clone());
+    if self.mounted {
+      root = root.ref_element(self.root.clone());
+    }
     let width = self.width.and_then(|width| width.resolve(theme));
     if let Some(width) = width {
       root = root.width(width);
@@ -2248,8 +2256,18 @@ impl VideoPlayerView {
       .part(&row_part)
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Center)
-      .overflow_visible()
-      .ref_element(bar.row.clone());
+      .overflow_visible();
+    let mounted = self.mounted;
+    if mounted {
+      row = row.ref_element(bar.row.clone());
+    }
+    let held = |row: Row| {
+      if mounted {
+        row.ref_element(bar.buttons.clone())
+      } else {
+        row
+      }
+    };
     let buttons = |children: Vec<Element>| {
       Row::new()
         .align_items(Alignment::Center)
@@ -2260,7 +2278,7 @@ impl VideoPlayerView {
     if self.form == VideoPlayerSize::Sm {
       // One row: play, the seek bar and the time; the controls' own padding and gap.
       row = row
-        .child(buttons(vec![bar.play.clone()]).ref_element(bar.buttons.clone()))
+        .child(held(buttons(vec![bar.play.clone()])))
         .child(Row::new().flex(1.0).min_width(0.0).child(bar.seek.clone()))
         .child(bar.time.clone());
       return Some(controls.child(row).with_children(bar.menus.iter().cloned()));
@@ -2271,7 +2289,7 @@ impl VideoPlayerView {
     let mut all = buttons(start);
     all = all.child(Row::new().flex(1.0));
     all = all.with_children(bar.end.iter().cloned());
-    row = row.child(all.flex(1.0).ref_element(bar.buttons.clone()));
+    row = row.child(held(all.flex(1.0)));
     Some(
       controls
         .child(bar.seek.clone())
