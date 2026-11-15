@@ -388,6 +388,7 @@ Added:
 
 Fixes:
 
+- `ui::DataGrid`: a cell's editor is laid out in the cell's room at any column width, the select with its chevron and the number input with both its buttons, where each kept its own width (260 for a select) and was cut at the cell's end. A box in a cell turns at one press, focused or not, and once for a double press, where it took a double press. A grid given no id makes one of its own (`grid-N`) for every id it names, where every such grid of a page named its editor `editor`.
 - A component mounted with `ctx.mount` is in the theme it is mounted in now: one mounted again inside `ctx.in_theme(&other, ..)` (a stage switched to the other appearance) renders in that theme. Its slot kept the theme it was made in, so a Markdown document, or any component mounted on such a stage, kept drawing in the app's theme: white words on a light stage.
 - A transition's value that changes because its element is read in another theme now (mounted inside `in_theme`, or out of it) is there at once, as one that changes with the window's theme is. The copy button of a code block on a stage switched to the other appearance faded from the other appearance's color.
 - `lurq::eyedropper` on Windows: the screen is read with a plain `BitBlt` of the composed desktop, no longer with `CAPTUREBLT`, which hid and showed the cursor at each read (at each move of the pointer and ten times a second) and could make it flicker; on Windows 8 and later the plain read has other apps' layered windows in it as well, and the pick's own windows stay out of it.

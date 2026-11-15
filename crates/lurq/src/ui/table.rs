@@ -2395,15 +2395,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 let ref_ = window.as_ref()?.editor_ref.clone();
                 let part = recipe.part(TablePart::Editor);
                 let built: Element = match &editor.kind {
+                  // Every editor is as wide as its cell's room, whatever the column's width.
                   EditorKind::Text(_) => Input::new(host.draft_text.clone())
                     .id(id_of("editor").unwrap_or_else(|| Arc::from("editor")))
                     .size(InputSize::Sm)
+                    .full_width(true)
                     .invalid(editing.refused)
                     .label(&column.title)
                     .build(theme),
                   EditorKind::Number(_) => NumberInput::optional(host.draft_number.clone())
                     .id(id_of("editor").unwrap_or_else(|| Arc::from("editor")))
                     .size(InputSize::Sm)
+                    .full_width(true)
                     .invalid(editing.refused)
                     .label(&column.title)
                     .build(theme),
@@ -2418,6 +2421,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                     )
                     .id(id_of("editor").unwrap_or_else(|| Arc::from("editor")))
                     .size(InputSize::Sm)
+                    .full_width(true)
                     .invalid(editing.refused)
                     .label(&column.title)
                     .on_change(move |_: &usize| committing.commit(GridStep::Stay))
@@ -4974,6 +4978,13 @@ impl GridCell {
           if event.ctrl || event.meta || event.alt {
             return;
           }
+          // A box in a cell turns at a press, once for a double press: its second press is not another turn.
+          if checkbox && editable {
+            if !second_cell_press((row, column), &event) {
+              grid.toggle(row, column);
+            }
+            return;
+          }
           // A second press edits a cell that is edited, and activates the row of one that is not.
           if second_cell_press((row, column), &event) {
             if editable {
@@ -5135,6 +5146,9 @@ fn editor_in(part: &ResolvedPart, editor: Element, choice: bool, grid: Arc<dyn G
     .part(part)
     .align_items(Alignment::Center)
     .width(Dimension::Pct(100.0))
+    // It gives way to the cell's room: an editor never reaches past its cell.
+    .flex_full(1.0, 1.0, Some(0.0))
+    .min_width(Dimension::Px(0.0))
     .ref_element(element)
     .on_key_down(move |event: KeyboardEvent| {
       if !event.focus_within || event.composing {
@@ -5362,6 +5376,9 @@ struct HostState {
   find_case: Signal<bool>,
   find_word: Signal<bool>,
   find_regex: Signal<bool>,
+  /// The id of a grid the app gives none: every id the grid makes (its cells', its editor's) is under its own, so
+  /// that the grids of a page never share one.
+  own_id: Arc<str>,
   /// What the grid keeps of the rows the app gives on demand, and the query the app is yet to hear of.
   source: Mutex<Option<Box<dyn std::any::Any + Send>>>,
   source_query: Mutex<Option<(GridQuery, Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>)>>,
@@ -5628,6 +5645,13 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         find_case: ctx.signal(false),
         find_word: ctx.signal(false),
         find_regex: ctx.signal(false),
+        own_id: {
+          static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+          Arc::from(format!(
+            "grid-{}",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+          ))
+        },
         source: Mutex::new(None),
         source_query: Mutex::new(None),
         group_toggle: Mutex::new(None),
@@ -5645,6 +5669,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let mut table = ctx.props::<TableProps<R, K>>().table.lock().clone();
+    if table.grid && table.id.is_none() {
+      table.id = Some(self.state.own_id.clone());
+    }
     // Over a source the rows are those that have come for the sort, the filters and the search asked for: the
     // groups are not the grid's to make.
     if let Some(source) = table.source.clone() {
