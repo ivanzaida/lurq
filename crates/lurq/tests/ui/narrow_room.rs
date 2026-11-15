@@ -9,10 +9,10 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker, DropZone, Field, Fieldset, FileUpload,
-    Input, InputGroup, Mentions, MentionsController, MessageBox, MessageBoxRole, MultiSelect, NumberInput, Outcome,
-    PasswordInput, Progress, ProgressDialog, Property, PropertyCategory, PropertyGrid, SearchField, Select,
-    ShortcutRecorder, Textarea, TimeField, TimePicker, Toast, TokenInput,
+    CheckboxCard, ColorField, Combobox, DateField, DatePicker, DateRangePicker, DropZone, ErrorSummary, Field,
+    FieldError, Fieldset, FileUpload, Input, InputGroup, Mentions, MentionsController, MessageBox, MessageBoxRole,
+    MultiSelect, NumberInput, Outcome, PasswordInput, Progress, ProgressDialog, Property, PropertyCategory,
+    PropertyGrid, SearchField, Select, ShortcutRecorder, Textarea, TimeField, TimePicker, Toast, TokenInput,
   },
 };
 
@@ -135,6 +135,15 @@ fn a_fieldset_is_no_wider_than_a_narrow_room() {
     Fieldset::new("Profile")
       .description("What others see of you, wherever your name is shown.")
       .child(Field::new("Display name", Input::new(text())))
+      .id("it")
+      .into()
+  });
+}
+
+#[test]
+fn an_error_summary_is_no_wider_than_a_narrow_room() {
+  fits(|| {
+    ErrorSummary::new([FieldError::new("Email", "Email must include a domain")])
       .id("it")
       .into()
   });
