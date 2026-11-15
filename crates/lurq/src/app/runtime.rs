@@ -12349,6 +12349,16 @@ fn bind_canvas_layout_recursive(
     if let Some(reference) = &node.element_ref {
       reference.bind_canvas(&canvas);
     }
+    // A canvas with a painter is painted whole when it is laid out at another size or scale, and when it was
+    // built with another painter.
+    if let Some(painter) = node.canvas_painter() {
+      let fresh = canvas.take_painter(painter);
+      if fresh || notification.is_some() {
+        let draw = canvas.context_2d();
+        draw.reset();
+        painter(&draw, canvas.metrics());
+      }
+    }
     if let Some((metrics, observers)) = notification {
       for observer in observers {
         observer(metrics);

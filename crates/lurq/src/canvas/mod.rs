@@ -188,6 +188,11 @@ pub struct CanvasSnapshot {
 
 type MetricsCallback = dyn Fn(CanvasMetrics) + Send + Sync;
 
+/// What paints a whole canvas from its metrics ([`Canvas::paint`](crate::components::Canvas::paint)): called on a
+/// canvas that was reset, when the canvas is laid out at a new size or scale and when it is built with another
+/// painter.
+pub type CanvasPainter = Arc<dyn Fn(&Context2D, CanvasMetrics) + Send + Sync>;
+
 /// Keep this value alive to receive metrics changes. Dropping it unsubscribes.
 /// The surface holds only a weak callback, so capturing the canvas is safe.
 pub struct CanvasObserver {
@@ -306,6 +311,8 @@ struct Surface {
   /// Fingerprint of the duplicated ids last warned about, so a redraw that
   /// repeats the same duplicates every frame warns once.
   warned_duplicates: Option<u64>,
+  /// The painter that last painted the canvas, by its address: one built again with another paints it again.
+  painted_by: usize,
 }
 
 impl fmt::Debug for CanvasHandle {

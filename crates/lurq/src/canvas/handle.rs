@@ -48,6 +48,7 @@ impl CanvasHandle {
         error: None,
         items: Arc::from([]),
         warned_duplicates: None,
+        painted_by: 0,
       })),
     }
   }
@@ -199,6 +200,15 @@ impl CanvasHandle {
     s.next_artwork_pixels = None;
     s.presentation = None;
     s.presentation_serial = s.presentation_serial.saturating_add(1);
+  }
+
+  /// Whether `painter` is not the one that painted the canvas last; it is the one from now on.
+  pub(crate) fn take_painter(&self, painter: &CanvasPainter) -> bool {
+    let address = Arc::as_ptr(painter) as *const () as usize;
+    let mut s = self.inner.lock();
+    let fresh = s.painted_by != address;
+    s.painted_by = address;
+    fresh
   }
 
   pub(crate) fn bind_layout(

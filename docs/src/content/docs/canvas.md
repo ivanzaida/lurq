@@ -98,6 +98,37 @@ An observer runs immediately with current metrics, then after committed logical-
 State defaults are black fill and stroke, alpha 1, no shadow, no filter, the
 `Normal` blend mode, identity transform, line width 1, butt caps, miter joins with limit 10, no dash or clip, smoothing enabled, left text alignment, and alphabetic baseline. The default font snapshots the theme's default typography at first readiness. `reset()` and logical resize restore that initial font snapshot.
 
+## A painter: drawing from a builder
+
+A builder has no component to keep an element ref, an observer or its subscription. `Canvas::paint(painter)` gives the
+canvas what paints it whole: the runtime calls `painter(&context, metrics)` on a canvas it has reset, when the canvas is
+first laid out, when it is laid out at another logical size or display scale, and when it is built with another
+painter. A builder built again with other data paints again; one rendered again with nothing of it changed does not.
+The painter lives with the node, so nothing needs to hold it.
+
+```rust
+use lurq::{canvas::LineJoin, components::Canvas};
+
+// The points of a sparkline, from 0 to 1, drawn across whatever size the canvas is given.
+let points = vec![0.2, 0.5, 0.4, 0.9];
+Canvas::new().width(80.0).height(28.0).paint(move |draw, metrics| {
+  let (width, height) = (metrics.size.width, metrics.size.height);
+  draw.set_stroke_style("#16a34a");
+  draw.set_line_width(1.75);
+  draw.set_line_join(LineJoin::Round);
+  draw.begin_path();
+  for (index, value) in points.iter().enumerate() {
+    let x = width * index as f32 / (points.len() - 1) as f32;
+    let y = height * (1.0 - *value as f32);
+    if index == 0 { draw.move_to(x, y) } else { draw.line_to(x, y) }
+  }
+  draw.stroke();
+})
+```
+
+The painter is called from the layout pass, outside the canvas's locks. It draws the whole picture each time: what it
+drew before was cleared by the reset. Register the drawn things' `CanvasItem`s from it, as a chart's points are.
+
 ## Drawing operations
 
 All drawing coordinates and stroke widths use canvas-local logical pixels. Rotation and arc angles use radians. Solid paint setters accept lurq `Color` or checked `#RGB`, `#RGBA`, `#RRGGBB`, and `#RRGGBBAA` strings. Invalid style strings and non-finite numeric assignments leave the old value unchanged. Alpha must be between 0 and 1; line width and miter limit must be positive.

@@ -1389,7 +1389,7 @@ impl LayoutEngine {
       } => self.input_content(state, style, placeholder_style.as_deref()),
       NodeKind::Checkbox { .. } => QuadContent::None,
       #[cfg(feature = "canvas")]
-      NodeKind::Canvas { canvas } => canvas.image_data().map_or_else(
+      NodeKind::Canvas { canvas, .. } => canvas.image_data().map_or_else(
         || {
           if has_visual {
             QuadContent::Rect {
