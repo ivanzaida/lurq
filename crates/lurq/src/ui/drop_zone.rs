@@ -664,6 +664,7 @@ impl Themed for DropZone {
       .base(Root, |s| {
         fading(
           s.width(320.0)
+            .max_width(super::Length::Fill)
             .min_height(140.0)
             .padding_x(24.0)
             .padding_y(16.0)

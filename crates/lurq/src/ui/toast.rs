@@ -652,6 +652,7 @@ impl Themed for Toast {
     Recipe::new()
       .base(P::Root, |s| {
         s.width(360.0)
+          .max_width(Length::Fill)
           .background(Popover)
           .foreground(PopoverForeground)
           .border(edge())

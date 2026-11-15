@@ -940,7 +940,9 @@ impl Themed for MessageBox {
     };
     // Of the 20 the panel is padded, 4 are the dialog's body's, which is room for the ring of a focused button.
     let recipe = Recipe::new()
-      .base(Panel, |s| s.width(400.0).padding_x(16.0).padding_y(16.0))
+      .base(Panel, |s| {
+        s.width(400.0).max_width(Length::Fill).padding_x(16.0).padding_y(16.0)
+      })
       .base(Content, |s| s.gap(16.0))
       .base(Header, |s| s.gap(14.0))
       .base(Mark, |s| s.square(36.0).radius(RadiusSize::Full).background(InfoMuted))

@@ -647,7 +647,7 @@ impl Themed for Field {
     use FieldPart::{Body, Description, Label, Optional, Required, Root};
     use PaletteColor::{Destructive, Foreground, MutedForeground, Success, Warning};
     Recipe::new()
-      .base(Root, |s| s.width(260.0).gap(6.0))
+      .base(Root, |s| s.width(260.0).max_width(Length::Fill).gap(6.0))
       .base(Label, |s| {
         s.gap(4.0)
           .typography(TypographyStyle::FieldLabel)
