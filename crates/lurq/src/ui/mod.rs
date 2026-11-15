@@ -71,6 +71,7 @@ mod mentions;
 mod menu;
 mod menubar;
 mod message_box;
+mod meter;
 mod month_picker;
 mod multi_select;
 mod navbar;
@@ -269,6 +270,7 @@ pub use message_box::{
   MessageBox, MessageBoxAnswer, MessageBoxPart, MessageBoxRenderer, MessageBoxRole, MessageBoxState, MessageBoxVariant,
   MessageBoxView,
 };
+pub use meter::{Meter, MeterPart, MeterRenderer, MeterSegment, MeterState, MeterVariant, MeterView};
 pub use month_picker::{
   CellShown, MonthPicker, MonthPickerPart, MonthPickerRenderer, MonthPickerState, MonthPickerView, PeriodsView,
 };

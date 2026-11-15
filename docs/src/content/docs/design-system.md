@@ -1989,6 +1989,49 @@ RingProgress::new(0.7).variant(ProgressVariant::Success);
 - To what reads the tree (`lurq_snapshot` of the MCP server) a progress and a ring are a `progressbar` called by their label, with `a11y_valuenow`, `a11y_valuemin` (0), `a11y_valuemax` and `a11y_valuetext` (the value as it is said); one that does not know how far the work is has no value.
 - A renderer that draws another progress has `view.fraction()`, `view.value()`, `view.max()`, `view.value_text()`, `view.root()` (the root with its name to tooling), `view.header()` and `view.track()` (the rail with what is filled, or with the moving segment). A meter is the same parts restyled: `Progress::new(96).max(128).label("Disk space").show_value(true).variant(ProgressVariant::Warning).format(..)` with a radius of 2 on the `Track` and the `Fill`; a meter of cells is a renderer that draws a row of them from `view.fraction()`. A ring's renderer has `view.fraction()`, `view.value_text()`, `view.side()`, `view.thickness()`, `view.root()`, `view.track()`, `view.arc()` (the fill with its dash) and `view.middle()`. A gauge is such a renderer: half a ring, its arc's box turned a quarter back so that the dash starts at 9 o'clock, in a box that clips the lower half.
 
+## Meter
+
+How much of a known range a value takes, in segments, and whether that is good: the space a disk has used, a battery's charge, the seats of a plan. Where a [progress bar](#progress) says how far a task has come, a meter says where a value stands.
+
+```rust
+use lurq::ui::{Meter, MeterVariant};
+
+// The board's: good under 64, a warning to 96, bad past it.
+Meter::new(96)
+  .max(128)
+  .low(64)
+  .high(96)
+  .label("Disk space")
+  .value_text(|used| format!("{used} of 128 GB"))
+  .description("Running low. Free up space soon.");
+
+// A battery: the higher the better.
+Meter::new(18).low(20).high(80).optimum(100).label("Battery");
+
+// One tone, no parts.
+Meter::new(12).max(20).segments(20).variant(MeterVariant::Info).label("Seats used");
+```
+
+| Builder | |
+| --- | --- |
+| `Meter::new(value)`, `value(..)` | The value, `impl Into<f64>` |
+| `min(..)`, `max(..)` | The range, 0 to 100 unless given, as a [progress bar](#progress) and a [slider](#slider) say it |
+| `low(..)`, `high(..)` | Where the low part of the range ends and the high part starts: each filled segment is in the tone of its part |
+| `optimum(..)` | The best value, `min` unless given: the part it is in is good (`Success`), the part next to it a warning (`Warning`), the far one bad (`Destructive`), as a web page's meter judges them |
+| `variant(impl Into<Name>)` | A `MeterVariant` (`Neutral`, `Info`, `Success`, `Warning`, `Destructive`), or a variant a theme adds: the tone of every filled segment of a meter with no `low` and no `high` |
+| `segments(usize)` | How many segments the range is cut into, the board's 16 unless given |
+| `label(&str)` | What it measures, over the segments: its name to tooling |
+| `description(&str)` | The line under the segments: what the value means. In the tone of the value where that is a warning or bad |
+| `value_text(Fn(f64) -> String)` | Writes the value as the app does. Not given, "96 of 128" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
+
+- The value fills the segments it reaches, to the nearest: 96 of 128 fills 12 of 16. A value under `min` fills none and one over `max` fills them all; its text says what it is.
+- A segment's tone is that of the part of the range its middle is in, so the board's 64 to 96 are the four warning segments 9 to 12.
+- To what reads the tree it is a `meter` called by its label and described by its description, with `a11y_valuenow`, `a11y_valuemin`, `a11y_valuemax` and `a11y_valuetext`.
+- Parts: `MeterPart::Root`, `Header`, `Label`, `Value`, `Segments`, `Segment`, `Description`. States: `MeterState::Filled` (of a segment). The variant a segment is resolved with is the tone of its part of the range; the root's is the tone of the value.
+- In the design the meter is 260 on the board and as wide as what holds it here, its header, its segments and its description 8 apart. The label is 13 at 500 in `Foreground`, the value the mono type at 11 in `MutedForeground` at the end of its row. The 16 segments are 8 high, 2 apart, with a radius of 2: a filled one in the tone of its part, an empty one in `Secondary`. The description is 12, in `Warning` or `Destructive` where the value is, and in `MutedForeground` where it is good.
+- A theme's renderer is given `MeterView`: `view.segments` (each a `MeterSegment` with its tone and whether it is filled, and `segment.render()`), the value, its range, its tone and its text, `view.header()`, `view.segments()`, `view.description()` and `view.root(content)`.
+
 ## Password Input
 
 An input whose text is masked, with an eye at its end that shows it and hides it again, and under it, where the app says so, a meter of how strong the password is.

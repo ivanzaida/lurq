@@ -51,6 +51,7 @@ mod listbox;
 mod menu;
 mod menubar;
 mod message_box;
+mod meter;
 mod month_picker;
 mod multi_select;
 mod navbar;

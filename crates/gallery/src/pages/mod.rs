@@ -10,6 +10,7 @@ mod alert;
 mod avatar;
 mod badge;
 mod bar_list;
+mod meter;
 mod banner;
 mod breadcrumb;
 mod button;
@@ -792,6 +793,14 @@ pub const PAGES: &[Page] = &[
     about: "progress bar ring indeterminate loading upload value max percent label top bar meter variant size new show_value format top_bar width",
     group: Group::Data,
     mount: |ctx| ctx.mount::<progress::ProgressPage>(()),
+  },
+  Page {
+    path: "/meter",
+    name: "Meter",
+    icon: Some("battery"),
+    about: "meter segmented disk space battery quota level zone good warning bad value min max low high optimum variant segments label description value_text",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<meter::MeterPage>(()),
   },
   Page {
     path: "/alert",
