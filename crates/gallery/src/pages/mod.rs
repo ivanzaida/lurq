@@ -10,12 +10,9 @@ mod alert;
 mod avatar;
 mod badge;
 mod bar_list;
-#[cfg(not(target_arch = "wasm32"))]
 mod gauge;
 mod meter;
-#[cfg(not(target_arch = "wasm32"))]
 mod sparkline;
-#[cfg(not(target_arch = "wasm32"))]
 mod stat_card;
 mod banner;
 mod bar_chart;
@@ -809,7 +806,6 @@ pub const PAGES: &[Page] = &[
     group: Group::Data,
     mount: |ctx| ctx.mount::<meter::MeterPage>(()),
   },
-  #[cfg(not(target_arch = "wasm32"))]
   Page {
     path: "/gauge",
     name: "Gauge",
@@ -930,7 +926,6 @@ pub const PAGES: &[Page] = &[
     group: Group::Charts,
     mount: |ctx| ctx.mount::<bar_list::BarListPage>(()),
   },
-  #[cfg(not(target_arch = "wasm32"))]
   Page {
     path: "/sparkline",
     name: "Sparkline",
@@ -939,7 +934,6 @@ pub const PAGES: &[Page] = &[
     group: Group::Charts,
     mount: |ctx| ctx.mount::<sparkline::SparklinePage>(()),
   },
-  #[cfg(not(target_arch = "wasm32"))]
   Page {
     path: "/stat-card",
     name: "Stat Card",
