@@ -168,7 +168,7 @@ fn the_label_is_over_the_start_of_the_rail_and_the_value_over_its_end() {
         Progress::new(42)
           .max(128)
           .show_value(true)
-          .format(|done, all| format!("{done} of {all}"))
+          .value_text(|done| format!("{done} of 128"))
           .id("copy"),
       )
       .child(Progress::new(0.4).label("Hidden value").id("quiet"))
@@ -195,7 +195,7 @@ fn the_label_is_over_the_start_of_the_rail_and_the_value_over_its_end() {
   assert_eq!(rail.y + rail.height, y + height);
   assert!(rail.y - (label.y + label.height) >= 8.0 - 0.01);
 
-  assert!(stage.paints("42 of 128"), "the app's format");
+  assert!(stage.paints("42 of 128"), "the app's value_text");
   // Only the value it is given is said.
   assert!(stage.paints("Hidden value"));
   assert!(!stage.paints("40%"));
@@ -590,4 +590,88 @@ fn a_label_longer_than_the_rail_is_cut_with_an_ellipsis_before_the_value() {
     (value.x + value.width - (x + width)).abs() < 0.5,
     "the value at the end"
   );
+}
+
+/// A range from `min`: the share is of it, and `value_text` is given the value as it is, also outside the range,
+/// as a meter's is.
+#[test]
+fn a_range_from_min_and_value_text_given_the_value_as_it_is() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(Progress::new(60).min(20).max(100).show_value(true).id("half"))
+      .child(
+        Progress::new(150)
+          .max(100)
+          .show_value(true)
+          .value_text(|done| format!("{done} done"))
+          .id("over"),
+      )
+      .child(RingProgress::new(30).min(20).max(40).id("ring"))
+      .into()
+  });
+  let primary = light(PaletteColor::Primary);
+  assert!(
+    near(fill(&mut stage, "half", primary).width, 120.0),
+    "60 of 20 to 100 is half the rail"
+  );
+  assert!(stage.paints("50%"), "its share of the range");
+  assert!(near(fill(&mut stage, "over", primary).width, 240.0));
+  assert!(stage.paints("150 done"), "the value as it is, not kept in the range");
+  assert!(stage.paints("50%"), "the ring's share of 20 to 40");
+}
+
+/// A description under the rail, 8 under it, in the muted color at 12.
+#[test]
+fn a_description_is_under_the_rail() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Progress::new(0.4)
+          .label("Downloading 0.61")
+          .description("2 minutes left")
+          .id("download"),
+      )
+      .into()
+  });
+  let rail = fill(&mut stage, "download", light(PaletteColor::Primary));
+  let description = stage.text_quad("2 minutes left").unwrap();
+  assert!(description.y >= rail.y + rail.height + 8.0 - 0.5, "under the rail");
+  assert_eq!(
+    stage.text("2 minutes left"),
+    (light(PaletteColor::MutedForeground), 12.0)
+  );
+}
+
+/// What tooling reads of a progress is what it reads of a meter: its range from its `min`, the numbers written
+/// with no more decimals than they have, the value's text, and the description.
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_progress_tells_tooling_its_range_as_a_meter_does() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Progress::new(60)
+          .min(20)
+          .max(100)
+          .label("Indexing")
+          .description("12 of 40 files")
+          .value_text(|done| format!("{done} of 100"))
+          .id("index"),
+      )
+      .into()
+  });
+  let mut said = |name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut("index")
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said("a11y_role").as_deref(), Some("progressbar"));
+  assert_eq!(said("a11y_valuenow").as_deref(), Some("60"));
+  assert_eq!(said("a11y_valuemin").as_deref(), Some("20"));
+  assert_eq!(said("a11y_valuemax").as_deref(), Some("100"));
+  assert_eq!(said("a11y_valuetext").as_deref(), Some("60 of 100"));
+  assert_eq!(said("a11y_description").as_deref(), Some("12 of 40 files"));
 }
