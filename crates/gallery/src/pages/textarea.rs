@@ -35,6 +35,7 @@ const SIZES: [(TextareaSize, &str, &str, f32); 3] = [
 /// A textarea as wide as the board draws one, with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   Column::new()
+    .max_width(FILL)
     .width(WIDTH)
     .spacing(9.0)
     .child(shown)

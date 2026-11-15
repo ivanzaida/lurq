@@ -427,9 +427,8 @@ impl ButtonPage {
           ),
       );
     }
-    // Five columns, each as wide as its button at least: in a narrower card they scroll sideways. The
-    // stage of a card is 32 from its edges.
-    let stage = fit("variants", self.frame.room() - 64.0, 720.0, stage);
+    // Five columns, each as wide as its button at least: in a narrower card they scroll sideways.
+    let stage = fit("variants", self.frame.stage_room(), 720.0, stage);
     self.frame.demo(
       0,
       stage,

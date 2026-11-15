@@ -11,13 +11,13 @@ use lurq::{
     },
   },
   components::{Column, Grid, Rect, Row, Text},
-  layout::Alignment,
+  layout::{Alignment, layout_kind::Justify},
   node::{Element, border::Border, dimension::Dimension},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, card, demo_card, muted},
+  kit::{FILL, card, demo_card, muted, phone},
 };
 
 pub struct Tokens {
@@ -56,7 +56,25 @@ fn swatch(role: PaletteColor, palette: &ThemePalette) -> Column {
 }
 
 /// A row of a scale: the name of a step and its value.
-fn step(name: &str, value: String, sample: impl Into<Element>) -> Row {
+fn step(name: &str, value: String, sample: impl Into<Element>) -> Element {
+  // In a window as narrow as a phone the name and the value leave a sample no room beside them: it is under
+  // them, as wide as the card.
+  if phone() {
+    return Column::new()
+      .width(FILL)
+      .padding_vertical(8.0)
+      .spacing(6.0)
+      .child(
+        Row::new()
+          .width(FILL)
+          .spacing(16.0)
+          .justify(Justify::SpaceBetween)
+          .child(Text::new(name).variant(TypographyStyle::Mono))
+          .child(muted(&value, TypographyStyle::Mono)),
+      )
+      .child(Column::new().width(FILL).child(sample))
+      .into();
+  }
   Row::new()
     .width(FILL)
     .min_height(44.0)
@@ -67,6 +85,7 @@ fn step(name: &str, value: String, sample: impl Into<Element>) -> Row {
     .child(muted(&value, TypographyStyle::Mono).width(130.0))
     // The room the name and the measures leave, which a sample that wraps wraps in.
     .child(Column::new().flex_full(1.0, 1.0, Some(0.0)).min_width(0.0).child(sample))
+    .into()
 }
 
 impl Tokens {
@@ -170,7 +189,8 @@ impl Tokens {
 
   fn shape(&self, ctx: &mut Ctx) -> Element {
     let theme = ctx.theme().clone();
-    let mut radii = Row::new().spacing(20.0).align_items(Alignment::End);
+    // What does not fit beside the others goes on to the next line.
+    let mut radii = Row::new().width(FILL).spacing(20.0).wrap().align_items(Alignment::End);
     for size in [
       RadiusSize::Sm,
       RadiusSize::Md,
@@ -188,7 +208,7 @@ impl Tokens {
           )),
       );
     }
-    let mut shadows = Row::new().width(FILL).spacing(32.0).padding(8.0);
+    let mut shadows = Row::new().width(FILL).spacing(32.0).padding(8.0).wrap();
     for (name, style) in [
       ("sm", ShadowStyle::Sm),
       ("md", ShadowStyle::Md),
@@ -215,8 +235,10 @@ impl Tokens {
 
   fn scales(&self, ctx: &mut Ctx) -> Element {
     let theme = ctx.theme().clone();
+    // A bar longer than the card is as long as the card.
     let bar = |width: f32| {
       Rect::new(width, 12.0)
+        .max_width(FILL)
         .background(PaletteColor::Primary)
         .rounded(RadiusSize::Sm)
     };
@@ -298,7 +320,7 @@ impl Tokens {
         .rounded(RadiusSize::Md)
         .outline(ring.outline()),
     ));
-    card().padding(20.0).child(rows).into()
+    card().padding(if phone() { 16.0 } else { 20.0 }).child(rows).into()
   }
 }
 

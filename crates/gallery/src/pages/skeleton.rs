@@ -38,7 +38,11 @@ fn indexed(names: &[&'static str]) -> Vec<(&'static str, usize)> {
 
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
-  Column::new().spacing(9.0).child(shown).child(quiet(caption, 12.0))
+  Column::new()
+    .max_width(FILL)
+    .spacing(9.0)
+    .child(shown)
+    .child(quiet(caption, 12.0))
 }
 
 /// The design's media row: a circle of 40, and two lines beside it.
