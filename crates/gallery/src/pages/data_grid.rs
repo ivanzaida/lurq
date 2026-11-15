@@ -12,8 +12,8 @@ use lurq::{
   node::Element,
   ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnFilter,
-    ColumnLayout, ColumnPin, DataGrid, GroupKey, Pagination, SearchField, SearchMatches, SummaryKind, TableColumn,
-    TableFilters, TableSort, icons,
+    ColumnLayout, ColumnPin, DataGrid, GridPage, GridRequest, GroupKey, Pagination, SearchField, SearchMatches,
+    SummaryKind, TableColumn, TableFilters, TableSort, icons,
   },
 };
 
@@ -197,6 +197,90 @@ pub struct DataGridPage {
   /// The search of the section's grid, and what it was told of its matches.
   query: Signal<String>,
   found: Signal<SearchMatches>,
+  /// The grid over rows on demand: its sort and filters, what the app was last told, and whether the next range
+  /// fails.
+  asked_sort: Signal<Vec<TableSort>>,
+  asked_filters: Signal<TableFilters>,
+  asked: Signal<String>,
+  fail_next: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// A ticket of the server the grid over rows on demand asks.
+#[derive(Clone)]
+struct Ticket {
+  id: u32,
+  title: String,
+  size: u32,
+  open: bool,
+}
+
+/// The server's hundred thousand tickets.
+fn tickets() -> Arc<Vec<Ticket>> {
+  static TICKETS: std::sync::OnceLock<Arc<Vec<Ticket>>> = std::sync::OnceLock::new();
+  const WORDS: [&str; 8] = ["Layout", "Canvas", "Focus", "Scroll", "Theme", "Text", "Grid", "Menu"];
+  TICKETS
+    .get_or_init(|| {
+      Arc::new(
+        (0..100_000u32)
+          .map(|id| Ticket {
+            id,
+            title: format!("{} issue {}", WORDS[(id as usize * 7) % 8], id),
+            size: (id * 37) % 500,
+            open: id % 3 != 0,
+          })
+          .collect(),
+      )
+    })
+    .clone()
+}
+
+/// What the server answers a request: its tickets sorted, filtered and searched as the query asks, the range of
+/// them asked for, and how many there are; or a failure where it is told to fail the next.
+fn answer(request: &GridRequest, fail: &std::sync::atomic::AtomicBool) -> Result<GridPage<Ticket>, String> {
+  if fail.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    return Err("the server is down".into());
+  }
+  let all = tickets();
+  let search = request.query.search.to_lowercase();
+  let mut rows: Vec<&Ticket> = all
+    .iter()
+    .filter(|ticket| {
+      request.query.filters.iter().all(|(id, filter)| match (id, filter) {
+        ("title", ColumnFilter::Text { text, .. }) => ticket.title.to_lowercase().contains(&text.to_lowercase()),
+        ("size", ColumnFilter::Number { at_least, at_most }) => {
+          at_least.is_none_or(|low| ticket.size as f64 >= low) && at_most.is_none_or(|high| ticket.size as f64 <= high)
+        }
+        ("open", ColumnFilter::Bool(open)) => ticket.open == *open,
+        _ => true,
+      }) && (search.is_empty() || ticket.title.to_lowercase().contains(&search))
+    })
+    .collect();
+  // Sorted by the last column first, each sort keeping the order of the rows it finds equal.
+  for sort in request.query.sort.iter().rev() {
+    rows.sort_by(|a, b| {
+      let order = match &*sort.column {
+        "id" => a.id.cmp(&b.id),
+        "title" => a.title.cmp(&b.title),
+        "size" => a.size.cmp(&b.size),
+        _ => std::cmp::Ordering::Equal,
+      };
+      if sort.direction == lurq::ui::SortDirection::Descending {
+        order.reverse()
+      } else {
+        order
+      }
+    });
+  }
+  let total = rows.len();
+  Ok(GridPage {
+    rows: rows
+      .into_iter()
+      .skip(request.range.start)
+      .take(request.range.len())
+      .cloned()
+      .collect(),
+    total,
+  })
 }
 
 /// The columns of the files, each filtered as it is: the name by its text, the status by its values, the size by
@@ -702,6 +786,10 @@ impl Component for DataGridPage {
       filters: ctx.signal(TableFilters::new().with("status", ColumnFilter::one_of(["Passing", "Building"]))),
       query: ctx.signal("rs".to_owned()),
       found: ctx.signal(SearchMatches::default()),
+      asked_sort: ctx.signal(Vec::new()),
+      asked_filters: ctx.signal(TableFilters::new()),
+      asked: ctx.signal(String::new()),
+      fail_next: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     }
   }
 
@@ -1077,6 +1165,74 @@ impl Component for DataGridPage {
         12.0,
       ));
 
+    // Rows on demand: the server sorts, filters and searches; the grid asks for the ranges in view.
+    let fail = self.fail_next.clone();
+    let told = self.asked.clone();
+    let failing = self.fail_next.clone();
+    let source_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::on_demand(
+          vec![
+            TableColumn::new("id", "Id")
+              .width(90.0)
+              .mono(true)
+              .sortable(true)
+              .text(|ticket: &Ticket| ticket.id.to_string()),
+            TableColumn::new("title", "Title")
+              .sortable(true)
+              .filter_text(true)
+              .text(|ticket: &Ticket| ticket.title.clone()),
+            TableColumn::new("size", "Size")
+              .width(100.0)
+              .numeric()
+              .sortable(true)
+              .filter_number(|ticket: &Ticket| ticket.size as f64)
+              .text(|ticket: &Ticket| format!("{} KB", ticket.size)),
+            TableColumn::new("open", "Open")
+              .width(90.0)
+              .filter_bool(|ticket: &Ticket| ticket.open)
+              .text(|ticket: &Ticket| if ticket.open { "open" } else { "closed" }.to_owned()),
+          ],
+          100_000,
+          move |request: GridRequest| {
+            let answered = answer(&request, &fail);
+            async move { answered }
+          },
+        )
+        .label("Tickets")
+        .height(360.0)
+        .count(true)
+        .filter_row(true)
+        .sort(self.asked_sort.clone())
+        .filters(self.asked_filters.clone())
+        .on_query_change(move |query| told.set(query.to_text()))
+        .key("on-demand")
+        .mount(ctx),
+      )
+      .child(
+        Row::new()
+          .spacing(8.0)
+          .align_items(Alignment::Center)
+          .child(
+            Button::new("Fail the next range")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm)
+              .on_click(move |_| failing.store(true, std::sync::atomic::Ordering::SeqCst)),
+          )
+          .child(quiet(
+            &format!(
+              "on_query_change: {}",
+              match self.asked.get() {
+                asked if asked.is_empty() => "(every row, in its order)".to_owned(),
+                asked => asked,
+              }
+            ),
+            12.0,
+          )),
+      );
+
     let numbered = DataGrid::new(columns(false), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -1344,6 +1500,28 @@ impl Component for DataGridPage {
               "    .mount(ctx)",
               "// Store: storage.set_value(\"columns\", layout.get()) and (\"sort\", sort.get())",
               "// Restore: storage.value::<ColumnLayout>(\"columns\").map(|layout| layout.valid(ids))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Rows on demand",
+          "A server's table: the grid is told how many rows there are and asks for the ranges that come into \
+           view, a hundred at a time, through the engine's futures; rows whose range has not come are skeletons, \
+           and a range that failed says so with a retry (press Fail the next range, then scroll). The sort, the \
+           filters and the search are the app's to apply: each request carries them as one GridQuery, whose text \
+           form is written under the grid as the app is told it.",
+          self.frame.demo(
+            13,
+            source_grid,
+            "DataGrid::on_demand(columns, total, fetch)",
+            &[
+              "DataGrid::on_demand(columns, 100_000, |request: GridRequest| async move {",
+              "    // request.query: the sort, the filters, the search; request.range: the rows asked for",
+              "    server.tickets(request).await // Ok(GridPage { rows, total }) or Err(message)",
+              "})",
+              ".sort(sort).filters(filters).filter_row(true)",
+              ".on_query_change(|query| store(query.to_text()))",
+              ".mount(ctx)",
             ],
           ),
         ),

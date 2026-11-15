@@ -184,6 +184,19 @@ impl TableFilters {
   }
 }
 
+/// What a grid over rows the app gives on demand asks for its rows by: their sort, the columns' filters and the
+/// search, which the app applies. The grid tells it each time a person changes one. Its text form and its storage
+/// are a column layout's.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GridQuery {
+  pub sort: Vec<super::TableSort>,
+  pub filters: TableFilters,
+  pub search: String,
+}
+
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for GridQuery {}
+
 /// What a column is filtered by: its text, the values a function gives, a number, a date or a yes or no.
 pub(crate) enum FilterBy<R> {
   /// Its text, matched by a filter of text.

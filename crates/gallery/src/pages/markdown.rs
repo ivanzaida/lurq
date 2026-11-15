@@ -247,22 +247,29 @@ impl MarkdownPage {
         props
       }
     };
-    let document = Markdown::mount(ctx, props(source.get()));
     // The source over the document: the document has the stage's whole width, as wide as a page of the board.
-    let shown = Column::new()
-      .width(FILL)
-      .spacing(24.0)
-      .align_items(Alignment::Stretch)
-      .child(
-        Textarea::new(source.clone())
-          .label("Source")
-          .rows(8, 14)
-          .full_width(true)
-          .style(lurq::ui::TextareaPart::Control, |s| {
-            s.font_family(lurq::ui::FontFamily::Mono).font_size(12.0)
-          }),
-      )
-      .child(Column::new().width(FILL).min_width(0.0).child(document));
+    // Both are built on the stage, in its theme, which is not the page's while the stage is in the other appearance.
+    let scene = {
+      let (props, source) = (props.clone(), source.clone());
+      move |ctx: &mut Ctx| -> Element {
+        let document = Markdown::mount(ctx, props(source.get()));
+        Column::new()
+          .width(FILL)
+          .spacing(24.0)
+          .align_items(Alignment::Stretch)
+          .child(
+            Textarea::new(source.clone())
+              .label("Source")
+              .rows(8, 14)
+              .full_width(true)
+              .style(lurq::ui::TextareaPart::Control, |s| {
+                s.font_family(lurq::ui::FontFamily::Mono).font_size(12.0)
+              }),
+          )
+          .child(Column::new().width(FILL).min_width(0.0).child(document))
+          .into()
+      }
+    };
 
     let mut code = vec!["Markdown::mount(ctx, MarkdownProps::styled(source, prose)".to_owned()];
     if selectable {
@@ -300,7 +307,7 @@ impl MarkdownPage {
       Spec {
         title: "Markdown",
         make: Arc::new(make),
-        shown: Shown::of(shown),
+        shown: Shown::built(scene),
         fill: true,
         forceable: false,
         facts: "the source over the document".to_owned(),
