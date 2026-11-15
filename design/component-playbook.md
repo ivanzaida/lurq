@@ -462,6 +462,11 @@ components of its own.
   focused. Choose which part is the focusable one by where the board draws the ring.
 - A transition runs from one value to another, not from none: a part that slides has an offset in both
   states (`SwitchView::thumb`).
+- So a fill a part has only under the pointer is there at once and gone at once, and a fade on its way
+  ends when the fill goes: for a fade both ways the part has a fill at rest too, `clear()`.
+- A part is under the pointer from its first pixels to its last, not on its right and bottom edges: a
+  test presses inside (`bottom - 1.0`), and a part of no height is under no pointer at all. A layer over
+  the rows of a part whose height is its rows' is `.absolute(x, 0.0, width, Dimension::Pct(100.0))`.
 - `Length::Fill` as a height in a parent whose height is its content's is nothing: use
   `align_items(Stretch)`.
 - A key event reaches every node, focused or not, so a component does not handle the arrow keys itself:

@@ -1590,8 +1590,14 @@ impl PropertyGridView {
     let mut divider = components::Button::empty()
       .tab_index(0)
       .part(&part)
-      .offset(start + width + gap / 2.0 - side / 2.0, 0.0)
-      .height(Dimension::Pct(100.0))
+      // As high as the rows, whatever gives the grid its height: a share of a height that is the rows' own is
+      // nothing, and a divider of no height is under no pointer.
+      .absolute(
+        start + width + gap / 2.0 - side / 2.0,
+        0.0,
+        Dimension::Px(side),
+        Dimension::Pct(100.0),
+      )
       .describe("a11y_role", "separator")
       .describe("a11y_name", "Width of the names")
       .describe("a11y_orientation", "vertical")
@@ -1637,12 +1643,7 @@ impl PropertyGridView {
         .width(Dimension::Pct(100.0))
         .flex(1.0)
         .child(rows)
-        .child(
-          Row::new()
-            .height(Dimension::Pct(100.0))
-            .overflow_visible()
-            .child(divider),
-        )
+        .child(divider)
         .into(),
       None => rows,
     };

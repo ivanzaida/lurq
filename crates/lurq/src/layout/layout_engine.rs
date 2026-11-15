@@ -4667,7 +4667,7 @@ fn clear_bars_of_sticky(node: &Node, content: &Node, content_layout: &LayoutResu
     state.set_bar_clearance(0.0, 0.0, 0.0, 0.0);
     return;
   }
-  let reach = crate::layout::sticky_reach::sticky_reach(content, content_layout, None);
+  let reach = crate::layout::sticky_reach::sticky_reach(content, content_layout, None, None);
   state.set_bar_clearance(reach.left, reach.top, reach.right, reach.bottom);
 }
 
