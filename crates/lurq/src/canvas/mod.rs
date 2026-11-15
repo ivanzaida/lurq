@@ -262,14 +262,14 @@ impl<T> CanvasMove<'_, T> {
 /// A drawing on its way to what it was given last: what it comes from, when it started, and how it moves.
 pub(crate) struct Run {
   pub(crate) from: Option<MotionValue>,
-  pub(crate) started: std::time::Instant,
+  pub(crate) started: crate::time::Instant,
   pub(crate) motion: CanvasMotion,
   pub(crate) paint: PaintFn,
 }
 
 impl Run {
   /// How far along the way it is at `now`, eased: 1 at its end.
-  pub(crate) fn progress(&self, now: std::time::Instant) -> f32 {
+  pub(crate) fn progress(&self, now: crate::time::Instant) -> f32 {
     let duration = self.motion.duration.as_secs_f64();
     if duration <= 0.0 {
       return 1.0;
