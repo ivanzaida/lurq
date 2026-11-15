@@ -2569,6 +2569,16 @@ impl Ctx {
       let has_slot_children = slot.ctx.slot_children.is_some() || slot_children.is_some();
       let props_changed = slot.ctx.props_changed(&props);
       let inherited = slot.ctx.inherit_contexts(&self.context_map);
+      // A component is in the theme it is mounted in now (`in_theme`), not the one its slot was made in: a stage
+      // switched to the other appearance renders what is on it again, in that theme.
+      let theme_changed = match (&slot.ctx.theme, &self.theme) {
+        (Some(held), Some(now)) => !held.same_theme(now),
+        (None, Some(_)) => true,
+        _ => false,
+      };
+      if theme_changed {
+        slot.ctx.theme = self.theme.clone();
+      }
       slot.ctx.slot_children = slot_children;
       if props_changed {
         slot.ctx.set_props(props);
@@ -2588,6 +2598,7 @@ impl Ctx {
       let mut context_changed = inherited == Inherited::Changed;
       let mut needs_render = has_slot_children
         || props_changed
+        || theme_changed
         || inherited == Inherited::Changed
         || slot.ctx.any_dirty()
         || slot.rendered.is_none()

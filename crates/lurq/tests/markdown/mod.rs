@@ -22,3 +22,4 @@ mod speed;
 mod strikethrough;
 mod table_cells;
 mod text;
+mod theme_scope;
