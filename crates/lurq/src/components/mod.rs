@@ -1095,6 +1095,17 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
+      /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system where it
+      /// is: on Windows the window answers the system's hit test there with the minimize, the maximize or the
+      /// close button, so that Windows 11 opens its snap layouts over the maximize control. The element is
+      /// otherwise as before: its states, its `on_click`, its cursor and its keys are its own, and it is what
+      /// acts on the window. On other platforms this does nothing.
+      pub fn window_control(mut self, control: $crate::node::WindowControl) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::window_control(node, control));
+        self
+      }
+
       pub fn ref_element(mut self, element_ref: impl Into<$crate::core::ElementRef>) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::ref_element(node, element_ref));
         self

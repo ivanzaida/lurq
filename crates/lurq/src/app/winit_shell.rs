@@ -492,6 +492,9 @@ impl ManagedWindow {
       self.tree.set_window_position(position.x, position.y);
       self.notify_position_changed(position.x, position.y);
     }
+    // The system is told where the window's controls are in a title bar the app draws itself.
+    #[cfg(windows)]
+    tell_window_controls(&window, &mut self.tree);
     self.window = Some(window);
     self.sync_window_state();
     let presented = show_after_first_present && self.present_now(app, true);
@@ -1359,6 +1362,8 @@ impl ManagedSecondaryWindow {
     if let Ok(position) = window.outer_position() {
       tree.set_window_position(position.x, position.y);
     }
+    #[cfg(windows)]
+    tell_window_controls(&window, tree);
     self.window = Some(window);
     // A window of UIKit's is seen in a scene: one the system has ready for it, or one it is asked for now.
     #[cfg(target_os = "ios")]
@@ -2833,6 +2838,19 @@ fn start_native_window_drag(window: &Window) -> bool {
 fn start_native_window_resize(window: &Window, direction: WindowResizeDirection) -> bool {
   begin_native_window_resize(window, direction)
     || window.drag_resize_window(to_winit_resize_direction(direction)).is_ok()
+}
+
+/// Has `tree` leave where the window's controls are (`.window_control(..)`) after each layout, and lays the
+/// shell's procedure over `window`, which answers the system's hit test from it; see `app::window_control_hits`.
+#[cfg(windows)]
+fn tell_window_controls(window: &Window, tree: &mut Tree) {
+  let Ok(handle) = window.window_handle() else {
+    return;
+  };
+  if let RawWindowHandle::Win32(handle) = handle.as_raw() {
+    tree.publish_window_controls();
+    crate::app::window_control_hits::lay_over(handle.hwnd.get(), tree.window().clone());
+  }
 }
 
 #[cfg(windows)]

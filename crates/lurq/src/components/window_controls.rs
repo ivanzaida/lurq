@@ -4,7 +4,7 @@ use crate::{
   app::{events::MouseEvent, theme::TypographyStyle, window::WindowHandle},
   components::{Row, Text},
   layout::{Alignment, layout_kind::Justify},
-  node::{BackgroundColor, CursorIcon, Element, Style, TextColor, color::Color, dimension::Dimension},
+  node::{BackgroundColor, CursorIcon, Element, Style, TextColor, WindowControl, color::Color, dimension::Dimension},
 };
 
 const WINDOWS_CONTROL_WIDTH: f32 = 46.0;
@@ -233,33 +233,40 @@ impl WindowControls {
     let width = self.button_width;
     let button_height = self.button_height.unwrap_or(height);
     let middle = if maximized { self.restore } else { self.maximize };
-
+    // Each control says which of the window's it is: the shell tells the system (Windows 11 opens its snap layouts
+    // over the maximize one).
     Row::new()
       .height(height)
       .align_items(Alignment::Center)
       .child(
-        control_button(self.minimize, width, button_height).on_click(move |event: MouseEvent| {
-          minimize_window.set_minimized(true);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        control_button(self.minimize, width, button_height)
+          .window_control(WindowControl::Minimize)
+          .on_click(move |event: MouseEvent| {
+            minimize_window.set_minimized(true);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          }),
       )
       .child(
-        control_button(middle, width, button_height).on_click(move |event: MouseEvent| {
-          maximize_window.set_maximized(!maximized);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        control_button(middle, width, button_height)
+          .window_control(WindowControl::Maximize)
+          .on_click(move |event: MouseEvent| {
+            maximize_window.set_maximized(!maximized);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          }),
       )
       .child(
-        control_button(self.close, width, button_height).on_click(move |event: MouseEvent| {
-          if let Some(on_close) = &on_close {
-            on_close();
-          }
-          close_window.close();
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        control_button(self.close, width, button_height)
+          .window_control(WindowControl::Close)
+          .on_click(move |event: MouseEvent| {
+            if let Some(on_close) = &on_close {
+              on_close();
+            }
+            close_window.close();
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          }),
       )
       .into()
   }
@@ -278,28 +285,34 @@ impl WindowControls {
       .spacing(0.0)
       .padding_left(8.0)
       .child(
-        macos_control_button(lights.close, lights.close_active).on_click(move |event: MouseEvent| {
-          if let Some(on_close) = &on_close {
-            on_close();
-          }
-          close_window.close();
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        macos_control_button(lights.close, lights.close_active, WindowControl::Close).on_click(
+          move |event: MouseEvent| {
+            if let Some(on_close) = &on_close {
+              on_close();
+            }
+            close_window.close();
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          },
+        ),
       )
       .child(
-        macos_control_button(lights.minimize, lights.minimize_active).on_click(move |event: MouseEvent| {
-          minimize_window.set_minimized(true);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        macos_control_button(lights.minimize, lights.minimize_active, WindowControl::Minimize).on_click(
+          move |event: MouseEvent| {
+            minimize_window.set_minimized(true);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          },
+        ),
       )
       .child(
-        macos_control_button(lights.zoom, lights.zoom_active).on_click(move |event: MouseEvent| {
-          maximize_window.set_maximized(!maximized);
-          event.prevent_default();
-          event.stop_immediate_propagation();
-        }),
+        macos_control_button(lights.zoom, lights.zoom_active, WindowControl::Maximize).on_click(
+          move |event: MouseEvent| {
+            maximize_window.set_maximized(!maximized);
+            event.prevent_default();
+            event.stop_immediate_propagation();
+          },
+        ),
       )
       .into()
   }
@@ -307,6 +320,18 @@ impl WindowControls {
 
 impl WindowControlKind {
   pub const ALL: [Self; 4] = [Self::Minimize, Self::Maximize, Self::Restore, Self::Close];
+}
+
+/// Which of the window's controls a Windows-style control is to the window: `Maximize` and `Restore` are the one
+/// in the middle, which the system knows as the maximize button.
+impl From<WindowControlKind> for WindowControl {
+  fn from(kind: WindowControlKind) -> Self {
+    match kind {
+      WindowControlKind::Minimize => Self::Minimize,
+      WindowControlKind::Maximize | WindowControlKind::Restore => Self::Maximize,
+      WindowControlKind::Close => Self::Close,
+    }
+  }
 }
 
 impl WindowControlContent {
@@ -401,8 +426,9 @@ fn control_button(button: WindowControlButton, width: f32, height: f32) -> Row {
     .child(button.content.render(colors.foreground))
 }
 
-fn macos_control_button(color: BackgroundColor, active_color: BackgroundColor) -> Row {
+fn macos_control_button(color: BackgroundColor, active_color: BackgroundColor, control: WindowControl) -> Row {
   Row::new()
+    .window_control(control)
     .width(20.0)
     .height(Dimension::Pct(100.0))
     .align_items(Alignment::Center)

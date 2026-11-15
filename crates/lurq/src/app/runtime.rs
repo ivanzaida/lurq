@@ -116,6 +116,7 @@ mod touch_pointer;
 mod touch_pointer_tests;
 #[cfg(test)]
 mod touch_tests;
+mod window_controls;
 
 use overlay_layers::{HiddenDismiss, OverlayLayers};
 use selected_text_lines::{SelectedTextFragment, join_selected_text};
@@ -744,6 +745,8 @@ pub struct Tree {
   /// there; `None` once it left the window. The hover is hit-tested again
   /// there after a layout moves content.
   pointer: Option<hover::PointerAt>,
+  /// Whether a shell asked for where the window's controls are, after each layout: see `window_controls`.
+  publishes_window_controls: bool,
   hover_path: Vec<NodeId>,
   active_path: Vec<NodeId>,
   dragging_scroll: Option<ScrollDrag>,
@@ -1169,6 +1172,7 @@ impl Tree {
       scale_factor: 1.0,
       window: crate::app::window::Window::new(),
       pointer: None,
+      publishes_window_controls: false,
       hover_path: Vec::new(),
       active_path: Vec::new(),
       dragging_scroll: None,
@@ -6965,6 +6969,7 @@ impl Tree {
         self.dropped_nodes = tab_navigation::dropped_node_ids(root, &layout);
       }
       self.last_layout = Some(layout);
+      self.leave_window_controls();
       self.blur_focus_in_dropped_child();
       self.tree_rebuilt_since_layout = false;
       // All tick walks for this frame ran (base tree + overlay subtrees), so
