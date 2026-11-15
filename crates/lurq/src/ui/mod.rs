@@ -64,6 +64,8 @@ mod find_bar;
 mod floating_panel;
 #[cfg(feature = "canvas")]
 mod gauge;
+#[cfg(feature = "canvas")]
+mod heatmap;
 mod highlight;
 mod hover_card;
 mod icon;
@@ -91,11 +93,15 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
+#[cfg(feature = "canvas")]
+mod pie_chart;
 mod popconfirm;
 mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+#[cfg(feature = "canvas")]
+mod radar_chart;
 mod radio;
 mod rating;
 mod recipe;
@@ -184,6 +190,8 @@ pub use chart::{
   TipPlace, chart_motion, chart_recipe, default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap,
   step as chart_step,
 };
+#[cfg(feature = "canvas")]
+pub use chart::ChartLabel;
 pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupRenderer, CheckboxGroupState, CheckboxGroupView,
   CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView,
@@ -267,6 +275,8 @@ pub use floating_panel::{
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
+#[cfg(feature = "canvas")]
+pub use heatmap::{Heatmap, HeatmapPart};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
@@ -325,6 +335,8 @@ pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
   TransitionEasing,
 };
+#[cfg(feature = "canvas")]
+pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
@@ -344,6 +356,8 @@ pub use property_grid::{
   CategoryView, EditorContext, PROPERTY_NAME_WIDTH, Property, PropertyCategory, PropertyGrid, PropertyGridPart,
   PropertyGridRenderer, PropertyGridState, PropertyGridView, PropertyRow, PropertyView,
 };
+#[cfg(feature = "canvas")]
+pub use radar_chart::{RadarChart, RadarChartPart};
 pub use radio::{
   Radio, RadioGroup, RadioGroupPart, RadioGroupRenderer, RadioGroupState, RadioGroupView, RadioPart, RadioRenderer,
   RadioSelection, RadioState, RadioView,

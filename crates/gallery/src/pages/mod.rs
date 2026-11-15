@@ -12,6 +12,7 @@ mod avatar;
 mod badge;
 mod bar_list;
 mod gauge;
+mod heatmap;
 mod meter;
 mod sparkline;
 mod stat_card;
@@ -72,11 +73,13 @@ mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod pie_chart;
 mod popconfirm;
 mod popover;
 mod progress;
 mod progress_dialog;
 mod property_grid;
+mod radar_chart;
 mod radio;
 mod radio_card;
 mod rating;
@@ -955,6 +958,30 @@ pub const PAGES: &[Page] = &[
     about: "scatter chart points dots x y two axes correlation trend regression outlier series nearest point tooltip legend hidden grid value_axis x_text value_text on_select empty_text loading size height canvas ChartSeries points",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<scatter_chart::ScatterChartPage>(()),
+  },
+  Page {
+    path: "/pie-chart",
+    name: "Pie Chart",
+    icon: Some("chart-pie"),
+    about: "pie chart donut ring slices share whole parts percent legend beside total hole names series colors legend_value share_text total_text tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint PieLegendValue",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<pie_chart::PieChartPage>(()),
+  },
+  Page {
+    path: "/radar-chart",
+    name: "Radar Chart",
+    icon: Some("chart-radar"),
+    about: "radar chart spider web star polar axes rings spokes polygon profile compare series values names value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<radar_chart::RadarChartPage>(()),
+  },
+  Page {
+    path: "/heatmap",
+    name: "Heatmap",
+    icon: Some("grid"),
+    about: "heatmap heat map grid cells calendar contributions commits activity scale steps less more range rows columns column_axis cell_size missing value tooltip value_text on_select empty_text loading size height canvas ChartSeries ChartPoint",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<heatmap::HeatmapPage>(()),
   },
   Page {
     path: "/data-grid",
