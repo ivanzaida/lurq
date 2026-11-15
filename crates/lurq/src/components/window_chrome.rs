@@ -581,8 +581,15 @@ fn border_layers(window: &WindowHandle, policy: &ChromeBorderPolicy) -> Vec<Elem
   ]
 }
 
+/// A line of the frame's outline. It is drawn, and takes no pointer: where no zone resizes the window (a maximized
+/// window has none) the pointer on the window's outermost pixels is on what is under the line, so the close control
+/// of a maximized window is pressed in the very corner of the screen.
 fn border_strip(x: f32, y: f32, width: f32, height: f32, color: BackgroundColor) -> Element {
-  Row::new().absolute(x, y, width, height).background(color).into()
+  Row::new()
+    .absolute(x, y, width, height)
+    .background(color)
+    .hit_test(HitTestBehavior::None)
+    .into()
 }
 
 fn active_resize_handle_size(window: WindowInfo, size: f32) -> f32 {
@@ -958,6 +965,32 @@ mod tests {
       .node;
 
     assert_eq!(root.color(), Some(frame_background));
+  }
+
+  #[test]
+  fn the_outline_of_the_frame_takes_no_pointer() {
+    let window = crate::app::window::Window::new();
+    window.set_resolved_size(800.0, 600.0);
+    // A maximized window has no zone that resizes it over the outline: the pointer on its outermost pixels is on
+    // what is under the line, as the close control in the corner of the screen.
+    window.set_maximized(true);
+    window.set_decorated(false);
+    let mut ctx = Ctx::new().with_window(window);
+    let root = WindowChrome::new()
+      .mode(WindowChromeMode::AlwaysCustom)
+      .border(ChromeBorderPolicy::Visible {
+        size: 1.0,
+        color: BackgroundColor::Color(Color::from_hex("#252a32")),
+      })
+      .content(Row::new())
+      .mount(&mut ctx)
+      .node;
+    let chrome_overlay = &root.children[1].modal_declaration.as_ref().unwrap().node;
+    let lines = &chrome_overlay.children[1..];
+    assert_eq!(lines.len(), 4, "the four lines of the outline");
+    for line in lines {
+      assert_eq!(line.hit_test_behavior(), HitTestBehavior::None);
+    }
   }
 
   #[test]
