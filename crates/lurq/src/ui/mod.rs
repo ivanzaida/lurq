@@ -21,6 +21,7 @@ mod alert;
 mod avatar;
 mod badge;
 mod banner;
+mod bar_list;
 mod breadcrumb;
 mod button;
 mod button_group;
@@ -140,6 +141,9 @@ pub use avatar::{
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
+pub use bar_list::{
+  BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView,
+};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,

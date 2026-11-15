@@ -5,6 +5,7 @@ mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
+mod bar_list;
 mod breadcrumb;
 mod button;
 mod calendar;

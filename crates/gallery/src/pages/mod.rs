@@ -9,6 +9,7 @@ mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
+mod bar_list;
 mod banner;
 mod breadcrumb;
 mod button;
@@ -112,18 +113,20 @@ pub enum Group {
   Navigation,
   Surfaces,
   Data,
+  Charts,
   Desktop,
 }
 
 impl Group {
   /// The groups in the order of the side bar.
-  pub const ALL: [Group; 7] = [
+  pub const ALL: [Group; 8] = [
     Self::GettingStarted,
     Self::Actions,
     Self::Inputs,
     Self::Navigation,
     Self::Surfaces,
     Self::Data,
+    Self::Charts,
     Self::Desktop,
   ];
 
@@ -135,6 +138,7 @@ impl Group {
       Self::Navigation => "Navigation",
       Self::Surfaces => "Surfaces & overlays",
       Self::Data => "Data",
+      Self::Charts => "Charts",
       Self::Desktop => "Desktop",
     }
   }
@@ -884,6 +888,14 @@ pub const PAGES: &[Page] = &[
     about: "data grid datagrid spreadsheet cells cell focus edit editing in place editor text number choice checkbox on_edit read_only resizable resize pinned pin columns sort selected keyboard arrows tab enter escape f2 virtualized thousands fifty columns mount CellEditor CellValue CellEdit",
     group: Group::Data,
     mount: |ctx| ctx.mount::<data_grid::DataGridPage>(()),
+  },
+  Page {
+    path: "/bar-list",
+    name: "Bar List",
+    icon: Some("list"),
+    about: "bar list chart bars ranking top slowest largest horizontal bar value scale name track new item items title description label max color value_text empty_text framed on_select key disabled style rules",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<bar_list::BarListPage>(()),
   },
   Page {
     path: "/splitter",

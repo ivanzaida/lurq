@@ -5285,6 +5285,47 @@ Timeline::new(entries)
 - The small size: a dot of 8 on a rail of 8, 10 from the content, the title 13 with the time at the end of its row, the description 12, 4 under the content; a mark is 20, its icon 12. The time column is 80 (64 small), its time at its end, 2 down to stand by the title. Alternate, the two sides share the room, the text before the line at its end. Across, the rail is a row 12 high (10 small, 24 with marks), its mark in its middle and its line 4 short of the next mark, the content 8 under it (6 small) and 12 from the next item. The item that shows more is a small ghost button, its hollow dot in the middle of it.
 - A theme's renderer is given `TimelineView`: `view.items` (each a `TimelineItemView` with its title, description, time, whether it is current, pending, the last and before the line, and `item.mark()`, `item.rail()`, `item.content()`, `item.opposite()`, `item.action()`, `item.root(children)`, `item.render()`), `view.more` (a `TimelineMore` with `more.mark()`, `more.button()`, `more.render()`), `view.horizontal`, `view.grouped` and `view.root(items)`.
 
+## Bar List
+
+Named values as bars of one scale: the slowest tests of a run, the largest folders, the pages visited most.
+
+```rust
+use lurq::ui::{BarList, BarListItem};
+
+BarList::new([("text_pipeline", 9.2), ("canvas_mesh", 7.0), ("layout_flex", 4.7), ("theme_roles", 2.5)])
+  .title("Slowest tests")
+  .description("Seconds");
+
+// Rows that are pressed, told which by name: one stop of Tab, the arrows between them.
+BarList::new([BarListItem::new("target/", 27.4), BarListItem::new("node_modules/", 3.1)])
+  .title("Largest folders")
+  .value_text(|gigabytes| format!("{gigabytes:.1} GB"))
+  .on_select(|folder| open(folder));
+```
+
+| Builder | |
+| --- | --- |
+| `BarList::new(items)` | The rows in the app's order: `BarListItem::new(name, value)` or `(name, value)`; `item(..)` and `items(..)` add more |
+| `title(&str)`, `description(&str)` | Over the rows: what they are, and the line under it ("Seconds") |
+| `label(&str)` | What the list is called to tooling, where it has no title or another name is wanted |
+| `max(impl Into<f64>)` | The value a bar fills its track at. Not given, the largest value rounded up to 1, 2, 2.5 or 5 of a power of ten |
+| `color(PaletteColor)` | The role of the bars, `Chart1` unless given; `BarListItem::color` for one row's |
+| `value_text(Fn(f64) -> String)` | Writes a row's value as the app does. Not given, with as many decimals as the most precise value has, up to 2 |
+| `empty_text(&str)` | What a list with no rows says, "No data" when not given |
+| `framed(bool)` | The board's card, as it is unless told otherwise; off, the rows stand on what holds them |
+| `on_select(Fn(&str))` | Told the key of the row pressed (its name, unless it has a `key`), after the row's own handlers: every row that is not disabled is then pressed |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first row that is pressed |
+| `BarListItem::on_select(Fn())`, `disabled(bool)`, `key(..)`, `id(..)`, `color(..)` | A row's own handler, called before the list's; a row that takes nothing; what the list's `on_select` is told in its place |
+
+- The bars share one scale, from 0 to `max`: 9.2 of a scale to 10 fills 92% of its track. A value under 0 draws no bar, and one over the scale fills its track; the value is written as it is either way.
+- A name longer than its column of 92 is cut with an ellipsis; the track gives way, the value keeps its room.
+- A row is as high as the theme's [density](../theme/#density) makes a row of 26 (18, 34 and 38 at compact, comfortable and touch); its bar keeps its 14.
+- It is read and not operated, but where a row is pressed the pressed rows are one stop of Tab, a [focus group](../focus-navigation/#focus-groups) that is `one_stop`, with `typeahead`: Up and Down move between them, Home and End to the ends, a letter to the next name it starts, and a disabled row is passed by.
+- To what reads the tree it is a `figure` called by its label or its title and described by its description, holding a `list` whose `listitem`s are called by their names and say their value as `a11y_valuetext`; inside a row that is pressed is a `button`.
+- Parts: `BarListPart::Root`, `Header`, `Title`, `Description`, `Rows`, `Row`, `Name`, `Track`, `Bar`, `Value`, `Empty`. States: `BarListState::Framed` (of the list), and of a row `Pressable`, `Disabled`.
+- In the design the list is a card (`Card` with an edge of 1 in `Border`, the extra large radius and the small shadow), 20 in, its header and its rows 16 apart. The title is 15 at 600 in `CardForeground` over the description, 12 in `MutedForeground`, 3 under it. A row is its name, the mono type at 11 in `CardForeground` in a column of 92, a track of 26 with a bar of 14 in `Chart1` and the small radius, and its value, the mono type at 11 in `MutedForeground`, 10 apart. The board draws nothing else of it: a row that is pressed has the `StateHover` and `StatePressed` veils and a ring of 2 in `Ring` inside it, and is half opaque where it is disabled.
+- A theme's renderer is given `BarListView`: `view.rows` (each a `BarListRow` with its name, value, value text, the share of its track and its color, and `row.name()`, `row.track()`, `row.value()`, `row.root(children)`, `row.render()`), `view.max`, `view.header()`, `view.rows(rows)` and `view.root(content)`.
+
 ## Tab And The Design System's Controls
 
 A plain `lurq::components::Button` is a stop of Tab only inside a form or with a `tab_index` of its own. A control of the design system, a button, a toggle, a link, the track of a switch, the box of a checkbox, an input, is a stop wherever it is, in the order of the tree; a disabled one is passed by.
