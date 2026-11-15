@@ -358,6 +358,7 @@ pub struct Picture {
   bare: bool,
   size: Option<Name>,
   placeholder: PicturePlaceholder,
+  loading: bool,
   progress: Option<f64>,
   progress_text: Option<Arc<dyn Fn(f64) -> String + Send + Sync>>,
   words: Words,
@@ -400,6 +401,7 @@ impl Picture {
       bare: false,
       size: None,
       placeholder: PicturePlaceholder::default(),
+      loading: false,
       progress: None,
       progress_text: None,
       words: Words::default(),
@@ -562,6 +564,13 @@ impl Picture {
     self
   }
 
+  /// Shows the box as it is while the pixels are on their way, whatever its source: for a picture the app is
+  /// still fetching and has no source for yet.
+  pub fn loading(mut self, loading: bool) -> Self {
+    self.loading = loading;
+    self
+  }
+
   /// How far the load has come, of 1, where the app knows: a rail in the middle of the box in place of the
   /// sheen, and along the bottom edge of a small picture. `None` for a load that cannot tell.
   pub fn progress(mut self, progress: impl Into<Option<f64>>) -> Self {
@@ -668,8 +677,8 @@ impl Picture {
     self
   }
 
-  /// Shows the bar, or hides it, whatever the pointer and the focus do: for a picture that always says what it
-  /// is, and for a gallery's page of states.
+  /// Shows the bar, and the ring of the mark of a picture that can be chosen, or hides the bar, whatever the
+  /// pointer and the focus do: for a picture that always says what it is, and for a gallery's page of states.
   pub fn force_bar_shown(mut self, shown: Option<bool>) -> Self {
     self.force_bar_shown = shown;
     self
@@ -1173,7 +1182,6 @@ impl PictureView {
 
   /// What stands in for the pixels while they are on their way, for each time it is shown: the sheen, or how
   /// far the load has come where the app says.
-  #[cfg_attr(not(feature = "image"), allow(dead_code))]
   fn loading_maker(&self) -> impl Fn() -> Element + Send + Sync + 'static {
     let (forms, known) = (self.forms.clone(), self.known);
     let (progress, placeholder) = (self.picture.progress, self.picture.placeholder);
@@ -1561,6 +1569,8 @@ impl PictureView {
       inner = inner.height(full);
     }
     inner = match self.image() {
+      // What the app is still fetching: the stand-in a decode shows, with no pixels to come by themselves.
+      _ if picture.loading => inner.child(self.loading_maker()()),
       Some(image) => inner.child(image),
       None => inner.child(self.empty()),
     };
@@ -1802,6 +1812,9 @@ impl Themed for Picture {
       })
       .size(Sm, Select, |s| s.square(16.0))
       .when(Selector::new().state(Selectable).within(), Select, |s| s.opacity(1.0))
+      .when(Selector::new().state(Selectable).state(Shown), Select, |s| {
+        s.opacity(1.0)
+      })
       .state(Selected, Select, |s| {
         s.background(Primary)
           .border(Border::inside(1.5, PrimaryForeground))

@@ -78,6 +78,7 @@ mod outcome;
 mod overview;
 mod pagination;
 mod password_input;
+mod picture;
 mod pie_chart;
 mod play_button;
 mod popconfirm;
@@ -1058,6 +1059,14 @@ pub const PAGES: &[Page] = &[
     about: "waveform audio voice message peaks bars loudness played unheard seek progress controlled at on_change on_change_end step disabled",
     group: Group::Media,
     mount: |ctx| ctx.mount::<waveform::WaveformPage>(()),
+  },
+  Page {
+    path: "/picture",
+    name: "Picture",
+    icon: Some("image"),
+    about: "picture image img photo figure caption alt thumbnail cover contain fill fit anchor aspect ratio skeleton loading progress error retry badge bar actions download menu select selected gallery bare overlay Picture PictureFit PictureSize PictureShape from_file from_bytes from_resource empty label width height size on_click on_download on_retry on_change mount",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<picture::PicturePage>(()),
   },
   Page {
     path: "/video-player",
