@@ -987,6 +987,64 @@ fn a_mounted_table_of_ten_thousand_rows_builds_those_in_view_and_end_reaches_the
 }
 
 #[test]
+fn a_mounted_table_brings_a_row_the_app_asks_for_into_view_once_for_each_asking() {
+  let rows = many(1_000);
+  // The row asked for and which asking it is, and something else of the app's that renders the scene again.
+  let asked = Signal::new((0_u32, 0_u64));
+  let other = Signal::new(0_u32);
+  let (scene_asked, scene_other) = (asked.clone(), other.clone());
+  let mut stage = window(Stage::new(move |ctx| {
+    let (row, request) = scene_asked.get();
+    let _ = scene_other.get();
+    Column::new()
+      .size(640.0, 300.0)
+      .child(
+        Table::new_shared(columns(), rows.clone())
+          .row_key(|row: &Crate| row.size)
+          .id("t")
+          .height(300.0)
+          .reveal(row, request)
+          .mount(ctx),
+      )
+      .into()
+  }));
+  assert!(stage.paints("crate 0"));
+  assert!(
+    stage.tree.get_element_by_id_mut("t-row-700").is_none(),
+    "a far row is not built"
+  );
+
+  // The app selects a row from outside the table and asks to see it.
+  asked.set((700, 1));
+  stage.pass();
+  stage.pass();
+  let (_, y, ..) = stage.bounds("t");
+  let (_, row_y, _, row_height) = stage.bounds("t-row-700");
+  assert!(
+    row_y >= y && row_y + row_height <= y + 300.0 + 0.5,
+    "the row asked for is in view: {row_y} in {y}"
+  );
+  // It is the row Tab stops on, as a row the keys went to is.
+  key_with(&mut stage, "Tab", false, false);
+  assert_eq!(focused(&stage).as_deref(), Some("t-row-700"));
+
+  // A person goes elsewhere: a render with the same asking does not bring them back.
+  key_with(&mut stage, "Home", false, false);
+  stage.pass();
+  assert_eq!(focused(&stage).as_deref(), Some("t-row-0"));
+  other.set(1);
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("crate 0"), "the table stays where the person left it");
+
+  // A new asking for a row that is not among the rows scrolls nowhere.
+  asked.set((5_000, 2));
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("crate 0"));
+}
+
+#[test]
 fn a_mounted_table_of_fifty_columns_builds_the_cells_of_those_in_view_and_the_pinned_ones() {
   let rows = many(200);
   let columns = || {

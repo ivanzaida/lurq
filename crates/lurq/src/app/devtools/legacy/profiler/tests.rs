@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use super::*;
 use crate::app::{
-  devtools::profiler_capture::{IDLE_GAP_MS, causes_section, fps, pass_detail, phase_rows},
+  devtools::legacy::profiler_capture::{IDLE_GAP_MS, causes_section, fps, pass_detail, phase_rows},
   profiler::{
     FrameProfile, GpuTimestampAvailability, GpuTiming, PassAllocations, PassCounters, PassSample, Phase, PhaseSpan,
     ProfileSample, SampleData, producer::WindowProfiler,

@@ -64,6 +64,7 @@ fn set_component_debug_metadata(node: &mut Node, ctx: &Ctx) {
   node.set_component_memos_debug(ctx.memos_debug());
   node.set_component_effects_debug(ctx.effects_debug());
   node.set_component_contexts_debug(ctx.contexts_debug());
+  node.set_component_render_debug(Some(ctx.render_debug()));
 }
 
 fn attach_component_metadata(
@@ -858,6 +859,11 @@ pub struct Ctx {
   effects_debug: Vec<ComponentEffectDebug>,
   #[cfg(feature = "devtools")]
   contexts_debug: Vec<ComponentContextDebug>,
+  #[cfg(feature = "devtools")]
+  render_debug: ComponentRenderDebug,
+  /// When the render that is running began: what its time is measured from.
+  #[cfg(feature = "devtools")]
+  render_started: Option<Instant>,
   theme: Option<Theme>,
   window: Option<crate::app::window::Window>,
   breakpoint: Option<crate::core::Memo<Option<crate::app::theme::Breakpoint>>>,
@@ -964,6 +970,16 @@ pub struct ComponentValueChangeDebug {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComponentEffectDebug {
   pub id: usize,
+}
+
+/// How a component has rendered, for DevTools: counted where its render is called.
+#[cfg(feature = "devtools")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ComponentRenderDebug {
+  /// How many times it has rendered since it was mounted.
+  pub count: u64,
+  /// How long its last render took, with the renders of what it mounted in it.
+  pub last: Duration,
 }
 
 #[cfg(feature = "devtools")]
@@ -1326,6 +1342,10 @@ impl Ctx {
       effects_debug: Vec::new(),
       #[cfg(feature = "devtools")]
       contexts_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      render_debug: ComponentRenderDebug::default(),
+      #[cfg(feature = "devtools")]
+      render_started: None,
       theme: None,
       window: None,
       breakpoint: None,
@@ -1587,6 +1607,11 @@ impl Ctx {
   #[cfg(feature = "devtools")]
   pub(crate) fn props_debug(&self) -> Option<DevtoolsInspectableDebug> {
     self.props_debug.clone()
+  }
+
+  #[cfg(feature = "devtools")]
+  pub(crate) fn render_debug(&self) -> ComponentRenderDebug {
+    self.render_debug
   }
 
   #[cfg(feature = "devtools")]
@@ -2923,6 +2948,10 @@ impl Ctx {
     }
     self.provided_in_render = false;
     self.clear_dirty();
+    #[cfg(feature = "devtools")]
+    {
+      self.render_started = Some(Instant::now());
+    }
     self.child_cursor = 0;
     self.element_ref_cursor = 0;
     self.click_outside_cursor = 0;
@@ -2979,6 +3008,11 @@ impl Ctx {
   }
 
   pub(crate) fn end_render(&mut self) {
+    #[cfg(feature = "devtools")]
+    if let Some(started) = self.render_started.take() {
+      self.render_debug.count += 1;
+      self.render_debug.last = started.elapsed();
+    }
     self
       .click_outside_registry
       .lock()

@@ -41,6 +41,8 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     component_effects_debug: Vec::new(),
     #[cfg(feature = "devtools")]
     component_contexts_debug: Vec::new(),
+    #[cfg(feature = "devtools")]
+    component_render_debug: (0, 0),
     #[cfg(any(feature = "devtools", feature = "mcp"))]
     debug_attrs: Vec::new(),
     theme_scope: None,

@@ -48,6 +48,7 @@ Breaking:
 - `PartStyles` has three fields more, `within`, `within_hovered` and `within_pressed`: one written out field by field must add them, or end with `..PartStyles::default()`.
 
 - `DragEvent` has a field more, `outside_window`: one written out field by field must add it.
+- With `devtools`, `DevToolsNode` has a field more, `render` (how the component rendered, `None` on a node no component rendered), and `DevToolsProps` one, `system` (the system's settings as the inspected window knows them): one written out field by field must add them.
 
 Deprecated:
 
@@ -56,6 +57,10 @@ Deprecated:
 
 Added:
 
+- DevTools' **Components** tab is built anew from its board (`pencil/lurq-devtools.pen`) with the design system's components, in a theme of DevTools' own: the design system's, light or dark with the system, whatever the inspected app made of its theme. The window draws its own title bar (`ui::WindowChrome`). The tree is a `ui::Table` whose first column is the tree, with the node's kind and how many children it has beside it, built for the rows in view; a divider between the tree and the inspector is dragged (`ui::Splitter`). The inspector says what rendered the node (the nearest component it is in), how many times a component has rendered and how long its last render took (counted by the engine where a render is called: `ComponentRenderDebug`, on `DevToolsNode::render`; they were numbers written in the source before), and shows its props, contexts, reactive values (signals, memos, effects) and attributes in a table each, its layout as a box in a box and its style a row for each property. Ctrl+F (Cmd+F) goes to the search, which says how many nodes it found, the nodes shown only on the way to them left out and drawn muted. The Profiler, Signals and Storage tabs are as they were, in the new window, until their boards are built. See [DevTools](docs/src/content/docs/devtools.md).
+- `Table::reveal(key, request)` and `DataGrid`'s through it: a mounted table brings the row of `key` into view once for each new `request`, as it does for a row the keys go to, for a row the app selects from outside the table. Asking again with the same number does nothing, so a person who scrolled away stays where they are.
+- `SearchField::ref_element(ElementRef)`: the ref of the field's text input, which the app focuses on the key the field's hint shows.
+- The gallery, built with `--features devtools`, opens DevTools beside it with `--devtools`, and with `mcp` too DevTools is a window agents read and capture.
 - `ui::CodeBlock`'s code is one read-only input: a stop of Tab whose arrows move a caret, Shift selecting, Ctrl+A taking it all and Ctrl+C copying, and a selection across its lines when they wrap too. `framed(false)` draws it without its frame, `header(false)` without its bar, and `row_height(..)` sets how high a line is: the gallery's code views are code blocks now. See [Code Block](docs/src/content/docs/design-system.md#code-block).
 - `lurq::code` tells apart the names of types and modules (`CodeTokenKind::Type`: a name before `::`, or one with a capital), the marks between names (`Punctuation`), block comments and characters, as the gallery's own code had them. Markdown's code blocks and `ui::CodeBlock` draw them in their roles.
 - `TextInput::wrap(false)`: a multiline input whose lines do not wrap, as wide as its longest line. `TextInput::line_gutter(LineGutter)`: the numbers of a multiline input's lines and bands behind the lines picked out, drawn where it lays its lines out. See [styling and events](docs/src/content/docs/styling-events.md#lines-of-code).

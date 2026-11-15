@@ -711,6 +711,7 @@ mod tests {
         contexts: Vec::new(),
         shape: Vec::new(),
         effects: Vec::new(),
+        render: None,
         layout_box: None,
         hovered: false,
         active: false,

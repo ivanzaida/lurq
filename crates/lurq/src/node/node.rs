@@ -1033,6 +1033,10 @@ pub(crate) struct Node {
   pub(crate) component_effects_debug: Vec<ComponentEffectDebug>,
   #[cfg(feature = "devtools")]
   pub(crate) component_contexts_debug: Vec<ComponentContextDebug>,
+  /// How the component whose root this is has rendered: how many times, and the microseconds of the last. Both
+  /// are 0 on a node no component rendered. Kept in eight bytes: every node of a DevTools build has it.
+  #[cfg(feature = "devtools")]
+  pub(crate) component_render_debug: (u32, u32),
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   pub(crate) debug_attrs: Vec<(Arc<str>, Arc<str>)>,
   /// The theme the element and what is in it are laid out and painted with, in place of the window's
@@ -2586,6 +2590,8 @@ impl Node {
       component_effects_debug: Vec::new(),
       #[cfg(feature = "devtools")]
       component_contexts_debug: Vec::new(),
+      #[cfg(feature = "devtools")]
+      component_render_debug: (0, 0),
       #[cfg(any(feature = "devtools", feature = "mcp"))]
       debug_attrs: Vec::new(),
       theme_scope: None,
@@ -4895,6 +4901,25 @@ impl Node {
     self.component_contexts_debug = contexts;
   }
 
+  #[cfg(feature = "devtools")]
+  pub(crate) fn set_component_render_debug(&mut self, render: Option<crate::app::ctx::ComponentRenderDebug>) {
+    let saturated = |value: u128| u32::try_from(value).unwrap_or(u32::MAX);
+    self.component_render_debug = render.map_or((0, 0), |render| {
+      (saturated(u128::from(render.count)), saturated(render.last.as_micros()))
+    });
+  }
+
+  /// How the component whose root this is has rendered: `None` on a node no component rendered. The count
+  /// stops at `u32::MAX`, and the time is whole microseconds.
+  #[cfg(feature = "devtools")]
+  pub fn component_render_debug(&self) -> Option<crate::app::ctx::ComponentRenderDebug> {
+    let (count, micros) = self.component_render_debug;
+    (count > 0).then(|| crate::app::ctx::ComponentRenderDebug {
+      count: u64::from(count),
+      last: std::time::Duration::from_micros(u64::from(micros)),
+    })
+  }
+
   #[cfg(any(feature = "devtools", feature = "mcp"))]
   #[cfg_attr(not(feature = "router"), allow(dead_code))]
   pub(crate) fn debug_attr(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
@@ -6297,6 +6322,8 @@ impl Node {
       component_effects_debug: self.component_effects_debug.clone(),
       #[cfg(feature = "devtools")]
       component_contexts_debug: self.component_contexts_debug.clone(),
+      #[cfg(feature = "devtools")]
+      component_render_debug: self.component_render_debug,
       #[cfg(any(feature = "devtools", feature = "mcp"))]
       debug_attrs: self.debug_attrs.clone(),
       theme_scope: self.theme_scope.clone(),

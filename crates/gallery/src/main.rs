@@ -3,7 +3,7 @@
 //!
 //! `cargo run -p gallery`, or `cargo run -p gallery -- --route /tokens` to
 //! open on a page; `--size 800x600` opens the window at a size, to see a
-//! breakpoint.
+//! breakpoint. Built with `--features devtools`, `--devtools` opens DevTools beside it.
 
 mod doc;
 mod icon;
@@ -63,6 +63,10 @@ impl Component for Gallery {
     #[cfg(feature = "mcp")]
     if let Some(handle) = MCP.get() {
       handle.set_navigator(router.navigator());
+    }
+    #[cfg(feature = "devtools")]
+    if std::env::args().any(|arg| arg == "--devtools") {
+      ctx.window().open_devtools();
     }
     Self { router }
   }
@@ -128,11 +132,13 @@ fn run(mut app: App, route: String, engine: impl Fn() -> WgpuRenderEngine + 'sta
   #[cfg(feature = "mcp")]
   {
     use lurq::mcp::{McpConfig, Scope};
-    let handle = tree.enable_mcp(McpConfig::new().app_name("lurq-gallery").scopes([
-      Scope::Observe,
-      Scope::Interact,
-      Scope::Navigate,
-    ]));
+    let config = McpConfig::new()
+      .app_name("lurq-gallery")
+      .scopes([Scope::Observe, Scope::Interact, Scope::Navigate]);
+    // DevTools is a window of the gallery to what drives it: it is read and captured as the pages are.
+    #[cfg(feature = "devtools")]
+    let config = config.include_devtools(true);
+    let handle = tree.enable_mcp(config);
     eprintln!(
       "MCP listening on http://127.0.0.1:{}/mcp (token {})",
       handle.port(),

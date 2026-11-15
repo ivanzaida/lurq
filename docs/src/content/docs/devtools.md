@@ -30,6 +30,8 @@ The winit shell sees DevTools as a secondary window. It does not need inspector-
 
 ## What DevTools Shows
 
+DevTools is drawn in a theme of its own: the design system's, light or dark with the system. What the inspected app does to its theme (another palette, recipes of its own, another renderer for a component) does not reach the tool that inspects it. The Components tab is built with the design system's components from its board (`pencil/lurq-devtools.pen`); the Profiler, Signals and Storage tabs are as they were before the design system, in the same window, until theirs are built.
+
 The current DevTools UI has three primary tabs:
 
 | Tab | Shows |
@@ -38,7 +40,20 @@ The current DevTools UI has three primary tabs:
 | Profiler | A recording of every pass of the inspected windows between Start and Stop: a frame timeline with counter tracks (FPS, nodes, draw calls, memory, allocations) and input and UI-update markers, an opt-in filmstrip of frame screenshots, FPS, and each frame's phases, counters and full frame profile. |
 | Signals | Signal list, value, owner component, subscriber count, dependency graph, and change history. |
 
+## Components
+
+The tab is the tree of the inspected window and, beside it, the inspector of the node selected in the tree. The divider between them is dragged.
+
+- **The tree** is a table: a row for each node that is shown, with what it is called and what is written of it (`key`, `id`, `class`, the text of a `Text`), whether it is a component or an element, and how many children it has. A press of a row selects it; a press of its chevron, a double press or Enter closes and opens it. The rows are one stop of Tab: Up and Down move through them, Home and End to the first and the last, PageUp and PageDown by what is shown, Space selects. Thousands of nodes cost about a screen of them: the rows in view are built.
+- **Pick** makes the next press in the inspected window select the node under it: what the node is in is opened, and its row is brought into view.
+- **The inspector's header** names the node, its kind and its `NodeId`. **Overlay** outlines the selected node in the inspected window; **Screenshot** saves a picture of it.
+- **Under the header**: *Rendered by*, the nearest component the node is in, whose render built it; for a component, *Render count*, how many times it has rendered since it was mounted, and *Last render*, how long its last render took with the renders of what it mounted in it; and *Children*.
+- **The lists** of the node, a tab each with how many it holds: *Props* (the struct and its fields, with the fields they hold), *Context* (what it provides and uses), *Reactive* (its signals, memos and effects, each with its id, value and type) and *Attributes*.
+- **Layout** draws the node as a box in a box, its padding around its content, with where it is in the window and in what holds it, its size, its content's, whether it overflows, and whether it is hovered, active or focused. **Style** has a row for each thing said of the node's style, a color with its swatch, and the style of each state under a heading of its own (*On hover*, *On press*, *On focus*, *On keyboard focus*).
+
 ## Component Search
+
+Ctrl+F (Cmd+F on macOS) goes to the search box from anywhere in the tab. The count under the tree says how many nodes the search found; the rows shown only because what it found is in them are drawn muted, and are not counted.
 
 The Components tab search box accepts plain text and a small query language.
 

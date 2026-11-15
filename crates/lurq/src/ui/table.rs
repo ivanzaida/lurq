@@ -881,6 +881,8 @@ pub struct Table<R, K = usize> {
   checkboxes: bool,
   on_row_click: Vec<Told<K>>,
   on_row_activate: Vec<Told<K>>,
+  /// The row a mounted table is asked to bring into view, and which asking it is.
+  reveal: Option<(K, u64)>,
   density: Option<Density>,
   height: Option<Length>,
   max_height: Option<Length>,
@@ -947,6 +949,7 @@ impl<R, K: Clone> Clone for Table<R, K> {
       checkboxes: self.checkboxes,
       on_row_click: self.on_row_click.clone(),
       on_row_activate: self.on_row_activate.clone(),
+      reveal: self.reveal.clone(),
       density: self.density.clone(),
       height: self.height,
       max_height: self.max_height,
@@ -1023,6 +1026,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       checkboxes: true,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
+      reveal: None,
       density: None,
       height: None,
       max_height: None,
@@ -1094,6 +1098,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       checkboxes: self.checkboxes,
       on_row_click: Vec::new(),
       on_row_activate: Vec::new(),
+      reveal: None,
       density: self.density,
       height: self.height,
       max_height: self.max_height,
@@ -1358,6 +1363,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// Called with the row a double press or Enter activates: open what it is.
   pub fn on_row_activate(mut self, handler: impl Fn(&K) + Send + Sync + 'static) -> Self {
     self.on_row_activate.push(Arc::new(handler));
+    self
+  }
+
+  /// Brings the row of `key` into view, once for each new `request`: a mounted table scrolls the least that
+  /// shows it, as it does for a row the keys go to, and makes it the row Tab stops on. For a row the app selects
+  /// from outside the table (a thing picked elsewhere): the app counts its askings, and asking again with the
+  /// same number does nothing, so a person who scrolls away is not brought back at the next render.
+  pub fn reveal(mut self, key: K, request: u64) -> Self {
+    self.reveal = Some((key, request));
     self
   }
 
@@ -1945,6 +1959,18 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         key_index,
       )
     };
+    // A row the app asks to see is scrolled to once for each asking, by the table that keeps where it is
+    // scrolled, once it knows how high its rows are.
+    if let Some((key, request)) = &self.reveal
+      && let Some(host) = window.as_ref().and_then(|window| window.host.as_ref())
+      && *host.state.revealed.lock() != Some(*request)
+      && host.state.metrics.lock().row_height > 0.0
+    {
+      *host.state.revealed.lock() = Some(*request);
+      if let Some(position) = keys.rank_of(key).and_then(|rank| lines.position_of(rank)) {
+        host.state.reveal(position);
+      }
+    }
     let grouped = !lines.groups.is_empty() || !self.grouping.is_empty();
     let ranked = keys.clone();
     let model = Arc::new(Model {
@@ -5286,6 +5312,8 @@ struct HostState {
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
   focused: Mutex<Option<usize>>,
+  /// The last asking to bring a row into view that was answered.
+  revealed: Mutex<Option<u64>>,
   revision: Signal<u64>,
 }
 
@@ -5539,6 +5567,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         group_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
+        revealed: Mutex::new(None),
         revision: ctx.signal(0_u64),
       }),
       own_range: Arc::new(Mutex::new(None)),
