@@ -82,6 +82,8 @@ pub enum TablePart {
   HeaderCell,
   /// The arrow of the column the rows are sorted by, and the mark of one that sorts.
   SortIcon,
+  /// The place of a column in the sort after its arrow, where the rows are sorted by more than one.
+  SortOrder,
   /// What is dragged at the end of a column's header to make it wider or narrower: its width, its cursor.
   Resizer,
   /// The line in the resizer, shown under the pointer and while it is dragged.
@@ -131,6 +133,7 @@ names!(TablePart {
   Header => "header",
   HeaderCell => "header_cell",
   SortIcon => "sort_icon",
+  SortOrder => "sort_order",
   Resizer => "resizer",
   ResizeLine => "resize_line",
   MenuTrigger => "menu_trigger",
@@ -230,7 +233,8 @@ pub enum SortDirection {
   Descending,
 }
 
-/// The column the rows of a table are sorted by, and which way.
+/// A column the rows of a table are sorted by, and which way. The rows are sorted by a list of them: by the first,
+/// rows equal in it by the second, and so on.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TableSort {
   /// The id of the column.
@@ -256,15 +260,62 @@ impl TableSort {
     }
   }
 
-  /// What a press of the header of `column` makes of `current`: a column the rows are not sorted by sorts
-  /// them ascending, then descending, then not at all.
-  pub fn after_press(current: Option<&TableSort>, column: &str) -> Option<TableSort> {
-    match current {
-      Some(sort) if &*sort.column == column => match sort.direction {
-        SortDirection::Ascending => Some(Self::descending(column)),
-        SortDirection::Descending => None,
-      },
-      _ => Some(Self::ascending(column)),
+  /// What a press of the header of `column` makes of the sort `current`. A plain press sorts by that column alone:
+  /// ascending, then descending, then not at all. With Shift (`adding`) the column is added to the sort after the
+  /// others, ascending, or, where it is in it, turned to descending in its place, then taken out.
+  pub fn after_press(current: &[TableSort], column: &str, adding: bool) -> Vec<TableSort> {
+    let held = current.iter().position(|sort| &*sort.column == column);
+    if !adding {
+      return match held.map(|at| current[at].direction) {
+        Some(SortDirection::Ascending) => vec![Self::descending(column)],
+        Some(SortDirection::Descending) => Vec::new(),
+        None => vec![Self::ascending(column)],
+      };
+    }
+    let mut next = current.to_vec();
+    match held {
+      Some(at) if next[at].direction == SortDirection::Ascending => next[at].direction = SortDirection::Descending,
+      Some(at) => {
+        next.remove(at);
+      }
+      None => next.push(Self::ascending(column)),
+    }
+    next
+  }
+
+  /// Sorts `rows` by `sorts` of `columns`: by the first, the rows equal in it by the next, and so on, each by
+  /// what its column compares rows with or its text (see [`sort`](Self::sort)). Rows equal in all of them keep
+  /// their order.
+  pub fn sort_rows<R: 'static>(sorts: &[TableSort], columns: &[TableColumn<R>], rows: &mut [R]) {
+    let compares: Vec<(CompareFn<R>, SortDirection)> = sorts
+      .iter()
+      .filter_map(|sort| Some((sort.compare(columns)?, sort.direction)))
+      .collect();
+    if compares.is_empty() {
+      return;
+    }
+    rows.sort_by(|a, b| {
+      compares
+        .iter()
+        .map(|(compare, direction)| match direction {
+          SortDirection::Ascending => compare(a, b),
+          SortDirection::Descending => compare(b, a),
+        })
+        .find(|order| order.is_ne())
+        .unwrap_or(Ordering::Equal)
+    });
+  }
+
+  /// How its column compares two rows: by what it compares with, or its text.
+  fn compare<R: 'static>(&self, columns: &[TableColumn<R>]) -> Option<CompareFn<R>> {
+    let column = columns.iter().find(|column| column.id == self.column)?;
+    match (&column.compare, &column.content) {
+      (Some(compare), _) => Some(compare.clone()),
+      (None, Content::Text(text)) => {
+        let text = text.clone();
+        Some(Arc::new(move |a: &R, b: &R| text(a).cmp(&text(b))))
+      }
+      (None, _) => None,
     }
   }
 
@@ -273,16 +324,8 @@ impl TableSort {
   /// compare equal keep their order. A column it does not find, or one with nothing to compare by, leaves
   /// them as they are.
   pub fn sort<R: 'static>(&self, columns: &[TableColumn<R>], rows: &mut [R]) {
-    let Some(column) = columns.iter().find(|column| column.id == self.column) else {
+    let Some(compare) = self.compare(columns) else {
       return;
-    };
-    let compare: CompareFn<R> = match (&column.compare, &column.content) {
-      (Some(compare), _) => compare.clone(),
-      (None, Content::Text(text)) => {
-        let text = text.clone();
-        Arc::new(move |a: &R, b: &R| text(a).cmp(&text(b)))
-      }
-      (None, _) => return,
     };
     match self.direction {
       SortDirection::Ascending => rows.sort_by(|a, b| compare(a, b)),
@@ -589,8 +632,8 @@ impl<R: 'static> TableColumn<R> {
 }
 
 type Told<K> = Arc<dyn Fn(&K) + Send + Sync>;
-type SortFn = Arc<dyn Fn(Option<TableSort>) + Send + Sync>;
-type SortHeard = Arc<dyn Fn(Option<&TableSort>) + Send + Sync>;
+type SortFn = Arc<dyn Fn(Vec<TableSort>) + Send + Sync>;
+type SortHeard = Arc<dyn Fn(&[TableSort]) + Send + Sync>;
 type SelectionHeard<K> = Arc<dyn Fn(&[K]) + Send + Sync>;
 /// What asks for a range of cells to be the grid's, and what is told it.
 type RangeWrite<K> = Arc<dyn Fn(Option<CellRange<K>>) + Send + Sync>;
@@ -664,7 +707,7 @@ type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 /// #[derive(Clone)]
 /// struct Crate { name: String, status: String, updated: String }
 ///
-/// # fn crates(rows: Vec<Crate>, sort: Signal<Option<TableSort>>, selected: Signal<Vec<String>>) {
+/// # fn crates(rows: Vec<Crate>, sort: Signal<Vec<TableSort>>, selected: Signal<Vec<String>>) {
 /// let columns = vec![
 ///   TableColumn::new("name", "Name").text(|row: &Crate| row.name.clone()).mono(true).sortable(true),
 ///   TableColumn::new("status", "Status").width(120.0).text(|row: &Crate| row.status.clone()),
@@ -672,9 +715,7 @@ type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 /// ];
 /// // The app gives the rows in the order it wants: here, by the sort the header was pressed to.
 /// let mut rows = rows;
-/// if let Some(by) = sort.get() {
-///   by.sort(&columns, &mut rows);
-/// }
+/// TableSort::sort_rows(&sort.get(), &columns, &mut rows);
 /// let table = Table::new(columns, rows)
 ///   .row_key(|row: &Crate| row.name.clone())
 ///   .label("Crates")
@@ -686,9 +727,9 @@ type KeyFn<R, K> = Arc<dyn Fn(usize, &R) -> K + Send + Sync>;
 /// ```
 ///
 /// What the rows are, their order, what is selected and what they are sorted by are the app's. A press of a
-/// sortable header asks for the rows sorted by it, ascending, then descending, then not at all
-/// ([`Table::sort`], [`Table::on_sort_change`]), and the app gives them in that order ([`TableSort::sort`] sorts
-/// them by the column's text or what it compares by).
+/// sortable header asks for the rows sorted by it, ascending, then descending, then not at all, and with Shift
+/// for its column added to the sort after the others ([`Table::sort`], [`Table::on_sort_change`]); the app gives
+/// them in that order ([`TableSort::sort_rows`] sorts them by each column's text or what it compares by).
 ///
 /// With a selection ([`Table::selected`]) the table has a column of checkboxes. A press of a row selects it
 /// alone, with Ctrl (or Cmd) adds it or takes it out, and with Shift selects the rows from the last selected
@@ -710,7 +751,7 @@ pub struct Table<R, K = usize> {
   columns: Vec<TableColumn<R>>,
   rows: Arc<Vec<R>>,
   key_of: KeyFn<R, K>,
-  sort: Option<TableSort>,
+  sort: Vec<TableSort>,
   write_sort: Option<SortFn>,
   on_sort_change: Vec<SortHeard>,
   selected: Vec<K>,
@@ -840,7 +881,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       columns: columns.into_iter().collect(),
       rows,
       key_of: Arc::new(|index, _| index),
-      sort: None,
+      sort: Vec::new(),
       write_sort: None,
       on_sort_change: Vec::new(),
       selected: Vec::new(),
@@ -952,11 +993,13 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
 }
 
 impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Table<R, K> {
-  /// What the rows are sorted by: the signal's, which a press of a sortable header sets to the next of
-  /// ascending, descending and none. The rows are given in that order by the app.
-  pub fn sort(mut self, sort: Signal<Option<TableSort>>) -> Self
+  /// What the rows are sorted by: the signal's list of columns, the first first, which a press of a sortable
+  /// header sets to that column alone (ascending, descending, then none) and a press with Shift adds the column
+  /// to or turns it in ([`TableSort::after_press`]). Where it holds more than one, each sorted header shows its
+  /// place in it. The rows are given in that order by the app ([`TableSort::sort_rows`]).
+  pub fn sort(mut self, sort: Signal<Vec<TableSort>>) -> Self
   where
-    Option<TableSort>: SignalValue,
+    Vec<TableSort>: SignalValue,
   {
     self.sort = sort.get();
     self.write_sort = Some(Arc::new(move |next| sort.set(next)));
@@ -967,8 +1010,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// sortable header, and the table shows what the app gives it at the next render.
   pub fn sort_controlled(
     mut self,
-    sort: Option<TableSort>,
-    on_change: impl Fn(Option<TableSort>) + Send + Sync + 'static,
+    sort: Vec<TableSort>,
+    on_change: impl Fn(Vec<TableSort>) + Send + Sync + 'static,
   ) -> Self {
     self.sort = sort;
     self.write_sort = Some(Arc::new(on_change));
@@ -978,7 +1021,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// Called with what the rows are to be sorted by at each press of a sortable header, bound to a signal or
   /// not; a second handler is called after the first. Given alone, it makes the headers sortable, and the
   /// table shows the sort the app gives it with [`sort_controlled`](Self::sort_controlled).
-  pub fn on_sort_change(mut self, handler: impl Fn(Option<&TableSort>) + Send + Sync + 'static) -> Self {
+  pub fn on_sort_change(mut self, handler: impl Fn(&[TableSort]) + Send + Sync + 'static) -> Self {
     self.on_sort_change.push(Arc::new(handler));
     self
   }
@@ -2055,11 +2098,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       .enumerate()
       .filter(|(column_index, _)| built(*column_index))
       .map(|(column_index, column)| {
-        let sorted = self
-          .sort
-          .as_ref()
-          .filter(|sort| sort.column == column.id)
-          .map(|sort| sort.direction);
+        let sort_place = self.sort.iter().position(|sort| sort.column == column.id);
+        let sorted = sort_place.map(|at| self.sort[at].direction);
+        // Its place in the sort, where the rows are sorted by more than one column.
+        let sort_rank = sort_place.filter(|_| self.sort.len() > 1).map(|at| at + 1);
         let sortable = column.sortable && !self.disabled;
         let open = open_menu.as_deref() == Some(&*column.id);
         let drop = drop_of(column_index);
@@ -2082,18 +2124,23 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           let id = column.id.clone();
           let choose: Arc<dyn Fn(MenuChoice) + Send + Sync> = {
             let (id, layout, change) = (id.clone(), layout.clone(), change.clone());
-            let (write_sort, sort_heard) = (self.write_sort.clone(), self.on_sort_change.clone());
+            let (write_sort, sort_heard, now) =
+              (self.write_sort.clone(), self.on_sort_change.clone(), self.sort.clone());
             Arc::new(move |choice: MenuChoice| match choice {
               MenuChoice::Sort(direction) => {
-                let next = direction.map(|direction| TableSort {
-                  column: id.clone(),
-                  direction,
-                });
+                // A direction sorts by the column alone; "clear" takes it out of the sort, the rest as it is.
+                let next: Vec<TableSort> = match direction {
+                  Some(direction) => vec![TableSort {
+                    column: id.clone(),
+                    direction,
+                  }],
+                  None => now.iter().filter(|sort| sort.column != id).cloned().collect(),
+                };
                 if let Some(write) = &write_sort {
                   write(next.clone());
                 }
                 for handler in &sort_heard {
-                  handler(next.as_ref());
+                  handler(&next);
                 }
               }
               MenuChoice::Pin(pin) => change(layout.clone().with_pin(&id, pin)),
@@ -2172,19 +2219,21 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           })
         });
         let press = (sortable && (self.write_sort.is_some() || !self.on_sort_change.is_empty())).then(|| {
-          let (write, handlers, next) = (
+          let (write, handlers, now, id) = (
             self.write_sort.clone(),
             self.on_sort_change.clone(),
-            TableSort::after_press(self.sort.as_ref(), &column.id),
+            self.sort.clone(),
+            column.id.clone(),
           );
-          Arc::new(move || {
+          Arc::new(move |adding: bool| {
+            let next = TableSort::after_press(&now, &id, adding);
             if let Some(write) = &write {
               write(next.clone());
             }
             for handler in &handlers {
-              handler(next.as_ref());
+              handler(&next);
             }
-          }) as Arc<dyn Fn() + Send + Sync>
+          }) as Arc<dyn Fn(bool) + Send + Sync>
         });
         let resizable = column.resizable.unwrap_or(self.resizable) && !self.disabled;
         let resize = window
@@ -2231,6 +2280,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           align: column.align,
           sortable,
           sorted,
+          sort_rank,
           pinned: sticky_of(column_index),
           last: cell_ends(column_index),
           fill: sticky_of(column_index).and(header_fill.clone()),
@@ -3010,6 +3060,8 @@ pub struct TableHeader {
   pub sortable: bool,
   /// Which way the rows are sorted by it, if they are.
   pub sorted: Option<SortDirection>,
+  /// Its place in the sort, from 1, where the rows are sorted by more than one column.
+  pub sort_rank: Option<usize>,
   /// Where it stays while the rows scroll sideways, if its column is pinned.
   pub pinned: Option<Sticky>,
   /// Whether it is the last column, with no room after it.
@@ -3021,7 +3073,7 @@ pub struct TableHeader {
   trail: f32,
   /// The style of each part of the header, in its case.
   pub recipe: ResolvedRecipe,
-  press: Option<Arc<dyn Fn() + Send + Sync>>,
+  press: Option<Arc<dyn Fn(bool) + Send + Sync>>,
   resize: Option<Arc<ResizeLink>>,
   /// Where a mounted grid finds the header, which a column dragged by its header goes before.
   element: Option<ElementRef>,
@@ -3217,6 +3269,13 @@ impl TableHeader {
     Some(glyph(&self.part(TablePart::SortIcon), Name::new(name), false))
   }
 
+  /// Its place in the sort after its arrow, where the rows are sorted by more than one column: `None` otherwise.
+  pub fn sort_order(&self) -> Option<Element> {
+    let rank = self.sort_rank?;
+    let part = self.part(TablePart::SortOrder);
+    Some(part.text(&rank.to_string()).part(&part).nowrap().into())
+  }
+
   /// What is dragged at the end of the header to make the column wider or narrower: `None` for a column that is
   /// not resized. It is a separator to what reads the tree, with the column's width as its value; the keys that
   /// resize the column are its header's (Ctrl and Left or Right).
@@ -3277,6 +3336,9 @@ impl TableHeader {
         if let Some(icon) = self.sort_icon() {
           label = label.child(icon);
         }
+        if let Some(order) = self.sort_order() {
+          label = label.child(order);
+        }
         // A header that is resized or has a menu and is not sorted is a stop of the header's keys.
         if self.resize.is_some() || self.menu.is_some() {
           label = label.tab_index(0).describe("a11y_name", self.title.clone());
@@ -3292,12 +3354,15 @@ impl TableHeader {
           .flex_full(0.0, 1.0, None)
           .min_width(Dimension::Px(0.0))
           .describe("a11y_name", format!("Sort by {}", self.title))
-          .on_click(move |_| press());
+          .on_click(move |event: MouseEvent| press(event.shift));
         if let Some(title) = title {
           button = button.child(title);
         }
         if let Some(icon) = self.sort_icon() {
           button = button.child(icon);
+        }
+        if let Some(order) = self.sort_order() {
+          button = button.child(order);
         }
         if let Some(id) = &self.id {
           button = button.id(id.clone());
@@ -5221,7 +5286,7 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
   /// rows around the board's 44: 36 compact, 52 comfortable and touch, the header 4 lower.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Highlight, Muted, MutedForeground, Ring, StateHover, StatePressed};
-    use TablePart::{Count, Empty, Footer, Header, HeaderCell, Root, Row, Select, SortIcon};
+    use TablePart::{Count, Empty, Footer, Header, HeaderCell, Root, Row, Select, SortIcon, SortOrder};
     use TableState::{Disabled, Last, Numeric, Selectable, Selected, Sortable, Sorted};
     let line = || Line::inside(BorderSize::Sm, PaletteColor::Border);
     let range_edge = || Line::inside(BorderSize::Md, Ring);
@@ -5254,6 +5319,11 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(SortIcon, |s| s.square(IconSize::Sm))
+      .base(SortOrder, |s| {
+        s.typography(TypographyStyle::Mono)
+          .font_size(11.0)
+          .foreground(MutedForeground)
+      })
       // A column's edge: 8 of room that takes the pointer, a line of 2 in the ring's color under it and while it is
       // dragged, nothing at rest, as the board draws no line between headers.
       .base(TablePart::Resizer, |s| s.width(8.0).cursor(CursorIcon::ColResize))

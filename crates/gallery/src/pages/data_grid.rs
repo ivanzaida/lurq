@@ -120,10 +120,8 @@ fn take(rows: &Signal<Vec<File>>, name: &str, column: &str, value: &CellValue) -
 }
 
 /// The rows of a page of the board's grid, in the order of `sort`.
-fn sorted(mut rows: Vec<File>, sort: &Option<TableSort>) -> Vec<File> {
-  if let Some(sort) = sort {
-    sort.sort(&columns(false), &mut rows);
-  }
+fn sorted(mut rows: Vec<File>, sort: &[TableSort]) -> Vec<File> {
+  TableSort::sort_rows(sort, &columns(false), &mut rows);
   rows
 }
 
@@ -167,9 +165,9 @@ pub struct DataGridPage {
   row_numbers: Signal<bool>,
   played: Signal<Vec<File>>,
   played_selected: Signal<Vec<String>>,
-  played_sort: Signal<Option<TableSort>>,
+  played_sort: Signal<Vec<TableSort>>,
   board_selected: Signal<Vec<String>>,
-  board_sort: Signal<Option<TableSort>>,
+  board_sort: Signal<Vec<TableSort>>,
   page: Signal<usize>,
   edited: Signal<Vec<File>>,
   log: Signal<Vec<String>>,
@@ -177,7 +175,7 @@ pub struct DataGridPage {
   ranged: Signal<Vec<File>>,
   range: Signal<Option<CellRange<String>>>,
   menu_rows: Signal<Vec<File>>,
-  menu_sort: Signal<Option<TableSort>>,
+  menu_sort: Signal<Vec<TableSort>>,
   layout: Signal<ColumnLayout>,
   /// The arrangement of the menu's grid as stored: its text, with its sort's.
   stored_layout: Signal<Option<(String, String)>>,
@@ -188,6 +186,7 @@ pub struct DataGridPage {
   numbered_selected: Signal<Vec<String>>,
   big: Signal<bool>,
   big_selected: Signal<Vec<usize>>,
+  multi_sort: Signal<Vec<TableSort>>,
 }
 
 /// A row of the grid of a million: its place, which every cell is made from.
@@ -557,7 +556,7 @@ impl DataGridPage {
           reset.6.set(false);
           reset.7.set(files(8));
           reset.8.set(Vec::new());
-          reset.9.set(None);
+          reset.9.set(Vec::new());
           reset.10.set(true);
           reset.11.set(None);
           reset.12.set(true);
@@ -632,9 +631,9 @@ impl Component for DataGridPage {
       row_numbers: ctx.signal(false),
       played: ctx.signal(files(8)),
       played_selected: ctx.signal(Vec::new()),
-      played_sort: ctx.signal(None),
+      played_sort: ctx.signal(Vec::new()),
       board_selected: ctx.signal(vec!["blur.rs".to_owned()]),
-      board_sort: ctx.signal(Some(TableSort::ascending("name"))),
+      board_sort: ctx.signal(vec![TableSort::ascending("name")]),
       page: ctx.signal(1),
       edited: ctx.signal(files(5)),
       log: ctx.signal(Vec::new()),
@@ -642,7 +641,7 @@ impl Component for DataGridPage {
       ranged: ctx.signal(files(8)),
       range: ctx.signal(None),
       menu_rows: ctx.signal(files(8)),
-      menu_sort: ctx.signal(None),
+      menu_sort: ctx.signal(Vec::new()),
       layout: ctx.signal(ColumnLayout::default()),
       stored_layout: ctx.signal(None),
       group_rows: ctx.signal(files(16)),
@@ -652,6 +651,7 @@ impl Component for DataGridPage {
       numbered_selected: ctx.signal(vec!["canvas.rs".to_owned()]),
       big: ctx.signal(false),
       big_selected: ctx.signal(Vec::new()),
+      multi_sort: ctx.signal(vec![TableSort::ascending("status"), TableSort::descending("size")]),
     }
   }
 
@@ -796,10 +796,10 @@ impl Component for DataGridPage {
       } else {
         arrangement.to_text()
       },
-      self
-        .menu_sort
-        .get()
-        .map_or_else(|| "none".to_owned(), |sort| sort.to_text())
+      match self.menu_sort.get() {
+        sort if sort.is_empty() => "none".to_owned(),
+        sort => TableSort::list_to_text(&sort),
+      }
     );
     let menu_grid = Column::new()
       .spacing(10.0)
@@ -832,7 +832,7 @@ impl Component for DataGridPage {
               .variant(ButtonVariant::Outline)
               .size(ButtonSize::Sm)
               .on_click(move |_| {
-                let sort = store.1.get().map(|sort| sort.to_text()).unwrap_or_default();
+                let sort = TableSort::list_to_text(&store.1.get());
                 store.2.set(Some((store.0.get().to_text(), sort)));
               }),
           )
@@ -848,7 +848,7 @@ impl Component for DataGridPage {
                     let ids: Vec<Arc<str>> = columns(false).iter().map(|column| Arc::from(column.id())).collect();
                     restore.0.set(layout.valid(ids.iter().map(|id| &**id)));
                   }
-                  restore.1.set(TableSort::parse(&sort));
+                  restore.1.set(TableSort::parse_list(&sort).unwrap_or_default());
                 }
               }),
           )
@@ -909,6 +909,51 @@ impl Component for DataGridPage {
       .mount(ctx);
 
     // Row numbers: a column of them at the start, which stays, pressed to select a row, its header all of them.
+    // Sorted by several columns: the status first, the rows of a status by their size, the largest first.
+    let multi_columns = || {
+      vec![
+        TableColumn::new("status", "Status")
+          .width(130.0)
+          .cell(|row: &File| badge(row.status))
+          .sort_key(|row: &File| row.status as i64),
+        TableColumn::new("name", "Name")
+          .text(|row: &File| row.name.clone())
+          .mono(true)
+          .sortable(true),
+        TableColumn::new("size", "Size")
+          .width(100.0)
+          .numeric()
+          .text(|row: &File| format!("{} KB", row.size))
+          .sort_key(|row: &File| row.size as i64),
+      ]
+    };
+    let multi = self.multi_sort.get();
+    let mut multi_rows = files(8);
+    TableSort::sort_rows(&multi, &multi_columns(), &mut multi_rows);
+    let multi_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::new(multi_columns(), multi_rows)
+          .row_key(|row: &File| row.name.clone())
+          .label("Files")
+          .read_only(true)
+          .sort(self.multi_sort.clone())
+          .key("multi-sort")
+          .mount(ctx),
+      )
+      .child(quiet(
+        &format!(
+          "sort: {}",
+          if multi.is_empty() {
+            "none".to_owned()
+          } else {
+            TableSort::list_to_text(&multi)
+          }
+        ),
+        12.0,
+      ));
+
     let numbered = DataGrid::new(columns(false), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -1046,7 +1091,7 @@ impl Component for DataGridPage {
       ),
       (
         "selected / sort",
-        "Signal<Vec<K>> / Signal<Option<TableSort>>",
+        "Signal<Vec<K>> / Signal<Vec<TableSort>>",
         "none",
         "As a table has them, with their controlled forms and handlers.",
       ),
@@ -1163,19 +1208,38 @@ impl Component for DataGridPage {
            content, hides it, and shows the columns hidden. A header dragged to another place moves its column, \
            as Ctrl+Shift+PageUp and PageDown on it do. How the columns are arranged is a value the app holds and \
            stores: its text form, under the grid, changes as the grid does; Store keeps it with the sort's, Restore \
-           reads them back with ColumnLayout::parse and TableSort::parse, made valid for the columns the grid has.",
+           reads them back with ColumnLayout::parse and TableSort::parse_list, made valid for the columns the grid has.",
           self.frame.demo(
             6,
             menu_grid,
             ".column_layout(layout)",
             &[
-              "// layout: Signal<ColumnLayout>, sort: Signal<Option<TableSort>>",
+              "// layout: Signal<ColumnLayout>, sort: Signal<Vec<TableSort>>",
               "DataGrid::new(columns, files.get())",
               "    .sort(sort.clone())",
               "    .column_layout(layout.clone())",
               "    .mount(ctx)",
               "// Store: storage.set_value(\"columns\", layout.get()) and (\"sort\", sort.get())",
               "// Restore: storage.value::<ColumnLayout>(\"columns\").map(|layout| layout.valid(ids))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Sorted by several columns",
+          "A press of a header sorts the rows by its column alone: ascending, then descending, then not at all. \
+           With Shift it adds the column to the sort after the others, or turns it, then takes it out; each sorted \
+           header shows its place in the sort. The sort is a list the app holds, the first column first, and its \
+           text form is stored as a column layout's is; TableSort::sort_rows sorts the rows by it.",
+          self.frame.demo(
+            10,
+            multi_grid,
+            ".sort(sort)",
+            &[
+              "// sort: Signal<Vec<TableSort>>, the first column first",
+              "let mut rows = files.get();",
+              "TableSort::sort_rows(&sort.get(), &columns, &mut rows);",
+              "DataGrid::new(columns, rows).sort(sort.clone()).mount(ctx)",
+              "// stored: TableSort::list_to_text(&sort.get()), read back with TableSort::parse_list",
             ],
           ),
         ),

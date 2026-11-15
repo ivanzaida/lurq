@@ -166,7 +166,7 @@ fn a_grid_is_the_boards_data_grid_with_its_checkboxes_a_sorted_column_a_selected
           .row_key(|row: &File| row.name.clone())
           .id("g")
           .selected(scene_selected.clone())
-          .sort_controlled(Some(TableSort::ascending("name")), |_| {})
+          .sort_controlled(vec![TableSort::ascending("name")], |_| {})
           .total(24)
           .count(true)
           .mount(ctx),
@@ -924,7 +924,7 @@ fn ten_thousand_rows_of_fifty_columns_select_copy_and_reach_their_last_cell_buil
 const MORE: &str = "\u{E053}";
 
 /// The grid of [`grid`] with its arrangement of columns and its sort bound to signals.
-fn arranged(layout: Signal<ColumnLayout>, sort: Signal<Option<TableSort>>) -> Stage {
+fn arranged(layout: Signal<ColumnLayout>, sort: Signal<Vec<TableSort>>) -> Stage {
   let mut stage = Stage::new(move |ctx| {
     Column::new()
       .size(700.0, 400.0)
@@ -979,7 +979,7 @@ fn more_shown(stage: &Stage) -> bool {
 
 #[test]
 fn a_headers_menu_trigger_shows_under_the_pointer_and_its_menu_sorts_pins_hides_and_shows_the_columns() {
-  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(None));
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(Vec::new()));
   let mut stage = arranged(layout.clone(), sort.clone());
   assert!(!more_shown(&stage), "no trigger at rest");
   stage.hover("g-header-name");
@@ -990,7 +990,7 @@ fn a_headers_menu_trigger_shows_under_the_pointer_and_its_menu_sorts_pins_hides_
   stage.pass();
   assert!(stage.paints("Sort descending"), "the menu is open");
   choose(&mut stage, "Sort descending");
-  assert_eq!(sort.get(), Some(TableSort::descending("name")));
+  assert_eq!(sort.get(), [TableSort::descending("name")]);
   assert!(!stage.paints("Sort descending"), "a choice closes it");
 
   // Pinned at the end: the name goes after the others, and stays there.
@@ -1024,7 +1024,7 @@ fn a_headers_menu_trigger_shows_under_the_pointer_and_its_menu_sorts_pins_hides_
 
 #[test]
 fn alt_down_on_a_header_opens_its_menu_and_ctrl_shift_page_down_moves_its_column() {
-  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(None));
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(Vec::new()));
   let mut stage = arranged(layout.clone(), sort);
   key(&mut stage, "Tab");
   assert_eq!(focused(&stage).as_deref(), Some("g-header-name"));
@@ -1054,7 +1054,7 @@ fn alt_down_on_a_header_opens_its_menu_and_ctrl_shift_page_down_moves_its_column
 #[test]
 fn a_header_dragged_to_another_place_moves_its_column() {
   use lurq::app::events::MouseButton::Left;
-  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(None));
+  let (layout, sort) = (Signal::new(ColumnLayout::default()), Signal::new(Vec::new()));
   let mut stage = arranged(layout.clone(), sort);
   let (x, y) = stage.center("g-header-name");
   // The size's cell: its column, as wide as the header's.
@@ -1093,7 +1093,7 @@ fn a_layout_the_app_gives_orders_hides_widens_and_pins_the_columns_and_a_resize_
       place("shared", false, None, ColumnPin::Start),
     ],
   });
-  let mut stage = arranged(layout.clone(), Signal::new(None));
+  let mut stage = arranged(layout.clone(), Signal::new(Vec::new()));
   let (shared_x, ..) = stage.bounds("g-header-shared");
   let (size_x, ..) = stage.bounds("g-header-size");
   let (name_x, ..) = stage.bounds("g-header-name");

@@ -296,11 +296,17 @@ fn a_data_grids_arrangement_sort_and_groups_open_roundtrip_through_storage() {
   storage.set_value("columns", layout.clone()).unwrap();
   storage.set_value("sort", sort.clone()).unwrap();
   storage.set_value("unsorted", None::<TableSort>).unwrap();
+  let several = vec![TableSort::ascending("status"), TableSort::descending("size")];
+  storage.set_value("several", several.clone()).unwrap();
+  storage.set_value("none", Vec::<TableSort>::new()).unwrap();
   storage.set_value("open", open.clone()).unwrap();
 
   assert_eq!(storage.value::<ColumnLayout>("columns"), Some(layout.clone()));
   assert_eq!(storage.value::<Option<TableSort>>("sort"), Some(sort));
   assert_eq!(storage.value::<Option<TableSort>>("unsorted"), Some(None));
+  assert_eq!(storage.value::<Vec<TableSort>>("several"), Some(several.clone()));
+  assert_eq!(storage.value::<Vec<TableSort>>("none"), Some(Vec::new()));
+  assert_eq!(TableSort::parse_list(&TableSort::list_to_text(&several)), Some(several));
   assert_eq!(storage.value::<Vec<GroupKey>>("open"), Some(open));
   assert_eq!(layout.to_string().parse::<ColumnLayout>(), Ok(layout.clone()));
 
