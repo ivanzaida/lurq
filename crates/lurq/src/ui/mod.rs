@@ -18,6 +18,8 @@
 mod accordion;
 mod action_bar;
 mod alert;
+mod audio_player;
+mod audio_queue;
 mod avatar;
 mod badge;
 mod banner;
@@ -165,6 +167,13 @@ pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
 };
 pub use alert::{Alert, AlertPart, AlertRenderer, AlertState, AlertVariant, AlertView};
+pub use audio_player::{
+  AUDIO_MINI_NARROW, AudioControls, AudioPlayer, AudioPlayerPart, AudioPlayerRenderer, AudioPlayerState,
+  AudioPlayerVariant, AudioPlayerView, AudioRepeat, VOICE_RATES, audio_rate_text,
+};
+pub use audio_queue::{
+  AudioQueue, AudioQueueItem, AudioQueuePart, AudioQueueRenderer, AudioQueueState, AudioQueueView,
+};
 pub use avatar::{
   Avatar, AvatarGroup, AvatarGroupPart, AvatarGroupRenderer, AvatarGroupSize, AvatarGroupView, AvatarPart,
   AvatarPresence, AvatarRenderer, AvatarShape, AvatarSize, AvatarState, AvatarView,

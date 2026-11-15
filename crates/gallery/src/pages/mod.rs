@@ -8,6 +8,8 @@ mod accordion;
 mod action_bar;
 mod alert;
 mod area_chart;
+mod audio_player;
+mod audio_queue;
 mod avatar;
 mod badge;
 mod bar_list;
@@ -1168,6 +1170,22 @@ pub const PAGES: &[Page] = &[
     about: "speed menu playback rate speed media player video audio normal faster slower 0.5x 1.5x 2x check on_change on_dismiss on_open_change rates heading_text label placement offset inline MEDIA_RATES media_rate_text",
     group: Group::Media,
     mount: |ctx| ctx.mount::<media_speed_menu::MediaSpeedMenuPage>(()),
+  },
+  Page {
+    path: "/audio-player",
+    name: "Audio Player",
+    icon: Some("music"),
+    about: "audio player sound music track song podcast voice message mini player docked card compact row waveform seek bar play pause previous next shuffle repeat one all volume mute speed rate playback menu artwork title loading error try again unheard dot AudioPlayer AudioPlayerVariant AudioRepeat on_playing_change on_change on_change_end",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<audio_player::AudioPlayerPage>(()),
+  },
+  Page {
+    path: "/audio-queue",
+    name: "Audio Queue",
+    icon: Some("list"),
+    about: "audio queue playlist up next tracks rows list current now playing equalizer number artwork length more unavailable arrows keyboard AudioQueue AudioQueueItem on_change on_more",
+    group: Group::Media,
+    mount: |ctx| ctx.mount::<audio_queue::AudioQueuePage>(()),
   },
 ];
 

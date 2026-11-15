@@ -3,6 +3,8 @@
 mod accordion;
 mod action_bar;
 mod alert;
+mod audio_player;
+mod audio_queue;
 mod avatar;
 mod badge;
 #[cfg(feature = "canvas")]
