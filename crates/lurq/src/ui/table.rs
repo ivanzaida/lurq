@@ -42,7 +42,7 @@ mod text;
 
 pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
-pub use export::{ExportFormat, ExportLabels, ExportScope, GridExport, to_csv, to_delimited, to_tsv};
+pub use export::{ExportFormat, ExportLabels, ExportScope, GridBarLabels, GridExport, to_csv, to_delimited, to_tsv};
 pub use filtering::FilterLabels;
 use filtering::{FilterLink, FilterShape, FilterState, MOST_VALUES};
 pub use filters::{ColumnFilter, GridQuery, TableFilters, TextMatch};
@@ -770,6 +770,7 @@ struct Words {
   filter: Arc<FilterLabels>,
   source: Arc<SourceLabels>,
   export: Arc<ExportLabels>,
+  bar: Arc<GridBarLabels>,
 }
 
 /// The words of a grid over rows the app gives on demand: what a row whose range failed says, and its button.
@@ -806,6 +807,7 @@ impl Default for Words {
       filter: Arc::default(),
       source: Arc::default(),
       export: Arc::default(),
+      bar: Arc::default(),
     }
   }
 }
@@ -886,6 +888,8 @@ pub struct Table<R, K = usize> {
   /// Whether a grid's column menus write its rows out, and who is told the text.
   export: bool,
   on_export: Vec<Arc<dyn Fn(&GridExport) + Send + Sync>>,
+  /// Whether a grid has the bar of its tools over it.
+  toolbar: bool,
   source: Option<Arc<dyn RowSource<R>>>,
   on_query_change: Vec<Arc<dyn Fn(&GridQuery) + Send + Sync>>,
   /// Over a source, as a render finds them: where each row's range is, and what asks for a failed one again.
@@ -978,6 +982,7 @@ impl<R, K: Clone> Clone for Table<R, K> {
       find_bar_with: self.find_bar_with.clone(),
       export: self.export,
       on_export: self.on_export.clone(),
+      toolbar: self.toolbar,
       source: self.source.clone(),
       on_query_change: self.on_query_change.clone(),
       slots: self.slots.clone(),
@@ -1067,6 +1072,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       find_bar_with: None,
       export: true,
       on_export: Vec::new(),
+      toolbar: false,
       source: None,
       on_query_change: Vec::new(),
       slots: None,
@@ -1151,6 +1157,7 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       find_bar_with: self.find_bar_with,
       export: self.export,
       on_export: self.on_export,
+      toolbar: self.toolbar,
       source: self.source,
       on_query_change: self.on_query_change,
       slots: self.slots,
@@ -1370,6 +1377,16 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// The words of the export in a grid's menu.
   pub fn export_labels(mut self, labels: ExportLabels) -> Self {
     self.words.export = Arc::new(labels);
+    self
+  }
+
+  pub(super) fn set_toolbar(mut self, toolbar: bool) -> Self {
+    self.toolbar = toolbar;
+    self
+  }
+
+  pub(super) fn set_toolbar_labels(mut self, labels: GridBarLabels) -> Self {
+    self.words.bar = Arc::new(labels);
     self
   }
 
@@ -2927,6 +2944,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             selected: grid.has_selection(),
             labels: self.words.export.clone(),
           });
+        if let Some(host) = &grid_host {
+          *host.export_now.lock() = export_now.clone();
+          *host.export_selected.lock() = export_link.as_ref().is_some_and(|link| link.selected);
+        }
         let menu = menu_host.zip(change_layout.clone()).map(|(host, change)| {
           let element = ElementRef::new();
           header_refs.insert(column_index, element);
@@ -5867,6 +5888,18 @@ struct HostState {
   /// The export's menu in a column's menu.
   export_open: Signal<bool>,
   export_anchor: ElementRef,
+  /// The grid's bar: its query, the density it chose (0 for the app's), its menus of the columns that filter, of
+  /// the columns and of the export, what writes the rows out and whether anything is selected to; and the search
+  /// of a grid whose app holds none.
+  bar_query: Signal<String>,
+  bar_density: Signal<u8>,
+  bar_filter: (Signal<bool>, ElementRef),
+  bar_columns: (Signal<bool>, ElementRef),
+  bar_export: (Signal<bool>, ElementRef),
+  export_now: Mutex<Option<Arc<dyn Fn(ExportScope, ExportFormat) + Send + Sync>>>,
+  export_selected: Mutex<bool>,
+  own_search: Mutex<String>,
+  bar_chose: Mutex<bool>,
   /// Where each header built is, by its column, and a column dragged by its header: from where to before which.
   header_refs: Mutex<HashMap<usize, ElementRef>>,
   /// What each summary row said, by what it was computed from: kept while that is the same.
@@ -6089,6 +6122,223 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
   /// The find bar over the grid: its query the grid's search, its count the matches, its arrows the next match
   /// and the one before.
+  /// The bar over a grid, as the board's Table Toolbar draws it, built from a `Toolbar`: a search field of 220 that
+  /// is the grid's search, a tag for each filter set (its × takes it off), Filter (a menu of the columns that
+  /// filter, each opening its filter's panel), and at the end the density, the columns to show and Export.
+  fn grid_bar(&self, ctx: &mut Ctx, table: &Table<R, K>) -> Element {
+    use super::{
+      Choice, InputSize, SearchField, SearchFieldPart, Tag, TagPart, TagVariant, ToggleGroup, ToggleGroupPart, Toolbar,
+      ToolbarItem, ToolbarPart,
+      button::{Button, ButtonPart, ButtonSize, ButtonVariant},
+    };
+    let state = &self.state;
+    let words = table.words.bar.clone();
+    // The query the grid searches is the field's: one the app clears elsewhere is cleared in the field.
+    if state.bar_query.get_untracked() != *table.search {
+      state.bar_query.set(table.search.to_string());
+    }
+    let (write, heard) = (table.write_search.clone(), table.on_search_change.clone());
+    let id_of = |what: &str| table.id.as_ref().map(|id| format!("{id}-{what}"));
+    let mut search = SearchField::new(state.bar_query.clone())
+      .placeholder(&words.search)
+      .label(&words.search)
+      .size(InputSize::Sm)
+      .clearable(false)
+      .style(SearchFieldPart::Root, |s| s.width(220.0))
+      .on_input(move |event| {
+        if let Some(write) = &write {
+          write(event.new_value.clone());
+        }
+        for handler in &heard {
+          handler(&event.new_value);
+        }
+      });
+    if let Some(id) = id_of("bar-search") {
+      search = search.id(id);
+    }
+    let mut bar = Toolbar::new()
+      .label(&words.bar)
+      .overflow(true)
+      // The board's: 52 high, padded 12 across, 8 between, the large radius.
+      .style(ToolbarPart::Root, |s| {
+        s.width(Length::Fill)
+          .height(52.0)
+          .padding_x(12.0)
+          .gap(8.0)
+          .radius(RadiusSize::Lg)
+      })
+      .item(ToolbarItem::element(search).stays(true));
+    // A tag for each filter set, its × taking it off.
+    let change_filters = table.filter_changer();
+    let titles: HashMap<Arc<str>, Arc<str>> = table
+      .arranged
+      .as_ref()
+      .map(|arranged| arranged.1.iter().cloned().collect())
+      .unwrap_or_default();
+    for (id, filter) in table.filters.iter() {
+      let title = titles.get(id).cloned().unwrap_or_else(|| Arc::from(id));
+      let (change, now, id) = (change_filters.clone(), table.filters.clone(), id.to_owned());
+      let tag_id = id_of(&format!("bar-filter-{id}"));
+      let mut tag = Tag::new(&format!("{title}: {}", export::filter_said(filter)))
+        .variant(TagVariant::Info)
+        .on_remove(move || {
+          if let Some(change) = &change {
+            change(now.clone().without(&id));
+          }
+        })
+        .style(TagPart::Root, |s| s.height(26.0))
+        .style(TagPart::Label, |s| s.font_size(12.0));
+      if let Some(tag_id) = tag_id {
+        tag = tag.id(tag_id);
+      }
+      bar = bar.item(ToolbarItem::element(tag));
+    }
+    // Filter: a menu of the columns that filter, each opening the panel of its filter under its header.
+    let filtering: Vec<(Arc<str>, Arc<str>)> = table
+      .columns
+      .iter()
+      .filter(|column| column.filter.is_some())
+      .map(|column| (column.id.clone(), column.title.clone()))
+      .collect();
+    if !filtering.is_empty() && change_filters.is_some() {
+      let (open, anchor) = state.bar_filter.clone();
+      let menu = Menu::new(open.clone(), anchor.clone())
+        .label(&words.filter)
+        .items(filtering.into_iter().map(|(id, title)| {
+          let host = state.clone();
+          MenuItem::new(&title).on_select(move || {
+            *host.filters.column.lock() = Some(id.clone());
+            host.filter_open.set(true);
+            host.rebuild();
+          })
+        }))
+        .build(&current_theme());
+      let mut button = Button::new(&words.filter)
+        .icon(icons::PLUS)
+        .variant(ButtonVariant::Outline)
+        .size(ButtonSize::Xs)
+        // The board's is 26 high, its icon and its text 12, padded 8.
+        .style(ButtonPart::Root, |s| s.height(26.0).padding_x(8.0).gap(4.0))
+        .style(ButtonPart::Icon, |s| s.square(12.0))
+        .style(ButtonPart::Label, |s| s.font_size(12.0))
+        .on_click(move |_| open.update(|open| *open = !*open));
+      if let Some(id) = id_of("bar-filter") {
+        button = button.id(id);
+      }
+      bar = bar.item(ToolbarItem::element(
+        Row::new()
+          .overflow_visible()
+          .ref_element(anchor)
+          .child(button.build(&current_theme()))
+          .child(menu),
+      ));
+    }
+    bar = bar.item(Toolbar::spacer());
+    // The density, which the grid takes.
+    let rebuild = state.clone();
+    bar = bar.item(
+      ToggleGroup::new(
+        state.bar_density.clone(),
+        [
+          Choice::new(2u8, &words.comfortable).icon(icons::ROWS_2).icon_only(true),
+          Choice::new(3u8, &words.default).icon(icons::ROWS_3).icon_only(true),
+          Choice::new(4u8, &words.compact).icon(icons::ROWS_4).icon_only(true),
+        ],
+      )
+      .on_change(move |_| {
+        *rebuild.bar_chose.lock() = true;
+        rebuild.rebuild();
+      })
+      // The board's cells are 30 with icons of 14.
+      .style(ToggleGroupPart::Item, |s| s.square(30.0))
+      .label(&words.density)
+      .id(id_of("bar-density").unwrap_or_else(|| "bar-density".to_owned())),
+    );
+    // The columns to show, as a column's menu lists them.
+    if let (Some(arranged), Some(change)) = (table.arranged.clone(), table.layout_changer()) {
+      let (open, anchor) = state.bar_columns.clone();
+      let (layout, titles) = &*arranged;
+      let shown = layout.columns.iter().filter(|place| !place.hidden).count();
+      let menu = Menu::new(open.clone(), anchor.clone())
+        .label(&words.columns)
+        .items(titles.iter().map(|(id, title)| {
+          let hidden = layout.place(id).is_some_and(|place| place.hidden);
+          let (change, layout, id) = (change.clone(), layout.clone(), id.clone());
+          MenuItem::new(title)
+            .checked(!hidden)
+            // The last column shown stays.
+            .disabled(!hidden && shown == 1)
+            .on_select(move || change(layout.clone().with_hidden(&id, !hidden)))
+        }))
+        .build(&current_theme());
+      let mut button = Button::new(&words.columns)
+        .trailing_icon(icons::CHEVRON_DOWN)
+        .variant(ButtonVariant::Outline)
+        // The board's is 30 high, padded 14 before its label and 10 after its chevron.
+        .style(ButtonPart::Root, |s| s.height(30.0).padding_start(14.0).padding_end(10.0))
+        .on_click(move |_| open.update(|open| *open = !*open));
+      if let Some(id) = id_of("bar-columns") {
+        button = button.id(id);
+      }
+      bar = bar.item(ToolbarItem::element(
+        Row::new()
+          .overflow_visible()
+          .ref_element(anchor)
+          .child(button.build(&current_theme()))
+          .child(menu),
+      ));
+    }
+    // Export: the rows shown or selected, as the column's menus write them.
+    if table.export {
+      let (open, anchor) = state.bar_export.clone();
+      let selected = *state.export_selected.lock();
+      let export = |scope: ExportScope, format: ExportFormat| {
+        let host = state.clone();
+        move || {
+          let now = host.export_now.lock().clone();
+          if let Some(now) = now {
+            now(scope, format);
+          }
+        }
+      };
+      let labels = table.words.export.clone();
+      let menu = Menu::new(open.clone(), anchor.clone())
+        .label(&words.export)
+        .item(MenuItem::new(&labels.shown_csv).on_select(export(ExportScope::Shown, ExportFormat::Csv)))
+        .item(MenuItem::new(&labels.shown_tsv).on_select(export(ExportScope::Shown, ExportFormat::Tsv)))
+        .item(
+          MenuItem::new(&labels.selected_csv)
+            .disabled(!selected)
+            .on_select(export(ExportScope::Selected, ExportFormat::Csv)),
+        )
+        .item(
+          MenuItem::new(&labels.selected_tsv)
+            .disabled(!selected)
+            .on_select(export(ExportScope::Selected, ExportFormat::Tsv)),
+        )
+        .build(&current_theme());
+      let mut button = Button::new(&words.export)
+        .icon(icons::DOWNLOAD)
+        .variant(ButtonVariant::Outline)
+        .style(ButtonPart::Root, |s| s.height(30.0).padding_x(10.0))
+        .on_click(move |_| open.update(|open| *open = !*open));
+      if let Some(id) = id_of("bar-export") {
+        button = button.id(id);
+      }
+      bar = bar.item(ToolbarItem::element(
+        Row::new()
+          .overflow_visible()
+          .ref_element(anchor)
+          .child(button.build(&current_theme()))
+          .child(menu),
+      ));
+    }
+    if let Some(id) = id_of("bar") {
+      bar = bar.id(id);
+    }
+    bar.key("grid-bar").mount(ctx)
+  }
+
   fn find_bar(&self, ctx: &mut Ctx, table: &Table<R, K>) -> Element {
     let state = &self.state;
     // The query the app gives is the bar's: one it clears elsewhere is cleared in the bar.
@@ -6153,6 +6403,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         submenu_anchor: ElementRef::new(),
         export_open: ctx.signal(false),
         export_anchor: ElementRef::new(),
+        bar_query: ctx.signal(String::new()),
+        bar_density: ctx.signal(0_u8),
+        bar_filter: (ctx.signal(false), ElementRef::new()),
+        bar_columns: (ctx.signal(false), ElementRef::new()),
+        bar_export: (ctx.signal(false), ElementRef::new()),
+        export_now: Mutex::new(None),
+        export_selected: Mutex::new(false),
+        own_search: Mutex::new(String::new()),
+        bar_chose: Mutex::new(false),
         header_refs: Mutex::new(HashMap::new()),
         summaries: Mutex::new(HashMap::new()),
         header_drop: Mutex::new(None),
@@ -6235,6 +6494,28 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         *own.lock() = next;
         state.rebuild();
       }));
+    }
+    // A grid with its bar searches what the bar's field says: the app's search, or its own where the app holds none.
+    // The bar's density is the grid's once a person chose one.
+    if table.grid && table.toolbar {
+      if table.write_search.is_none() {
+        table.search = Arc::from(self.state.own_search.lock().as_str());
+        let (own, state) = (self.state.clone(), self.state.clone());
+        table.write_search = Some(Arc::new(move |next| {
+          *own.own_search.lock() = next;
+          state.rebuild();
+        }));
+      }
+      let chosen = self.state.bar_density.get();
+      if *self.state.bar_chose.lock() {
+        table.density = Some(density_of(chosen));
+      } else {
+        // Until a person chooses, the bar shows the density the grid has: the app's, or the theme's.
+        let now = density_code(table.density.unwrap_or_else(|| current_theme().density()));
+        if chosen != now {
+          self.state.bar_density.set(now);
+        }
+      }
     }
     // The rows of a tree open, and the details, that a table whose app holds none keeps itself.
     if table.tree_parent.is_some() && table.write_expanded.is_none() {
@@ -6519,10 +6800,20 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
     table.slots = slots;
     let find = table.find_bar.then(|| self.find_bar(ctx, &table));
     let view = table.view(&theme, tracks, window);
-    let element = match theme.renderer::<Table<R, K>>() {
+    let mut element = match theme.renderer::<Table<R, K>>() {
       Some(renderer) => renderer(view),
       None => view.render(),
     };
+    // The bar of the grid's tools over it.
+    if table.grid && table.toolbar {
+      let bar = self.grid_bar(ctx, &table);
+      element = Column::new()
+        .spacing(8.0)
+        .width(Dimension::Pct(100.0))
+        .child(bar)
+        .child(element)
+        .into();
+    }
     if !table.find_bar && table.search.is_empty() {
       return element;
     }
@@ -6817,5 +7108,23 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
       .density(Density::Touch, Header, |s| s.height(48.0))
       .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .state(Disabled, Row, |s| s.cursor(CursorIcon::Default))
+  }
+}
+
+/// A density as the grid's bar holds it: 2 comfortable, 3 the default, 4 compact.
+fn density_code(density: Density) -> u8 {
+  match density {
+    Density::Comfortable | Density::Touch => 2,
+    Density::Compact => 4,
+    _ => 3,
+  }
+}
+
+/// The density of the grid's bar's choice.
+fn density_of(code: u8) -> Density {
+  match code {
+    2 => Density::Comfortable,
+    4 => Density::Compact,
+    _ => Density::Default,
   }
 }
