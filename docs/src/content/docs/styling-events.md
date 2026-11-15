@@ -1051,6 +1051,8 @@ Row::new()
   })
 ```
 
+A press of a control that copies (the copy button of a [code block](../design-system/#code-block)) puts its text there with `window.copy_to_clipboard(text)` on the window's handle (`ctx.window()`): it is written once the handler returns, or at the next pass where it was asked outside an event, where a copy shortcut writes.
+
 `Ctrl+V` and `Shift+Insert` on such an element deliver a `PasteEvent` to it and its ancestors where one of them has an `on_paste` handler, as to a text input, with nothing inserted by default; `Tree::paste(content)` does the same. The copy writes the OS clipboard (feature `clipboard`), or what a test installs with `tree.set_clipboard_writer(Some(Arc::new(writer)))`, a `lurq::app::ClipboardWriter` with `write_text(&str)`, which a text input's copy goes to as well.
 
 #### Input Methods

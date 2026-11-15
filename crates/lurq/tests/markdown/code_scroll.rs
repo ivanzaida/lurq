@@ -1,12 +1,19 @@
-//! A Markdown code block whose lines are wider than its column scrolls
-//! sideways inside its box: its lines stay unwrapped, the box, its label and
-//! the document keep their width, a horizontal scrollbar shows while it
-//! overflows, Shift+wheel and a trackpad's sideways swipe scroll it, and a
-//! plain vertical wheel over it still scrolls the page around it. A block
-//! whose lines fit has no scrollbar and the layout it had before.
+//! A Markdown code block (`ui::CodeBlock`) whose lines are wider than its
+//! column scrolls sideways inside its box: its lines stay unwrapped, the box,
+//! its bar and the document keep their width, a horizontal scrollbar shows
+//! while it overflows, Shift+wheel and a trackpad's sideways swipe scroll it,
+//! and a plain vertical wheel over it still scrolls the page around it. A
+//! block whose lines fit has no scrollbar. How the block itself is laid out
+//! is `ui::CodeBlock`'s, and its tests'.
 
 use lurq::{
-  app::{App, Tree, component::Component, ctx::Ctx, events::ScrollPhase, theme::ThemeMarkdown},
+  app::{
+    App, Tree,
+    component::Component,
+    ctx::Ctx,
+    events::ScrollPhase,
+    theme::{PaletteColor, ThemeMarkdown},
+  },
   components::{Column, Markdown, MarkdownProps, Rect, ScrollVertical},
   core::ElementRect,
   layout::{
@@ -86,27 +93,18 @@ fn rects_of(tree: &Tree, color: Color) -> Vec<(f32, f32, f32, f32)> {
     .collect()
 }
 
-/// The code block's box, found by the theme's background.
+/// The code block's box, found by its fill: the theme's background, which nothing else in the document draws.
 fn block_box(tree: &Tree) -> (f32, f32, f32, f32) {
-  let background = ThemeMarkdown::default()
-    .resolve(&lurq::app::theme::ThemePalette::light())
-    .code_block_box
-    .background
-    .and_then(|color| color.as_color())
-    .expect("the default theme fills the box");
+  let background = App::new().theme().palette().get(PaletteColor::Background);
   rects_of(tree, background)
     .into_iter()
     .next()
     .expect("the code block's box is drawn")
 }
 
-/// The scrollbar thumbs drawn in the default theme's code block bar color:
-/// the Markdown theme's bar, or else the app theme's.
+/// The scrollbar thumbs drawn in the code block's bar color: a scroll area's thumb, in the theme's ring color.
 fn thumbs(tree: &Tree) -> Vec<(f32, f32, f32, f32)> {
-  let bar = ThemeMarkdown::default()
-    .code_block_scrollbar
-    .unwrap_or_else(|| App::new().theme().scrollbar().clone());
-  rects_of(tree, bar.thumb_color)
+  rects_of(tree, App::new().theme().palette().get(PaletteColor::Ring))
 }
 
 /// A point over the block's lines, in the middle of its box.
@@ -198,8 +196,8 @@ fn a_sideways_swipe_scrolls_the_block_and_the_bar_follows() {
   let thumb = thumbs(&tree)[0];
   let block = block_box(&tree);
   assert!(
-    thumb.1 >= block.1 + block.3 - 14.0 && thumb.1 + thumb.3 <= block.1 + block.3,
-    "the bar sits in the box's bottom padding: thumb {thumb:?}, box {block:?}"
+    thumb.1 >= block.1 + block.3 - 12.0 && thumb.1 + thumb.3 <= block.1 + block.3,
+    "the bar sits over the box's bottom padding: thumb {thumb:?}, box {block:?}"
   );
 
   swipe(&mut app, &mut tree, 200.0);
@@ -214,43 +212,24 @@ fn a_sideways_swipe_scrolls_the_block_and_the_bar_follows() {
   swipe(&mut app, &mut tree, 100_000.0);
   let end = code_text(&mut tree);
   // What a scroll holds is drawn on a whole device pixel, so the end of a line of a fractional length stops within
-  // half a pixel of the padding.
-  let past = end.x + end.width + 14.0 - (block.0 + block.2);
+  // a pixel of the padding, inside the box's edge of 1 (on its own whole pixel).
+  let past = end.x + end.width + 14.0 + 1.0 - (block.0 + block.2);
   assert!(
-    past.abs() <= 0.5,
+    past.abs() <= 1.0,
     "the end of the line stops at the box's padding: {past} past it"
   );
 }
 
 #[test]
-fn a_block_whose_lines_fit_has_no_bar_and_the_layout_it_had() {
+fn a_block_whose_lines_fit_has_no_bar_and_nothing_to_scroll() {
   let (mut app, mut tree) = show(MarkdownProps::new(source("short")));
-  let padding = 14.0;
-  let spacing = ThemeMarkdown::default().code_block_spacing;
   let block = block_box(&tree);
   let label = bounds_of(&mut tree, LABEL);
   let text = code_text(&mut tree);
-  assert_eq!(block.2, COLUMN);
-  assert_eq!(
-    (label.x, label.y),
-    (block.0 + padding, block.1 + padding),
-    "the label at the padding"
-  );
-  assert_eq!(
-    label.width,
-    COLUMN - 2.0 * padding,
-    "the label spans the box, as before"
-  );
-  assert_eq!(text.x, block.0 + padding);
+  assert_eq!(block.2, COLUMN, "the box is as wide as the column");
   assert!(
-    (text.y - (label.y + label.height + spacing)).abs() < 0.01,
-    "the lines under the label"
-  );
-  let height = padding + label.height + spacing + text.height + padding;
-  assert!(
-    (block.3 - height).abs() < 0.01,
-    "the box's height: {} for {height}",
-    block.3
+    label.y < text.y && label.y >= block.1,
+    "the language names the block in its bar, over its lines: {label:?}, {text:?}"
   );
   assert!(thumbs(&tree).is_empty(), "no bar without overflow");
 
@@ -261,12 +240,25 @@ fn a_block_whose_lines_fit_has_no_bar_and_the_layout_it_had() {
 }
 
 #[test]
-fn a_block_without_a_label_keeps_its_lines_at_the_padding() {
-  let (_, mut tree) = show(MarkdownProps::new(format!("```\nshort {LINE_END}\n```")));
-  let block = block_box(&tree);
-  let text = code_text(&mut tree);
-  assert_eq!((text.x, text.y), (block.0 + 14.0, block.1 + 14.0));
-  assert_eq!(block.3, 14.0 + text.height + 14.0);
+fn a_block_without_a_language_has_its_lines_where_one_with_a_language_has_them() {
+  let (_, mut named) = show(MarkdownProps::new(source("short")));
+  let (_, mut plain) = show(MarkdownProps::new(format!(
+    "A reply with code:\n\n```\nshort\nshort {LINE_END}\n```\n\nAfter the code."
+  )));
+  let (named_box, plain_box) = (block_box(&named), block_box(&plain));
+  let (named_text, plain_text) = (code_text(&mut named), code_text(&mut plain));
+  assert_eq!(
+    (named_text.x - named_box.0, named_text.y - named_box.1),
+    (plain_text.x - plain_box.0, plain_text.y - plain_box.1),
+    "the bar is there for the copy button, with no name in it"
+  );
+  assert_eq!(named_box.3, plain_box.3);
+  assert!(
+    plain
+      .find_element(|element| element.text_content() == Some(LABEL))
+      .is_none(),
+    "no language to name"
+  );
 }
 
 /// A page: a header, and under it a scrolling conversation whose reply
@@ -682,10 +674,7 @@ fn an_app_theme_bar_that_reserves_a_gutter_leaves_a_fitting_block_its_size() {
     width: 12.0,
     ..ScrollBarStyle::default()
   });
-  let theme = ThemeMarkdown {
-    code_block_scrollbar: None,
-    ..ThemeMarkdown::default()
-  };
+  let theme = ThemeMarkdown::default();
   let (_, mut short) = show_in(app, MarkdownProps::new(source("short")).theme(theme.clone()));
   let (_, mut plain) = show(MarkdownProps::new(source("short")));
   assert_eq!(
@@ -694,11 +683,6 @@ fn an_app_theme_bar_that_reserves_a_gutter_leaves_a_fitting_block_its_size() {
     "the box keeps its size: no gutter"
   );
   assert_eq!(code_text(&mut short), code_text(&mut plain));
-  assert_eq!(
-    rects_of(&short, gutter_thumb).len(),
-    1,
-    "a bar shown always is drawn over the padding, not in a gutter"
-  );
 
   let app = App::new();
   app.theme().set_scrollbar(ScrollBarStyle {

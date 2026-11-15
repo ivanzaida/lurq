@@ -277,3 +277,58 @@ fn a_reference_goes_to_its_footnote_and_the_way_back_returns() {
   pass(&mut app, &mut tree);
   assert!(state.scroll_y() < 50.0, "back at the reference: {}", state.scroll_y());
 }
+
+/// The style the words `text` are drawn in.
+fn style_of(tree: &Tree, text: &str) -> Option<lurq::layout::text_style::TextStyle> {
+  quads(tree).into_iter().find_map(|quad| match quad.content {
+    QuadContent::RichText { spans, .. } => spans
+      .iter()
+      .find(|span| span.text == text)
+      .map(|span| span.style.clone()),
+    QuadContent::Text { text: words, style, .. } if words == text => Some(style),
+    _ => None,
+  })
+}
+
+#[test]
+fn a_quote_and_a_code_block_are_the_systems() {
+  let (app, mut tree) = mount(MarkdownProps::new("> Said once.\n\n```rust\nfn main() {}\n```\n").width(400.0));
+  // A quote is `ui::Blockquote`: its words 14 in italics in the muted foreground, after a line of 2.
+  let said = style_of(&tree, "Said once.").expect("the quote's words are drawn");
+  assert_eq!(said.font_size, 14.0);
+  assert_eq!(said.style, lurq::layout::text_style::FontStyle::Italic);
+  assert_eq!(said.color, palette(&app, PaletteColor::MutedForeground));
+  // A code block is `ui::CodeBlock`: its bar on the muted fill, named by its language, a keyword in the info color.
+  assert!(has_element_with_text(&mut tree, "rust"), "the language names the block");
+  let bar = fills(&tree, palette(&app, PaletteColor::Muted));
+  assert!(bar.iter().any(|fill| fill.3 == 36.0), "a bar of 36: {bar:?}");
+  assert_eq!(color_of(&tree, "fn"), Some(palette(&app, PaletteColor::Info)));
+}
+
+#[test]
+fn a_selection_across_the_systems_parts_copies_words_and_no_glyphs() {
+  let source = "First.\n\n- [x] done\n\n> [!NOTE]\n> Noted.\n\n```rust\nfn main() {}\n```\n\nLast.\n";
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(440, 1200);
+  tree.mount_root::<super::links::MarkdownRoot>(&mut app, MarkdownProps::new(source).selectable(true).width(400.0));
+  for _ in 0..3 {
+    pass(&mut app, &mut tree);
+  }
+  let first = bounds_of(&mut tree, "First.");
+  let last = bounds_of(&mut tree, "Last.");
+  let mut page = crate::support::selection::Page::without_inks(app, tree, 1.0);
+  page.drag(
+    (first.x + 1.0, first.y + first.height / 2.0),
+    (last.x + last.width - 1.0, last.y + last.height / 2.0),
+  );
+  let copied = page.selected().expect("a selection across the document");
+  assert!(
+    copied.contains("done") && copied.contains("Noted.") && copied.contains("fn main() {}"),
+    "{copied:?}"
+  );
+  assert!(
+    !copied.chars().any(|ch| ('\u{e000}'..='\u{f8ff}').contains(&ch)),
+    "no glyph of a checkbox, a callout or a copy button: {copied:?}"
+  );
+}

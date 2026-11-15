@@ -10,10 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use super::{PaletteColor, ThemePalette};
 use crate::{
-  layout::{
-    scrollbar::ScrollBarStyle,
-    text_style::{FontFeatures, FontStyle, FontWeight, TextStrikethrough, TextStyle, TextUnderline},
-  },
+  layout::text_style::{FontFeatures, FontStyle, FontWeight, TextStrikethrough, TextStyle, TextUnderline},
   node::{TextColor, border::BorderRadius, padding::Padding},
 };
 
@@ -261,8 +258,6 @@ pub struct ThemeMarkdown {
   /// The room between two tasks of a task list.
   pub task_item_spacing: f32,
   pub nested_block_spacing: f32,
-  pub code_block_spacing: f32,
-  pub blockquote_gap: f32,
   /// The room between an ordered list's number and its item.
   pub list_marker_gap: f32,
   /// The room between a bullet or a task's box and its item.
@@ -293,8 +288,6 @@ pub struct ThemeMarkdown {
   pub inline_code: MarkdownInlineStyle,
   /// A key of the keyboard, `<kbd>Ctrl</kbd>`: its type; its box is `ui::Kbd`'s.
   pub kbd: MarkdownInlineStyle,
-  pub code_block: MarkdownInlineStyle,
-  pub code_block_label: MarkdownInlineStyle,
   pub link: MarkdownInlineStyle,
   /// A link's look while the pointer is on it.
   pub link_hovered: MarkdownLinkState,
@@ -315,16 +308,9 @@ pub struct ThemeMarkdown {
   pub list_marker: MarkdownInlineStyle,
   /// The words of a task that is done.
   pub task_done: MarkdownInlineStyle,
-  pub blockquote_marker: MarkdownInlineStyle,
   pub table_header: MarkdownInlineStyle,
   pub table_cell: MarkdownInlineStyle,
   pub table_marker: MarkdownInlineStyle,
-  pub code_block_box: MarkdownBlockStyle,
-  /// The horizontal scrollbar of a code block whose lines are wider than its
-  /// box, drawn over the box's bottom padding while the block overflows.
-  /// `None` draws the app theme's scrollbar.
-  pub code_block_scrollbar: Option<ScrollBarStyle>,
-  pub blockquote_box: MarkdownBlockStyle,
   pub table_box: MarkdownBlockStyle,
   pub table_header_box: MarkdownBlockStyle,
   pub table_cell_box: MarkdownBlockStyle,
@@ -376,8 +362,6 @@ impl ThemeMarkdown {
       emphasis: inline(&self.emphasis),
       inline_code: inline(&self.inline_code),
       kbd: inline(&self.kbd),
-      code_block: inline(&self.code_block),
-      code_block_label: inline(&self.code_block_label),
       link: inline(&self.link),
       link_hovered: self.link_hovered.resolve(palette),
       link_focused: self.link_focused.resolve(palette),
@@ -387,12 +371,9 @@ impl ThemeMarkdown {
       strikethrough: inline(&self.strikethrough),
       list_marker: inline(&self.list_marker),
       task_done: inline(&self.task_done),
-      blockquote_marker: inline(&self.blockquote_marker),
       table_header: inline(&self.table_header),
       table_cell: inline(&self.table_cell),
       table_marker: inline(&self.table_marker),
-      code_block_box: block(&self.code_block_box),
-      blockquote_box: block(&self.blockquote_box),
       table_box: block(&self.table_box),
       table_header_box: block(&self.table_header_box),
       table_cell_box: block(&self.table_cell_box),
@@ -449,13 +430,6 @@ impl Default for ThemeMarkdown {
     kbd.text.font_size_scale = of_15(11.0);
     kbd.text.color = color(MutedForeground);
 
-    let mut code_block = inline_code.clone();
-    code_block.text.line_height = Some(1.6);
-
-    let mut code_block_label = code_block.clone();
-    code_block_label.text.font_size_scale = of_15(12.0);
-    code_block_label.text.color = color(MutedForeground);
-
     let mut link = MarkdownInlineStyle::default();
     link.text.color = color(Info);
     link.text.weight = Some(FontWeight::Medium);
@@ -480,9 +454,6 @@ impl Default for ThemeMarkdown {
     let mut task_done = MarkdownInlineStyle::default();
     task_done.text.color = color(MutedForeground);
 
-    let mut blockquote_marker = MarkdownInlineStyle::default();
-    blockquote_marker.text.color = color(MutedForeground);
-
     // A table: its header 14 at 600, its cells the mono face at 13.
     let mut table_header = MarkdownInlineStyle::default();
     table_header.text.font_size_scale = of_15(14.0);
@@ -493,22 +464,6 @@ impl Default for ThemeMarkdown {
 
     let mut table_marker = MarkdownInlineStyle::default();
     table_marker.text.color = color(Border);
-
-    let code_block_box = MarkdownBlockStyle {
-      background: color(Muted),
-      border_color: color(Border),
-      border_width: Some(1.0),
-      radius: Some(8.0),
-      padding: Some(Padding::all(14.0)),
-    };
-
-    let blockquote_box = MarkdownBlockStyle {
-      background: None,
-      border_color: color(Border),
-      border_width: Some(3.0),
-      radius: Some(0.0),
-      padding: Some(Padding::symmetric(14.0, 2.0)),
-    };
 
     let table_box = MarkdownBlockStyle {
       background: None,
@@ -586,8 +541,6 @@ impl Default for ThemeMarkdown {
       list_item_spacing: 6.0,
       task_item_spacing: 8.0,
       nested_block_spacing: 6.0,
-      code_block_spacing: 8.0,
-      blockquote_gap: 12.0,
       list_marker_gap: 8.0,
       bullet_gap: 10.0,
       bullet_indent: 6.0,
@@ -610,8 +563,6 @@ impl Default for ThemeMarkdown {
       emphasis,
       inline_code,
       kbd,
-      code_block,
-      code_block_label,
       link,
       link_hovered: MarkdownLinkState::default(),
       link_focused: MarkdownLinkState::default(),
@@ -629,17 +580,9 @@ impl Default for ThemeMarkdown {
       },
       list_marker,
       task_done,
-      blockquote_marker,
       table_header,
       table_cell,
       table_marker,
-      code_block_box,
-      // The bar of a code block's own, until the code block is the system's (`ui::CodeBlock`).
-      code_block_scrollbar: Some(ScrollBarStyle {
-        thumb_color: crate::node::color::Color::new(148, 163, 184, 128),
-        ..ScrollBarStyle::thin().insets(4.0, 6.0)
-      }),
-      blockquote_box,
       table_box,
       table_header_box,
       table_cell_box,

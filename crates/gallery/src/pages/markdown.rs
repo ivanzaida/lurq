@@ -100,8 +100,29 @@ Frame time stayed under 7 ms[^1], with a radius of 24[^2].
 [^2]: Radius is in logical pixels.
 ";
 
+/// Where the tasks are among the blocks: the one the page writes a task's change into.
+const TASKS: usize = 4;
+
 /// Each block on its own: a title, a word of guidance, and its source.
-const BLOCKS: [(&str, &str, &str); 7] = [
+const BLOCKS: [(&str, &str, &str); 11] = [
+  (
+    "Headings",
+    "The theme's type scale: 30 bold, 24 with a line under it, 20, 16, 14, and 12 in capitals in the muted \
+     foreground.",
+    "# Heading 1\n\n## Heading 2\n\n### Heading 3\n\n#### Heading 4\n\n##### Heading 5\n\n###### Heading 6\n",
+  ),
+  (
+    "Quotes",
+    "`ui::Blockquote`: a line at its start, its words in italics in the muted foreground.",
+    "> Blur is a tool for hierarchy, not decoration. Use it where depth helps the reader.\n",
+  ),
+  (
+    "Code blocks",
+    "`ui::CodeBlock`: a bar named by the language with the button that copies the code, the words of the language \
+     in their colors; a line wider than the block scrolls sideways.",
+    "```rust\nlet panel = Column::new()\n  .backdrop_blur(24.0) // the radius, in logical pixels\n  \
+     .background(\"#ffffff80\");\n```\n",
+  ),
   (
     "Lists",
     "Numbers at the end of a column of 18 in the muted foreground; bullets of 5, a dot at the first level and a \
@@ -121,6 +142,12 @@ const BLOCKS: [(&str, &str, &str); 7] = [
      columns, each column aligned as its delimiter row says.",
     "| Property | Type | Default |\n| --- | :---: | ---: |\n| radius | f32 | 0.0 |\n| backdrop | bool | false |\n| \
      tint | Color | none |\n",
+  ),
+  (
+    "The rule and an image",
+    "A line of 1 in the border's color; an image that stands alone with its caption under it, here the box of its \
+     place.",
+    "Above the rule.\n\n---\n\n![Frosted glass over a photo](photo.png \"Figure 1. Frosted glass over a photo.\")\n",
   ),
   (
     "Admonitions",
@@ -334,7 +361,7 @@ impl Component for MarkdownPage {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 0),
       source: ctx.signal(format!("{PAGE_ONE}\n{PAGE_TWO}")),
-      tasks: ctx.signal(BLOCKS[1].2.to_owned()),
+      tasks: ctx.signal(BLOCKS[TASKS].2.to_owned()),
       selectable: ctx.signal(true),
       fit_content: ctx.signal(false),
       take_tasks: ctx.signal(true),
@@ -408,7 +435,7 @@ impl Component for MarkdownPage {
       ),
     ];
     for (index, (title, guidance, source)) in BLOCKS.iter().enumerate() {
-      let props = if index == 1 {
+      let props = if index == TASKS {
         let tasks = self.tasks.clone();
         MarkdownProps::styled(tasks.get(), prose()).on_task_change(move |index, checked| {
           tasks.update(|text| *text = with_task(text, index, checked));

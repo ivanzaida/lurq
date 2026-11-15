@@ -4342,8 +4342,13 @@ impl Node {
   }
 
   #[cfg(feature = "markdown")]
+  /// Makes every text in the node selectable, or not, but for a glyph (an
+  /// icon, whose text is a character of a font's private use): a selection
+  /// across the node copies words, not the glyphs of its controls.
   pub(crate) fn selectable_recursive(&mut self, selectable: bool) {
+    let glyph = self.text_content.as_deref().is_some_and(is_glyph);
     match &self.node_kind {
+      NodeKind::Text { .. } if glyph => {}
       NodeKind::Text { state, .. } => state.set_selectable(selectable),
       NodeKind::RichText { state, .. } => state.set_selectable(selectable),
       _ => {}
@@ -7206,4 +7211,12 @@ mod tests {
 
     assert_eq!(ids_of(&new)[..2], before[..]);
   }
+}
+
+/// Whether `text` is a glyph: characters of the private use areas alone, where icon fonts put theirs.
+fn is_glyph(text: &str) -> bool {
+  !text.is_empty()
+    && text
+      .chars()
+      .all(|ch| matches!(ch, '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{ffffd}' | '\u{100000}'..='\u{10fffd}'))
 }

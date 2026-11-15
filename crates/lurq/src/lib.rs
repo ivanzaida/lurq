@@ -12,6 +12,7 @@ pub mod app;
 pub mod canvas;
 #[cfg(feature = "clipboard")]
 pub mod clipboard;
+pub mod code;
 pub mod components;
 pub mod core;
 pub mod eyedropper;

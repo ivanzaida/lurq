@@ -2812,6 +2812,73 @@ InlineCode::new("ctx.theme()");
 - A renderer that draws other keys has `view.steps` (each step's keys, with what is drawn on each and what it is called), `view.root()`, `view.key_cap(key)`, `view.label(text)`, `view.between()` and `view.written(step)` (a step as one text).
 - `InlineCode::new(&str)` is a short text of code in a run of text: 13 in the family of code in `Foreground`, on `Muted` with the radius `Sm`, padded 5 across and 1 above and below. It is not cut, and is `code` to what reads the tree, called by its text. Parts: `InlineCodePart::Root`, `Label`.
 
+## Code Block
+
+A block of code: a snippet in a page of docs, a command to run, a file's lines. Its words are in the colors of what they are, under a bar with its name and a button that copies it.
+
+```rust
+use lurq::ui::CodeBlock;
+
+CodeBlock::new("fn main() {\n  let app = App::new();\n}")
+  .language("rust")
+  .title("main.rs")
+  .line_numbers(true)
+  .highlight_lines([2])
+  .on_copy(|code| println!("copied {} bytes", code.len()))
+  .mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `CodeBlock::new(&str)` | The code. A newline at its end is not a line of its own |
+| `language(&str)` | What colors its words where the block knows the language (Rust: `rust`, `rs`), what the bar shows where it has no title, and what tooling is told. A language it does not know is drawn in one color |
+| `title(&str)`, `label(&str)` | What the bar shows in place of the language, a file's name, on one line ending in an ellipsis; its name to what reads the tree, its title or its language unless told |
+| `line_numbers(bool)`, `first_line(usize)` | The numbers of the lines, in a column at their start that a selection does not take; the number of the first, 1 unless told |
+| `highlight_lines(lines)` | Lines picked out by their numbers: a band in `Highlight` behind each, across the block, its number in the code's color |
+| `wrap(bool)` | Wraps the lines at the block's width. Otherwise each is one line, and the code scrolls sideways under the [scroll area](#scroll-area)'s bar |
+| `min_height(..)`, `max_height(..)` | The least and the greatest height, its bar with it: past the greatest, the code scrolls down and the bar stays |
+| `copy_button(bool)`, `copy_label(&str)`, `copied_text(&str)`, `on_copy(Fn(&str))` | The button in the bar that copies the code (shown unless told otherwise), its name ("Copy code") and its name while it shows it copied ("Copied"); `on_copy` is told the code it put on the clipboard |
+| `selectable(bool)` | Whether a person selects the code with the pointer: on unless told otherwise |
+| `mount(ctx)` | Mounted where it is declared, the copy button shows a check in `Success`, named `copied_text`, for two seconds (`CODE_BLOCK_COPIED_FOR`) after it copied. Converted into an element on its own it copies and does not show that it did |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the copy button under the pointer or held; `id` is the block's, with `{id}-title`, `{id}-copy` and `{id}-code` |
+
+- The bar is there where the block has a title, a language or a copy button; with none of them the code stands alone in the block.
+- The code is one text, which a selection runs across from line to line, beside the column of its numbers, which a selection does not take. Wrapped, each line is a text of its own beside its number, and a selection runs within a line: lurq selects within one text. The copy button copies all of it either way.
+- A press of the copy button puts the code on the clipboard through the window it is in (`WindowHandle::copy_to_clipboard`): the OS clipboard with the `clipboard` feature, or what a test installs. Then `on_copy` is told.
+- Its words are told apart by `lurq::code::tokens`, which Markdown's code blocks use too, without the `markdown` feature: keywords in `Info`, as the board draws `fn` and `let`, and where the board is silent strings in `Success`, numbers in `Warning` and comments in `MutedForeground`.
+- The code scrolls in a [scroll area](#scroll-area) called by the block's name: a stop of Tab whose keys scroll it.
+- To what reads the tree it is `code`, called by its label, its title or its language, with `a11y_language`; its copy button is a `button` called by `copy_label`, or `copied_text` while it shows it copied.
+- Parts: `CodeBlockPart::Root`, `Header`, `Title`, `Copy`, `CopyIcon`, `Body`, `Code`, `LineNumber`, `Marked` (the band of a line picked out), and `Keyword`, `String`, `Number`, `Comment`, whose foreground is the color of their words. States: `CodeBlockState::Header`, `LineNumbers`, `Wrap`, `Copied`.
+- In the design the block is on `Background` in an edge of 1 in `Border` with the large radius. Its bar is 36 high on `Muted` with a line of 1 in `Border` under it, padded 14 at its start and 6 at its end; its title is 11 in the family of code in `MutedForeground`, and its copy button a ghost button of 28 with a copy glyph of 16 in `Foreground`, `Highlight` under the pointer. The code is 13 in the family of code in `Foreground`, padded 14, its lines 17 high and 4 apart. Where the board is silent: the numbers are in `MutedForeground` 16 before the code, a picked line's band is `Highlight`, and a long line scrolls sideways.
+- A renderer that draws another block has `view.header()`, `view.copy_control()`, `view.body()`, `view.root()`, `view.spans(code)` (code in runs of its tokens' colors), `view.lines()`, `view.name()` and `view.heading()`, and `view.render()` the default.
+
+## Blockquote
+
+A quote set apart from the text around it by a line at its start: words someone said, a passage of another text, Markdown's `>`.
+
+```rust
+use lurq::{app::theme::TypographyStyle, components::Text, ui::Blockquote};
+
+Blockquote::new("A design system is a set of decisions you no longer have to make.");
+
+// Paragraphs, as Markdown's `>` holds them.
+Blockquote::new("")
+  .child(Text::new("First paragraph.").variant(TypographyStyle::Prose))
+  .child(Text::new("Second paragraph.").variant(TypographyStyle::Prose));
+```
+
+| Builder | |
+| --- | --- |
+| `Blockquote::new(&str)` | What it says, wrapping at its width. An empty text says nothing, for a quote of elements alone |
+| `child(..)`, `children(..)` | Elements under the text, 8 apart: paragraphs, a list, a block of code. What names no color of its own takes the quote's |
+| `label(&str)` | What it is called to tooling: who said it, where it is from |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them |
+
+- It fills the width it is given. It is read and not operated: no stop of Tab. To what reads the tree it is a `blockquote`, called by its label where it has one.
+- Parts: `BlockquotePart::Root` (the line, the padding), `Label` (the text), `Body` (what it holds under its text). States: `BlockquoteState::Body`.
+- In the design it has a line of 2 in `Border` at its start, and is padded 16 after it and 4 above and below; its text is 14 in italics on lines of 1.5 in `MutedForeground`. The board draws no one who said it.
+- A renderer that draws another quote has `view.root()`, `view.label()`, `view.body()` and `view.render()`.
+
 ## Empty State
 
 What stands where content would be when there is none, and what to do about it: no results, no windows yet, all caught up.

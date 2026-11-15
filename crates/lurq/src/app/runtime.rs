@@ -2652,6 +2652,7 @@ impl Tree {
 
   fn pass_inner(&mut self, app: &mut App, surface: &(impl HasWindowHandle + HasDisplayHandle)) -> PassReport {
     self.set_app_ref(app);
+    self.write_requested_copies();
     let pass_started_at = Instant::now();
     self.tick_scheduled_redraw(Instant::now());
     self.tick_scrollbar_change();
@@ -7009,6 +7010,7 @@ impl Tree {
   }
 
   fn apply_reactive_updates_after_event(&mut self) {
+    self.write_requested_copies();
     if self.root_ctx.as_ref().is_some_and(Ctx::any_dirty) {
       self.needs_redraw = true;
       self.rebuild_if_dirty();
@@ -7018,6 +7020,13 @@ impl Tree {
       self.focus_keyed_in_group(group, &key, false);
     }
     self.refresh_interaction_groups();
+  }
+
+  /// Writes what the app asked to be put on the clipboard (`WindowHandle::copy_to_clipboard`), in order.
+  fn write_requested_copies(&mut self) {
+    for text in self.window.take_copies() {
+      self.write_clipboard_text(&text);
+    }
   }
 
   fn reset_text_input_caret_blink(&mut self) {

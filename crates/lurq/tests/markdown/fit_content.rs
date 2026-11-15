@@ -176,16 +176,18 @@ fn markdown_fit_content_takes_the_widest_block() {
   // Every block is stretched to the widest one, as CSS blocks are.
   let short = bounds_by_text(&mut tree, "Short");
   assert_near(short.width, bubble.width, "short paragraph width");
-  let code_background = ThemeMarkdown::default()
-    .resolve(&lurq::app::theme::ThemePalette::light())
-    .code_block_box
-    .background
-    .and_then(|color| color.as_color())
-    .expect("the default theme gives code blocks a background");
-  let code = tree
-    .find_element(|element| element.color() == Some(code_background))
-    .expect("the code block box should be laid out")
-    .bounds();
+  // The block's box is on the theme's background, which nothing else in the bubble draws.
+  let code_background = App::new()
+    .theme()
+    .palette()
+    .get(lurq::app::theme::PaletteColor::Background);
+  let quads = tree.resolve_quads(tree.last_layout().expect("laid out"));
+  let code = quads
+    .iter()
+    .find(
+      |quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Rect { color, .. } if *color == code_background),
+    )
+    .expect("the code block box should be laid out");
   assert_near(code.width, bubble.width, "code block width");
 }
 

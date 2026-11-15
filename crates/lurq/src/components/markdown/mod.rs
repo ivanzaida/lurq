@@ -8,23 +8,23 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{MarkdownBlockStyle, PaletteColor, Theme, ThemeMarkdown, ThemePalette},
+    theme::{MarkdownBlockStyle, Theme, ThemeMarkdown},
   },
-  components::{Column, Rect, Row, ScrollHorizontal, Text},
+  components::{Column, Rect, Row, Text},
   core::{Memo, Signal},
   layout::{
     Alignment,
     layout_kind::Justify,
-    quad::RichTextSpan,
-    scrollbar::{ScrollBarPlacement, ScrollBarStyle},
     text_style::{TextAlign, TextStyle},
   },
   markdown::{
     MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
     MarkdownTableAlignment, MarkdownTableRow, markdown_html_text, markdown_inline_rich_text, parse_markdown,
   },
-  node::{Element, Node, color::Color, dimension::Dimension, text_highlight::TextHighlight},
-  ui::{Case, InlineCode, InlineCodePart, Kbd, KbdPart, Length},
+  node::{Element, Node, TextColor, dimension::Dimension, node_kind::NodeKind, text_highlight::TextHighlight},
+  ui::{
+    Blockquote, BlockquotePart, BlockquoteState, Case, CodeBlock, InlineCode, InlineCodePart, Kbd, KbdPart, Length,
+  },
 };
 
 mod bidi_paragraphs;
@@ -182,13 +182,6 @@ impl MarkdownProps {
       width: BlockWidth::new(self.fit_content),
       links: &links,
       list_view: self.list_view.as_ref(),
-      code_block_scrollbar: ScrollBarStyle {
-        placement: ScrollBarPlacement::Overlay,
-        ..theme
-          .code_block_scrollbar
-          .clone()
-          .unwrap_or_else(|| ui.scrollbar().clone())
-      },
       code_blocks: Cell::new(0),
       text: &text,
       ui: ui.clone(),
@@ -363,10 +356,6 @@ struct MarkdownRenderContext<'a> {
   width: BlockWidth,
   links: &'a LinkSession,
   list_view: Option<&'a MarkdownListView>,
-  /// The bar of a code block that overflows sideways: the Markdown theme's,
-  /// or else the app theme's, always drawn over the box's padding so a
-  /// fitting block keeps its size whatever the app's bars reserve.
-  code_block_scrollbar: ScrollBarStyle,
   /// How many code blocks this render has drawn: the next one's ordinal.
   code_blocks: Cell<usize>,
   /// The rendered text so far, and the highlights its leaves take.
@@ -444,19 +433,11 @@ impl Component for Markdown {
     .with_jump(jump)
     .with_fills(code_fill, kbd_fill);
     links.set_footnotes(footnote_numbers(&document));
-    let code_block_scrollbar = ScrollBarStyle {
-      placement: ScrollBarPlacement::Overlay,
-      ..theme
-        .code_block_scrollbar
-        .clone()
-        .unwrap_or_else(|| ctx.theme().scrollbar().clone())
-    };
     let text = DocumentText::new(&props.highlights);
     let render_ctx = MarkdownRenderContext {
       width: BlockWidth::new(props.fit_content),
       links: &links,
       list_view: props.list_view.as_ref(),
-      code_block_scrollbar,
       code_blocks: Cell::new(0),
       text: &text,
       ui: ui.clone(),
@@ -645,8 +626,8 @@ fn render_block(
       render_list(*ordered, *start, items, base_style, theme, render_ctx)
     }
     MarkdownBlock::Table { alignments, rows } => render_table(alignments, rows, base_style, theme, render_ctx),
-    MarkdownBlock::CodeBlock { kind, text } => render_code_block(kind, text, base_style, theme, render_ctx),
-    MarkdownBlock::Math { text } => render_math_block(text, base_style, theme, render_ctx),
+    MarkdownBlock::CodeBlock { kind, text } => render_code_block(kind, text, render_ctx),
+    MarkdownBlock::Math { text } => render_math_block(text, render_ctx),
     MarkdownBlock::FootnoteDefinition { label, blocks } => {
       render_footnote_definition(label, blocks, base_style, theme, render_ctx)
     }
@@ -828,39 +809,37 @@ fn render_markdown_image(inline: &MarkdownInline, base_style: &TextStyle, theme:
   }
 }
 
+/// A quote: a `ui::Blockquote` of its blocks, their words in the quote's text
+/// (the theme's `blockquote` recipe, its `label` part), in its color where the
+/// recipe names one.
 fn render_blockquote(
   blocks: &[MarkdownBlock],
   base_style: &TextStyle,
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
-  let mut body = render_ctx.width.row_body(
-    Column::new()
-      .overflow_visible()
-      .spacing(theme.nested_block_spacing)
-      .min_width(0.0),
-  );
-  for block in blocks {
-    body = body.child(render_block(block, base_style, theme, render_ctx));
+  let ui = &render_ctx.ui;
+  let label = ui
+    .resolve::<Blockquote>(&Case::new().state(BlockquoteState::Body, true), None)
+    .part(BlockquotePart::Label);
+  let mut style = label.rest().text.resolve(ui);
+  style.color = match label.rest().foreground {
+    Some(TextColor::Color(color)) => color,
+    Some(TextColor::Palette(role)) => ui.palette_color(role),
+    None => base_style.color,
+  };
+  let children: Vec<Element> = blocks
+    .iter()
+    .map(|block| render_block(block, &style, theme, render_ctx))
+    .collect();
+  let mut quote = Blockquote::new("").children(children).build(ui);
+  // A link's focus ring, a code block's bar, reach past the quote's room.
+  quote = quote.map_node(Node::overflow_visible);
+  for child in &mut quote.node.children {
+    let node = std::mem::take(child);
+    *child = node.overflow_visible();
   }
-
-  let bar_color = theme
-    .blockquote_box
-    .border_color
-    .clone()
-    .unwrap_or_else(|| theme.blockquote_marker.apply(base_style).color.into());
-  let bar_width = theme.blockquote_box.border_width.unwrap_or(3.0);
-
-  let mut row = render_ctx.width.row(
-    Row::new()
-      .overflow_visible()
-      .spacing(theme.blockquote_gap)
-      .align_items(Alignment::Stretch)
-      .child(Rect::new(bar_width, FILL_WIDTH).background(bar_color))
-      .child(body),
-  );
-  row = apply_row_box(row, &theme.blockquote_box, false);
-  row.into()
+  render_ctx.width.leaf(quote)
 }
 
 fn render_list(
@@ -894,61 +873,52 @@ fn render_list(
   blocks::render_items(ordered, start.unwrap_or(1), items, base_style, theme, render_ctx)
 }
 
-fn render_code_block(
-  kind: &MarkdownCodeBlockKind,
-  text: &str,
-  base_style: &TextStyle,
-  theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext<'_>,
-) -> Element {
-  let width = render_ctx.width;
-  let code_style = theme.code_block.apply(base_style);
-
-  // The box's padding goes inside the lines' scroll container, so a line
-  // wider than the box scrolls under the padding and is clipped at the
-  // box's edge, like a CSS `pre` with `overflow-x: auto`, and the scrollbar
-  // sits in the bottom padding. The label stays above, outside the scroll.
-  let padding = theme.code_block_box.padding.unwrap_or_default();
-  let mut lines_padding = padding;
+/// A code block: a `ui::CodeBlock` of its code, named by its language, its
+/// code one text of the document's words. Its look is the theme's
+/// `code_block` recipe.
+fn render_code_block(kind: &MarkdownCodeBlockKind, text: &str, render_ctx: &MarkdownRenderContext<'_>) -> Element {
   let ordinal = render_ctx.code_blocks.get();
   render_ctx.code_blocks.set(ordinal + 1);
-  let key = code_block_key(ordinal, kind);
-  let mut column = width.blocks(Column::new().spacing(0.0).key(key.clone()));
+  let code = text.trim_end_matches('\n');
+  // The document makes its words selectable, or not, all together.
+  let mut block = CodeBlock::new(code)
+    .key(code_block_key(ordinal, kind))
+    .selectable(false);
   if let MarkdownCodeBlockKind::Fenced {
     language: Some(language),
   } = kind
   {
-    let label_style = theme.code_block_label.apply(base_style);
-    let label = width.blocks(
-      Column::new()
-        .overflow_visible()
-        .padding(padding.bottom(0.0))
-        .child(width.leaf(Text::styled(language, label_style))),
-    );
-    column = column.child(label);
-    lines_padding = lines_padding.top(theme.code_block_spacing);
+    block = block.language(language);
   }
-  let lines = Column::new().overflow_visible().padding(lines_padding).child(
-    render_ctx.text.leaf(Element::from_node(
-      Node::rich_text(highlight_code_spans(
-        text.trim_end_matches('\n'),
-        kind,
-        &code_style,
-        &render_ctx.ui.palette(),
-      ))
-      .text_wrap(false),
-    )),
-  );
-  let scroll = ScrollHorizontal::new(lines)
-    .key(key)
-    .scrollbar(render_ctx.code_block_scrollbar.clone());
-  column = column.child(width.leaf(scroll));
-  let box_style = MarkdownBlockStyle {
-    padding: None,
-    ..theme.code_block_box.clone()
-  };
-  column = apply_column_box(column, &box_style, true);
-  column.into()
+  let mut element = block.build(&render_ctx.ui);
+  if let Some(node) = code_text(&mut element.node, code) {
+    render_ctx.text.append(node);
+  }
+  if render_ctx.width == BlockWidth::Fit {
+    // Fitting, the block is as wide as its longest line, at most the document's width: its box, its bar and the
+    // room its code scrolls in are of their content's width, where the block's own fill the width they are given.
+    fit(&mut element.node, 3);
+  }
+  element
+}
+
+/// `node`, and what is in it `depth` levels down, as wide as their content, at most the width they are given.
+fn fit(node: &mut Node, depth: usize) {
+  let taken = std::mem::take(node);
+  *node = taken.width(Dimension::Auto).max_width(FILL_WIDTH);
+  if depth > 0 {
+    for child in &mut node.children {
+      fit(child, depth - 1);
+    }
+  }
+}
+
+/// The text of `code` in a code block's nodes.
+fn code_text<'n>(node: &'n mut Node, code: &str) -> Option<&'n mut Node> {
+  if matches!(node.node_kind, NodeKind::RichText { .. }) && node.text_content() == Some(code) {
+    return Some(node);
+  }
+  node.children.iter_mut().find_map(|child| code_text(child, code))
 }
 
 /// Keys a code block's box and its scroll node by the block's ordinal among
@@ -967,16 +937,11 @@ fn code_block_key(ordinal: usize, kind: &MarkdownCodeBlockKind) -> Arc<str> {
   }
 }
 
-fn render_math_block(
-  text: &str,
-  base_style: &TextStyle,
-  theme: &ThemeMarkdown,
-  render_ctx: &MarkdownRenderContext<'_>,
-) -> Element {
+fn render_math_block(text: &str, render_ctx: &MarkdownRenderContext<'_>) -> Element {
   let kind = MarkdownCodeBlockKind::Fenced {
     language: Some("math".to_owned()),
   };
-  render_code_block(&kind, text, base_style, theme, render_ctx)
+  render_code_block(&kind, text, render_ctx)
 }
 
 fn render_footnote_definition(
@@ -1005,164 +970,6 @@ fn render_footnote_definition(
         .child(body),
     )
     .into()
-}
-
-fn highlight_code_spans(
-  text: &str,
-  kind: &MarkdownCodeBlockKind,
-  base_style: &TextStyle,
-  palette: &ThemePalette,
-) -> Vec<RichTextSpan> {
-  if !is_rust_like_code(kind) {
-    return vec![RichTextSpan {
-      text: text.to_owned(),
-      style: base_style.clone(),
-    }];
-  }
-
-  let keyword_style = code_style(base_style, palette.get(PaletteColor::Info));
-  let string_style = code_style(base_style, palette.get(PaletteColor::Success));
-  let comment_style = code_style(base_style, palette.get(PaletteColor::MutedForeground));
-  let number_style = code_style(base_style, palette.get(PaletteColor::Destructive));
-  let mut spans = Vec::new();
-  let mut rest = text;
-  while !rest.is_empty() {
-    if let Some(comment) = rest.strip_prefix("//") {
-      let line_len = comment.find('\n').map(|index| index + 2).unwrap_or(rest.len());
-      push_code_span(&mut spans, &rest[..line_len], comment_style.clone());
-      rest = &rest[line_len..];
-      continue;
-    }
-    let Some(ch) = rest.chars().next() else {
-      break;
-    };
-    if ch == '"' {
-      let len = quoted_len(rest);
-      push_code_span(&mut spans, &rest[..len], string_style.clone());
-      rest = &rest[len..];
-      continue;
-    }
-    if ch.is_ascii_digit() {
-      let len = rest
-        .char_indices()
-        .find(|(_, ch)| !ch.is_ascii_digit() && *ch != '.')
-        .map(|(index, _)| index)
-        .unwrap_or(rest.len());
-      push_code_span(&mut spans, &rest[..len], number_style.clone());
-      rest = &rest[len..];
-      continue;
-    }
-    if ch == '_' || ch.is_ascii_alphabetic() {
-      let len = rest
-        .char_indices()
-        .find(|(_, ch)| *ch != '_' && !ch.is_ascii_alphanumeric())
-        .map(|(index, _)| index)
-        .unwrap_or(rest.len());
-      let token = &rest[..len];
-      let style = if is_rust_keyword(token) {
-        keyword_style.clone()
-      } else {
-        base_style.clone()
-      };
-      push_code_span(&mut spans, token, style);
-      rest = &rest[len..];
-      continue;
-    }
-    push_code_span(&mut spans, &rest[..ch.len_utf8()], base_style.clone());
-    rest = &rest[ch.len_utf8()..];
-  }
-  spans
-}
-
-fn is_rust_like_code(kind: &MarkdownCodeBlockKind) -> bool {
-  matches!(
-    kind,
-    MarkdownCodeBlockKind::Fenced {
-      language: Some(language)
-    } if matches!(language.as_str(), "rust" | "rs")
-  )
-}
-
-fn quoted_len(text: &str) -> usize {
-  let mut escaped = false;
-  for (index, ch) in text.char_indices().skip(1) {
-    if escaped {
-      escaped = false;
-      continue;
-    }
-    if ch == '\\' {
-      escaped = true;
-      continue;
-    }
-    if ch == '"' {
-      return index + ch.len_utf8();
-    }
-  }
-  text.len()
-}
-
-fn is_rust_keyword(token: &str) -> bool {
-  matches!(
-    token,
-    "as"
-      | "async"
-      | "await"
-      | "break"
-      | "const"
-      | "continue"
-      | "crate"
-      | "else"
-      | "enum"
-      | "false"
-      | "fn"
-      | "for"
-      | "if"
-      | "impl"
-      | "in"
-      | "let"
-      | "loop"
-      | "match"
-      | "mod"
-      | "move"
-      | "mut"
-      | "pub"
-      | "ref"
-      | "return"
-      | "self"
-      | "Self"
-      | "static"
-      | "struct"
-      | "super"
-      | "trait"
-      | "true"
-      | "type"
-      | "unsafe"
-      | "use"
-      | "where"
-      | "while"
-  )
-}
-
-fn code_style(base_style: &TextStyle, color: Color) -> TextStyle {
-  let mut style = base_style.clone();
-  style.color = color;
-  style
-}
-
-fn push_code_span(spans: &mut Vec<RichTextSpan>, text: &str, style: TextStyle) {
-  if text.is_empty() {
-    return;
-  }
-  if let Some(last) = spans.last_mut()
-    && last.style == style
-  {
-    last.text.push_str(text);
-    return;
-  }
-  spans.push(RichTextSpan {
-    text: text.to_owned(),
-    style,
-  });
 }
 
 fn render_table(
@@ -1290,23 +1097,6 @@ fn apply_column_box(mut column: Column, style: &MarkdownBlockStyle, include_bord
     column = column.rounded(radius);
   }
   column
-}
-
-/// Gives `row` the box `style`; like [`apply_column_box`], never a text leaf.
-fn apply_row_box(mut row: Row, style: &MarkdownBlockStyle, include_border: bool) -> Row {
-  if let Some(padding) = style.padding {
-    row = row.padding(padding);
-  }
-  if let Some(background) = style.background.clone() {
-    row = row.background(background);
-  }
-  if include_border && let (Some(width), Some(color)) = (style.border_width, style.border_color.clone()) {
-    row = row.border_inside(width, color);
-  }
-  if let Some(radius) = style.radius {
-    row = row.rounded(radius);
-  }
-  row
 }
 
 /// A heading's style: the theme's type of its level (`TypographyStyle::Heading1`
