@@ -4,7 +4,10 @@
 
 use std::{fmt, str::FromStr, sync::Arc};
 
-use super::{ColumnLayout, ColumnPin, ColumnPlace, GroupKey, SortDirection, TableSort};
+use super::{
+  ColumnFilter, ColumnLayout, ColumnPin, ColumnPlace, GroupKey, SortDirection, TableFilters, TableSort, TextMatch,
+};
+use crate::core::Date;
 
 /// What `FromStr` returns for text that is not the text form of a table's value: a [`ColumnLayout`], a
 /// [`TableSort`], a [`GroupKey`] or a list of them.
@@ -369,6 +372,175 @@ impl FromStr for TableSort {
   }
 }
 
+// The filters.
+
+impl TableFilters {
+  /// The filters as text that `parse` reads back to the same filters: `filter(..)` for each, its column's id
+  /// quoted, then what it lets through: `contains`, `starts_with` or `equals` and a quoted text; `at_least:` and
+  /// `at_most:` a number; `from:` and `to:` a day; `in` and the quoted values; `is:true` or `is:false`.
+  ///
+  /// ```
+  /// use lurq::ui::{ColumnFilter, TableFilters};
+  ///
+  /// let filters = TableFilters::new()
+  ///   .with("name", ColumnFilter::contains("lurq"))
+  ///   .with("size", ColumnFilter::at_least(10.0))
+  ///   .with("status", ColumnFilter::one_of(["Passing", "Failed"]));
+  /// assert_eq!(
+  ///   filters.to_text(),
+  ///   r#"filter("name" contains "lurq") filter("size" at_least:10) filter("status" in "Passing" "Failed")"#
+  /// );
+  /// assert_eq!(TableFilters::parse(&filters.to_text()), Some(filters));
+  /// ```
+  pub fn to_text(&self) -> String {
+    let mut parts = Vec::new();
+    for (id, filter) in self.iter() {
+      let mut out = String::from("filter(");
+      write_string(&mut out, id);
+      match filter {
+        ColumnFilter::Text { how, text } => {
+          out.push_str(match how {
+            TextMatch::Contains => " contains ",
+            TextMatch::StartsWith => " starts_with ",
+            TextMatch::Equals => " equals ",
+          });
+          write_string(&mut out, text);
+        }
+        ColumnFilter::Number { at_least, at_most } => {
+          if let Some(low) = at_least {
+            out.push_str(&format!(" at_least:{low}"));
+          }
+          if let Some(high) = at_most {
+            out.push_str(&format!(" at_most:{high}"));
+          }
+        }
+        ColumnFilter::Date { from, to } => {
+          if let Some(from) = from {
+            out.push_str(&format!(" from:{from}"));
+          }
+          if let Some(to) = to {
+            out.push_str(&format!(" to:{to}"));
+          }
+        }
+        ColumnFilter::Set(values) => {
+          out.push_str(" in");
+          for value in values {
+            space(&mut out);
+            write_string(&mut out, value);
+          }
+        }
+        ColumnFilter::Bool(value) => out.push_str(if *value { " is:true" } else { " is:false" }),
+      }
+      out.push(')');
+      parts.push(out);
+    }
+    parts.join(" ")
+  }
+
+  /// The filters `text` writes (see `to_text`): `None` for text that is not the form. No text is no filters.
+  pub fn parse(text: &str) -> Option<TableFilters> {
+    let mut reader = Reader::new(text)?;
+    let mut filters = TableFilters::new();
+    while !reader.done() {
+      reader.opens("filter")?;
+      let id = reader.text()?;
+      let filter = match reader.word()?.as_str() {
+        word @ ("contains" | "starts_with" | "equals") => {
+          let text = reader.text()?;
+          reader.expect(Token::Close)?;
+          ColumnFilter::Text {
+            how: match word {
+              "contains" => TextMatch::Contains,
+              "starts_with" => TextMatch::StartsWith,
+              _ => TextMatch::Equals,
+            },
+            text,
+          }
+        }
+        "in" => ColumnFilter::Set(reader.texts_to_close()?),
+        first => {
+          // Pairs of a name and a value, up to the close.
+          let mut pairs = vec![(first.to_owned(), {
+            reader.expect(Token::Colon)?;
+            reader.word()?
+          })];
+          loop {
+            match reader.next()? {
+              Token::Close => break,
+              Token::Word(name) => {
+                reader.expect(Token::Colon)?;
+                pairs.push((name, reader.word()?));
+              }
+              _ => return None,
+            }
+          }
+          let value = |name: &str| {
+            pairs
+              .iter()
+              .find(|(held, _)| held == name)
+              .map(|(_, value)| value.clone())
+          };
+          match pairs[0].0.as_str() {
+            "at_least" | "at_most" => {
+              let number = |name: &str| -> Option<Option<f64>> {
+                match value(name) {
+                  None => Some(None),
+                  Some(text) => text.parse().ok().map(Some),
+                }
+              };
+              ColumnFilter::Number {
+                at_least: number("at_least")?,
+                at_most: number("at_most")?,
+              }
+            }
+            "from" | "to" => ColumnFilter::Date {
+              from: match value("from") {
+                Some(text) => Some(parse_date(&text)?),
+                None => None,
+              },
+              to: match value("to") {
+                Some(text) => Some(parse_date(&text)?),
+                None => None,
+              },
+            },
+            "is" => match value("is")?.as_str() {
+              "true" => ColumnFilter::Bool(true),
+              "false" => ColumnFilter::Bool(false),
+              _ => return None,
+            },
+            _ => return None,
+          }
+        }
+      };
+      filters.set(&id, filter);
+    }
+    Some(filters)
+  }
+}
+
+/// A day written `2026-11-12`.
+fn parse_date(text: &str) -> Option<Date> {
+  let mut parts = text.splitn(3, '-');
+  let year = parts.next()?.parse().ok()?;
+  let month = parts.next()?.parse().ok()?;
+  let day = parts.next()?.parse().ok()?;
+  Date::new(year, month, day)
+}
+
+impl fmt::Display for TableFilters {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(&self.to_text())
+  }
+}
+
+impl FromStr for TableFilters {
+  type Err = TableTextError;
+
+  fn from_str(text: &str) -> Result<Self, Self::Err> {
+    TableFilters::parse(text).ok_or(TableTextError)
+  }
+}
+
 // The groups.
 
 impl GroupKey {
@@ -427,7 +599,7 @@ impl FromStr for GroupKey {
 
 #[cfg(feature = "persistent_storage")]
 mod stored {
-  use super::{ColumnLayout, GroupKey, TableSort};
+  use super::{ColumnLayout, GroupKey, TableFilters, TableSort};
   use crate::persistent_storage::{IntoPersistentValue, PersistentValue};
 
   fn text(bytes: &[u8]) -> Option<String> {
@@ -494,6 +666,20 @@ mod stored {
   impl IntoPersistentValue for Vec<TableSort> {
     fn encode_persistent_value(self) -> Vec<u8> {
       TableSort::list_to_text(&self).encode_persistent_value()
+    }
+  }
+
+  /// A grid's filters, as their text.
+  impl PersistentValue for TableFilters {
+    fn decode_persistent_value(bytes: &[u8]) -> Option<Self> {
+      TableFilters::parse(&text(bytes)?)
+    }
+  }
+
+  /// A grid's filters, as their text.
+  impl IntoPersistentValue for TableFilters {
+    fn encode_persistent_value(self) -> Vec<u8> {
+      self.to_text().encode_persistent_value()
     }
   }
 

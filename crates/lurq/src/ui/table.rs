@@ -28,6 +28,8 @@ use super::{
   theme::{Themed, current_theme},
 };
 mod columns;
+mod filtering;
+mod filters;
 mod groups;
 mod heights;
 mod keys;
@@ -37,6 +39,10 @@ mod text;
 
 pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
+pub use filtering::FilterLabels;
+use filtering::{FilterLink, FilterShape, FilterState, MOST_VALUES};
+pub use filters::{ColumnFilter, TableFilters, TextMatch};
+use filters::{FilterBy, Test};
 pub use groups::{GroupKey, TableGroup};
 use groups::{Lines, Shown};
 use heights::Heights;
@@ -84,6 +90,12 @@ pub enum TablePart {
   SortIcon,
   /// The place of a column in the sort after its arrow, where the rows are sorted by more than one.
   SortOrder,
+  /// The mark of a column the rows are filtered by, after its title.
+  FilterIcon,
+  /// The row of filters under the header, where a grid has one.
+  FilterRow,
+  /// The word over each editor of a column's filter panel.
+  FilterLabel,
   /// What is dragged at the end of a column's header to make it wider or narrower: its width, its cursor.
   Resizer,
   /// The line in the resizer, shown under the pointer and while it is dragged.
@@ -134,6 +146,9 @@ names!(TablePart {
   HeaderCell => "header_cell",
   SortIcon => "sort_icon",
   SortOrder => "sort_order",
+  FilterIcon => "filter_icon",
+  FilterRow => "filter_row",
+  FilterLabel => "filter_label",
   Resizer => "resizer",
   ResizeLine => "resize_line",
   MenuTrigger => "menu_trigger",
@@ -411,6 +426,7 @@ pub struct TableColumn<R> {
   editor: Option<CellEditor<R>>,
   summary: Option<Summary<R>>,
   wrap: bool,
+  filter: Option<FilterBy<R>>,
 }
 
 impl<R> Clone for TableColumn<R> {
@@ -431,6 +447,7 @@ impl<R> Clone for TableColumn<R> {
       editor: self.editor.clone(),
       summary: self.summary.clone(),
       wrap: self.wrap,
+      filter: self.filter.clone(),
     }
   }
 }
@@ -455,6 +472,7 @@ impl<R: 'static> TableColumn<R> {
       editor: None,
       summary: None,
       wrap: false,
+      filter: None,
     }
   }
 
@@ -532,6 +550,47 @@ impl<R: 'static> TableColumn<R> {
   /// as a row.
   pub fn wrap(mut self, wrap: bool) -> Self {
     self.wrap = wrap;
+    self
+  }
+
+  /// Whether the rows are filtered by its text: those whose text contains a text, starts with it or is it,
+  /// whatever its case ([`ColumnFilter::Text`]), or those whose text is one of the values ticked among those the
+  /// column has ([`ColumnFilter::Set`]).
+  pub fn filter_text(mut self, filter: bool) -> Self {
+    self.filter = filter.then_some(FilterBy::Text);
+    self
+  }
+
+  /// Whether the rows are filtered by ticking the values of its text the column has, as a status is
+  /// ([`ColumnFilter::Set`]); a filter of text matches them too.
+  pub fn filter_set(mut self, filter: bool) -> Self {
+    self.filter = filter.then_some(FilterBy::Set);
+    self
+  }
+
+  /// The rows are filtered by ticking the values `value` gives them, for a column whose cell is an element (a
+  /// badge): [`ColumnFilter::Set`].
+  pub fn filter_values(mut self, value: impl Fn(&R) -> String + Send + Sync + 'static) -> Self {
+    self.filter = Some(FilterBy::Values(Arc::new(value)));
+    self
+  }
+
+  /// The rows are filtered by the number `value` gives them: a range, or a comparison ([`ColumnFilter::Number`]).
+  pub fn filter_number(mut self, value: impl Fn(&R) -> f64 + Send + Sync + 'static) -> Self {
+    self.filter = Some(FilterBy::Number(Arc::new(value)));
+    self
+  }
+
+  /// The rows are filtered by the day `value` gives them, from one day to another ([`ColumnFilter::Date`]); a row
+  /// with no day is let through by no filter of days.
+  pub fn filter_date(mut self, value: impl Fn(&R) -> Option<crate::core::Date> + Send + Sync + 'static) -> Self {
+    self.filter = Some(FilterBy::Date(Arc::new(value)));
+    self
+  }
+
+  /// The rows are filtered by whether `value` holds for them ([`ColumnFilter::Bool`]).
+  pub fn filter_bool(mut self, value: impl Fn(&R) -> bool + Send + Sync + 'static) -> Self {
+    self.filter = Some(FilterBy::Bool(Arc::new(value)));
     self
   }
 
@@ -645,7 +704,21 @@ type LayoutHeard = Arc<dyn Fn(&ColumnLayout) + Send + Sync>;
 type OpenWrite = Arc<dyn Fn(Vec<GroupKey>) + Send + Sync>;
 type OpenHeard = Arc<dyn Fn(&GroupKey, bool) + Send + Sync>;
 /// What says the count of the footer, given how many rows there are and how many are selected where they are.
-type CountFn = Arc<dyn Fn(usize, Option<usize>) -> String + Send + Sync>;
+type CountFn = Arc<dyn Fn(TableCount) -> String + Send + Sync>;
+
+/// What the footer's count of a table says it of: how many rows it shows, how many there are, and how many are
+/// selected where it selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableCount {
+  /// The rows shown: those its filters let through, every row where it has none.
+  pub shown: usize,
+  /// The rows there are: the app's total where it gives one.
+  pub total: usize,
+  pub selected: Option<usize>,
+}
+
+type FiltersFn = Arc<dyn Fn(TableFilters) + Send + Sync>;
+type FiltersHeard = Arc<dyn Fn(&TableFilters) + Send + Sync>;
 /// What is told the width a column is made: its id, and the width.
 type ResizeHeard = Arc<dyn Fn(&str, f32) + Send + Sync>;
 type ResizeLabelFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
@@ -676,6 +749,7 @@ struct Words {
   group: Option<GroupLabelFn>,
   summary: Arc<SummaryLabels>,
   numbers: Arc<str>,
+  filter: Arc<FilterLabels>,
 }
 
 type GroupLabelFn = Arc<dyn Fn(&str, &str, usize) -> String + Send + Sync>;
@@ -693,6 +767,7 @@ impl Default for Words {
       group: None,
       summary: Arc::default(),
       numbers: Arc::from("#"),
+      filter: Arc::default(),
     }
   }
 }
@@ -754,6 +829,10 @@ pub struct Table<R, K = usize> {
   sort: Vec<TableSort>,
   write_sort: Option<SortFn>,
   on_sort_change: Vec<SortHeard>,
+  filters: TableFilters,
+  write_filters: Option<FiltersFn>,
+  on_filters_change: Vec<FiltersHeard>,
+  filter_row: bool,
   selected: Vec<K>,
   select: Option<Arc<dyn Fn(Vec<K>) + Send + Sync>>,
   on_selection_change: Vec<SelectionHeard<K>>,
@@ -819,6 +898,10 @@ impl<R, K: Clone> Clone for Table<R, K> {
       sort: self.sort.clone(),
       write_sort: self.write_sort.clone(),
       on_sort_change: self.on_sort_change.clone(),
+      filters: self.filters.clone(),
+      write_filters: self.write_filters.clone(),
+      on_filters_change: self.on_filters_change.clone(),
+      filter_row: self.filter_row,
       selected: self.selected.clone(),
       select: self.select.clone(),
       on_selection_change: self.on_selection_change.clone(),
@@ -883,6 +966,10 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       key_of: Arc::new(|index, _| index),
       sort: Vec::new(),
       write_sort: None,
+      filters: TableFilters::default(),
+      write_filters: None,
+      on_filters_change: Vec::new(),
+      filter_row: false,
       on_sort_change: Vec::new(),
       selected: Vec::new(),
       select: None,
@@ -944,6 +1031,10 @@ impl<R: Send + Sync + 'static> Table<R, usize> {
       sort: self.sort,
       write_sort: self.write_sort,
       on_sort_change: self.on_sort_change,
+      filters: self.filters,
+      write_filters: self.write_filters,
+      on_filters_change: self.on_filters_change,
+      filter_row: self.filter_row,
       selected: Vec::new(),
       select: None,
       on_selection_change: Vec::new(),
@@ -1024,6 +1115,113 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   pub fn on_sort_change(mut self, handler: impl Fn(&[TableSort]) + Send + Sync + 'static) -> Self {
     self.on_sort_change.push(Arc::new(handler));
     self
+  }
+
+  /// What the rows are filtered by: the signal's filters, a filter for each column filtered, which the table
+  /// applies to the rows it is given, showing those every filter lets through, in their order. A column says how
+  /// it is filtered ([`TableColumn::filter_text`] and the others); a person sets one from the column's menu in a
+  /// data grid. The count in the footer says how many of all are shown.
+  pub fn filters(mut self, filters: Signal<TableFilters>) -> Self
+  where
+    TableFilters: SignalValue,
+  {
+    self.filters = filters.get();
+    self.write_filters = Some(Arc::new(move |next| filters.set(next)));
+    self
+  }
+
+  /// What the rows are filtered by, as the app holds it: `on_change` is told the next filters, and the table
+  /// shows what the app gives it at the next render.
+  pub fn filters_controlled(
+    mut self,
+    filters: TableFilters,
+    on_change: impl Fn(TableFilters) + Send + Sync + 'static,
+  ) -> Self {
+    self.filters = filters;
+    self.write_filters = Some(Arc::new(on_change));
+    self
+  }
+
+  /// Called with the next filters each time a person changes them, bound to a signal or not; a second handler is
+  /// called after the first.
+  pub fn on_filters_change(mut self, handler: impl Fn(&TableFilters) + Send + Sync + 'static) -> Self {
+    self.on_filters_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether a grid has a row of filters under its header: a filter in the cell of each column that filters (a
+  /// box for a text, a number or a day, where `>10`, `<5` and `5..20` are ranges; a choice for values and for yes
+  /// or no). It stays under the header while the rows scroll.
+  pub fn filter_row(mut self, filter_row: bool) -> Self {
+    self.filter_row = filter_row;
+    self
+  }
+
+  /// Every word of filtering: the column menu's items, the filter panel's and the filter row's.
+  pub fn filter_labels(mut self, labels: FilterLabels) -> Self {
+    self.words.filter = Arc::new(labels);
+    self
+  }
+
+  /// The values the column has, which its filter of values ticks: each once, in order, at most
+  /// [`MOST_VALUES`]; kept in the host while the rows are the same.
+  fn values_of(&self, host: &HostState, column: &TableColumn<R>) -> Arc<Vec<String>> {
+    let seen = Arc::as_ptr(&self.rows) as *const () as usize;
+    if let Some((rows, values)) = host.filters.values.lock().get(&column.id)
+      && *rows == seen
+    {
+      return values.clone();
+    }
+    let value: Box<dyn Fn(&R) -> String> = match (&column.filter, &column.content) {
+      (Some(FilterBy::Values(values)), _) => {
+        let values = values.clone();
+        Box::new(move |row| values(row))
+      }
+      (_, Content::Text(text)) => {
+        let text = text.clone();
+        Box::new(move |row| text(row))
+      }
+      _ => return Arc::default(),
+    };
+    let mut values: Vec<String> = self
+      .rows
+      .iter()
+      .map(value)
+      .collect::<std::collections::BTreeSet<_>>()
+      .into_iter()
+      .take(MOST_VALUES)
+      .collect();
+    values.shrink_to_fit();
+    let values = Arc::new(values);
+    host
+      .filters
+      .values
+      .lock()
+      .insert(column.id.clone(), (seen, values.clone()));
+    values
+  }
+
+  /// Asks for `next` to be the filters and tells every handler: nothing where it is what they are.
+  fn filter_changer(&self) -> Option<Arc<dyn Fn(TableFilters) + Send + Sync>> {
+    if self.write_filters.is_none() && self.on_filters_change.is_empty() {
+      return None;
+    }
+    let (now, write, heard) = (
+      self.filters.clone(),
+      self.write_filters.clone(),
+      self.on_filters_change.clone(),
+    );
+    Some(Arc::new(move |next: TableFilters| {
+      if next == now {
+        return;
+      }
+      if let Some(write) = &write {
+        write(next.clone());
+      }
+      for handler in &heard {
+        handler(&next);
+      }
+    }))
   }
 
   /// The rows that are selected: those whose keys the signal has. The table has a column of checkboxes.
@@ -1114,9 +1312,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self
   }
 
-  /// What the footer's count says, given how many rows there are and, where they are selected, how many
-  /// are: "24 rows" and "3 of 24 rows selected" unless told.
-  pub fn count_text(mut self, text: impl Fn(usize, Option<usize>) -> String + Send + Sync + 'static) -> Self {
+  /// What the footer's count says, given how many rows it shows, how many there are and, where they are
+  /// selected, how many are ([`TableCount`]): "24 rows", "3 of 24 rows selected", and filtered "12 of 340 rows"
+  /// unless told.
+  pub fn count_text(mut self, text: impl Fn(TableCount) -> String + Send + Sync + 'static) -> Self {
     self.words.count = Some(Arc::new(text));
     self
   }
@@ -1321,14 +1520,54 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     self.columns.iter().any(|column| column.wrap)
   }
 
+  /// The places of the rows every filter lets through, in their order: `None` where no filter is on a column that
+  /// filters.
+  fn filtered(&self) -> Option<Vec<usize>> {
+    let tests: Vec<Test<R>> = self
+      .filters
+      .iter()
+      .filter_map(|(id, filter)| {
+        let column = self.columns.iter().find(|column| &*column.id == id)?;
+        let text = match &column.content {
+          Content::Text(text) => Some(text.clone()),
+          _ => None,
+        };
+        Test::new(column.filter.as_ref()?, text, filter)
+      })
+      .collect();
+    if tests.is_empty() {
+      return None;
+    }
+    Some(
+      self
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| tests.iter().all(|test| test.passes(row)))
+        .map(|(index, _)| index)
+        .collect(),
+    )
+  }
+
   fn lines(&self) -> Lines {
+    let passed = self.filtered().map(Arc::new);
+    let mut lines = self.laid_out(passed.as_deref().cloned());
+    lines.passed = passed;
+    lines
+  }
+
+  /// The lines of the rows at `filtered`, or of every row.
+  fn laid_out(&self, filtered: Option<Vec<usize>>) -> Lines {
     if self.grouping.is_empty() {
-      return Lines::flat(self.rows.len());
+      return match filtered {
+        Some(order) => Lines::rows(Arc::new(order)),
+        None => Lines::flat(self.rows.len()),
+      };
     }
     let ids: Vec<Arc<str>> = self.grouping.iter().map(|column| column.id.clone()).collect();
     let open: HashSet<&GroupKey> = self.open_groups.iter().collect();
     Lines::grouped(
-      self.rows.len(),
+      filtered.unwrap_or_else(|| (0..self.rows.len()).collect()),
       &ids,
       self.summarized(),
       &|row, level| column_text(&self.grouping[level], &self.rows[row]),
@@ -1818,6 +2057,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       .collect();
     let grouping_ids: Vec<Arc<str>> = self.grouping.iter().map(|column| column.id.clone()).collect();
     let rows_seen = (Arc::as_ptr(&self.rows) as *const () as usize, self.rows.len());
+    // What a summary is of: the rows shown, those the filters let through.
+    let filters_seen = self.filters.to_text();
     // A group's rows by their places, or every row.
     let mut values_of = |group: Option<&GroupKey>, places: Option<&[usize]>| -> Arc<Vec<Said>> {
       let key = SummaryKey {
@@ -1825,6 +2066,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         columns: summary_columns.clone(),
         grouping: grouping_ids.clone(),
         group: group.map(|group| group.values.clone()),
+        filters: filters_seen.clone(),
       };
       let values = held
         .remove(&key)
@@ -1832,7 +2074,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         .unwrap_or_else(|| {
           let rows: Vec<&R> = match places {
             Some(places) => places.iter().map(|index| &self.rows[*index]).collect(),
-            None => self.rows.iter().collect(),
+            None => match &lines.passed {
+              Some(passed) => passed.iter().map(|index| &self.rows[*index]).collect(),
+              None => self.rows.iter().collect(),
+            },
           };
           Arc::new(self.columns.iter().map(|column| summarize(column, &rows)).collect())
         });
@@ -2092,6 +2337,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       _ => None,
     };
     let mut header_refs: HashMap<usize, ElementRef> = HashMap::new();
+    let change_filters = self.filter_changer();
     let headers = self
       .columns
       .iter()
@@ -2114,6 +2360,41 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .state(TableState::DropBefore, drop == Some(DropSide::Before))
           .state(TableState::DropAfter, drop == Some(DropSide::After));
         let sorts = self.write_sort.is_some() || !self.on_sort_change.is_empty();
+        // How the rows are filtered by the column, where it filters and the grid's filters change.
+        let filter = grid_host
+          .clone()
+          .zip(change_filters.clone())
+          .and_then(|(host, change)| {
+            let by = column.filter.as_ref()?;
+            let open = host.filter_open.get() && host.filters.column.lock().as_deref() == Some(&*column.id);
+            let shape = match by {
+              FilterBy::Text => FilterShape::Text,
+              FilterBy::Set | FilterBy::Values(_) => FilterShape::Set(if open || self.filter_row {
+                self.values_of(&host, column)
+              } else {
+                Arc::default()
+              }),
+              FilterBy::Number(_) => FilterShape::Number,
+              FilterBy::Date(_) => FilterShape::Date,
+              FilterBy::Bool(_) => FilterShape::Bool,
+            };
+            let (now, id) = (self.filters.clone(), column.id.clone());
+            Some(Arc::new(FilterLink {
+              id: column.id.clone(),
+              title: column.title.clone(),
+              shape,
+              current: self.filters.get(&column.id).cloned(),
+              change: Arc::new(move |next: Option<ColumnFilter>| {
+                change(match next {
+                  Some(filter) => now.clone().with(&id, filter),
+                  None => now.clone().without(&id),
+                })
+              }),
+              open,
+              host,
+              labels: self.words.filter.clone(),
+            }))
+          });
         let menu = menu_host.zip(change_layout.clone()).map(|(host, change)| {
           let element = ElementRef::new();
           header_refs.insert(column_index, element);
@@ -2126,6 +2407,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             let (id, layout, change) = (id.clone(), layout.clone(), change.clone());
             let (write_sort, sort_heard, now) =
               (self.write_sort.clone(), self.on_sort_change.clone(), self.sort.clone());
+            let (filter_host, filter_change, filters_now) =
+              (host.clone(), change_filters.clone(), self.filters.clone());
             Arc::new(move |choice: MenuChoice| match choice {
               MenuChoice::Sort(direction) => {
                 // A direction sorts by the column alone; "clear" takes it out of the sort, the rest as it is.
@@ -2151,6 +2434,21 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 change(layout.clone().with_hidden(&other, !hidden));
               }
               MenuChoice::ShowAll => change(layout.clone().with_all_shown()),
+              MenuChoice::Filter => {
+                *filter_host.filters.column.lock() = Some(id.clone());
+                filter_host.filter_open.set(true);
+                filter_host.rebuild();
+              }
+              MenuChoice::ClearFilter => {
+                if let Some(change) = &filter_change {
+                  change(filters_now.clone().without(&id));
+                }
+              }
+              MenuChoice::ClearAllFilters => {
+                if let Some(change) = &filter_change {
+                  change(TableFilters::new());
+                }
+              }
             })
           };
           let set_open: Arc<dyn Fn(bool) + Send + Sync> = {
@@ -2211,6 +2509,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             move_to,
             place: column_index,
             labels: self.words.menu.clone(),
+            filtering: (column.filter.is_some() && change_filters.is_some())
+              .then(|| (self.filters.get(&column.id).is_some(), !self.filters.is_empty())),
+            filter_labels: self.words.filter.clone(),
             trigger_label: self
               .words
               .menu_trigger
@@ -2281,6 +2582,8 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           sortable,
           sorted,
           sort_rank,
+          filtered: self.filters.get(&column.id).is_some(),
+          filter,
           pinned: sticky_of(column_index),
           last: cell_ends(column_index),
           fill: sticky_of(column_index).and(header_fill.clone()),
@@ -2323,8 +2626,19 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
 
     let total = self.total.unwrap_or(count);
     let selected_count = self.selected.len();
+    // Filtered, the count says how many of all are shown.
+    let shown_count = lines.passed.as_ref().map_or(total, |passed| passed.len());
     let count_text = match &self.words.count {
-      Some(text) => text(total, selectable.then_some(selected_count)),
+      Some(text) => text(TableCount {
+        shown: shown_count,
+        total,
+        selected: selectable.then_some(selected_count),
+      }),
+      None if shown_count != total && selectable => format!(
+        "{shown_count} of {total} {} · {selected_count} selected",
+        rows_word(total)
+      ),
+      None if shown_count != total => format!("{shown_count} of {total} {}", rows_word(total)),
       None if selectable => format!("{selected_count} of {total} {} selected", rows_word(total)),
       None => format!("{total} {}", rows_word(total)),
     };
@@ -2344,6 +2658,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
     });
 
     TableView {
+      filter_row: self.filter_row && grid_host.is_some(),
       headers,
       rows,
       groups,
@@ -2647,6 +2962,8 @@ pub struct TableView {
   pub summary: Option<TableSummary>,
   /// Whether a grid has the column of its rows' numbers at its start, and how wide its track is.
   pub numbered: bool,
+  /// Whether it has a row of filters under its header ([`TableView::filter_row`]).
+  filter_row: bool,
   pub number_lead: f32,
   /// What a press of the numbers' header does: every row selected, or none where all are.
   select_rows: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -2956,8 +3273,13 @@ impl TableView {
   pub fn render(mut self) -> Element {
     let mut content = Column::new()
       .align_items(Alignment::Stretch)
-      .measures_column_tracks(&self.tracks)
-      .child(self.header());
+      .measures_column_tracks(&self.tracks);
+    // The row of filters is made from the headers, before the header takes them.
+    let filters = self.filter_row();
+    content = content.child(self.header());
+    if let Some(filters) = filters {
+      content = content.child(filters);
+    }
     // The empty state is in the middle of the table's box, not of its columns, which may be wider: it stands
     // under what scrolls, which holds the header alone.
     let empty = if self.loading { None } else { self.empty() };
@@ -3062,6 +3384,9 @@ pub struct TableHeader {
   pub sorted: Option<SortDirection>,
   /// Its place in the sort, from 1, where the rows are sorted by more than one column.
   pub sort_rank: Option<usize>,
+  /// Whether the rows are filtered by its column.
+  pub filtered: bool,
+  filter: Option<Arc<FilterLink>>,
   /// Where it stays while the rows scroll sideways, if its column is pinned.
   pub pinned: Option<Sticky>,
   /// Whether it is the last column, with no room after it.
@@ -3163,6 +3488,8 @@ impl TableHeader {
     }
     if link.open {
       trigger = trigger.ref_element(link.host.menu_anchor.clone());
+    } else if let Some(anchor) = self.filter_anchor() {
+      trigger = trigger.ref_element(anchor);
     }
     Some(trigger.into())
   }
@@ -3201,6 +3528,28 @@ impl TableHeader {
             .icon(icons::CHEVRONS_VERTICAL)
             .disabled(link.sorted.is_none())
             .on_select(choose(MenuChoice::Sort(None))),
+        )
+        .separator();
+    }
+    if let Some((filtered, any)) = link.filtering {
+      let words = &link.filter_labels;
+      menu = menu
+        .item(
+          MenuItem::new(&words.filter)
+            .icon(icons::FILTER)
+            .checked(filtered)
+            .on_select(choose(MenuChoice::Filter)),
+        )
+        .item(
+          MenuItem::new(&words.clear_filter)
+            .icon(icons::CLOSE)
+            .disabled(!filtered)
+            .on_select(choose(MenuChoice::ClearFilter)),
+        )
+        .item(
+          MenuItem::new(&words.clear_all)
+            .disabled(!any)
+            .on_select(choose(MenuChoice::ClearAllFilters)),
         )
         .separator();
     }
@@ -3339,6 +3688,9 @@ impl TableHeader {
         if let Some(order) = self.sort_order() {
           label = label.child(order);
         }
+        if let Some(mark) = self.filter_mark() {
+          label = label.child(mark);
+        }
         // A header that is resized or has a menu and is not sorted is a stop of the header's keys.
         if self.resize.is_some() || self.menu.is_some() {
           label = label.tab_index(0).describe("a11y_name", self.title.clone());
@@ -3363,6 +3715,9 @@ impl TableHeader {
         }
         if let Some(order) = self.sort_order() {
           button = button.child(order);
+        }
+        if let Some(mark) = self.filter_mark() {
+          button = button.child(mark);
         }
         if let Some(id) = &self.id {
           button = button.id(id.clone());
@@ -3481,6 +3836,9 @@ impl TableHeader {
     }
     if let Some(menu) = menu {
       cell = cell.child(menu);
+    }
+    if let Some(panel) = self.filter_panel() {
+      cell = cell.child(panel);
     }
     cell.into()
   }
@@ -4748,7 +5106,7 @@ struct Metrics {
 /// The lines a mounted table laid out, and what they were laid out for.
 type KeptLines = (
   Arc<dyn std::any::Any + Send + Sync>,
-  (Vec<Arc<str>>, Vec<GroupKey>, bool),
+  (Vec<Arc<str>>, Vec<GroupKey>, bool, TableFilters),
   Arc<Lines>,
 );
 
@@ -4807,6 +5165,10 @@ struct HostState {
   kept_lines: Mutex<Option<KeptLines>>,
   /// How high the lines are: a row's height each until one built measures otherwise.
   heights: Arc<Mutex<Heights>>,
+  /// Whether a column's filter panel is open, which column's, what it hangs from, and what is typed in filters.
+  filter_open: Signal<bool>,
+  filter_anchor: ElementRef,
+  filters: FilterState,
   group_toggle: Mutex<Option<Arc<dyn Fn(usize, bool) + Send + Sync>>>,
   metrics: Mutex<Metrics>,
   /// The row that has, or last had, the focus, or that a key goes to.
@@ -5012,6 +5374,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
         key_index: Mutex::default(),
         kept_lines: Mutex::default(),
         heights: Arc::default(),
+        filter_open: ctx.signal(false),
+        filter_anchor: ElementRef::new(),
+        filters: FilterState::default(),
         group_toggle: Mutex::new(None),
         metrics: Mutex::new(Metrics::default()),
         focused: Mutex::new(None),
@@ -5106,6 +5471,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Com
           .collect::<Vec<_>>(),
         table.open_groups.clone(),
         table.summarized(),
+        table.filters.clone(),
       );
       match &*kept {
         Some((rows, held, lines))
@@ -5286,7 +5652,10 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
   /// rows around the board's 44: 36 compact, 52 comfortable and touch, the header 4 lower.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Highlight, Muted, MutedForeground, Ring, StateHover, StatePressed};
-    use TablePart::{Count, Empty, Footer, Header, HeaderCell, Root, Row, Select, SortIcon, SortOrder};
+    use TablePart::{
+      Count, Empty, FilterIcon, FilterLabel, FilterRow, Footer, Header, HeaderCell, Root, Row, Select, SortIcon,
+      SortOrder,
+    };
     use TableState::{Disabled, Last, Numeric, Selectable, Selected, Sortable, Sorted};
     let line = || Line::inside(BorderSize::Sm, PaletteColor::Border);
     let range_edge = || Line::inside(BorderSize::Md, Ring);
@@ -5319,6 +5688,19 @@ impl<R: Send + Sync + 'static, K: Send + Sync + 'static> Themed for Table<R, K> 
           .foreground(MutedForeground)
       })
       .base(SortIcon, |s| s.square(IconSize::Sm))
+      .base(FilterIcon, |s| s.square(IconSize::Sm).foreground(Foreground))
+      .base(FilterLabel, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(12.0)
+          .foreground(MutedForeground)
+      })
+      .base(FilterRow, |s| {
+        s.height(44.0)
+          .padding_x(16.0)
+          .gap(16.0)
+          .background(Background)
+          .underline(line())
+      })
       .base(SortOrder, |s| {
         s.typography(TypographyStyle::Mono)
           .font_size(11.0)

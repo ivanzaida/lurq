@@ -1307,7 +1307,7 @@ fn the_words_a_table_writes_are_said_otherwise() {
     table(crates())
       .selected(Signal::new(vec!["crates/lurq"]))
       .count(true)
-      .count_text(|rows, selected| format!("{} von {rows}", selected.unwrap_or(0)))
+      .count_text(|count| format!("{} von {}", count.selected.unwrap_or(0), count.total))
       .into()
   });
   assert!(stage.paints("1 von 3"));

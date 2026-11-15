@@ -80,6 +80,9 @@ pub(super) struct Lines {
   pub groups: Vec<GroupLine>,
   /// How many columns the rows are grouped by: the level of a row, under the groups.
   pub depth: usize,
+  /// The places of the rows the filters let through, in their order, closed groups' too: `None` where no filter
+  /// is on. What the count and the grid's summary are of.
+  pub passed: Option<Arc<Vec<usize>>>,
 }
 
 impl Lines {
@@ -92,7 +95,6 @@ impl Lines {
   }
 
   /// The rows at `order`, in that order, and no groups.
-  #[allow(dead_code)]
   pub fn rows(order: Arc<Vec<usize>>) -> Self {
     Self {
       ranks: order.len(),
@@ -159,17 +161,16 @@ impl Lines {
   /// The rows grouped by the values `values` gives each row for each column of `columns`, in the order the groups
   /// are first met, the rows of each in their order; the rows of a closed group are not among the lines.
   pub fn grouped(
-    count: usize,
+    rows: Vec<usize>,
     columns: &[Arc<str>],
     summaries: bool,
     values: &dyn Fn(usize, usize) -> String,
     open: &dyn Fn(&GroupKey) -> bool,
   ) -> Self {
     if columns.is_empty() {
-      return Self::flat(count);
+      return Self::rows(Arc::new(rows));
     }
     let mut built = Built::default();
-    let rows: Vec<usize> = (0..count).collect();
     built.add(&rows, 0, &[], columns, summaries, values, open);
     Self {
       ranks: built.order.len(),
@@ -179,6 +180,7 @@ impl Lines {
       rank_of_index: std::sync::OnceLock::new(),
       groups: built.groups,
       depth: columns.len(),
+      passed: None,
     }
   }
 

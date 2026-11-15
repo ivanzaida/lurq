@@ -11,8 +11,8 @@ use lurq::{
   layout::Alignment,
   node::Element,
   ui::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnLayout, ColumnPin,
-    DataGrid, GroupKey, Pagination, SummaryKind, TableColumn, TableSort, icons,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, CellEditor, CellRange, CellValue, ColumnFilter,
+    ColumnLayout, ColumnPin, DataGrid, GroupKey, Pagination, SummaryKind, TableColumn, TableFilters, TableSort, icons,
   },
 };
 
@@ -187,6 +187,28 @@ pub struct DataGridPage {
   big: Signal<bool>,
   big_selected: Signal<Vec<usize>>,
   multi_sort: Signal<Vec<TableSort>>,
+  /// The playground's filters, whether its columns filter, and whether it has a row of filters.
+  played_filters: Signal<TableFilters>,
+  filtering: Signal<bool>,
+  filter_row: Signal<bool>,
+  /// The filters of the section's grid.
+  filters: Signal<TableFilters>,
+}
+
+/// The columns of the files, each filtered as it is: the name by its text, the status by its values, the size by
+/// a number, whether it is shared by a yes or no.
+fn filtered_columns(columns: Vec<TableColumn<File>>) -> Vec<TableColumn<File>> {
+  columns
+    .into_iter()
+    .map(|column| match column.id() {
+      "name" => column.filter_text(true),
+      "status" => column.filter_values(|row: &File| STATUSES[row.status].to_owned()),
+      "size" => column.filter_number(|row: &File| row.size),
+      "shared" => column.filter_bool(|row: &File| row.shared),
+      "updated" => column.filter_set(true),
+      _ => column,
+    })
+    .collect()
 }
 
 /// A row of the grid of a million: its place, which every cell is made from.
@@ -251,6 +273,10 @@ impl DataGridPage {
     if let Some(kind) = summary {
       played_columns[2] = played_columns[2].clone().summary(kind);
     }
+    let (filtering, filter_row) = (self.filtering.get(), self.filter_row.get());
+    if filtering {
+      played_columns = filtered_columns(played_columns);
+    }
     let record = self.playground.recorder();
     let rows = self.played.clone();
     let sort = self.played_sort.get();
@@ -271,6 +297,8 @@ impl DataGridPage {
       .resizable(resizable)
       .column_menu(column_menu)
       .row_numbers(row_numbers)
+      .filters(self.played_filters.clone())
+      .filter_row(filtering && filter_row)
       .group_by(grouping.iter().copied())
       .open(self.played_open.clone())
       .on_open_change(move |key, open| opened_to(format!("on_open_change({:?}, {open})", key.values)))
@@ -421,6 +449,11 @@ impl DataGridPage {
       self.summary.clone(),
       self.row_numbers.clone(),
       self.big.clone(),
+      (
+        self.filtering.clone(),
+        self.filter_row.clone(),
+        self.played_filters.clone(),
+      ),
     );
     let still = {
       let rows = rows.get();
@@ -505,6 +538,8 @@ impl DataGridPage {
           flag("column_menu: a menu on each header", &self.column_menu),
           flag("row_numbers: a column of numbers at the start", &self.row_numbers),
           flag("a million rows by 200 columns", &self.big),
+          flag("filters: each column by its kind", &self.filtering),
+          flag("filter_row: a filter under each header", &self.filter_row),
           prop(
             "summary",
             "SummaryKind of the size",
@@ -540,6 +575,8 @@ impl DataGridPage {
           summary.is_some(),
           row_numbers,
           big,
+          filtering,
+          filter_row,
           self.played_layout.get() != ColumnLayout::default(),
           self.played.get() != files(8),
         ]
@@ -566,6 +603,9 @@ impl DataGridPage {
           reset.16.set(0);
           reset.17.set(false);
           reset.18.set(false);
+          reset.19.0.set(false);
+          reset.19.1.set(false);
+          reset.19.2.set(TableFilters::new());
         }),
       },
     )
@@ -652,6 +692,10 @@ impl Component for DataGridPage {
       big: ctx.signal(false),
       big_selected: ctx.signal(Vec::new()),
       multi_sort: ctx.signal(vec![TableSort::ascending("status"), TableSort::descending("size")]),
+      played_filters: ctx.signal(TableFilters::new()),
+      filtering: ctx.signal(false),
+      filter_row: ctx.signal(false),
+      filters: ctx.signal(TableFilters::new().with("status", ColumnFilter::one_of(["Passing", "Building"]))),
     }
   }
 
@@ -954,6 +998,48 @@ impl Component for DataGridPage {
         12.0,
       ));
 
+    // Filtered: each column by its kind, from its menu and in the row under the header.
+    let filters_now = self.filters.get();
+    let (clear, shown_filters) = (self.filters.clone(), filters_now.clone());
+    let filter_grid = Column::new()
+      .spacing(10.0)
+      .width(crate::kit::FILL)
+      .child(
+        DataGrid::new(filtered_columns(columns(false)), files(8))
+          .row_key(|row: &File| row.name.clone())
+          .label("Files")
+          .read_only(true)
+          .count(true)
+          .height(360.0)
+          .filters(self.filters.clone())
+          .filter_row(true)
+          .key("filtered")
+          .mount(ctx),
+      )
+      .child(
+        Row::new()
+          .spacing(8.0)
+          .align_items(Alignment::Center)
+          .child(quiet(
+            &format!(
+              "filters: {}",
+              if shown_filters.is_empty() {
+                "none".to_owned()
+              } else {
+                shown_filters.to_text()
+              }
+            ),
+            12.0,
+          ))
+          .child(
+            Button::new("Clear all")
+              .variant(ButtonVariant::Ghost)
+              .size(ButtonSize::Sm)
+              .disabled(filters_now.is_empty())
+              .on_click(move |_| clear.set(TableFilters::new())),
+          ),
+      );
+
     let numbered = DataGrid::new(columns(false), files(8))
       .row_key(|row: &File| row.name.clone())
       .label("Files")
@@ -1221,6 +1307,31 @@ impl Component for DataGridPage {
               "    .mount(ctx)",
               "// Store: storage.set_value(\"columns\", layout.get()) and (\"sort\", sort.get())",
               "// Restore: storage.value::<ColumnLayout>(\"columns\").map(|layout| layout.valid(ids))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Filters",
+          "A column says how it is filtered: the name by its text, the status by the values ticked among those it \
+           has, the size by a number, whether it is shared by a yes or no. A person filters it from the column's \
+           menu, in a panel under its header, or in the row of filters (a range is written >10, <5 or 5..20); a \
+           filtered header has its mark, and the count reads how many of all are shown. The filters are a value the \
+           app holds and stores, as text; a summary is of the rows they let through, and the groups too.",
+          self.frame.demo(
+            11,
+            filter_grid,
+            ".filters(filters)",
+            &[
+              "// filters: Signal<TableFilters>",
+              "TableColumn::new(\"name\", \"Name\").text(|row| row.name.clone()).filter_text(true)",
+              "TableColumn::new(\"status\", \"Status\").cell(|row| badge(row.status)).filter_values(|row| status(row))",
+              "TableColumn::new(\"size\", \"Size\").numeric().text(|row| kb(row)).filter_number(|row| row.size)",
+              "DataGrid::new(columns, files.get())",
+              "    .filters(filters.clone())",
+              "    .filter_row(true)",
+              "    .count(true)",
+              "    .mount(ctx)",
+              "// stored: filters.get().to_text(), read back with TableFilters::parse",
             ],
           ),
         ),

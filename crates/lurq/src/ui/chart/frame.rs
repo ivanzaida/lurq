@@ -11,10 +11,9 @@ use std::{
 use parking_lot::Mutex;
 
 use super::{
-  super::Orientation,
-  ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartMotion, ChartPart, ChartPlot,
-  ChartPoint, ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn, default_value_text,
-  series_color, step,
+  super::Orientation, ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartMotion,
+  ChartPart, ChartPlot, ChartPoint, ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn,
+  default_value_text, series_color, step,
 };
 use crate::{
   app::{
