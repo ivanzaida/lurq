@@ -344,7 +344,7 @@ Phase 0 and the tokens half of Phase 1 can be reviewed and released on their own
 3. Settled (D11): a renderer builds the parts lurq names for the component and may declare parts of its own, which recipes address by name.
 4. Does lurq ship a native-looking iOS theme itself, after the proof in step 2, or leave it to apps and the community?
 5. Should the new components be configured through builders like the existing `components`, or through props structs like the `form` compound controls?
-6. Settled on 2026-11-13: the default theme is the design's from the release that brings its tokens, before the components. `ThemeDefinition::legacy()` keeps the look of 0.61, and the migration guide (`docs/…/migration-v0-62.md`) says what changes.
+6. Settled on 2026-11-13: the default theme is the design's from the release that brings its tokens, before the components. `ThemeDefinition::legacy()` keeps the look of 0.61, and the migration guide (`docs/…/migration-v0-63.md`) says what changes.
 7. Settled: the glyphs reach the screen as a hinted icon font, built by `scripts/build-icon-font.py` from `design/icons/svg` (icon notes, D5). Vector paths would have needed the `svg` or `canvas` machinery, or a new path primitive.
 8. Does DevTools move to the new glyphs at once, so `lucide.ttf` can be removed, or keep Lucide with a notice file for now?
 9. Settled on 2026-11-13: the gallery is an app of its own, drawn in `pencil/lurq-design-system-demo.pen`, and takes the place of the demo (section 15).
@@ -447,7 +447,7 @@ For whoever continues. The tokens half of Phase 1 is built on `feat/design-syste
 | Item of section 6 | Status |
 | --- | --- |
 | Palette roles, light and dark | built: 42 roles, `ThemePalette::light()` and `dark()` |
-| Deprecated roles and the migration guide | built: 15 roles deprecated, `docs/…/migration-v0-62.md` |
+| Deprecated roles and the migration guide | built: 15 roles deprecated, `docs/…/migration-v0-63.md` |
 | Schemes | built, on what the iOS work had added (14.2) |
 | The default theme is the design's | built: `Theme::new()` is `ThemeDefinition::neutral()` |
 | `Theme::legacy()` | built: `ThemeDefinition::legacy()`, the theme of 0.61 |

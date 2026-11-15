@@ -1,5 +1,5 @@
 use std::{
-  cell::Cell,
+  cell::{Cell, RefCell},
   collections::{HashMap, HashSet},
   sync::{Arc, Mutex},
 };
@@ -33,6 +33,7 @@ mod document_text;
 mod link_block;
 mod links;
 mod list_view;
+mod mounted_code;
 mod paragraph;
 mod sizing;
 mod tooltip;
@@ -191,6 +192,8 @@ impl MarkdownProps {
       details: Cell::new(0),
       details_turned: Vec::new(),
       turn_details: None,
+      mount: None,
+      selectable: self.selectable,
     };
     let style = document_style(&self.style, ui);
     let mut element: Element = render_document(&document, &style, &theme, &render_ctx).into();
@@ -372,6 +375,11 @@ struct MarkdownRenderContext<'a> {
   /// The `<details>` a person turned from how they began.
   details_turned: Vec<usize>,
   turn_details: Option<Signal<Vec<usize>>>,
+  /// What a mounted document mounts its code blocks with, each on its own (see `mounted_code`); none for a
+  /// document built once, which builds them in place.
+  mount: Option<&'a dyn mounted_code::MountCode>,
+  /// The document's words are selectable: what a code block mounted on its own makes of its own.
+  selectable: bool,
 }
 
 impl Markdown {
@@ -434,23 +442,28 @@ impl Component for Markdown {
     .with_fills(code_fill, kbd_fill);
     links.set_footnotes(footnote_numbers(&document));
     let text = DocumentText::new(&props.highlights);
-    let render_ctx = MarkdownRenderContext {
-      width: BlockWidth::new(props.fit_content),
-      links: &links,
-      list_view: props.list_view.as_ref(),
-      code_blocks: Cell::new(0),
-      text: &text,
-      ui: ui.clone(),
-      depth: Cell::new(0),
-      tasks: Cell::new(0),
-      on_task_change: props.on_task_change.as_ref(),
-      details: Cell::new(0),
-      details_turned: self.details.get(),
-      turn_details: Some(self.details.clone()),
-    };
     // A style that keeps the default text color names none: the document is drawn in the theme's foreground.
     let base_style = document_style(&props.style, &ui);
-    let mut root = render_document(&document, &base_style, &theme, &render_ctx);
+    let mut root = {
+      let mount = RefCell::new(&mut *ctx);
+      let render_ctx = MarkdownRenderContext {
+        width: BlockWidth::new(props.fit_content),
+        links: &links,
+        list_view: props.list_view.as_ref(),
+        code_blocks: Cell::new(0),
+        text: &text,
+        ui: ui.clone(),
+        depth: Cell::new(0),
+        tasks: Cell::new(0),
+        on_task_change: props.on_task_change.as_ref(),
+        details: Cell::new(0),
+        details_turned: self.details.get(),
+        turn_details: Some(self.details.clone()),
+        mount: Some(&mount),
+        selectable: props.selectable,
+      };
+      render_document(&document, &base_style, &theme, &render_ctx)
+    };
     let target = self.pending_jump.lock().unwrap().take();
     if let Some(anchor) = target.and_then(|target| links.anchor_of(&target)) {
       ctx.scroll_into_view(&anchor);
@@ -880,6 +893,26 @@ fn render_code_block(kind: &MarkdownCodeBlockKind, text: &str, render_ctx: &Mark
   let ordinal = render_ctx.code_blocks.get();
   render_ctx.code_blocks.set(ordinal + 1);
   let code = text.trim_end_matches('\n');
+  // Mounted on its own, it is not built again while it is as it was. A list view that may decline what it built
+  // would leave a mounted block behind: under one, the block is built in place.
+  if let Some(mount) = &render_ctx.mount
+    && render_ctx.list_view.is_none()
+  {
+    let language = match kind {
+      MarkdownCodeBlockKind::Fenced {
+        language: Some(language),
+      } => Some(Arc::from(language.as_str())),
+      _ => None,
+    };
+    let props = mounted_code::MountedCodeProps {
+      code: Arc::from(code),
+      language,
+      fit: render_ctx.width == BlockWidth::Fit,
+      selectable: render_ctx.selectable,
+      highlights: render_ctx.text.append_words(code).into(),
+    };
+    return mount.mount_code(&code_block_key(ordinal, kind), props);
+  }
   // The document makes its words selectable, or not, all together.
   let mut block = CodeBlock::new(code)
     .key(code_block_key(ordinal, kind))
