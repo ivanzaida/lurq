@@ -181,7 +181,9 @@ impl VideoPlayerPage {
           .qualities(&["1080p", "720p", "480p"])
           .quality(quality.clone())
           .fullscreen(fullscreen.clone())
-          .picture_in_picture(pip.clone());
+          .picture_in_picture(pip.clone())
+          // The frame under the pointer of the seek bar: the picture stands for it.
+          .preview(|_| picture().into());
         if !live {
           player = player.duration(LENGTH);
         }
@@ -301,6 +303,7 @@ impl VideoPlayerPage {
         "    .quality(quality)",
         "    .fullscreen(fullscreen)",
         "    .picture_in_picture(pip)",
+        "    .preview(|at| frame_at(at))",
         "    .mount(ctx)",
       ]
       .map(str::to_owned),
@@ -700,6 +703,12 @@ impl Component for VideoPlayerPage {
         "How long it is. Until said, the time reads -:-- / -:--.",
       ),
       ("buffered", "f64", "", "How far it is loaded, drawn in the seek bar."),
+      (
+        "preview",
+        "Fn(f64) -> Element",
+        "",
+        "The frame for a time, shown over the time under the pointer of the seek bar (mounted).",
+      ),
       (
         "volume",
         "Signal<f32>",

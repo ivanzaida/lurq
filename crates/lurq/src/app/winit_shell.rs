@@ -2735,7 +2735,15 @@ fn set_window_cursor(window: &Window, applied: &mut CursorIcon, cursor: CursorIc
   if cursor == *applied {
     return;
   }
-  window.set_cursor(to_winit_cursor(cursor));
+  // No cursor hides the pointer; any other shows it again.
+  if cursor == CursorIcon::None {
+    window.set_cursor_visible(false);
+  } else {
+    if *applied == CursorIcon::None {
+      window.set_cursor_visible(true);
+    }
+    window.set_cursor(to_winit_cursor(cursor));
+  }
   *applied = cursor;
 }
 
@@ -2777,6 +2785,8 @@ fn to_winit_cursor(cursor: CursorIcon) -> WinitCursorIcon {
     CursorIcon::ZoomOut => WinitCursorIcon::ZoomOut,
     CursorIcon::DndAsk => WinitCursorIcon::DndAsk,
     CursorIcon::AllResize => WinitCursorIcon::AllResize,
+    // Hidden by `set_window_cursor`: the icon it would have is never shown.
+    CursorIcon::None => WinitCursorIcon::Default,
   }
 }
 

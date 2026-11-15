@@ -39,6 +39,10 @@ pub enum MenuPart {
   SeparatorLine,
   /// The text over a group of items: what they are about.
   Label,
+  /// The title of the row that goes back from a page: the label of the item that opened it.
+  PageTitle,
+  /// The chevron of the row that goes back from a page.
+  PageIcon,
 }
 
 names!(MenuPart {
@@ -46,6 +50,8 @@ names!(MenuPart {
   Separator => "separator",
   SeparatorLine => "separator_line",
   Label => "label",
+  PageTitle => "page_title",
+  PageIcon => "page_icon",
 });
 
 /// The states of a menu a recipe styles.
@@ -130,6 +136,8 @@ pub struct Menu {
   anchor: ElementRef,
   open: OpenState,
   entries: Vec<MenuEntry>,
+  page: Option<Signal<Option<usize>>>,
+  back_label: Arc<str>,
   placement: Option<Placement>,
   offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
@@ -178,6 +186,8 @@ impl Menu {
       anchor,
       open,
       entries: Vec::new(),
+      page: None,
+      back_label: Arc::from("Back"),
       placement: None,
       offset: None,
       collision: None,
@@ -260,6 +270,23 @@ impl Menu {
   /// is opened by its anchor, which the app wires. A second handler is called after the first.
   pub fn on_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.on_open_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Which item's page the menu shows in its place, by the item's place among what the menu holds (items,
+  /// separators and headings counted): `None` for the menu's own items. Choosing an item that has a
+  /// [`page`](MenuItem::page) sets it, and so does Right on that item; the row at the top of the page, Left and
+  /// a person closing the menu set it back to `None`. A menu whose items have pages is given this; without it a
+  /// press of such an item shows nothing.
+  pub fn page(mut self, page: Signal<Option<usize>>) -> Self {
+    self.page = Some(page);
+    self
+  }
+
+  /// What the row that goes back from a page is called to what reads the tree, before the page's title: "Back"
+  /// unless told.
+  pub fn back_label(mut self, label: &str) -> Self {
+    self.back_label = Arc::from(label);
     self
   }
 
@@ -359,6 +386,8 @@ impl Menu {
       .collect();
     let view = MenuView {
       entries: self.entries,
+      page: self.page,
+      back_label: self.back_label,
       submenus,
       placement: self.placement.unwrap_or(default),
       inline: self.inline,
@@ -396,6 +425,10 @@ impl From<Menu> for Element {
 pub struct MenuView {
   /// What the menu holds, in order.
   pub entries: Vec<MenuEntry>,
+  /// Which item's page is shown in the menu's place, where the menu has pages.
+  pub page: Option<Signal<Option<usize>>>,
+  /// What the row that goes back from a page is called.
+  pub back_label: Arc<str>,
   pub placement: Placement,
   pub inline: bool,
   /// Whether it is the submenu of an item of another menu.
@@ -444,10 +477,17 @@ impl MenuView {
   fn closer(&self) -> Option<Closer> {
     let open = self.open.signal();
     let (told, dismiss) = (self.on_open_change.clone(), self.on_dismiss.clone());
+    let page = self.page.clone();
     (open.is_some() || !told.is_empty() || !dismiss.is_empty()).then(|| Closer {
       close: Arc::new(move || {
         if let Some(open) = &open {
           open.set(false);
+        }
+        // It opens again at its own items.
+        if let Some(page) = &page
+          && page.get_untracked().is_some()
+        {
+          page.set(None);
         }
         for tell in &told {
           tell(false);
@@ -474,7 +514,13 @@ impl MenuView {
   /// `on_open_change` with `false`. Its signal is set by what closed it.
   fn dismissed(&self) -> impl Fn() + Send + Sync + 'static {
     let (dismiss, told) = (self.on_dismiss.clone(), self.on_open_change.clone());
+    let page = self.page.clone();
     move || {
+      if let Some(page) = &page
+        && page.get_untracked().is_some()
+      {
+        page.set(None);
+      }
       for handler in &dismiss {
         handler();
       }
@@ -565,6 +611,59 @@ impl MenuView {
     Row::new().part(&part).child(part.text(heading).nowrap()).into()
   }
 
+  /// The item whose page is shown, where the menu's page signal names an item that has one.
+  fn shown_page(&self, entries: &[MenuEntry]) -> Option<usize> {
+    let index = self.page.as_ref()?.get()?;
+    matches!(entries.get(index), Some(MenuEntry::Item(item)) if item.page.is_some()).then_some(index)
+  }
+
+  /// What an item with a page is keyed by: the row that goes back from its page has the same key, so that the
+  /// focus stays on the row the keyboard pressed as the one becomes the other.
+  fn page_key(item: &MenuItem, index: usize) -> Arc<str> {
+    item
+      .key
+      .clone()
+      .unwrap_or_else(|| Arc::from(format!("menu-page-{index}")))
+  }
+
+  /// An item with a page as this menu has it: choosing it shows its page in the menu's place.
+  fn opens_page(&self, item: MenuItem, index: usize) -> MenuItem {
+    if item.page.is_none() {
+      return item;
+    }
+    let key = Self::page_key(&item, index);
+    let page = self.page.clone();
+    item.key(key).stays(move || {
+      if let Some(page) = &page {
+        page.set(Some(index));
+      }
+    })
+  }
+
+  /// The row at the top of a page: the chevron back and the page's title. Choosing it goes back to the menu's own
+  /// items.
+  fn back_row(&self, item: &MenuItem, index: usize) -> Element {
+    let rules = self
+      .recipe
+      .rules_for(MenuPart::PageTitle, MenuItemPart::Label)
+      .extend(&self.recipe.rules_for(MenuPart::PageIcon, MenuItemPart::Icon));
+    let page = self.page.clone();
+    let mut back = MenuItem::new(&item.label)
+      .icon(icons::CHEVRON_LEFT)
+      .rules(&rules)
+      .key(Self::page_key(item, index))
+      .stays(move || {
+        if let Some(page) = &page {
+          page.set(None);
+        }
+      });
+    back.name = Some(Arc::from(format!("{}: {}", self.back_label, item.label)));
+    if let Some(id) = &item.id {
+      back = back.id(format!("{id}-back"));
+    }
+    back.build(self.theme())
+  }
+
   /// An item as this menu draws it, in its theme: choosing it closes the
   /// menu, and the pointer on it closes the submenu of any other item.
   pub fn item(&self, item: MenuItem) -> Element {
@@ -614,12 +713,36 @@ impl MenuView {
   /// hung from the anchor over the window, or in place where it is inline.
   pub fn render(mut self) -> Element {
     let mut panel = self.panel();
-    for entry in std::mem::take(&mut self.entries) {
-      panel = panel.child(match entry {
-        MenuEntry::Item(item) => self.item(item),
-        MenuEntry::Separator => self.separator(),
-        MenuEntry::Heading(heading) => self.heading(&heading),
-      });
+    let entries = std::mem::take(&mut self.entries);
+    match (self.shown_page(&entries), self.page.clone()) {
+      (Some(index), Some(page)) => {
+        let Some(MenuEntry::Item(item)) = entries.into_iter().nth(index) else {
+          unreachable!("a shown page is an item's")
+        };
+        panel = panel.child(self.back_row(&item, index)).child(self.separator());
+        for choice in item.page.unwrap_or_default() {
+          panel = panel.child(self.item(choice));
+        }
+        // Left goes back to the menu's own items.
+        panel = panel.on_key_down(move |event: KeyboardEvent| {
+          if event.focus_within && plain(&event) && event.key == "ArrowLeft" {
+            event.prevent_default();
+            page.set(None);
+          }
+        });
+      }
+      _ => {
+        for (index, entry) in entries.into_iter().enumerate() {
+          panel = panel.child(match entry {
+            MenuEntry::Item(item) => {
+              let item = self.opens_page(item, index);
+              self.item(item)
+            }
+            MenuEntry::Separator => self.separator(),
+            MenuEntry::Heading(heading) => self.heading(&heading),
+          });
+        }
+      }
     }
     if self.inline {
       return panel.into();
@@ -663,7 +786,7 @@ impl Themed for Menu {
   /// above and below; the label of a group is 11/600 in the muted foreground,
   /// 8 in from the side.
   fn recipe() -> Recipe {
-    use MenuPart::{Label, Panel, Separator, SeparatorLine};
+    use MenuPart::{Label, PageIcon, PageTitle, Panel, Separator, SeparatorLine};
     use PaletteColor::{MutedForeground, Popover, PopoverForeground};
     Recipe::new()
       .base(Panel, |s| {
@@ -678,6 +801,9 @@ impl Themed for Menu {
           .shadow(ShadowStyle::Md)
       })
       .state(MenuState::Submenu, Panel, |s| s.min_width(160.0))
+      // The row back from a page: its title 13/600 and its chevron in the foreground (`Media/Settings Menu/Page`).
+      .base(PageTitle, |s| s.font_size(13.0).weight(FontWeight::SemiBold))
+      .base(PageIcon, |s| s.foreground(PaletteColor::Foreground))
       .base(Separator, |s| s.padding_y(4.0))
       .base(SeparatorLine, |s| s.height(1.0).background(PaletteColor::Border))
       .base(Label, |s| {
@@ -772,6 +898,9 @@ pub struct MenuItem {
   destructive: bool,
   disabled: bool,
   submenu: Option<Menu>,
+  page: Option<Vec<MenuItem>>,
+  stays: Option<Handler>,
+  name: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -795,6 +924,9 @@ impl MenuItem {
       destructive: false,
       disabled: false,
       submenu: None,
+      page: None,
+      stays: None,
+      name: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -857,6 +989,7 @@ impl MenuItem {
   /// item of the submenu closes both menus. The item opens its submenu and is
   /// not chosen itself: it has no [`on_select`](Self::on_select).
   pub fn submenu(mut self, menu: Menu) -> Self {
+    self.page = None;
     self.submenu = Some(menu);
     self
   }
@@ -868,6 +1001,23 @@ impl MenuItem {
     if on {
       self.states.push(state);
     }
+    self
+  }
+
+  /// Items the item shows in its menu's place, with a row at their top that goes back: a player's "Quality" and
+  /// its qualities. The item has a chevron at its end and is not chosen itself; its menu shows the page by its
+  /// [`page`](Menu::page) signal, and its label is the page's title. Choosing an item of the page closes the menu
+  /// and calls that item's handlers.
+  pub fn page(mut self, items: impl IntoIterator<Item = MenuItem>) -> Self {
+    self.page = Some(items.into_iter().collect());
+    self.submenu = None;
+    self
+  }
+
+  /// What choosing the item does in place of closing its menu and calling its handlers: an item that opens a page,
+  /// the row that goes back from one.
+  fn stays(mut self, action: impl Fn() + Send + Sync + 'static) -> Self {
+    self.stays = Some(Arc::new(action));
     self
   }
 
@@ -957,6 +1107,9 @@ impl MenuItem {
       open,
       recipe: theme.resolve::<MenuItem>(&case, Some(&self.rules)),
       submenu: self.submenu,
+      page: self.page.is_some(),
+      stays: self.stays,
+      name: self.name,
       forced: self.forced,
       on_select: self.on_select,
       closes: self.closes,
@@ -997,6 +1150,10 @@ pub struct MenuItemView {
   /// The style of each part of this item.
   pub recipe: ResolvedRecipe,
   submenu: Option<Menu>,
+  /// Whether it shows a page of items in its menu's place.
+  pub page: bool,
+  stays: Option<Handler>,
+  name: Option<Arc<str>>,
   forced: Option<Interaction>,
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
   closes: Vec<Closer>,
@@ -1058,6 +1215,10 @@ impl MenuItemView {
     if self.submenu.is_some() {
       return Some(Arc::new(self.reach()));
     }
+    // An item that opens a page, or the row back from one: the menu stays open.
+    if let Some(stays) = &self.stays {
+      return Some(stays.clone());
+    }
     let (handlers, closes) = (self.on_select.clone(), self.closes.clone());
     (!handlers.is_empty() || !closes.is_empty()).then(|| {
       Arc::new(move || {
@@ -1084,7 +1245,7 @@ impl MenuItemView {
     let mut root = pressable(&self.part(MenuItemPart::Root), self.disabled)
       .justify(Justify::Start)
       .describe("a11y_role", role)
-      .describe("a11y_name", self.label.clone())
+      .describe("a11y_name", self.name.clone().unwrap_or_else(|| self.label.clone()))
       // Typing in the menu matches the label: an item's text is its shortcut too.
       .focus_label(self.label.clone());
     if let Some(checked) = self.checked {
@@ -1098,6 +1259,20 @@ impl MenuItemView {
     }
     if let Some(choose) = self.choose() {
       root = root.on_click(move |_| choose());
+    }
+    // Right shows the page of an item that has one.
+    if self.page
+      && !self.disabled
+      && let Some(stays) = self.stays.clone()
+    {
+      root = root
+        .describe("a11y_haspopup", "menu")
+        .on_key_down(move |event: KeyboardEvent| {
+          if event.focus_within && plain(&event) && event.key == "ArrowRight" {
+            event.prevent_default();
+            stays();
+          }
+        });
     }
     if !self.disabled && (self.submenu.is_some() || !self.submenus.is_empty()) {
       root = root.on_mouse_enter(self.reach());
@@ -1156,7 +1331,7 @@ impl MenuItemView {
 
   /// The chevron at the end of an item that opens a submenu.
   pub fn chevron(&self) -> Option<Element> {
-    self.submenu.is_some().then(|| {
+    (self.submenu.is_some() || self.page).then(|| {
       glyph(
         &self.part(MenuItemPart::Chevron),
         Name::new(icons::CHEVRON_RIGHT),
