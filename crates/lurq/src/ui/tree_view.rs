@@ -13,6 +13,7 @@ use std::{
 
 use super::{
   icons, names,
+  opening_rows::{Moving, OpeningRows, RowMotion},
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   selection::{ListSelection, Pick},
@@ -51,8 +52,8 @@ pub enum TreeViewPart {
   Guide,
   /// What a row holds after its indent: its chevron, its icon, its label and what is at its end.
   Content,
-  /// The chevron of a row that opens: right while it is closed, down while it is open. A row that does not
-  /// open has the room of one, empty; a row whose children are on their way has a spinner in it.
+  /// The chevron of a row that opens: down while it is open, turned to the end while it is closed. A row that does
+  /// not open has the room of one, empty; a row whose children are on their way has a spinner in it.
   Chevron,
   /// The icon before the label.
   Icon,
@@ -63,6 +64,11 @@ pub enum TreeViewPart {
   /// Around what is at the row's end of an item marked to show it on hover: hidden until the pointer is on the
   /// row or the focus is in it.
   Reveal,
+  /// What opens and closes under a row that opens, in a tree that builds every row: as high as the rows it holds
+  /// while the row is open, of no height while it is closed, with a transition between the two.
+  Panel,
+  /// The rows in a row's panel: they fade in as it opens and out as it closes.
+  Body,
 }
 
 names!(TreeViewPart {
@@ -76,6 +82,8 @@ names!(TreeViewPart {
   Label => "label",
   Trailing => "trailing",
   Reveal => "reveal",
+  Panel => "panel",
+  Body => "body",
 });
 
 /// The states of a row of a tree view a recipe styles, besides what the
@@ -523,7 +531,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
   /// Builds the tree in `theme`. Converting a tree into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let (view, _) = self.view(theme, None);
+    let (view, ..) = self.view(theme, None, None);
     match theme.renderer::<TreeView<T>>() {
       Some(renderer) => renderer(view),
       None => view.render(),
@@ -532,8 +540,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
 
   /// The tree as a renderer sees it, in `theme`: every shown row, with a key of each that stays its own while
   /// rows open and close before it. `page` says how many rows PageUp and PageDown move by, in a tree in a virtual
-  /// list.
-  fn view(&self, theme: &Theme, page: Option<Page>) -> (TreeViewView, Vec<String>) {
+  /// list; `motion`, how its rows open and close there: the rows of a closing row are in the view too, kept while
+  /// they close, and each row says which row in motion it is under and whether it is kept.
+  fn view(
+    &self,
+    theme: &Theme,
+    page: Option<Page>,
+    motion: Option<(&Arc<OpeningRows>, &Moving)>,
+  ) -> (TreeViewView, Vec<String>, Vec<Under>) {
     let breakpoint = super::current_breakpoint();
     let base = Case {
       variant: None,
@@ -559,7 +573,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
     };
 
     let mut flat = Vec::new();
-    flatten(&self.items, 1, "", &self.open, self.disabled, &mut flat);
+    let moving = motion.map(|(_, moving)| moving);
+    flatten(
+      &self.items,
+      1,
+      "",
+      &self.open,
+      self.disabled,
+      (moving, None, false),
+      &mut flat,
+    );
 
     let multiple = M::MANY;
     // What writes a new selection tells the handlers of the change too: the row of a tree of one, the rows of one of
@@ -579,7 +602,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
     let model = Arc::new(Model {
       selection: ListSelection::new(
         flat.iter().map(|row| row.value.clone()).collect(),
-        flat.iter().map(|row| !row.disabled).collect(),
+        // A row kept while it closes is not reached: it is going.
+        flat.iter().map(|row| !row.disabled && !row.kept).collect(),
         self.selected.clone(),
         multiple,
         write,
@@ -589,30 +613,44 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
     });
     let entry = flat
       .iter()
-      .position(|row| !row.disabled && self.selected.contains(&row.value));
+      .position(|row| !row.disabled && !row.kept && self.selected.contains(&row.value));
     // The forced interaction is drawn on the row Tab would stop on alone, as it can only be: the entry, else
     // the first row that is not disabled.
-    let forced_at = entry.or_else(|| flat.iter().position(|row| !row.disabled));
+    let forced_at = entry.or_else(|| flat.iter().position(|row| !row.disabled && !row.kept));
 
-    let keys = flat.iter_mut().map(|row| std::mem::take(&mut row.key)).collect();
+    let keys = flat.iter().map(|row| row.key.clone()).collect();
+    let under = flat
+      .iter_mut()
+      .map(|row| Under {
+        parent: row.under.take(),
+        kept: row.kept,
+      })
+      .collect();
+    let motion = motion.map(|(motion, _)| motion.clone());
     let rows = flat
       .into_iter()
       .enumerate()
       .map(|(index, row)| {
         let selected = self.selected.contains(&row.value);
-        let toggle = (row.opens && !row.disabled)
+        let path: Arc<str> = row.key.into();
+        let toggle = (row.opens && !row.disabled && !row.kept)
           .then(|| self.toggle.clone())
           .flatten()
           .map(|write| {
             let (value, told) = (row.value.clone(), self.on_open_change.clone());
+            let (motion, path) = (motion.clone(), path.clone());
             Arc::new(move |open: bool| {
+              // In a virtual list what it holds starts to open or close as it does.
+              if let Some(motion) = &motion {
+                motion.started(&path, open);
+              }
               write(&value, open);
               for handler in &told {
                 handler(&value, open);
               }
             }) as Arc<dyn Fn(bool) + Send + Sync>
           });
-        let actions = (!row.disabled).then(|| {
+        let actions = (!row.disabled && !row.kept).then(|| {
           let model = model.clone();
           Arc::new(RowActions {
             pick: {
@@ -659,6 +697,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
           toggle,
           actions,
           row: None,
+          path,
           id: row.id,
           key: row.app_key,
         }
@@ -674,8 +713,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       id: self.id.clone(),
       key: self.key.clone(),
     };
-    (view, keys)
+    (view, keys, under)
   }
+}
+
+/// Which row in motion a row of a tree in a virtual list is under, and whether it is kept while that row closes.
+struct Under {
+  parent: Option<Arc<str>>,
+  kept: bool,
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> From<TreeView<T, M>> for Element {
@@ -704,15 +749,25 @@ struct Flat<T> {
   app_key: Option<Arc<str>>,
   /// Where it is among the items, from the top: `0/2/1`, or the key the app gave it.
   key: String,
+  /// The outermost row it is under that opens or closes, in a tree in a virtual list.
+  under: Option<Arc<str>>,
+  /// Whether it is under a row that closes, kept while it does.
+  kept: bool,
 }
 
-/// The rows of `items` at `level` and of what is open in them, in the order they are shown.
+/// What a tree in a virtual list flattens its rows with: where its rows are in motion, the outermost row in motion
+/// those of the level are under, and whether they are kept while it closes.
+type Motion<'a> = (Option<&'a Moving>, Option<Arc<str>>, bool);
+
+/// The rows of `items` at `level` and of what is open in them, in the order they are shown, and in a tree in a
+/// virtual list those of what is closing, kept while it closes.
 fn flatten<T: Clone + PartialEq>(
   items: &[TreeItem<T>],
   level: u32,
   parent: &str,
   open: &[T],
   disabled: bool,
+  (moving, under, kept): Motion<'_>,
   out: &mut Vec<Flat<T>>,
 ) {
   let siblings = items.len();
@@ -742,9 +797,26 @@ fn flatten<T: Clone + PartialEq>(
       id: item.id.clone(),
       app_key: item.key.clone(),
       key: key.clone(),
+      under: under.clone(),
+      kept,
     });
-    if is_open {
-      flatten(&item.items, level + 1, &key, open, disabled, out);
+    let closing = opens && !is_open && moving.is_some_and(|moving| moving.keeps(&key));
+    if is_open || closing {
+      // What is in it is under the outermost row in motion: this one, if none it is in is.
+      let under = under.clone().or_else(|| {
+        moving
+          .filter(|moving| moving.moves(&key))
+          .map(|_| Arc::from(key.as_str()))
+      });
+      flatten(
+        &item.items,
+        level + 1,
+        &key,
+        open,
+        disabled,
+        (moving, under, kept || closing),
+        out,
+      );
     }
   }
 }
@@ -887,11 +959,57 @@ impl TreeViewView {
     root
   }
 
-  /// How the default renderer builds a tree: its rows one under the other.
+  /// How the default renderer builds a tree: its rows one under the other, what a row that opens holds in its
+  /// [`panel`](TreeViewPart::Panel) under it, which opens and closes over them as an accordion's item does.
   pub fn render(mut self) -> Element {
     let rows = std::mem::take(&mut self.rows);
-    self.root().with_children(rows.into_iter().map(TreeRow::render)).into()
+    let gap = self.part(TreeViewPart::Root).rest().gap.unwrap_or_default();
+    let children = nest(&mut rows.into_iter().peekable(), &gap);
+    self.root().with_children(children).into()
   }
+}
+
+/// The rows from the next on, of its level and of what is in them, each row that opens with its panel under it: the
+/// rows in a panel are the room of the root's gap apart, and as far under the row it is under.
+fn nest(rows: &mut std::iter::Peekable<std::vec::IntoIter<TreeRow>>, gap: &SpacingValue) -> Vec<Element> {
+  let mut out = Vec::new();
+  let Some(level) = rows.peek().map(|row| row.level) else {
+    return out;
+  };
+  while let Some(row) = rows.next_if(|next| next.level >= level) {
+    if !row.opens {
+      out.push(row.render());
+      continue;
+    }
+    let (at, open, path) = (row.level, row.open, row.path.clone());
+    let mut panel = Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .clip()
+      .presence()
+      .key("panel")
+      .part(&row.part(TreeViewPart::Panel));
+    if open && rows.peek().is_some_and(|next| next.level > at) {
+      panel = panel.child(
+        Column::new()
+          .key("rows")
+          .align_items(Alignment::Stretch)
+          .spacing(gap.clone())
+          .padding_top(gap.clone())
+          .part(&row.part(TreeViewPart::Body))
+          .with_children(nest(rows, gap)),
+      );
+    }
+    out.push(
+      Column::new()
+        .key(format!("node-{path}"))
+        .align_items(Alignment::Stretch)
+        .child(row.render())
+        .child(panel)
+        .into(),
+    );
+  }
+  out
 }
 
 /// One row of a tree as a renderer sees it: what it says and where it is,
@@ -931,6 +1049,8 @@ pub struct TreeRow {
   actions: Option<Arc<RowActions>>,
   /// Which row of the group's rows it is, in a tree in a virtual list.
   row: Option<usize>,
+  /// Where it is among the items, from the top, or the key the app gave it: what its panel is known by.
+  path: Arc<str>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -1076,12 +1196,21 @@ impl TreeRow {
     if !self.opens {
       return Row::new().part(&part).into();
     }
-    let name = if self.open {
-      icons::CHEVRON_DOWN
-    } else {
-      icons::CHEVRON_RIGHT
-    };
-    let mut chevron = Row::new().child(glyph(&part, Name::new(name), false));
+    // One chevron, down, turned to the end while the row is closed: it turns as the row opens and closes, over the
+    // opening's duration, at once where motion is reduced.
+    let theme = self.theme();
+    let mut chevron = Row::new()
+      .transform(crate::node::transform::Transform2D::rotate_deg(if self.open {
+        0.0
+      } else {
+        -90.0
+      }))
+      .transition(
+        crate::animation::Transition::transform()
+          .duration(theme.duration_value(crate::app::theme::MotionDuration::Base))
+          .easing(theme.easing_value(crate::app::theme::MotionEasing::Standard)),
+      )
+      .child(glyph(&part, Name::new(icons::CHEVRON_DOWN), false));
     if let Some(toggle) = self.toggle.clone() {
       let open = !self.open;
       // The press is the chevron's, as the button goes down: it does not select the row as well, and is not the
@@ -1168,8 +1297,8 @@ impl<T: Send + Sync + 'static, M: RowSelection<T>> Themed for TreeView<T, M> {
   /// row and the room under it.
   fn recipe() -> Recipe {
     use PaletteColor::{Foreground, Highlight, MutedForeground, Ring, StateHover, StatePressed};
-    use TreeViewPart::{Chevron, Content, Guide, Icon, Indent, Label, Reveal, Root, Row, Trailing};
-    Recipe::new()
+    use TreeViewPart::{Body, Chevron, Content, Guide, Icon, Indent, Label, Panel, Reveal, Root, Row, Trailing};
+    let recipe = Recipe::new()
       .base(Root, |s| s.gap(2.0).foreground(Foreground))
       .base(Row, |s| {
         fading(
@@ -1207,7 +1336,10 @@ impl<T: Send + Sync + 'static, M: RowSelection<T>> Themed for TreeView<T, M> {
       .state(TreeViewState::Selected, Label, |s| s.weight(FontWeight::Medium))
       .state(TreeViewState::Disabled, Row, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
-      })
+      });
+    // A row opens and closes as an accordion's item does: its panel's height over the theme's base duration, its
+    // rows fading in and out.
+    super::collapsible::opening(recipe, TreeViewState::Open.into(), Panel.into(), Body.into())
   }
 }
 
@@ -1332,6 +1464,10 @@ struct TreeViewHost<T, M> {
   shown: Arc<Mutex<Shown>>,
   rows: Arc<HostRows>,
   generation: AtomicU64,
+  /// The rows that open and close, as a property grid's in a virtual list do.
+  motion: Arc<OpeningRows>,
+  /// Moved on as the motion does, to render the tree.
+  wake: Signal<u64>,
   _ids: PhantomData<fn() -> (T, M)>,
 }
 
@@ -1339,7 +1475,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> Component
   type Props = TreeViewHostProps<T, M>;
 
   fn create(ctx: &mut Ctx) -> Self {
+    let wake = ctx.signal(0);
     Self {
+      motion: OpeningRows::new(ctx, &wake),
+      wake,
       shown: Arc::default(),
       rows: Arc::new(HostRows {
         data: Mutex::default(),
@@ -1354,19 +1493,55 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> Component
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let theme = current_theme();
+    // Read so that the motion moving on renders the tree.
+    let _ = self.wake.get();
+    let moving = self.motion.read(&theme);
     let rows = self.rows.clone();
     let page: Page = Arc::new(move || rows.page());
-    let (mut view, keys) = ctx.props::<TreeViewHostProps<T, M>>().tree.view(&theme, Some(page));
+    let (mut view, keys, under) =
+      ctx
+        .props::<TreeViewHostProps<T, M>>()
+        .tree
+        .view(&theme, Some(page), Some((&self.motion, &moving)));
     for (index, row) in view.rows.iter_mut().enumerate() {
       row.row = Some(index);
     }
     let step = row_step(&view);
+    // Each row in a frame of its height, which runs from nothing to it as the row it is under opens and back as it
+    // closes. The rows under a row of thousands move in turn as many as the view holds, and the rest with the last.
+    let in_view = self.rows.page() + 1;
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for row in &under {
+      if let Some(parent) = &row.parent {
+        *counts.entry(&**parent).or_default() += 1;
+      }
+    }
+    let mut places: HashMap<&str, usize> = HashMap::new();
+    let motions: Vec<RowMotion> = under
+      .iter()
+      .map(|row| match &row.parent {
+        Some(parent) => {
+          let place = places.entry(&**parent).or_default();
+          let motion = moving.row(parent, *place, counts[&**parent].min(in_view), step, row.kept);
+          *place += 1;
+          motion
+        }
+        None => moving.still(step),
+      })
+      .collect();
+    self.motion.rendered(&moving);
     *self.rows.data.lock().unwrap() = RowsData {
       keys: keys.clone(),
       labels: view.rows.iter().map(|row| row.label.clone()).collect(),
       levels: view.rows.iter().map(|row| row.level).collect(),
       expanded: view.rows.iter().map(|row| row.opens.then_some(row.open)).collect(),
-      enabled: view.rows.iter().map(|row| !row.disabled).collect(),
+      // A row kept while the row it is under closes is not reached: it is going.
+      enabled: view
+        .rows
+        .iter()
+        .zip(&under)
+        .map(|(row, under)| !row.disabled && !under.kept)
+        .collect(),
       toggles: view.rows.iter().map(|row| row.toggle.clone()).collect(),
       step,
     };
@@ -1379,8 +1554,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> Component
     let items: Arc<Vec<RowItem>> = Arc::new(
       keys
         .into_iter()
+        .zip(motions)
         .enumerate()
-        .map(|(index, key)| RowItem { index, key, generation })
+        .map(|(index, (key, motion))| RowItem {
+          index,
+          key,
+          generation,
+          motion,
+        })
         .collect(),
     );
     let shown = self.shown.clone();
@@ -1388,7 +1569,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> Component
       .with_scroll_state(self.rows.scroll.clone())
       .reveal_key(self.rows.reveal_key.get())
       .reveal_request(self.rows.reveal_request.get())
-      .estimate_height(move |_| step)
+      // A row not measured yet is where its height starts while the row it is under moves: what is below is built
+      // where it is on the way.
+      .estimate_height(|item: &RowItem| item.motion.estimate)
       .width(Dimension::Pct(100.0))
       .flex(1.0)
       .mount_keyed::<TreeRowHost, _, _, _>(
@@ -1396,6 +1579,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> Component
         move |item: &RowItem| TreeRowProps {
           index: item.index,
           generation: item.generation,
+          motion: item.motion.clone(),
           shown: shown.clone(),
         },
       );
@@ -1427,23 +1611,28 @@ fn row_step(view: &TreeViewView) -> f32 {
   height + gap
 }
 
-/// A row of the virtual list: which of the shown rows, from which render.
+/// A row of the virtual list: which of the shown rows, from which render, and how it moves.
 #[derive(Clone, PartialEq)]
 struct RowItem {
   index: usize,
   key: String,
   generation: u64,
+  motion: RowMotion,
 }
 
 struct TreeRowProps {
   index: usize,
   generation: u64,
+  motion: RowMotion,
   shown: Arc<Mutex<Shown>>,
 }
 
 impl PartialEq for TreeRowProps {
   fn eq(&self, other: &Self) -> bool {
-    self.index == other.index && self.generation == other.generation && Arc::ptr_eq(&self.shown, &other.shown)
+    self.index == other.index
+      && self.generation == other.generation
+      && self.motion == other.motion
+      && Arc::ptr_eq(&self.shown, &other.shown)
   }
 }
 
@@ -1471,14 +1660,16 @@ impl Component for TreeRowHost {
       (shown.rows.get(props.index).cloned(), shown.gap.clone())
     };
     let Some(row) = row else {
-      return Column::new();
+      return Column::new().into();
     };
-    Column::new()
+    let row = Column::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Stretch)
       .spacing(gap)
       .child(row.render())
       // Nothing, after the room under the row.
-      .child(Row::new())
+      .child(Row::new());
+    // In a frame of its height, which runs to the height the row it is under gives it as it opens and closes.
+    props.motion.frame(row)
   }
 }

@@ -3,12 +3,12 @@
 use std::{
   collections::HashMap,
   sync::{Arc, Mutex},
-  time::Duration,
 };
 
 use super::{
   Checkbox, ColorPicker, ColorSwatch, ColorSwatchSize, Input, InputPart, NumberFormat, NumberInput, NumberInputLayout,
   Popover, Select, Slider, icons, names,
+  opening_rows::{OpeningRows, RowMotion},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
@@ -915,7 +915,7 @@ struct GridHost {
   /// The row the focus goes to in this render, and the ref it carries.
   focus: Option<(Arc<str>, ElementRef)>,
   /// The categories in motion, where the grid's rows are in a virtual list.
-  motion: Arc<GridMotion>,
+  motion: Arc<OpeningRows>,
 }
 
 impl GridHost {
@@ -925,60 +925,6 @@ impl GridHost {
       open.insert(known.clone(), to);
     });
     self.motion.started(known, to);
-  }
-}
-
-/// What a grid whose rows are in a virtual list keeps of the categories that open and close. Its rows are items of
-/// the list, so no panel holds them: each row's height runs from nothing to its own as its category opens and back as
-/// it closes, the rows of a category moved from rest one after another, as an accordion's panel uncovers them. The
-/// rows of a closing category stay in the list, inert, until the motion has ended.
-#[derive(Default)]
-struct GridMotion {
-  /// Categories whose rows are kept while they close.
-  closing: Mutex<std::collections::HashSet<Arc<str>>>,
-  /// Categories just opened, whose rows are built at no height first, for their height to run from it.
-  opening: Mutex<std::collections::HashSet<Arc<str>>>,
-  /// Categories in motion, and whether it started from rest: their rows then move one after another.
-  moving: Mutex<HashMap<Arc<str>, bool>>,
-  /// What ends the motion: after it, the closed rows go.
-  settle: Mutex<Option<crate::app::ctx::Timeout>>,
-  /// What gives rows built at no height their height, on the turn of the loop after the one that laid them out:
-  /// their height runs from nothing only once nothing was laid out.
-  grow: Mutex<Option<crate::app::ctx::Timeout>>,
-  /// Whether motion is reduced: the categories open and close at once.
-  reduced: std::sync::atomic::AtomicBool,
-}
-
-impl GridMotion {
-  fn started(&self, known: &Arc<str>, to: bool) {
-    if self.reduced.load(std::sync::atomic::Ordering::Relaxed) {
-      return;
-    }
-    let mut moving = self.moving.lock().unwrap();
-    // From rest the rows move one after another; turned round on the way, each moves back from where it is.
-    let from_rest = !moving.contains_key(known);
-    moving.insert(known.clone(), from_rest);
-    drop(moving);
-    let (mut closing, mut opening) = (self.closing.lock().unwrap(), self.opening.lock().unwrap());
-    if to {
-      // Rows kept as they closed are there already, and go back from their height.
-      if !closing.remove(known) {
-        opening.insert(known.clone());
-      }
-    } else {
-      opening.remove(known);
-      closing.insert(known.clone());
-    }
-    drop((closing, opening));
-    if let Some(settle) = self.settle.lock().unwrap().as_ref() {
-      settle.restart();
-    }
-  }
-
-  fn settled(&self) {
-    self.closing.lock().unwrap().clear();
-    self.opening.lock().unwrap().clear();
-    self.moving.lock().unwrap().clear();
   }
 }
 
@@ -1939,25 +1885,9 @@ impl Component for GridMount {
   type Props = GridProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let (motion, wake): (Arc<GridMotion>, Signal<u64>) = (Arc::default(), ctx.signal(0));
-    // The motion is over once its rows have run their turns: the opening's duration, and a frame for the last.
-    let over = current_theme().duration_value(crate::app::theme::MotionDuration::Base) + Duration::from_millis(50);
-    let settle = ctx.create_timeout(over, {
-      let (motion, wake) = (motion.clone(), wake.clone());
-      move || {
-        motion.settled();
-        wake.update(|wake| *wake = wake.wrapping_add(1));
-      }
-    });
-    *motion.settle.lock().unwrap() = Some(settle);
-    let grow = ctx.create_timeout(Duration::ZERO, {
-      let (motion, wake) = (motion.clone(), wake.clone());
-      move || {
-        motion.opening.lock().unwrap().clear();
-        wake.update(|wake| *wake = wake.wrapping_add(1));
-      }
-    });
-    *motion.grow.lock().unwrap() = Some(grow);
+    let wake: Signal<u64> = ctx.signal(0);
+    // The categories' rows open and close as a tree's do: the motion is the one they share.
+    let motion = OpeningRows::new(ctx, &wake);
     Self {
       host: GridHost {
         open: ctx.signal(HashMap::new()),
@@ -2001,22 +1931,13 @@ impl Component for GridMount {
     }
     let view = grid.view(&theme);
     let motion = self.host.motion.clone();
-    let reduced = theme.reduced_motion();
-    motion.reduced.store(reduced, std::sync::atomic::Ordering::Relaxed);
-    if reduced {
-      motion.settled();
-    }
-    let (closing, opening, moving) = (
-      motion.closing.lock().unwrap().clone(),
-      motion.opening.lock().unwrap().clone(),
-      motion.moving.lock().unwrap().clone(),
-    );
+    let moving = motion.read(&theme);
     // The rows shown, and the rows of a closing category, kept while they close.
     let mut shown: Vec<(Shown, bool)> = Vec::new();
     for (index, category) in view.categories.iter().enumerate() {
       shown.push((Shown::Category(index), false));
       let known = category.category.known_as();
-      let kept = !category.open && closing.contains(&known);
+      let kept = !category.open && moving.keeps(&known);
       if category.open || kept {
         shown.extend((0..category.rows.len()).map(|row| (Shown::Property(index, row), kept)));
       }
@@ -2040,10 +1961,7 @@ impl Component for GridMount {
       }
     };
     let heights: Vec<f32> = shown.iter().map(|(row, _)| height(row)).collect();
-    // Each property row's height and how it runs to it: the opening's duration and easing, a row of a category
-    // moved from rest in its turn, the first first as it opens and the last first as it closes.
-    let base = theme.duration_value(crate::app::theme::MotionDuration::Base);
-    let easing = theme.easing_value(crate::app::theme::MotionEasing::Standard);
+    // Each property row's height and how it runs to it, as its category opens or closes.
     let motions: Vec<Option<RowMotion>> = shown
       .iter()
       .zip(&heights)
@@ -2052,34 +1970,7 @@ impl Component for GridMount {
           return None;
         };
         let known = view.categories[category].category.known_as();
-        let count = view.categories[category].rows.len().max(1) as u32;
-        let first = opening.contains(&known);
-        let in_turn = moving.get(&known).copied().unwrap_or(false);
-        let (delay, duration) = if in_turn {
-          let step = base / count;
-          let turn = if *kept { count - 1 - place as u32 } else { place as u32 };
-          (step * turn, step)
-        } else {
-          (std::time::Duration::ZERO, base)
-        };
-        // What the list counts a row it has not measured as: the height it runs from while its category moves, so
-        // that what is below is built where it is, and its height at rest.
-        let estimate = match (moving.contains_key(&known), *kept) {
-          (true, false) => 0.0,
-          _ => *height,
-        };
-        Some(RowMotion {
-          estimate,
-          height: if *kept || first { 0.0 } else { *height },
-          delay,
-          duration,
-          easing: if in_turn {
-            crate::animation::Easing::Linear
-          } else {
-            easing
-          },
-          kept: *kept,
-        })
+        Some(moving.row(&known, place, view.categories[category].rows.len(), *height, *kept))
       })
       .collect();
     let open = self.host.clone();
@@ -2128,13 +2019,7 @@ impl Component for GridMount {
         .collect(),
       step: heights.iter().copied().fold(32.0, f32::min),
     };
-    // Rows built at no height this time are given their height on the next turn of the loop, for it to run from
-    // nothing.
-    if !opening.is_empty()
-      && let Some(grow) = motion.grow.lock().unwrap().as_ref()
-    {
-      grow.restart();
-    }
+    motion.rendered(&moving);
     let generation = self.generation.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     let view = Arc::new(view);
     let places: Vec<Shown> = shown.iter().map(|(row, _)| *row).collect();
@@ -2269,19 +2154,6 @@ struct GridItem {
   generation: u64,
 }
 
-/// The height a property's row runs to, and how: what its category's opening or closing gives it.
-#[derive(Clone, Debug, PartialEq)]
-struct RowMotion {
-  height: f32,
-  /// What the list counts the row as before it measures it.
-  estimate: f32,
-  delay: std::time::Duration,
-  duration: std::time::Duration,
-  easing: crate::animation::Easing,
-  /// The row of a closing category: kept while it closes, inert.
-  kept: bool,
-}
-
 struct GridRowProps {
   place: usize,
   generation: u64,
@@ -2327,19 +2199,6 @@ impl Component for GridRowHost {
       return built;
     };
     // A property's row in a frame of its height, which runs to the height its category's motion gives it.
-    Column::new()
-      .width(Dimension::Pct(100.0))
-      .align_items(Alignment::Stretch)
-      .clip()
-      .height(motion.height)
-      .transition(
-        crate::animation::Transition::height()
-          .duration(motion.duration)
-          .delay_ms(motion.delay.as_millis() as u64)
-          .easing(motion.easing.clone()),
-      )
-      .inert(motion.kept)
-      .child(built)
-      .into()
+    motion.frame(built)
   }
 }
