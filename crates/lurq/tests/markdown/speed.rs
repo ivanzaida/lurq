@@ -72,12 +72,21 @@ fn measure(sections: usize) -> (Duration, Duration, Duration) {
   tree.mount_root::<Long>(&mut app, ());
   render_pass_with_app(&mut tree, &mut app);
   let first = started.elapsed();
+  #[cfg(feature = "perf_profile")]
+  lurq::app::profiler::take_frame_sections();
 
   // The source changes at its end, as a streamed answer does: the document is built again.
   let started = Instant::now();
   source.update(|text| text.push_str("One more paragraph.\n"));
   render_pass_with_app(&mut tree, &mut app);
   let again = started.elapsed();
+  // With `perf_profile` and `LURQ_REBUILD_SECTIONS`, where the build again spent its time.
+  #[cfg(feature = "perf_profile")]
+  if std::env::var_os("LURQ_REBUILD_SECTIONS").is_some() {
+    for (name, total, count) in lurq::app::profiler::take_frame_sections() {
+      println!("  {sections} sections, built again, {name}: {:.3} ms ({count} runs)", total.as_secs_f64() * 1000.0);
+    }
+  }
 
   // Sixty frames of scrolling, 120 pixels each: the median one.
   #[cfg(feature = "perf_profile")]
