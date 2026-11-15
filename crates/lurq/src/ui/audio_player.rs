@@ -996,7 +996,8 @@ impl AudioPlayer {
             }
           })
           .label(&words.seek)
-          .disabled(still)
+          // Loading and after an error nothing is loaded: the track alone, with no thumb.
+          .empty(still)
           .force(None);
         if let (Some(buffered), false) = (self.buffered, still) {
           bar = bar.buffered(buffered);
