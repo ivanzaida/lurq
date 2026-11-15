@@ -13,9 +13,13 @@
 //! `LeavingLayer` role, so it is no modal and Tab passes it by; focus, hover
 //! and a press that were in it are let go when it begins to leave; its nodes
 //! lose their element ids, element refs and component slots, so no lookup finds them
-//! and a component that renders again leaves them alone. It is not taken
-//! over either: a layer opened again while it leaves is a new one, which
-//! enters over it.
+//! and a component that renders again leaves them alone. A layer opened
+//! again while it leaves (the same key, or else declared by the same node)
+//! takes it back: it ends its leaving, takes back its names and is continued
+//! by the layer built, its ids, its focus, its scroll and what was typed in it
+//! kept, and what it enters with goes on from where its exit had got to
+//! (`OverlayHostReuse::claim`). There is one of it, never one entering over
+//! one leaving.
 //!
 //! A layer hidden because its anchor went out of view does not leave: it is
 //! still open, and comes back with its anchor.
@@ -28,7 +32,7 @@
 //! longest of them ends.
 
 use super::{
-  OverlayHostReuse, Tree, find_node_by_id, find_node_by_id_mut, overlay_layers::OverlayLayers,
+  FocusTarget, OverlayHostReuse, Tree, find_node_by_id, find_node_by_id_mut, overlay_layers::OverlayLayers,
   reset_element_ref_flags_recursive,
 };
 use crate::{core::NodeId, node::Node, time::Instant};
@@ -36,9 +40,13 @@ use crate::{core::NodeId, node::Node, time::Instant};
 /// A layer the overlay host keeps while its exit animations play.
 pub(super) struct LeavingLayer {
   /// The id of the layer's root, a child of the overlay host.
-  root: NodeId,
+  pub(super) root: NodeId,
   /// When the longest of its exit animations ends and the layer is dropped.
   pub(super) until: Instant,
+  /// The node that declared the layer: a layer it declares again while this one leaves takes this one back.
+  pub(super) origin: Option<NodeId>,
+  /// What had the focus in it as it began to leave: it has it again if the layer is taken back.
+  pub(super) focus: Option<FocusTarget>,
 }
 
 impl Tree {
@@ -51,6 +59,7 @@ impl Tree {
     &mut self,
     old_parts: &mut OverlayHostReuse,
     layers: &OverlayLayers,
+    old_origins: &[Option<NodeId>],
     now: Instant,
   ) -> Vec<(usize, Node)> {
     let mut records = Vec::new();
@@ -62,6 +71,8 @@ impl Tree {
           records.push(LeavingLayer {
             root: record.root,
             until: record.until,
+            origin: record.origin,
+            focus: record.focus,
           });
           leaving.push((position, layer));
         }
@@ -74,6 +85,7 @@ impl Tree {
         continue;
       }
       let position = old_parts.old_overlay_positions[index];
+      let origin = old_parts.old_origin(index, old_origins);
       let hidden = self
         .overlay_layer_anchors
         .get(position)
@@ -97,6 +109,8 @@ impl Tree {
       records.push(LeavingLayer {
         root: layer.node_id(),
         until,
+        origin,
+        focus: None,
       });
       self.layers_left.push(layer.node_id());
       leaving.push((position, layer));
@@ -105,6 +119,15 @@ impl Tree {
     self.leaving_layers = records;
     leaving.sort_by_key(|(position, _)| *position);
     leaving
+  }
+
+  /// The leaving layers, each by its root, with the node that declared it: what a layer declared again takes back.
+  pub(super) fn leaving_origins(&self) -> Vec<(NodeId, Option<NodeId>)> {
+    self
+      .leaving_layers
+      .iter()
+      .map(|layer| (layer.root, layer.origin))
+      .collect()
   }
 
   /// Whether a leaving layer's time is up at `now`: the pass drops it.
@@ -118,9 +141,29 @@ impl Tree {
   pub(super) fn begin_leaving_children(&mut self) {
     // A child that came back while it left went with the tree the render replaced: its time is no one's to wait
     // for, and its id may be another node's by the time it would have been up.
+    // A child that came back while it left is continued by the one that came back, under its ids: its time is no
+    // one's to wait for, and what it enters with goes on from where its exit had got to.
     let ended = crate::node::presence::take_ended_leaving();
     if !ended.is_empty() {
+      let focus_back = self
+        .leaving_children
+        .iter()
+        .filter(|child| ended.contains(&child.root))
+        .find_map(|child| child.focus);
       self.leaving_children.retain(|child| !ended.contains(&child.root));
+      if let Some(target) = focus_back {
+        self.focus_node(target);
+      }
+      let now = self.now();
+      let mut ids = Vec::new();
+      if let Some(root) = self.root.as_ref() {
+        for id in &ended {
+          if let Some(node) = find_node_by_id(root, *id) {
+            node.subtree_ids(&mut ids);
+          }
+        }
+      }
+      self.animation_engine.turn_round(&ids, now);
     }
     let began = crate::node::presence::take_began_leaving();
     if began.is_empty() {
@@ -147,7 +190,12 @@ impl Tree {
       };
       reset_element_ref_flags_recursive(node);
       node.turn_into_leaving_layer();
-      self.leaving_children.push(LeavingLayer { root: id, until });
+      self.leaving_children.push(LeavingLayer {
+        root: id,
+        until,
+        origin: None,
+        focus: None,
+      });
       self.layers_left.push(id);
     }
     self.cached_render_list = None;
@@ -202,6 +250,21 @@ impl Tree {
         .any(|leaving| find_node_by_id(leaving, *id).is_some())
     };
     let loses_focus = self.focused_node.iter().chain(&self.focused_event_node).any(inside);
+    // What had the focus is remembered by the layer it was in, for the layer to give it back if it is taken back.
+    if loses_focus && let Some(input_id) = self.focused_node {
+      let target = FocusTarget {
+        input_id,
+        event_id: self.focused_event_node.unwrap_or(input_id),
+      };
+      let holder = left.iter().copied().find(|leaving| {
+        find_node_by_id(root, *leaving).is_some_and(|layer| find_node_by_id(layer, input_id).is_some())
+      });
+      for record in self.leaving_layers.iter_mut().chain(self.leaving_children.iter_mut()) {
+        if Some(record.root) == holder {
+          record.focus = Some(target);
+        }
+      }
+    }
     let hover_path = self.hover_path.iter().copied().filter(|id| !inside(id)).collect();
     let active_path = self.active_path.iter().copied().filter(|id| !inside(id)).collect();
     self.hover_path = hover_path;

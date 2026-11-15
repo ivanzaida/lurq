@@ -659,7 +659,14 @@ impl Themed for Slider {
     use PaletteColor::*;
     use SliderPart::{Fill, Root, Thumb, Track};
     Recipe::new()
-      .base(Root, |s| s.width(240.0).height(16.0).cursor(CursorIcon::Pointer))
+      // 240 long where there is the room, and no longer than the room it is given: in a narrower row its track
+      // is shorter, and its thumb stays on it, inside the slider.
+      .base(Root, |s| {
+        s.width(240.0)
+          .max_width(Length::Fill)
+          .height(16.0)
+          .cursor(CursorIcon::Pointer)
+      })
       .base(Track, |s| s.height(4.0).radius(RadiusSize::Full).background(Secondary))
       .base(Fill, |s| s.radius(RadiusSize::Full).background(Primary))
       .base(Thumb, |s| {
