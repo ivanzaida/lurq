@@ -884,7 +884,7 @@ pub const PAGES: &[Page] = &[
   Page {
     path: "/bar-chart",
     name: "Bar Chart",
-    icon: Some("dashboard"),
+    icon: Some("chart-bar"),
     about: "bar chart bars columns chart graph plot series categories values stacked grouped side by side current negative zero grid value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint ChartLegend ChartTooltip",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<bar_chart::BarChartPage>(()),

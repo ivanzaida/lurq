@@ -157,5 +157,15 @@
   "list-check": "E09B",
   "list-media": "E09C",
   "list-pairs": "E09D",
-  "panels": "E09E"
+  "panels": "E09E",
+  "chart-area": "E09F",
+  "chart-bar": "E0A0",
+  "chart-line": "E0A1",
+  "chart-pie": "E0A2",
+  "chart-radar": "E0A3",
+  "chart-rows": "E0A4",
+  "chart-scatter": "E0A5",
+  "gauge": "E0A6",
+  "grid": "E0A7",
+  "trending-up": "E0A8"
 }
