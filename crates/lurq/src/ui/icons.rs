@@ -166,6 +166,16 @@ pub const LIST_CHECK: &str = "list-check";
 pub const LIST_MEDIA: &str = "list-media";
 pub const LIST_PAIRS: &str = "list-pairs";
 pub const PANELS: &str = "panels";
+pub const CHART_AREA: &str = "chart-area";
+pub const CHART_BAR: &str = "chart-bar";
+pub const CHART_LINE: &str = "chart-line";
+pub const CHART_PIE: &str = "chart-pie";
+pub const CHART_RADAR: &str = "chart-radar";
+pub const CHART_ROWS: &str = "chart-rows";
+pub const CHART_SCATTER: &str = "chart-scatter";
+pub const GAUGE: &str = "gauge";
+pub const GRID: &str = "grid";
+pub const TRENDING_UP: &str = "trending-up";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -328,4 +338,14 @@ pub const ALL: &[(&str, char)] = &[
   (LIST_MEDIA, '\u{E09C}'),
   (LIST_PAIRS, '\u{E09D}'),
   (PANELS, '\u{E09E}'),
+  (CHART_AREA, '\u{E09F}'),
+  (CHART_BAR, '\u{E0A0}'),
+  (CHART_LINE, '\u{E0A1}'),
+  (CHART_PIE, '\u{E0A2}'),
+  (CHART_RADAR, '\u{E0A3}'),
+  (CHART_ROWS, '\u{E0A4}'),
+  (CHART_SCATTER, '\u{E0A5}'),
+  (GAUGE, '\u{E0A6}'),
+  (GRID, '\u{E0A7}'),
+  (TRENDING_UP, '\u{E0A8}'),
 ];
