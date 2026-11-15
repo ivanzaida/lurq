@@ -243,8 +243,9 @@ fn search(ctx: &mut Ctx, state: &Shell) -> CommandPalette {
   palette
 }
 
-/// What the gear opens: what a theme can be told that is not a color.
-fn settings(theme: &Theme, state: &Shell) -> Column {
+/// What the gear opens: what a theme can be told that is not a color; and, in a window as narrow as a phone,
+/// the appearance and the density too, which the header has no room for there.
+fn settings(theme: &Theme, state: &Shell, narrow: bool) -> Column {
   // A setting of the window: its name, what it does, and its control (a segmented control of any value).
   fn setting(name: &str, about: &str, control: impl Into<Element>) -> Column {
     Column::new()
@@ -270,10 +271,41 @@ fn settings(theme: &Theme, state: &Shell) -> Column {
     .map(|(_, value)| *value)
     .min_by(|a, b| (a - scale).abs().total_cmp(&(b - scale).abs()))
     .unwrap_or(1.0);
-  popover()
-    .width(320.0)
+  let mut panel = popover()
+    .width(if narrow { 288.0 } else { 320.0 })
     .padding(16.0)
-    .spacing(16.0)
+    .spacing(16.0);
+  if narrow {
+    let looks = [
+      ("System", None),
+      ("Light", Some(Appearance::Light)),
+      ("Dark", Some(Appearance::Dark)),
+    ];
+    let densities: Vec<(&str, Density)> = Density::all()
+      .iter()
+      .map(|density| (density_name(*density), *density))
+      .collect();
+    panel = panel
+      .child(setting(
+        "Theme",
+        "The appearance of every page: the system's, or one of the two.",
+        segmented(&looks, &theme.preferred_appearance(), {
+          let theme = theme.clone();
+          move |look| theme.set_preferred_appearance(look)
+        })
+        .full_width(true),
+      ))
+      .child(setting(
+        "Density",
+        "How high a row and a control are.",
+        segmented(&densities, &theme.density(), {
+          let theme = theme.clone();
+          move |density| theme.set_density(density)
+        })
+        .full_width(true),
+      ));
+  }
+  panel
     .child(setting(
       "Motion",
       "Reduced, a change of place or size ends at once; a fade still runs.",
@@ -307,7 +339,11 @@ fn settings(theme: &Theme, state: &Shell) -> Column {
 fn header(ctx: &mut Ctx, state: &Shell) -> Row {
   let theme = ctx.theme().clone();
   // Narrower than a desktop, the header keeps its controls and drops what names them.
-  let roomy = lurq::ui::current_breakpoint().is_some_and(|breakpoint| breakpoint >= Breakpoint::Xl);
+  let breakpoint = lurq::ui::current_breakpoint();
+  let roomy = breakpoint.is_some_and(|breakpoint| breakpoint >= Breakpoint::Xl);
+  // As narrow as a phone, it keeps the side bar's button, the brand, the search and the gear: the appearance
+  // and the density are in what the gear opens.
+  let narrow = !breakpoint.is_some_and(|breakpoint| breakpoint >= Breakpoint::Md);
   let looks = [
     ("System", None),
     ("Light", Some(Appearance::Light)),
@@ -376,33 +412,48 @@ fn header(ctx: &mut Ctx, state: &Shell) -> Row {
         move |_| open.update(|open| *open = !*open)
       }),
   );
-  let controls = Row::new()
-    .spacing(12.0)
-    .align_items(Alignment::Center)
-    .child(labeled("theme", appearance.into()))
-    .child(labeled("density", density.into()))
-    .child(gear)
-    .child(
-      Popup::new(state.settings_anchor.clone(), settings(&theme, state))
-        .open(state.settings_open.clone())
-        .placement(lurq::app::ctx::Placement::BottomEnd)
-        .offset(0.0, 8.0),
+  let mut controls = Row::new().spacing(if narrow { 4.0 } else { 12.0 }).align_items(Alignment::Center);
+  if narrow {
+    // The search is a button there: its field has no room beside the brand.
+    controls = controls.child(
+      Button::new("Search")
+        .variant(ButtonVariant::Ghost)
+        .icon(icons::SEARCH)
+        .icon_only(true)
+        .on_click({
+          let open = state.search_open.clone();
+          move |_| open.set(true)
+        }),
     );
+  } else {
+    controls = controls
+      .child(labeled("theme", appearance.into()))
+      .child(labeled("density", density.into()));
+  }
+  let controls = controls.child(gear).child(
+    Popup::new(state.settings_anchor.clone(), settings(&theme, state, narrow))
+      .open(state.settings_open.clone())
+      .placement(lurq::app::ctx::Placement::BottomEnd)
+      .offset(0.0, 8.0),
+  );
+  let middle = if narrow {
+    Row::new().flex(1.0)
+  } else {
+    Row::new()
+      .flex(1.0)
+      .justify(Justify::Center)
+      .child(search_field(state, roomy))
+  };
   Row::new()
     .width(FILL)
     .height(HEADER)
-    .padding_horizontal(20.0)
-    .spacing(16.0)
+    .padding_horizontal(if narrow { 12.0 } else { 20.0 })
+    .spacing(if narrow { 8.0 } else { 16.0 })
     .align_items(Alignment::Center)
     .background(PaletteColor::Background)
     .border_bottom(Border::inside(BorderSize::Sm, PaletteColor::Border))
     .child(brand)
-    .child(
-      Row::new()
-        .flex(1.0)
-        .justify(Justify::Center)
-        .child(search_field(state, roomy)),
-    )
+    .child(middle)
     .child(controls)
 }
 

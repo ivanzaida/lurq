@@ -217,21 +217,6 @@ impl WindowHandle {
     self.window.push_command(WindowCommand::StopDrag);
   }
 
-  /// Tells the window which element the app draws as its maximize control, in a title bar of its own, or `None`
-  /// where it draws none. On Windows 11 the system then opens its snap layouts over it as the pointer rests there,
-  /// as over a title bar's own: the pointer over it is the system's, and the app hears it through
-  /// [`maximize_control_look`](Self::maximize_control_look), while a press on it still maximizes and restores the
-  /// window. Elsewhere this does nothing. `ui::WindowChrome` tells it of its own.
-  pub fn set_maximize_control(&self, control: Option<crate::core::ElementRef>) {
-    self.window.set_maximize_control(control);
-  }
-
-  /// How the app's maximize control is to look while the system has the pointer on it (Windows' snap layouts):
-  /// under the pointer, held down, or neither. Reading it in a render renders again as it changes.
-  pub fn maximize_control_look(&self) -> super::MaximizeControlLook {
-    self.window.maximize_control_look()
-  }
-
   /// Shows the system's menu of the window where the pointer is: Restore, Move, Size, Minimize, Maximize and
   /// Close, as a right press on a title bar the system draws does. For a title bar of the app's own. Only Windows
   /// has such a menu; on macOS and Linux this does nothing.

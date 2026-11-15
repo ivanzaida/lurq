@@ -27,6 +27,7 @@ mod command_bar;
 mod command_palette;
 mod context_menu;
 mod data_grid;
+mod data_grid_editing;
 mod data_grid_scale;
 mod data_list;
 mod date_field;
@@ -83,6 +84,7 @@ mod property_grid;
 mod radar_chart;
 mod radio;
 mod rating;
+mod reopened_layers;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;

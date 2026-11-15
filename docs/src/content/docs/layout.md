@@ -761,8 +761,9 @@ ScrollVertical::new(Column::new().child(section)).size(240.0, 320.0)
   scrolls: the bar down starts under what sticks at the top (a table's header) and ends above what sticks at the
   bottom, the bar across runs from what sticks at the start (its first column) to what sticks at the end (a column
   pinned there), each as far in as that reaches (its inset and its size), and the thumb is the share of what scrolls
-  that shows. The bar down stands before what sticks at the right, beside the rows, as a native grid's does beside a
-  frozen column, and the bar across above what sticks at the bottom. Painting, the pointer on the bar and a drag of
+  that shows. Each keeps clear along its own axis only: the bar down stands at the container's end edge, over the
+  edge of what sticks at the right (a column pinned there) and never over what scrolls, and the bar across at its
+  bottom edge, over what sticks at the bottom, or in a lane of its own. Painting, the pointer on the bar and a drag of
   its thumb go by that track, so a thumb at the track's end is the end of the scroll. `ui::Table` asks for it.
 - An overlay bar across lies over the bottom of what scrolls, a table's last row in view. `.reserve_bar_across(true)`
   on `ScrollHorizontal` or `ScrollBoth` gives it a lane of its own under the content, as wide as a `Reserved` gutter

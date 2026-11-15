@@ -131,6 +131,7 @@ mod touch_pointer_tests;
 mod touch_tests;
 mod typeahead;
 mod wheel_scroll;
+mod window_controls;
 
 use overlay_layers::{HiddenDismiss, OverlayLayers};
 use selected_text_lines::{SelectedTextFragment, join_selected_text};
@@ -770,6 +771,8 @@ pub struct Tree {
   /// there; `None` once it left the window. The hover is hit-tested again
   /// there after a layout moves content.
   pointer: Option<hover::PointerAt>,
+  /// Whether a shell asked for where the window's controls are, after each layout: see `window_controls`.
+  publishes_window_controls: bool,
   hover_path: Vec<NodeId>,
   /// The row a group of rows stepped to that its list had not built: focused once it is (`nested_focus`).
   pending_row_focus: Option<nested_focus::PendingRowFocus>,
@@ -918,6 +921,8 @@ pub struct Tree {
   /// The element the focus goes to in an overlay that takes it and has just opened, once the pass has put
   /// the interaction state back.
   overlay_focus_entry: Option<NodeId>,
+  /// What had the focus in a layer taken back while it left: it has it again (`leaving_layers`).
+  overlay_focus_back: Option<FocusTarget>,
   /// What had the focus as each open overlay that takes it opened, by its anchor: where the focus goes back to
   /// as it closes.
   overlay_focus_returns: Vec<(OwnedElementRef, Option<FocusTarget>)>,
@@ -1261,6 +1266,7 @@ impl Tree {
       scale_factor: 1.0,
       window: crate::app::window::Window::new(),
       pointer: None,
+      publishes_window_controls: false,
       hover_path: Vec::new(),
       pending_row_focus: None,
       within_states: Vec::new(),
@@ -1365,6 +1371,7 @@ impl Tree {
       overlay_layer_parents: Vec::new(),
       overlay_focus_movers: Vec::new(),
       overlay_focus_entry: None,
+      overlay_focus_back: None,
       overlay_focus_returns: Vec::new(),
       overlay_layer_origins: Vec::new(),
       modal_focus: Vec::new(),
@@ -7670,6 +7677,9 @@ impl Tree {
           event_id: entry,
         });
       }
+      if let Some(target) = self.overlay_focus_back.take() {
+        self.focus_node(target);
+      }
       {
         crate::app::profile_support::frame_section!("ul:modal_focus");
         self.sync_modal_focus();
@@ -7782,6 +7792,7 @@ impl Tree {
         }
       }
       self.last_layout = Some(layout);
+      self.leave_window_controls();
       {
         crate::app::profile_support::frame_section!("ul:blur_dropped");
         self.blur_focus_in_dropped_child();
@@ -7897,7 +7908,8 @@ impl Tree {
 
     let old_origins = std::mem::take(&mut self.overlay_layer_origins);
     let mut dropdown_anchors = std::mem::take(&mut base_overlay_index.dropdown_anchors);
-    old_parts.claim(&mut overlays, &layers.origins, 0, &old_origins);
+    let leaving_origins = self.leaving_origins();
+    let mut came_back = old_parts.claim(&mut overlays, &layers.origins, 0, &old_origins, &leaving_origins);
     self.place_again_with_leaving_children(
       &mut overlays,
       &layers.placings,
@@ -7957,7 +7969,13 @@ impl Tree {
       };
 
       let first = overlays.len();
-      old_parts.claim(&mut nested_overlays, &layers.origins[first..], first, &old_origins);
+      came_back.extend(old_parts.claim(
+        &mut nested_overlays,
+        &layers.origins[first..],
+        first,
+        &old_origins,
+        &leaving_origins,
+      ));
       self.place_again_with_leaving_children(
         &mut nested_overlays,
         &layers.placings[first..],
@@ -7972,7 +7990,18 @@ impl Tree {
 
     self.built_focus_modals = std::mem::take(&mut layers.focus_modals);
     self.forget_closed_modals();
-    let leaving = self.leaving_layers(&mut old_parts, &layers, now);
+    // A layer that came back while it left goes on entering from where its exit had got to, and what had the focus
+    // in it has it again.
+    self.animation_engine.turn_round(&came_back, now);
+    if let Some(target) = self
+      .leaving_layers
+      .iter()
+      .filter(|layer| came_back.contains(&layer.root))
+      .find_map(|layer| layer.focus)
+    {
+      self.overlay_focus_back = Some(target);
+    }
+    let leaving = self.leaving_layers(&mut old_parts, &layers, &old_origins, now);
     if overlays.is_empty() && leaving.is_empty() {
       let had_host = old_parts.old_host.is_some();
       let focus_return = self
@@ -8566,15 +8595,35 @@ impl OverlayHostReuse {
   /// and `old_origins` are the nodes that declared the old host's layers.
   ///
   /// A layer continues the old layer of its key, or else the old layer the
-  /// same node declared. Only then do the layers left take the old layer at
-  /// their own place, so that a layer never takes the one a later layer
-  /// continues.
-  fn claim(&mut self, overlays: &mut [Node], origins: &[Option<NodeId>], first: usize, old_origins: &[Option<NodeId>]) {
+  /// same node declared. One that continues none takes back the layer of its
+  /// key, or else the one the same node declared, that is leaving
+  /// (`leaving_origins`, each leaving layer's root and the node that declared
+  /// it): there is one of it, not one entering over one leaving. Only then do
+  /// the layers left take the old layer at their own place, so that a layer
+  /// never takes the one a later layer continues. Returns the ids of what
+  /// layers took back, for what they enter with to go on from where their
+  /// exits had got to.
+  fn claim(
+    &mut self,
+    overlays: &mut [Node],
+    origins: &[Option<NodeId>],
+    first: usize,
+    old_origins: &[Option<NodeId>],
+    leaving_origins: &[(NodeId, Option<NodeId>)],
+  ) -> Vec<NodeId> {
     let mut claimed = vec![false; overlays.len()];
     for (offset, overlay) in overlays.iter_mut().enumerate() {
       let origin = origins.get(offset).copied().flatten();
       if let Some(index) = self.same_layer(overlay, origin, old_origins) {
         preserve_overlay_reuse_at(overlay, self, index);
+        claimed[offset] = true;
+      }
+    }
+    let mut came_back = Vec::new();
+    for (offset, overlay) in overlays.iter_mut().enumerate() {
+      let origin = origins.get(offset).copied().flatten();
+      if !claimed[offset] && self.take_back_leaving(overlay, origin, leaving_origins) {
+        overlay.subtree_ids(&mut came_back);
         claimed[offset] = true;
       }
     }
@@ -8584,6 +8633,45 @@ impl OverlayHostReuse {
         preserve_overlay_reuse_at(overlay, self, first + offset);
       }
     }
+    came_back
+  }
+
+  /// Takes back into `overlay` the leaving layer it is: the one of its key, or else, where either has none, the
+  /// one `origin` declared. The leaving layer ends its leaving and `overlay` continues it, its state and its ids;
+  /// what is left of it goes with the pass. Whether there was one.
+  fn take_back_leaving(
+    &mut self,
+    overlay: &mut Node,
+    origin: Option<NodeId>,
+    leaving_origins: &[(NodeId, Option<NodeId>)],
+  ) -> bool {
+    let key = overlay.component_key().map(str::to_owned);
+    let declared_by = |root: NodeId| {
+      leaving_origins
+        .iter()
+        .find(|(leaving, _)| *leaving == root)
+        .and_then(|(_, origin)| *origin)
+    };
+    let found = self.leaving.iter().position(|(_, layer)| {
+      let Some(forgotten) = layer.left_as() else {
+        return false;
+      };
+      let (left_key, _) = forgotten.known_as();
+      match (key.as_deref(), left_key.as_deref()) {
+        (Some(key), Some(left)) => key == left,
+        _ => origin.is_some() && declared_by(layer.node_id()) == origin,
+      }
+    });
+    let Some(found) = found else {
+      return false;
+    };
+    let (_, mut layer) = self.leaving.remove(found);
+    layer.end_leaving();
+    reset_element_ref_flags_recursive(&layer);
+    overlay.preserve_runtime_state_from(&layer);
+    overlay.preserve_ids_from(&mut layer);
+    self.dropped.push(layer);
+    true
   }
 
   /// The free old layer `overlay` is known to continue: the one of its key,

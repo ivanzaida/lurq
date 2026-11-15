@@ -739,3 +739,82 @@ fn the_state_of_its_way_is_on_one_way_or_the_other() {
   );
   assert_eq!(stage.bounds("up").2, 16.0, "a vertical one is not");
 }
+
+#[test]
+fn a_slider_is_no_longer_than_its_room_and_its_thumb_stays_on_it() {
+  for room in [60.0, 120.0, 180.0, 240.0, 400.0] {
+    for value in [0, 50, 100] {
+      let held = Signal::new(value);
+      let mut stage = Stage::new(move |_| {
+        Column::new()
+          .width(room)
+          .child(Slider::new(held.clone()).label("Volume").id("slider"))
+          .into()
+      });
+      let (x, _, width, _) = stage.bounds("slider");
+      assert_eq!(width, f32::min(room, 240.0), "240 where it has the room, else the room");
+      let thumb = thumb(&mut stage, "slider");
+      assert!(
+        thumb.x >= x - 0.01 && thumb.x + thumb.width <= x + width + 0.01,
+        "{room} at {value}: the thumb inside the slider"
+      );
+      let center = thumb.x + thumb.width / 2.0;
+      let at = x + 8.0 + (width - 16.0) * value as f32 / 100.0;
+      assert!((center - at).abs() < 0.5, "{room} at {value}: {center} for {at}");
+    }
+  }
+}
+
+#[test]
+fn a_slider_beside_a_number_in_a_field_leaves_the_number_its_room() {
+  for room in [160.0, 220.0, 320.0] {
+    for value in [0.0, 50.0, 100.0] {
+      let (held, typed) = (Signal::new(value), Signal::new(f64::from(value)));
+      let mut stage = Stage::new(move |_| {
+        let control: lurq::node::Element = Row::new()
+          .width(room)
+          .spacing(8.0)
+          .child(
+            Row::new()
+              .flex(1.0)
+              .child(Slider::new(held.clone()).label("Opacity").id("slider")),
+          )
+          .child(
+            lurq::ui::NumberInput::new(typed.clone())
+              .label("Opacity")
+              .style(lurq::ui::NumberInputPart::Root, |s| s.width(80.0))
+              .id("number"),
+          )
+          .into();
+        Column::new().child(lurq::ui::Field::new("Opacity", control)).into()
+      });
+      let (x, _, width, _) = stage.bounds("slider");
+      let (number, ..) = stage.bounds("number");
+      assert!(
+        x + width <= number - 7.99,
+        "{room} at {value}: the slider ends 8 before the number"
+      );
+      let thumb = thumb(&mut stage, "slider");
+      assert!(
+        thumb.x + thumb.width <= x + width + 0.01,
+        "{room} at {value}: the thumb inside the slider"
+      );
+    }
+  }
+}
+
+#[test]
+fn the_first_frame_of_a_slider_in_a_narrow_room_is_the_settled_one() {
+  for room in [100.0, 240.0, 400.0] {
+    let held = Signal::new(50);
+    let mut stage = Stage::first_frame(room, 100.0, move |_| {
+      Column::new()
+        .width(room)
+        .child(Slider::new(held.clone()).label("Volume"))
+        .into()
+    });
+    let first = stage.picture();
+    stage.frame();
+    assert_eq!(first, stage.picture(), "at {room}");
+  }
+}

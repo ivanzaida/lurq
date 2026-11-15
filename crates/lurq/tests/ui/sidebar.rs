@@ -226,6 +226,52 @@ fn the_item_under_the_pointer_is_veiled_and_a_press_chooses_it() {
   assert_eq!(chosen.load(Ordering::SeqCst), 1);
 }
 
+/// Three pages, the one `open` names selected, and a press of another opens it: a window's own side bar.
+fn window_pages(ctx: &mut Ctx, open: &Signal<&'static str>) -> Element {
+  let items = ["Inbox", "Drafts", "Sent"].map(|name| {
+    let choose = open.clone();
+    SidebarItem::new(name)
+      .id(name.to_lowercase())
+      .key(name)
+      .selected(open.get() == name)
+      .on_select(move || choose.set(name))
+  });
+  layout(ctx, Sidebar::new().id("sidebar").narrow(false).items(items))
+}
+
+#[test]
+fn the_item_of_the_page_before_is_not_left_veiled_by_a_pointer_that_crossed_it() {
+  let open = Signal::new("Inbox");
+  let mut stage = stage({
+    let open = open.clone();
+    move |ctx| window_pages(ctx, &open)
+  });
+  assert_eq!(stage.fill_color("inbox"), Some(light(PaletteColor::Background)));
+  stage.click("drafts");
+  assert_eq!(open.get_untracked(), "Drafts");
+  let (x, y) = stage.center("page");
+  stage.tree.mouse_move(x, y);
+  stage.pass();
+  assert_eq!(stage.fill_color("inbox"), None, "no longer the open page: no fill");
+  assert_eq!(stage.fill_color("drafts"), Some(light(PaletteColor::Background)));
+
+  // The pointer comes onto the side bar across the item of the page before, a frame on it, and stops in the
+  // side bar's own padding beside it, on no item.
+  let (x, y) = stage.center("inbox");
+  stage.tree.mouse_move(x, y);
+  stage.frame();
+  assert!(stage.fill_color("inbox").is_some(), "veiled under the pointer");
+  let (left, ..) = stage.bounds("sidebar");
+  stage.tree.mouse_move(left + 2.0, y);
+  stage.frame();
+
+  assert_eq!(stage.fill_color("inbox"), None, "no veil in the frame the pointer left");
+  assert!(!stage.tree.has_active_timeline(), "and no fade left on its way to one");
+  stage.pass();
+  assert_eq!(stage.fill_color("inbox"), None, "nor once everything has settled");
+  assert_eq!(stage.fill_color("drafts"), Some(light(PaletteColor::Background)));
+}
+
 #[test]
 fn a_disabled_item_is_dimmed_and_takes_nothing() {
   let (chosen, choose) = counter();

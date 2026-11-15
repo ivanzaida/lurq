@@ -230,3 +230,52 @@ fn clicking_a_partly_visible_element_focuses_it_without_scrolling() {
   assert_eq!(focused.as_deref(), Some("item-2"));
   assert_eq!(bounds(&mut tree, "item-0").y, 0.0);
 }
+
+#[test]
+fn what_sticks_beside_an_element_takes_no_room_from_it_and_what_sticks_over_it_does() {
+  use lurq::layout::layout_kind::Sticky;
+  // A page of items, and beside them a list that sticks to the top, taller than the view's top half.
+  let page = |over: bool| {
+    let mut column = Column::new().width(120.0);
+    for index in 0..20 {
+      column = column.child(button(index).width(120.0));
+    }
+    let stuck = Rect::new(if over { 120.0 } else { 80.0 }, 70.0).sticky(Sticky::top(0.0));
+    if over {
+      // Over the items: the same column, its first child sticking.
+      ScrollVertical::new(Column::new().child(stuck).child(column)).height(VIEW)
+    } else {
+      ScrollVertical::new(
+        Row::new()
+          .align_items(lurq::layout::Alignment::Start)
+          .child(column)
+          .child(stuck),
+      )
+      .height(VIEW)
+    }
+  };
+
+  // Beside: scrolled by 80, item 3 is at 40, in view under the band the list covers at its side, and stays.
+  let mut tree = headless(page(false));
+  tree.scroll(10.0, 10.0, 0.0, -80.0, lurq::app::events::ScrollPhase::Scroll);
+  tree.pass_headless(&mut App::new());
+  assert_eq!(bounds(&mut tree, "item-3").y, 40.0);
+  tree.get_element_by_id_mut("item-3").expect("item-3").scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  assert_eq!(
+    bounds(&mut tree, "item-3").y,
+    40.0,
+    "an item beside the list is not moved for it"
+  );
+
+  // Over: the band sticks across the items, and an item under it is brought out from under it.
+  let mut tree = headless(page(true));
+  tree.get_element_by_id_mut("item-0").expect("item-0").scroll_into_view();
+  tree.pass_headless(&mut App::new());
+  let rect = bounds(&mut tree, "item-0");
+  assert!(
+    rect.y >= 70.0 - 0.5,
+    "an item under what sticks over it is shown clear of it: {}",
+    rect.y
+  );
+}

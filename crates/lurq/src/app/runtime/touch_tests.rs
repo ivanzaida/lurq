@@ -217,11 +217,12 @@ fn two_taps_a_few_points_apart_are_a_double_click() {
   assert_eq!(*log.lock().unwrap(), ["down", "up", "down", "double", "up"]);
 }
 
-/// A list 100 high with 1000 of content, at scale 1.
+/// A list 100 high with 1000 of content, at scale 1, in a window it fills: the middle of the window, where a
+/// tap on the status bar looks for the page, is in the list.
 fn list() -> (Tree, App, crate::layout::layout_kind::ScrollState) {
   let mut app = App::new();
   let mut tree = Tree::new();
-  tree.resize(200, 200);
+  tree.resize(100, 100);
   let state = crate::layout::layout_kind::ScrollState::new();
   tree.set_root(
     ScrollVertical::new(Spacer::new().width(100.0).height(1000.0))

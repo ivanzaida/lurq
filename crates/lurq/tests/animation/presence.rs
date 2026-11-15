@@ -393,7 +393,7 @@ fn nothing_in_a_leaving_layer_is_found() {
 }
 
 #[test]
-fn a_layer_opened_again_while_it_leaves_enters_over_the_one_leaving() {
+fn a_layer_opened_again_while_it_leaves_takes_it_back_and_is_there_once() {
   let mut page = one_popup(true);
   page.open.set(true);
   page.stage.at(0);
@@ -401,23 +401,26 @@ fn a_layer_opened_again_while_it_leaves_enters_over_the_one_leaving() {
   page.open.set(false);
   page.stage.at(300);
   page.stage.at(350);
+  assert_close(&page.stage.opacities(PANEL_A), &[0.75]);
 
+  // Opened again on the way out: the one leaving ends its leaving and is the one open, once, going on from where
+  // its exit had got to.
   page.open.set(true);
   page.stage.at(350);
-  assert_close(&page.stage.opacities(PANEL_A), &[0.75, 0.0]);
+  assert_close(&page.stage.opacities(PANEL_A), &[0.75]);
+  assert!(page.stage.tree.get_element_by_id("inside-a").is_some(), "found again");
+  page.stage.at(375);
+  assert_close(&page.stage.opacities(PANEL_A), &[0.875]);
+  page.stage.at(400);
+  assert_close(&page.stage.opacities(PANEL_A), &[1.0]);
 
-  page.stage.at(450);
-  assert_close(&page.stage.opacities(PANEL_A), &[0.25, 0.5]);
   let inside = page.stage.center_of("inside-a");
   pointer_click(&mut page.stage.tree, inside.0, inside.1, MouseButton::Left);
   page.stage.at(450);
-  assert_eq!(
-    page.inside_clicks.load(Ordering::SeqCst),
-    1,
-    "the open one takes the click"
-  );
+  assert_eq!(page.inside_clicks.load(Ordering::SeqCst), 1, "it takes the click");
 
-  page.stage.at(550);
+  // Its time to leave by is forgotten: it stays.
+  page.stage.at(800);
   assert_close(&page.stage.opacities(PANEL_A), &[1.0]);
 }
 

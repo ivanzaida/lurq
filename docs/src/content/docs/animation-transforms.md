@@ -70,6 +70,11 @@ transition is for what the element does itself, a state it enters or a style set
 - Box shadows animate shadow by shadow, as in CSS: one with no partner in the other list comes from, or goes to,
   nothing where it is. A list in which a shadow turns from outer to inset changes halfway, and a list of more than four
   shadows changes at once.
+- A background, a border color, a foreground or an offset runs between two values, not from none and not to none. An
+  element with no fill at rest and one in its `hovered` style has the fill at once when the pointer comes and loses it
+  at once when the pointer goes. A run on its way when the value goes away (the fill fading from the pressed one back
+  to the hovered one, and the pointer leaves) ends there and then, and the next value the element gets is there at
+  once. For a fade both ways give the element the value at rest too: a fill with no opacity, `Color::new(0, 0, 0, 0)`.
 
 `duration(...)`, `duration_ms(...)`, `delay(...)`, `delay_ms(...)`, `easing(...)`, and `linear()` configure timing.
 
@@ -208,11 +213,11 @@ no exit animation in it is gone with the pass that closes it, as before.
   is in it.
 - It keeps its place among the other layers: a popup closed inside a dialog leaves over the dialog, and a layer under
   another stays under it.
-- Opening the layer again while it leaves mounts it anew: the new one enters over the one still leaving. A layer is
-  not a child of a container with presence and does not follow its rule (below): nothing is laid out around it, so
-  the two take no more room than one, but for the time of the exit both are painted, the new one over the other. A
-  popover pressed open again shows the one fading out under it, and a dialog opened again has two backdrops until
-  the first has faded.
+- Opening the layer again while it leaves takes it back: the layer of the same key, or else the one the same element
+  declared, ends its leaving and is the layer open, the same element with its ids, so there is one of it, never one
+  entering over one leaving. What had the focus in it has it again, its scroll and what was typed in it are kept,
+  and what it enters with goes on from where its exit had got to: a fade out at 75 % turns into a fade in from 75 %.
+  A popover, a dialog, a sheet, a menu, a tooltip and a hover card pressed open again while they go all do so.
 - A popup that is hidden because its anchor scrolled out of view is still open, so it does not leave: it is gone at
   once and comes back with its anchor.
 - Outside a layer an exit animation plays for a child of a container with `.presence()`: see
@@ -242,10 +247,10 @@ for task in &tasks {
 - It stays where it was among its siblings and in flow: the ones after it do not move until it is gone. An exit
   animation of its `Height` or `Width` to zero lets them close the gap as it leaves.
 - Like a leaving layer it is only painted: no pointer, focus or Tab, and no lookup finds it. A child of the same key
-  or id added again while it leaves ends its leaving: the one leaving goes at once and the one added enters, so the
-  two are never there together. A panel opened again while its rows fade out holds its rows once, and a banner shown
-  again while it fades out is there once. The one added is a new element: it enters with its own enter animation,
-  and what the one leaving held (its scroll, a caret) is not carried over.
+  or id added again while it leaves ends its leaving and is the child added: the same element, with its ids, its
+  scroll and what was typed in it, and the focus it had, so the two are never there together, and what it enters
+  with goes on from where its exit had got to. A panel opened again while its rows fade out holds its rows once,
+  and a banner or a drawer shown again while it goes is there once.
 - What wants the one coming back to be another, entering beside the one still leaving, gives it a key of its own
   each time it is shown: `.key(format!("saved-{shown}"))`, with `shown` counted up by the app. A
   [toast](../design-system/#toast) does so: each `Toasts::show` is a toast of its own, so one shown again while the

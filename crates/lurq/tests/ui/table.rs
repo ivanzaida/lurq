@@ -689,27 +689,81 @@ fn wide_stage(scene: impl Fn() -> Element + Send + Sync + 'static) -> Stage {
   wide(scene)
 }
 
+/// A table of 30 rows, 240 high, its name 140 wide and pinned at the start where `start`, its status `wide`, its
+/// size pinned at the end where `end`.
+fn pinned(start: bool, end: bool, wide: f32) -> Stage {
+  let rows = many(30);
+  wide_stage(move || {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(140.0)
+        .pin(if start { ColumnPin::Start } else { ColumnPin::None })
+        .text(|row: &Crate| row.name.to_owned()),
+      TableColumn::new("status", "Status")
+        .width(wide)
+        .text(|row: &Crate| row.status.to_owned()),
+      TableColumn::new("size", "Size")
+        .width(90.0)
+        .pin(if end { ColumnPin::End } else { ColumnPin::None })
+        .text(|row: &Crate| format!("{} KB", row.size)),
+    ];
+    Table::new_shared(columns, rows.clone()).id("t").height(240.0).into()
+  })
+}
+
 #[test]
-fn no_thumb_lies_over_a_column_pinned_at_the_end() {
-  let mut stage = pinned_at_the_end(700.0);
-  let (x, y, width, height) = stage.bounds("t");
-  // The size's column stays at the end: 90, and the row's padding of 16 it holds, before the box's edge.
-  let pinned_start = x + width - 1.0 - 16.0 - 90.0;
-  for scrolled in [false, true] {
-    if scrolled {
-      stage
-        .tree
-        .scroll(x + 200.0, y + 120.0, -10_000.0, -10_000.0, ScrollPhase::Scroll);
-      stage.pass();
-    }
-    let bars = thumbs(&stage, (x, y, width, height));
-    assert_eq!(bars.len(), 2, "both bars: {}", bars.len());
-    for bar in &bars {
-      assert!(
-        bar.x + bar.width <= pinned_start + 0.5,
-        "a thumb over the pinned column (scrolled {scrolled}): ends at {}",
-        bar.x + bar.width - x
-      );
+fn the_bar_down_stands_at_the_tables_end_edge_and_the_bar_across_between_the_pinned_columns() {
+  for (start, end) in [(false, true), (true, false), (true, true)] {
+    // Wider than the box, the bar across has a lane of its own; narrower, there is none.
+    for wide in [700.0, 120.0] {
+      let mut stage = pinned(start, end, wide);
+      let (x, y, width, height) = stage.bounds("t");
+      // The size's column stays at the end: 90, and the row's padding of 16 it holds, before the box's edge.
+      let end_pinned = x + width - 1.0 - 16.0 - 90.0;
+      // The name stays at the start: the row's padding, then its width.
+      let start_pinned = x + 1.0 + 16.0 + 140.0;
+      for scrolled in [false, true] {
+        if scrolled {
+          stage
+            .tree
+            .scroll(x + 200.0, y + 120.0, -10_000.0, -10_000.0, ScrollPhase::Scroll);
+          stage.pass();
+        }
+        let case = format!("pinned start {start} end {end}, {wide} wide, scrolled {scrolled}");
+        let bars = thumbs(&stage, (x, y, width, height));
+        let down = bars
+          .iter()
+          .find(|quad| quad.height > quad.width)
+          .unwrap_or_else(|| panic!("the bar down ({case})"));
+        assert!(
+          x + width - (down.x + down.width) <= 8.0,
+          "the bar down at the table's end edge ({case}): ends {} before it",
+          x + width - (down.x + down.width)
+        );
+        if end {
+          assert!(
+            down.x >= end_pinned - 0.5,
+            "the bar down over the pinned column's edge, not a column that scrolls ({case}): at {}",
+            down.x - x
+          );
+        }
+        if let Some(across) = bars.iter().find(|quad| quad.width > quad.height) {
+          if end {
+            assert!(
+              across.x + across.width <= end_pinned + 0.5,
+              "the bar across ends before the column pinned at the end ({case}): {}",
+              across.x + across.width - x
+            );
+          }
+          if start {
+            assert!(
+              across.x >= start_pinned - 0.5,
+              "the bar across starts after the column pinned at the start ({case}): {}",
+              across.x - x
+            );
+          }
+        }
+      }
     }
   }
 }

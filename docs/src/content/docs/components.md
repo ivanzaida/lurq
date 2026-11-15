@@ -204,12 +204,10 @@ Apps provide title-bar slots and content. They should not manually call `window.
 normal custom chrome. `WindowChrome` handles title-bar drag, double-click maximize, the system's menu of the window on a
 right press (`WindowHandle::show_system_menu`, which only Windows has: Restore, Move, Size, Minimize, Maximize, Close),
 resize edge and corner hit zones, control-button event propagation, and platform drag/resize fallbacks in the active
-shell. On Windows 11 the system's snap layouts open over the maximize control as the pointer rests on it, as over a
-title bar the system draws: `WindowControls` tells the window which element its maximize control is
-(`WindowHandle::set_maximize_control`), and the shell answers the system's hit test there with the maximize button.
-The pointer over it is then the system's, so the control hears it from the window, `WindowHandle::maximize_control_look()`
-(under the pointer, held down), and is drawn so; a press and release on it still maximize and restore the window. A
-title bar the app draws in its own way names its maximize control the same way, and `None` where it has none.
+shell. The system knows the three controls too: `WindowControls` marks each with `.window_control(..)`, so on Windows
+11 the system's snap layouts open over the maximize control as the pointer rests on it, as over a title bar the system
+draws. A title bar the app draws in its own way marks its controls the same way; see
+[The Window's Controls In A Title Bar Of Your Own](#the-windows-controls-in-a-title-bar-of-your-own).
 
 `ChromeTitleBar::draw(|window, height| ..)` draws the whole bar from the app's own element in place of its leading,
 title, center, trailing and controls, given the window (to read whether it is maximized or in front, and to minimize,
@@ -256,6 +254,71 @@ content background). Maximized and fullscreen windows have no resize handles or 
 when a component needs to reason about the custom chrome content area. Metrics include whether custom chrome is enabled,
 the title-bar height, resize handle size and placement, and border size. `content_x`, `content_width`, and
 `content_height` subtract the resize gutter only with `ResizeHandlePlacement::Inset`.
+
+### The Window's Controls In A Title Bar Of Your Own
+
+A window with no system decorations (`with_decorations(false)`) whose title bar the app draws has controls the system
+knows nothing of: to Windows they are client area like the rest, and Windows 11 opens its snap layouts only over what
+the window says is its maximize button. An element says which of the window's controls it is with
+`.window_control(..)`, which every element has:
+
+```rust
+use lurq::{
+  app::events::{MouseButton, MouseEvent},
+  components::{Row, Text},
+  node::{CursorIcon, Style, WindowControl, color::Color},
+};
+
+let window = ctx.window();
+let maximized = window.is_maximized;
+let control = |glyph: &str, control: WindowControl| {
+  Row::new()
+    .width(46.0)
+    .height(36.0)
+    .cursor(CursorIcon::Pointer)
+    .hovered_style(Style::new().background(Color::from_hex("#232934")))
+    // The minimize, the maximize or the close control of the window.
+    .window_control(control)
+    // A press of a control is the control's: it does not drag the window.
+    .on_mouse_down(|event: MouseEvent| event.stop_propagation())
+    .child(Text::new(glyph))
+};
+
+let (drag, minimize, maximize, close) = (window.clone(), window.clone(), window.clone(), window);
+Row::new()
+  .height(36.0)
+  .on_mouse_down(move |event: MouseEvent| {
+    if event.button == MouseButton::Left {
+      drag.start_drag();
+    }
+  })
+  .child(Row::new().flex(1.0).child(Text::new("My App")))
+  .child(control("-", WindowControl::Minimize).on_click(move |_| minimize.set_minimized(true)))
+  .child(control("□", WindowControl::Maximize).on_click(move |_| maximize.set_maximized(!maximized)))
+  .child(control("x", WindowControl::Close).on_click(move |_| close.request_close()))
+```
+
+`WindowControl` is `Minimize`, `Maximize` (the control that maximizes the window and restores it) or `Close`.
+
+- The mark tells the system, and does nothing else. The element is under the pointer, held down, clicked, focused and
+  given its cursor as any other element is, and it is its own `on_click` that acts on the window: an element marked
+  `Close` that closes nothing closes nothing.
+- With the winit shell on Windows, the window answers the system's hit test (`WM_NCHITTEST`) with `HTMINBUTTON`,
+  `HTMAXBUTTON` or `HTCLOSE` where a marked element is. Windows 11 then opens its snap layouts over the maximize
+  control as the pointer rests on it, and a press on it still reaches the element. The pointer over a control is, to
+  the system, out of the client area; the shell gives the element what the system sends there, so nothing changes for
+  the app.
+- The answer is given where the element takes the pointer: over its box as it is laid out, cut by what clips it, and
+  not where something over it takes the pointer in its place (a zone along the window's edge that resizes it, the
+  backdrop of a dialog). It follows a layout, a scroll and the display's scale. A disabled element, or one that takes
+  no pointer (`HitTestBehavior::None`), is no control. Like an element ref's bounds, the box is the layout's: a
+  transform is not followed.
+- On macOS and Linux the mark does nothing, and costs nothing.
+- A shell that drives a `Tree` itself asks `tree.window_control_at(x, y)`, with the point in physical pixels as the
+  pointer's are, and gets the `WindowControl` there or `None`: what to answer its own window's hit test with.
+
+`WindowControls` and the design system's `ui::WindowChrome` mark their controls, so an app that uses them has this
+with no change.
 
 ### Styling Window Controls
 

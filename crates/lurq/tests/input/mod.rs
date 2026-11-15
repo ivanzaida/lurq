@@ -95,6 +95,8 @@ mod slider {
 }
 
 mod pointer {
+  mod edge_between_rows;
+  mod leaves_during_a_fade;
   mod modifiers;
   mod native_window_gesture;
 }

@@ -482,3 +482,38 @@ fn a_control_under_the_pointer_takes_its_hover_foreground() {
     "and has it back when the pointer leaves"
   );
 }
+
+// The three controls say which of the window's they are, so a shell can tell the system (Windows answers its hit
+// test with the minimize, maximize and close buttons there). The zones that resize the window take the pointer
+// along its edges, over the controls.
+#[test]
+fn the_controls_are_the_windows_to_a_shell_that_asks() {
+  use lurq::node::WindowControl;
+
+  let (_app, tree, _) = mount(Controls::Default, ResizeHandlePlacement::Overlay);
+  for (slot, control) in [
+    (0, WindowControl::Minimize),
+    (1, WindowControl::Maximize),
+    (2, WindowControl::Close),
+  ] {
+    let (x, y) = button_center(slot);
+    assert_eq!(tree.window_control_at(x, y), Some(control), "slot {slot}");
+  }
+  let middle = TITLE_HEIGHT / 2.0;
+  assert_eq!(tree.window_control_at(100.0, middle), None, "the bar's own room");
+  assert_eq!(
+    tree.window_control_at(button_center(1).0, 1.0),
+    None,
+    "the top edge resizes"
+  );
+  assert_eq!(
+    tree.window_control_at(WIDTH - 1.0, middle),
+    None,
+    "the right edge resizes"
+  );
+  assert_eq!(
+    tree.window_control_at(button_center(1).0, TITLE_HEIGHT + 4.0),
+    None,
+    "the content"
+  );
+}
