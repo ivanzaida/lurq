@@ -76,7 +76,9 @@ fn data(choice: usize) -> Vec<ChartSeries> {
     1 => vec![
       scenes(),
       outliers(),
-      ChartSeries::points("Mobile", [(800.0, 9.0), (2400.0, 13.5), (4100.0, 18.2), (5800.0, 22.0)]),
+      // The outliers have the third chart color, as the board draws them: mobile takes the second.
+      ChartSeries::points("Mobile", [(800.0, 9.0), (2400.0, 13.5), (4100.0, 18.2), (5800.0, 22.0)])
+        .color(PaletteColor::Chart2),
     ],
     2 => vec![ChartSeries::points(
       "Drift",
@@ -101,6 +103,7 @@ pub struct ScatterChartPage {
   trend: Signal<bool>,
   legend: Signal<bool>,
   grid: Signal<bool>,
+  motion: Signal<bool>,
   hidden: Signal<Vec<String>>,
   selected: Signal<Option<ChartPoint>>,
 }
@@ -108,7 +111,7 @@ pub struct ScatterChartPage {
 impl ScatterChartPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let choice = self.data.get().min(DATA.len() - 1);
-    let (trend, legend, grid) = (self.trend.get(), self.legend.get(), self.grid.get());
+    let (trend, legend, grid, motion) = (self.trend.get(), self.legend.get(), self.grid.get(), self.motion.get());
     let series = data(choice);
     let make = {
       let series = series.clone();
@@ -120,6 +123,7 @@ impl ScatterChartPage {
           .legend(legend)
           .grid(grid)
           .loading(choice == 5)
+          .motion(motion)
           .x_text(thousands)
           .value_text(ms)
       }
@@ -168,6 +172,9 @@ impl ScatterChartPage {
     if choice == 5 {
       code.push("    .loading(true)".to_owned());
     }
+    if !motion {
+      code.push("    .motion(false)".to_owned());
+    }
     code.push("    .mount(ctx)".to_owned());
     let tree = vec![
       format!("root      {} · a figure · card, padded 20", self.playground.measured()),
@@ -184,6 +191,7 @@ impl ScatterChartPage {
       self.grid.clone(),
       self.hidden.clone(),
       self.selected.clone(),
+      self.motion.clone(),
     );
     let facts = format!(
       "{} series · {} points{}",
@@ -219,11 +227,19 @@ impl ScatterChartPage {
           flag("trend", &self.trend),
           flag("legend", &self.legend),
           flag("grid", &self.grid),
+          flag("motion: in, and to a change of the data", &self.motion),
         ],
-        changed: [choice != 0, !trend, legend, !grid, !self.hidden.get().is_empty()]
-          .into_iter()
-          .filter(|changed| *changed)
-          .count(),
+        changed: [
+          choice != 0,
+          !trend,
+          legend,
+          !grid,
+          !motion,
+          !self.hidden.get().is_empty(),
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
         reset: Arc::new(move || {
           reset.0.set(0);
           reset.1.set(true);
@@ -231,6 +247,7 @@ impl ScatterChartPage {
           reset.3.set(true);
           reset.4.set(Vec::new());
           reset.5.set(None);
+          reset.6.set(true);
         }),
       },
     )
@@ -248,6 +265,7 @@ impl Component for ScatterChartPage {
       trend: ctx.signal(true),
       legend: ctx.signal(false),
       grid: ctx.signal(true),
+      motion: ctx.signal(true),
       hidden: ctx.signal(Vec::new()),
       selected: ctx.signal(None),
     }
@@ -300,6 +318,12 @@ impl Component for ScatterChartPage {
         "",
         "",
         "Every chart's.",
+      ),
+      (
+        "motion",
+        "bool",
+        "true",
+        "The points growing in, and each moving from where it was to a change of the data, the trend with them.",
       ),
       (
         "on_select",

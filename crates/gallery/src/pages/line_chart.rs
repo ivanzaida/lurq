@@ -90,6 +90,7 @@ pub struct LineChartPage {
   grid: Signal<bool>,
   value_axis: Signal<bool>,
   legend: Signal<bool>,
+  motion: Signal<bool>,
   hidden: Signal<Vec<String>>,
   selected: Signal<Option<ChartPoint>>,
 }
@@ -108,6 +109,7 @@ impl LineChartPage {
       ChartSize::Sm
     };
     let (grid, value_axis, legend) = (self.grid.get(), self.value_axis.get(), self.legend.get());
+    let motion = self.motion.get();
     let (categories, series) = data(choice);
     let make = {
       let (categories, series) = (categories.clone(), series.clone());
@@ -121,6 +123,7 @@ impl LineChartPage {
           .value_axis(value_axis)
           .legend(legend)
           .loading(choice == 7)
+          .motion(motion)
           .value_text(ms)
       }
     };
@@ -164,6 +167,9 @@ impl LineChartPage {
     if choice == 7 {
       code.push("    .loading(true)".to_owned());
     }
+    if !motion {
+      code.push("    .motion(false)".to_owned());
+    }
     code.push("    .hidden(hidden)".to_owned());
     code.push("    .on_select(|point| ..)".to_owned());
     code.push("    .mount(ctx)".to_owned());
@@ -182,7 +188,7 @@ impl LineChartPage {
       self.data.clone(),
       self.curve.clone(),
       self.size.clone(),
-      [self.grid.clone(), self.legend.clone()],
+      [self.grid.clone(), self.legend.clone(), self.motion.clone()],
       self.value_axis.clone(),
       self.hidden.clone(),
       self.selected.clone(),
@@ -235,6 +241,7 @@ impl LineChartPage {
           flag("grid", &self.grid),
           flag("value_axis", &self.value_axis),
           flag("legend", &self.legend),
+          flag("motion: in, and to a change of the data", &self.motion),
         ],
         changed: [
           choice != 0,
@@ -243,6 +250,7 @@ impl LineChartPage {
           !grid,
           value_axis,
           !legend,
+          !motion,
           !self.hidden.get().is_empty(),
         ]
         .into_iter()
@@ -277,6 +285,7 @@ impl Component for LineChartPage {
       grid: ctx.signal(true),
       value_axis: ctx.signal(false),
       legend: ctx.signal(true),
+      motion: ctx.signal(true),
       hidden: ctx.signal(Vec::new()),
       selected: ctx.signal(None),
     }
@@ -366,6 +375,13 @@ impl Component for LineChartPage {
         "&str / bool",
         "\"No data\" / false",
         "No data, and the skeleton while it comes.",
+      ),
+      (
+        "motion",
+        "bool",
+        "true",
+        "The line drawn on from its start, and each value moving to a change of the data; off where motion is \
+         reduced, still while it is resized.",
       ),
       (
         "on_select",
