@@ -9,7 +9,7 @@ The runtime theme is a set of semantic roles. Palette colors, typography styles,
 
 Use concrete colors and dimensions for one-off visuals. Use theme roles when the value should follow the active runtime theme.
 
-The theme an app has when it sets none is the design system's (`pencil/lurq-design-system.pen`): a neutral palette in a light and a dark set, taken with the system's appearance, and the design's scales. An app written for lurq 0.61 that wants the look it had applies [the legacy theme](#themes-as-one-value); the [migration guide](../migration-v0-62/) has the rest.
+The theme an app has when it sets none is the design system's (`pencil/lurq-design-system.pen`): a neutral palette in a light and a dark set, taken with the system's appearance, and the design's scales. An app written for lurq 0.61 that wants the look it had applies [the legacy theme](#themes-as-one-value); the [migration guide](../migration-v0-63/) has the rest.
 
 ```rust
 use lurq::{
@@ -227,7 +227,7 @@ when the theme is, under text that takes the dark `Foreground`.
 ### Deprecated Roles
 
 The roles of lurq 0.61 are deprecated, each in favor of one of the design's. They still compile, with a warning that
-names the replacement; the [migration guide](../migration-v0-62/) has what to change.
+names the replacement; the [migration guide](../migration-v0-63/#renamed-palette-roles) has what to change.
 
 | Deprecated | Use | In `ThemePalette::legacy()` |
 | --- | --- | --- |
