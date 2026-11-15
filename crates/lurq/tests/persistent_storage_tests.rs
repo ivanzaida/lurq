@@ -264,3 +264,53 @@ fn dock_state_roundtrips_through_storage() {
   assert_eq!(storage.value::<DockState>("dock"), Some(state));
   assert_eq!(storage.value::<DockState>("missing"), None);
 }
+
+#[test]
+fn a_data_grids_arrangement_sort_and_groups_open_roundtrip_through_storage() {
+  use lurq::{
+    persistent_storage::PersistentStorage,
+    ui::{ColumnLayout, ColumnPin, ColumnPlace, GroupKey, TableSort},
+  };
+
+  let place = |id: &str, hidden: bool, width: Option<f32>, fit: bool, pin: ColumnPin| ColumnPlace {
+    id: id.into(),
+    hidden,
+    width,
+    fit,
+    pin,
+  };
+  let layout = ColumnLayout {
+    columns: vec![
+      place("size", false, Some(150.5), false, ColumnPin::None),
+      place("na\"me", false, None, true, ColumnPin::Start),
+      place("status", true, None, false, ColumnPin::End),
+    ],
+  };
+  let sort = Some(TableSort::descending("size"));
+  let open = vec![
+    GroupKey::new(["Passing"]),
+    GroupKey::new(["Passing", r"Ada \ Lovelace"]),
+  ];
+
+  let storage = PersistentStorage::memory();
+  storage.set_value("columns", layout.clone()).unwrap();
+  storage.set_value("sort", sort.clone()).unwrap();
+  storage.set_value("unsorted", None::<TableSort>).unwrap();
+  storage.set_value("open", open.clone()).unwrap();
+
+  assert_eq!(storage.value::<ColumnLayout>("columns"), Some(layout.clone()));
+  assert_eq!(storage.value::<Option<TableSort>>("sort"), Some(sort));
+  assert_eq!(storage.value::<Option<TableSort>>("unsorted"), Some(None));
+  assert_eq!(storage.value::<Vec<GroupKey>>("open"), Some(open));
+  assert_eq!(layout.to_string().parse::<ColumnLayout>(), Ok(layout.clone()));
+
+  // Read back for the columns the app has now: one it dropped is left out, a new one takes its place.
+  let valid = layout.valid(["na\"me", "kind", "size"]);
+  let ids: Vec<&str> = valid.columns.iter().map(|place| &*place.id).collect();
+  assert_eq!(
+    ids,
+    ["size", "na\"me", "kind"],
+    "kind after the column before it among the app's"
+  );
+  assert_eq!(valid.place("size").and_then(|place| place.width), Some(150.5));
+}

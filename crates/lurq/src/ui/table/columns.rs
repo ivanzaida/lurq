@@ -46,24 +46,17 @@ impl ColumnLayout {
 
   /// Every column of `columns` in the layout's order, as the layout places it or as the app gave it.
   pub(super) fn full<R>(&self, columns: &[TableColumn<R>]) -> ColumnLayout {
-    let mut places: Vec<ColumnPlace> = self
-      .columns
-      .iter()
-      .filter(|place| columns.iter().any(|column| column.id == place.id))
-      .cloned()
-      .collect();
-    for column in columns {
-      if !places.iter().any(|place| place.id == column.id) {
-        places.push(ColumnPlace {
-          id: column.id.clone(),
-          hidden: false,
-          width: None,
-          fit: false,
-          pin: column.pin,
-        });
+    // Made valid for the columns the app has: one it no longer has out, a new one at its place after the one before
+    // it, pinned as the app pins it.
+    let mut full = self.clone().valid(columns.iter().map(|column| &*column.id));
+    for place in &mut full.columns {
+      if !self.columns.iter().any(|held| held.id == place.id)
+        && let Some(column) = columns.iter().find(|column| column.id == place.id)
+      {
+        place.pin = column.pin;
       }
     }
-    ColumnLayout { columns: places }
+    full
   }
 
   /// `columns` as the layout arranges them: in its order, the hidden ones out, each with its width and its pin;

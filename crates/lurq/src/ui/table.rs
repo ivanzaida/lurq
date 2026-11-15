@@ -31,6 +31,7 @@ mod columns;
 mod groups;
 mod range;
 mod summary;
+mod text;
 
 pub use columns::{ColumnLayout, ColumnMenuLabels, ColumnPlace};
 use columns::{ColumnMenuLink, DropSide, MenuChoice};
@@ -40,6 +41,7 @@ pub use range::{CellKey, CellRange};
 use range::{RangeMark, Span, span_of};
 use summary::{Said, Summary, SummaryKey, summarize, summary_content};
 pub use summary::{SummaryKind, SummaryLabels, TableSummary};
+pub use text::TableTextError;
 
 use crate::{
   app::{

@@ -18,7 +18,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{props_table, quiet},
+  kit::{mono, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -179,6 +179,8 @@ pub struct DataGridPage {
   menu_rows: Signal<Vec<File>>,
   menu_sort: Signal<Option<TableSort>>,
   layout: Signal<ColumnLayout>,
+  /// The arrangement of the menu's grid as stored: its text, with its sort's.
+  stored_layout: Signal<Option<(String, String)>>,
   group_rows: Signal<Vec<File>>,
   groups_open: Signal<Vec<GroupKey>>,
   summed_rows: Signal<Vec<File>>,
@@ -562,6 +564,7 @@ impl Component for DataGridPage {
       menu_rows: ctx.signal(files(8)),
       menu_sort: ctx.signal(None),
       layout: ctx.signal(ColumnLayout::default()),
+      stored_layout: ctx.signal(None),
       group_rows: ctx.signal(files(16)),
       groups_open: ctx.signal(vec![GroupKey::new(["Passing"])]),
       summed_rows: ctx.signal(files(16)),
@@ -708,31 +711,88 @@ impl Component for DataGridPage {
       .mount(ctx);
     let arrangement = self.layout.get();
     let reset_layout = self.layout.clone();
+    let saved = self.stored_layout.get();
+    let store = (self.layout.clone(), self.menu_sort.clone(), self.stored_layout.clone());
+    let restore = store.clone();
+    // The text forms, which change as the grid does: what Store keeps and Restore reads back.
+    let text = format!(
+      "{}\nsort: {}",
+      if arrangement.columns.is_empty() {
+        "(the columns as the app gives them)".to_owned()
+      } else {
+        arrangement.to_text()
+      },
+      self
+        .menu_sort
+        .get()
+        .map_or_else(|| "none".to_owned(), |sort| sort.to_text())
+    );
     let menu_grid = Column::new()
       .spacing(10.0)
       .width(crate::kit::FILL)
       .child(menu_grid)
+      .child(quiet(
+        &if arrangement.columns.is_empty() {
+          "Point at a header and press its ⋮, or press Alt+↓ on it. Drag a header to move its column, or press \
+           Ctrl+Shift+PageUp or PageDown on it."
+            .to_owned()
+        } else {
+          said_layout(&arrangement)
+        },
+        12.0,
+      ))
+      .child(
+        Column::new()
+          .width(crate::kit::FILL)
+          .padding(12.0)
+          .rounded(lurq::app::theme::RadiusSize::Md)
+          .background(lurq::app::theme::PaletteColor::Muted)
+          .child(mono(&text, 12.0).color(lurq::app::theme::PaletteColor::MutedForeground)),
+      )
       .child(
         Row::new()
-          .spacing(12.0)
+          .spacing(8.0)
           .align_items(Alignment::Center)
-          .child(quiet(
-            &if arrangement.columns.is_empty() {
-              "Point at a header and press its ⋮, or press Alt+↓ on it. Drag a header to move its column, or press \
-               Ctrl+Shift+PageUp or PageDown on it."
-                .to_owned()
-            } else {
-              said_layout(&arrangement)
-            },
-            12.0,
-          ))
+          .child(
+            Button::new("Store")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm)
+              .on_click(move |_| {
+                let sort = store.1.get().map(|sort| sort.to_text()).unwrap_or_default();
+                store.2.set(Some((store.0.get().to_text(), sort)));
+              }),
+          )
+          .child(
+            Button::new("Restore")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm)
+              .disabled(saved.is_none())
+              .on_click(move |_| {
+                if let Some((layout, sort)) = restore.2.get() {
+                  // Read back and made valid for the columns the grid has now.
+                  if let Some(layout) = ColumnLayout::parse(&layout) {
+                    let ids: Vec<Arc<str>> = columns(false).iter().map(|column| Arc::from(column.id())).collect();
+                    restore.0.set(layout.valid(ids.iter().map(|id| &**id)));
+                  }
+                  restore.1.set(TableSort::parse(&sort));
+                }
+              }),
+          )
           .child(
             Button::new("Reset columns")
-              .variant(ButtonVariant::Outline)
-              .size(ButtonSize::Xs)
+              .variant(ButtonVariant::Ghost)
+              .size(ButtonSize::Sm)
+              .icon(icons::REFRESH)
               .disabled(arrangement.columns.is_empty())
               .on_click(move |_| reset_layout.set(ColumnLayout::default())),
-          ),
+          )
+          .child(quiet(
+            &match &saved {
+              Some((layout, _)) => format!("stored: {} chars", layout.len()),
+              None => "nothing stored yet".to_owned(),
+            },
+            12.0,
+          )),
       );
 
     // Group rows: by the status, each group opened and closed, the rows of the closed ones not built.
@@ -1040,18 +1100,20 @@ impl Component for DataGridPage {
            on the header: it sorts the rows by the column, pins it at the start or the end, sizes it to its \
            content, hides it, and shows the columns hidden. A header dragged to another place moves its column, \
            as Ctrl+Shift+PageUp and PageDown on it do. How the columns are arranged is a value the app holds and \
-           stores.",
+           stores: its text form, under the grid, changes as the grid does; Store keeps it with the sort's, Restore \
+           reads them back with ColumnLayout::parse and TableSort::parse, made valid for the columns the grid has.",
           self.frame.demo(
             6,
             menu_grid,
             ".column_layout(layout)",
             &[
-              "// layout: Signal<ColumnLayout>, which the app may store and give back",
+              "// layout: Signal<ColumnLayout>, sort: Signal<Option<TableSort>>",
               "DataGrid::new(columns, files.get())",
-              "    .sort(sort)",
-              "    .column_layout(layout)",
-              "    .on_column_layout_change(|layout| store(layout))",
+              "    .sort(sort.clone())",
+              "    .column_layout(layout.clone())",
               "    .mount(ctx)",
+              "// Store: storage.set_value(\"columns\", layout.get()) and (\"sort\", sort.get())",
+              "// Restore: storage.value::<ColumnLayout>(\"columns\").map(|layout| layout.valid(ids))",
             ],
           ),
         ),
