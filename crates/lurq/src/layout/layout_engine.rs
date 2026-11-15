@@ -817,7 +817,7 @@ impl LayoutEngine {
 
     for (child_layout, child) in layout.children.iter().zip(node.children()) {
       // A subtree with no ref, no layer, no input and no select has nothing to index.
-      if !child.layout_cache.subtree.get().indexed() {
+      if !child.layout_cache.subtree().indexed() {
         continue;
       }
       if child.modal_declaration().is_some() {

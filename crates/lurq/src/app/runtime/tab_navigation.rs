@@ -137,7 +137,7 @@ pub(super) fn dropped_node_ids(root: &Node, layout: &LayoutResult) -> Vec<NodeId
     }
     for (child, child_layout) in node.children().iter().zip(&layout.children) {
       // Only a child its line may drop is ever dropped: a subtree with none has nothing to collect.
-      if child.layout_cache.subtree.get().droppable {
+      if child.layout_cache.subtree().droppable {
         collect(child, &child_layout.result, dropped);
       }
     }

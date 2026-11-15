@@ -33,14 +33,15 @@ pub struct LayoutCache {
   pub(crate) guards_generation: Cell<u64>,
   // A clear belongs to each node consuming the shared element handle.
   override_clear_generation: Cell<u64>,
-  pub(crate) subtree: Cell<LayoutSubtree>,
+  /// What is in the subtree that a frame's walks look for, packed: see [`Self::subtree`].
+  subtree: Cell<u16>,
   local_dirty: Cell<bool>,
   descendant_dirty: Cell<bool>,
   /// The tree this node's served cache entry was last prepared into, and what it was prepared from: boxed, as few
   /// nodes are served whole.
   prepared: Cell<Option<Box<PreparedServe>>>,
   /// The subtree as a transition engine last ticked it with nothing running in it: see
-  /// [`crate::animation::TransitionEngine`]. Boxed, and held only at the top of such a subtree.
+  /// [`crate::animation::TransitionEngine`]. Boxed, and held by each node of such a subtree.
   ticked: Cell<Option<Box<TickedClean>>>,
   /// Whether every descendant cache's front entry belongs to this cache's
   /// front entry, i.e. no older entry was served since the last store.
@@ -73,6 +74,49 @@ pub(crate) struct LayoutSubtree {
 }
 
 impl LayoutSubtree {
+  fn flags(&self) -> [bool; 12] {
+    [
+      self.text_input,
+      self.select,
+      self.timeline,
+      self.scroll,
+      self.canvas,
+      self.resource_images,
+      self.resource_svgs,
+      self.loading_images,
+      self.refs,
+      self.layers,
+      self.droppable,
+      self.animations,
+    ]
+  }
+
+  fn pack(&self) -> u16 {
+    self
+      .flags()
+      .iter()
+      .enumerate()
+      .fold(0, |bits, (at, on)| bits | (u16::from(*on) << at))
+  }
+
+  fn unpack(bits: u16) -> Self {
+    let on = |at: u16| bits & (1 << at) != 0;
+    Self {
+      text_input: on(0),
+      select: on(1),
+      timeline: on(2),
+      scroll: on(3),
+      canvas: on(4),
+      resource_images: on(5),
+      resource_svgs: on(6),
+      loading_images: on(7),
+      refs: on(8),
+      layers: on(9),
+      droppable: on(10),
+      animations: on(11),
+    }
+  }
+
   /// Whether a frame's index of the tree (its element refs, layers, inputs and open selects) has anything here.
   pub(crate) fn indexed(&self) -> bool {
     self.refs || self.layers || self.text_input || self.select
@@ -191,13 +235,22 @@ impl LayoutCache {
       inspected_generation: Cell::new(0),
       guards_generation: Cell::new(0),
       override_clear_generation: Cell::new(0),
-      subtree: Cell::new(LayoutSubtree::default()),
+      subtree: Cell::new(0),
       local_dirty: Cell::new(false),
       descendant_dirty: Cell::new(false),
       descendants_match_front: Cell::new(true),
       prepared: Cell::new(None),
       ticked: Cell::new(None),
     }
+  }
+
+  /// What is in the subtree that a frame's walks look for, as its tracking last found it.
+  pub(crate) fn subtree(&self) -> LayoutSubtree {
+    LayoutSubtree::unpack(self.subtree.get())
+  }
+
+  pub(crate) fn set_subtree(&self, subtree: LayoutSubtree) {
+    self.subtree.set(subtree.pack());
   }
 
   /// What a transition engine left of its last tick of this subtree, taken out.
@@ -908,5 +961,25 @@ mod tests {
       new.cached_entry().map(|(front, size)| (front.max_width, size.width)),
       Some((90.0, 90.0))
     );
+  }
+}
+
+#[cfg(test)]
+mod subtree_tests {
+  use super::*;
+
+  #[test]
+  fn every_flag_of_a_subtree_is_kept_as_it_was_set() {
+    let cache = LayoutCache::default();
+    for at in 0..12 {
+      let mut flags = [false; 12];
+      flags[at] = true;
+      let subtree = LayoutSubtree::unpack(1 << at);
+      assert_eq!(subtree.flags(), flags, "flag {at}");
+      cache.set_subtree(subtree);
+      assert_eq!(cache.subtree().flags(), flags, "flag {at} kept");
+    }
+    cache.set_subtree(LayoutSubtree::unpack(0xfff));
+    assert_eq!(cache.subtree().flags(), [true; 12]);
   }
 }

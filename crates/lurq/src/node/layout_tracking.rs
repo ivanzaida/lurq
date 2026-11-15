@@ -7,7 +7,7 @@ impl Node {
   pub(crate) fn prepare_layout_tracking(&self) -> LayoutSubtree {
     let cache = &self.layout_cache;
     if cache.tracking_generation.get() == cache.watch().generation() {
-      return cache.subtree.get();
+      return cache.subtree();
     }
     #[cfg(test)]
     crate::core::layout_dirty::visit();
@@ -95,7 +95,7 @@ impl Node {
     if attached {
       watch.mark_descendant();
     }
-    cache.subtree.set(subtree);
+    cache.set_subtree(subtree);
     cache.tracking_generation.set(watch.generation());
     subtree
   }
