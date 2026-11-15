@@ -7314,7 +7314,10 @@ impl Tree {
       .update(crate::app::profiler::UiUpdateKind::SubtreeRefresh);
     let (replacements, dirty_after_refresh) = match &mut self.root_ctx {
       Some(ctx) => {
-        let replacements = ctx.refresh_dirty_subtrees();
+        let replacements = {
+          crate::app::profile_support::frame_section!("refresh:components");
+          ctx.refresh_dirty_subtrees()
+        };
         let dirty_after_refresh = ctx.any_dirty();
         (replacements, dirty_after_refresh)
       }
@@ -7343,12 +7346,14 @@ impl Tree {
     }
 
     if let Some(root) = &mut self.root {
+      crate::app::profile_support::frame_section!("refresh:replace_slots");
       for (slot_id, replacement) in replacements {
         replace_live_component_slot_everywhere(root, slot_id, replacement, &self.id_gen);
       }
     }
 
     if let Some(root) = &mut self.root {
+      crate::app::profile_support::frame_section!("refresh:assign_ids");
       root.assign_tree_ids(&self.id_gen);
     }
     {
@@ -7358,7 +7363,10 @@ impl Tree {
     self.tree_rebuilt_since_layout = true;
     self.cached_render_list = None;
     self.needs_redraw = true;
-    self.reapply_interaction_state();
+    {
+      crate::app::profile_support::frame_section!("refresh:interaction");
+      self.reapply_interaction_state();
+    }
     {
       crate::app::profile_support::frame_section!("ul:focus_request");
       self.apply_focus_request();
