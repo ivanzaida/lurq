@@ -27,7 +27,9 @@ use lurq::{
   ui::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant},
 };
 
-use crate::kit::{FILL, code_block, icon, icon_tool, line, mono, overline, styled, text, tool};
+use crate::kit::{
+  FILL, call_line, code_block, icon, icon_tool, line, mono, overline, phone, stage_padding, styled, text, tool,
+};
 
 /// How wide the list of sections is.
 const ON_THIS_PAGE: f32 = 216.0;
@@ -117,6 +119,18 @@ impl Frame {
     self.room.get()
   }
 
+  /// How wide the stage of a demo card is: the card less its edges and the room around what it shows. Nothing
+  /// until the page was laid out once. What a stage shows that cannot be narrower than some width asks, and
+  /// scrolls sideways where there is less (`kit::fit`).
+  pub fn stage_room(&self) -> f32 {
+    let room = self.room.get();
+    if room <= 0.0 {
+      0.0
+    } else {
+      (room - 2.0 - 2.0 * stage_padding()).max(1.0)
+    }
+  }
+
   /// A demo card: what is shown, live, and under it the call that makes one of it. "Show code" opens the
   /// Rust that builds what the stage shows, and Copy puts it on the clipboard. `number` tells the cards of a
   /// page apart: each keeps whether its code is shown.
@@ -132,7 +146,7 @@ impl Frame {
       .background(PaletteColor::Card)
       .foreground(PaletteColor::CardForeground)
       .border(line())
-      .child(Column::new().width(FILL).padding(32.0).child(shown));
+      .child(Column::new().width(FILL).padding(stage_padding()).child(shown));
     if open {
       let lines: Vec<String> = code.iter().map(|line| (*line).to_owned()).collect();
       card = card.child(
@@ -154,13 +168,8 @@ impl Frame {
           .justify(Justify::SpaceBetween)
           .border_top(line())
           .spacing(12.0)
-          // In a narrow card the call is cut where the tools begin: they are not pushed out of it.
-          .child(
-            Row::new()
-              .flex(1.0)
-              .clip()
-              .child(mono(call, 12.0).nowrap().color(PaletteColor::MutedForeground)),
-          )
+          // In a narrow card the call ends in an ellipsis where the tools begin: they are not pushed out of it.
+          .child(call_line(call))
           .child(
             Row::new()
               .spacing(2.0)
@@ -179,9 +188,16 @@ impl Frame {
   /// The page: its header, its sections, and the list of them on the right
   /// where the window is wide enough for it.
   pub fn page(&self, ctx: &mut Ctx, header: Header, sections: Vec<Section>) -> Element {
-    // The design is drawn for a desktop: 48 beside the content. A narrower window gets 32.
+    // The design is drawn for a desktop: 48 beside the content. A narrower window gets 32, and one as narrow
+    // as a phone 16: what is left for the page there is what its cards need.
     let wide = ctx.breakpoint() >= Some(Breakpoint::Lg);
-    let beside = if wide { 48.0 } else { 32.0 };
+    let beside = if wide {
+      48.0
+    } else if phone() {
+      16.0
+    } else {
+      32.0
+    };
     let with_list = wide && sections.len() > 1;
 
     let mut anchors = self.anchors.lock().unwrap();
@@ -416,13 +432,19 @@ fn page_header(header: Header, wide: bool) -> Column {
       .into()
   };
 
-  let mut facts = Row::new().spacing(10.0).align_items(Alignment::Center);
+  // The facts go on to a second line where the page is narrower than they are, and a `use` longer than the
+  // page breaks between its names: a column gives it the page's width to wrap in.
+  let mut facts = Row::new()
+    .width(FILL)
+    .spacing(10.0)
+    .wrap()
+    .align_items(Alignment::Center);
   if let Some(import) = header.import {
     facts = facts.child(
-      Row::new()
+      Column::new()
+        .max_width(FILL)
         .padding_horizontal(5.0)
         .padding_vertical(1.0)
-        .align_items(Alignment::Center)
         .rounded(RadiusSize::Sm)
         .background(PaletteColor::Card)
         .border(Border::inside(1.0, PaletteColor::Border))
