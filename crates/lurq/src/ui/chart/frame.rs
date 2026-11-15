@@ -451,9 +451,10 @@ impl ChartFrame {
       .paint(key, move |canvas: &CanvasHandle| {
         draw(canvas, &*plot, &look, active, grid)
       })
+      .part(&part)
+      // As large as the plot's box, whose height is the props' where they give one: over the part's.
       .width(Dimension::Pct(100.0))
       .height(Dimension::Pct(100.0))
-      .part(&part)
       .describe("a11y_role", "img")
       .describe("a11y_name", self.name());
     if let Some(id) = &self.props.id {

@@ -64,6 +64,8 @@ mod fieldset;
 mod file_upload;
 mod find_bar;
 mod floating_panel;
+#[cfg(feature = "canvas")]
+mod heatmap;
 mod highlight;
 mod hover_card;
 mod icon;
@@ -277,6 +279,8 @@ pub use floating_panel::{
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
+#[cfg(feature = "canvas")]
+pub use heatmap::{Heatmap, HeatmapPart};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};

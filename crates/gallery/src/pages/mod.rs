@@ -12,6 +12,7 @@ mod avatar;
 mod badge;
 mod bar_list;
 mod gauge;
+mod heatmap;
 mod meter;
 mod sparkline;
 mod stat_card;
@@ -972,6 +973,14 @@ pub const PAGES: &[Page] = &[
     about: "radar chart spider web star polar axes rings spokes polygon profile compare series values names value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint",
     group: Group::Charts,
     mount: |ctx| ctx.mount::<radar_chart::RadarChartPage>(()),
+  },
+  Page {
+    path: "/heatmap",
+    name: "Heatmap",
+    icon: Some("grid"),
+    about: "heatmap heat map grid cells calendar contributions commits activity scale steps less more range rows columns column_axis cell_size missing value tooltip value_text on_select empty_text loading size height canvas ChartSeries ChartPoint",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<heatmap::HeatmapPage>(()),
   },
   Page {
     path: "/data-grid",

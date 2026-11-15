@@ -4886,6 +4886,41 @@ RadarChart::new(
 - Parts: the chart's and `RadarChartPart::Ring` (the rings and the spokes), `Area` (a series' opacity), `ActiveArea` (the opacity of the series under the pointer or the focus).
 - Where the board draws nothing: the axes' names (the board has none, and the square is in the middle of the frame so that they have room on both sides); the picked-out series and axis with the board's Chart Tooltip; the rings' numbers, off unless told; the ring of the focus around the plot.
 
+## Heatmap
+
+A grid of cells, a row for each series and a column for each category, each colored by its value's step on a scale: commits per day, temperature by hour.
+
+```rust
+use lurq::ui::{ChartSeries, Heatmap};
+
+Heatmap::new(
+  weeks, // the columns' names
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(|day| ChartSeries::new(day, commits_on(day))),
+)
+.title("Commits")
+.description("Per day, last 18 weeks")
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `Heatmap::new(columns, rows)` | The columns' names, and the rows, each a series with a value for each column |
+| `steps(usize)` | How many steps the scale has, two at least: five unless told, the board's |
+| `range(least, most)` | The values the scale runs between: zero (or the least value, where one is under zero) to the most unless told |
+| `cell_size(f32)` | A cell's side: 14 unless told; smaller where the grid is wider than the frame |
+| `column_axis(bool)` | The columns' names under the grid, as many as have room; off unless told, as the board's |
+| `less_text`, `more_text` | The scale's words at its ends: "Less" and "More" unless told |
+| `missing_text` | What the tooltip and tooling say of a cell with no value: "No value" unless told |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `value_text`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `height` makes the cells as tall as the rows can be in it, `legend` is the scale |
+| `mount(ctx)` | The cell under the pointer or the focus ringed with its tooltip; the arrows from cell to cell, Left and Right along a row and Up and Down along a column; `on_select` told a press (`ChartPoint { series: row, index: column }`). Converted into an element it is the still chart |
+
+- The board's Heatmap (`rSu67`): the chart's frame at `Sm`; the rows' names mono 10 in `MutedForeground` at the plot's start, every other one where more than four rows are as close as the board's; cells of 14 with corners of 3, 4 apart; the scale under the grid at the frame's end, its words mono 11 in `MutedForeground` 6 from its steps of 12 with corners of 3 (`FGewe`).
+- The scale's steps are measured from the board: a value at or under the scale's least is in `Muted`; the others are `Chart1` at a quarter, a half, three quarters and the whole of its opacity (with five steps), drawn over the card. A value's step is as high as its share of the range, rounded up, so that any value over the least shows. A cell and the scale's step of its value are drawn in one color, so a cell is the scale's color at its value.
+- A cell with no value (not a number) is an edge of 1 in `Border`; the tooltip and tooling say `missing_text`. A grid wider than the frame has smaller cells, in the plot's height for cells of `cell_size`: give a grid of many columns a side that fits.
+- To tooling each cell is an item of the plot: `cell-<row>-<column>`, named by its row and its column, valued as `value_text` writes it. The scale is an `img` named from its two words.
+- Parts: the chart's and `HeatmapPart::Cell` (the lowest step, `Muted`), `Fill` (the highest, `Chart1`), `Missing`, `Ring` (round the cell under the pointer or the focus, 1.5 in `Foreground`), `Scale`, `Step`, `ScaleLabel`.
+- Where the board draws nothing: the tooltip of a cell, its key in the cell's color; the ring of the cell under the pointer or the focus; the columns' names, off unless told; a cell with no value. The board names Mon, Wed and Fri of its seven days; the heatmap names every other row from the first, so Sun as well.
+
 ## Data Grid
 
 A table whose cells are worked in: the focus is on a cell, the arrows move it from cell to cell, and a cell is edited in place with the system's own controls. A list of files whose names are edited, a sheet of orders whose states are chosen.
