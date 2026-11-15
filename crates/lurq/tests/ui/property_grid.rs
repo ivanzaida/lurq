@@ -1,7 +1,10 @@
 //! A property grid: the board's header, categories and rows, an editor of each kind, a changed value and its reset,
 //! the keys of a tree with editors in it, the divider, and its states.
 
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::{
@@ -716,4 +719,218 @@ fn a_grid_that_scrolls_keeps_a_lane_for_its_bar_and_one_that_does_not_keeps_its_
   // Its last row's reset ends at the row's padding, where a scrolling one keeps out of the lane.
   let (rx, _, rw, _) = stage.bounds("short-f2-reset");
   assert!(rx + rw <= sx + sw - 8.0 + 0.5);
+}
+
+/// Two categories of three rows: what is below the first moves as it opens and closes.
+fn two_categories(height: Option<f32>) -> PropertyGrid {
+  let values: Vec<Signal<f64>> = (0..6).map(|index| Signal::new(index as f64)).collect();
+  let category = |title: &str, from: usize| {
+    (from..from + 3).fold(PropertyCategory::new(title), |category, index| {
+      category.property(Property::number(&format!("n{index}"), values[index].clone()))
+    })
+  };
+  let grid = PropertyGrid::new()
+    .id("grid")
+    .category(category("First", 0))
+    .category(category("Second", 3));
+  match height {
+    Some(height) => grid.height(height),
+    None => grid,
+  }
+}
+
+/// Presses a key with no pass after it: what it starts is caught on its way. The clock is set to the present first:
+/// what the key starts runs from it, and not from the second the stage's last pass went on to.
+fn press_key(stage: &mut Stage, key: &str) {
+  stage.pass_after(Duration::ZERO);
+  stage.tree.key_down(key.to_owned(), key.to_owned(), false, false, false);
+  stage.tree.key_up(key.to_owned(), key.to_owned(), false, false, false);
+}
+
+fn top(stage: &mut Stage, id: &str) -> f32 {
+  stage.bounds(id).1
+}
+
+/// The motion of a category in a grid of either form: it closes and opens with its height, what is below moving
+/// through every place between, and turns round when it is pressed again on the way.
+fn a_category_opens_and_closes_with_its_height(height: Option<f32>) {
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 500.0)
+      .child(two_categories(height).mount(ctx))
+      .into()
+  });
+  let opened = top(&mut stage, "grid-Second");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-First"));
+
+  // Left closes it: at the start what is below has not moved, on the way it is between, at the end it is up.
+  press_key(&mut stage, "ArrowLeft");
+  stage.pass_after(Duration::ZERO);
+  let start = top(&mut stage, "grid-Second");
+  assert!(
+    (start - opened).abs() < 1.0,
+    "nothing jumps at the start: {opened} -> {start}"
+  );
+  stage.pass_after(Duration::from_millis(60));
+  let on_the_way = top(&mut stage, "grid-Second");
+  stage
+    .tree
+    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.pass();
+  let closed = top(&mut stage, "grid-Second");
+  assert!(closed < opened - 90.0, "three rows of 32 less: {opened} -> {closed}");
+  assert!(
+    on_the_way < opened - 0.5 && on_the_way > closed + 0.5,
+    "on the way: {closed} < {on_the_way} < {opened}"
+  );
+  assert!(!stage.paints("n0"), "closed, its rows are gone");
+  // Its rows are not reached once it has closed: Down goes on to the next category.
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-Second"));
+  stage.key("ArrowUp");
+
+  // Right opens it, and Left on the way turns it round from where it is. Rows built for it are given their height
+  // on the turn of the loop after the one that laid them out at none: the timers of that turn are ticked.
+  press_key(&mut stage, "ArrowRight");
+  stage.pass_after(Duration::ZERO);
+  stage
+    .tree
+    .tick_timers_at(lurq::time::Instant::now() + Duration::from_millis(1));
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let opening = top(&mut stage, "grid-Second");
+  assert!(
+    opening > closed + 0.5 && opening < opened - 0.5,
+    "opening: {closed} < {opening} < {opened}"
+  );
+  press_key(&mut stage, "ArrowLeft");
+  stage.pass_after(Duration::from_millis(60));
+  let turned = top(&mut stage, "grid-Second");
+  assert!(
+    turned <= opening + 0.5,
+    "turned round, it goes back up from where it was: {opening} -> {turned}"
+  );
+  stage
+    .tree
+    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.pass();
+  assert!((top(&mut stage, "grid-Second") - closed).abs() < 1.0, "closed again");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("grid-First"),
+    "the focus stayed on the category through it all"
+  );
+
+  // Opened to the end, its rows are there and reached again.
+  stage.key("ArrowRight");
+  stage
+    .tree
+    .tick_timers_at(lurq::time::Instant::now() + Duration::from_millis(1));
+  stage.pass();
+  stage
+    .tree
+    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.pass();
+  assert!((top(&mut stage, "grid-Second") - opened).abs() < 1.0, "open again");
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("grid-n0"));
+}
+
+#[test]
+fn a_category_of_the_grid_that_builds_every_row_opens_and_closes_with_its_height() {
+  a_category_opens_and_closes_with_its_height(None);
+}
+
+#[test]
+fn a_category_of_the_grid_that_builds_the_rows_in_view_opens_and_closes_with_its_height() {
+  a_category_opens_and_closes_with_its_height(Some(400.0));
+}
+
+#[test]
+fn with_motion_reduced_a_category_opens_and_closes_at_once_in_either_form() {
+  for height in [None, Some(400.0)] {
+    let app = App::new();
+    app.theme().set_reduced_motion(Some(true));
+    let mut stage = Stage::in_app(app, move |ctx| {
+      Column::new()
+        .size(400.0, 500.0)
+        .child(two_categories(height).mount(ctx))
+        .into()
+    });
+    let opened = top(&mut stage, "grid-Second");
+    stage.key("Tab");
+    press_key(&mut stage, "ArrowLeft");
+    stage.pass_after(Duration::ZERO);
+    stage.pass_after(Duration::from_millis(10));
+    let closed = top(&mut stage, "grid-Second");
+    assert!(closed < opened - 90.0, "{height:?}: at once, {opened} -> {closed}");
+    assert!(!stage.paints("n0"), "{height:?}: its rows gone at once");
+  }
+}
+
+#[test]
+fn the_chevron_turns_as_the_category_closes() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(400.0, 500.0)
+      .child(two_categories(None).mount(ctx))
+      .into()
+  });
+  let chevron = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .find(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == "\u{E019}"))
+      .map(|quad| format!("{:?}", quad.transform))
+  };
+  let open = chevron(&stage);
+  stage.key("Tab");
+  press_key(&mut stage, "ArrowLeft");
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let turning = chevron(&stage);
+  stage.pass();
+  let closed = chevron(&stage);
+  assert_ne!(open, closed, "turned to the end");
+  assert_ne!(turning, open);
+  assert_ne!(turning, closed, "on its way round");
+}
+
+#[test]
+fn as_a_long_category_opens_in_view_what_is_below_it_stays_painted_in_every_frame() {
+  let values: Vec<Signal<f64>> = (0..200).map(|index| Signal::new(index as f64)).collect();
+  let scene = values.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let mut grid = PropertyGrid::new().id("grid").height(400.0);
+    for category in 0..8 {
+      let mut group = PropertyCategory::new(&format!("Group {category}")).default_open(category == 0);
+      for index in 0..25 {
+        let at = category * 25 + index;
+        group = group.property(Property::number(&format!("p{at}"), scene[at].clone()));
+      }
+      grid = grid.category(group);
+    }
+    Column::new().size(400.0, 500.0).child(grid.mount(ctx)).into()
+  });
+  stage.key("Tab");
+  stage.key("ArrowLeft");
+  stage
+    .tree
+    .tick_timers_at(lurq::time::Instant::now() + Duration::from_secs(2));
+  stage.pass();
+  assert!(stage.paints("Group 1") && !stage.paints("p0"), "closed");
+  press_key(&mut stage, "ArrowRight");
+  stage.pass_after(Duration::ZERO);
+  assert!(stage.paints("Group 1"), "the frame that builds its rows at no height");
+  stage
+    .tree
+    .tick_timers_at(lurq::time::Instant::now() + Duration::from_millis(1));
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    stage.paints("Group 1"),
+    "the frame that gives them their height to run to"
+  );
+  stage.pass_after(Duration::from_millis(30));
+  assert!(stage.paints("p0"), "on the way, its first row shows");
 }
