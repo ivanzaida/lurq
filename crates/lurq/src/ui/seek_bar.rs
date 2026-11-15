@@ -77,6 +77,10 @@ pub enum SeekBarState {
   Buffered,
   /// The app gives a picture of the moment under the pointer.
   Preview,
+  /// Nothing is loaded: the track alone, with no thumb, and it takes no input.
+  Empty,
+  /// A live stream with nothing to go back in: full, the thumb at the end, and it takes no input.
+  Live,
 }
 
 names!(SeekBarState {
@@ -85,6 +89,8 @@ names!(SeekBarState {
   Chapters => "chapters",
   Buffered => "buffered",
   Preview => "preview",
+  Empty => "empty",
+  Live => "live",
 });
 
 /// The sizes of a seek bar: the one of a desktop's player, and the one a finger drags on a phone.
@@ -130,8 +136,12 @@ pub type SeekPreview = Arc<dyn Fn(f64) -> Element + Send + Sync>;
 /// second.
 ///
 /// Mounted ([`SeekBar::mount`]) it shows the time under the pointer in a chip over the bar, and the app's
-/// [`preview`](SeekBar::preview) of that moment over the chip. Converted into an element on its own it is the
-/// still form: it shows neither, and [`SeekBar::on_hover`] still hears the time under the pointer.
+/// [`preview`](SeekBar::preview) of that moment over the chip, and tells [`SeekBar::on_hover`] the time under the
+/// pointer. Converted into an element on its own it is the still form: it is dragged, pressed and moved by the keys,
+/// and reads nothing of the pointer that does not press it.
+///
+/// [`SeekBar::empty`] is a bar with nothing loaded (no thumb, no input); [`SeekBar::live`] a live stream with
+/// nothing to go back in (the bar full, the thumb at its end, no input).
 #[derive(Clone)]
 pub struct SeekBar {
   position: Signal<f32>,
@@ -141,6 +151,8 @@ pub struct SeekBar {
   chapters: Vec<f64>,
   step: f64,
   on_media: bool,
+  empty: bool,
+  live: bool,
   size: Name,
   label: Arc<str>,
   disabled: bool,
@@ -170,6 +182,8 @@ impl SeekBar {
       chapters: Vec::new(),
       step: 5.0,
       on_media: false,
+      empty: false,
+      live: false,
       size: SeekBarSize::default().into(),
       label: Arc::from("Seek"),
       disabled: false,
@@ -222,6 +236,20 @@ impl SeekBar {
     self
   }
 
+  /// Whether nothing is loaded: the track alone, with nothing played or loaded and no thumb, and it takes no input.
+  /// A player draws it while it loads and after an error.
+  pub fn empty(mut self, empty: bool) -> Self {
+    self.empty = empty;
+    self
+  }
+
+  /// Whether what plays is a live stream with nothing to go back in: the bar is full with the thumb at its end, and
+  /// a press and the keys tell nothing. It is no stop of Tab.
+  pub fn live(mut self, live: bool) -> Self {
+    self.live = live;
+    self
+  }
+
   /// A [`SeekBarSize`], or a size the theme's recipe names: [`SeekBarSize::Lg`] on a phone.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = size.into();
@@ -253,8 +281,8 @@ impl SeekBar {
     self
   }
 
-  /// Called with the time under the pointer, in seconds, as the pointer moves over the bar, and with `None` when it
-  /// leaves. Each call adds a handler.
+  /// Called with the time under the pointer, in seconds, as the pointer moves over a mounted bar, and with `None`
+  /// when it leaves. Each call adds a handler.
   pub fn on_hover(mut self, handler: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
     self.on_hover.push(Arc::new(handler));
     self
@@ -329,10 +357,8 @@ impl SeekBar {
       .collect();
     chapters.sort_by(f64::total_cmp);
     chapters.dedup();
-    let buffered = self
-      .buffered
-      .filter(|_| !self.disabled)
-      .map(|to| to.clamp(0.0, duration));
+    let still = self.disabled || self.empty || self.live;
+    let buffered = self.buffered.filter(|_| !still).map(|to| to.clamp(0.0, duration));
     let case = Case {
       variant: None,
       size: Some(self.size.clone()),
@@ -344,6 +370,8 @@ impl SeekBar {
     .state(SeekBarState::OnMedia, self.on_media)
     .state(SeekBarState::Chapters, !chapters.is_empty())
     .state(SeekBarState::Buffered, buffered.is_some())
+    .state(SeekBarState::Empty, self.empty)
+    .state(SeekBarState::Live, self.live && !self.empty)
     .state(SeekBarState::Preview, self.preview.is_some());
     // What reads the position is rendered again when it changes.
     let position = match self.controlled {
@@ -356,16 +384,18 @@ impl SeekBar {
       0.0
     };
     // Only a mounted bar shows the chip: it is placed by the width the bar was laid out at, which it keeps.
-    let hovered = match (&self.hover, self.disabled) {
+    let hovered = match (&self.hover, still) {
       (Some(hover), false) => hover
         .time
         .get()
         .or((self.forced == Some(Interaction::Hovered)).then_some(position)),
       _ => None,
     };
+    // The still form holds no element ref: one made anew each render makes the bar a new element to the runtime
+    // each time, and it loses the focus and the drag at the first change it makes.
     let (hover, anchor, room) = match self.hover {
-      Some(Hover { time, anchor, width }) => (Some(time), anchor, width.get()),
-      None => (None, ElementRef::new(), 0.0),
+      Some(Hover { time, anchor, width }) => (Some(time), Some(anchor), width.get()),
+      None => (None, None, 0.0),
     };
     let view = SeekBarView {
       position,
@@ -376,6 +406,8 @@ impl SeekBar {
       label: self.label,
       disabled: self.disabled,
       on_media: self.on_media,
+      empty: self.empty,
+      live: self.live && !self.empty,
       size: self.size,
       hovered,
       room,
@@ -529,9 +561,20 @@ pub(super) fn seek_control(
   };
   {
     let (tell, shown, held) = (tell.clone(), shown.clone(), bound.is_none());
+    // Held by the app, it goes back to what the app holds until the app answers, so the engine's slider sees the
+    // place the pointer is let go at as a change again: what was just told is not told twice.
+    let last = Mutex::new(None::<f64>);
     slider = slider.on_change(move |low, _| {
-      tell(told(low));
-      // Held by the app, it goes back to what the app holds until the app answers.
+      let to = told(low);
+      if held {
+        let mut last = last.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *last == Some(to) {
+          shown.set(now as f32);
+          return;
+        }
+        *last = Some(to);
+      }
+      tell(to);
       if held {
         shown.set(now as f32);
       }
@@ -585,6 +628,10 @@ pub struct SeekBarView {
   pub label: Arc<str>,
   pub disabled: bool,
   pub on_media: bool,
+  /// Nothing is loaded: no thumb, nothing played, no input.
+  pub empty: bool,
+  /// A live stream with nothing to go back in: full, the thumb at the end, no input.
+  pub live: bool,
   pub size: Name,
   /// The time the chip shows: under the pointer of a mounted bar, or the position where it is drawn hovered.
   pub hovered: Option<f64>,
@@ -598,7 +645,8 @@ pub struct SeekBarView {
   on_hover: Vec<Arc<dyn Fn(Option<f64>) + Send + Sync>>,
   hover: Option<Signal<Option<f64>>>,
   preview: Option<SeekPreview>,
-  anchor: ElementRef,
+  /// What the chip hangs from and the pointer is read against: a mounted bar's.
+  anchor: Option<ElementRef>,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -620,6 +668,22 @@ impl SeekBarView {
       (seconds / self.duration).clamp(0.0, 1.0)
     } else {
       0.0
+    }
+  }
+
+  /// Whether a person can move it: it is not disabled, empty or live.
+  pub fn operated(&self) -> bool {
+    !self.disabled && !self.empty && !self.live
+  }
+
+  /// How far along the whole what is played is, from 0 to 1: all of it live, nothing of it empty.
+  pub fn played(&self) -> f64 {
+    if self.empty {
+      0.0
+    } else if self.live {
+      1.0
+    } else {
+      self.fraction(self.position)
     }
   }
 
@@ -646,7 +710,7 @@ impl SeekBarView {
   /// the thumb's middle.
   pub fn track(&self) -> Row {
     let half = self.thumb_width() / 2.0;
-    let (played, buffered) = (self.fraction(self.position), self.buffered.map(|to| self.fraction(to)));
+    let (played, buffered) = (self.played(), self.buffered.map(|to| self.fraction(to)));
     let piece = |part: SeekBarPart| Row::new().part(&self.part(part));
     let mut starts = vec![0.0];
     starts.extend(self.chapters.iter().map(|start| self.fraction(*start)));
@@ -708,14 +772,22 @@ impl SeekBarView {
   /// pointer to `on_hover` and to the chip. Its track and its fill are not drawn: [`SeekBarView::track`] draws
   /// them. Its thumb is not styled yet: [`SeekBarView::dressed`] gives it the recipe's.
   pub fn control(&self) -> components::Slider {
+    // Live, the thumb is at the end of a whole that may have no length: the engine's slider runs from 0 to 1.
+    let (now, max) = if self.live {
+      (1.0, 1.0)
+    } else if self.empty {
+      (0.0, self.duration)
+    } else {
+      (self.position, self.duration)
+    };
     let mut slider = seek_control(
-      self.position,
-      self.duration,
+      now,
+      max,
       self.step,
       self.bound.clone(),
       &self.on_change,
       &self.on_change_end,
-      self.disabled,
+      !self.operated(),
     )
     .part(&self.part(SeekBarPart::Control))
     .width(Dimension::Pct(100.0))
@@ -724,10 +796,14 @@ impl SeekBarView {
     .describe("a11y_name", self.label.clone())
     .describe(
       "a11y_value",
-      format!("{} of {}", self.time_text(self.position), self.time_text(self.duration)),
+      if self.live {
+        "live".to_owned()
+      } else {
+        format!("{} of {}", self.time_text(self.position), self.time_text(self.duration))
+      },
     );
-    if !self.disabled && (self.hover.is_some() || !self.on_hover.is_empty()) {
-      let (anchor, duration, half) = (self.anchor.clone(), self.duration, self.thumb_width() / 2.0);
+    if let (true, Some(anchor)) = (self.operated(), &self.anchor) {
+      let (anchor, duration, half) = (anchor.clone(), self.duration, self.thumb_width() / 2.0);
       let last = Arc::new(Mutex::new(self.hovered.filter(|_| self.hover.is_some())));
       let tell = {
         let (hover, handlers, last) = (self.hover.clone(), self.on_hover.clone(), last.clone());
@@ -791,7 +867,7 @@ impl SeekBarView {
   /// What stands over the pointer: the app's preview of the moment in its frame, and the time in the chip, above
   /// the bar and centred on where the time is along it. `None` while no time is under the pointer.
   pub fn hover_layer(&self) -> Option<Element> {
-    let time = self.hovered?;
+    let (time, anchor) = (self.hovered?, self.anchor.clone()?);
     let tip = self.part(SeekBarPart::Tip);
     let mut column = Column::new()
       .part(&self.part(SeekBarPart::Hover))
@@ -813,7 +889,7 @@ impl SeekBarView {
     let at = half + self.fraction(time) as f32 * (width - 2.0 * half).max(0.0);
     Some(
       Overlay::new(column)
-        .anchor(self.anchor.clone())
+        .anchor(anchor)
         .placement(Placement::Top)
         .offset(at - width / 2.0, 0.0)
         .collision(CollisionStrategy::Clamp)
@@ -828,15 +904,19 @@ impl SeekBarView {
     let mut root = Stack::new()
       .stack_align(StackAlignment::Center)
       .part(&self.part(SeekBarPart::Root))
-      .ref_element(self.anchor.clone())
       // The ring of the focus is around the thumb, past the bar's edge.
       .overflow_visible()
       .flex_shrink(1.0)
       .min_width(0.0)
-      .child(self.track())
+      .child(match self.hover_layer() {
+        // The layer is declared in the track, under the engine's slider: where it is declared it is a point of no
+        // size, at the middle of a stack, and the pointer on that point would be on it and not on the slider.
+        Some(layer) => self.track().child(layer),
+        None => self.track(),
+      })
       .child(self.dressed(self.control()));
-    if let Some(layer) = self.hover_layer() {
-      root = root.child(layer);
+    if let Some(anchor) = &self.anchor {
+      root = root.ref_element(anchor.clone());
     }
     if let Some(key) = &self.key {
       root = root.key(key.clone());
@@ -927,5 +1007,11 @@ impl Themed for SeekBar {
       )
       .state(SeekBarState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .state(SeekBarState::Disabled, Control, |s| s.cursor(CursorIcon::Default))
+      // Nothing loaded: the track alone, as the audio player draws it loading and after an error.
+      .state(SeekBarState::Empty, Thumb, |s| {
+        s.square(0.0).border(border::Border::inside(0.0, white()))
+      })
+      .state(SeekBarState::Empty, Control, |s| s.cursor(CursorIcon::Default))
+      .state(SeekBarState::Live, Control, |s| s.cursor(CursorIcon::Default))
   }
 }

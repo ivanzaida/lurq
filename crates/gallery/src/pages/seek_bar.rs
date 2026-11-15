@@ -121,6 +121,8 @@ pub struct SeekBarPage {
   on_media: Signal<bool>,
   preview: Signal<bool>,
   disabled: Signal<bool>,
+  empty: Signal<bool>,
+  live: Signal<bool>,
   /// The bar of the section "Playing", and whether it plays.
   song: Signal<f32>,
   song_playing: Signal<bool>,
@@ -139,6 +141,7 @@ impl SeekBarPage {
       self.preview.get(),
       self.disabled.get(),
     );
+    let (empty, live) = (self.empty.get(), self.live.get());
     let (position, playing) = (f64::from(self.position.get()), self.playing.get());
     let starts: Vec<f64> = CHAPTERS.iter().map(|share| (share * duration).round()).collect();
     let plain = {
@@ -149,7 +152,9 @@ impl SeekBarPage {
           .size(size)
           .label(&label)
           .on_media(on_media)
-          .disabled(disabled);
+          .disabled(disabled)
+          .empty(empty)
+          .live(live);
         if buffered {
           bar = bar.buffered((f64::from(bound.get_untracked()) + AHEAD).min(duration));
         }
@@ -198,6 +203,12 @@ impl SeekBarPage {
     if label != "Seek" {
       code.push(format!("    .label({label:?})"));
     }
+    if empty {
+      code.push("    .empty(true)".to_owned());
+    }
+    if live {
+      code.push("    .live(true)".to_owned());
+    }
     if disabled {
       code.push("    .disabled(true)".to_owned());
     }
@@ -221,7 +232,7 @@ impl SeekBarPage {
       ),
       format!("│  ├─ played    {played}%"),
     ];
-    if buffered && !disabled {
+    if buffered && !disabled && !empty && !live {
       tree.push(format!(
         "│  ├─ buffered  to {}",
         media_time_text((position + AHEAD).min(duration), false)
@@ -250,6 +261,8 @@ impl SeekBarPage {
         self.on_media.clone(),
         self.preview.clone(),
         self.disabled.clone(),
+        self.empty.clone(),
+        self.live.clone(),
       ],
     };
     let (set_duration, set_step, set_size, clamp) = (
@@ -314,6 +327,8 @@ impl SeekBarPage {
           flag("chapters", &self.chapters),
           flag("on_media", &self.on_media),
           flag("preview", &self.preview),
+          flag("empty", &self.empty),
+          flag("live", &self.live),
           flag("disabled", &self.disabled),
         ],
         changed: [
@@ -326,6 +341,8 @@ impl SeekBarPage {
           on_media,
           preview,
           disabled,
+          empty,
+          live,
         ]
         .into_iter()
         .filter(|changed| *changed)
@@ -344,7 +361,7 @@ struct Defaults {
   step: Signal<f64>,
   size: Signal<SeekBarSize>,
   label: Signal<String>,
-  flags: [Signal<bool>; 5],
+  flags: [Signal<bool>; 7],
 }
 
 impl Defaults {
@@ -414,6 +431,8 @@ impl Component for SeekBarPage {
       on_media: ctx.signal(false),
       preview: ctx.signal(false),
       disabled: ctx.signal(false),
+      empty: ctx.signal(false),
+      live: ctx.signal(false),
       song,
       song_playing,
       _clock: clock,
@@ -464,7 +483,9 @@ impl Component for SeekBarPage {
         still(100.0).force(Some(Interaction::FocusVisible)),
         "focus-visible · the ring on the thumb",
       ))
-      .child(item(still(100.0).disabled(true), "disabled · nothing loaded is drawn"));
+      .child(item(still(100.0).disabled(true), "disabled · nothing loaded is drawn"))
+      .child(item(still(100.0).empty(true), "empty · nothing loaded yet, no thumb, no input"))
+      .child(item(still(100.0).live(true), "live · full, the thumb at the end, no input"));
     let over = Column::new()
       .width(FILL)
       .spacing(28.0)
@@ -592,13 +613,25 @@ impl Component for SeekBarPage {
         "on_hover",
         "Fn(Option<f64>)",
         "",
-        "The time under the pointer as it moves over the bar, and None when it leaves. Each call adds.",
+        "The time under the pointer as it moves over a mounted bar, and None when it leaves. Each call adds.",
       ),
       (
         "label",
         "&str",
         "\"Seek\"",
         "What it is called, to tooling that reads the tree.",
+      ),
+      (
+        "empty",
+        "bool",
+        "false",
+        "Nothing is loaded: the track alone, no thumb; it takes no input. A player loading, or after an error.",
+      ),
+      (
+        "live",
+        "bool",
+        "false",
+        "A live stream with nothing to go back in: full, the thumb at its end; a press and the keys tell nothing.",
       ),
       (
         "disabled",
@@ -674,6 +707,11 @@ impl Component for SeekBarPage {
               "SeekBar::new(position.clone(), 250.0).force(Some(Interaction::FocusVisible))",
               "",
               "SeekBar::new(position.clone(), 250.0).disabled(true)",
+              "",
+              "// Loading, or after an error: nothing loaded.",
+              "SeekBar::new(position.clone(), 250.0).empty(true)",
+              "// A live stream with nothing to go back in.",
+              "SeekBar::new(position.clone(), 250.0).live(true)",
             ],
           ),
         ),

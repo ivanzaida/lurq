@@ -430,13 +430,15 @@ fn the_preview_is_a_frame_of_128_by_72_over_the_chip() {
 }
 
 #[test]
-fn the_still_form_tells_the_time_under_the_pointer_and_shows_no_chip() {
+fn the_still_form_is_moved_and_reads_nothing_of_a_pointer_that_does_not_press_it() {
   let heard = Heard::default();
   let told = heard.clone();
+  let position = Signal::new(20.0_f32);
+  let read = position.clone();
   let mut stage = Stage::new(move |_| {
     let told = told.clone();
     scene(
-      SeekBar::new(Signal::new(20.0), 250.0)
+      SeekBar::new(read.clone(), 250.0)
         .on_hover(move |time| told.tell(format!("{time:?}")))
         .id("bar"),
     )
@@ -444,8 +446,19 @@ fn the_still_form_tells_the_time_under_the_pointer_and_shows_no_chip() {
   let (x, y, ..) = stage.bounds("bar");
   stage.tree.mouse_move(x + 8.0 + 304.0 * 0.4, y + 8.0);
   stage.pass();
-  assert_eq!(heard.take(), ["Some(100.0)"]);
+  assert!(heard.take().is_empty(), "the time under the pointer is a mounted bar's");
   assert!(!stage.paints("1:40"));
+  // It is still dragged and moved by the keys.
+  stage.click("bar");
+  assert_eq!(position.get(), 125.0);
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  stage.key("ArrowRight");
+  assert_eq!(
+    position.get(),
+    135.0,
+    "the focus stays on it over the renders its changes make"
+  );
 }
 
 #[test]
@@ -550,8 +563,16 @@ fn a_theme_restyles_its_parts_and_gives_it_another_anatomy_that_still_seeks() {
     let time = view.time_text(view.position);
     Row::new()
       .width(Dimension::Pct(100.0))
-      .child(view.dressed(view.control()))
-      .child(view.part(SeekBarPart::Tip).text(&time))
+      .spacing(8.0)
+      .align_items(lurq::layout::Alignment::Center)
+      .child(
+        Row::new()
+          .flex(1.0)
+          .min_width(0.0)
+          .height(16.0)
+          .child(view.dressed(view.control())),
+      )
+      .child(view.part(SeekBarPart::Tip).text(&time).nowrap())
       .into()
   });
   app.theme().set_renderer::<SeekBar>(renderer);
@@ -571,4 +592,156 @@ fn a_theme_restyles_its_parts_and_gives_it_another_anatomy_that_still_seeks() {
   stage.key("ArrowRight");
   assert_eq!(position.get(), 105.0);
   assert!(stage.paints("1:45"));
+}
+
+#[test]
+fn it_grows_to_the_room_of_a_row_beside_what_is_in_it_and_fills_a_column() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(480.0, 320.0)
+      .padding(40.0)
+      .spacing(24.0)
+      .child(
+        Row::new()
+          .width(320.0)
+          .spacing(10.0)
+          .align_items(lurq::layout::Alignment::Center)
+          .child(Row::new().size(32.0, 32.0).id("before"))
+          .child(SeekBar::new(Signal::new(100.0), 250.0).id("in-row"))
+          .child(lurq::ui::MediaTime::new(100.0, Some(250.0)).id("after")),
+      )
+      .child(
+        Column::new()
+          .width(300.0)
+          .child(SeekBar::new(Signal::new(100.0), 250.0).id("in-column")),
+      )
+      .into()
+  });
+  let (row_x, _, row_width, _) = stage.bounds("in-row");
+  let (after_x, _, after_width, _) = stage.bounds("after");
+  assert!(near(row_x, 40.0 + 32.0 + 10.0), "after what stands before it");
+  assert!(
+    near(after_x, row_x + row_width + 10.0),
+    "the time keeps its place after it"
+  );
+  assert!(
+    near(after_x + after_width, 40.0 + 320.0),
+    "together they fill the row: {row_width}"
+  );
+  assert!(stage.text_quad("1:40").is_some(), "the time keeps its room");
+  assert_eq!(stage.bounds("in-column").2, 300.0);
+}
+
+#[test]
+fn empty_it_is_the_track_alone_and_takes_nothing() {
+  let (position, after) = (Signal::new(100.0_f32), Signal::new(0.0_f32));
+  let heard = Heard::default();
+  let (read, read_after, told) = (position.clone(), after.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .size(480.0, 320.0)
+      .padding(40.0)
+      .spacing(24.0)
+      .child(
+        Column::new().width(320.0).child(
+          SeekBar::new(read.clone(), 250.0)
+            .buffered(150.0)
+            .empty(true)
+            .on_change(move |to| told.tell(format!("change {to}")))
+            .id("empty"),
+        ),
+      )
+      .child(
+        Column::new()
+          .width(320.0)
+          .child(SeekBar::new(read_after.clone(), 250.0).id("after")),
+      )
+      .into()
+  });
+  assert_spans(
+    &track(&mut stage, "empty"),
+    &[(0.0, 320.0, light(PaletteColor::Secondary))],
+  );
+  let (x, y, width, height) = stage.bounds("empty");
+  let thumbs = stage.quads().into_iter().any(|quad| {
+    matches!(&quad.content, QuadContent::Rect { color, .. } if color.a() > 0)
+      && quad.height > 4.0
+      && quad.x >= x - 0.5
+      && quad.x + quad.width <= x + width + 0.5
+      && quad.y >= y - 0.5
+      && quad.y + quad.height <= y + height + 0.5
+  });
+  assert!(!thumbs, "no thumb");
+  stage.click("empty");
+  stage.key("Tab");
+  stage.key("ArrowRight");
+  assert_eq!(
+    (position.get(), after.get()),
+    (100.0, 5.0),
+    "not a stop of Tab: the next is"
+  );
+  assert!(heard.take().is_empty());
+  // It is not dimmed: nothing is loaded, it is not disabled.
+  let theme = stage.app.theme().clone();
+  let root = theme
+    .resolve::<SeekBar>(&Case::new().state(SeekBarState::Empty, true), None)
+    .part(SeekBarPart::Root)
+    .rest();
+  assert_eq!(root.opacity, None);
+}
+
+#[test]
+fn live_it_is_full_with_the_thumb_at_its_end_and_tells_nothing() {
+  let heard = Heard::default();
+  let (told, ended) = (heard.clone(), heard.clone());
+  let mut stage = Stage::new(move |_| {
+    let (told, ended) = (told.clone(), ended.clone());
+    Column::new()
+      .size(480.0, 320.0)
+      .padding(40.0)
+      .spacing(24.0)
+      .child(
+        Column::new().width(320.0).child(
+          SeekBar::controlled(0.0, 0.0, move |to| told.tell(format!("change {to}")))
+            .on_change_end(move |to| ended.tell(format!("end {to}")))
+            .on_media(true)
+            .live(true)
+            .id("live"),
+        ),
+      )
+      .child(
+        Column::new()
+          .width(320.0)
+          .child(SeekBar::new(Signal::new(100.0), 250.0).live(true).id("themed")),
+      )
+      .into()
+  });
+  assert_spans(&track(&mut stage, "live"), &[(0.0, 320.0, Color::from_hex("#FFFFFF"))]);
+  let (x, ..) = stage.bounds("live");
+  assert!(
+    near(thumb(&mut stage, "live", 12.0).x - x, 308.0),
+    "the thumb at the end"
+  );
+  assert_spans(
+    &track(&mut stage, "themed"),
+    &[(0.0, 320.0, light(PaletteColor::Primary))],
+  );
+  let (x, ..) = stage.bounds("themed");
+  assert!(near(thumb(&mut stage, "themed", 16.0).x - x, 304.0));
+
+  stage.click("live");
+  let (x, y, ..) = stage.bounds("live");
+  stage.tree.mouse_move(x + 20.0, y + 8.0);
+  stage.tree.mouse_down(x + 20.0, y + 8.0, MouseButton::Left);
+  stage.tree.mouse_move(x + 100.0, y + 8.0);
+  stage.tree.mouse_up(x + 100.0, y + 8.0, MouseButton::Left);
+  stage.pass();
+  stage.key("Tab");
+  stage.key("Home");
+  assert!(heard.take().is_empty(), "a press, a drag and the keys tell nothing");
+  assert!(
+    near(thumb(&mut stage, "live", 12.0).x - x, 308.0),
+    "and it stays at the end"
+  );
 }
