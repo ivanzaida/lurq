@@ -58,8 +58,20 @@ impl Stage {
     Self::in_app(App::new(), scene)
   }
 
-  pub fn in_app(mut app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
+  /// A window as [`Stage::new`] makes it, whose canvases are drawn on the CPU, so that a test reads their pixels.
+  #[cfg(feature = "canvas")]
+  #[allow(dead_code)]
+  pub fn software(scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
     let mut tree = Tree::new();
+    tree.set_software_canvases(true);
+    Self::with_tree(App::new(), tree, scene)
+  }
+
+  pub fn in_app(app: App, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
+    Self::with_tree(app, Tree::new(), scene)
+  }
+
+  fn with_tree(mut app: App, mut tree: Tree, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
     tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(400.0, 300.0))));
     tree.mount_root::<Page>(&mut app, Props { scene: Arc::new(scene) });
     let mut stage = Self {

@@ -4724,6 +4724,98 @@ BarChart::new(
 - Parts: the chart's (`ChartPart::Root`, `Header`, `Title`, `Description`, `Plot`, `Grid`, `Baseline`, `Cursor`, `Axis`, `AxisLabel`, `ValueLabel`, `Empty`) and `BarChartPart::Bar` (the bars that give way to the current one), `Band`. States: `ChartState::Header`, `Empty`, `Loading`, `BarChartState::Stacked`; sizes `ChartSize::Sm`, `Md`.
 - Where the board draws nothing: the tooltip of a bar is the board's Chart Tooltip over it; the band behind the category under the pointer; the ring of the focus around the plot; values under zero; the grid and the ticks' numbers, off unless told.
 
+## Line Chart
+
+A value for each category joined by a line, of one series or several: the frame time of each build on two backends.
+
+```rust
+use lurq::ui::{ChartSeries, LineChart, LineCurve};
+
+LineChart::new(
+  ["0.54", "0.55", "0.56", "0.57", "0.58", "0.59", "0.60"],
+  [
+    ChartSeries::new("wgpu", [10.4, 9.6, 9.9, 8.2, 8.6, 6.9, 6.3]),
+    ChartSeries::new("DirectX 12", [11.6, 11.2, 10.3, 10.6, 9.4, 9.4, 8.6]),
+  ],
+)
+.title("Frame time")
+.description("Milliseconds per frame, last 7 builds")
+.value_text(|ms| format!("{ms} ms"))
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `LineChart::new(categories, series)` | The names of the places along the plot, the first at its start and the last at its end, and the series, a value for each; a value that is not a finite number leaves a gap in its line |
+| `curve(LineCurve)` | `Straight`, as the board draws it, or `Smooth`: a monotone curve through every value that never goes past the values beside it |
+| `axis_labels(texts)` | The texts under the plot, spread from its start to its end, in place of the categories' names; of more than eight categories eight are written |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `grid`, `value_axis`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `size` is `Sm` and `grid` on unless told, as the board draws it |
+| `mount(ctx)` | The cursor, the marks and the tooltip of the place under the pointer or the focus, the arrows, `on_select` told a press. Converted into an element it is the still chart |
+
+- The board's Line Chart (`ufn5w`): the chart's frame at `Sm`, a plot of 140 with its lines across at the ticks, lines 2 wide with round joins and ends in the series' colors, the first drawn over the others, the names under the plot from its start to its end, and the legend in dots. At the place under the pointer: a line of 1 in `Input` across the plot (the frame's `ChartPart::Cursor`), a mark of 10 on each line in its color ringed 2 in `Card`, and the Chart Tooltip with every series' value there, 10 before the cursor and 4 from the plot's top (after it where there is no room before it).
+- The pointer finds its place at once whatever the number of values (they are evenly apart), and the series whose value there is nearest it. A line of ten thousand values is one path, with no mark of its own for each.
+- Left and Right go along the categories, Up and Down between the series, Home and End to the ends; the focused place shows what a hovered one shows.
+- To tooling each value is an item of the plot: `point-<series>-<index>`, named by its category (and its series where there are several), valued as `value_text` writes it.
+- Parts: the chart's, and `LineChartPart::Line` (its opacity), `Area`, `Point` (the color of a mark's ring). States: `LineChartState::Smooth`, `Stacked`.
+- Where the board draws nothing: a smooth curve, gaps, more series, values under zero (zero is a line across the plot), one value (a dot in the plot's middle).
+
+## Area Chart
+
+A line chart with the fill under each line: memory over a session, or a whole and its parts stacked.
+
+```rust
+use lurq::ui::{AreaChart, ChartSeries};
+
+AreaChart::new(
+  ["0", "5", "10", "15", "20", "25", "30", "35"],
+  [ChartSeries::new("Resident", [380.0, 520.0, 470.0, 720.0, 670.0, 920.0, 870.0, 1060.0])],
+)
+.title("Memory")
+.description("Megabytes resident during a session")
+.axis_labels(["0 min", "10", "20", "30", "40"])
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `AreaChart::new(categories, series)`, `curve`, `axis_labels` | As a [line chart](#line-chart)'s |
+| `stacked(bool)` | The areas one on another, the first at the bottom, each from the line of the one under it: overlaid unless told. A stacked series' missing value counts as none |
+| everything else | As every chart has it, with the line chart's cursor, tooltip and keys |
+
+- The board's Area Chart (`yTmhJ`): a line chart whose lines have the fill under them, down to zero, in the series' colors at 0.16 (`LineChartPart::Area`), the line over it. Its parts and states are the line chart's.
+- Where the board draws nothing: stacked areas, several series, the tooltip and the keys (the line chart's).
+
+## Scatter Chart
+
+Points by an x and a y on two value axes: how the frame time of a scene grows with its nodes, and what stands apart from the trend.
+
+```rust
+use lurq::ui::{ChartSeries, ScatterChart};
+
+ScatterChart::new([
+  ChartSeries::points("Scenes", [(550.0, 3.3), (1600.0, 4.3), (3200.0, 8.4), (5000.0, 11.0), (7300.0, 15.5)]),
+  ChartSeries::points("Outlier", [(1850.0, 7.6), (6150.0, 14.2)]),
+])
+.title("Nodes vs frame time")
+.description("One dot per scene")
+.trend(true)
+.x_text(|nodes| format!("{}k", nodes / 1000.0))
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `ScatterChart::new(series)` | Series of points (`ChartSeries::points`), each an x and a y, in any order |
+| `trend(bool)` | The straight line that fits the first series shown best (by least squares), from its least x to its most, over the points |
+| `x_text(Fn(f64) -> String)` | How a number across is written, under the plot and as a tooltip's title: `value_text`'s unless told |
+| everything else | As every chart has it; `size` is `Sm`, `grid` on and `legend` off unless told, as the board draws it |
+
+- The board's Scatter Chart (`s9y62`): the chart's frame at `Sm`, a plot of 140 with its lines across at the ticks of the value up, the numbers of the value across under it from its start to its end (both scales start and end on round ticks), dots of 8 in the series' colors at 0.85, and the trend 1 wide in `MutedForeground` at 0.6 over them. The point under the pointer is a dot of 10 ringed 2 in `Card`.
+- The pointer finds the point nearest it in two dimensions, within 24. Left and Right go along a series in the order of its x, Up and Down between the series.
+- To tooling each point is an item of the plot: `point-<series>-<index>`, named by its series and its x, valued as `value_text` writes its y.
+- Parts: the chart's, and `ScatterChartPart::Point` (its opacity), `Ring`, `Trend`. States: `ScatterChartState::Trend`.
+- Where the board draws nothing: the tooltip (the board's Chart Tooltip over the point, its x as its title), the ring of the point under the pointer, a legend (off unless told), values under zero, several series.
+
 ## Data Grid
 
 A table whose cells are worked in: the focus is on a cell, the arrows move it from cell to cell, and a cell is edited in place with the system's own controls. A list of files whose names are edited, a sheet of orders whose states are chosen.

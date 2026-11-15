@@ -441,8 +441,12 @@ impl ChartFrame {
       if let Some(id) = &self.props.id {
         tooltip = tooltip.id(format!("{id}-tooltip"));
       }
+      // Beside the cursor at the point's x, at the plot's top: before it where a tooltip of the board's 140 fits.
+      let beside = self.plot.tip_place() == super::TipPlace::Beside;
       // Over the point, kept inside the plot at its ends.
-      let across = if x < 80.0 {
+      let across = if beside {
+        if x >= TIP_WIDTH + TIP_BESIDE { -1.0 } else { 0.0 }
+      } else if x < 80.0 {
         0.0
       } else if width > 0.0 && x > width - 80.0 {
         -1.0
@@ -452,10 +456,13 @@ impl ChartFrame {
       // Over the point where there is room for it in the plot, under it where there is not: about 30 for the
       // title and 18 a row.
       let tall = 30.0 + 18.0 * tip.rows.len() as f32;
-      let (top, up) = if y - 8.0 >= tall {
-        (y - 8.0, -1.0)
+      let (x, top, up) = if beside {
+        let x = if across < 0.0 { x - TIP_BESIDE } else { x + TIP_BESIDE };
+        (x, TIP_TOP, 0.0)
+      } else if y - 8.0 >= tall {
+        (x, y - 8.0, -1.0)
       } else {
-        (y + 8.0, 0.0)
+        (x, y + 8.0, 0.0)
       };
       stack = stack.child(at(
         x,
@@ -711,6 +718,10 @@ impl ChartFrame {
 
 /// The room between the ticks' numbers and the plot.
 const GUTTER_GAP: f32 = 8.0;
+/// The board's tooltip's width, and how far one beside the cursor is from it and from the plot's top.
+const TIP_WIDTH: f32 = 140.0;
+const TIP_BESIDE: f32 = 10.0;
+const TIP_TOP: f32 = 4.0;
 
 /// `child` at `(x, y)` of the plot, over the canvas and letting the pointer through to it: a line of the plot's
 /// size from that place, which the child stands in or out of.

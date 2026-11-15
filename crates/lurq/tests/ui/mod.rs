@@ -52,6 +52,8 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+#[cfg(feature = "canvas")]
+mod line_chart;
 mod list_item;
 mod listbox;
 mod menu;
@@ -72,6 +74,8 @@ mod progress_dialog;
 mod property_grid;
 mod radio;
 mod rating;
+#[cfg(feature = "canvas")]
+mod scatter_chart;
 mod scroll_area;
 mod select;
 mod separator;
