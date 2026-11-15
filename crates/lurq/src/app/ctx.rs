@@ -28,7 +28,7 @@ use super::{
 use crate::time::{SystemTime, UNIX_EPOCH};
 use crate::{
   core::{
-    ContextMap, ElementRef, ElementRefMut, ReactiveContext, Store,
+    ContextMap, ContextValue, ElementRef, ElementRefMut, ReactiveContext, Store,
     cell_ref::Ref,
     effect::Effect,
     memo::Memo,
@@ -836,11 +836,27 @@ pub(crate) enum BottomBarInset {
   Over(f32),
 }
 
+/// What DevTools shows of this context: its value as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for BottomBarInset {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 /// A component keeps its descendants clear of everything at the window's edges itself: for them
 /// [`Ctx::safe_area`] is nothing at every side. A sheet's content is such: the sheet stands clear of the status
 /// bar, and pads its content by the home indicator and the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SafeAreaTaken;
+
+/// What DevTools shows of this context: its value as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for SafeAreaTaken {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
 
 pub struct Ctx {
   dirty: Arc<AtomicBool>,
@@ -997,10 +1013,90 @@ pub enum ComponentContextKind {
 }
 
 #[cfg(feature = "devtools")]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ComponentContextDebug {
   pub kind: ComponentContextKind,
   pub type_name: Arc<str>,
+  /// Whether it is a reactive context (`create_context`, `consume_context`): one whose value is set, and
+  /// renders what reads it again.
+  pub reactive: bool,
+  /// What a provided context holds, and how that changed. A context that is read here has neither: they are
+  /// its provider's.
+  value: Arc<Mutex<Option<Vec<ComponentInfo>>>>,
+  history: Arc<Mutex<Vec<ComponentContextChangeDebug>>>,
+}
+
+/// One change of what a context holds, as its type wrote the value before and the value after.
+#[cfg(feature = "devtools")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComponentContextChangeDebug {
+  /// Which change this is among all the changes DevTools is told of, as a signal's is
+  /// ([`ComponentValueChangeDebug::sequence`]): the two count together.
+  pub sequence: u64,
+  pub timestamp: String,
+  pub from_value: Vec<ComponentInfo>,
+  pub to_value: Vec<ComponentInfo>,
+}
+
+#[cfg(feature = "devtools")]
+impl ComponentContextDebug {
+  /// What the context holds, as its type writes itself for DevTools: its fields, or one `value`. Empty for a
+  /// type that writes nothing of itself; `None` for a context that is read here and not provided.
+  pub fn value(&self) -> Option<Vec<ComponentInfo>> {
+    self.value.lock().clone()
+  }
+
+  /// The last 64 changes of what it holds, the oldest first.
+  pub fn history(&self) -> Vec<ComponentContextChangeDebug> {
+    self.history.lock().clone()
+  }
+}
+
+#[cfg(feature = "devtools")]
+impl PartialEq for ComponentContextDebug {
+  fn eq(&self, other: &Self) -> bool {
+    self.kind == other.kind
+      && self.type_name == other.type_name
+      && self.reactive == other.reactive
+      && self.value() == other.value()
+      && self.history() == other.history()
+  }
+}
+
+/// Takes the value a provided context holds now: where it is another than the one held before, the change is
+/// recorded.
+#[cfg(feature = "devtools")]
+fn record_context_value(
+  held: &Mutex<Option<Vec<ComponentInfo>>>,
+  history: &Mutex<Vec<ComponentContextChangeDebug>>,
+  next: Vec<ComponentInfo>,
+) {
+  let mut held = held.lock();
+  if held.as_ref() == Some(&next) {
+    return;
+  }
+  if let Some(previous) = held.as_ref() {
+    let mut history = history.lock();
+    history.push(ComponentContextChangeDebug {
+      sequence: NEXT_VALUE_CHANGE.fetch_add(1, Ordering::Relaxed),
+      timestamp: current_compact_timestamp(),
+      from_value: previous.clone(),
+      to_value: next.clone(),
+    });
+    if history.len() > 64 {
+      let overflow = history.len() - 64;
+      history.drain(0..overflow);
+    }
+  }
+  *held = Some(next);
+}
+
+/// What a value writes of itself for DevTools.
+#[cfg(feature = "devtools")]
+fn inspected<T: DevtoolsInspectable>(value: &T) -> Vec<ComponentInfo> {
+  let mut fields = Vec::new();
+  value.write_info(&mut fields);
+  fields
 }
 
 #[cfg(feature = "devtools")]
@@ -1952,9 +2048,9 @@ impl Ctx {
   /// render that provides a value it computes every time passes it with
   /// [`provide_if_changed`](Self::provide_if_changed) so an equal value
   /// renders nothing again.
-  pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+  pub fn provide<T: Clone + Send + Sync + ContextValue + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
     #[cfg(feature = "router")]
     if self.rendering
       && let Some(navigator) = (&value as &dyn std::any::Any).downcast_ref::<crate::router::Navigator>()
@@ -1970,9 +2066,9 @@ impl Ctx {
   /// is compared with the previous render's, also when this render was
   /// caused by a change of the inherited contexts; in `create` or a
   /// handler, with the one provided there.
-  pub fn provide_if_changed<T: Clone + PartialEq + Send + Sync + 'static>(&mut self, value: T) {
+  pub fn provide_if_changed<T: Clone + PartialEq + Send + Sync + ContextValue + 'static>(&mut self, value: T) {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Provided, std::any::type_name::<T>());
+    self.note_provided(std::any::type_name::<T>(), false, inspected(&value));
     let id = TypeId::of::<T>();
     if self.rendering {
       let unchanged = self
@@ -2026,18 +2122,21 @@ impl Ctx {
 
   pub fn use_context<T: Clone + Send + Sync + 'static>(&mut self) -> Option<T> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(ComponentContextKind::Consumed, std::any::type_name::<T>());
+    self.note_consumed(std::any::type_name::<T>(), false);
     self.note_context_read(TypeId::of::<T>());
     self.context_map.get::<T>()
   }
 
-  pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self, value: T) -> ReactiveContext<T> {
+  pub fn create_context<T: Clone + std::hash::Hash + Send + Sync + ContextValue + 'static>(
+    &mut self,
+    value: T,
+  ) -> ReactiveContext<T> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(
-      ComponentContextKind::Provided,
-      std::any::type_name::<ReactiveContext<T>>(),
-    );
+    let (held, history) = self.note_provided(std::any::type_name::<ReactiveContext<T>>(), true, inspected(&value));
     let ctx = ReactiveContext::new(value);
+    // Each value the context is set to from now on is the same record's next change.
+    #[cfg(feature = "devtools")]
+    ctx.inspect_with(move |value: &T| record_context_value(&held, &history, inspected(value)));
     self.store_context(ctx.clone());
     ctx.subscribe(self.dirty_notifier(
       #[cfg(feature = "perf_profile")]
@@ -2048,10 +2147,7 @@ impl Ctx {
 
   pub fn consume_context<T: Clone + std::hash::Hash + Send + Sync + 'static>(&mut self) -> Option<ReactiveContext<T>> {
     #[cfg(feature = "devtools")]
-    self.push_context_debug(
-      ComponentContextKind::Consumed,
-      std::any::type_name::<ReactiveContext<T>>(),
-    );
+    self.note_consumed(std::any::type_name::<ReactiveContext<T>>(), true);
     self.note_context_read(TypeId::of::<ReactiveContext<T>>());
     let ctx = self.context_map.get::<ReactiveContext<T>>()?;
     ctx.subscribe(self.dirty_notifier(
@@ -2144,18 +2240,53 @@ impl Ctx {
   }
 
   #[cfg(feature = "devtools")]
-  fn push_context_debug(&mut self, kind: ComponentContextKind, type_name: &'static str) {
-    if self
+  /// The record of a context of `kind` and `type_name` this component has, made where it has none.
+  fn context_debug(
+    &mut self,
+    kind: ComponentContextKind,
+    type_name: &'static str,
+    reactive: bool,
+  ) -> &ComponentContextDebug {
+    let at = self
       .contexts_debug
       .iter()
-      .any(|ctx| ctx.kind == kind && ctx.type_name.as_ref() == type_name)
-    {
-      return;
-    }
-    self.contexts_debug.push(ComponentContextDebug {
-      kind,
-      type_name: Arc::from(type_name),
+      .position(|ctx| ctx.kind == kind && ctx.type_name.as_ref() == type_name);
+    let at = at.unwrap_or_else(|| {
+      self.contexts_debug.push(ComponentContextDebug {
+        kind,
+        type_name: Arc::from(type_name),
+        reactive,
+        value: Arc::default(),
+        history: Arc::default(),
+      });
+      self.contexts_debug.len() - 1
     });
+    &self.contexts_debug[at]
+  }
+
+  /// Tells DevTools the component provides a context that holds `value` now, and gives back the record of
+  /// what it holds and of its changes: a reactive context goes on writing to it as it is set.
+  #[cfg(feature = "devtools")]
+  #[allow(clippy::type_complexity)]
+  fn note_provided(
+    &mut self,
+    type_name: &'static str,
+    reactive: bool,
+    value: Vec<ComponentInfo>,
+  ) -> (
+    Arc<Mutex<Option<Vec<ComponentInfo>>>>,
+    Arc<Mutex<Vec<ComponentContextChangeDebug>>>,
+  ) {
+    let debug = self.context_debug(ComponentContextKind::Provided, type_name, reactive);
+    let (held, history) = (debug.value.clone(), debug.history.clone());
+    record_context_value(&held, &history, value);
+    (held, history)
+  }
+
+  /// Tells DevTools the component reads a context.
+  #[cfg(feature = "devtools")]
+  fn note_consumed(&mut self, type_name: &'static str, reactive: bool) {
+    self.context_debug(ComponentContextKind::Consumed, type_name, reactive);
   }
 
   // --- Theme ---

@@ -30,7 +30,7 @@ The winit shell sees DevTools as a secondary window. It does not need inspector-
 
 ## What DevTools Shows
 
-DevTools is drawn in a theme of its own: the design system's, light or dark with the system. What the inspected app does to its theme (another palette, recipes of its own, another renderer for a component) does not reach the tool that inspects it. The Components, Signals and Storage tabs are built with the design system's components from their boards (`pencil/lurq-devtools.pen`); the Profiler tab is as it was before the design system, in the same window, until its board is built.
+DevTools is drawn in a theme of its own: the design system's, light or dark with the system. What the inspected app does to its theme (another palette, recipes of its own, another renderer for a component) does not reach the tool that inspects it. The Components, Signals, Storage and Context tabs are built with the design system's components from their boards (`pencil/lurq-devtools.pen`); the Profiler tab is as it was before the design system, in the same window, until its board is built.
 
 The DevTools window has these tabs:
 
@@ -40,6 +40,7 @@ The DevTools window has these tabs:
 | Profiler | A recording of every pass of the inspected windows between Start and Stop: a frame timeline with counter tracks (FPS, nodes, draw calls, memory, allocations) and input and UI-update markers, an opt-in filmstrip of frame screenshots, FPS, and each frame's phases, counters and full frame profile. |
 | Storage | With the `persistent_storage` feature: what the app keeps in its [persistent storage](../persistent-storage/), a row for each key with the type of its value, the value and its bytes. |
 | Signals | Every signal, memo and effect with its value, type, subscriber count and owner component, and for the one selected what owns it, what it notifies and its changes. |
+| Context | Every context a component provides, with what it holds, how many components read it and its provider, and for the one selected its provider, its consumers and its changes. |
 
 ## Components
 
@@ -149,6 +150,24 @@ let doubled = ctx.memo({
 
 The engine keeps, for each signal and memo: its id, its type, its value as it is written, the component that owns it, how many subscribers it has, and its last 64 changes, each with the moment it happened, the value before and the value after.
 
+## Inspectable Contexts
+
+With `devtools`, what a component provides must be inspectable too, plain (`ctx.provide`, `ctx.provide_if_changed`) or reactive (`ctx.create_context`):
+
+```rust
+#[derive(Clone, Hash, lurq::DevtoolsInspectable)]
+struct Locale {
+  locale: &'static str,
+  greeting: &'static str,
+}
+
+let locale = ctx.create_context(Locale { locale: "en-US", greeting: "Hello!" });
+```
+
+A type that has nothing worth reading in DevTools is given an empty `impl lurq::app::component::DevtoolsInspectable for T {}`: its context is listed, and what it holds shows as `<unknown>`. The engine's own contexts are so (`Navigator`), or show their value (`OutletDepth(0)`).
+
+The engine keeps, for each context a component provides: its type, what it holds as the type writes it, and its last 64 changes. A reactive context changes when it is set to another value; a plain one when the component provides another value than it did.
+
 ## Signals
 
 The tab lists every signal, memo and effect of the inspected window, the signals first, then the memos, then the effects, each in the order they were made. **Filter** shows the rows that have every word typed, in their number, value, type or owner; Ctrl+F (Cmd+F on macOS) goes to it. The count under the list says how many of each are shown.
@@ -160,6 +179,12 @@ The history is the engine's own record of the changes, not a reading taken by De
 - It is on when DevTools opens: every change the engine still has is shown.
 - Turned off, it leaves out what changes from then on. Turned on again, it shows what changes after that; what changed in between stays out.
 - **Clear** forgets what was shown and goes on as it was: recording, it shows what changes from now on.
+
+## Context
+
+The tab lists the contexts the components of the inspected window provide, in the order of its tree: a reactive one with a bolt, a plain one with the mark of sharing. Each row has what the context holds on one line, how many components read it, and the component that provides it. The same type provided by two components is two rows: a component reads the nearest one above it. **Filter** shows the rows that have every word typed, in their type, value or provider; Ctrl+F (Cmd+F on macOS) goes to it.
+
+Beside the list is the row selected in it: its type with its whole path, the component that provides it, what it holds, and how many consumers it notifies, over its **change history**. A change has the value before and the value after, each written out a line for each field. **Recording** and **Clear** do what they do in the Signals tab; each tab has its own.
 
 ## Storage
 
@@ -248,6 +273,8 @@ The overlay samples FPS once per second. Enable `perf_profile` to include frame 
 ## Common Issues
 
 If a prop type fails to compile only with `devtools`, derive or implement `DevtoolsInspectable`.
+
+If a context type fails to compile only with `devtools`, derive `DevtoolsInspectable` for it, or give it an empty `impl` to show it as unknown.
 
 If signal values show as unknown, check that the signal type implements `DevtoolsInspectable` and that the value is stored through `ctx.signal`, `ctx.store`, or `ctx.memo`.
 

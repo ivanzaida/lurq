@@ -224,7 +224,7 @@ const TURNS: usize = 40;
 
 /// A value the root provides anew on every render, as an app's clipboard or
 /// theme handle: the components that read it render again.
-#[derive(Clone)]
+#[derive(Clone, crate::DevtoolsInspectable)]
 struct Shared(u32);
 
 struct ChatApp;

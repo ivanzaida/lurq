@@ -8,39 +8,27 @@
 use std::sync::Arc;
 
 use super::{
-  kit::{self, FILL, KeyFocus, counted, line, mono, sans, short_tag, short_type_name},
+  changes::{self, GraphNode, ListState, Recording},
+  kit::{self, FILL, counted, line, mono, short_tag, short_type_name},
   snapshot::{DevToolsNode, DevToolsSnapshot},
 };
 use crate::{
   app::{
     ctx::{ComponentValueChangeDebug, Ctx},
-    theme::{BorderSize, PaletteColor, RadiusSize},
+    theme::PaletteColor,
   },
-  components::{Column, Row, Spacer},
+  components::{Column, Row},
   core::Signal,
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, border::Border},
-  ui::{
-    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, EmptyState, Icon, Recipe, SearchField,
-    SearchFieldSize, Splitter, SplitterPane, Table, TableColumn, TableCount, Toggle, TogglePart, ToggleSize,
-    ToggleState, icons,
-  },
+  layout::{Alignment, text_style::FontWeight},
+  node::Element,
+  ui::{Icon, Splitter, SplitterPane, Table, TableColumn, TableCount, icons},
 };
 
-/// The sizes the board gives the tab.
-const LIST_WIDTH: f32 = 540.0;
-const LIST_MIN_WIDTH: f32 = 360.0;
-const DETAIL_MIN_WIDTH: f32 = 480.0;
-const HEADER_HEIGHT: f32 = 48.0;
-const PADDING: f32 = kit::DETAIL_PADDING;
+/// The widths the board gives the list's columns.
 const ID_WIDTH: f32 = 60.0;
 const VALUE_WIDTH: f32 = 88.0;
 const TYPE_WIDTH: f32 = 152.0;
 const SUBS_WIDTH: f32 = 40.0;
-const TIME_WIDTH: f32 = 148.0;
-const ARROW_WIDTH: f32 = 48.0;
-const NODE_HEIGHT: f32 = 64.0;
-const RELATION_WIDTH: f32 = 103.0;
 
 /// What a row of the list is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, crate::DevtoolsInspectable)]
@@ -88,6 +76,30 @@ pub(crate) struct Reactive {
   owner: String,
   /// Its changes as the engine recorded them, the oldest first.
   changes: Vec<ComponentValueChangeDebug>,
+}
+
+impl Reactive {
+  /// What the filter looks in: its number, its value, its type and its owner.
+  fn said(&self) -> String {
+    format!(
+      "#{} {} {} {}",
+      self.key.id,
+      self.value.as_deref().unwrap_or(""),
+      self.type_name,
+      self.owner
+    )
+  }
+
+  /// Its changes that are shown, the newest first.
+  fn shown(&self, recording: &Recording) -> Vec<ComponentValueChangeDebug> {
+    self
+      .changes
+      .iter()
+      .rev()
+      .filter(|change| recording.shows(change.sequence))
+      .cloned()
+      .collect()
+  }
 }
 
 /// Everything reactive in the inspected window: the signals, then the memos, then the effects, each in the order
@@ -140,115 +152,33 @@ pub(crate) fn latest_change(all: &[Reactive]) -> u64 {
     .unwrap_or(0)
 }
 
-/// Whether a row is one the filter asks for: every word of it is in the row's number, value, type or owner.
-pub(crate) fn passes(reactive: &Reactive, filter: &str) -> bool {
-  let row = format!(
-    "#{} {} {} {}",
-    reactive.key.id,
-    reactive.value.as_deref().unwrap_or(""),
-    reactive.type_name,
-    reactive.owner
-  )
-  .to_lowercase();
-  filter.split_whitespace().all(|word| row.contains(&word.to_lowercase()))
-}
-
-/// Which of the engine's changes the tab shows: those of the stretches it was recording in, by the numbers the
-/// engine gives the changes. It records while its last stretch has no end.
-#[derive(Clone, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
-pub(crate) struct Recording {
-  stretches: Vec<Stretch>,
-}
-
-/// A stretch of recording: the changes after `after`, up to and with `until`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, crate::DevtoolsInspectable)]
-struct Stretch {
-  after: u64,
-  until: Option<u64>,
-}
-
-impl Default for Recording {
-  /// Recording from the start: every change the engine still has is shown.
-  fn default() -> Self {
-    Self {
-      stretches: vec![Stretch { after: 0, until: None }],
-    }
-  }
-}
-
-impl Recording {
-  pub(crate) fn on(&self) -> bool {
-    self.stretches.last().is_some_and(|stretch| stretch.until.is_none())
-  }
-
-  /// Stops recording at the change `latest`, or starts again after it: what changed in between is not shown.
-  pub(crate) fn toggle(&mut self, latest: u64) {
-    match self.stretches.last_mut() {
-      Some(stretch) if stretch.until.is_none() => stretch.until = Some(latest),
-      _ => self.stretches.push(Stretch {
-        after: latest,
-        until: None,
-      }),
-    }
-  }
-
-  /// Forgets what was shown: only what changes after `latest` is, and only while recording.
-  pub(crate) fn clear(&mut self, latest: u64) {
-    let until = (!self.on()).then_some(latest);
-    self.stretches = vec![Stretch { after: latest, until }];
-  }
-
-  pub(crate) fn shows(&self, change: &ComponentValueChangeDebug) -> bool {
-    self
-      .stretches
-      .iter()
-      .any(|stretch| change.sequence > stretch.after && stretch.until.is_none_or(|until| change.sequence <= until))
-  }
-
-  /// The changes of `reactive` that are shown, the newest first.
-  fn shown(&self, reactive: &Reactive) -> Vec<ComponentValueChangeDebug> {
-    reactive
-      .changes
-      .iter()
-      .rev()
-      .filter(|change| self.shows(change))
-      .cloned()
-      .collect()
-  }
-}
-
 /// What the tab keeps between renders.
 #[derive(Clone)]
 pub(crate) struct SignalsState {
-  recording: Signal<Recording>,
+  pub(crate) list: ListState,
   /// The row selected in the list: the first one until a person selects another.
   selected: Signal<Option<ReactiveKey>>,
-  filter: Signal<String>,
-  /// The filter's box and the key that goes to it.
-  pub(crate) filter_key: KeyFocus,
 }
 
 impl SignalsState {
   pub(crate) fn new(ctx: &mut Ctx) -> Self {
     Self {
-      recording: ctx.signal(Recording::default()),
+      list: ListState::new(ctx),
       selected: ctx.signal(None),
-      filter: ctx.signal(String::new()),
-      filter_key: KeyFocus::new(ctx),
     }
   }
 }
 
 /// The tab: the list and what is known of the row selected in it, with a divider between them that a person drags.
 pub(super) fn view(ctx: &mut Ctx, snapshot: &DevToolsSnapshot, state: &SignalsState) -> Element {
-  state.filter_key.answer(ctx);
+  state.list.filter_key.answer(ctx);
   let all = reactives(snapshot);
   let latest = latest_change(&all);
-  let recording = state.recording.get();
-  let filter = state.filter.get();
+  let recording = state.list.recording.get();
+  let filter = state.list.filter.get();
   let listed: Vec<Reactive> = all
     .iter()
-    .filter(|reactive| passes(reactive, &filter))
+    .filter(|reactive| changes::passes(&reactive.said(), &filter))
     .cloned()
     .collect();
   // The row a person selected, while the inspected window still has it; else the first of the list.
@@ -262,7 +192,7 @@ pub(super) fn view(ctx: &mut Ctx, snapshot: &DevToolsSnapshot, state: &SignalsSt
   let detail = detail(selected.as_ref(), &recording);
   let list = Column::new()
     .size(FILL, FILL)
-    .child(toolbar(state, &recording, latest))
+    .child(changes::toolbar(&state.list, latest, "signals"))
     .child(Column::new().width(FILL).flex(1.0).border_top(line()).child(list(
       ctx,
       listed,
@@ -274,59 +204,17 @@ pub(super) fn view(ctx: &mut Ctx, snapshot: &DevToolsSnapshot, state: &SignalsSt
     .id("devtools-signals")
     .pane(
       SplitterPane::new(list)
-        .length(LIST_WIDTH)
-        .min(LIST_MIN_WIDTH)
+        .length(changes::LIST_WIDTH)
+        .min(changes::LIST_MIN_WIDTH)
         .label("Signals"),
     )
-    .pane(SplitterPane::new(detail).min(DETAIL_MIN_WIDTH).label("Selected signal"))
+    .pane(
+      SplitterPane::new(detail)
+        .min(changes::DETAIL_MIN_WIDTH)
+        .label("Selected signal"),
+    )
     .mount(ctx);
   Row::new().size(FILL, FILL).flex(1.0).child(panes).into()
-}
-
-fn toolbar(state: &SignalsState, recording: &Recording, latest: u64) -> Row {
-  let on = recording.on();
-  let (toggled, cleared) = (state.recording.clone(), state.recording.clone());
-  kit::toolbar()
-    .child(
-      Toggle::new(if on { "Recording..." } else { "Record" })
-        .icon(if on { icons::DOT_CIRCLE } else { icons::CIRCLE })
-        .size(ToggleSize::Xs)
-        .rules(&recording_toggle())
-        .on(on)
-        .on_change(move |_| toggled.update(|recording| recording.toggle(latest)))
-        .id("devtools-signals-record"),
-    )
-    .child(
-      Button::new("Clear")
-        .variant(ButtonVariant::Outline)
-        .size(ButtonSize::Xs)
-        .icon(icons::TRASH)
-        .on_click(move |_| cleared.update(|recording| recording.clear(latest)))
-        .id("devtools-signals-clear"),
-    )
-    .child(
-      Row::new().flex(1.0).child(
-        SearchField::new(state.filter.clone())
-          .placeholder("Filter signals...")
-          .label("Filter signals")
-          .shortcut(kit::FIND_KEY)
-          .ref_element(state.filter_key.field.clone())
-          .size(SearchFieldSize::Sm)
-          .input_rules(&kit::compact_input())
-          .full_width(true)
-          .id("devtools-signals-filter"),
-      ),
-    )
-}
-
-/// The board's Recording: the toolbar's toggle, in the destructive color on its muted fill while it records.
-fn recording_toggle() -> Recipe {
-  use PaletteColor::{Destructive, DestructiveMuted};
-  kit::outlined_toggle().state(ToggleState::On, TogglePart::Root, |s| {
-    s.background(DestructiveMuted)
-      .foreground(Destructive)
-      .border(Border::inside(0.0, DestructiveMuted))
-  })
 }
 
 fn list(
@@ -416,153 +304,59 @@ fn value(value: Option<&str>, size: f32) -> Element {
 /// its changes.
 fn detail(selected: Option<&Reactive>, recording: &Recording) -> Element {
   let Some(reactive) = selected else {
-    return Column::new()
-      .size(FILL, FILL)
-      .align_items(Alignment::Center)
-      .justify(Justify::Center)
-      .child(
-        EmptyState::new("Nothing selected")
-          .description("Select a signal, a memo or an effect to see what owns it and how it changed.")
-          .icon(icons::BOLT),
-      )
-      .into();
+    return changes::nothing_selected(
+      "Select a signal, a memo or an effect to see what owns it and how it changed.",
+      icons::BOLT,
+    );
   };
-  let changes = recording.shown(reactive);
-  let said = match changes.len() {
-    0 => "no changes".to_owned(),
-    1 => "last change".to_owned(),
-    count => format!("last {count} changes"),
-  };
+  let shown = reactive.shown(recording);
+  let (number, subscribers) = (format!("#{}", reactive.key.id), reactive.subscribers.to_string());
   Column::new()
     .size(FILL, FILL)
-    .child(
-      Row::new()
-        .width(FILL)
-        .height(HEADER_HEIGHT)
-        .padding_left(PADDING)
-        .padding_right(16.0)
-        .spacing(10.0)
-        .align_items(Alignment::Center)
-        .border_bottom(line())
-        .child(mono(&format!("#{}", reactive.key.id), 15.0, FontWeight::SemiBold))
-        .child(
-          Badge::new(reactive.key.kind.label())
-            .variant(BadgeVariant::Outline)
-            .size(BadgeSize::Sm),
-        )
-        .child(mono(&reactive.type_name, 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground)),
-    )
-    .child(graph(reactive))
-    .child(
-      Row::new()
-        .width(FILL)
-        .height(40.0)
-        .padding_horizontal(PADDING)
-        .spacing(8.0)
-        .align_items(Alignment::Center)
-        .border_bottom(line())
-        .child(sans("Change history", 13.0, FontWeight::Medium))
-        .child(Spacer::new().flex(1.0))
-        .child(sans(&said, 12.0, FontWeight::Normal).color(PaletteColor::MutedForeground)),
-    )
+    .child(changes::header(&number, reactive.key.kind.label(), &reactive.type_name))
+    .child(changes::graph(
+      GraphNode {
+        title: &reactive.owner,
+        code: true,
+        caption: "Component",
+        caption_code: false,
+        number: None,
+        selected: false,
+        share: 1.0,
+      },
+      "owns",
+      GraphNode {
+        title: &number,
+        code: true,
+        caption: &reactive.type_name,
+        caption_code: true,
+        number: reactive.value.as_deref(),
+        selected: true,
+        share: 1.0,
+      },
+      "notifies",
+      GraphNode {
+        title: "subscribers",
+        code: false,
+        caption: "tracked reads",
+        caption_code: false,
+        number: Some(&subscribers),
+        selected: false,
+        share: 1.0,
+      },
+    ))
+    .child(changes::history_title(shown.len()))
     .child(
       Column::new()
         .width(FILL)
         .flex(1.0)
-        .child(history(changes, reactive.key.kind, recording.on())),
+        .child(history(shown, reactive.key.kind, recording.on())),
     )
     .into()
 }
 
-/// The selected row between what owns it and what it notifies.
-fn graph(reactive: &Reactive) -> Column {
-  let node = |edge: PaletteColor, text: Column, number: Option<Element>| {
-    let mut node = Row::new()
-      .height(NODE_HEIGHT)
-      .flex(1.0)
-      .padding_horizontal(16.0)
-      .spacing(12.0)
-      .align_items(Alignment::Center)
-      .rounded(RadiusSize::Md)
-      .background(PaletteColor::Background)
-      .border(Border::inside(BorderSize::Sm, edge))
-      .child(text.flex(1.0).spacing(4.0));
-    if let Some(number) = number {
-      node = node.child(number);
-    }
-    node
-  };
-  let relation = |label: &str| {
-    Column::new()
-      .width(RELATION_WIDTH)
-      .spacing(4.0)
-      .padding_horizontal(8.0)
-      .padding_bottom(17.0)
-      .align_items(Alignment::Center)
-      .child(sans(label, 11.0, FontWeight::Normal).color(PaletteColor::MutedForeground))
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(12.0)
-          .align_items(Alignment::Center)
-          .child(Row::new().height(1.0).flex(1.0).background(PaletteColor::Input))
-          .child(
-            Icon::new(icons::CHEVRON_RIGHT)
-              .size(12.0)
-              .color(PaletteColor::MutedForeground),
-          ),
-      )
-  };
-  let quiet = |text: &str| sans(text, 11.0, FontWeight::Normal).color(PaletteColor::MutedForeground);
-  let number = |text: &str| -> Element { mono(text, 15.0, FontWeight::SemiBold).into() };
-  Column::new()
-    .width(FILL)
-    .padding_top(4.0)
-    .padding_horizontal(PADDING)
-    .padding_bottom(20.0)
-    .background(PaletteColor::Card)
-    .foreground(PaletteColor::CardForeground)
-    .border_bottom(line())
-    .child(
-      Row::new()
-        .height(36.0)
-        .padding_top(8.0)
-        .align_items(Alignment::Center)
-        .child(sans("DEPENDENCY GRAPH", 11.0, FontWeight::SemiBold).color(PaletteColor::MutedForeground)),
-    )
-    .child(
-      Row::new()
-        .width(FILL)
-        .align_items(Alignment::Center)
-        .child(node(
-          PaletteColor::Border,
-          Column::new()
-            .child(mono(&reactive.owner, 13.0, FontWeight::Medium))
-            .child(quiet("Component")),
-          None,
-        ))
-        .child(relation("owns"))
-        .child(node(
-          // The one the graph is of has the stronger edge.
-          PaletteColor::Input,
-          Column::new()
-            .child(mono(&format!("#{}", reactive.key.id), 13.0, FontWeight::Medium))
-            .child(mono(&reactive.type_name, 11.0, FontWeight::Normal).color(PaletteColor::MutedForeground)),
-          reactive.value.as_deref().map(number),
-        ))
-        .child(relation("notifies"))
-        .child(node(
-          PaletteColor::Border,
-          Column::new()
-            .child(sans("subscribers", 13.0, FontWeight::Medium))
-            .child(quiet("tracked reads")),
-          Some(number(&reactive.subscribers.to_string())),
-        )),
-    )
-}
-
 /// The changes shown, the newest first: when each happened, what the value was and what it became.
-fn history(changes: Vec<ComponentValueChangeDebug>, kind: ReactiveKind, recording: bool) -> Element {
+fn history(shown: Vec<ComponentValueChangeDebug>, kind: ReactiveKind, recording: bool) -> Element {
   let quiet = |text: &str| -> Element {
     mono(text, 13.0, FontWeight::Normal)
       .color(PaletteColor::MutedForeground)
@@ -570,17 +364,12 @@ fn history(changes: Vec<ComponentValueChangeDebug>, kind: ReactiveKind, recordin
   };
   let columns = vec![
     TableColumn::new("time", "Time")
-      .width(TIME_WIDTH)
+      .width(changes::TIME_WIDTH)
       .cell(move |change: &ComponentValueChangeDebug| quiet(&change.timestamp)),
     TableColumn::new("previous", "Previous").cell(move |change: &ComponentValueChangeDebug| quiet(&change.from_value)),
     TableColumn::new("arrow", "")
-      .width(ARROW_WIDTH)
-      .cell(|_: &ComponentValueChangeDebug| {
-        Icon::new(icons::ARROW_RIGHT)
-          .size(14.0)
-          .color(PaletteColor::MutedForeground)
-          .into()
-      }),
+      .width(changes::ARROW_WIDTH)
+      .cell(|_: &ComponentValueChangeDebug| changes::arrow().into()),
     TableColumn::new("new", "New").cell(|change: &ComponentValueChangeDebug| value(Some(&change.to_value), 13.0)),
   ];
   let empty = match (kind, recording) {
@@ -588,7 +377,7 @@ fn history(changes: Vec<ComponentValueChangeDebug>, kind: ReactiveKind, recordin
     (_, true) => "No changes yet",
     (_, false) => "No changes in what was recorded",
   };
-  kit::flat_table(Table::new(columns, changes).label("Change history").empty_text(empty)).into()
+  kit::flat_table(Table::new(columns, shown).label("Change history").empty_text(empty)).into()
 }
 
 #[cfg(test)]
@@ -617,10 +406,6 @@ mod tests {
       owner: "Counter".to_owned(),
       changes,
     }
-  }
-
-  fn sequences(recording: &Recording, reactive: &Reactive) -> Vec<u64> {
-    recording.shown(reactive).iter().map(|change| change.sequence).collect()
   }
 
   #[test]
@@ -663,60 +448,26 @@ mod tests {
   }
 
   #[test]
-  fn every_change_the_engine_has_is_shown_until_recording_is_stopped() {
-    let recording = Recording::default();
-    assert!(recording.on());
-    let row = signal(1, "3", vec![change(1), change(2), change(3)]);
-    assert_eq!(sequences(&recording, &row), [3, 2, 1], "the newest first");
-  }
-
-  #[test]
-  fn what_changes_while_recording_is_stopped_is_not_shown() {
+  fn the_changes_shown_are_those_of_the_recording_the_newest_first() {
+    let row = signal(1, "5", (1..=5).map(change).collect());
+    let sequences = |recording: &Recording| {
+      row
+        .shown(recording)
+        .iter()
+        .map(|change| change.sequence)
+        .collect::<Vec<_>>()
+    };
     let mut recording = Recording::default();
-    // Stopped after the second change, started again after the fourth.
+    assert_eq!(sequences(&recording), [5, 4, 3, 2, 1]);
     recording.toggle(2);
-    assert!(!recording.on());
-    let row = signal(1, "5", (1..=5).map(change).collect());
-    assert_eq!(sequences(&recording, &row), [2, 1]);
-
-    recording.toggle(4);
-    assert!(recording.on());
-    assert_eq!(
-      sequences(&recording, &row),
-      [5, 2, 1],
-      "the third and the fourth happened in between"
-    );
-  }
-
-  #[test]
-  fn clear_forgets_what_was_shown_and_goes_on_as_it_was() {
-    let row = signal(1, "5", (1..=5).map(change).collect());
-
-    let mut recording = Recording::default();
-    recording.clear(3);
-    assert!(recording.on());
-    assert_eq!(sequences(&recording, &row), [5, 4]);
-
-    let mut stopped = Recording::default();
-    stopped.toggle(3);
-    stopped.clear(3);
-    assert!(!stopped.on());
-    assert!(
-      sequences(&stopped, &row).is_empty(),
-      "stopped, it shows nothing until it records again"
-    );
-    stopped.toggle(4);
-    assert_eq!(sequences(&stopped, &row), [5]);
+    assert_eq!(sequences(&recording), [2, 1]);
   }
 
   #[test]
   fn the_filter_looks_in_the_number_the_value_the_type_and_the_owner() {
     let row = signal(12, "Idle", Vec::new());
-    assert!(passes(&row, ""));
-    assert!(passes(&row, "#12"));
-    assert!(passes(&row, "idle"));
-    assert!(passes(&row, "signal<i32>"));
-    assert!(passes(&row, "counter i32"), "every word, wherever each is");
-    assert!(!passes(&row, "counter memo"));
+    assert_eq!(row.said(), "#12 Idle Signal<i32> Counter");
+    assert!(changes::passes(&row.said(), "counter i32"));
+    assert!(!changes::passes(&row.said(), "counter memo"));
   }
 }

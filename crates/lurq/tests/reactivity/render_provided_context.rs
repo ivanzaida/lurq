@@ -16,7 +16,7 @@ use lurq::{
 use crate::support::run_pass;
 
 /// The value the root provides in its render.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct Shown(i32);
 
 #[derive(Default)]

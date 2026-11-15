@@ -16,11 +16,11 @@ use lurq::{
 
 use crate::support::run_pass;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct Shown(i32);
 
 /// Another context, provided above the `provide_if_changed` provider.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, lurq::DevtoolsInspectable)]
 struct Other(i32);
 
 /// What the reader saw, once per render, and the signal a provider shows.

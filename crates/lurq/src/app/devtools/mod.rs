@@ -3,7 +3,9 @@
 //! It is built from the board `pencil/lurq-devtools.pen` with the design system's components, in a theme of
 //! its own: the design system's, whatever the inspected app made of its theme.
 
+mod changes;
 mod components;
+mod context;
 mod kit;
 mod legacy;
 mod signals;
@@ -21,6 +23,7 @@ pub use snapshot::{DevToolsNode, DevToolsSnapshot, FrameProfileSnapshot};
 pub use self::snapshot::DevToolsSnapshot as Snapshot;
 use self::{
   components::{ComponentsState, Inspected},
+  context::ContextState,
   kit::FILL,
   legacy::{profiler, profiler_analysis},
   signals::SignalsState,
@@ -122,6 +125,7 @@ pub struct DevTools {
   active_tab: Signal<DevToolsTab>,
   components: ComponentsState,
   signals: SignalsState,
+  contexts: ContextState,
   profiler: Signal<profiler::ProfilerState>,
   /// Rereads a running recording's status; runs only while one does.
   profiler_status_ticker: Interval,
@@ -136,6 +140,7 @@ pub(crate) enum DevToolsTab {
   #[cfg(feature = "persistent_storage")]
   PersistentStorage,
   Signals,
+  Context,
 }
 
 impl Component for DevTools {
@@ -152,6 +157,7 @@ impl Component for DevTools {
       active_tab: ctx.signal(DevToolsTab::Components),
       components: ComponentsState::new(ctx),
       signals: SignalsState::new(ctx),
+      contexts: ContextState::new(ctx),
       profiler,
       profiler_status_ticker,
       last_picked_revision: AtomicU64::new(0),
@@ -186,11 +192,13 @@ impl Component for DevTools {
         #[cfg(feature = "persistent_storage")]
         DevToolsTab::PersistentStorage => storage::view(ctx),
         DevToolsTab::Signals => signals::view(ctx, &props.snapshot, &self.signals),
+        DevToolsTab::Context => context::view(ctx, &props.snapshot, &self.contexts),
       };
-      let (tab, tree, signals) = (
+      let (tab, tree, signals, contexts) = (
         self.active_tab.clone(),
         self.components.search_key.clone(),
-        self.signals.filter_key.clone(),
+        self.signals.list.filter_key.clone(),
+        self.contexts.list.filter_key.clone(),
       );
       let window = Column::new()
         .size(FILL, FILL)
@@ -204,6 +212,7 @@ impl Component for DevTools {
           let search = match tab.get_untracked() {
             DevToolsTab::Components => &tree,
             DevToolsTab::Signals => &signals,
+            DevToolsTab::Context => &contexts,
             _ => return,
           };
           event.prevent_default();
@@ -230,6 +239,7 @@ impl DevTools {
     #[cfg(feature = "persistent_storage")]
     tabs.push(Tab::new(DevToolsTab::PersistentStorage, "Storage"));
     tabs.push(Tab::new(DevToolsTab::Signals, "Signals"));
+    tabs.push(Tab::new(DevToolsTab::Context, "Context"));
     Tabs::new(self.active_tab.clone(), tabs)
       .variant(TabsVariant::Line)
       .label("DevTools")

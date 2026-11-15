@@ -104,13 +104,29 @@ impl RouteMatch {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct OutletDepth(pub usize);
 
+/// What DevTools shows of this context: its value as it is debugged.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for OutletDepth {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(self);
+  }
+}
+
 /// The state of the history entry a screen of a stack is for: `Ctx::route_state` reads it there, and not the
 /// current entry's.
 #[derive(Clone)]
 pub(crate) struct StackState(pub Option<Arc<dyn std::any::Any + Send + Sync>>);
 
+/// DevTools lists this context and shows nothing of what it holds: it has no value worth reading there.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for StackState {}
+
 #[derive(Clone)]
 pub(crate) struct RouterMatches(pub Arc<Vec<RouteMatch>>);
+
+/// DevTools lists this context and shows nothing of what it holds: it has no value worth reading there.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for RouterMatches {}
 
 impl std::hash::Hash for RouterMatches {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

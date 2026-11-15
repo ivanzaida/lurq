@@ -373,11 +373,8 @@ fn snapshot_node_for_selection(
     memos: memos_ref.to_vec(),
     effects: effects_ref.to_vec(),
     render: element.component_render_debug(),
-    contexts: if include_inspector_details {
-      contexts_ref.to_vec()
-    } else {
-      Vec::new()
-    },
+    // Of every node: the Context tab lists them all, and resolves who reads whose.
+    contexts: contexts_ref.to_vec(),
     shape: if include_inspector_details {
       shape_rows(element)
     } else {

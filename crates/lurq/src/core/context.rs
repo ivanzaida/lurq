@@ -15,6 +15,20 @@ fn next_revision() -> u64 {
   NEXT_CONTEXT_REVISION.fetch_add(1, Ordering::Relaxed)
 }
 
+/// What a context holds. With the `devtools` feature it writes itself for DevTools, as the value of a signal
+/// does: derive `DevtoolsInspectable` for it, or give it an empty `impl` to show it as unknown.
+#[cfg(feature = "devtools")]
+pub trait ContextValue: crate::app::component::DevtoolsInspectable {}
+
+#[cfg(feature = "devtools")]
+impl<T: crate::app::component::DevtoolsInspectable> ContextValue for T {}
+
+#[cfg(not(feature = "devtools"))]
+pub trait ContextValue {}
+
+#[cfg(not(feature = "devtools"))]
+impl<T> ContextValue for T {}
+
 /// A provided value with the revision of its providing. A component that read
 /// the value's type renders again when the revision of the entry it would
 /// read now differs from the one it last inherited.
@@ -120,6 +134,9 @@ struct ReactiveContextInner<T> {
   value: T,
   hash: u64,
   subscribers: Vec<Arc<dyn Fn() + Send + Sync>>,
+  /// Told each value the context changes to, for DevTools: what the component that made it gave it.
+  #[cfg(feature = "devtools")]
+  inspector: Option<Arc<dyn Fn(&T) + Send + Sync>>,
 }
 
 impl<T: Send + Sync + 'static> ReactiveContext<T> {
@@ -133,6 +150,8 @@ impl<T: Send + Sync + 'static> ReactiveContext<T> {
         value,
         hash,
         subscribers: Vec::new(),
+        #[cfg(feature = "devtools")]
+        inspector: None,
       })),
     }
   }
@@ -153,6 +172,10 @@ impl<T: Send + Sync + 'static> ReactiveContext<T> {
     if inner.hash != new_hash {
       inner.value = value;
       inner.hash = new_hash;
+      #[cfg(feature = "devtools")]
+      if let Some(inspector) = &inner.inspector {
+        inspector(&inner.value);
+      }
       let subs = inner.subscribers.clone();
       drop(inner);
       for sub in subs {
@@ -165,6 +188,12 @@ impl<T: Send + Sync + 'static> ReactiveContext<T> {
 
   pub(crate) fn subscribe(&self, f: impl Fn() + Send + Sync + 'static) {
     self.inner.write().subscribers.push(Arc::new(f));
+  }
+
+  /// Has `inspector` told each value the context changes to: how DevTools records its changes.
+  #[cfg(feature = "devtools")]
+  pub(crate) fn inspect_with(&self, inspector: impl Fn(&T) + Send + Sync + 'static) {
+    self.inner.write().inspector = Some(Arc::new(inspector));
   }
 }
 
