@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- `.window_control(WindowControl::Minimize | Maximize | Close)` on any element says it is one of the window's controls, in a title bar the app draws itself, and the winit shell tells the system: on Windows the window answers the system's hit test (`WM_NCHITTEST`) with `HTMINBUTTON`, `HTMAXBUTTON` or `HTCLOSE` where the element is laid out and nothing over it takes the pointer, so Windows 11 opens its snap layouts over the maximize control as the pointer rests on it ([#128](https://github.com/ivanzaida/lurq/issues/128)). The system then sends the non-client mouse messages there, and the shell gives them to the element as the pointer's own: it is under the pointer, held down, clicked and given its cursor as any element is, and its own `on_click` acts on the window. `WindowControls` marks its three controls. `Tree::window_control_at(x, y)` answers a shell that drives a `Tree` itself. Elsewhere the mark does nothing. See [components](docs/src/content/docs/components.md#the-windows-controls-in-a-title-bar-of-your-own).
+
+Fixes:
+
+- The line of a window's outline that `WindowChrome` draws (`ChromeBorderPolicy`) takes no pointer. It took the presses on the window's outermost pixel wherever no zone that resizes the window lay over it, so in a maximized window the close control was not pressed in the very corner of the screen, where a thrown pointer stops, nor any control along the top edge; the content's outermost pixels heard nothing either. The pointer there is now on what is under the line.
+
 ## 0.62.0 — 2026-11-14
 
 Breaking:
