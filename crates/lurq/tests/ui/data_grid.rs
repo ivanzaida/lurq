@@ -2507,3 +2507,132 @@ fn what_sticks_stays_still_in_every_frame_of_a_scroll_over_rows_measured_as_they
     }
   }
 }
+
+#[test]
+fn the_menu_writes_the_rows_shown_or_selected_out_as_csv_or_tab_separated_text() {
+  let told: Arc<Mutex<Vec<lurq::ui::GridExport>>> = Arc::default();
+  let selected: Signal<Vec<String>> = Signal::new(Vec::new());
+  let layout: Signal<ColumnLayout> = Signal::new(ColumnLayout::default());
+  // The app's rows, sorted as the app sorts them: by name, from the last.
+  let mut rows = files();
+  rows.reverse();
+  let (heard, chosen, arranged) = (told.clone(), selected.clone(), layout.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let heard = heard.clone();
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), rows.clone())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .selected(chosen.clone())
+          .column_layout(arranged.clone())
+          .on_export(move |export| heard.lock().unwrap().push(export.clone()))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  let export = |stage: &mut Stage, item: &str| {
+    stage.hover("g-header-name");
+    stage.click("g-header-name-menu");
+    stage.pass();
+    choose(stage, "Export");
+    choose(stage, item);
+    let last = told.lock().unwrap().last().cloned();
+    last.unwrap_or_else(|| panic!("{item:?} told the app"))
+  };
+
+  // Every row shown, in the order shown, and the columns shown: a cell says its text as it is
+  // shown, a box its value.
+  let shown = export(&mut stage, "Shown rows as CSV");
+  assert_eq!(
+    (shown.format, shown.scope, shown.rows),
+    (lurq::ui::ExportFormat::Csv, lurq::ui::ExportScope::Shown, 3)
+  );
+  assert_eq!(
+    shown.text,
+    "Name,Status,Size,Shared\r\ntheme.rs,Passing,9 KB,false\r\ncanvas.rs,Passing,48 KB,false\r\nblur.rs,Building,12 KB,true\r\n"
+  );
+
+  // A hidden column is not written; nothing selected, there is nothing to write of the selection.
+  layout.set(ColumnLayout::parse(r#"column("status" hidden)"#).expect("an arrangement"));
+  stage.pass();
+  let shown = export(&mut stage, "Shown rows as tab-separated");
+  assert_eq!(
+    shown.text,
+    "Name\tSize\tShared\ntheme.rs\t9 KB\tfalse\ncanvas.rs\t48 KB\tfalse\nblur.rs\t12 KB\ttrue\n"
+  );
+
+  // The rows selected, in the order shown.
+  selected.set(vec!["canvas.rs".to_owned(), "theme.rs".to_owned()]);
+  stage.pass();
+  let picked = export(&mut stage, "Selected as CSV");
+  assert_eq!(picked.rows, 2);
+  assert_eq!(
+    picked.text,
+    "Name,Size,Shared\r\ntheme.rs,9 KB,false\r\ncanvas.rs,48 KB,false\r\n"
+  );
+}
+
+#[test]
+fn an_export_with_no_one_told_goes_on_the_clipboard() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  let clipboard = Arc::new(Clipboard::default());
+  stage.tree.set_clipboard_writer(Some(clipboard.clone()));
+  stage.pass();
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  choose(&mut stage, "Export");
+  choose(&mut stage, "Shown rows as tab-separated");
+  stage.pass();
+  let written = clipboard.written.lock().unwrap().last().cloned();
+  assert_eq!(
+    written.as_deref(),
+    Some(
+      "Name\tStatus\tSize\tShared\nblur.rs\tBuilding\t12 KB\ttrue\ncanvas.rs\tPassing\t48 KB\tfalse\ntheme.rs\tPassing\t9 KB\tfalse\n"
+    )
+  );
+}
+
+#[test]
+fn a_grid_told_not_to_export_has_no_export_in_its_menu() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(700.0, 400.0)
+      .child(
+        DataGrid::new(columns(), files())
+          .row_key(|row: &File| row.name.clone())
+          .id("g")
+          .export(false)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 600.0))));
+  stage.pass();
+  stage.hover("g-header-name");
+  stage.click("g-header-name-menu");
+  stage.pass();
+  assert!(stage.paints("Size to fit"), "the menu is open");
+  assert!(!stage.paints("Export"));
+}

@@ -103,6 +103,10 @@ use crate::{
 /// of each group open, with a sum, an average, a count, the least or the most the grid computes of a column of
 /// numbers, or the app's text.
 ///
+/// **Export** ([`on_export`](Self::on_export)): each column's menu writes the rows shown, or those selected, out as
+/// comma-separated or tab-separated text, the titles of the columns shown first, for the app to save; with no
+/// handler, onto the clipboard. [`to_csv`](super::to_csv) writes any rows in the grid's columns.
+///
 /// **Row numbers** ([`row_numbers`](Self::row_numbers)): a column of them at the start that stays, a number pressed
 /// to select its row, its header to select every row.
 ///
@@ -511,6 +515,24 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Dat
   /// Called with how many matches there are and which is current: see [`Table::on_matches_change`].
   pub fn on_matches_change(self, handler: impl Fn(super::SearchMatches) + Send + Sync + 'static) -> Self {
     self.with(|table| table.on_matches_change(handler))
+  }
+
+  /// Whether each column's menu has Export, which writes the rows shown or selected out as comma-separated or
+  /// tab-separated text, the titles of the columns shown first: on unless told.
+  pub fn export(self, export: bool) -> Self {
+    self.with(|table| table.export(export))
+  }
+
+  /// Told the text of each export from the grid's menu ([`GridExport`](super::GridExport)): its form, which rows,
+  /// the text and how many rows it holds. The app saves it, or sends it; with no handler the text goes on the
+  /// clipboard.
+  pub fn on_export(self, handler: impl Fn(&super::GridExport) + Send + Sync + 'static) -> Self {
+    self.with(|table| table.on_export(handler))
+  }
+
+  /// The words of the export in the grid's menu.
+  pub fn export_labels(self, labels: super::ExportLabels) -> Self {
+    self.with(|table| table.export_labels(labels))
   }
 
   /// Whether Ctrl+F opens a find bar over the grid: see [`Table::find_bar`].
