@@ -9,8 +9,8 @@ use std::{
 
 use super::{
   chart::{
-    ChartArea, ChartFrame, ChartLabel, ChartLook, ChartPart, ChartPlot, ChartPoint, ChartProps, ChartRenderer,
-    ChartSeries, ChartSize, ChartTip, LinearScale, bits, chart_recipe, signature_of,
+    ChartArea, ChartFrame, ChartLabel, ChartLook, ChartMotion, ChartPart, ChartPlot, ChartPoint, ChartProps,
+    ChartRenderer, ChartSeries, ChartSize, ChartTip, LinearScale, bits, chart_recipe, signature_of,
   },
   names,
   part_style::Opacity,
@@ -219,30 +219,36 @@ impl RadarPlot {
     canvas.close_path();
   }
 
-  fn polygon(&self, canvas: &Context2D, area: ChartArea, series: usize) {
+  /// The path through `corners`.
+  fn polygon(canvas: &Context2D, corners: &[(f32, f32)]) {
     canvas.begin_path();
-    for axis in 0..self.axes.len() {
-      let (x, y) = self.vertex(area, series, axis);
-      if axis == 0 {
-        canvas.move_to(x, y);
+    for (index, (x, y)) in corners.iter().enumerate() {
+      if index == 0 {
+        canvas.move_to(*x, *y);
       } else {
-        canvas.line_to(x, y);
+        canvas.line_to(*x, *y);
       }
     }
     canvas.close_path();
   }
-}
 
-/// The opacity of a part at rest, or `or`.
-fn opacity(look: &ChartLook, part: RadarChartPart, or: f32) -> f32 {
-  match look.part(part).rest().opacity {
-    Some(Opacity::Value(value)) => value,
-    _ => or,
+  /// The corners of the polygon of `series`, at rest.
+  fn corners(&self, area: ChartArea, series: usize) -> Vec<(f32, f32)> {
+    (0..self.axes.len())
+      .map(|axis| self.vertex(area, series, axis))
+      .collect()
   }
-}
 
-impl ChartPlot for RadarPlot {
-  fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
+  /// Draws the rings, the spokes, and each of `polygons` (a series and its corners, last over the others) filled and
+  /// edged in its color, the one of `active` picked out with the dot at its corner.
+  fn paint_polygons(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    polygons: &[(usize, Vec<(f32, f32)>)],
+  ) {
     let (cx, cy, radius) = self.geometry(area);
     if radius <= 0.0 {
       return;
@@ -275,7 +281,34 @@ impl ChartPlot for RadarPlot {
       opacity(look, RadarChartPart::Area, 0.2),
       opacity(look, RadarChartPart::ActiveArea, 0.35),
     );
-    // The series under the pointer is drawn last, over the others.
+    canvas.set_line_width(EDGE);
+    canvas.set_line_join(LineJoin::Round);
+    for (series, corners) in polygons {
+      let color = look.series(*series);
+      let on = active.is_some_and(|point| point.series == *series);
+      let alpha = color.a() as f32 / 255.0;
+      Self::polygon(canvas, corners);
+      canvas.set_fill_style(color.with_opacity(alpha * if on { lit } else { rest }));
+      canvas.fill();
+      canvas.set_stroke_style(if on { color } else { color.with_opacity(alpha * rest) });
+      canvas.stroke();
+    }
+    if let Some(point) = active
+      && let Some((_, corners)) = polygons.iter().find(|(series, _)| *series == point.series)
+      && let Some((x, y)) = corners.get(point.index)
+    {
+      canvas.begin_path();
+      let _ = canvas.arc(*x, *y, DOT, 0.0, TAU, ArcDirection::Clockwise);
+      canvas.set_fill_style(look.series(point.series));
+      canvas.fill();
+      canvas.set_line_width(2.0);
+      canvas.set_stroke_style(look.theme().palette_color(PaletteColor::Card));
+      canvas.stroke();
+    }
+  }
+
+  /// The series shown, the one of `active` last, over the others.
+  fn order(&self, active: Option<ChartPoint>) -> Vec<usize> {
     let mut order = self.shown();
     if let Some(point) = active
       && let Some(place) = order.iter().position(|series| *series == point.series)
@@ -283,31 +316,70 @@ impl ChartPlot for RadarPlot {
       let series = order.remove(place);
       order.push(series);
     }
-    canvas.set_line_width(EDGE);
-    canvas.set_line_join(LineJoin::Round);
-    for series in order {
-      let color = look.series(series);
-      let on = active.is_some_and(|point| point.series == series);
-      let alpha = color.a() as f32 / 255.0;
-      self.polygon(canvas, area, series);
-      canvas.set_fill_style(color.with_opacity(alpha * if on { lit } else { rest }));
-      canvas.fill();
-      canvas.set_stroke_style(if on { color } else { color.with_opacity(alpha * rest) });
-      canvas.stroke();
+    order
+  }
+}
+
+/// The opacity of a part at rest, or `or`.
+fn opacity(look: &ChartLook, part: RadarChartPart, or: f32) -> f32 {
+  match look.part(part).rest().opacity {
+    Some(Opacity::Value(value)) => value,
+    _ => or,
+  }
+}
+
+impl ChartPlot for RadarPlot {
+  fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
+    let polygons: Vec<(usize, Vec<(f32, f32)>)> = self
+      .order(active)
+      .into_iter()
+      .map(|series| (series, self.corners(area, series)))
+      .collect();
+    self.paint_polygons(canvas, area, look, active, &polygons);
+  }
+
+  /// The polygons grow from the center as the chart first shows; on a change each corner moves from where it was to
+  /// its new value, a series shown again grows from the center, and one hidden shrinks to it.
+  fn paint_moving(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    motion: ChartMotion<'_>,
+  ) {
+    if motion.at_rest() {
+      return self.paint(canvas, area, look, active);
     }
-    if let Some(point) = active
-      && self.shown.get(point.series).copied().unwrap_or(false)
-      && point.index < self.axes.len()
-    {
-      let (x, y) = self.vertex(area, point.series, point.index);
-      canvas.begin_path();
-      let _ = canvas.arc(x, y, DOT, 0.0, TAU, ArcDirection::Clockwise);
-      canvas.set_fill_style(look.series(point.series));
-      canvas.fill();
-      canvas.set_line_width(2.0);
-      canvas.set_stroke_style(look.theme().palette_color(PaletteColor::Card));
-      canvas.stroke();
+    let (cx, cy, _) = self.geometry(area);
+    let between = |from: (f32, f32), to: (f32, f32)| (motion.lerp(from.0, to.0), motion.lerp(from.1, to.1));
+    let from = motion.from_as::<RadarPlot>();
+    // Where a corner of `series` on `axis` was: its place in the plot before, or the center where it had none.
+    let was = |series: usize, axis: usize| {
+      from
+        .filter(|from| from.shown.get(series).copied().unwrap_or(false) && axis < from.axes.len())
+        .map_or((cx, cy), |from| from.vertex(area, series, axis))
+    };
+    let mut polygons: Vec<(usize, Vec<(f32, f32)>)> = Vec::new();
+    if let Some(from) = from {
+      // A series no longer shown shrinks to the center, under the others.
+      for series in from.shown() {
+        if self.shown.get(series).copied().unwrap_or(false) {
+          continue;
+        }
+        let corners = (0..from.axes.len())
+          .map(|axis| between(from.vertex(area, series, axis), (cx, cy)))
+          .collect();
+        polygons.push((series, corners));
+      }
     }
+    for series in self.order(active) {
+      let corners = (0..self.axes.len())
+        .map(|axis| between(was(series, axis), self.vertex(area, series, axis)))
+        .collect();
+      polygons.push((series, corners));
+    }
+    self.paint_polygons(canvas, area, look, active, &polygons);
   }
 
   fn point_at(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {

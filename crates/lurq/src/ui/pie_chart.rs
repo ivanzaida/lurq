@@ -8,8 +8,8 @@ use std::{
 
 use super::{
   chart::{
-    ChartArea, ChartFrame, ChartLabel, ChartLook, ChartPart, ChartPlot, ChartPoint, ChartProps, ChartRenderer,
-    ChartSeries, ChartSize, ChartTip, ValueTextFn, bits, chart_recipe, signature_of,
+    ChartArea, ChartFrame, ChartLabel, ChartLook, ChartMotion, ChartPart, ChartPlot, ChartPoint, ChartProps,
+    ChartRenderer, ChartSeries, ChartSize, ChartTip, ValueTextFn, bits, chart_recipe, signature_of,
   },
   names,
   part_style::Opacity,
@@ -295,6 +295,72 @@ impl PiePlot {
     Some((start, end))
   }
 
+  /// Where every slice starts and ends, from the top and clockwise: one of no width (closed) where it is not drawn, at
+  /// the place it would open from. What a change moves the slices between.
+  fn spans(&self) -> Vec<(f32, f32)> {
+    let total = self.total();
+    let mut at = -PI / 2.0;
+    (0..self.values.len())
+      .map(|index| {
+        let sweep = if total > 0.0 {
+          (self.drawn(index) / total) as f32 * TAU
+        } else {
+          0.0
+        };
+        let span = (at, at + sweep);
+        at += sweep;
+        span
+      })
+      .collect()
+  }
+
+  /// Draws the slices at `spans` (by their index; a span of no width is not drawn), the one of `active` in its color
+  /// and the others giving way to it, with the lines between them.
+  fn paint_spans(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<usize>,
+    spans: &[(f32, f32)],
+  ) {
+    let faded = opacity(look, PieChartPart::Slice);
+    let drawn: Vec<usize> = (0..spans.len())
+      .filter(|index| spans[*index].1 - spans[*index].0 > 1e-4)
+      .collect();
+    for index in &drawn {
+      let (start, end) = spans[*index];
+      let color = look.series(*index);
+      canvas.set_fill_style(match active {
+        Some(active) if active != *index => color.with_opacity(color.a() as f32 / 255.0 * faded),
+        _ => color,
+      });
+      self.slice_path(canvas, area, start, end);
+      canvas.fill();
+    }
+    // A pie's slices stand apart by a line of the card's color, as the board draws them; a slice too narrow at the
+    // rim to keep its color between two lines joins its neighbour without one.
+    if self.donut || drawn.len() < 2 {
+      return;
+    }
+    let (cx, cy, radius, _) = self.geometry(area);
+    let wide = |index: usize| (spans[index].1 - spans[index].0) * radius > EDGE * 3.0;
+    canvas.set_stroke_style(look.color(PieChartPart::Edge));
+    canvas.set_line_width(EDGE);
+    canvas.set_line_cap(LineCap::Butt);
+    for (place, index) in drawn.iter().enumerate() {
+      let before = drawn[(place + drawn.len() - 1) % drawn.len()];
+      if !wide(*index) || !wide(before) {
+        continue;
+      }
+      let start = spans[*index].0;
+      canvas.begin_path();
+      canvas.move_to(cx, cy);
+      canvas.line_to(cx + radius * start.cos(), cy + radius * start.sin());
+      canvas.stroke();
+    }
+  }
+
   /// The center and the radii of the ring: the outer, and the hole's (none for a pie).
   fn geometry(&self, area: ChartArea) -> (f32, f32, f32, f32) {
     let side = area.width.min(area.height);
@@ -343,50 +409,49 @@ fn opacity(look: &ChartLook, part: PieChartPart) -> f32 {
 
 impl ChartPlot for PiePlot {
   fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
-    let active = active.filter(|point| self.angles(point.index).is_some());
-    let faded = opacity(look, PieChartPart::Slice);
-    let drawn: Vec<usize> = (0..self.values.len())
-      .filter(|index| self.angles(*index).is_some())
-      .collect();
-    for index in &drawn {
-      let Some((start, end)) = self.angles(*index) else {
-        continue;
-      };
-      let color = look.series(*index);
-      canvas.set_fill_style(match active {
-        Some(point) if point.index != *index => color.with_opacity(color.a() as f32 / 255.0 * faded),
-        _ => color,
-      });
-      self.slice_path(canvas, area, start, end);
-      canvas.fill();
+    let active = active
+      .filter(|point| self.angles(point.index).is_some())
+      .map(|point| point.index);
+    self.paint_spans(canvas, area, look, active, &self.spans());
+  }
+
+  /// The slices sweep in from the top, clockwise, as the pie first shows; on a change each slice's ends move from
+  /// where they were to where they are: a hidden slice closes, and the others take its room.
+  fn paint_moving(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    motion: ChartMotion<'_>,
+  ) {
+    if motion.at_rest() {
+      return self.paint(canvas, area, look, active);
     }
-    // A pie's slices stand apart by a line of the card's color, as the board draws them; a slice too narrow at the
-    // rim to keep its color between two lines joins its neighbour without one.
-    if self.donut || drawn.len() < 2 {
-      return;
-    }
-    let (cx, cy, radius, _) = self.geometry(area);
-    let wide = |index: usize| {
-      self
-        .angles(index)
-        .is_some_and(|(start, end)| (end - start) * radius > EDGE * 3.0)
-    };
-    canvas.set_stroke_style(look.color(PieChartPart::Edge));
-    canvas.set_line_width(EDGE);
-    canvas.set_line_cap(LineCap::Butt);
-    for (place, index) in drawn.iter().enumerate() {
-      let before = drawn[(place + drawn.len() - 1) % drawn.len()];
-      if !wide(*index) || !wide(before) {
-        continue;
+    let to = self.spans();
+    let top = -PI / 2.0;
+    let spans: Vec<(f32, f32)> = match motion.from_as::<PiePlot>() {
+      None => to
+        .iter()
+        .map(|(start, end)| (motion.lerp(top, *start), motion.lerp(top, *end)))
+        .collect(),
+      Some(from) => {
+        let was = from.spans();
+        // A slice that was not there opens at the end of the whole; one that is gone closes there.
+        let end = top + TAU;
+        (0..to.len().max(was.len()))
+          .map(|index| {
+            let (from, to) = (
+              was.get(index).copied().unwrap_or((end, end)),
+              to.get(index).copied().unwrap_or((end, end)),
+            );
+            (motion.lerp(from.0, to.0), motion.lerp(from.1, to.1))
+          })
+          .collect()
       }
-      let Some((start, _)) = self.angles(*index) else {
-        continue;
-      };
-      canvas.begin_path();
-      canvas.move_to(cx, cy);
-      canvas.line_to(cx + radius * start.cos(), cy + radius * start.sin());
-      canvas.stroke();
-    }
+    };
+    let active = active.map(|point| point.index).filter(|index| *index < to.len());
+    self.paint_spans(canvas, area, look, active, &spans);
   }
 
   fn point_at(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {
