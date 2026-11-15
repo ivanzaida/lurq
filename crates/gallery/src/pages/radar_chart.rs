@@ -80,11 +80,13 @@ pub struct RadarChartPage {
   legend: Signal<bool>,
   hidden: Signal<Vec<String>>,
   selected: Signal<Option<ChartPoint>>,
+  motion: Signal<bool>,
 }
 
 impl RadarChartPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let choice = self.data.get().min(DATA.len() - 1);
+    let motion = self.motion.get();
     let (value_axis, legend) = (self.value_axis.get(), self.legend.get());
     let size = if self.size.get() == 1 {
       ChartSize::Md
@@ -103,7 +105,8 @@ impl RadarChartPage {
           .description("Relative score per area")
           .size(size)
           .value_axis(value_axis)
-          .loading(choice == 6);
+          .loading(choice == 6)
+          .motion(motion);
         if legend {
           chart = chart.legend(true);
         }
@@ -144,6 +147,9 @@ impl RadarChartPage {
       code.push("    .loading(true)".to_owned());
     }
     code.push("    .hidden(hidden)".to_owned());
+    if !motion {
+      code.push("    .motion(false)".to_owned());
+    }
     code.push("    .on_select(|point| ..)".to_owned());
     code.push("    .mount(ctx)".to_owned());
     let tree = vec![
@@ -163,6 +169,7 @@ impl RadarChartPage {
       self.legend.clone(),
       self.hidden.clone(),
       self.selected.clone(),
+      self.motion.clone(),
     );
     let facts = format!(
       "{} axes · {} series{}",
@@ -208,6 +215,7 @@ impl RadarChartPage {
           divider(),
           flag("value_axis: the rings' numbers", &self.value_axis),
           flag("legend", &self.legend),
+          flag("motion: in, and to a change of the data", &self.motion),
         ],
         changed: [
           choice != 0,
@@ -215,6 +223,7 @@ impl RadarChartPage {
           value_axis,
           legend,
           !self.hidden.get().is_empty(),
+          !motion,
         ]
         .into_iter()
         .filter(|changed| *changed)
@@ -226,6 +235,7 @@ impl RadarChartPage {
           reset.3.set(false);
           reset.4.set(Vec::new());
           reset.5.set(None);
+          reset.6.set(true);
         }),
       },
     )
@@ -245,6 +255,7 @@ impl Component for RadarChartPage {
       legend: ctx.signal(false),
       hidden: ctx.signal(Vec::new()),
       selected: ctx.signal(None),
+      motion: ctx.signal(true),
     }
   }
 
@@ -312,6 +323,12 @@ impl Component for RadarChartPage {
         "&str / bool",
         "\"No data\" / false",
         "No data, and the skeleton while it comes.",
+      ),
+      (
+        "motion",
+        "bool",
+        "true",
+        "Polygons growing from the middle, and their corners moving to a change of the data; off where motion is reduced, still while it is resized.",
       ),
       (
         "on_select",

@@ -174,6 +174,7 @@ pub(crate) struct TextInputOutput {
 
 impl TextInputOutput {
   fn apply(&self, state: &TextInputState) {
+    crate::node::node_kind::note_text_state_write();
     state.set_token_layout(self.token_layout.clone());
     state.set_caret_positions(self.caret_positions.clone());
     state.set_caret_height(self.line_height);

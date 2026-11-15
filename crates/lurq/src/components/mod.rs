@@ -111,7 +111,9 @@ pub use swipe_row::{SwipeAction, SwipeRow, SwipeRowProps, SwipeRowStyle};
 #[cfg(feature = "router")]
 pub use tabs::{TabBar, TabBarBuilder, TabBarPlace, TabBarState, TabEntry, TabItem, TabOutlet, TabOutletProps, Tabs};
 pub use text::{Text, TextOverflow};
-pub use text_input::{ContentKind, KeyboardKind, ReturnKey, TextInput, TextInputOverflow, TextInputOverflowAnchor};
+pub use text_input::{
+  ContentKind, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow, TextInputOverflowAnchor,
+};
 pub use text_input_controller::{InputCaretPoint, InputEditError, InputSelection, TextInputController};
 pub use text_input_tokens::{InputToken, InputTokenError, InputTokenIcon, InputTokenStyle, InputTokens};
 #[cfg(feature = "raster")]

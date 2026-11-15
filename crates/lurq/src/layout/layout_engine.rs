@@ -49,6 +49,7 @@ pub(crate) mod inline_links;
 #[cfg(not(feature = "markdown"))]
 #[path = "layout_engine/inline_links_none.rs"]
 pub(crate) mod inline_links;
+mod input_gutter;
 mod input_layout;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
@@ -1527,6 +1528,7 @@ impl LayoutEngine {
         }
 
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
+          self.push_text_input_gutter(node, state, result, (abs_x, abs_y), transform, clip, opacity, quads);
           self.push_input_tokens(
             node,
             state,
@@ -2589,18 +2591,44 @@ impl LayoutEngine {
   /// Serving a cached result skips text layout, so the text output of every
   /// text leaf in it is written back as well: the node's text state otherwise
   /// keeps what the last real layout, possibly at other constraints, wrote.
-  fn prepare_cached_result(&self, node: &Node, mut cached: Arc<LayoutResult>) -> Arc<LayoutResult> {
-    if !cached.holds.scroll {
-      if cached.holds.text {
-        Self::restore_text_layout_tree(node, &cached);
+  fn prepare_cached_result(&self, node: &Node, cached: Arc<LayoutResult>) -> Arc<LayoutResult> {
+    // The entry served last time, prepared then, with no text's layout changed since anywhere: its texts hold what
+    // it wrote back and its scroll containers what it synced (one that scrolled is dirty, and not served whole).
+    // A long document scrolled in its container is served so every frame; it is not walked again.
+    let served = Arc::as_ptr(&cached) as usize;
+    let generation = node.layout_cache.watch().generation();
+    if let Some(prepared) = node.layout_cache.take_prepared() {
+      if prepared.served == served
+        && prepared.text_writes == crate::node::node_kind::text_state_writes()
+        && prepared.result.generation == generation
+      {
+        let result = prepared.result.clone();
+        node.layout_cache.set_prepared(Some(prepared));
+        return result;
       }
-      if cached.generation != node.layout_cache.watch().generation() {
-        Arc::make_mut(&mut cached).generation = node.layout_cache.watch().generation();
-      }
-      return cached;
     }
-    self.prepare_layout_result_tree(node, Arc::make_mut(&mut cached), true, None);
-    cached
+    let mut result = cached;
+    if !result.holds.scroll {
+      if result.holds.text {
+        Self::restore_text_layout_tree(node, &result);
+      }
+      if result.generation != generation {
+        Arc::make_mut(&mut result).generation = generation;
+      }
+    } else {
+      self.prepare_layout_result_tree(node, Arc::make_mut(&mut result), true, None);
+    }
+    // Only a tree worth keeping: one that holds texts or scroll containers to walk.
+    if result.holds.scroll || result.holds.text {
+      node
+        .layout_cache
+        .set_prepared(Some(Box::new(crate::node::layout_cache::PreparedServe {
+          served,
+          text_writes: crate::node::node_kind::text_state_writes(),
+          result: result.clone(),
+        })));
+    }
+    result
   }
 
   /// Syncs the scroll containers in `result` with it and, for a served cache
@@ -2708,7 +2736,11 @@ impl LayoutEngine {
         }
       }
       let child_scope = scope.map(|scope| scope.moved_into(child_layout.offset));
-      if child_layout.result.holds.scroll || (child_scope.is_some() && child_layout.result.holds.sticky) {
+      // A child's result comes from `layout_node` prepared for its own subtree: its scroll containers synced. A
+      // fresh parent visits it again only to place what sticks in the scroll container the parent is in. A cached
+      // tree served again is prepared whole, its scroll containers and its text, which may have moved since.
+      let sticks_here = child_scope.is_some() && child_layout.result.holds.sticky;
+      if sticks_here || (restore_text_layout && child_layout.result.holds.scroll) {
         self.prepare_layout_result_tree(
           child_node,
           Arc::make_mut(&mut child_layout.result),

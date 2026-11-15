@@ -88,11 +88,13 @@ pub struct PieChartPage {
   legend: Signal<bool>,
   hidden: Signal<Vec<String>>,
   selected: Signal<Option<ChartPoint>>,
+  motion: Signal<bool>,
 }
 
 impl PieChartPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let choice = self.data.get().min(DATA.len() - 1);
+    let motion = self.motion.get();
     let (donut, total, legend) = (self.donut.get(), self.total.get(), self.legend.get());
     let size = match self.size.get() {
       1 => Some(ChartSize::Sm),
@@ -114,6 +116,7 @@ impl PieChartPage {
           .legend(legend)
           .legend_value(legend_value(value))
           .loading(choice == 6)
+          .motion(motion)
           .value_text(mb);
         if let Some(size) = size {
           chart = chart.size(size);
@@ -167,6 +170,9 @@ impl PieChartPage {
       code.push("    .loading(true)".to_owned());
     }
     code.push("    .hidden(hidden)".to_owned());
+    if !motion {
+      code.push("    .motion(false)".to_owned());
+    }
     code.push("    .on_select(|point| ..)".to_owned());
     code.push("    .mount(ctx)".to_owned());
     let tree = vec![
@@ -188,6 +194,7 @@ impl PieChartPage {
       self.legend.clone(),
       self.hidden.clone(),
       self.selected.clone(),
+      self.motion.clone(),
     );
     let facts = format!(
       "{} slices{}",
@@ -240,6 +247,7 @@ impl PieChartPage {
           flag("donut", &self.donut),
           flag("total_text: \"in all\"", &self.total),
           flag("legend", &self.legend),
+          flag("motion: in, and to a change of the data", &self.motion),
         ],
         changed: [
           choice != 0,
@@ -249,6 +257,7 @@ impl PieChartPage {
           total,
           !legend,
           !self.hidden.get().is_empty(),
+          !motion,
         ]
         .into_iter()
         .filter(|changed| *changed)
@@ -262,6 +271,7 @@ impl PieChartPage {
           reset.5.set(true);
           reset.6.set(Vec::new());
           reset.7.set(None);
+          reset.8.set(true);
         }),
       },
     )
@@ -283,6 +293,7 @@ impl Component for PieChartPage {
       legend: ctx.signal(true),
       hidden: ctx.signal(Vec::new()),
       selected: ctx.signal(None),
+      motion: ctx.signal(true),
     }
   }
 
@@ -403,6 +414,12 @@ impl Component for PieChartPage {
         "&str / bool",
         "\"No data\" / false",
         "No data (or all zero), and the skeleton while it comes.",
+      ),
+      (
+        "motion",
+        "bool",
+        "true",
+        "Slices sweeping in from the top, and their ends moving to a change of the data; off where motion is reduced, still while it is resized.",
       ),
       (
         "on_select",

@@ -1003,6 +1003,24 @@ Keyboard editing supports character insertion, `Backspace`, `Delete`, arrow keys
 
 With the `clipboard` feature enabled, text inputs also support `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+Insert`, `Shift+Insert`, and `Shift+Delete` (`Cmd` for `Ctrl` on macOS). Without `clipboard`, those shortcuts do not read or write the system clipboard. In a browser a paste arrives a turn of the loop after its shortcut, once the browser has answered, and carries text only; see [Web](../web/#the-clipboard).
 
+#### Lines Of Code
+
+A multiline input's lines wrap at its width unless `.wrap(false)` says otherwise: then it is as wide as its longest line, and what holds it scrolls sideways. `.line_gutter(LineGutter::new(style))` draws the numbers of its lines in its start padding, each at the first row of its line as the input laid it out (after the rows a wrapped line took), right-aligned `gap` before the text, and a band across the input behind the lines it picks out (`.marked(lines, color)`), over every row of a wrapped line. The app makes the start padding as wide as the numbers need. The numbers and the bands are neither selected nor copied. A read-only input of code is what `ui::CodeBlock` is made of.
+
+```rust
+use lurq::{
+  app::{events::TextInputEvent, theme::PaletteColor},
+  components::{LineGutter, TextInput},
+};
+
+TextInput::styled(code.clone(), mono)
+  .multiline()
+  .wrap(false)
+  .padding_left(40.0)
+  .line_gutter(LineGutter::new(mono.clone()).color(PaletteColor::MutedForeground).marked([3], PaletteColor::Highlight))
+  .on_input(|event: TextInputEvent| event.prevent_default()); // read only
+```
+
 #### Paste
 
 A paste into a text input delivers one `PasteEvent` before the text is inserted: `Ctrl+V`, `Shift+Insert`, a `WindowHandle::paste_from_clipboard()` request (for an app's own Paste menu item or context menu) and `Tree::paste(content)` all go through it. The event carries everything the clipboard holds, as [`lurq::clipboard::read_clipboard`](../resources-media/#clipboard) reads it: text, an RGBA image (a screenshot) and file paths (files copied in Explorer or Finder), any of them at once. Handlers run on the input first and bubble to its ancestors (`stop_propagation()` ends that); unless one calls `prevent_default()`, the text is inserted at the caret. An image or files without a handler do nothing.

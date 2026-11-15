@@ -238,7 +238,8 @@ for task in &tasks {
 - It stays where it was among its siblings and in flow: the ones after it do not move until it is gone. An exit
   animation of its `Height` or `Width` to zero lets them close the gap as it leaves.
 - Like a leaving layer it is only painted: no pointer, focus or Tab, and no lookup finds it. A child of the same key
-  added again while it leaves is a new one, beside it.
+  or id added again while it leaves ends its leaving: the one leaving goes at once and the one added enters, so the
+  two are never there together. A panel opened again while its rows fade out holds its rows once.
 - The elements inside it leave with their own exit animations too, and the child is gone when the longest ends.
 - It works wherever the container is: in the page, in a component that renders by itself, in a popup or a dialog.
 - A container without `.presence()` drops a removed child at once, whatever the child's animations. A list that

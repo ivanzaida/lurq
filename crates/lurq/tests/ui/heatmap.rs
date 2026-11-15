@@ -248,3 +248,85 @@ fn the_columns_names_are_written_where_told_and_no_data_says_so() {
   assert!(empty.text_quad("No commits yet").is_some());
   assert!(empty.text_quad("Less").is_some(), "the scale stays");
 }
+
+#[test]
+fn the_heatmap_moves_as_every_chart() {
+  super::chart_motion::moves_as_every_chart(|ctx, values, moves| {
+    Heatmap::new(["a", "b", "c"], [ChartSeries::new("v", values)])
+      .motion(moves)
+      .id("c")
+      .mount(ctx)
+  });
+}
+
+#[test]
+fn a_cell_goes_from_its_old_steps_color_to_its_new_one() {
+  use super::chart_motion::{near, pixel, software};
+  let value = lurq::core::Signal::new(0.0);
+  let bound = value.clone();
+  let mut stage = software(move |ctx| {
+    Heatmap::new(["a", "b"], [ChartSeries::new("row", [bound.get(), 8.0])])
+      .id("c")
+      .mount(ctx)
+  });
+  let middle = |stage: &mut Stage| {
+    let read = cells(stage);
+    let (x, y, side, _) = rect(&read[0]);
+    pixel(stage, x + side / 2.0, y + side / 2.0)
+  };
+  let (low, high) = (light(PaletteColor::Muted), light(PaletteColor::Chart1));
+  assert!(near(middle(&mut stage), low), "the lowest step");
+  value.set(8.0);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  let half = middle(&mut stage);
+  assert!(!near(half, low) && !near(half, high), "between the two: {half:?}");
+  stage.pass();
+  assert!(near(middle(&mut stage), high), "at rest the highest");
+}
+
+#[test]
+fn the_grid_is_as_high_as_its_cells_are_drawn_at_every_width() {
+  // 52 columns: cells of 14 need 26 + 52 × 18 - 4 = 958, more than the frame has at the first two widths.
+  for width in [300.0_f32, 600.0, 1100.0] {
+    let mut stage = Stage::new(move |ctx| {
+      Column::new()
+        .size(width, 600.0)
+        .child(
+          Heatmap::new((1..=52).map(|week| format!("W{week}")), commits_for(52))
+            .id("c")
+            .mount(ctx),
+        )
+        .into()
+    });
+    stage
+      .tree
+      .set_layout_constraints_override(Some(Constraints::loose(Size::new(1200.0, 700.0))));
+    stage.pass();
+    stage.pass();
+    let read = cells(&mut stage);
+    let (_, _, plot_width, plot_height) = stage.bounds("c-plot");
+    let (_, last_y, side, _) = rect(read.last().unwrap());
+    assert!(
+      (plot_height - (last_y + side)).abs() < 0.5,
+      "at {width}: the plot ends with its last row ({plot_height} against {})",
+      last_y + side
+    );
+    let (last_x, ..) = rect(&read[51]);
+    assert!(
+      last_x + side <= plot_width + 0.5,
+      "at {width}: every column in the plot"
+    );
+    let wide = width - 40.0 >= 958.0;
+    assert_eq!(side == 14.0, wide, "at {width}: cells of {side}");
+  }
+}
+
+/// Commits for seven days by `count` weeks.
+fn commits_for(count: usize) -> Vec<ChartSeries> {
+  DAYS
+    .iter()
+    .enumerate()
+    .map(|(day, name)| ChartSeries::new(name, (0..count).map(move |week| ((week * 7 + day) * 37 % 9) as f64)))
+    .collect()
+}

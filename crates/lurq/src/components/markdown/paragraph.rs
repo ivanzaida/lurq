@@ -57,6 +57,16 @@ use crate::{
 const ROOM: char = '\u{2060}';
 /// Where a line may break before a box: a space of no width.
 const BREAK: char = '\u{200b}';
+/// A space of a sentence, in its ems: about what a sans face gives it (Segoe UI 0.27, Inter 0.28), for the room a
+/// box adds beside it to reach the design's gap.
+const SPACE_EM: f32 = 0.27;
+
+/// The room beside a box: its span, the side it stands on, and what it widens by beside a space.
+struct Room {
+  index: usize,
+  before: bool,
+  extra: f32,
+}
 
 pub(super) const FOOTNOTE_ANCHOR: &str = "#fn:";
 /// Back from a footnote to where the text refers to it.
@@ -329,6 +339,8 @@ pub(super) struct Paragraph<'a> {
   fills: Vec<TextHighlight>,
   /// The footnotes it refers to: the way back from each leads to it.
   references: Vec<String>,
+  /// The rooms beside its boxes, widened where a space stands beside them once the paragraph is whole.
+  rooms: Vec<Room>,
 }
 
 impl<'a> Paragraph<'a> {
@@ -357,6 +369,7 @@ impl<'a> Paragraph<'a> {
       session,
       fills: Vec::new(),
       references: Vec::new(),
+      rooms: Vec::new(),
     }
   }
 
@@ -391,6 +404,7 @@ impl<'a> Paragraph<'a> {
 
   /// The paragraph so far as one rich-text node; the builder starts over.
   pub(super) fn take_node(&mut self) -> Node {
+    self.widen_rooms();
     self.sealed = 0;
     let mut node = Node::rich_text_with_links(
       std::mem::take(&mut self.spans),
@@ -458,7 +472,7 @@ impl<'a> Paragraph<'a> {
         MarkdownInline::Code(_) => {
           let fill = self.session.code_fill.clone();
           let code_style = self.theme.inline_code.apply(style);
-          self.push_room(fill.as_ref(), &code_style, true);
+          self.push_room(fill.as_ref(), &code_style, style, true);
           let start = self.text_len();
           for span in markdown_inline_rich_text(std::slice::from_ref(inline), style, self.theme) {
             self.push_span(span);
@@ -466,13 +480,13 @@ impl<'a> Paragraph<'a> {
           // The box is a line of the code's type and the part's padding above and below.
           let height = code_style.font_size * 1.25 + 2.0 * fill.as_ref().map_or(0.0, |fill| fill.padding.1);
           self.fill_from(start, fill.as_ref(), height);
-          self.push_room(fill.as_ref(), &code_style, false);
+          self.push_room(fill.as_ref(), &code_style, style, false);
         }
         // A key, in the key's box.
         MarkdownInline::Kbd(words) => {
           let fill = self.session.kbd_fill.clone();
           let key_style = self.theme.kbd.apply(style);
-          self.push_room(fill.as_ref(), &key_style, true);
+          self.push_room(fill.as_ref(), &key_style, style, true);
           let start = self.text_len();
           self.push_span(RichTextSpan {
             text: words.clone(),
@@ -481,7 +495,7 @@ impl<'a> Paragraph<'a> {
           // The key's box is as high as the part says (its fill's padding holds that height).
           let height = fill.as_ref().map_or(20.0, |fill| fill.padding.1);
           self.fill_from(start, fill.as_ref(), height);
-          self.push_room(fill.as_ref(), &key_style, false);
+          self.push_room(fill.as_ref(), &key_style, style, false);
         }
         // A footnote's number, which goes to the footnote.
         MarkdownInline::FootnoteReference(label) => match self.session.footnote_number(label) {
@@ -601,10 +615,13 @@ impl<'a> Paragraph<'a> {
   /// that width: never copied or selected, and no line breaks between it and the box, so a box goes to the next line
   /// whole, as a word does. Before the box a break may come first, where the sentence breaks before a word: a space
   /// of no width allows it, which the joiner after it alone would not.
-  fn push_room(&mut self, fill: Option<&TextHighlight>, style: &TextStyle, before: bool) {
+  /// Where a space of the sentence `around` stands beside the box, the room is wider by what the space lacks of the
+  /// theme's `box_gap` (the design's 6): see [`Self::widen_rooms`].
+  fn push_room(&mut self, fill: Option<&TextHighlight>, style: &TextStyle, around: &TextStyle, before: bool) {
     let Some(width) = fill.map(|fill| fill.padding.0).filter(|width| *width > 0.0) else {
       return;
     };
+    let extra = (self.theme.box_gap - SPACE_EM * around.font_size).max(0.0);
     if before {
       let index = self.seal();
       self.spans.push(RichTextSpan {
@@ -622,7 +639,41 @@ impl<'a> Paragraph<'a> {
       },
     });
     self.generated.push(index..index + 1);
+    self.rooms.push(Room { index, before, extra });
     self.seal();
+  }
+
+  /// Widens the room of each box on a side where a space of the sentence stands, so that from the box to the word
+  /// beside it is the theme's `box_gap`, as the design spaces a run of keys: the space stays the sentence's, and the
+  /// room makes up what it lacks. Between two boxes with a space between them only the first box's room widens, so
+  /// they are that gap apart too. Beside a comma or a word with no space, the box keeps to its padding.
+  fn widen_rooms(&mut self) {
+    let rooms = std::mem::take(&mut self.rooms);
+    let ends_a_box = |index: usize| rooms.iter().any(|room| !room.before && room.index == index);
+    let mut widen = Vec::new();
+    for room in &rooms {
+      if room.extra <= 0.0 {
+        continue;
+      }
+      let spaced = if room.before {
+        // Before the box: its break, then the sentence's text, which ends with a space not right after a box.
+        room.index.checked_sub(2).is_some_and(|text| {
+          let words = &self.spans[text].text;
+          words.ends_with(' ') && !(words == " " && text.checked_sub(1).is_some_and(ends_a_box))
+        })
+      } else {
+        self
+          .spans
+          .get(room.index + 1)
+          .is_some_and(|next| next.text.starts_with(' '))
+      };
+      if spaced {
+        widen.push((room.index, room.extra));
+      }
+    }
+    for (index, extra) in widen {
+      self.spans[index].style.letter_spacing += extra;
+    }
   }
 
   /// An isolate mark: a span of its own, never merged, never copied.

@@ -86,7 +86,16 @@ impl Stage {
   /// A window of `width` by `height` that renders `scene`, with one frame painted and no more: what the first frame
   /// shows, before anything settles in a second one.
   pub fn first_frame(width: f32, height: f32, scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Self {
-    let mut app = App::new();
+    Self::first_frame_in(App::new(), width, height, scene)
+  }
+
+  /// As [`first_frame`](Self::first_frame), in `app`.
+  pub fn first_frame_in(
+    mut app: App,
+    width: f32,
+    height: f32,
+    scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static,
+  ) -> Self {
     let mut tree = Tree::new();
     tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(width, height))));
     tree.resize(width as u32, height as u32);
@@ -98,6 +107,33 @@ impl Stage {
     };
     stage.frame();
     stage
+  }
+
+  /// What the last frame painted, quad by quad: where each is, what it is and the words it draws, to tell one frame
+  /// from another.
+  pub fn picture(&self) -> Vec<String> {
+    self
+      .quads()
+      .into_iter()
+      .map(|quad| {
+        let what = match &quad.content {
+          QuadContent::Text { text, .. } => format!("text {text:?}"),
+          QuadContent::RichText { spans, .. } => {
+            format!("rich {:?}", spans.iter().map(|span| span.text.as_str()).collect::<String>())
+          }
+          QuadContent::Rect { color, .. } => format!("rect {color:?}"),
+          _ => "other".to_owned(),
+        };
+        // The width of each side of its border: a line between two groups is one side of one.
+        let sides = quad.border.as_ref().map(|border| {
+          [&border.top, &border.right, &border.bottom, &border.left].map(|side| side.as_ref().map_or(0.0, |side| side.width))
+        });
+        format!(
+          "{:.1},{:.1} {:.1}x{:.1} {what} border {sides:?}",
+          quad.x, quad.y, quad.width, quad.height
+        )
+      })
+      .collect()
   }
 
   /// Renders, lays out and paints one frame, a sixtieth of a second after the last.

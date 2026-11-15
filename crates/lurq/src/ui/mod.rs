@@ -89,6 +89,7 @@ mod multi_select;
 mod navbar;
 mod navigation_menu;
 mod number_input;
+mod opening_rows;
 mod outcome;
 mod pagination;
 mod part_style;
@@ -205,7 +206,7 @@ pub use choice_card::{
   RadioCardGroup,
 };
 pub use code_block::{
-  CODE_BLOCK_COPIED_FOR, CodeBlock, CodeBlockPart, CodeBlockRenderer, CodeBlockState, CodeBlockView,
+  CODE_BLOCK_COPIED_FOR, CODE_BLOCK_ROW_HEIGHT, CodeBlock, CodeBlockPart, CodeBlockRenderer, CodeBlockState, CodeBlockView,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use color_field::{
@@ -275,6 +276,7 @@ pub use floating_panel::{
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
 #[cfg(feature = "canvas")]
 pub use heatmap::{Heatmap, HeatmapPart};
+#[cfg(feature = "markdown")]
 pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};

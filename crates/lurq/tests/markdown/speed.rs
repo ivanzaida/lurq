@@ -110,3 +110,33 @@ fn speed_of_a_long_document() {
     );
   }
 }
+
+/// What a frame draws of `sections` sections in a view 720 by 400, scrolled 1,200 down: its rects and its glyphs.
+fn drawn(sections: usize) -> (usize, usize) {
+  let source = Signal::new(document(sections));
+  let state = ScrollState::new();
+  SOURCE.with(|slot| *slot.borrow_mut() = Some((source, state.clone())));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(720.0, 400.0))));
+  tree.mount_root::<Long>(&mut app, ());
+  render_pass_with_app(&mut tree, &mut app);
+  state.set_scroll(0.0, 1200.0);
+  tree.request_redraw();
+  let frame = render_pass_with_app(&mut tree, &mut app);
+  (frame.rects.len(), frame.glyph_count)
+}
+
+#[test]
+fn a_long_document_draws_only_what_is_in_view() {
+  // Ten times the document, the same view: what is drawn is what the view shows, a code block's bar, name and copy
+  // button out of view not drawn, whatever the document's length.
+  let (short_rects, short_glyphs) = drawn(20);
+  let (long_rects, long_glyphs) = drawn(200);
+  assert!(short_rects > 0 && short_glyphs > 0);
+  assert!(
+    long_rects <= short_rects + short_rects / 5 && long_glyphs <= short_glyphs + short_glyphs / 5,
+    "a view of 200 sections draws {long_rects} rects and {long_glyphs} glyphs, of 20 sections {short_rects} and \
+     {short_glyphs}"
+  );
+}

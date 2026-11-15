@@ -243,6 +243,33 @@ impl TextInputState {
     self.inner.lock().overflow
   }
 
+  /// Sets whether a multiline input's lines wrap at its width.
+  pub(crate) fn set_line_wrap(&self, wrap: bool) {
+    let mut inner = self.inner.lock();
+    if inner.line_wrap == wrap {
+      return;
+    }
+    inner.line_wrap = wrap;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// Whether the input's lines wrap at its width: a multiline input's do unless it was told otherwise.
+  pub(crate) fn wraps_lines(&self) -> bool {
+    let inner = self.inner.lock();
+    inner.overflow == TextInputOverflow::Multiline && inner.line_wrap
+  }
+
+  /// Sets the numbers and the bands drawn beside the lines.
+  pub(crate) fn set_gutter(&self, gutter: Option<std::sync::Arc<crate::components::LineGutter>>) {
+    self.inner.lock().gutter = gutter;
+  }
+
+  /// The numbers and the bands drawn beside the lines, if the input has them.
+  pub(crate) fn gutter(&self) -> Option<std::sync::Arc<crate::components::LineGutter>> {
+    self.inner.lock().gutter.clone()
+  }
+
   pub(crate) fn set_rows(&self, min_rows: usize, max_rows: usize) {
     let min_rows = min_rows.max(1);
     let max_rows = max_rows.max(min_rows);

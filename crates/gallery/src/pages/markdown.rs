@@ -248,22 +248,21 @@ impl MarkdownPage {
       }
     };
     let document = Markdown::mount(ctx, props(source.get()));
-    let shown = Row::new()
+    // The source over the document: the document has the stage's whole width, as wide as a page of the board.
+    let shown = Column::new()
       .width(FILL)
       .spacing(24.0)
-      .align_items(Alignment::Start)
+      .align_items(Alignment::Stretch)
       .child(
-        Column::new().width(300.0).child(
-          Textarea::new(source.clone())
-            .label("Source")
-            .rows(16, 28)
-            .full_width(true)
-            .style(lurq::ui::TextareaPart::Control, |s| {
-              s.font_family(lurq::ui::FontFamily::Mono).font_size(12.0)
-            }),
-        ),
+        Textarea::new(source.clone())
+          .label("Source")
+          .rows(8, 14)
+          .full_width(true)
+          .style(lurq::ui::TextareaPart::Control, |s| {
+            s.font_family(lurq::ui::FontFamily::Mono).font_size(12.0)
+          }),
       )
-      .child(Column::new().flex(1.0).min_width(0.0).child(document));
+      .child(Column::new().width(FILL).min_width(0.0).child(document));
 
     let mut code = vec!["Markdown::mount(ctx, MarkdownProps::styled(source, prose)".to_owned()];
     if selectable {
@@ -304,7 +303,7 @@ impl MarkdownPage {
         shown: Shown::of(shown),
         fill: true,
         forceable: false,
-        facts: "the source on the left".to_owned(),
+        facts: "the source over the document".to_owned(),
         event: "on_task_change",
         code,
         tree,
@@ -419,7 +418,7 @@ impl Component for MarkdownPage {
     let mut sections = vec![
       Section::new(
         "Playground",
-        "The source on the left, the document on the right: type in the source and the document follows. Check a \
+        "The source over the document: type in the source and the document follows. Check a \
          task: the playground writes it into the source.",
         playground,
       ),

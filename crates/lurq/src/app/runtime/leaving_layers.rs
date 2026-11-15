@@ -116,6 +116,12 @@ impl Tree {
   /// with the tree just kept, and makes each something the tree only paints.
   /// One whose animations take no time is removed at once.
   pub(super) fn begin_leaving_children(&mut self) {
+    // A child that came back while it left went with the tree the render replaced: its time is no one's to wait
+    // for, and its id may be another node's by the time it would have been up.
+    let ended = crate::node::presence::take_ended_leaving();
+    if !ended.is_empty() {
+      self.leaving_children.retain(|child| !ended.contains(&child.root));
+    }
     let began = crate::node::presence::take_began_leaving();
     if began.is_empty() {
       return;

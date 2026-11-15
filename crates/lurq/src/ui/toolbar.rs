@@ -1264,8 +1264,9 @@ impl ToolbarView {
       let (dropped, open) = (self.dropped_signal.clone(), self.open.clone());
       let count = self.slots.len();
       let always = !self.secondary.is_empty();
-      // A dropped slot is laid out at no size: that is how the bar learns which are in the menu.
-      reference.observe_rect(move |rect| {
+      // A dropped slot is laid out at no size: that is how the bar learns which are in the menu, before the frame is
+      // painted, so the first frame at a width has its menu, its lines and its More button as they settle.
+      reference.observe_rect_before_paint(move |rect| {
         let now = rect.width <= 0.0 && rect.height <= 0.0;
         if dropped.get_untracked().get(index).copied() != Some(now) {
           dropped.update(|dropped| {

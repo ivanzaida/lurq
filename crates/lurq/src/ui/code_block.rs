@@ -14,12 +14,12 @@ use crate::{
   app::{
     component::Component,
     ctx::{Ctx, Timeout},
-    events::MouseEvent,
+    events::{MouseEvent, TextInputEvent},
     theme::{BorderSize, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
     window::Window,
   },
   code::{CodeTokenKind, tokens},
-  components::{Column, Row},
+  components::{Column, InputToken, InputTokenStyle, InputTokens, LineGutter, Row, TextInput},
   core::Signal,
   layout::{
     Alignment,
@@ -65,6 +65,10 @@ pub enum CodeBlockPart {
   Number,
   /// Comments.
   Comment,
+  /// The names of types, traits and modules: `App`, `lurq::`.
+  Type,
+  /// Brackets, operators and the other marks between names.
+  Punctuation,
 }
 
 names!(CodeBlockPart {
@@ -81,6 +85,8 @@ names!(CodeBlockPart {
   String => "string",
   Number => "number",
   Comment => "comment",
+  Type => "type",
+  Punctuation => "punctuation",
 });
 
 /// The states of a code block a recipe styles.
@@ -94,6 +100,8 @@ pub enum CodeBlockState {
   Wrap,
   /// It has just copied its code: its button shows a check.
   Copied,
+  /// It is drawn in a frame of its own: a fill, an edge and round corners.
+  Framed,
 }
 
 names!(CodeBlockState {
@@ -101,6 +109,7 @@ names!(CodeBlockState {
   LineNumbers => "line_numbers",
   Wrap => "wrap",
   Copied => "copied",
+  Framed => "framed",
 });
 
 /// What builds the nodes of a code block: a theme's in place of the default one.
@@ -146,12 +155,19 @@ pub struct CodeBlock {
   copied_text: Arc<str>,
   on_copy: Vec<CopyHandler>,
   selectable: bool,
+  framed: bool,
+  row_height: f32,
+  header: Option<bool>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
+
+/// How high a line of code is unless told: 17, the family of code's own line at 13, and 4 between two, as the
+/// board draws code.
+pub const CODE_BLOCK_ROW_HEIGHT: f32 = 21.0;
 
 impl CodeBlock {
   /// A block that shows `code`; a newline at its end is not a line of its own.
@@ -172,6 +188,9 @@ impl CodeBlock {
       copied_text: Arc::from("Copied"),
       on_copy: Vec::new(),
       selectable: true,
+      framed: true,
+      row_height: CODE_BLOCK_ROW_HEIGHT,
+      header: None,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -261,9 +280,33 @@ impl CodeBlock {
     self
   }
 
-  /// Whether a person selects the code with the pointer: on unless told otherwise.
+  /// Whether a person selects the code: on unless told otherwise. Selectable, the code is a stop of Tab, read
+  /// only, whose arrows move a caret through it, Shift with them selecting, Ctrl+A taking it all and Ctrl+C copying
+  /// what is selected; the pointer selects it across its lines. Off, it is text that what holds it may make
+  /// selectable (a Markdown document's own selection).
   pub fn selectable(mut self, selectable: bool) -> Self {
     self.selectable = selectable;
+    self
+  }
+
+  /// Whether it is drawn in a frame of its own, as it is unless told otherwise: a fill, an edge and round corners.
+  /// Off, the bar and the code stand on what holds them (a card of the app's that frames them).
+  pub fn framed(mut self, framed: bool) -> Self {
+    self.framed = framed;
+    self
+  }
+
+  /// Whether it has its bar over the code. Unless told, it has it where it has a title, a language or a copy
+  /// button; told not to, the language still colors the code and is told to tooling.
+  pub fn header(mut self, header: bool) -> Self {
+    self.header = Some(header);
+    self
+  }
+
+  /// How high each line of the code is, in pixels: [`CODE_BLOCK_ROW_HEIGHT`] unless told. The code keeps its
+  /// padding of the board around the lines.
+  pub fn row_height(mut self, height: f32) -> Self {
+    self.row_height = height.max(1.0);
     self
   }
 
@@ -320,14 +363,17 @@ impl CodeBlock {
   }
 
   fn build_with(self, theme: &Theme, copied: Option<Copied>) -> Element {
-    let has_header = self.copy_button || self.title.is_some() || self.language.is_some();
+    let has_header = self
+      .header
+      .unwrap_or(self.copy_button || self.title.is_some() || self.language.is_some());
     let is_copied = copied.as_ref().is_some_and(|copied| copied.on.get());
     let mut case = Case::new()
       .breakpoint(super::current_breakpoint())
       .state(CodeBlockState::Header, has_header)
       .state(CodeBlockState::LineNumbers, self.line_numbers)
       .state(CodeBlockState::Wrap, self.wrap)
-      .state(CodeBlockState::Copied, is_copied);
+      .state(CodeBlockState::Copied, is_copied)
+      .state(CodeBlockState::Framed, self.framed);
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
@@ -348,6 +394,9 @@ impl CodeBlock {
       copied: is_copied,
       on_copy: self.on_copy,
       selectable: self.selectable,
+      framed: self.framed,
+      row_height: self.row_height,
+      has_header,
       recipe: theme.resolve::<CodeBlock>(&case, Some(&self.rules)),
       forced: self.forced,
       window: super::theme::current_window(),
@@ -396,6 +445,11 @@ pub struct CodeBlockView {
   pub copied: bool,
   on_copy: Vec<CopyHandler>,
   pub selectable: bool,
+  pub framed: bool,
+  /// How high each line of the code is.
+  pub row_height: f32,
+  /// Whether it has its bar over the code.
+  pub has_header: bool,
   /// The style of each part of this block.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -441,7 +495,117 @@ impl CodeBlockView {
     let part = self.part(CodeBlockPart::Code);
     let mut style = part.rest().text.resolve(self.theme());
     style.color = self.color_of(&part, PaletteColor::Foreground);
+    style.line_height = self.row_height / style.font_size.max(1.0);
     style
+  }
+
+  /// The padding around the lines: the recipe's, less above and below by what a row takes past the family's own
+  /// line, so that the first line's glyphs stand where they would on a line of its own.
+  fn code_padding(&self) -> (f32, f32, f32, f32) {
+    let rest = self.part(CodeBlockPart::Code).rest();
+    let style = self.code_style();
+    let natural = style.font_size * self.theme().typography_style(TypographyStyle::Mono).line_height;
+    let leading = ((self.row_height - natural) / 2.0).max(0.0);
+    let start = self.px(rest.padding_start.or(rest.padding_x));
+    let end = self.px(rest.padding_end.or(rest.padding_x));
+    let top = (self.px(rest.padding_top.or(rest.padding_y)) - leading).max(0.0);
+    let bottom = (self.px(rest.padding_bottom.or(rest.padding_y)) - leading).max(0.0);
+    (start, end, top, bottom)
+  }
+
+  /// The code as one text a person selects with the keyboard and the pointer: a read-only input of many lines, its
+  /// words in their colors, its numbers and its bands in its gutter where it lays its lines out.
+  fn code_input(&self) -> Element {
+    let style = self.code_style();
+    let (start, end, top, bottom) = self.code_padding();
+    let number_part = self.part(CodeBlockPart::LineNumber);
+    let number_rest = number_part.rest();
+    let gap = self.px(number_rest.padding_end.or(number_rest.padding_x));
+    let digits = self.number(self.lines().len().saturating_sub(1)).len() as f32;
+    // The figures of the family of code are as wide as each other: about six tenths of its size each.
+    let numbers = if self.line_numbers {
+      digits * style.font_size * 0.6 + gap
+    } else {
+      0.0
+    };
+    let mut number_style = number_part.rest().text.resolve(self.theme());
+    number_style.line_height = style.line_height;
+    let mut gutter = LineGutter::new(number_style)
+      .first_line(self.first_line)
+      .numbers(self.line_numbers)
+      .gap(gap)
+      .color(number_rest.foreground.unwrap_or(PaletteColor::MutedForeground.into()))
+      .marked_color(
+        self
+          .part(CodeBlockPart::Code)
+          .rest()
+          .foreground
+          .unwrap_or(PaletteColor::Foreground.into()),
+      );
+    if !self.highlighted.is_empty() {
+      let band = match self.part(CodeBlockPart::Marked).rest().background {
+        Some(crate::node::BackgroundColor::Palette(role)) => TextColor::Palette(role),
+        Some(crate::node::BackgroundColor::Color(color)) => TextColor::Color(color),
+        _ => TextColor::Palette(PaletteColor::Highlight),
+      };
+      gutter = gutter.marked(self.highlighted.iter().copied(), band);
+    }
+    let mut input = TextInput::styled(Signal::new(self.code.to_string()), style)
+      .multiline()
+      .wrap(self.wrap)
+      .tokens(self.input_tokens())
+      .line_gutter(gutter)
+      .padding_left(start + numbers)
+      .padding_right(end)
+      .padding_top(top)
+      .padding_bottom(bottom)
+      .on_input(|event: TextInputEvent| event.prevent_default())
+      // A stop of Tab wherever it is, as a control of the design system is.
+      .tab_index(0)
+      .describe("a11y_role", "code")
+      .describe("a11y_name", self.name())
+      .describe("a11y_readonly", "true");
+    if let Some(language) = &self.language {
+      input = input.describe("a11y_language", language.clone());
+    }
+    input = if self.wrap {
+      input.width(Dimension::Pct(100.0))
+    } else {
+      // As wide as the room the code scrolls in, or as its longest line where that is wider.
+      input.flex_full(1.0, 0.0, None)
+    };
+    if let Some(id) = &self.id {
+      input = input.id(format!("{id}-code"));
+    }
+    input.into()
+  }
+
+  /// The code's words in the colors of their kinds, as the input draws them: a run of one kind on one line each.
+  fn input_tokens(&self) -> InputTokens {
+    let language = self.language.as_deref().unwrap_or("");
+    let mut runs = Vec::new();
+    for token in tokens(&self.code, language) {
+      let Some(part) = token_part(token.kind) else {
+        continue;
+      };
+      let color = self
+        .part(part)
+        .rest()
+        .foreground
+        .unwrap_or(PaletteColor::Foreground.into());
+      let style = InputTokenStyle::new(color, crate::node::color::Color::new(0, 0, 0, 0));
+      // A token of the input stands on one line: one of many lines is one run a line.
+      let mut at = token.range.start;
+      for piece in self.code[token.range.clone()].split_inclusive('\n') {
+        let text = piece.trim_end_matches('\n');
+        if !text.is_empty() {
+          runs.push(InputToken::new(at..at + text.len(), style.clone()));
+        }
+        at += piece.len();
+      }
+    }
+    InputTokens::new(&self.code, runs)
+      .unwrap_or_else(|_| InputTokens::new(&self.code, Vec::new()).expect("no tokens are always valid"))
   }
 
   fn color_of(&self, part: &ResolvedPart, otherwise: PaletteColor) -> crate::node::color::Color {
@@ -461,9 +625,11 @@ impl CodeBlockView {
     };
     let kinds = [
       (CodeTokenKind::Keyword, styled(CodeBlockPart::Keyword)),
+      (CodeTokenKind::Type, styled(CodeBlockPart::Type)),
       (CodeTokenKind::String, styled(CodeBlockPart::String)),
       (CodeTokenKind::Number, styled(CodeBlockPart::Number)),
       (CodeTokenKind::Comment, styled(CodeBlockPart::Comment)),
+      (CodeTokenKind::Punctuation, styled(CodeBlockPart::Punctuation)),
     ];
     let language = self.language.as_deref().unwrap_or("");
     let mut spans: Vec<RichTextSpan> = tokens(code, language)
@@ -510,7 +676,7 @@ impl CodeBlockView {
   /// The bar: the title, or the language, at its start and the copy button at its end.
   pub fn header(&self) -> Option<Element> {
     let heading = self.heading();
-    if heading.is_none() && !self.copy_button {
+    if !self.has_header {
       return None;
     }
     let mut bar = Row::new()
@@ -579,7 +745,12 @@ impl CodeBlockView {
     if let Some(id) = &self.id {
       code = Row::new().id(format!("{id}-code")).child(code).into();
     }
-    let mut row = Row::new().align_items(Alignment::Start).part(&code_part);
+    let (_, _, pad_top, pad_bottom) = self.code_padding();
+    let mut row = Row::new()
+      .align_items(Alignment::Start)
+      .part(&code_part)
+      .padding_top(pad_top)
+      .padding_bottom(pad_bottom);
     if self.line_numbers {
       let mut column = Column::new()
         .align_items(Alignment::End)
@@ -610,9 +781,7 @@ impl CodeBlockView {
     // The bands behind the lines picked out: hard stops of a gradient down the room the lines are in, which runs
     // across the room the code scrolls in, or across the code where it is wider.
     let pitch = self.line_pitch();
-    let rest = code_part.rest();
-    let top = self.px(rest.padding_top.or(rest.padding_y));
-    let bottom = self.px(rest.padding_bottom.or(rest.padding_y));
+    let (top, bottom) = (pad_top, pad_bottom);
     let height = top + bottom + pitch * lines.len() as f32;
     let band = self
       .part(CodeBlockPart::Marked)
@@ -655,6 +824,7 @@ impl CodeBlockView {
   fn number_style(&self, highlighted: Option<bool>) -> TextStyle {
     let part = self.part(CodeBlockPart::LineNumber);
     let mut style = part.rest().text.resolve(self.theme());
+    style.line_height = self.code_style().line_height;
     style.color = if highlighted == Some(true) {
       self.color_of(&self.part(CodeBlockPart::Code), PaletteColor::Foreground)
     } else {
@@ -680,11 +850,14 @@ impl CodeBlockView {
       self.px(rest.padding_start.or(rest.padding_x)),
       self.px(rest.padding_end.or(rest.padding_x)),
     );
+    let (_, _, pad_top, pad_bottom) = self.code_padding();
     let mut column = Column::new()
       .width(Dimension::Pct(100.0))
       .part(&code_part)
       .padding_left(0.0)
-      .padding_right(0.0);
+      .padding_right(0.0)
+      .padding_top(pad_top)
+      .padding_bottom(pad_bottom);
     for (index, line) in lines.iter().enumerate() {
       let mut row = Row::new()
         .width(Dimension::Pct(100.0))
@@ -732,13 +905,17 @@ impl CodeBlockView {
 
   /// The room the code scrolls in: sideways where it does not wrap, down past the greatest height.
   pub fn body(&self) -> Element {
-    let content = if self.wrap { self.wrapped() } else { self.unwrapped() };
+    let content = match (self.selectable, self.wrap) {
+      (true, _) => self.code_input(),
+      (false, true) => self.wrapped(),
+      (false, false) => self.unwrapped(),
+    };
     let orientation = match (self.wrap, self.max_height.is_some()) {
       (true, _) => ScrollAreaOrientation::Vertical,
       (false, false) => ScrollAreaOrientation::Horizontal,
       (false, true) => ScrollAreaOrientation::Both,
     };
-    let header = if self.heading().is_some() || self.copy_button {
+    let header = if self.has_header {
       self.part(CodeBlockPart::Header).rest().height
     } else {
       None
@@ -751,8 +928,11 @@ impl CodeBlockView {
       .width(Length::Fill)
       .orientation(orientation)
       .fill_width(true)
-      .label(&self.name())
       .child(content);
+    // The code that takes the focus itself is the stop of Tab; text that does not is reached by the area's keys.
+    if !self.selectable {
+      area = area.label(&self.name());
+    }
     if let Some(Length::Px(max)) = self.max_height {
       area = area.max_height((max - header).max(0.0));
     }
@@ -794,6 +974,19 @@ impl CodeBlockView {
   }
 }
 
+/// The part whose foreground colors a kind of token, or none for plain code.
+fn token_part(kind: CodeTokenKind) -> Option<CodeBlockPart> {
+  match kind {
+    CodeTokenKind::Plain => None,
+    CodeTokenKind::Keyword => Some(CodeBlockPart::Keyword),
+    CodeTokenKind::Type => Some(CodeBlockPart::Type),
+    CodeTokenKind::String => Some(CodeBlockPart::String),
+    CodeTokenKind::Number => Some(CodeBlockPart::Number),
+    CodeTokenKind::Comment => Some(CodeBlockPart::Comment),
+    CodeTokenKind::Punctuation => Some(CodeBlockPart::Punctuation),
+  }
+}
+
 impl Themed for CodeBlock {
   const NAME: &'static str = "code_block";
   type Renderer = CodeBlockRenderer;
@@ -809,16 +1002,14 @@ impl Themed for CodeBlock {
       Background, Border as Edge, Foreground, Highlight, HighlightForeground, Info, Muted, MutedForeground, Success,
       Warning,
     };
-    // A line of 17, the code's own, and 4 between two: each line is 21, and the room has 2 less padding above and
-    // below, so that the first line stands where the design draws it.
-    let line = 21.0 / 13.0;
+    // A line is `row_height` high, 21 unless told: the code's own line of 17 and 4 between two. The room around the
+    // lines is 14, less above and below by what a row takes past the code's own line.
     Recipe::new()
-      .base(Root, |s| {
-        s.width(Length::Fill)
-          .background(Background)
+      .base(Root, |s| s.width(Length::Fill).foreground(Foreground))
+      .state(CodeBlockState::Framed, Root, |s| {
+        s.background(Background)
           .border(Border::inside(BorderSize::Sm, Edge))
           .radius(RadiusSize::Lg)
-          .foreground(Foreground)
       })
       .base(Header, |s| {
         s.height(36.0)
@@ -849,15 +1040,13 @@ impl Themed for CodeBlock {
       .base(Code, |s| {
         s.typography(TypographyStyle::Mono)
           .font_size(13.0)
-          .line_height(line)
           .foreground(Foreground)
           .padding_x(14.0)
-          .padding_y(12.0)
+          .padding_y(14.0)
       })
       .base(LineNumber, |s| {
         s.typography(TypographyStyle::Mono)
           .font_size(13.0)
-          .line_height(line)
           .foreground(MutedForeground)
           .padding_end(16.0)
       })
@@ -866,6 +1055,9 @@ impl Themed for CodeBlock {
       .base(String, |s| s.foreground(Success))
       .base(Number, |s| s.foreground(Warning))
       .base(Comment, |s| s.foreground(MutedForeground))
+      // Where the board is silent, as the gallery's code had them: names of types in `Info`, marks quiet.
+      .base(Type, |s| s.foreground(Info))
+      .base(Punctuation, |s| s.foreground(MutedForeground))
   }
 }
 
