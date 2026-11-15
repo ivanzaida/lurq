@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -95,6 +95,10 @@ const KEYS: [(&str, &str); 9] = [
     "Takes the focus and says it cannot be chosen: the keys pass no day by, and Enter does nothing on it.",
   ),
 ];
+
+/// How wide a calendar of two months is, and one of a month with the numbers of its weeks.
+const TWO_MONTHS: f32 = 488.0;
+const WEEK_NUMBERS: f32 = 280.0;
 
 /// The months in Roman numerals.
 const NUMERALS: [&str; 12] = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
@@ -473,10 +477,18 @@ impl Component for CalendarPage {
         .memory(&self.kept[0]),
       &format!("{} · the month shown: {}", says(self.due.get()), self.shown.get()),
     ));
-    let range = items().child(item(
-      Calendar::new(self.stay.clone()).months(2).memory(&self.kept[1]),
-      &says_range(self.stay.get()),
-    ));
+    // A month is as wide as its seven days, and no narrower: two of them side by side, or one with the numbers
+    // of its weeks, scroll sideways on a stage that has less room.
+    let stage = self.frame.stage_room();
+    let range = fit(
+      "range",
+      stage,
+      TWO_MONTHS,
+      items().child(item(
+        Calendar::new(self.stay.clone()).months(2).memory(&self.kept[1]),
+        &says_range(self.stay.get()),
+      )),
+    );
     let blocked = items()
       .child(item(
         Calendar::new(Signal::new(None::<Date>))
@@ -488,12 +500,17 @@ impl Component for CalendarPage {
       ))
       .child(item(Calendar::new(Signal::new(Some(today))).disabled(true), "disabled"));
     let locales = items()
-      .child(item(
-        Calendar::new(Signal::new(Some(today)))
-          .locale(DateLocale::for_tag("en-US"))
-          .week_numbers(true)
-          .memory(&self.kept[3]),
-        "en-US: from Sunday, with week numbers",
+      .child(fit(
+        "week-numbers",
+        stage,
+        WEEK_NUMBERS,
+        item(
+          Calendar::new(Signal::new(Some(today)))
+            .locale(DateLocale::for_tag("en-US"))
+            .week_numbers(true)
+            .memory(&self.kept[3]),
+          "en-US: from Sunday, with week numbers",
+        ),
       ))
       .child(item(
         Calendar::new(Signal::new(Some(today)))

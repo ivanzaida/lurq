@@ -309,7 +309,7 @@ impl Component for ShortcutRecorderPage {
       ));
     let given = self.field.get();
     let field = items().child(item(
-      Column::new().width(280.0).child({
+      Column::new().width(280.0).max_width(FILL).child({
         let recorder = ShortcutRecorder::optional(self.field.clone()).platform(KeyPlatform::Standard);
         let field = Field::new("Quick open", recorder);
         let field = if given.is_none() {

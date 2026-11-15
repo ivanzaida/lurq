@@ -15,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet, segmented_fill, text},
+  kit::{FILL, fit, phone, props_table, quiet, segmented_fill, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -61,6 +61,19 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .max_width(FILL)
     .spacing(9.0)
     .child(Row::new().max_width(FILL).child(shown))
+    .child(quiet(caption, 12.0))
+}
+
+/// Tabs on a stage with what they are under them. Tabs are as wide as their labels and no narrower: on a stage
+/// with less than the `least` they need, they scroll sideways in it.
+fn fitted(key: &str, room: f32, least: f32, tabs: impl Into<Element>, caption: &str) -> Column {
+  if room <= 0.0 || room >= least {
+    return item(tabs, caption);
+  }
+  Column::new()
+    .width(FILL)
+    .spacing(9.0)
+    .child(fit(key, room, least, tabs))
     .child(quiet(caption, 12.0))
 }
 
@@ -206,7 +219,9 @@ impl TabsPage {
         title: "Tabs",
         make: Arc::new(move || plain(selected).into()),
         shown: Shown::of(shown),
-        fill: true,
+        // Four tabs are wider than the stage of a window as narrow as a phone: there they keep their width,
+        // and the stage scrolls to what does not fit.
+        fill: !phone(),
         forceable: true,
         facts: format!("{variant_name} · {orientation_name}"),
         event: "on_change",
@@ -282,6 +297,7 @@ impl Component for TabsPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let says = |value: &str| format!("the signal has: {value:?}");
+    let room = self.frame.stage_room();
     let live = item(
       Tabs::new(
         self.section.clone(),
@@ -310,7 +326,10 @@ impl Component for TabsPage {
         Tabs::controlled(0, [(0, "General"), (1, "Appearance"), (2, "Shortcuts")], |_| {}),
         "default",
       ))
-      .child(item(
+      .child(fitted(
+        "with-counts",
+        room,
+        296.0,
         Tabs::controlled(
           0,
           [
@@ -322,7 +341,10 @@ impl Component for TabsPage {
         ),
         "default with counts",
       ))
-      .child(item(
+      .child(fitted(
+        "line",
+        room,
+        724.0,
         Tabs::new(
           self.memory.clone(),
           line_tabs.map(|(value, label, count)| Tab::new(value, label).count(count).separated(value == "archived")),
@@ -370,7 +392,10 @@ impl Component for TabsPage {
         .variant(TabsVariant::Line),
         "a disabled tab",
       ))
-      .child(item(
+      .child(fitted(
+        "icons",
+        room,
+        276.0,
         Tabs::controlled(
           0,
           [
@@ -384,7 +409,7 @@ impl Component for TabsPage {
         "icons and a count",
       ));
 
-    let overflowing = Column::new().width(420.0).child(
+    let overflowing = Column::new().width(420.0).max_width(FILL).child(
       Tabs::new(
         self.canvas.clone(),
         OVERFLOWING.iter().enumerate().map(|(index, label)| (index, *label)),

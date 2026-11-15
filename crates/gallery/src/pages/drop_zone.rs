@@ -316,7 +316,7 @@ impl Component for DropZonePage {
         })
       })
       .mount(ctx);
-    let mut said = Column::new().spacing(4.0);
+    let mut said = Column::new().max_width(FILL).spacing(4.0);
     if given.is_empty() {
       said = said.child(quiet(
         "nothing yet: drop a file from the system on it, or press it",
@@ -326,7 +326,7 @@ impl Component for DropZonePage {
     for line in given.iter().rev().take(6) {
       said = said.child(quiet(line, 12.0));
     }
-    let live = items().child(Column::new().spacing(12.0).child(heard).child(said));
+    let live = items().child(Column::new().max_width(FILL).spacing(12.0).child(heard).child(said));
 
     let states = items()
       .child(item(DropZone::new(), "at rest"))

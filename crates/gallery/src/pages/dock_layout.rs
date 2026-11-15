@@ -21,7 +21,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, icon, line, mono, props_table, quiet, text},
+  kit::{FILL, fit, icon, line, mono, phone, props_table, quiet, text},
   playground::{Playground, Shown, Spec, divider, flag},
 };
 
@@ -36,6 +36,9 @@ const PLAY_HEIGHT: f32 = 360.0;
 const BOARD_HEIGHT: f32 = 440.0;
 /// How high the smaller layouts of the page are.
 const SMALL_HEIGHT: f32 = 300.0;
+/// The least a layout of the page is wide: the explorer beside the terminal's group of three tabs, and the
+/// panel that floats where the page puts it. In a narrower card the layout scrolls sideways.
+const LEAST_WIDTH: f32 = 640.0;
 
 /// What `blur.rs` holds.
 const BLUR: [&str; 8] = [
@@ -510,13 +513,23 @@ fn keys_list() -> Column {
           chips.child(Kbd::shortcut(key))
         },
       );
-      list.child(
+      // In a window as narrow as a phone the keys stand over what they do, which has no room beside them.
+      list.child(if phone() {
+        Element::from(
+          Column::new()
+            .width(FILL)
+            .spacing(6.0)
+            .child(chips)
+            .child(quiet(does, 13.0)),
+        )
+      } else {
         Row::new()
           .width(FILL)
           .align_items(Alignment::Center)
           .child(Row::new().width(220.0).child(chips))
-          .child(Column::new().flex(1.0).child(quiet(does, 13.0))),
-      )
+          .child(Column::new().flex(1.0).child(quiet(does, 13.0)))
+          .into()
+      })
     })
 }
 
@@ -606,7 +619,16 @@ impl DockLayoutPage {
         ))
       })
       .on_detach(move |panel| detached(format!("on_detach({panel:?})")));
-    let shown = Shown::built(move |ctx| room(layout.mount(ctx), PLAY_HEIGHT).into());
+    // In a window as narrow as a phone the layout keeps the least width its panels need, and the stage scrolls
+    // to what does not fit.
+    let shown = Shown::built(move |ctx| {
+      let layout = room(layout.mount(ctx), PLAY_HEIGHT);
+      if phone() {
+        layout.width(LEAST_WIDTH).into()
+      } else {
+        layout.into()
+      }
+    });
 
     let mut code = vec![
       "let layout = ctx.signal({".to_owned(),
@@ -711,7 +733,7 @@ impl DockLayoutPage {
         title: "Dock Layout",
         make,
         shown,
-        fill: true,
+        fill: !phone(),
         forceable: false,
         facts: facts(&self.state.get()),
         event: "on_change / on_close / on_detach",
@@ -778,6 +800,19 @@ impl Component for DockLayoutPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let playground = self.play(ctx);
+    // A layout keeps the width its panels need: a card narrower than that scrolls it sideways. The layout that
+    // scrolls is another than the one as wide as the stage, by its key: a layout keeps the sizes its panes
+    // were first laid out at, and those of a stage too narrow for them are not the ones the state says.
+    let stage_room = self.frame.stage_room();
+    let scrolls = stage_room > 0.0 && stage_room < LEAST_WIDTH;
+    let wide = |key: &str, layout: Column| fit(key, stage_room, LEAST_WIDTH, layout);
+    let keyed = |key: &str| {
+      if scrolls {
+        format!("{key}-scrolled")
+      } else {
+        key.to_owned()
+      }
+    };
 
     let window = room(
       DockLayout::new(
@@ -785,10 +820,11 @@ impl Component for DockLayoutPage {
         panels(tree(&self.selected, &self.open), PLAIN, None),
       )
       .id("board-dock")
-      .key("board-dock")
+      .key(keyed("board-dock"))
       .mount(ctx),
       BOARD_HEIGHT,
     );
+    let window = wide("board", window);
 
     let stored_text = self.stored.get().to_text();
     let saved = self.saved.get();
@@ -800,12 +836,15 @@ impl Component for DockLayoutPage {
     let storing = Column::new()
       .width(FILL)
       .spacing(12.0)
-      .child(room(
-        DockLayout::new(self.stored.clone(), panels(file_rows(), PLAIN, None))
-          .id("stored-dock")
-          .key("stored-dock")
-          .mount(ctx),
-        SMALL_HEIGHT,
+      .child(wide(
+        "stored",
+        room(
+          DockLayout::new(self.stored.clone(), panels(file_rows(), PLAIN, None))
+            .id("stored-dock")
+            .key(keyed("stored-dock"))
+            .mount(ctx),
+          SMALL_HEIGHT,
+        ),
       ))
       .child(
         Column::new()
@@ -856,16 +895,17 @@ impl Component for DockLayoutPage {
     let floated = room(
       DockLayout::new(self.floated.clone(), panels(file_rows(), PLAIN, None))
         .id("floating-dock")
-        .key("floating-dock")
+        .key(keyed("floating-dock"))
         .mount(ctx),
       SMALL_HEIGHT,
     );
+    let floated = wide("floated", floated);
 
     let opened = self.emptied.clone();
     let emptied = room(
       DockLayout::new(self.emptied.clone(), panels(file_rows(), PLAIN, None))
         .id("empty-dock")
-        .key("empty-dock")
+        .key(keyed("empty-dock"))
         .empty(
           EmptyState::new("No file open")
             .description("Open a file from the explorer, or drag a panel here.")
@@ -885,6 +925,7 @@ impl Component for DockLayoutPage {
         .mount(ctx),
       SMALL_HEIGHT,
     );
+    let emptied = wide("emptied", emptied);
 
     let layout_rows = [
       (

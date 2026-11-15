@@ -330,6 +330,7 @@ impl Component for ProgressPage {
       ));
     let surface = Column::new()
       .width(360.0)
+      .max_width(FILL)
       .height(96.0)
       .clip()
       .rounded(RadiusSize::Lg)

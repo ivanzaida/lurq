@@ -316,7 +316,7 @@ impl Component for TextareaPage {
         field.description(&format!("{told} characters.")).valid(true)
       }
     };
-    let in_field = items().child(Column::new().width(360.0).child(in_field));
+    let in_field = items().child(Column::new().width(360.0).max_width(FILL).child(in_field));
     let rows = items()
       .child(item(
         Textarea::new(Signal::new(String::new()))

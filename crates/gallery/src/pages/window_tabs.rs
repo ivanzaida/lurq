@@ -294,7 +294,12 @@ impl WindowTabsPage {
         files.selected.set(0);
       })
     };
-    let measured = self.playground.measure(strip.mount(ctx));
+    // The row that is measured gives way with the strip in it, in a bar narrower than its tabs.
+    let measured = self
+      .playground
+      .measure(strip.mount(ctx))
+      .flex_shrink(1.0)
+      .min_width(0.0);
     self.playground.card(
       ctx,
       Spec {
@@ -361,11 +366,14 @@ impl Component for WindowTabsPage {
 
     // A strip whose value is no tab's has its first tab as the one Tab stops on: what is forced on it.
     let none = usize::MAX;
+    // What does not fit beside the others in a row goes on to the next line.
     let states = Column::new()
       .spacing(24.0)
       .child(
         Row::new()
+          .width(FILL)
           .spacing(32.0)
+          .wrap()
           .align_items(Alignment::Start)
           .child(item(WindowTabs::controlled(0, [file(0)], |_| {}), "selected"))
           .child(item(
@@ -379,7 +387,9 @@ impl Component for WindowTabsPage {
       )
       .child(
         Row::new()
+          .width(FILL)
           .spacing(32.0)
+          .wrap()
           .align_items(Alignment::Start)
           .child(item(
             WindowTabs::controlled(none, [file(1).dirty(true)], |_| {}),
@@ -396,7 +406,9 @@ impl Component for WindowTabsPage {
       )
       .child(
         Row::new()
+          .width(FILL)
           .spacing(32.0)
+          .wrap()
           .align_items(Alignment::Start)
           .child(item(
             WindowTabs::controlled(0, [file(0), file(2).disabled(true)], |_| {}),

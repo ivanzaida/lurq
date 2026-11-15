@@ -499,7 +499,8 @@ impl Component for NumberInputPage {
             .width(FILL)
             .align_items(Alignment::Center)
             .child(Row::new().width(140.0).child(Kbd::new(key)))
-            .child(quiet(does, 13.0)),
+            // What the key does wraps in the room beside the key.
+            .child(Column::new().flex(1.0).min_width(0.0).child(quiet(does, 13.0))),
         )
       });
     let rows = [

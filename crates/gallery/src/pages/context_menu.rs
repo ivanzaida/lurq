@@ -258,7 +258,11 @@ impl Component for ContextMenuPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     // A list of files, each with a menu of its own: one is open at a time.
-    let mut list = Column::new().width(280.0).spacing(2.0).align_items(Alignment::Stretch);
+    let mut list = Column::new()
+      .width(280.0)
+      .max_width(FILL)
+      .spacing(2.0)
+      .align_items(Alignment::Stretch);
     for (file, open) in FILES.iter().zip(&self.files_open) {
       let did = |what: &str| says(&self.files_did, &format!("{what} {file}"));
       list = list.child(

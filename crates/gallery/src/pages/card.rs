@@ -16,7 +16,7 @@ use lurq::{
   node::{BoxShadowValue, Element},
   ui::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardPart, CardSize, CardVariant, Field, Input,
-    Interaction, Select, SelectSize, Switch, icons,
+    Interaction, Length, Select, SelectSize, Switch, icons,
   },
 };
 
@@ -55,6 +55,16 @@ fn items() -> Row {
     .spacing(24.0)
     .wrap()
     .align_items(Alignment::Start)
+}
+
+/// A card at the width the board draws it, and no wider than what holds it. It cuts nothing off: a card's
+/// shadow falls outside it.
+fn held(width: f32, card: Card) -> Column {
+  Column::new()
+    .width(width)
+    .max_width(FILL)
+    .overflow_visible()
+    .child(card.width(Length::Fill))
 }
 
 /// A row of the content: what the setting is on the left, its switch at the end.
@@ -283,7 +293,6 @@ impl CardPage {
   /// The board's card: the appearance of the app, a field and a switch, and two buttons.
   fn appearance(&self) -> Card {
     Card::new()
-      .width(360.0)
       .title("Appearance")
       .description("How lurq looks on this device.")
       .child(
@@ -316,7 +325,6 @@ impl CardPage {
   /// corners of `radius-lg` and no shadow.
   fn settings_card(&self) -> Card {
     Card::new()
-      .width(340.0)
       .style(CardPart::Root, |s| {
         s.radius(RadiusSize::Lg).shadow(BoxShadowValue::none())
       })
@@ -444,7 +452,7 @@ impl Component for CardPage {
         12.0,
       ));
     let composed = items()
-      .child(item(self.settings_card(), "settings card"))
+      .child(item(held(340.0, self.settings_card()), "settings card"))
       .child(item(Self::stat_card(), "stat card"));
     let rows = [
       (
@@ -542,7 +550,7 @@ impl Component for CardPage {
            that is not pressed is read: Tab goes to each control in it.",
           self.frame.demo(
             0,
-            items().child(self.appearance()),
+            items().child(held(360.0, self.appearance())),
             "Card::new().title(..).description(..).child(..).footer(..)",
             &[
               "Card::new()",

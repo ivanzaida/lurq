@@ -352,7 +352,7 @@ impl Component for MentionsPage {
         field.error("Mention who takes it over.")
       }
     };
-    let in_field = items().child(Column::new().width(360.0).child(in_field));
+    let in_field = items().child(Column::new().width(360.0).max_width(FILL).child(in_field));
     let props = [
       (
         "value",

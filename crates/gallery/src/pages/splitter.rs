@@ -350,9 +350,11 @@ impl SplitterPage {
       ))
       .mount(ctx);
     Row::new()
+      .width(FILL)
       .child(
         Column::new()
           .width(420.0)
+          .max_width(FILL)
           .height(180.0)
           .align_items(Alignment::Stretch)
           .child(splitter),

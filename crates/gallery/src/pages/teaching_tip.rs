@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table},
+  kit::{FILL, phone, props_table},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -383,6 +383,11 @@ impl Component for TeachingTipPage {
         .variant(ButtonVariant::Secondary)
         .on_click(move |_| step.set(Some(0)))
     };
+    let steps = Row::new()
+      .align_items(Alignment::Center)
+      .child(target("Theme", icons::PALETTE, theme))
+      .child(target("Panels", icons::LAYERS, panels))
+      .child(target("Settings", icons::SETTINGS, settings));
     let tour_stage = Column::new()
       .width(FILL)
       .padding_top(24.0)
@@ -391,12 +396,14 @@ impl Component for TeachingTipPage {
       .align_items(Alignment::Center)
       .child(start)
       .child(
-        Row::new()
-          .spacing(96.0)
-          .align_items(Alignment::Center)
-          .child(target("Theme", icons::PALETTE, theme))
-          .child(target("Panels", icons::LAYERS, panels))
-          .child(target("Settings", icons::SETTINGS, settings)),
+        // The steps stand far apart, so that the tip is seen to move. A window as narrow as a phone has no
+        // room for that: they are closer there, and the one that does not fit beside the others goes on to
+        // the next line.
+        if phone() {
+          steps.width(FILL).wrap().spacing(16.0).justify(Justify::Center)
+        } else {
+          steps.spacing(96.0)
+        },
       )
       .child(tour.mount(ctx));
 

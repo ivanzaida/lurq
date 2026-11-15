@@ -398,6 +398,7 @@ impl Component for ComboboxPage {
     ));
     let form = Column::new()
       .width(420.0)
+      .max_width(FILL)
       .spacing(16.0)
       .child(
         Field::new("Display name", Input::new(self.name.clone()).full_width(true)).orientation(Orientation::Horizontal),

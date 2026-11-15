@@ -281,6 +281,7 @@ impl Component for ActionBarPage {
     };
     let phone = Stack::new()
       .width(360.0)
+      .max_width(FILL)
       .height(240.0)
       .overflow_visible()
       .child(list(&self.phone, 240.0, &self.rows[2]))

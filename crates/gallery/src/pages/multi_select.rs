@@ -347,6 +347,7 @@ impl Component for MultiSelectPage {
       .child(item(showing(&[]).loading(true), "loading"));
     let form = Column::new()
       .width(440.0)
+      .max_width(FILL)
       .spacing(16.0)
       .child(
         Field::new("Display name", Input::new(self.name.clone()).full_width(true)).orientation(Orientation::Horizontal),

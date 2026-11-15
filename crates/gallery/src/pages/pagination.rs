@@ -15,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -25,6 +25,23 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .max_width(FILL)
     .spacing(9.0)
     .child(Row::new().max_width(FILL).child(shown))
+    .child(quiet(caption, 12.0))
+}
+
+/// How long the row of a pagination with an ellipsis in it is, and the same with no siblings.
+const ROW: f32 = 356.0;
+const ROW_NO_SIBLINGS: f32 = 276.0;
+
+/// A pagination on a stage with what it is under it. Its row is as long as its buttons and no shorter: on a
+/// stage with less than the `least` it needs, it scrolls sideways in it.
+fn fitted(key: &str, room: f32, least: f32, shown: impl Into<Element>, caption: &str) -> Column {
+  if room <= 0.0 || room >= least {
+    return item(shown, caption);
+  }
+  Column::new()
+    .width(FILL)
+    .spacing(9.0)
+    .child(fit(key, room, least, shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -205,21 +222,37 @@ impl Component for PaginationPage {
 
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let says = |page: &Signal<usize>| format!("the signal has: {}", page.get());
+    let room = self.frame.stage_room();
     let live = stacked()
-      .child(item(Pagination::new(self.results.clone(), 20), &says(&self.results)))
-      .child(item(
+      .child(fitted(
+        "live",
+        room,
+        ROW,
+        Pagination::new(self.results.clone(), 20),
+        &says(&self.results),
+      ))
+      .child(fitted(
+        "board",
+        room,
+        ROW_NO_SIBLINGS,
         Pagination::new(self.board.clone(), 12).siblings(0),
         &format!("no siblings, as the board draws it · {}", says(&self.board)),
       ));
     // The same pagination on five pages of twenty: the row is as long on each.
     let moving = [1, 4, 5, 16, 20].into_iter().fold(stacked(), |column, current| {
-      column.child(item(
+      column.child(fitted(
+        &format!("on-page-{current}"),
+        room,
+        ROW,
         Pagination::controlled(current, 20, |_| {}),
         &format!("on page {current} of 20"),
       ))
     });
     let edges = stacked()
-      .child(item(
+      .child(fitted(
+        "seven",
+        room,
+        ROW,
         Pagination::controlled(1, 7, |_| {}),
         "7 pages: every one is drawn",
       ))
@@ -228,11 +261,20 @@ impl Component for PaginationPage {
         "1 page: previous and next are disabled",
       ))
       .child(item(Pagination::controlled(0, 0, |_| {}), "no pages"))
-      .child(item(Pagination::controlled(4, 12, |_| {}).disabled(true), "disabled"));
+      .child(fitted(
+        "disabled",
+        room,
+        ROW,
+        Pagination::controlled(4, 12, |_| {}).disabled(true),
+        "disabled",
+      ));
     // The board's compact form, as wide as the board draws it, over the rows of a table.
     let size = self.size.get();
     let compact = stacked()
-      .child(item(
+      .child(fitted(
+        "rows",
+        room,
+        440.0,
         Column::new().width(440.0).child(
           Pagination::for_items(self.rows.clone(), 284, size)
             .compact(true)
@@ -257,7 +299,8 @@ impl Component for PaginationPage {
             .width(FILL)
             .align_items(Alignment::Center)
             .child(chord)
-            .child(quiet(does, 13.0)),
+            // What the keys do wraps in the room beside them.
+            .child(Column::new().flex(1.0).min_width(0.0).child(quiet(does, 13.0))),
         )
       });
     let rows = [

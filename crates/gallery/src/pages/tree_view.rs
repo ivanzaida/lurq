@@ -12,7 +12,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Badge, Button, ButtonSize, ButtonVariant, Interaction, TreeItem, TreeView, TreeViewPart, icons},
+  ui::{Badge, Button, ButtonSize, ButtonVariant, Interaction, Length, TreeItem, TreeView, TreeViewPart, icons},
 };
 
 use crate::{
@@ -738,7 +738,9 @@ impl Component for BigTree {
     )
     .label("Ten thousand files")
     .open(self.open.clone())
-    .style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))
+    .style(TreeViewPart::Root, |s| {
+      s.width(320.0).max_width(Length::Fill).height(360.0)
+    })
     .mount(ctx)
   }
 }

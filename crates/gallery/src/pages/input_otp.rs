@@ -14,7 +14,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet, segmented_fill},
+  kit::{FILL, fit, props_table, quiet, segmented_fill},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -24,11 +24,12 @@ const LENGTHS: [usize; 3] = [4, 6, 8];
 /// How the playground groups the cells: what the control says, and the size of each group.
 const GROUPINGS: [(&str, usize); 3] = [("none", 0), ("halves", 2), ("pairs", 1)];
 
-/// The sizes, as the board names them, how the code names them, and the side of a cell.
-const SIZES: [(InputOtpSize, &str, &str, &str); 3] = [
-  (InputOtpSize::Sm, "sm", "InputOtpSize::Sm", "32 × 36"),
-  (InputOtpSize::Md, "md", "InputOtpSize::Md", "36 × 40"),
-  (InputOtpSize::Lg, "lg", "InputOtpSize::Lg", "40 × 44"),
+/// The sizes, as the board names them, how the code names them, the side of a cell as the page says it, and
+/// how wide a cell is.
+const SIZES: [(InputOtpSize, &str, &str, &str, f32); 3] = [
+  (InputOtpSize::Sm, "sm", "InputOtpSize::Sm", "32 × 36", 32.0),
+  (InputOtpSize::Md, "md", "InputOtpSize::Md", "36 × 40", 36.0),
+  (InputOtpSize::Lg, "lg", "InputOtpSize::Lg", "40 × 44", 40.0),
 ];
 
 /// The groups of a code of `length` cells, grouped as `grouping` says: none, two halves, or pairs.
@@ -46,6 +47,25 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .max_width(FILL)
     .spacing(9.0)
     .child(Row::new().max_width(FILL).overflow_visible().child(shown))
+    .child(quiet(caption, 12.0))
+}
+
+/// How wide a code is: its cells, each `side` wide, a dash of 16 between its groups, and 6 between them all.
+fn width_of(cells: usize, side: f32, groups: usize) -> f32 {
+  let dashes = groups.saturating_sub(1);
+  cells as f32 * side + dashes as f32 * 16.0 + (cells + dashes).saturating_sub(1) as f32 * 6.0
+}
+
+/// A code on a stage with what it is under it. Its cells are no narrower than they are: on a stage with less
+/// than the `least` it needs, the code scrolls sideways over its caption.
+fn code(key: &str, room: f32, least: f32, shown: impl Into<Element>, caption: &str) -> Column {
+  if room <= 0.0 || room >= least {
+    return item(shown, caption);
+  }
+  Column::new()
+    .width(FILL)
+    .spacing(9.0)
+    .child(fit(key, room, least, shown))
     .child(quiet(caption, 12.0))
 }
 
@@ -89,7 +109,7 @@ impl InputOtpPage {
     let grouped = groups(length, grouping);
     let letters = self.letters.get();
     let uppercase = letters && self.uppercase.get();
-    let (size, size_name, size_code, side) = SIZES[self.size.get().min(SIZES.len() - 1)];
+    let (size, size_name, size_code, side, _) = SIZES[self.size.get().min(SIZES.len() - 1)];
     let (mask, invalid, disabled) = (self.mask.get(), self.invalid.get(), self.disabled.get());
     let make = {
       let (value, grouped) = (self.value.clone(), grouped.clone());
@@ -289,7 +309,13 @@ impl Component for InputOtpPage {
     } else {
       format!("on_complete: {:?}", self.verified.get())
     };
-    let live = items().child(item(
+    // A code of six cells in two groups at the size of the board, as most of the stages show.
+    let room = self.frame.stage_room();
+    let six = width_of(6, 36.0, 2);
+    let live = items().child(code(
+      "live",
+      room,
+      six,
       InputOtp::new(self.code.clone())
         .groups([3, 3])
         .label("Verification code")
@@ -297,23 +323,37 @@ impl Component for InputOtpPage {
       &told,
     ));
 
-    let states = items()
-      .child(item(showing(""), "empty"))
-      .child(item(showing("427193"), "filled"))
-      .child(item(showing("42").force(Some(Interaction::FocusVisible)), "focus"))
-      .child(item(showing("427193").invalid(true), "invalid"))
-      .child(item(showing("427193").valid(true), "valid"))
-      .child(item(showing("427193").mask(true), "masked"))
-      .child(item(showing("427193").read_only(true), "read only"))
-      .child(item(showing("").disabled(true), "disabled"));
+    let states = [
+      (showing(""), "empty"),
+      (showing("427193"), "filled"),
+      (showing("42").force(Some(Interaction::FocusVisible)), "focus"),
+      (showing("427193").invalid(true), "invalid"),
+      (showing("427193").valid(true), "valid"),
+      (showing("427193").mask(true), "masked"),
+      (showing("427193").read_only(true), "read only"),
+      (showing("").disabled(true), "disabled"),
+    ]
+    .into_iter()
+    .fold(items(), |states, (shown, caption)| {
+      states.child(code(&format!("state-{caption}"), room, six, shown, caption))
+    });
 
     let mut sizes = items();
-    for (size, name, _, side) in SIZES {
-      sizes = sizes.child(item(showing("4271").size(size), &format!("{name} · {side}")));
+    for (size, name, _, side, width) in SIZES {
+      sizes = sizes.child(code(
+        &format!("size-{name}"),
+        room,
+        width_of(6, width, 2),
+        showing("4271").size(size),
+        &format!("{name} · {side}"),
+      ));
     }
 
     let kinds = items()
-      .child(item(
+      .child(code(
+        "recovery",
+        room,
+        width_of(8, 36.0, 2),
         InputOtp::new(self.recovery.clone())
           .length(8)
           .groups([4, 4])
@@ -327,21 +367,28 @@ impl Component for InputOtpPage {
         "a PIN of four, masked",
       ));
 
+    // A field is as wide as the code in it.
     let fields = items()
-      .child(
+      .child(fit(
+        "field-sent",
+        room,
+        six,
         Field::new(
           "Verification code",
           InputOtp::new(Signal::new(String::new())).groups([3, 3]),
         )
         .description("We sent a code to ivan@lurq.dev."),
-      )
-      .child(
+      ))
+      .child(fit(
+        "field-expired",
+        room,
+        six,
         Field::new(
           "Verification code",
           InputOtp::new(Signal::new("427193".to_owned())).groups([3, 3]),
         )
         .error("That code has expired. Send a new one."),
-      );
+      ));
 
     let rows = [
       (

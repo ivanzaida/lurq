@@ -253,8 +253,11 @@ impl Component for BreadcrumbPage {
     });
     let again = self.depth.clone();
     let live = items().child(item(
+      // Where the link has no room beside the breadcrumb it goes under it.
       Row::new()
+        .max_width(FILL)
         .spacing(16.0)
+        .wrap()
         .align_items(Alignment::Center)
         .child(board)
         .child(lurq::ui::Link::new("Back to Theme").on_click(move |_| again.set(SETTINGS.len()))),

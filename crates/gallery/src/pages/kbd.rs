@@ -268,8 +268,11 @@ impl Component for KbdPage {
       .child(words("Press"))
       .child(Kbd::shortcut("Ctrl+K"))
       .child(words("to search the docs."));
+    // The end of the sentence goes on to the next line where the stage is narrower than it.
     let code = Row::new()
+      .width(FILL)
       .spacing(4.0)
+      .wrap()
       .align_items(Alignment::Center)
       .child(words("Read the theme with"))
       .child(InlineCode::new("ctx.theme()"))

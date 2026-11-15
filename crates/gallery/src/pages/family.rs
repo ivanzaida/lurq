@@ -914,8 +914,11 @@ impl Component for LinkPage {
         "focus-visible",
       ))
       .child(item(Link::new("Read the docs").disabled(true), "disabled"));
+    // The words that do not fit on the line go on to the next.
     let sentence = Row::new()
+      .width(FILL)
       .spacing(4.0)
+      .wrap()
       .align_items(Alignment::Center)
       .child(text(
         "By going on you agree to the",

@@ -28,6 +28,17 @@ fn item(shown: impl Into<Element>, caption: &str) -> Column {
     .child(quiet(caption, 12.0))
 }
 
+/// A group of cards side by side with what it is under it. It is as wide as the stage: a row is as wide as
+/// what is in it, and the cards that do not fit beside the others would not go on to the next line.
+fn row_of_cards(shown: impl Into<Element>, caption: &str) -> Column {
+  Column::new()
+    .width(FILL)
+    .spacing(9.0)
+    .overflow_visible()
+    .child(shown)
+    .child(quiet(caption, 12.0))
+}
+
 /// What is on a stage, side by side; what does not fit goes on to the next line.
 fn items() -> Row {
   Row::new()
@@ -223,7 +234,7 @@ impl Component for CheckboxCardPage {
         "disabled, checked",
       ));
     let add_ons = self.add_ons.get();
-    let group = items().child(item(
+    let group = row_of_cards(
       CheckboxCardGroup::new(
         self.add_ons.clone(),
         [
@@ -253,27 +264,30 @@ impl Component for CheckboxCardPage {
       )
       .orientation(Orientation::Horizontal),
       &format!("the signal has: {add_ons:?}"),
-    ));
+    );
     let (reports, set_reports) = (self.reports.get(), self.reports.clone());
     let column = items().child(item(
-      Column::new().width(320.0).child(CheckboxCardGroup::controlled(
-        reports.clone(),
-        [
-          (
-            "crash",
-            CheckboxCard::new("Crash reports")
-              .description("Send reports when lurq fails.")
-              .full_width(true),
-          ),
-          (
-            "usage",
-            CheckboxCard::new("Usage data")
-              .description("Which components are used, never what is in them.")
-              .full_width(true),
-          ),
-        ],
-        move |next| set_reports.set(next.to_vec()),
-      )),
+      Column::new()
+        .width(320.0)
+        .max_width(FILL)
+        .child(CheckboxCardGroup::controlled(
+          reports.clone(),
+          [
+            (
+              "crash",
+              CheckboxCard::new("Crash reports")
+                .description("Send reports when lurq fails.")
+                .full_width(true),
+            ),
+            (
+              "usage",
+              CheckboxCard::new("Usage data")
+                .description("Which components are used, never what is in them.")
+                .full_width(true),
+            ),
+          ],
+          move |next| set_reports.set(next.to_vec()),
+        )),
       &format!("the app holds: {reports:?}"),
     ));
     let card_rows = [

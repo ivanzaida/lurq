@@ -18,7 +18,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, fit, line, name, props_table, quiet, segmented, segmented_fill, styled},
+  kit::{FILL, fit, line, name, phone, props_table, quiet, segmented, segmented_fill, styled},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -513,6 +513,35 @@ impl ButtonPage {
       }
       matrix = matrix.child(row);
     }
+    let size = Row::new()
+      .spacing(10.0)
+      .align_items(Alignment::Center)
+      .child(quiet("size", 12.0))
+      .child(segmented(&sizes, &picked, move |index| pick.set(index)));
+    let count = quiet("5 variants × 6 states", 12.0);
+    // In a window as narrow as a phone the count has no room beside the sizes: it is under them.
+    let bar: Element = if phone() {
+      Column::new()
+        .width(FILL)
+        .padding_horizontal(16.0)
+        .padding_vertical(10.0)
+        .spacing(8.0)
+        .border_bottom(line())
+        .child(size)
+        .child(count)
+        .into()
+    } else {
+      Row::new()
+        .width(FILL)
+        .height(52.0)
+        .padding_horizontal(16.0)
+        .align_items(Alignment::Center)
+        .justify(Justify::SpaceBetween)
+        .border_bottom(line())
+        .child(size)
+        .child(count)
+        .into()
+    };
     Column::new()
       .width(FILL)
       .clip()
@@ -520,23 +549,7 @@ impl ButtonPage {
       .background(PaletteColor::Card)
       .foreground(PaletteColor::CardForeground)
       .border(line())
-      .child(
-        Row::new()
-          .width(FILL)
-          .height(52.0)
-          .padding_horizontal(16.0)
-          .align_items(Alignment::Center)
-          .justify(Justify::SpaceBetween)
-          .border_bottom(line())
-          .child(
-            Row::new()
-              .spacing(10.0)
-              .align_items(Alignment::Center)
-              .child(quiet("size", 12.0))
-              .child(segmented(&sizes, &picked, move |index| pick.set(index))),
-          )
-          .child(quiet("5 variants × 6 states", 12.0)),
-      )
+      .child(bar)
       // Six columns of buttons of this size need this much: in a narrower card the matrix scrolls sideways,
       // and no button is squeezed.
       .child(fit("states", self.frame.room(), MATRIX_WIDTH[picked.min(4)], matrix))
@@ -666,8 +679,11 @@ impl ButtonPage {
         .child(quiet(caption, 12.0))
     };
     let raised = |fab: Fab| Element::from(Row::new().overflow_visible().child(fab));
+    // What does not fit beside the others goes on to the next line.
     let stage = Row::new()
+      .width(FILL)
       .spacing(28.0)
+      .wrap()
       .overflow_visible()
       .align_items(Alignment::End)
       .child(captioned(

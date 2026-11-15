@@ -309,6 +309,12 @@ fn million() -> Arc<Vec<Job>> {
   ROWS.get_or_init(|| Arc::new((0..1_000_000).map(Job).collect())).clone()
 }
 
+/// The least a grid with a column pinned at each end is wide: the two, and room for a column between them.
+const PINNED: f32 = 480.0;
+
+/// The least a grid with a count and a pagination in its footer is wide.
+const FOOTER: f32 = 300.0;
+
 /// Two hundred columns of a job: its number pinned at the start, a note that wraps on every seventh, and metrics.
 fn million_columns() -> Vec<TableColumn<Job>> {
   let mut columns = vec![
@@ -800,6 +806,8 @@ impl Component for DataGridPage {
         TableColumn::new("name", "Name")
           .text(|row: &File| row.name.clone())
           .mono(true)
+          // No narrower than a name: in a narrower grid the columns scroll sideways.
+          .min_width(160.0)
           .sortable(true)
           .editor(CellEditor::text(|row: &File| row.name.clone())),
         TableColumn::new("status", "Status")
@@ -826,9 +834,13 @@ impl Component for DataGridPage {
       .selected(self.board_selected.clone())
       .total(24)
       .pagination(Pagination::for_items(self.page.clone(), 24, 3).compact(true))
-      .style(lurq::ui::TablePart::Root, |s| s.width(640.0))
+      .style(lurq::ui::TablePart::Root, |s| {
+        s.width(640.0).max_width(lurq::ui::Length::Fill)
+      })
       .key("board")
       .mount(ctx);
+    // The footer's count and its pagination need this much: in a narrower card the grid scrolls sideways.
+    let board = crate::kit::fit("board", self.frame.stage_room(), FOOTER, board);
 
     // Editing in place, each commit written under the grid.
     let (rows, log) = (self.edited.clone(), self.log.clone());
@@ -1057,6 +1069,7 @@ impl Component for DataGridPage {
         TableColumn::new("name", "Name")
           .text(|row: &File| row.name.clone())
           .mono(true)
+          .min_width(120.0)
           .sortable(true),
         TableColumn::new("size", "Size")
           .width(100.0)
@@ -1111,10 +1124,13 @@ impl Component for DataGridPage {
           .mount(ctx),
       )
       .child(
+        // What does not fit beside the other goes on to the next line, and the filters wrap in the card's width.
         Row::new()
+          .width(crate::kit::FILL)
           .spacing(8.0)
+          .wrap()
           .align_items(Alignment::Center)
-          .child(quiet(
+          .child(Column::new().max_width(crate::kit::FILL).child(quiet(
             &format!(
               "filters: {}",
               if shown_filters.is_empty() {
@@ -1124,7 +1140,7 @@ impl Component for DataGridPage {
               }
             ),
             12.0,
-          ))
+          )))
           .child(
             Button::new("Clear all")
               .variant(ButtonVariant::Ghost)
@@ -1221,7 +1237,8 @@ impl Component for DataGridPage {
               .size(ButtonSize::Sm)
               .on_click(move |_| failing.store(true, std::sync::atomic::Ordering::SeqCst)),
           )
-          .child(quiet(
+          // What was asked wraps in the room beside the button.
+          .child(Column::new().flex(1.0).min_width(0.0).child(quiet(
             &format!(
               "on_query_change: {}",
               match self.asked.get() {
@@ -1230,7 +1247,7 @@ impl Component for DataGridPage {
               }
             ),
             12.0,
-          )),
+          ))),
       );
 
     let numbered = DataGrid::new(columns(false), files(8))
@@ -1262,13 +1279,20 @@ impl Component for DataGridPage {
       })
       .pin(ColumnPin::End),
     );
+    let pinned_room = self.frame.stage_room();
+    let pinned_scrolls = pinned_room > 0.0 && pinned_room < PINNED;
     let pinned = DataGrid::new(pinned_columns, pinned_rows.get())
       .row_key(|row: &File| row.name.clone())
       .label("Files")
       .height(280.0)
       .on_edit(move |edit| take(&pinned_rows, edit.row, edit.column, &edit.value))
-      .key("pinned")
+      // A grid keeps the widths its columns were first laid out with: the one that scrolls in its card is
+      // another grid than the one that had the card's width.
+      .key(if pinned_scrolls { "pinned-scrolled" } else { "pinned" })
       .mount(ctx);
+    // A column pinned at each end leaves the others no room in a card as narrow as a phone: the grid keeps a
+    // width with room for them, and scrolls sideways in the card.
+    let pinned = crate::kit::fit("pinned", pinned_room, PINNED, pinned);
 
     // A million rows of two hundred columns: the cells in view are built, the notes that wrap measured.
     let thousands = DataGrid::new_shared(million_columns(), million())
