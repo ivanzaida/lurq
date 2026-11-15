@@ -63,4 +63,34 @@ mod tests {
     let respaced = [span("aa", 10.0, 1.0), span("aa", 10.0, -1.0)];
     assert!((width(&mut engine, &respaced) - 20.0).abs() < 0.01);
   }
+
+  #[test]
+  fn a_span_shifted_above_the_baseline_draws_its_glyphs_higher_and_keeps_its_line() {
+    let mut engine = GlyphEngine::new();
+    engine.load_font(REGULAR.to_vec());
+    let raised = |shift: f32| {
+      let mut spans = [span("aa", 10.0, 0.0), span("aa", 10.0, 0.0)];
+      spans[1].style.baseline_shift = shift;
+      spans
+    };
+    let flat = engine.shape_rich_text_layout(&raised(0.0), f32::MAX, false, false);
+    let shifted = engine.shape_rich_text_layout(&raised(4.0), f32::MAX, false, false);
+    let ys =
+      |layout: &super::super::CachedRichShapedLayout| layout.glyphs.iter().map(|glyph| glyph.y).collect::<Vec<_>>();
+    let (flat, shifted_ys) = (ys(&flat), ys(&shifted));
+    assert_eq!(flat.len(), 4);
+    assert_eq!(shifted_ys[..2], flat[..2], "the first span stays on the baseline");
+    assert!(
+      shifted_ys[2..]
+        .iter()
+        .zip(&flat[2..])
+        .all(|(up, down)| (down - up - 4.0).abs() <= 1.0),
+      "the second is drawn 4 higher: {shifted_ys:?} for {flat:?}"
+    );
+    assert_eq!(
+      shifted.size,
+      engine.shape_rich_text_layout(&raised(0.0), f32::MAX, false, false).size,
+      "its line is the same"
+    );
+  }
 }

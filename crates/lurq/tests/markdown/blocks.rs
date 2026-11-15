@@ -491,3 +491,20 @@ fn keys_and_code_keep_their_size_and_the_words_after_them_theirs() {
     "the words after the key at their own size",
   );
 }
+
+#[test]
+fn a_footnotes_number_is_raised_above_the_line() {
+  let (_, tree) = mount(MarkdownProps::new("Frame time stayed under 7 ms[^1].\n\n[^1]: Measured.").width(500.0));
+  let reference = style_of(&tree, "1").expect("the reference is drawn");
+  assert_eq!(reference.font_size, 11.0);
+  // Its top at the line's top, as the design draws it: 0.45 of the text's 15 above the baseline.
+  assert!(
+    (reference.baseline_shift - 6.75).abs() < 0.01,
+    "{}",
+    reference.baseline_shift
+  );
+  assert_eq!(
+    style_of(&tree, "Frame time stayed under 7 ms").map(|style| style.baseline_shift),
+    Some(0.0)
+  );
+}

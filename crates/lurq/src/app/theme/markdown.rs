@@ -34,6 +34,9 @@ pub struct MarkdownTextStyle {
   pub underline: Option<TextUnderline>,
   /// Draws a line through the text; replaces the base style's.
   pub strikethrough: Option<TextStrikethrough>,
+  /// Draws the text above the line's baseline, in ems of the text it is in (`TextStyle::baseline_shift`): a
+  /// footnote's number.
+  pub baseline_shift: Option<f32>,
 }
 
 impl MarkdownTextStyle {
@@ -78,6 +81,9 @@ impl MarkdownTextStyle {
     }
     if let Some(strikethrough) = self.strikethrough {
       style.strikethrough = Some(strikethrough);
+    }
+    if let Some(shift) = self.baseline_shift {
+      style.baseline_shift = shift * base.font_size;
     }
     style
   }
@@ -534,6 +540,8 @@ impl Default for ThemeMarkdown {
     footnote_reference.text.font_size_scale = of_15(11.0);
     footnote_reference.text.weight = Some(FontWeight::SemiBold);
     footnote_reference.text.color = color(Info);
+    // Raised, its top at the line's top, as the design draws it: 7 over the text's 15.
+    footnote_reference.text.baseline_shift = Some(0.45);
 
     let mut footnote = MarkdownInlineStyle::default();
     footnote.text.font_size_scale = of_15(13.0);
