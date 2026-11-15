@@ -133,6 +133,8 @@ If a key exists but was stored with a different type, reads return `None`.
 
 ## Custom Types
 
+A [dock layout](../design-system/#dock-layout)'s `DockState` is a value of the storage as it is (with this feature): it is stored as its text form, `state.to_text()`, and read back with `DockState::parse`.
+
 User-defined structs can derive `PersistentValue` when every field also supports persistent storage:
 
 ```rust

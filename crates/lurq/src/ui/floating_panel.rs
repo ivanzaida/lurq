@@ -48,7 +48,12 @@ struct HeaderMenu {
 }
 
 /// A button of a header in the style of `part`: 22 square, its icon of 14 in it.
-fn header_button(part: &ResolvedPart, icon: &Name, label: &Arc<str>, on_click: Handler) -> components::Button {
+pub(super) fn header_button(
+  part: &ResolvedPart,
+  icon: &Name,
+  label: &Arc<str>,
+  on_click: Handler,
+) -> components::Button {
   pressable(part, false)
     .align_items(Alignment::Center)
     .describe("a11y_role", "button")
@@ -425,7 +430,7 @@ impl Themed for PanelHeader {
 }
 
 /// A button of a header at rest: 22 square with the small radius, its icon of 14.
-fn button_style(style: PartStyle) -> PartStyle {
+pub(super) fn button_style(style: PartStyle) -> PartStyle {
   fading(style.square(22.0).radius(RadiusSize::Sm).cursor(CursorIcon::Pointer))
 }
 
@@ -576,6 +581,16 @@ pub struct FloatingPanel {
   on_active_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   /// What a layer of panels makes of the panel, where it is in one.
   layered: Option<Layered>,
+  /// What a dock layout hears of the panel, where it floats in one.
+  pub(crate) docked: Option<DockHooks>,
+}
+
+/// What a dock layout hears of a panel that floats in it: each move of a drag of its title bar and the end of it (the
+/// event whose `drop_result` is `Some`), and the end of any move or resize, by the pointer or the keys.
+#[derive(Clone)]
+pub(crate) struct DockHooks {
+  pub(crate) drag: Arc<dyn Fn(&DragEvent) + Send + Sync>,
+  pub(crate) settled: Handler,
 }
 
 /// What a layer of panels gives a panel in it: what a press in it or the focus coming into it does (it brings the
@@ -681,6 +696,7 @@ impl FloatingPanel {
       key: None,
       on_active_change: Vec::new(),
       layered: None,
+      docked: None,
     }
   }
 
@@ -988,6 +1004,7 @@ impl FloatingPanel {
       id: self.id,
       on_active_change: self.on_active_change,
       layered: self.layered,
+      docked: self.docked,
     }
   }
 }
@@ -1029,6 +1046,7 @@ struct Core {
   id: Option<Arc<str>>,
   on_active_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   layered: Option<Layered>,
+  docked: Option<DockHooks>,
 }
 
 /// What a panel keeps where the app keeps nothing, and what a drag needs.
@@ -1233,7 +1251,7 @@ impl FloatingPanelView {
       .describe("a11y_description", "Arrow keys move it")
       .child(glyph(&part, Name::new(icons::GRIP_VERTICAL), false));
     if self.own.mounted {
-      let (mover, position) = (self.mover(), self.position);
+      let (mover, position, docked) = (self.mover(), self.position, self.core.docked.clone());
       grip = grip.on_key_down(move |event: KeyboardEvent| {
         if !event.focus_within || event.ctrl || event.alt || event.meta {
           return;
@@ -1249,6 +1267,9 @@ impl FloatingPanelView {
         };
         event.prevent_default();
         mover(to);
+        if let Some(docked) = &docked {
+          (docked.settled)();
+        }
       });
     }
     if let Some(id) = self.id_of("grip") {
@@ -1268,6 +1289,7 @@ impl FloatingPanelView {
     if self.own.mounted {
       let (mover, drag, start) = (self.mover(), self.own.drag.clone(), self.now());
       let (began, ended) = (drag.clone(), drag.clone());
+      let (moving, ending) = (self.core.docked.clone(), self.core.docked.clone());
       header = header
         .start_drag_buttons(MouseButtonMask::LEFT)
         .on_drag_start(move |_: DragEvent| *began.lock().unwrap() = Some(start))
@@ -1276,8 +1298,17 @@ impl FloatingPanelView {
           if let Some(((x, y), _)) = start {
             mover((x + event.total_delta_x, y + event.total_delta_y));
           }
+          if let Some(docked) = &moving {
+            (docked.drag)(&event);
+          }
         })
-        .on_drag_end(move |_: DragEvent| *ended.lock().unwrap() = None);
+        .on_drag_end(move |event: DragEvent| {
+          *ended.lock().unwrap() = None;
+          if let Some(docked) = &ending {
+            (docked.drag)(&event);
+            (docked.settled)();
+          }
+        });
     }
     header
   }
@@ -1374,6 +1405,7 @@ impl FloatingPanelView {
     }
     let (resize, drag, start) = (self.resizer(edges), self.own.drag.clone(), self.now());
     let (began, ended) = (drag.clone(), drag.clone());
+    let docked = self.core.docked.clone();
     handle
       .start_drag_buttons(MouseButtonMask::LEFT)
       .on_drag_start(move |_: DragEvent| *began.lock().unwrap() = Some(start))
@@ -1383,7 +1415,12 @@ impl FloatingPanelView {
           resize(position, size, event.total_delta_x, event.total_delta_y);
         }
       })
-      .on_drag_end(move |_: DragEvent| *ended.lock().unwrap() = None)
+      .on_drag_end(move |_: DragEvent| {
+        *ended.lock().unwrap() = None;
+        if let Some(docked) = &docked {
+          (docked.settled)();
+        }
+      })
   }
 
   /// The grip in the corner: what a drag resizes the panel by, and a stop of Tab whose arrows resize it.
@@ -1401,7 +1438,7 @@ impl FloatingPanelView {
       .child(glyph(&part, Name::new(icons::GRIP), false));
     grip = self.resize_handle(grip, edges);
     if self.own.mounted {
-      let (resize, (position, size)) = (self.resizer(edges), self.now());
+      let (resize, (position, size), docked) = (self.resizer(edges), self.now(), self.core.docked.clone());
       grip = grip.on_key_down(move |event: KeyboardEvent| {
         if !event.focus_within || event.ctrl || event.alt || event.meta {
           return;
@@ -1416,6 +1453,9 @@ impl FloatingPanelView {
         };
         event.prevent_default();
         resize(position, size, dx, dy);
+        if let Some(docked) = &docked {
+          (docked.settled)();
+        }
       });
     }
     if let Some(id) = self.id_of("resize") {

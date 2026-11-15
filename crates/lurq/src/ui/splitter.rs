@@ -738,6 +738,7 @@ impl Panes {
       self.panes[index].set_inert(self.specs[index].collapsible && *size <= 0.0);
       self.shadows[index].set_size(width, height);
     }
+    self.shadow(sizes);
     self.keep(sizes.to_vec());
   }
 
@@ -865,8 +866,27 @@ impl Panes {
     let first = model.len() != self.specs.len();
     if changed {
       self.put(&sizes);
-    } else if first {
-      self.keep(sizes);
+    } else {
+      self.shadow(&sizes);
+      if first {
+        self.keep(sizes);
+      }
+    }
+  }
+
+  /// Lays the copies of the panes under the dividers out at `sizes`, in pixels: a divider stands at the edge of its
+  /// pane as the pane was laid out, whatever a share of the copy's row resolves to.
+  fn shadow(&self, sizes: &[f32]) {
+    for (index, size) in sizes.iter().enumerate() {
+      if self.specs[index].kind == Kind::Rest {
+        continue;
+      }
+      let length = Some(Dimension::Px(size.max(0.0)));
+      let (width, height) = match self.orientation {
+        SplitterOrientation::Horizontal => (length, None),
+        SplitterOrientation::Vertical => (None, length),
+      };
+      self.shadows[index].set_size(width, height);
     }
   }
 
@@ -1106,7 +1126,12 @@ impl SplitterView {
     for (index, content) in self.contents.iter().enumerate() {
       // A closed pane is inert through its ref, which a drag that opens it makes not inert again.
       panes[index].set_inert(self.specs[index].collapsible && model.len() == count && model[index] <= 0.0);
-      let mut pane = self.pane_box(dimensions[index], &panes[index]).child(content.clone());
+      // Each render makes the panes' refs anew: a key keeps a pane the same node to the engine, and what is in it
+      // its focus, its caret and its scroll.
+      let mut pane = self
+        .pane_box(dimensions[index], &panes[index])
+        .key(format!("pane-{index}"))
+        .child(content.clone());
       if let Some(key) = &self.keys[index] {
         pane = pane.key(key.clone());
       }
@@ -1117,6 +1142,7 @@ impl SplitterView {
       above.push(
         self
           .pane_box(dimensions[index], &shadows[index])
+          .key(format!("shadow-{index}"))
           .pointer_events_none()
           .into(),
       );
@@ -1131,12 +1157,14 @@ impl SplitterView {
           .spacing(thickness)
           .align_items(Alignment::Stretch)
           .ref_element(room)
+          .key("panes")
           .with_children(below)
           .into(),
         Row::new()
           .size(fill, fill)
           .align_items(Alignment::Stretch)
           .hit_test(HitTestBehavior::ContentOnly)
+          .key("dividers")
           .with_children(above)
           .into(),
       )
@@ -1147,12 +1175,14 @@ impl SplitterView {
           .spacing(thickness)
           .align_items(Alignment::Stretch)
           .ref_element(room)
+          .key("panes")
           .with_children(below)
           .into(),
         Column::new()
           .size(fill, fill)
           .align_items(Alignment::Stretch)
           .hit_test(HitTestBehavior::ContentOnly)
+          .key("dividers")
           .with_children(above)
           .into(),
       )

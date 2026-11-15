@@ -29,6 +29,7 @@ mod date_field;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
+mod dock_layout;
 mod document_tabs;
 mod drawer;
 mod drop_zone;
@@ -955,6 +956,14 @@ pub const PAGES: &[Page] = &[
     about: "floating panel tool window palette inspector layers drag move resize collapse close dock title bar grip header PanelHeader FloatingPanels front position size open media button menu on_dismiss on_position_change on_size_change on_open_change default_position default_size min_size resizable collapsible close_button dismiss_on_escape label",
     group: Group::Desktop,
     mount: |ctx| ctx.mount::<floating_panel::FloatingPanelPage>(()),
+  },
+  Page {
+    path: "/dock-layout",
+    name: "Dock Layout",
+    icon: Some("panels"),
+    about: "dock layout docking panel panels split splits tabs tool window editor ide workspace drag drop rearrange float floating hide hidden strip edge maximize restore close documents area empty arrangement store restore persist layout DockLayout DockPanel DockState DockNode DockPlace DockSide state to_text parse show move_panel on_change on_detach on_close empty count dirty close_button floatable hideable movable min_size icon f6 shift+f10",
+    group: Group::Desktop,
+    mount: |ctx| ctx.mount::<dock_layout::DockLayoutPage>(()),
   },
 ];
 

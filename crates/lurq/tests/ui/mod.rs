@@ -25,6 +25,8 @@ mod date_field;
 mod date_picker;
 mod date_range_picker;
 mod dialog;
+mod dock_layout;
+mod dock_state;
 mod document_tabs;
 mod drawer;
 mod drop_zone;

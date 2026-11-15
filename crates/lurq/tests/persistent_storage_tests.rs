@@ -227,3 +227,40 @@ fn ctx_persistent_value_reads_and_writes_app_storage() {
   assert_eq!(app.persistent_value::<u64>("opens"), Some(5));
   assert_eq!(app.persistent_value::<String>("label"), Some("ready".to_owned()));
 }
+
+#[test]
+fn dock_state_roundtrips_through_storage() {
+  use lurq::{
+    persistent_storage::PersistentStorage,
+    ui::{DockNode, DockPlace, DockSide, DockState},
+  };
+
+  let mut state = DockState::new(
+    DockNode::row([
+      DockNode::group(["explorer"]),
+      DockNode::column([
+        DockNode::documents(DockNode::group(["blur.rs", "theme.rs"])),
+        DockNode::group(["terminal", "problems", "output"]),
+      ])
+      .shares([0.7, 0.3]),
+    ])
+    .shares([0.25, 0.75]),
+  );
+  assert!(state.show("problems", DockPlace::Hidden(DockSide::Bottom)));
+  assert!(state.show(
+    "outline",
+    DockPlace::Float {
+      position: (10.0, 20.0),
+      size: Some((300.0, 200.0)),
+    }
+  ));
+  assert!(state.show("say \"hi\"", DockPlace::Tab { of: "explorer".into() }));
+  assert!(state.select("theme.rs"));
+  assert!(state.maximize("terminal"));
+
+  let storage = PersistentStorage::memory();
+  storage.set_value("dock", state.clone()).unwrap();
+
+  assert_eq!(storage.value::<DockState>("dock"), Some(state));
+  assert_eq!(storage.value::<DockState>("missing"), None);
+}

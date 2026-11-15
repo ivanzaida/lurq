@@ -282,6 +282,7 @@ pub struct DocumentTabs<T = (), V: ?Sized = T> {
   on_close: Vec<Told<T>>,
   on_keep: Vec<Told<T>>,
   on_reorder: Vec<Reorder>,
+  on_drag_away: Vec<Arc<dyn Fn(&T, &DragEvent) + Send + Sync>>,
   on_add: Vec<Call>,
   context_menu: Option<Arc<dyn Fn(&T) -> Vec<MenuItem> + Send + Sync>>,
   label: Option<Arc<str>>,
@@ -377,6 +378,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
       on_close: Vec::new(),
       on_keep: Vec::new(),
       on_reorder: Vec::new(),
+      on_drag_away: Vec::new(),
       on_add: Vec::new(),
       context_menu: None,
       label: None,
@@ -436,6 +438,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
   /// among the others. The bar moves nothing itself.
   pub fn on_reorder(mut self, handler: impl Fn(usize, usize) + Send + Sync + 'static) -> Self {
     self.on_reorder.push(Arc::new(handler));
+    self
+  }
+
+  /// Called while a person drags a tab away from the bar, of mounted tabs: with each move of the pointer while it is
+  /// farther from the bar than the bar is high (or outside the window), and with the last event when the tab is let
+  /// go there, whose `drop_result` is `Some`. While it is away the bar shows no place among the tabs and moves
+  /// nothing when it is let go: where it goes is the app's (a dock layout docks it elsewhere). Back over the bar, it
+  /// is a drag along the bar again.
+  pub fn on_drag_away(mut self, handler: impl Fn(&T, &DragEvent) + Send + Sync + 'static) -> Self {
+    self.on_drag_away.push(Arc::new(handler));
     self
   }
 
@@ -540,6 +552,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
     let handlers: Arc<[Handler<V>]> = self.on_change.into();
     let on_close: Arc<[Told<T>]> = self.on_close.into();
     let on_keep: Arc<[Told<T>]> = self.on_keep.into();
+    let on_drag_away: Arc<[Arc<dyn Fn(&T, &DragEvent) + Send + Sync>]> = self.on_drag_away.into();
     let (write, tell) = (self.write, self.tell);
     let mut seen: HashMap<Arc<str>, usize> = HashMap::new();
     let tabs = self
@@ -583,6 +596,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
             }
           })
         };
+        let away: Option<Away> = (!on_drag_away.is_empty()).then(|| {
+          let (value, told) = (tab.value.clone(), on_drag_away.clone());
+          Arc::new(move |event: &DragEvent| {
+            for handler in told.iter() {
+              handler(&value, event);
+            }
+          }) as Away
+        });
         let context: Option<Items> = self.context_menu.clone().map(|items| {
           let value = tab.value.clone();
           Arc::new(move || items(&value)) as Items
@@ -598,6 +619,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
           select,
           close,
           keep,
+          away,
           context,
           id: tab.id,
           key,
@@ -658,6 +680,7 @@ pub struct DocumentTabEntry {
   select: Call,
   close: Call,
   keep: Call,
+  away: Option<Away>,
   context: Option<Items>,
   pub id: Option<Arc<str>>,
   pub key: Arc<str>,
@@ -680,13 +703,18 @@ struct Prepared {
   key: Option<Arc<str>>,
 }
 
-/// A tab being dragged: where it was, where it is to go, and whether the pointer has moved far enough to say so.
+/// A tab being dragged: where it was, where it is to go, whether the pointer has moved far enough to say so, and
+/// whether it is away from the bar, where the app has it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, crate::DevtoolsInspectable)]
 struct Drag {
   from: usize,
   to: usize,
   moved: bool,
+  away: bool,
 }
+
+/// What hears a tab dragged away from the bar.
+type Away = Arc<dyn Fn(&DragEvent) + Send + Sync>;
 
 /// What mounted tabs keep from one render to the next.
 #[derive(Clone)]
@@ -810,7 +838,7 @@ fn kind_range(tabs: &[DocumentTabEntry], from: usize) -> (usize, usize) {
 
 /// Whether the dragged tab goes before the tab at `index`, or after it where it is the last of the others.
 fn drop_place(tabs: &[DocumentTabEntry], drag: Drag, index: usize) -> (bool, bool) {
-  if drag.to == drag.from || index == drag.from {
+  if drag.away || drag.to == drag.from || index == drag.from {
     return (false, false);
   }
   // The others, as they are without the dragged tab: the dragged one goes before the one at `to` among them.
@@ -1096,6 +1124,17 @@ impl DocumentTabsView {
     let refs = self.refs.clone();
     let (start, moving, ending) = (kept.drag.clone(), kept.drag.clone(), kept.drag.clone());
     let reorder = self.reorder_call();
+    let away = self.tabs[index].away.clone();
+    let (away_moving, away_ending) = (away.clone(), away);
+    let (bar, bar_end) = (refs.clone(), refs.clone());
+    // Away from the bar: farther from it than it is high, or outside the window; only where the app hears it.
+    let far = move |refs: &[ElementRef], event: &DragEvent| {
+      let Some(at) = refs.get(index) else {
+        return false;
+      };
+      let (top, height) = (at.y(), at.height());
+      event.outside_window || event.y < top - height || event.y > top + 2.0 * height
+    };
     tab
       .start_drag_buttons(MouseButtonMask::LEFT)
       .on_drag_start(move |_: DragEvent| {
@@ -1103,13 +1142,24 @@ impl DocumentTabsView {
           from: index,
           to: index,
           moved: false,
+          away: false,
         }))
       })
       .on_drag_move(move |event: DragEvent| {
         let Some(mut drag) = moving.get_untracked() else {
           return;
         };
-        drag.moved |= event.total_delta_x.abs() >= DRAG_START;
+        drag.moved |= event.total_delta_x.abs() >= DRAG_START || event.total_delta_y.abs() >= DRAG_START;
+        drag.away = away_moving.is_some() && far(&bar, &event);
+        if drag.away {
+          if let Some(away) = &away_moving {
+            away(&event);
+          }
+          if moving.get_untracked() != Some(drag) {
+            moving.set(Some(drag));
+          }
+          return;
+        }
         // Where it goes: before the first of the others whose middle is past the pointer, among its kind.
         let mut to = 0;
         for (other, at) in refs.iter().enumerate() {
@@ -1123,9 +1173,15 @@ impl DocumentTabsView {
           moving.set(Some(drag));
         }
       })
-      .on_drag_end(move |_: DragEvent| {
+      .on_drag_end(move |event: DragEvent| {
         let drag = ending.get_untracked();
         ending.set(None);
+        if let Some(away) = &away_ending
+          && (drag.is_some_and(|drag| drag.away) || far(&bar_end, &event))
+        {
+          away(&event);
+          return;
+        }
         if let Some(drag) = drag
           && drag.moved
         {

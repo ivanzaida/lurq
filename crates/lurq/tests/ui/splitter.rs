@@ -538,3 +538,86 @@ fn the_orientation_is_a_state_of_the_recipe() {
   assert_eq!(across.part(SplitterPart::Handle).rest().width, Some(12.0.into()));
   assert_eq!(down.part(SplitterPart::Handle).rest().height, Some(12.0.into()));
 }
+
+#[test]
+fn what_has_the_focus_in_a_pane_keeps_it_when_what_holds_the_splitter_renders_again() {
+  let tick = Signal::new(0);
+  let bound = tick.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let _ = bound.get();
+    Column::new()
+      .size(600.0, 200.0)
+      .child(
+        Splitter::new()
+          .pane(SplitterPane::new(lurq::components::Button::new("In").id("in").tab_index(0)).share(0.5))
+          .pane(SplitterPane::new(Column::new().id("other")))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.tree.resize(600, 200);
+  stage.pass();
+  stage.click("in");
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  assert_eq!(focused(&stage).as_deref(), Some("in"));
+  tick.set(1);
+  stage.pass();
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("in"),
+    "the panes are the same nodes after the render"
+  );
+}
+
+#[test]
+fn in_a_column_with_panes_that_fill_themselves_each_divider_stands_at_the_edge_of_its_pane() {
+  let mut stage = Stage::new(|ctx| {
+    let fill = || content("x").id("inner");
+    let inner = Splitter::new()
+      .orientation(Orientation::Vertical)
+      .pane(SplitterPane::new(fill()).share(0.7))
+      .pane(SplitterPane::new(fill()))
+      .key("inner")
+      .mount(ctx);
+    Column::new()
+      .size(860.0, 440.0)
+      .align_items(lurq::layout::Alignment::Stretch)
+      .child(
+        Column::new()
+          .flex(1.0)
+          .align_items(lurq::layout::Alignment::Stretch)
+          .child(
+            Splitter::new()
+              .id("split")
+              .pane(SplitterPane::new(content("a")).share(0.25).id("first"))
+              .pane(SplitterPane::new(inner))
+              .key("outer")
+              .mount(ctx),
+          ),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(lurq::layout::Constraints::loose(lurq::layout::Size::new(
+      860.0, 440.0,
+    ))));
+  stage.tree.resize(860, 440);
+  for _ in 0..3 {
+    stage.pass();
+  }
+  let (first_x, _, first_width, _) = stage.bounds("first");
+  let (divider_x, _, divider_width, _) = stage.bounds("split-divider-0");
+  assert_eq!(first_width, 215.0, "a quarter of 860");
+  assert!(
+    ((divider_x + divider_width / 2.0) - (first_x + first_width)).abs() < 1.0,
+    "the divider at the pane's edge: {} and {}",
+    divider_x + divider_width / 2.0,
+    first_x + first_width
+  );
+}

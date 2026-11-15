@@ -3703,6 +3703,84 @@ PanelHeader::new("Explorer")
 - In the design it is 30 high on `Muted` with a line of 1 in `Border` along its bottom, 10 in at its start and 4 at its end; its title is 11 and semibold in capitals, 0.6 apart, in `MutedForeground`; its buttons are a floating panel's.
 - Parts: `PanelHeaderPart::Root`, `Media`, `Title`, `Actions`, `Button`. State: `PanelHeaderState::Media`. To what reads the tree its title is a heading of its level.
 
+## Dock Layout
+
+Panels an app arranges in groups, splits, floating windows and strips, which a person rearranges: the layout of an editor, its explorer at the start, its documents in the middle and its terminal along the bottom.
+
+```rust
+use lurq::{
+  components::Text,
+  core::Signal,
+  ui::{DockLayout, DockNode, DockPanel, DockPlace, DockSide, DockState, icons},
+};
+
+// The first layout, which the app stores once a person changes it.
+let mut first = DockState::new(
+  DockNode::row([
+    DockNode::group(["explorer"]),
+    DockNode::column([
+      DockNode::documents(DockNode::group(["blur.rs", "theme.rs"])),
+      DockNode::group(["terminal", "problems", "output"]),
+    ])
+    .shares([0.7, 0.3]),
+  ])
+  .shares([0.25, 0.75]),
+);
+first.show("outline", DockPlace::Hidden(DockSide::Right));
+
+// layout: Signal<DockState>, made once in the component's create.
+DockLayout::new(layout.clone(), [
+  DockPanel::new("explorer", "Explorer").icon(icons::FOLDER).child(tree),
+  DockPanel::new("blur.rs", "blur.rs").icon(icons::FILE_CODE).child(editor),
+  DockPanel::new("terminal", "Terminal").icon(icons::TERMINAL).child(terminal),
+  DockPanel::new("problems", "Problems").count(3).child(problems),
+  DockPanel::new("output", "Output").child(output),
+  DockPanel::new("outline", "Outline").child(outline),
+])
+.on_change(move |state| storage.set("layout", state.to_text()))
+.on_detach(move |panel| open_in_a_window(panel))
+.mount(ctx);
+```
+
+| Builder | |
+| --- | --- |
+| `new(Signal<DockState>, panels)` | The panels, arranged as the signal says; what a person changes is set in it |
+| `controlled(DockState, panels, Fn(&DockState))` | The app's arrangement, and what it is told of a change, which the layout shows once the app gives it back |
+| `panel(DockPanel)`, `panels(..)` | Panels after those it has |
+| `on_change(Fn(&DockState))` | Told the new arrangement after a person changes it (after the signal is set); not when the app sets it. Each call adds |
+| `on_detach(Fn(&str))` | Told the id of a panel let go outside the window: the app may open it in a window of its own. The layout changes nothing by itself |
+| `empty(element)` | What the area of documents shows while no document is in it |
+| `label(&str)` | What it is called to tooling: "Dock layout" |
+| `maximize_label`, `restore_label`, `close_label`, `more_label`, `float_label`, `hide_label`, `put_back_label`, `move_left_label`, `move_right_label`, `move_top_label`, `move_bottom_label`, `strip_label` | The words of its buttons and menus: "Maximize", "Restore", "Close", "More", "Float", "Hide", "Put back", "Move to the left" (and the right, the top, the bottom), "Hidden panels" |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the shown tab of each bar of capitals. Its parts are found by ids after `id`: `{id}-tab-{panel}`, `{id}-group-{panel}` (a group by its first panel) and `{id}-body-{panel}`, `{id}-strip-{panel}`, `{id}-flyout-{panel}`, `{id}-maximize-{panel}`, `{id}-close-{panel}`, and `{id}-split-{path}` with its dividers `{id}-split-{path}-divider-{n}` |
+| `mount(ctx)` | Mounts it: what each panel holds is kept while it moves, and a drag, a strip and the menus work. Converted into an element it is drawn as its state says, and nothing in it is kept or dragged |
+
+| `DockPanel` | |
+| --- | --- |
+| `DockPanel::new(id, title)` | A panel the state names `id`, called `title` |
+| `icon(name)`, `child(element)`, `children(..)` | Its icon (on its strip button, before its document tab's title); what it holds |
+| `close_button(bool)`, `floatable(bool)`, `hideable(bool)`, `movable(bool)` | Whether it closes, floats, hides and moves at all: each unless told |
+| `min_size((w, h))` | Its least size, which the splits that hold it keep: 120 by 80 |
+| `count(u32)`, `dirty(bool)`, `label(&str)` | A count after its title in a tab of capitals; the dot of a document with changes not saved; what it is called to tooling (its title) |
+| `on_close(Fn(&DockCloseEvent))` | Called when its close control or its menu's Close is pressed, before it is taken out of the state; `event.prevent_default()` keeps it. Each call adds |
+
+**The arrangement.** A `DockState` is plain data (`Clone`, `PartialEq`, `Debug`): `root`, a tree of `DockNode::Split` (an orientation, its children, each child's share), `DockNode::Group` (its panels as tabs, the one shown, the panels hidden from it) and one `DockNode::Documents` (the area of documents, empty or holding a node); `floating`, the groups that float with their place and size; and `maximized`, the panel whose group fills the layout. `DockNode::row`, `column`, `group`, `documents`, `shares` and `shown` write a first layout. A state is changed by what a person does or by the app's own calls, which return whether anything changed: `show(panel, place)` and `move_panel` (a panel the state does not name is not shown until the app shows it), `move_group`, `close`, `select`, `put_back`, `maximize`, `restore`, `set_shares`, `set_float`, `raise_float`. A place is a `DockPlace`: `Tab { of }` (a tab of the group that holds `of`), `Beside { of, side }` (a new group on that side of it), `Edge(side)` (a new group along that edge of the layout, a quarter of it), `Documents`, `Float { position, size }` or `Hidden(side)`.
+
+- A state is always made valid, never refused (`make_valid(known)`, `valid(known)`, which every change ends with): a panel the app no longer gives is left out, a panel named twice keeps its first place, an empty group goes, a split of one child folds and a split in a split of its orientation is flattened, shares are brought to at least 0.05 and to a sum of 1, a second area of documents is replaced by what it holds, and a `maximized` that is no docked panel is none.
+- It is stored as text: `state.to_text()` (and `Display`) writes it in a readable form, `row(0.25 group("explorer") 0.75 column(…))`, and `DockState::parse(&text)` (and `FromStr`) reads it back, or `None` for text that is not the form; with the `persistent_storage` feature it is a value of the app's storage (`ctx.set_persistent_value("layout", state)`), stored as that text. A state read back is made valid by the layout as any other.
+- A group in the area of documents has the [documents' tabs](#document-tabs), in the board's compact bar (32 high, titles of 12, crosses of 12 on every tab). A group of one tool panel has the panel's [header](#panel-header): its title in capitals, its menu and its close. A group of several has tabs in capitals with a maximize (or restore) and a close at its end. The rule is the board's: the editor's documents, the explorer's header, the terminal's three tabs.
+- **What a panel holds is kept while it moves**: to another group, floating and back, hidden and shown, maximized and restored, and while a split is dragged. What it holds is mounted in the layout by the panel's id, wherever it is shown, and kept offstage while it is not (a tab not shown, a panel hidden): what is typed in it, its caret, where it is scrolled, what is open in it, and the focus in it, which follows it. What it holds is built when the app builds the layout, not when the layout renders for a drag.
+- **A drag**: a tab, a header or a floating group's title bar dragged shows the indicator over the group under the pointer (its middle and its four sides) and a square at the middle of each edge of the layout; the zone under the pointer is lit and where the panel would land is laid over the layout. Let go on a zone, it lands there: the middle makes it a tab of the group, a side a group beside it, an edge a group along the layout's edge. Let go over nothing, it floats there, if it may float; outside the window, `on_detach` is told and nothing moves. Escape gives the drag up and nothing moves. A whole group is dragged by its bar's empty room. A press that moves less than 4 is a press.
+- **From the keyboard and from a menu**: the menu of a tab (the secondary button, the Menu key or Shift+F10 on it) or of a header's More has what a drag does, Move to the left, the right, the top and the bottom (along that edge of the layout), Float, Hide (into the strip of the nearest edge), Maximize or Restore, and Close. F6 and Shift+F6 go from the group with the focus to the next and back, focusing its body. In a bar of capitals the arrows go between the tabs and Enter or Space shows one.
+- **A strip** at an edge has a button for each panel hidden there. A press shows the panel over the layout beside the strip, with its header's Put back (which puts it back in its group) and its close; a press outside it or Escape hides it again.
+- Floating groups are [floating panels](#floating-panel) over the layout; their place and size are written to the state when a move or a resize ends.
+- An area of documents with nothing in it shows what `empty(..)` gives.
+- The layout fills what holds it, which is to give it a size (a window's root, a column that grows). A panel's body is the room its group leaves under its bar; what the panel holds pads and scrolls itself (a `ScrollVertical` that fills it). `DockPanel::id()` and `title()` read a panel back. Two layouts in one component have their own `key` or `id`.
+- In the design the layout is on `Background` in an edge of 1 in `Border` with the large radius. A bar of capitals is 30 high on `Muted` with a line of 1 in `Border` along its bottom, 4 in at its end; its tabs are 12 in at either side and 6 between what they hold, their titles 11 and semibold in capitals 0.6 apart in `MutedForeground`, the one shown in `Foreground` with a line of 2 in `Foreground` under it; a count is mono 11; its buttons are 22 with the small radius and an icon of 14 in `Foreground`, on `Highlight` under the pointer. A strip is 30 across on `Muted` with a line of 1 in `Border` on its inner side, 6 in along it and 4 between its buttons of 22. The indicator's zones are squares of 32 on `Popover` in an edge of 1 in `Input` with the small radius and the large shadow, the one under the pointer filled and edged in `Info`; where the panel lands is laid over in `InfoMuted` at 0.7 with an edge of 1 in `Info`.
+- Parts: `DockLayoutPart::Root`, `Group`, `Bar`, `Tab`, `Label`, `Count`, `Actions`, `Button`, `Body`, `Empty`, `Strip`, `StripButton`, `Flyout`, `Preview`, `Zone`. States: `DockLayoutState::Selected` (a tab shown, a strip button whose panel is shown), `Hot` (a zone under the pointer), `Vertical`, `Left`, `Right`, `Top`, `Bottom` (the edge a strip stands along), `Maximized`.
+- To what reads the tree the layout is a `group` called by its label, each group a `group` called by the panel it shows, a bar of capitals a `tablist` of `tab`s that say `a11y_selected`, a strip a `toolbar` called "Hidden panels" of buttons called by their panels' titles that say `a11y_expanded`, and a panel shown from a strip a `dialog`; the splits are [splitters](#splitter).
+- A renderer is given a `DockLayoutView`: the element the default renderer built, and `view.part(..)`.
+
 ## Splitter
 
 Panes that share a room by the dividers between them, which a person drags: the side bar, the editor and the terminal of a window.
@@ -3856,6 +3934,7 @@ DocumentTabs::new(shown.clone(), files.iter().map(|file| {
 | `on_change(handler)` | Told the new value as a person shows another tab, after the signal is set: `&T` of a `DocumentTabs<T>`, `&Option<T>` of a `DocumentTabs<T, Option<T>>`. Not when the app sets the signal, nor for a press of the tab shown |
 | `on_close(Fn(&T))` | Told the tab a person closes, after its own handlers: its close control, a press of it with the middle button, Ctrl+W (or Cmd+W) while it is focused, or while it is shown with `shortcuts` on, but a pinned tab, which no key closes. The app takes it out, and says which is shown next where it was the one shown |
 | `on_reorder(Fn(usize, usize))` | Told that a person moved the tab at the first index to the second, both counted in the tabs as they are before and after: `tabs.insert(to, tabs.remove(from))`. By a drag along the bar, and by Ctrl+Shift+PageUp and PageDown on a focused tab. A pinned tab moves among the pinned ones, another among the others. The bar moves nothing itself |
+| `on_drag_away(Fn(&T, &DragEvent))` | Told while a person drags a tab away from the bar (farther from it than it is high, or outside the window), of mounted tabs: each move, and the release, whose `drop_result` is `Some`. While it is away the bar marks no place and moves nothing; where it goes is the app's, as a [dock layout](#dock-layout) docks it. Each call adds |
 | `on_add(Fn())` | A press of the new tab button after the tabs, which is there once this is given |
 | `on_keep(Fn(&T))` | A double press of a preview: the app keeps the document open as a tab that is no preview |
 | `context_menu(Fn(&T) -> Vec<MenuItem>)` | The commands of a tab's [context menu](#context-menu), opened by a press of the secondary button, a long press, the Menu key or Shift+F10 on a mounted bar |
