@@ -62,15 +62,21 @@ pub(super) struct GroupLine {
   pub rows: Vec<usize>,
 }
 
-/// The lines a table shows, in order, and where each row is among them.
+/// The lines a table shows, in order, and where each row is among them. Where every line is a row and every row is
+/// shown in its order, it holds nothing per row: a table of a million rows reckons its lines as it does ten.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Lines {
-  pub lines: Vec<Shown>,
-  /// The place of each row shown among all the rows, in the order shown: a row's place among those shown is its
-  /// rank.
-  pub order: Vec<usize>,
-  /// The line of each row shown, by its rank.
-  pub position_of_rank: Vec<usize>,
+  /// The lines, where any is a group's or a summary's: `None` where each line is the row of its rank.
+  lines: Option<Vec<Shown>>,
+  /// The place of each row shown among all the rows, in the order shown (a row's place among those shown is its
+  /// rank): `None` where every row is shown in its order.
+  order: Option<Arc<Vec<usize>>>,
+  /// The line of each row shown, by its rank, where the lines are not the rows.
+  position_of_rank: Option<Vec<usize>>,
+  /// How many rows are shown.
+  ranks: usize,
+  /// The rank of each row, by its place among all the rows, where they are reordered: reckoned once it is asked.
+  rank_of_index: std::sync::OnceLock<Vec<usize>>,
   pub groups: Vec<GroupLine>,
   /// How many columns the rows are grouped by: the level of a row, under the groups.
   pub depth: usize,
@@ -80,12 +86,74 @@ impl Lines {
   /// Every row, in its order, and no groups.
   pub fn flat(count: usize) -> Self {
     Self {
-      lines: (0..count).map(Shown::Row).collect(),
-      order: (0..count).collect(),
-      position_of_rank: (0..count).collect(),
-      groups: Vec::new(),
-      depth: 0,
+      ranks: count,
+      ..Self::default()
     }
+  }
+
+  /// The rows at `order`, in that order, and no groups.
+  #[allow(dead_code)]
+  pub fn rows(order: Arc<Vec<usize>>) -> Self {
+    Self {
+      ranks: order.len(),
+      order: Some(order),
+      ..Self::default()
+    }
+  }
+
+  /// How many lines there are.
+  pub fn len(&self) -> usize {
+    self.lines.as_ref().map_or(self.ranks, Vec::len)
+  }
+
+  /// The line at `position`.
+  pub fn line(&self, position: usize) -> Option<Shown> {
+    match &self.lines {
+      Some(lines) => lines.get(position).copied(),
+      None => (position < self.ranks).then_some(Shown::Row(position)),
+    }
+  }
+
+  /// How many rows are shown.
+  pub fn ranks(&self) -> usize {
+    self.ranks
+  }
+
+  /// The place among all the rows of the row of `rank`.
+  pub fn row_of_rank(&self, rank: usize) -> Option<usize> {
+    if rank >= self.ranks {
+      return None;
+    }
+    match &self.order {
+      Some(order) => order.get(rank).copied(),
+      None => Some(rank),
+    }
+  }
+
+  /// The line of the row of `rank`.
+  pub fn position_of(&self, rank: usize) -> Option<usize> {
+    if rank >= self.ranks {
+      return None;
+    }
+    match &self.position_of_rank {
+      Some(positions) => positions.get(rank).copied(),
+      None => Some(rank),
+    }
+  }
+
+  /// The rank of the row at `index` among all the rows: `None` where it is not shown.
+  pub fn rank_of_index(&self, index: usize) -> Option<usize> {
+    let Some(order) = &self.order else {
+      return (index < self.ranks).then_some(index);
+    };
+    let ranks = self.rank_of_index.get_or_init(|| {
+      let mut ranks = vec![usize::MAX; order.iter().copied().max().map_or(0, |most| most + 1)];
+      for (rank, index) in order.iter().enumerate() {
+        ranks[*index] = rank;
+      }
+      ranks
+    });
+    ranks.get(index).copied().filter(|rank| *rank != usize::MAX)
   }
 
   /// The rows grouped by the values `values` gives each row for each column of `columns`, in the order the groups
@@ -100,15 +168,47 @@ impl Lines {
     if columns.is_empty() {
       return Self::flat(count);
     }
-    let mut lines = Self {
-      depth: columns.len(),
-      ..Self::default()
-    };
+    let mut built = Built::default();
     let rows: Vec<usize> = (0..count).collect();
-    lines.add(&rows, 0, &[], columns, summaries, values, open);
-    lines
+    built.add(&rows, 0, &[], columns, summaries, values, open);
+    Self {
+      ranks: built.order.len(),
+      lines: Some(built.lines),
+      order: Some(Arc::new(built.order)),
+      position_of_rank: Some(built.position_of_rank),
+      rank_of_index: std::sync::OnceLock::new(),
+      groups: built.groups,
+      depth: columns.len(),
+    }
   }
 
+  /// The rank of the row at a line, where it is a row's.
+  pub fn rank_at(&self, position: usize) -> Option<usize> {
+    match self.line(position)? {
+      Shown::Row(rank) => Some(rank),
+      Shown::Group(_) | Shown::Summary(_) => None,
+    }
+  }
+
+  /// The level of a line in the nesting of the groups: 1 at the top.
+  pub fn level(&self, position: usize) -> u32 {
+    match self.line(position) {
+      Some(Shown::Group(group)) => self.groups[group].key.level() as u32,
+      _ => self.depth as u32 + 1,
+    }
+  }
+}
+
+/// The lines of grouped rows as they are laid out.
+#[derive(Default)]
+struct Built {
+  lines: Vec<Shown>,
+  order: Vec<usize>,
+  position_of_rank: Vec<usize>,
+  groups: Vec<GroupLine>,
+}
+
+impl Built {
   #[allow(clippy::too_many_arguments)]
   fn add(
     &mut self,
@@ -162,22 +262,6 @@ impl Lines {
           self.lines.push(Shown::Summary(group));
         }
       }
-    }
-  }
-
-  /// The rank of the row at a line, where it is a row's.
-  pub fn rank_at(&self, position: usize) -> Option<usize> {
-    match self.lines.get(position)? {
-      Shown::Row(rank) => Some(*rank),
-      Shown::Group(_) | Shown::Summary(_) => None,
-    }
-  }
-
-  /// The level of a line in the nesting of the groups: 1 at the top.
-  pub fn level(&self, position: usize) -> u32 {
-    match self.lines.get(position) {
-      Some(Shown::Group(group)) => self.groups[*group].key.level() as u32,
-      _ => self.depth as u32 + 1,
     }
   }
 }
