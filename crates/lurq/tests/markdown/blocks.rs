@@ -332,3 +332,158 @@ fn a_selection_across_the_systems_parts_copies_words_and_no_glyphs() {
     "no glyph of a checkbox, a callout or a copy button: {copied:?}"
   );
 }
+
+/// A document that fits its content, at the start of a row: as wide as its line.
+struct Hugged;
+
+impl lurq::app::component::Component for Hugged {
+  type Props = MarkdownProps;
+
+  fn create(_ctx: &mut lurq::app::ctx::Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut lurq::app::ctx::Ctx) -> impl Into<lurq::node::Element> {
+    let props = ctx.props::<Self::Props>().clone().fit_content(true);
+    lurq::components::Row::new()
+      .align_items(lurq::layout::Alignment::Start)
+      .child(lurq::components::Markdown::mount(ctx, props))
+  }
+}
+
+/// Where the paragraph of a document that fits its content is drawn: its start and its width.
+fn line_of(source: &str) -> (Tree, f32, f32) {
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.mount_root::<Hugged>(&mut app, MarkdownProps::new(source));
+  tree.pass(&mut app, &TestSurface);
+  let quad = quads(&tree)
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::RichText { .. } | QuadContent::Text { .. }))
+    .expect("the paragraph is drawn");
+  let (x, width) = (quad.x, quad.width);
+  (tree, x, width)
+}
+
+/// The width of `source` as a line of the document's text.
+fn width_of(source: &str) -> f32 {
+  line_of(source).2
+}
+
+/// The boxes of keys and code in `tree`, from the start of the line.
+fn boxes(tree: &Tree) -> Vec<(f32, f32, f32, f32)> {
+  let mut boxes = fills(tree, App::new().theme().palette().get(PaletteColor::Muted));
+  boxes.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
+  boxes
+}
+
+fn near(a: f32, b: f32, what: &str) {
+  assert!((a - b).abs() <= 0.75, "{what}: {a} where {b}");
+}
+
+#[test]
+fn keys_stand_between_the_spaces_of_their_sentence() {
+  let space = width_of("a a") - width_of("aa");
+  let (tree, x, width) = line_of("Press <kbd>Ctrl</kbd> <kbd>K</kbd> to search the docs.");
+  let keys = boxes(&tree);
+  assert_eq!(keys.len(), 2, "{keys:?}");
+  let (ctrl, k) = (keys[0], keys[1]);
+  near(ctrl.0, x + width_of("Press") + space, "Ctrl after Press and a space");
+  near(k.0, ctrl.0 + ctrl.2 + space, "K a space after Ctrl");
+  near(
+    x + width,
+    k.0 + k.2 + space + width_of("to search the docs."),
+    "the rest a space after K",
+  );
+  assert!(k.0 > ctrl.0 + ctrl.2, "their boxes apart");
+}
+
+#[test]
+fn a_key_at_the_start_or_the_end_of_a_paragraph_is_inside_its_line() {
+  let (tree, x, _) = line_of("<kbd>Esc</kbd> closes it.");
+  near(
+    boxes(&tree)[0].0,
+    x,
+    "a key that starts the line, its box at the line's start",
+  );
+  let (tree, x, width) = line_of("Close it with <kbd>Esc</kbd>");
+  let key = boxes(&tree)[0];
+  near(
+    key.0 + key.2,
+    x + width,
+    "a key that ends the line, its box at the line's end",
+  );
+}
+
+#[test]
+fn two_keys_with_a_plus_between_them_or_nothing() {
+  let plus = width_of("a+a") - width_of("aa");
+  let (tree, ..) = line_of("<kbd>Ctrl</kbd>+<kbd>K</kbd>");
+  let keys = boxes(&tree);
+  near(keys[1].0 - (keys[0].0 + keys[0].2), plus, "the plus between the boxes");
+  let (tree, ..) = line_of("<kbd>Ctrl</kbd><kbd>K</kbd>");
+  let keys = boxes(&tree);
+  near(
+    keys[1].0,
+    keys[0].0 + keys[0].2,
+    "with nothing between them, the boxes meet and do not overlap",
+  );
+}
+
+#[test]
+fn code_beside_a_comma_ends_where_the_comma_starts() {
+  let (tree, x, width) = line_of("Call `ctx.theme()`, then render.");
+  let code = boxes(&tree)[0];
+  near(
+    x + width,
+    code.0 + code.2 + width_of(", then render."),
+    "the comma right after the box",
+  );
+  near(
+    code.0,
+    x + width_of("Call") + (width_of("a a") - width_of("aa")),
+    "a space before the box",
+  );
+}
+
+#[test]
+fn a_key_goes_to_the_next_line_whole_and_a_line_starts_with_no_space() {
+  let (_app, tree) = mount(MarkdownProps::new("<kbd>Ctrl</kbd> <kbd>K</kbd>").width(50.0));
+  let keys = boxes(&tree);
+  assert_eq!(keys.len(), 2, "{keys:?}");
+  assert!(keys[1].1 > keys[0].1, "K on the next line: {keys:?}");
+  near(keys[1].0, keys[0].0, "at the line's start, as Ctrl is");
+}
+
+#[test]
+fn what_a_key_copies_is_its_words_and_the_spaces_around_it() {
+  let props = MarkdownProps::new("Press <kbd>Ctrl</kbd> <kbd>K</kbd> to search, or `/`.");
+  assert_eq!(props.rendered_text(), "Press Ctrl K to search, or /.");
+}
+
+/// The size the words `text` are drawn at, among the document's runs.
+fn size_of(tree: &Tree, text: &str) -> Option<f32> {
+  style_of(tree, text).map(|style| style.font_size)
+}
+
+#[test]
+fn keys_and_code_keep_their_size_and_the_words_after_them_theirs() {
+  let (_, tree) = mount(MarkdownProps::new("<kbd>Esc</kbd> closes it, `Tab` moves on.").width(500.0));
+  assert_eq!(size_of(&tree, "Esc"), Some(11.0), "a key at 11");
+  assert_eq!(size_of(&tree, "Tab"), Some(13.0), "code at 13");
+  assert_eq!(
+    size_of(&tree, " closes it, "),
+    Some(15.0),
+    "the words at the document's 15"
+  );
+  // Drawn at their sizes too: the words after a key that starts the paragraph are as wide as they are alone.
+  let alone = width_of("closes it");
+  let (tree, x, width) = line_of("<kbd>Esc</kbd> closes it");
+  let key = boxes(&tree)[0];
+  let space = width_of("a a") - width_of("aa");
+  near(
+    x + width,
+    key.0 + key.2 + space + alone,
+    "the words after the key at their own size",
+  );
+}

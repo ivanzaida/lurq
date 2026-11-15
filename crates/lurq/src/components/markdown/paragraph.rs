@@ -53,6 +53,11 @@ use crate::{
 };
 
 /// Where a footnote's way leads: to the footnote, from the paragraph that refers to it.
+/// What a box's side is drawn as: a word joiner, which takes no room of its own and allows no break.
+const ROOM: char = '\u{2060}';
+/// Where a line may break before a box: a space of no width.
+const BREAK: char = '\u{200b}';
+
 pub(super) const FOOTNOTE_ANCHOR: &str = "#fn:";
 /// Back from a footnote to where the text refers to it.
 pub(super) const REFERENCE_ANCHOR: &str = "#fnref:";
@@ -451,27 +456,32 @@ impl<'a> Paragraph<'a> {
         }
         // Code in a sentence, on the inline code's box.
         MarkdownInline::Code(_) => {
+          let fill = self.session.code_fill.clone();
+          let code_style = self.theme.inline_code.apply(style);
+          self.push_room(fill.as_ref(), &code_style, true);
           let start = self.text_len();
           for span in markdown_inline_rich_text(std::slice::from_ref(inline), style, self.theme) {
             self.push_span(span);
           }
           // The box is a line of the code's type and the part's padding above and below.
-          let fill = self.session.code_fill.clone();
-          let code_size = self.theme.inline_code.apply(style).font_size;
-          let height = code_size * 1.25 + 2.0 * fill.as_ref().map_or(0.0, |fill| fill.padding.1);
+          let height = code_style.font_size * 1.25 + 2.0 * fill.as_ref().map_or(0.0, |fill| fill.padding.1);
           self.fill_from(start, fill.as_ref(), height);
+          self.push_room(fill.as_ref(), &code_style, false);
         }
         // A key, in the key's box.
         MarkdownInline::Kbd(words) => {
+          let fill = self.session.kbd_fill.clone();
+          let key_style = self.theme.kbd.apply(style);
+          self.push_room(fill.as_ref(), &key_style, true);
           let start = self.text_len();
           self.push_span(RichTextSpan {
-            text: format!("\u{2009}{words}\u{2009}"),
-            style: self.theme.kbd.apply(style),
+            text: words.clone(),
+            style: key_style.clone(),
           });
           // The key's box is as high as the part says (its fill's padding holds that height).
-          let fill = self.session.kbd_fill.clone();
           let height = fill.as_ref().map_or(20.0, |fill| fill.padding.1);
           self.fill_from(start, fill.as_ref(), height);
+          self.push_room(fill.as_ref(), &key_style, false);
         }
         // A footnote's number, which goes to the footnote.
         MarkdownInline::FootnoteReference(label) => match self.session.footnote_number(label) {
@@ -584,6 +594,35 @@ impl<'a> Paragraph<'a> {
       trailing: shift(block.trailing),
       target: shift(block.target),
     }
+  }
+
+  /// The room a box's side takes in the line, beside its words: as wide as the box's padding across, so that the box
+  /// stands between the spaces of the sentence around it and not over them. It is presentation, a joiner spaced to
+  /// that width: never copied or selected, and no line breaks between it and the box, so a box goes to the next line
+  /// whole, as a word does. Before the box a break may come first, where the sentence breaks before a word: a space
+  /// of no width allows it, which the joiner after it alone would not.
+  fn push_room(&mut self, fill: Option<&TextHighlight>, style: &TextStyle, before: bool) {
+    let Some(width) = fill.map(|fill| fill.padding.0).filter(|width| *width > 0.0) else {
+      return;
+    };
+    if before {
+      let index = self.seal();
+      self.spans.push(RichTextSpan {
+        text: BREAK.to_string(),
+        style: style.clone(),
+      });
+      self.generated.push(index..index + 1);
+    }
+    let index = self.seal();
+    self.spans.push(RichTextSpan {
+      text: ROOM.to_string(),
+      style: TextStyle {
+        letter_spacing: width,
+        ..style.clone()
+      },
+    });
+    self.generated.push(index..index + 1);
+    self.seal();
   }
 
   /// An isolate mark: a span of its own, never merged, never copied.

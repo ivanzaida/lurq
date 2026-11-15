@@ -34,6 +34,11 @@ impl Component for MarkdownRoot {
   }
 }
 
+/// Whether a span is the room beside a box (a key's, code's): presentation, not the paragraph's words.
+fn is_room(text: &str) -> bool {
+  !text.is_empty() && text.chars().all(|ch| matches!(ch, '\u{200b}' | '\u{2060}'))
+}
+
 #[test]
 fn markdown_component_renders_rich_inline_spans() {
   let mut app = App::new();
@@ -55,6 +60,9 @@ fn markdown_component_renders_rich_inline_spans() {
     })
     .expect("markdown component should render inline content as rich text");
 
+  // The room beside the code's box is presentation: a joiner spaced to the box's padding, and a space of no width
+  // before it where a line may break.
+  let spans: Vec<_> = spans.iter().filter(|span| !is_room(&span.text)).collect();
   assert_eq!(
     spans.iter().map(|span| span.text.as_str()).collect::<Vec<_>>(),
     vec!["Hello ", "bold", ", ", "soft", ", and ", "code"]
@@ -99,6 +107,7 @@ fn markdown_inline_code_font_features_shape_their_span() {
         QuadContent::RichText { spans, .. } => Some(
           spans
             .iter()
+            .filter(|span| !is_room(&span.text))
             .map(|span| span.style.font_features.clone())
             .collect::<Vec<_>>(),
         ),

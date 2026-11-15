@@ -3,9 +3,10 @@
 use cosmic_text::Attrs;
 
 /// Adds `letter_spacing` logical pixels after every glyph. cosmic-text takes
-/// tracking in ems and scales every glyph advance by the buffer's font size,
-/// not the span's, so `em_px` must be the buffer's font size. Zero and
-/// non-finite spacing leave the attributes unchanged.
+/// tracking in ems and scales it by the size the glyph is drawn at: the
+/// span's own where it has metrics of its own, the buffer's otherwise, so
+/// `em_px` must be that size. Zero and non-finite spacing leave the
+/// attributes unchanged.
 pub(crate) fn with_letter_spacing(attrs: Attrs<'_>, letter_spacing: f32, em_px: f32) -> Attrs<'_> {
   if letter_spacing == 0.0 || !letter_spacing.is_finite() || !(em_px > 0.0 && em_px.is_finite()) {
     return attrs;
@@ -54,10 +55,10 @@ mod tests {
     assert!((width(&mut engine, &unspaced) - 20.0).abs() < 0.01);
     let spaced = [span("aa", 10.0, 1.0), span("aa", 10.0, 3.0)];
     assert!((width(&mut engine, &spaced) - 28.0).abs() < 0.01, "2x1px + 2x3px");
-    // Every glyph uses the first span's size, so a later span's spacing must
-    // still come out in pixels rather than in that span's own ems.
+    // A span of another size is drawn and advances at its own size, and its spacing is in pixels all the same:
+    // 10 for the first, 20 and 2x4px for the second.
     let mixed = [span("aa", 10.0, 0.0), span("aa", 20.0, 4.0)];
-    assert!((width(&mut engine, &mixed) - 28.0).abs() < 0.01, "2x4px");
+    assert!((width(&mut engine, &mixed) - 38.0).abs() < 0.01, "10 + 20 + 2x4px");
     // Same text and sizes, only the spacing changed: no stale cached layout.
     let respaced = [span("aa", 10.0, 1.0), span("aa", 10.0, -1.0)];
     assert!((width(&mut engine, &respaced) - 20.0).abs() < 0.01);
