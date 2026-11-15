@@ -612,23 +612,28 @@ pub fn prop(label: &str, kind: &str, control: impl Into<Element>) -> Element {
 /// A prop that is on or off: its name, and a switch.
 pub fn flag(label: &str, value: &Signal<bool>) -> Element {
   let set = value.clone();
+  // A long label wraps under itself and the switch keeps its place at the end: nothing of a row leaves the panel.
   Row::new()
     .width(FILL)
-    .height(24.0)
+    .min_height(24.0)
+    .spacing(12.0)
     .align_items(Alignment::Center)
-    .justify(Justify::SpaceBetween)
     .child(
       Row::new()
+        .flex(1.0)
+        .min_width(0.0)
         .spacing(8.0)
         .align_items(Alignment::Center)
-        .child(name(label, 12.0))
-        .child(quiet("bool", 11.0)),
+        .child(name(label, 12.0).flex_shrink(1.0))
+        .child(quiet("bool", 11.0).nowrap().flex_shrink(0.0)),
     )
     .child(
-      Switch::new(label)
-        .label_hidden(true)
-        .on(value.get())
-        .on_change(move |on| set.set(on)),
+      Row::new().flex_shrink(0.0).child(
+        Switch::new(label)
+          .label_hidden(true)
+          .on(value.get())
+          .on_change(move |on| set.set(on)),
+      ),
     )
     .into()
 }

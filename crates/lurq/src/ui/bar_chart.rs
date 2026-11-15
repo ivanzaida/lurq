@@ -4,11 +4,13 @@ use std::{hash::Hash, sync::Arc};
 
 use super::{
   chart::{
-    BandScale, BarEnd, ChartArea, ChartAxis, ChartFrame, ChartLook, ChartPlot, ChartPoint, ChartProps, ChartRenderer,
-    ChartSeries, ChartSize, ChartTick, ChartTip, LinearScale, bits, chart_recipe, fill_bar, signature_of,
+    BandScale, BarEnd, ChartArea, ChartAxis, ChartFrame, ChartLook, ChartMotion, ChartPlot, ChartPoint, ChartProps,
+    ChartRenderer, ChartSeries, ChartSize, ChartTick, ChartTip, LinearScale, bits, chart_recipe, fill_bar,
+    signature_of,
   },
   names,
   recipe::Recipe,
+  shared::Orientation,
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -17,7 +19,7 @@ use crate::{
     theme::{PaletteColor, Theme},
   },
   canvas::{CanvasItem, Context2D},
-  node::Element,
+  node::{Element, color::Color},
 };
 
 /// The parts of a bar chart a recipe styles, besides its frame's ([`ChartPart`](super::ChartPart)).
@@ -39,10 +41,16 @@ names!(BarChartPart {
 pub enum BarChartState {
   /// Its series are stacked, one on another in each category.
   Stacked,
+  /// Its bars lie across, the names of the categories at the start.
+  Horizontal,
+  /// Its bars stand up, the names of the categories under them.
+  Vertical,
 }
 
 names!(BarChartState {
   Stacked => "stacked",
+  Horizontal => "horizontal",
+  Vertical => "vertical",
 });
 
 /// The corners of a bar's end, as the board rounds them.
@@ -80,6 +88,7 @@ pub struct BarChart {
   series: Vec<ChartSeries>,
   stacked: bool,
   current: Option<usize>,
+  orientation: Orientation,
   props: ChartProps,
 }
 
@@ -94,8 +103,17 @@ impl BarChart {
       series: series.into_iter().collect(),
       stacked: false,
       current: None,
+      orientation: Orientation::Vertical,
       props: ChartProps::default(),
     }
+  }
+
+  /// Which way the bars run: standing up from the bottom (`Vertical`, the board's), or lying across from the
+  /// start (`Horizontal`), the names of the categories at the start and the values under the plot. Long names read
+  /// better across.
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
+    self
   }
 
   /// Whether the series are stacked, one on another in each category, the first at the bottom: a whole and its
@@ -121,13 +139,16 @@ impl BarChart {
       shown: self.series.iter().map(|series| !self.props.is_hidden(series)).collect(),
       stacked: self.stacked,
       current: self.current,
+      across: !self.orientation.is_vertical(),
       gap: 0.0,
     });
     let empty = plot.is_empty();
     let case = self
       .props
       .case(ChartSize::Md, empty)
-      .state(BarChartState::Stacked, self.stacked);
+      .state(BarChartState::Stacked, self.stacked)
+      .state(BarChartState::Horizontal, !self.orientation.is_vertical())
+      .state(BarChartState::Vertical, self.orientation.is_vertical());
     let recipe = theme.resolve::<BarChart>(&case, Some(&self.props.rules));
     // The bands are as far apart as the names under them.
     let gap = recipe
@@ -164,6 +185,16 @@ impl From<BarChart> for Element {
   }
 }
 
+/// `to`, `progress` of the way from `from`.
+fn lerp_rect(
+  (ax, ay, aw, ah): (f32, f32, f32, f32),
+  (bx, by, bw, bh): (f32, f32, f32, f32),
+  progress: f32,
+) -> (f32, f32, f32, f32) {
+  let lerp = |a: f32, b: f32| a + (b - a) * progress;
+  (lerp(ax, bx), lerp(ay, by), lerp(aw, bw), lerp(ah, bh))
+}
+
 /// What a bar chart's plot draws: the values of the series shown, by category.
 #[derive(Clone)]
 struct BarPlot {
@@ -172,6 +203,8 @@ struct BarPlot {
   shown: Vec<bool>,
   stacked: bool,
   current: Option<usize>,
+  /// Whether the bars lie across: the bands run down the plot and the values along it.
+  across: bool,
   gap: f32,
 }
 
@@ -216,11 +249,28 @@ impl BarPlot {
   }
 
   fn scale(&self, area: ChartArea) -> LinearScale {
-    LinearScale::nice(self.extents(), (area.height, 0.0), 4)
+    let range = if self.across {
+      (0.0, area.width)
+    } else {
+      (area.height, 0.0)
+    };
+    LinearScale::nice(self.extents(), range, 4)
   }
 
   fn bands(&self, area: ChartArea) -> BandScale {
-    BandScale::new(self.categories.len(), area.width, self.gap)
+    let length = if self.across { area.height } else { area.width };
+    BandScale::new(self.categories.len(), length, self.gap)
+  }
+
+  /// A rectangle along the bands and the values: `start` and `width` across the bands, `low` and `high` along
+  /// the values, as it is drawn.
+  fn rect(&self, start: f32, width: f32, low: f32, high: f32) -> (f32, f32, f32, f32) {
+    let length = (high - low).max(0.0);
+    if self.across {
+      (low, start, length, width)
+    } else {
+      (start, low, width, length)
+    }
   }
 
   /// Where the bar of `series` in `category` is drawn: x, y, width, height, and which end is rounded. `None` where
@@ -254,21 +304,100 @@ impl BarPlot {
       )
     };
     let (a, b) = (scale.map(from), scale.map(to));
-    let (top, bottom) = (a.min(b), a.max(b));
-    // A segment over another leaves a pixel of the card between them.
+    let (low, high) = (a.min(b), a.max(b));
+    // A segment over another leaves a pixel of the card between them, on the side toward zero.
     let gap = if self.stacked && from != 0.0 { SEGMENT_GAP } else { 0.0 };
-    let (top, bottom) = if value >= 0.0 {
-      (top, (bottom - gap).min(zero))
+    // Toward zero is the high end of the drawing where the values run up, the low one where they run across.
+    let toward_high = (value >= 0.0) != self.across;
+    let (low, high) = if toward_high {
+      (low, (high - gap).min(zero.max(low)))
     } else {
-      ((top + gap).max(zero), bottom)
+      ((low + gap).max(zero.min(high)), high)
     };
-    Some((
-      (x, top, width, (bottom - top).max(0.0)),
-      if value >= 0.0 { BarEnd::Top } else { BarEnd::Bottom },
-    ))
+    let end = match (self.across, value >= 0.0) {
+      (false, true) => BarEnd::Top,
+      (false, false) => BarEnd::Bottom,
+      (true, true) => BarEnd::End,
+      (true, false) => BarEnd::Start,
+    };
+    Some((self.rect(x, width, low, high), end))
   }
 
   /// Whether the bar of `series` in `category` is the outer one of its stack: its end is rounded.
+  /// The band behind the category under the pointer or the focus.
+  fn paint_band(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
+    let Some(point) = active else {
+      return;
+    };
+    let bands = self.bands(area);
+    canvas.set_fill_style(look.color(BarChartPart::Band));
+    let (x, y, width, height) = if self.across {
+      (0.0, bands.start(point.index), area.width, bands.width())
+    } else {
+      (bands.start(point.index), 0.0, bands.width(), area.height)
+    };
+    canvas.fill_rect(x, y, width, height);
+  }
+
+  /// Every bar, each at the place `place` gives it from the one it has at rest.
+  fn paint_bars(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    place: impl Fn(usize, usize, (f32, f32, f32, f32)) -> (f32, f32, f32, f32),
+  ) {
+    for category in 0..self.categories.len() {
+      for series in 0..self.values.len() {
+        let Some((rect, end)) = self.bar(area, series, category) else {
+          continue;
+        };
+        canvas.set_fill_style(self.color(look, series, category));
+        let radius = if self.outermost(series, category) {
+          BAR_RADIUS
+        } else {
+          0.0
+        };
+        fill_bar(canvas, place(series, category, rect), radius, end);
+      }
+    }
+  }
+
+  /// The color of a bar: its series', or the muted one where another category is current.
+  fn color(&self, look: &ChartLook, series: usize, category: usize) -> Color {
+    match self.current {
+      Some(current) if current != category => look.color(BarChartPart::Bar),
+      _ => look.series(series),
+    }
+  }
+
+  /// Where the bar of `series` in `category`, at `rect` at rest, is drawn `progress` of the way from where `from`
+  /// drew it: from the line of zero where it had none (as the chart enters, or its series is shown again).
+  fn on_way(
+    &self,
+    from: Option<&BarPlot>,
+    area: ChartArea,
+    series: usize,
+    category: usize,
+    rect: (f32, f32, f32, f32),
+    progress: f32,
+  ) -> (f32, f32, f32, f32) {
+    let start = from
+      .and_then(|from| from.bar(area, series, category))
+      .map_or_else(|| self.at_baseline(area, rect), |(start, _)| start);
+    lerp_rect(start, rect, progress)
+  }
+
+  /// A bar of no length on the line of zero, where `rect` is: where it grows from, and shrinks to.
+  fn at_baseline(&self, area: ChartArea, (x, y, width, height): (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let zero = self.scale(area).map(0.0);
+    if self.across {
+      (zero, y, 0.0, height)
+    } else {
+      (x, zero, width, 0.0)
+    }
+  }
+
   fn outermost(&self, series: usize, category: usize) -> bool {
     if !self.stacked {
       return true;
@@ -287,30 +416,54 @@ impl BarPlot {
 
 impl ChartPlot for BarPlot {
   fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>) {
-    let bands = self.bands(area);
-    if let Some(point) = active {
-      canvas.set_fill_style(look.color(BarChartPart::Band));
-      canvas.fill_rect(bands.start(point.index), 0.0, bands.width(), area.height);
+    self.paint_band(canvas, area, look, active);
+    self.paint_bars(canvas, area, look, |_, _, rect| rect);
+  }
+
+  /// Bars grow from their baseline as the chart enters, and move to their new place when its data changes, from
+  /// where they were drawn before: the bars of a series shown again grow, and those of one hidden shrink away.
+  fn paint_moving(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    motion: ChartMotion<'_>,
+  ) {
+    if motion.at_rest() {
+      return self.paint(canvas, area, look, active);
     }
-    let muted = look.color(BarChartPart::Bar);
-    for category in 0..self.categories.len() {
-      for series in 0..self.values.len() {
-        let Some((rect, end)) = self.bar(area, series, category) else {
-          continue;
-        };
-        let color = match self.current {
-          Some(current) if current != category => muted,
-          _ => look.series(series),
-        };
-        canvas.set_fill_style(color);
-        let radius = if self.outermost(series, category) {
-          BAR_RADIUS
-        } else {
-          0.0
-        };
-        fill_bar(canvas, rect, radius, end);
+    let from = motion.from_as::<BarPlot>();
+    let progress = motion.progress;
+    self.paint_band(canvas, area, look, active);
+    if let Some(from) = from {
+      // What is no longer drawn shrinks to its baseline.
+      for category in 0..from.categories.len() {
+        for series in 0..from.values.len() {
+          if self.bar(area, series, category).is_some() {
+            continue;
+          }
+          let Some((rect, end)) = from.bar(area, series, category) else {
+            continue;
+          };
+          canvas.set_fill_style(from.color(look, series, category));
+          let radius = if from.outermost(series, category) {
+            BAR_RADIUS
+          } else {
+            0.0
+          };
+          fill_bar(
+            canvas,
+            lerp_rect(rect, from.at_baseline(area, rect), progress),
+            radius,
+            end,
+          );
+        }
       }
     }
+    self.paint_bars(canvas, area, look, |series, category, rect| {
+      self.on_way(from, area, series, category, rect, progress)
+    });
   }
 
   fn ticks(&self, area: ChartArea, look: &ChartLook) -> Vec<ChartTick> {
@@ -333,8 +486,14 @@ impl ChartPlot for BarPlot {
     }
   }
 
+  fn across(&self) -> bool {
+    self.across
+  }
+
   fn point_at(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {
-    let category = self.bands(area).index_at(x)?;
+    // Along the bands, and along the values.
+    let (along, value) = if self.across { (y, x) } else { (x, y) };
+    let category = self.bands(area).index_at(along)?;
     let bars: Vec<(usize, (f32, f32, f32, f32))> = self
       .shown()
       .into_iter()
@@ -342,10 +501,15 @@ impl ChartPlot for BarPlot {
       .collect();
     // The bar the pointer is on; in a stack the segment at its height, in a group the bar across from it.
     let on = |&(_, (bx, by, bw, bh)): &(usize, (f32, f32, f32, f32))| {
-      if self.stacked {
-        y >= by && y <= by + bh
+      let (band_from, band_length, value_from, value_length) = if self.across {
+        (by, bh, bx, bw)
       } else {
-        x >= bx && x <= bx + bw
+        (bx, bw, by, bh)
+      };
+      if self.stacked {
+        value >= value_from && value <= value_from + value_length
+      } else {
+        along >= band_from && along <= band_from + band_length
       }
     };
     let series = bars
@@ -358,13 +522,20 @@ impl ChartPlot for BarPlot {
 
   fn anchor(&self, area: ChartArea, point: ChartPoint) -> Option<(f32, f32)> {
     let bands = self.bands(area);
-    let top = self
+    let middle = bands.start(point.index) + bands.width() / 2.0;
+    let bars: Vec<(f32, f32, f32, f32)> = self
       .shown()
       .into_iter()
       .filter_map(|series| self.bar(area, series, point.index))
-      .map(|((_, y, ..), _)| y)
-      .fold(area.height, f32::min);
-    Some((bands.start(point.index) + bands.width() / 2.0, top))
+      .map(|(rect, _)| rect)
+      .collect();
+    if self.across {
+      // At the end of the longest bar, over its band.
+      let end = bars.iter().map(|(x, _, width, _)| x + width).fold(0.0, f32::max);
+      return Some((end, bands.start(point.index)));
+    }
+    let top = bars.iter().map(|(_, y, ..)| *y).fold(area.height, f32::min);
+    Some((middle, top))
   }
 
   fn counts(&self) -> Vec<usize> {
@@ -424,6 +595,7 @@ impl ChartPlot for BarPlot {
       &self.shown,
       self.stacked,
       self.current,
+      self.across,
       self.gap.to_bits(),
     ))
   }
@@ -446,5 +618,64 @@ impl Themed for BarChart {
       .base(BarChartPart::Bar, |s| s.background(PaletteColor::Input))
       .base(BarChartPart::Band, |s| s.background(PaletteColor::Muted))
       .state(BarChartState::Stacked, super::ChartPart::Axis, |s| s.gap(14.0))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn plot(values: &[f64], across: bool) -> BarPlot {
+    BarPlot {
+      categories: Arc::from([Arc::from("a"), Arc::from("b")]),
+      values: vec![Arc::from(values)],
+      shown: vec![true],
+      stacked: false,
+      current: None,
+      across,
+      gap: 0.0,
+    }
+  }
+
+  const AREA: ChartArea = ChartArea {
+    width: 100.0,
+    height: 100.0,
+  };
+
+  #[test]
+  fn bars_grow_from_their_baseline_and_move_to_their_new_place() {
+    let to = plot(&[5.0, 10.0], false);
+    let (rest, _) = to.bar(AREA, 0, 1).unwrap();
+    assert_eq!(rest, (50.0, 0.0, 50.0, 100.0), "at rest the bar of 10 fills the plot");
+    assert_eq!(
+      to.on_way(None, AREA, 0, 1, rest, 0.0),
+      (50.0, 100.0, 50.0, 0.0),
+      "entering, it starts on zero"
+    );
+    assert_eq!(
+      to.on_way(None, AREA, 0, 1, rest, 0.5),
+      (50.0, 50.0, 50.0, 50.0),
+      "and grows from it"
+    );
+    assert_eq!(to.on_way(None, AREA, 0, 1, rest, 1.0), rest);
+
+    let from = plot(&[10.0, 10.0], false);
+    let (before, _) = from.bar(AREA, 0, 0).unwrap();
+    assert_eq!(before, (0.0, 0.0, 50.0, 100.0), "the bar of 10 before it");
+    let (rest, _) = to.bar(AREA, 0, 0).unwrap();
+    assert_eq!(rest.3, 50.0);
+    assert_eq!(
+      to.on_way(Some(&from), AREA, 0, 0, rest, 0.5),
+      (0.0, 25.0, 50.0, 75.0),
+      "a change moves the bar from where it was drawn to its new place"
+    );
+  }
+
+  #[test]
+  fn bars_lying_across_grow_from_the_start() {
+    let to = plot(&[5.0, 10.0], true);
+    let (rest, _) = to.bar(AREA, 0, 1).unwrap();
+    assert_eq!(rest, (0.0, 50.0, 100.0, 50.0));
+    assert_eq!(to.on_way(None, AREA, 0, 1, rest, 0.25), (0.0, 50.0, 25.0, 50.0));
   }
 }

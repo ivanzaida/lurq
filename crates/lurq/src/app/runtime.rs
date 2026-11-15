@@ -1730,6 +1730,7 @@ impl Tree {
       || self.autoscroll_moving()
       || self.has_active_timeline()
       || self.has_continuous_redraw_image()
+      || self.has_moving_canvas()
       || self.click_tracker.has_pending()
       || self.has_focused_blinking_text_input(CaretMode::Blinking)
       || self.press_repeat.is_some()
@@ -1803,6 +1804,29 @@ impl Tree {
       .chain(layer_dropped)
       .chain(self.next_wheel_scroll_step())
       .min()
+  }
+
+  /// Whether a canvas's drawing is on its way somewhere (`Canvas::paint_moving`): the shell asks for a frame at
+  /// once, at the display's pace, until it is there. A moving canvas is drawn again on its own at the start of each
+  /// pass and asks for no layout.
+  pub fn has_moving_canvas(&self) -> bool {
+    #[cfg(feature = "canvas")]
+    {
+      self.canvas_registry.iter().any(crate::canvas::CanvasHandle::moving)
+    }
+    #[cfg(not(feature = "canvas"))]
+    {
+      false
+    }
+  }
+
+  /// Draws each moving canvas where it is by now, on the runtime's clock.
+  #[cfg(feature = "canvas")]
+  fn advance_canvas_motion(&mut self) {
+    let now = self.now();
+    for canvas in &self.canvas_registry {
+      canvas.advance_motion(now);
+    }
   }
 
   pub(crate) fn has_continuous_redraw_image(&self) -> bool {
@@ -2618,6 +2642,7 @@ impl Tree {
       || self.perf_overlay_enabled
       || self.autoscroll_moving()
       || self.has_continuous_redraw_image()
+      || self.has_moving_canvas()
       || self.next_timeline_change().is_some_and(|at| at <= Instant::now())
   }
 
@@ -2661,6 +2686,8 @@ impl Tree {
     let pass_started_at = Instant::now();
     self.tick_scheduled_redraw(Instant::now());
     self.tick_scrollbar_change();
+    #[cfg(feature = "canvas")]
+    self.advance_canvas_motion();
     let theme_version = self
       .root_ctx
       .as_ref()
@@ -7496,6 +7523,15 @@ impl Tree {
       if let Some(root) = self.root.as_ref() {
         let offset = root.offset_position().unwrap_or_default();
         let canvas_text = app.shared.glyph_engine.lock().canvas_text_engine();
+        let canvas_motion = CanvasMotionClock {
+          now: self.now(),
+          still: self
+            .root_ctx
+            .as_ref()
+            .map(Ctx::theme)
+            .unwrap_or_else(|| app.theme())
+            .reduced_motion(),
+        };
         let _canvas_start = profile_scope!();
         #[cfg(feature = "perf_profile")]
         let _canvas_phase = self
@@ -7513,6 +7549,7 @@ impl Tree {
           &self.window,
           &canvas_font,
           &canvas_text,
+          canvas_motion,
           &mut self.canvas_registry,
           self.software_canvases,
         );
@@ -12347,6 +12384,14 @@ fn update_canvas_placement_recursive(
   }
 }
 
+/// The time a pass draws its canvases at, and whether their motion is off (reduced).
+#[cfg(feature = "canvas")]
+#[derive(Clone, Copy)]
+struct CanvasMotionClock {
+  now: Instant,
+  still: bool,
+}
+
 #[cfg(feature = "canvas")]
 #[allow(clippy::too_many_arguments)]
 fn bind_canvas_layout_recursive(
@@ -12360,6 +12405,7 @@ fn bind_canvas_layout_recursive(
   window: &crate::app::window::Window,
   font: &crate::canvas::CanvasFont,
   text: &Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>,
+  motion: CanvasMotionClock,
   registry: &mut Vec<crate::canvas::CanvasHandle>,
   software: bool,
 ) {
@@ -12389,11 +12435,10 @@ fn bind_canvas_layout_recursive(
         observer(metrics);
       }
     }
-    // A canvas drawn from what it is given is drawn again only when that, or its size or scale, changes.
-    if let Some(painter) = node.canvas_painter()
-      && canvas.paint_due(painter.key, metrics_changed)
-    {
-      (painter.paint)(&canvas);
+    // A canvas drawn from what it is given is drawn again only when that, or its size or scale, changes; one on
+    // its way somewhere is drawn at each pass's start besides, until it is there.
+    if let Some(painter) = node.canvas_painter() {
+      canvas.paint_with(painter, metrics_changed, motion.now, motion.still);
     }
   }
   for (child_layout, child) in layout.children.iter().zip(node.children()) {
@@ -12408,6 +12453,7 @@ fn bind_canvas_layout_recursive(
       window,
       font,
       text,
+      motion,
       registry,
       software,
     );

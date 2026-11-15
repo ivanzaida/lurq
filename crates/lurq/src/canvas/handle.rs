@@ -49,6 +49,8 @@ impl CanvasHandle {
         items: Arc::from([]),
         warned_duplicates: None,
         painted: None,
+        shown: None,
+        run: None,
       })),
     }
   }
@@ -169,14 +171,101 @@ impl CanvasHandle {
 
   /// Whether a painter of `key` is to draw the surface: its key is another than the one it last drew for, or the
   /// surface's metrics changed. Where it is, `key` is the one drawn for from now.
-  pub(crate) fn paint_due(&self, key: u64, metrics_changed: bool) -> bool {
+  /// Draws the canvas with `painter` if it is due: when it is first laid out, when its size or scale changed
+  /// (`metrics_changed`), or when the painter's key did. A moving painter starts a motion when what it draws
+  /// toward changes, and enters when first drawn, unless `still` (motion is reduced) or the canvas is being
+  /// resized: a resize ends a motion on its way, and the drawing is drawn where it goes. Returns whether it drew.
+  pub(crate) fn paint_with(
+    &self,
+    painter: &super::CanvasPainter,
+    metrics_changed: bool,
+    now: std::time::Instant,
+    still: bool,
+  ) -> bool {
     let mut s = self.inner.lock();
     if !s.attached {
       return false;
     }
-    let due = metrics_changed || s.painted != Some(key);
-    s.painted = Some(key);
-    due
+    let first = s.painted.is_none();
+    let mut due = metrics_changed || s.painted != Some(painter.key);
+    s.painted = Some(painter.key);
+    let resized = metrics_changed && !first;
+    match &painter.motion {
+      Some(motion) => {
+        if s.shown.as_ref().map(|(of, _)| *of) != Some(motion.of) {
+          let from = s.shown.take().map(|(_, value)| value);
+          s.shown = Some((motion.of, motion.value.clone()));
+          let moves = !still && !resized && !motion.motion.duration.is_zero() && (first || from.is_some());
+          s.run = moves.then(|| super::Run {
+            from,
+            started: now,
+            motion: motion.motion,
+            paint: painter.paint.clone(),
+          });
+          due = true;
+        } else if resized || still {
+          s.run = None;
+        }
+        // A drawing on its way goes on with the painter it was last given (the point under the pointer, say).
+        if let Some(run) = s.run.as_mut() {
+          run.paint = painter.paint.clone();
+        }
+      }
+      None => {
+        s.shown = None;
+        s.run = None;
+      }
+    }
+    if !due {
+      return false;
+    }
+    let from = s.run.as_ref().and_then(|run| run.from.clone());
+    let to = s.shown.as_ref().map(|(_, value)| value.clone());
+    let progress = s.run.as_ref().map_or(1.0, |run| run.progress(now));
+    if progress >= 1.0 {
+      s.run = None;
+    }
+    drop(s);
+    let frame = super::PaintFrame {
+      from: if progress >= 1.0 { None } else { from.as_ref() },
+      to: to.as_ref(),
+      progress,
+    };
+    (painter.paint)(self, &frame);
+    true
+  }
+
+  /// Whether the canvas's drawing is on its way somewhere: it is drawn again at each frame until it gets there.
+  pub(crate) fn moving(&self) -> bool {
+    let s = self.inner.lock();
+    s.attached && s.run.is_some()
+  }
+
+  /// Draws a moving canvas where it is at `now`, and ends its motion once it is there. Returns whether it drew.
+  pub(crate) fn advance_motion(&self, now: std::time::Instant) -> bool {
+    let mut s = self.inner.lock();
+    if !s.attached {
+      return false;
+    }
+    let Some(run) = s.run.as_ref() else {
+      return false;
+    };
+    let progress = run.progress(now);
+    let paint = run.paint.clone();
+    let from = run.from.clone();
+    let to = s.shown.as_ref().map(|(_, value)| value.clone());
+    if progress >= 1.0 {
+      s.run = None;
+    }
+    s.pending_paint = true;
+    drop(s);
+    let frame = super::PaintFrame {
+      from: if progress >= 1.0 { None } else { from.as_ref() },
+      to: to.as_ref(),
+      progress,
+    };
+    paint(self, &frame);
+    true
   }
 
   pub(crate) fn clone_empty(&self) -> Self {
@@ -202,6 +291,7 @@ impl CanvasHandle {
   pub(crate) fn detach(&self) {
     let mut s = self.inner.lock();
     s.attached = false;
+    s.run = None;
     s.window = None;
     s.commands.clear();
     s.command_bytes = 0;

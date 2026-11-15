@@ -126,26 +126,159 @@ impl fmt::Display for CanvasError {
 }
 impl std::error::Error for CanvasError {}
 
+/// What a painter draws from, as the engine keeps it between drawings: the value a moving drawing goes to, and
+/// the one it comes from.
+pub(crate) type MotionValue = std::sync::Arc<dyn std::any::Any + Send + Sync>;
+
+/// Where a drawing is as a painter draws it: what it moves from (none when it enters or is at rest) and to, and how
+/// far along the way, eased, 1 at rest.
+pub(crate) struct PaintFrame<'a> {
+  pub(crate) from: Option<&'a MotionValue>,
+  pub(crate) to: Option<&'a MotionValue>,
+  pub(crate) progress: f32,
+}
+
+pub(crate) type PaintFn = std::sync::Arc<dyn Fn(&CanvasHandle, &PaintFrame<'_>) + Send + Sync>;
+
 /// What draws a canvas from what it is given: called with the canvas when it is first laid out, when its size or
-/// its scale changes, and when its key changes, and not otherwise. See `Canvas::paint`.
+/// its scale changes, and when its key changes, and not otherwise; and, for a moving one, at each frame while it
+/// moves. See `Canvas::paint` and `Canvas::paint_moving`.
 #[derive(Clone)]
 pub struct CanvasPainter {
   pub(crate) key: u64,
-  pub(crate) paint: std::sync::Arc<dyn Fn(&CanvasHandle) + Send + Sync>,
+  pub(crate) paint: PaintFn,
+  pub(crate) motion: Option<PainterMotion>,
+}
+
+/// What a moving painter draws toward: `value`, which `of` (its hash) tells apart from what it drew before.
+#[derive(Clone)]
+pub(crate) struct PainterMotion {
+  pub(crate) of: u64,
+  pub(crate) value: MotionValue,
+  pub(crate) motion: CanvasMotion,
 }
 
 impl CanvasPainter {
   pub fn new(key: u64, paint: impl Fn(&CanvasHandle) + Send + Sync + 'static) -> Self {
     Self {
       key,
+      paint: std::sync::Arc::new(move |canvas, _| paint(canvas)),
+      motion: None,
+    }
+  }
+
+  /// A painter whose drawing moves to `value` when `of` changes, and enters when it is first drawn: see
+  /// `Canvas::paint_moving`.
+  pub fn moving<T: Send + Sync + 'static>(
+    key: u64,
+    motion: CanvasMotion,
+    of: u64,
+    value: std::sync::Arc<T>,
+    paint: impl Fn(&CanvasHandle, CanvasMove<'_, T>) + Send + Sync + 'static,
+  ) -> Self {
+    let fallback = value.clone();
+    let paint = move |canvas: &CanvasHandle, frame: &PaintFrame<'_>| {
+      let to = frame
+        .to
+        .and_then(|value| value.downcast_ref::<T>())
+        .unwrap_or(&*fallback);
+      let from = frame.from.and_then(|value| value.downcast_ref::<T>());
+      paint(
+        canvas,
+        CanvasMove {
+          from,
+          to,
+          progress: frame.progress,
+        },
+      )
+    };
+    Self {
+      key,
       paint: std::sync::Arc::new(paint),
+      motion: Some(PainterMotion { of, value, motion }),
     }
   }
 }
 
 impl std::fmt::Debug for CanvasPainter {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("CanvasPainter").field("key", &self.key).finish()
+    f.debug_struct("CanvasPainter")
+      .field("key", &self.key)
+      .field("moving", &self.motion.is_some())
+      .finish()
+  }
+}
+
+/// How a drawing that follows from a key moves to what it is given next: how long it takes, and how it is eased.
+/// See `Canvas::paint_moving`. A short ease out by default, of 300 ms.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanvasMotion {
+  pub duration: std::time::Duration,
+  pub easing: crate::animation::Easing,
+}
+
+impl CanvasMotion {
+  pub const fn new(duration: std::time::Duration) -> Self {
+    Self {
+      duration,
+      easing: crate::animation::Easing::EASE_OUT,
+    }
+  }
+
+  pub const fn easing(mut self, easing: crate::animation::Easing) -> Self {
+    self.easing = easing;
+    self
+  }
+}
+
+impl Default for CanvasMotion {
+  fn default() -> Self {
+    Self::new(std::time::Duration::from_millis(300))
+  }
+}
+
+/// Where a moving drawing is, as its painter is given it: `to` is what it is drawn from now, `from` what it was
+/// drawn from before (none as it enters, and at rest), and `progress` how far along the way it is, eased, from 0
+/// to 1. At rest `progress` is 1 and `from` none: the painter draws `to` as it is.
+#[derive(Clone, Copy, Debug)]
+pub struct CanvasMove<'a, T> {
+  pub from: Option<&'a T>,
+  pub to: &'a T,
+  pub progress: f32,
+}
+
+impl<T> CanvasMove<'_, T> {
+  /// Whether the drawing is at rest.
+  pub fn at_rest(&self) -> bool {
+    self.progress >= 1.0
+  }
+
+  /// Whether the drawing is entering: first shown, and still on its way in.
+  pub fn entering(&self) -> bool {
+    self.from.is_none() && !self.at_rest()
+  }
+}
+
+/// A drawing on its way to what it was given last: what it comes from, when it started, and how it moves.
+pub(crate) struct Run {
+  pub(crate) from: Option<MotionValue>,
+  pub(crate) started: std::time::Instant,
+  pub(crate) motion: CanvasMotion,
+  pub(crate) paint: PaintFn,
+}
+
+impl Run {
+  /// How far along the way it is at `now`, eased: 1 at its end.
+  pub(crate) fn progress(&self, now: std::time::Instant) -> f32 {
+    let duration = self.motion.duration.as_secs_f64();
+    if duration <= 0.0 {
+      return 1.0;
+    }
+    let t = (now.saturating_duration_since(self.started).as_secs_f64() / duration).clamp(0.0, 1.0);
+    if t >= 1.0 {
+      return 1.0;
+    }
+    (self.motion.easing.evaluate(t) as f32).clamp(0.0, 1.0)
   }
 }
 
@@ -332,6 +465,10 @@ struct Surface {
   warned_duplicates: Option<u64>,
   /// The key a painter last drew this surface for.
   painted: Option<u64>,
+  /// What a moving painter last drew toward, and its hash: what the next motion comes from.
+  shown: Option<(u64, MotionValue)>,
+  /// The motion on its way, while the drawing moves.
+  run: Option<Run>,
 }
 
 impl fmt::Debug for CanvasHandle {

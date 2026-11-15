@@ -373,3 +373,119 @@ fn the_legend_and_the_tooltip_stand_on_their_own_as_the_board_draws_them() {
     "the value keeps its room beside a long name"
   );
 }
+
+#[test]
+fn bars_lying_across_run_from_the_start_with_the_names_at_the_start_and_the_values_under() {
+  use lurq::ui::Orientation;
+  let mut stage = stage(|| {
+    BarChart::new(
+      ["text_pipeline", "canvas_mesh", "layout_flex"],
+      [ChartSeries::new("Seconds", [9.2, 7.0, 4.7])],
+    )
+    .orientation(Orientation::Horizontal)
+    .value_axis(true)
+    .id("c")
+  });
+  let (plot_x, plot_y, plot_width, plot_height) = stage.bounds("c-plot");
+  let drawn = bars(&mut stage);
+  let (first, second) = (rect(&drawn[0]), rect(&drawn[1]));
+  assert!(first.0.abs() < 0.5, "from the plot's start: {first:?}");
+  assert!(first.2 > second.2, "a longer bar for a greater value");
+  assert!(
+    (first.3 - second.3).abs() < 0.01 && first.3 > 0.0,
+    "bands of one height"
+  );
+  assert!(second.1 > first.1, "one under another");
+  assert!(first.2 <= plot_width && first.1 + first.3 <= plot_height);
+  // The names at the plot's start, each at its band's height, ending before the plot.
+  let name = stage.text_quad("canvas_mesh").expect("the name");
+  assert!(name.x + name.width <= plot_x, "before the plot");
+  let middle = plot_y + second.1 + second.3 / 2.0;
+  assert!(
+    (name.y + name.height / 2.0 - middle).abs() < 3.0,
+    "at its band's height"
+  );
+  // The values under the plot.
+  let zero = stage.text_quad("0").expect("a tick's number");
+  assert!(zero.y >= plot_y + plot_height, "under the plot");
+}
+
+#[test]
+fn the_plot_moves_in_and_to_a_change_drawn_at_each_frame_while_it_moves_and_not_at_rest() {
+  use std::time::Duration;
+  let (shown, values, moves) = (Signal::new(false), Signal::new(vec![1.0, 2.0]), Signal::new(true));
+  let (on, bound, moving) = (shown.clone(), values.clone(), moves.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let mut column = Column::new().size(420.0, 600.0);
+    if on.get() {
+      let chart = BarChart::new(["a", "b"], [ChartSeries::new("v", bound.get())])
+        .motion(moving.get())
+        .id("c");
+      column = column.child(chart.mount(ctx));
+    }
+    column.into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 700.0))));
+  stage.pass();
+  let revision = |stage: &mut Stage| {
+    stage
+      .tree
+      .get_element_by_id_mut("c-plot")
+      .and_then(|element| element.canvas())
+      .unwrap()
+      .status()
+      .content_revision
+  };
+
+  shown.set(true);
+  stage.pass_after(Duration::ZERO);
+  assert!(stage.tree.has_moving_canvas(), "a chart first shown moves in");
+  let entering = revision(&mut stage);
+  stage.pass_after(Duration::from_millis(100));
+  assert!(
+    revision(&mut stage) > entering,
+    "drawn again at the next frame on its way"
+  );
+  assert!(stage.tree.has_moving_canvas());
+  stage.pass();
+  assert!(!stage.tree.has_moving_canvas(), "and comes to rest in a moment");
+  assert_eq!(bars(&mut stage).len(), 2, "tooling reads the data where it is");
+  let rest = revision(&mut stage);
+  stage.pass();
+  stage.pass_after(Duration::from_millis(16));
+  assert_eq!(
+    revision(&mut stage),
+    rest,
+    "at rest, frames and renders that change nothing draw nothing"
+  );
+
+  values.set(vec![1.0, 3.0]);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    stage.tree.has_moving_canvas(),
+    "a change of the data moves the bars to their new place"
+  );
+  stage.pass();
+  assert!(!stage.tree.has_moving_canvas());
+
+  stage.app.theme().set_reduced_motion(Some(true));
+  stage.pass();
+  values.set(vec![2.0, 3.0]);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    !stage.tree.has_moving_canvas(),
+    "where motion is reduced, the bars go to their place at once"
+  );
+  stage.app.theme().set_reduced_motion(None);
+
+  moves.set(false);
+  stage.pass();
+  values.set(vec![4.0, 3.0]);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    !stage.tree.has_moving_canvas(),
+    "nor do they move where the chart is told not to"
+  );
+}

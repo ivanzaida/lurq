@@ -28,6 +28,11 @@
 //!    [`ChartFrame::own_legend`] (a heatmap's scale in place of the series'). Words in the plot's box are
 //!    [`ChartLabel`]s ([`ChartPlot::labels`]); a tooltip's key in another color than its series' is
 //!    [`ChartPlot::tip_color`].
+//! 6. Its motion: the frame draws the plot on its way ([`ChartPlot::paint_moving`], given a [`ChartMotion`]) as it is
+//!    first shown and when its signature changes, for the theme's slow duration ([`chart_motion`]), drawn again at each
+//!    frame only while it moves; nothing moves where motion is reduced, nor while the chart is resized. A plot draws
+//!    its own marks on their way (bars grow from their baseline and move to their new place); unless it does, it is
+//!    revealed from its start as it enters and fades to a change.
 //!
 //! The names every chart gives its props:
 //!
@@ -40,6 +45,7 @@
 //! | `value_text(Fn(f64) -> String)` | Every number it writes: a tick, a tooltip's value, what tooling reads |
 //! | `grid(bool)`, `value_axis(bool)` | The lines across the plot at its ticks, and the ticks' numbers |
 //! | `empty_text(&str)`, `loading(bool)` | What it says with no data, and its skeleton while the data comes |
+//! | `motion(bool)` | Whether the plot moves in as it is first shown, and to a change of its data (on unless told) |
 //! | `on_select(Fn(ChartPoint))` | A press of a point, or Enter or Space on the focused one |
 //! | `style`, `rules`, `state`, `id`, `key`, `force` | As every themed builder has them |
 
@@ -55,7 +61,7 @@ use std::{
   sync::Arc,
 };
 
-pub use frame::{ChartFrame, ChartProps, ChartRenderer, ChartView, chart_recipe, snap};
+pub use frame::{ChartFrame, ChartProps, ChartRenderer, ChartView, chart_motion, chart_recipe, snap};
 pub use legend::{
   ChartLegend, ChartLegendItem, ChartLegendPart, ChartLegendRenderer, ChartLegendShape, ChartLegendState,
   ChartLegendView,
@@ -346,8 +352,8 @@ pub fn resolve(theme: &Theme, color: BackgroundColor) -> Color {
   }
 }
 
-/// A tick of a scale as the frame draws it: a grid line across the plot at `position` (from the plot's top, or its
-/// start where the values run across), and its text.
+/// A tick of a scale as the frame draws it: a grid line across the plot at `position` (from the plot's top, or a
+/// line down it from its start where the values run across, [`ChartPlot::across`]), and its text.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartTick {
   pub position: f32,
@@ -423,8 +429,9 @@ pub struct ChartTip {
 
 /// A chart's plot: what it draws in its box, where its points are, and what they say. The frame draws the grid, the
 /// axis, the tooltip and the focus around it, keeps the pointer and the keys, and draws it again when what it draws
-/// changes (its [`signature`](Self::signature), the size, the theme or the point under the pointer).
-pub trait ChartPlot: Send + Sync + 'static {
+/// changes (its [`signature`](Self::signature), the size, the theme or the point under the pointer). It moves it
+/// when it is first shown and when its signature changes, through [`paint_moving`](Self::paint_moving).
+pub trait ChartPlot: std::any::Any + Send + Sync + 'static {
   /// Draws the plot, `active` the point under the pointer or the focus: the grid is drawn before it.
   fn paint(&self, canvas: &Context2D, area: ChartArea, look: &ChartLook, active: Option<ChartPoint>);
 
@@ -433,9 +440,16 @@ pub trait ChartPlot: Send + Sync + 'static {
     Vec::new()
   }
 
-  /// What stands under the plot.
+  /// What stands under the plot: or at its start, where the values run across.
   fn axis(&self) -> ChartAxis {
     ChartAxis::None
+  }
+
+  /// Whether its values run across the plot (a bar chart lying across): its ticks are lines down the plot at
+  /// their place from its start, their numbers under it, and the names of its categories stand at its start,
+  /// each at its band's height. Down the plot, from its bottom, unless it says so.
+  fn across(&self) -> bool {
+    false
   }
 
   /// The point the pointer at `(x, y)` is on, or nearest to where the chart finds one near enough.
@@ -478,6 +492,77 @@ pub trait ChartPlot: Send + Sync + 'static {
   /// cell, in its step of the scale.
   fn tip_color(&self, _point: ChartPoint, _series: usize, _look: &ChartLook) -> Option<Color> {
     None
+  }
+
+  /// Draws the plot on its way: entering, when it is first shown, or from the plot it was before its signature
+  /// changed (`motion.from`), `motion.progress` along the way, eased. The frame calls it at each frame while the
+  /// plot moves, for a short while, and [`paint`](Self::paint) at rest; it moves nothing where motion is reduced,
+  /// and nothing while the chart is being resized. A plot draws itself where it is on its way here: bars growing
+  /// from their baseline, values moving to their new place. Unless it does, it is revealed from its start as it
+  /// enters (a line drawn on), and a change fades from what it was to what it is.
+  fn paint_moving(
+    &self,
+    canvas: &Context2D,
+    area: ChartArea,
+    look: &ChartLook,
+    active: Option<ChartPoint>,
+    motion: ChartMotion<'_>,
+  ) {
+    if motion.at_rest() {
+      return self.paint(canvas, area, look, active);
+    }
+    let Some(from) = motion.from else {
+      canvas.save();
+      canvas.begin_path();
+      canvas.rect(0.0, 0.0, area.width * motion.progress, area.height);
+      canvas.clip();
+      self.paint(canvas, area, look, active);
+      canvas.restore();
+      return;
+    };
+    canvas.save();
+    canvas.set_global_alpha(1.0 - motion.progress);
+    from.paint(canvas, area, look, None);
+    canvas.set_global_alpha(motion.progress);
+    self.paint(canvas, area, look, active);
+    canvas.restore();
+  }
+}
+
+/// Where a plot is on its way, as [`ChartPlot::paint_moving`] is given it: the plot it moves from (none as it
+/// enters), and how far along the way it is, eased, from 0 to 1.
+#[derive(Clone, Copy)]
+pub struct ChartMotion<'a> {
+  pub from: Option<&'a dyn ChartPlot>,
+  pub progress: f32,
+}
+
+impl<'a> ChartMotion<'a> {
+  /// At rest: drawn as it is.
+  pub const AT_REST: ChartMotion<'static> = ChartMotion {
+    from: None,
+    progress: 1.0,
+  };
+
+  /// Whether the plot is at rest.
+  pub fn at_rest(&self) -> bool {
+    self.progress >= 1.0
+  }
+
+  /// Whether the plot is entering: first shown, on its way in.
+  pub fn entering(&self) -> bool {
+    self.from.is_none() && !self.at_rest()
+  }
+
+  /// The plot it moves from, as the plot of its kind `T` it is: none as it enters, or where it was another kind.
+  pub fn from_as<T: ChartPlot>(&self) -> Option<&'a T> {
+    let from: &'a dyn std::any::Any = self.from?;
+    from.downcast_ref::<T>()
+  }
+
+  /// `to`, `progress` of the way from `from`.
+  pub fn lerp(&self, from: f32, to: f32) -> f32 {
+    from + (to - from) * self.progress
   }
 }
 

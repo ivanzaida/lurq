@@ -24,6 +24,32 @@ impl Canvas {
       .set_canvas_painter(crate::canvas::CanvasPainter::new(key, paint));
     self
   }
+
+  /// Draws the canvas as [`Canvas::paint`] does, and moves it: when it is first shown, and when `value` changes
+  /// (`of`, its hash, tells), `paint` is given where the drawing is on its way, a [`CanvasMove`] from what it was
+  /// drawn from before to `value`, and it is drawn again at each frame until it is there, for the `motion`'s
+  /// duration; at rest it is drawn only as `paint` would be. Motion is off where it is reduced
+  /// (`Theme::reduced_motion`), and a resize ends it: the drawing is drawn where it goes. `key` is still the hash of
+  /// everything the drawing follows from, `value` among it.
+  ///
+  /// [`CanvasMove`]: crate::canvas::CanvasMove
+  pub fn paint_moving<T: Send + Sync + 'static>(
+    mut self,
+    key: u64,
+    motion: crate::canvas::CanvasMotion,
+    of: u64,
+    value: impl Into<std::sync::Arc<T>>,
+    paint: impl Fn(&crate::canvas::CanvasHandle, crate::canvas::CanvasMove<'_, T>) + Send + Sync + 'static,
+  ) -> Self {
+    self.node.set_canvas_painter(crate::canvas::CanvasPainter::moving(
+      key,
+      motion,
+      of,
+      value.into(),
+      paint,
+    ));
+    self
+  }
 }
 
 impl Default for Canvas {
