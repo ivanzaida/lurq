@@ -356,3 +356,149 @@ fn it_is_a_group_of_tabs_and_a_toolbar_called_by_the_selected_tab() {
     Some("More commands")
   );
 }
+
+/// The board's groups by the ids of their commands, and their labels.
+const GROUPS: [(&str, &[&str]); 4] = [
+  ("Clipboard", &["paste", "cut", "copy"]),
+  ("Format", &["bold", "italic"]),
+  ("Insert", &["image", "table"]),
+  ("View", &["sidebar", "zoom-in", "zoom-out"]),
+];
+
+/// Where a group's commands are laid out, from its first start to its last end; `None` where it went into the menu.
+fn group_span(stage: &mut Stage, ids: &[&str]) -> Option<(f32, f32)> {
+  let rects: Vec<_> = ids.iter().map(|id| stage.bounds(id)).collect();
+  let shown = rects.iter().filter(|rect| rect.2 > 0.0).count();
+  assert!(
+    shown == 0 || shown == rects.len(),
+    "a group is in the bar or in the menu whole: {ids:?} {rects:?}"
+  );
+  (shown > 0).then(|| {
+    let start = rects.iter().map(|rect| rect.0).fold(f32::MAX, f32::min);
+    let end = rects.iter().map(|rect| rect.0 + rect.2).fold(f32::MIN, f32::max);
+    (start, end)
+  })
+}
+
+/// The board's bar in a frame whose width is `width`, as a person drags it.
+fn resizable(runs: &Arc<AtomicUsize>, table: &Arc<AtomicBool>, width: Signal<f32>) -> Stage {
+  let (runs, table) = (runs.clone(), table.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let tabs = vec![home(&runs, &table), CommandBarTab::new(1, "Insert").id("insert")];
+    Column::new()
+      .size(900.0, 600.0)
+      .padding(20.0)
+      .child(
+        Column::new()
+          .width(width.get())
+          .child(CommandBar::new(Signal::new(0usize), tabs).id("cb").mount(ctx)),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(lurq::layout::Constraints::loose(lurq::layout::Size::new(
+      900.0, 600.0,
+    ))));
+  stage.pass();
+  stage
+}
+
+/// Checks the bar at `width`: the groups shown are the first ones, apart from each other and from the chevron, their
+/// labels apart too, and the others are in the chevron's menu.
+fn check_at(stage: &mut Stage, width: f32, how: &str) {
+  let (bar_x, _, bar_width, _) = stage.bounds("cb-bar");
+  let spans: Vec<_> = GROUPS
+    .iter()
+    .map(|(label, ids)| (*label, group_span(stage, ids)))
+    .collect();
+  let shown: Vec<_> = spans
+    .iter()
+    .filter_map(|(label, span)| span.map(|span| (*label, span)))
+    .collect();
+  let dropped: Vec<_> = spans
+    .iter()
+    .filter(|(_, span)| span.is_none())
+    .map(|(label, _)| *label)
+    .collect();
+  assert!(
+    spans
+      .iter()
+      .skip_while(|(_, span)| span.is_some())
+      .all(|(_, span)| span.is_none()),
+    "{how} at {width}: the last groups go first: {spans:?}"
+  );
+  for pair in shown.windows(2) {
+    let ((first, (_, end)), (second, (start, _))) = (pair[0], pair[1]);
+    assert!(
+      end <= start + 0.5,
+      "{how} at {width}: {first} ends at {end}, past the start of {second} at {start}: {spans:?}"
+    );
+  }
+  if let Some((label, (_, end))) = shown.last() {
+    assert!(
+      *end <= bar_x + bar_width + 0.5,
+      "{how} at {width}: {label} runs past the bar's end"
+    );
+  }
+  // Their labels stand apart too: the lowest text of each name, under the tabs (a tab is called Insert too).
+  let quads = stage.quads();
+  let labels: Vec<_> = shown
+    .iter()
+    .map(|(label, _)| {
+      let quad = quads
+        .iter()
+        .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == label))
+        .max_by(|a, b| a.y.total_cmp(&b.y))
+        .unwrap_or_else(|| panic!("{how} at {width}: {label}'s label is drawn"));
+      (*label, quad.x, quad.x + quad.width)
+    })
+    .collect();
+  for pair in labels.windows(2) {
+    assert!(
+      pair[0].2 <= pair[1].1 + 0.5,
+      "{how} at {width}: the labels {} and {} are drawn over each other: {labels:?}",
+      pair[0].0,
+      pair[1].0
+    );
+  }
+  let (more_x, _, more_width, _) = stage.bounds("cb-bar-more");
+  if dropped.is_empty() {
+    assert_eq!(more_width, 0.0, "{how} at {width}: no chevron while all fit");
+    return;
+  }
+  // The chevron stands after what is shown, and what went is in its menu, each under its label.
+  assert_eq!(more_width, 28.0, "{how} at {width}: the chevron is there");
+  if let Some((label, (_, end))) = shown.last() {
+    assert!(*end <= more_x + 0.5, "{how} at {width}: {label} runs under the chevron");
+  }
+  stage.click("cb-bar-more");
+  for label in &dropped {
+    assert!(stage.paints(label), "{how} at {width}: {label} is in the menu");
+  }
+  stage.key("Escape");
+  stage.pass();
+}
+
+#[test]
+fn at_every_width_the_groups_shown_stand_apart_and_the_rest_are_in_the_menu() {
+  let (runs, table) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(true)));
+  // Built at each width, and dragged from the full width down to the chevron alone and back, 20 at a time.
+  let widths: Vec<f32> = (0..=41).map(|step| 860.0 - 20.0 * step as f32).collect();
+  for &width in &widths {
+    let mut stage = resizable(&runs, &table, Signal::new(width));
+    for _ in 0..3 {
+      stage.pass();
+    }
+    check_at(&mut stage, width, "built");
+  }
+  let width = Signal::new(860.0f32);
+  let mut stage = resizable(&runs, &table, width.clone());
+  for &at in widths.iter().chain(widths.iter().rev()) {
+    width.set(at);
+    for _ in 0..3 {
+      stage.pass();
+    }
+    check_at(&mut stage, at, "dragged");
+  }
+}

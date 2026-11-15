@@ -664,3 +664,140 @@ fn a_dropped_marker_leaves_its_room_to_what_grows() {
     "the marker's room and its gap are what grows"
   );
 }
+
+/// A plain bar of three labelled groups, each of two icons, in a frame whose width is `width`, as a person drags it.
+fn grouped(width: lurq::core::Signal<f32>) -> Stage {
+  let pressed = Arc::new(AtomicUsize::new(0));
+  let mut stage = Stage::new(move |ctx| {
+    let group = |label: &str, tools: [(&str, &str); 2]| {
+      ToolbarGroup::new()
+        .label(label)
+        .item(tool(tools[0].0, tools[0].1, &pressed))
+        .item(tool(tools[1].0, tools[1].1, &pressed))
+    };
+    let bar = Toolbar::new()
+      .id("bar")
+      .variant(ToolbarVariant::Plain)
+      .overflow(true)
+      .item(group(
+        "Text",
+        [("Strike", icons::STRIKETHROUGH), ("Underline", icons::UNDERLINE)],
+      ))
+      .item(group("Lists", [("List", icons::LIST), ("Bold", icons::BOLD)]))
+      .item(group("Insert", [("Link", icons::LINK), ("Image", icons::IMAGE)]));
+    Column::new()
+      .size(700.0, 600.0)
+      .padding(20.0)
+      .child(Column::new().width(width.get()).child(bar.mount(ctx)))
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(lurq::layout::Constraints::loose(lurq::layout::Size::new(
+      700.0, 600.0,
+    ))));
+  stage.pass();
+  stage
+}
+
+const GROUPS: [(&str, [&str; 2]); 3] = [
+  ("Text", ["strike", "underline"]),
+  ("Lists", ["list", "bold"]),
+  ("Insert", ["link", "image"]),
+];
+
+/// Checks the grouped bar at `width`, its menu opened by a press and closed by Escape: the groups shown are the first
+/// ones, apart from each other and from the More button, and the others are in its menu under their labels.
+fn check_grouped(stage: &mut Stage, width: f32, how: &str) {
+  let mut spans = Vec::new();
+  for (label, ids) in GROUPS {
+    let rects: Vec<_> = ids.iter().map(|id| stage.bounds(id)).collect();
+    let shown = rects.iter().filter(|rect| rect.2 > 0.0).count();
+    assert!(
+      shown == 0 || shown == 2,
+      "{how} at {width}: {label} is in the bar or the menu whole: {rects:?}"
+    );
+    spans.push((label, (shown > 0).then(|| (rects[0].0, rects[1].0 + rects[1].2))));
+  }
+  assert!(
+    spans
+      .iter()
+      .skip_while(|(_, span)| span.is_some())
+      .all(|(_, span)| span.is_none()),
+    "{how} at {width}: the last groups go first: {spans:?}"
+  );
+  let shown: Vec<_> = spans
+    .iter()
+    .filter_map(|(label, span)| span.map(|span| (*label, span)))
+    .collect();
+  for pair in shown.windows(2) {
+    assert!(
+      pair[0].1.1 <= pair[1].1.0 + 0.5,
+      "{how} at {width}: {} runs over {}: {spans:?}",
+      pair[0].0,
+      pair[1].0
+    );
+  }
+  let (more_x, _, more_width, _) = stage.bounds("bar-more");
+  let dropped: Vec<_> = spans
+    .iter()
+    .filter(|(_, span)| span.is_none())
+    .map(|(label, _)| *label)
+    .collect();
+  if dropped.is_empty() {
+    assert_eq!(more_width, 0.0, "{how} at {width}: no More button while all fit");
+    return;
+  }
+  assert!(more_width > 0.0, "{how} at {width}: the More button is there");
+  if let Some((label, (_, end))) = shown.last() {
+    assert!(
+      *end <= more_x + 0.5,
+      "{how} at {width}: {label} runs under the More button"
+    );
+  }
+  stage.click("bar-more");
+  for label in &dropped {
+    assert!(stage.paints(label), "{how} at {width}: {label} is in the menu");
+  }
+  stage.key("Escape");
+  stage.pass();
+}
+
+#[test]
+fn at_every_width_a_grouped_bars_groups_stand_apart_and_the_rest_are_in_the_menu() {
+  let widths: Vec<f32> = (0..=28).map(|step| 600.0 - 20.0 * step as f32).collect();
+  for &width in &widths {
+    let mut stage = grouped(lurq::core::Signal::new(width));
+    for _ in 0..3 {
+      stage.pass();
+    }
+    check_grouped(&mut stage, width, "built");
+  }
+  let width = lurq::core::Signal::new(600.0f32);
+  let mut stage = grouped(width.clone());
+  for &at in widths.iter().chain(widths.iter().rev()) {
+    width.set(at);
+    for _ in 0..3 {
+      stage.pass();
+    }
+    check_grouped(&mut stage, at, "dragged");
+  }
+}
+
+#[test]
+fn a_group_in_the_menu_stays_there_after_escape_closes_the_menu_a_press_opened() {
+  let mut stage = grouped(lurq::core::Signal::new(200.0));
+  for _ in 0..3 {
+    stage.pass();
+  }
+  assert_eq!(stage.bounds("link").2, 0.0, "Insert went into the menu");
+  stage.click("bar-more");
+  stage.key("Escape");
+  stage.pass();
+  assert_eq!(
+    stage.bounds("link").2,
+    0.0,
+    "and is not drawn in the bar once the menu is closed"
+  );
+  assert!(!stage.paints("Insert"), "nor its label");
+}
