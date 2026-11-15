@@ -4095,7 +4095,17 @@ impl LayoutEngine {
     let children = node.children();
     let child_constraints = constraints.loosen_width().loosen_height();
     let mut child_layouts: Vec<ChildLayout> = Vec::with_capacity(children.len());
+    // A child laid out only at some sizes of the stack waits for that size: it is placed once the others made it.
+    let mut bounded = false;
     for (index, child) in children.iter().enumerate() {
+      if child.drop_outside_bounds().is_some() {
+        bounded = true;
+        child_layouts.push(ChildLayout {
+          offset: Offset::default(),
+          result: Self::unplaced_child(),
+        });
+        continue;
+      }
       let result = match child.position() {
         Position::Absolute { width, height, .. } => {
           let resolved_width = width.and_then(|size| Self::resolve_dimension(size, constraints.max_width));
@@ -4121,7 +4131,9 @@ impl LayoutEngine {
     let (max_width, max_height) = children
       .iter()
       .zip(child_layouts.iter())
-      .filter(|(child, _)| !matches!(child.position(), Position::Absolute { .. }))
+      .filter(|(child, _)| {
+        !matches!(child.position(), Position::Absolute { .. }) && child.drop_outside_bounds().is_none()
+      })
       .fold((0.0_f32, 0.0_f32), |(width, height), (_, layout)| {
         (
           width.max(layout.result.size.width),
@@ -4129,6 +4141,34 @@ impl LayoutEngine {
         )
       });
     let size = constraints.constrain(Size::new(max_width, max_height));
+
+    if bounded {
+      let laid_out = Constraints::loose(size);
+      for (index, (layout, child)) in child_layouts.iter_mut().zip(children.iter()).enumerate() {
+        let Some(bounds) = child.drop_outside_bounds() else {
+          continue;
+        };
+        layout.result = if !bounds.holds(size) {
+          let zero = Constraints::tight(Size::default());
+          let mut dropped = self.layout_child_node(glyph_engine, child_overrides, index, child, zero);
+          Arc::make_mut(&mut dropped).size = Size::default();
+          Arc::make_mut(&mut dropped).dropped = true;
+          dropped
+        } else if let Position::Absolute { width, height, .. } = child.position() {
+          let positioned_constraints = Self::absolute_child_constraints(child, laid_out);
+          let mut result = self.layout_child_node(glyph_engine, child_overrides, index, child, positioned_constraints);
+          if let Some(width) = width.and_then(|width| Self::resolve_dimension(width, size.width)) {
+            Arc::make_mut(&mut result).size.width = width;
+          }
+          if let Some(height) = height.and_then(|height| Self::resolve_dimension(height, size.height)) {
+            Arc::make_mut(&mut result).size.height = height;
+          }
+          result
+        } else {
+          self.layout_child_node(glyph_engine, child_overrides, index, child, laid_out)
+        };
+      }
+    }
 
     // A share of the stack that its constraints left unbounded is a share of the stack as its other children make
     // it, as an absolutely placed box's is of its container's: a layer over what a stack holds, as high as that.
@@ -4181,6 +4221,19 @@ impl LayoutEngine {
       generation: 0,
       sticky_shifts: None,
     }
+  }
+
+  /// What stands in a stack's results for a child with `.drop_outside(...)` until the stack's size is known.
+  fn unplaced_child() -> Arc<LayoutResult> {
+    Arc::new(LayoutResult {
+      size: Size::default(),
+      children: Vec::new(),
+      text_layout: None,
+      dropped: false,
+      holds: SubtreeHolds::UNKNOWN,
+      generation: 0,
+      sticky_shifts: None,
+    })
   }
 
   /// Where a child of `size` is, laid out at `offset`: moved by its own offset and by the shares of its size
@@ -4308,13 +4361,27 @@ impl LayoutEngine {
       c.max_height = height;
     }
 
+    // A ratio the box is given stands for the one its pixels have.
+    let aspect_ratio = frame.aspect_ratio.filter(|ratio| ratio.is_finite() && *ratio > 0.0);
+    if let Some(ratio) = aspect_ratio {
+      Self::apply_aspect_ratio(
+        node,
+        &mut c,
+        ratio,
+        (resolved_min_width, resolved_max_width),
+        (resolved_min_height, resolved_max_height),
+      );
+    }
+
     #[cfg(feature = "raster")]
-    if match node.node_kind() {
-      NodeKind::Image { .. } | NodeKind::Video { .. } => true,
-      #[cfg(feature = "image")]
-      NodeKind::ResourceImage { .. } => true,
-      _ => false,
-    } {
+    if aspect_ratio.is_none()
+      && match node.node_kind() {
+        NodeKind::Image { .. } | NodeKind::Video { .. } => true,
+        #[cfg(feature = "image")]
+        NodeKind::ResourceImage { .. } => true,
+        _ => false,
+      }
+    {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
@@ -4324,7 +4391,7 @@ impl LayoutEngine {
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. });
 
     #[cfg(feature = "svg")]
-    if is_svg_media {
+    if is_svg_media && aspect_ratio.is_none() {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
@@ -4363,6 +4430,56 @@ impl LayoutEngine {
       value = value.min(max);
     }
     value
+  }
+
+  /// Fixes the axis of `constraints` that is not known yet from the one that is, by `ratio` (width over
+  /// height): a node's `.aspect_ratio(...)`. An axis is known where the constraints are tight on it, which a
+  /// size the node says and a size its parent fixes both make them. With neither known the box takes the
+  /// width of its own pixels where it has some, or else the width it is offered, and where that has no
+  /// bound the height it is offered. `min` and `max` of each axis are the node's own bounds.
+  fn apply_aspect_ratio(
+    node: &Node,
+    constraints: &mut Constraints,
+    ratio: f32,
+    width_bounds: (Option<f32>, Option<f32>),
+    height_bounds: (Option<f32>, Option<f32>),
+  ) {
+    let width_known = constraints.min_width == constraints.max_width && constraints.max_width.is_finite();
+    let height_known = constraints.min_height == constraints.max_height && constraints.max_height.is_finite();
+    let bound = |value: f32, (min, max): (Option<f32>, Option<f32>)| Self::clamp_resolved_dimension(value, min, max);
+    let (width, height) = match (width_known, height_known) {
+      (true, true) => return,
+      (true, false) => (
+        constraints.max_width,
+        bound(constraints.max_width / ratio, height_bounds),
+      ),
+      (false, true) => (
+        bound(constraints.max_height * ratio, width_bounds),
+        constraints.max_height,
+      ),
+      (false, false) => {
+        let own_width = node.intrinsic_size.map(|size| size.width).filter(|width| *width > 0.0);
+        if constraints.max_width.is_finite() {
+          let width = bound(
+            own_width.map_or(constraints.max_width, |own| own.min(constraints.max_width)),
+            width_bounds,
+          );
+          (width, bound(width / ratio, height_bounds))
+        } else if let Some(own) = own_width {
+          let width = bound(own, width_bounds);
+          (width, bound(width / ratio, height_bounds))
+        } else if constraints.max_height.is_finite() {
+          let height = bound(constraints.max_height, height_bounds);
+          (bound(height * ratio, width_bounds), height)
+        } else {
+          return;
+        }
+      }
+    };
+    constraints.min_width = width;
+    constraints.max_width = width;
+    constraints.min_height = height;
+    constraints.max_height = height;
   }
 
   #[cfg(any(feature = "raster", feature = "svg"))]

@@ -1475,6 +1475,92 @@ pub(crate) struct ShrinkRule {
   pub(crate) marker: bool,
 }
 
+/// One end of a [`SizeBounds`] axis: the size it is at, and whether that size is itself within.
+type Bound = Option<(f32, bool)>;
+
+/// The sizes of a `Stack` at which a child of it is laid out: a child's `.drop_outside(...)`. With no bound
+/// said it holds at every size. A bound that is not a number never holds.
+///
+/// ```
+/// use lurq::layout::layout_kind::SizeBounds;
+///
+/// // From 240 wide up; under 240 and over 96; 96 and under.
+/// let large = SizeBounds::new().min_width(240.0);
+/// let medium = SizeBounds::new().above_width(96.0).below_width(240.0);
+/// let small = SizeBounds::new().max_width(96.0);
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SizeBounds {
+  width: (Bound, Bound),
+  height: (Bound, Bound),
+}
+
+impl SizeBounds {
+  pub const fn new() -> Self {
+    Self {
+      width: (None, None),
+      height: (None, None),
+    }
+  }
+
+  /// At `width` and wider.
+  pub const fn min_width(mut self, width: f32) -> Self {
+    self.width.0 = Some((width, true));
+    self
+  }
+
+  /// Wider than `width`.
+  pub const fn above_width(mut self, width: f32) -> Self {
+    self.width.0 = Some((width, false));
+    self
+  }
+
+  /// At `width` and narrower.
+  pub const fn max_width(mut self, width: f32) -> Self {
+    self.width.1 = Some((width, true));
+    self
+  }
+
+  /// Narrower than `width`.
+  pub const fn below_width(mut self, width: f32) -> Self {
+    self.width.1 = Some((width, false));
+    self
+  }
+
+  /// At `height` and higher.
+  pub const fn min_height(mut self, height: f32) -> Self {
+    self.height.0 = Some((height, true));
+    self
+  }
+
+  /// Higher than `height`.
+  pub const fn above_height(mut self, height: f32) -> Self {
+    self.height.0 = Some((height, false));
+    self
+  }
+
+  /// At `height` and lower.
+  pub const fn max_height(mut self, height: f32) -> Self {
+    self.height.1 = Some((height, true));
+    self
+  }
+
+  /// Lower than `height`.
+  pub const fn below_height(mut self, height: f32) -> Self {
+    self.height.1 = Some((height, false));
+    self
+  }
+
+  /// Whether a stack of `size` is within the bounds.
+  pub fn holds(&self, size: Size) -> bool {
+    let within = |value: f32, (min, max): (Bound, Bound)| {
+      min.is_none_or(|(bound, inclusive)| if inclusive { value >= bound } else { value > bound })
+        && max.is_none_or(|(bound, inclusive)| if inclusive { value <= bound } else { value < bound })
+    };
+    within(size.width, self.width) && within(size.height, self.height)
+  }
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum FlexWrap {
   #[default]
@@ -1522,6 +1608,9 @@ pub struct FrameConstraints {
   pub max_width: Option<Dimension>,
   pub min_height: Option<Dimension>,
   pub max_height: Option<Dimension>,
+  /// The box's width over its height, as CSS `aspect-ratio`: it gives the axis that is auto from the one that
+  /// is known. Set with `.aspect_ratio(...)`.
+  pub aspect_ratio: Option<f32>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -1666,6 +1755,10 @@ impl FrameConstraints {
   }
   pub fn with_max_height(mut self, value: Option<Dimension>) -> Self {
     self.max_height = value;
+    self
+  }
+  pub fn with_aspect_ratio(mut self, value: Option<f32>) -> Self {
+    self.aspect_ratio = value;
     self
   }
 }

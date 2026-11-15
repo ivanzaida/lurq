@@ -281,6 +281,21 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// The box's width over its height, as CSS `aspect-ratio`: `16.0 / 9.0` for a box of 16 by 9.
+      ///
+      /// It gives the axis that is auto from the one that is known: a width that is said, a percentage of
+      /// a parent whose size is known, or a size the parent fixes (a child that fills a row, a stretched
+      /// one). With neither axis known the box is as wide as the room it is given and its height follows;
+      /// where the width has no bound it is as high as the room and its width follows. With both axes
+      /// said, or both fixed by the parent, it does nothing. `min_*` and `max_*` still bound the axis it
+      /// gives. On an image it stands for the picture's own ratio, and holds the box of one whose pixels
+      /// are not there yet; the pixels are then placed by the image's fit. A ratio that is not a positive
+      /// number is ignored.
+      pub fn aspect_ratio(mut self, ratio: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::aspect_ratio(node, ratio));
+        self
+      }
+
       pub fn min_size(
         mut self,
         width: impl Into<$crate::node::dimension::Dimension>,
@@ -487,6 +502,34 @@ macro_rules! impl_into_node {
       /// negative or NaN `size` counts as 0.
       pub fn shrink_drop_below(mut self, size: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::shrink_drop_below(node, size));
+        self
+      }
+
+      /// Lays this child of a `Stack` out only while the stack is within `bounds`
+      /// ([`SizeBounds`](crate::layout::layout_kind::SizeBounds)); outside them it is dropped, as
+      /// [`ShrinkLimit::Drop`](crate::layout::layout_kind::ShrinkLimit::Drop) drops a child of a line: laid
+      /// out at zero size, neither drawn nor hit, with no Tab stop in it and no focus kept in it, while it
+      /// stays mounted and keeps its state. It is how a component is another thing at another size with
+      /// nothing measured and no frame in between: each form is a child with the bounds it lives in.
+      ///
+      /// The size asked is the stack's own, which its constraints and its other children make: a child with
+      /// bounds never makes its stack larger, and is laid out within the size the stack came to. In a
+      /// stack that holds only such children, that size is the least its constraints allow. On a child of
+      /// anything but a `Stack` it does nothing.
+      ///
+      /// ```
+      /// use lurq::{
+      ///   components::{Rect, Stack, Text},
+      ///   layout::layout_kind::SizeBounds,
+      /// };
+      ///
+      /// // A caption over a picture, on a picture wide enough to hold it.
+      /// let picture = Stack::new()
+      ///   .child(Rect::new(320.0, 180.0))
+      ///   .child(Text::new("The lake at dusk").drop_outside(SizeBounds::new().min_width(240.0)));
+      /// ```
+      pub fn drop_outside(mut self, bounds: $crate::layout::layout_kind::SizeBounds) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::drop_outside(node, bounds));
         self
       }
 

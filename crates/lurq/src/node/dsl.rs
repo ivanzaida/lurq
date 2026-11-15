@@ -257,6 +257,14 @@ impl Node {
     })
   }
 
+  /// The box's width over its height; see the components' `.aspect_ratio(...)`.
+  pub fn aspect_ratio(self, ratio: f32) -> Self {
+    self.frame(FrameConstraints {
+      aspect_ratio: Some(ratio),
+      ..Default::default()
+    })
+  }
+
   pub fn min_size(self, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
     self.frame(FrameConstraints {
       min_width: Some(width.into()),

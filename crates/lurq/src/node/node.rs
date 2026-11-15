@@ -528,6 +528,7 @@ pub(crate) trait NodeUpdate {
   fn width(&mut self, width: impl Into<Dimension>);
   fn height(&mut self, height: impl Into<Dimension>);
   fn min_width(&mut self, width: impl Into<Dimension>);
+  fn aspect_ratio(&mut self, ratio: f32);
   fn max_width(&mut self, width: impl Into<Dimension>);
   fn min_height(&mut self, height: impl Into<Dimension>);
   fn max_height(&mut self, height: impl Into<Dimension>);
@@ -548,6 +549,7 @@ pub(crate) trait NodeUpdate {
   fn absolute(&mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>);
   fn absolute_position(&mut self, x: f32, y: f32);
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky);
+  fn drop_outside(&mut self, bounds: crate::layout::layout_kind::SizeBounds);
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn measures_column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks);
   fn fills_viewport_width(&mut self, fills: bool);
@@ -1008,6 +1010,8 @@ pub(crate) struct RareStyle {
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
+  /// The sizes of the `Stack` the node is a child of at which it is laid out; see `NodeUpdate::drop_outside`.
+  pub(crate) drop_outside: Option<crate::layout::layout_kind::SizeBounds>,
   /// What the pointer on the node or the focus in it lights in the nodes in it that have a `within` state style;
   /// see [`NodeUpdate::interaction_group`].
   pub(crate) interaction_group: bool,
@@ -1275,6 +1279,16 @@ impl NodeUpdate for Node {
     );
   }
 
+  fn aspect_ratio(&mut self, ratio: f32) {
+    NodeUpdate::frame(
+      self,
+      FrameConstraints {
+        aspect_ratio: Some(ratio),
+        ..Default::default()
+      },
+    );
+  }
+
   fn max_width(&mut self, width: impl Into<Dimension>) {
     NodeUpdate::frame(
       self,
@@ -1402,6 +1416,13 @@ impl NodeUpdate for Node {
 
   fn sticky(&mut self, sticky: crate::layout::layout_kind::Sticky) {
     self.rare_style.sticky = Some(sticky);
+  }
+
+  fn drop_outside(&mut self, bounds: crate::layout::layout_kind::SizeBounds) {
+    if self.rare_style.drop_outside != Some(bounds) {
+      self.rare_style.drop_outside = Some(bounds);
+      self.layout_cache.invalidate();
+    }
   }
 
   fn column_tracks(&mut self, tracks: crate::layout::column_tracks::ColumnTracks) {
@@ -5654,6 +5675,18 @@ impl Node {
       })
   }
 
+  /// The sizes of the `Stack` this node is a child of at which it is laid out (`.drop_outside(...)`). A logical
+  /// wrapper without bounds of its own passes its child's on, as [`Self::shrink_rule`] does.
+  pub(crate) fn drop_outside_bounds(&self) -> Option<crate::layout::layout_kind::SizeBounds> {
+    if let Some(bounds) = self.rare_style.drop_outside {
+      return Some(bounds);
+    }
+    match &self.layout_kind {
+      LayoutKind::LogicalModifier => self.children.first().and_then(Node::drop_outside_bounds),
+      _ => None,
+    }
+  }
+
   /// The give-way order and limit of this node as a shrinking flex child.
   /// A logical wrapper without its own rule passes its child's on, the way
   /// [`Self::state_flex`] passes the child's flex factors on.
@@ -5998,6 +6031,7 @@ impl Node {
       && self.rare_style.wheels_across == old.rare_style.wheels_across
       // A node that sticks is placed again by the scroll container above it, which its layout says.
       && self.rare_style.sticky == old.rare_style.sticky
+      && self.rare_style.drop_outside == old.rare_style.drop_outside
       && !self.holds_overrides_beyond_opacity()
       && !old.holds_overrides_beyond_opacity()
   }
@@ -6583,6 +6617,9 @@ pub(crate) fn merge_frame(mut base: FrameConstraints, overlay: FrameConstraints)
   }
   if overlay.max_height.is_some() {
     base.max_height = overlay.max_height;
+  }
+  if overlay.aspect_ratio.is_some() {
+    base.aspect_ratio = overlay.aspect_ratio;
   }
   base
 }
