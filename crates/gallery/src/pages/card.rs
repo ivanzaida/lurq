@@ -22,7 +22,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, icon, mono, props_table, quiet, segmented_fill, text},
+  kit::{FILL, icon, mono, phone, props_table, quiet, segmented_fill, text},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -306,10 +306,11 @@ impl CardPage {
   /// A project the page opens on a press.
   fn project(&self, name: &str, about: &str) -> Element {
     let (opened, said) = (self.opened.clone(), name.to_owned());
-    // The column cuts nothing off: an elevated card's shadow falls outside it.
-    Column::new()
-      .flex(1.0)
-      .overflow_visible()
+    // The column cuts nothing off: an elevated card's shadow falls outside it. It takes its share of a row,
+    // and the stage's width where the cards are one under another.
+    let holder = Column::new().overflow_visible();
+    let holder = if phone() { holder.width(FILL) } else { holder.flex(1.0) };
+    holder
       .child(
         Card::new()
           .variant(CardVariant::Elevated)
@@ -429,20 +430,38 @@ impl Component for CardPage {
         "interactive · focus-visible",
       ));
     let opened = self.opened.get();
+    let cards = [
+      self.project("lurq", "A Rust UI toolkit with GPU-backed rendering."),
+      self.project("gallery", "Every component of the design system, a page each."),
+      self.project("devtools", "The tree, the styles and the timings of a running app."),
+    ];
+    // Side by side where each has room for its words, one under another in a window as narrow as a phone.
+    let together: Element = if phone() {
+      cards
+        .into_iter()
+        .fold(
+          Column::new().width(FILL).spacing(16.0).overflow_visible(),
+          |column, card| column.child(card),
+        )
+        .into()
+    } else {
+      cards
+        .into_iter()
+        .fold(
+          Row::new()
+            .width(FILL)
+            .spacing(16.0)
+            .overflow_visible()
+            .align_items(Alignment::Stretch),
+          |row, card| row.child(card),
+        )
+        .into()
+    };
     let projects = Column::new()
       .width(FILL)
       .spacing(12.0)
       .overflow_visible()
-      .child(
-        Row::new()
-          .width(FILL)
-          .spacing(16.0)
-          .overflow_visible()
-          .align_items(Alignment::Stretch)
-          .child(self.project("lurq", "A Rust UI toolkit with GPU-backed rendering."))
-          .child(self.project("gallery", "Every component of the design system, a page each."))
-          .child(self.project("devtools", "The tree, the styles and the timings of a running app.")),
-      )
+      .child(together)
       .child(quiet(
         &if opened.is_empty() {
           "nothing opened yet".to_owned()

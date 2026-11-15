@@ -856,8 +856,11 @@ impl Component for DockLayoutPage {
           .child(mono(&stored_text, 12.0).color(PaletteColor::MutedForeground)),
       )
       .child(
+        // What does not fit beside the others goes on to the next line: no button gives up its label.
         Row::new()
+          .width(FILL)
           .spacing(8.0)
+          .wrap()
           .align_items(Alignment::Center)
           .child(
             Button::new("Store")

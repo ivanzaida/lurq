@@ -15,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet},
+  kit::{FILL, fit, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -276,7 +276,13 @@ impl SplitterPage {
 
   /// A window's panes: a side bar that closes, an editor over a terminal, and an outline; the page keeps the layout.
   fn window(&self, ctx: &mut Ctx) -> Element {
+    // The panes' least widths are a window's: in a card narrower than those the window keeps a width with room
+    // for them and scrolls sideways. A splitter keeps the sizes it was first laid out with, so the one that
+    // scrolls is another than the one that had the card's width.
+    let room = self.frame.stage_room();
+    let scrolls = room > 0.0 && room < WINDOW;
     let splitter = Splitter::new()
+      .key(if scrolls { "window-scrolled" } else { "window" })
       .sizes(self.layout.clone())
       .pane(
         SplitterPane::new(label("Explorer"))
@@ -317,13 +323,16 @@ impl SplitterPage {
     Column::new()
       .width(FILL)
       .spacing(12.0)
-      .child(
+      .child(fit(
+        "window",
+        room,
+        WINDOW,
         Column::new()
           .width(FILL)
           .height(320.0)
           .align_items(Alignment::Stretch)
           .child(splitter),
-      )
+      ))
       .child(
         Row::new().child(
           Button::new("Reset layout")
@@ -393,6 +402,9 @@ impl SplitterPage {
       .into()
   }
 }
+
+/// The least the window of panes is wide: an explorer of 140, an editor of 200 and an outline of 100, and room.
+const WINDOW: f32 = 480.0;
 
 impl Component for SplitterPage {
   type Props = ();

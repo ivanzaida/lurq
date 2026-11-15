@@ -563,12 +563,23 @@ impl ButtonPage {
         .child(Row::new().child(button))
         .child(quiet(caption, 12.0))
     };
-    let group = |label: &str, items: Row| {
+    // The name of a group stands beside it, and over it in a window as narrow as a phone, where beside it
+    // the group had room for one button to a line.
+    let group = |label: &str, items: Element| -> Element {
+      if phone() {
+        return Column::new()
+          .width(FILL)
+          .spacing(12.0)
+          .child(name(label, 12.0))
+          .child(Column::new().width(FILL).child(items))
+          .into();
+      }
       Row::new()
         .width(FILL)
         .align_items(Alignment::Center)
         .child(Row::new().width(120.0).child(name(label, 12.0)))
-        .child(items.flex(1.0))
+        .child(items)
+        .into()
     };
     // What does not fit beside the others goes on to the next line.
     let items = || Row::new().spacing(28.0).wrap().align_items(Alignment::End);
@@ -618,18 +629,14 @@ impl ButtonPage {
       .spacing(9.0)
       .child(Button::new("Continue").full_width(true))
       .child(quiet("full_width(true)", 12.0));
+    // Under its name it is as wide as the stage: there is no row there for it to take the rest of.
+    let full = if phone() { full.width(FILL) } else { full };
     let stage = Column::new()
       .width(FILL)
       .spacing(28.0)
-      .child(group("with icon", with_icon))
-      .child(group("icon only", alone))
-      .child(
-        Row::new()
-          .width(FILL)
-          .align_items(Alignment::Center)
-          .child(Row::new().width(120.0).child(name("full width", 12.0)))
-          .child(full),
-      );
+      .child(group("with icon", with_icon.flex(1.0).into()))
+      .child(group("icon only", alone.flex(1.0).into()))
+      .child(group("full width", full.into()));
     self.frame.demo(
       2,
       stage,

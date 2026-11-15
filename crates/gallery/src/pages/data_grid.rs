@@ -997,8 +997,11 @@ impl Component for DataGridPage {
           .child(mono(&text, 12.0).color(lurq::app::theme::PaletteColor::MutedForeground)),
       )
       .child(
+        // What does not fit beside the others goes on to the next line: no button gives up its label.
         Row::new()
+          .width(crate::kit::FILL)
           .spacing(8.0)
+          .wrap()
           .align_items(Alignment::Center)
           .child(
             Button::new("Store")

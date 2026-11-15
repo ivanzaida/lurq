@@ -15,7 +15,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, card, code, demo_card, icon, muted},
+  kit::{FILL, card, code, demo_card, fit, icon, muted},
 };
 
 pub struct Icons {
@@ -121,7 +121,7 @@ impl Icons {
 
   /// How an app draws one, and how a theme changes what a name is drawn with.
   fn usage(&self) -> Element {
-    let mut lines = card().padding(20.0).spacing(2.0);
+    let mut lines = Column::new().spacing(2.0);
     for line in [
       "use lurq::ui::{Icon, icons};",
       "",
@@ -134,11 +134,18 @@ impl Icons {
       "theme.set_icon(\"rocket\", IconGlyph::new(\"brand icons\", '\\u{F135}'));",
       "Icon::new(\"rocket\")",
     ] {
-      lines = lines.child(code(line).height(18.0));
+      lines = lines.child(code(line).nowrap().height(18.0));
     }
-    lines.into()
+    // A line of code is not broken: in a card narrower than the longest the code scrolls sideways.
+    card()
+      .padding(20.0)
+      .child(fit("usage", (self.frame.room() - 42.0).max(0.0), USAGE, lines))
+      .into()
   }
 }
+
+/// How wide the longest line of the example is.
+const USAGE: f32 = 740.0;
 
 impl Component for Icons {
   type Props = ();

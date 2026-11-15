@@ -18,7 +18,7 @@ use lurq::{
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, text},
+  kit::{FILL, fit, props_table, text},
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
@@ -279,13 +279,19 @@ impl Component for ActionBarPage {
         .return_focus(self.rows[2].clone())
         .mount(ctx)
     };
-    let phone = Stack::new()
-      .width(360.0)
-      .max_width(FILL)
-      .height(240.0)
-      .overflow_visible()
-      .child(list(&self.phone, 240.0, &self.rows[2]))
-      .child(phone_bar);
+    // A phone's width, which the bar's actions are counted for: in a card narrower than a phone it keeps it,
+    // and scrolls sideways.
+    let phone = fit(
+      "phone",
+      self.frame.stage_room(),
+      360.0,
+      Stack::new()
+        .width(360.0)
+        .height(240.0)
+        .overflow_visible()
+        .child(list(&self.phone, 240.0, &self.rows[2]))
+        .child(phone_bar),
+    );
 
     let rows = [
       (

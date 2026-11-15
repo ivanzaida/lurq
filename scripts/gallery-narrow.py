@@ -448,7 +448,10 @@ def narrow_faults(narrow, wide):
     listed.append(found)
   for key, (w, h, node) in controls.items():
     was = wide_controls.get(key)
-    if was and min(w, h) < LEAST_CONTROL and (w < was[0] - 1.0 or h < was[1] - 1.0):
+    # The side that is under the least is the one that got smaller: a field's line of text is 17 high at every
+    # width, and is narrower in a narrower field.
+    squeezed = (w < LEAST_CONTROL and w < was[0] - 1.0) or (h < LEAST_CONTROL and h < was[1] - 1.0) if was else False
+    if squeezed:
       listed.append({"kind": "small", "key": key, "what": describe(node), "by": round(LEAST_CONTROL - min(w, h)),
                      "box": [round(node.x), round(node.y), round(w), round(h)], "in": "",
                      "with": "%dx%d in a wide window" % (round(was[0]), round(was[1]))})
