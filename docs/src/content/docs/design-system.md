@@ -4518,6 +4518,7 @@ What every chart of the system stands on, behind the `canvas` feature: each is d
 - **The pointer and the keys**: the pointer finds the point it is on, or the nearest one near enough (`nearest`, `nearest_sorted` for a line of thousands of points, by halves), and the tooltip shows it. The plot is one stop of Tab: Left and Right go along a series, Up and Down to the series before and after, Home and End to its ends; the focused point shows what a hovered one shows, and a press, Enter or Space tells `on_select`.
 - **To tooling** a chart is a `figure` with its name and its description; its plot is a canvas whose items are its data (a bar's place, its category and its value as written), which a reader goes through, and whose `a11y_value` says the point under the pointer or the focus.
 - **States**: no data (`empty_text`, "No data" unless told), loading (the skeleton as high as the plot), values under zero, values of very different size (the ticks stay round), a long category name (cut with an ellipsis under its band).
+- A plot whose values run across (`ChartPlot::across`, a bar chart lying across) has its grid lines down the plot, its ticks' numbers under it and its categories' names at its start.
 - A chart's author writes its plot (`impl ChartPlot`: what it draws, its ticks, its axis, where its points are, what a point's tooltip says, its items, a signature of its data) and lays its own parts over `chart_recipe()`; `ChartProps` and `chart_props!()` give its builder the words above, and `ChartFrame` builds and mounts it. See the module's docs in `lurq::ui`.
 
 ### Chart Legend
@@ -4575,12 +4576,13 @@ BarChart::new(
 | `BarChart::new(categories, series)` | The names under the bars, and the series, a value for each category |
 | `stacked(bool)` | The series one on another in each category, the first at the bottom: side by side unless told |
 | `current(usize)` | The category that is current (the latest release): its bars in their colors, the others in `Input` |
+| `orientation(Orientation)` | Bars standing up from the bottom (`Vertical`, the board's), or lying across from the start (`Horizontal`): the names of the categories at the start, each at its bar's height and at most 160 wide, the ticks' numbers under the plot. Long names read better across |
 | `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `grid`, `value_axis`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them |
 | `mount(ctx)` | The tooltip of the bar under the pointer or the focus, the arrows between categories and series, `on_select` told a press. Converted into an element it is the still chart |
 
 - The board's Bar Chart (`Sk5h8`): the chart's frame at `Md`, bars 12 apart sharing the plot's width, their tops rounded 4, on the line of the plot's bottom in `Border`; the names under them mono 11 in `MutedForeground`, each under its bar. Several series stand side by side in a category, 4 apart, and the legend under the plot names them in dots. Stacked (`jJ85X`), they stand one on another with a pixel of the card between segments and the top of each stack rounded, 14 between stacks. A value under zero goes down from zero, its bottom rounded, and zero is a line across the plot. The band behind the category under the pointer or the focus is in `Muted`.
 - To tooling each bar is an item of the plot: `bar-<series>-<category>`, named by its category, valued as `value_text` writes it.
-- Parts: the chart's (`ChartPart::Root`, `Header`, `Title`, `Description`, `Plot`, `Grid`, `Baseline`, `Cursor`, `Axis`, `AxisLabel`, `ValueLabel`, `Empty`) and `BarChartPart::Bar` (the bars that give way to the current one), `Band`. States: `ChartState::Header`, `Empty`, `Loading`, `BarChartState::Stacked`; sizes `ChartSize::Sm`, `Md`.
+- Parts: the chart's (`ChartPart::Root`, `Header`, `Title`, `Description`, `Plot`, `Grid`, `Baseline`, `Cursor`, `Axis`, `AxisLabel`, `ValueLabel`, `Empty`) and `BarChartPart::Bar` (the bars that give way to the current one), `Band`. States: `ChartState::Header`, `Empty`, `Loading`, `BarChartState::Stacked`, `Horizontal`, `Vertical`; sizes `ChartSize::Sm`, `Md`.
 - Where the board draws nothing: the tooltip of a bar is the board's Chart Tooltip over it; the band behind the category under the pointer; the ring of the focus around the plot; values under zero; the grid and the ticks' numbers, off unless told.
 
 ## Data Grid

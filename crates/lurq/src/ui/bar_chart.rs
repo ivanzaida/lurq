@@ -9,6 +9,7 @@ use super::{
   },
   names,
   recipe::Recipe,
+  shared::Orientation,
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -39,10 +40,16 @@ names!(BarChartPart {
 pub enum BarChartState {
   /// Its series are stacked, one on another in each category.
   Stacked,
+  /// Its bars lie across, the names of the categories at the start.
+  Horizontal,
+  /// Its bars stand up, the names of the categories under them.
+  Vertical,
 }
 
 names!(BarChartState {
   Stacked => "stacked",
+  Horizontal => "horizontal",
+  Vertical => "vertical",
 });
 
 /// The corners of a bar's end, as the board rounds them.
@@ -80,6 +87,7 @@ pub struct BarChart {
   series: Vec<ChartSeries>,
   stacked: bool,
   current: Option<usize>,
+  orientation: Orientation,
   props: ChartProps,
 }
 
@@ -94,8 +102,17 @@ impl BarChart {
       series: series.into_iter().collect(),
       stacked: false,
       current: None,
+      orientation: Orientation::Vertical,
       props: ChartProps::default(),
     }
+  }
+
+  /// Which way the bars run: standing up from the bottom (`Vertical`, the board's), or lying across from the
+  /// start (`Horizontal`), the names of the categories at the start and the values under the plot. Long names read
+  /// better across.
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
+    self
   }
 
   /// Whether the series are stacked, one on another in each category, the first at the bottom: a whole and its
@@ -121,13 +138,16 @@ impl BarChart {
       shown: self.series.iter().map(|series| !self.props.is_hidden(series)).collect(),
       stacked: self.stacked,
       current: self.current,
+      across: !self.orientation.is_vertical(),
       gap: 0.0,
     });
     let empty = plot.is_empty();
     let case = self
       .props
       .case(ChartSize::Md, empty)
-      .state(BarChartState::Stacked, self.stacked);
+      .state(BarChartState::Stacked, self.stacked)
+      .state(BarChartState::Horizontal, !self.orientation.is_vertical())
+      .state(BarChartState::Vertical, self.orientation.is_vertical());
     let recipe = theme.resolve::<BarChart>(&case, Some(&self.props.rules));
     // The bands are as far apart as the names under them.
     let gap = recipe
@@ -172,6 +192,8 @@ struct BarPlot {
   shown: Vec<bool>,
   stacked: bool,
   current: Option<usize>,
+  /// Whether the bars lie across: the bands run down the plot and the values along it.
+  across: bool,
   gap: f32,
 }
 
@@ -216,11 +238,28 @@ impl BarPlot {
   }
 
   fn scale(&self, area: ChartArea) -> LinearScale {
-    LinearScale::nice(self.extents(), (area.height, 0.0), 4)
+    let range = if self.across {
+      (0.0, area.width)
+    } else {
+      (area.height, 0.0)
+    };
+    LinearScale::nice(self.extents(), range, 4)
   }
 
   fn bands(&self, area: ChartArea) -> BandScale {
-    BandScale::new(self.categories.len(), area.width, self.gap)
+    let length = if self.across { area.height } else { area.width };
+    BandScale::new(self.categories.len(), length, self.gap)
+  }
+
+  /// A rectangle along the bands and the values: `start` and `width` across the bands, `low` and `high` along
+  /// the values, as it is drawn.
+  fn rect(&self, start: f32, width: f32, low: f32, high: f32) -> (f32, f32, f32, f32) {
+    let length = (high - low).max(0.0);
+    if self.across {
+      (low, start, length, width)
+    } else {
+      (start, low, width, length)
+    }
   }
 
   /// Where the bar of `series` in `category` is drawn: x, y, width, height, and which end is rounded. `None` where
@@ -254,18 +293,23 @@ impl BarPlot {
       )
     };
     let (a, b) = (scale.map(from), scale.map(to));
-    let (top, bottom) = (a.min(b), a.max(b));
-    // A segment over another leaves a pixel of the card between them.
+    let (low, high) = (a.min(b), a.max(b));
+    // A segment over another leaves a pixel of the card between them, on the side toward zero.
     let gap = if self.stacked && from != 0.0 { SEGMENT_GAP } else { 0.0 };
-    let (top, bottom) = if value >= 0.0 {
-      (top, (bottom - gap).min(zero))
+    // Toward zero is the high end of the drawing where the values run up, the low one where they run across.
+    let toward_high = (value >= 0.0) != self.across;
+    let (low, high) = if toward_high {
+      (low, (high - gap).min(zero.max(low)))
     } else {
-      ((top + gap).max(zero), bottom)
+      ((low + gap).max(zero.min(high)), high)
     };
-    Some((
-      (x, top, width, (bottom - top).max(0.0)),
-      if value >= 0.0 { BarEnd::Top } else { BarEnd::Bottom },
-    ))
+    let end = match (self.across, value >= 0.0) {
+      (false, true) => BarEnd::Top,
+      (false, false) => BarEnd::Bottom,
+      (true, true) => BarEnd::End,
+      (true, false) => BarEnd::Start,
+    };
+    Some((self.rect(x, width, low, high), end))
   }
 
   /// Whether the bar of `series` in `category` is the outer one of its stack: its end is rounded.
@@ -290,7 +334,12 @@ impl ChartPlot for BarPlot {
     let bands = self.bands(area);
     if let Some(point) = active {
       canvas.set_fill_style(look.color(BarChartPart::Band));
-      canvas.fill_rect(bands.start(point.index), 0.0, bands.width(), area.height);
+      let (x, y, width, height) = if self.across {
+        (0.0, bands.start(point.index), area.width, bands.width())
+      } else {
+        (bands.start(point.index), 0.0, bands.width(), area.height)
+      };
+      canvas.fill_rect(x, y, width, height);
     }
     let muted = look.color(BarChartPart::Bar);
     for category in 0..self.categories.len() {
@@ -333,8 +382,14 @@ impl ChartPlot for BarPlot {
     }
   }
 
+  fn across(&self) -> bool {
+    self.across
+  }
+
   fn point_at(&self, area: ChartArea, x: f32, y: f32) -> Option<ChartPoint> {
-    let category = self.bands(area).index_at(x)?;
+    // Along the bands, and along the values.
+    let (along, value) = if self.across { (y, x) } else { (x, y) };
+    let category = self.bands(area).index_at(along)?;
     let bars: Vec<(usize, (f32, f32, f32, f32))> = self
       .shown()
       .into_iter()
@@ -342,10 +397,15 @@ impl ChartPlot for BarPlot {
       .collect();
     // The bar the pointer is on; in a stack the segment at its height, in a group the bar across from it.
     let on = |&(_, (bx, by, bw, bh)): &(usize, (f32, f32, f32, f32))| {
-      if self.stacked {
-        y >= by && y <= by + bh
+      let (band_from, band_length, value_from, value_length) = if self.across {
+        (by, bh, bx, bw)
       } else {
-        x >= bx && x <= bx + bw
+        (bx, bw, by, bh)
+      };
+      if self.stacked {
+        value >= value_from && value <= value_from + value_length
+      } else {
+        along >= band_from && along <= band_from + band_length
       }
     };
     let series = bars
@@ -358,13 +418,20 @@ impl ChartPlot for BarPlot {
 
   fn anchor(&self, area: ChartArea, point: ChartPoint) -> Option<(f32, f32)> {
     let bands = self.bands(area);
-    let top = self
+    let middle = bands.start(point.index) + bands.width() / 2.0;
+    let bars: Vec<(f32, f32, f32, f32)> = self
       .shown()
       .into_iter()
       .filter_map(|series| self.bar(area, series, point.index))
-      .map(|((_, y, ..), _)| y)
-      .fold(area.height, f32::min);
-    Some((bands.start(point.index) + bands.width() / 2.0, top))
+      .map(|(rect, _)| rect)
+      .collect();
+    if self.across {
+      // At the end of the longest bar, over its band.
+      let end = bars.iter().map(|(x, _, width, _)| x + width).fold(0.0, f32::max);
+      return Some((end, bands.start(point.index)));
+    }
+    let top = bars.iter().map(|(_, y, ..)| *y).fold(area.height, f32::min);
+    Some((middle, top))
   }
 
   fn counts(&self) -> Vec<usize> {
@@ -424,6 +491,7 @@ impl ChartPlot for BarPlot {
       &self.shown,
       self.stacked,
       self.current,
+      self.across,
       self.gap.to_bits(),
     ))
   }

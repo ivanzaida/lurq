@@ -11,7 +11,7 @@ use lurq::{
   node::Element,
   ui::{
     BarChart, ChartLegend, ChartLegendItem, ChartLegendShape, ChartPoint, ChartSeries, ChartSize, ChartTooltip,
-    ChartTooltipRow,
+    ChartTooltipRow, Orientation,
   },
 };
 
@@ -25,12 +25,13 @@ const RELEASES: [&str; 6] = ["0.55", "0.56", "0.57", "0.58", "0.59", "0.60"];
 const BUILDS: [&str; 5] = ["0.56", "0.57", "0.58", "0.59", "0.60"];
 
 /// The data the playground shows: what the board draws, and what tries a chart.
-const DATA: [&str; 7] = [
+const DATA: [&str; 8] = [
   "the board's",
   "three series",
   "under zero",
   "one value",
   "long names",
+  "very different sizes",
   "no data",
   "loading",
 ];
@@ -54,7 +55,11 @@ fn data(choice: usize) -> (Vec<String>, Vec<ChartSeries>) {
       ]),
       vec![ChartSeries::new("Seconds", [9.2, 7.0, 4.7, 2.5])],
     ),
-    5 => (Vec::new(), Vec::new()),
+    5 => (
+      names(&["cache hit", "shader build", "first frame"]),
+      vec![ChartSeries::new("Milliseconds", [0.04, 38.0, 9800.0])],
+    ),
+    6 => (Vec::new(), Vec::new()),
     _ => (names(&RELEASES), vec![frame_time()]),
   }
 }
@@ -88,6 +93,7 @@ pub struct BarChartPage {
   legend: Signal<bool>,
   hidden: Signal<Vec<String>>,
   selected: Signal<Option<ChartPoint>>,
+  across: Signal<bool>,
 }
 
 impl BarChartPage {
@@ -105,6 +111,11 @@ impl BarChartPage {
     } else {
       ChartSize::Md
     };
+    let orientation = if self.across.get() {
+      Orientation::Horizontal
+    } else {
+      Orientation::Vertical
+    };
     let (categories, series) = data(choice);
     let record = self.playground.recorder();
     let (selected_to, hidden_to) = (record.clone(), record);
@@ -119,7 +130,8 @@ impl BarChartPage {
           .stacked(stacked)
           .grid(grid)
           .value_axis(value_axis)
-          .loading(choice == 6)
+          .loading(choice == 7)
+          .orientation(orientation)
           .value_text(ms);
         if current {
           chart = chart.current(categories.len().saturating_sub(1));
@@ -170,8 +182,11 @@ impl BarChartPage {
     if legend {
       code.push("    .legend(true)".to_owned());
     }
-    if choice == 6 {
+    if choice == 7 {
       code.push("    .loading(true)".to_owned());
+    }
+    if orientation == Orientation::Horizontal {
+      code.push("    .orientation(Orientation::Horizontal)".to_owned());
     }
     code.push("    .hidden(hidden)".to_owned());
     code.push("    .on_select(|point| ..)".to_owned());
@@ -196,6 +211,7 @@ impl BarChartPage {
       self.legend.clone(),
       self.hidden.clone(),
       self.selected.clone(),
+      self.across.clone(),
     );
     let facts = format!(
       "{} categories · {} series{}",
@@ -239,6 +255,7 @@ impl BarChartPage {
               .select(1, &sizes, &self.size.get().min(1), move |index| set_size.set(index)),
           ),
           divider(),
+          flag("orientation: Horizontal, lying across", &self.across),
           flag("stacked", &self.stacked),
           flag("current: the last category", &self.current),
           flag("grid", &self.grid),
@@ -248,6 +265,7 @@ impl BarChartPage {
         changed: [
           choice != 0,
           self.size.get() != 1,
+          self.across.get(),
           stacked,
           !current,
           grid,
@@ -268,6 +286,7 @@ impl BarChartPage {
           reset.6.set(false);
           reset.7.set(Vec::new());
           reset.8.set(None);
+          reset.9.set(false);
         }),
       },
     )
@@ -290,6 +309,7 @@ impl Component for BarChartPage {
       legend: ctx.signal(false),
       hidden: ctx.signal(Vec::new()),
       selected: ctx.signal(None),
+      across: ctx.signal(false),
     }
   }
 
@@ -326,13 +346,33 @@ impl Component for BarChartPage {
     .value_text(|change| format!("{change:+} ms"))
     .key("under")
     .mount(ctx);
+    let across = BarChart::new(
+      [
+        "text_pipeline",
+        "canvas_mesh_tessellation",
+        "layout_flex",
+        "theme_roles_resolved",
+      ],
+      [ChartSeries::new("Seconds", [9.2, 7.0, 4.7, 2.5])],
+    )
+    .title("Slowest tests")
+    .description("Seconds")
+    .size(ChartSize::Sm)
+    .orientation(Orientation::Horizontal)
+    .grid(true)
+    .value_axis(true)
+    .value_text(|seconds| format!("{seconds} s"))
+    .key("across")
+    .mount(ctx);
     let pieces = Column::new()
       .spacing(24.0)
       .align_items(Alignment::Start)
       .child(
-        ChartTooltip::new("Build 0.59")
-          .row(ChartTooltipRow::new(PaletteColor::Chart1, "wgpu", "6.9 ms"))
-          .row(ChartTooltipRow::new(PaletteColor::Chart2, "DirectX 12", "9.4 ms")),
+        Row::new().child(
+          ChartTooltip::new("Build 0.59")
+            .row(ChartTooltipRow::new(PaletteColor::Chart1, "wgpu", "6.9 ms"))
+            .row(ChartTooltipRow::new(PaletteColor::Chart2, "DirectX 12", "9.4 ms")),
+        ),
       )
       .child(ChartLegend::new([
         ChartLegendItem::new("Layout", PaletteColor::Chart1),
@@ -379,6 +419,12 @@ impl Component for BarChartPage {
         "bool",
         "false",
         "The series one on another in each category, the first at the bottom.",
+      ),
+      (
+        "orientation",
+        "Orientation",
+        "Vertical",
+        "Bars standing up, or lying across (Horizontal) with the names at the start.",
       ),
       (
         "current",
@@ -502,6 +548,22 @@ impl Component for BarChartPage {
           ),
         ),
         Section::new(
+          "Lying across",
+          "The bars lie across from the start where the names are long: the names at the start, each at its            bar's height and cut with an ellipsis past 160, the values under the plot.",
+          self.frame.demo(
+            5,
+            Column::new().width(crate::kit::FILL).child(across),
+            ".orientation(Orientation::Horizontal)",
+            &[
+              "BarChart::new(tests, [ChartSeries::new(\"Seconds\", seconds)])",
+              "    .orientation(Orientation::Horizontal)",
+              "    .grid(true)",
+              "    .value_axis(true)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
           "The tooltip and the legend",
           "Every chart's, as the board draws them, and on their own: the tooltip's title over a row for each series, \
            the legend's square keys, and the dots a chart's own legend has.",
@@ -509,6 +571,7 @@ impl Component for BarChartPage {
             4,
             Column::new()
               .width(crate::kit::FILL)
+              .spacing(16.0)
               .child(pieces)
               .child(quiet("ChartTooltip · ChartLegend · ChartLegend::shape(Dot)", 12.0)),
             "ChartTooltip::new(title).row(..)",

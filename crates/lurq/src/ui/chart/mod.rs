@@ -337,8 +337,8 @@ pub fn resolve(theme: &Theme, color: BackgroundColor) -> Color {
   }
 }
 
-/// A tick of a scale as the frame draws it: a grid line across the plot at `position` (from the plot's top, or its
-/// start where the values run across), and its text.
+/// A tick of a scale as the frame draws it: a grid line across the plot at `position` (from the plot's top, or a
+/// line down it from its start where the values run across, [`ChartPlot::across`]), and its text.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartTick {
   pub position: f32,
@@ -379,9 +379,16 @@ pub trait ChartPlot: Send + Sync + 'static {
     Vec::new()
   }
 
-  /// What stands under the plot.
+  /// What stands under the plot: or at its start, where the values run across.
   fn axis(&self) -> ChartAxis {
     ChartAxis::None
+  }
+
+  /// Whether its values run across the plot (a bar chart lying across): its ticks are lines down the plot at
+  /// their place from its start, their numbers under it, and the names of its categories stand at its start,
+  /// each at its band's height. Down the plot, from its bottom, unless it says so.
+  fn across(&self) -> bool {
+    false
   }
 
   /// The point the pointer at `(x, y)` is on, or nearest to where the chart finds one near enough.

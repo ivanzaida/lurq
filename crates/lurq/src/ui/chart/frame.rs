@@ -467,6 +467,9 @@ impl ChartFrame {
       ));
     }
     let gutter = self.gutter(area);
+    if self.plot.across() {
+      return self.with_names(stack.into(), gutter, height);
+    }
     if gutter <= 0.0 {
       return stack.into();
     }
@@ -501,7 +504,19 @@ impl ChartFrame {
   /// How wide the room of the ticks' numbers is: the widest of them in the mono type of 11 (an advance of 0.6 of
   /// its size) and the room after it, or none where the chart does not write them.
   fn gutter(&self, area: ChartArea) -> f32 {
-    if !self.value_axis() || self.props.loading || self.plot.is_empty() {
+    if self.props.loading || self.plot.is_empty() {
+      return 0.0;
+    }
+    if self.plot.across() {
+      // The names of the categories at the start, as wide as the widest in the axis's mono type, at most 160.
+      let ChartAxis::Bands { labels, .. } = self.plot.axis() else {
+        return 0.0;
+      };
+      let size = self.recipe.part(ChartPart::AxisLabel).rest().text.size.unwrap_or(11.0);
+      let widest = labels.iter().map(|name| name.chars().count()).max().unwrap_or(0);
+      return ((widest as f32 * size * 0.6).ceil() + GUTTER_GAP).min(160.0);
+    }
+    if !self.value_axis() {
       return 0.0;
     }
     let size = self.recipe.part(ChartPart::ValueLabel).rest().text.size.unwrap_or(11.0);
@@ -513,6 +528,47 @@ impl ChartFrame {
       .max()
       .unwrap_or(0);
     (widest as f32 * size * 0.6).ceil() + GUTTER_GAP
+  }
+
+  /// The plot of a chart whose values run across, with the names of its categories at its start, each at the
+  /// height of its band and cut with an ellipsis where it is longer than the room.
+  fn with_names(&self, plot: Element, gutter: f32, height: f32) -> Element {
+    let ChartAxis::Bands { labels, gap } = self.plot.axis() else {
+      return plot;
+    };
+    let label = self.part(ChartPart::AxisLabel);
+    let names = Column::new()
+      .width(gutter)
+      .height(height)
+      .spacing(gap)
+      .describe("a11y_hidden", "true")
+      .with_children(labels.iter().map(|name| {
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_height(Dimension::Px(0.0))
+          .width(gutter - GUTTER_GAP)
+          .justify(Justify::End)
+          .align_items(Alignment::Center)
+          .child(
+            label
+              .text(name)
+              .part(&label)
+              .nowrap()
+              .text_overflow(TextOverflow::Elipsis)
+              .min_width(Dimension::Px(0.0)),
+          )
+      }));
+    Row::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Start)
+      .child(names)
+      .child(
+        Column::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(Dimension::Px(0.0))
+          .child(plot),
+      )
+      .into()
   }
 
   /// The plot's behavior on the canvas of a mounted chart: the pointer finds the point it is on, a press selects
@@ -646,6 +702,42 @@ impl ChartFrame {
         .text_overflow(TextOverflow::Elipsis)
         .min_width(Dimension::Px(0.0))
     };
+    if self.plot.across() {
+      // The names are at the plot's start; under it, the ticks' numbers at their places, where it writes them.
+      if !self.value_axis() {
+        return None;
+      }
+      let value = self.part(ChartPart::ValueLabel);
+      // The ticks of a plot one wide are where they are as a share of its width, whatever width it is laid out at.
+      let area = ChartArea {
+        width: 1.0,
+        height: self.plot_height(),
+      };
+      let mut numbers = Row::new().width(Dimension::Pct(100.0)).overflow_visible();
+      let mut before = 0.0;
+      for tick in self.plot.ticks(area, &self.look) {
+        let share = tick.position.clamp(0.0, 1.0);
+        // The numbers at the ends stand inside the plot, the others centred on their line.
+        let across = if share < 0.001 {
+          0.0
+        } else if share > 0.999 {
+          -1.0
+        } else {
+          -0.5
+        };
+        numbers = numbers
+          .child(Row::new().flex_full(share - before, 0.0, Some(0.0)))
+          .child(
+            Row::new()
+              .width(1.0)
+              .overflow_visible()
+              .child(value.text(&tick.text).part(&value).nowrap().offset_by_size(across, 0.0)),
+          );
+        before = share;
+      }
+      numbers = numbers.child(Row::new().flex_full(1.0 - before, 0.0, Some(0.0)));
+      return Some(row.child(numbers).into());
+    }
     match self.plot.axis() {
       ChartAxis::None => None,
       ChartAxis::Bands { labels, gap } => Some(
@@ -745,9 +837,14 @@ fn draw(canvas: &CanvasHandle, plot: &dyn ChartPlot, look: &ChartLook, active: O
     } else {
       ChartPart::Grid
     });
-    let y = snap((tick.position - line).max(0.0).min(area.height - line), scale);
     context.set_fill_style(color);
-    context.fill_rect(0.0, y, area.width, line);
+    if plot.across() {
+      let x = snap(tick.position.max(0.0).min(area.width - line), scale);
+      context.fill_rect(x, 0.0, line, area.height);
+    } else {
+      let y = snap((tick.position - line).max(0.0).min(area.height - line), scale);
+      context.fill_rect(0.0, y, area.width, line);
+    }
   }
   plot.paint(&context, area, look, active);
   canvas.set_items(plot.items(area, look));
