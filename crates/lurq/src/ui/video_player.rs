@@ -6,17 +6,18 @@
 
 use std::{
   sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicU8, Ordering},
   },
   time::Duration,
 };
 
 use super::{
-  Badge, BadgeVariant, MEDIA_RATES, MediaTime, MediaVolume, MediaVolumeSize, Menu, MenuItem, MenuItemPart, MenuPart,
-  PlayButton, PlayButtonSize, PlayButtonVariant, SeekBar, Tooltip, icons, media_rate_text, media_time_text, names,
+  MEDIA_RATES, MediaSpeedMenu, MediaTime, MediaTimeSize, MediaVolume, MediaVolumeSize, Menu, MenuItem, MenuItemPart,
+  MenuPart, PlayButton, PlayButtonSize, PlayButtonVariant, SeekBar, Tooltip, icons, media_rate_text, media_time_text,
+  names,
   part_style::{Length, PartTransition},
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
 };
@@ -36,6 +37,7 @@ use crate::{
     text_style::{FontWeight, TextAlign},
   },
   node::{CursorIcon, Element, HitTestBehavior, color::Color, dimension::Dimension, outline::Outline},
+  time::Instant,
 };
 
 /// How long the pointer rests over a playing video before its controls fade out.
@@ -49,6 +51,9 @@ pub const VIDEO_PLAYER_MINIMAL_BELOW: f32 = 280.0;
 
 /// Under this width the volume's slider of the large player folds into its button.
 pub const VIDEO_PLAYER_VOLUME_FOLDS_BELOW: f32 = 480.0;
+
+/// How soon a second press of the picture asks for fullscreen.
+pub const VIDEO_PLAYER_DOUBLE_PRESS: Duration = Duration::from_millis(500);
 
 /// How far Left and Right seek, in seconds; J and L seek twice as far.
 pub const VIDEO_PLAYER_SEEK_STEP: f64 = 5.0;
@@ -110,8 +115,6 @@ pub enum VideoPlayerPart {
   Menus,
   /// The settings menu's panel.
   SettingsMenu,
-  /// The speed menu's panel.
-  SpeedMenu,
   /// The panel of the compact player's menu.
   MoreMenu,
   /// The value at the end of a row of a menu of the player: "1080p", "Normal".
@@ -144,7 +147,6 @@ names!(VideoPlayerPart {
   Elapsed => "elapsed",
   Menus => "menus",
   SettingsMenu => "settings_menu",
-  SpeedMenu => "speed_menu",
   MoreMenu => "more_menu",
   MenuValue => "menu_value",
 });
@@ -397,6 +399,7 @@ pub struct VideoPlayer {
   duration: Option<f64>,
   buffered: Option<f64>,
   chapters: Vec<f64>,
+  preview: Option<Arc<dyn Fn(f64) -> Element + Send + Sync>>,
   live: bool,
   waiting: bool,
   ended: bool,
@@ -485,6 +488,7 @@ impl VideoPlayer {
       duration: None,
       buffered: None,
       chapters: Vec::new(),
+      preview: None,
       live: false,
       waiting: false,
       ended: false,
@@ -600,6 +604,12 @@ impl VideoPlayer {
   /// How far what it plays is loaded, in seconds from its start: drawn in the seek bar.
   pub fn buffered(mut self, buffered: impl Into<f64>) -> Self {
     self.buffered = Some(buffered.into());
+    self
+  }
+
+  /// Where its chapters start, in seconds: the seek bar is cut there.
+  pub fn preview(mut self, preview: impl Fn(f64) -> Element + Send + Sync + 'static) -> Self {
+    self.preview = Some(Arc::new(preview));
     self
   }
 
@@ -923,8 +933,10 @@ struct Live {
   buttons: ElementRef,
   /// Whether each menu is open: settings, speed, more.
   menus: [Signal<bool>; 3],
-  /// Whether each row of a menu has its choices open beside it: quality, speed, captions.
-  pages: [(Signal<bool>, ElementRef); 3],
+  /// Which row of the open menu shows its choices in the menu's place, by its place in the menu.
+  page: Signal<Option<usize>>,
+  /// When the picture was last pressed: a second press soon after asks for fullscreen.
+  pressed: Arc<Mutex<Option<Instant>>>,
   /// Whether the pointer moved over the player lately.
   shown: Signal<bool>,
   /// What fades the controls out after the pointer rests.
@@ -957,13 +969,13 @@ fn bucket(width: f32) -> u8 {
 
 impl Live {
   fn still() -> Self {
-    let page = || (Signal::new(false), ElementRef::new());
     Self {
       root: ElementRef::new(),
       row: ElementRef::new(),
       buttons: ElementRef::new(),
       menus: [Signal::new(false), Signal::new(false), Signal::new(false)],
-      pages: [page(), page(), page()],
+      page: Signal::new(None),
+      pressed: Arc::default(),
       shown: Signal::new(true),
       hide: None,
       show: None,
@@ -1024,13 +1036,13 @@ impl Component for VideoPlayerHost {
       let shown = shown.clone();
       move || shown.set(true)
     });
-    let page = |ctx: &mut Ctx| (ctx.signal(false), ElementRef::new());
     let live = Live {
       root: ElementRef::new(),
       row: ElementRef::new(),
       buttons: ElementRef::new(),
       menus: [ctx.signal(false), ctx.signal(false), ctx.signal(false)],
-      pages: [page(ctx), page(ctx), page(ctx)],
+      page: ctx.signal(None),
+      pressed: Arc::default(),
       shown,
       hide: Some(hide),
       show: Some(show),
@@ -1167,6 +1179,7 @@ fn view(player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ctx>) 
     retry,
     keys: root_keys,
     toggle: make.toggle(),
+    pressed: live.pressed.clone(),
     fullscreen: make.fullscreen_toggle(),
     poke: live.mounted.then(|| Arc::new(live.poke()) as Action),
     root: live.root.clone(),
@@ -1359,10 +1372,17 @@ impl Make<'_, '_> {
     if let Some(buffered) = player.buffered {
       bar = bar.buffered(buffered);
     }
+    if let Some(preview) = player.preview.clone() {
+      bar = bar.preview(move |at| preview(at));
+    }
     if let Some(id) = self.id("seek") {
       bar = bar.id(id);
     }
-    bar.build(self.recipe.theme())
+    // Mounted, the bar shows the time and the frame under the pointer.
+    match self.ctx.as_deref_mut() {
+      Some(ctx) => bar.mount(ctx),
+      None => bar.build(self.recipe.theme()),
+    }
   }
 
   /// The time, the live badge, or in the minimal form how far it is alone.
@@ -1370,9 +1390,14 @@ impl Make<'_, '_> {
     let player = self.player;
     let part = self.part(VideoPlayerPart::Time);
     let shown: Element = if player.live {
-      Badge::new(&player.words.live)
-        .variant(BadgeVariant::Destructive)
-        .build(self.recipe.theme())
+      let mut time = MediaTime::new(player.position.value, None)
+        .live(true)
+        .live_text(&player.words.live)
+        .on_media(true);
+      if let Some(id) = self.id("time") {
+        time = time.id(id);
+      }
+      time.build(self.recipe.theme())
     } else if self.form == VideoPlayerSize::Sm {
       let elapsed = self.part(VideoPlayerPart::Elapsed);
       let hours = player.duration.is_some_and(|duration| duration >= 3600.0);
@@ -1382,8 +1407,15 @@ impl Make<'_, '_> {
         .into()
     } else {
       let remaining = self.live.remaining.clone();
+      // Mono 12 in the large bar, 11 in the compact one.
+      let size = if self.form == VideoPlayerSize::Md {
+        MediaTimeSize::Sm
+      } else {
+        MediaTimeSize::Md
+      };
       let mut time = MediaTime::new(player.position.value, player.duration)
         .remaining(remaining.get())
+        .size(size)
         .on_media(true)
         .on_click(move |_| remaining.update(|remaining| *remaining = !*remaining));
       if let Some(id) = self.id("time") {
@@ -1507,14 +1539,7 @@ impl Make<'_, '_> {
     } else {
       Menu::new(self.live.menu(menu).clone(), anchor)
     };
-    let theme = self.recipe.theme();
-    let above = self
-      .recipe
-      .part(VideoPlayerPart::Menus)
-      .rest()
-      .gap
-      .map(|gap| gap.resolve(&theme.spacing(), 0.0))
-      .unwrap_or(4.0);
+    let above = self.above();
     let shell = match self.id(suffix) {
       Some(id) => shell.id(id),
       None => shell,
@@ -1523,12 +1548,24 @@ impl Make<'_, '_> {
       .label(label)
       .placement(Placement::TopEnd)
       .offset(above)
+      .page(self.live.page.clone())
       .rules(&self.recipe.rules_for(panel, MenuPart::Panel))
   }
 
-  /// An item of a menu with a value at its end and its choices beside it.
-  fn page(&self, index: usize, icon: &'static str, label: &str, value: &str, choices: Vec<MenuItem>) -> MenuItem {
-    let (open, anchor) = self.live.pages[index].clone();
+  /// How far a menu stands over the bar's row.
+  fn above(&self) -> f32 {
+    let theme = self.recipe.theme();
+    self
+      .recipe
+      .part(VideoPlayerPart::Menus)
+      .rest()
+      .gap
+      .map(|gap| gap.resolve(&theme.spacing(), 0.0))
+      .unwrap_or(4.0)
+  }
+
+  /// An item of a menu with a value at its end, whose choices it shows in the menu's place.
+  fn page(&self, icon: &'static str, label: &str, value: &str, choices: Vec<MenuItem>) -> MenuItem {
     MenuItem::new(label)
       .icon(icon)
       .shortcut(value)
@@ -1537,7 +1574,7 @@ impl Make<'_, '_> {
           .recipe
           .rules_for(VideoPlayerPart::MenuValue, MenuItemPart::Shortcut),
       )
-      .submenu(Menu::new(open, anchor).label(label).items(choices))
+      .page(choices)
   }
 
   fn quality_page(&self) -> Option<MenuItem> {
@@ -1568,7 +1605,7 @@ impl Make<'_, '_> {
         })
       })
       .collect();
-    Some(self.page(0, icons::SLIDERS, &player.words.quality, &value, choices))
+    Some(self.page(icons::SLIDERS, &player.words.quality, &value, choices))
   }
 
   fn speed_items(&self) -> Vec<MenuItem> {
@@ -1595,7 +1632,7 @@ impl Make<'_, '_> {
     let player = self.player;
     (!player.live).then(|| {
       let value = media_rate_text(player.rate.value as f32);
-      self.page(1, icons::GAUGE, &player.words.speed, &value, self.speed_items())
+      self.page(icons::GAUGE, &player.words.speed, &value, self.speed_items())
     })
   }
 
@@ -1616,7 +1653,7 @@ impl Make<'_, '_> {
       })
       .collect();
     let value = if on { track } else { player.words.off.clone() };
-    self.page(2, icons::CAPTIONS, &player.words.captions, &value, choices)
+    self.page(icons::CAPTIONS, &player.words.captions, &value, choices)
   }
 
   /// The large form's settings: quality, speed, captions.
@@ -1636,13 +1673,25 @@ impl Make<'_, '_> {
       .build(self.recipe.theme())
   }
 
+  /// The large form's speeds: the shared speed menu, hung over the bar as the settings are.
   fn speed_menu(&self) -> Element {
     let player = self.player;
-    self
-      .menu_shell(VideoPlayerMenu::Speed, VideoPlayerPart::SpeedMenu, &player.words.speed)
-      .heading(&player.words.speed_heading)
-      .items(self.speed_items())
-      .build(self.recipe.theme())
+    let open = if player.force_menu == Some(VideoPlayerMenu::Speed) {
+      Signal::new(true)
+    } else {
+      self.live.menu(VideoPlayerMenu::Speed).clone()
+    };
+    let mut menu = MediaSpeedMenu::new(open, self.live.row.clone(), player.rate.value as f32)
+      .rates(&player.rates)
+      .heading_text(&player.words.speed_heading)
+      .label(&player.words.speed)
+      .placement(Placement::TopEnd)
+      .offset(self.above())
+      .on_change(player.rate.teller());
+    if let Some(id) = self.id("speed-menu") {
+      menu = menu.id(id);
+    }
+    menu.build(self.recipe.theme())
   }
 
   /// The compact form's menu: captions, speed, quality, picture in picture.
@@ -1982,6 +2031,7 @@ pub struct VideoPlayerView {
   keys: Arc<dyn Fn(KeyboardEvent) + Send + Sync>,
   toggle: Action,
   fullscreen: Action,
+  pressed: Arc<Mutex<Option<Instant>>>,
   poke: Option<Action>,
   root: ElementRef,
   id: Option<Arc<str>>,
@@ -2059,11 +2109,18 @@ impl VideoPlayerView {
       layer = layer.child(Self::layer().child(poster.clone()));
     }
     if self.controls && self.error.is_none() {
-      let (toggle, fullscreen) = (self.toggle.clone(), self.fullscreen.clone());
-      layer = layer
-        .on_click(move |_| toggle())
-        .on_dblclick(move |_| fullscreen())
-        .cursor(CursorIcon::Pointer);
+      // A press plays and pauses at once; a second one soon after asks for fullscreen too, as the engine's double
+      // press would only after holding the first press back for its while.
+      let (toggle, fullscreen, pressed) = (self.toggle.clone(), self.fullscreen.clone(), self.pressed.clone());
+      layer = layer.on_click(move |_| {
+        toggle();
+        let now = Instant::now();
+        let mut last = pressed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match last.take() {
+          Some(then) if now.duration_since(then) <= VIDEO_PLAYER_DOUBLE_PRESS => fullscreen(),
+          _ => *last = Some(now),
+        }
+      });
     }
     layer
   }
@@ -2283,6 +2340,12 @@ impl Themed for VideoPlayer {
       })
       .size(Md, Root, |s| s.width(320.0).height(180.0))
       .size(Sm, Root, |s| s.width(200.0).height(113.0))
+      // The picture is pressed to play; while the bar has faded the pointer is hidden over it.
+      .base(Media, |s| s.cursor(CursorIcon::Pointer))
+      .state(VideoPlayerState::Bare, Media, |s| s.cursor(CursorIcon::Default))
+      .state(VideoPlayerState::Error, Media, |s| s.cursor(CursorIcon::Default))
+      .state(VideoPlayerState::Hidden, Root, |s| s.cursor(CursorIcon::None))
+      .state(VideoPlayerState::Hidden, Media, |s| s.cursor(CursorIcon::None))
       .base(Veil, |s| s.background(black_60))
       .base(Center, |s| s.gap(8.0))
       .base(Spinner, |s| s.square(32.0).foreground(white))
@@ -2383,6 +2446,10 @@ impl Themed for VideoPlayer {
       .hovered(Control, |s| s.background(white_12))
       .focus_visible(Control, ring)
       .state(VideoPlayerState::On, Control, |s| s.background(white_20))
+      // On stays on under the pointer.
+      .when(Selector::new().state(VideoPlayerState::On).hovered(), Control, |s| {
+        s.background(white_20)
+      })
       .base(ControlIcon, |s| s.square(20.0))
       .size(Md, ControlIcon, |s| s.square(16.0))
       .size(Sm, ControlIcon, |s| s.square(16.0))
@@ -2401,6 +2468,9 @@ impl Themed for VideoPlayer {
       .hovered(Speed, |s| s.background(white_12))
       .focus_visible(Speed, ring)
       .state(VideoPlayerState::On, Speed, |s| s.background(white_20))
+      .when(Selector::new().state(VideoPlayerState::On).hovered(), Speed, |s| {
+        s.background(white_20)
+      })
       .base(Time, |s| s.padding_x(8.0).foreground(white))
       .size(Md, Time, |s| s.padding_x(6.0))
       .size(Sm, Time, |s| s.padding_x(0.0))
@@ -2408,9 +2478,9 @@ impl Themed for VideoPlayer {
       // A menu's bottom is 4 over the seek bar, which is 16 high over the row and the bar's gap.
       .base(Menus, |s| s.gap(24.0))
       .size(Md, Menus, |s| s.gap(22.0))
-      .base(SettingsMenu, |s| s.width(240.0))
-      .base(SpeedMenu, |s| s.width(168.0))
-      .base(MoreMenu, |s| s.width(200.0))
+      // The menu's own least width is 230: the board's settings are 240 and the compact menu 200.
+      .base(SettingsMenu, |s| s.width(240.0).min_width(240.0))
+      .base(MoreMenu, |s| s.width(200.0).min_width(200.0))
       .base(MenuValue, |s| s.typography(TypographyStyle::Body).font_size(13.0))
   }
 }

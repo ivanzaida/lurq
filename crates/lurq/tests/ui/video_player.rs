@@ -11,7 +11,7 @@ use lurq::{
   app::{ctx::Ctx, events::MouseButton, theme::Theme, window::Appearance},
   components::Column,
   layout::quad::QuadContent,
-  node::{Element, color::Color, dimension::Dimension},
+  node::{CursorIcon, Element, color::Color, dimension::Dimension},
   ui::{Length, VIDEO_PLAYER_HIDE_AFTER, VideoPlayer, VideoPlayerMenu, VideoPlayerPart, VideoPlayerSize},
 };
 
@@ -134,6 +134,26 @@ fn bar_quad(stage: &mut Stage) -> lurq::layout::quad::Quad {
         && (quad.x, quad.y, quad.width, quad.height) == (x, y, width, height)
     })
     .expect("the bar is painted with its gradient")
+}
+
+/// How opaque the bar is as the window composites it: the opacity of the groups it is painted in, nothing where it
+/// is not painted at all. A faded group is painted into a layer of its own at its opacity, its quads at their own.
+fn bar_opacity(stage: &mut Stage) -> f32 {
+  let (x, y, width, height) = stage.bounds("v-controls");
+  let snapshot = crate::support::render_pass_with_app(&mut stage.tree, &mut stage.app);
+  let Some(bar) = snapshot
+    .rects
+    .iter()
+    .find(|rect| (rect.x, rect.y, rect.width, rect.height) == (x, y, width, height))
+  else {
+    return 0.0;
+  };
+  snapshot
+    .layers
+    .iter()
+    .filter(|layer| (layer.start_order..layer.end_order).contains(&bar.order))
+    .map(|layer| layer.opacity)
+    .product()
 }
 
 /// A press at a point of the window.
@@ -619,12 +639,18 @@ fn playing_the_controls_fade_after_the_pointer_rests_and_come_back_when_it_moves
   });
   stage.tree.mouse_move(100.0, 60.0);
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 1.0, "shown while the pointer moves");
+  assert_eq!(bar_opacity(&mut stage), 1.0, "shown while the pointer moves");
+  assert_eq!(
+    stage.tree.cursor(),
+    CursorIcon::Pointer,
+    "the picture is pressed to play"
+  );
   stage
     .tree
     .tick_timers_at(Instant::now() + VIDEO_PLAYER_HIDE_AFTER + Duration::from_millis(100));
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 0.0, "faded 3 s after the pointer rests");
+  assert_eq!(bar_opacity(&mut stage), 0.0, "faded 3 s after the pointer rests");
+  assert_eq!(stage.tree.cursor(), CursorIcon::None, "and the pointer hidden");
   let (_, y, _, height) = stage.bounds("v-caption");
   assert!(
     (y + height - (360.0 - 12.0)).abs() < 1.0,
@@ -632,7 +658,8 @@ fn playing_the_controls_fade_after_the_pointer_rests_and_come_back_when_it_moves
   );
   stage.tree.mouse_move(120.0, 80.0);
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 1.0, "back as the pointer moves");
+  assert_eq!(bar_opacity(&mut stage), 1.0, "back as the pointer moves");
+  assert_eq!(stage.tree.cursor(), CursorIcon::Pointer, "with the pointer");
 }
 
 #[test]
@@ -646,7 +673,8 @@ fn paused_the_controls_stay() {
     .tree
     .tick_timers_at(Instant::now() + VIDEO_PLAYER_HIDE_AFTER + Duration::from_secs(1));
   stage.pass();
-  assert_eq!(bar_quad(&mut stage).opacity, 1.0);
+  assert_eq!(bar_opacity(&mut stage), 1.0);
+  assert_eq!(stage.tree.cursor(), CursorIcon::Pointer);
 }
 
 #[test]
@@ -659,7 +687,7 @@ fn hidden_by_force_the_captions_sit_at_the_bottom() {
       .caption_text("A line")
       .force_controls_shown(Some(false))
   });
-  assert_eq!(bar_quad(&mut stage).opacity, 0.0);
+  assert_eq!(bar_opacity(&mut stage), 0.0);
   let (_, y, _, height) = stage.bounds("v-caption");
   assert!((y + height - (360.0 - 12.0)).abs() < 1.0);
 }
@@ -683,4 +711,76 @@ fn a_theme_rule_changes_it() {
   let mut stage = still(move || player(&told).style(VideoPlayerPart::Controls, |s| s.height(100.0)));
   let (_, y, _, height) = stage.bounds("v-controls");
   assert_eq!((y, height), (260.0, 100.0));
+}
+
+/// The point in the middle of the text `content` as painted.
+fn on_text(stage: &Stage, content: &str) -> (f32, f32) {
+  let quad = stage
+    .text_quad(content)
+    .unwrap_or_else(|| panic!("{content:?} is painted"));
+  (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0)
+}
+
+#[test]
+fn a_row_of_the_settings_shows_its_choices_in_the_menus_place() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || player(&made).captions_track("English"));
+  stage.click("v-settings");
+  let (x, y) = on_text(&stage, "Quality");
+  press_at(&mut stage, x, y);
+  // The page: a row back with the title, then the choices, in the same panel.
+  for choice in ["Quality", "Auto", "1080p", "720p"] {
+    assert!(stage.paints(choice), "the page holds {choice}");
+  }
+  assert!(!stage.paints("Speed"), "the menu's own rows give way to the page");
+  let (_, _, width, _) = stage.bounds("v-settings-menu");
+  assert_eq!(width, 240.0, "in the same panel");
+  assert!(told.take().is_empty(), "opening a page tells nothing");
+  // The row back returns to the menu's own rows.
+  let (x, y) = on_text(&stage, "Quality");
+  press_at(&mut stage, x, y);
+  assert!(
+    stage.paints("Speed") && stage.paints("Captions"),
+    "back to the settings"
+  );
+  // A choice of a page is told, and closes the menu.
+  let (x, y) = on_text(&stage, "Captions");
+  press_at(&mut stage, x, y);
+  let (x, y) = on_text(&stage, "English");
+  press_at(&mut stage, x, y);
+  assert_eq!(told.take(), ["captions true"]);
+  assert!(!has(&mut stage, "v-settings-menu"), "the menu closes on a choice");
+  // It opens again at its own rows.
+  stage.click("v-settings");
+  assert!(stage.paints("Speed"), "a closed menu opens at its own rows");
+}
+
+#[test]
+fn a_second_press_of_the_picture_asks_for_fullscreen() {
+  let told = Told::default();
+  let made = told.clone();
+  let mut stage = mounted(move || player(&made));
+  press_at(&mut stage, 100.0, 60.0);
+  assert_eq!(told.take(), ["playing true"], "a press plays at once");
+  press_at(&mut stage, 100.0, 60.0);
+  assert_eq!(told.take(), ["playing true", "fullscreen true"]);
+}
+
+#[test]
+fn the_seek_bar_shows_the_frame_the_app_gives_under_the_pointer() {
+  let told = Told::default();
+  let mut stage = mounted(move || {
+    player(&told).preview(|_| {
+      Column::new()
+        .id("frame")
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .into()
+    })
+  });
+  let (x, y, width, height) = stage.bounds("v-seek");
+  stage.tree.mouse_move(x + width * 0.4, y + height / 2.0);
+  stage.pass();
+  let (_, _, width, height) = stage.bounds("frame");
+  assert_eq!((width, height), (128.0, 72.0), "the frame of 128 by 72 over the time");
 }
