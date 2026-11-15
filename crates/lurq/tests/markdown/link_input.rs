@@ -150,7 +150,7 @@ fn markdown_link_keyboard_focus_shows_the_focused_look_and_a_ring_outside_the_wo
       .link_presentation(move |_| {
         MarkdownLinkPresentation::link()
           .style(colored("#00aa00"))
-          .focused(focused)
+          .focused(focused.clone())
       })
       .width(400.0),
   );

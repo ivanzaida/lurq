@@ -123,7 +123,7 @@ pub(super) fn has_element_with_text(tree: &mut Tree, text: &str) -> bool {
 
 pub(super) fn colored(color: &str) -> MarkdownInlineStyle {
   let mut style = MarkdownInlineStyle::default();
-  style.text.color = Some(Color::from_hex(color));
+  style.text.color = Some(Color::from_hex(color).into());
   style
 }
 
@@ -370,7 +370,7 @@ fn markdown_hover_state_recolors_words_trailing_runs_and_fills() {
     .trailing_color(Color::from_hex("#333333"));
   let (mut app, mut tree) = mount(
     MarkdownProps::new("Open [PR 42](https://github.com/acme/pull/42) now.")
-      .link_presentation(move |link| present_by_kind(link).hovered(hovered))
+      .link_presentation(move |link| present_by_kind(link).hovered(hovered.clone()))
       .width(600.0),
   );
 

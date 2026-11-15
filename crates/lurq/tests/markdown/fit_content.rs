@@ -177,8 +177,10 @@ fn markdown_fit_content_takes_the_widest_block() {
   let short = bounds_by_text(&mut tree, "Short");
   assert_near(short.width, bubble.width, "short paragraph width");
   let code_background = ThemeMarkdown::default()
+    .resolve(&lurq::app::theme::ThemePalette::light())
     .code_block_box
     .background
+    .and_then(|color| color.as_color())
     .expect("the default theme gives code blocks a background");
   let code = tree
     .find_element(|element| element.color() == Some(code_background))
@@ -197,7 +199,7 @@ fn markdown_fit_content_list_item_can_be_the_widest_block() {
   let bubble = bounds_by_id(&mut tree, "bubble");
   let item = bounds_by_text(&mut tree, ITEM);
 
-  let expected = theme.unordered_list_marker_width + theme.list_marker_gap + probe.width;
+  let expected = theme.unordered_list_marker_width + theme.bullet_gap + probe.width;
   assert!(expected < HOST_WIDTH, "{expected}");
   assert_near(bubble.width, expected, "bubble width");
   assert_near(item.width, probe.width, "list item text width");

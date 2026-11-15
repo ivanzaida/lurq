@@ -230,6 +230,7 @@ pub use floating_panel::{
   FloatingPanel, FloatingPanelPart, FloatingPanelRenderer, FloatingPanelState, FloatingPanelView, FloatingPanels,
   PanelHeader, PanelHeaderPart, PanelHeaderRenderer, PanelHeaderState, PanelHeaderView, PanelPosition, PanelSize,
 };
+pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
 pub use icon::{Icon, SPIN, SPIN_PERIOD};

@@ -212,9 +212,9 @@ impl MarkdownLinkPresentation {
 
   pub(super) fn look(&self, theme: &ThemeMarkdown) -> Arc<InlineLinkLook> {
     Arc::new(InlineLinkLook {
-      hovered: self.hovered.unwrap_or(theme.link_hovered),
-      focused: self.focused.unwrap_or(theme.link_focused),
-      focus_ring: self.focus_ring.unwrap_or(theme.link_focus_ring),
+      hovered: self.hovered.clone().unwrap_or_else(|| theme.link_hovered.clone()),
+      focused: self.focused.clone().unwrap_or_else(|| theme.link_focused.clone()),
+      focus_ring: self.focus_ring.clone().unwrap_or_else(|| theme.link_focus_ring.clone()),
       radius: self.radius.unwrap_or(theme.link_radius),
     })
   }

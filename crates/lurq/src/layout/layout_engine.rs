@@ -1370,7 +1370,7 @@ impl LayoutEngine {
         spans: self.painted_spans(if node.children().is_empty() {
           spans.clone()
         } else {
-          Self::painted_rich_text_spans(node, spans)
+          self.painted_rich_text_spans(node, spans)
         }),
         wrap: node.text_wrap && node.text_overflow == TextOverflow::Clip,
         // Text that paints underlines or links is drawn from the top of its

@@ -205,18 +205,20 @@ impl LayoutEngine {
 
   /// The paragraph's spans as painted: each link's words and trailing runs
   /// take the colors of its hover and focus states.
-  pub(super) fn painted_rich_text_spans(node: &Node, spans: &[RichTextSpan]) -> Vec<RichTextSpan> {
+  pub(super) fn painted_rich_text_spans(&self, node: &Node, spans: &[RichTextSpan]) -> Vec<RichTextSpan> {
+    let palette = self.palette.borrow();
+    let resolved = |color: &Option<crate::node::TextColor>| color.as_ref().and_then(|color| color.resolve(&palette));
     let mut painted = spans.to_vec();
     for (link, state) in link_states(node) {
       for span in painted.get_mut(link.label.clone()).unwrap_or_default() {
-        if let Some(color) = state.color {
+        if let Some(color) = resolved(&state.color) {
           span.style.color = color;
         }
-        if let (Some(color), Some(underline)) = (state.underline_color, span.style.underline.as_mut()) {
+        if let (Some(color), Some(underline)) = (resolved(&state.underline_color), span.style.underline.as_mut()) {
           underline.color = Some(color);
         }
       }
-      if let Some(color) = state.trailing_color {
+      if let Some(color) = resolved(&state.trailing_color) {
         for span in painted.get_mut(link.trailing.clone()).unwrap_or_default() {
           span.style.color = color;
         }
@@ -234,7 +236,8 @@ impl LayoutEngine {
     quads: &mut Vec<Quad>,
   ) {
     for ((link, state), child_layout) in link_states_with_layouts(node, result) {
-      let (Some(color), Some(output)) = (state.background, link_output(child_layout)) else {
+      let color = state.background.as_ref().and_then(|color| color.resolve(&self.palette.borrow()));
+      let (Some(color), Some(output)) = (color, link_output(child_layout)) else {
         continue;
       };
       for rect in &output.label {
@@ -286,12 +289,15 @@ impl LayoutEngine {
       let (NodeKind::InlineLink { link }, Some(output)) = (child.node_kind(), link_output(child_layout)) else {
         continue;
       };
-      let Some(ring) = link.look.focus_ring.filter(|_| child.is_style_focus_visible()) else {
+      let Some(ring) = link.look.focus_ring.as_ref().filter(|_| child.is_style_focus_visible()) else {
+        continue;
+      };
+      let Some(color) = ring.color.resolve(&self.palette.borrow()) else {
         continue;
       };
       let border = ResolvedBorder {
         width: ring.width,
-        color: ring.color,
+        color,
         placement: BorderPlacement::Inside,
         dash: [0.0; 2],
       };
@@ -429,8 +435,8 @@ fn link_states_with_layouts<'a>(
 /// The look of `child`'s state, focus over hover where both apply; `None` at
 /// rest.
 fn link_states_of(child: &Node, link: &InlineLink) -> Option<MarkdownLinkState> {
-  let hovered = child.is_style_hovered().then_some(link.look.hovered);
-  let focused = child.is_style_focus_visible().then_some(link.look.focused);
+  let hovered = child.is_style_hovered().then(|| link.look.hovered.clone());
+  let focused = child.is_style_focus_visible().then(|| link.look.focused.clone());
   match (hovered, focused) {
     (None, None) => None,
     (Some(state), None) | (None, Some(state)) => Some(state),

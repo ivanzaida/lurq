@@ -359,10 +359,12 @@ fn markdown_component_renders_code_block_box() {
   tree.pass(&mut app, &TestSurface);
 
   let quads = tree.resolve_quads(tree.last_layout().expect("layout should be available"));
+  // The box is on the muted fill of the app's theme.
+  let muted = app.theme().palette().get(lurq::app::theme::PaletteColor::Muted);
   assert!(quads.iter().any(|quad| {
     matches!(
       &quad.content,
-      QuadContent::Rect { color, .. } if *color == Color::from_hex("#0f172a")
+      QuadContent::Rect { color, .. } if *color == muted
     )
   }));
   assert!(quads.iter().any(|quad| {
@@ -374,7 +376,8 @@ fn markdown_component_renders_code_block_box() {
   assert!(quads.iter().any(|quad| {
     matches!(
       &quad.content,
-      QuadContent::RichText { spans, .. } if spans.iter().any(|span| span.text == "fn" && span.style.color == Color::from_hex("#93c5fd"))
+      // A keyword is in the theme's info color.
+      QuadContent::RichText { spans, .. } if spans.iter().any(|span| span.text == "fn" && span.style.color == app.theme().palette().get(lurq::app::theme::PaletteColor::Info))
     )
   }));
 }
@@ -385,7 +388,7 @@ fn markdown_component_uses_theme_markdown_overrides() {
     strong: MarkdownInlineStyle::new(),
     ..ThemeMarkdown::default()
   };
-  markdown.strong.text.color = Some(Color::from_hex("#dc2626"));
+  markdown.strong.text.color = Some(Color::from_hex("#dc2626").into());
 
   let mut app = App::new();
   app.theme().set_markdown(markdown);

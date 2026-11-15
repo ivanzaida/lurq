@@ -49,7 +49,7 @@ fn body_cells_of(props: MarkdownProps) -> (Vec<Edges>, Vec<Words>) {
 /// have the background `CELL` and the padding `[4, 8]`.
 fn cells_of(props: MarkdownProps, part: Part) -> (Vec<Edges>, Vec<Words>) {
   let marked = MarkdownBlockStyle {
-    background: Some(Color::from_hex(CELL)),
+    background: Some(Color::from_hex(CELL).into()),
     padding: Some(Padding::symmetric(8.0, 4.0)),
     ..MarkdownBlockStyle::new()
   };

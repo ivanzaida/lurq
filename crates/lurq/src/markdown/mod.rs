@@ -4,7 +4,8 @@ mod parse;
 mod rich_text;
 
 pub use ast::{
-  MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
+  MarkdownAdmonitionKind, MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline,
+  MarkdownListItem,
   MarkdownTableAlignment, MarkdownTableRow,
 };
 pub(crate) use bidi::{

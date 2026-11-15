@@ -89,8 +89,10 @@ fn rects_of(tree: &Tree, color: Color) -> Vec<(f32, f32, f32, f32)> {
 /// The code block's box, found by the theme's background.
 fn block_box(tree: &Tree) -> (f32, f32, f32, f32) {
   let background = ThemeMarkdown::default()
+    .resolve(&lurq::app::theme::ThemePalette::light())
     .code_block_box
     .background
+    .and_then(|color| color.as_color())
     .expect("the default theme fills the box");
   rects_of(tree, background)
     .into_iter()
@@ -98,11 +100,12 @@ fn block_box(tree: &Tree) -> (f32, f32, f32, f32) {
     .expect("the code block's box is drawn")
 }
 
-/// The scrollbar thumbs drawn in the default theme's code block bar color.
+/// The scrollbar thumbs drawn in the default theme's code block bar color:
+/// the Markdown theme's bar, or else the app theme's.
 fn thumbs(tree: &Tree) -> Vec<(f32, f32, f32, f32)> {
   let bar = ThemeMarkdown::default()
     .code_block_scrollbar
-    .expect("the default theme draws a bar");
+    .unwrap_or_else(|| App::new().theme().scrollbar().clone());
   rects_of(tree, bar.thumb_color)
 }
 
@@ -238,12 +241,10 @@ fn a_block_whose_lines_fit_has_no_bar_and_the_layout_it_had() {
     COLUMN - 2.0 * padding,
     "the label spans the box, as before"
   );
-  assert_eq!((text.x, text.y), (block.0 + padding, label.y + label.height + spacing));
-  assert_eq!(
-    block.3,
-    padding + label.height + spacing + text.height + padding,
-    "the box's height"
-  );
+  assert_eq!(text.x, block.0 + padding);
+  assert!((text.y - (label.y + label.height + spacing)).abs() < 0.01, "the lines under the label");
+  let height = padding + label.height + spacing + text.height + padding;
+  assert!((block.3 - height).abs() < 0.01, "the box's height: {} for {height}", block.3);
   assert!(thumbs(&tree).is_empty(), "no bar without overflow");
 
   shift_wheel(&mut app, &mut tree, 1.0);
@@ -322,7 +323,7 @@ fn a_block_nested_in_a_list_and_in_a_quote_scrolls_inside_its_item() {
   let in_list = format!("- An item with code:\n\n  ```\n  {long}\n  short {LINE_END}\n  ```\n- The next item");
   let (mut app, mut tree) = show(MarkdownProps::new(in_list));
   let block = block_box(&tree);
-  let indent = theme.unordered_list_marker_width + theme.list_marker_gap;
+  let indent = theme.unordered_list_marker_width + theme.bullet_gap;
   assert_eq!(block.0, indent, "the box starts beside the marker");
   assert_eq!(block.2, COLUMN - indent, "and ends with the column");
   assert_eq!(document_width(&mut tree), COLUMN);

@@ -53,7 +53,8 @@ fn assert_fill_covers(page: &mut Page, needle: &str) {
 fn the_rendered_text_is_the_documents_words_without_markers_or_labels() {
   assert_eq!(
     MarkdownProps::new(DOCUMENT).rendered_text(),
-    "Title\nSome bold and code with a link here.\none\ntwo\nfirst\nlet x = 1;\na\nb\nc\nd\nNote[^1].\nThe note."
+    // A footnote's reference is its number; the footnote, at the end, its words.
+    "Title\nSome bold and code with a link here.\none\ntwo\nfirst\nlet x = 1;\na\nb\nc\nd\nNote1.\nThe note."
   );
 }
 

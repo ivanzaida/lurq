@@ -1,10 +1,14 @@
-use std::{cell::Cell, sync::Arc};
+use std::{
+  cell::Cell,
+  collections::{HashMap, HashSet},
+  sync::{Arc, Mutex},
+};
 
 use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{MarkdownBlockStyle, ThemeMarkdown},
+    theme::{MarkdownBlockStyle, PaletteColor, Theme, ThemeMarkdown, ThemePalette},
   },
   components::{Column, Rect, Row, ScrollHorizontal, Text},
   core::{Memo, Signal},
@@ -13,16 +17,18 @@ use crate::{
     layout_kind::Justify,
     quad::RichTextSpan,
     scrollbar::{ScrollBarPlacement, ScrollBarStyle},
-    text_style::{FontWeight, TextAlign, TextStyle},
+    text_style::{TextAlign, TextStyle},
   },
   markdown::{
     MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
     MarkdownTableAlignment, MarkdownTableRow, markdown_html_text, markdown_inline_rich_text, parse_markdown,
   },
   node::{Element, Node, color::Color, dimension::Dimension, text_highlight::TextHighlight},
+  ui::{Case, InlineCode, InlineCodePart, Kbd, KbdPart, Length},
 };
 
 mod bidi_paragraphs;
+mod blocks;
 mod document_text;
 mod link_block;
 mod links;
@@ -35,7 +41,12 @@ use document_text::DocumentText;
 pub use links::{MarkdownLink, MarkdownLinkPresentation, MarkdownRun};
 pub use list_view::MarkdownList;
 use list_view::MarkdownListView;
-use paragraph::{FlowItem, LinkSession, MarkdownLinkActivator, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph};
+use paragraph::{
+  FlowItem, LinkSession, MarkdownJump, MarkdownLinkActivator, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph,
+};
+
+/// What a task's change tells the app: the task's index among the document's tasks, and whether it is checked now.
+pub(super) type TaskCallback = Arc<dyn Fn(usize, bool) + Send + Sync>;
 use sizing::{BlockWidth, FILL_WIDTH};
 use tooltip::{LinkTooltips, LinkTooltipsProps, TooltipHover};
 
@@ -52,6 +63,7 @@ pub struct MarkdownProps {
   link_presentation: Option<MarkdownLinkPresenter>,
   list_view: Option<MarkdownListView>,
   highlights: Arc<[TextHighlight]>,
+  on_task_change: Option<TaskCallback>,
 }
 
 impl PartialEq for MarkdownProps {
@@ -66,6 +78,7 @@ impl PartialEq for MarkdownProps {
       && same_callback(&self.on_link_activate, &other.on_link_activate)
       && same_callback(&self.link_presentation, &other.link_presentation)
       && same_callback(&self.list_view, &other.list_view)
+      && same_callback(&self.on_task_change, &other.on_task_change)
       && self.highlights == other.highlights
   }
 }
@@ -84,7 +97,18 @@ impl MarkdownProps {
       link_presentation: None,
       list_view: None,
       highlights: Arc::from([]),
+      on_task_change: None,
     }
+  }
+
+  /// Called when a person checks or unchecks a task (`- [ ]`, `- [x]`),
+  /// with the task's index among the document's tasks, from 0, and whether
+  /// it is checked now. The source is the app's: it writes the change into
+  /// it. Without it a task's box is read only: it says whether the task is
+  /// done, and takes neither the pointer nor the focus.
+  pub fn on_task_change(mut self, handler: impl Fn(usize, bool) + Send + Sync + 'static) -> Self {
+    self.on_task_change = Some(Arc::new(handler));
+    self
   }
 
   pub fn styled(source: impl Into<Arc<str>>, style: TextStyle) -> Self {
@@ -120,8 +144,28 @@ impl MarkdownProps {
   /// this text to find what to highlight. Built with these props' link
   /// presentation and list view; it renders the document to find it.
   pub fn rendered_text(&self) -> String {
+    let (_, text) = self.still(&crate::ui::current_theme());
+    text
+  }
+
+  /// The document in `theme` once, with nothing kept: its links followed
+  /// as the props say, with no tooltips, every `<details>` as it begins,
+  /// and no way to a footnote but the scroll. For a window of its own, a
+  /// test, a picture. Mounted ([`Markdown::mount`]) it keeps what a person
+  /// does to it.
+  pub fn build(&self, theme: &Theme) -> Element {
+    let (element, _) = self.still(theme);
+    element
+  }
+
+  /// The document built in `theme` with nothing kept, and its rendered text.
+  fn still(&self, ui: &Theme) -> (Element, String) {
     let document = parse_markdown(&self.source);
-    let theme = self.theme.clone().unwrap_or_default();
+    let theme = self
+      .theme
+      .clone()
+      .unwrap_or_else(|| ui.markdown().clone())
+      .resolve(&ui.palette());
     let links = LinkSession::new(
       self.link_presentation.clone(),
       None,
@@ -130,17 +174,38 @@ impl MarkdownProps {
       None,
       TooltipHover::new(crate::app::ctx::Timeout::detached),
     );
-    let text = DocumentText::new(&[]);
+    let (code_fill, kbd_fill) = mark_fills(ui);
+    let links = links.with_fills(code_fill, kbd_fill);
+    links.set_footnotes(footnote_numbers(&document));
+    let text = DocumentText::new(&self.highlights);
     let render_ctx = MarkdownRenderContext {
       width: BlockWidth::new(self.fit_content),
       links: &links,
       list_view: self.list_view.as_ref(),
-      code_block_scrollbar: ScrollBarStyle::default(),
+      code_block_scrollbar: ScrollBarStyle {
+        placement: ScrollBarPlacement::Overlay,
+        ..theme.code_block_scrollbar.clone().unwrap_or_else(|| ui.scrollbar().clone())
+      },
       code_blocks: Cell::new(0),
       text: &text,
+      ui: ui.clone(),
+      depth: Cell::new(0),
+      tasks: Cell::new(0),
+      on_task_change: self.on_task_change.as_ref(),
+      details: Cell::new(0),
+      details_turned: Vec::new(),
+      turn_details: None,
     };
-    let _ = render_document(&document, &self.style, &theme, &render_ctx);
-    text.into_text()
+    let mut style = self.style.clone();
+    style.color = ui.palette().text_color(&style);
+    let mut element: Element = render_document(&document, &style, &theme, &render_ctx).into();
+    if let Some(width) = self.width {
+      element = element.map_node(|node| node.width(width));
+    }
+    if self.selectable {
+      element.node.selectable_recursive(true);
+    }
+    (element, text.into_text())
   }
 
   pub fn selectable(mut self, selectable: bool) -> Self {
@@ -274,10 +339,22 @@ impl crate::app::component::DevtoolsInspectable for MarkdownProps {
   }
 }
 
+/// The document once, in the theme of what is being rendered, with nothing kept ([`MarkdownProps::build`]).
+impl From<MarkdownProps> for Element {
+  fn from(props: MarkdownProps) -> Self {
+    props.build(&crate::ui::current_theme())
+  }
+}
+
 pub struct Markdown {
   source: Signal<Arc<str>>,
   document: Memo<MarkdownDocument>,
   hover: TooltipHover,
+  /// The `<details>` a person turned from how they began, by ordinal.
+  details: Signal<Vec<usize>>,
+  /// A jump asked for (a footnote, the way back from one): the anchor, and the render that takes it.
+  pending_jump: Arc<Mutex<Option<String>>>,
+  jumps: Signal<u64>,
 }
 
 struct MarkdownRenderContext<'a> {
@@ -292,6 +369,18 @@ struct MarkdownRenderContext<'a> {
   code_blocks: Cell<usize>,
   /// The rendered text so far, and the highlights its leaves take.
   text: &'a DocumentText<'a>,
+  /// The theme the system's parts in the document are built in: a task's box, an admonition.
+  ui: Theme,
+  /// How many lists deep the block being drawn is.
+  depth: Cell<usize>,
+  /// How many tasks this render has drawn: the next one's index.
+  tasks: Cell<usize>,
+  on_task_change: Option<&'a TaskCallback>,
+  /// How many `<details>` this render has drawn: the next one's ordinal.
+  details: Cell<usize>,
+  /// The `<details>` a person turned from how they began.
+  details_turned: Vec<usize>,
+  turn_details: Option<Signal<Vec<usize>>>,
 }
 
 impl Markdown {
@@ -312,6 +401,9 @@ impl Component for Markdown {
       source,
       document,
       hover,
+      details: ctx.signal(Vec::new()),
+      pending_jump: Arc::new(Mutex::new(None)),
+      jumps: ctx.signal(0),
     }
   }
 
@@ -320,9 +412,25 @@ impl Component for Markdown {
     if self.source.get_untracked() != props.source {
       self.source.set(props.source.clone());
     }
-    let theme = props.theme.clone().unwrap_or_else(|| ctx.theme().markdown().clone());
+    let ui = ctx.theme().clone();
+    // The document's colors are the palette's roles: drawn in the theme it is in.
+    let theme = props
+      .theme
+      .clone()
+      .unwrap_or_else(|| ui.markdown().clone())
+      .resolve(&ui.palette());
     self.hover.set_delay(theme.link_tooltip_delay);
     let document = self.document.get();
+    // A jump to a footnote or back: the render it asks for scrolls to the anchor.
+    let _ = self.jumps.get();
+    let jump: MarkdownJump = {
+      let (pending, jumps) = (self.pending_jump.clone(), self.jumps.clone());
+      Arc::new(move |target: &str| {
+        *pending.lock().unwrap() = Some(target.to_owned());
+        jumps.update(|count| *count += 1);
+      })
+    };
+    let (code_fill, kbd_fill) = mark_fills(&ui);
     let links = LinkSession::new(
       props.link_presentation.clone(),
       props.on_link_click.clone(),
@@ -330,7 +438,10 @@ impl Component for Markdown {
       #[cfg(feature = "router")]
       ctx.use_context::<crate::router::Navigator>(),
       self.hover.clone(),
-    );
+    )
+    .with_jump(jump)
+    .with_fills(code_fill, kbd_fill);
+    links.set_footnotes(footnote_numbers(&document));
     let code_block_scrollbar = ScrollBarStyle {
       placement: ScrollBarPlacement::Overlay,
       ..theme
@@ -346,11 +457,22 @@ impl Component for Markdown {
       code_block_scrollbar,
       code_blocks: Cell::new(0),
       text: &text,
+      ui: ui.clone(),
+      depth: Cell::new(0),
+      tasks: Cell::new(0),
+      on_task_change: props.on_task_change.as_ref(),
+      details: Cell::new(0),
+      details_turned: self.details.get(),
+      turn_details: Some(self.details.clone()),
     };
     // A style that keeps the default text color names none: the document is drawn in the theme's foreground.
     let mut base_style = props.style.clone();
     base_style.color = ctx.theme().palette().text_color(&base_style);
     let mut root = render_document(&document, &base_style, &theme, &render_ctx);
+    let target = self.pending_jump.lock().unwrap().take();
+    if let Some(anchor) = target.and_then(|target| links.anchor_of(&target)) {
+      ctx.scroll_into_view(&anchor);
+    }
     let tooltips = links.take_tooltips();
     if !tooltips.is_empty() {
       root = root.child(ctx.mount::<LinkTooltips>(LinkTooltipsProps {
@@ -386,10 +508,117 @@ fn render_document(
   let mut root = render_ctx
     .width
     .blocks(Column::new().overflow_visible().spacing(theme.document_spacing));
+  let mut footnotes = Vec::new();
   for block in &document.blocks {
+    // A footnote the text refers to goes to the end, by its number.
+    if let MarkdownBlock::FootnoteDefinition { label, blocks } = block
+      && let Some(number) = render_ctx.links.footnote_number(label)
+    {
+      footnotes.push((number, label.as_str(), blocks.as_slice()));
+      continue;
+    }
     root = root.child(render_block(block, base_style, theme, render_ctx));
   }
+  if !footnotes.is_empty() {
+    footnotes.sort_by_key(|(number, ..)| *number);
+    root = root.child(blocks::render_footnotes(&footnotes, base_style, theme, render_ctx));
+  }
   root
+}
+
+/// `inlines` with their words in capitals.
+fn uppercase(inlines: &[MarkdownInline]) -> Vec<MarkdownInline> {
+  inlines
+    .iter()
+    .map(|inline| match inline {
+      MarkdownInline::Text(text) => MarkdownInline::Text(text.to_uppercase()),
+      MarkdownInline::Emphasis(children) => MarkdownInline::Emphasis(uppercase(children)),
+      MarkdownInline::Strong(children) => MarkdownInline::Strong(uppercase(children)),
+      MarkdownInline::Strikethrough(children) => MarkdownInline::Strikethrough(uppercase(children)),
+      other => other.clone(),
+    })
+    .collect()
+}
+
+/// The number of each footnote the text refers to, by label: in the order
+/// of the first reference to each, as GitHub numbers them. A footnote with
+/// no definition has none.
+fn footnote_numbers(document: &MarkdownDocument) -> HashMap<String, usize> {
+  fn definitions<'d>(blocks: &'d [MarkdownBlock], found: &mut HashSet<&'d str>) {
+    for block in blocks {
+      if let MarkdownBlock::FootnoteDefinition { label, .. } = block {
+        found.insert(label);
+      }
+    }
+  }
+  fn references(inlines: &[MarkdownInline], order: &mut Vec<String>) {
+    for inline in inlines {
+      match inline {
+        MarkdownInline::FootnoteReference(label) if !order.contains(label) => order.push(label.clone()),
+        MarkdownInline::Emphasis(children)
+        | MarkdownInline::Strong(children)
+        | MarkdownInline::Strikethrough(children)
+        | MarkdownInline::Link { children, .. } => references(children, order),
+        _ => {}
+      }
+    }
+  }
+  fn walk(blocks: &[MarkdownBlock], order: &mut Vec<String>) {
+    for block in blocks {
+      match block {
+        MarkdownBlock::Paragraph(inlines) | MarkdownBlock::Heading { children: inlines, .. } => {
+          references(inlines, order)
+        }
+        MarkdownBlock::BlockQuote(blocks)
+        | MarkdownBlock::Admonition { blocks, .. }
+        | MarkdownBlock::Details { blocks, .. }
+        | MarkdownBlock::FootnoteDefinition { blocks, .. } => walk(blocks, order),
+        MarkdownBlock::List { items, .. } => {
+          for item in items {
+            walk(&item.blocks, order);
+          }
+        }
+        MarkdownBlock::Table { rows, .. } => {
+          for row in rows {
+            for cell in &row.cells {
+              references(cell, order);
+            }
+          }
+        }
+        _ => {}
+      }
+    }
+  }
+  let mut defined = HashSet::new();
+  definitions(&document.blocks, &mut defined);
+  let mut order = Vec::new();
+  walk(&document.blocks, &mut order);
+  order
+    .into_iter()
+    .filter(|label| defined.contains(label.as_str()))
+    .enumerate()
+    .map(|(index, label)| (label, index + 1))
+    .collect()
+}
+
+/// The fills behind code and keys in a sentence: `ui::InlineCode`'s box and
+/// `ui::Kbd`'s, as the theme draws them. A fill's vertical padding is the
+/// part's; the paragraph sets it to the height of the part's box.
+fn mark_fills(ui: &Theme) -> (Option<TextHighlight>, Option<TextHighlight>) {
+  let code = ui.resolve::<InlineCode>(&Case::new(), None).part(InlineCodePart::Root);
+  let key = ui.resolve::<Kbd>(&Case::new(), None).part(KbdPart::Key);
+  let code_fill = crate::ui::fill_of(&code, 0..0);
+  // A key's box is as high as the part says: its padding is that height.
+  let key_height = match key.rest().height.and_then(|height| height.resolve(ui)) {
+    Some(Dimension::Px(px)) => px,
+    _ => 20.0,
+  };
+  let kbd_fill = crate::ui::fill_of(&key, 0..0).map(|fill| {
+    let across = fill.padding.0;
+    fill.padding(across, key_height)
+  });
+  let _ = Length::Fill;
+  (code_fill, kbd_fill)
 }
 
 fn render_block(
@@ -401,9 +630,33 @@ fn render_block(
   match block {
     MarkdownBlock::Paragraph(inlines) => render_inline_block(inlines, base_style.clone(), theme, render_ctx),
     MarkdownBlock::Heading { level, children } => {
-      render_inline_block(children, heading_style(theme, *level, base_style), theme, render_ctx)
+      // The sixth level is in capitals, where the theme says so.
+      let upper;
+      let children = if *level == MarkdownHeadingLevel::H6 && theme.heading_6_uppercase {
+        upper = uppercase(children);
+        &upper
+      } else {
+        children
+      };
+      let heading = render_inline_block(children, heading_style(theme, *level, base_style), theme, render_ctx);
+      // A heading of the second level has a line under it.
+      match (level, theme.heading_2_rule.clone()) {
+        (MarkdownHeadingLevel::H2, Some(line)) => render_ctx
+          .width
+          .blocks(Column::new().overflow_visible().padding_top(8.0).padding_bottom(6.0))
+          .border_bottom(crate::node::border::Border::inside(1.0, line))
+          .child(heading)
+          .into(),
+        _ => heading,
+      }
     }
     MarkdownBlock::BlockQuote(blocks) => render_blockquote(blocks, base_style, theme, render_ctx),
+    MarkdownBlock::Admonition { kind, blocks } => {
+      blocks::render_admonition(*kind, blocks, base_style, theme, render_ctx)
+    }
+    MarkdownBlock::Details { summary, open, blocks } => {
+      blocks::render_details(summary, *open, blocks, base_style, theme, render_ctx)
+    }
     MarkdownBlock::List { ordered, start, items } => {
       render_list(*ordered, *start, items, base_style, theme, render_ctx)
     }
@@ -417,9 +670,15 @@ fn render_block(
       &markdown_html_text(text.trim_end_matches('\n')),
       base_style.clone(),
     ))),
-    MarkdownBlock::ThematicBreak => render_ctx
-      .width
-      .leaf(Rect::new(Dimension::Auto, 1.0).background(theme.table_marker.apply(base_style).color)),
+    MarkdownBlock::ThematicBreak => render_ctx.width.leaf(
+      Rect::new(Dimension::Auto, 1.0).background(
+        theme
+          .rule
+          .background
+          .clone()
+          .unwrap_or_else(|| theme.table_marker.apply(base_style).color.into()),
+      ),
+    ),
   }
 }
 
@@ -432,8 +691,9 @@ fn render_inline_block(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
-  if let Some(image) = single_image(inlines) {
-    return render_markdown_image(image, &style, theme);
+  if let Some(image @ MarkdownInline::Image { title, alt, .. }) = single_image(inlines) {
+    let picture = render_picture(image, &style, theme, render_ctx);
+    return blocks::render_figure(picture, Some(alt), title, &style, theme, render_ctx);
   }
 
   if let [MarkdownInline::Text(text)] = inlines {
@@ -535,6 +795,25 @@ fn single_image(inlines: &[MarkdownInline]) -> Option<&MarkdownInline> {
   image
 }
 
+/// A lone image: the image where the app draws images, or else the box of its place.
+fn render_picture(
+  inline: &MarkdownInline,
+  base_style: &TextStyle,
+  theme: &ThemeMarkdown,
+  render_ctx: &MarkdownRenderContext<'_>,
+) -> Element {
+  #[cfg(all(feature = "image", feature = "resources"))]
+  {
+    let _ = (base_style, theme, render_ctx);
+    render_markdown_image(inline, base_style, theme)
+  }
+  #[cfg(not(all(feature = "image", feature = "resources")))]
+  {
+    let _ = inline;
+    blocks::image_place(base_style, theme, render_ctx)
+  }
+}
+
 fn render_markdown_image(inline: &MarkdownInline, base_style: &TextStyle, theme: &ThemeMarkdown) -> Element {
   let MarkdownInline::Image {
     destination,
@@ -560,10 +839,7 @@ fn render_markdown_image(inline: &MarkdownInline, base_style: &TextStyle, theme:
 
   #[cfg(not(all(feature = "image", feature = "resources")))]
   {
-    let mut style = theme.inline_code.apply(base_style);
-    if theme.inline_code.text.color.is_none() {
-      style.color = Color::from_hex("#64748b");
-    }
+    let style = theme.image_caption.apply(base_style);
     Element::from_node(Node::rich_text(markdown_inline_rich_text(alt, &style, theme)))
   }
 }
@@ -587,7 +863,8 @@ fn render_blockquote(
   let bar_color = theme
     .blockquote_box
     .border_color
-    .unwrap_or_else(|| theme.blockquote_marker.apply(base_style).color);
+    .clone()
+    .unwrap_or_else(|| theme.blockquote_marker.apply(base_style).color.into());
   let bar_width = theme.blockquote_box.border_width.unwrap_or(3.0);
 
   let mut row = render_ctx.width.row(
@@ -630,43 +907,7 @@ fn render_list(
     render_ctx.links.restore(checkpoint);
     render_ctx.code_blocks.set(code_blocks);
   }
-  let mut list = render_ctx
-    .width
-    .blocks(Column::new().overflow_visible().spacing(theme.list_item_spacing));
-  let start = start.unwrap_or(1);
-  for (index, item) in items.iter().enumerate() {
-    let marker = if ordered {
-      format!("{}.", start + index as u64)
-    } else {
-      "-".to_owned()
-    };
-    let marker_style = theme.list_marker.apply(base_style);
-    let marker_width = if ordered {
-      theme.ordered_list_marker_width
-    } else {
-      theme.unordered_list_marker_width
-    };
-    let mut body = render_ctx.width.row_body(
-      Column::new()
-        .overflow_visible()
-        .spacing(theme.nested_block_spacing)
-        .min_width(0.0),
-    );
-    for block in &item.blocks {
-      body = body.child(render_block(block, base_style, theme, render_ctx));
-    }
-    list = list.child(
-      render_ctx.width.row(
-        Row::new()
-          .overflow_visible()
-          .spacing(theme.list_marker_gap)
-          .align_items(Alignment::Start)
-          .child(Text::styled(&marker, marker_style).width(marker_width))
-          .child(body),
-      ),
-    );
-  }
-  list.into()
+  blocks::render_items(ordered, start.unwrap_or(1), items, base_style, theme, render_ctx)
 }
 
 fn render_code_block(
@@ -677,10 +918,7 @@ fn render_code_block(
   render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
   let width = render_ctx.width;
-  let mut code_style = theme.code_block.apply(base_style);
-  if theme.code_block.text.color.is_none() {
-    code_style.color = Color::from_hex("#e2e8f0");
-  }
+  let code_style = theme.code_block.apply(base_style);
 
   // The box's padding goes inside the lines' scroll container, so a line
   // wider than the box scrolls under the padding and is clipped at the
@@ -696,10 +934,7 @@ fn render_code_block(
     language: Some(language),
   } = kind
   {
-    let mut label_style = theme.code_block_label.apply(base_style);
-    if theme.code_block_label.text.color.is_none() {
-      label_style.color = Color::from_hex("#94a3b8");
-    }
+    let label_style = theme.code_block_label.apply(base_style);
     let label = width.blocks(
       Column::new()
         .overflow_visible()
@@ -713,7 +948,13 @@ fn render_code_block(
     .overflow_visible()
     .padding(lines_padding)
     .child(render_ctx.text.leaf(Element::from_node(
-      Node::rich_text(highlight_code_spans(text.trim_end_matches('\n'), kind, &code_style)).text_wrap(false),
+      Node::rich_text(highlight_code_spans(
+        text.trim_end_matches('\n'),
+        kind,
+        &code_style,
+        &render_ctx.ui.palette(),
+      ))
+      .text_wrap(false),
     )));
   let scroll = ScrollHorizontal::new(lines)
     .key(key)
@@ -783,7 +1024,12 @@ fn render_footnote_definition(
     .into()
 }
 
-fn highlight_code_spans(text: &str, kind: &MarkdownCodeBlockKind, base_style: &TextStyle) -> Vec<RichTextSpan> {
+fn highlight_code_spans(
+  text: &str,
+  kind: &MarkdownCodeBlockKind,
+  base_style: &TextStyle,
+  palette: &ThemePalette,
+) -> Vec<RichTextSpan> {
   if !is_rust_like_code(kind) {
     return vec![RichTextSpan {
       text: text.to_owned(),
@@ -791,10 +1037,10 @@ fn highlight_code_spans(text: &str, kind: &MarkdownCodeBlockKind, base_style: &T
     }];
   }
 
-  let keyword_style = code_style(base_style, Color::from_hex("#93c5fd"));
-  let string_style = code_style(base_style, Color::from_hex("#86efac"));
-  let comment_style = code_style(base_style, Color::from_hex("#94a3b8"));
-  let number_style = code_style(base_style, Color::from_hex("#fca5a5"));
+  let keyword_style = code_style(base_style, palette.get(PaletteColor::Info));
+  let string_style = code_style(base_style, palette.get(PaletteColor::Success));
+  let comment_style = code_style(base_style, palette.get(PaletteColor::MutedForeground));
+  let number_style = code_style(base_style, palette.get(PaletteColor::Destructive));
   let mut spans = Vec::new();
   let mut rest = text;
   while !rest.is_empty() {
@@ -943,27 +1189,42 @@ fn render_table(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
+  // The design's table: its rows one under another with a line between two,
+  // the header on its fill and every other body row striped, the columns of
+  // one width with a line between two.
   let mut table = Column::new().width(FILL_WIDTH);
   let line_color = table_line_color(theme);
+  let mut body_rows = 0;
   for (row_index, row) in rows.iter().enumerate() {
-    if row_index > 0
-      && theme.table_row_spacing > 0.0
-      && let Some(line_color) = line_color
-    {
-      table = table.child(Rect::new(FILL_WIDTH, theme.table_row_spacing).background(line_color));
-    }
     let mut row_node = Row::new().align_items(Alignment::Stretch).width(FILL_WIDTH);
+    // The header's fill is its cells'; a body row's stripe is the row's.
+    let fill = if row.header {
+      None
+    } else {
+      body_rows += 1;
+      theme.table_stripe.clone().filter(|_| body_rows % 2 == 0)
+    };
+    if let Some(fill) = fill {
+      row_node = row_node.background(fill);
+    }
+    if row_index + 1 < rows.len()
+      && let Some(line) = line_color.clone()
+    {
+      row_node = row_node.border_bottom(crate::node::border::Border::inside(1.0, line));
+    }
+    let count = row.cells.len();
     for (cell_index, cell) in row.cells.iter().enumerate() {
-      if cell_index > 0
-        && theme.table_column_spacing > 0.0
-        && let Some(line_color) = line_color
-      {
-        row_node = row_node.child(Rect::new(theme.table_column_spacing, FILL_WIDTH).background(line_color));
-      }
       let alignment = alignments.get(cell_index).copied().unwrap_or_default();
-      row_node = row_node.child(render_table_cell(
-        row.header, cell, alignment, base_style, theme, render_ctx,
-      ));
+      let mut element = render_table_cell(row.header, cell, alignment, base_style, theme, render_ctx);
+      if cell_index + 1 < count
+        && let Some(line) = line_color.clone()
+      {
+        crate::node::NodeUpdate::border_right(
+          &mut *element.node,
+          crate::node::border::Border::inside(1.0, line),
+        );
+      }
+      row_node = row_node.child(element);
     }
     table = table.child(row_node);
   }
@@ -971,8 +1232,8 @@ fn render_table(
   table.into()
 }
 
-fn table_line_color(theme: &ThemeMarkdown) -> Option<Color> {
-  theme.table_box.border_color.or(theme.table_box.background)
+fn table_line_color(theme: &ThemeMarkdown) -> Option<crate::node::TextColor> {
+  theme.table_box.border_color.clone().or_else(|| theme.table_box.background.clone())
 }
 
 fn render_table_cell(
@@ -988,19 +1249,13 @@ fn render_table_cell(
   } else {
     theme.table_cell.apply(base_style)
   };
-  if header {
-    style.weight = FontWeight::Bold;
-  }
   style.text_align = table_text_align(alignment);
 
   let box_style = if header {
-    &theme.table_header_box
+    theme.table_header_box.clone()
   } else {
-    &theme.table_cell_box
+    theme.table_cell_box.clone()
   };
-  if box_style.background.is_some() && style.color == base_style.color {
-    style.color = Color::from_hex("#0f172a");
-  }
   // The words are the cell's content, not the cell (see `apply_column_box`),
   // centered in its height as a stretched text leaf centers its words.
   let content = Column::new()
@@ -1008,9 +1263,10 @@ fn render_table_cell(
     .align_items(table_cell_alignment(alignment))
     .justify(Justify::Center)
     .child(render_inline_block(cell, style, theme, render_ctx));
-  apply_column_box(content, box_style, true)
-    .min_width(theme.table_cell_min_width)
-    .flex(1.0)
+  // The columns share the table's width alike, as the design's cells fill it.
+  apply_column_box(content, &box_style, true)
+    .min_width(theme.table_cell_min_width.min(40.0))
+    .flex_full(1.0, 1.0, Some(0.0))
     .into()
 }
 
@@ -1040,10 +1296,10 @@ fn apply_column_box(mut column: Column, style: &MarkdownBlockStyle, include_bord
   if let Some(padding) = style.padding {
     column = column.padding(padding);
   }
-  if let Some(background) = style.background {
+  if let Some(background) = style.background.clone() {
     column = column.background(background);
   }
-  if include_border && let (Some(width), Some(color)) = (style.border_width, style.border_color) {
+  if include_border && let (Some(width), Some(color)) = (style.border_width, style.border_color.clone()) {
     column = column.border_inside(width, color);
   }
   if let Some(radius) = style.radius {
@@ -1057,10 +1313,10 @@ fn apply_row_box(mut row: Row, style: &MarkdownBlockStyle, include_border: bool)
   if let Some(padding) = style.padding {
     row = row.padding(padding);
   }
-  if let Some(background) = style.background {
+  if let Some(background) = style.background.clone() {
     row = row.background(background);
   }
-  if include_border && let (Some(width), Some(color)) = (style.border_width, style.border_color) {
+  if include_border && let (Some(width), Some(color)) = (style.border_width, style.border_color.clone()) {
     row = row.border_inside(width, color);
   }
   if let Some(radius) = style.radius {
