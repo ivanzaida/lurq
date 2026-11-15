@@ -360,6 +360,7 @@ Added:
 
 Fixes:
 
+- `lurq::eyedropper` on Windows: the loupe no longer flickers as it follows the pointer. It was painted with GDI straight onto its window, its panel first and then its cells, its outline and its hex, at each move of the pointer and ten times a second, and the screen was composed with it half drawn; it is now drawn whole into a bitmap and given to its layered window with its place in one call (`UpdateLayeredWindow`), drawn before it shows, and drawn again only when what it shows or its place changes. Its corners are smooth, its edge following them.
 - What has the focus in a pane of a mounted `ui::Splitter` keeps it when what holds the splitter renders again: the panes' boxes, given new refs by every render, were new nodes, and the focus, a caret or a scroll in them was lost.
 - A `ui::Splitter` in a column, whose panes fill themselves, has each divider at the edge of its pane: the copies of the panes under the dividers resolved their shares of a row that the stack laid out narrower than the panes' own, and a divider stood a quarter of the way into its pane. The splitter now lays the copies out at the panes' sizes in pixels whenever it settles on its room.
 - A text input built anew by the render that moves the focus away from it no longer goes on painting its caret. The render carried its state, its focus with it, into the node that took its place under another id, and the focus left the old node's state alone: a row of an inspector that took the focus back with Escape left a caret in its editor.

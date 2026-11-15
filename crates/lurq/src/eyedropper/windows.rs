@@ -2,7 +2,10 @@
 //!
 //! Two windows of the thread do it: one over every monitor, all but transparent (a layered window of alpha 1, which
 //! still takes the pointer), that takes the press, the keys and the cursor; and a small one beside the pointer that
-//! draws the loupe and takes nothing. Both are kept out of what GDI reads of the screen (`WDA_EXCLUDEFROMCAPTURE`),
+//! shows the loupe and takes nothing. The loupe is drawn whole into a bitmap of its own and given to its layered
+//! window with its place in one call (`UpdateLayeredWindow`), so the screen never shows it half drawn, nor moved
+//! before it is drawn again, nor before it is drawn at all; it is drawn again only when what it shows or its place
+//! changes. Both are kept out of what GDI reads of the screen (`WDA_EXCLUDEFROMCAPTURE`),
 //! so the pixels around the pointer are read live as it moves and ten times a second. Where the system cannot keep
 //! them out, the screen is read whole once before they show. The thread is aware of each monitor's scale (per monitor
 //! v2): the pointer, the monitors and what GDI reads are all in physical pixels of the virtual desktop.
@@ -14,14 +17,14 @@ use std::{
 
 use windows::{
   Win32::{
-    Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+    Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
     Graphics::Gdi::{
-      BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, BitBlt, CAPTUREBLT, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS,
-      CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET,
-      DIB_RGB_COLORS, DeleteDC, DeleteObject, EndPaint, EnumDisplayMonitors, FW_NORMAL, FillRect, FrameRect, GetDC,
-      GetMonitorInfoW, HBITMAP, HDC, HGDIOBJ, HMONITOR, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-      MonitorFromPoint, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextColor,
-      SetWindowRgn, TRANSPARENT, TextOutW,
+      AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, BitBlt, CAPTUREBLT,
+      CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush,
+      DEFAULT_CHARSET, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, FW_NORMAL, FillRect, FrameRect,
+      GdiFlush, GetDC, GetMonitorInfoW, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+      MonitorFromPoint, OUT_DEFAULT_PRECIS, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+      TextOutW,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
@@ -35,11 +38,11 @@ use windows::{
       WindowsAndMessaging::{
         CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos,
         GetMessageW, HTTRANSPARENT, HWND_TOPMOST, IDC_CROSS, KillTimer, LWA_ALPHA, LoadCursorW, MSG, PostQuitMessage,
-        RegisterClassExW, SW_SHOW, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SetCursor, SetCursorPos, SetForegroundWindow,
-        SetLayeredWindowAttributes, SetTimer, SetWindowDisplayAffinity, SetWindowPos, ShowWindow, TranslateMessage,
-        WDA_EXCLUDEFROMCAPTURE, WM_ACTIVATE, WM_KEYDOWN, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT,
-        WM_RBUTTONDOWN, WM_SETCURSOR, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-        WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+        RegisterClassExW, SW_SHOW, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetCursor, SetCursorPos,
+        SetForegroundWindow, SetLayeredWindowAttributes, SetTimer, SetWindowDisplayAffinity, SetWindowPos, ShowWindow,
+        TranslateMessage, ULW_ALPHA, UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WM_ACTIVATE, WM_KEYDOWN,
+        WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_NCHITTEST, WM_RBUTTONDOWN, WM_SETCURSOR, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
       },
     },
   },
@@ -48,7 +51,7 @@ use windows::{
 
 use super::{
   Look, Picked,
-  geometry::{CELLS, Rect, around, cells, loupe_origin, offset_in, scaled},
+  geometry::{CELLS, Rect, around, cells, finish_loupe, loupe_origin, offset_in, scaled},
 };
 use crate::node::color::Color;
 
@@ -86,13 +89,16 @@ struct Session {
   outcome: Option<Option<Color>>,
 }
 
-/// What the loupe draws.
+/// What the loupe draws, and where it stands.
 #[derive(Clone, Default)]
 struct Loupe {
   look: Option<Look>,
   cells: Vec<Option<Color>>,
   dpi: u32,
   size: (i32, i32),
+  origin: (i32, i32),
+  /// Whether it was given to its window once: what it shows is drawn again only where something of it changed.
+  shown: bool,
 }
 
 thread_local! {
@@ -155,7 +161,7 @@ fn run(look: Look) -> Option<Color> {
       return None;
     };
     let Ok(loupe) = CreateWindowExW(
-      WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
+      WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED,
       loupe_class,
       w!(""),
       WS_POPUP,
@@ -200,8 +206,18 @@ fn run(look: Look) -> Option<Color> {
     let _ = SetForegroundWindow(overlay);
     let _ = SetFocus(Some(overlay));
     SetCapture(overlay);
+    // The loupe is drawn before it shows, and over the overlay.
     update();
     let _ = ShowWindow(loupe, SW_SHOWNOACTIVATE);
+    let _ = SetWindowPos(
+      loupe,
+      Some(HWND_TOPMOST),
+      0,
+      0,
+      0,
+      0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+    );
     SetTimer(Some(overlay), 1, 100, None);
     let mut message = MSG::default();
     while GetMessageW(&mut message, None, 0, 0).as_bool() {
@@ -354,32 +370,89 @@ fn update() {
     .find(|monitor| monitor.contains(cursor))
     .unwrap_or_else(|| monitor_at(cursor));
   let dpi = dpi_at(cursor);
-  let measures = Measures::at(dpi);
-  let size = measures.size();
-  let resized = LOUPE.with(|held| {
+  let size = Measures::at(dpi).size();
+  let origin = loupe_origin(cursor, size, scaled(20, dpi), monitor);
+  let changed = LOUPE.with(|held| {
     let mut held = held.borrow_mut();
-    let resized = held.size != size;
+    let changed = !held.shown || held.cells != colors || held.dpi != dpi || held.origin != origin;
     held.cells = colors;
     held.dpi = dpi;
     held.size = size;
-    resized
+    held.origin = origin;
+    held.shown = true;
+    changed.then(|| held.clone())
   });
-  let origin = loupe_origin(cursor, size, scaled(20, dpi), monitor);
+  // Ten times a second with the pointer still and the screen under it the same: nothing to draw.
+  if let Some(drawn) = changed {
+    unsafe { present(loupe, &drawn) };
+  }
+}
+
+/// Draws `loupe` whole into a bitmap and gives it to its window with its place and its size in one call: the screen
+/// shows the last frame until this one is whole, and then this one.
+unsafe fn present(window: HWND, loupe: &Loupe) {
+  let (width, height) = loupe.size;
+  let Some(look) = loupe.look else {
+    return;
+  };
+  if width <= 0 || height <= 0 {
+    return;
+  }
   unsafe {
-    let _ = SetWindowPos(
-      loupe,
-      Some(HWND_TOPMOST),
-      origin.0,
-      origin.1,
-      size.0,
-      size.1,
-      SWP_NOACTIVATE,
-    );
-    if resized {
-      let region = CreateRoundRectRgn(0, 0, size.0 + 1, size.1 + 1, measures.radius, measures.radius);
-      SetWindowRgn(loupe, Some(region), true);
+    let screen = GetDC(None);
+    let memory = CreateCompatibleDC(Some(screen));
+    let info = BITMAPINFO {
+      bmiHeader: BITMAPINFOHEADER {
+        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: width,
+        // Rows from the top.
+        biHeight: -height,
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: BI_RGB.0,
+        ..Default::default()
+      },
+      ..Default::default()
+    };
+    let mut bits = std::ptr::null_mut();
+    if let Ok(bitmap) = CreateDIBSection(Some(memory), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
+      let previous = SelectObject(memory, bitmap.into());
+      draw(memory, loupe);
+      let _ = GdiFlush();
+      let pixels = std::slice::from_raw_parts_mut(bits as *mut u32, (width * height) as usize);
+      let radius = Measures::at(loupe.dpi.max(96)).radius as f32;
+      finish_loupe(
+        pixels,
+        width,
+        height,
+        radius,
+        (look.border.r(), look.border.g(), look.border.b()),
+      );
+      let blend = BLENDFUNCTION {
+        BlendOp: AC_SRC_OVER as u8,
+        BlendFlags: 0,
+        SourceConstantAlpha: 255,
+        AlphaFormat: AC_SRC_ALPHA as u8,
+      };
+      let _ = UpdateLayeredWindow(
+        window,
+        Some(screen),
+        Some(&POINT {
+          x: loupe.origin.0,
+          y: loupe.origin.1,
+        }),
+        Some(&SIZE { cx: width, cy: height }),
+        Some(memory),
+        Some(&POINT { x: 0, y: 0 }),
+        COLORREF(0),
+        Some(&blend),
+        ULW_ALPHA,
+      );
+      SelectObject(memory, previous);
+      let _ = DeleteObject(bitmap.into());
     }
-    let _ = InvalidateRect(Some(loupe), None, false);
+    let _ = DeleteDC(memory);
+    ReleaseDC(None, screen);
   }
 }
 
@@ -519,16 +592,6 @@ unsafe extern "system" fn overlay_proc(window: HWND, message: u32, wparam: WPARA
 unsafe extern "system" fn loupe_proc(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
   match message {
     WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
-    WM_PAINT => {
-      let loupe = LOUPE.with(|held| held.borrow().clone());
-      unsafe {
-        let mut paint = PAINTSTRUCT::default();
-        let target = BeginPaint(window, &mut paint);
-        draw(target, &loupe);
-        let _ = EndPaint(window, &paint);
-      }
-      LRESULT(0)
-    }
     _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
   }
 }
@@ -555,8 +618,8 @@ unsafe fn frame(target: HDC, rect: RECT, color: Color) {
   }
 }
 
-/// Draws the loupe: the cells magnified in its panel, the middle one outlined, and under them the color taken as a
-/// swatch and its hex.
+/// Draws the loupe into `target`, a bitmap of its size: the cells magnified in its panel, the middle one outlined, and
+/// under them the color taken as a swatch and its hex. Its corners and its edge are made by [`finish_loupe`].
 unsafe fn draw(target: HDC, loupe: &Loupe) {
   let Some(look) = loupe.look else {
     return;
