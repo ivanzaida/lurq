@@ -8,6 +8,94 @@ use crate::{
 
 impl_into_node!(TextInput);
 
+/// The numbers of a multiline input's lines, and the bands behind the lines picked out, drawn beside its text where
+/// it lays its lines out: a line's number stands at its first row, a wrapped line's band covers all its rows. What a
+/// block of code numbers its lines with.
+///
+/// The numbers stand in the input's start padding, which the app makes as wide as they need, right-aligned `gap`
+/// before the text; a band runs across the whole input. Neither is selected, copied or read to tooling.
+///
+/// ```
+/// use lurq::{app::theme::PaletteColor, components::{LineGutter, TextInput}, core::Signal, layout::text_style::TextStyle};
+///
+/// let code = TextInput::new(Signal::new("fn main() {\n}".to_owned()))
+///   .multiline()
+///   .padding_left(40.0)
+///   .line_gutter(LineGutter::new(TextStyle::default()).marked([2], PaletteColor::Highlight));
+/// ```
+#[derive(Clone, PartialEq)]
+pub struct LineGutter {
+  /// The number of the first line.
+  pub first_line: usize,
+  /// Whether the numbers are drawn; the bands are drawn either way.
+  pub numbers: bool,
+  /// The room between a number and the text.
+  pub gap: f32,
+  /// The numbers' type, and their color where `number_color` names none.
+  pub style: TextStyle,
+  /// The numbers' color.
+  pub number_color: Option<crate::node::TextColor>,
+  /// The numbers of the lines picked out.
+  pub marked: Vec<usize>,
+  /// The band behind a line picked out.
+  pub marked_band: Option<crate::node::TextColor>,
+  /// The number of a line picked out.
+  pub marked_number: Option<crate::node::TextColor>,
+}
+
+impl LineGutter {
+  /// Numbers from 1 in `style`, 16 before the text.
+  pub fn new(style: TextStyle) -> Self {
+    Self {
+      first_line: 1,
+      numbers: true,
+      gap: 16.0,
+      style,
+      number_color: None,
+      marked: Vec::new(),
+      marked_band: None,
+      marked_number: None,
+    }
+  }
+
+  /// The number of the first line.
+  pub fn first_line(mut self, number: usize) -> Self {
+    self.first_line = number;
+    self
+  }
+
+  /// Whether the numbers are drawn.
+  pub fn numbers(mut self, numbers: bool) -> Self {
+    self.numbers = numbers;
+    self
+  }
+
+  /// The room between a number and the text.
+  pub fn gap(mut self, gap: f32) -> Self {
+    self.gap = gap;
+    self
+  }
+
+  /// The numbers' color.
+  pub fn color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
+    self.number_color = Some(color.into());
+    self
+  }
+
+  /// Picks lines out by their numbers, with a band of `band` behind each.
+  pub fn marked(mut self, lines: impl IntoIterator<Item = usize>, band: impl Into<crate::node::TextColor>) -> Self {
+    self.marked.extend(lines);
+    self.marked_band = Some(band.into());
+    self
+  }
+
+  /// The color of a picked line's number.
+  pub fn marked_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
+    self.marked_number = Some(color.into());
+    self
+  }
+}
+
 impl TextInput {
   /// Draw source-backed inline pills. Invalidated ranges and masked/IME text render normally.
   /// Use validated ranges for the exact current value; no display label replaces stored bytes.
@@ -222,6 +310,28 @@ impl TextInput {
 
   pub fn single_line(mut self) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::text_input_overflow(node, TextInputOverflow::Scroll));
+    self
+  }
+
+  /// Whether a multiline input's lines wrap at its width: they do unless told otherwise. One whose lines do not
+  /// wrap is as wide as its longest line, for what holds it to scroll sideways: a block of code.
+  pub fn wrap(mut self, wrap: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_line_wrap(wrap);
+      }
+    });
+    self
+  }
+
+  /// Draws the numbers of a multiline input's lines, and bands behind the lines picked out, where it lays them
+  /// out: see [`LineGutter`].
+  pub fn line_gutter(mut self, gutter: LineGutter) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_gutter(Some(std::sync::Arc::new(gutter)));
+      }
+    });
     self
   }
 

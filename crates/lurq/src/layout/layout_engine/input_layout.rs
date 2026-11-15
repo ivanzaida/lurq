@@ -26,17 +26,15 @@ impl LayoutEngine {
       min_height: 0.0,
       ..constraints
     };
-    let text_result = self.layout_text(
-      glyph_engine,
-      text,
-      display_style,
-      text_constraints,
-      overflow == crate::node::node_kind::TextInputOverflow::Multiline,
-    );
+    let multiline = overflow == crate::node::node_kind::TextInputOverflow::Multiline;
+    // A multiline input whose lines do not wrap is as wide as its longest line, and the caret after it.
+    let wraps = state.wraps_lines();
+    let text_result = self.layout_text(glyph_engine, text, display_style, text_constraints, wraps);
     let line_height = (style.font_size * style.line_height).max(1.0);
-    let wraps = overflow == crate::node::node_kind::TextInputOverflow::Multiline;
     let preferred_width = if wraps {
       text_result.size.width.max(DEFAULT_TEXT_INPUT_WIDTH)
+    } else if multiline {
+      text_result.size.width + TEXT_INPUT_CARET_WIDTH
     } else {
       DEFAULT_TEXT_INPUT_WIDTH
     };
@@ -60,11 +58,11 @@ impl LayoutEngine {
       .max(explicit_multiline_height(text, line_height));
     // Text layout ends at the row a final line break ends; the caret after it sits on the empty row below, which
     // the input must hold too. Counting line breaks alone misses the rows a paragraph wrapped into.
-    if wraps && trailing_break_len(&caret_source) > 0 {
+    if multiline && trailing_break_len(&caret_source) > 0 {
       let empty_row = trailing_break_row_y(&caret_positions, &caret_source, line_height);
       text_height = text_height.max(empty_row + line_height);
     }
-    let preferred = if wraps {
+    let preferred = if multiline {
       Size::new(
         preferred_width,
         multiline_preferred_height(state, text_height, line_height),

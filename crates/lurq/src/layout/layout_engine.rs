@@ -49,6 +49,7 @@ pub(crate) mod inline_links;
 #[cfg(not(feature = "markdown"))]
 #[path = "layout_engine/inline_links_none.rs"]
 pub(crate) mod inline_links;
+mod input_gutter;
 mod input_layout;
 pub(crate) mod input_token_layout;
 mod input_token_quads;
@@ -1527,6 +1528,7 @@ impl LayoutEngine {
         }
 
         if let NodeKind::TextInput { state, .. } = node.node_kind() {
+          self.push_text_input_gutter(node, state, result, (abs_x, abs_y), transform, clip, opacity, quads);
           self.push_input_tokens(
             node,
             state,

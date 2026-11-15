@@ -15,7 +15,7 @@ use lurq::{
     ctx::Ctx,
     theme::{Breakpoint, PaletteColor, RadiusSize, TypographyStyle},
   },
-  components::{Column, Row, ScrollHorizontal, Text},
+  components::{Column, Row, Text},
   core::{ElementRef, Signal},
   layout::{
     Alignment,
@@ -140,11 +140,7 @@ impl Frame {
           .width(FILL)
           .border_top(line())
           .background(PaletteColor::Canvas)
-          .child(
-            ScrollHorizontal::new(code_block(&lines))
-              .key(format!("demo-code-{number}"))
-              .width(FILL),
-          ),
+          .child(code_block(&lines).key(format!("demo-code-{number}"))),
       );
     }
     card
