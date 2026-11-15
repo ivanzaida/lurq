@@ -1016,20 +1016,36 @@ fn a_leaving_child_takes_no_input_and_is_not_found() {
 }
 
 #[test]
-fn a_child_added_again_while_it_leaves_is_a_new_one() {
+fn a_child_added_again_while_it_leaves_ends_its_leaving_and_is_there_once() {
   let shown = Signal::new(true);
   let mut stage = list(&shown, true);
   shown.set(false);
   stage.at(0);
   stage.at(100);
+  assert_close(&stage.opacities(ITEM_B), &[0.5]);
 
+  // The one leaving goes, and the one added enters: the two are never there together, and what is after them has
+  // the room of one.
   shown.set(true);
   stage.at(100);
-  assert_close(&stage.opacities(ITEM_B), &[0.5, 1.0]);
-
-  stage.at(200);
   assert_close(&stage.opacities(ITEM_B), &[1.0]);
   assert_eq!(stage.tops(ITEM_C), [80.0]);
+
+  // Its leaving is forgotten: the time it would have ended at takes nothing away.
+  stage.at(200);
+  stage.at(300);
+  assert_close(&stage.opacities(ITEM_B), &[1.0]);
+  assert_eq!(stage.tops(ITEM_B), [40.0]);
+  assert_eq!(stage.tops(ITEM_C), [80.0]);
+
+  // Removed again, it leaves again.
+  shown.set(false);
+  stage.at(300);
+  stage.at(400);
+  assert_close(&stage.opacities(ITEM_B), &[0.5]);
+  stage.at(500);
+  assert_close(&stage.opacities(ITEM_B), &[]);
+  assert_eq!(stage.tops(ITEM_C), [40.0]);
 }
 
 #[test]

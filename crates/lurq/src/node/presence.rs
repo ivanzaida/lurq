@@ -14,11 +14,18 @@
 //! carries node ids over), in flow, until its exit animation ends. Only a
 //! child the container can tell from its siblings is kept, one with a key or
 //! an id: children without one are matched by their place, and a place whose
-//! content changed and a place that was removed look the same.
+//! content changed and a place that was removed look the same. A child that
+//! comes back while it leaves, the same key or id among the container's
+//! children again, ends its leaving at once: the one leaving goes, and the one
+//! that came back enters, so that the two are never there together (a panel
+//! opened again while its rows fade out holds its rows once).
 
 use std::{
   cell::RefCell,
-  sync::atomic::{AtomicBool, Ordering},
+  sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+  },
   time::Duration,
 };
 
@@ -41,6 +48,9 @@ thread_local! {
   /// them (`take_began_leaving`) to start their exit animations. A tree reconciles and takes on one thread,
   /// one after the other.
   static BEGAN_LEAVING: RefCell<Vec<NodeId>> = const { RefCell::new(Vec::new()) };
+  /// The children that were leaving and came back, gone with the tree a render replaced: the tree forgets
+  /// their leaving (`take_ended_leaving`), and does not look for them when their time is up.
+  static ENDED_LEAVING: RefCell<Vec<NodeId>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The children kept since the last call: see [`Node::take_leaving_children`].
@@ -52,11 +62,22 @@ pub(crate) fn take_began_leaving() -> Vec<NodeId> {
   BEGAN_LEAVING.with(|began| std::mem::take(&mut *began.borrow_mut()))
 }
 
+/// The children that came back while they were leaving, since the last call: see
+/// [`Node::take_leaving_children`].
+pub(crate) fn take_ended_leaving() -> Vec<NodeId> {
+  if !exit_animations_in_use() {
+    return Vec::new();
+  }
+  ENDED_LEAVING.with(|ended| std::mem::take(&mut *ended.borrow_mut()))
+}
+
 /// The animation a node plays, and the one it leaves with.
 #[derive(Clone)]
 pub(crate) struct NodeAnimations {
   pub(crate) play: Option<Animation>,
   pub(crate) exit: Option<Animation>,
+  /// The key and the id a child leaving a container with presence had: what it is known by if it comes back.
+  pub(crate) left_as: Option<(Option<Arc<str>>, Option<Arc<str>>)>,
 }
 
 impl Node {
@@ -89,21 +110,40 @@ impl Node {
   /// Takes out of this node, the one a render replaces, the children that go on being drawn in `new`, the
   /// node that replaces it: the ones already leaving, and, where `new` has presence, the ones that leave
   /// with an animation and are no longer among its children. Each comes with the place it had. The second
-  /// kind is noted for the tree to start their exit animations (`take_began_leaving`).
+  /// kind is noted for the tree to start their exit animations (`take_began_leaving`). A child leaving that
+  /// is among `new`'s children again stays in this node, to go with it, and is noted for the tree to forget
+  /// its leaving (`take_ended_leaving`).
   pub(crate) fn take_leaving_children(&mut self, new: &Node) -> Vec<(usize, Node)> {
     if !exit_animations_in_use() {
       return Vec::new();
     }
     let keeps = new.keeps_leaving_children();
-    let leaves = |child: &Node| {
-      child.is_leaving_layer()
-        || (keeps
-          && child.leaves_with_an_animation()
-          && !new
-            .children
-            .iter()
-            .any(|kept| kept.component_key == child.component_key && kept.element_id == child.element_id))
+    let among_new = |key: &Option<Arc<str>>, id: &Option<Arc<str>>| {
+      new
+        .children
+        .iter()
+        .any(|kept| &kept.component_key == key && &kept.element_id == id)
     };
+    // A leaving child no longer has its names: it is known by the ones it left with.
+    let comes_back = |child: &Node| {
+      keeps
+        && child.is_leaving_layer()
+        && child
+          .animation
+          .as_deref()
+          .and_then(|animations| animations.left_as.as_ref())
+          .is_some_and(|(key, id)| (key.is_some() || id.is_some()) && among_new(key, id))
+    };
+    let leaves = |child: &Node| {
+      (child.is_leaving_layer() && !comes_back(child))
+        || (keeps
+          && !child.is_leaving_layer()
+          && child.leaves_with_an_animation()
+          && !among_new(&child.component_key, &child.element_id))
+    };
+    for child in self.children.iter().filter(|child| comes_back(child)) {
+      ENDED_LEAVING.with(|ended| ended.borrow_mut().push(child.node_id));
+    }
     if !self.children.iter().any(leaves) {
       return Vec::new();
     }
@@ -152,9 +192,13 @@ impl Node {
   }
 
   fn animations_mut(&mut self) -> &mut NodeAnimations {
-    self
-      .animation
-      .get_or_insert_with(|| Box::new(NodeAnimations { play: None, exit: None }))
+    self.animation.get_or_insert_with(|| {
+      Box::new(NodeAnimations {
+        play: None,
+        exit: None,
+        left_as: None,
+      })
+    })
   }
 
   /// The animation the node plays now.
@@ -211,6 +255,11 @@ impl Node {
   /// lookup by id or by element ref finds what is in it, and no component
   /// that renders again puts its output there.
   pub(crate) fn turn_into_leaving_layer(&mut self) {
+    // A child of a container with presence, which has an animation, keeps what it was known by.
+    let known = (self.component_key.clone(), self.element_id.clone());
+    if let Some(animations) = self.animation.as_deref_mut() {
+      animations.left_as = Some(known);
+    }
     self.set_synthetic_role(SyntheticNodeRole::LeavingLayer);
     self.hit_test = HitTestBehavior::None;
     self.forget_names();

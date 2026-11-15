@@ -1,13 +1,18 @@
 //! A tree view: its rows against the board, what a press of a row, of its chevron and a double press do, the
 //! keys of a tree, selecting many with Ctrl and Shift, a disabled row, children that come later, the guides,
 //! a theme's other anatomy, a tree of ten thousand rows in a virtual list that the keys reach every row of, and
-//! what stands at a row's end shown only while the row is pointed at or focused.
+//! what stands at a row's end shown only while the row is pointed at or focused, and a row opening and closing
+//! with its height in either form.
 
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::{
     App,
+    ctx::Ctx,
     events::MouseButton,
     theme::{Density, PaletteColor, Theme, ThemePalette},
   },
@@ -17,14 +22,14 @@ use lurq::{
     quad::{Quad, QuadContent},
     text_style::FontWeight,
   },
-  node::color::Color,
+  node::{Element, color::Color},
   ui::{Case, Opacity, Recipe, Themed, TreeItem, TreeView, TreeViewPart, TreeViewRenderer, TreeViewView},
 };
 
 use super::stage::Stage;
 
-const CHEVRON_RIGHT: &str = "\u{E01B}";
-const CHEVRON_DOWN: &str = "\u{E019}";
+/// The chevron: down while its row is open, turned to the end while it is closed.
+const CHEVRON: &str = "\u{E019}";
 const FILE: &str = "\u{E02E}";
 const FOLDER: &str = "\u{E031}";
 const FOLDER_OPEN: &str = "\u{E034}";
@@ -106,12 +111,50 @@ fn texts(stage: &Stage, content: &str) -> Vec<Quad> {
     .collect()
 }
 
+/// Where `quad` is painted, turned or not: its left, its top, its right and its bottom.
+fn painted(quad: &Quad) -> (f32, f32, f32, f32) {
+  let [ox, oy] = quad.transform_origin.unwrap_or([quad.width / 2.0, quad.height / 2.0]);
+  let t = &quad.transform;
+  let corners = [
+    (0.0, 0.0),
+    (quad.width, 0.0),
+    (0.0, quad.height),
+    (quad.width, quad.height),
+  ]
+  .map(|(u, v)| {
+    (
+      quad.x + ox + t.a * (u - ox) + t.c * (v - oy) + t.tx,
+      quad.y + oy + t.b * (u - ox) + t.d * (v - oy) + t.ty,
+    )
+  });
+  let (xs, ys) = (corners.map(|(x, _)| x), corners.map(|(_, y)| y));
+  let low = |values: [f32; 4]| values.into_iter().fold(f32::MAX, f32::min);
+  let high = |values: [f32; 4]| values.into_iter().fold(f32::MIN, f32::max);
+  (low(xs), low(ys), high(xs), high(ys))
+}
+
 /// The text `content` painted in the row `id`.
 fn in_row(stage: &mut Stage, id: &str, content: &str) -> Option<Quad> {
   let (_, y, _, height) = stage.bounds(id);
-  texts(stage, content)
-    .into_iter()
-    .find(|quad| quad.y >= y - 0.01 && quad.y + quad.height <= y + height + 0.01)
+  texts(stage, content).into_iter().find(|quad| {
+    let (_, top, _, bottom) = painted(quad);
+    top >= y - 0.01 && bottom <= y + height + 0.01
+  })
+}
+
+/// Whether the chevron `quad` is turned to the end: its row is closed.
+fn turned(quad: &Quad) -> bool {
+  quad.transform.b.abs() > 0.99
+}
+
+/// The chevron of the row `id`, down while it is open.
+fn open_chevron(stage: &mut Stage, id: &str) -> Option<Quad> {
+  in_row(stage, id, CHEVRON).filter(|quad| !turned(quad))
+}
+
+/// The chevron of the row `id`, turned to the end while it is closed.
+fn closed_chevron(stage: &mut Stage, id: &str) -> Option<Quad> {
+  in_row(stage, id, CHEVRON).filter(turned)
 }
 
 fn color_of(quad: &Quad) -> Color {
@@ -150,11 +193,9 @@ fn press_with(stage: &mut Stage, id: &str, shift: bool, ctrl: bool) {
 
 /// A press of the chevron of the row `id`.
 fn press_chevron(stage: &mut Stage, id: &str) {
-  let quad = [CHEVRON_RIGHT, CHEVRON_DOWN]
-    .into_iter()
-    .find_map(|chevron| in_row(stage, id, chevron))
-    .unwrap_or_else(|| panic!("#{id} should have a chevron"));
-  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  let quad = in_row(stage, id, CHEVRON).unwrap_or_else(|| panic!("#{id} should have a chevron"));
+  let (left, top, right, bottom) = painted(&quad);
+  let (x, y) = ((left + right) / 2.0, (top + bottom) / 2.0);
   stage.tree.mouse_move(x, y);
   stage.tree.mouse_down(x, y, MouseButton::Left);
   stage.tree.mouse_up(x, y, MouseButton::Left);
@@ -176,10 +217,7 @@ fn the_rows_are_28_high_2_apart_and_each_level_moves_a_row_in_by_16() {
 
   // The chevron is 8 in at the top and 16 more at each level; a row that does not open has its room, empty.
   for (id, level) in [("crates", 0.0), ("lurq", 1.0), ("demo", 1.0)] {
-    let chevron = [CHEVRON_RIGHT, CHEVRON_DOWN]
-      .into_iter()
-      .find_map(|chevron| in_row(&mut stage, id, chevron))
-      .unwrap();
+    let chevron = in_row(&mut stage, id, CHEVRON).unwrap();
     assert!(
       (chevron.x - (x + 8.0 + 16.0 * level)).abs() < 0.5,
       "{id}: {}",
@@ -196,15 +234,13 @@ fn the_rows_are_28_high_2_apart_and_each_level_moves_a_row_in_by_16() {
 #[test]
 fn an_open_row_has_its_chevron_down_and_its_open_icon_and_the_selected_one_is_highlighted() {
   let (mut stage, _) = board(&["crates", "lurq"], Some("lib.rs"));
-  assert!(in_row(&mut stage, "crates", CHEVRON_DOWN).is_some());
+  assert!(open_chevron(&mut stage, "crates").is_some());
   assert!(in_row(&mut stage, "crates", FOLDER_OPEN).is_some());
-  assert!(in_row(&mut stage, "demo", CHEVRON_RIGHT).is_some());
+  assert!(closed_chevron(&mut stage, "demo").is_some());
   assert!(in_row(&mut stage, "demo", FOLDER).is_some());
   assert!(in_row(&mut stage, "Cargo.toml", FILE).is_some());
   assert!(
-    [CHEVRON_RIGHT, CHEVRON_DOWN]
-      .iter()
-      .all(|chevron| in_row(&mut stage, "Cargo.toml", chevron).is_none()),
+    in_row(&mut stage, "Cargo.toml", CHEVRON).is_none(),
     "a file has no chevron"
   );
 
@@ -212,7 +248,7 @@ fn an_open_row_has_its_chevron_down_and_its_open_icon_and_the_selected_one_is_hi
   assert_eq!(stage.text("theme.rs"), (light(PaletteColor::Foreground), 13.0));
   let icon = in_row(&mut stage, "theme.rs", FILE).unwrap();
   assert_eq!(color_of(&icon), light(PaletteColor::MutedForeground));
-  let chevron = in_row(&mut stage, "demo", CHEVRON_RIGHT).unwrap();
+  let chevron = closed_chevron(&mut stage, "demo").unwrap();
   assert_eq!(color_of(&chevron), light(PaletteColor::MutedForeground));
 
   // The selected row: the highlight, its label at 500 and its icon in the foreground. The others are not filled.
@@ -389,7 +425,7 @@ fn a_disabled_row_takes_nothing_and_the_keys_pass_it_by() {
   });
   stage.click("lurq");
   assert_eq!(held.selected.get(), None);
-  assert!(in_row(&mut stage, "lurq", CHEVRON_RIGHT).is_some());
+  assert!(closed_chevron(&mut stage, "lurq").is_some());
   press_chevron(&mut stage, "lurq");
   assert_eq!(held.open.get(), ["crates"]);
 
@@ -420,20 +456,16 @@ fn a_lazy_row_opens_with_a_spinner_until_the_app_brings_its_children() {
     Column::new().child(scene.tree(vec![remote])).into()
   });
   // Closed, it has a chevron as a folder has.
-  assert!(in_row(&mut stage, "origin", CHEVRON_RIGHT).is_some());
+  assert!(closed_chevron(&mut stage, "origin").is_some());
   stage.key("Tab");
   stage.key("ArrowRight");
   assert_eq!(*held.expanded.lock().unwrap(), ["origin"], "the app is told it opened");
   // Open with no children: a spinner where the chevron was.
-  assert!(
-    [CHEVRON_RIGHT, CHEVRON_DOWN]
-      .iter()
-      .all(|chevron| in_row(&mut stage, "origin", chevron).is_none())
-  );
+  assert!(in_row(&mut stage, "origin", CHEVRON).is_none());
   assert!(!stage.paints("main"));
   loaded.set(true);
   stage.pass();
-  assert!(in_row(&mut stage, "origin", CHEVRON_DOWN).is_some());
+  assert!(open_chevron(&mut stage, "origin").is_some());
   assert!(stage.paints("main"));
 }
 
@@ -868,4 +900,278 @@ fn a_tree_of_any_number_is_told_the_whole_new_set() {
   press_with(&mut stage, "crates", false, true);
   assert_eq!(*told.lock().unwrap(), [vec!["Cargo.toml", "crates"]]);
   assert_eq!(selected.get(), ["Cargo.toml", "crates"]);
+}
+
+/// Presses a key with no pass after it: what it starts is caught on its way. The clock is set to the present first:
+/// what the key starts runs from it, and not from the second the stage's last pass went on to.
+fn press_key(stage: &mut Stage, key: &str) {
+  stage.pass_after(Duration::ZERO);
+  stage.tree.key_down(key.to_owned(), key.to_owned(), false, false, false);
+  stage.tree.key_up(key.to_owned(), key.to_owned(), false, false, false);
+}
+
+/// Runs the timers of the motion of a tree in a virtual list that are due `after` from now, and a pass.
+fn tick(stage: &mut Stage, after: Duration) {
+  stage.tree.tick_timers_at(lurq::time::Instant::now() + after);
+  stage.pass_after(Duration::ZERO);
+}
+
+fn top(stage: &mut Stage, id: &str) -> f32 {
+  stage.bounds(id).1
+}
+
+/// The board's tree with crates and lurq open, one that builds every row or, `windowed`, the rows in view of a
+/// virtual list 300 high; in `app` where it is given.
+fn moving(windowed: bool, app: Option<App>) -> (Stage, Held) {
+  let held = Held::new(&["crates", "lurq"], None);
+  let scene = held.clone();
+  let build = move |ctx: &mut Ctx| -> Element {
+    let tree = scene.tree(files());
+    let tree: Element = if windowed {
+      tree.style(TreeViewPart::Root, |s| s.height(300.0)).mount(ctx)
+    } else {
+      tree.into()
+    };
+    Column::new().padding(8.0).child(tree).into()
+  };
+  let stage = match app {
+    Some(app) => Stage::in_app(app, build),
+    None => Stage::new(build),
+  };
+  (stage, held)
+}
+
+/// The motion of a row in a tree of either form: it closes and opens with its height, what is below moving through
+/// every place between, and turns round when it is pressed again on the way.
+fn a_row_opens_and_closes_with_its_height(windowed: bool) {
+  let (mut stage, held) = moving(windowed, None);
+  let opened = top(&mut stage, "Cargo.toml");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("crates"));
+
+  // Left closes it: at the start what is below has not moved, on the way it is between, at the end it is up by
+  // the four rows it held.
+  press_key(&mut stage, "ArrowLeft");
+  stage.pass_after(Duration::ZERO);
+  let start = top(&mut stage, "Cargo.toml");
+  assert!(
+    (start - opened).abs() < 1.0,
+    "nothing jumps at the start: {opened} -> {start}"
+  );
+  stage.pass_after(Duration::from_millis(60));
+  let on_the_way = top(&mut stage, "Cargo.toml");
+  tick(&mut stage, Duration::from_secs(2));
+  stage.pass();
+  let closed = top(&mut stage, "Cargo.toml");
+  assert!(
+    (opened - closed - 120.0).abs() < 1.0,
+    "four rows of 30 less: {opened} -> {closed}"
+  );
+  assert!(
+    on_the_way < opened - 0.5 && on_the_way > closed + 0.5,
+    "on the way: {closed} < {on_the_way} < {opened}"
+  );
+  assert!(!stage.paints("lib.rs"), "closed, its rows are gone");
+  assert_eq!(held.open.get(), ["lurq"]);
+  // Its rows are not reached once it has closed: Down goes on to the next row.
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("Cargo.toml"));
+  stage.key("ArrowUp");
+
+  // Right opens it, and Left on the way turns it round from where it is. Rows built for it in a virtual list are
+  // given their height on the turn of the loop after the one that laid them out at none: its timers are ticked.
+  press_key(&mut stage, "ArrowRight");
+  stage.pass_after(Duration::ZERO);
+  tick(&mut stage, Duration::from_millis(1));
+  stage.pass_after(Duration::from_millis(60));
+  let opening = top(&mut stage, "Cargo.toml");
+  assert!(
+    opening > closed + 0.5 && opening < opened - 0.5,
+    "opening: {closed} < {opening} < {opened}"
+  );
+  press_key(&mut stage, "ArrowLeft");
+  stage.pass_after(Duration::from_millis(60));
+  let turned = top(&mut stage, "Cargo.toml");
+  assert!(
+    turned <= opening + 0.5,
+    "turned round, it goes back up from where it was: {opening} -> {turned}"
+  );
+  tick(&mut stage, Duration::from_secs(2));
+  stage.pass();
+  assert!((top(&mut stage, "Cargo.toml") - closed).abs() < 1.0, "closed again");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("crates"),
+    "the focus stayed on the row through it all"
+  );
+
+  // Opened to the end, its rows are there and reached again, the open row in it open still.
+  stage.key("ArrowRight");
+  tick(&mut stage, Duration::from_millis(1));
+  stage.pass();
+  tick(&mut stage, Duration::from_secs(2));
+  stage.pass();
+  assert!((top(&mut stage, "Cargo.toml") - opened).abs() < 1.0, "open again");
+  assert!(stage.paints("lib.rs"));
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("lurq"));
+}
+
+#[test]
+fn a_row_of_the_tree_that_builds_every_row_opens_and_closes_with_its_height() {
+  a_row_opens_and_closes_with_its_height(false);
+}
+
+#[test]
+fn a_row_of_the_tree_that_builds_the_rows_in_view_opens_and_closes_with_its_height() {
+  a_row_opens_and_closes_with_its_height(true);
+}
+
+#[test]
+fn while_a_row_closes_the_arrows_and_typeahead_pass_its_rows_by_and_right_turns_it_round() {
+  for windowed in [false, true] {
+    let (mut stage, held) = moving(windowed, None);
+    let opened = top(&mut stage, "Cargo.toml");
+    stage.key("Tab");
+    press_key(&mut stage, "ArrowLeft");
+    stage.pass_after(Duration::ZERO);
+    stage.pass_after(Duration::from_millis(40));
+    // Down goes past the rows that are going, to the row after them.
+    press_key(&mut stage, "ArrowDown");
+    stage.pass_after(Duration::ZERO);
+    stage.pass_after(Duration::ZERO);
+    assert_eq!(focused(&stage).as_deref(), Some("Cargo.toml"), "windowed {windowed}");
+    press_key(&mut stage, "ArrowUp");
+    stage.pass_after(Duration::ZERO);
+    stage.pass_after(Duration::ZERO);
+    assert_eq!(focused(&stage).as_deref(), Some("crates"), "windowed {windowed}");
+    // A letter of a row that is going finds nothing: the focus stays.
+    press_key(&mut stage, "t");
+    stage.pass_after(Duration::ZERO);
+    stage.pass_after(Duration::ZERO);
+    assert_eq!(focused(&stage).as_deref(), Some("crates"), "windowed {windowed}");
+    // Right on the way turns it round: it opens again from where it is, and its rows are reached.
+    press_key(&mut stage, "ArrowRight");
+    stage.pass_after(Duration::from_millis(20));
+    assert_eq!(held.open.get(), ["lurq", "crates"], "windowed {windowed}");
+    tick(&mut stage, Duration::from_millis(1));
+    tick(&mut stage, Duration::from_secs(2));
+    stage.pass();
+    assert!(
+      (top(&mut stage, "Cargo.toml") - opened).abs() < 1.0,
+      "windowed {windowed}: open again"
+    );
+    stage.key("ArrowDown");
+    assert_eq!(focused(&stage).as_deref(), Some("lurq"), "windowed {windowed}");
+  }
+}
+
+#[test]
+fn with_motion_reduced_a_row_opens_and_closes_at_once_in_either_form() {
+  for windowed in [false, true] {
+    let app = App::new();
+    app.theme().set_reduced_motion(Some(true));
+    let (mut stage, _) = moving(windowed, Some(app));
+    let opened = top(&mut stage, "Cargo.toml");
+    stage.key("Tab");
+    press_key(&mut stage, "ArrowLeft");
+    stage.pass_after(Duration::ZERO);
+    stage.pass_after(Duration::from_millis(10));
+    let closed = top(&mut stage, "Cargo.toml");
+    assert!(
+      (opened - closed - 120.0).abs() < 1.0,
+      "windowed {windowed}: at once, {opened} -> {closed}"
+    );
+    assert!(!stage.paints("lib.rs"), "windowed {windowed}: its rows gone at once");
+    press_key(&mut stage, "ArrowRight");
+    stage.pass_after(Duration::ZERO);
+    stage.pass_after(Duration::from_millis(10));
+    assert!(
+      (top(&mut stage, "Cargo.toml") - opened).abs() < 1.0,
+      "windowed {windowed}: open at once"
+    );
+  }
+}
+
+#[test]
+fn the_chevron_turns_as_the_row_closes() {
+  let (mut stage, _) = moving(false, None);
+  let chevron = |stage: &mut Stage| in_row(stage, "crates", CHEVRON).map(|quad| format!("{:?}", quad.transform));
+  let open = chevron(&mut stage);
+  stage.key("Tab");
+  press_key(&mut stage, "ArrowLeft");
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let turning = texts(&stage, CHEVRON)
+    .into_iter()
+    .min_by(|a, b| a.y.total_cmp(&b.y))
+    .map(|quad| format!("{:?}", quad.transform));
+  stage.pass();
+  let closed = chevron(&mut stage);
+  assert!(open.is_some() && closed.is_some());
+  assert_ne!(open, closed, "turned to the end");
+  assert_ne!(turning, open);
+  assert_ne!(turning, closed, "on its way round");
+}
+
+#[test]
+fn a_row_of_thousands_in_a_virtual_list_opens_and_closes_building_the_rows_in_view() {
+  let open = Signal::new(Vec::<u32>::new());
+  let scene = open.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let items = vec![
+      TreeItem::folder(0u32, "Many")
+        .id("many")
+        .items((1..=5000u32).map(|i| TreeItem::file(i, &format!("file {i}")).id(format!("f{i}")))),
+      TreeItem::file(9999, "Tail").id("tail"),
+    ];
+    Column::new()
+      .child(
+        TreeView::new(Signal::new(None), items)
+          .open(scene.clone())
+          .style(TreeViewPart::Root, |s| s.width(220.0).height(240.0))
+          .mount(ctx),
+      )
+      .into()
+  });
+  let built = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text.starts_with("file ")))
+      .count()
+  };
+  let tail = top(&mut stage, "tail");
+  stage.key("Tab");
+  press_key(&mut stage, "ArrowRight");
+  stage.pass_after(Duration::ZERO);
+  tick(&mut stage, Duration::from_millis(1));
+  stage.pass_after(Duration::from_millis(60));
+  let opening = built(&stage);
+  assert!(opening > 0 && opening < 60, "{opening} rows built on the way");
+  // The first rows open in turn, the first first: on the way the first is higher than the one after the next.
+  let height = |stage: &mut Stage, id: &str| {
+    let (_, y, ..) = stage.bounds(id);
+    y
+  };
+  let (first, third) = (height(&mut stage, "f1"), height(&mut stage, "f3"));
+  assert!(
+    third - first < 59.5,
+    "on the way the rows are not all at their height: {first} {third}"
+  );
+  tick(&mut stage, Duration::from_secs(2));
+  stage.pass();
+  assert!(built(&stage) < 60, "open, the rows in view are built");
+  assert!(!stage.paints("Tail"), "what is below is past the view");
+
+  // Closed, the rows go as they came, and what was below is back.
+  press_key(&mut stage, "ArrowLeft");
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  assert!(built(&stage) < 60, "closing, the rows in view are built");
+  tick(&mut stage, Duration::from_secs(2));
+  stage.pass();
+  assert_eq!(built(&stage), 0, "closed, none");
+  assert!((top(&mut stage, "tail") - tail).abs() < 1.0);
+  assert_eq!(focused(&stage).as_deref(), Some("many"));
 }

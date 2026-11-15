@@ -89,6 +89,7 @@ mod multi_select;
 mod navbar;
 mod navigation_menu;
 mod number_input;
+mod opening_rows;
 mod outcome;
 mod pagination;
 mod part_style;
