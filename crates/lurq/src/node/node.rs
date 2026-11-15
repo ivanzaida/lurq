@@ -7233,6 +7233,7 @@ mod tests {
 }
 
 /// Whether `text` is a glyph: characters of the private use areas alone, where icon fonts put theirs.
+#[cfg(feature = "markdown")]
 fn is_glyph(text: &str) -> bool {
   !text.is_empty()
     && text

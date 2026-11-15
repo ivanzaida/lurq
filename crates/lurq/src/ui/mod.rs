@@ -273,6 +273,7 @@ pub use floating_panel::{
 };
 #[cfg(feature = "canvas")]
 pub use gauge::{Gauge, GaugePart, GaugeRenderer, GaugeView};
+#[cfg(feature = "markdown")]
 pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 #[cfg(feature = "canvas")]
