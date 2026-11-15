@@ -369,6 +369,11 @@ an alias.
 - **What moves, moves in every form of the component.** A category that opens with a motion in an accordion
   opens with it in a property grid and a tree; a chart whose bars move to new values has lines and slices
   that do. One of a family animated and the others not reads as a fault.
+- **A break of what was released is written in the migration guide in the same commit**, with what to write
+  instead (`docs/src/content/docs/migration-v0-63.md`), and listed under `Breaking:` in the changelog. A change
+  to something that only ever lived on this branch is neither: `Breaking:` is for a program written against the
+  last release, checked against `master`. The guide had stood two days and thirty-five breaks behind, under the
+  name of a release that went out without any of it.
 - **A session stopped in the middle of its work is told to read `git status` first.** The limit of the model
   cut four turns with work uncommitted, one inside a merge; nothing was lost, since each began again from
   what its worktree held and not from its memory of it.
