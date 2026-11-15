@@ -1106,7 +1106,12 @@ impl SplitterView {
     for (index, content) in self.contents.iter().enumerate() {
       // A closed pane is inert through its ref, which a drag that opens it makes not inert again.
       panes[index].set_inert(self.specs[index].collapsible && model.len() == count && model[index] <= 0.0);
-      let mut pane = self.pane_box(dimensions[index], &panes[index]).child(content.clone());
+      // Each render makes the panes' refs anew: a key keeps a pane the same node to the engine, and what is in it
+      // its focus, its caret and its scroll.
+      let mut pane = self
+        .pane_box(dimensions[index], &panes[index])
+        .key(format!("pane-{index}"))
+        .child(content.clone());
       if let Some(key) = &self.keys[index] {
         pane = pane.key(key.clone());
       }
@@ -1117,6 +1122,7 @@ impl SplitterView {
       above.push(
         self
           .pane_box(dimensions[index], &shadows[index])
+          .key(format!("shadow-{index}"))
           .pointer_events_none()
           .into(),
       );
@@ -1131,12 +1137,14 @@ impl SplitterView {
           .spacing(thickness)
           .align_items(Alignment::Stretch)
           .ref_element(room)
+          .key("panes")
           .with_children(below)
           .into(),
         Row::new()
           .size(fill, fill)
           .align_items(Alignment::Stretch)
           .hit_test(HitTestBehavior::ContentOnly)
+          .key("dividers")
           .with_children(above)
           .into(),
       )
@@ -1147,12 +1155,14 @@ impl SplitterView {
           .spacing(thickness)
           .align_items(Alignment::Stretch)
           .ref_element(room)
+          .key("panes")
           .with_children(below)
           .into(),
         Column::new()
           .size(fill, fill)
           .align_items(Alignment::Stretch)
           .hit_test(HitTestBehavior::ContentOnly)
+          .key("dividers")
           .with_children(above)
           .into(),
       )

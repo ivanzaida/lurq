@@ -538,3 +538,38 @@ fn the_orientation_is_a_state_of_the_recipe() {
   assert_eq!(across.part(SplitterPart::Handle).rest().width, Some(12.0.into()));
   assert_eq!(down.part(SplitterPart::Handle).rest().height, Some(12.0.into()));
 }
+
+#[test]
+fn what_has_the_focus_in_a_pane_keeps_it_when_what_holds_the_splitter_renders_again() {
+  let tick = Signal::new(0);
+  let bound = tick.clone();
+  let mut stage = Stage::new(move |ctx| {
+    let _ = bound.get();
+    Column::new()
+      .size(600.0, 200.0)
+      .child(
+        Splitter::new()
+          .pane(SplitterPane::new(lurq::components::Button::new("In").id("in").tab_index(0)).share(0.5))
+          .pane(SplitterPane::new(Column::new().id("other")))
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.tree.resize(600, 200);
+  stage.pass();
+  stage.click("in");
+  let focused = |stage: &Stage| {
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+  };
+  assert_eq!(focused(&stage).as_deref(), Some("in"));
+  tick.set(1);
+  stage.pass();
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("in"),
+    "the panes are the same nodes after the render"
+  );
+}

@@ -657,3 +657,54 @@ fn in_a_window_whose_title_bar_has_tabs_a_key_is_the_documents_and_the_windows_p
   );
   assert_eq!(window.get(), 1);
 }
+
+#[test]
+fn a_tab_dragged_away_from_the_bar_is_the_apps_and_moves_nothing_in_the_bar() {
+  let (open, told) = (Signal::new("blur.rs"), log());
+  let away = log();
+  let (bound, heard, moved) = (open.clone(), away.clone(), told.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let (heard, moved) = (heard.clone(), moved.clone());
+    Column::new()
+      .size(860.0, 300.0)
+      .child(
+        DocumentTabs::new(bound.clone(), files())
+          .id("bar")
+          .on_reorder(move |from, to| moved.lock().unwrap().push(format!("move {from} {to}")))
+          .on_drag_away(move |value: &&str, event| {
+            let end = if event.drop_result.is_some() { "let go" } else { "away" };
+            heard.lock().unwrap().push(format!("{end} {value}"));
+          })
+          .mount(ctx),
+      )
+      .into()
+  });
+  let (x, y) = stage.center("theme");
+  let (canvas_x, _, canvas_width, _) = stage.bounds("canvas");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  // Along the bar first: a place among the tabs, nothing told.
+  stage.tree.mouse_move(canvas_x + canvas_width * 0.75, y);
+  stage.pass();
+  assert!(said(&away).is_empty());
+  // Then down, farther from the bar than it is high: the app's.
+  stage.tree.mouse_move(canvas_x + canvas_width * 0.75, y + 120.0);
+  stage.pass();
+  assert_eq!(said(&away), ["away theme.rs"]);
+  let primary = light(PaletteColor::Primary);
+  let marked = stage.quads().into_iter().any(|quad| {
+    quad.border.is_some_and(|border| {
+      border
+        .left
+        .is_some_and(|side| side.width == 2.0 && side.color == primary)
+    })
+  });
+  assert!(!marked, "no place among the tabs while it is away");
+  stage
+    .tree
+    .mouse_up(canvas_x + canvas_width * 0.75, y + 120.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(said(&away), ["away theme.rs", "let go theme.rs"]);
+  assert!(said(&told).is_empty(), "the bar moves nothing");
+  assert_eq!(open.get(), "blur.rs");
+}

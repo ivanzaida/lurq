@@ -8135,10 +8135,19 @@ impl Tree {
       return;
     };
 
-    let Some(focused_node) = self.focused_node else {
+    let Some(mut focused_node) = self.focused_node else {
       self.clear_focus();
       return;
     };
+    // An element moved under another parent is a new node to the tree, with a new id: the focus follows it where it
+    // is found again by its ref or by the value its text input edits.
+    if find_path_by_id(root, focused_node).is_none()
+      && let Some(found) = refocused(root, &self.focus_memory)
+    {
+      focused_node = found;
+      self.focused_node = Some(found);
+      self.focused_event_node = None;
+    }
     let Some(input_path) = find_path_by_id(root, focused_node) else {
       // What had the focus has left the tree. In a focus group that is still there the focus goes to what
       // took its place, the next of the group's stops or the last: a tag taken away with the keyboard leaves
@@ -11638,6 +11647,29 @@ fn blend_screenshot_pixel(pixels: &mut [u8], width: u32, x: u32, y: u32, source:
     pixels[index + channel] = (out.clamp(0.0, 1.0) * 255.0).round() as u8;
   }
   pixels[index + 3] = (out_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+}
+
+/// The node that is the element the focus was on, where it is no longer found by its id: the one with the ref it had,
+/// or the text input that edits the value it edited.
+fn refocused(root: &Node, memory: &FocusMemory) -> Option<NodeId> {
+  if memory.refs.is_empty() && memory.input.is_none() {
+    return None;
+  }
+  fn visit(node: &Node, memory: &FocusMemory) -> Option<NodeId> {
+    let by_ref = node
+      .element_ref
+      .as_ref()
+      .is_some_and(|reference| memory.refs.iter().any(|kept| kept.same_handle(reference)));
+    let by_input = match (node.node_kind(), &memory.input) {
+      (NodeKind::TextInput { state, .. }, Some(input)) => state.same_value(input),
+      _ => false,
+    };
+    if by_ref || by_input {
+      return Some(node.node_id());
+    }
+    node.children().iter().find_map(|child| visit(child, memory))
+  }
+  visit(root, memory)
 }
 
 fn find_path_by_id(node: &Node, id: NodeId) -> Option<Vec<usize>> {
