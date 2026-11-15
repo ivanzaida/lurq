@@ -673,6 +673,13 @@ pub(crate) trait NodeUpdate {
   fn middle_button_autoscroll(&mut self, enabled: bool);
   fn hit_test(&mut self, behavior: HitTestBehavior);
   fn pointer_events_none(&mut self);
+  /// Says the element is one of the window's controls, in a title bar the app draws itself: the control that
+  /// minimizes the window, maximizes it (or restores it) or closes it. The shell tells the system so, which on
+  /// Windows answers the system's hit test with the minimize, the maximize or the close button where the element
+  /// is laid out and nothing covers it, so that Windows 11 opens its snap layouts over the maximize control. The
+  /// element is otherwise as before: its states, its `on_click`, its cursor and its keys are its own. On other
+  /// platforms this does nothing.
+  fn window_control(&mut self, control: WindowControl);
   fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>);
   fn interactive(&mut self, state: InteractionState);
   fn focusable(&mut self, focusable: bool);
@@ -803,6 +810,25 @@ pub enum HitTestBehavior {
   ContentOnly,
 }
 
+/// One of the window's controls: what an element of a title bar the app draws itself is to the window. See
+/// `.window_control(..)` on an element.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WindowControl {
+  /// The control that minimizes the window.
+  Minimize,
+  /// The control that maximizes the window, or restores it while it is maximized.
+  Maximize,
+  /// The control that closes the window.
+  Close,
+}
+
+/// Whether any node of the process was ever one of a window's controls. Until one is, no tree has any to find.
+static WINDOW_CONTROLS_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn window_controls_in_use() -> bool {
+  WINDOW_CONTROLS_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SyntheticNodeRole {
   OverlayHost,
@@ -892,6 +918,8 @@ pub(crate) struct RareStyle {
   pub(crate) caret_color: Option<TextColor>,
   pub(crate) selection_color: Option<TextColor>,
   pub(crate) caret_mode: Option<CaretMode>,
+  /// Which of the window's controls the node is, if it is one; see [`NodeUpdate::window_control`].
+  pub(crate) window_control: Option<WindowControl>,
 }
 
 /// Whether any node of the process was ever disabled. Until one is, no tree
@@ -1995,6 +2023,11 @@ impl NodeUpdate for Node {
 
   fn pointer_events_none(&mut self) {
     self.hit_test = HitTestBehavior::None;
+  }
+
+  fn window_control(&mut self, control: WindowControl) {
+    self.rare_style.window_control = Some(control);
+    WINDOW_CONTROLS_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
   }
 
   fn ref_element(&mut self, element_ref: impl Into<CoreElementRef>) {
@@ -4814,6 +4847,11 @@ impl Node {
 
   pub(crate) fn hit_test_behavior(&self) -> HitTestBehavior {
     self.hit_test
+  }
+
+  /// Which of the window's controls the node is: see [`NodeUpdate::window_control`].
+  pub(crate) fn window_control(&self) -> Option<WindowControl> {
+    self.rare_style.window_control
   }
 
   /// The value a running transition or animation gives `prop` this frame.

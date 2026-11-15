@@ -343,6 +343,7 @@ impl CloseRequest {
 
 type CloseHandler = Arc<dyn Fn(CloseRequest) + Send + Sync>;
 
+pub(crate) mod controls;
 mod handle;
 pub(crate) mod resize;
 #[cfg(test)]
@@ -443,6 +444,9 @@ struct WindowInner {
   resize_reports: resize::ResizeReports,
   close_handler: Option<CloseHandler>,
   app_event_handler: Option<AppEventHandler>,
+  /// Where the window's controls are, in a title bar the app draws itself: what the tree found at its last
+  /// layout, for a shell that tells the system. See `controls`.
+  controls: Arc<controls::WindowControlRegions>,
 }
 
 impl WindowInner {
@@ -501,6 +505,7 @@ impl Window {
         resize_reports: resize::ResizeReports::default(),
         close_handler: None,
         app_event_handler: None,
+        controls: Arc::default(),
       })),
       version_signal: Signal::new(0),
     }
@@ -836,6 +841,29 @@ impl Window {
       Self::bump_version(&mut inner)
     };
     self.version_signal.set(version);
+  }
+
+  /// The tree says where the window's controls are, after a layout. Nothing that reads the window is told: only
+  /// a shell asks, at the system's hit test.
+  pub(crate) fn set_control_regions(&self, regions: controls::WindowControlRegions) {
+    let mut inner = self.inner.write().unwrap();
+    if *inner.controls != regions {
+      inner.controls = Arc::new(regions);
+    }
+  }
+
+  /// Which of the window's controls is at a point of the window, in physical pixels, as the tree last laid them
+  /// out: the element the app marked with `.window_control(..)`, where nothing covers it.
+  #[cfg_attr(not(all(feature = "winit", windows)), allow(dead_code))]
+  pub(crate) fn control_at(&self, x: f32, y: f32) -> Option<crate::node::WindowControl> {
+    let (regions, scale) = {
+      let inner = self.inner.read().unwrap();
+      if inner.controls.is_empty() {
+        return None;
+      }
+      (inner.controls.clone(), inner.info.scale_factor.max(0.01))
+    };
+    regions.at(x / scale, y / scale)
   }
 
   #[cfg_attr(not(feature = "winit"), allow(dead_code))]
