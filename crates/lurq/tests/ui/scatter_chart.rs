@@ -1,6 +1,7 @@
 //! A scatter chart: the board's Scatter Chart (300 wide, a plot of 260 by 140, points of 8 at 0.85, the numbers of
 //! the axis across under the plot, the line of the trend), the point nearest the pointer in two dimensions with its
-//! ring and its tooltip, the keys, several series and the legend off, negative values, one point, no data, loading.
+//! ring and its tooltip, the keys, several series and the legend off, negative values, one point, no data, loading;
+//! its points and its trend on their way to a change.
 
 use std::sync::{Arc, Mutex};
 
@@ -11,6 +12,7 @@ use lurq::{
   },
   canvas::{CanvasItem, CanvasItemShape},
   components::Column,
+  core::Signal,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
   ui::{ChartPoint, ChartSeries, ScatterChart},
@@ -274,4 +276,169 @@ fn a_legend_when_told_negative_values_one_point_and_no_data() {
 
 fn stage_of(series: Vec<ChartSeries>) -> Stage {
   stage(move || ScatterChart::new(series.clone()).id("c"))
+}
+
+fn revision(stage: &mut Stage) -> u64 {
+  stage
+    .tree
+    .get_element_by_id_mut("c-plot")
+    .and_then(|element| element.canvas())
+    .unwrap()
+    .status()
+    .content_revision
+}
+
+/// The middle of what is drawn in `color` along the plot's column at `x`, at least `alpha` opaque.
+fn drawn_at(stage: &mut Stage, x: f32, color: Color, alpha: u8) -> Option<f32> {
+  let hits: Vec<f32> = (0..560)
+    .map(|step| step as f32 / 4.0)
+    .filter(|y| {
+      let drawn = pixel(stage, x, *y);
+      drawn.a() >= alpha && near(drawn, color)
+    })
+    .collect();
+  Some((hits.first()? + hits.last()?) / 2.0)
+}
+
+fn between(half: f32, was: f32, is: f32, what: &str) {
+  let (low, high) = (was.min(is), was.max(is));
+  assert!(
+    half > low + 3.0 && half < high - 3.0,
+    "{what}: {half} on its way from {was} to {is}"
+  );
+}
+
+#[test]
+fn the_plot_moves_in_and_to_a_change_drawn_at_each_frame_while_it_moves_and_not_at_rest() {
+  use std::time::Duration;
+  let (shown, moved, moves) = (Signal::new(false), Signal::new(2.0), Signal::new(true));
+  let (on, bound, moving) = (shown.clone(), moved.clone(), moves.clone());
+  let mut stage = Stage::software(move |ctx| {
+    let mut column = Column::new().size(300.0, 600.0);
+    if on.get() {
+      let series = ChartSeries::points("v", [(0.0, 0.0), (5.0, bound.get()), (10.0, 10.0)]);
+      let chart = ScatterChart::new([series]).trend(true).motion(moving.get()).id("c");
+      column = column.child(chart.mount(ctx));
+    }
+    column.into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 700.0))));
+  stage.pass();
+
+  shown.set(true);
+  stage.pass_after(Duration::ZERO);
+  assert!(stage.tree.has_moving_canvas(), "a chart first shown moves in");
+  let entering = revision(&mut stage);
+  stage.pass_after(Duration::from_millis(100));
+  assert!(
+    revision(&mut stage) > entering,
+    "drawn again at the next frame on its way"
+  );
+  stage.pass();
+  assert!(!stage.tree.has_moving_canvas(), "and comes to rest in a moment");
+  assert_eq!(points(&mut stage).len(), 3, "tooling reads the data where it is");
+  let rest = revision(&mut stage);
+  stage.pass();
+  stage.pass_after(Duration::from_millis(16));
+  assert_eq!(
+    revision(&mut stage),
+    rest,
+    "at rest, frames and renders that change nothing draw nothing"
+  );
+
+  moved.set(8.0);
+  stage.pass_after(Duration::ZERO);
+  assert!(stage.tree.has_moving_canvas(), "a change of the data moves the points");
+  stage.pass();
+  assert!(!stage.tree.has_moving_canvas());
+
+  stage.app.theme().set_reduced_motion(Some(true));
+  stage.pass();
+  moved.set(4.0);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    !stage.tree.has_moving_canvas(),
+    "where motion is reduced, the points go to their place at once"
+  );
+  stage.app.theme().set_reduced_motion(None);
+
+  moves.set(false);
+  stage.pass();
+  moved.set(6.0);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    !stage.tree.has_moving_canvas(),
+    "nor do they move where the chart is told not to"
+  );
+}
+
+#[test]
+fn a_point_moves_from_where_it_was_and_one_added_grows_at_its_place() {
+  use std::time::Duration;
+  let (moved, more) = (Signal::new(2.0), Signal::new(false));
+  let (bound, added) = (moved.clone(), more.clone());
+  let mut stage = stage(move || {
+    let points = [(0.0, 0.0), (5.0, bound.get()), (10.0, 10.0)];
+    // A second series, which gains a point at its end inside the plot.
+    let mut other = vec![(1.0, 9.0)];
+    if added.get() {
+      other.push((8.0, 1.0));
+    }
+    ScatterChart::new([ChartSeries::points("v", points), ChartSeries::points("w", other)]).id("c")
+  });
+  let chart = light(PaletteColor::Chart1);
+  let (x, was) = place(&points(&mut stage)[1]);
+  moved.set(8.0);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(120));
+  let half = drawn_at(&mut stage, x, chart, 120).expect("the point on its way");
+  stage.pass();
+  let (_, is) = place(&points(&mut stage)[1]);
+  between(half, was, is, "the point at 5");
+
+  more.set(true);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  let drawn = points(&mut stage);
+  let (nx, ny) = place(&drawn[4]);
+  let width = (0..64)
+    .map(|step| nx - 8.0 + step as f32 / 4.0)
+    .filter(|x| pixel(&mut stage, *x, ny).a() >= 120)
+    .count() as f32
+    / 4.0;
+  assert!(
+    width > 0.0 && width < 6.0,
+    "the point added grows from nothing at its place: {width} across"
+  );
+  stage.pass();
+}
+
+#[test]
+fn the_trend_follows_its_points() {
+  use std::time::Duration;
+  let falls = Signal::new(false);
+  let bound = falls.clone();
+  let mut stage = stage(move || {
+    let points = if bound.get() {
+      [(0.0, 10.0), (10.0, 0.0)]
+    } else {
+      [(0.0, 0.0), (10.0, 10.0)]
+    };
+    ScatterChart::new([ChartSeries::points("v", points)])
+      .trend(true)
+      .id("c")
+  });
+  let trend = light(PaletteColor::MutedForeground);
+  let (_, _, width, _) = stage.bounds("c-plot");
+  let x = width / 4.0;
+  let was = drawn_at(&mut stage, x, trend, 60).expect("the trend rises");
+  falls.set(true);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let half = drawn_at(&mut stage, x, trend, 60).expect("the trend on its way");
+  stage.pass();
+  let is = drawn_at(&mut stage, x, trend, 60).expect("the trend falls");
+  between(half, was, is, "the trend a quarter across");
 }

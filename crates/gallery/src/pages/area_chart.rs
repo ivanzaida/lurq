@@ -85,6 +85,7 @@ pub struct AreaChartPage {
   smooth: Signal<bool>,
   grid: Signal<bool>,
   legend: Signal<bool>,
+  motion: Signal<bool>,
   hidden: Signal<Vec<String>>,
   selected: Signal<Option<ChartPoint>>,
 }
@@ -98,6 +99,7 @@ impl AreaChartPage {
       self.grid.get(),
       self.legend.get(),
     );
+    let motion = self.motion.get();
     let (categories, series, labels, text) = data(choice);
     let make = {
       let (categories, series, labels) = (categories.clone(), series.clone(), labels.clone());
@@ -110,6 +112,7 @@ impl AreaChartPage {
           .grid(grid)
           .legend(legend)
           .loading(choice == 6)
+          .motion(motion)
           .value_text(text);
         if let Some(labels) = &labels {
           chart = chart.axis_labels(labels.clone());
@@ -154,6 +157,9 @@ impl AreaChartPage {
     if choice == 6 {
       code.push("    .loading(true)".to_owned());
     }
+    if !motion {
+      code.push("    .motion(false)".to_owned());
+    }
     code.push("    .mount(ctx)".to_owned());
     let tree = vec![
       format!("root      {} · a figure · card, padded 20", self.playground.measured()),
@@ -167,7 +173,7 @@ impl AreaChartPage {
     let reset = (
       self.data.clone(),
       [self.stacked.clone(), self.smooth.clone()],
-      [self.grid.clone(), self.legend.clone()],
+      [self.grid.clone(), self.legend.clone(), self.motion.clone()],
       self.hidden.clone(),
       self.selected.clone(),
     );
@@ -206,6 +212,7 @@ impl AreaChartPage {
           flag("curve: smooth", &self.smooth),
           flag("grid", &self.grid),
           flag("legend", &self.legend),
+          flag("motion: in, and to a change of the data", &self.motion),
         ],
         changed: [
           choice != 0,
@@ -213,6 +220,7 @@ impl AreaChartPage {
           smooth,
           !grid,
           legend,
+          !motion,
           !self.hidden.get().is_empty(),
         ]
         .into_iter()
@@ -225,6 +233,7 @@ impl AreaChartPage {
           }
           reset.2[0].set(true);
           reset.2[1].set(false);
+          reset.2[2].set(true);
           reset.3.set(Vec::new());
           reset.4.set(None);
         }),
@@ -245,6 +254,7 @@ impl Component for AreaChartPage {
       smooth: ctx.signal(false),
       grid: ctx.signal(true),
       legend: ctx.signal(false),
+      motion: ctx.signal(true),
       hidden: ctx.signal(Vec::new()),
       selected: ctx.signal(None),
     }
@@ -289,6 +299,13 @@ impl Component for AreaChartPage {
         "",
         "",
         "Every chart's.",
+      ),
+      (
+        "motion",
+        "bool",
+        "true",
+        "The areas drawn on from their start, and each value moving to a change of the data, the fill with it, a \
+         stack too.",
       ),
       (
         "on_select",

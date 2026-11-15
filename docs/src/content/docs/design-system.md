@@ -4754,7 +4754,7 @@ LineChart::new(
 | `LineChart::new(categories, series)` | The names of the places along the plot, the first at its start and the last at its end, and the series, a value for each; a value that is not a finite number leaves a gap in its line |
 | `curve(LineCurve)` | `Straight`, as the board draws it, or `Smooth`: a monotone curve through every value that never goes past the values beside it |
 | `axis_labels(texts)` | The texts under the plot, spread from its start to its end, in place of the categories' names; of more than eight categories eight are written |
-| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `grid`, `value_axis`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `size` is `Sm` and `grid` on unless told, as the board draws it |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `grid`, `value_axis`, `empty_text`, `loading`, `motion`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `size` is `Sm` and `grid` on unless told, as the board draws it |
 | `mount(ctx)` | The cursor, the marks and the tooltip of the place under the pointer or the focus, the arrows, `on_select` told a press. Converted into an element it is the still chart |
 
 - The board's Line Chart (`ufn5w`): the chart's frame at `Sm`, a plot of 140 with its lines across at the ticks, lines 2 wide with round joins and ends in the series' colors, the first drawn over the others, the names under the plot from its start to its end, and the legend in dots. At the place under the pointer: a line of 1 in `Input` across the plot (the frame's `ChartPart::Cursor`), a mark of 10 on each line in its color ringed 2 in `Card`, and the Chart Tooltip with every series' value there, 10 before the cursor and 4 from the plot's top (after it where there is no room before it).
@@ -4763,6 +4763,7 @@ LineChart::new(
 - To tooling each value is an item of the plot: `point-<series>-<index>`, named by its category (and its series where there are several), valued as `value_text` writes it.
 - Parts: the chart's, and `LineChartPart::Line` (its opacity), `Area`, `Point` (the color of a mark's ring). States: `LineChartState::Smooth`, `Stacked`.
 - Where the board draws nothing: a smooth curve, gaps, more series, values under zero (zero is a line across the plot), one value (a dot in the plot's middle).
+- Its motion: a line is drawn on from its start as the chart is first shown. When the data changes each value moves from where it was drawn to its new place, the line and its curve with it; a value added at the end comes out of the last one before, and one removed goes into the last one left, so the others only slide to their new place; a series shown again rises from the line of zero, and one hidden sinks to it. A gap the data has now is one at once.
 
 ## Area Chart
 
@@ -4789,6 +4790,7 @@ AreaChart::new(
 
 - The board's Area Chart (`yTmhJ`): a line chart whose lines have the fill under them, down to zero, in the series' colors at 0.16 (`LineChartPart::Area`), the line over it. Its parts and states are the line chart's.
 - Where the board draws nothing: stacked areas, several series, the tooltip and the keys (the line chart's).
+- Its motion is the line chart's, the fill moving with its line: in a stack each band's bottom moves with the series under it, a series shown again rises from the one under it, and one hidden sinks onto it.
 
 ## Scatter Chart
 
@@ -4820,6 +4822,7 @@ ScatterChart::new([
 - To tooling each point is an item of the plot: `point-<series>-<index>`, named by its series and its x, valued as `value_text` writes its y.
 - Parts: the chart's, and `ScatterChartPart::Point` (its opacity), `Ring`, `Trend`. States: `ScatterChartState::Trend`.
 - Where the board draws nothing: the tooltip (the board's Chart Tooltip over the point, its x as its title), the ring of the point under the pointer, a legend (off unless told), values under zero, several series.
+- Its motion: the points grow in at their place as the chart is first shown. When the data changes each point moves from where it was drawn to its new place (a point is the one of its series at its place by x), and the trend with them; a point that is new grows at its place and one no longer there shrinks away at its old one, as do the points of a series shown or hidden; a trend that comes or goes fades.
 
 ## Data Grid
 

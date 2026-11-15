@@ -504,3 +504,196 @@ fn a_smooth_line_never_goes_past_the_values_on_either_side() {
     assert_eq!(pixel(&mut stage, x, top - 4.0).a(), 0, "nothing over the flat at {x}");
   }
 }
+
+/// The plot's canvas, whose revision counts the times it is drawn.
+fn revision(stage: &mut Stage) -> u64 {
+  stage
+    .tree
+    .get_element_by_id_mut("c-plot")
+    .and_then(|element| element.canvas())
+    .unwrap()
+    .status()
+    .content_revision
+}
+
+/// The height of the line drawn in `color` at `x` of the plot, from its top: none where none is.
+fn line_at(stage: &mut Stage, x: f32, color: Color) -> Option<f32> {
+  let hits: Vec<f32> = (0..280)
+    .map(|step| step as f32 / 2.0)
+    .filter(|y| {
+      let drawn = pixel(stage, x, *y);
+      drawn.a() > 160 && near(drawn, color)
+    })
+    .collect();
+  Some((hits.first()? + hits.last()?) / 2.0)
+}
+
+/// Half way along a motion of the slow duration, 240 milliseconds.
+const HALF_WAY: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// Asserts that `half` is between `was` and `is`, and some way from each.
+fn between(half: f32, was: f32, is: f32, what: &str) {
+  let (low, high) = (was.min(is), was.max(is));
+  assert!(
+    half > low + 3.0 && half < high - 3.0,
+    "{what}: {half} on its way from {was} to {is}"
+  );
+}
+
+#[test]
+fn the_plot_moves_in_and_to_a_change_drawn_at_each_frame_while_it_moves_and_not_at_rest() {
+  use std::time::Duration;
+  let (shown, values, moves) = (Signal::new(false), Signal::new(vec![1.0, 2.0, 3.0]), Signal::new(true));
+  let (on, bound, moving) = (shown.clone(), values.clone(), moves.clone());
+  let mut stage = Stage::software(move |ctx| {
+    let mut column = Column::new().size(420.0, 600.0);
+    if on.get() {
+      let chart = AreaChart::new(["a", "b", "c"], [ChartSeries::new("v", bound.get())])
+        .motion(moving.get())
+        .id("c");
+      column = column.child(chart.mount(ctx));
+    }
+    column.into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(800.0, 700.0))));
+  stage.pass();
+
+  shown.set(true);
+  stage.pass_after(Duration::ZERO);
+  assert!(stage.tree.has_moving_canvas(), "a chart first shown moves in");
+  let entering = revision(&mut stage);
+  stage.pass_after(Duration::from_millis(100));
+  assert!(
+    revision(&mut stage) > entering,
+    "drawn again at the next frame on its way"
+  );
+  stage.pass();
+  assert!(!stage.tree.has_moving_canvas(), "and comes to rest in a moment");
+  assert_eq!(points(&mut stage).len(), 3, "tooling reads the data where it is");
+  let rest = revision(&mut stage);
+  stage.pass();
+  stage.pass_after(Duration::from_millis(16));
+  assert_eq!(
+    revision(&mut stage),
+    rest,
+    "at rest, frames and renders that change nothing draw nothing"
+  );
+
+  values.set(vec![1.0, 3.0, 3.0]);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    stage.tree.has_moving_canvas(),
+    "a change of the data moves the line to its new place"
+  );
+  stage.pass();
+  assert!(!stage.tree.has_moving_canvas());
+
+  stage.app.theme().set_reduced_motion(Some(true));
+  stage.pass();
+  values.set(vec![2.0, 3.0, 3.0]);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    !stage.tree.has_moving_canvas(),
+    "where motion is reduced, the line goes to its place at once"
+  );
+  stage.app.theme().set_reduced_motion(None);
+
+  moves.set(false);
+  stage.pass();
+  values.set(vec![4.0, 3.0, 3.0]);
+  stage.pass_after(Duration::ZERO);
+  assert!(
+    !stage.tree.has_moving_canvas(),
+    "nor does it move where the chart is told not to"
+  );
+}
+
+#[test]
+fn a_change_moves_each_value_from_where_it_was_to_its_new_place_and_the_area_with_it() {
+  let values = Signal::new(vec![0.0, 2.0, 10.0]);
+  let bound = values.clone();
+  let mut stage = stage(move || AreaChart::new(["a", "b", "c"], [ChartSeries::new("v", bound.get())]).id("c"));
+  let chart = light(PaletteColor::Chart1);
+  let (x, was) = place(&points(&mut stage)[1]);
+  values.set(vec![0.0, 8.0, 10.0]);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(HALF_WAY);
+  assert!(stage.tree.has_moving_canvas(), "on its way");
+  let half = line_at(&mut stage, x, chart).expect("the line is drawn on its way");
+  stage.pass();
+  let (_, is) = place(&points(&mut stage)[1]);
+  assert!(is < was - 40.0, "8 is higher than 2: {was} to {is}");
+  between(half, was, is, "the value of b");
+  // The area under the line goes with it: filled right under the line, and not over it.
+  assert!(pixel(&mut stage, x, half + 6.0).a() > 0, "filled under the line");
+  let line = line_at(&mut stage, x, chart).unwrap();
+  assert!((line - is).abs() < 1.5, "and at rest at its place");
+}
+
+#[test]
+fn a_value_added_at_the_end_comes_out_of_the_last_one_and_the_others_slide_to_their_place() {
+  let values = Signal::new(vec![2.0, 4.0]);
+  let bound = values.clone();
+  let mut stage = stage(move || {
+    let values = bound.get();
+    let categories: Vec<String> = (0..values.len()).map(|index| index.to_string()).collect();
+    // A second series holds the top of the scale where it is.
+    let top = vec![10.0; values.len()];
+    LineChart::new(
+      categories,
+      [ChartSeries::new("v", values), ChartSeries::new("top", top)],
+    )
+    .id("c")
+  });
+  let chart = light(PaletteColor::Chart1);
+  let was = points(&mut stage);
+  let (end, was_end) = place(&was[1]);
+  values.set(vec![2.0, 4.0, 6.0]);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(HALF_WAY);
+  // The new value is on its way up from where the last one was, at the plot's end: nothing jumps there.
+  let half_end = line_at(&mut stage, end - 1.0, chart).expect("drawn at the end on its way");
+  // The value that was last slides from the end towards the middle: no longer at the end, not yet in the middle.
+  stage.pass();
+  let is = points(&mut stage);
+  let (middle, _) = place(&is[1]);
+  let (_, is_end) = place(&is[2]);
+  between(half_end, was_end, is_end, "the new value at the end");
+  assert!((middle - end / 2.0).abs() < 0.5, "the middle of three");
+}
+
+#[test]
+fn a_series_hidden_in_a_stack_sinks_to_the_one_under_it_and_the_ones_over_it_come_down() {
+  let hidden: Signal<Vec<String>> = Signal::new(Vec::new());
+  let kept = hidden.clone();
+  let mut stage = stage(move || {
+    AreaChart::new(
+      ["a", "b", "c"],
+      [
+        ChartSeries::new("Layout", [4.0, 4.0, 4.0]),
+        ChartSeries::new("Paint", [2.0, 2.0, 2.0]),
+        ChartSeries::new("Text", [4.0, 4.0, 4.0]),
+      ],
+    )
+    .stacked(true)
+    .hidden(kept.clone())
+    .id("c")
+  });
+  let paint = light(PaletteColor::Chart2);
+  let (x, was) = place(&points(&mut stage)[4]);
+  hidden.set(vec!["Layout".to_owned()]);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(HALF_WAY);
+  let half = line_at(&mut stage, x, paint).expect("the middle of the stack on its way");
+  stage.pass();
+  let drawn = points(&mut stage);
+  assert_eq!(drawn.len(), 6, "two series left");
+  let (_, is) = place(&drawn[1]);
+  between(half, was, is, "the line of Paint, from 6 to 2");
+  assert!(
+    line_at(&mut stage, x, light(PaletteColor::Chart1)).is_none(),
+    "the series hidden is gone at rest"
+  );
+}
