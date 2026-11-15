@@ -99,6 +99,7 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
+mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
@@ -367,6 +368,10 @@ pub use part_style::{
 pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,
+};
+pub use picture::{
+  PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
+  PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureState, PictureView,
 };
 #[cfg(feature = "canvas")]
 pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};

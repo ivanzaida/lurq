@@ -63,6 +63,7 @@ names!(MenuState {
 pub type MenuRenderer = Arc<dyn Fn(MenuView) -> Element + Send + Sync>;
 
 /// What a menu holds, in order.
+#[derive(Clone)]
 pub enum MenuEntry {
   /// A command.
   Item(MenuItem),
@@ -126,6 +127,7 @@ impl From<MenuItem> for MenuEntry {
 /// Up and Down move the focus between the items, Home and End go to the first
 /// and the last, and a disabled item is passed by; typing a letter goes to the
 /// item whose label starts with it. Tab stops in the menu once.
+#[derive(Clone)]
 pub struct Menu {
   anchor: ElementRef,
   open: OpenState,
@@ -763,6 +765,7 @@ pub type MenuItemRenderer = Arc<dyn Fn(MenuItemView) -> Element + Send + Sync>;
 ///
 /// It is chosen by a click, and by Enter or Space while it is focused. Under
 /// the pointer or focused from the keyboard it is highlighted.
+#[derive(Clone)]
 pub struct MenuItem {
   label: Arc<str>,
   icon: Option<Name>,
