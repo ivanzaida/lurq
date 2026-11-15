@@ -3536,7 +3536,7 @@ impl TableHeader {
       menu = menu
         .item(
           MenuItem::new(&words.filter)
-            .icon(icons::SLIDERS)
+            .icon(icons::FILTER)
             .checked(filtered)
             .on_select(choose(MenuChoice::Filter)),
         )

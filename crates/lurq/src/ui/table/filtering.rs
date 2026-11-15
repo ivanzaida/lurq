@@ -497,10 +497,9 @@ impl TableHeader {
     if !self.filtered {
       return None;
     }
-    // A stand-in for the funnel the board's icon font has yet to draw.
     Some(glyph(
       &self.part(TablePart::FilterIcon),
-      Name::new(icons::SLIDERS),
+      Name::new(icons::FILTER),
       false,
     ))
   }
