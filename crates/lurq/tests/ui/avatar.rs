@@ -337,9 +337,9 @@ fn a_theme_restyles_an_avatar_or_gives_it_another_anatomy() {
 
 /// A picture of 4 by 4 in one color.
 #[cfg(feature = "raster")]
-fn pixels() -> lurq::components::Image {
+fn pixels() -> lurq::ui::Picture {
   let rgba = [30, 120, 200, 255].repeat(16);
-  lurq::components::Image::new(lurq::images::ImageData::from_rgba(rgba, 4, 4))
+  lurq::ui::Picture::new(lurq::images::ImageData::from_rgba(rgba, 4, 4))
 }
 
 /// The image the avatar with `id` paints, if it paints one in its box.
@@ -359,10 +359,10 @@ fn a_picture_fills_the_face_in_its_shape_in_place_of_the_letters() {
     Row::new()
       .padding(8.0)
       .spacing(12.0)
-      .child(Avatar::new("Ivan Zaida").image(pixels()).id("round"))
+      .child(Avatar::new("Ivan Zaida").picture(pixels()).id("round"))
       .child(
         Avatar::new("Lurq Team")
-          .image(pixels())
+          .picture(pixels())
           .shape(AvatarShape::Square)
           .size(AvatarSize::Lg)
           .id("square"),
@@ -385,21 +385,18 @@ fn a_picture_fills_the_face_in_its_shape_in_place_of_the_letters() {
 fn a_picture_that_decodes_shows_and_one_that_fails_leaves_the_letters() {
   use std::time::Duration;
 
-  use lurq::{
-    components::Image,
-    images::{ImageKey, wait_for_decoded_images},
-  };
+  use lurq::{images::wait_for_decoded_images, ui::Picture};
 
   const RED: &[u8] = include_bytes!("../assets/images/red_64x32.png");
   // Keys no other test uses: the cache of decoded pictures is the process's.
-  let red = || Image::from_bytes(RED).cache_key(ImageKey::new(0xA7A7_0001));
-  let broken = || Image::from_bytes(&b"not a picture"[..]).cache_key(ImageKey::new(0xA7A7_0002));
+  let red = || Picture::from_bytes(RED).cache_key(0xA7A7_0001);
+  let broken = || Picture::from_bytes(&b"not a picture"[..]).cache_key(0xA7A7_0002);
   let mut stage = Stage::new(move |_| {
     Row::new()
       .padding(8.0)
       .spacing(12.0)
-      .child(Avatar::new("Ivan Zaida").image(red()).id("decodes"))
-      .child(Avatar::new("Anna K.").image(broken()).id("fails"))
+      .child(Avatar::new("Ivan Zaida").picture(red()).id("decodes"))
+      .child(Avatar::new("Anna K.").picture(broken()).id("fails"))
       .into()
   });
   assert!(wait_for_decoded_images(Duration::from_secs(10)), "the decodes end");

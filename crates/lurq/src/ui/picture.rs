@@ -429,6 +429,7 @@ pub struct Picture {
   on_retry: Vec<Action>,
   on_load: Vec<Action>,
   on_error: Vec<Told<Arc<str>>>,
+  fallback: Option<Arc<dyn Fn() -> Element + Send + Sync>>,
   caption: Option<Arc<str>>,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
@@ -474,6 +475,7 @@ impl Picture {
       on_retry: Vec::new(),
       on_load: Vec::new(),
       on_error: Vec::new(),
+      fallback: None,
       caption: None,
       title: None,
       description: None,
@@ -689,6 +691,14 @@ impl Picture {
     self
   }
 
+  /// What the box shows wherever it has no pixels (while they are on their way, when they did not come, with
+  /// no source), in place of what a picture shows there itself: an avatar's initials. It goes out over the
+  /// pixels as the picture's own stand-in does.
+  pub(crate) fn fallback(mut self, fallback: impl Fn() -> Element + Send + Sync + 'static) -> Self {
+    self.fallback = Some(Arc::new(fallback));
+    self
+  }
+
   /// Called once the picture's pixels are there: once for a source, and again for one asked for anew.
   pub fn on_load(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_load.push(Arc::new(handler));
@@ -891,6 +901,14 @@ impl Picture {
         .map(|size| (size, Some(size.bounds())))
         .collect(),
     }
+  }
+}
+
+/// Pixels the app has are a picture of them.
+#[cfg(feature = "raster")]
+impl From<crate::images::ImageData> for Picture {
+  fn from(data: crate::images::ImageData) -> Self {
+    Self::new(data)
   }
 }
 
@@ -1887,6 +1905,9 @@ impl PictureView {
         .into()
     };
     let (pixels, over) = match (&self.phase, self.image()) {
+      (_, Some(image)) if !picture.loading => (Some(image), None),
+      // What stands there in place of the picture's own stand-ins, whatever the reason there are no pixels.
+      _ if picture.fallback.is_some() => (None, picture.fallback.as_ref().map(|fallback| waiting(fallback()))),
       // What the app is still fetching itself: the stand-in of a load, with no pixels to come by themselves.
       _ if picture.loading => (None, Some(waiting(self.loading_maker()(None)))),
       (_, Some(image)) => (Some(image), None),
