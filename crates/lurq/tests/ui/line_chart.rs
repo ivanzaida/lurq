@@ -3,10 +3,7 @@
 //! and its tooltip beside it, the keys, gaps, a smooth curve, ten thousand values, negative values, one value, a
 //! hidden series, no data and loading; the area under a line as the board fills it, and stacked areas.
 
-use std::{
-  sync::{Arc, Mutex},
-  time::Instant,
-};
+use std::sync::{Arc, Mutex};
 
 use lurq::{
   app::{
@@ -18,7 +15,7 @@ use lurq::{
   core::Signal,
   layout::{Constraints, Size, quad::QuadContent},
   node::color::Color,
-  ui::{AreaChart, ChartPoint, ChartSeries, LineChart, LineCurve},
+  ui::{AreaChart, ChartPoint, ChartSeries, LineChart, LineCurve, line_values_looked_at},
 };
 
 use super::stage::Stage;
@@ -332,28 +329,49 @@ fn stage_line(values: [f64; 5], curve: LineCurve, x: f32, y: f32) -> Color {
 
 #[test]
 fn a_line_of_ten_thousand_values_has_no_mark_of_its_own_and_the_pointer_finds_its_place_at_once() {
-  let names: Vec<String> = (0..10_000).map(|index| index.to_string()).collect();
-  let values: Vec<f64> = (0..10_000)
-    .map(|index| ((index as f64) / 300.0).sin() * 50.0 + 60.0)
-    .collect();
-  let mut stage = stage(move || {
-    LineChart::new(names.clone(), [ChartSeries::new("Signal", values.clone())])
-      .title("Signal")
-      .id("c")
-  });
+  let mut stage = signal_stage(10_000);
   assert_eq!(points(&mut stage).len(), 10_000);
   // The axis writes eight of the names, the first and the last among them.
   assert!(stage.text_quad("0").is_some() && stage.text_quad("9999").is_some());
-  let (plot_x, plot_y, width, _) = stage.bounds("c-plot");
-  let started = Instant::now();
-  stage.tree.mouse_move(plot_x + width / 2.0, plot_y + 70.0);
-  let found = started.elapsed();
-  stage.pass();
-  assert!(found.as_millis() < 50, "{found:?}");
+  // No mark for each value: at the top of the wave, where the line is flat, what is over a value is clear, where a mark
+  // 10 across would cover it.
+  let peak = points(&mut stage)[471].clone();
+  let (x, y) = place(&peak);
+  assert!(near(pixel(&mut stage, x, y), light(PaletteColor::Chart1)), "the line");
+  assert_eq!(pixel(&mut stage, x, y - 4.0).a(), 0, "and nothing over it");
+  // The pointer finds its place looking at as few values in ten thousand as in ten: the place by the pointer's x, the
+  // values are evenly apart, and the series by its value there.
+  let many = values_looked_at_by_the_pointer(&mut stage);
   assert!(
     stage.text_quad("5000").is_some() || stage.text_quad("4999").is_some(),
     "the middle value's name"
   );
+  let few = values_looked_at_by_the_pointer(&mut signal_stage(10));
+  assert_eq!(many, few, "as many values looked at in ten thousand as in ten");
+  assert!(many <= 8, "a few: {many}");
+}
+
+/// A line of `count` values, a slow wave.
+fn signal_stage(count: usize) -> Stage {
+  let names: Vec<String> = (0..count).map(|index| index.to_string()).collect();
+  let values: Vec<f64> = (0..count)
+    .map(|index| ((index as f64) / 300.0).sin() * 50.0 + 60.0)
+    .collect();
+  stage(move || {
+    LineChart::new(names.clone(), [ChartSeries::new("Signal", values.clone())])
+      .title("Signal")
+      .id("c")
+  })
+}
+
+/// How many values the plot looks at as the pointer comes onto its middle.
+fn values_looked_at_by_the_pointer(stage: &mut Stage) -> usize {
+  let (plot_x, plot_y, width, _) = stage.bounds("c-plot");
+  let before = line_values_looked_at();
+  stage.tree.mouse_move(plot_x + width / 2.0, plot_y + 70.0);
+  let looked = line_values_looked_at() - before;
+  stage.pass();
+  looked
 }
 
 #[test]
