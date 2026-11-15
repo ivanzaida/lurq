@@ -176,6 +176,8 @@ pub const CHART_SCATTER: &str = "chart-scatter";
 pub const GAUGE: &str = "gauge";
 pub const GRID: &str = "grid";
 pub const TRENDING_UP: &str = "trending-up";
+pub const COLUMNS: &str = "columns";
+pub const FILTER: &str = "filter";
 
 /// Every icon of the font with its character, in the order of the font.
 pub const ALL: &[(&str, char)] = &[
@@ -348,4 +350,6 @@ pub const ALL: &[(&str, char)] = &[
   (GAUGE, '\u{E0A6}'),
   (GRID, '\u{E0A7}'),
   (TRENDING_UP, '\u{E0A8}'),
+  (COLUMNS, '\u{E0A9}'),
+  (FILTER, '\u{E0AA}'),
 ];

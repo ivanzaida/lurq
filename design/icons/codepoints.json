@@ -167,5 +167,7 @@
   "chart-scatter": "E0A5",
   "gauge": "E0A6",
   "grid": "E0A7",
-  "trending-up": "E0A8"
+  "trending-up": "E0A8",
+  "columns": "E0A9",
+  "filter": "E0AA"
 }
