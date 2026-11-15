@@ -27,6 +27,57 @@ pub struct LayoutResult {
   /// one, and every node of a tree has a result.
   #[allow(clippy::box_collection)]
   pub(crate) sticky_shifts: Option<Box<Vec<(usize, Offset)>>>,
+  /// Where the subtree may paint, from the node's own corner: what culls a subtree that does not clip its
+  /// children when it is out of view. Set when the layout engine prepares the result.
+  pub(crate) reach: Reach,
+}
+
+/// The box a laid-out subtree paints in, from its node's corner: its own box with what it draws outside it (a
+/// shadow, an outline, a border outside), and its children's where it does not clip them. Unknown where it may move
+/// without a layout (a transform, a transition or an animation of where it is, a canvas): such a subtree is never
+/// culled for being out of view.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Reach {
+  pub(crate) left: f32,
+  pub(crate) top: f32,
+  pub(crate) right: f32,
+  pub(crate) bottom: f32,
+  pub(crate) known: bool,
+}
+
+impl Reach {
+  pub(crate) const UNKNOWN: Self = Self {
+    left: 0.0,
+    top: 0.0,
+    right: 0.0,
+    bottom: 0.0,
+    known: false,
+  };
+
+  /// A box `width` by `height`, `outset` past each side.
+  pub(crate) fn of_box(width: f32, height: f32, outset: f32) -> Self {
+    Self {
+      left: -outset,
+      top: -outset,
+      right: width + outset,
+      bottom: height + outset,
+      known: true,
+    }
+  }
+
+  /// This reach and `other`'s, placed at `offset`; unknown where either is.
+  pub(crate) fn union_at(self, other: Self, offset: Offset) -> Self {
+    if !self.known || !other.known {
+      return Self::UNKNOWN;
+    }
+    Self {
+      left: self.left.min(other.left + offset.x),
+      top: self.top.min(other.top + offset.y),
+      right: self.right.max(other.right + offset.x),
+      bottom: self.bottom.max(other.bottom + offset.y),
+      known: true,
+    }
+  }
 }
 
 /// What a laid-out subtree holds that serving it from a cache writes back:
@@ -98,6 +149,7 @@ mod tests {
           holds: SubtreeHolds::UNKNOWN,
           generation: 0,
           sticky_shifts: None,
+          reach: crate::layout::layout_result::Reach::UNKNOWN,
         }
         .into(),
       }],
@@ -106,6 +158,7 @@ mod tests {
       holds: SubtreeHolds::UNKNOWN,
       generation: 0,
       sticky_shifts: None,
+      reach: crate::layout::layout_result::Reach::UNKNOWN,
     };
 
     let mut cloned = result.clone();

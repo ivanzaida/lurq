@@ -12,9 +12,12 @@ use std::{
 use lurq::{
   animation::{Easing, Transition},
   app::{App, Tree, component::Component, ctx::Ctx},
-  components::{Column, Popup, Rect, Row},
+  components::{Column, Popup, Rect, Row, ScrollVertical},
   core::{ElementRef, Signal},
-  layout::layout_kind::ShrinkLimit,
+  layout::{
+    layout_kind::{ScrollState, ShrinkLimit},
+    quad::QuadContent,
+  },
   node::{Element, color::Color},
 };
 
@@ -336,4 +339,67 @@ fn a_hover_transition_deep_in_a_subtree_ticked_clean_runs() {
       "{how:?}: a color between {REST} and {HOVER} halfway: {halfway:?}"
     );
   }
+}
+
+/// A column far down a scroll view whose child reaches out of its box: the column's box is out of view, what its
+/// child draws past it is not.
+struct Overflowing;
+
+thread_local! {
+  static SCROLL: RefCell<Option<ScrollState>> = const { RefCell::new(None) };
+}
+
+impl Component for Overflowing {
+  type Props = ();
+
+  fn create(_: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, _: &mut Ctx) -> impl Into<Element> {
+    let state = SCROLL.with(|slot| slot.borrow().clone().expect("a scroll state"));
+    let mut content = Column::new();
+    for index in 0..200 {
+      content = content.child(Rect::new(300.0, 20.0).background(REST).key(format!("row-{index}")));
+    }
+    // A column 10 high whose child is 200 high and visible past it.
+    content = content.child(
+      Column::new()
+        .height(10.0)
+        .overflow_visible()
+        .child(Rect::new(300.0, 200.0).background(LIT)),
+    );
+    for index in 0..200 {
+      content = content.child(Rect::new(300.0, 20.0).background(REST).key(format!("after-{index}")));
+    }
+    ScrollVertical::new(content).with_scroll_state(state).size(400.0, 300.0)
+  }
+}
+
+#[test]
+fn what_a_subtree_draws_past_its_box_is_drawn_while_its_box_is_out_of_view() {
+  let state = ScrollState::new();
+  SCROLL.with(|slot| *slot.borrow_mut() = Some(state.clone()));
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(400, 300);
+  tree.mount_root::<Overflowing>(&mut app, ());
+  render_pass_with_app(&mut tree, &mut app);
+  // The column's box is at 4,000 to 4,010; its child runs to 4,200. Scrolled to 4,100, only the child is in view.
+  state.set_scroll(0.0, 4100.0);
+  tree.request_redraw();
+  let frame = render_pass_with_app(&mut tree, &mut app);
+  assert!(
+    frame.rects.iter().any(|rect| rect.color == Color::from_hex(LIT)),
+    "the child past its column's box is drawn"
+  );
+  let quads = tree.resolve_quads(tree.last_layout().expect("laid out"));
+  let drawn = quads
+    .iter()
+    .filter(|quad| matches!(quad.content, QuadContent::Rect { .. }))
+    .count();
+  assert!(
+    drawn < 40,
+    "the rest of the 400 rows out of view are culled: {drawn} drawn"
+  );
 }

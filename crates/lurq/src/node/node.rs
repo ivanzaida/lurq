@@ -6691,6 +6691,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           },
         );
       }
@@ -6948,6 +6949,7 @@ mod tests {
               holds: SubtreeHolds::UNKNOWN,
               generation: 0,
               sticky_shifts: None,
+              reach: crate::layout::layout_result::Reach::UNKNOWN,
             }
             .into(),
           },
@@ -6961,6 +6963,7 @@ mod tests {
               holds: SubtreeHolds::UNKNOWN,
               generation: 0,
               sticky_shifts: None,
+              reach: crate::layout::layout_result::Reach::UNKNOWN,
             }
             .into(),
           },
@@ -6970,6 +6973,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
     let mut new = Node::row(
@@ -7009,6 +7013,7 @@ mod tests {
                 holds: SubtreeHolds::UNKNOWN,
                 generation: 0,
                 sticky_shifts: None,
+                reach: crate::layout::layout_result::Reach::UNKNOWN,
               }
               .into(),
             }],
@@ -7017,6 +7022,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           }
           .into(),
         }],
@@ -7025,6 +7031,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
 
@@ -7060,6 +7067,7 @@ mod tests {
             holds: SubtreeHolds::UNKNOWN,
             generation: 0,
             sticky_shifts: None,
+            reach: crate::layout::layout_result::Reach::UNKNOWN,
           }
           .into(),
         }],
@@ -7068,6 +7076,7 @@ mod tests {
         holds: SubtreeHolds::UNKNOWN,
         generation: 0,
         sticky_shifts: None,
+        reach: crate::layout::layout_result::Reach::UNKNOWN,
       },
     );
 
