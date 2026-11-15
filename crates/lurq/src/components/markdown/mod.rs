@@ -767,12 +767,12 @@ fn render_picture(
   theme: &ThemeMarkdown,
   render_ctx: &MarkdownRenderContext<'_>,
 ) -> Element {
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   {
     let _ = (base_style, theme, render_ctx);
     render_markdown_image(inline, base_style, theme)
   }
-  #[cfg(not(all(feature = "image", feature = "resources")))]
+  #[cfg(not(all(feature = "image", feature = "http")))]
   {
     let _ = inline;
     blocks::image_place(base_style, theme, render_ctx)
@@ -795,14 +795,14 @@ fn render_markdown_image(inline: &MarkdownInline, base_style: &TextStyle, theme:
   let _ = destination;
   let _ = alt;
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   {
     crate::components::Image::from_resource(destination)
       .max_width(FILL_WIDTH)
       .into()
   }
 
-  #[cfg(not(all(feature = "image", feature = "resources")))]
+  #[cfg(not(all(feature = "image", feature = "http")))]
   {
     let style = theme.image_caption.apply(base_style);
     Element::from_node(Node::rich_text(markdown_inline_rich_text(alt, &style, theme)))

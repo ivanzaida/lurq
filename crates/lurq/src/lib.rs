@@ -53,7 +53,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(feature = "mcp")]
 pub mod mcp;
-#[cfg(feature = "resources")]
 pub mod resources;
 #[cfg(feature = "router")]
 pub mod router;

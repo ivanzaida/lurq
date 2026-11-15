@@ -62,7 +62,38 @@ impl Image {
       error_view: None,
       placeholder_view: None,
       failed: false,
+      load_from: None,
+      load: None,
+      loaded: false,
+      progress_view: None,
+      progress_seen: 0,
+      retries_seen: 0,
     }))
+  }
+
+  /// An image whose bytes the app's [`Loader`](crate::resources::Loader) reads from `source` (a resource of the
+  /// app, an address, a file), and which is then decoded off the UI thread as
+  /// [`from_bytes`](Self::from_bytes) decodes. It shows its placeholder while it loads and decodes, and its
+  /// error view where either fails, with the reason. Its pixels are kept under the source's key.
+  #[cfg(feature = "image")]
+  pub fn from_loaded(source: crate::resources::Source) -> Self {
+    let key = crate::images::ImageKey::new(source.cache_key());
+    let mut image = Self::from_source(crate::images::ImageSource::Bytes(std::sync::Arc::from(&[][..])), key);
+    image.update_node(|node| node.update_loading_image(|request| request.load_from = Some(source)));
+    image
+  }
+
+  /// What the node shows while its load tells how far it has come: built from the bytes read and how many there
+  /// are, in place of the placeholder. A load that does not know its length keeps the placeholder.
+  #[cfg(feature = "image")]
+  pub fn progress_view<E: Into<crate::node::Element>>(
+    mut self,
+    view: impl Fn(u64, u64) -> E + Send + Sync + 'static,
+  ) -> Self {
+    let view: crate::node::node_kind::ProgressViewCallback =
+      std::sync::Arc::new(move |loaded, total| view(loaded, total).into());
+    self.update_node(|node| node.update_loading_image(|request| request.progress_view = Some(view)));
+    self
   }
 
   /// The cache key of a runtime image: the same key means the same pixels.

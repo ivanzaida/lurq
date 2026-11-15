@@ -42,19 +42,19 @@ impl Node {
       }
       #[cfg(feature = "canvas")]
       NodeKind::Canvas { .. } => subtree.canvas = true,
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       NodeKind::ResourceImage { .. } => subtree.resource_images = true,
       // Part styles are shared and can change without a layout notification.
       // Keep controls pollable for resource images in any of those styles.
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       NodeKind::Checkbox { .. } | NodeKind::Slider { .. } => subtree.resource_images = true,
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       NodeKind::ResourceSvg { .. } => subtree.resource_svgs = true,
       #[cfg(feature = "image")]
       NodeKind::LoadingImage { .. } => subtree.loading_images = true,
       _ => {}
     }
-    #[cfg(all(feature = "image", feature = "resources"))]
+    #[cfg(all(feature = "image", feature = "http"))]
     {
       subtree.resource_images |= self.background_resource_image.is_some();
     }

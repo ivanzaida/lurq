@@ -1110,7 +1110,7 @@ pub(crate) struct Node {
   pub(crate) background_image: Guard<Option<Box<crate::images::ImageData>>>,
   #[cfg(feature = "raster")]
   pub(crate) background_size: BackgroundSize,
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   pub(crate) background_resource_image: Option<Arc<str>>,
   /// Boxed: most nodes do not scroll, and `Node` size is budgeted (lurq#25).
   pub(crate) scrollbar_style: Guard<Option<Box<ScrollBarStyle>>>,
@@ -1664,7 +1664,7 @@ impl NodeUpdate for Node {
     match data.into() {
       crate::images::ImageKind::Bytes(data) => self.background_image.set(Some(Box::new(data))),
       crate::images::ImageKind::Native(data) => self.background_image.set(Some(Box::new(data.image_data()))),
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => self.background_resource_image = Some(path),
     }
   }
@@ -2673,7 +2673,7 @@ impl Node {
       background_image: Guard::new(None),
       #[cfg(feature = "raster")]
       background_size: BackgroundSize::default(),
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       background_resource_image: None,
       scrollbar_style: Guard::new(None),
       scrollbar_hovered_style: None,
@@ -3247,7 +3247,7 @@ impl Node {
     node
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   pub fn resource_svg(path: &str) -> Self {
     Self::from_parts(LayoutKind::Leaf, NodeKind::ResourceSvg { path: path.into() }, vec![])
   }
@@ -3598,7 +3598,7 @@ impl Node {
       crate::images::ImageKind::Native(data) => {
         self.background_image.set(Some(Box::new(data.image_data())));
       }
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       crate::images::ImageKind::Resource(path) => {
         self.background_resource_image = Some(path);
       }
@@ -6226,7 +6226,7 @@ impl Node {
       ) => path == old_path && fit == old_fit,
       #[cfg(feature = "svg")]
       (NodeKind::Svg { data }, NodeKind::Svg { data: old_data }) => data.id() == old_data.id(),
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       (NodeKind::ResourceSvg { path }, NodeKind::ResourceSvg { path: old_path }) => path == old_path,
       _ => false,
     }
@@ -6448,7 +6448,7 @@ impl Node {
       background_image: self.background_image.clone(),
       #[cfg(feature = "raster")]
       background_size: self.background_size,
-      #[cfg(all(feature = "image", feature = "resources"))]
+      #[cfg(all(feature = "image", feature = "http"))]
       background_resource_image: self.background_resource_image.clone(),
       scrollbar_style: self.scrollbar_style.clone(),
       scrollbar_hovered_style: self.scrollbar_hovered_style.clone(),

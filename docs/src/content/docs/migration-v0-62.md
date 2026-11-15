@@ -59,6 +59,21 @@ The other way is to let the app be dark when the system is. Then every color the
 - Give text that sits on a filled surface that surface's foreground: `.foreground(PaletteColor::PrimaryForeground)` on a primary button colors every text in it.
 - Leave ordinary text with no color: it takes `Foreground`.
 
+## The Feature `resources` Is `http`
+
+The Cargo feature that adds the network client is named for what it adds: `http`. `resources` still turns it on and
+will be removed; change it in `Cargo.toml` when you next touch it.
+
+```toml
+# 0.61
+lurq = { version = "0.61", features = ["image", "resources"] }
+# 0.62
+lurq = { version = "0.62", features = ["image", "http"] }
+```
+
+What it no longer decides: a file under the app's resource root is loaded by every build, with no feature, through
+`app.loader()`. `App::set_resource_root` is there in every build too. Only an address on the network needs `http`.
+
 ## Renamed Palette Roles
 
 The roles of 0.61 are deprecated. They compile with a warning that names the replacement.

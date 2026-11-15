@@ -75,7 +75,7 @@ fn make_scroll(child: Node, direction: ScrollDirection) -> Node {
     background_image: Guard::new(None),
     #[cfg(feature = "raster")]
     background_size: crate::node::node::BackgroundSize::default(),
-    #[cfg(all(feature = "image", feature = "resources"))]
+    #[cfg(all(feature = "image", feature = "http"))]
     background_resource_image: None,
     scrollbar_style: Guard::new(None),
     scrollbar_hovered_style: None,

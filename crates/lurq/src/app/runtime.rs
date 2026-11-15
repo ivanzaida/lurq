@@ -805,6 +805,9 @@ pub struct Tree {
   /// The waker the decoded-image cache calls for this tree's window, made once.
   #[cfg(feature = "image")]
   loading_image_waker: Option<crate::app::window::WindowWaker>,
+  /// The loads of this tree's images that are on their way, each with the bytes its node last showed.
+  #[cfg(feature = "image")]
+  pending_loads: Vec<(crate::resources::Load, u64)>,
   /// The loading-image nodes built when the tree last walked for them.
   #[cfg(feature = "image")]
   loading_images_built_seen: u64,
@@ -1286,6 +1289,8 @@ impl Tree {
       pending_images: Vec::new(),
       #[cfg(feature = "image")]
       loading_image_waker: None,
+      #[cfg(feature = "image")]
+      pending_loads: Vec::new(),
       #[cfg(feature = "image")]
       loading_images_built_seen: 0,
       clipboard_reader: None,
@@ -7343,15 +7348,15 @@ impl Tree {
     self.rebuild_if_dirty();
     self.drop_leaving_children(self.now());
     self.sync_dynamic_content();
-    #[cfg(all(feature = "image", feature = "resources"))]
+    #[cfg(all(feature = "image", feature = "http"))]
     let image_resources_changed = self.resolve_resource_images(app);
-    #[cfg(not(all(feature = "image", feature = "resources")))]
+    #[cfg(not(all(feature = "image", feature = "http")))]
     let image_resources_changed = false;
     #[cfg(feature = "image")]
-    let image_resources_changed = self.resolve_loading_images() || image_resources_changed;
-    #[cfg(all(feature = "svg", feature = "resources"))]
+    let image_resources_changed = self.resolve_loading_images(&app.shared.loader) || image_resources_changed;
+    #[cfg(all(feature = "svg", feature = "http"))]
     let svg_resources_changed = self.resolve_resource_svgs(app);
-    #[cfg(not(all(feature = "svg", feature = "resources")))]
+    #[cfg(not(all(feature = "svg", feature = "http")))]
     let svg_resources_changed = false;
 
     let now = self.animation_clock.unwrap_or_else(Instant::now);
@@ -7910,7 +7915,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   fn resolve_resource_images(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
       let changed = Self::resolve_resource_images_recursive(
@@ -7927,7 +7932,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   fn resolve_resource_images_recursive(
     node: &mut Node,
     loader: &crate::resources::ResourceLoader,
@@ -7988,7 +7993,7 @@ impl Tree {
     layout_dirty
   }
 
-  #[cfg(all(feature = "image", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "http"))]
   fn resolve_image_resource(
     key: &Arc<str>,
     loader: &crate::resources::ResourceLoader,
@@ -8007,7 +8012,7 @@ impl Tree {
     Some(img)
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   fn resolve_resource_svgs(&mut self, app: &mut App) -> bool {
     if let Some(root) = &mut self.root {
       let changed = Self::resolve_resource_svgs_recursive(
@@ -8024,7 +8029,7 @@ impl Tree {
     }
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   fn resolve_resource_svgs_recursive(
     node: &mut Node,
     loader: &crate::resources::ResourceLoader,
@@ -8059,7 +8064,7 @@ impl Tree {
     layout_dirty
   }
 
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   fn resolve_svg_resource(
     key: &Arc<str>,
     loader: &crate::resources::ResourceLoader,
@@ -12190,7 +12195,7 @@ mod layout_tracking_tests {
     }
   }
 
-  #[cfg(all(feature = "image", feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "image", feature = "svg", feature = "http"))]
   #[test]
   fn resource_completion_only_visits_resource_branches() {
     let mut app = App::new();

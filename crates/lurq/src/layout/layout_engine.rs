@@ -94,9 +94,9 @@ const DEFAULT_SLIDER_THUMB_MIN_SIZE: f32 = 12.0;
 const DEFAULT_TEXT_INPUT_WIDTH: f32 = 120.0;
 const DEFAULT_SELECT_WIDTH: f32 = 160.0;
 const DEFAULT_SELECT_HEIGHT: f32 = 32.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "resources")))]
+#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
 const DEFAULT_RESOURCE_WIDTH: f32 = 0.0;
-#[cfg(any(feature = "raster", all(feature = "svg", feature = "resources")))]
+#[cfg(any(feature = "raster", all(feature = "svg", feature = "http")))]
 const DEFAULT_RESOURCE_HEIGHT: f32 = 0.0;
 const DEFAULT_QUAD_OPACITY: f32 = 1.0;
 #[cfg(feature = "perf_profile")]
@@ -1460,7 +1460,7 @@ impl LayoutEngine {
       NodeKind::ResourceImage { .. } => QuadContent::None,
       #[cfg(feature = "svg")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       NodeKind::ResourceSvg { .. } => QuadContent::None,
       NodeKind::Slider { .. } => QuadContent::None,
       _ if has_visual => QuadContent::Rect {
@@ -3164,7 +3164,7 @@ impl LayoutEngine {
           sticky_shifts: None,
         };
       }
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       NodeKind::ResourceSvg { .. } => {
         let preferred = node
           .intrinsic_size
@@ -4406,9 +4406,9 @@ impl LayoutEngine {
       Self::apply_intrinsic_aspect_ratio(node, &mut c, resolved_width, resolved_height);
     }
 
-    #[cfg(all(feature = "svg", feature = "resources"))]
+    #[cfg(all(feature = "svg", feature = "http"))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. } | NodeKind::ResourceSvg { .. });
-    #[cfg(all(feature = "svg", not(feature = "resources")))]
+    #[cfg(all(feature = "svg", not(feature = "http")))]
     let is_svg_media = matches!(node.node_kind(), NodeKind::Svg { .. });
 
     #[cfg(feature = "svg")]

@@ -12,7 +12,7 @@ Media APIs are feature-gated. Enable only what the app needs.
 | `raster` | `Image`, `ImageData`, `StreamingImage`, `Video`, and raw RGBA/native image transport. |
 | `image` | Enables `raster` plus image decoding and image-backed style helpers. |
 | `svg` | `Svg`, `SvgData`. |
-| `resources` | `ResourceLoader`, resource-backed image/SVG constructors, resource roots. |
+| `http` | Addresses on the network, for everything that loads: the client and its TLS. A file, bytes and a resource of the app are loaded by every build. Until 0.62 it was `resources`, which still turns it on. |
 | `markdown` | Markdown parsing and `Markdown::mount`. |
 
 ## Fonts
@@ -241,7 +241,61 @@ Svg::from_resource("icons/search.svg").size(18.0, 18.0)
 
 `SvgData` supports fill, stroke, and opacity overrides.
 
+## Loading
+
+Everything that loads is given a `Source`, and the app's `Loader` reads it. A picture is the first to use it; a video
+and a sound will be given the same source and the same loader.
+
+```rust
+use lurq::resources::Source;
+
+Source::file("photos/lake.jpg");
+Source::bytes(png_bytes);
+Source::resource("brand/logo.png"); // a path under the app's resource root
+Source::url("https://example.com/lake.jpg").header("Authorization", "Bearer token");
+```
+
+A source has a key, which tells it from another: a file's is its path with its size and the time it was changed,
+bytes are hashed once, a resource's and an address's is their text. `.key(hash)` gives a key of the app's own in
+its place.
+
+`app.loader()` is the app's loader. It holds the resource root and what the network may do, reads on threads of its
+own, makes one load of a source asked for twice, and stops a load nobody waits for any more:
+
+```rust
+use std::time::Duration;
+
+app
+  .loader()
+  .root("assets")                         // what `Source::resource` is a path under
+  .timeout(Duration::from_secs(10))       // of a load of an address; 30 seconds unless told
+  .max_bytes(16 << 20)                    // the most `load` reads of one source; 64 MiB unless told
+  .allow(|address| address.starts_with("https://cdn.example.com/"));
+```
+
+- `allow` says which addresses may be loaded: every one the app asks for, unless told. One it refuses fails with
+  `LoadError::Denied` and nothing is sent. It is what keeps a text from a stranger, shown by the app, from fetching
+  what the stranger chose.
+- `loader.load(&source)` loads all the bytes of a source and gives a `Load`. Its `state()` is
+  `Loading { loaded, total }`, `Ready(bytes)` or `Failed(LoadError)`; `wake_with` is called when it ends and as it
+  comes further. A load that failed stays failed, so that what asks for it again is told so and not sent to the
+  network again; `loader.forget(&source)` forgets it, and the next `load` tries anew.
+- `loader.open(&source)` gives a `Reader`: `len()`, `read_at(offset, buf)` and `buffered()`, for what reads a part
+  of a source and not all of it. A file, a resource and bytes are read where they are. A reader of an address is not
+  built yet.
+- The loader keeps no bytes. What is decoded from them is kept by who decodes: a picture's pixels are in
+  `lurq::images::decoded_images()`.
+
+A `LoadError` says why: `NotFound`, `Denied`, `Status(code)`, `TooLarge { limit }`, `TimedOut`, `Cancelled`, `Io`, and
+`Unsupported`, which is what a build that cannot load such a source answers. An address in a build without the
+feature `http` is one: it compiles, and fails at run time with the reason and one warning in the log. In a browser
+a file and an address are not loaded yet.
+
 ## Resource Loader
+
+`ResourceLoader` is the loader before `app.loader()`, which the feature `http` keeps: it is polled, and a resource
+image built with `Image::from_resource`, a background image and a resource SVG still use it.
+
 
 `ResourceLoader::load_resource(path, config)` returns:
 

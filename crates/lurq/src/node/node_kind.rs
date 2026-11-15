@@ -124,6 +124,21 @@ pub(crate) struct LoadingImage {
   pub(crate) placeholder_view: Option<crate::node::node_kind::PlaceholderViewCallback>,
   /// The error view was built: the decode failed and the children show it.
   pub(crate) failed: bool,
+  /// What the app's loader reads the bytes from before they are decoded: a resource of the app, an address.
+  /// `source` holds nothing until it has.
+  pub(crate) load_from: Option<crate::resources::Source>,
+  /// The load, while it is on its way.
+  pub(crate) load: Option<crate::resources::Load>,
+  /// The bytes are in `source`, or the pixels are in the cache already: it is decoded like any other.
+  pub(crate) loaded: bool,
+  /// What builds the node's children while its load tells how far it has come: the bytes read, and how many
+  /// there are.
+  pub(crate) progress_view: Option<crate::node::node_kind::ProgressViewCallback>,
+  /// The bytes the progress view was last built for.
+  pub(crate) progress_seen: u64,
+  /// How often its source had been asked for again when a pass last looked: one more, and a node that failed
+  /// loads anew.
+  pub(crate) retries_seen: u64,
 }
 
 /// A clone is a new node that waits for the cache (a retained child put
@@ -141,6 +156,12 @@ impl Clone for LoadingImage {
       error_view: self.error_view.clone(),
       placeholder_view: self.placeholder_view.clone(),
       failed: self.failed,
+      load_from: self.load_from.clone(),
+      load: self.load.clone(),
+      loaded: self.loaded,
+      progress_view: self.progress_view.clone(),
+      progress_seen: self.progress_seen,
+      retries_seen: self.retries_seen,
     }
   }
 }
@@ -152,6 +173,11 @@ pub(crate) type ErrorViewCallback = Arc<dyn Fn(&crate::images::ImageDecodeError)
 /// Builds what an image node shows while its decode runs.
 #[cfg(feature = "image")]
 pub(crate) type PlaceholderViewCallback = Arc<dyn Fn() -> crate::node::Element + Send + Sync>;
+
+/// Builds what an image node shows while its load tells how far it has come, from the bytes read and how many
+/// there are.
+#[cfg(feature = "image")]
+pub(crate) type ProgressViewCallback = Arc<dyn Fn(u64, u64) -> crate::node::Element + Send + Sync>;
 
 #[derive(Clone)]
 pub(crate) enum NodeKind {
@@ -228,7 +254,7 @@ pub(crate) enum NodeKind {
   Svg {
     data: crate::svg::SvgData,
   },
-  #[cfg(all(feature = "svg", feature = "resources"))]
+  #[cfg(all(feature = "svg", feature = "http"))]
   ResourceSvg {
     path: Arc<str>,
   },
@@ -253,7 +279,7 @@ impl NodeKind {
       Self::LoadingImage { .. } | Self::ResourceImage { .. } => false,
       #[cfg(feature = "svg")]
       Self::Svg { .. } => false,
-      #[cfg(all(feature = "svg", feature = "resources"))]
+      #[cfg(all(feature = "svg", feature = "http"))]
       Self::ResourceSvg { .. } => false,
     }
   }

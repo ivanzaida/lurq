@@ -780,7 +780,7 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
     NodeKind::ResourceImage { .. } => "ResourceImage",
     #[cfg(feature = "svg")]
     NodeKind::Svg { .. } => "Svg",
-    #[cfg(all(feature = "svg", feature = "resources"))]
+    #[cfg(all(feature = "svg", feature = "http"))]
     NodeKind::ResourceSvg { .. } => "ResourceSvg",
   }
 }
