@@ -74,6 +74,36 @@ lurq = { version = "0.62", features = ["image", "http"] }
 What it no longer decides: a file under the app's resource root is loaded by every build, with no feature, through
 `app.loader()`. `App::set_resource_root` is there in every build too. Only an address on the network needs `http`.
 
+## `components::Image` Is `ui::Picture`
+
+`lurq::components::Image` is deprecated: it compiles, with a warning that names `lurq::ui::Picture`. A picture takes
+the same sources and is what the design system draws: a box with a size and a ratio of its own, what stands in for the
+pixels while they load and when they do not come, and a load it keeps itself.
+
+```rust
+// 0.61
+Image::from_file("lake.jpg").cover().size(320.0, 180.0)
+Image::from_bytes(png).cache_key(ImageKey::new(hash)).downscale_to(256, 256)
+Image::from_resource("brand/logo.png")
+// 0.62
+Picture::from_file("lake.jpg").size_px(320.0, 180.0)            // covers its box unless `fit` says otherwise
+Picture::from_bytes(png).cache_key(hash).downscale_to(256, 256)
+Picture::from_resource("brand/logo.png")                        // or `Picture::from_url("https://…")`
+```
+
+What is different:
+
+- **A picture is a component.** `Row::new().child(Picture::from_file(..))` declares it, and the component that renders
+  the row mounts it (`Element::component`): it loads, shows how far the load has come, and can be asked again, with
+  nothing for the app to hold. In a list that changes give it a `key`. A tree given to a window with no component
+  around it (`Tree::set_root` with an element) shows no picture: give the window a root component.
+- **The fit is `Cover` unless told**, where `Image` stretched. `fit(PictureFit::Fill)` is the old default.
+- **`placeholder(element)` and `error_view(..)` are the picture's own**: the skeleton's sheen, or
+  `PicturePlaceholder::Blur(source)`, and a line that says it did not load with a button that asks again.
+  `on_load` and `on_error` tell the app.
+- **A resource and an address are read by `app.loader()`**, with a time limit, a size limit and the addresses it
+  allows, where `Image::from_resource` polled the old `ResourceLoader`.
+
 ## Renamed Palette Roles
 
 The roles of 0.61 are deprecated. They compile with a warning that names the replacement.

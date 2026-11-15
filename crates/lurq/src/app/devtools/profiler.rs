@@ -1399,6 +1399,7 @@ fn screenshot_preview(capture: &ProfilerCapture, shot: &CaptureScreenshot) -> El
 
 /// `shot`'s pixels filling the box, aspect kept; an empty box in a build
 /// without the `raster` feature, which draws no image.
+#[allow(deprecated)]
 fn screenshot_image(shot: &CaptureScreenshot) -> Element {
   #[cfg(feature = "raster")]
   {

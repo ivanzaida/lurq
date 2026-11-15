@@ -1,4 +1,6 @@
 //! `.aspect_ratio(...)`: the axis of a box that is auto follows the one that is known, as CSS `aspect-ratio`.
+// `components::Image` is deprecated for apps; this is the engine's image node, which `ui::Picture` draws with.
+#![allow(deprecated)]
 
 use lurq::{
   app::Tree,

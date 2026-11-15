@@ -74,6 +74,7 @@ pub use form::{
 pub use gpu_viewport::GpuViewport;
 pub use grid::Grid;
 #[cfg(feature = "raster")]
+#[allow(deprecated)]
 pub use image::Image;
 #[cfg(feature = "router")]
 pub use link::Link;
@@ -135,7 +136,8 @@ pub use crate::{
 
 #[macro_export]
 macro_rules! impl_into_node {
-  ($struct_name:ident) => {
+  ($(#[$attribute:meta])* $struct_name:ident) => {
+    $(#[$attribute])*
     pub struct $struct_name {
       pub(crate) node: Box<$crate::node::Node>,
     }

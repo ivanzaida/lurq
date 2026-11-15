@@ -12249,6 +12249,7 @@ mod layout_tracking_tests {
 
   #[cfg(feature = "image")]
   #[test]
+  #[allow(deprecated)]
   fn another_trees_loading_image_does_not_walk_a_clean_tree() {
     let mut app = App::new();
     let mut tree = Tree::new();

@@ -1,3 +1,5 @@
+// The demo predates `ui::Picture` and still draws with the engine's image node.
+#![allow(deprecated)]
 mod animation_demo;
 mod atlas_upload_demo;
 mod components_demo;

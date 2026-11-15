@@ -1,6 +1,16 @@
+// The type is deprecated for apps; what it does here is what `ui::Picture` and the engine's own parts draw with.
+#![allow(deprecated)]
+
 use crate::{images::ImageData, impl_into_node, node::BackgroundSize};
 
-impl_into_node!(Image);
+impl_into_node!(
+  /// The engine's image element: pixels in a box.
+  #[deprecated(
+    since = "0.62.0",
+    note = "use `lurq::ui::Picture`: the same sources, with a box, what stands in while it loads, and a load of             its own"
+  )]
+  Image
+);
 
 impl Image {
   pub fn new(data: ImageData) -> Self {

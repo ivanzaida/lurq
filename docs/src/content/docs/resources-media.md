@@ -77,6 +77,12 @@ Text::styled(
 
 ## Images
 
+:::note
+`lurq::components::Image`, which this section and the next two describe, is deprecated in 0.62 in favor of
+`lurq::ui::Picture`: the same sources, in a box of the design system, with a load of its own. It is the engine's image
+node and stays what a picture draws with. See the [migration guide](../migration-v0-62/).
+:::
+
 With `image`, load from bytes, files, or raw RGBA.
 
 ```rust

@@ -779,6 +779,7 @@ fn render_picture(
   }
 }
 
+#[allow(deprecated)]
 fn render_markdown_image(inline: &MarkdownInline, base_style: &TextStyle, theme: &ThemeMarkdown) -> Element {
   let MarkdownInline::Image {
     destination,
