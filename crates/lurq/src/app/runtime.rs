@@ -898,6 +898,9 @@ pub struct Tree {
   cached_render_list: Option<CachedRenderList>,
   #[cfg(feature = "canvas")]
   canvas_registry: Vec<crate::canvas::CanvasHandle>,
+  /// Whether every canvas laid out is drawn on the CPU: [`Tree::set_software_canvases`].
+  #[cfg(feature = "canvas")]
+  software_canvases: bool,
   overlay_dismiss_entries: Vec<OverlayDismissEntry>,
   /// The anchor of each overlay host layer after the page, in host order;
   /// `None` for a select menu or a modal over the page.
@@ -1351,6 +1354,8 @@ impl Tree {
       cached_render_list: None,
       #[cfg(feature = "canvas")]
       canvas_registry: Vec::new(),
+      #[cfg(feature = "canvas")]
+      software_canvases: false,
       overlay_dismiss_entries: Vec::new(),
       overlay_layer_anchors: Vec::new(),
       overlay_layer_parents: Vec::new(),
@@ -6658,6 +6663,15 @@ impl Tree {
     self.resolve_quads_with_viewport(result, viewport)
   }
 
+  /// Whether every canvas the tree lays out from now on is drawn on the CPU, as
+  /// [`Canvas::software`](crate::components::Canvas::software) draws one: what a test that reads a canvas's pixels
+  /// ([`CanvasHandle::snapshot`](crate::canvas::CanvasHandle::snapshot)) wants of a canvas it does not build itself,
+  /// a chart's plot. Set it before the canvas is first laid out: its surface is made with its size.
+  #[cfg(feature = "canvas")]
+  pub fn set_software_canvases(&mut self, software: bool) {
+    self.software_canvases = software;
+  }
+
   #[doc(hidden)]
   pub fn set_layout_constraints_override(&mut self, constraints: Option<Constraints>) {
     self.layout_constraints_override = constraints;
@@ -7491,6 +7505,7 @@ impl Tree {
           &canvas_font,
           &canvas_text,
           &mut self.canvas_registry,
+          self.software_canvases,
         );
         #[cfg(feature = "perf_profile")]
         self.profiling.canvas_recording(profile_elapsed!(_canvas_start));
@@ -12337,6 +12352,7 @@ fn bind_canvas_layout_recursive(
   font: &crate::canvas::CanvasFont,
   text: &Arc<parking_lot::Mutex<crate::canvas::CanvasTextEngine>>,
   registry: &mut Vec<crate::canvas::CanvasHandle>,
+  software: bool,
 ) {
   use crate::node::transform::Transform2D;
   let local = node
@@ -12344,6 +12360,9 @@ fn bind_canvas_layout_recursive(
     .around_origin([abs_x + layout.size.width * 0.5, abs_y + layout.size.height * 0.5]);
   let composed = inherited.then(&local);
   if let Some(canvas) = node.canvas_handle() {
+    if software {
+      canvas.software();
+    }
     registry.push(canvas.clone());
     let padding = engine.resolved_padding_for_size(node, layout.size);
     let size = Size::new(
@@ -12381,6 +12400,7 @@ fn bind_canvas_layout_recursive(
       font,
       text,
       registry,
+      software,
     );
   }
 }

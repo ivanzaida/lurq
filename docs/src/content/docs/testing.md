@@ -202,6 +202,26 @@ assert_eq!(trigger_fill, Some(surface));
 
 Quads are the draw list before text shaping and batching; the render snapshot helpers above show the batched rects and glyphs a render engine receives.
 
+## A Canvas's Pixels
+
+A canvas drawn on the GPU has no pixels a headless test can read. `tree.set_software_canvases(true)`, before the canvas is first laid out, draws every canvas of the tree on the CPU, as `Canvas::software()` draws one; then `CanvasHandle::snapshot()` has its pixels at once. It is for a canvas the test does not build itself, a chart's plot:
+
+```rust
+use lurq::{app::{App, Tree}, components::Canvas};
+
+let mut app = App::new();
+let mut tree = Tree::new();
+tree.set_software_canvases(true);
+tree.set_root(Canvas::new().width(64.0).height(32.0).id("plot"));
+tree.pass_headless(&mut app);
+
+let canvas = tree.get_element_by_id_mut("plot").and_then(|element| element.canvas()).unwrap();
+let shot = canvas.snapshot().try_take().unwrap().unwrap();
+assert_eq!((shot.width, shot.height), (64, 32));
+```
+
+The snapshot's pixels are RGBA, not premultiplied, a row after another, at the canvas's scale.
+
 ## Input Methods
 
 Drive input method composition through `Tree::ime`, as the winit shell does with the platform's events, and check the result through the focused input:

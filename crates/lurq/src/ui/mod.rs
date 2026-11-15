@@ -67,6 +67,8 @@ mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+#[cfg(feature = "canvas")]
+mod line_chart;
 mod link;
 mod list_item;
 mod listbox;
@@ -146,6 +148,8 @@ pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeSta
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
 #[cfg(feature = "canvas")]
 pub use bar_chart::{BarChart, BarChartPart, BarChartState};
+#[cfg(feature = "canvas")]
+pub use line_chart::{AreaChart, LineChart, LineChartPart, LineChartState, LineCurve};
 pub use breadcrumb::{
   Breadcrumb, BreadcrumbPart, BreadcrumbPartRenderer, BreadcrumbRenderer, BreadcrumbSeparator, BreadcrumbState,
   BreadcrumbStep, BreadcrumbView,
@@ -165,7 +169,7 @@ pub use chart::{
   BandScale, BarEnd, ChartArea, ChartAxis, ChartFrame, ChartLegend, ChartLegendItem, ChartLegendPart,
   ChartLegendRenderer, ChartLegendShape, ChartLegendState, ChartLegendView, ChartLook, ChartPart, ChartPlot,
   ChartPoint, ChartProps, ChartRenderer, ChartSeries, ChartSize, ChartState, ChartTick, ChartTip, ChartTooltip,
-  ChartTooltipPart, ChartTooltipRenderer, ChartTooltipRow, ChartTooltipView, ChartView, LinearScale, chart_recipe,
+  ChartTooltipPart, ChartTooltipRenderer, ChartTooltipRow, ChartTooltipView, ChartView, LinearScale, TipPlace, chart_recipe,
   default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap, step as chart_step,
 };
 pub use checkbox::{

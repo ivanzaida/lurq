@@ -47,6 +47,8 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+#[cfg(feature = "canvas")]
+mod line_chart;
 mod list_item;
 mod listbox;
 mod menu;
