@@ -397,6 +397,78 @@ mod decoded {
     );
   }
 
+  #[test]
+  fn the_app_is_told_once_that_a_picture_came() {
+    let came = Arc::new(AtomicUsize::new(0));
+    let tell = came.clone();
+    let mut stage = at_start(move || {
+      let tell = tell.clone();
+      Picture::from_bytes(RED)
+        .cache_key(0x91C7_0010)
+        .width(128.0)
+        .on_load(move || {
+          tell.fetch_add(1, Ordering::SeqCst);
+        })
+    });
+    settled(&mut stage);
+    stage.pass();
+    stage.pass();
+    assert!(image_quad(&stage).is_some());
+    assert_eq!(came.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn the_app_is_told_why_a_picture_did_not_come_and_again_when_it_is_asked_for_again() {
+    let reasons = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let tell = reasons.clone();
+    let mut stage = at_start(move || {
+      let tell = tell.clone();
+      Picture::from_bytes(&b"no picture at all"[..])
+        .cache_key(0x91C7_0011)
+        .size_px(320.0, 180.0)
+        .id("broken")
+        .on_error(move |reason| tell.lock().unwrap().push(reason.to_owned()))
+    });
+    settled(&mut stage);
+    stage.pass();
+    assert_eq!(reasons.lock().unwrap().len(), 1);
+    assert!(!reasons.lock().unwrap()[0].is_empty(), "it says why");
+
+    stage.click("broken-retry");
+    settled(&mut stage);
+    stage.pass();
+    assert_eq!(reasons.lock().unwrap().len(), 2);
+  }
+
+  #[test]
+  fn a_picture_keeps_its_place_among_others_by_its_key() {
+    let order = lurq::core::Signal::new(false);
+    let turned = order.clone();
+    let mut stage = Stage::new(move |_| {
+      let red = Picture::from_bytes(RED)
+        .cache_key(0x91C7_0012)
+        .size_px(64.0, 32.0)
+        .key("red")
+        .id("red");
+      let none = Picture::empty().size_px(64.0, 32.0).key("none").id("none");
+      let row = Row::new().padding(8.0);
+      match turned.get() {
+        false => row.child(red).child(none).into(),
+        true => row.child(none).child(red).into(),
+      }
+    });
+    settled(&mut stage);
+    assert_eq!(stage.bounds("red").0, 8.0);
+    order.set(true);
+    stage.pass();
+    assert_eq!(
+      stage.bounds("red").0,
+      8.0 + 64.0,
+      "it moved, and it is the picture it was"
+    );
+    assert!(image_quad(&stage).is_some());
+  }
+
   /// Passes until `done` holds, while the app's loader and the decoder work on their threads.
   fn until(stage: &mut Stage, what: &str, done: impl Fn(&Stage) -> bool) {
     for _ in 0..500 {

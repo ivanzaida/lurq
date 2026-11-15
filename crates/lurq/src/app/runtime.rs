@@ -808,9 +808,6 @@ pub struct Tree {
   /// The waker the decoded-image cache calls for this tree's window, made once.
   #[cfg(feature = "image")]
   loading_image_waker: Option<crate::app::window::WindowWaker>,
-  /// The loads of this tree's images that are on their way, each with the bytes its node last showed.
-  #[cfg(feature = "image")]
-  pending_loads: Vec<(crate::resources::Load, u64)>,
   /// The loading-image nodes built when the tree last walked for them.
   #[cfg(feature = "image")]
   loading_images_built_seen: u64,
@@ -1292,8 +1289,6 @@ impl Tree {
       pending_images: Vec::new(),
       #[cfg(feature = "image")]
       loading_image_waker: None,
-      #[cfg(feature = "image")]
-      pending_loads: Vec::new(),
       #[cfg(feature = "image")]
       loading_images_built_seen: 0,
       clipboard_reader: None,
@@ -7358,7 +7353,9 @@ impl Tree {
     #[cfg(not(all(feature = "image", feature = "http")))]
     let image_resources_changed = false;
     #[cfg(feature = "image")]
-    let image_resources_changed = self.resolve_loading_images(&app.shared.loader) || image_resources_changed;
+    let image_resources_changed = self.resolve_loading_images() || image_resources_changed;
+    // What nobody waits for any more is let go: the loads of components that are gone.
+    app.shared.loader.sweep();
     #[cfg(all(feature = "svg", feature = "http"))]
     let svg_resources_changed = self.resolve_resource_svgs(app);
     #[cfg(not(all(feature = "svg", feature = "http")))]

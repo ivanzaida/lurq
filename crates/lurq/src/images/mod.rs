@@ -6,11 +6,9 @@ mod render;
 mod wgpu_external;
 
 #[cfg(feature = "image")]
-pub(crate) use decoded::load_retries;
-#[cfg(feature = "image")]
 pub use decoded::{
   DEFAULT_BUDGET_BYTES, DecodedImages, ImageDecodeError, ImageKey, ImageLoadState, ImageSizeCap, ImageSource,
-  decode_image, decoded_images, retry_loaded_image, wait_for_decoded_images,
+  decode_image, decoded_images, wait_for_decoded_images,
 };
 #[cfg(all(feature = "dx12", target_os = "windows"))]
 pub use image_data::{Dx12Nv12Image, Dx12Nv12ImageSlot};

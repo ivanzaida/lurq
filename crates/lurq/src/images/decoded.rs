@@ -88,33 +88,6 @@ impl ImageKey {
   }
 }
 
-/// How often each source was asked for again after it failed, by the source's key. A count and not a list a
-/// pass takes: the nodes of one source may be in several windows, and each of them has to see it.
-static LOAD_RETRIES: parking_lot::Mutex<Vec<(u64, u64)>> = parking_lot::Mutex::new(Vec::new());
-
-/// Asks again for an image whose load failed ([`Image::from_loaded`](crate::components::Image::from_loaded)):
-/// the app's loader forgets that it failed, and the nodes that showed the error show their placeholder and wait
-/// for it anew, in the next pass of the tree they are in. A node that did not fail is left as it is.
-pub fn retry_loaded_image(source: &crate::resources::Source) {
-  let key = source.cache_key();
-  let mut retries = LOAD_RETRIES.lock();
-  match retries.iter_mut().find(|(retried, _)| *retried == key) {
-    Some((_, count)) => *count += 1,
-    None => retries.push((key, 1)),
-  }
-  drop(retries);
-  crate::app::runtime::note_loading_image_built();
-}
-
-/// How often the source with `key` was asked for again.
-pub(crate) fn load_retries(key: u64) -> u64 {
-  let retries = LOAD_RETRIES.lock();
-  retries
-    .iter()
-    .find(|(retried, _)| *retried == key)
-    .map_or(0, |(_, count)| *count)
-}
-
 /// A cap on the decoded size: the image is downscaled to fit within it,
 /// keeping its aspect ratio, so a thumbnail of a 4K screenshot does not keep
 /// its 30 MB of RGBA.

@@ -294,6 +294,20 @@ enum Source {
   },
 }
 
+/// Where a picture's pixels are, as its component found them when it rendered.
+#[derive(Clone)]
+enum Phase {
+  /// It has no source.
+  Empty,
+  #[cfg(feature = "raster")]
+  Ready(crate::images::ImageData),
+  /// On their way: the bytes read and how many there are, where the app's loader reads them and knows.
+  #[cfg_attr(not(feature = "image"), allow(dead_code))]
+  Loading(Option<(u64, u64)>),
+  /// They did not come, or were no picture: why.
+  Failed(Arc<str>),
+}
+
 /// How far the load of a picture has come: what [`Picture::progress_text`] is given.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PictureLoad {
@@ -367,8 +381,10 @@ impl Default for Words {
 /// and with the focus. A small picture keeps less of that: see [`PictureSize`]. Its form follows its width where
 /// [`size`](Self::size) does not say it.
 ///
-/// A picture laid in the tree is still: its bar shows and its buttons are pressed, but the menu behind More and
-/// the buttons' tooltips are kept by a mounted one, [`mount`](Self::mount).
+/// A picture is a component. Laid in a tree (`Row::new().child(Picture::from_url(..))`) it is mounted by the
+/// component that renders the tree, and keeps what is its own for as long as it is rendered: the load of its
+/// source and how far it has come, whether the menu behind More is open, its buttons' tooltips. In a list that
+/// changes give it a [`key`](Self::key). In a tree no component renders it shows nothing.
 #[derive(Clone)]
 pub struct Picture {
   source: Source,
@@ -388,6 +404,8 @@ pub struct Picture {
   progress_text: Option<Arc<dyn Fn(PictureLoad) -> String + Send + Sync>>,
   words: Words,
   on_retry: Vec<Action>,
+  on_load: Vec<Action>,
+  on_error: Vec<Told<Arc<str>>>,
   caption: Option<Arc<str>>,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
@@ -431,6 +449,8 @@ impl Picture {
       progress_text: None,
       words: Words::default(),
       on_retry: Vec::new(),
+      on_load: Vec::new(),
+      on_error: Vec::new(),
       caption: None,
       title: None,
       description: None,
@@ -646,6 +666,18 @@ impl Picture {
     self
   }
 
+  /// Called once the picture's pixels are there: once for a source, and again for one asked for anew.
+  pub fn on_load(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_load.push(Arc::new(handler));
+    self
+  }
+
+  /// Called once the picture did not come, with why: the load failed, or what it brought was no picture.
+  pub fn on_error(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_error.push(Arc::new(move |reason: Arc<str>| handler(&reason)));
+    self
+  }
+
   /// A caption under the picture, which makes it a figure: "Figure 1. The lake at dusk."
   pub fn caption(mut self, caption: &str) -> Self {
     self.caption = Some(Arc::from(caption));
@@ -805,14 +837,8 @@ impl Picture {
     self
   }
 
-  /// Builds the picture in `theme`: the still form, with its menu closed. Converting a picture into an element
-  /// does this in the theme of what is being rendered.
-  pub fn build(self, theme: &Theme) -> Element {
-    view(self, theme, &Live::still(), None).render_themed()
-  }
-
-  /// The picture mounted where it is declared: it keeps whether the menu behind More is open, and its buttons
-  /// have their tooltips.
+  /// The picture mounted in `ctx`: what converting it into an element does once the render that returns it
+  /// has returned.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
     let props = PictureProps(self);
@@ -845,9 +871,15 @@ impl Picture {
   }
 }
 
+/// A picture in a tree is its component, declared: the component that renders the tree mounts it.
 impl From<Picture> for Element {
   fn from(picture: Picture) -> Self {
-    picture.build(&current_theme())
+    let key = picture.key.clone();
+    let props = PictureProps(picture);
+    match key {
+      Some(key) => Element::component_keyed::<PictureHost>(key, props),
+      None => Element::component::<PictureHost>(props),
+    }
   }
 }
 
@@ -865,27 +897,28 @@ impl PartialEq for PictureProps {
 #[cfg(feature = "devtools")]
 impl crate::app::component::DevtoolsInspectable for PictureProps {}
 
-/// What a mounted picture keeps between renders; the still form makes a new one each time.
+/// What a picture keeps between renders.
 #[derive(Clone)]
 struct Live {
   /// Whether the menu behind More is open.
   menu: Signal<bool>,
   /// The More button, which the menu hangs from.
   more: ElementRef,
-  mounted: bool,
+  /// Counts on when a load or a decode of the picture's comes further or ends, and when it is asked for again:
+  /// the picture renders again and looks.
+  tick: Signal<u64>,
+  /// Counts `tick` on: what a load and a decode are given to call, the same one for the picture's life.
+  wake: Action,
+  /// The load of the picture's bytes while it is on its way, with its source's key: while it is held the app's
+  /// loader keeps it.
+  held: Arc<parking_lot::Mutex<Option<(u64, crate::resources::Load)>>>,
+  /// What the app was last told of a source, by its key: that it came, or that it did not.
+  told: Arc<parking_lot::Mutex<Option<(u64, bool)>>>,
+  /// What to tell the app once this render is laid out.
+  news: Arc<parking_lot::Mutex<Vec<Action>>>,
 }
 
-impl Live {
-  fn still() -> Self {
-    Self {
-      menu: Signal::new(false),
-      more: ElementRef::new(),
-      mounted: false,
-    }
-  }
-}
-
-/// What keeps a mounted picture's menu.
+/// The component of a picture.
 struct PictureHost {
   live: Live,
 }
@@ -894,11 +927,20 @@ impl Component for PictureHost {
   type Props = PictureProps;
 
   fn create(ctx: &mut Ctx) -> Self {
+    let tick = ctx.signal(0u64);
+    let wake: Action = {
+      let tick = tick.clone();
+      Arc::new(move || tick.set(tick.get_untracked().wrapping_add(1)))
+    };
     Self {
       live: Live {
         menu: ctx.signal(false),
         more: ElementRef::new(),
-        mounted: true,
+        tick,
+        wake,
+        held: Arc::default(),
+        told: Arc::default(),
+        news: Arc::default(),
       },
     }
   }
@@ -906,7 +948,125 @@ impl Component for PictureHost {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let picture = ctx.props::<PictureProps>().0.clone();
     let theme = current_theme();
-    view(picture, &theme, &self.live, Some(ctx)).render_themed()
+    // Read, so that a load that comes further renders the picture again.
+    self.live.tick.get();
+    let phase = self.phase(&picture, ctx);
+    self.tell(&picture, &phase);
+    let loader = ctx.app_handle().map(|app| app.loader().clone());
+    view(picture, &theme, &self.live, phase, loader, Some(ctx)).render_themed()
+  }
+
+  /// The app hears of a picture that came or did not once the render that found it is laid out, not in it.
+  fn after_layout(&self) {
+    let news = std::mem::take(&mut *self.live.news.lock());
+    news.iter().for_each(|tell| tell());
+  }
+
+  /// A picture that is gone waits for no load: the loader stops one nobody else holds.
+  fn on_unmounted(&self) {
+    *self.live.held.lock() = None;
+  }
+}
+
+impl PictureHost {
+  /// Where the picture's pixels are now. A source to read and decode is brought on from here: asked of the
+  /// app's loader and of the pixels' cache, each of which counts `tick` on when it has more.
+  fn phase(&self, picture: &Picture, ctx: &Ctx) -> Phase {
+    match &picture.source {
+      Source::None => Phase::Empty,
+      #[cfg(feature = "raster")]
+      Source::Data(data) => Phase::Ready(data.clone()),
+      #[cfg(not(feature = "image"))]
+      Source::Encoded { .. } => {
+        let _ = ctx;
+        Phase::Failed(Arc::from(NO_CODECS))
+      }
+      #[cfg(feature = "image")]
+      Source::Encoded { source, cap } => self.decoded(source, *cap, ctx),
+    }
+  }
+
+  #[cfg(feature = "image")]
+  fn decoded(&self, source: &crate::resources::Source, cap: Option<(u32, u32)>, ctx: &Ctx) -> Phase {
+    use crate::{
+      images::{ImageKey, ImageLoadState, ImageSizeCap, ImageSource, decoded_images},
+      resources::{LoadState, SourceKind},
+    };
+    let key = ImageKey::new(source.cache_key());
+    let cap = cap.map(|(width, height)| ImageSizeCap::new(width, height));
+    let wake = &self.live.wake;
+    let decode = |from: ImageSource| match decoded_images().load(key, cap, || from, Some(wake.clone())) {
+      ImageLoadState::Loading => Phase::Loading(None),
+      ImageLoadState::Ready(data) => Phase::Ready(data),
+      ImageLoadState::Failed(error) => Phase::Failed(Arc::from(error.message())),
+    };
+    match &source.kind {
+      // A file and bytes are read by what decodes them.
+      SourceKind::Bytes(bytes) => decode(ImageSource::Bytes(bytes.clone())),
+      SourceKind::File(path) => decode(ImageSource::File(path.clone())),
+      // A resource and an address are read by the app's loader first.
+      SourceKind::Resource(_) | SourceKind::Url(_) => {
+        let mut held = self.live.held.lock();
+        // Its pixels are there, or known to be no picture: nothing to load.
+        match decoded_images().state(key, cap) {
+          Some(ImageLoadState::Ready(data)) => {
+            *held = None;
+            return Phase::Ready(data);
+          }
+          Some(ImageLoadState::Failed(error)) => {
+            *held = None;
+            return Phase::Failed(Arc::from(error.message()));
+          }
+          _ => {}
+        }
+        let load = match &*held {
+          Some((of, load)) if *of == source.cache_key() => load.clone(),
+          _ => {
+            let Some(app) = ctx.app_handle() else {
+              return Phase::Failed(Arc::from("the picture is in no app: nothing loads it"));
+            };
+            let load = app.loader().load(source);
+            *held = Some((source.cache_key(), load.clone()));
+            load
+          }
+        };
+        // Asked to be told before it is looked at: a load that ends in between is not missed.
+        load.wake_with(wake.clone());
+        match load.state() {
+          LoadState::Loading { loaded, total } => Phase::Loading(total.map(|total| (loaded, total))),
+          LoadState::Failed(error) => Phase::Failed(Arc::from(error.to_string())),
+          LoadState::Ready(bytes) => decode(ImageSource::Bytes(bytes)),
+        }
+      }
+    }
+  }
+
+  /// Notes what the app is to be told of this render's find: that the picture came, or that it did not, once
+  /// for a source and again for one asked for anew.
+  fn tell(&self, picture: &Picture, phase: &Phase) {
+    let came = match phase {
+      #[cfg(feature = "raster")]
+      Phase::Ready(_) => true,
+      Phase::Failed(_) => false,
+      Phase::Empty | Phase::Loading(_) => return,
+    };
+    let key = match &picture.source {
+      Source::Encoded { source, .. } => source.cache_key(),
+      _ => 0,
+    };
+    let mut told = self.live.told.lock();
+    if *told == Some((key, came)) {
+      return;
+    }
+    *told = Some((key, came));
+    let mut news = self.live.news.lock();
+    match phase {
+      Phase::Failed(reason) => news.extend(picture.on_error.iter().map(|handler| {
+        let (handler, reason) = (handler.clone(), reason.clone());
+        Arc::new(move || handler(reason.clone())) as Action
+      })),
+      _ => news.extend(picture.on_load.iter().cloned()),
+    }
   }
 }
 
@@ -1005,14 +1165,21 @@ fn rail(track: &ResolvedPart, fill: &ResolvedPart, progress: f64) -> Row {
 }
 
 /// Builds the view of `picture` in `theme`, with its bar made, and its tooltips where `ctx` is given.
-fn view(picture: Picture, theme: &Theme, live: &Live, mut ctx: Option<&mut Ctx>) -> PictureView {
+fn view(
+  picture: Picture,
+  theme: &Theme,
+  live: &Live,
+  phase: Phase,
+  loader: Option<crate::resources::Loader>,
+  mut ctx: Option<&mut Ctx>,
+) -> PictureView {
   let pressable = picture.pressable();
   let bar_has = picture.title.is_some()
     || picture.description.is_some()
     || !picture.actions.is_empty()
     || !picture.on_download.is_empty()
     || !picture.menu_items.is_empty();
-  let menu_open = live.mounted && live.menu.get();
+  let menu_open = live.menu.get();
   let case = |size: PictureSize, on: bool| {
     Case {
       variant: None,
@@ -1086,17 +1253,15 @@ fn view(picture: Picture, theme: &Theme, live: &Live, mut ctx: Option<&mut Ctx>)
       );
       let button = Row::new().ref_element(live.more.clone()).child(button);
       buttons.push(tip(ctx.as_deref_mut(), button.into(), &picture.words.more));
-      if live.mounted {
-        menu = Some(
-          Menu::new(live.menu.clone(), live.more.clone())
-            .label(&picture.words.more)
-            .placement(Placement::TopEnd)
-            .offset(4.0)
-            .rules(&form.recipe.rules_for(PicturePart::MoreMenu, super::MenuPart::Panel))
-            .items(picture.menu_items.iter().cloned())
-            .build(theme),
-        );
-      }
+      menu = Some(
+        Menu::new(live.menu.clone(), live.more.clone())
+          .label(&picture.words.more)
+          .placement(Placement::TopEnd)
+          .offset(4.0)
+          .rules(&form.recipe.rules_for(PicturePart::MoreMenu, super::MenuPart::Panel))
+          .items(picture.menu_items.iter().cloned())
+          .build(theme),
+      );
     }
     bars.push(Some(PictureBar {
       title: picture.title.clone(),
@@ -1106,7 +1271,32 @@ fn view(picture: Picture, theme: &Theme, live: &Live, mut ctx: Option<&mut Ctx>)
     }));
   }
 
+  // Asked for again: the app is told, the pixels' cache and the loader forget that it failed, the load that
+  // was held is let go, and the picture renders again and asks anew.
+  let retry: Action = {
+    let handlers = picture.on_retry.clone();
+    let (source, live) = (picture.source.clone(), live.clone());
+    Arc::new(move || {
+      handlers.iter().for_each(|handler| handler());
+      #[cfg(feature = "image")]
+      if let Source::Encoded { source, cap } = &source {
+        let cap = cap.map(|(width, height)| crate::images::ImageSizeCap::new(width, height));
+        crate::images::decoded_images().forget(crate::images::ImageKey::new(source.cache_key()), cap);
+        if let Some(loader) = &loader {
+          loader.forget(source);
+        }
+      }
+      #[cfg(not(feature = "image"))]
+      let _ = (&source, &loader);
+      *live.held.lock() = None;
+      *live.told.lock() = None;
+      (live.wake)();
+    })
+  };
+
   PictureView {
+    phase,
+    retry,
     known: Known {
       width: picture.width.is_some() || picture.aspect_ratio.is_some(),
       height: picture.height.is_some() || picture.aspect_ratio.is_some(),
@@ -1177,6 +1367,10 @@ pub struct PictureView {
   pub pressable: bool,
   known: Known,
   picture: Picture,
+  /// Where its pixels are.
+  phase: Phase,
+  /// Asks for the picture again.
+  retry: Action,
 }
 
 impl PictureView {
@@ -1296,22 +1490,7 @@ impl PictureView {
       }
     };
     let retry_id = self.id("retry");
-    let retry: Action = {
-      let handlers = self.picture.on_retry.clone();
-      let source = self.picture.source.clone();
-      Arc::new(move || {
-        handlers.iter().for_each(|handler| handler());
-        // The pixels' cache forgets that it failed, and so does the loader: the next pass asks anew.
-        #[cfg(feature = "image")]
-        if let Source::Encoded { source, cap } = &source {
-          let cap = cap.map(|(width, height)| crate::images::ImageSizeCap::new(width, height));
-          crate::images::decoded_images().forget(crate::images::ImageKey::new(source.cache_key()), cap);
-          crate::images::retry_loaded_image(source);
-        }
-        #[cfg(not(feature = "image"))]
-        let _ = &source;
-      })
-    };
+    let retry = self.retry.clone();
     move || {
       let mut stand_in = known.stand_in();
       for form in &forms {
@@ -1374,8 +1553,7 @@ impl PictureView {
     }
   }
 
-  /// The pixels, placed in the box as the fit and the anchor say, with what stands in for them while they are
-  /// on their way and when they did not come. Nothing for a picture with no source.
+  /// The pixels, placed in the box as the fit and the anchor say. Nothing while they are not there.
   #[allow(deprecated)]
   pub fn image(&self) -> Option<Element> {
     #[cfg(not(feature = "raster"))]
@@ -1383,37 +1561,11 @@ impl PictureView {
     #[cfg(feature = "raster")]
     {
       use crate::{components::Image, node::BackgroundSize};
-      let image = match &self.picture.source {
-        Source::None => return None,
-        Source::Data(data) => Image::new(data.clone()),
-        #[cfg(not(feature = "image"))]
-        Source::Encoded { .. } => return None,
-        #[cfg(feature = "image")]
-        Source::Encoded { source, cap } => {
-          use crate::{
-            images::{ImageKey, ImageSource},
-            resources::SourceKind,
-          };
-          let key = ImageKey::new(source.cache_key());
-          // A file and bytes are read by what decodes them; a resource and an address by the app's loader.
-          let image = match &source.kind {
-            SourceKind::Bytes(bytes) => Image::from_source(ImageSource::Bytes(bytes.clone()), key),
-            SourceKind::File(path) => Image::from_source(ImageSource::File(path.clone()), key),
-            SourceKind::Resource(_) | SourceKind::Url(_) => Image::from_loaded(source.clone()),
-          };
-          let image = match cap {
-            Some((width, height)) => image.downscale_to(*width, *height),
-            None => image,
-          };
-          let (error, loading, progress) = (self.error_maker(), self.loading_maker(), self.loading_maker());
-          image
-            .placeholder_view(move || loading(None))
-            .progress_view(move |loaded, total| progress(Some((loaded, total))))
-            .error_view(move |_| error())
-        }
+      let Phase::Ready(data) = &self.phase else {
+        return None;
       };
       let (x, y) = anchor_shares(self.picture.anchor);
-      let image = image
+      let image = Image::new(data.clone())
         .fit(match self.picture.fit {
           PictureFit::Cover => BackgroundSize::Cover,
           PictureFit::Contain => BackgroundSize::Contain,
@@ -1431,11 +1583,6 @@ impl PictureView {
         (false, false) => image.into(),
       })
     }
-  }
-
-  /// Whether the picture has encoded bytes that this build has nothing to decode with.
-  fn undecodable(&self) -> bool {
-    cfg!(not(feature = "image")) && matches!(self.picture.source, Source::Encoded { .. })
   }
 
   /// What a box with no source shows: in each form, the glyph and what the picture would be called.
@@ -1642,13 +1789,13 @@ impl PictureView {
     if self.known.height {
       inner = inner.height(full);
     }
-    inner = match self.image() {
-      // What the app is still fetching: the stand-in a decode shows, with no pixels to come by themselves.
+    inner = match (&self.phase, self.image()) {
+      // What the app is still fetching itself: the stand-in of a load, with no pixels to come by themselves.
       _ if picture.loading => inner.child(self.loading_maker()(None)),
-      // Encoded bytes in a build with no decoder: the picture that did not load, which says why in the log.
-      _ if self.undecodable() => inner.child(self.error_maker()()),
-      Some(image) => inner.child(image),
-      None => inner.child(self.empty()),
+      (_, Some(image)) => inner.child(image),
+      (Phase::Loading(bytes), _) => inner.child(self.loading_maker()(*bytes)),
+      (Phase::Failed(_), _) => inner.child(self.error_maker()()),
+      _ => inner.child(self.empty()),
     };
     if let Some(overlay) = self.overlay() {
       inner = inner.child(overlay);

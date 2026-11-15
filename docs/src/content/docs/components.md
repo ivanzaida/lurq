@@ -173,7 +173,7 @@ fn avatar(user: &User) -> Element {
 }
 
 fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
-  lurq::components::Row::new().children(self.users.get().iter().map(avatar))
+  lurq::components::Row::new().with_children(self.users.get().iter().map(avatar))
 }
 ```
 
@@ -182,7 +182,7 @@ fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
   `Element::component_keyed::<C>(key, props)`, or `.key(..)` on the element.
 - `.id(..)`, `.key(..)` and `.class(..)` on the element go to the component's root, as on an element `ctx.mount`
   returned.
-- The props are cloned for the mount, so they are `Clone + Sync`.
+- The props are cloned for the mount, so they are `Clone`.
 - An element handed down to another component (slot children, an element in its props) is mounted by the component
   whose render returns it.
 - A tree no component renders, `Tree::set_root` with an element, has nothing to mount it in: it shows nothing there, and

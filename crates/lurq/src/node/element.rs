@@ -153,7 +153,7 @@ impl Element {
   /// ```
   pub fn component<C: crate::app::component::Component>(props: C::Props) -> Self
   where
-    C::Props: Clone + Sync,
+    C::Props: Clone,
   {
     Self::declaring::<C>(None, props)
   }
@@ -164,19 +164,24 @@ impl Element {
     props: C::Props,
   ) -> Self
   where
-    C::Props: Clone + Sync,
+    C::Props: Clone,
   {
     Self::declaring::<C>(Some(key.into()), props)
   }
 
   fn declaring<C: crate::app::component::Component>(key: Option<std::sync::Arc<str>>, props: C::Props) -> Self
   where
-    C::Props: Clone + Sync,
+    C::Props: Clone,
   {
+    // Props may hold elements, which are sent and not shared: behind a lock, what mounts them is both.
+    let props = parking_lot::Mutex::new(props);
     let mount: crate::node::outer_decoration::DeclaredMount =
-      std::sync::Arc::new(move |ctx: &mut crate::app::ctx::Ctx, key: Option<&str>| match key {
-        Some(key) => ctx.mount_keyed::<C>(key, props.clone()),
-        None => ctx.mount::<C>(props.clone()),
+      std::sync::Arc::new(move |ctx: &mut crate::app::ctx::Ctx, key: Option<&str>| {
+        let props = props.lock().clone();
+        match key {
+          Some(key) => ctx.mount_keyed::<C>(key, props),
+          None => ctx.mount::<C>(props),
+        }
       });
     Self::from_node(Node::declaring(crate::node::outer_decoration::DeclaredComponent {
       mount,
