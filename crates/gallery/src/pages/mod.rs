@@ -7,9 +7,16 @@ use lurq::{app::ctx::Ctx, node::Element};
 mod accordion;
 mod action_bar;
 mod alert;
+mod area_chart;
 mod avatar;
 mod badge;
+mod bar_list;
+mod gauge;
+mod meter;
+mod sparkline;
+mod stat_card;
 mod banner;
+mod bar_chart;
 mod blockquote;
 mod breadcrumb;
 mod button;
@@ -48,6 +55,7 @@ mod input;
 mod input_group;
 mod input_otp;
 mod kbd;
+mod line_chart;
 mod list;
 mod listbox;
 mod markdown;
@@ -72,6 +80,7 @@ mod property_grid;
 mod radio;
 mod radio_card;
 mod rating;
+mod scatter_chart;
 mod scroll_area;
 mod search_field;
 mod select;
@@ -115,18 +124,20 @@ pub enum Group {
   Navigation,
   Surfaces,
   Data,
+  Charts,
   Desktop,
 }
 
 impl Group {
   /// The groups in the order of the side bar.
-  pub const ALL: [Group; 7] = [
+  pub const ALL: [Group; 8] = [
     Self::GettingStarted,
     Self::Actions,
     Self::Inputs,
     Self::Navigation,
     Self::Surfaces,
     Self::Data,
+    Self::Charts,
     Self::Desktop,
   ];
 
@@ -138,6 +149,7 @@ impl Group {
       Self::Navigation => "Navigation",
       Self::Surfaces => "Surfaces & overlays",
       Self::Data => "Data",
+      Self::Charts => "Charts",
       Self::Desktop => "Desktop",
     }
   }
@@ -793,6 +805,22 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<progress::ProgressPage>(()),
   },
   Page {
+    path: "/meter",
+    name: "Meter",
+    icon: Some("signal"),
+    about: "meter segmented disk space battery quota level zone good warning bad value min max low high optimum variant segments label description value_text",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<meter::MeterPage>(()),
+  },
+  Page {
+    path: "/gauge",
+    name: "Gauge",
+    icon: Some("gauge"),
+    about: "gauge dial half ring arc speedometer cpu load temperature value min max low high optimum color label value_text bound_text",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<gauge::GaugePage>(()),
+  },
+  Page {
     path: "/alert",
     name: "Alert",
     icon: Some("warning"),
@@ -897,6 +925,38 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<timeline::TimelinePage>(()),
   },
   Page {
+    path: "/bar-chart",
+    name: "Bar Chart",
+    icon: Some("chart-bar"),
+    about: "bar chart bars columns chart graph plot series categories values stacked grouped side by side current negative zero grid value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint ChartLegend ChartTooltip",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<bar_chart::BarChartPage>(()),
+  },
+  Page {
+    path: "/line-chart",
+    name: "Line Chart",
+    icon: Some("chart-line"),
+    about: "line chart lines graph plot series categories values trend over time smooth curve straight gap missing ten thousand cursor tooltip legend hidden grid value_axis axis_labels value_text on_select empty_text loading size height canvas ChartSeries ChartPoint LineCurve",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<line_chart::LineChartPage>(()),
+  },
+  Page {
+    path: "/area-chart",
+    name: "Area Chart",
+    icon: Some("chart-area"),
+    about: "area chart areas fill under line stacked whole parts memory series categories smooth curve cursor tooltip legend hidden grid value_axis axis_labels value_text on_select empty_text loading size height canvas ChartSeries LineCurve",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<area_chart::AreaChartPage>(()),
+  },
+  Page {
+    path: "/scatter-chart",
+    name: "Scatter Chart",
+    icon: Some("chart-scatter"),
+    about: "scatter chart points dots x y two axes correlation trend regression outlier series nearest point tooltip legend hidden grid value_axis x_text value_text on_select empty_text loading size height canvas ChartSeries points",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<scatter_chart::ScatterChartPage>(()),
+  },
+  Page {
     path: "/data-grid",
     name: "Data Grid",
     icon: Some("table"),
@@ -911,6 +971,30 @@ pub const PAGES: &[Page] = &[
     about: "markdown document prose rich text headings lists ordered nested bullets tasks task list checkbox table columns alignment rule image caption figure admonition note tip important warning caution callout details summary footnotes footnote reference kbd keys inline code struck strikethrough link selectable fit_content on_task_change highlights rendered_text ThemeMarkdown",
     group: Group::Data,
     mount: |ctx| ctx.mount::<markdown::MarkdownPage>(()),
+  },
+  Page {
+    path: "/bar-list",
+    name: "Bar List",
+    icon: Some("chart-rows"),
+    about: "bar list chart bars ranking top slowest largest horizontal bar value scale name track new item items title description label max color value_text empty_text framed on_select key disabled style rules",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<bar_list::BarListPage>(()),
+  },
+  Page {
+    path: "/sparkline",
+    name: "Sparkline",
+    icon: Some("pulse"),
+    about: "sparkline trend line series small chart history values min max color width height label summary_text empty_text canvas",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<sparkline::SparklinePage>(()),
+  },
+  Page {
+    path: "/stat-card",
+    name: "Stat Card",
+    icon: Some("trending-up"),
+    about: "stat card kpi metric number dashboard change delta trend badge label value description media sparkline variant size on_click",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<stat_card::StatCardPage>(()),
   },
   Page {
     path: "/splitter",
