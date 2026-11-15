@@ -86,7 +86,7 @@ fn stage(scene: impl Fn(&mut Ctx) -> Element + Send + Sync + 'static) -> Stage {
 
 /// The still form of what `make` builds.
 fn still(make: impl Fn() -> VideoPlayer + Send + Sync + 'static) -> Stage {
-  stage(move |_| make().into())
+  stage(move |_| make().build(&lurq::ui::current_theme()))
 }
 
 /// The mounted form of what `make` builds.
@@ -404,7 +404,11 @@ fn with_the_controls_the_overlay_and_the_bar_each_take_their_own_presses() {
           .size(40.0, 40.0)
           .on_click(move |_| *count.lock().unwrap() += 1),
       );
-      if mount { player.mount(ctx) } else { player.into() }
+      if mount {
+        player.mount(ctx)
+      } else {
+        player.build(&lurq::ui::current_theme())
+      }
     });
     stage.click("like");
     assert_eq!(
@@ -466,7 +470,11 @@ fn a_play_button_in_the_middle_of_the_apps_layer_is_pressed_under_a_layer_that_d
         .controls(false)
         .playing_controlled(false, |_| {})
         .child(layer);
-      if mount { player.mount(ctx) } else { player.into() }
+      if mount {
+        player.mount(ctx)
+      } else {
+        player.build(&lurq::ui::current_theme())
+      }
     });
     stage.click("own-play");
     assert_eq!(
@@ -490,7 +498,11 @@ fn a_bound_player_is_dragged_through_the_renders_its_own_change_causes() {
         .media(Column::new().size(Dimension::Pct(100.0), Dimension::Pct(100.0)))
         .duration(250.0)
         .position(shown.clone());
-      if mount { player.mount(ctx) } else { player.into() }
+      if mount {
+        player.mount(ctx)
+      } else {
+        player.build(&lurq::ui::current_theme())
+      }
     });
     let (x, y, width, height) = stage.bounds("v-seek");
     let (at, middle) = (|share: f32| x + width * share, y + height / 2.0);
@@ -843,7 +855,7 @@ fn over_the_picture_it_is_the_same_in_a_dark_theme() {
   dark.set_preferred_appearance(Some(Appearance::Dark));
   let mut stage = stage(move |ctx| {
     let player = player(&told).captions_controlled(true, |_| {}).caption_text("A line");
-    ctx.in_theme(&dark, move |_| player)
+    ctx.in_theme(&dark, move |ctx| player.mount(ctx))
   });
   assert_eq!(stage.fill_color("v-caption"), Some(BLACK_70));
   assert_eq!(stage.fill_color("v-captions"), Some(WHITE_20));
@@ -1012,7 +1024,11 @@ fn nothing_of_the_bar_is_cut_at_any_width_still_or_mounted() {
       let told = Told::default();
       let mut stage = stage(move |ctx| {
         let player = player(&told).width(width);
-        if mount { player.mount(ctx) } else { player.into() }
+        if mount {
+          player.mount(ctx)
+        } else {
+          player.build(&lurq::ui::current_theme())
+        }
       });
       let (left, _, across, _) = stage.bounds("v");
       assert_eq!(across, width, "the player is as wide as it was told");

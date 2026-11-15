@@ -180,12 +180,20 @@ impl AudioQueuePage {
         .into_iter()
         .filter(|changed| *changed)
         .count();
+    self.playground.window_shows({
+      // Behind a lock: the artwork of a row is an element, which threads do not share.
+      let queue = std::sync::Mutex::new(queue.clone().force(None));
+      move |ctx| {
+        let queue = queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        held(queue.mount(ctx)).into()
+      }
+    });
     let playground = &self.playground;
     self.playground.card(
       ctx,
       Spec {
         title: "Audio Queue",
-        make: Arc::new(move || held(plain()).into()),
+        make: Arc::new(move || held(plain().build(&lurq::ui::current_theme())).into()),
         // In a column of the holder's width: a row lays the queue out as wide as its words, and the board's
         // queue is as wide as what holds it.
         shown: Shown::built(move |ctx| {
@@ -252,19 +260,25 @@ impl Component for AudioQueuePage {
       .child(item(
         held(
           AudioQueue::controlled(None, tracks(true, false, None).into_iter().take(2), |_| {})
-            .force(Some(Interaction::Hovered)),
+            .force(Some(Interaction::Hovered))
+            .mount(ctx),
         ),
         "hover on the first",
       ))
       .child(item(
         held(
           AudioQueue::controlled(None, tracks(true, false, None).into_iter().take(2), |_| {})
-            .force(Some(Interaction::FocusVisible)),
+            .force(Some(Interaction::FocusVisible))
+            .mount(ctx),
         ),
         "focus on the first",
       ))
       .child(item(
-        held(AudioQueue::controlled(Some(0), tracks(false, false, None).into_iter().take(2), |_| {}).playing(false)),
+        held(
+          AudioQueue::controlled(Some(0), tracks(false, false, None).into_iter().take(2), |_| {})
+            .playing(false)
+            .mount(ctx),
+        ),
         "current, paused; no artwork",
       ));
     let rows = [
@@ -310,7 +324,7 @@ impl Component for AudioQueuePage {
         "mount",
         "&mut Ctx",
         "",
-        "The tooltips of the more buttons. Converted into an element, the buttons have none.",
+        "Puts it where it goes, the only way: it keeps the tooltips of the more buttons.",
       ),
     ];
     let playground = self.play(ctx);

@@ -61,7 +61,8 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 | `peaks(&[f32])` | The loudness of each bar of a waveform, from 0 to 1: a voice message draws it, the compact row in place of the bar |
 | `on_previous`, `on_next`, `on_more`, `on_queue`, `on_expand` | Commands; each call adds a handler. `more_anchor(ElementRef)` is the ref of the card's more button, for a menu of the app |
 | `label(&str)` and `play_label`, `pause_label`, `previous_label`, `next_label`, `shuffle_label`, `repeat_label`, `more_label`, `speed_label`, `queue_label`, `expand_label`, `seek_label` | What the player and its controls are called |
-| `mount(ctx)` | The tooltips of the buttons, the speed menu, the mini player's form from its own width, and the time over the mini player's line under the pointer. Converted into an element (`build(theme)`) it is the still form of itself |
+| `mount(ctx)` | The tooltips of the buttons, the speed menu, the mini player's form from its own width, and the time over the mini player's line under the pointer. The only way a player is put where it goes |
+| `build(theme)` | A still picture for a test or a screenshot: no tooltips, no speed menu, a mini player as wide as it is given |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the play button; `id` is the root's, and each control has it with `-play`, `-seek`, `-previous`, `-next`, `-shuffle`, `-repeat`, `-more`, `-speed`, `-volume`, `-queue`, `-expand`, `-retry`, `-rate`, `-line` after it |
 
 - Built of the media parts: `PlayButton`, `SeekBar`, `Waveform`, `MediaTime`, `MediaVolume`, `MediaSpeedMenu`. Shuffle and repeat are `Toggle`s; previous, next, more, queue and expand ghost `Button`s; "Try again" a `Link`.
@@ -82,7 +83,8 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 - **The position is the first value** (`new(Signal<f32>, duration)` / `controlled(position, duration, on_change)`, with `on_change_end`), as `SeekBar` has it. Every other value is a second value named by the playbook: `playing`/`playing_controlled`/`on_playing_change`, and the same for `volume`, `muted`, `rate`, `shuffle`, `repeat`. Bound, the signal is set first and the handlers are called after; no handler is called when the app sets a signal.
 - **`description`, not `artist`**, for who it is by (the playbook's word for the text under a title); **`media`** for the artwork.
 - **`error(Option<&str>)`** is the text shown; the state is `Error` (the part it shows). Its command is `on_retry` with `retry_text`.
-- **Mounted** (`mount(ctx)`): tooltips, the speed menu's open signal and anchor, the mini player's own width and the pointer on its line are kept by a host; a builder has no `Ctx`. Converted into an element it is still.
+- **Mounted** (`mount(ctx)`): tooltips, the speed menu's open signal and anchor, the mini player's own width and the pointer on its line are kept by a host; a builder has no `Ctx`.
+- **Mounted, the only way** (Ivan, 2026-11-16). `AudioPlayer` is not an element by itself: there is no `From<AudioPlayer> for Element`, and `.child(AudioPlayer::..)` does not compile; an app writes `.mount(ctx)`. The form that became an element without a `Ctx` kept nothing between renders, and was the one in which a mini player did not fold to its width and no button had a tooltip. `build(theme)` stays as a still picture for a test or a screenshot, said by name.
 - **A disabled player** is taken out of input as a whole (the root node is disabled) and dimmed once on the root, so the controls are not dimmed twice.
 - **Space** plays and pauses from the bar, the waveform and the volume (a handler around each that checks `focus_within`); on a button Space presses the button.
 - **The compact row and the voice message's one time** read the length until it has started and what is gone after, as the board draws "0:42" not heard and "0:17" playing.

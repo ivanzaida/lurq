@@ -68,7 +68,7 @@ fn card(log: &Arc<Mutex<Vec<String>>>) -> AudioPlayer {
 fn the_card_is_the_boards() {
   let log = log();
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| card(&shown).into());
+  let mut stage = Stage::new(move |_| card(&shown).build(&lurq::ui::current_theme()));
   let (x, y, width, _) = stage.bounds("p");
   assert_eq!(width, 360.0, "360 wide");
   assert_eq!(stage.fill_color("p"), Some(light(PaletteColor::Card)));
@@ -128,7 +128,7 @@ fn shuffle_and_repeat_on_take_the_accent_fill() {
       .repeat_controlled(AudioRepeat::One, |_| {})
       .playing_controlled(true, |_| {})
       .id("p")
-      .into()
+      .build(&lurq::ui::current_theme())
   });
   assert_eq!(stage.fill_color("p-shuffle"), Some(light(PaletteColor::Highlight)));
   assert_eq!(stage.fill_color("p-repeat"), Some(light(PaletteColor::Highlight)));
@@ -138,7 +138,7 @@ fn shuffle_and_repeat_on_take_the_accent_fill() {
 fn each_control_tells_what_it_is_to_be_and_changes_nothing() {
   let log = log();
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| card(&shown).into());
+  let mut stage = Stage::new(move |_| card(&shown).build(&lurq::ui::current_theme()));
   for id in [
     "p-play",
     "p-shuffle",
@@ -181,7 +181,7 @@ fn a_bound_player_sets_the_apps_signals_first() {
       })
       .repeat(shown_repeat.clone())
       .id("p")
-      .into()
+      .build(&lurq::ui::current_theme())
   });
   stage.click("p-play");
   assert!(playing.get_untracked());
@@ -194,7 +194,7 @@ fn a_bound_player_sets_the_apps_signals_first() {
 fn space_plays_from_the_bar_and_the_arrows_move_it() {
   let log = log();
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| card(&shown).into());
+  let mut stage = Stage::new(move |_| card(&shown).build(&lurq::ui::current_theme()));
   // Tab reaches the more button, then the seek bar.
   stage.key("Tab");
   assert!(
@@ -223,7 +223,7 @@ fn the_keyboard_presses_the_play_button() {
       .variant(AudioPlayerVariant::Compact)
       .playing_controlled(false, move |next| log.lock().unwrap().push(format!("playing {next}")))
       .id("c")
-      .into()
+      .build(&lurq::ui::current_theme())
   });
   stage.key("Tab");
   assert!(stage.has_ring(light(PaletteColor::Ring)));
@@ -235,7 +235,7 @@ fn the_keyboard_presses_the_play_button() {
 fn loading_draws_lines_and_takes_no_press() {
   let log = log();
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| card(&shown).loading(true).into());
+  let mut stage = Stage::new(move |_| card(&shown).loading(true).build(&lurq::ui::current_theme()));
   assert!(!stage.paints("Night Drive"), "lines stand for the title");
   assert!(!stage.paints("1:24"));
   let unknown = stage
@@ -254,7 +254,11 @@ fn loading_draws_lines_and_takes_no_press() {
 fn an_error_says_what_went_wrong_and_tries_again() {
   let log = log();
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| card(&shown).error(Some("This track can't be played.")).into());
+  let mut stage = Stage::new(move |_| {
+    card(&shown)
+      .error(Some("This track can't be played."))
+      .build(&lurq::ui::current_theme())
+  });
   assert_eq!(
     stage.text("This track can't be played."),
     (light(PaletteColor::Destructive), 12.0)
@@ -274,7 +278,7 @@ fn a_long_title_is_cut_and_the_buttons_keep_their_room() {
       .title(long)
       .description("Someone")
       .id("p")
-      .into()
+      .build(&lurq::ui::current_theme())
   });
   let (x, _, width, _) = stage.bounds("p");
   let title = stage.cut_text_quad(long).expect("the title, cut");
@@ -290,7 +294,7 @@ fn a_long_title_is_cut_and_the_buttons_keep_their_room() {
 fn a_disabled_player_takes_nothing() {
   let log = log();
   let shown = log.clone();
-  let mut stage = Stage::new(move |_| card(&shown).disabled(true).into());
+  let mut stage = Stage::new(move |_| card(&shown).disabled(true).build(&lurq::ui::current_theme()));
   for id in ["p-play", "p-shuffle", "p-next", "p-more"] {
     stage.click(id);
   }
@@ -311,14 +315,16 @@ fn the_compact_row_is_48_with_a_play_button_of_32() {
         AudioPlayer::controlled(84.0, 250.0, |_| {})
           .variant(AudioPlayerVariant::Compact)
           .playing_controlled(true, move |next| log.lock().unwrap().push(format!("playing {next}")))
-          .id("c"),
+          .id("c")
+          .build(&lurq::ui::current_theme()),
       )
       .child(
         AudioPlayer::controlled(0.0, 250.0, |_| {})
           .variant(AudioPlayerVariant::Compact)
           .error(Some("Couldn't load the audio."))
           .on_retry(move || retry.lock().unwrap().push("retry".to_owned()))
-          .id("e"),
+          .id("e")
+          .build(&lurq::ui::current_theme()),
       )
       .into()
   });
@@ -363,14 +369,16 @@ fn a_voice_message_steps_its_speed_while_it_plays() {
           .peaks(&peaks)
           .playing_controlled(true, |_| {})
           .rate_controlled(1.0, move |rate| log.lock().unwrap().push(format!("rate {rate}")))
-          .id("v"),
+          .id("v")
+          .build(&lurq::ui::current_theme()),
       )
       .child(
         AudioPlayer::controlled(0.0, 42.0, |_| {})
           .variant(AudioPlayerVariant::Voice)
           .peaks(&peaks)
           .unheard(true)
-          .id("u"),
+          .id("u")
+          .build(&lurq::ui::current_theme()),
       )
       .into()
   });

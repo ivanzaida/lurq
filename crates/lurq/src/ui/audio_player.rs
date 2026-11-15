@@ -388,8 +388,9 @@ impl Default for Words {
 /// `on_repeat_change`. Previous, next, more, the queue, expand and "try again" are commands. A focused player plays and
 /// pauses on Space, and its seek bar and volume move on the arrow keys.
 ///
-/// Converted into an element it is the still form of itself: no tooltips, no speed menu, and a mini player as wide
-/// as it is given. [`AudioPlayer::mount`] keeps what the player needs between renders.
+/// [`AudioPlayer::mount`] keeps what the player needs between renders (its tooltips, its speed menu, a mini
+/// player's own width), and is the only way a player is put where it goes: it is not an element by itself.
+/// [`AudioPlayer::build`] is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct AudioPlayer {
   variant: Name,
@@ -850,8 +851,8 @@ impl AudioPlayer {
     element
   }
 
-  /// Builds the still player in `theme`. Converting a player into an element does this in the theme of what is
-  /// being rendered.
+  /// Builds a still picture of the player in `theme`, for a test or a screenshot: no tooltips, no speed menu, a
+  /// mini player as wide as it is given. An app mounts the player ([`AudioPlayer::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     Self::render_view(self.view(theme, None, &Kept::default()))
   }
@@ -1272,12 +1273,6 @@ impl AudioPlayer {
       }),
       id: self.id,
     }
-  }
-}
-
-impl From<AudioPlayer> for Element {
-  fn from(player: AudioPlayer) -> Self {
-    player.build(&current_theme())
   }
 }
 

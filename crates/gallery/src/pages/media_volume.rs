@@ -131,6 +131,17 @@ impl MediaVolumePage {
     if let Some(length) = LENGTHS[length].1 {
       control = control.length(length);
     }
+    self.playground.window_shows({
+      let control = control.clone().force(None);
+      move |ctx| {
+        let mounted = control.clone().mount(ctx);
+        if on_media {
+          picture(280.0, 96.0).overflow_visible().child(mounted).into()
+        } else {
+          mounted
+        }
+      }
+    });
     let playground = &self.playground;
     let shown = if on_media {
       Shown::built(move |ctx| {
@@ -217,7 +228,7 @@ impl MediaVolumePage {
       ctx,
       Spec {
         title: "Volume",
-        make: Arc::new(move || plain(volume).into()),
+        make: Arc::new(move || plain(volume).build(&lurq::ui::current_theme())),
         shown,
         fill: false,
         forceable: true,
@@ -313,7 +324,9 @@ impl Component for MediaVolumePage {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let (live, live_muted) = (self.live.get(), self.live_muted.get());
     let bound = items().child(item(
-      MediaVolume::new(self.live.clone()).muted(self.live_muted.clone()),
+      MediaVolume::new(self.live.clone())
+        .muted(self.live_muted.clone())
+        .mount(ctx),
       &format!(
         "volume {live:.2}, {}",
         if live_muted {
@@ -325,11 +338,11 @@ impl Component for MediaVolumePage {
     ));
     let at = |volume: f32, muted: bool| MediaVolume::controlled(volume, |_| {}).muted_controlled(muted, |_| {});
     let levels = items()
-      .child(item(at(0.8, false), "volume · from a half up"))
-      .child(item(at(0.2, false), "volume-low · under a half"))
-      .child(item(at(0.8, true), "volume-off · muted, 0.8 kept"))
-      .child(item(at(0.0, false), "volume-off · at nothing"))
-      .child(item(at(0.6, false).disabled(true), "disabled"));
+      .child(item(at(0.8, false).mount(ctx), "volume · from a half up"))
+      .child(item(at(0.2, false).mount(ctx), "volume-low · under a half"))
+      .child(item(at(0.8, true).mount(ctx), "volume-off · muted, 0.8 kept"))
+      .child(item(at(0.0, false).mount(ctx), "volume-off · at nothing"))
+      .child(item(at(0.6, false).disabled(true).mount(ctx), "disabled"));
     let collapsed = items()
       .child(item(
         MediaVolume::new(self.live.clone())
@@ -355,7 +368,7 @@ impl Component for MediaVolumePage {
             .on_media(true)
             .size(MediaVolumeSize::Lg)
             .length(64.0)
-            .into(),
+            .build(&lurq::ui::current_theme()),
         ),
         "on media · lg, as the video player's bar has it",
       ))
@@ -474,7 +487,8 @@ impl Component for MediaVolumePage {
         "mount",
         "&mut Ctx",
         "",
-        "Puts it in the tree keeping the pointer, the focus and a drag: what a collapsed one needs.",
+        "Puts it where it goes, the only way, keeping the pointer, the focus and a drag: what a collapsed one \
+         needs.",
       ),
     ];
     let playground = self.play(ctx);

@@ -385,8 +385,8 @@ impl Default for Words {
 /// forms of the bar is drawn follows the player's own width, unless [`size`](Self::size) says.
 ///
 /// [`mount`](Self::mount) keeps what the player needs between renders: the timer that fades the controls out while
-/// it plays, its width, its menus, and the tooltips of its controls. Converted into an element on its own, it is
-/// the still form of itself: the controls shown, in the large form unless told, its menus not opened.
+/// it plays, its width, its menus, and the tooltips of its controls. It is the only way a player is put where it
+/// goes: a player is not an element by itself. [`build`](Self::build) is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct VideoPlayer {
   media: Option<Element>,
@@ -897,8 +897,8 @@ impl VideoPlayer {
       && self.error.is_none()
   }
 
-  /// Builds the player in `theme`: the still form, its controls shown, its menus closed. Converting a player into
-  /// an element does this in the theme of what is being rendered.
+  /// Builds a still picture of the player in `theme`, for a test or a screenshot: its controls shown, its menus
+  /// closed, nothing kept between two of them. An app mounts the player ([`mount`](Self::mount)).
   pub fn build(self, theme: &Theme) -> Element {
     let held = Live::still();
     view(self, theme, &held, None).render_themed()
@@ -913,12 +913,6 @@ impl VideoPlayer {
       Some(key) => ctx.mount_keyed::<VideoPlayerHost>(&key, props),
       None => ctx.mount::<VideoPlayerHost>(props),
     }
-  }
-}
-
-impl From<VideoPlayer> for Element {
-  fn from(player: VideoPlayer) -> Self {
-    player.build(&current_theme())
   }
 }
 

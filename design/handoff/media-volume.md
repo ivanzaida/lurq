@@ -38,7 +38,7 @@ MediaVolume::new(volume.clone()).muted(muted.clone()).on_media(true).collapsed(t
 | `on_change(handler)` | Called with the volume each time a person moves it. Bound, after the signal is set |
 | `on_change_end(handler)` | Called with the volume when a drag is let go or a key's step is made |
 | `on_muted_change(handler)` | Called with whether it is to be muted: on a press of the button, and with `false` when the slider is moved up from nothing while muted |
-| `collapsed(bool)` | The button alone, the slider beside it while the pointer is over the control, the focus is in it or it is being dragged. It needs `mount(ctx)`; converted into an element on its own it is the button alone |
+| `collapsed(bool)` | The button alone, the slider beside it while the pointer is over the control, the focus is in it or it is being dragged. What it keeps for that is `mount(ctx)`'s; a still picture (`build(theme)`) is the button alone |
 | `on_media(bool)` | Over a picture: white, the same in a light and a dark theme |
 | `size(MediaVolumeSize)` | `Md`: a button of 32 with a glyph of 16 (the default); `Lg`: 36 with 20, as a video's bar has it |
 | `length(f32)` | How long the slider is, in place of the recipe's 72 |
@@ -60,6 +60,7 @@ MediaVolume::new(volume.clone()).muted(muted.clone()).on_media(true).collapsed(t
 
 ## Decided
 
+- **Mounted, the only way** (Ivan, 2026-11-16). `MediaVolume` is not an element by itself: there is no `From<MediaVolume> for Element`, and `.child(MediaVolume::..)` does not compile; an app writes `.mount(ctx)`. The form that became an element without a `Ctx` kept nothing between renders, and was the one in which a collapsed control never showed its slider. `build(theme)` stays as a still picture for a test or a screenshot, said by name.
 - The slider is always a controlled `ui::Slider` showing the volume, or nothing while muted. Bound, a person's move sets the app's signal; muted, the app's volume is not set to nothing (the stand-in did).
 - `on_muted_change(false)` is told once in a gesture that moves the slider up from nothing while muted: the handlers of a drag hear many values before the app renders the control unmuted.
 - A button at nothing that is not muted is still called "Mute" and its press mutes; its glyph is crossed, since there is no sound.

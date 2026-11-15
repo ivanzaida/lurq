@@ -102,8 +102,8 @@ type Handler<T> = Arc<dyn Fn(T) + Send + Sync>;
 /// from a half up, the low one under it, and the crossed one while muted or at nothing.
 ///
 /// Collapsed it is the button alone, and the slider comes while the pointer is over it or the focus is in it. What
-/// that needs between renders is kept by [`MediaVolume::mount`]; converted into an element on its own, a collapsed
-/// control is the button alone.
+/// that needs between renders is kept by [`MediaVolume::mount`], the only way a control is put where it goes: it
+/// is not an element by itself. [`MediaVolume::build`] is a still picture of it, for a test.
 #[derive(Clone)]
 pub struct MediaVolume {
   /// The app's volume, where it is bound to a signal.
@@ -303,8 +303,8 @@ impl MediaVolume {
     element
   }
 
-  /// Builds the volume control in `theme`. Converting it into an element does this in the theme of what is being
-  /// rendered.
+  /// Builds a still picture of the volume control in `theme`, for a test or a screenshot: collapsed, it is the
+  /// button alone. An app mounts the control ([`MediaVolume::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     let volume = match (&self.volume, self.controlled) {
       (_, Some(held)) => held,
@@ -349,12 +349,6 @@ impl MediaVolume {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
-  }
-}
-
-impl From<MediaVolume> for Element {
-  fn from(volume: MediaVolume) -> Self {
-    volume.build(&current_theme())
   }
 }
 

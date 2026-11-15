@@ -540,11 +540,15 @@ impl VideoPlayerPage {
       divider(),
     ];
     controls_list.extend(flags);
+    self.playground.window_shows({
+      let make = make.clone();
+      move |ctx| make().mount(ctx)
+    });
     self.playground.card(
       ctx,
       Spec {
         title: "VideoPlayer",
-        make: Arc::new(move || -> Element { make().into() }),
+        make: Arc::new(move || -> Element { make().build(&lurq::ui::current_theme()) }),
         shown: Shown::built(shown),
         fill: false,
         forceable: true,
@@ -788,7 +792,10 @@ impl Component for VideoPlayerPage {
     ] {
       sizes = sizes.child(item(ctx.mount::<Demo>(scene), caption));
     }
-    let bare = items().child(item(state().controls(false), "the picture alone, as in a feed"));
+    let bare = items().child(item(
+      state().controls(false).mount(ctx),
+      "the picture alone, as in a feed",
+    ));
     let feed = self.feed().key("feed").mount(ctx);
     let own = items().child(item(feed, "your own controls in the overlay"));
     let rows = [
@@ -941,7 +948,8 @@ impl Component for VideoPlayerPage {
         "mount",
         "&mut Ctx",
         "",
-        "Keeps its width, the timer that fades the bar, its menus and its tooltips.",
+        "Puts it where it goes, the only way: it keeps its width, the timer that fades the bar, its menus and \
+         its tooltips.",
       ),
     ];
     self.frame.page(

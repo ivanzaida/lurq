@@ -137,8 +137,8 @@ pub type SeekPreview = Arc<dyn Fn(f64) -> Element + Send + Sync>;
 ///
 /// Mounted ([`SeekBar::mount`]) it shows the time under the pointer in a chip over the bar, and the app's
 /// [`preview`](SeekBar::preview) of that moment over the chip, and tells [`SeekBar::on_hover`] the time under the
-/// pointer. Converted into an element on its own it is the still form: it is dragged, pressed and moved by the keys,
-/// and reads nothing of the pointer that does not press it.
+/// pointer. It is the only way a bar is put where it goes: a bar is not an element by itself.
+/// [`SeekBar::build`] is a still picture of it, for a test.
 ///
 /// [`SeekBar::empty`] is a bar with nothing loaded (no thumb, no input); [`SeekBar::live`] a live stream with
 /// nothing to go back in (the bar full, the thumb at its end, no input).
@@ -341,8 +341,8 @@ impl SeekBar {
     ctx.mount::<SeekBarHost>(SeekBarProps { bar: self })
   }
 
-  /// Builds the seek bar in `theme`. Converting it into an element does this in the theme of what is being
-  /// rendered: the still form, with no chip.
+  /// Builds a still picture of the seek bar in `theme`, for a test or a screenshot: no chip, nothing read of a
+  /// pointer that does not press it. An app mounts the bar ([`SeekBar::mount`]).
   pub fn build(self, theme: &Theme) -> Element {
     let duration = if self.duration.is_finite() {
       self.duration.max(0.0)
@@ -427,12 +427,6 @@ impl SeekBar {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
-  }
-}
-
-impl From<SeekBar> for Element {
-  fn from(bar: SeekBar) -> Self {
-    bar.build(&current_theme())
   }
 }
 

@@ -117,7 +117,14 @@ fn assert_spans(spans: &[(f32, f32, Color)], expected: &[(f32, f32, Color)]) {
 
 #[test]
 fn a_seek_bar_is_played_then_loaded_then_the_rest_with_the_sliders_thumb_at_the_position() {
-  let mut stage = Stage::new(|_| scene(SeekBar::new(Signal::new(100.0), 250.0).buffered(150.0).id("bar")));
+  let mut stage = Stage::new(|_| {
+    scene(
+      SeekBar::new(Signal::new(100.0), 250.0)
+        .buffered(150.0)
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
+    )
+  });
   let (_, _, width, height) = stage.bounds("bar");
   assert_eq!((width, height), (320.0, 16.0), "as wide as it is given, 16 high");
   // The thumb's middle runs from 8 in to 8 from the end: 304 along. Played up to its middle, at 0.4 of the way;
@@ -162,7 +169,8 @@ fn over_a_picture_it_is_white_with_a_solid_thumb_of_12() {
       SeekBar::new(Signal::new(100.0), 250.0)
         .buffered(150.0)
         .on_media(true)
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   // The thumb is 12: its middle runs from 6 in, 308 along.
@@ -194,7 +202,8 @@ fn chapters_cut_the_track_2_apart_where_each_starts() {
     scene(
       SeekBar::new(Signal::new(100.0), 250.0)
         .chapters(&[0.0, 50.0, 150.0])
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   let (first, second) = (8.0 + 304.0 * 0.2, 8.0 + 304.0 * 0.6);
@@ -222,7 +231,8 @@ fn the_keys_move_it_by_its_step_and_tell_the_change_and_its_end() {
       SeekBar::new(read.clone(), 250.0)
         .on_change(move |to| told.tell(format!("change {to}")))
         .on_change_end(move |to| ended.tell(format!("end {to}")))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   stage.key("Tab");
@@ -263,7 +273,8 @@ fn a_press_on_the_track_seeks_there_and_a_drag_follows_the_pointer_to_where_it_i
       SeekBar::new(read.clone(), 250.0)
         .on_change(move |to| told.tell(format!("change {to}")))
         .on_change_end(move |to| ended.tell(format!("end {to}")))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   let (x, y, ..) = stage.bounds("bar");
@@ -302,13 +313,16 @@ fn a_disabled_bar_is_dimmed_shows_nothing_loaded_and_takes_nothing() {
             .disabled(true)
             .on_change(move |to| told.tell(format!("change {to}")))
             .on_hover(|_| panic!("a disabled bar hears no pointer"))
-            .id("disabled"),
+            .id("disabled")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .child(
-        Column::new()
-          .width(320.0)
-          .child(SeekBar::new(read_after.clone(), 250.0).id("after")),
+        Column::new().width(320.0).child(
+          SeekBar::new(read_after.clone(), 250.0)
+            .id("after")
+            .build(&lurq::ui::current_theme()),
+        ),
       )
       .into()
   });
@@ -466,7 +480,8 @@ fn the_still_form_is_moved_and_reads_nothing_of_a_pointer_that_does_not_press_it
     scene(
       SeekBar::new(read.clone(), 250.0)
         .on_hover(move |time| told.tell(format!("{time:?}")))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   let (x, y, ..) = stage.bounds("bar");
@@ -509,7 +524,8 @@ fn mounted_and_drawn_hovered_it_shows_its_position_in_the_chip_over_it() {
     scene(
       SeekBar::new(Signal::new(100.0), 250.0)
         .force(Some(Interaction::Hovered))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   still.pass();
@@ -531,7 +547,8 @@ fn a_controlled_bar_tells_where_it_is_moved_and_shows_what_the_app_answers() {
           value.set(to as f32);
         }
       })
-      .id("bar"),
+      .id("bar")
+      .build(&lurq::ui::current_theme()),
     )
   });
   stage.click("bar");
@@ -559,7 +576,8 @@ fn on_a_phone_it_is_28_high_with_a_thumb_of_28_and_16_over_a_picture() {
         Column::new().width(320.0).child(
           SeekBar::new(Signal::new(100.0), 250.0)
             .size(SeekBarSize::Lg)
-            .id("surface"),
+            .id("surface")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .child(
@@ -567,7 +585,8 @@ fn on_a_phone_it_is_28_high_with_a_thumb_of_28_and_16_over_a_picture() {
           SeekBar::new(Signal::new(100.0), 250.0)
             .size(SeekBarSize::Lg)
             .on_media(true)
-            .id("media"),
+            .id("media")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .into()
@@ -606,7 +625,8 @@ fn a_theme_restyles_its_parts_and_gives_it_another_anatomy_that_still_seeks() {
     scene(
       SeekBar::new(read.clone(), 250.0)
         .style(SeekBarPart::Thumb, |s| s.background(PaletteColor::Destructive))
-        .id("bar"),
+        .id("bar")
+        .build(&lurq::ui::current_theme()),
     )
   });
   assert!(stage.paints("1:40"));
@@ -633,13 +653,19 @@ fn it_grows_to_the_room_of_a_row_beside_what_is_in_it_and_fills_a_column() {
           .spacing(10.0)
           .align_items(lurq::layout::Alignment::Center)
           .child(Row::new().size(32.0, 32.0).id("before"))
-          .child(SeekBar::new(Signal::new(100.0), 250.0).id("in-row"))
+          .child(
+            SeekBar::new(Signal::new(100.0), 250.0)
+              .id("in-row")
+              .build(&lurq::ui::current_theme()),
+          )
           .child(lurq::ui::MediaTime::new(100.0, Some(250.0)).id("after")),
       )
       .child(
-        Column::new()
-          .width(300.0)
-          .child(SeekBar::new(Signal::new(100.0), 250.0).id("in-column")),
+        Column::new().width(300.0).child(
+          SeekBar::new(Signal::new(100.0), 250.0)
+            .id("in-column")
+            .build(&lurq::ui::current_theme()),
+        ),
       )
       .into()
   });
@@ -675,13 +701,16 @@ fn empty_it_is_the_track_alone_and_takes_nothing() {
             .buffered(150.0)
             .empty(true)
             .on_change(move |to| told.tell(format!("change {to}")))
-            .id("empty"),
+            .id("empty")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .child(
-        Column::new()
-          .width(320.0)
-          .child(SeekBar::new(read_after.clone(), 250.0).id("after")),
+        Column::new().width(320.0).child(
+          SeekBar::new(read_after.clone(), 250.0)
+            .id("after")
+            .build(&lurq::ui::current_theme()),
+        ),
       )
       .into()
   });
@@ -733,13 +762,17 @@ fn live_it_is_full_with_the_thumb_at_its_end_and_tells_nothing() {
             .on_change_end(move |to| ended.tell(format!("end {to}")))
             .on_media(true)
             .live(true)
-            .id("live"),
+            .id("live")
+            .build(&lurq::ui::current_theme()),
         ),
       )
       .child(
-        Column::new()
-          .width(320.0)
-          .child(SeekBar::new(Signal::new(100.0), 250.0).live(true).id("themed")),
+        Column::new().width(320.0).child(
+          SeekBar::new(Signal::new(100.0), 250.0)
+            .live(true)
+            .id("themed")
+            .build(&lurq::ui::current_theme()),
+        ),
       )
       .into()
   });

@@ -271,6 +271,17 @@ impl SeekBarPage {
       self.size.clone(),
       self.position.clone(),
     );
+    self.playground.window_shows({
+      let bar = bar.clone().force(None);
+      move |ctx| {
+        let mounted = bar.clone().mount(ctx);
+        if on_media {
+          picture(Row::new().width(FILL).overflow_visible().child(mounted), 96.0).into()
+        } else {
+          mounted
+        }
+      }
+    });
     let shown = if on_media {
       let playground = &self.playground;
       Shown::built(move |ctx| {
@@ -285,7 +296,7 @@ impl SeekBarPage {
       ctx,
       Spec {
         title: "Seek Bar",
-        make: Arc::new(move || plain().into()),
+        make: Arc::new(move || plain().build(&lurq::ui::current_theme())),
         shown,
         fill: true,
         forceable: true,
@@ -469,7 +480,7 @@ impl Component for SeekBarPage {
       .width(FILL)
       .spacing(28.0)
       .overflow_visible()
-      .child(item(still(100.0), "seek bar · played, buffered, rest"))
+      .child(item(still(100.0).mount(ctx), "seek bar · played, buffered, rest"))
       // Mounted: the chip is a mounted bar's. It stands 32 over the bar, in the room the column leaves.
       .child(item(
         Column::new()
@@ -480,18 +491,18 @@ impl Component for SeekBarPage {
         "hover · the time under the pointer",
       ))
       .child(item(
-        still(100.0).force(Some(Interaction::FocusVisible)),
+        still(100.0).force(Some(Interaction::FocusVisible)).mount(ctx),
         "focus-visible · the ring on the thumb",
       ))
-      .child(item(still(100.0).disabled(true), "disabled · nothing loaded is drawn"))
-      .child(item(still(100.0).empty(true), "empty · nothing loaded yet, no thumb, no input"))
-      .child(item(still(100.0).live(true), "live · full, the thumb at the end, no input"));
+      .child(item(still(100.0).disabled(true).mount(ctx), "disabled · nothing loaded is drawn"))
+      .child(item(still(100.0).empty(true).mount(ctx), "empty · nothing loaded yet, no thumb, no input"))
+      .child(item(still(100.0).live(true).mount(ctx), "live · full, the thumb at the end, no input"));
     let over = Column::new()
       .width(FILL)
       .spacing(28.0)
       .overflow_visible()
       .child(item(
-        picture(still(100.0).on_media(true), 96.0),
+        picture(still(100.0).on_media(true).mount(ctx), 96.0),
         "over a picture · white, a thumb of 12",
       ))
       .child(item(
@@ -499,17 +510,23 @@ impl Component for SeekBarPage {
           SeekBar::new(Signal::new(100.0), 250.0)
             .buffered(135.0)
             .chapters(&[70.0, 150.0, 212.0])
-            .on_media(true),
+            .on_media(true)
+            .mount(ctx),
           96.0,
         ),
         "chapters · 2 apart",
       ))
       .child(item(
-        Column::new().width(FILL).spacing(12.0).child(still(100.0)).child(
-          SeekBar::new(Signal::new(100.0), 250.0)
-            .chapters(&[70.0, 150.0, 212.0])
-            .buffered(135.0),
-        ),
+        Column::new()
+          .width(FILL)
+          .spacing(12.0)
+          .child(still(100.0).mount(ctx))
+          .child(
+            SeekBar::new(Signal::new(100.0), 250.0)
+              .chapters(&[70.0, 150.0, 212.0])
+              .buffered(135.0)
+              .mount(ctx),
+          ),
         "on a surface, plain and with chapters",
       ));
     let previewed = item(
@@ -643,8 +660,8 @@ impl Component for SeekBarPage {
         "mount",
         "(ctx)",
         "",
-        "Puts it where it goes keeping the time under the pointer: the chip with the time and the preview. \
-         Converted on its own it is the still form.",
+        "Puts it where it goes, the only way, keeping the time under the pointer: the chip with the time and \
+         the preview.",
       ),
     ];
     let playground = self.play(ctx);

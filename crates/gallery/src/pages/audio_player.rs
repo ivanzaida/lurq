@@ -652,12 +652,20 @@ impl AudioPlayerPage {
       "{variant_name} · {} long",
       lurq::ui::media_time_text(f64::from(length), false)
     );
+    self.playground.window_shows({
+      // Behind a lock: the artwork is an element, which threads do not share.
+      let player = std::sync::Mutex::new(player.clone().force(None));
+      move |ctx| {
+        let player = player.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        player.mount(ctx)
+      }
+    });
     let playground = &self.playground;
     self.playground.card(
       ctx,
       Spec {
         title: "Audio Player",
-        make: Arc::new(move || plain().into()),
+        make: Arc::new(move || plain().build(&lurq::ui::current_theme())),
         shown: if mini {
           let width = WINDOWS[window_index].1;
           Shown::built(move |ctx| window(width, playground.measure(player.mount(ctx)).width(FILL)).into()).measured()
@@ -910,8 +918,8 @@ impl Component for AudioPlayerPage {
         "mount",
         "&mut Ctx",
         "",
-        "The tooltips of the buttons, the speed menu, the mini player's form from its width and the time over \
-         its line. Converted into an element it is still.",
+        "Puts it where it goes, the only way: it keeps the tooltips of the buttons, the speed menu, the mini \
+         player's form from its width and the time over its line.",
       ),
     ];
     let playground = self.play(ctx);
