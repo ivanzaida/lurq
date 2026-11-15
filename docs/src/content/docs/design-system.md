@@ -4519,6 +4519,7 @@ What every chart of the system stands on, behind the `canvas` feature: each is d
 - **To tooling** a chart is a `figure` with its name and its description; its plot is a canvas whose items are its data (a bar's place, its category and its value as written), which a reader goes through, and whose `a11y_value` says the point under the pointer or the focus.
 - **States**: no data (`empty_text`, "No data" unless told), loading (the skeleton as high as the plot), values under zero, values of very different size (the ticks stay round), a long category name (cut with an ellipsis under its band).
 - A chart's author writes its plot (`impl ChartPlot`: what it draws, its ticks, its axis, where its points are, what a point's tooltip says, its items, a signature of its data) and lays its own parts over `chart_recipe()`; `ChartProps` and `chart_props!()` give its builder the words above, and `ChartFrame` builds and mounts it. See the module's docs in `lurq::ui`.
+- **Its shape**, where a plot is not as wide as the frame with the legend under it: `ChartFrame::plot_width(w)` and `plot_justify(..)` (a pie's or a radar's square, a grid of cells, at the frame's start, middle or end), `legend_beside(values, size)` (the legend beside the plot, one item under another with each value at its end, `ChartPart::Body` the room between them, 20 in `Md` and 18 in `Sm`; the plot's tooltip stands over the legend), `own_legend(element)` (a chart's own legend in place of its series', left out where the app turns the legend off and while loading). Words in the plot's box are `ChartLabel`s (`ChartPlot::labels`), in the axis's type unless given a part of the chart's own; a tooltip's key in another color than its series' is `ChartPlot::tip_color`. A point with no rows in its tooltip says its title alone to tooling.
 
 ### Chart Legend
 
@@ -4535,7 +4536,8 @@ ChartLegend::new([
 ```
 
 - Square keys of 10 with corners of 2 and the names 12 in `Foreground`, 16 between items, 6 between a key and its name; `ChartLegendShape::Dot` has the dots of 8 and the muted names a chart's own legend has. Given `hidden(signal)` (or `hidden_controlled`, `on_hidden_change`), an item is pressed to hide its series and faded while it is hidden, the arrows go between the items, and each is a `checkbox` to tooling.
-- Parts: `ChartLegendPart::Root`, `Item`, `Key`, `Label`. States: `ChartLegendState::Dot`, `Pressable`, `Hidden`.
+- `ChartLegendItem::value(text)`: what an item says after its name, mono 11 in `MutedForeground` (a slice's share); tooling reads it with the name. `orientation(Orientation::Vertical)`: the items one under another, each as wide as the legend, its name in `CardForeground` taking the room and its value at the end, as the board's pie has them; `size(ChartSize)` gives them 8 apart and names of 13 in `Md`, 7 and 12 in `Sm`.
+- Parts: `ChartLegendPart::Root`, `Item`, `Key`, `Label`, `Value`. States: `ChartLegendState::Dot`, `Pressable`, `Hidden`, `Vertical`.
 
 ### Chart Tooltip
 
@@ -4582,6 +4584,40 @@ BarChart::new(
 - To tooling each bar is an item of the plot: `bar-<series>-<category>`, named by its category, valued as `value_text` writes it.
 - Parts: the chart's (`ChartPart::Root`, `Header`, `Title`, `Description`, `Plot`, `Grid`, `Baseline`, `Cursor`, `Axis`, `AxisLabel`, `ValueLabel`, `Empty`) and `BarChartPart::Bar` (the bars that give way to the current one), `Band`. States: `ChartState::Header`, `Empty`, `Loading`, `BarChartState::Stacked`; sizes `ChartSize::Sm`, `Md`.
 - Where the board draws nothing: the tooltip of a bar is the board's Chart Tooltip over it; the band behind the category under the pointer; the ring of the focus around the plot; values under zero; the grid and the ticks' numbers, off unless told.
+
+## Pie Chart
+
+The parts of a whole as slices of a disc, or of a ring: the crates by size, the phases of a frame. The legend beside it names each slice and writes its share.
+
+```rust
+use lurq::ui::{ChartSeries, PieChart};
+
+PieChart::new(
+  ["render", "layout", "text", "other"],
+  ChartSeries::new("Size", [4.2, 2.8, 1.9, 1.1]),
+)
+.title("Crates by size")
+.description("Share of compiled code")
+.value_text(|mb| format!("{mb} MB"))
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `PieChart::new(names, series)` | The slices' names, and one series with a value for each, from the top and clockwise |
+| `donut(bool)` | A ring with a hole of 0.66 of its radius, the board's Donut Chart, `Md` unless told a size; a pie, `Sm`, unless told |
+| `total_text(&str)` | The words a donut writes in its hole under the total of the slices shown (written with `value_text`); nothing in the hole unless told |
+| `colors(..)` | Each slice's color, a role or a color, in place of `Chart1` to `Chart5` in turn |
+| `legend_value(PieLegendValue)` | What each item of the legend writes after the name: `Share` (unless told), `Value`, `None` |
+| `share_text(\|share\| ..)` | How a share from 0 to 1 is written in the legend and to tooling: a whole percent, `<1%` for a sliver, unless told |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them; `height` is the pie's side, `hidden` the slices hidden by name, `legend` on unless told |
+| `mount(ctx)` | The slice under the pointer or the focus picked out with its tooltip, the arrows round the slices, `on_select` told a press (`ChartPoint { series: 0, index }`). Converted into an element it is the still chart |
+
+- The board's Pie Chart (`dDHPj`): the chart's frame at `Sm`, a pie of 96 from the top and clockwise, a line of 1.5 of `Card` on each side of the line between two slices; the legend beside it, 18 away, its items 7 apart, each a dot of 8, the name 12 in `CardForeground` and the share mono 11 in `MutedForeground` at its end. The Donut Chart (`GJ5Mg`): `Md`, a ring of 96 with a hole of 0.66 and no lines between slices, the legend 20 away with names of 13 and items 8 apart.
+- A slice hidden through the legend leaves the whole to the others, whose shares are written again. A slice too narrow at the rim to keep its color between two lines joins its neighbour without one, and is still in the legend (`<1%`), the tooltip, the keys and to tooling; one slice is the whole disc; a value under zero or not a number is no slice; all zero is no data (`empty_text`).
+- To tooling each slice is an item of the plot at its middle: `slice-<index>`, named by its slice, valued as `value_text` writes it with its share.
+- Parts: the chart's and `PieChartPart::Slice` (a slice that gives way to the one under the pointer or the focus: its opacity, 0.45), `Edge` (the line between slices, `Card`), `Total` (15/600 in `CardForeground`), `TotalLabel` (mono 10 in `MutedForeground`). States: the chart's and `PieChartState::Donut`.
+- Where the board draws nothing: the slice under the pointer or the focus picked out by the others giving way to it, with the board's Chart Tooltip at its middle titled by the series; the total in a donut's hole; the ring of the focus around the plot.
 
 ## Data Grid
 

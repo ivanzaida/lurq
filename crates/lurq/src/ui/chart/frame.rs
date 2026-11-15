@@ -11,9 +11,9 @@ use std::{
 use parking_lot::Mutex;
 
 use super::{
-  ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartPart, ChartPlot, ChartPoint,
-  ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn, default_value_text, series_color,
-  step,
+  super::Orientation, ChartArea, ChartAxis, ChartLegend, ChartLegendItem, ChartLegendShape, ChartLook, ChartPart,
+  ChartPlot, ChartPoint, ChartSeries, ChartSize, ChartState, ChartTooltip, ChartTooltipRow, ValueTextFn,
+  default_value_text, series_color, step,
 };
 use crate::{
   app::{
@@ -25,7 +25,7 @@ use crate::{
   canvas::CanvasHandle,
   components::{Canvas, Column, Row, Stack},
   core::{ElementRef, Signal},
-  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
+  layout::{Alignment, layout_kind::Justify, stack_alignment::StackAlignment, text_style::FontWeight},
   node::{Element, border::Border as Edge, dimension::Dimension, node_kind::TextOverflow, outline::Outline},
   ui::{
     part_style::{FontFamily, Length},
@@ -105,6 +105,10 @@ impl ChartProps {
       series,
       props: self.clone(),
       renderer,
+      plot_width: None,
+      plot_justify: Justify::Start,
+      beside: None,
+      own_legend: None,
     }
   }
 }
@@ -271,6 +275,16 @@ pub struct ChartFrame {
   pub series: Vec<ChartSeries>,
   pub props: ChartProps,
   renderer: Option<ChartRenderer>,
+  plot_width: Option<f32>,
+  plot_justify: Justify,
+  beside: Option<Beside>,
+  own_legend: Option<Element>,
+}
+
+/// The legend beside the plot: each item's value, and the size of the chart.
+struct Beside {
+  values: Vec<String>,
+  size: ChartSize,
 }
 
 /// What a mounted chart keeps from render to render: the point under the pointer, the focused point, the canvas,
@@ -305,6 +319,34 @@ impl ChartHostState {
 }
 
 impl ChartFrame {
+  /// The plot as wide as `width`, not as the frame: a pie's or a radar's square, its height and its width the same.
+  /// It stands at the start of the frame unless told ([`plot_justify`](Self::plot_justify)).
+  pub fn plot_width(mut self, width: f32) -> Self {
+    self.plot_width = Some(width);
+    self
+  }
+
+  /// Where a plot narrower than the frame stands across it: at its start, its middle or its end.
+  pub fn plot_justify(mut self, justify: Justify) -> Self {
+    self.plot_justify = justify;
+    self
+  }
+
+  /// The legend beside the plot, not under it, one item under another, each with its value at its end (`values`, by
+  /// the series' order, the app's words): the board's pie. The plot and the legend stand in [`ChartPart::Body`], the
+  /// legend's room and type those of `size`.
+  pub fn legend_beside(mut self, values: Vec<String>, size: ChartSize) -> Self {
+    self.beside = Some(Beside { values, size });
+    self
+  }
+
+  /// The chart's own legend in place of its series': a heatmap's scale. It is left out as the series' would be: where
+  /// the app turns the legend off, and while the data is on its way.
+  pub fn own_legend(mut self, legend: impl Into<Element>) -> Self {
+    self.own_legend = Some(legend.into());
+    self
+  }
+
   fn part(&self, part: impl Into<Name>) -> ResolvedPart {
     self.recipe.part(part).forced(self.props.forced)
   }
@@ -324,11 +366,13 @@ impl ChartFrame {
     self.render_with(None)
   }
 
-  fn render_with(self, host: Option<Arc<ChartHostState>>) -> Element {
+  fn render_with(mut self, host: Option<Arc<ChartHostState>>) -> Element {
     let plot = self.plot_element(host.as_ref());
     let axis = self.axis_element();
     let legend = self.legend_element();
     let view = ChartView {
+      beside: self.beside.is_some(),
+      plot_width: self.plot_width,
       title: self.props.title.clone(),
       description: self.props.description.clone(),
       name: self.name(),
@@ -362,28 +406,35 @@ impl ChartFrame {
   fn plot_element(&self, host: Option<&Arc<ChartHostState>>) -> Element {
     let height = self.plot_height();
     let part = self.part(ChartPart::Plot);
+    // A plot of its own width has it in each of its states.
+    let wide = self.plot_width.map_or(Dimension::Pct(100.0), Dimension::Px);
     if self.props.loading {
-      return Column::new()
-        .width(Dimension::Pct(100.0))
-        .describe("a11y_busy", "true")
-        .child(Skeleton::block(Length::Fill, height).build(self.recipe.theme()))
-        .into();
+      let block = self.plot_width.map_or(Length::Fill, Length::from);
+      return self.placed(
+        Column::new()
+          .width(wide)
+          .describe("a11y_busy", "true")
+          .child(Skeleton::block(block, height).build(self.recipe.theme()))
+          .into(),
+      );
     }
     if self.plot.is_empty() {
       let empty = self.part(ChartPart::Empty);
-      return Row::new()
-        .width(Dimension::Pct(100.0))
-        .height(height)
-        .justify(Justify::Center)
-        .align_items(Alignment::Center)
-        .part(&empty)
-        .child(
-          empty
-            .text(self.props.empty_text.as_deref().unwrap_or("No data"))
-            .part(&empty)
-            .nowrap(),
-        )
-        .into();
+      return self.placed(
+        Row::new()
+          .width(wide)
+          .height(height)
+          .justify(Justify::Center)
+          .align_items(Alignment::Center)
+          .part(&empty)
+          .child(
+            empty
+              .text(self.props.empty_text.as_deref().unwrap_or("No data"))
+              .part(&empty)
+              .nowrap(),
+          )
+          .into(),
+      );
     }
     let active = host.and_then(|host| host.active());
     // What the plot is drawn from: a drawing changes only with it, the size and the scale.
@@ -406,7 +457,9 @@ impl ChartFrame {
     if let Some(id) = &self.props.id {
       canvas = canvas.id(format!("{id}-plot"));
     }
-    let width = host.map_or(0.0, |host| host.canvas.width());
+    let width = self
+      .plot_width
+      .unwrap_or_else(|| host.map_or(0.0, |host| host.canvas.width()));
     let area = ChartArea { width, height };
     if let Some(host) = host {
       canvas = self.dress(canvas, host);
@@ -418,21 +471,42 @@ impl ChartFrame {
           .map(|(series, value)| format!("{}: {}", self.series_name(*series), (self.look.value_text)(*value)))
           .collect::<Vec<_>>()
           .join(", ");
-        canvas = canvas.describe("a11y_value", format!("{}, {said}", tip.title));
+        // A point with no rows (a heatmap's cell with no value) says its title alone.
+        let said = if said.is_empty() {
+          tip.title.clone()
+        } else {
+          format!("{}, {said}", tip.title)
+        };
+        canvas = canvas.describe("a11y_value", said);
       }
     }
-    let mut stack = Stack::new()
-      .width(Dimension::Pct(100.0))
-      .height(height)
-      .overflow_visible()
-      .child(canvas);
+    let mut stack = Stack::new().width(wide).height(height).overflow_visible().child(canvas);
+    // The plot's own words, over the canvas and letting the pointer through to it.
+    let labels = self.plot.labels(area, &self.look);
+    if !labels.is_empty() {
+      for placed in labels {
+        let label = self.part(placed.part);
+        stack = stack.child(at(
+          placed.x,
+          placed.y,
+          Row::new()
+            .offset_by_size(placed.offset.0, placed.offset.1)
+            .child(label.text(&placed.text).part(&label).nowrap())
+            .into(),
+        ));
+      }
+    }
     if let Some(point) = active
       && let Some((x, y)) = self.plot.anchor(area, point)
     {
       let tip = self.plot.tip(point);
       let rows = tip.rows.iter().map(|(series, value)| {
         ChartTooltipRow::new(
-          self.series_color(*series),
+          self
+            .plot
+            .tip_color(point, *series, &self.look)
+            .map(crate::node::BackgroundColor::Color)
+            .unwrap_or_else(|| self.series_color(*series)),
           &self.series_name(*series),
           &(self.look.value_text)(*value),
         )
@@ -468,7 +542,7 @@ impl ChartFrame {
     }
     let gutter = self.gutter(area);
     if gutter <= 0.0 {
-      return stack.into();
+      return self.placed(stack.into());
     }
     // The ticks' numbers stand in a room of their own at the plot's start, each at its line's height.
     let label = self.part(ChartPart::ValueLabel);
@@ -505,14 +579,31 @@ impl ChartFrame {
       return 0.0;
     }
     let size = self.recipe.part(ChartPart::ValueLabel).rest().text.size.unwrap_or(11.0);
-    let widest = self
+    // A plot with no ticks (a radar writes its rings' numbers itself) has no room for them.
+    let Some(widest) = self
       .plot
       .ticks(area, &self.look)
       .iter()
       .map(|tick| tick.text.chars().count())
       .max()
-      .unwrap_or(0);
+    else {
+      return 0.0;
+    };
     (widest as f32 * size * 0.6).ceil() + GUTTER_GAP
+  }
+
+  /// The plot where it stands across the frame: as it is where it is as wide as the frame or has the legend beside
+  /// it, else in a row of the frame's width at its start, its middle or its end.
+  fn placed(&self, plot: Element) -> Element {
+    if self.plot_width.is_none() || self.beside.is_some() {
+      return plot;
+    }
+    Row::new()
+      .width(Dimension::Pct(100.0))
+      .justify(self.plot_justify)
+      .overflow_visible()
+      .child(plot)
+      .into()
   }
 
   /// The plot's behavior on the canvas of a mounted chart: the pointer finds the point it is on, a press selects
@@ -669,16 +760,29 @@ impl ChartFrame {
     }
   }
 
-  fn legend_element(&self) -> Option<Element> {
+  fn legend_element(&mut self) -> Option<Element> {
+    if let Some(own) = self.own_legend.take() {
+      return (self.props.legend != Some(false) && !self.props.loading).then_some(own);
+    }
     if !self.props.legend.unwrap_or(self.series.len() > 1) || self.props.loading {
       return None;
     }
-    let items = self
-      .series
-      .iter()
-      .enumerate()
-      .map(|(index, series)| ChartLegendItem::new(series.name(), self.series_color(index)));
+    let values = self
+      .beside
+      .as_ref()
+      .map(|beside| beside.values.as_slice())
+      .unwrap_or(&[]);
+    let items = self.series.iter().enumerate().map(|(index, series)| {
+      let item = ChartLegendItem::new(series.name(), self.series_color(index));
+      match values.get(index).filter(|value| !value.is_empty()) {
+        Some(value) => item.value(value),
+        None => item,
+      }
+    });
     let mut legend = ChartLegend::new(items).shape(ChartLegendShape::Dot);
+    if let Some(beside) = &self.beside {
+      legend = legend.orientation(Orientation::Vertical).size(beside.size);
+    }
     if let Some(write) = &self.props.write_hidden {
       let write = write.clone();
       legend = legend.hidden_controlled(self.props.hidden.clone(), move |next| write(next));
@@ -760,6 +864,10 @@ pub fn snap(value: f32, scale: f32) -> f32 {
 
 /// A chart as a renderer sees it: its header's words, its plot, its axis and its legend, built.
 pub struct ChartView {
+  /// Whether the legend stands beside the plot, not under it.
+  pub beside: bool,
+  /// The plot's width, where it is not the frame's.
+  pub plot_width: Option<f32>,
   pub title: Option<Arc<str>>,
   pub description: Option<Arc<str>>,
   /// Its name to tooling.
@@ -822,13 +930,41 @@ impl ChartView {
     Some(header)
   }
 
-  /// How the default renderer builds a chart: the header, the plot, the axis and the legend, one under another.
+  /// How the default renderer builds a chart: the header, the plot, the axis and the legend, one under another; or
+  /// the plot and the legend beside it in a row, under the header.
   pub fn render(mut self) -> Element {
     let mut root = self.root();
     if let Some(header) = self.header() {
       root = root.child(header);
     }
     let plot = std::mem::replace(&mut self.plot, Row::new().into());
+    if self.beside {
+      // The plot and the legend beside it, the legend taking the room the plot leaves. They are laid one over the
+      // other, the legend moved past the plot, so that the plot's tooltip stands over the legend.
+      let gap = self
+        .part(ChartPart::Body)
+        .rest()
+        .gap
+        .map(|gap| gap.resolve(&self.theme().spacing(), 0.0))
+        .unwrap_or(20.0);
+      let mut body = Stack::with(StackAlignment::CenterStart, Vec::<Element>::new())
+        .width(Dimension::Pct(100.0))
+        .overflow_visible();
+      if let Some(legend) = self.legend.take() {
+        body = body.child(
+          Row::new()
+            .width(Dimension::Pct(100.0))
+            .padding_left(self.plot_width.unwrap_or(0.0) + gap)
+            .child(
+              Column::new()
+                .flex_full(1.0, 1.0, Some(0.0))
+                .min_width(Dimension::Px(0.0))
+                .child(legend),
+            ),
+        );
+      }
+      return root.child(body.child(plot)).into();
+    }
     root = root.child(plot);
     if let Some(axis) = self.axis.take() {
       root = root.child(axis);
@@ -846,9 +982,11 @@ impl ChartView {
 /// of 15 over a description of 12, 3 apart, a plot of 140. The axis's names mono 11 in the muted foreground with 12
 /// between bands; the grid lines 1 in the border's color at 0.6, the line the values stand on in the border's
 /// color; the cursor at the point under the pointer in the input's color; the ring of the focus from the keyboard
-/// around the plot.
+/// around the plot. A plot with its legend beside it (a pie's) stands 20 from it, 18 in `Sm`.
 pub fn chart_recipe() -> Recipe {
-  use ChartPart::{Axis, AxisLabel, Baseline, Cursor, Description, Empty, Grid, Header, Plot, Root, Title, ValueLabel};
+  use ChartPart::{
+    Axis, AxisLabel, Baseline, Body, Cursor, Description, Empty, Grid, Header, Plot, Root, Title, ValueLabel,
+  };
   use ChartSize::Sm;
   use PaletteColor::{Card, CardForeground, Input, MutedForeground};
   Recipe::new()
@@ -903,6 +1041,8 @@ pub fn chart_recipe() -> Recipe {
         .font_size(13.0)
         .foreground(MutedForeground)
     })
+    .base(Body, |s| s.gap(20.0))
+    .size(Sm, Body, |s| s.gap(18.0))
 }
 
 struct ChartHostProps {

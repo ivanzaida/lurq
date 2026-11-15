@@ -22,6 +22,12 @@
 //! 4. Its frame: [`ChartFrame`], given the resolved recipe, the plot, the series, the words and the handlers, which
 //!    builds the header, the plot with its grid, its axis, its tooltip and its keys, and the legend; `mount(ctx)` keeps
 //!    the pointer, the focus and the drawing, `build()` is its still form.
+//! 5. Where its plot is not as wide as the frame with the legend under it, the frame's shape:
+//!    [`ChartFrame::plot_width`] and [`ChartFrame::plot_justify`] (a square, a grid of cells),
+//!    [`ChartFrame::legend_beside`] (a pie's legend with its shares, in [`ChartPart::Body`]), and
+//!    [`ChartFrame::own_legend`] (a heatmap's scale in place of the series'). Words in the plot's box are
+//!    [`ChartLabel`]s ([`ChartPlot::labels`]); a tooltip's key in another color than its series' is
+//!    [`ChartPlot::tip_color`].
 //!
 //! The names every chart gives its props:
 //!
@@ -200,6 +206,8 @@ pub enum ChartPart {
   ValueLabel,
   /// What the plot says where there is no data.
   Empty,
+  /// The row of a plot and the legend beside it (a pie's): the room between them.
+  Body,
 }
 
 names!(ChartPart {
@@ -215,6 +223,7 @@ names!(ChartPart {
   AxisLabel => "axis_label",
   ValueLabel => "value_label",
   Empty => "empty",
+  Body => "body",
 });
 
 /// The states of a chart's frame a recipe styles.
@@ -359,6 +368,40 @@ pub enum ChartAxis {
   Spread(Vec<String>),
 }
 
+/// A word a plot places in its box, which the frame writes over the canvas in the axis's type
+/// ([`AxisLabel`](ChartPart::AxisLabel)) unless told another part: the name of a radar's axis, a heatmap's row, the
+/// total in a donut's hole.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChartLabel {
+  /// Where it stands, in the plot's box.
+  pub x: f32,
+  pub y: f32,
+  pub text: String,
+  /// How far the text is moved from its place, as shares of its own width and height: `(0.0, -0.5)` starts at `x`
+  /// with `y` through its middle, `(-1.0, -0.5)` ends at `x`, `(-0.5, -1.0)` stands centred over the place.
+  pub offset: (f32, f32),
+  /// The part whose type it is written in.
+  pub part: Name,
+}
+
+impl ChartLabel {
+  pub fn new(x: f32, y: f32, text: impl Into<String>, offset: (f32, f32)) -> Self {
+    Self {
+      x,
+      y,
+      text: text.into(),
+      offset,
+      part: ChartPart::AxisLabel.into(),
+    }
+  }
+
+  /// Written in the type of `part`, a part of the chart's own: a donut's total.
+  pub fn part(mut self, part: impl Into<Name>) -> Self {
+    self.part = part.into();
+    self
+  }
+}
+
 /// What the tooltip of a point says: its title, and a row for each series the point has a value of.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChartTip {
@@ -406,6 +449,18 @@ pub trait ChartPlot: Send + Sync + 'static {
   /// Whether there is nothing to draw.
   fn is_empty(&self) -> bool {
     self.counts().iter().all(|count| *count == 0)
+  }
+
+  /// The words the plot places in its box, written over the canvas: the names around a radar, a heatmap's rows. The
+  /// box is the one laid out last, or a plot's own width ([`ChartFrame::plot_width`]) where it has one.
+  fn labels(&self, _area: ChartArea, _look: &ChartLook) -> Vec<ChartLabel> {
+    Vec::new()
+  }
+
+  /// The color of the key of the tooltip's row of `series` at `point`, where it is not the series' own: a heatmap's
+  /// cell, in its step of the scale.
+  fn tip_color(&self, _point: ChartPoint, _series: usize, _look: &ChartLook) -> Option<Color> {
+    None
   }
 }
 

@@ -83,6 +83,8 @@ mod outcome;
 mod pagination;
 mod part_style;
 mod password_input;
+#[cfg(feature = "canvas")]
+mod pie_chart;
 mod popconfirm;
 mod popover;
 mod progress;
@@ -168,6 +170,8 @@ pub use chart::{
   ChartTooltipPart, ChartTooltipRenderer, ChartTooltipRow, ChartTooltipView, ChartView, LinearScale, chart_recipe,
   default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap, step as chart_step,
 };
+#[cfg(feature = "canvas")]
+pub use chart::ChartLabel;
 pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupRenderer, CheckboxGroupState, CheckboxGroupView,
   CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView,
@@ -300,6 +304,8 @@ pub use part_style::{
   FontFamily, Length, Opacity, PartAnimation, PartStyle, PartTransition, TextPatch, TransitionDuration,
   TransitionEasing,
 };
+#[cfg(feature = "canvas")]
+pub use pie_chart::{PieChart, PieChartPart, PieChartState, PieLegendValue, ShareTextFn, default_share_text};
 pub use password_input::{
   PasswordInput, PasswordInputPart, PasswordInputRenderer, PasswordInputSize, PasswordInputState, PasswordInputView,
   PasswordStrength,

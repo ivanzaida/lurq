@@ -59,6 +59,8 @@ mod navigation_menu;
 mod number_input;
 mod outcome;
 mod pagination;
+#[cfg(feature = "canvas")]
+mod pie_chart;
 mod popconfirm;
 mod popover;
 mod progress;

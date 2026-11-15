@@ -1,16 +1,21 @@
-//! The legend of a chart: the board's Chart Legend, a key in each series' color and its name.
+//! The legend of a chart: the board's Chart Legend, a key in each series' color and its name, and the legend a pie has
+//! beside it, one item under another with its share.
 
 use std::sync::Arc;
 
-use super::super::{
-  names,
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::{fading, pressable},
-  theme::{Themed, current_theme},
+use super::{
+  super::{
+    Orientation, names,
+    part_style::FontFamily,
+    recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+    shared::{fading, pressable},
+    theme::{Themed, current_theme},
+  },
+  ChartSize,
 };
 use crate::{
   app::theme::{OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
-  components::Row,
+  components::{Column, Row},
   core::{Signal, SignalValue},
   layout::Alignment,
   node::{BackgroundColor, CursorIcon, Element, FocusGroup},
@@ -27,6 +32,8 @@ pub enum ChartLegendPart {
   Key,
   /// The series' name.
   Label,
+  /// What an item says after its name, where it is given one: a slice's share of a pie.
+  Value,
 }
 
 names!(ChartLegendPart {
@@ -34,6 +41,7 @@ names!(ChartLegendPart {
   Item => "item",
   Key => "key",
   Label => "label",
+  Value => "value",
 });
 
 /// The states of a legend and its items a recipe styles.
@@ -45,12 +53,15 @@ pub enum ChartLegendState {
   Pressable,
   /// The item's series is hidden.
   Hidden,
+  /// The items stand one under another, each as wide as the legend, its value at its end: the legend beside a pie.
+  Vertical,
 }
 
 names!(ChartLegendState {
   Dot => "dot",
   Pressable => "pressable",
   Hidden => "hidden",
+  Vertical => "vertical",
 });
 
 /// The mark of a series in a legend.
@@ -63,11 +74,13 @@ pub enum ChartLegendShape {
   Dot,
 }
 
-/// One item of a legend: a series' name and its color.
+/// One item of a legend: a series' name and its color, and what it says after the name where it is given a value.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ChartLegendItem {
   pub name: Arc<str>,
   pub color: BackgroundColor,
+  pub value: Option<Arc<str>>,
 }
 
 impl ChartLegendItem {
@@ -75,7 +88,14 @@ impl ChartLegendItem {
     Self {
       name: Arc::from(name),
       color: color.into(),
+      value: None,
     }
+  }
+
+  /// What it says after its name, in the mono type: a slice's share, a series' total. The app's words.
+  pub fn value(mut self, value: &str) -> Self {
+    self.value = Some(Arc::from(value));
+    self
   }
 }
 
@@ -99,6 +119,8 @@ pub type ChartLegendRenderer = Arc<dyn Fn(ChartLegendView) -> Element + Send + S
 pub struct ChartLegend {
   items: Vec<ChartLegendItem>,
   shape: ChartLegendShape,
+  orientation: Orientation,
+  size: Option<ChartSize>,
   hidden: Vec<String>,
   write_hidden: Option<HiddenHeard>,
   on_hidden_change: Vec<HiddenHeard>,
@@ -115,6 +137,8 @@ impl ChartLegend {
     Self {
       items: items.into_iter().collect(),
       shape: ChartLegendShape::Square,
+      orientation: Orientation::Horizontal,
+      size: None,
       hidden: Vec::new(),
       write_hidden: None,
       on_hidden_change: Vec::new(),
@@ -142,6 +166,20 @@ impl ChartLegend {
   /// The mark of each series: the board's square unless told.
   pub fn shape(mut self, shape: ChartLegendShape) -> Self {
     self.shape = shape;
+    self
+  }
+
+  /// How the items stand: in a row that wraps unless told, or one under another, each as wide as the legend with
+  /// its value at its end and its name in the foreground, as the board's pie has them.
+  pub fn orientation(mut self, orientation: Orientation) -> Self {
+    self.orientation = orientation;
+    self
+  }
+
+  /// The size of the chart it stands in, which the items one under another follow: 7 apart with names of 12 in
+  /// `Sm`, 8 apart with names of 13 in `Md`.
+  pub fn size(mut self, size: impl Into<ChartSize>) -> Self {
+    self.size = Some(size.into());
     self
   }
 
@@ -223,7 +261,9 @@ impl ChartLegend {
   pub fn build(self, theme: &Theme) -> Element {
     let mut case = Case::new()
       .breakpoint(super::super::current_breakpoint())
+      .size(self.size.unwrap_or_default())
       .state(ChartLegendState::Dot, self.shape == ChartLegendShape::Dot)
+      .state(ChartLegendState::Vertical, self.orientation.is_vertical())
       .state(ChartLegendState::Pressable, self.write_hidden.is_some());
     case.states.extend(self.states.iter().copied());
     let recipe = theme.resolve::<ChartLegend>(&case, Some(&self.rules));
@@ -234,6 +274,7 @@ impl ChartLegend {
       hidden: self.hidden,
       recipe,
       hidden_recipe,
+      orientation: self.orientation,
       write: self.write_hidden,
       heard: self.on_hidden_change,
       label: self.label.unwrap_or_else(|| Arc::from("Legend")),
@@ -262,6 +303,8 @@ pub struct ChartLegendView {
   pub recipe: ResolvedRecipe,
   /// The style of an item whose series is hidden.
   pub hidden_recipe: ResolvedRecipe,
+  /// How the items stand: in a row, or one under another.
+  pub orientation: Orientation,
   write: Option<HiddenHeard>,
   heard: Vec<HiddenHeard>,
   label: Arc<str>,
@@ -288,7 +331,23 @@ impl ChartLegendView {
       .part(&part(ChartLegendPart::Key))
       .background(item.color.clone());
     let label_part = part(ChartLegendPart::Label);
-    let label = label_part.text(&item.name).part(&label_part).nowrap();
+    let mut label = label_part.text(&item.name).part(&label_part).nowrap();
+    let vertical = self.orientation.is_vertical();
+    if vertical {
+      // The name takes the room the value leaves, and ends in an ellipsis where it is longer.
+      label = label
+        .flex_full(1.0, 1.0, Some(0.0))
+        .min_width(crate::node::dimension::Dimension::Px(0.0))
+        .text_overflow(crate::node::node_kind::TextOverflow::Elipsis);
+    }
+    let value = item.value.as_ref().map(|value| {
+      let part = part(ChartLegendPart::Value);
+      part.text(value).part(&part).nowrap()
+    });
+    let name: Arc<str> = match &item.value {
+      Some(value) => Arc::from(format!("{}, {value}", item.name)),
+      None => item.name.clone(),
+    };
     let mut row = match &self.write {
       Some(write) => {
         let (write, heard) = (write.clone(), self.heard.clone());
@@ -305,7 +364,7 @@ impl ChartLegendView {
         pressable(&part(ChartLegendPart::Item), false)
           .describe("a11y_role", "checkbox")
           .describe("a11y_checked", if hidden { "false" } else { "true" })
-          .describe("a11y_name", item.name.clone())
+          .describe("a11y_name", name.clone())
           .on_click(move |_| {
             write(&next);
             for handler in &heard {
@@ -313,9 +372,17 @@ impl ChartLegendView {
             }
           })
       }
-      None => components_row(&part(ChartLegendPart::Item)).describe("a11y_role", "listitem"),
+      None => components_row(&part(ChartLegendPart::Item))
+        .describe("a11y_role", "listitem")
+        .describe("a11y_name", name),
     };
     row = row.align_items(Alignment::Center).child(key).child(label);
+    if let Some(value) = value {
+      row = row.child(value);
+    }
+    if vertical {
+      row = row.width(crate::node::dimension::Dimension::Pct(100.0));
+    }
     if let Some(id) = &self.id {
       row = row.id(format!("{id}-item-{place}"));
     }
@@ -325,10 +392,34 @@ impl ChartLegendView {
   /// How the default renderer builds a legend: its items in a row that wraps, the arrows between them where they
   /// are pressed.
   pub fn render(self) -> Element {
+    let items: Vec<Element> = self
+      .items
+      .iter()
+      .enumerate()
+      .map(|(place, item)| self.item(place, item))
+      .collect();
+    let part = self.part(ChartLegendPart::Root);
+    if self.orientation.is_vertical() {
+      let mut root = Column::new()
+        .align_items(Alignment::Stretch)
+        .part(&part)
+        .describe("a11y_role", "list")
+        .describe("a11y_name", self.label.clone());
+      if self.write.is_some() {
+        root = root.focus_group(FocusGroup::vertical().one_stop(true));
+      }
+      if let Some(id) = &self.id {
+        root = root.id(id.clone());
+      }
+      if let Some(key) = &self.key {
+        root = root.key(key.clone());
+      }
+      return root.with_children(items).into();
+    }
     let mut root = Row::new()
       .wrap()
       .align_items(Alignment::Center)
-      .part(&self.part(ChartLegendPart::Root))
+      .part(&part)
       .describe("a11y_role", "list")
       .describe("a11y_name", self.label.clone());
     if self.write.is_some() {
@@ -340,12 +431,6 @@ impl ChartLegendView {
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }
-    let items: Vec<Element> = self
-      .items
-      .iter()
-      .enumerate()
-      .map(|(place, item)| self.item(place, item))
-      .collect();
     root.with_children(items).into()
   }
 }
@@ -362,10 +447,13 @@ impl Themed for ChartLegend {
   /// The board's Chart Legend (`OjIRm`): a row of 16 between items, each a key of 10 with corners of 2 and its
   /// name 12 in the foreground, 6 apart. Under a chart's plot the keys are dots of 8 and the names muted, as the
   /// board's charts draw them. Where it hides series, an item is pressed, under the pointer in the foreground and
-  /// faded while its series is hidden; the focus from the keyboard is the ring around it.
+  /// faded while its series is hidden; the focus from the keyboard is the ring around it. An item's value is mono 11
+  /// in the muted foreground. One under another (the board's Pie Chart `dDHPj` and Donut Chart `GJ5Mg`), the items
+  /// are 8 apart in `Md` and 7 in `Sm`, the key and the name 8 apart, the name 13 (12 in `Sm`) in the card's
+  /// foreground and the value at the end.
   fn recipe() -> Recipe {
-    use ChartLegendPart::{Item, Key, Label, Root};
-    use ChartLegendState::{Dot, Hidden, Pressable};
+    use ChartLegendPart::{Item, Key, Label, Root, Value};
+    use ChartLegendState::{Dot, Hidden, Pressable, Vertical};
     use PaletteColor::{Foreground, MutedForeground};
     Recipe::new()
       .base(Root, |s| s.gap(16.0))
@@ -384,5 +472,17 @@ impl Themed for ChartLegend {
       .hovered(Label, |s| s.foreground(Foreground))
       .focus_visible(Item, |s| s.focus_ring())
       .state(Hidden, Item, |s| s.opacity(OpacityLevel::Disabled))
+      .base(Value, |s| {
+        s.font_family(FontFamily::Mono)
+          .font_size(11.0)
+          .foreground(MutedForeground)
+      })
+      // One under another, as the board's pie and donut have them: the key and the name 8 apart, the name in the
+      // card's foreground, the value at the end.
+      .state(Vertical, Root, |s| s.gap(8.0))
+      .state(Vertical, Item, |s| s.gap(8.0))
+      .state(Vertical, Label, |s| s.font_size(13.0).foreground(PaletteColor::CardForeground))
+      .when(Selector::new().size(ChartSize::Sm).state(Vertical), Root, |s| s.gap(7.0))
+      .when(Selector::new().size(ChartSize::Sm).state(Vertical), Label, |s| s.font_size(12.0))
   }
 }
