@@ -5,6 +5,8 @@ mod action_bar;
 mod alert;
 mod avatar;
 mod badge;
+#[cfg(feature = "canvas")]
+mod bar_chart;
 mod breadcrumb;
 mod button;
 mod calendar;

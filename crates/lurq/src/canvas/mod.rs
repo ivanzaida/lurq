@@ -35,6 +35,7 @@ pub use effect::{Filter, MAX_BLUR_RADIUS, MAX_EFFECT_PIXELS, MAX_SHADOW_BLUR, MA
 pub(crate) use frame_boundary::FrameBoundary;
 pub use gpu::{CanvasReadback, MAX_LAYER_DEPTH};
 pub use items::{CanvasItem, CanvasItemShape};
+
 mod paint;
 mod path;
 #[cfg(all(test, any(feature = "wgpu", all(feature = "dx12", target_os = "windows"))))]
@@ -124,6 +125,29 @@ impl fmt::Display for CanvasError {
   }
 }
 impl std::error::Error for CanvasError {}
+
+/// What draws a canvas from what it is given: called with the canvas when it is first laid out, when its size or
+/// its scale changes, and when its key changes, and not otherwise. See `Canvas::paint`.
+#[derive(Clone)]
+pub struct CanvasPainter {
+  pub(crate) key: u64,
+  pub(crate) paint: std::sync::Arc<dyn Fn(&CanvasHandle) + Send + Sync>,
+}
+
+impl CanvasPainter {
+  pub fn new(key: u64, paint: impl Fn(&CanvasHandle) + Send + Sync + 'static) -> Self {
+    Self {
+      key,
+      paint: std::sync::Arc::new(paint),
+    }
+  }
+}
+
+impl std::fmt::Debug for CanvasPainter {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("CanvasPainter").field("key", &self.key).finish()
+  }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanvasMetrics {
@@ -306,6 +330,8 @@ struct Surface {
   /// Fingerprint of the duplicated ids last warned about, so a redraw that
   /// repeats the same duplicates every frame warns once.
   warned_duplicates: Option<u64>,
+  /// The key a painter last drew this surface for.
+  painted: Option<u64>,
 }
 
 impl fmt::Debug for CanvasHandle {

@@ -10,6 +10,7 @@ mod alert;
 mod avatar;
 mod badge;
 mod banner;
+mod bar_chart;
 mod breadcrumb;
 mod button;
 mod calendar;
@@ -112,18 +113,20 @@ pub enum Group {
   Navigation,
   Surfaces,
   Data,
+  Charts,
   Desktop,
 }
 
 impl Group {
   /// The groups in the order of the side bar.
-  pub const ALL: [Group; 7] = [
+  pub const ALL: [Group; 8] = [
     Self::GettingStarted,
     Self::Actions,
     Self::Inputs,
     Self::Navigation,
     Self::Surfaces,
     Self::Data,
+    Self::Charts,
     Self::Desktop,
   ];
 
@@ -135,6 +138,7 @@ impl Group {
       Self::Navigation => "Navigation",
       Self::Surfaces => "Surfaces & overlays",
       Self::Data => "Data",
+      Self::Charts => "Charts",
       Self::Desktop => "Desktop",
     }
   }
@@ -876,6 +880,14 @@ pub const PAGES: &[Page] = &[
     about: "timeline history activity feed log events release deploy tracking order steps dot line rail mark avatar new item items label description time icon media variant current upcoming pending child children action on_select disabled style rules orientation horizontal size align alternate time_column value on_load_more loading more_label loading_text mount room panel splitter",
     group: Group::Data,
     mount: |ctx| ctx.mount::<timeline::TimelinePage>(()),
+  },
+  Page {
+    path: "/bar-chart",
+    name: "Bar Chart",
+    icon: Some("dashboard"),
+    about: "bar chart bars columns chart graph plot series categories values stacked grouped side by side current negative zero grid value_axis legend tooltip hidden value_text on_select empty_text loading size height canvas ChartSeries ChartPoint ChartLegend ChartTooltip",
+    group: Group::Charts,
+    mount: |ctx| ctx.mount::<bar_chart::BarChartPage>(()),
   },
   Page {
     path: "/data-grid",

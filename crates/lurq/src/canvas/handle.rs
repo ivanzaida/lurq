@@ -48,6 +48,7 @@ impl CanvasHandle {
         error: None,
         items: Arc::from([]),
         warned_duplicates: None,
+        painted: None,
       })),
     }
   }
@@ -164,6 +165,18 @@ impl CanvasHandle {
 
   pub(crate) fn update_placement(&self, matrix: Transform2D) {
     self.inner.lock().to_window = matrix;
+  }
+
+  /// Whether a painter of `key` is to draw the surface: its key is another than the one it last drew for, or the
+  /// surface's metrics changed. Where it is, `key` is the one drawn for from now.
+  pub(crate) fn paint_due(&self, key: u64, metrics_changed: bool) -> bool {
+    let mut s = self.inner.lock();
+    if !s.attached {
+      return false;
+    }
+    let due = metrics_changed || s.painted != Some(key);
+    s.painted = Some(key);
+    due
   }
 
   pub(crate) fn clone_empty(&self) -> Self {
