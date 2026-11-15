@@ -282,7 +282,7 @@ Icon::new(icons::SPINNER).spin(true);                 // a spinner
 | `id(id)`, `key(key)` | Its id and key |
 
 - An icon names no color: it is drawn in the `.foreground(..)` of what it is in, as text is, so the icon of a button is the color of its label.
-- `ui::icons` has a constant for each of the 159 icons of lurq's font (`icons::CHEVRON_DOWN` is `"chevron-down"`), `icons::ALL` lists them with their characters, and `icons::FAMILY` is the family of the font. Every app has the font loaded, hinted: at 16 and 20 pixels its strokes land on whole pixels of the display.
+- `ui::icons` has a constant for each of the 169 icons of lurq's font (`icons::CHEVRON_DOWN` is `"chevron-down"`), `icons::ALL` lists them with their characters, and `icons::FAMILY` is the family of the font. Every app has the font loaded, hinted: at 16 and 20 pixels its strokes land on whole pixels of the display.
 - The theme says what a name is drawn with ([`ThemeIcons`](../theme/#icons)). A theme gives a name another glyph, or adds names of its own, from a font the app loads; lurq's components name the icons they draw, so they change with it.
 - A name the theme has no glyph for takes its room and draws nothing.
 - Most icons are lines. `icons::STAR_FILL` is a solid star, the shape a [rating](#rating) lights: a glyph that is filled where `icons::STAR` is drawn.
@@ -2050,7 +2050,7 @@ Gauge::new(86).min(20).max(100).low(60).high(85).label("GPU").value_text(|degree
 | `Gauge::new(value)`, `value(..)` | The value, `impl Into<f64>` |
 | `min(..)`, `max(..)` | The range, from the ring's start to its end: 0 to 100 unless given, as a [meter](#meter) says it |
 | `low(..)`, `high(..)`, `optimum(..)` | The parts of the range, as a [meter](#meter)'s: the value's share is in the tone of its part |
-| `color(PaletteColor)` | The role of the value's share of a gauge with no parts, `Chart1` unless given |
+| `color(impl Into<BackgroundColor>)` | The color of the value's share of a gauge with no parts, a role of the palette or a color: `Chart1` unless given |
 | `label(&str)` | What it measures, under the ring between its bounds: its name to tooling |
 | `value_text(Fn(f64) -> String)` | Writes the reading. Not given, the value's share of the range in percent, "70%" |
 | `bound_text(Fn(f64) -> String)` | Writes the bounds under the ring. Not given, as they are: "0", "100" |
@@ -4580,6 +4580,83 @@ Table::new_shared(columns, rows.clone()).row_key(|row: &Crate| row.id).height(48
 - In the design the table is a box with `radius-lg`, an inner edge of 1 in `Border` and the `Background` fill. The header is 40 high on `Muted` with a line of 1 in `Border` under it, its titles 13/500 in `MutedForeground`; a row is 44 high with the same line under it but the last, its text 13 in `Foreground`. Both are padded 16 at each side with 16 between columns, 12 where the rows have checkboxes, whose column is 16 wide. A sorted column's title is in `Foreground` with an arrow of 14, 4 after it; a sortable one has a muted mark of `chevrons-vertical`, and its title is in `Foreground` under the pointer. A selected row is on `Highlight`. A number is mono 12 in `MutedForeground` at its column's end. The footer is 44 high, padded 16 and 8, its count 13 in `MutedForeground`. Under the pointer and held down a row has the `StateHover` and `StatePressed` veils, the focus from the keyboard is a ring of 2 in `Ring` inside it, and a disabled table is half opaque.
 - A theme's renderer is given `TableView`: `view.headers` (each a `TableHeader` with `cell()`, `sort_icon()`, `render()`), `view.rows` (each a `TableRow` with its place, whether it is selected, its `cells` and `button()`, `checkbox()`, `render()`), `view.root()`, `view.header()`, `view.select_all()`, `view.body()` (the rows and the room of those not built), `view.skeletons()`, `view.empty()`, `view.footer()` and `view.tracks`, the list every row of the table lays its cells out in, with `view.columns_built` (which columns a mounted table built) and `in_tracks(built, cells)` to lay a row's cells out with the room of those not built. A header and a cell say their `column`. It is set for `Table<R, K>` of any `R` and `K`, a data grid's too.
 
+## Charts
+
+What every chart of the system stands on, behind the `canvas` feature: each is drawn on a [canvas](../canvas/), its words (the header, the axis, the legend, the tooltip) are elements in the theme's type, and it is drawn again only when its data, its size, its theme or the point under the pointer changes (`Canvas::paint`), sharp at any scale.
+
+- **Data** is the app's: `ChartSeries::new(name, values)`, a value for each category, or `ChartSeries::points(name, points)`, an x and a y each; numbers are `f64`. A place in it is a `ChartPoint { series, index }`.
+- **Colors** come from the theme: a series takes `Chart1` to `Chart5` in turn (`series_color(index)`), unless `ChartSeries::color(..)` gives it a role or a color. The grid, the line the values stand on, the cursor and every text are on roles.
+- **The frame** is shared: the card (the card's fill, an edge of 1, the extra large radius, the small shadow), the title over the description, the plot, the axis under it and the legend. `ChartSize::Md` is the board's Bar Chart (padded 24, 20 between rows, a title of 16 over a description of 13, a plot of 160); `Sm` its other charts (20, 16, 15 over 12, a plot of 140).
+- **The words** every chart has, as its builder says them: `title`, `description`, `label` (the name to tooling, the title's unless told), `size`, `height` (the plot's), `legend(bool)` (where it has more than one series unless told), `hidden(Signal<Vec<String>>)` with `hidden_controlled` and `on_hidden_change` (the series a press of the legend's item hides, by name), `value_text(|value| ..)` (every number it writes: a tick, a tooltip's value, what tooling reads), `grid(bool)` and `value_axis(bool)` (a line at each tick across the plot, and the ticks' numbers in a room of their own at its start), `empty_text`, `loading`, `on_select(|point| ..)`, and the six of every themed builder. `build(theme)` and `From` give the still chart, drawn and read; `mount(ctx)` the one that follows the pointer and the keys.
+- **Scales**: `LinearScale::nice(values, range, count)` maps values onto a length, from a round number at or under the least (zero where none is under it) to one at or over the most, its ticks a step of 1, 2 or 5 times a power of ten apart; `BandScale` lays categories on bands of equal width with a gap between them.
+- **The pointer and the keys**: the pointer finds the point it is on, or the nearest one near enough (`nearest`, `nearest_sorted` for a line of thousands of points, by halves), and the tooltip shows it. The plot is one stop of Tab: Left and Right go along a series, Up and Down to the series before and after, Home and End to its ends; the focused point shows what a hovered one shows, and a press, Enter or Space tells `on_select`.
+- **To tooling** a chart is a `figure` with its name and its description; its plot is a canvas whose items are its data (a bar's place, its category and its value as written), which a reader goes through, and whose `a11y_value` says the point under the pointer or the focus.
+- **States**: no data (`empty_text`, "No data" unless told), loading (the skeleton as high as the plot), values under zero, values of very different size (the ticks stay round), a long category name (cut with an ellipsis under its band).
+- A chart's author writes its plot (`impl ChartPlot`: what it draws, its ticks, its axis, where its points are, what a point's tooltip says, its items, a signature of its data) and lays its own parts over `chart_recipe()`; `ChartProps` and `chart_props!()` give its builder the words above, and `ChartFrame` builds and mounts it. See the module's docs in `lurq::ui`.
+
+### Chart Legend
+
+The board's Chart Legend: a key in each series' color and its name, in a row that wraps.
+
+```rust
+use lurq::{app::theme::PaletteColor, ui::{ChartLegend, ChartLegendItem, ChartLegendShape}};
+
+ChartLegend::new([
+  ChartLegendItem::new("Layout", PaletteColor::Chart1),
+  ChartLegendItem::new("Text", PaletteColor::Chart2),
+])
+.shape(ChartLegendShape::Dot)
+```
+
+- Square keys of 10 with corners of 2 and the names 12 in `Foreground`, 16 between items, 6 between a key and its name; `ChartLegendShape::Dot` has the dots of 8 and the muted names a chart's own legend has. Given `hidden(signal)` (or `hidden_controlled`, `on_hidden_change`), an item is pressed to hide its series and faded while it is hidden, the arrows go between the items, and each is a `checkbox` to tooling.
+- Parts: `ChartLegendPart::Root`, `Item`, `Key`, `Label`. States: `ChartLegendState::Dot`, `Pressable`, `Hidden`.
+
+### Chart Tooltip
+
+The board's Chart Tooltip: what a point is over a row for each series, its dot, its name and its value. A chart shows it at the point under the pointer or the focus; it stands on its own too.
+
+```rust
+use lurq::{app::theme::PaletteColor, ui::{ChartTooltip, ChartTooltipRow}};
+
+ChartTooltip::new("Build 0.59")
+  .row(ChartTooltipRow::new(PaletteColor::Chart1, "wgpu", "6.9 ms"))
+  .row(ChartTooltipRow::new(PaletteColor::Chart2, "DirectX 12", "9.4 ms"))
+```
+
+- A panel at least 140 wide on `Popover` with an edge of 1, the medium radius and shadow, padded 8 and 10 with 6 between rows; the title 12/600 in `PopoverForeground`; a row a dot of 7, the name 11 in `MutedForeground` (cut with an ellipsis where it is long, the value keeping its room), the value mono 11. A chart's tooltip stands over its point, under it where the plot has no room above, and inside the plot at its ends.
+- Parts: `ChartTooltipPart::Panel`, `Title`, `Row`, `Key`, `Label`, `Value`.
+
+## Bar Chart
+
+A value for each category, as a bar from zero: the frame time of each release, the budget of a frame by phase.
+
+```rust
+use lurq::ui::{BarChart, ChartSeries};
+
+BarChart::new(
+  ["0.55", "0.56", "0.57", "0.58", "0.59", "0.60"],
+  [ChartSeries::new("Frame time", [11.8, 13.2, 9.6, 8.4, 7.0, 5.2])],
+)
+.title("Frame time")
+.description("Median per build, last six releases")
+.current(5)
+.value_text(|ms| format!("{ms} ms"))
+.mount(ctx)
+```
+
+| Builder | |
+| --- | --- |
+| `BarChart::new(categories, series)` | The names under the bars, and the series, a value for each category |
+| `stacked(bool)` | The series one on another in each category, the first at the bottom: side by side unless told |
+| `current(usize)` | The category that is current (the latest release): its bars in their colors, the others in `Input` |
+| `title`, `description`, `label`, `size`, `height`, `legend`, `hidden`, `hidden_controlled`, `on_hidden_change`, `value_text`, `grid`, `value_axis`, `empty_text`, `loading`, `on_select`, `state`, `style`, `rules`, `force`, `id`, `key` | As every [chart](#charts) has them |
+| `mount(ctx)` | The tooltip of the bar under the pointer or the focus, the arrows between categories and series, `on_select` told a press. Converted into an element it is the still chart |
+
+- The board's Bar Chart (`Sk5h8`): the chart's frame at `Md`, bars 12 apart sharing the plot's width, their tops rounded 4, on the line of the plot's bottom in `Border`; the names under them mono 11 in `MutedForeground`, each under its bar. Several series stand side by side in a category, 4 apart, and the legend under the plot names them in dots. Stacked (`jJ85X`), they stand one on another with a pixel of the card between segments and the top of each stack rounded, 14 between stacks. A value under zero goes down from zero, its bottom rounded, and zero is a line across the plot. The band behind the category under the pointer or the focus is in `Muted`.
+- To tooling each bar is an item of the plot: `bar-<series>-<category>`, named by its category, valued as `value_text` writes it.
+- Parts: the chart's (`ChartPart::Root`, `Header`, `Title`, `Description`, `Plot`, `Grid`, `Baseline`, `Cursor`, `Axis`, `AxisLabel`, `ValueLabel`, `Empty`) and `BarChartPart::Bar` (the bars that give way to the current one), `Band`. States: `ChartState::Header`, `Empty`, `Loading`, `BarChartState::Stacked`; sizes `ChartSize::Sm`, `Md`.
+- Where the board draws nothing: the tooltip of a bar is the board's Chart Tooltip over it; the band behind the category under the pointer; the ring of the focus around the plot; values under zero; the grid and the ticks' numbers, off unless told.
+
 ## Data Grid
 
 A table whose cells are worked in: the focus is on a cell, the arrows move it from cell to cell, and a cell is edited in place with the system's own controls. A list of files whose names are edited, a sheet of orders whose states are chosen.
@@ -5383,7 +5460,7 @@ BarList::new([BarListItem::new("target/", 27.4), BarListItem::new("node_modules/
 | `title(&str)`, `description(&str)` | Over the rows: what they are, and the line under it ("Seconds") |
 | `label(&str)` | What the list is called to tooling, where it has no title or another name is wanted |
 | `max(impl Into<f64>)` | The value a bar fills its track at. Not given, the largest value rounded up to 1, 2, 2.5 or 5 of a power of ten |
-| `color(PaletteColor)` | The role of the bars, `Chart1` unless given; `BarListItem::color` for one row's |
+| `color(impl Into<BackgroundColor>)` | The color of the bars, a role of the palette or a color as a chart's series takes it: `Chart1` (`series_color(0)`) unless given; `BarListItem::color` for one row's |
 | `value_text(Fn(f64) -> String)` | Writes a row's value as the app does. Not given, with as many decimals as the most precise value has, up to 2 |
 | `empty_text(&str)` | What a list with no rows says, "No data" when not given |
 | `framed(bool)` | The board's card, as it is unless told otherwise; off, the rows stand on what holds them |
@@ -5416,7 +5493,7 @@ Sparkline::new([118.0, 124.0, 121.0, 133.0, 129.0, 141.0, 138.0, 144.0])
 | --- | --- |
 | `Sparkline::new(values)` | The values, `impl Into<f64>`, the first at the start |
 | `min(..)`, `max(..)` | The values at the bottom and at the top: the least and the greatest of the values unless given |
-| `color(PaletteColor)` | The role of the line: `Chart1` unless given, or a tone where the series is good or bad (the board's frames are `Success`) |
+| `color(impl Into<BackgroundColor>)` | The color of the line, a role of the palette or a color as a chart's series takes it: `Chart1` (`series_color(0)`) unless given, or a tone where the series is good or bad (the board's frames are `Success`) |
 | `width(..)`, `height(..)` | Its size, `impl Into<Length>`: the board's 80 by 28 unless given |
 | `label(&str)` | What it shows, to tooling |
 | `summary_text(Fn(&[f64]) -> String)` | What its values are, to tooling. Not given, "8 values from 118 to 144, the last 144" |

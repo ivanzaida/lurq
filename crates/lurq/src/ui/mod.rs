@@ -21,6 +21,8 @@ mod alert;
 mod avatar;
 mod badge;
 mod banner;
+#[cfg(feature = "canvas")]
+mod bar_chart;
 mod bar_list;
 mod breadcrumb;
 mod button;
@@ -28,6 +30,8 @@ mod button_group;
 mod calendar;
 mod callout;
 mod card;
+#[cfg(feature = "canvas")]
+mod chart;
 mod checkbox;
 mod chip;
 mod choice_card;
@@ -147,6 +151,8 @@ pub use avatar::{
 };
 pub use badge::{Badge, BadgePart, BadgeRenderer, BadgeShape, BadgeSize, BadgeState, BadgeVariant, BadgeView};
 pub use banner::{Banner, BannerPart, BannerRenderer, BannerState, BannerView};
+#[cfg(feature = "canvas")]
+pub use bar_chart::{BarChart, BarChartPart, BarChartState};
 pub use bar_list::{
   BarList, BarListItem, BarListPart, BarListRenderer, BarListRow, BarListState, BarListView,
 };
@@ -164,6 +170,14 @@ pub use button_group::{
 pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
+#[cfg(feature = "canvas")]
+pub use chart::{
+  BandScale, BarEnd, ChartArea, ChartAxis, ChartFrame, ChartLegend, ChartLegendItem, ChartLegendPart,
+  ChartLegendRenderer, ChartLegendShape, ChartLegendState, ChartLegendView, ChartLook, ChartPart, ChartPlot,
+  ChartPoint, ChartProps, ChartRenderer, ChartSeries, ChartSize, ChartState, ChartTick, ChartTip, ChartTooltip,
+  ChartTooltipPart, ChartTooltipRenderer, ChartTooltipRow, ChartTooltipView, ChartView, LinearScale, chart_recipe,
+  default_value_text, nearest, nearest_sorted, series_color, snap as chart_snap, step as chart_step,
+};
 pub use checkbox::{
   Checkbox, CheckboxGroup, CheckboxGroupPart, CheckboxGroupRenderer, CheckboxGroupState, CheckboxGroupView,
   CheckboxPart, CheckboxRenderer, CheckboxState, CheckboxView,

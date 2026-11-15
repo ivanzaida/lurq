@@ -48,7 +48,7 @@ impl CanvasHandle {
         error: None,
         items: Arc::from([]),
         warned_duplicates: None,
-        painted_by: 0,
+        painted: None,
       })),
     }
   }
@@ -167,6 +167,18 @@ impl CanvasHandle {
     self.inner.lock().to_window = matrix;
   }
 
+  /// Whether a painter of `key` is to draw the surface: its key is another than the one it last drew for, or the
+  /// surface's metrics changed. Where it is, `key` is the one drawn for from now.
+  pub(crate) fn paint_due(&self, key: u64, metrics_changed: bool) -> bool {
+    let mut s = self.inner.lock();
+    if !s.attached {
+      return false;
+    }
+    let due = metrics_changed || s.painted != Some(key);
+    s.painted = Some(key);
+    due
+  }
+
   pub(crate) fn clone_empty(&self) -> Self {
     let next = Self::new();
     next.inner.lock().software = self.inner.lock().software;
@@ -200,15 +212,6 @@ impl CanvasHandle {
     s.next_artwork_pixels = None;
     s.presentation = None;
     s.presentation_serial = s.presentation_serial.saturating_add(1);
-  }
-
-  /// Whether `painter` is not the one that painted the canvas last; it is the one from now on.
-  pub(crate) fn take_painter(&self, painter: &CanvasPainter) -> bool {
-    let address = Arc::as_ptr(painter) as *const () as usize;
-    let mut s = self.inner.lock();
-    let fresh = s.painted_by != address;
-    s.painted_by = address;
-    fresh
   }
 
   pub(crate) fn bind_layout(

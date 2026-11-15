@@ -208,7 +208,7 @@ impl Component for GaugePage {
       ),
       (
         "color",
-        "PaletteColor",
+        "impl Into<BackgroundColor>",
         "Chart1",
         "The role of the value's share of a gauge with no parts.",
       ),

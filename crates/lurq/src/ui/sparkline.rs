@@ -1,7 +1,7 @@
 //! A sparkline: a series as a line with no axes, small enough to stand beside a number. The frames of the last
 //! minute, the builds of the week.
 
-use std::sync::Arc;
+use std::{hash::Hasher, sync::Arc};
 
 use super::{
   meter::number,
@@ -67,7 +67,7 @@ pub struct Sparkline {
   values: Vec<f64>,
   min: Option<f64>,
   max: Option<f64>,
-  color: Option<PaletteColor>,
+  color: Option<BackgroundColor>,
   label: Option<Arc<str>>,
   summary_text: Option<SummaryText>,
   empty_text: Option<Arc<str>>,
@@ -111,10 +111,10 @@ impl Sparkline {
     self
   }
 
-  /// The palette's role the line is drawn in: the first of the chart colors, `Chart1`, unless given; a tone where
-  /// the series is good or bad (the board's frames are `Success`).
-  pub fn color(mut self, color: PaletteColor) -> Self {
-    self.color = Some(color);
+  /// The color the line is drawn in, a role of the palette or a color, as a chart's series takes it: the first of the
+  /// chart colors, `Chart1`, unless given; a tone where the series is good or bad (the board's frames are `Success`).
+  pub fn color(mut self, color: impl Into<BackgroundColor>) -> Self {
+    self.color = Some(color.into());
     self
   }
 
@@ -248,6 +248,13 @@ impl From<Sparkline> for Element {
   }
 }
 
+/// The key of a canvas's painting ([`Canvas::paint`]): a hash of what `fill` writes of what it draws.
+pub(crate) fn paint_key(fill: impl FnOnce(&mut std::collections::hash_map::DefaultHasher)) -> u64 {
+  let mut hash = std::collections::hash_map::DefaultHasher::new();
+  fill(&mut hash);
+  hash.finish()
+}
+
 /// The color of a part's background in `theme`, for what is drawn on a canvas.
 pub(crate) fn color_of(part: &ResolvedPart, theme: &Theme) -> Color {
   match &part.rest().background {
@@ -301,11 +308,28 @@ impl SparklineView {
     let (zero, zero_width) = (color_of(&baseline, theme), width_of(&baseline, theme, 1.0));
     let (dot, dot_width) = (color_of(&point, theme), width_of(&point, theme, 4.0));
     let (values, min, max) = (self.values.clone(), self.min, self.max);
+    // Painted again only when what it draws changes: its values, their range, its colors and its widths.
+    let key = paint_key(|hash| {
+      for value in &values {
+        hash.write_u64(value.to_bits());
+      }
+      for number in [min, max] {
+        hash.write_u64(number.to_bits());
+      }
+      for color in [stroke, zero, dot] {
+        hash.write(&[color.r(), color.g(), color.b(), color.a()]);
+      }
+      for width in [stroke_width, zero_width, dot_width] {
+        hash.write_u32(width.to_bits());
+      }
+    });
     let mut canvas = Canvas::new()
       .part(&self.part(SparklinePart::Root))
       .describe("a11y_role", "img")
       .describe("a11y_description", self.summary.clone())
-      .paint(move |draw, metrics| {
+      .paint(key, move |canvas| {
+        let (draw, metrics) = (canvas.context_2d(), canvas.metrics());
+        draw.reset();
         let (width, height) = (metrics.size.width, metrics.size.height);
         // The line keeps inside the canvas: its half width at the top and the bottom, and at the ends.
         let inset = stroke_width / 2.0;

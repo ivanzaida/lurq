@@ -9669,6 +9669,12 @@ pub struct ElementHandle<'t> {
 }
 
 impl<'t> ElementHandle<'t> {
+  /// The canvas the element is, where it is one: what it draws and the items it says it holds.
+  #[cfg(feature = "canvas")]
+  pub fn canvas(&self) -> Option<crate::canvas::CanvasHandle> {
+    self.node().and_then(Node::canvas_handle)
+  }
+
   fn node(&self) -> Option<&Node> {
     self
       .tree
@@ -12349,20 +12355,17 @@ fn bind_canvas_layout_recursive(
     if let Some(reference) = &node.element_ref {
       reference.bind_canvas(&canvas);
     }
-    // A canvas with a painter is painted whole when it is laid out at another size or scale, and when it was
-    // built with another painter.
-    if let Some(painter) = node.canvas_painter() {
-      let fresh = canvas.take_painter(painter);
-      if fresh || notification.is_some() {
-        let draw = canvas.context_2d();
-        draw.reset();
-        painter(&draw, canvas.metrics());
-      }
-    }
+    let metrics_changed = notification.is_some();
     if let Some((metrics, observers)) = notification {
       for observer in observers {
         observer(metrics);
       }
+    }
+    // A canvas drawn from what it is given is drawn again only when that, or its size or scale, changes.
+    if let Some(painter) = node.canvas_painter()
+      && canvas.paint_due(painter.key, metrics_changed)
+    {
+      (painter.paint)(&canvas);
     }
   }
   for (child_layout, child) in layout.children.iter().zip(node.children()) {

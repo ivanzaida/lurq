@@ -14,24 +14,14 @@ impl Canvas {
     Self::from_node(crate::node::Node::canvas())
   }
 
-  /// Paints the whole canvas with `painter`, given a context of a canvas that was reset and its metrics: when the
-  /// canvas is first laid out, when it is laid out at another size or scale, and when it is built with another
-  /// painter (a builder built again with other data). A builder draws on a canvas with it, with no component to
-  /// hold an element ref, an observer or its subscription: the painter lives with the node.
-  ///
-  /// ```
-  /// use lurq::components::Canvas;
-  ///
-  /// let bar = Canvas::new().width(120.0).height(8.0).paint(|draw, metrics| {
-  ///   draw.set_fill_style("#2563eb");
-  ///   draw.fill_rect(0.0, 0.0, metrics.size.width * 0.7, metrics.size.height);
-  /// });
-  /// ```
-  pub fn paint(
-    mut self,
-    painter: impl Fn(&crate::canvas::Context2D, crate::canvas::CanvasMetrics) + Send + Sync + 'static,
-  ) -> Self {
-    self.node.set_canvas_painter(std::sync::Arc::new(painter));
+  /// Draws the canvas with `paint` when it is first laid out, when its size or its scale changes, and when `key`
+  /// changes, and not otherwise: a drawing that follows from what `key` stands for (a chart's data and the theme it
+  /// is drawn in) is drawn only when that changes, whatever renders around it. `paint` draws the whole of it, from a
+  /// cleared surface.
+  pub fn paint(mut self, key: u64, paint: impl Fn(&crate::canvas::CanvasHandle) + Send + Sync + 'static) -> Self {
+    self
+      .node
+      .set_canvas_painter(crate::canvas::CanvasPainter::new(key, paint));
     self
   }
 }

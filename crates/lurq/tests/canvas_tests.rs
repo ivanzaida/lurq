@@ -2,6 +2,8 @@
 
 #[path = "canvas/items.rs"]
 mod items;
+#[path = "canvas/paint.rs"]
+mod paint;
 #[path = "canvas/rerender.rs"]
 mod rerender;
 mod support;
@@ -1129,62 +1131,4 @@ fn shaped_text_casts_the_shadow_in_force_and_blurs_with_the_filter() {
   d.set_shadow(None);
   d.restore();
   assert!(d.shadow().is_some(), "the shadow is part of the saved state");
-}
-
-/// A canvas with a painter, built by `set_root` as a builder would: `color` over its whole width, the count of its
-/// paints kept in `paints`.
-fn painted(reference: &ElementRef, width: f32, color: &'static str, paints: &Arc<AtomicUsize>) -> Canvas {
-  let paints = paints.clone();
-  Canvas::new()
-    .software()
-    .ref_element(reference.clone())
-    .width(width)
-    .height(20.0)
-    .paint(move |draw, metrics| {
-      paints.fetch_add(1, Ordering::Relaxed);
-      draw.set_fill_style(color);
-      draw.fill_rect(0.0, 0.0, metrics.size.width, metrics.size.height);
-    })
-}
-
-/// A painter paints the canvas when it is first laid out, again at another size (which cleared it), again when the
-/// canvas is built with another painter, and not when nothing of it changed.
-#[test]
-fn a_painter_paints_at_first_layout_at_each_size_and_for_each_new_painter() {
-  let mut app = App::new();
-  let mut tree = Tree::new();
-  tree.resize(512, 512);
-  tree.set_layout_constraints_override(Some(Constraints::loose(Size::new(512.0, 512.0))));
-  tree.set_render_engine_factory(|| Box::new(Sink));
-  let (reference, paints) = (ElementRef::new(), Arc::new(AtomicUsize::new(0)));
-
-  tree.set_root(painted(&reference, 40.0, "#ff0000", &paints));
-  tree.pass(&mut app, &support::TestSurface);
-  let canvas = reference.as_canvas().unwrap();
-  assert_eq!(paints.load(Ordering::Relaxed), 1);
-  assert_eq!(pixel(&canvas, 30, 10), [255, 0, 0, 255], "painted at its first layout");
-
-  tree.request_redraw();
-  tree.pass(&mut app, &support::TestSurface);
-  assert_eq!(paints.load(Ordering::Relaxed), 1, "nothing changed: not painted again");
-
-  tree.set_root(painted(&reference, 60.0, "#ff0000", &paints));
-  tree.pass(&mut app, &support::TestSurface);
-  let canvas = reference.as_canvas().unwrap();
-  assert_eq!(
-    pixel(&canvas, 50, 10),
-    [255, 0, 0, 255],
-    "painted again at its new size"
-  );
-
-  let before = paints.load(Ordering::Relaxed);
-  tree.set_root(painted(&reference, 60.0, "#0000ff", &paints));
-  tree.pass(&mut app, &support::TestSurface);
-  let canvas = reference.as_canvas().unwrap();
-  assert_eq!(
-    paints.load(Ordering::Relaxed),
-    before + 1,
-    "another painter: painted once"
-  );
-  assert_eq!(pixel(&canvas, 50, 10), [0, 0, 255, 255]);
 }

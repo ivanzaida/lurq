@@ -249,7 +249,7 @@ impl Component for SparklinePage {
       ),
       (
         "color",
-        "PaletteColor",
+        "impl Into<BackgroundColor>",
         "Chart1",
         "The role of the line: a chart color, or a tone where the series is good or bad.",
       ),

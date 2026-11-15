@@ -151,7 +151,7 @@ pub(crate) enum NodeKind {
   #[cfg(feature = "canvas")]
   Canvas {
     canvas: crate::canvas::CanvasHandle,
-    /// What paints the whole canvas, given by [`Canvas::paint`](crate::components::Canvas::paint).
+    /// What draws it, and the key it draws for: called when the key changes and when its size or scale does.
     painter: Option<crate::canvas::CanvasPainter>,
   },
   Text {

@@ -3068,7 +3068,7 @@ impl Node {
     }
   }
 
-  /// What paints the whole canvas, where the node is a canvas given one.
+  /// What draws a canvas node, where it has one.
   #[cfg(feature = "canvas")]
   pub(crate) fn canvas_painter(&self) -> Option<&crate::canvas::CanvasPainter> {
     match &self.node_kind {
@@ -3077,11 +3077,11 @@ impl Node {
     }
   }
 
-  /// Gives a canvas node what paints it ([`Canvas::paint`](crate::components::Canvas::paint)).
+  /// Gives a canvas node what draws it.
   #[cfg(feature = "canvas")]
-  pub(crate) fn set_canvas_painter(&mut self, given: crate::canvas::CanvasPainter) {
+  pub(crate) fn set_canvas_painter(&mut self, next: crate::canvas::CanvasPainter) {
     if let NodeKind::Canvas { painter, .. } = &mut self.node_kind {
-      *painter = Some(given);
+      *painter = Some(next);
     }
   }
 

@@ -14,7 +14,9 @@ use crate::{
   app::theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   components::{Column, Row},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, border::Border as Edge, dimension::Dimension, outline::Outline},
+  node::{
+    BackgroundColor, CursorIcon, Element, FocusGroup, border::Border as Edge, dimension::Dimension, outline::Outline,
+  },
 };
 
 /// The parts of a bar list a recipe styles.
@@ -86,7 +88,7 @@ type ValueText = Arc<dyn Fn(f64) -> String + Send + Sync>;
 pub struct BarListItem {
   name: Arc<str>,
   value: f64,
-  color: Option<PaletteColor>,
+  color: Option<BackgroundColor>,
   on_select: Vec<Select>,
   disabled: bool,
   id: Option<Arc<str>>,
@@ -107,9 +109,10 @@ impl BarListItem {
     }
   }
 
-  /// The palette's role this row's bar is drawn in, in place of the list's: the one row to point at.
-  pub fn color(mut self, color: PaletteColor) -> Self {
-    self.color = Some(color);
+  /// The color this row's bar is drawn in, a role of the palette or a color, in place of the list's: the one row
+  /// to point at.
+  pub fn color(mut self, color: impl Into<BackgroundColor>) -> Self {
+    self.color = Some(color.into());
     self
   }
 
@@ -178,7 +181,7 @@ pub struct BarList {
   description: Option<Arc<str>>,
   label: Option<Arc<str>>,
   max: Option<f64>,
-  color: PaletteColor,
+  color: BackgroundColor,
   value_text: Option<ValueText>,
   empty_text: Option<Arc<str>>,
   framed: bool,
@@ -199,7 +202,7 @@ impl BarList {
       description: None,
       label: None,
       max: None,
-      color: PaletteColor::Chart1,
+      color: BackgroundColor::Palette(PaletteColor::Chart1),
       value_text: None,
       empty_text: None,
       framed: true,
@@ -248,9 +251,10 @@ impl BarList {
     self
   }
 
-  /// The palette's role the bars are drawn in: the first of the chart colors, `Chart1`, unless given.
-  pub fn color(mut self, color: PaletteColor) -> Self {
-    self.color = color;
+  /// The color the bars are drawn in, a role of the palette or a color, as a chart's series takes it: the first
+  /// of the chart colors, `Chart1` (`series_color(0)`), unless given.
+  pub fn color(mut self, color: impl Into<BackgroundColor>) -> Self {
+    self.color = color.into();
     self
   }
 
@@ -555,8 +559,8 @@ pub struct BarListRow {
   pub value_text: String,
   /// How much of its track its bar fills, from 0 to 1.
   pub fraction: f32,
-  /// The palette's role of its bar.
-  pub color: PaletteColor,
+  /// The color of its bar.
+  pub color: BackgroundColor,
   on_select: Vec<Select>,
   /// Whether a row that is pressed takes nothing now.
   pub disabled: bool,

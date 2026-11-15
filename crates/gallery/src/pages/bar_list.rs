@@ -324,7 +324,7 @@ impl Component for BarListPage {
       ),
       (
         "color",
-        "PaletteColor",
+        "impl Into<BackgroundColor>",
         "Chart1",
         "The role of the bars; BarListItem::color for one row's.",
       ),

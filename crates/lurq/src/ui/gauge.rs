@@ -1,14 +1,14 @@
 //! A gauge: a value of a known range as the share of a half ring, its reading in it. The load of a processor, the
 //! speed of a link, the share of a quota.
 
-use std::sync::Arc;
+use std::{hash::Hasher, sync::Arc};
 
 use super::{
   meter::{MeterVariant, number},
   names,
   part_style::{FontFamily, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  sparkline::{color_of, width_of},
+  sparkline::{color_of, paint_key, width_of},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -87,7 +87,7 @@ pub struct Gauge {
   low: Option<f64>,
   high: Option<f64>,
   optimum: Option<f64>,
-  color: Option<PaletteColor>,
+  color: Option<crate::node::BackgroundColor>,
   label: Option<Arc<str>>,
   value_text: Option<NumberText>,
   bound_text: Option<NumberText>,
@@ -155,9 +155,10 @@ impl Gauge {
     self
   }
 
-  /// The palette's role of the value's share where the gauge has no parts: `Chart1` unless given.
-  pub fn color(mut self, color: PaletteColor) -> Self {
-    self.color = Some(color);
+  /// The color of the value's share where the gauge has no parts, a role of the palette or a color: `Chart1` unless
+  /// given.
+  pub fn color(mut self, color: impl Into<crate::node::BackgroundColor>) -> Self {
+    self.color = Some(color.into());
     self
   }
 
@@ -340,9 +341,20 @@ impl GaugeView {
     let (rail, thickness) = (color_of(&track, theme), width_of(&track, theme, 15.4));
     let fill = color_of(&share, theme);
     let (fraction, reading) = (self.fraction, self.reading.clone());
+    // Painted again only when what it draws changes: the value's share, its colors and the ring's thickness.
+    let key = paint_key(|hash| {
+      hash.write_u32(fraction.to_bits());
+      hash.write_u32(thickness.to_bits());
+      for color in [rail, fill] {
+        hash.write(&[color.r(), color.g(), color.b(), color.a()]);
+      }
+      hash.write(reading.as_bytes());
+    });
     let canvas = Canvas::new()
       .part(&self.part(GaugePart::Arc))
-      .paint(move |draw, metrics| {
+      .paint(key, move |canvas| {
+        let (draw, metrics) = (canvas.context_2d(), canvas.metrics());
+        draw.reset();
         let (width, height) = (metrics.size.width, metrics.size.height);
         // The ring's middle line: its centre at the middle of the bottom, as wide as the canvas.
         let (cx, cy) = (width / 2.0, height.min(width / 2.0));
