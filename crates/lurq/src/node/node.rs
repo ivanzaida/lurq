@@ -3052,6 +3052,7 @@ impl Node {
       LayoutKind::Leaf,
       NodeKind::Canvas {
         canvas: crate::canvas::CanvasHandle::new(),
+        painter: None,
       },
       vec![],
     );
@@ -3062,8 +3063,25 @@ impl Node {
   #[cfg(feature = "canvas")]
   pub(crate) fn canvas_handle(&self) -> Option<crate::canvas::CanvasHandle> {
     match &self.node_kind {
-      NodeKind::Canvas { canvas } => Some(canvas.clone()),
+      NodeKind::Canvas { canvas, .. } => Some(canvas.clone()),
       _ => None,
+    }
+  }
+
+  /// What draws a canvas node, where it has one.
+  #[cfg(feature = "canvas")]
+  pub(crate) fn canvas_painter(&self) -> Option<&crate::canvas::CanvasPainter> {
+    match &self.node_kind {
+      NodeKind::Canvas { painter, .. } => painter.as_ref(),
+      _ => None,
+    }
+  }
+
+  /// Gives a canvas node what draws it.
+  #[cfg(feature = "canvas")]
+  pub(crate) fn set_canvas_painter(&mut self, next: crate::canvas::CanvasPainter) {
+    if let NodeKind::Canvas { painter, .. } = &mut self.node_kind {
+      *painter = Some(next);
     }
   }
 
@@ -5752,7 +5770,7 @@ impl Node {
     self.layout_cache.mark_watch();
     #[cfg(feature = "canvas")]
     if self.can_preserve_runtime_state_from(old)
-      && let (NodeKind::Canvas { canvas }, NodeKind::Canvas { canvas: old_canvas }) =
+      && let (NodeKind::Canvas { canvas, .. }, NodeKind::Canvas { canvas: old_canvas, .. }) =
         (&mut self.node_kind, &old.node_kind)
     {
       *canvas = old_canvas.clone();
@@ -6289,9 +6307,10 @@ impl Node {
       grid_cell: self.grid_cell,
       node_kind: {
         #[cfg(feature = "canvas")]
-        if let NodeKind::Canvas { canvas } = &self.node_kind {
+        if let NodeKind::Canvas { canvas, painter } = &self.node_kind {
           NodeKind::Canvas {
             canvas: canvas.clone_empty(),
+            painter: painter.clone(),
           }
         } else {
           self.node_kind.clone()

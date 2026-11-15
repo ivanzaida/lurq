@@ -84,6 +84,27 @@ impl Component for Chart {
 
 An observer runs immediately with current metrics, then after committed logical-size or backing-scale changes. It runs outside canvas locks. Dropping `CanvasObserver` unsubscribes; the surface keeps a weak callback, so a callback may capture its context without creating a surface ownership cycle. The example intentionally redraws its scene on both kinds of change.
 
+### A drawing that follows from a key
+
+A canvas whose drawing follows from what it is given (a chart's data and the theme it is in) needs no component of its own: `Canvas::new().paint(key, |canvas| ..)` draws it when it is first laid out, when its size or its scale changes, and when `key` changes, and at no other render. The key is the app's hash of what the drawing is made from; the closure draws the whole of it, from a cleared surface. A builder that has no `Ctx`, and so no `after_layout`, draws this way.
+
+```rust
+use lurq::components::Canvas;
+
+let key: u64 = 7; // a hash of what the drawing is made from
+Canvas::new()
+  .width(480.0)
+  .height(240.0)
+  .paint(key, move |canvas| {
+    let draw = canvas.context_2d();
+    draw.reset();
+    draw.set_fill_style("#60a5fa");
+    draw.fill_rect(12.0, 12.0, canvas.size().width - 24.0, 40.0);
+  })
+```
+
+A test reaches a canvas by its element: `tree.get_element_by_id_mut("plot").and_then(|element| element.canvas())` is its `CanvasHandle`, its items and its status included.
+
 `Canvas::new()` has a 300 by 150 logical-pixel intrinsic size, subject to normal layout constraints. Width and height size the node. Padding reduces the drawable content rectangle. Bitmap dimensions are `ceil(content_size * display_scale)` on each axis. Drawing does not change layout size.
 
 | Change | Result |

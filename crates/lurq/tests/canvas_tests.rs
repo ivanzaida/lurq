@@ -2,6 +2,8 @@
 
 #[path = "canvas/items.rs"]
 mod items;
+#[path = "canvas/paint.rs"]
+mod paint;
 #[path = "canvas/rerender.rs"]
 mod rerender;
 mod support;
