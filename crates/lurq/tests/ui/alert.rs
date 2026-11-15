@@ -546,6 +546,46 @@ fn the_app_takes_a_banner_away_from_its_close_control_and_the_page_moves_up() {
 }
 
 #[test]
+fn a_banner_shown_again_while_it_fades_out_is_there_once() {
+  let open = Signal::new(true);
+  let shown = open.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .width(400.0)
+      .child(Banner::new("Trial ends in 3 days.").open(shown.get()))
+      .child(Row::new().size(400.0, 40.0).id("page"))
+      .into()
+  });
+  let (_, below, ..) = stage.bounds("page");
+  let count = |stage: &Stage| {
+    stage
+      .quads()
+      .iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Trial ends in 3 days."))
+      .count()
+  };
+
+  // Taken away, it fades out where it was.
+  open.set(false);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  assert_eq!(count(&stage), 1, "leaving, it is still painted");
+
+  // Shown again on the way: the one leaving goes and the one shown is there alone, the page under one banner.
+  open.set(true);
+  stage.pass_after(Duration::from_millis(40));
+  assert_eq!(count(&stage), 1, "once");
+  assert!(
+    (stage.bounds("page").1 - below).abs() < 0.5,
+    "the page under one banner"
+  );
+  stage.pass_after(Duration::from_secs(2));
+  stage.pass();
+  assert_eq!(count(&stage), 1);
+  assert!((stage.bounds("page").1 - below).abs() < 0.5);
+}
+
+#[test]
 fn a_banner_fades_in_and_out_by_its_recipe() {
   let theme = App::new().theme().clone();
   let panel = theme

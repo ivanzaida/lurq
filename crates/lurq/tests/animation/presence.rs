@@ -1049,6 +1049,35 @@ fn a_child_added_again_while_it_leaves_ends_its_leaving_and_is_there_once() {
 }
 
 #[test]
+fn a_child_added_again_under_a_new_key_while_it_leaves_enters_beside_it() {
+  // Each time it is shown it has a key of its own: what wants the one coming back to be another one writes so.
+  let shown = Signal::new(1u32);
+  let mut stage = Stage::new({
+    let shown = shown.clone();
+    move || {
+      let mut column = Column::new().presence().child(list_item("a", ITEM_A));
+      let time = shown.get();
+      if time % 2 == 1 {
+        column = column.child(list_item(&format!("b-{time}"), ITEM_B));
+      }
+      column.child(list_item("c", ITEM_C)).into()
+    }
+  });
+  shown.set(2);
+  stage.at(0);
+  stage.at(100);
+
+  shown.set(3);
+  stage.at(100);
+  assert_close(&stage.opacities(ITEM_B), &[0.5, 1.0]);
+  assert_eq!(stage.tops(ITEM_C), [120.0], "the two are there, in flow");
+
+  stage.at(200);
+  assert_close(&stage.opacities(ITEM_B), &[1.0]);
+  assert_eq!(stage.tops(ITEM_C), [80.0]);
+}
+
+#[test]
 fn an_exit_animation_of_its_height_lets_the_siblings_close_the_gap() {
   let shown = Signal::new(true);
   let mut stage = Stage::new({
