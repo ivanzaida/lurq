@@ -724,7 +724,7 @@ Ivan chose it on 2026-11-15 over charts as what follows the desktop shell; one s
 - **What a panel holds is kept while it moves**: each panel's content is mounted in the layout's host by the panel's id, so a caret, a scroll and a component's state survive a move to another group, floating, hiding and maximizing.
 - **Everything a drag does has a key and a menu item**; F6 goes between groups.
 - **What the engine and the shared components got for it**: the focus follows a control a render moved under another parent; a splitter's panes keep their keys (the focus and the scroll in a pane were lost when what holds the splitter rendered again) and its dividers stand where the panes end in a column of panes that fill themselves; `DocumentTabs::on_drag_away`. No layer of drop targets was needed: a drag finds its target from the groups' bounds.
-- **What the merge found**: nothing; every suite passed at the first run (1554 ui tests with `mcp`). Sent on to their owners: `DocumentTabs` on its own loses the focus on a press that selects another tab; the data grid's `ColumnLayout` does not go through the persistent storage as `DockState` does.
+- **What the merge found**: nothing; every suite passed at the first run (1554 ui tests with `mcp`). Two things it showed in its neighbours were closed by their owners the same morning: `DocumentTabs` on its own lost the focus on a press that selected another tab (a tab that could leave the bar had a wrapper the shown one had not, so it became a new element); the data grid's `ColumnLayout`, its sort and its open groups are stored as `DockState` is, each a text form that reads back equal.
 - **The icon font** got `panels` for the page, drawn on the board.
 
 ## 15. The gallery

@@ -692,7 +692,6 @@ fn a_title_longer_than_its_room_is_cut() {
   let state = Signal::new(DockState::new(
     DockNode::row([DockNode::group(["explorer"]), DockNode::group(["terminal", "problems"])]).shares([0.15, 0.85]),
   ));
-  let notes = Signal::new(String::new());
   let bound = state.clone();
   let mut stage = Stage::new(move |ctx: &mut Ctx| -> Element {
     let panels = vec![
