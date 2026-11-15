@@ -76,8 +76,35 @@ pub(crate) fn take_ended_leaving() -> Vec<NodeId> {
 pub(crate) struct NodeAnimations {
   pub(crate) play: Option<Animation>,
   pub(crate) exit: Option<Animation>,
-  /// The key and the id a child leaving a container with presence had: what it is known by if it comes back.
-  pub(crate) left_as: Option<(Option<Arc<str>>, Option<Arc<str>>)>,
+  /// What a node that leaves was known by, it and the nodes in it, until it has left: what it is found by if it
+  /// comes back (`Node::end_leaving`).
+  pub(crate) left: Option<Box<Forgotten>>,
+}
+
+/// The names a node that leaves gives up (`Node::turn_into_leaving_layer`), each node's by its id, and the role its
+/// root had: what it takes back if it comes back while it leaves.
+#[derive(Clone, Default)]
+pub(crate) struct Forgotten {
+  role: Option<SyntheticNodeRole>,
+  names: Vec<(NodeId, Names)>,
+}
+
+#[derive(Clone)]
+struct Names {
+  element_id: Option<Arc<str>>,
+  component_key: Option<Arc<str>>,
+  component_slot_id: Option<u64>,
+}
+
+impl Forgotten {
+  /// The key and the id its root had.
+  pub(crate) fn known_as(&self) -> (Option<Arc<str>>, Option<Arc<str>>) {
+    self
+      .names
+      .first()
+      .map(|(_, names)| (names.component_key.clone(), names.element_id.clone()))
+      .unwrap_or_default()
+  }
 }
 
 impl Node {
@@ -127,12 +154,10 @@ impl Node {
     // A leaving child no longer has its names: it is known by the ones it left with.
     let comes_back = |child: &Node| {
       keeps
-        && child.is_leaving_layer()
-        && child
-          .animation
-          .as_deref()
-          .and_then(|animations| animations.left_as.as_ref())
-          .is_some_and(|(key, id)| (key.is_some() || id.is_some()) && among_new(key, id))
+        && child.left_as().is_some_and(|forgotten| {
+          let (key, id) = forgotten.known_as();
+          (key.is_some() || id.is_some()) && among_new(&key, &id)
+        })
     };
     let leaves = |child: &Node| {
       (child.is_leaving_layer() && !comes_back(child))
@@ -141,8 +166,13 @@ impl Node {
           && child.leaves_with_an_animation()
           && !among_new(&child.component_key, &child.element_id))
     };
-    for child in self.children.iter().filter(|child| comes_back(child)) {
-      ENDED_LEAVING.with(|ended| ended.borrow_mut().push(child.node_id));
+    // One that comes back takes back its names and is continued by the child that came back, as a child of the
+    // render before is.
+    for child in self.children.iter_mut() {
+      if comes_back(child) {
+        ENDED_LEAVING.with(|ended| ended.borrow_mut().push(child.node_id));
+        child.end_leaving();
+      }
     }
     if !self.children.iter().any(leaves) {
       return Vec::new();
@@ -196,7 +226,7 @@ impl Node {
       Box::new(NodeAnimations {
         play: None,
         exit: None,
-        left_as: None,
+        left: None,
       })
     })
   }
@@ -229,7 +259,8 @@ impl Node {
   pub(crate) fn begin_exit(&mut self, restarted: &mut dyn FnMut(NodeId)) -> Option<Duration> {
     let mut longest = None;
     if let Some(animations) = self.animation.as_deref_mut()
-      && let Some(mut exit) = animations.exit.take()
+      // The exit stays the node's: a node taken back while it leaves and then removed leaves with it again.
+      && let Some(mut exit) = animations.exit.clone()
     {
       // Shorter exits of the layer hold their last pose until the longest ends.
       exit.fill_mode = match exit.fill_mode {
@@ -255,17 +286,72 @@ impl Node {
   /// lookup by id or by element ref finds what is in it, and no component
   /// that renders again puts its output there.
   pub(crate) fn turn_into_leaving_layer(&mut self) {
-    // A child of a container with presence, which has an animation, keeps what it was known by.
-    let known = (self.component_key.clone(), self.element_id.clone());
-    if let Some(animations) = self.animation.as_deref_mut() {
-      animations.left_as = Some(known);
-    }
+    // What it gives up is kept, for it to be found again if it comes back while it leaves.
+    let mut forgotten = Forgotten {
+      role: self.synthetic_role,
+      names: Vec::new(),
+    };
     self.set_synthetic_role(SyntheticNodeRole::LeavingLayer);
     self.hit_test = HitTestBehavior::None;
-    self.forget_names();
+    self.forget_names(&mut forgotten.names);
+    self.animations_mut().left = Some(Box::new(forgotten));
   }
 
-  fn forget_names(&mut self) {
+  /// What a leaving node was known by: `None` for one that is not leaving.
+  pub(crate) fn left_as(&self) -> Option<&Forgotten> {
+    if !self.is_leaving_layer() {
+      return None;
+    }
+    self.animation.as_deref()?.left.as_deref()
+  }
+
+  /// Ends the leaving of a node that comes back while it leaves: it takes back its names, its role and the
+  /// pointer, for the node that comes back in its place to continue it, its state and its ids, as a node of the
+  /// render before continues. Its exit plays no more.
+  pub(crate) fn end_leaving(&mut self) {
+    let Some(forgotten) = self
+      .animation
+      .as_deref_mut()
+      .and_then(|animations| animations.left.take())
+    else {
+      return;
+    };
+    self.synthetic_role = forgotten.role;
+    self.hit_test = HitTestBehavior::default();
+    let names: std::collections::HashMap<NodeId, Names> = forgotten.names.into_iter().collect();
+    self.take_back_names(&names);
+  }
+
+  fn take_back_names(&mut self, names: &std::collections::HashMap<NodeId, Names>) {
+    if let Some(known) = names.get(&self.node_id) {
+      self.element_id = known.element_id.clone();
+      self.component_key = known.component_key.clone();
+      self.component_slot_id = known.component_slot_id;
+    }
+    for child in &mut self.children {
+      child.take_back_names(names);
+    }
+  }
+
+  /// The ids of this node and of every node in it.
+  pub(crate) fn subtree_ids(&self, ids: &mut Vec<NodeId>) {
+    if self.node_id.is_assigned() {
+      ids.push(self.node_id);
+    }
+    for child in &self.children {
+      child.subtree_ids(ids);
+    }
+  }
+
+  fn forget_names(&mut self, kept: &mut Vec<(NodeId, Names)>) {
+    kept.push((
+      self.node_id,
+      Names {
+        element_id: self.element_id.clone(),
+        component_key: self.component_key.clone(),
+        component_slot_id: self.component_slot_id,
+      },
+    ));
     self.element_id = None;
     self.component_key = None;
     // The component that rendered this may still be mounted, for the layer when it opens again; what it renders
@@ -277,7 +363,7 @@ impl Node {
       self.element_ref = None;
     }
     for child in &mut self.children {
-      child.forget_names();
+      child.forget_names(kept);
     }
   }
 

@@ -530,9 +530,9 @@ impl ManagedWindow {
       .tree
       .window()
       .set_parent(crate::app::window::parent::ParentWindow::of(&window));
-    // Windows 11's snap layouts over a maximize control the app draws itself.
+    // The system is told where the window's controls are in a title bar the app draws itself.
     #[cfg(windows)]
-    lay_snap_layouts(&window, self.tree.window());
+    tell_window_controls(&window, &mut self.tree);
     self.window = Some(window);
     self.sync_window_state();
     let presented = show_after_first_present && self.present_now(app, true);
@@ -1440,7 +1440,7 @@ impl ManagedSecondaryWindow {
       .window()
       .set_parent(crate::app::window::parent::ParentWindow::of(&window));
     #[cfg(windows)]
-    lay_snap_layouts(&window, tree.window());
+    tell_window_controls(&window, tree);
     self.window = Some(window);
     // A window of UIKit's is seen in a scene: one the system has ready for it, or one it is asked for now.
     #[cfg(target_os = "ios")]
@@ -2955,15 +2955,16 @@ fn start_native_window_resize(window: &Window, direction: WindowResizeDirection)
     || window.drag_resize_window(to_winit_resize_direction(direction)).is_ok()
 }
 
-/// Lays the shell's procedure over `window` for the snap layouts over the app's maximize control; see
-/// `app::snap_layouts`.
+/// Has `tree` leave where the window's controls are (`.window_control(..)`) after each layout, and lays the
+/// shell's procedure over `window`, which answers the system's hit test from it; see `app::window_control_hits`.
 #[cfg(windows)]
-fn lay_snap_layouts(window: &Window, state: &crate::app::window::Window) {
+fn tell_window_controls(window: &Window, tree: &mut Tree) {
   let Ok(handle) = window.window_handle() else {
     return;
   };
   if let RawWindowHandle::Win32(handle) = handle.as_raw() {
-    crate::app::snap_layouts::lay_over(handle.hwnd.get(), state.clone());
+    tree.publish_window_controls();
+    crate::app::window_control_hits::lay_over(handle.hwnd.get(), tree.window().clone());
   }
 }
 

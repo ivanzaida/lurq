@@ -130,19 +130,23 @@ pub type StatCardRenderer = Arc<dyn Fn(StatCardView) -> Element + Send + Sync>;
 /// build takes.
 ///
 /// ```
-/// use lurq::{
-///   app::theme::PaletteColor,
-///   ui::{Sparkline, StatCard, StatCardSize, StatCardVariant},
-/// };
+/// use lurq::ui::{StatCard, StatCardSize, StatCardVariant};
 ///
 /// let frames = StatCard::new("Frames per second", "144")
 ///   .delta("+12.5%")
 ///   .variant(StatCardVariant::Success)
 ///   .description("vs 0.59");
-/// // With a sparkline beside its number, in the small size the board draws it in.
+/// # #[cfg(feature = "canvas")]
+/// # {
+/// use lurq::{app::theme::PaletteColor, ui::Sparkline};
+///
+/// // With a sparkline beside its number (it is drawn on a canvas: the `canvas` feature), in the small size the
+/// // board draws it in.
 /// let trend = StatCard::new("Frames per second", "144")
 ///   .size(StatCardSize::Sm)
 ///   .media(Sparkline::new([118.0, 124.0, 121.0, 133.0, 144.0]).color(PaletteColor::Success));
+/// # }
+/// # let small = StatCardSize::Sm;
 /// ```
 ///
 /// Its number is the app's, written as the app writes it; so is its change, a [`Badge`] in the

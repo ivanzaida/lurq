@@ -79,7 +79,7 @@ pub mod window;
 #[cfg(feature = "winit")]
 pub mod winit_shell;
 #[cfg(all(feature = "winit", windows))]
-mod snap_layouts;
+mod window_control_hits;
 
 pub use app_state::{App, SecondaryWindowRequest, WindowOpener, WindowOptions};
 pub use runtime::{

@@ -46,6 +46,8 @@ const KEPT: usize = 50;
 const OUTPUT: f32 = 150.0;
 /// How high the bar over the stage is, and the bar of the tabs under it.
 const TOOLBAR: f32 = 52.0;
+/// Under this width a card is as narrow as a phone's page.
+const NARROW: f32 = 480.0;
 const TABS: f32 = 40.0;
 /// How high the stage is, with the row of facts under the canvas.
 const STAGE: f32 = 418.0;
@@ -286,26 +288,37 @@ impl Playground {
 
   /// The bar over the stage: the state the component is drawn in, the appearance of the stage, and the
   /// component in a window of its own.
-  fn toolbar(&self, ctx: &mut Ctx, spec: &Spec<'_>) -> Row {
+  fn toolbar(&self, ctx: &mut Ctx, spec: &Spec<'_>) -> Element {
     let forceable = spec.forceable;
+    // A card as narrow as a phone has no room for the states beside the buttons: they go on a row of their own
+    // under the bar, as wide as the card.
+    let room = self.room.get();
+    let narrow = forceable && room > 0.0 && room < NARROW;
     let mut bar = Row::new()
       .width(FILL)
       .height(TOOLBAR)
       .padding_left(16.0)
       .padding_right(12.0)
       .align_items(Alignment::Center)
-      .justify(Justify::SpaceBetween)
-      .border_bottom(line());
-    if forceable {
+      .justify(Justify::SpaceBetween);
+    if !narrow {
+      bar = bar.border_bottom(line());
+    }
+    let states = || {
       let forced = self.forced.clone();
+      segmented(&FORCED, &self.forced(), move |interaction| {
+        forced.set(FORCED.iter().position(|(_, held)| *held == interaction).unwrap_or(0))
+      })
+    };
+    if narrow {
+      bar = bar.child(quiet("state", 12.0));
+    } else if forceable {
       bar = bar.child(
         Row::new()
           .spacing(10.0)
           .align_items(Alignment::Center)
           .child(quiet("state", 12.0))
-          .child(segmented(&FORCED, &self.forced(), move |interaction| {
-            forced.set(FORCED.iter().position(|(_, held)| *held == interaction).unwrap_or(0))
-          })),
+          .child(states()),
       );
     } else {
       // A component with no event that is counted: one that is read, or one that answers the pointer and tells
@@ -326,7 +339,7 @@ impl Playground {
     }
     let other = self.other.clone();
     let (opener, make, title) = (ctx.window_opener(), spec.make.clone(), spec.title);
-    bar.child(
+    let bar = bar.child(
       Row::new()
         .spacing(4.0)
         .flex_shrink(0.0)
@@ -352,7 +365,23 @@ impl Playground {
               });
             }),
         ),
-    )
+    );
+    if narrow {
+      Column::new()
+        .width(FILL)
+        .border_bottom(line())
+        .child(bar)
+        .child(
+          Row::new()
+            .width(FILL)
+            .padding_horizontal(12.0)
+            .padding_bottom(12.0)
+            .child(states().size(ButtonSize::Xs).full_width(true)),
+        )
+        .into()
+    } else {
+      bar.into()
+    }
   }
 
   /// The stage: the component on the canvas, with its measured size and the count of what it did under it.
