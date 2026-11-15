@@ -70,6 +70,11 @@ transition is for what the element does itself, a state it enters or a style set
 - Box shadows animate shadow by shadow, as in CSS: one with no partner in the other list comes from, or goes to,
   nothing where it is. A list in which a shadow turns from outer to inset changes halfway, and a list of more than four
   shadows changes at once.
+- A background, a border color, a foreground or an offset runs between two values, not from none and not to none. An
+  element with no fill at rest and one in its `hovered` style has the fill at once when the pointer comes and loses it
+  at once when the pointer goes. A run on its way when the value goes away (the fill fading from the pressed one back
+  to the hovered one, and the pointer leaves) ends there and then, and the next value the element gets is there at
+  once. For a fade both ways give the element the value at rest too: a fill with no opacity, `Color::new(0, 0, 0, 0)`.
 
 `duration(...)`, `duration_ms(...)`, `delay(...)`, `delay_ms(...)`, `easing(...)`, and `linear()` configure timing.
 

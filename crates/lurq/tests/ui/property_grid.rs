@@ -338,6 +338,12 @@ fn a_long_name_is_cut_and_the_divider_moves_the_editors() {
   assert!(!stage.paints("The spacing between the columns"), "the name is cut");
   assert!(stage.cut_text_quad("The spacing between the columns").is_some());
   let (before, ..) = stage.bounds("grid-The spacing between the columns-editor");
+  let (.., divider_height) = stage.bounds("grid-divider");
+  let (.., grid_height) = stage.bounds("grid");
+  assert!(
+    divider_height > 0.0 && divider_height <= grid_height,
+    "the divider is as high as the rows, in a grid as high as its rows: {divider_height} of {grid_height}"
+  );
   stage.click("grid-divider");
   stage.key("ArrowRight");
   let (after, ..) = stage.bounds("grid-The spacing between the columns-editor");
