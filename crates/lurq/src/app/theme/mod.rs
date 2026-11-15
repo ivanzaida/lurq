@@ -937,6 +937,11 @@ impl Theme {
     Arc::ptr_eq(&self.inner, &other.inner)
   }
 
+  /// What tells this theme and its clones from every other theme: equal for two of them where `same_theme` is.
+  pub(crate) fn identity(&self) -> usize {
+    Arc::as_ptr(&self.inner) as *const () as usize
+  }
+
   pub(crate) fn track_access(&self) {
     let _ = self.version_signal.get();
   }

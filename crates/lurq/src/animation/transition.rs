@@ -172,6 +172,12 @@ impl TransitionRun {
 pub struct TransitionEngine {
   active: HashMap<(NodeId, AnimatableProperty), TransitionRun>,
   prev_values: HashMap<(NodeId, AnimatableProperty), AnimatableValue>,
+  /// The theme each node's values were last read in (`Theme::identity`): a node built in another theme since (a
+  /// stage switched to the other appearance) heads to that theme's values at once, as a change of theme.
+  node_themes: HashMap<NodeId, usize>,
+  /// The theme the node being ticked is read in: a theme an element of the tree carries, or none (0) for the
+  /// window's, whose changes `theme_changed` follows by their values.
+  theme_identity: usize,
   seen: HashSet<NodeId>,
   next_change: Option<Instant>,
   pub has_active: bool,
@@ -199,6 +205,8 @@ impl TransitionEngine {
     Self {
       active: HashMap::new(),
       prev_values: HashMap::new(),
+      node_themes: HashMap::new(),
+      theme_identity: 0,
       seen: HashSet::new(),
       next_change: None,
       has_active: false,
@@ -241,6 +249,7 @@ impl TransitionEngine {
   pub(crate) fn clear_state(&mut self) {
     self.active.clear();
     self.prev_values.clear();
+    self.node_themes.clear();
     self.seen.clear();
     self.next_change = None;
     self.has_active = false;
@@ -265,6 +274,7 @@ impl TransitionEngine {
     let seen = &self.seen;
     self.active.retain(|(node_id, _), _| seen.contains(node_id));
     self.prev_values.retain(|(node_id, _), _| seen.contains(node_id));
+    self.node_themes.retain(|node_id, _| seen.contains(node_id));
     self.has_active = !self.active.is_empty();
   }
 
@@ -274,6 +284,7 @@ impl TransitionEngine {
   }
 
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
+    self.theme_identity = 0;
     clear_overrides(root);
     self.has_active = false;
     let needs_layout = self.tick_recursive(root, now);
@@ -282,6 +293,7 @@ impl TransitionEngine {
   }
 
   pub(crate) fn tick_preserving_active_state(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
+    self.theme_identity = 0;
     clear_overrides(root);
     let needs_layout = self.tick_recursive(root, now);
     self.has_active = !self.active.is_empty();
@@ -294,11 +306,10 @@ impl TransitionEngine {
     }
     #[cfg(test)]
     crate::core::layout_dirty::visit();
-    let scope = node
-      .theme_scope
-      .as_deref()
-      .cloned()
-      .map(|theme| self.enter_scope(&theme));
+    let scope = node.theme_scope.as_deref().cloned().map(|theme| {
+      let outer = std::mem::replace(&mut self.theme_identity, theme.identity());
+      (self.enter_scope(&theme), outer)
+    });
     let node_id = node.node_id();
     let mut needs_layout = false;
     if node_id.is_assigned() && !node.transitions.is_empty() {
@@ -315,9 +326,10 @@ impl TransitionEngine {
     if needs_layout {
       node.layout_cache.invalidate();
     }
-    if let Some((theme, changed)) = scope {
+    if let Some(((theme, changed), outer)) = scope {
       self.theme = theme;
       self.theme_changed = changed;
+      self.theme_identity = outer;
     }
 
     needs_layout
@@ -367,6 +379,11 @@ impl TransitionEngine {
       })
       .collect();
 
+    // Read in another theme than last time: what changed with it is there at once.
+    let moved = self
+      .node_themes
+      .insert(node_id, self.theme_identity)
+      .is_some_and(|before| before != self.theme_identity);
     for (prop, duration, delay, easing) in &properties {
       let current = match read_target(node, *prop, &self.theme) {
         Some(v) => v,
@@ -378,7 +395,7 @@ impl TransitionEngine {
       // A value that is another one because the theme is, a color of the other appearance, is there at
       // once, with the rest of the window: only what an element does itself is a transition. A window
       // that turned dark with its buttons still fading from light showed them as light blocks on it.
-      if self.theme_changed && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
+      if (self.theme_changed || moved) && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
         self.active.remove(&key);
         self.prev_values.insert(key, current);
         continue;
